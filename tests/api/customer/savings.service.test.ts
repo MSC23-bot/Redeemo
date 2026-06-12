@@ -80,8 +80,13 @@ vi.mock('../../../generated/prisma/client', () => {
 import { getSavingsSummary, getMonthlyDetail } from '../../../src/api/customer/savings/service'
 import { PrismaClient } from '../../../generated/prisma/client'
 
+// These suites are pure method-stub mock harnesses — every Prisma query method is
+// overridden per-test and no real connection is ever opened. Prisma 7's constructor
+// requires a driver adapter, so we bypass the constructor type with
+// `new (PrismaClient as any)()` rather than constructing a real adapter.
+
 function makePrismaWithRows(rows: Row[], opts?: { lifetimeSum?: number; thisMonthSum?: number; thisMonthCount?: number }) {
-  const prisma = new PrismaClient() as any
+  const prisma = new (PrismaClient as any)()
   const lifetimeSum    = opts?.lifetimeSum    ?? rows.reduce((s, r) => s + r.estimatedSaving, 0)
   const thisMonthSum   = opts?.thisMonthSum   ?? lifetimeSum
   const thisMonthCount = opts?.thisMonthCount ?? rows.length
@@ -350,7 +355,7 @@ describe('savings.service — getSavingsRedemptions response shape (hotfix pin)'
     voucher: { id: string; title: string; type: string; merchant: { id: string; businessName: string; logoUrl: string | null } }
     branch: { id: string; name: string }
   }>) {
-    const prisma = new PrismaClient() as any
+    const prisma = new (PrismaClient as any)()
     prisma.voucherRedemption.findMany = vi.fn().mockResolvedValue(rawRows)
     prisma.voucherRedemption.count    = vi.fn().mockResolvedValue(rawRows.length)
     return prisma
@@ -430,7 +435,7 @@ describe('savings.service — getSavingsRedemptions response shape (hotfix pin)'
   })
 
   it('total reflects Prisma count, NOT rows.length (paginated case)', async () => {
-    const prisma = new PrismaClient() as any
+    const prisma = new (PrismaClient as any)()
     prisma.voucherRedemption.findMany = vi.fn().mockResolvedValue([])
     prisma.voucherRedemption.count    = vi.fn().mockResolvedValue(247)
 
@@ -470,7 +475,7 @@ describe('savings.service — §BN month-scoped getSavingsRedemptions', () => {
     voucher: { id: string; title: string; type: string; merchant: { id: string; businessName: string; logoUrl: string | null } }
     branch: { id: string; name: string }
   }>, total: number) {
-    const prisma = new PrismaClient() as any
+    const prisma = new (PrismaClient as any)()
     prisma.voucherRedemption.findMany = vi.fn().mockResolvedValue(rawRows)
     prisma.voucherRedemption.count    = vi.fn().mockResolvedValue(total)
     return prisma

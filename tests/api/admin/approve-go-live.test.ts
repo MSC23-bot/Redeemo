@@ -112,24 +112,37 @@ beforeEach(() => {
 })
 
 afterAll(async () => {
-  // M6b (D-1): owner admins link via MerchantMembership now. Capture every owner
-  // admin id in ONE query up front (before the memberships are deleted) so the
-  // per-merchant loop adds no extra round-trips vs the pre-M6b cleanup.
-  const adminIds = createdMerchantIds.length
-    ? (await prisma.merchantMembership.findMany({ where: { merchantId: { in: createdMerchantIds } }, select: { merchantAdminId: true } })).map((r) => r.merchantAdminId)
-    : []
-  for (const merchantId of createdMerchantIds) {
-    await prisma.voucher.deleteMany({ where: { merchantId } })
-    await prisma.branch.deleteMany({ where: { merchantId } })
-    await prisma.auditLog.deleteMany({ where: { entityId: merchantId } })
-    await prisma.adminApproval.deleteMany({ where: { referenceId: merchantId } })
-    await prisma.merchantMembership.deleteMany({ where: { merchantId } })
-    await prisma.merchant.delete({ where: { id: merchantId } }).catch(() => {})
+  // G1 hardening: a bulk prefix-sweep, NOT a per-merchant loop. Deletes EVERY
+  // `m5-golive-*` fixture — this run's tracked ids PLUS any merchant left behind
+  // by a prior run whose teardown was interrupted — with one deleteMany per table
+  // in FK-safe order. No per-merchant round-trips + a 30s budget means teardown
+  // can neither time out under Neon latency nor leak a discoverable merchant into
+  // the dev DB (every fixture uses the `m5-golive-` businessName prefix).
+  const swept = (await prisma.merchant.findMany({
+    where: { businessName: { startsWith: PREFIX } }, select: { id: true },
+  })).map((m) => m.id)
+  const merchantIds = [...new Set([...swept, ...createdMerchantIds])]
+  if (merchantIds.length) {
+    const inIds = { in: merchantIds }
+    // Capture owner-admin ids via membership BEFORE deleting memberships (FK RESTRICT).
+    const adminIds = (await prisma.merchantMembership.findMany({
+      where: { merchantId: inIds }, select: { merchantAdminId: true },
+    })).map((r) => r.merchantAdminId)
+    await prisma.voucherRedemption.deleteMany({ where: { voucher: { merchantId: inIds } } })
+    await prisma.userVoucherCycleState.deleteMany({ where: { voucher: { merchantId: inIds } } })
+    await prisma.voucherAvailabilityWindow.deleteMany({ where: { voucher: { merchantId: inIds } } })
+    await prisma.voucher.deleteMany({ where: { merchantId: inIds } })
+    await prisma.branchUser.deleteMany({ where: { branch: { merchantId: inIds } } })
+    await prisma.branch.deleteMany({ where: { merchantId: inIds } })
+    await prisma.adminApproval.deleteMany({ where: { referenceId: inIds } })
+    await prisma.auditLog.deleteMany({ where: { entityId: inIds } })
+    await prisma.merchantMembership.deleteMany({ where: { merchantId: inIds } })
+    await prisma.merchantAdmin.deleteMany({ where: { id: { in: adminIds } } })
+    await prisma.merchant.deleteMany({ where: { id: inIds } })
   }
-  if (adminIds.length) await prisma.merchantAdmin.deleteMany({ where: { id: { in: adminIds } } })
   if (ADMIN_ID) await prisma.adminUser.delete({ where: { id: ADMIN_ID } }).catch(() => {})
   await prisma.$disconnect()
-})
+}, 30_000)
 
 describe('M5 — approve → atomic go-live (real DB)', () => {
   it('happy path: merchant → ACTIVE/LIVE/VERIFIED, 2 RMVs ACTIVE/APPROVED, approval APPROVED', async () => {
