@@ -79,9 +79,15 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
   // Soft-deactivate merchant (self-service)
   app.post(`${prefix}/deactivate`, { preHandler: [app.authenticateMerchant] }, async (req: any, reply) => {
     // M6b (D-1): resolve the merchant via MerchantMembership (not admin.merchantId).
-    // Behaviour-neutral self-service deactivate (D-δ — no session revocation here).
     const membership = await getOwnerMembership(app.prisma, req.user.sub)
-    if (!membership) throw new AppError('INVALID_CREDENTIALS')
+    if (!membership?.merchant) throw new AppError('INVALID_CREDENTIALS')
+
+    // H1/G2: an admin-SUSPENDED merchant must NOT be able to self-deactivate
+    // (SUSPENDED -> INACTIVE) and then reactivate out of the suspension. Read the
+    // live status and refuse. (Defense-in-depth alongside the session-revocation
+    // check in authenticateMerchant, which already rejects a suspended owner's
+    // revoked token; this also covers the case where that best-effort revoke failed.)
+    if (membership.merchant.status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
 
     await app.prisma.merchant.update({
       where: { id: membership.merchantId },
@@ -100,6 +106,11 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
     // M6b (D-1): resolve the merchant via MerchantMembership (not admin.merchant).
     const membership = await getOwnerMembership(app.prisma, req.user.sub)
     if (!membership?.merchant) throw new AppError('INVALID_CREDENTIALS')
+
+    // H1/G2: an admin-SUSPENDED merchant must NOT self-reactivate out of the
+    // suspension. Checked before the "already active" no-op below (which is for a
+    // self-deactivated INACTIVE merchant, the legitimate self-service reactivate).
+    if (membership.merchant.status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
 
     if (membership.merchant.status !== 'INACTIVE') {
       return reply.send({ message: 'Merchant account is already active.' })

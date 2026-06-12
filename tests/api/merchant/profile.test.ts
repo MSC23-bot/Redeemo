@@ -23,6 +23,7 @@ describe('merchant profile routes', () => {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn().mockResolvedValue('OK'),
       del: vi.fn().mockResolvedValue(1),
+      exists: vi.fn().mockResolvedValue(1), // authenticateMerchant session-revocation check: live by default
     } as any)
     // Call ready() to initialize plugins, then sign via the merchant namespace.
     // app.jwt is typed as JWT but the namespace key is added at runtime by @fastify/jwt.

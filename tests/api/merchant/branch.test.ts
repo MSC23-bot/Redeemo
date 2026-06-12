@@ -42,7 +42,7 @@ describe('merchant branch routes', () => {
         }),
       },
     } as any)
-    app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn() } as any)
+    app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn(), exists: vi.fn().mockResolvedValue(1) } as any)
     await app.ready()
     merchantToken = (app.jwt as any).merchant.sign(
       { sub: 'ma1', role: 'merchant', deviceId: 'd1', sessionId: 's1' },
