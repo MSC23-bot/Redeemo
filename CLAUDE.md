@@ -29,7 +29,7 @@ Redeemo is a UK-based, location-first digital marketplace connecting consumers w
 |---|---|
 | Customer Website + Admin + Merchant Web Portal | Next.js (TypeScript) |
 | Mobile Apps | React Native (Expo) |
-| Backend API | Node.js 24 + TypeScript (Fastify or Express) |
+| Backend API | Node.js 24 (Active LTS — pinned via root `.nvmrc`) + TypeScript (Fastify or Express) |
 | Database | PostgreSQL 16 via Neon (serverless) |
 | ORM | Prisma 7.7.0 |
 | Payments | Stripe |
@@ -39,6 +39,10 @@ Redeemo is a UK-based, location-first digital marketplace connecting consumers w
 | Cache / Sessions | Redis |
 | File Storage | AWS S3 or Cloudflare R2 |
 | Hosting | Vercel (Next.js) + Railway or Render (API + Redis) |
+
+**Node version policy (split — do not conflate the two):**
+- **Backend API / repo root / Railway / CI:** Node 24 (Active LTS), pinned via the root `.nvmrc`. This is the hosted production runtime, and CI runs on it.
+- **Customer app (Expo / jest-expo):** Node 20.19.4, pinned via `apps/customer-app/.nvmrc`. jest-expo had hanging/slowness on Node 24 (see memory `project_environment_issues.md`), so the Expo local build/test toolchain stays on 20.19.4 until it is separately verified on a newer LTS. Node 20 is end-of-life as a *production* runtime, but this is a local build/test toolchain — not a hosted runtime — so the bump is deferred, not urgent. **Do not move the customer app to Node 24 without re-verifying jest-expo first.**
 
 **Prisma 7 specifics:**
 - Datasource URL lives in `prisma.config.ts`, NOT in `schema.prisma`
@@ -1012,7 +1016,7 @@ npx vitest run
 cd /Users/shebinchaliyath/Developer/Redeemo/.worktrees/customer-app/apps/customer-app
 npx jest --forceExit
 ```
-After moving off iCloud and switching to Node 20.19.4, jest-expo runs normally from Claude Code's Bash tool (~8–10s for full suite). Use `--forceExit` to avoid open-handle hangs from React Query + fake timer combinations. Babel cache at `/tmp/jest-redeemo-customer-app` (cold build is fast now). Node version: use `fnm use` or ensure Node 20.19.4 is active (`.nvmrc` is pinned at worktree root).
+After moving off iCloud and switching to Node 20.19.4, jest-expo runs normally from Claude Code's Bash tool (~8–10s for full suite). Use `--forceExit` to avoid open-handle hangs from React Query + fake timer combinations. Babel cache at `/tmp/jest-redeemo-customer-app` (cold build is fast now). Node version: run `fnm use` from inside `apps/customer-app/` so the customer-app `.nvmrc` (Node 20.19.4) is active — jest-expo needs Node 20.19.4, **not** the repo-root Node 24 (see the Node version policy under Confirmed Tech Stack).
 
 ---
 
