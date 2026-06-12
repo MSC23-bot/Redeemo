@@ -6,7 +6,7 @@ import { writeAuditLog } from '../../shared/audit'
 import { routeRateLimit } from '../../plugins/rate-limit'
 import {
   loginMerchant, verifyMerchantOtp, refreshMerchantToken,
-  logoutMerchant, forgotPasswordMerchant, resetPasswordMerchant,
+  logoutMerchant, forgotPasswordMerchant, resetPasswordMerchant, claimMerchantAccount,
 } from './service'
 import { getOwnerMembership } from '../../shared/merchantMembership'
 
@@ -74,6 +74,19 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
       ...body, ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
     })
     return reply.send({ message: 'Password updated. Please log in again.' })
+  })
+
+  // Draft-owner claim — the owner sets their own password via the emailed token.
+  // Public: the single-use token is the credential. Per-IP rate-limit; 32-byte
+  // token is the primary defence.
+  app.post(`${prefix}/claim`, {
+    config: { rateLimit: routeRateLimit('claim') },
+  }, async (req, reply) => {
+    const body = z.object({ token: z.string().min(1), newPassword: passwordSchema }).parse(req.body)
+    await claimMerchantAccount(app.prisma, app.redis, {
+      ...body, ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send({ message: 'Password set. You can now log in.' })
   })
 
   // Soft-deactivate merchant (self-service)

@@ -7,6 +7,9 @@ const RELAX = process.env.RATE_LIMIT_RELAX === 'true' && process.env.NODE_ENV !=
 const TIERS = {
   login:          { prod: { max: 5,  timeWindow: '1 minute' }, dev: { max: 50,  timeWindow: '1 minute' } },
   forgotPassword: { prod: { max: 3,  timeWindow: '1 hour' },   dev: { max: 10,  timeWindow: '1 minute' } },
+  // Merchant draft-owner claim (set-password via emailed token). Per-IP; the
+  // 32-byte token is the primary defence — this just caps abuse + allows retries.
+  claim:          { prod: { max: 5,  timeWindow: '1 minute' }, dev: { max: 50,  timeWindow: '1 minute' } },
   // Refresh tier — generous so it cannot false-positive on legitimate
   // active sessions. A single device refreshes ~once per 15 minutes;
   // 30/min/IP comfortably covers concurrent requests, retry behaviour,

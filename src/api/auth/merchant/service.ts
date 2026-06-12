@@ -14,6 +14,7 @@ import { writeAuditLog } from '../../shared/audit'
 
 const OTP_CHALLENGE_TTL = 600   // 10 minutes
 const PWD_RESET_TTL     = 3600
+const CLAIM_TTL         = 7 * 24 * 3600   // 7 days — draft-owner claim token
 const ACCESS_TOKEN_TTL  = '15m'
 
 function otpRequired(admin: any, deviceId: string, knownDevices: string[]): boolean {
@@ -300,4 +301,68 @@ export async function resetPasswordMerchant(
   await redis.del(RedisKey.authMerchant(adminId))
 
   writeAuditLog(prisma, { entityId: adminId, entityType: 'merchant', event: 'AUTH_PASSWORD_RESET', ipAddress: data.ipAddress, userAgent: data.userAgent })
+}
+
+/**
+ * Issue a draft-owner claim: store a single-use claim token (7-day TTL) keyed to
+ * the owner admin, and queue the "set up your account" email via the notify
+ * outbox (dark-safe). Best-effort — a delivery/enqueue failure must NOT fail the
+ * already-committed draft. The token is NEVER returned to the caller or logged
+ * (SEC-H1) — it reaches the owner only through the email.
+ */
+export async function issueMerchantClaim(
+  prisma: PrismaClient,
+  redis: Redis,
+  data: { adminId: string; email: string; ip?: string | null }
+): Promise<void> {
+  const token = generateSecureToken(32)
+  await redis.set(RedisKey.merchantClaim(token), data.adminId, 'EX', CLAIM_TTL)
+
+  try {
+    const { notify } = await import('../../shared/notify')
+    const { claimAccountEmail, buildClaimLink } = await import('../../shared/emailTemplates')
+    await notify(prisma, redis, {
+      to: data.email,
+      recipientType: 'MERCHANT_ADMIN',
+      recipientId: data.adminId,
+      userId: null,
+      type: 'merchant_claim',
+      email: claimAccountEmail(buildClaimLink(token)),
+      ip: data.ip ?? null,
+    })
+  } catch {
+    // best-effort: the token is stored; delivery is dark/queued anyway.
+  }
+}
+
+/**
+ * Draft-owner claim: the owner sets their own password via the single-use token
+ * emailed at draft creation. Sets passwordHash, CLEARS mustChangePassword, and
+ * SETS otpVerifiedAt (interim proof-of-ownership — the emailed link proves email
+ * control; phone OTP/Twilio is not wired). Single-use: the token is deleted.
+ * Intentionally does NOT touch the unknown-device OTP path — a first browser
+ * login still requires device OTP (deferred to the Twilio/portal work).
+ */
+export async function claimMerchantAccount(
+  prisma: PrismaClient,
+  redis: Redis,
+  data: { token: string; newPassword: string; ipAddress: string; userAgent: string }
+): Promise<void> {
+  if (!validatePasswordPolicy(data.newPassword)) throw new AppError('PASSWORD_POLICY_VIOLATION')
+
+  const key     = RedisKey.merchantClaim(data.token)
+  const adminId = await redis.get(key)
+  if (!adminId) throw new AppError('CLAIM_TOKEN_EXPIRED')
+
+  const passwordHash = await hashPassword(data.newPassword)
+  await prisma.merchantAdmin.update({
+    where: { id: adminId },
+    data:  { passwordHash, mustChangePassword: false, otpVerifiedAt: new Date() },
+  })
+  await redis.del(key)   // single-use — reuse hits CLAIM_TOKEN_EXPIRED
+
+  writeAuditLog(prisma, {
+    entityId: adminId, entityType: 'merchant', event: 'MERCHANT_CLAIM_COMPLETED',
+    ipAddress: data.ipAddress, userAgent: data.userAgent,
+  })
 }

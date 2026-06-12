@@ -31,6 +31,7 @@ export const ERROR_DEFINITIONS = {
   SESSION_REVOKED:                { statusCode: 401, message: 'Your session has ended. Please log in again.' },
   RESET_TOKEN_INVALID:            { statusCode: 400, message: 'This password reset link is invalid.' },
   RESET_TOKEN_EXPIRED:            { statusCode: 400, message: 'This password reset link has expired.' },
+  CLAIM_TOKEN_EXPIRED:            { statusCode: 400, message: 'This account setup link is invalid or has expired.' },
   // SEC-H4 (Gate-PR-8): password-reset request abuse control. details.retryAfter (seconds).
   // Generic by design — never reveals whether the email belongs to a real account.
   PWD_RESET_RATE_LIMITED:         { statusCode: 429, message: 'Too many password reset requests. Please try again later.' },

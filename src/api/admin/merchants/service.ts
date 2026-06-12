@@ -107,6 +107,12 @@ export async function createMerchantDraft(
       ownerEmail: input.ownerEmail,
       passwordSetupRequired: true as const,
     }
+  }).catch((e) => {
+    // P2002: a concurrent createMerchantDraft raced past the findUnique pre-check
+    // on the unique `email`. Map the unique-constraint violation to the same
+    // friendly 409 the pre-check returns, instead of an unhandled 500.
+    if ((e as { code?: string })?.code === 'P2002') throw new AppError('EMAIL_ALREADY_EXISTS')
+    throw e
   })
 }
 
