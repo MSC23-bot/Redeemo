@@ -29,7 +29,7 @@ describe('merchant RMV voucher routes', () => {
       merchant: { findUnique: vi.fn(), update: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
     } as any)
-    app.decorate('redis', { get: vi.fn().mockResolvedValue(null) } as any)
+    app.decorate('redis', { get: vi.fn().mockResolvedValue(null), exists: vi.fn().mockResolvedValue(1) } as any)
     await app.ready()
     merchantToken = (app.jwt as any).merchant.sign(
       { sub: 'ma1', role: 'merchant', deviceId: 'd1', sessionId: 's1' },

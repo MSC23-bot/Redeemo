@@ -303,7 +303,7 @@ describe('redemption routes', () => {
   it('GET /api/v1/branch/:branchId/redemptions returns 200 for merchant admin (branch owned by same merchant)', async () => {
     const mockResult = { total: 2, items: [] }
     vi.mocked(listBranchRedemptions).mockResolvedValue(mockResult as any)
-    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: MERCHANT_ID })
+    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: MERCHANT_ID, merchant: { status: 'ACTIVE' } })
 
     const res = await app.inject({
       method:  'GET',
@@ -313,6 +313,22 @@ describe('redemption routes', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body).total).toBe(2)
+  })
+
+  it('GET /api/v1/branch/:branchId/redemptions returns 403 MERCHANT_SUSPENDED for a suspended merchant (H1/G2 live-status backstop)', async () => {
+    // The cached merchant-session snapshot says isSuspended:false (set at login),
+    // but the merchant is SUSPENDED now. The live `branch.merchant.status` read
+    // blocks it regardless of the stale cached flag.
+    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: MERCHANT_ID, merchant: { status: 'SUSPENDED' } })
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/branch/${BRANCH_ID}/redemptions`,
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('MERCHANT_SUSPENDED')
   })
 
   it('GET /api/v1/branch/:branchId/redemptions returns 403 for merchant admin accessing branch owned by different merchant', async () => {

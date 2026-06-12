@@ -24,6 +24,11 @@ export const ERROR_DEFINITIONS = {
   // ended." See `apps/customer-app/src/app-bootstrap/SessionExpiredBridge.tsx`.
   // Locked product rule: one mobile device per account at a time.
   SESSION_REPLACED:               { statusCode: 401, message: 'Your account was signed in on another device, so this session has ended.' },
+  // Distinct from REFRESH_TOKEN_INVALID (token merely expired) — fired when a
+  // still-valid access token belongs to a session that was REVOKED (admin
+  // merchant suspension, logout, or password reset deleted its refresh token).
+  // Lets revocation take effect before the access-token TTL, not only at refresh.
+  SESSION_REVOKED:                { statusCode: 401, message: 'Your session has ended. Please log in again.' },
   RESET_TOKEN_INVALID:            { statusCode: 400, message: 'This password reset link is invalid.' },
   RESET_TOKEN_EXPIRED:            { statusCode: 400, message: 'This password reset link has expired.' },
   // SEC-H4 (Gate-PR-8): password-reset request abuse control. details.retryAfter (seconds).

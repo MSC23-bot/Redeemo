@@ -23,6 +23,7 @@ describe('merchant onboarding routes', () => {
     app.decorate('redis', {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn().mockResolvedValue('OK'),
+      exists: vi.fn().mockResolvedValue(1), // authenticateMerchant session-revocation check: live by default
     } as any)
     await app.ready()
     merchantToken = (app.jwt as any).merchant.sign(

@@ -45,7 +45,7 @@ describe('merchant custom voucher routes', () => {
       },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
     } as any)
-    app.decorate('redis', { get: vi.fn().mockResolvedValue(null) } as any)
+    app.decorate('redis', { get: vi.fn().mockResolvedValue(null), exists: vi.fn().mockResolvedValue(1) } as any)
     await app.ready()
     const jwtAny = app.jwt as any
     merchantToken = jwtAny.merchant.sign(

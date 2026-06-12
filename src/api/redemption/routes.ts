@@ -207,9 +207,16 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
         const merchantSession = JSON.parse(merchantRaw) as { merchantId: string; isSuspended: boolean; approvalStatus: string }
         if (merchantSession.isSuspended) throw new AppError('MERCHANT_SUSPENDED')
 
-        // Verify branch belongs to this merchant
-        const branch = await app.prisma.branch.findUnique({ where: { id: branchId }, select: { merchantId: true } })
+        // Verify branch belongs to this merchant + re-check the merchant's LIVE
+        // status. H1/G2: the cached `merchantSession.isSuspended` above is from
+        // login; reading the status live here blocks a suspended merchant even if
+        // its session snapshot is stale (e.g. a best-effort suspend-revoke failed).
+        const branch = await app.prisma.branch.findUnique({
+          where:  { id: branchId },
+          select: { merchantId: true, merchant: { select: { status: true } } },
+        })
         if (!branch || branch.merchantId !== merchantSession.merchantId) throw new AppError('BRANCH_ACCESS_DENIED')
+        if (branch.merchant.status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
 
         resolved = true
       } catch (merchantErr) {
