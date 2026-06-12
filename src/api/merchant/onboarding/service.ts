@@ -18,12 +18,11 @@ Full legal terms are available at redeemo.co.uk/merchant-terms.
 export async function computeOnboardingChecklist(prisma: PrismaClient, merchantId: string) {
   const [merchant, branchCount, rmvCount] = await Promise.all([
     prisma.merchant.findUnique({ where: { id: merchantId }, select: { contractStatus: true } }),
-    // M3 pre-existing-bug fix: `Branch` has no `deletedAt` column (schema + DB),
-    // so the old `deletedAt: null` filter threw `Unknown argument deletedAt` on a
-    // real DB (masked because onboarding tests mock branch.count). Surfaced by the
-    // M3 getApproval real-DB test. Count existing branches by merchantId. The
-    // BROADER `branch/service.ts` deletedAt references are a separate Tier-2 fix.
-    prisma.branch.count({ where: { merchantId } }),
+    // §BRANCHDEL: Branch now has a `deletedAt` column (soft-delete), so count only
+    // non-deleted branches toward the "main branch added" gate — a removed branch
+    // must not satisfy onboarding. (M3 temporarily dropped this filter because the
+    // column didn't exist yet; restored now that the migration has landed.)
+    prisma.branch.count({ where: { merchantId, deletedAt: null } }),
     prisma.voucher.count({ where: { merchantId, isRmv: true, status: { in: ['PENDING_APPROVAL', 'ACTIVE'] } } }),
   ])
   if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
