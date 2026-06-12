@@ -73,6 +73,32 @@ export function passwordResetEmail(link: string): RenderedEmail {
   }
 }
 
+/**
+ * Build the draft-owner account-claim link. Points at the Merchant Portal
+ * (Phase 4 — the set-password page lands there). Token is URL-encoded defensively.
+ */
+export function buildClaimLink(token: string): string {
+  const raw = process.env.MERCHANT_PORTAL_URL || 'https://merchant.redeemo.co.uk'
+  const base = raw.replace(/\/+$/, '')
+  return `${base}/claim?token=${encodeURIComponent(token)}`
+}
+
+/** Draft-owner account-claim email. The link carries the single-use token; never logged. */
+export function claimAccountEmail(link: string): RenderedEmail {
+  const safeLink = escapeHtml(link)
+  return {
+    subject: `Set up your ${BRAND} merchant account`,
+    text:
+      `Your ${BRAND} merchant account has been created.\n\n` +
+      `Set your password and finish setting up using this link (it expires in 7 days):\n${link}\n\n` +
+      `For your security, only you can set this password. If you were not expecting this, you can ignore this email.`,
+    html:
+      `<p>Your ${BRAND} merchant account has been created.</p>` +
+      `<p><a href="${safeLink}">Set your password</a> to finish setting up. This link expires in 7 days.</p>` +
+      `<p>For your security, only you can set this password. If you were not expecting this, you can ignore this email.</p>`,
+  }
+}
+
 /** Branch staff redemption-PIN email. branchName is merchant-controlled ⇒ escaped/sanitized. */
 export function branchPinEmail(branchName: string, pin: string): RenderedEmail {
   const safeName = escapeHtml(branchName)

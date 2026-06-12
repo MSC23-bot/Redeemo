@@ -28,6 +28,8 @@ export const RedisKey = {
 
   // Password reset
   passwordReset:       (role: string, token: string) => `pwd-reset:${role}:${token}`,
+  // Merchant draft-owner claim token (set-password). Value = merchantAdminId. 7-day TTL.
+  merchantClaim:       (token: string)               => `merchant-claim:${token}`,
 
   // BranchUser first-login temp token
   branchTempToken:     (token: string)            => `branch-temp:${token}`,

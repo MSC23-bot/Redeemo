@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { emailSchema } from '../../shared/schemas'
 import { requireAdminCapability } from '../capability'
 import { createMerchantDraft, suspendMerchant, reactivateMerchant } from './service'
+import { issueMerchantClaim } from '../../auth/merchant/service'
 
 export async function adminMerchantRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/merchants'
@@ -26,6 +27,16 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'] ?? '',
     })
+    // Queue the owner's claim email (set-password link) via the notify outbox.
+    // Best-effort: the draft is already committed, so a claim-issue failure must
+    // not fail the response. The claim token is NEVER part of `result`.
+    try {
+      await issueMerchantClaim(app.prisma, app.redis, {
+        adminId: result.ownerAdminId, email: result.ownerEmail, ip: req.ip,
+      })
+    } catch (err) {
+      app.log.warn({ err, merchantId: result.merchantId }, '[draft] claim email issue failed — draft created without claim')
+    }
     return reply.status(201).send(result)
   })
 

@@ -171,3 +171,20 @@ describe('M2 — POST /api/v1/admin/merchants (auth + capability gate)', () => {
     expect(res.statusCode).toBe(400)
   })
 })
+
+describe('createMerchantDraft — P2002 duplicate-email race (mock)', () => {
+  it('maps a concurrent unique-email violation (P2002) to EMAIL_ALREADY_EXISTS, not an unhandled 500', async () => {
+    // Pre-check passes, then the create races a second concurrent create on the
+    // same email → Prisma P2002 on the unique constraint. The .catch maps it.
+    const prismaMock = {
+      $transaction: vi.fn().mockRejectedValue(Object.assign(new Error('Unique constraint failed on the fields: (`email`)'), { code: 'P2002' })),
+    } as any
+    await expect(
+      createMerchantDraft(
+        prismaMock, ADMIN_ID,
+        { businessName: 'Race Co', ownerEmail: 'race@example.com', ownerFirstName: 'A', ownerLastName: 'B' },
+        ctx
+      )
+    ).rejects.toThrow('EMAIL_ALREADY_EXISTS')
+  })
+})
