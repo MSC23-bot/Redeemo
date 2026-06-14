@@ -91,12 +91,78 @@ describe('notify — outbox row + enqueue', () => {
       title: 'Hi',
       body: 'Body',
       type: NotificationType.MERCHANT_VERIFICATION_UPDATE,
-      channel: 'EMAIL',
+      // M2: in-app bell rows use IN_APP channel, not EMAIL.
+      channel: 'IN_APP',
     })
 
     const emailOnly = fakePrisma()
     await notify(emailOnly.prisma, fakeRedis(), BASE)
     expect(emailOnly.createNotif).not.toHaveBeenCalled()
+  })
+
+  it('M2 write-path: MERCHANT_ADMIN inApp sets recipientId + channel IN_APP, userId null', async () => {
+    const { prisma, createNotif } = fakePrisma()
+    await notify(prisma, fakeRedis(), {
+      to: 'admin@merchant.com',
+      recipientType: 'MERCHANT_ADMIN',
+      recipientId: 'ma-99',
+      userId: null,
+      type: 'merchant_changes_requested',
+      email: { subject: 'Changes needed', html: '<p>Update</p>' },
+      inApp: { notificationType: NotificationType.MERCHANT_VERIFICATION_UPDATE, title: 'Changes', body: 'Please update' },
+    })
+    expect(createNotif).toHaveBeenCalledTimes(1)
+    const data = (createNotif.mock.calls[0][0] as { data: Record<string, unknown> }).data
+    expect(data).toMatchObject({
+      recipientType: 'MERCHANT_ADMIN',
+      recipientId: 'ma-99',
+      channel: 'IN_APP',
+      userId: null,
+    })
+  })
+
+  it('M2 write-path: USER inApp sets recipientId AND userId (both equal, both set)', async () => {
+    const { prisma, createNotif } = fakePrisma()
+    await notify(prisma, fakeRedis(), {
+      ...BASE,
+      recipientType: 'USER',
+      recipientId: 'user-1',
+      userId: 'user-1',
+      inApp: { notificationType: NotificationType.MERCHANT_VERIFICATION_UPDATE, title: 'Hi', body: 'Body' },
+    })
+    expect(createNotif).toHaveBeenCalledTimes(1)
+    const data = (createNotif.mock.calls[0][0] as { data: Record<string, unknown> }).data
+    expect(data).toMatchObject({
+      recipientType: 'USER',
+      recipientId: 'user-1',
+      userId: 'user-1',
+      channel: 'IN_APP',
+    })
+  })
+
+  it('M2 write-path: ADMIN inApp SUCCEEDS and writes recipientType ADMIN + recipientId + channel IN_APP + userId null', async () => {
+    const { prisma, createNotif, createLog } = fakePrisma()
+    const res = await notify(prisma, fakeRedis(), {
+      to: 'admin@redeemo.com',
+      recipientType: 'ADMIN',
+      recipientId: 'admin-42',
+      userId: null,
+      type: 'admin_notification',
+      email: { subject: 'Admin alert', html: '<p>Alert</p>' },
+      inApp: { notificationType: NotificationType.ADMIN_MERCHANT_SUBMITTED, title: 'New submission', body: 'Review it' },
+    })
+    // Did NOT throw; outbox row committed
+    expect(res).toMatchObject({ queued: true })
+    expect(createLog).toHaveBeenCalledTimes(1)
+    // In-app row written
+    expect(createNotif).toHaveBeenCalledTimes(1)
+    const data = (createNotif.mock.calls[0][0] as { data: Record<string, unknown> }).data
+    expect(data).toMatchObject({
+      recipientType: 'ADMIN',
+      recipientId: 'admin-42',
+      channel: 'IN_APP',
+      userId: null,
+    })
   })
 })
 
@@ -139,17 +205,21 @@ describe('notify — marketing consent', () => {
 })
 
 describe('notify — programming-error guard', () => {
-  it('throws (before any side effect) when inApp is paired with a non-Notification recipientType (ADMIN)', async () => {
+  // M2: ADMIN is now a valid in-app recipient (the admin bell). The guard that
+  // previously rejected ADMIN+inApp is gone — the set now covers all 4 types.
+  // This test documents that combining ADMIN with inApp NO LONGER throws.
+  it('M2: ADMIN + inApp does NOT throw (admin bell is supported)', async () => {
     const { prisma, createLog } = fakePrisma()
-    await expect(
-      notify(prisma, fakeRedis(), {
-        ...BASE,
-        recipientType: 'ADMIN',
-        inApp: { notificationType: NotificationType.ADMIN_BROADCAST, title: 'x', body: 'y' },
-      }),
-    ).rejects.toThrow(/inApp.*not supported.*ADMIN/i)
-    expect(createLog).not.toHaveBeenCalled()
-    expect(enqueueMock).not.toHaveBeenCalled()
+    const res = await notify(prisma, fakeRedis(), {
+      ...BASE,
+      recipientType: 'ADMIN',
+      recipientId: 'admin-1',
+      userId: null,
+      inApp: { notificationType: NotificationType.ADMIN_MERCHANT_SUBMITTED, title: 'x', body: 'y' },
+    })
+    // SUCCEEDS — no throw, outbox row committed
+    expect(res).toMatchObject({ queued: true })
+    expect(createLog).toHaveBeenCalledTimes(1)
   })
 })
 

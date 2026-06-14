@@ -32,10 +32,16 @@ import { hashEmail } from './pwdResetLimiter'
 import { consume } from './atomicLimiter'
 
 export type NotifyCategory = 'transactional' | 'marketing'
-// CommunicationLog.recipientType is a free string, so 'ADMIN' (AdminUser, which
-// has no in-app feed) is valid for an email-only send. Only USER/MERCHANT_ADMIN/
-// BRANCH_USER are valid Notification.recipientType values — pairing 'ADMIN' with
-// `inApp` is a caller error (Prisma rejects the enum at runtime).
+// CommunicationLog.recipientType is a free string; all four values are valid
+// for an email-only send. ADMIN now also carries an in-app Notification (the
+// admin bell) — pairing 'ADMIN' with `inApp` is fully supported. USER/
+// MERCHANT_ADMIN/BRANCH_USER were already valid Notification.recipientType
+// values; ADMIN was added in M2.
+// `recipientId` is the canonical recipient pointer written to Notification for
+// ALL recipient types. `userId` remains the legacy USER-only FK — populated
+// only when recipientType is USER (where it equals recipientId); null otherwise.
+// CommunicationLog (email/SMS delivery) and Notification (in-app bell/feed) are
+// SEPARATE concerns — do not conflate them.
 export type NotifyRecipientType = 'USER' | 'MERCHANT_ADMIN' | 'BRANCH_USER' | 'ADMIN'
 
 /** The rendered email the delivery worker sends. Persisted in CommunicationLog.payload. */
@@ -89,9 +95,9 @@ const EMAIL_PER_RECIPIENT_PER_HOUR = { limit: 5, windowSec: 3600 }
 const EMAIL_PER_IP_PER_DAY = { limit: 200, windowSec: 86_400 }
 
 // The recipient types that map to a valid NotificationRecipientType (i.e. can
-// carry an in-app Notification). 'ADMIN' is intentionally NOT here — an AdminUser
-// has no in-app feed, so it is email-only.
-const NOTIFICATION_RECIPIENT_TYPES: readonly NotifyRecipientType[] = ['USER', 'MERCHANT_ADMIN', 'BRANCH_USER']
+// carry an in-app Notification). ADMIN now carries the admin bell (added in M2);
+// the full set matches the NotificationRecipientType enum.
+const NOTIFICATION_RECIPIENT_TYPES: readonly NotifyRecipientType[] = ['USER', 'MERCHANT_ADMIN', 'BRANCH_USER', 'ADMIN']
 
 /**
  * Dispatch a transactional notification: commit a QUEUED CommunicationLog outbox
@@ -182,11 +188,16 @@ export async function notify(prisma: PrismaClient, redis: Redis, input: NotifyIn
       await tx.notification.create({
         data: {
           recipientType: input.recipientType as NotificationRecipientType,
+          // recipientId is the canonical recipient pointer for all types (M2).
+          recipientId: input.recipientId,
+          // userId is the legacy USER-only FK: populated only when recipientType
+          // is USER (equals recipientId); null for MERCHANT_ADMIN/BRANCH_USER/ADMIN.
           userId: input.userId ?? null,
           title: input.inApp.title,
           body: input.inApp.body,
           type: input.inApp.notificationType,
-          channel: NotificationChannel.EMAIL,
+          // These are in-app bell rows; email delivery is tracked in CommunicationLog.
+          channel: NotificationChannel.IN_APP,
           referenceId: input.inApp.referenceId ?? null,
           referenceType: input.inApp.referenceType ?? null,
         },
