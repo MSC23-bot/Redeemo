@@ -22,7 +22,7 @@ export function useUnreadCount() {
     queryFn: notificationsApi.unreadCount,
     refetchInterval: 45_000,
     refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: true, // intentionally overrides the global refetchOnWindowFocus: false in app/providers.tsx
   })
 }
 

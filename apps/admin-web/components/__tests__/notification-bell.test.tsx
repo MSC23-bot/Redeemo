@@ -47,10 +47,17 @@ function makeQueryClient() {
   })
 }
 
+// One QueryClient per test — created in beforeEach and closed over by Wrapper
+// so React Query state never leaks between tests and no new client is created
+// on every re-render.
+let testQueryClient: QueryClient
+
+beforeEach(() => {
+  testQueryClient = makeQueryClient()
+})
+
 function Wrapper({ children }: { children: ReactNode }) {
-  // A fresh client per render call (tests call this with a new client)
-  const qc = makeQueryClient()
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  return <QueryClientProvider client={testQueryClient}>{children}</QueryClientProvider>
 }
 
 function renderBell() {
@@ -293,6 +300,11 @@ describe('formatRelativeTime', () => {
     const now = NOW
     const thirtySecsAgo = new Date(now - 30_000).toISOString()
     expect(formatRelativeTime(thirtySecsAgo, now)).toBe('just now')
+  })
+
+  it('returns "just now" for a timestamp in the future (clock skew)', () => {
+    const futureIso = new Date(NOW + 30_000).toISOString()
+    expect(formatRelativeTime(futureIso, NOW)).toBe('just now')
   })
 
   it('returns "Xm ago" for timestamps less than 1 hour ago', () => {

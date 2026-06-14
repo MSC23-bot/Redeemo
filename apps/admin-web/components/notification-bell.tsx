@@ -50,9 +50,11 @@ function UnreadBadge({ count }: { count: number }) {
 function NotificationRow({
   notification,
   onMarkRead,
+  isMarking,
 }: {
   notification: AdminNotification
   onMarkRead: (id: string) => void
+  isMarking: boolean
 }) {
   const relative = formatRelativeTime(notification.sentAt)
 
@@ -60,8 +62,9 @@ function NotificationRow({
     <button
       type="button"
       aria-label={`${notification.title}: ${notification.body}`}
+      disabled={!notification.isRead && isMarking}
       onClick={() => {
-        if (!notification.isRead) {
+        if (!notification.isRead && !isMarking) {
           onMarkRead(notification.id)
         }
       }}
@@ -101,7 +104,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false)
 
   const { data: unreadData } = useUnreadCount()
-  const { data: listData, isLoading: listLoading } = useNotificationList(open)
+  const { data: listData, isLoading: listLoading, isError: listError } = useNotificationList(open)
 
   const markRead = useMarkRead()
   const markAllRead = useMarkAllRead()
@@ -178,6 +181,12 @@ export function NotificationBell() {
                   aria-label="Loading notifications"
                 />
               </div>
+            ) : listError ? (
+              /* Error state — distinct from empty so a failed fetch never reads as "all caught up" */
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <BellOff className="size-6 text-muted-foreground" aria-hidden="true" />
+                <p className="text-sm text-muted-foreground">Could not load notifications</p>
+              </div>
             ) : notifications.length === 0 ? (
               /* Empty state */
               <div className="flex flex-col items-center gap-2 py-10 text-center">
@@ -190,7 +199,11 @@ export function NotificationBell() {
               <div role="list" aria-label="Notifications list">
                 {notifications.map((n) => (
                   <div key={n.id} role="listitem">
-                    <NotificationRow notification={n} onMarkRead={handleMarkRead} />
+                    <NotificationRow
+                      notification={n}
+                      onMarkRead={handleMarkRead}
+                      isMarking={markRead.isPending}
+                    />
                   </div>
                 ))}
               </div>
