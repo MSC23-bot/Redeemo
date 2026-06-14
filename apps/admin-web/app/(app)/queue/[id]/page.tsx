@@ -31,7 +31,7 @@ import { DocumentList } from '@/features/review/DocumentList'
 import { VoucherList } from '@/features/review/VoucherList'
 import { ChecklistSummary } from '@/features/review/ChecklistSummary'
 import { ThinAreaFlags } from '@/features/review/ThinAreaFlags'
-import { ActivityList } from '@/features/review/ActivityList'
+import { ActivityTimeline } from '@/features/timeline/ActivityTimeline'
 import { ActionBar } from '@/features/review/ActionBar'
 import { RequestChangesDialog } from '@/features/review/RequestChangesDialog'
 import { RejectDialog } from '@/features/review/RejectDialog'
@@ -267,9 +267,11 @@ export default function ReviewPage({ params }: ReviewPageProps) {
       ) : data.approval.type !== 'MERCHANT_ONBOARDING' ? (
         <NonOnboardingNotice type={data.approval.type} />
       ) : !data.merchant ? (
+        // Degenerate MERCHANT_ONBOARDING approval whose merchant record is
+        // missing. The merchant-keyed timeline cannot mount here (no merchant
+        // id), so only the calm notice is shown.
         <div className="space-y-6">
           <MerchantUnavailableNotice />
-          {data.activity.length > 0 && <ActivityList activity={data.activity} />}
         </div>
       ) : (
         <div className="space-y-6">
@@ -288,7 +290,7 @@ export default function ReviewPage({ params }: ReviewPageProps) {
               />
               <DocumentList documents={data.documents} />
               {data.thinAreas && <ThinAreaFlags thinAreas={data.thinAreas} />}
-              <ActivityList activity={data.activity} />
+              <ActivityTimeline merchantId={data.merchant.id} />
             </div>
 
             {/* Right: sidebar */}

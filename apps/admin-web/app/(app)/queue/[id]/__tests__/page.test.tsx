@@ -53,6 +53,19 @@ jest.mock('@/lib/review/useReview', () => ({
   useReview: jest.fn(),
 }))
 
+// ── Mock useTimeline (the merchant-keyed timeline replacing the audit card) ────
+// The page renders <ActivityTimeline> unmocked; mock its hook so it resolves
+// deterministically without a network call.
+
+jest.mock('@/lib/timeline/useTimeline', () => ({
+  useTimeline: jest.fn(() => ({
+    data: { items: [], state: null, emailsResolvedViaOwner: false },
+    isLoading: false,
+    isError: false,
+    refetch: jest.fn(),
+  })),
+}))
+
 // ── Mock useReviewActions ─────────────────────────────────────────────────────
 
 const mockClaimMutation = {
@@ -412,10 +425,12 @@ describe('ReviewPage full render', () => {
     expect(screen.getByTestId('thin-area-flags')).toBeInTheDocument()
   })
 
-  it('renders the activity list', () => {
+  it('renders the activity timeline (replacing the old audit list)', () => {
     mockReview({ data: makeContext() })
     renderPage()
-    expect(screen.getByTestId('activity-list')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-timeline')).toBeInTheDocument()
+    // The old approval-scoped audit card must be gone.
+    expect(screen.queryByTestId('activity-list')).not.toBeInTheDocument()
   })
 
   it('renders the back link to /queue', () => {
@@ -447,7 +462,9 @@ describe('ReviewPage merchant-unavailable notice', () => {
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
   })
 
-  it('still renders the activity list when the merchant is unavailable but activity exists', () => {
+  it('does NOT render the activity timeline when the merchant is unavailable', () => {
+    // The timeline is keyed by a merchant id, which does not exist in this
+    // degenerate branch, so only the calm notice is shown (no activity surface).
     mockReview({
       data: makeContext({
         merchant: null,
@@ -465,7 +482,8 @@ describe('ReviewPage merchant-unavailable notice', () => {
     })
     renderPage()
     expect(screen.getByTestId('review-merchant-unavailable')).toBeInTheDocument()
-    expect(screen.getByTestId('activity-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('activity-timeline')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('activity-list')).not.toBeInTheDocument()
   })
 
   it('still renders the topbar claim badge when the merchant is unavailable', () => {
