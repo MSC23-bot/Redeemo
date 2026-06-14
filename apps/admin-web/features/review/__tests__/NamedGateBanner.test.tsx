@@ -58,6 +58,30 @@ describe('NamedGateBanner code mapping', () => {
     )
   })
 
+  it('maps EMAIL_ALREADY_EXISTS correctly (M6)', () => {
+    render(<NamedGateBanner error={makeApiError('EMAIL_ALREADY_EXISTS')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'An account with this email already exists. Use a different owner email.'
+    )
+  })
+
+  it('maps MERCHANT_NOT_FOUND correctly (M6)', () => {
+    render(<NamedGateBanner error={makeApiError('MERCHANT_NOT_FOUND')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('Merchant not found.')
+  })
+
+  it('maps MERCHANT_NOT_SUSPENDED correctly (M6)', () => {
+    render(<NamedGateBanner error={makeApiError('MERCHANT_NOT_SUSPENDED')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This merchant is not suspended, so it cannot be reactivated.'
+    )
+  })
+
+  it('maps BRANCH_NOT_FOUND correctly (M6)', () => {
+    render(<NamedGateBanner error={makeApiError('BRANCH_NOT_FOUND')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('Branch not found.')
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)

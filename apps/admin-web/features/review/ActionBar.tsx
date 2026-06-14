@@ -60,7 +60,7 @@ export function ActionBar({
         className="border-t border-border px-6 py-4 text-sm text-muted-foreground"
         data-testid="action-bar-approved"
       >
-        This merchant has been approved and is live.
+        This onboarding application was approved.
       </div>
     )
   }

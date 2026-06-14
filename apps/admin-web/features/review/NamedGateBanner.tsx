@@ -35,6 +35,13 @@ const CODE_MESSAGES: Record<string, string> = {
   APPROVAL_NOT_CLAIMER:
     'Only the admin who claimed this, or a super admin, can release it.',
   APPROVAL_NOT_FOUND: 'This approval no longer exists.',
+  // M6: merchant lifecycle + branch confirm-location.
+  EMAIL_ALREADY_EXISTS:
+    'An account with this email already exists. Use a different owner email.',
+  MERCHANT_NOT_FOUND: 'Merchant not found.',
+  MERCHANT_NOT_SUSPENDED:
+    'This merchant is not suspended, so it cannot be reactivated.',
+  BRANCH_NOT_FOUND: 'Branch not found.',
 }
 
 function getMessage(error: unknown): string {

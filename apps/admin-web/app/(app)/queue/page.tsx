@@ -8,13 +8,15 @@
  * and a manual refresh button. Auto-polls every 45 seconds.
  */
 import { useState } from 'react'
-import { ClipboardList, Loader2, AlertCircle } from 'lucide-react'
+import Link from 'next/link'
+import { ClipboardList, Loader2, AlertCircle, UserPlus } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useQueue } from '@/lib/queue/useQueue'
 import { StatusFilter } from '@/features/queue/StatusFilter'
 import { QueueTable } from '@/features/queue/QueueTable'
 import { LastUpdated } from '@/features/queue/LastUpdated'
 import { RefreshButton } from '@/features/queue/RefreshButton'
+import { Button } from '@/components/ui/button'
 import type { StatusFilterValue } from '@/features/queue/StatusFilter'
 import type { AdminApproval } from '@/lib/api/approvals'
 
@@ -118,6 +120,14 @@ export default function QueuePage() {
         <div className="flex items-center gap-3">
           <LastUpdated dataUpdatedAt={dataUpdatedAt} />
           <RefreshButton onRefresh={refetch} isFetching={isFetching} />
+          {can('merchant:create-draft') && (
+            <Link href="/merchants/new" data-testid="create-draft-entry">
+              <Button type="button" size="sm">
+                <UserPlus className="size-4" aria-hidden="true" />
+                Create merchant draft
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 

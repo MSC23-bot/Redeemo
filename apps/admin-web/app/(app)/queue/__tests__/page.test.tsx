@@ -5,6 +5,26 @@ import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import QueuePage from '../page'
 
+// ── Mock next/link ────────────────────────────────────────────────────────────
+
+jest.mock('next/link', () => {
+  return function MockLink({
+    href,
+    children,
+    ...rest
+  }: {
+    href: string
+    children: React.ReactNode
+    [key: string]: unknown
+  }) {
+    return (
+      <a href={href} {...rest}>
+        {children}
+      </a>
+    )
+  }
+})
+
 // ── Mock useSession ───────────────────────────────────────────────────────────
 
 jest.mock('@/lib/auth/useSession', () => ({
@@ -185,5 +205,27 @@ describe('QueuePage OPERATIONS role (has approval:read)', () => {
     render(<QueuePage />)
     expect(screen.getByRole('tab', { name: /^all/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /submitted/i })).toBeInTheDocument()
+  })
+})
+
+// ── M6: Create merchant draft topbar entry ────────────────────────────────────
+
+describe('QueuePage create-draft topbar entry', () => {
+  it('shows the "Create merchant draft" button when the admin has merchant:create-draft', () => {
+    mockSession({ can: (cap) => cap === 'approval:read' || cap === 'merchant:create-draft' })
+    mockQueue()
+    render(<QueuePage />)
+    const entry = screen.getByTestId('create-draft-entry')
+    expect(entry).toBeInTheDocument()
+    expect(entry).toHaveAttribute('href', '/merchants/new')
+    expect(screen.getByText(/create merchant draft/i)).toBeInTheDocument()
+  })
+
+  it('hides the "Create merchant draft" button without merchant:create-draft', () => {
+    // Has approval:read (so the queue renders) but NOT merchant:create-draft.
+    mockSession({ can: (cap) => cap === 'approval:read' })
+    mockQueue()
+    render(<QueuePage />)
+    expect(screen.queryByTestId('create-draft-entry')).not.toBeInTheDocument()
   })
 })
