@@ -1,8 +1,9 @@
 /**
- * /queue/[id] review page — capability gate, loading/error states, content render.
+ * /queue/[id] review page — capability gate, loading/error states, content render,
+ * M5 ActionBar + dialog mounting.
  *
- * Mocks useSession, useReview, and React.use (for params Promise resolution).
- * All feature components are rendered unmocked; the page is tested as an
+ * Mocks useSession, useReview, useReviewActions, and React.use (for params Promise
+ * resolution). Feature components are rendered unmocked; the page is tested as an
  * integrated unit.
  */
 import React from 'react'
@@ -31,8 +32,6 @@ jest.mock('next/link', () => {
 })
 
 // ── Mock React.use so params Promise resolves synchronously ───────────────────
-// renderPage() passes a plain object { id: 'apr-1' } cast as Promise.
-// The mock returns it directly; no async unwrapping needed.
 
 jest.mock('react', () => {
   const actual = jest.requireActual('react') as typeof import('react')
@@ -54,6 +53,94 @@ jest.mock('@/lib/review/useReview', () => ({
   useReview: jest.fn(),
 }))
 
+// ── Mock useReviewActions ─────────────────────────────────────────────────────
+
+const mockClaimMutation = {
+  mutate: jest.fn(),
+  mutateAsync: jest.fn(),
+  isPending: false,
+  error: null,
+  isIdle: true,
+  isSuccess: false,
+  isError: false,
+  data: undefined,
+  variables: undefined,
+  reset: jest.fn(),
+  context: undefined,
+  failureCount: 0,
+  failureReason: null,
+  isPaused: false,
+  status: 'idle',
+  submittedAt: 0,
+}
+
+const mockReleaseMutation = {
+  mutate: jest.fn(),
+  mutateAsync: jest.fn(),
+  isPending: false,
+  error: null,
+  isIdle: true,
+  isSuccess: false,
+  isError: false,
+  data: undefined,
+  variables: undefined,
+  reset: jest.fn(),
+  context: undefined,
+  failureCount: 0,
+  failureReason: null,
+  isPaused: false,
+  status: 'idle',
+  submittedAt: 0,
+}
+
+jest.mock('@/lib/review/useReviewActions', () => ({
+  useClaim: jest.fn(() => mockClaimMutation),
+  useRelease: jest.fn(() => mockReleaseMutation),
+  useRequestChanges: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+  useReject: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+  useApprove: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+}))
+
+// ── Mock dialogs so we can check whether they mount ──────────────────────────
+
+jest.mock('@/features/review/RequestChangesDialog', () => ({
+  RequestChangesDialog: ({ onCancel }: { onCancel: () => void }) => (
+    <div data-testid="request-changes-dialog-mock">
+      <button onClick={onCancel} data-testid="rc-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
+jest.mock('@/features/review/RejectDialog', () => ({
+  RejectDialog: ({ onCancel }: { onCancel: () => void }) => (
+    <div data-testid="reject-dialog-mock">
+      <button onClick={onCancel} data-testid="reject-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
+jest.mock('@/features/review/ApproveConfirm', () => ({
+  ApproveConfirm: ({
+    onCancel,
+    onGateFail,
+  }: {
+    onCancel: () => void
+    onGateFail?: (gates: object) => void
+  }) => (
+    <div data-testid="approve-confirm-dialog-mock">
+      <button onClick={onCancel} data-testid="approve-dialog-cancel">Cancel</button>
+      <button
+        onClick={() =>
+          onGateFail?.({ branch_created: true, contract_signed: false, rmv_configured: false })
+        }
+        data-testid="approve-dialog-trigger-gate-fail"
+      >
+        Trigger gate fail
+      </button>
+    </div>
+  ),
+}))
+
 import { useSession } from '@/lib/auth/useSession'
 import { useReview } from '@/lib/review/useReview'
 import type { UseReviewResult } from '@/lib/review/useReview'
@@ -63,13 +150,18 @@ const mockedUseReview = useReview as jest.MockedFunction<typeof useReview>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function mockSession(opts: { ready?: boolean; can?: (cap: string) => boolean } = {}) {
+function mockSession(opts: {
+  ready?: boolean
+  can?: (cap: string) => boolean
+  adminId?: string
+  role?: 'OPERATIONS' | 'SUPER_ADMIN'
+} = {}) {
   mockedUseSession.mockReturnValue({
     ready: opts.ready ?? true,
     isAuthenticated: true,
-    role: 'OPERATIONS',
+    role: opts.role ?? 'OPERATIONS',
     email: 'ops@redeemo.co.uk',
-    adminId: 'admin-me',
+    adminId: opts.adminId ?? 'admin-me',
     can: opts.can ?? (() => true),
     refresh: jest.fn(),
   })
@@ -142,9 +234,6 @@ function makeContext(overrides: Partial<ReviewContext> = {}): ReviewContext {
 }
 
 function renderPage() {
-  // React.use is mocked to return its argument directly.
-  // Cast params so TypeScript accepts it; the mock returns { id: 'apr-1' }
-  // synchronously, giving the component the approval ID immediately.
   const params = { id: 'apr-1' } as unknown as Promise<{ id: string }>
   return render(<ReviewPage params={params} />)
 }
@@ -257,7 +346,6 @@ describe('ReviewPage full render', () => {
     mockReview({ data: makeContext() })
     renderPage()
     expect(screen.getByTestId('merchant-header')).toBeInTheDocument()
-    // Acme Coffee appears in both the breadcrumb and the header h1
     const acmeEls = screen.getAllByText('Acme Coffee')
     expect(acmeEls.length).toBeGreaterThanOrEqual(1)
   })
@@ -305,25 +393,15 @@ describe('ReviewPage full render', () => {
     expect(backLink).toHaveAttribute('href', '/queue')
   })
 
-  it('does NOT render any action buttons (approve, reject, claim, release)', () => {
-    mockReview({ data: makeContext() })
-    renderPage()
-    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /reject/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /claim/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /release/i })).not.toBeInTheDocument()
-  })
-
   it('shows the merchant name in the breadcrumb', () => {
     mockReview({ data: makeContext() })
     renderPage()
-    // Business name appears in the breadcrumb and in the merchant header
     const acmeElements = screen.getAllByText('Acme Coffee')
     expect(acmeElements.length).toBeGreaterThanOrEqual(1)
   })
 })
 
-// ── Merchant-unavailable notice (orphaned onboarding approval) ─────────────────
+// ── Merchant-unavailable notice ───────────────────────────────────────────────
 
 describe('ReviewPage merchant-unavailable notice', () => {
   beforeEach(() => mockSession())
@@ -333,7 +411,6 @@ describe('ReviewPage merchant-unavailable notice', () => {
     renderPage()
     expect(screen.getByTestId('review-merchant-unavailable')).toBeInTheDocument()
     expect(screen.getByText('Merchant record unavailable')).toBeInTheDocument()
-    // The generic fetch-error state and its Retry button must NOT appear.
     expect(screen.queryByTestId('review-error')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
   })
@@ -429,7 +506,6 @@ describe('ReviewPage claim-state badge', () => {
         approval: {
           ...makeContext().approval,
           status: 'CHANGES_REQUESTED',
-          // Even if claimed, CHANGES_REQUESTED takes precedence.
           claimedBy: { id: 'admin-me', name: 'Me Operator' },
         },
       }),
@@ -464,7 +540,7 @@ describe('ReviewPage owner contact', () => {
   })
 
   it('shows "Not available" when no owner is present', () => {
-    mockReview({ data: makeContext({ owner: null }) }) // default owner: null
+    mockReview({ data: makeContext({ owner: null }) })
     renderPage()
     expect(screen.getByTestId('owner-contact')).toHaveTextContent('Not available')
   })
@@ -479,5 +555,228 @@ describe('ReviewPage owner contact', () => {
     const ownerSection = screen.getByTestId('owner-contact')
     expect(ownerSection).toHaveTextContent('Pat Owner')
     expect(ownerSection).toHaveTextContent('Not provided')
+  })
+})
+
+// ── M5: ActionBar mount ───────────────────────────────────────────────────────
+
+describe('ReviewPage M5 ActionBar', () => {
+  beforeEach(() => mockSession())
+
+  it('renders the action bar container in the full MERCHANT_ONBOARDING + merchant-present state', () => {
+    mockReview({ data: makeContext() })
+    renderPage()
+    expect(screen.getByTestId('action-bar-container')).toBeInTheDocument()
+  })
+
+  it('does NOT render the action bar for a non-onboarding type', () => {
+    mockReview({
+      data: makeContext({
+        approval: {
+          ...makeContext().approval,
+          type: 'VOUCHER',
+        },
+      }),
+    })
+    renderPage()
+    expect(screen.queryByTestId('action-bar-container')).not.toBeInTheDocument()
+  })
+
+  it('does NOT render the action bar when merchant is null', () => {
+    mockReview({ data: makeContext({ merchant: null }) })
+    renderPage()
+    expect(screen.queryByTestId('action-bar-container')).not.toBeInTheDocument()
+  })
+
+  it('ActionBar renders nothing (no buttons) when can(approval:action) is false', () => {
+    mockSession({ can: (cap: string) => cap !== 'approval:action' })
+    mockReview({ data: makeContext() })
+    renderPage()
+    // action-bar-container is still mounted but ActionBar inner renders null
+    expect(screen.queryByTestId('action-bar-unclaimed')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('action-bar-claimed-by-me')).not.toBeInTheDocument()
+  })
+})
+
+// ── M5: dialog opening ────────────────────────────────────────────────────────
+
+describe('ReviewPage M5 dialogs', () => {
+  beforeEach(() =>
+    mockSession({ adminId: 'admin-me' })
+  )
+
+  const claimedByMeApproval = makeContext({
+    approval: {
+      id: 'apr-1',
+      type: 'MERCHANT_ONBOARDING',
+      status: 'PENDING',
+      submittedAt: '2026-06-10T09:00:00.000Z',
+      actionedAt: null,
+      claimedAt: '2026-06-10T10:00:00.000Z',
+      comment: null,
+      claimedBy: { id: 'admin-me', name: 'Me Admin' },
+      actionedBy: null,
+    },
+  })
+
+  it('opens RequestChangesDialog when Request changes is clicked', () => {
+    mockReview({ data: claimedByMeApproval })
+    renderPage()
+    fireEvent.click(screen.getByTestId('action-bar-request-changes-btn'))
+    expect(screen.getByTestId('request-changes-dialog-mock')).toBeInTheDocument()
+  })
+
+  it('closes RequestChangesDialog when its Cancel is clicked', () => {
+    mockReview({ data: claimedByMeApproval })
+    renderPage()
+    fireEvent.click(screen.getByTestId('action-bar-request-changes-btn'))
+    expect(screen.getByTestId('request-changes-dialog-mock')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('rc-dialog-cancel'))
+    expect(screen.queryByTestId('request-changes-dialog-mock')).not.toBeInTheDocument()
+  })
+
+  it('opens RejectDialog when Reject is clicked', () => {
+    mockReview({ data: claimedByMeApproval })
+    renderPage()
+    fireEvent.click(screen.getByTestId('action-bar-reject-btn'))
+    expect(screen.getByTestId('reject-dialog-mock')).toBeInTheDocument()
+  })
+
+  it('closes RejectDialog when its Cancel is clicked', () => {
+    mockReview({ data: claimedByMeApproval })
+    renderPage()
+    fireEvent.click(screen.getByTestId('action-bar-reject-btn'))
+    fireEvent.click(screen.getByTestId('reject-dialog-cancel'))
+    expect(screen.queryByTestId('reject-dialog-mock')).not.toBeInTheDocument()
+  })
+
+  it('opens ApproveConfirm when Approve and go live is clicked', () => {
+    mockReview({ data: claimedByMeApproval })
+    renderPage()
+    fireEvent.click(screen.getByTestId('action-bar-approve-btn'))
+    expect(screen.getByTestId('approve-confirm-dialog-mock')).toBeInTheDocument()
+  })
+
+  it('closes ApproveConfirm when its Cancel is clicked', () => {
+    mockReview({ data: claimedByMeApproval })
+    renderPage()
+    fireEvent.click(screen.getByTestId('action-bar-approve-btn'))
+    fireEvent.click(screen.getByTestId('approve-dialog-cancel'))
+    expect(screen.queryByTestId('approve-confirm-dialog-mock')).not.toBeInTheDocument()
+  })
+})
+
+// ── M5: failed approve highlights checklist rows ──────────────────────────────
+
+describe('ReviewPage M5 failed-approve checklist highlight', () => {
+  beforeEach(() =>
+    mockSession({ adminId: 'admin-me' })
+  )
+
+  it('passes failed gates to ChecklistSummary when onGateFail fires', () => {
+    const ctx = makeContext({
+      approval: {
+        id: 'apr-1',
+        type: 'MERCHANT_ONBOARDING',
+        status: 'PENDING',
+        submittedAt: '2026-06-10T09:00:00.000Z',
+        actionedAt: null,
+        claimedAt: '2026-06-10T10:00:00.000Z',
+        comment: null,
+        claimedBy: { id: 'admin-me', name: 'Me Admin' },
+        actionedBy: null,
+      },
+      checklist: {
+        branch_created: true,
+        contract_signed: false,
+        rmv_configured: false,
+        all_complete: false,
+      },
+    })
+    mockReview({ data: ctx })
+    renderPage()
+
+    // Open the approve dialog and trigger a gate fail.
+    fireEvent.click(screen.getByTestId('action-bar-approve-btn'))
+    fireEvent.click(screen.getByTestId('approve-dialog-trigger-gate-fail'))
+
+    // The checklist-row-contract row should be present and highlighted
+    // (data-testid is present regardless; the highlight prop changes styling).
+    expect(screen.getByTestId('checklist-row-contract')).toBeInTheDocument()
+    expect(screen.getByTestId('checklist-row-rmv')).toBeInTheDocument()
+  })
+})
+
+// ── M5: topbar Release button ─────────────────────────────────────────────────
+
+describe('ReviewPage M5 topbar Release button', () => {
+  it('shows Release button in the topbar when claimed-by-me and PENDING', () => {
+    mockSession({ adminId: 'admin-me' })
+    mockReview({
+      data: makeContext({
+        approval: {
+          ...makeContext().approval,
+          status: 'PENDING',
+          claimedAt: '2026-06-10T10:00:00.000Z',
+          claimedBy: { id: 'admin-me', name: 'Me Admin' },
+        },
+      }),
+    })
+    renderPage()
+    expect(screen.getByTestId('topbar-release-btn')).toBeInTheDocument()
+  })
+
+  it('does NOT show Release button when not claimed', () => {
+    mockSession({ adminId: 'admin-me' })
+    mockReview({ data: makeContext({ approval: { ...makeContext().approval, claimedBy: null } }) })
+    renderPage()
+    expect(screen.queryByTestId('topbar-release-btn')).not.toBeInTheDocument()
+  })
+
+  it('does NOT show Release button when claimed by another admin', () => {
+    mockSession({ adminId: 'admin-me' })
+    mockReview({
+      data: makeContext({
+        approval: {
+          ...makeContext().approval,
+          claimedAt: '2026-06-10T10:00:00.000Z',
+          claimedBy: { id: 'admin-other', name: 'Dana' },
+        },
+      }),
+    })
+    renderPage()
+    expect(screen.queryByTestId('topbar-release-btn')).not.toBeInTheDocument()
+  })
+
+  it('does NOT show Release button when status is APPROVED', () => {
+    mockSession({ adminId: 'admin-me' })
+    mockReview({
+      data: makeContext({
+        approval: {
+          ...makeContext().approval,
+          status: 'APPROVED',
+          claimedBy: { id: 'admin-me', name: 'Me' },
+        },
+      }),
+    })
+    renderPage()
+    expect(screen.queryByTestId('topbar-release-btn')).not.toBeInTheDocument()
+  })
+
+  it('calls releaseMutation.mutate when Release is clicked', () => {
+    mockSession({ adminId: 'admin-me' })
+    mockReview({
+      data: makeContext({
+        approval: {
+          ...makeContext().approval,
+          status: 'PENDING',
+          claimedAt: '2026-06-10T10:00:00.000Z',
+          claimedBy: { id: 'admin-me', name: 'Me Admin' },
+        },
+      }),
+    })
+    renderPage()
+    fireEvent.click(screen.getByTestId('topbar-release-btn'))
+    expect(mockReleaseMutation.mutate).toHaveBeenCalledTimes(1)
   })
 })

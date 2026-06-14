@@ -3,17 +3,24 @@
 /**
  * Approval review page — /queue/[id]
  *
- * Fully read-only. No action buttons. Shows the full review context for a
- * single MERCHANT_ONBOARDING approval. Gated on approval:read capability.
+ * Shows the full review context for a single MERCHANT_ONBOARDING approval.
+ * Gated on approval:read capability.
  *
  * Layout: two-column (main content left, sidebar right) on lg+, single column
- * on smaller screens.
+ * on smaller screens. ActionBar is mounted below the two-column grid.
+ *
+ * M5 additions:
+ *   - Claim / Release buttons in the topbar
+ *   - ActionBar (claim-to-act state machine) below the two-column grid
+ *   - RequestChangesDialog, RejectDialog, ApproveConfirm dialogs (local state)
+ *   - Failed-approve checklist gate highlight passed to ChecklistSummary
  */
-import { use } from 'react'
+import { use, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, AlertCircle, FileQuestion } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useReview } from '@/lib/review/useReview'
+import { useClaim, useRelease } from '@/lib/review/useReviewActions'
 import { Badge } from '@/features/shared/Badge'
 import type { BadgeTone } from '@/features/shared/Badge'
 import type { ReviewApproval } from '@/lib/api/review'
@@ -25,6 +32,11 @@ import { VoucherList } from '@/features/review/VoucherList'
 import { ChecklistSummary } from '@/features/review/ChecklistSummary'
 import { ThinAreaFlags } from '@/features/review/ThinAreaFlags'
 import { ActivityList } from '@/features/review/ActivityList'
+import { ActionBar } from '@/features/review/ActionBar'
+import { RequestChangesDialog } from '@/features/review/RequestChangesDialog'
+import { RejectDialog } from '@/features/review/RejectDialog'
+import { ApproveConfirm } from '@/features/review/ApproveConfirm'
+import { Button } from '@/components/ui/button'
 
 // ── Shared loading / error / forbidden ───────────────────────────────────────
 
@@ -108,9 +120,6 @@ function MerchantUnavailableNotice() {
 }
 
 // ── Claim-state badge ─────────────────────────────────────────────────────────
-// Read-only display of the approval's claim state on the review topbar. Mirrors
-// the QueueTable claim-cell precedence, but here the resolved claimer name is
-// available. Display only — Claim / Release actions are M5.
 
 function claimBadge(
   approval: ReviewApproval,
@@ -143,6 +152,10 @@ function ClaimStateBadge({
   )
 }
 
+// ── Dialog type ───────────────────────────────────────────────────────────────
+
+type OpenDialog = 'request-changes' | 'reject' | 'approve' | null
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 interface ReviewPageProps {
@@ -151,9 +164,28 @@ interface ReviewPageProps {
 
 export default function ReviewPage({ params }: ReviewPageProps) {
   const { id } = use(params)
-  const { ready, can, adminId } = useSession()
+  const { ready, can, adminId, role } = useSession()
   const canRead = ready && can('approval:read')
   const { data, isLoading, isError, refetch } = useReview(id, canRead)
+
+  // M5: action mutations.
+  const claimMutation = useClaim(id)
+  const releaseMutation = useRelease(id)
+
+  // M5: dialog open state.
+  const [openDialog, setOpenDialog] = useState<OpenDialog>(null)
+
+  // M5: failed-approve gate highlight (passed to ChecklistSummary).
+  const [failedGates, setFailedGates] = useState<{
+    branch_created?: boolean
+    contract_signed?: boolean
+    rmv_configured?: boolean
+  } | null>(null)
+
+  function handleDialogSuccess() {
+    setOpenDialog(null)
+    refetch()
+  }
 
   if (!ready) {
     return <LoadingState />
@@ -163,9 +195,17 @@ export default function ReviewPage({ params }: ReviewPageProps) {
     return <ForbiddenState />
   }
 
+  // Determine whether the Release button should show in the topbar.
+  // Claimer's own release: shown in the topbar when claimed-by-me and PENDING.
+  // SUPER_ADMIN force-release on claimed-by-other: shown in ActionBar only.
+  const showTopbarRelease =
+    data != null &&
+    data.approval.status === 'PENDING' &&
+    data.approval.claimedBy?.id === adminId
+
   return (
     <div className="space-y-6">
-      {/* Topbar: breadcrumb + back link (left), read-only claim state (right) */}
+      {/* Topbar: breadcrumb + back link (left), claim badge + optional Release (right) */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-muted-foreground">
           <Link
@@ -182,7 +222,21 @@ export default function ReviewPage({ params }: ReviewPageProps) {
           </span>
         </nav>
 
-        {data && <ClaimStateBadge approval={data.approval} adminId={adminId} />}
+        <div className="flex items-center gap-3">
+          {data && <ClaimStateBadge approval={data.approval} adminId={adminId} />}
+          {showTopbarRelease && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => releaseMutation.mutate()}
+              disabled={releaseMutation.isPending}
+              data-testid="topbar-release-btn"
+            >
+              {releaseMutation.isPending ? 'Releasing...' : 'Release'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Content */}
@@ -215,11 +269,65 @@ export default function ReviewPage({ params }: ReviewPageProps) {
 
             {/* Right: sidebar */}
             <div className="space-y-6">
-              {data.checklist && <ChecklistSummary checklist={data.checklist} />}
+              {data.checklist && (
+                <ChecklistSummary
+                  checklist={data.checklist}
+                  highlight={failedGates ?? undefined}
+                />
+              )}
               <ProfileCard merchant={data.merchant} owner={data.owner} />
             </div>
           </div>
+
+          {/* ActionBar — full width, below the two-column grid */}
+          <div
+            className="rounded-lg border border-border bg-card overflow-hidden"
+            data-testid="action-bar-container"
+          >
+            <ActionBar
+              approval={data.approval}
+              adminId={adminId}
+              role={role}
+              can={can}
+              onRequestChanges={() => setOpenDialog('request-changes')}
+              onReject={() => setOpenDialog('reject')}
+              onApprove={() => setOpenDialog('approve')}
+              claim={claimMutation}
+              release={releaseMutation}
+            />
+          </div>
         </div>
+      )}
+
+      {/* Dialogs — rendered outside the content tree so they portal correctly */}
+      {openDialog === 'request-changes' && (
+        <RequestChangesDialog
+          approvalId={id}
+          onSuccess={handleDialogSuccess}
+          onCancel={() => setOpenDialog(null)}
+        />
+      )}
+      {openDialog === 'reject' && (
+        <RejectDialog
+          approvalId={id}
+          onSuccess={handleDialogSuccess}
+          onCancel={() => setOpenDialog(null)}
+        />
+      )}
+      {openDialog === 'approve' && (
+        <ApproveConfirm
+          approvalId={id}
+          onSuccess={() => {
+            setFailedGates(null)
+            handleDialogSuccess()
+          }}
+          onCancel={() => setOpenDialog(null)}
+          onGateFail={(gates) => {
+            setFailedGates(gates)
+            // Keep the dialog open so the banner is visible; page already refreshed
+            // (mutation onError invalidated queries).
+          }}
+        />
       )}
     </div>
   )

@@ -4,48 +4,82 @@
  * Shows whether the four onboarding gates pass. Green check when satisfied,
  * amber alert icon when not. Gates inform the decision but are not the whole
  * basis for it; the server re-checks them on approve.
+ *
+ * Accepts an optional `highlight` prop: when a gate key is `false` in highlight,
+ * that row receives a danger ring/tint so a failed approve points the admin at
+ * the incomplete gate. Default (no highlight) renders exactly as before.
  */
 import type { ReviewChecklist } from '@/lib/api/review'
 import { cn } from '@/lib/utils'
 
+type HighlightGates = {
+  branch_created?: boolean
+  contract_signed?: boolean
+  rmv_configured?: boolean
+}
+
 interface ChecklistSummaryProps {
   checklist: ReviewChecklist
+  /** When a gate value is false, emphasise that row as a failed gate. */
+  highlight?: HighlightGates
 }
 
 interface GateRowProps {
   label: string
   complete: boolean
+  /** When true, emphasise the row with a danger ring to signal a failed approve gate. */
+  failed?: boolean
+  testId?: string
 }
 
-function GateRow({ label, complete }: GateRowProps) {
+function GateRow({ label, complete, failed = false, testId }: GateRowProps) {
   return (
-    <div className="flex items-center gap-3 py-2.5 border-b border-border last:border-0">
+    <div
+      className={cn(
+        'flex items-center gap-3 py-2.5 border-b border-border last:border-0',
+        failed && 'rounded-md ring-1 ring-destructive/40 bg-destructive/5 px-2'
+      )}
+      data-testid={testId}
+    >
       <span
         aria-hidden="true"
         className={cn(
           'inline-flex size-5 items-center justify-center rounded-full shrink-0 text-xs font-bold',
-          complete
-            ? 'bg-green-100 text-green-700'
-            : 'bg-amber-100 text-amber-700'
+          failed
+            ? 'bg-red-100 text-red-700'
+            : complete
+              ? 'bg-green-100 text-green-700'
+              : 'bg-amber-100 text-amber-700'
         )}
       >
-        {complete ? '✓' : '!'}
+        {failed ? '!' : complete ? '✓' : '!'}
       </span>
       <span
         className={cn(
           'text-sm',
-          complete ? 'text-foreground' : 'text-muted-foreground'
+          failed
+            ? 'text-destructive font-medium'
+            : complete
+              ? 'text-foreground'
+              : 'text-muted-foreground'
         )}
       >
         {label}
       </span>
-      <span className="sr-only">{complete ? 'Complete' : 'Incomplete'}</span>
+      <span className="sr-only">
+        {failed ? 'Failed (required for approval)' : complete ? 'Complete' : 'Incomplete'}
+      </span>
     </div>
   )
 }
 
-export function ChecklistSummary({ checklist }: ChecklistSummaryProps) {
+export function ChecklistSummary({ checklist, highlight }: ChecklistSummaryProps) {
   const allComplete = checklist.all_complete
+
+  // A gate is "failed" when the highlight prop explicitly sets it to false.
+  const branchFailed = highlight?.branch_created === false
+  const contractFailed = highlight?.contract_signed === false
+  const rmvFailed = highlight?.rmv_configured === false
 
   return (
     <section aria-labelledby="checklist-heading" data-testid="checklist-summary">
@@ -55,9 +89,24 @@ export function ChecklistSummary({ checklist }: ChecklistSummaryProps) {
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="px-4 py-1">
-          <GateRow label="Main branch added" complete={checklist.branch_created} />
-          <GateRow label="Contract signed" complete={checklist.contract_signed} />
-          <GateRow label="Mandatory vouchers configured (RMV-001 + RMV-002)" complete={checklist.rmv_configured} />
+          <GateRow
+            label="Main branch added"
+            complete={checklist.branch_created}
+            failed={branchFailed}
+            testId="checklist-row-branch"
+          />
+          <GateRow
+            label="Contract signed"
+            complete={checklist.contract_signed}
+            failed={contractFailed}
+            testId="checklist-row-contract"
+          />
+          <GateRow
+            label="Mandatory vouchers configured (RMV-001 + RMV-002)"
+            complete={checklist.rmv_configured}
+            failed={rmvFailed}
+            testId="checklist-row-rmv"
+          />
         </div>
 
         <div
