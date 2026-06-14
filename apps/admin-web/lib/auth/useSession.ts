@@ -37,6 +37,8 @@ type SessionState = {
   isAuthenticated: boolean
   role: AdminRole | null
   email: string | null
+  /** The signed-in admin's entity id (from session meta). Used as currentAdminId on the queue. */
+  adminId: string | null
   /** Capability check against the current role (mirror of the backend). */
   can: (cap: AdminCapability) => boolean
   /** Re-read storage (call after login / logout to refresh in-memory state). */
@@ -49,11 +51,14 @@ function readSnapshot(): {
   isAuthenticated: boolean
   role: AdminRole | null
   email: string | null
+  adminId: string | null
 } {
+  const meta = getSessionMeta()
   return {
     isAuthenticated: readIsAuthenticated(),
     role: getAdminRole(),
-    email: getSessionMeta()?.email ?? null,
+    email: meta?.email ?? null,
+    adminId: meta?.entityId ?? null,
   }
 }
 
@@ -64,6 +69,7 @@ export function useSessionState(): SessionState {
     isAuthenticated: false,
     role: null as AdminRole | null,
     email: null as string | null,
+    adminId: null as string | null,
   })
 
   const refresh = useCallback(() => {
@@ -92,6 +98,7 @@ export function useSessionState(): SessionState {
       isAuthenticated: snapshot.isAuthenticated,
       role: snapshot.role,
       email: snapshot.email,
+      adminId: snapshot.adminId,
       can,
       refresh,
     }),
