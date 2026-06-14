@@ -1,7 +1,9 @@
+import type { Redis } from 'ioredis'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog } from '../../shared/audit'
 import { resolveAdminMerchant } from '../shared'
+import { emitMerchantSubmittedAlert, emitMerchantResubmittedAlert } from '../../shared/adminNotify'
 
 export const CONTRACT_VERSION = '1.0'
 export const CONTRACT_TEXT = `
@@ -76,6 +78,7 @@ export async function acceptContract(
 
 export async function submitForApproval(
   prisma: PrismaClient,
+  redis: Redis,
   adminId: string,
   ctx: { ipAddress: string; userAgent: string }
 ) {
@@ -97,7 +100,7 @@ export async function submitForApproval(
   // M3: atomic submit. Set verificationStatus PENDING (was inert) and reopen the
   // SAME onboarding approval on resubmit (clear the prior claim) instead of
   // creating a duplicate thread.
-  const updated = await prisma.$transaction(async (tx) => {
+  const { updated, reviewerAdminId } = await prisma.$transaction(async (tx) => {
     const m = await tx.merchant.update({
       where: { id: merchantId },
       data:  { status: 'PENDING_APPROVAL', onboardingStep: 'SUBMITTED', verificationStatus: 'PENDING' },
@@ -105,7 +108,10 @@ export async function submitForApproval(
 
     const existing = await tx.adminApproval.findFirst({
       where:  { type: 'MERCHANT_ONBOARDING', referenceId: merchantId },
-      select: { id: true },
+      // M8: also capture adminUserId — on a resubmit the approval is RESET
+      // (claim cleared) but adminUserId still points at the reviewer who
+      // requested the changes, so we can alert exactly that reviewer.
+      select: { id: true, adminUserId: true },
     })
     if (existing) {
       await tx.adminApproval.update({
@@ -129,9 +135,21 @@ export async function submitForApproval(
         },
       })
     }
-    return m
+    return { updated: m, reviewerAdminId: existing?.adminUserId ?? null }
   })
 
   writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: isResubmit ? 'MERCHANT_RESUBMITTED' : 'MERCHANT_SUBMITTED_FOR_APPROVAL', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent })
+
+  // M8: best-effort admin alert AFTER the submit commits. A notification/email
+  // failure must NEVER fail the merchant's submit (both emit helpers swallow +
+  // log their own errors). Resubmit → alert the requesting reviewer (if
+  // resolvable); first submit → fan-out to the ops queue.
+  const alertMerchant = { id: updated.id, businessName: updated.businessName }
+  if (isResubmit) {
+    await emitMerchantResubmittedAlert(prisma, redis, alertMerchant, reviewerAdminId)
+  } else {
+    await emitMerchantSubmittedAlert(prisma, redis, alertMerchant)
+  }
+
   return updated
 }

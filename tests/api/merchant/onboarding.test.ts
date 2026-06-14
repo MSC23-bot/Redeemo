@@ -17,6 +17,11 @@ describe('merchant onboarding routes', () => {
       voucher: { count: vi.fn() },
       adminApproval: { create: vi.fn().mockResolvedValue({}), findFirst: vi.fn().mockResolvedValue(null), update: vi.fn().mockResolvedValue({}) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
+      // M8: submitForApproval now emits admin alerts after commit (best-effort).
+      // Provide the prisma surfaces those emitters touch so the route tests stay
+      // green; the alert path itself is exercised in its own integration suite.
+      adminUser: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue(null) },
+      notification: { create: vi.fn().mockResolvedValue({}) },
       // M3: submitForApproval now runs in a $transaction; run the callback with the same mock.
       $transaction: vi.fn().mockImplementation(async (cb: any) => cb((app as any).prisma)),
     } as any)
