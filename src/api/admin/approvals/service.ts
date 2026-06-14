@@ -20,7 +20,7 @@ type AuditCtx = { ipAddress: string; userAgent: string }
 const ACTIONABLE_STATUSES: ApprovalStatus[] = ['PENDING', 'CHANGES_REQUESTED']
 
 /** Resolve a merchant's ACTIVE OWNER (id + email) for lifecycle notifications. */
-async function getMerchantOwner(
+export async function getMerchantOwner(
   prisma: PrismaClient,
   merchantId: string
 ): Promise<{ adminId: string; email: string } | null> {
