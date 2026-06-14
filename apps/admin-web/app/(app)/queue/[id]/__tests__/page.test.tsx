@@ -322,3 +322,147 @@ describe('ReviewPage full render', () => {
     expect(acmeElements.length).toBeGreaterThanOrEqual(1)
   })
 })
+
+// ── Merchant-unavailable notice (orphaned onboarding approval) ─────────────────
+
+describe('ReviewPage merchant-unavailable notice', () => {
+  beforeEach(() => mockSession())
+
+  it('shows the merchant-unavailable notice (not ErrorState) for a null merchant', () => {
+    mockReview({ data: makeContext({ merchant: null }) })
+    renderPage()
+    expect(screen.getByTestId('review-merchant-unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Merchant record unavailable')).toBeInTheDocument()
+    // The generic fetch-error state and its Retry button must NOT appear.
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+  })
+
+  it('still renders the activity list when the merchant is unavailable but activity exists', () => {
+    mockReview({
+      data: makeContext({
+        merchant: null,
+        activity: [
+          {
+            id: 'act-1',
+            event: 'MERCHANT_SUBMITTED_FOR_APPROVAL',
+            createdAt: '2026-06-10T09:00:00.000Z',
+            actorType: 'MERCHANT',
+            reason: null,
+            actor: null,
+          },
+        ],
+      }),
+    })
+    renderPage()
+    expect(screen.getByTestId('review-merchant-unavailable')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-list')).toBeInTheDocument()
+  })
+
+  it('still renders the topbar claim badge when the merchant is unavailable', () => {
+    mockReview({ data: makeContext({ merchant: null }) })
+    renderPage()
+    expect(screen.getByTestId('review-claim-badge')).toBeInTheDocument()
+  })
+})
+
+// ── Read-only claim-state badge ───────────────────────────────────────────────
+
+describe('ReviewPage claim-state badge', () => {
+  beforeEach(() => mockSession()) // adminId === 'admin-me'
+
+  it('shows "Claimed by you" when the approval is claimed by the signed-in admin', () => {
+    mockReview({
+      data: makeContext({
+        approval: {
+          ...makeContext().approval,
+          claimedAt: '2026-06-10T10:00:00.000Z',
+          claimedBy: { id: 'admin-me', name: 'Me Operator' },
+        },
+      }),
+    })
+    renderPage()
+    const badge = screen.getByTestId('review-claim-badge')
+    expect(badge).toHaveTextContent('Claimed by you')
+  })
+
+  it('shows "Claimed by <name>" when claimed by another admin', () => {
+    mockReview({
+      data: makeContext({
+        approval: {
+          ...makeContext().approval,
+          claimedAt: '2026-06-10T10:00:00.000Z',
+          claimedBy: { id: 'admin-other', name: 'Dana Reviewer' },
+        },
+      }),
+    })
+    renderPage()
+    const badge = screen.getByTestId('review-claim-badge')
+    expect(badge).toHaveTextContent('Claimed by Dana Reviewer')
+  })
+
+  it('shows "Unclaimed" when no admin has claimed the approval', () => {
+    mockReview({ data: makeContext() }) // default claimedBy: null
+    renderPage()
+    const badge = screen.getByTestId('review-claim-badge')
+    expect(badge).toHaveTextContent('Unclaimed')
+  })
+
+  it('shows "Waiting on merchant" when the approval status is CHANGES_REQUESTED', () => {
+    mockReview({
+      data: makeContext({
+        approval: {
+          ...makeContext().approval,
+          status: 'CHANGES_REQUESTED',
+          // Even if claimed, CHANGES_REQUESTED takes precedence.
+          claimedBy: { id: 'admin-me', name: 'Me Operator' },
+        },
+      }),
+    })
+    renderPage()
+    const badge = screen.getByTestId('review-claim-badge')
+    expect(badge).toHaveTextContent('Waiting on merchant')
+  })
+})
+
+// ── Owner contact (rendered via ProfileCard) ──────────────────────────────────
+
+describe('ReviewPage owner contact', () => {
+  beforeEach(() => mockSession())
+
+  it('renders the owner name and email when an owner is present', () => {
+    mockReview({
+      data: makeContext({
+        owner: {
+          id: 'u-1',
+          name: 'Olivia Owner',
+          email: 'olivia@acme.test',
+          phone: '+447700900123',
+        },
+      }),
+    })
+    renderPage()
+    const ownerSection = screen.getByTestId('owner-contact')
+    expect(ownerSection).toHaveTextContent('Olivia Owner')
+    expect(ownerSection).toHaveTextContent('olivia@acme.test')
+    expect(ownerSection).toHaveTextContent('+447700900123')
+  })
+
+  it('shows "Not available" when no owner is present', () => {
+    mockReview({ data: makeContext({ owner: null }) }) // default owner: null
+    renderPage()
+    expect(screen.getByTestId('owner-contact')).toHaveTextContent('Not available')
+  })
+
+  it('shows "Not provided" for a missing phone when the owner is otherwise present', () => {
+    mockReview({
+      data: makeContext({
+        owner: { id: 'u-2', name: 'Pat Owner', email: 'pat@acme.test', phone: null },
+      }),
+    })
+    renderPage()
+    const ownerSection = screen.getByTestId('owner-contact')
+    expect(ownerSection).toHaveTextContent('Pat Owner')
+    expect(ownerSection).toHaveTextContent('Not provided')
+  })
+})

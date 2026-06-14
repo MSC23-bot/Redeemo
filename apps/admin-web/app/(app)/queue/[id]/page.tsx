@@ -11,9 +11,12 @@
  */
 import { use } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertCircle, FileQuestion } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useReview } from '@/lib/review/useReview'
+import { Badge } from '@/features/shared/Badge'
+import type { BadgeTone } from '@/features/shared/Badge'
+import type { ReviewApproval } from '@/lib/api/review'
 import { MerchantHeader } from '@/features/review/MerchantHeader'
 import { ProfileCard } from '@/features/review/ProfileCard'
 import { BranchTable } from '@/features/review/BranchTable'
@@ -84,6 +87,62 @@ function NonOnboardingNotice({ type }: { type: string }) {
   )
 }
 
+// ── Merchant-unavailable notice ───────────────────────────────────────────────
+// MERCHANT_ONBOARDING approval whose merchant record could not be found (orphaned
+// or removed). This is NOT a fetch error — there is nothing to retry — so it gets
+// its own calm notice rather than the generic ErrorState.
+
+function MerchantUnavailableNotice() {
+  return (
+    <div
+      className="rounded-lg border border-border bg-card px-6 py-10 text-center"
+      data-testid="review-merchant-unavailable"
+    >
+      <FileQuestion className="mx-auto mb-3 size-6 text-muted-foreground" aria-hidden="true" />
+      <p className="text-sm font-medium text-foreground">Merchant record unavailable</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        The merchant for this approval could not be found (it may have been removed).
+      </p>
+    </div>
+  )
+}
+
+// ── Claim-state badge ─────────────────────────────────────────────────────────
+// Read-only display of the approval's claim state on the review topbar. Mirrors
+// the QueueTable claim-cell precedence, but here the resolved claimer name is
+// available. Display only — Claim / Release actions are M5.
+
+function claimBadge(
+  approval: ReviewApproval,
+  adminId: string | null
+): { tone: BadgeTone; label: string } {
+  if (approval.status === 'CHANGES_REQUESTED') {
+    return { tone: 'warn', label: 'Waiting on merchant' }
+  }
+  if (approval.claimedBy?.id === adminId) {
+    return { tone: 'info', label: 'Claimed by you' }
+  }
+  if (approval.claimedBy != null) {
+    return { tone: 'info', label: `Claimed by ${approval.claimedBy.name ?? 'an admin'}` }
+  }
+  return { tone: 'neutral', label: 'Unclaimed' }
+}
+
+function ClaimStateBadge({
+  approval,
+  adminId,
+}: {
+  approval: ReviewApproval
+  adminId: string | null
+}) {
+  const { tone, label } = claimBadge(approval, adminId)
+  return (
+    <span data-testid="review-claim-badge">
+      <Badge tone={tone}>{label}</Badge>
+    </span>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 interface ReviewPageProps {
@@ -92,7 +151,7 @@ interface ReviewPageProps {
 
 export default function ReviewPage({ params }: ReviewPageProps) {
   const { id } = use(params)
-  const { ready, can } = useSession()
+  const { ready, can, adminId } = useSession()
   const canRead = ready && can('approval:read')
   const { data, isLoading, isError, refetch } = useReview(id, canRead)
 
@@ -106,21 +165,25 @@ export default function ReviewPage({ params }: ReviewPageProps) {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb + back link */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Link
-          href="/queue"
-          className="flex items-center gap-1.5 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-          aria-label="Back to approval queue"
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          <span>Approval queue</span>
-        </Link>
-        <span aria-hidden="true">/</span>
-        <span className="text-foreground font-medium">
-          {data?.merchant?.businessName ?? 'Review'}
-        </span>
-      </nav>
+      {/* Topbar: breadcrumb + back link (left), read-only claim state (right) */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Link
+            href="/queue"
+            className="flex items-center gap-1.5 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+            aria-label="Back to approval queue"
+          >
+            <ArrowLeft className="size-4" aria-hidden="true" />
+            <span>Approval queue</span>
+          </Link>
+          <span aria-hidden="true">/</span>
+          <span className="text-foreground font-medium">
+            {data?.merchant?.businessName ?? 'Review'}
+          </span>
+        </nav>
+
+        {data && <ClaimStateBadge approval={data.approval} adminId={adminId} />}
+      </div>
 
       {/* Content */}
       {isLoading ? (
@@ -130,7 +193,10 @@ export default function ReviewPage({ params }: ReviewPageProps) {
       ) : data.approval.type !== 'MERCHANT_ONBOARDING' ? (
         <NonOnboardingNotice type={data.approval.type} />
       ) : !data.merchant ? (
-        <ErrorState onRetry={refetch} />
+        <div className="space-y-6">
+          <MerchantUnavailableNotice />
+          {data.activity.length > 0 && <ActivityList activity={data.activity} />}
+        </div>
       ) : (
         <div className="space-y-6">
           {/* Merchant header — full width */}
@@ -150,7 +216,7 @@ export default function ReviewPage({ params }: ReviewPageProps) {
             {/* Right: sidebar */}
             <div className="space-y-6">
               {data.checklist && <ChecklistSummary checklist={data.checklist} />}
-              <ProfileCard merchant={data.merchant} />
+              <ProfileCard merchant={data.merchant} owner={data.owner} />
             </div>
           </div>
         </div>
