@@ -10,13 +10,15 @@
  *                        -> { status: 'OTP_REQUIRED', sessionChallenge }
  *   POST /otp/verify   { sessionChallenge, code }   (code is exactly 6 digits)
  *                        -> { accessToken, refreshToken, admin: { id, email, adminRole } }
- *   POST /refresh      { refreshToken, sessionId, entityId }
- *                        -> { accessToken, refreshToken }
  *   POST /logout       (bearer)  -> { message }
+ *
+ * Refresh (POST /refresh -> { accessToken, refreshToken }) is owned by the
+ * client wrapper's inline 401 handler; only its response schema lives here
+ * (`refreshResponseSchema`) so refresh is validated in exactly one place.
  */
 import { z } from 'zod'
 import { apiFetch } from './client'
-import { getOrCreateDeviceId, getRefreshToken, getSessionMeta } from '@/lib/auth/session'
+import { getOrCreateDeviceId } from '@/lib/auth/session'
 
 // The admin login body requires the shared `deviceSchema` fields. deviceType
 // must be one of ios | android | web, so web is the right value for the panel.
@@ -49,7 +51,11 @@ const verifyOtpResponseSchema = z.object({
 })
 export type VerifyOtpResponse = z.infer<typeof verifyOtpResponseSchema>
 
-const refreshResponseSchema = z.object({
+// Exported as the single source of truth for validating a refresh response.
+// `client.ts` reuses this schema for its inline 401 refresh so the `/refresh`
+// payload is validated in exactly one place (there is no separate `authApi`
+// method — the client wrapper owns refresh).
+export const refreshResponseSchema = z.object({
   accessToken: z.string().min(1),
   refreshToken: z.string().min(1),
 })
@@ -84,27 +90,6 @@ export const authApi = {
       body: JSON.stringify({ sessionChallenge, code }),
     })
     return verifyOtpResponseSchema.parse(raw)
-  },
-
-  /**
-   * Rotate tokens using the stored refresh token + session meta. Exposed for
-   * completeness; the client wrapper performs its own inline refresh on 401.
-   */
-  refresh: async (): Promise<RefreshResponse> => {
-    const refreshToken = getRefreshToken()
-    const meta = getSessionMeta()
-    if (!refreshToken || !meta) {
-      throw new Error('No admin session to refresh')
-    }
-    const raw = await apiFetch<unknown>('/api/v1/admin/auth/refresh', {
-      method: 'POST',
-      body: JSON.stringify({
-        refreshToken,
-        sessionId: meta.sessionId,
-        entityId: meta.entityId,
-      }),
-    })
-    return refreshResponseSchema.parse(raw)
   },
 
   /** Revoke the current session server-side. Best-effort on the client. */

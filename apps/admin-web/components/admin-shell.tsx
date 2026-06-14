@@ -39,6 +39,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const router = useRouter()
   const { ready, isAuthenticated, role, can } = useSession()
 
+  // This effect and the not-ready/not-authenticated render guard below are an
+  // intentional pair, not redundant: the effect performs the navigation to
+  // /login, while the render guard returns a placeholder so protected chrome
+  // never flashes before the redirect lands. Removing either would either skip
+  // the redirect or briefly expose protected content — keep both.
   useEffect(() => {
     if (ready && !isAuthenticated) {
       router.replace('/login')
@@ -57,7 +62,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }
 
   // Still reading storage, or about to bounce to /login: show a calm placeholder
-  // rather than flashing protected chrome.
+  // rather than flashing protected chrome. Paired with the redirect effect above
+  // (the effect navigates; this guard prevents the protected content flash) —
+  // neither is redundant.
   if (!ready || !isAuthenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">

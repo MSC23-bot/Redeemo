@@ -162,4 +162,48 @@ describe('apiFetch — 401 refresh-once-retry', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(assignMock).not.toHaveBeenCalled()
   })
+
+  it('coalesces concurrent 401s into a SINGLE refresh (no single-use-token race)', async () => {
+    setSession({ accessToken: 'OLD', refreshToken: 'REF-OLD', meta: META })
+
+    // URL-aware mock (concurrent awaits make strict call ordering
+    // nondeterministic): every authed request 401s the first time it is seen
+    // with the OLD token, then succeeds once the bearer is the NEW token; the
+    // refresh endpoint succeeds exactly once and rotates the stored tokens.
+    let refreshCalls = 0
+    fetchMock.mockImplementation((url: string, init: RequestInit) => {
+      if (url.endsWith('/api/v1/admin/auth/refresh')) {
+        refreshCalls += 1
+        return Promise.resolve(
+          jsonResponse(200, { accessToken: 'NEW', refreshToken: 'REF-NEW' })
+        )
+      }
+      const auth = (init.headers as Headers).get('Authorization')
+      if (auth === 'Bearer NEW') {
+        return Promise.resolve(jsonResponse(200, { data: 'ok' }))
+      }
+      // OLD (or missing) bearer -> 401 to trigger the refresh path.
+      return Promise.resolve(jsonResponse(401, { error: { code: 'TOKEN_EXPIRED' } }))
+    })
+
+    // Two authed requests 401 concurrently; both should ride ONE shared refresh.
+    const [a, b] = await Promise.all([
+      apiFetch<{ data: string }>('/api/v1/admin/alpha', { auth: true }),
+      apiFetch<{ data: string }>('/api/v1/admin/beta', { auth: true }),
+    ])
+
+    expect(a).toEqual({ data: 'ok' })
+    expect(b).toEqual({ data: 'ok' })
+
+    // The crux: the single-use refresh token was POSTed exactly once.
+    expect(refreshCalls).toBe(1)
+    const refreshHits = fetchMock.mock.calls.filter(
+      (c) => (c[0] as string).endsWith('/api/v1/admin/auth/refresh')
+    )
+    expect(refreshHits).toHaveLength(1)
+
+    // Neither concurrent call cleared the session or redirected.
+    expect(getAccessToken()).toBe('NEW')
+    expect(assignMock).not.toHaveBeenCalled()
+  })
 })

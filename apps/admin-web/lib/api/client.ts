@@ -12,6 +12,13 @@
  * fails (or there is no session to refresh) it clears the session and redirects
  * to /login. The refresh call itself is never retried (no refresh-on-refresh),
  * so this can never loop.
+ *
+ * Concurrency: the refresh token is single-use — the backend rotates it
+ * (deletes the old, stores a new one) on every `/refresh`. If two authed
+ * requests 401 at once and each POSTed `/refresh` with the same stored token,
+ * the second would fail against the now-rotated token and spuriously clear a
+ * still-valid session. So the in-flight refresh is memoised into a module-level
+ * singleton (`tryRefresh`): concurrent callers all await ONE refresh promise.
  */
 import {
   getAccessToken,
@@ -20,6 +27,7 @@ import {
   updateTokens,
   clearSession,
 } from '@/lib/auth/session'
+import { refreshResponseSchema } from './auth'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -69,11 +77,16 @@ function redirectToLogin(): void {
 }
 
 /**
- * Attempt a single refresh using the stored refresh token + session meta.
+ * Perform a single refresh using the stored refresh token + session meta.
  * Returns true and rotates the stored tokens on success; returns false on any
- * failure (no session, invalid token, network/HTTP error). Never throws.
+ * failure (no session, invalid token, network/HTTP error, contract drift).
+ * Never throws.
+ *
+ * The response is validated with `refreshResponseSchema` — the SAME schema
+ * `auth.ts` exports — so the `/refresh` payload is validated in exactly one
+ * place rather than hand-checked here.
  */
-async function tryRefresh(): Promise<boolean> {
+async function doRefresh(): Promise<boolean> {
   const refreshToken = getRefreshToken()
   const meta = getSessionMeta()
   if (!refreshToken || !meta) return false
@@ -89,16 +102,31 @@ async function tryRefresh(): Promise<boolean> {
       }),
     })
     if (!res.ok) return false
-    const data = (await res.json().catch(() => null)) as {
-      accessToken?: string
-      refreshToken?: string
-    } | null
-    if (!data?.accessToken || !data?.refreshToken) return false
-    updateTokens(data.accessToken, data.refreshToken)
+    const raw = await res.json().catch(() => null)
+    const parsed = refreshResponseSchema.safeParse(raw)
+    if (!parsed.success) return false
+    updateTokens(parsed.data.accessToken, parsed.data.refreshToken)
     return true
   } catch {
     return false
   }
+}
+
+/**
+ * Module-level singleton wrapper around `doRefresh`. The first concurrent
+ * caller kicks off the refresh; any caller that arrives while it is in flight
+ * awaits the SAME promise instead of POSTing `/refresh` again with the (now
+ * single-use) refresh token. The slot is cleared once the refresh settles so a
+ * later 401 can refresh afresh.
+ */
+let refreshInFlight: Promise<boolean> | null = null
+function tryRefresh(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return refreshInFlight
 }
 
 export async function apiFetch<T>(
