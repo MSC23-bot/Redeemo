@@ -15,7 +15,10 @@ export async function adminNotificationRoutes(app: FastifyInstance) {
     const q = z.object({
       page: z.coerce.number().int().positive().optional(),
       pageSize: z.coerce.number().int().positive().max(50).optional(),
-      unreadOnly: z.coerce.boolean().optional(),
+      // NOT z.coerce.boolean(): query values arrive as strings and Boolean('false')
+      // is true, so ?unreadOnly=false would wrongly filter to unread-only. Parse the
+      // literal token instead (rejects ambiguous values like 0/1/'' with a 400).
+      unreadOnly: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
     }).parse(req.query)
     return listAdminNotifications(app.prisma, req.user.sub, {
       page: q.page ?? 1,

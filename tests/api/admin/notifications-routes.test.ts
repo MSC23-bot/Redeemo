@@ -140,4 +140,43 @@ describe('M2 — /admin/notifications route auth gate', () => {
       expect.objectContaining({ where: expect.objectContaining({ recipientType: 'ADMIN', recipientId: 'admin-scoped' }) }),
     )
   })
+
+  // --- unreadOnly query coercion (z.coerce.boolean footgun guard) ---
+
+  it('?unreadOnly=false does NOT filter to unread-only (string "false" must not coerce to true)', async () => {
+    const notifFindMany = vi.fn().mockResolvedValue([])
+    ;(app as any).prisma = {
+      notification: { findMany: notifFindMany, count: vi.fn().mockResolvedValue(0), updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    }
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/notifications?unreadOnly=false',
+      headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(notifFindMany.mock.calls[0][0].where).not.toHaveProperty('isRead')
+  })
+
+  it('?unreadOnly=true filters to unread-only', async () => {
+    const notifFindMany = vi.fn().mockResolvedValue([])
+    ;(app as any).prisma = {
+      notification: { findMany: notifFindMany, count: vi.fn().mockResolvedValue(0), updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    }
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/notifications?unreadOnly=true',
+      headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(notifFindMany.mock.calls[0][0].where).toMatchObject({ isRead: false })
+  })
+
+  it('400 GET list with an ambiguous unreadOnly value (e.g. 1)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/notifications?unreadOnly=1',
+      headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` },
+    })
+    expect(res.statusCode).toBe(400)
+  })
 })

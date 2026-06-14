@@ -121,6 +121,27 @@ describe('notify — outbox row + enqueue', () => {
     })
   })
 
+  it('M2 write-path: BRANCH_USER inApp sets recipientId + channel IN_APP, userId null', async () => {
+    const { prisma, createNotif } = fakePrisma()
+    await notify(prisma, fakeRedis(), {
+      to: 'staff@branch.com',
+      recipientType: 'BRANCH_USER',
+      recipientId: 'bu-7',
+      userId: null,
+      type: 'branch_pin',
+      email: { subject: 'Branch PIN', html: '<p>PIN</p>' },
+      inApp: { notificationType: NotificationType.MERCHANT_VERIFICATION_UPDATE, title: 'PIN', body: 'Your branch PIN' },
+    })
+    expect(createNotif).toHaveBeenCalledTimes(1)
+    const data = (createNotif.mock.calls[0][0] as { data: Record<string, unknown> }).data
+    expect(data).toMatchObject({
+      recipientType: 'BRANCH_USER',
+      recipientId: 'bu-7',
+      channel: 'IN_APP',
+      userId: null,
+    })
+  })
+
   it('M2 write-path: USER inApp sets recipientId AND userId (both equal, both set)', async () => {
     const { prisma, createNotif } = fakePrisma()
     await notify(prisma, fakeRedis(), {
