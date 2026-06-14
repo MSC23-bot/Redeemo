@@ -7,6 +7,7 @@ import { notify } from '../../shared/notify'
 import { merchantChangesRequestedEmail, merchantRejectedEmail, merchantLiveEmail } from '../../shared/merchantEmails'
 import { computeOnboardingChecklist } from '../../merchant/onboarding/service'
 import { isBranchLocationConfirmed } from '../../shared/location'
+import { presignGet } from '../../shared/storage'
 
 // Phase 2 Slice 1 M3 — the AdminApproval actioner (review loop; NO approve/
 // go-live — that is M5). Every state-changing action is atomic + idempotent and
@@ -531,4 +532,265 @@ export async function approveApproval(
     )
   }
   return { approved: true, alreadyLive: false as const }
+}
+
+/**
+ * M4 — Full review context for an admin reviewing a merchant onboarding submission.
+ *
+ * Assembles merchant profile, owner contact, branches (redemptionPin NEVER included),
+ * all vouchers (estimatedSaving coerced to Number), documents (presigned GET per view;
+ * raw R2 key NEVER returned; unavailable when storage is disabled / presign fails),
+ * the onboarding checklist, thin-area signals, and a recent AuditLog activity list
+ * with actor names resolved via a single batched AdminUser lookup.
+ *
+ * Non-MERCHANT_ONBOARDING approvals degrade gracefully: approval block populated,
+ * everything else null / []. No schema changes, no mutations.
+ */
+export async function getReviewContext(prisma: PrismaClient, id: string) {
+  // 1. Load the approval.
+  const approval = await prisma.adminApproval.findUnique({ where: { id } })
+  if (!approval) throw new AppError('APPROVAL_NOT_FOUND')
+
+  // 2. For non-onboarding types, return a minimal context immediately.
+  if (approval.type !== 'MERCHANT_ONBOARDING') {
+    return {
+      approval: {
+        id: approval.id,
+        type: approval.type,
+        status: approval.status,
+        submittedAt: approval.submittedAt,
+        actionedAt: approval.actionedAt,
+        claimedAt: approval.claimedAt,
+        comment: approval.comment,
+        claimedBy: null,
+        actionedBy: null,
+      },
+      merchant: null,
+      owner: null,
+      branches: [] as unknown[],
+      vouchers: [] as unknown[],
+      documents: [] as unknown[],
+      checklist: null,
+      thinAreas: null,
+      activity: [] as unknown[],
+    }
+  }
+
+  const merchantId = approval.referenceId
+
+  // 3. Load all onboarding data in parallel.
+  const [merchant, owner, branches, vouchers, documents, checklist, activityRows] = await Promise.all([
+    // Merchant full profile + primary category
+    prisma.merchant.findUnique({
+      where: { id: merchantId },
+      select: {
+        id: true,
+        businessName: true,
+        tradingName: true,
+        description: true,
+        websiteUrl: true,
+        logoUrl: true,
+        bannerUrl: true,
+        companyNumber: true,
+        vatNumber: true,
+        status: true,
+        verificationStatus: true,
+        contractStatus: true,
+        contractStartDate: true,
+        contractEndDate: true,
+        onboardingStep: true,
+        createdAt: true,
+        primaryCategory: { select: { name: true } },
+      },
+    }),
+
+    // Owner — active OWNER membership -> merchantAdmin
+    prisma.merchantMembership.findFirst({
+      where: { merchantId, role: 'OWNER', status: 'ACTIVE' },
+      select: {
+        merchantAdmin: {
+          select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+        },
+      },
+    }),
+
+    // Branches — redemptionPin MUST NOT be selected; filter soft-deleted
+    prisma.branch.findMany({
+      where: { merchantId, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        isMainBranch: true,
+        isActive: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        postcode: true,
+        localityName: true,
+        locationConfidence: true,
+        // redemptionPin is intentionally omitted — NEVER expose it
+      },
+    }),
+
+    // Vouchers (all types — RMV + custom)
+    prisma.voucher.findMany({
+      where: { merchantId },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        isRmv: true,
+        rmvTemplateId: true,
+        status: true,
+        approvalStatus: true,
+        approvalComment: true,
+        estimatedSaving: true, // Decimal — coerced below
+        terms: true,
+        description: true,
+        expiryDate: true,
+      },
+    }),
+
+    // Documents — fileUrl is fetched only to presign; NEVER included in output
+    prisma.merchantDocument.findMany({
+      where: { merchantId },
+      select: { id: true, documentType: true, uploadedAt: true, fileUrl: true },
+    }),
+
+    // Onboarding checklist (reuses the shared helper)
+    computeOnboardingChecklist(prisma, merchantId).catch(() => null),
+
+    // Recent merchant AuditLog (newest-first, capped at 50)
+    prisma.auditLog.findMany({
+      where: { entityId: merchantId, entityType: 'merchant' },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        event: true,
+        createdAt: true,
+        actorType: true,
+        actorId: true,
+        reason: true,
+      },
+    }),
+  ])
+
+  // 4. Collect all AdminUser IDs referenced in the approval + activity, then batch-fetch.
+  const adminIdSet = new Set<string>()
+  if (approval.claimedById) adminIdSet.add(approval.claimedById)
+  if (approval.adminUserId) adminIdSet.add(approval.adminUserId)
+  for (const row of activityRows) {
+    if (row.actorType === 'ADMIN' && row.actorId) adminIdSet.add(row.actorId)
+  }
+
+  const adminUsers = adminIdSet.size
+    ? await prisma.adminUser.findMany({
+        where: { id: { in: Array.from(adminIdSet) } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : []
+  const adminById = new Map(
+    adminUsers.map((a: { id: string; firstName: string; lastName: string }) => [a.id, `${a.firstName} ${a.lastName}`]),
+  )
+
+  // 5. Presign each document's GET URL inside a try/catch.
+  //    The raw fileUrl (R2 key) is NEVER included in the output — even on failure.
+  const resolvedDocuments = await Promise.all(
+    documents.map(async ({ id: docId, documentType, uploadedAt, fileUrl }: { id: string; documentType: string; uploadedAt: Date; fileUrl: string }) => {
+      try {
+        const { url } = await presignGet(fileUrl)
+        return { id: docId, documentType, uploadedAt, url, available: true }
+      } catch {
+        return { id: docId, documentType, uploadedAt, url: null, available: false }
+      }
+    })
+  )
+
+  // 6. Assemble the response.
+  return {
+    approval: {
+      id: approval.id,
+      type: approval.type,
+      status: approval.status,
+      submittedAt: approval.submittedAt,
+      actionedAt: approval.actionedAt,
+      claimedAt: approval.claimedAt,
+      comment: approval.comment,
+      claimedBy: approval.claimedById
+        ? { id: approval.claimedById, name: adminById.get(approval.claimedById) ?? null }
+        : null,
+      actionedBy: approval.adminUserId
+        ? { id: approval.adminUserId, name: adminById.get(approval.adminUserId) ?? null }
+        : null,
+    },
+    merchant: merchant
+      ? {
+          id: merchant.id,
+          businessName: merchant.businessName,
+          tradingName: merchant.tradingName,
+          description: merchant.description,
+          websiteUrl: merchant.websiteUrl,
+          logoUrl: merchant.logoUrl,
+          bannerUrl: merchant.bannerUrl,
+          companyNumber: merchant.companyNumber,
+          vatNumber: merchant.vatNumber,
+          status: merchant.status,
+          verificationStatus: merchant.verificationStatus,
+          contractStatus: merchant.contractStatus,
+          contractStartDate: merchant.contractStartDate,
+          contractEndDate: merchant.contractEndDate,
+          onboardingStep: merchant.onboardingStep,
+          createdAt: merchant.createdAt,
+          category: merchant.primaryCategory?.name ?? null,
+        }
+      : null,
+    owner: owner?.merchantAdmin
+      ? {
+          id: owner.merchantAdmin.id,
+          name: `${owner.merchantAdmin.firstName} ${owner.merchantAdmin.lastName}`,
+          email: owner.merchantAdmin.email,
+          phone: owner.merchantAdmin.phone ?? undefined,
+        }
+      : null,
+    branches,
+    vouchers: vouchers.map((v) => ({
+      id: v.id,
+      title: v.title,
+      type: v.type,
+      isRmv: v.isRmv,
+      rmvTemplateId: v.rmvTemplateId,
+      status: v.status,
+      approvalStatus: v.approvalStatus,
+      approvalComment: v.approvalComment,
+      estimatedSaving: Number(v.estimatedSaving),
+      terms: v.terms,
+      description: v.description,
+      expiryDate: v.expiryDate,
+    })),
+    documents: resolvedDocuments,
+    checklist,
+    thinAreas: merchant
+      ? {
+          documentsUploaded: documents.length > 0,
+          companyTypeCaptured: false as const,
+          registeredOfficeCaptured: false as const,
+          sectorEvidenceCaptured: false as const,
+          companyNumberProvided: merchant.companyNumber != null,
+          vatNumberProvided: merchant.vatNumber != null,
+          documentsGated: false as const,
+        }
+      : null,
+    activity: activityRows.map((row) => ({
+      id: row.id,
+      event: row.event,
+      createdAt: row.createdAt,
+      actorType: row.actorType,
+      reason: row.reason,
+      actor:
+        row.actorType === 'ADMIN' && row.actorId
+          ? { id: row.actorId, name: adminById.get(row.actorId) ?? null }
+          : null,
+    })),
+  }
 }

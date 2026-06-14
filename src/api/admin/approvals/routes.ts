@@ -9,6 +9,7 @@ import {
   requestChanges,
   rejectApproval,
   approveApproval,
+  getReviewContext,
 } from './service'
 
 // Phase 2 Slice 1 M3 — actioner review-loop routes. `authenticateAdmin` is
@@ -38,6 +39,13 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
 
   app.get(`${prefix}/:id`, { preHandler: [requireAdminCapability('approval:read')] }, async (req: any) => {
     return getApproval(app.prisma, idParam(req))
+  })
+
+  // M4 — full review context (merchant profile, owner, branches, vouchers,
+  // documents with presigned GET URLs, checklist, thin-area signals, activity).
+  // Read-only; gated on approval:read (same as the queue list/detail routes).
+  app.get(`${prefix}/:id/review`, { preHandler: [requireAdminCapability('approval:read')] }, async (req: any) => {
+    return getReviewContext(app.prisma, idParam(req))
   })
 
   app.post(`${prefix}/:id/claim`, { preHandler: [requireAdminCapability('approval:action')] }, async (req: any) => {
