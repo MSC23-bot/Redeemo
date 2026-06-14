@@ -109,7 +109,7 @@ describe('ActionBar terminal states', () => {
   it('APPROVED: renders terminal note with no action buttons', () => {
     renderBar({ approval: makeApproval({ status: 'APPROVED' }) })
     expect(screen.getByTestId('action-bar-approved')).toBeInTheDocument()
-    expect(screen.getByTestId('action-bar-approved')).toHaveTextContent('approved and is live')
+    expect(screen.getByTestId('action-bar-approved')).toHaveTextContent('This onboarding application was approved')
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
