@@ -3,6 +3,7 @@ import {
   buildPasswordResetLink,
   passwordResetEmail,
   branchPinEmail,
+  adminOtpEmail,
 } from '../../../src/api/shared/emailTemplates'
 
 // Phase 0 PR-0.4: the two transactional templates the placeholders need.
@@ -73,5 +74,24 @@ describe('branchPinEmail', () => {
     expect(hasControl).toBe(false)
     expect(email.subject).toContain('redemption PIN')
     expect(email.subject).toContain('Soho Bcc: evil@example.com') // flattened to one line
+  })
+})
+
+describe('adminOtpEmail', () => {
+  it('renders the 6-digit code in both html + text and states the 10-minute expiry', () => {
+    const email = adminOtpEmail('492018')
+    expect(email.subject).toMatch(/sign.?in|log.?in/i)
+    expect(email.subject).toMatch(/code/i)
+    expect(email.text).toContain('492018')
+    expect(email.html).toContain('492018')
+    expect(email.text).toMatch(/10 minutes/i)
+    expect(email.html).toMatch(/10 minutes/i)
+  })
+
+  it('contains no URL or link (the code is the whole payload — never a clickable link)', () => {
+    const email = adminOtpEmail('492018')
+    expect(email.html).not.toContain('http')
+    expect(email.html).not.toContain('href')
+    expect(email.text).not.toContain('http')
   })
 })

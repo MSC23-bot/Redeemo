@@ -99,6 +99,26 @@ export function claimAccountEmail(link: string): RenderedEmail {
   }
 }
 
+/**
+ * Admin sign-in OTP email. The 6-digit code is the WHOLE payload — there is no
+ * link to click (an OTP is entered manually, never followed). Code is numeric
+ * (server-generated), so no escaping is needed; never logged (SEC-H1).
+ */
+export function adminOtpEmail(code: string): RenderedEmail {
+  return {
+    subject: `Your ${BRAND} sign-in code`,
+    text:
+      `Your ${BRAND} admin sign-in code is ${code}.\n\n` +
+      `Enter it to finish signing in. It expires in 10 minutes.\n\n` +
+      `If you did not try to sign in, you can ignore this email.`,
+    html:
+      `<p>Your ${BRAND} admin sign-in code is:</p>` +
+      `<p style="font-size:28px;font-weight:bold;letter-spacing:4px">${code}</p>` +
+      `<p>Enter it to finish signing in. It expires in 10 minutes.</p>` +
+      `<p>If you did not try to sign in, you can ignore this email.</p>`,
+  }
+}
+
 /** Branch staff redemption-PIN email. branchName is merchant-controlled ⇒ escaped/sanitized. */
 export function branchPinEmail(branchName: string, pin: string): RenderedEmail {
   const safeName = escapeHtml(branchName)
