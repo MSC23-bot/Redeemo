@@ -53,6 +53,10 @@ export const ERROR_DEFINITIONS = {
   APPROVAL_NOT_FOUND:             { statusCode: 404, message: 'Approval not found.' },
   APPROVAL_ALREADY_CLAIMED:       { statusCode: 409, message: 'This approval is already being reviewed by another admin.' },
   APPROVAL_NOT_ACTIONABLE:        { statusCode: 409, message: 'This approval is not in a state that can be actioned.' },
+  // Phase 2 Slice 1 M5: release-owner guard (D1). Only the admin who CLAIMED the
+  // approval, or a SUPER_ADMIN (force-release), may release it. An ordinary admin
+  // releasing another admin's claim is refused with this code.
+  APPROVAL_NOT_CLAIMER:           { statusCode: 403, message: 'Only the admin who claimed this approval, or a super admin, can release it.' },
   ACTION_TOKEN_INVALID:           { statusCode: 400, message: 'This action has expired. Please start again.' },
   PASSWORD_POLICY_VIOLATION:      { statusCode: 400, message: 'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.' },
   PASSWORD_CHANGE_REQUIRED:       { statusCode: 403, message: 'You must set a new password before continuing.' },
