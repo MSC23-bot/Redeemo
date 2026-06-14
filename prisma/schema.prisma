@@ -1498,12 +1498,14 @@ enum NotificationRecipientType {
   USER
   MERCHANT_ADMIN
   BRANCH_USER
+  ADMIN
 }
 
 enum NotificationChannel {
   PUSH
   EMAIL
   SMS
+  IN_APP
 }
 
 enum NotificationType {
@@ -1515,6 +1517,15 @@ enum NotificationType {
   CAMPAIGN_INVITE
   FEATURED_LISTING_UPDATE
   VOUCHER_EXPIRY_ALERT
+  // M2: explicit admin in-app notification types (plan §7.2). One per actioner /
+  // ops event so the bell can filter, group, and icon each, rather than a single
+  // generic admin type.
+  ADMIN_MERCHANT_SUBMITTED
+  ADMIN_MERCHANT_RESUBMITTED
+  ADMIN_CLAIM_STALE
+  ADMIN_OWNER_EMAIL_BOUNCED
+  ADMIN_DELIVERY_FAILED
+  ADMIN_REVIEW_ASSIGNED
 }
 
 enum CommunicationChannel {
@@ -1570,6 +1581,14 @@ model AdminApproval {
 model Notification {
   id            String                    @id @default(uuid())
   recipientType NotificationRecipientType
+  // M2: canonical recipient pointer, paired with recipientType (USER -> User id,
+  // MERCHANT_ADMIN -> MerchantAdmin id, BRANCH_USER -> BranchUser id, ADMIN ->
+  // AdminUser id). Polymorphic, so no DB FK; the notify() write-path enforces it
+  // is always set. `userId` below is the legacy customer FK relation, kept for
+  // USER rows only (== recipientId there). Bell queries by (recipientType,
+  // recipientId), never by joining CommunicationLog (delivery vs in-app stay
+  // separate).
+  recipientId   String
   userId        String?
   title         String
   body          String
@@ -1587,6 +1606,11 @@ model Notification {
   @@index([recipientType])
   @@index([isRead])
   @@index([sentAt])
+  // M2 bell-feed: unread count + unread list query by (recipientType,
+  // recipientId, isRead); the ordered feed by (recipientType, recipientId,
+  // sentAt).
+  @@index([recipientType, recipientId, isRead])
+  @@index([recipientType, recipientId, sentAt])
 }
 
 // ─────────────────────────────────────────
