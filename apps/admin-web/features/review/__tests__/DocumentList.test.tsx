@@ -9,7 +9,7 @@ import type { ReviewDocument } from '@/lib/api/review'
 function makeDoc(overrides: Partial<ReviewDocument> = {}): ReviewDocument {
   return {
     id: 'doc-1',
-    documentType: 'ID_PROOF',
+    documentType: 'BUSINESS_VERIFICATION_1',
     uploadedAt: '2026-06-01T10:00:00.000Z',
     url: 'https://example.com/signed-url',
     available: true,
@@ -25,8 +25,8 @@ describe('DocumentList', () => {
 
   it('renders a row for each document', () => {
     const docs = [
-      makeDoc({ id: 'doc-1', documentType: 'ID_PROOF' }),
-      makeDoc({ id: 'doc-2', documentType: 'COMPANY_REGISTRATION', url: null, available: false }),
+      makeDoc({ id: 'doc-1', documentType: 'BUSINESS_VERIFICATION_1' }),
+      makeDoc({ id: 'doc-2', documentType: 'AGREEMENT', url: null, available: false }),
     ]
     render(<DocumentList documents={docs} />)
     expect(screen.getByTestId('document-row-doc-1')).toBeInTheDocument()
@@ -64,17 +64,26 @@ describe('DocumentList', () => {
     expect(screen.getByText(/raw storage paths are never exposed/i)).toBeInTheDocument()
   })
 
-  it('renders human-readable document type labels', () => {
+  it('renders human-readable labels for the real Prisma DocumentType enum values', () => {
     render(
       <DocumentList
         documents={[
-          makeDoc({ id: 'doc-a', documentType: 'COMPANY_REGISTRATION' }),
-          makeDoc({ id: 'doc-b', documentType: 'BANK_STATEMENT' }),
+          makeDoc({ id: 'doc-a', documentType: 'BUSINESS_VERIFICATION_1' }),
+          makeDoc({ id: 'doc-b', documentType: 'BUSINESS_VERIFICATION_2' }),
+          makeDoc({ id: 'doc-c', documentType: 'PRICE_LIST' }),
+          makeDoc({ id: 'doc-d', documentType: 'AGREEMENT' }),
         ]}
       />
     )
-    expect(screen.getByText('Company registration')).toBeInTheDocument()
-    expect(screen.getByText('Bank statement')).toBeInTheDocument()
+    expect(screen.getByText('Business verification (1)')).toBeInTheDocument()
+    expect(screen.getByText('Business verification (2)')).toBeInTheDocument()
+    expect(screen.getByText('Price list')).toBeInTheDocument()
+    expect(screen.getByText('Agreement')).toBeInTheDocument()
+  })
+
+  it('falls back to the raw documentType string for unknown future enum values', () => {
+    render(<DocumentList documents={[makeDoc({ documentType: 'FUTURE_DOC_TYPE' })]} />)
+    expect(screen.getByText('FUTURE_DOC_TYPE')).toBeInTheDocument()
   })
 
   it('shows the count in the heading', () => {

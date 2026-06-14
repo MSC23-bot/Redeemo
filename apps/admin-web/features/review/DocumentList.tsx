@@ -15,13 +15,10 @@ interface DocumentListProps {
 
 function docTypeLabel(documentType: string): string {
   const map: Record<string, string> = {
-    ID_PROOF: 'ID proof',
-    COMPANY_REGISTRATION: 'Company registration',
-    BANK_STATEMENT: 'Bank statement',
-    TAX_DOCUMENT: 'Tax document',
-    LICENCE: 'Licence',
-    INSURANCE: 'Insurance',
-    OTHER: 'Other',
+    BUSINESS_VERIFICATION_1: 'Business verification (1)',
+    BUSINESS_VERIFICATION_2: 'Business verification (2)',
+    PRICE_LIST: 'Price list',
+    AGREEMENT: 'Agreement',
   }
   return map[documentType] ?? documentType
 }

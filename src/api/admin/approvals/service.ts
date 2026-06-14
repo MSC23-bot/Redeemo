@@ -754,7 +754,7 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
         }
       : null,
     branches,
-    vouchers: vouchers.map((v: any) => ({
+    vouchers: vouchers.map((v) => ({
       id: v.id,
       title: v.title,
       type: v.type,
@@ -781,7 +781,7 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
           documentsGated: false as const,
         }
       : null,
-    activity: activityRows.map((row: any) => ({
+    activity: activityRows.map((row) => ({
       id: row.id,
       event: row.event,
       createdAt: row.createdAt,

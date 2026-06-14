@@ -38,9 +38,6 @@ function FlagItem({ label, description, captured }: FlagItemProps) {
 }
 
 export function ThinAreaFlags({ thinAreas }: ThinAreaFlagsProps) {
-  // Note: thinAreas.documentsGated is part of the payload/type but is intentionally
-  // NOT listed as a gap here — it is a backend-gate informational flag, not a
-  // thin-area gap shown to the admin.
   const gaps = [
     {
       key: 'companyTypeCaptured' as const,
@@ -82,6 +79,16 @@ export function ThinAreaFlags({ thinAreas }: ThinAreaFlagsProps) {
         <h2 id="thin-areas-heading" className="text-sm font-semibold text-foreground mb-3">
           Known gaps in today's model
         </h2>
+        {thinAreas.documentsGated === false && (
+          <div
+            className="mb-3 rounded-lg border border-border bg-secondary/20 px-4 py-3"
+            data-testid="documents-not-gated-notice"
+          >
+            <p className="text-xs text-muted-foreground">
+              Documents are not required by the current submission gate.
+            </p>
+          </div>
+        )}
         <div className="rounded-lg border border-border bg-card px-4 py-4">
           <p className="text-sm text-muted-foreground">No gaps flagged for this submission.</p>
         </div>
@@ -94,6 +101,17 @@ export function ThinAreaFlags({ thinAreas }: ThinAreaFlagsProps) {
       <h2 id="thin-areas-heading" className="text-sm font-semibold text-foreground mb-3">
         Known gaps in today's model
       </h2>
+
+      {thinAreas.documentsGated === false && (
+        <div
+          className="mb-3 rounded-lg border border-border bg-secondary/20 px-4 py-3"
+          data-testid="documents-not-gated-notice"
+        >
+          <p className="text-xs text-muted-foreground">
+            Documents are not required by the current submission gate.
+          </p>
+        </div>
+      )}
 
       <div
         className={cn(

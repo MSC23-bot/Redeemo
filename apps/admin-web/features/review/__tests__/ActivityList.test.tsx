@@ -51,6 +51,11 @@ describe('ActivityList', () => {
     expect(screen.getByText('Merchant went live')).toBeInTheDocument()
   })
 
+  it('maps MERCHANT_CHANGES_REQUESTED to "Changes requested"', () => {
+    render(<ActivityList activity={[makeActivity({ event: 'MERCHANT_CHANGES_REQUESTED', actorType: 'ADMIN' })]} />)
+    expect(screen.getByText('Changes requested')).toBeInTheDocument()
+  })
+
   it('falls back to the raw event name for unknown events', () => {
     render(<ActivityList activity={[makeActivity({ event: 'SOME_FUTURE_EVENT' })]} />)
     expect(screen.getByText('SOME_FUTURE_EVENT')).toBeInTheDocument()

@@ -70,4 +70,27 @@ describe('ThinAreaFlags', () => {
     // Other gaps still show
     expect(screen.getByText('Company type')).toBeInTheDocument()
   })
+
+  it('surfaces the documentsGated notice when documentsGated is false', () => {
+    // documentsGated === false is an informational platform-model flag:
+    // "Documents are not required by the current submission gate."
+    // It must be surfaced to the admin regardless of whether other gaps exist.
+    render(<ThinAreaFlags thinAreas={{ ...makeFullyGapped(), documentsGated: false }} />)
+    expect(screen.getByTestId('documents-not-gated-notice')).toBeInTheDocument()
+    expect(
+      screen.getByText(/documents are not required by the current submission gate/i)
+    ).toBeInTheDocument()
+  })
+
+  it('does not surface the documentsGated notice when documentsGated is true', () => {
+    render(<ThinAreaFlags thinAreas={{ ...makeFullyGapped(), documentsGated: true }} />)
+    expect(screen.queryByTestId('documents-not-gated-notice')).not.toBeInTheDocument()
+  })
+
+  it('surfaces the documentsGated notice even when there are no other gaps (all-clear state)', () => {
+    render(<ThinAreaFlags thinAreas={{ ...makeFullyCaptured(), documentsGated: false }} />)
+    expect(screen.getByTestId('documents-not-gated-notice')).toBeInTheDocument()
+    // All-clear message still appears alongside the notice
+    expect(screen.getByText(/no gaps flagged/i)).toBeInTheDocument()
+  })
 })

@@ -14,18 +14,20 @@ interface ActivityListProps {
 }
 
 const EVENT_LABELS: Record<string, string> = {
-  MERCHANT_CREATED: 'Merchant created',
   MERCHANT_DRAFT_CREATED: 'Draft merchant created',
-  MERCHANT_GO_LIVE: 'Merchant went live',
+  MERCHANT_CONTRACT_ACCEPTED: 'Contract accepted',
+  MERCHANT_SUBMITTED_FOR_APPROVAL: 'Submitted for review',
+  MERCHANT_RESUBMITTED: 'Resubmitted for review',
   MERCHANT_APPROVAL_CLAIMED: 'Approval claimed',
   MERCHANT_APPROVAL_RELEASED: 'Approval released',
-  MERCHANT_APPROVAL_APPROVED: 'Approval approved',
+  MERCHANT_CHANGES_REQUESTED: 'Changes requested',
   MERCHANT_APPROVAL_REJECTED: 'Approval rejected',
-  MERCHANT_APPROVAL_CHANGES_REQUESTED: 'Changes requested',
-  MERCHANT_SUBMITTED_FOR_APPROVAL: 'Submitted for review',
+  MERCHANT_APPROVAL_APPROVED: 'Approval approved',
+  MERCHANT_GO_LIVE: 'Merchant went live',
   MERCHANT_SUSPENDED: 'Merchant suspended',
   MERCHANT_REACTIVATED: 'Merchant reactivated',
   MERCHANT_CLAIM_COMPLETED: 'Account claimed',
+  MEMBERSHIP_CREATED: 'Membership created',
   BRANCH_LOCATION_CONFIRMED: 'Branch location confirmed',
 }
 
