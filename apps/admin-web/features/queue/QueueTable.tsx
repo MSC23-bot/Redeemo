@@ -2,11 +2,15 @@
  * QueueTable — approval queue table.
  *
  * Columns: Merchant | Type | Waiting | Verification | Status | Owner
- * No action column. Rows are non-clickable (review = M4, actions = M5).
+ * No action column. Each row navigates to /queue/<id> (the review screen, M4).
+ * Actions remain M5.
  */
+import Link from 'next/link'
 import { UrgencyBadge } from './UrgencyBadge'
+import { Badge } from '@/features/shared/Badge'
 import { cn } from '@/lib/utils'
 import type { AdminApproval } from '@/lib/api/approvals'
+import type { BadgeTone } from '@/features/shared/Badge'
 
 // ── Derived display status ────────────────────────────────────────────────────
 
@@ -88,44 +92,49 @@ function MerchantAvatar({ name }: { name: string }) {
 }
 
 // ── Status badge ──────────────────────────────────────────────────────────────
+// CORRECT M4 colour semantics (per the M4 spec):
+//   Submitted       -> warn (amber) — waiting for admin action
+//   Under review    -> info (blue)  — claimed and being reviewed
+//   Changes requested -> danger (red) — action required from merchant
+
+function getStatusBadgeTone(label: string): BadgeTone {
+  if (label === 'Submitted') return 'warn'
+  if (label === 'Under review') return 'info'
+  if (label === 'Changes requested') return 'danger'
+  return 'neutral'
+}
 
 function StatusBadge({ label }: { label: string }) {
-  let colour = 'bg-secondary text-muted-foreground'
-  if (label === 'Submitted') colour = 'bg-blue-50 text-blue-700 border border-blue-200'
-  if (label === 'Under review')
-    colour = 'bg-amber-50 text-amber-700 border border-amber-200'
-  if (label === 'Changes requested')
-    colour = 'bg-orange-50 text-orange-700 border border-orange-200'
-
-  return (
-    <span className={cn('inline-flex rounded-full px-2 py-0.5 text-xs font-medium', colour)}>
-      {label}
-    </span>
-  )
+  return <Badge tone={getStatusBadgeTone(label)}>{label}</Badge>
 }
 
 // ── Verification badge ────────────────────────────────────────────────────────
+// Sentence-case labels (Verified / Pending / Rejected) — not ALL_CAPS.
+
+function getVerificationLabel(status: string): string {
+  if (status === 'VERIFIED') return 'Verified'
+  if (status === 'REJECTED') return 'Rejected'
+  if (status === 'PENDING') return 'Pending'
+  return status
+}
+
+function getVerificationTone(status: string): BadgeTone {
+  if (status === 'VERIFIED') return 'success'
+  if (status === 'REJECTED') return 'danger'
+  if (status === 'PENDING') return 'warn'
+  return 'neutral'
+}
 
 function VerificationBadge({ status }: { status: string }) {
-  let colour = 'bg-secondary text-muted-foreground'
-  if (status === 'VERIFIED') colour = 'bg-green-50 text-green-700 border border-green-200'
-  if (status === 'REJECTED') colour = 'bg-red-50 text-red-700 border border-red-200'
-  if (status === 'PENDING') colour = 'bg-yellow-50 text-yellow-700 border border-yellow-200'
   return (
-    <span className={cn('inline-flex rounded-full px-2 py-0.5 text-xs font-medium', colour)}>
-      {status}
-    </span>
+    <Badge tone={getVerificationTone(status)}>{getVerificationLabel(status)}</Badge>
   )
 }
 
 // ── Type badge ────────────────────────────────────────────────────────────────
 
 function TypeBadge({ type }: { type: AdminApproval['type'] }) {
-  return (
-    <span className="inline-flex rounded-full border border-border bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
-      {getTypeLabel(type)}
-    </span>
-  )
+  return <Badge tone="neutral">{getTypeLabel(type)}</Badge>
 }
 
 // ── Table ─────────────────────────────────────────────────────────────────────
@@ -179,15 +188,23 @@ export function QueueTable({ items, currentAdminId }: QueueTableProps) {
                 key={item.id}
                 className={cn(
                   'border-b border-border last:border-0',
-                  idx % 2 === 0 ? 'bg-card' : 'bg-secondary/10'
+                  idx % 2 === 0 ? 'bg-card' : 'bg-secondary/10',
+                  'hover:bg-muted/40 transition-colors'
                 )}
               >
-                {/* Merchant */}
+                {/* Merchant — cell contains the row-level link */}
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
+                  <Link
+                    href={`/queue/${item.id}`}
+                    className={cn(
+                      'flex items-center gap-3',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm'
+                    )}
+                    aria-label={`Review ${businessName}`}
+                  >
                     <MerchantAvatar name={businessName} />
                     <span className="font-medium text-foreground">{businessName}</span>
-                  </div>
+                  </Link>
                 </td>
 
                 {/* Type */}

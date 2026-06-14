@@ -147,22 +147,33 @@ describe('QueueTable urgency', () => {
   })
 })
 
-// ── No action buttons ─────────────────────────────────────────────────────────
+// ── Navigation + no action buttons ───────────────────────────────────────────
 
-describe('QueueTable no action/navigation', () => {
-  it('does not render Review or Claim buttons', () => {
-    render(<QueueTable items={[makeApproval()]} currentAdminId={CURRENT_ADMIN} />)
-    expect(screen.queryByRole('button', { name: /review/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /claim/i })).not.toBeInTheDocument()
+describe('QueueTable navigation', () => {
+  it('renders a review link per row pointing to /queue/<id>', () => {
+    const approval = makeApproval({ id: 'a-nav-1' })
+    render(<QueueTable items={[approval]} currentAdminId={CURRENT_ADMIN} />)
+    const link = screen.getByRole('link', { name: /review acme coffee/i })
+    expect(link).toHaveAttribute('href', '/queue/a-nav-1')
   })
 
-  it('rows are not links or interactive buttons', () => {
+  it('renders one review link per row (multiple rows)', () => {
+    const items = [
+      makeApproval({ id: 'a-r1' }),
+      makeApproval({ id: 'a-r2', merchant: { id: 'm-2', businessName: 'Bean Scene', status: 'PENDING_APPROVAL', onboardingStep: 'SUBMIT_FOR_REVIEW', verificationStatus: 'PENDING', contractStatus: 'SIGNED' } }),
+    ]
+    render(<QueueTable items={items} currentAdminId={CURRENT_ADMIN} />)
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(2)
+    expect(links[0]).toHaveAttribute('href', '/queue/a-r1')
+    expect(links[1]).toHaveAttribute('href', '/queue/a-r2')
+  })
+
+  it('does not render Approve, Reject, Claim, or Release action buttons', () => {
     render(<QueueTable items={[makeApproval()]} currentAdminId={CURRENT_ADMIN} />)
-    // No anchor elements in the table rows.
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
-    // The only interactive elements should be the Stale/You text (spans).
-    const rows = screen.getAllByRole('row')
-    // row[0] is the header; row[1] is the data row.
-    expect(rows).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /reject/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /claim/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /release/i })).not.toBeInTheDocument()
   })
 })
