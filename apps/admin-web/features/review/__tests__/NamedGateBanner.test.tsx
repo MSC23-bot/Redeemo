@@ -79,6 +79,74 @@ describe('NamedGateBanner code mapping', () => {
   })
 })
 
+describe('NamedGateBanner ONBOARDING_GATES_INCOMPLETE inline gate list', () => {
+  function makeGatesError(checklist: {
+    branch_created?: boolean
+    contract_signed?: boolean
+    rmv_configured?: boolean
+  }): ApiError {
+    return new ApiError(422, {
+      error: {
+        code: 'ONBOARDING_GATES_INCOMPLETE',
+        message: 'Gates incomplete',
+        checklist,
+      },
+    })
+  }
+
+  it('renders the "Still needed" list with labels for each false gate', () => {
+    const err = makeGatesError({ branch_created: true, contract_signed: false, rmv_configured: false })
+    render(<NamedGateBanner error={err} />)
+    const list = screen.getByTestId('named-gate-banner-unmet-list')
+    expect(list).toBeInTheDocument()
+    expect(list).toHaveTextContent('A signed contract')
+    expect(list).toHaveTextContent('2 mandatory RMV vouchers')
+    expect(list).not.toHaveTextContent('At least one branch')
+  })
+
+  it('renders all three gate labels when all three are false', () => {
+    const err = makeGatesError({ branch_created: false, contract_signed: false, rmv_configured: false })
+    render(<NamedGateBanner error={err} />)
+    const list = screen.getByTestId('named-gate-banner-unmet-list')
+    expect(list).toHaveTextContent('At least one branch')
+    expect(list).toHaveTextContent('A signed contract')
+    expect(list).toHaveTextContent('2 mandatory RMV vouchers')
+  })
+
+  it('renders only the one unmet gate when two are met', () => {
+    const err = makeGatesError({ branch_created: true, contract_signed: true, rmv_configured: false })
+    render(<NamedGateBanner error={err} />)
+    const list = screen.getByTestId('named-gate-banner-unmet-list')
+    expect(list).toHaveTextContent('2 mandatory RMV vouchers')
+    expect(list).not.toHaveTextContent('At least one branch')
+    expect(list).not.toHaveTextContent('A signed contract')
+  })
+
+  it('does NOT render the "Still needed" list when all gates are true (fully met)', () => {
+    const err = makeGatesError({ branch_created: true, contract_signed: true, rmv_configured: true })
+    render(<NamedGateBanner error={err} />)
+    expect(screen.queryByTestId('named-gate-banner-unmet-list')).not.toBeInTheDocument()
+  })
+
+  it('does NOT render the "Still needed" list for a different error code', () => {
+    render(<NamedGateBanner error={makeApiError('APPROVAL_NOT_ACTIONABLE')} />)
+    expect(screen.queryByTestId('named-gate-banner-unmet-list')).not.toBeInTheDocument()
+  })
+
+  it('still keeps the generic message as the first line', () => {
+    const err = makeGatesError({ branch_created: false, contract_signed: true, rmv_configured: true })
+    render(<NamedGateBanner error={err} />)
+    const banner = screen.getByTestId('named-gate-banner')
+    expect(banner).toHaveTextContent('Cannot go live: not all onboarding requirements are complete.')
+  })
+
+  it('includes "Still needed:" heading text when there are unmet gates', () => {
+    const err = makeGatesError({ branch_created: false, contract_signed: true, rmv_configured: true })
+    render(<NamedGateBanner error={err} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('Still needed:')
+  })
+})
+
 describe('failedChecklistGates', () => {
   it('returns the checklist for ONBOARDING_GATES_INCOMPLETE', () => {
     const checklist = { branch_created: true, contract_signed: false, rmv_configured: false }

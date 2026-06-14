@@ -37,6 +37,7 @@ import { RequestChangesDialog } from '@/features/review/RequestChangesDialog'
 import { RejectDialog } from '@/features/review/RejectDialog'
 import { ApproveConfirm } from '@/features/review/ApproveConfirm'
 import { Button } from '@/components/ui/button'
+import { NamedGateBanner } from '@/features/review/NamedGateBanner'
 
 // ── Shared loading / error / forbidden ───────────────────────────────────────
 
@@ -238,6 +239,12 @@ export default function ReviewPage({ params }: ReviewPageProps) {
           )}
         </div>
       </div>
+      {/* Topbar release error: shown only for the claimer's own Release path. */}
+      {showTopbarRelease && releaseMutation.error && (
+        <div data-testid="topbar-release-error">
+          <NamedGateBanner error={releaseMutation.error} />
+        </div>
+      )}
 
       {/* Content */}
       {isLoading ? (
@@ -289,9 +296,9 @@ export default function ReviewPage({ params }: ReviewPageProps) {
               adminId={adminId}
               role={role}
               can={can}
-              onRequestChanges={() => setOpenDialog('request-changes')}
-              onReject={() => setOpenDialog('reject')}
-              onApprove={() => setOpenDialog('approve')}
+              onRequestChanges={() => { setFailedGates(null); setOpenDialog('request-changes') }}
+              onReject={() => { setFailedGates(null); setOpenDialog('reject') }}
+              onApprove={() => { setFailedGates(null); setOpenDialog('approve') }}
               claim={claimMutation}
               release={releaseMutation}
             />

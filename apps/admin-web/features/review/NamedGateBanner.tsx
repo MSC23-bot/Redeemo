@@ -16,6 +16,13 @@
  */
 import { ApiError } from '@/lib/api/client'
 
+// Friendly labels for each gate that can fail under ONBOARDING_GATES_INCOMPLETE.
+const GATE_LABELS: Record<string, string> = {
+  branch_created: 'At least one branch',
+  contract_signed: 'A signed contract',
+  rmv_configured: '2 mandatory RMV vouchers',
+}
+
 const CODE_MESSAGES: Record<string, string> = {
   ONBOARDING_GATES_INCOMPLETE:
     'Cannot go live: not all onboarding requirements are complete.',
@@ -46,13 +53,36 @@ interface NamedGateBannerProps {
 
 export function NamedGateBanner({ error }: NamedGateBannerProps) {
   const message = getMessage(error)
+
+  // For ONBOARDING_GATES_INCOMPLETE, list the specific unmet gates inside the banner
+  // so the admin sees what blocked approval without closing the dialog.
+  const isGatesIncomplete =
+    error instanceof ApiError && error.code === 'ONBOARDING_GATES_INCOMPLETE'
+  const checklist = isGatesIncomplete ? failedChecklistGates(error) : null
+  const unmetGates =
+    checklist != null
+      ? (Object.keys(GATE_LABELS) as (keyof typeof GATE_LABELS)[]).filter(
+          (key) => checklist[key as keyof typeof checklist] === false
+        )
+      : []
+
   return (
     <div
       role="alert"
       data-testid="named-gate-banner"
       className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
     >
-      {message}
+      <p>{message}</p>
+      {isGatesIncomplete && unmetGates.length > 0 && (
+        <div className="mt-2">
+          <p className="font-medium">Still needed:</p>
+          <ul className="mt-1 list-disc pl-5" data-testid="named-gate-banner-unmet-list">
+            {unmetGates.map((key) => (
+              <li key={key}>{GATE_LABELS[key]}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }
