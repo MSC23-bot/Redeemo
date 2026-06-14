@@ -67,6 +67,15 @@ describe('QueuePage capability gate', () => {
     expect(screen.queryByRole('heading', { name: /approval queue/i })).not.toBeInTheDocument()
   })
 
+  it('calls useQueue with enabled:false when the admin lacks approval:read', () => {
+    mockSession({ can: () => false })
+    mockQueue()
+
+    render(<QueuePage />)
+
+    expect(mockedUseQueue).toHaveBeenCalledWith({ enabled: false })
+  })
+
   it('authorised admin does NOT see the forbidden state', () => {
     mockSession({ can: () => true })
     mockQueue()
@@ -75,6 +84,15 @@ describe('QueuePage capability gate', () => {
 
     expect(screen.queryByText(/access denied/i)).not.toBeInTheDocument()
     expect(screen.getByText('Approval queue')).toBeInTheDocument()
+  })
+
+  it('calls useQueue with enabled:true when the admin has approval:read', () => {
+    mockSession({ can: () => true })
+    mockQueue()
+
+    render(<QueuePage />)
+
+    expect(mockedUseQueue).toHaveBeenCalledWith({ enabled: true })
   })
 
   it('shows the loader (not forbidden) while session is not yet ready', () => {
@@ -94,6 +112,23 @@ describe('QueuePage capability gate', () => {
     // Lucide SVGs render as inaccessible in JSDOM; query by label text directly.
     expect(screen.getByLabelText(/loading/i)).toBeInTheDocument()
     expect(screen.queryByText(/access denied/i)).not.toBeInTheDocument()
+  })
+
+  it('calls useQueue with enabled:false when the session is not yet ready', () => {
+    mockedUseSession.mockReturnValue({
+      ready: false,
+      isAuthenticated: false,
+      role: null,
+      email: null,
+      adminId: null,
+      can: () => false,
+      refresh: jest.fn(),
+    })
+    mockQueue()
+
+    render(<QueuePage />)
+
+    expect(mockedUseQueue).toHaveBeenCalledWith({ enabled: false })
   })
 })
 

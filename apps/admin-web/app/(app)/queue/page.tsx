@@ -84,8 +84,9 @@ function filterItems(items: AdminApproval[], active: StatusFilterValue): AdminAp
 
 export default function QueuePage() {
   const { ready, can, adminId } = useSession()
+  const canRead = ready && can('approval:read')
   const { items, counts, isLoading, isError, isFetching, refetch, dataUpdatedAt } =
-    useQueue()
+    useQueue({ enabled: canRead })
   const [activeFilter, setActiveFilter] = useState<StatusFilterValue>('all')
 
   if (!ready) {

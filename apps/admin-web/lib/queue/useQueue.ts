@@ -7,6 +7,10 @@
  * 'CHANGES_REQUESTED', each pageSize: 100 — note the 100-per-status cap)
  * inside ONE queryFn, merges arrays, and sorts oldest-first by submittedAt.
  * Refetches every 45 seconds but pauses when the tab is in the background.
+ *
+ * Pass `enabled: false` to suppress the network request entirely (e.g. while
+ * the session is not yet ready or the caller lacks the `approval:read` capability).
+ * Defaults to `true` so the no-arg call behaves as before.
  */
 import { useQuery } from '@tanstack/react-query'
 import { approvalsApi } from '@/lib/api/approvals'
@@ -31,7 +35,7 @@ export type UseQueueResult = {
   dataUpdatedAt: number
 }
 
-export function useQueue(): UseQueueResult {
+export function useQueue(options?: { enabled?: boolean }): UseQueueResult {
   const query = useQuery({
     queryKey: QUEUE_KEY,
     queryFn: async (): Promise<AdminApproval[]> => {
@@ -47,6 +51,7 @@ export function useQueue(): UseQueueResult {
       )
       return merged
     },
+    enabled: options?.enabled ?? true,
     refetchInterval: 45_000,
     refetchIntervalInBackground: false,
   })

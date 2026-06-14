@@ -160,4 +160,33 @@ describe('useQueue', () => {
     // The hook should not throw and should provide the refetch function.
     expect(typeof result.current.refetch).toBe('function')
   })
+
+  it('does NOT call approvalsApi.list when enabled is false', async () => {
+    mockedList.mockResolvedValue({ page: 1, pageSize: 100, total: 0, approvals: [] })
+
+    const { result } = renderHook(() => useQueue({ enabled: false }), {
+      wrapper: makeWrapper(),
+    })
+
+    // Give React Query a tick to potentially fire the queryFn.
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(mockedList).not.toHaveBeenCalled()
+  })
+
+  it('calls approvalsApi.list with PENDING and CHANGES_REQUESTED when enabled is true', async () => {
+    mockedList
+      .mockResolvedValueOnce({ page: 1, pageSize: 100, total: 0, approvals: [] })
+      .mockResolvedValueOnce({ page: 1, pageSize: 100, total: 0, approvals: [] })
+
+    const { result } = renderHook(() => useQueue({ enabled: true }), {
+      wrapper: makeWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(mockedList).toHaveBeenCalledTimes(2)
+    const statuses = mockedList.mock.calls.map((c) => c[0]?.status).sort()
+    expect(statuses).toEqual(['CHANGES_REQUESTED', 'PENDING'])
+  })
 })
