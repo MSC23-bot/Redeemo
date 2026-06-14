@@ -86,6 +86,18 @@ describe('useSuspend', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: QUEUE_KEY })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: reviewQueryKey(APPROVAL_ID) })
   })
+
+  it('invalidates the queue AND the review on ERROR (stale state moved on)', async () => {
+    ;(merchantsApi.suspend as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useSuspend(MERCHANT_ID, APPROVAL_ID), { wrapper: Wrapper })
+
+    result.current.mutate('Fraud.')
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: QUEUE_KEY })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: reviewQueryKey(APPROVAL_ID) })
+  })
 })
 
 describe('useReactivate', () => {
@@ -100,6 +112,18 @@ describe('useReactivate', () => {
     result.current.mutate()
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: QUEUE_KEY })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: reviewQueryKey(APPROVAL_ID) })
+  })
+
+  it('invalidates the queue AND the review on ERROR (stale state moved on)', async () => {
+    ;(merchantsApi.reactivate as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useReactivate(MERCHANT_ID, APPROVAL_ID), { wrapper: Wrapper })
+
+    result.current.mutate()
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: QUEUE_KEY })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: reviewQueryKey(APPROVAL_ID) })
   })
@@ -119,6 +143,18 @@ describe('useConfirmLocation', () => {
     result.current.mutate({ branchId: 'br-1', input: { latitude: 1, longitude: 2 } })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: reviewQueryKey(APPROVAL_ID) })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: QUEUE_KEY })
+  })
+
+  it('invalidates the review ONLY (not the queue) on ERROR', async () => {
+    ;(branchesApi.confirmLocation as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useConfirmLocation(APPROVAL_ID), { wrapper: Wrapper })
+
+    result.current.mutate({ branchId: 'br-1', input: { latitude: 1, longitude: 2 } })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: reviewQueryKey(APPROVAL_ID) })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: QUEUE_KEY })
   })

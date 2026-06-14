@@ -133,6 +133,16 @@ describe('ConfirmLocationDialog submit', () => {
   })
 })
 
+describe('ConfirmLocationDialog pending state', () => {
+  it('disables the submit button while the mutation is pending (valid coords entered)', () => {
+    mockMutation.isPending = true
+    renderDialog()
+    // Enter valid in-range coords so isPending is the sole disabler.
+    setCoords('53.645', '-1.783')
+    expect(screen.getByTestId('confirm-location-submit')).toBeDisabled()
+  })
+})
+
 describe('ConfirmLocationDialog error banner', () => {
   it('renders the BRANCH_NOT_FOUND copy on error', () => {
     const err = new ApiError(404, { error: { code: 'BRANCH_NOT_FOUND', message: 'Not found' } })

@@ -124,6 +124,7 @@ export function CreateDraftForm({ onCreated }: CreateDraftFormProps) {
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    if (mutation.isPending) return
     const nextErrors = validate({ businessName, ownerEmail, ownerFirstName, ownerLastName })
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return

@@ -72,6 +72,14 @@ describe('ReactivateConfirm submit', () => {
   })
 })
 
+describe('ReactivateConfirm pending state', () => {
+  it('disables the confirm button while the mutation is pending', () => {
+    mockMutation.isPending = true
+    renderDialog()
+    expect(screen.getByTestId('reactivate-submit')).toBeDisabled()
+  })
+})
+
 describe('ReactivateConfirm error banner', () => {
   it('renders the MERCHANT_NOT_SUSPENDED copy when the mutation errors', () => {
     const err = new ApiError(409, { error: { code: 'MERCHANT_NOT_SUSPENDED', message: 'Not suspended' } })
