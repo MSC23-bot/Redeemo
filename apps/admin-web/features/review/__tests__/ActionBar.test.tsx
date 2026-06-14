@@ -186,6 +186,18 @@ describe('ActionBar claimed-by-me PENDING', () => {
     fireEvent.click(screen.getByTestId('action-bar-approve-btn'))
     expect(onApprove).toHaveBeenCalledTimes(1)
   })
+
+  it('SUPER_ADMIN who is also the claimer sees the claimer bar, not force-release', () => {
+    // Branch ordering pin: claimed-by-me is checked before claimed-by-other,
+    // so a SUPER_ADMIN whose adminId equals the claimer gets the full action bar.
+    renderBar({ approval, role: 'SUPER_ADMIN', adminId: 'admin-me' })
+    expect(screen.getByTestId('action-bar-claimed-by-me')).toBeInTheDocument()
+    expect(screen.getByTestId('action-bar-request-changes-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('action-bar-reject-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('action-bar-approve-btn')).toBeInTheDocument()
+    expect(screen.queryByTestId('action-bar-force-release-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('action-bar-claimed-by-other')).not.toBeInTheDocument()
+  })
 })
 
 // ── Claimed by other — OPERATIONS ────────────────────────────────────────────

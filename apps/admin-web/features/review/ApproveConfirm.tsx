@@ -9,7 +9,7 @@
  */
 'use client'
 
-import { type KeyboardEvent } from 'react'
+import { useEffect, useRef, type KeyboardEvent } from 'react'
 import { useApprove } from '@/lib/review/useReviewActions'
 import { NamedGateBanner, failedChecklistGates } from './NamedGateBanner'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,13 @@ export function ApproveConfirm({
   onGateFail,
 }: ApproveConfirmProps) {
   const mutation = useApprove(approvalId)
+  const cancelRef = useRef<HTMLButtonElement>(null)
+
+  // Move focus to Cancel (the safe default) when the dialog opens, so keyboard
+  // focus does not stay on the trigger behind the scrim.
+  useEffect(() => {
+    cancelRef.current?.focus()
+  }, [])
 
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'Escape') {
@@ -74,7 +81,11 @@ export function ApproveConfirm({
       >
         <h2 className="mb-3 text-base font-semibold text-foreground">Approve and go live?</h2>
 
-        <p className="text-sm text-foreground" data-testid="approve-consequences-copy">
+        <p
+          id="approve-consequences-copy"
+          className="text-sm text-foreground"
+          data-testid="approve-consequences-copy"
+        >
           The server re-checks every go-live gate, activates the 2 mandatory RMV vouchers,
           emails the owner that they are live, and makes this merchant visible to customers.
         </p>
@@ -89,6 +100,7 @@ export function ApproveConfirm({
         {/* Actions */}
         <div className="mt-6 flex justify-end gap-3">
           <Button
+            ref={cancelRef}
             type="button"
             variant="outline"
             onClick={onCancel}
@@ -101,6 +113,7 @@ export function ApproveConfirm({
             type="button"
             onClick={handleApprove}
             disabled={mutation.isPending}
+            aria-describedby="approve-consequences-copy"
             data-testid="approve-submit"
           >
             {mutation.isPending ? 'Approving...' : 'Approve and go live'}

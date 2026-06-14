@@ -102,6 +102,16 @@ describe('RejectDialog submission gating', () => {
     fireEvent.click(screen.getByTestId('reject-confirm-checkbox'))
     expect(screen.getByTestId('reject-submit')).not.toBeDisabled()
   })
+
+  it('submit stays disabled when the reason is whitespace-only and checkbox is checked', () => {
+    // The code gates on reason.trim(), so a blank reason must not unlock submit.
+    renderDialog()
+    fireEvent.change(screen.getByTestId('reject-reason-textarea'), {
+      target: { value: '     ' },
+    })
+    fireEvent.click(screen.getByTestId('reject-confirm-checkbox'))
+    expect(screen.getByTestId('reject-submit')).toBeDisabled()
+  })
 })
 
 // ── Submit ────────────────────────────────────────────────────────────────────
@@ -120,6 +130,21 @@ describe('RejectDialog submit', () => {
       expect(mockMutateAsync).toHaveBeenCalledWith('Duplicate account.')
     })
     expect(onSuccess).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── Pending state ─────────────────────────────────────────────────────────────
+
+describe('RejectDialog pending state', () => {
+  it('disables submit while the reject mutation is pending (no double-submit)', () => {
+    mockMutation.isPending = true
+    renderDialog()
+    // Fill a valid reason and check the box so the ONLY thing disabling submit is isPending.
+    fireEvent.change(screen.getByTestId('reject-reason-textarea'), {
+      target: { value: 'Duplicate account.' },
+    })
+    fireEvent.click(screen.getByTestId('reject-confirm-checkbox'))
+    expect(screen.getByTestId('reject-submit')).toBeDisabled()
   })
 })
 

@@ -162,3 +162,13 @@ describe('ApproveConfirm gate failure', () => {
     expect(onSuccess).not.toHaveBeenCalled()
   })
 })
+
+// ── Pending state ─────────────────────────────────────────────────────────────
+
+describe('ApproveConfirm pending state', () => {
+  it('disables the Approve submit button while the mutation is pending (no double-submit)', () => {
+    mockMutation.isPending = true
+    renderDialog()
+    expect(screen.getByTestId('approve-submit')).toBeDisabled()
+  })
+})
