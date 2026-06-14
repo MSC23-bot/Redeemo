@@ -190,9 +190,11 @@ export async function notify(prisma: PrismaClient, redis: Redis, input: NotifyIn
           recipientType: input.recipientType as NotificationRecipientType,
           // recipientId is the canonical recipient pointer for all types (M2).
           recipientId: input.recipientId,
-          // userId is the legacy USER-only FK: populated only when recipientType
-          // is USER (equals recipientId); null for MERCHANT_ADMIN/BRANCH_USER/ADMIN.
-          userId: input.userId ?? null,
+          // userId is the legacy USER-only FK, DERIVED from recipientType so the
+          // invariant cannot be violated by a caller: a USER row always has
+          // userId === recipientId; every non-USER row (MERCHANT_ADMIN/BRANCH_USER/
+          // ADMIN) has userId null — independent of whatever input.userId carries.
+          userId: input.recipientType === 'USER' ? input.recipientId : null,
           title: input.inApp.title,
           body: input.inApp.body,
           type: input.inApp.notificationType,

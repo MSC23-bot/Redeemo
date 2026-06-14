@@ -161,6 +161,45 @@ describe('notify — outbox row + enqueue', () => {
     })
   })
 
+  it('M2 invariant: USER inApp DERIVES userId from recipientId even when the caller omits input.userId', async () => {
+    const { prisma, createNotif } = fakePrisma()
+    await notify(prisma, fakeRedis(), {
+      to: 'user@example.com',
+      recipientType: 'USER',
+      recipientId: 'user-77',
+      // input.userId intentionally OMITTED — the write-path must derive it from recipientType.
+      type: 'some_user_notification',
+      email: { subject: 'Hi', html: '<p>Hi</p>' },
+      inApp: { notificationType: NotificationType.MERCHANT_VERIFICATION_UPDATE, title: 'Hi', body: 'Body' },
+    })
+    expect(createNotif).toHaveBeenCalledTimes(1)
+    const data = (createNotif.mock.calls[0][0] as { data: Record<string, unknown> }).data
+    expect(data).toMatchObject({
+      recipientType: 'USER',
+      recipientId: 'user-77',
+      // derived (recipientType === USER ⇒ userId === recipientId), NOT taken from input.
+      userId: 'user-77',
+      channel: 'IN_APP',
+    })
+  })
+
+  it('M2 invariant: a non-USER inApp FORCES Notification.userId null even if a caller wrongly passes one', async () => {
+    const { prisma, createNotif } = fakePrisma()
+    await notify(prisma, fakeRedis(), {
+      to: 'admin@merchant.com',
+      recipientType: 'MERCHANT_ADMIN',
+      recipientId: 'ma-1',
+      userId: 'sneaky-user-id', // a caller mistake — the write-path must ignore it for non-USER rows.
+      type: 'merchant_changes_requested',
+      email: { subject: 'x', html: '<p>x</p>' },
+      inApp: { notificationType: NotificationType.MERCHANT_VERIFICATION_UPDATE, title: 'x', body: 'y' },
+    })
+    expect(createNotif).toHaveBeenCalledTimes(1)
+    const data = (createNotif.mock.calls[0][0] as { data: Record<string, unknown> }).data
+    expect(data.userId).toBeNull()
+    expect(data).toMatchObject({ recipientType: 'MERCHANT_ADMIN', recipientId: 'ma-1', channel: 'IN_APP' })
+  })
+
   it('M2 write-path: ADMIN inApp SUCCEEDS and writes recipientType ADMIN + recipientId + channel IN_APP + userId null', async () => {
     const { prisma, createNotif, createLog } = fakePrisma()
     const res = await notify(prisma, fakeRedis(), {
