@@ -770,15 +770,17 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
     })),
     documents: resolvedDocuments,
     checklist,
-    thinAreas: {
-      documentsUploaded: documents.length > 0,
-      companyTypeCaptured: false as const,
-      registeredOfficeCaptured: false as const,
-      sectorEvidenceCaptured: false as const,
-      companyNumberProvided: merchant?.companyNumber != null,
-      vatNumberProvided: merchant?.vatNumber != null,
-      documentsGated: false as const,
-    },
+    thinAreas: merchant
+      ? {
+          documentsUploaded: documents.length > 0,
+          companyTypeCaptured: false as const,
+          registeredOfficeCaptured: false as const,
+          sectorEvidenceCaptured: false as const,
+          companyNumberProvided: merchant.companyNumber != null,
+          vatNumberProvided: merchant.vatNumber != null,
+          documentsGated: false as const,
+        }
+      : null,
     activity: activityRows.map((row: any) => ({
       id: row.id,
       event: row.event,

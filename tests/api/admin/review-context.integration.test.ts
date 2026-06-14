@@ -17,6 +17,7 @@ let merchantId = ''
 let approvalId = ''
 let mainBranchId = ''
 let secondBranchId = ''
+let deletedBranchId = ''
 let rmv1Id = ''
 let rmv2Id = ''
 let docId = ''
@@ -107,6 +108,24 @@ beforeAll(async () => {
   })
   secondBranchId = secondBranch.id
 
+  // Seed a soft-deleted branch (deletedAt set) — MUST be excluded from the
+  // review-context branches (§BRANCHDEL: the deletedAt: null filter).
+  const deletedBranch = await prisma.branch.create({
+    data: {
+      merchantId,
+      name: 'Review Co Closed',
+      isMainBranch: false,
+      addressLine1: '3 Review Lane',
+      city: 'London',
+      postcode: 'N1 1AA',
+      isActive: false,
+      locationConfidence: 'POSTCODE_CENTROID',
+      deletedAt: new Date(),
+      redemptionPin: 'DELETED_BRANCH_PIN_MUST_NOT_APPEAR',
+    },
+  })
+  deletedBranchId = deletedBranch.id
+
   // Seed 2 RMV vouchers
   const rmv1 = await prisma.voucher.create({
     data: {
@@ -171,6 +190,19 @@ beforeAll(async () => {
       actorType: 'ADMIN',
     },
   })
+  // Seed a non-ADMIN actor row (SYSTEM): the code only resolves names for
+  // actorType === 'ADMIN', so this row MUST surface with actor: null.
+  await prisma.auditLog.create({
+    data: {
+      entityId: merchantId,
+      entityType: 'merchant',
+      event: 'MERCHANT_GO_LIVE',
+      ipAddress: '127.0.0.1',
+      userAgent: 'test',
+      actorId: null,
+      actorType: 'SYSTEM',
+    },
+  })
 
   // Seed the primary onboarding approval
   const approval = await prisma.adminApproval.create({
@@ -203,7 +235,7 @@ afterAll(async () => {
   await prisma.merchantDocument.deleteMany({ where: { id: docId } })
   await prisma.auditLog.deleteMany({ where: { entityId: merchantId } })
   await prisma.voucher.deleteMany({ where: { id: { in: [rmv1Id, rmv2Id] } } })
-  await prisma.branch.deleteMany({ where: { id: { in: [mainBranchId, secondBranchId] } } })
+  await prisma.branch.deleteMany({ where: { id: { in: [mainBranchId, secondBranchId, deletedBranchId] } } })
   const adminIds = (
     await prisma.merchantMembership.findMany({ where: { merchantId }, select: { merchantAdminId: true } })
   ).map((r: { merchantAdminId: string }) => r.merchantAdminId)
@@ -257,6 +289,7 @@ describe('M4 review context — branch safety (no redemptionPin)', () => {
   it('returns 2 branches and redemptionPin is NEVER present on any returned branch', async () => {
     const result = await getReviewContext(prisma, approvalId)
 
+    // Only the 2 non-deleted branches are returned (a 3rd soft-deleted branch is seeded).
     expect(Array.isArray(result.branches)).toBe(true)
     expect(result.branches.length).toBe(2)
 
@@ -271,6 +304,10 @@ describe('M4 review context — branch safety (no redemptionPin)', () => {
     const mainBranch = result.branches.find((b: any) => b.isMainBranch)
     expect(mainBranch).toBeTruthy()
     expect((mainBranch as any).name).toBe('Review Co Main')
+
+    // §BRANCHDEL: the soft-deleted (deletedAt) branch MUST be excluded.
+    const returnedIds = result.branches.map((b: any) => b.id)
+    expect(returnedIds).not.toContain(deletedBranchId)
   })
 })
 
@@ -391,6 +428,12 @@ describe('M4 review context — activity (audit log)', () => {
     expect((claimedRow as any).actor).not.toBeNull()
     expect((claimedRow as any).actor.id).toBe(adminUserId)
     expect((claimedRow as any).actor.name).toBe('Ada Admin')
+
+    // A non-ADMIN actor (SYSTEM) resolves to actor: null — names are only
+    // resolved for actorType === 'ADMIN'.
+    const systemRow = result.activity.find((a: any) => a.actorType === 'SYSTEM')
+    expect(systemRow).toBeTruthy()
+    expect((systemRow as any).actor).toBeNull()
   })
 })
 
