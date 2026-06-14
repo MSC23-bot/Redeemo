@@ -6,7 +6,7 @@
  *   amber     -> warm warning colour
  *   red       -> destructive brand red
  */
-import { urgencyForAge, formatWaiting, urgencyTextClass } from '@/lib/queue/urgency'
+import { urgencyForAge, formatWaiting, urgencyTextClass, type Urgency } from '@/lib/queue/urgency'
 import { cn } from '@/lib/utils'
 
 interface UrgencyBadgeProps {
@@ -15,9 +15,17 @@ interface UrgencyBadgeProps {
   now?: number
 }
 
+/** Maps urgency level to a screen-reader-only severity suffix. */
+function urgencySrSuffix(urgency: Urgency): string {
+  if (urgency === 'red') return ' (urgent)'
+  if (urgency === 'amber') return ' (warning)'
+  return ''
+}
+
 export function UrgencyBadge({ submittedAtIso, now }: UrgencyBadgeProps) {
   const urgency = urgencyForAge(submittedAtIso, now)
   const label = formatWaiting(submittedAtIso, now)
+  const srSuffix = urgencySrSuffix(urgency)
 
   return (
     <span
@@ -28,6 +36,9 @@ export function UrgencyBadge({ submittedAtIso, now }: UrgencyBadgeProps) {
       )}
     >
       {label}
+      {srSuffix && (
+        <span className="sr-only">{srSuffix}</span>
+      )}
     </span>
   )
 }

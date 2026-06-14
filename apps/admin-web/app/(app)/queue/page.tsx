@@ -83,10 +83,14 @@ function filterItems(items: AdminApproval[], active: StatusFilterValue): AdminAp
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function QueuePage() {
-  const { can, adminId } = useSession()
+  const { ready, can, adminId } = useSession()
   const { items, counts, isLoading, isError, isFetching, refetch, dataUpdatedAt } =
     useQueue()
   const [activeFilter, setActiveFilter] = useState<StatusFilterValue>('all')
+
+  if (!ready) {
+    return <LoadingState />
+  }
 
   if (!can('approval:read')) {
     return <ForbiddenState />

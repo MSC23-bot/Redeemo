@@ -149,22 +149,22 @@ export function QueueTable({ items, currentAdminId }: QueueTableProps) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-secondary/40">
-            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
               Merchant
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
               Type
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
               Waiting
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
               Verification
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
               Status
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
               Owner
             </th>
           </tr>

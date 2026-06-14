@@ -66,6 +66,35 @@ describe('QueuePage capability gate', () => {
     // The page heading "Approval queue" only renders when the capability is granted.
     expect(screen.queryByRole('heading', { name: /approval queue/i })).not.toBeInTheDocument()
   })
+
+  it('authorised admin does NOT see the forbidden state', () => {
+    mockSession({ can: () => true })
+    mockQueue()
+
+    render(<QueuePage />)
+
+    expect(screen.queryByText(/access denied/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Approval queue')).toBeInTheDocument()
+  })
+
+  it('shows the loader (not forbidden) while session is not yet ready', () => {
+    mockedUseSession.mockReturnValue({
+      ready: false,
+      isAuthenticated: false,
+      role: null,
+      email: null,
+      adminId: null,
+      can: () => false,
+      refresh: jest.fn(),
+    })
+    mockQueue()
+
+    render(<QueuePage />)
+
+    // Lucide SVGs render as inaccessible in JSDOM; query by label text directly.
+    expect(screen.getByLabelText(/loading/i)).toBeInTheDocument()
+    expect(screen.queryByText(/access denied/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('QueuePage OPERATIONS role (has approval:read)', () => {

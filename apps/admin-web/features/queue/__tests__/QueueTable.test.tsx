@@ -110,6 +110,26 @@ describe('QueueTable claim cell', () => {
     expect(screen.getByText('Claimed')).toBeInTheDocument()
     expect(screen.getByText('Stale')).toBeInTheDocument()
   })
+
+  it('CHANGES_REQUESTED takes precedence over a lingering claimedById (shows "Waiting on merchant", not "Claimed" or "Stale")', () => {
+    // A row that has BOTH status=CHANGES_REQUESTED AND a non-stale claim set by
+    // another admin. CHANGES_REQUESTED wins because it is checked first in ClaimCell.
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            status: 'CHANGES_REQUESTED',
+            claimedById: 'admin-other',
+            claimedAt: new Date().toISOString(),
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(screen.getByText('Waiting on merchant')).toBeInTheDocument()
+    expect(screen.queryByText('Claimed')).not.toBeInTheDocument()
+    expect(screen.queryByText('Stale')).not.toBeInTheDocument()
+  })
 })
 
 // ── Urgency ───────────────────────────────────────────────────────────────────
