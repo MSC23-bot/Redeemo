@@ -64,6 +64,47 @@ jobs:
         continue-on-error: true
         run: npm audit --workspace=@redeemo/customer-web --audit-level=high
 
+  admin-web:
+    name: admin-web (typecheck / lint / build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc # repo-level source of truth (root .nvmrc)
+          cache: npm
+
+      - name: Install (root install — hoists workspaces)
+        run: npm ci
+
+      - name: Typecheck (admin-web)
+        working-directory: apps/admin-web
+        run: npm run typecheck
+
+      # Default `next lint` (no --max-warnings): existing warnings do NOT fail the
+      # job; only ESLint errors do. Reliable today (lint exits 0).
+      - name: Lint (admin-web)
+        working-directory: apps/admin-web
+        run: npm run lint
+
+      - name: Build (admin-web)
+        working-directory: apps/admin-web
+        env:
+          # NEXT_PUBLIC_* are public-by-design (never secrets). The build needs no
+          # network/DB; this dummy only seeds the CSP connect-src origin.
+          NEXT_PUBLIC_API_URL: http://localhost:3000
+        run: npm run build
+
+      # Advisory only — NEVER fails the job (continue-on-error + always()). Scoped
+      # to the admin-web workspace. Dependabot opens the structured update PRs;
+      # dependency version remediation is a separate PR.
+      - name: Dependency audit (advisory, admin-web high+)
+        if: ${{ always() }}
+        continue-on-error: true
+        run: npm audit --workspace=@redeemo/admin-web --audit-level=high
+
   backend:
     name: backend (typecheck + unit)
     runs-on: ubuntu-latest
