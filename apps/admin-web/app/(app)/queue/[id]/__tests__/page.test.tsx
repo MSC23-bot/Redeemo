@@ -141,6 +141,38 @@ jest.mock('@/features/review/ApproveConfirm', () => ({
   ),
 }))
 
+// ── Mock M6 lifecycle + confirm-location dialogs (they use RQ mutations) ──────
+
+jest.mock('@/features/merchants/SuspendDialog', () => ({
+  SuspendDialog: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
+    <div data-testid="suspend-dialog-mock" data-merchant-id={merchantId}>
+      <button onClick={onCancel} data-testid="suspend-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
+jest.mock('@/features/merchants/ReactivateConfirm', () => ({
+  ReactivateConfirm: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
+    <div data-testid="reactivate-dialog-mock" data-merchant-id={merchantId}>
+      <button onClick={onCancel} data-testid="reactivate-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
+jest.mock('@/features/merchants/ConfirmLocationDialog', () => ({
+  ConfirmLocationDialog: ({
+    branchId,
+    onCancel,
+  }: {
+    branchId: string
+    onCancel: () => void
+  }) => (
+    <div data-testid="confirm-location-dialog-mock" data-branch-id={branchId}>
+      <button onClick={onCancel} data-testid="confirm-location-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
 import { useSession } from '@/lib/auth/useSession'
 import { useReview } from '@/lib/review/useReview'
 import type { UseReviewResult } from '@/lib/review/useReview'
@@ -907,5 +939,143 @@ describe('ReviewPage M5 opening dialog clears stale failed-gates', () => {
     expect(screen.getByTestId('approve-confirm-dialog-mock')).toBeInTheDocument()
     // Checklist still renders without crash.
     expect(screen.getByTestId('checklist-summary')).toBeInTheDocument()
+  })
+})
+
+// ── M6: merchant lifecycle control ────────────────────────────────────────────
+
+function makeBranch(overrides: Partial<ReviewContext['branches'][number]> = {}): ReviewContext['branches'][number] {
+  return {
+    id: 'br-1',
+    name: 'Main Branch',
+    isMainBranch: true,
+    isActive: true,
+    addressLine1: '1 High Street',
+    addressLine2: null,
+    city: 'Huddersfield',
+    postcode: 'HD1 1AA',
+    localityName: null,
+    locationConfidence: 'ADDRESS_GEOCODED',
+    ...overrides,
+  }
+}
+
+describe('ReviewPage M6 lifecycle control', () => {
+  function contextWithStatus(status: string): ReviewContext {
+    return makeContext({ merchant: { ...makeContext().merchant!, status } })
+  }
+
+  it('shows Suspend affordance when merchant.status is ACTIVE', () => {
+    mockSession()
+    mockReview({ data: contextWithStatus('ACTIVE') })
+    renderPage()
+    expect(screen.getByTestId('merchant-lifecycle-card')).toBeInTheDocument()
+    expect(screen.getByTestId('lifecycle-suspend-btn')).toBeInTheDocument()
+    expect(screen.queryByTestId('lifecycle-reactivate-btn')).not.toBeInTheDocument()
+  })
+
+  it('shows Reactivate affordance when merchant.status is SUSPENDED', () => {
+    mockSession()
+    mockReview({ data: contextWithStatus('SUSPENDED') })
+    renderPage()
+    expect(screen.getByTestId('lifecycle-reactivate-btn')).toBeInTheDocument()
+    expect(screen.queryByTestId('lifecycle-suspend-btn')).not.toBeInTheDocument()
+  })
+
+  it('shows no lifecycle action for PENDING_APPROVAL (calm status only)', () => {
+    mockSession()
+    mockReview({ data: contextWithStatus('PENDING_APPROVAL') })
+    renderPage()
+    expect(screen.getByTestId('merchant-lifecycle-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('lifecycle-suspend-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('lifecycle-reactivate-btn')).not.toBeInTheDocument()
+    expect(screen.getByTestId('lifecycle-no-action')).toBeInTheDocument()
+  })
+
+  it('hides the lifecycle card entirely without merchant:suspend', () => {
+    mockSession({ can: (cap: string) => cap !== 'merchant:suspend' })
+    mockReview({ data: contextWithStatus('ACTIVE') })
+    renderPage()
+    expect(screen.queryByTestId('merchant-lifecycle-card')).not.toBeInTheDocument()
+  })
+
+  it('opens the SuspendDialog with the merchant id when Suspend is clicked', () => {
+    mockSession()
+    mockReview({ data: contextWithStatus('ACTIVE') })
+    renderPage()
+    fireEvent.click(screen.getByTestId('lifecycle-suspend-btn'))
+    const dialog = screen.getByTestId('suspend-dialog-mock')
+    expect(dialog).toBeInTheDocument()
+    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
+  })
+
+  it('opens the ReactivateConfirm with the merchant id when Reactivate is clicked', () => {
+    mockSession()
+    mockReview({ data: contextWithStatus('SUSPENDED') })
+    renderPage()
+    fireEvent.click(screen.getByTestId('lifecycle-reactivate-btn'))
+    const dialog = screen.getByTestId('reactivate-dialog-mock')
+    expect(dialog).toBeInTheDocument()
+    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
+  })
+
+  it('closes the SuspendDialog on its Cancel', () => {
+    mockSession()
+    mockReview({ data: contextWithStatus('ACTIVE') })
+    renderPage()
+    fireEvent.click(screen.getByTestId('lifecycle-suspend-btn'))
+    fireEvent.click(screen.getByTestId('suspend-dialog-cancel'))
+    expect(screen.queryByTestId('suspend-dialog-mock')).not.toBeInTheDocument()
+  })
+})
+
+// ── M6: BranchTable confirm-location threading ────────────────────────────────
+
+describe('ReviewPage M6 confirm-location', () => {
+  it('shows the per-branch Confirm location button for an unconfirmed branch with branch:confirm-location', () => {
+    mockSession()
+    mockReview({
+      data: makeContext({
+        branches: [makeBranch({ id: 'br-x', locationConfidence: 'POSTCODE_CENTROID' })],
+      }),
+    })
+    renderPage()
+    expect(screen.getByTestId('branch-confirm-location-br-x')).toBeInTheDocument()
+  })
+
+  it('hides the per-branch Confirm location button without branch:confirm-location', () => {
+    mockSession({ can: (cap: string) => cap !== 'branch:confirm-location' })
+    mockReview({
+      data: makeContext({
+        branches: [makeBranch({ id: 'br-x', locationConfidence: 'POSTCODE_CENTROID' })],
+      }),
+    })
+    renderPage()
+    expect(screen.queryByTestId('branch-confirm-location-br-x')).not.toBeInTheDocument()
+  })
+
+  it('opens the ConfirmLocationDialog with the branch id when the button is clicked', () => {
+    mockSession()
+    mockReview({
+      data: makeContext({
+        branches: [makeBranch({ id: 'br-x', locationConfidence: 'NEEDS_REVIEW' })],
+      }),
+    })
+    renderPage()
+    fireEvent.click(screen.getByTestId('branch-confirm-location-br-x'))
+    const dialog = screen.getByTestId('confirm-location-dialog-mock')
+    expect(dialog).toBeInTheDocument()
+    expect(dialog).toHaveAttribute('data-branch-id', 'br-x')
+  })
+
+  it('does NOT show a Confirm location button for an already-confirmed branch', () => {
+    mockSession()
+    mockReview({
+      data: makeContext({
+        branches: [makeBranch({ id: 'br-ok', locationConfidence: 'MANUALLY_CONFIRMED' })],
+      }),
+    })
+    renderPage()
+    expect(screen.queryByTestId('branch-confirm-location-br-ok')).not.toBeInTheDocument()
   })
 })

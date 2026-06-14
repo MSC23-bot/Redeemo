@@ -36,6 +36,10 @@ import { ActionBar } from '@/features/review/ActionBar'
 import { RequestChangesDialog } from '@/features/review/RequestChangesDialog'
 import { RejectDialog } from '@/features/review/RejectDialog'
 import { ApproveConfirm } from '@/features/review/ApproveConfirm'
+import { MerchantLifecycleCard } from '@/features/merchants/MerchantLifecycleCard'
+import { SuspendDialog } from '@/features/merchants/SuspendDialog'
+import { ReactivateConfirm } from '@/features/merchants/ReactivateConfirm'
+import { ConfirmLocationDialog } from '@/features/merchants/ConfirmLocationDialog'
 import { Button } from '@/components/ui/button'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'
 
@@ -155,7 +159,13 @@ function ClaimStateBadge({
 
 // ── Dialog type ───────────────────────────────────────────────────────────────
 
-type OpenDialog = 'request-changes' | 'reject' | 'approve' | null
+type OpenDialog =
+  | 'request-changes'
+  | 'reject'
+  | 'approve'
+  | 'suspend'
+  | 'reactivate'
+  | null
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -175,6 +185,9 @@ export default function ReviewPage({ params }: ReviewPageProps) {
 
   // M5: dialog open state.
   const [openDialog, setOpenDialog] = useState<OpenDialog>(null)
+
+  // M6: confirm-location dialog targets a specific branch (id); null when closed.
+  const [confirmLocationBranchId, setConfirmLocationBranchId] = useState<string | null>(null)
 
   // M5: failed-approve gate highlight (passed to ChecklistSummary).
   const [failedGates, setFailedGates] = useState<{
@@ -268,7 +281,11 @@ export default function ReviewPage({ params }: ReviewPageProps) {
             {/* Left: main content */}
             <div className="space-y-6 min-w-0">
               <VoucherList vouchers={data.vouchers} />
-              <BranchTable branches={data.branches} />
+              <BranchTable
+                branches={data.branches}
+                canConfirmLocation={can('branch:confirm-location')}
+                onConfirmLocation={(branchId) => setConfirmLocationBranchId(branchId)}
+              />
               <DocumentList documents={data.documents} />
               {data.thinAreas && <ThinAreaFlags thinAreas={data.thinAreas} />}
               <ActivityList activity={data.activity} />
@@ -280,6 +297,13 @@ export default function ReviewPage({ params }: ReviewPageProps) {
                 <ChecklistSummary
                   checklist={data.checklist}
                   highlight={failedGates ?? undefined}
+                />
+              )}
+              {can('merchant:suspend') && (
+                <MerchantLifecycleCard
+                  status={data.merchant.status}
+                  onSuspend={() => setOpenDialog('suspend')}
+                  onReactivate={() => setOpenDialog('reactivate')}
                 />
               )}
               <ProfileCard merchant={data.merchant} owner={data.owner} />
@@ -336,6 +360,42 @@ export default function ReviewPage({ params }: ReviewPageProps) {
           }}
         />
       )}
+
+      {/* M6: merchant lifecycle dialogs; only mount when the merchant is present. */}
+      {openDialog === 'suspend' && data?.merchant && (
+        <SuspendDialog
+          merchantId={data.merchant.id}
+          approvalId={id}
+          onSuccess={handleDialogSuccess}
+          onCancel={() => setOpenDialog(null)}
+        />
+      )}
+      {openDialog === 'reactivate' && data?.merchant && (
+        <ReactivateConfirm
+          merchantId={data.merchant.id}
+          approvalId={id}
+          onSuccess={handleDialogSuccess}
+          onCancel={() => setOpenDialog(null)}
+        />
+      )}
+
+      {/* M6: confirm-location dialog, keyed to a specific branch id. */}
+      {confirmLocationBranchId && data?.branches && (() => {
+        const branch = data.branches.find((b) => b.id === confirmLocationBranchId)
+        if (!branch) return null
+        return (
+          <ConfirmLocationDialog
+            branchId={branch.id}
+            branchName={branch.name}
+            approvalId={id}
+            onSuccess={() => {
+              setConfirmLocationBranchId(null)
+              refetch()
+            }}
+            onCancel={() => setConfirmLocationBranchId(null)}
+          />
+        )
+      })()}
     </div>
   )
 }

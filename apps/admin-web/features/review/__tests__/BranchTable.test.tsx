@@ -2,7 +2,7 @@
  * BranchTable — empty state, branch rows, location confidence badges, PIN footer.
  */
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { BranchTable } from '../BranchTable'
 import type { ReviewBranch } from '@/lib/api/review'
 
@@ -91,5 +91,86 @@ describe('BranchTable', () => {
       />
     )
     expect(screen.getByText('Branches (2)')).toBeInTheDocument()
+  })
+
+  it('shows "Needs review" badge for NEEDS_REVIEW location', () => {
+    render(<BranchTable branches={[makeBranch({ locationConfidence: 'NEEDS_REVIEW' })]} />)
+    expect(screen.getByText('Needs review')).toBeInTheDocument()
+  })
+})
+
+// ── M6: confirm-location affordance ───────────────────────────────────────────
+
+describe('BranchTable confirm-location', () => {
+  it('shows the Confirm location button for an unconfirmed branch when the cap is granted', () => {
+    render(
+      <BranchTable
+        branches={[makeBranch({ id: 'br-1', locationConfidence: 'POSTCODE_CENTROID' })]}
+        canConfirmLocation
+        onConfirmLocation={jest.fn()}
+      />
+    )
+    expect(screen.getByTestId('branch-confirm-location-br-1')).toBeInTheDocument()
+  })
+
+  it('shows the Confirm location button for a NEEDS_REVIEW branch', () => {
+    render(
+      <BranchTable
+        branches={[makeBranch({ id: 'br-2', locationConfidence: 'NEEDS_REVIEW' })]}
+        canConfirmLocation
+        onConfirmLocation={jest.fn()}
+      />
+    )
+    expect(screen.getByTestId('branch-confirm-location-br-2')).toBeInTheDocument()
+  })
+
+  it('hides the Confirm location button without the capability', () => {
+    render(
+      <BranchTable
+        branches={[makeBranch({ id: 'br-1', locationConfidence: 'POSTCODE_CENTROID' })]}
+        canConfirmLocation={false}
+        onConfirmLocation={jest.fn()}
+      />
+    )
+    expect(screen.queryByTestId('branch-confirm-location-br-1')).not.toBeInTheDocument()
+  })
+
+  it('does NOT show the button for already-confirmed branches (MANUALLY_CONFIRMED / ADDRESS_GEOCODED)', () => {
+    render(
+      <BranchTable
+        branches={[
+          makeBranch({ id: 'br-manual', locationConfidence: 'MANUALLY_CONFIRMED' }),
+          makeBranch({ id: 'br-geo', locationConfidence: 'ADDRESS_GEOCODED', isMainBranch: false }),
+        ]}
+        canConfirmLocation
+        onConfirmLocation={jest.fn()}
+      />
+    )
+    expect(screen.queryByTestId('branch-confirm-location-br-manual')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('branch-confirm-location-br-geo')).not.toBeInTheDocument()
+  })
+
+  it('calls onConfirmLocation with the branch id when clicked', () => {
+    const onConfirmLocation = jest.fn()
+    render(
+      <BranchTable
+        branches={[makeBranch({ id: 'br-7', locationConfidence: 'POSTCODE_CENTROID' })]}
+        canConfirmLocation
+        onConfirmLocation={onConfirmLocation}
+      />
+    )
+    fireEvent.click(screen.getByTestId('branch-confirm-location-br-7'))
+    expect(onConfirmLocation).toHaveBeenCalledWith('br-7')
+  })
+
+  it('still renders the PIN footer note and no PIN value', () => {
+    render(
+      <BranchTable
+        branches={[makeBranch({ locationConfidence: 'POSTCODE_CENTROID' })]}
+        canConfirmLocation
+        onConfirmLocation={jest.fn()}
+      />
+    )
+    expect(screen.getByText('Branch PINs are never shown here.')).toBeInTheDocument()
   })
 })

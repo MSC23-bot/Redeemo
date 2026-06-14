@@ -3,14 +3,30 @@
  *
  * Shows each branch's name, address, location confidence, and active/main
  * status. Branch PINs are never shown here.
+ *
+ * M6: when `canConfirmLocation` is true, each branch whose location is not yet
+ * confirmed (POSTCODE_CENTROID / NEEDS_REVIEW) gets a "Confirm location" button
+ * that calls `onConfirmLocation(branchId)`. Already-confirmed branches
+ * (MANUALLY_CONFIRMED / ADDRESS_GEOCODED) show no button. The table stays
+ * read-only otherwise (no PIN is ever rendered).
  */
 import { Badge } from '@/features/shared/Badge'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { ReviewBranch } from '@/lib/api/review'
 import type { BadgeTone } from '@/features/shared/Badge'
 
 interface BranchTableProps {
   branches: ReviewBranch[]
+  /** Whether the signed-in admin holds branch:confirm-location (UI gating only). */
+  canConfirmLocation?: boolean
+  /** Open the confirm-location dialog for a specific branch. */
+  onConfirmLocation?: (branchId: string) => void
+}
+
+/** A branch location counts as "not confirmed" for POSTCODE_CENTROID or NEEDS_REVIEW. */
+function isLocationUnconfirmed(confidence: string): boolean {
+  return confidence === 'POSTCODE_CENTROID' || confidence === 'NEEDS_REVIEW'
 }
 
 function locationConfidenceTone(confidence: string): BadgeTone {
@@ -25,6 +41,7 @@ function locationConfidenceLabel(confidence: string): string {
     MANUALLY_CONFIRMED: 'Confirmed',
     ADDRESS_GEOCODED: 'Geocoded',
     POSTCODE_CENTROID: 'Postcode centroid',
+    NEEDS_REVIEW: 'Needs review',
     UNKNOWN: 'Unknown',
   }
   return map[confidence] ?? confidence
@@ -40,7 +57,11 @@ function formatAddress(branch: ReviewBranch): string {
   return parts.join(', ')
 }
 
-export function BranchTable({ branches }: BranchTableProps) {
+export function BranchTable({
+  branches,
+  canConfirmLocation = false,
+  onConfirmLocation,
+}: BranchTableProps) {
   if (branches.length === 0) {
     return (
       <section aria-labelledby="branches-heading" data-testid="branch-table">
@@ -104,9 +125,24 @@ export function BranchTable({ branches }: BranchTableProps) {
                 </td>
 
                 <td className="px-4 py-3">
-                  <Badge tone={locationConfidenceTone(branch.locationConfidence)}>
-                    {locationConfidenceLabel(branch.locationConfidence)}
-                  </Badge>
+                  <div className="flex flex-col items-start gap-2">
+                    <Badge tone={locationConfidenceTone(branch.locationConfidence)}>
+                      {locationConfidenceLabel(branch.locationConfidence)}
+                    </Badge>
+                    {canConfirmLocation &&
+                      isLocationUnconfirmed(branch.locationConfidence) &&
+                      onConfirmLocation && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          onClick={() => onConfirmLocation(branch.id)}
+                          data-testid={`branch-confirm-location-${branch.id}`}
+                        >
+                          Confirm location
+                        </Button>
+                      )}
+                  </div>
                 </td>
 
                 <td className="px-4 py-3">
