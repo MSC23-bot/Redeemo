@@ -15,3 +15,8 @@ process.env.JWT_SECRET_BRANCH ||= 'test-jwt-branch-secret-0123456789abcdef'
 process.env.JWT_SECRET_ADMIN ||= 'test-jwt-admin-secret-0123456789abcdef'
 process.env.STRIPE_SECRET_KEY ||= 'sk_test_dummy_for_unit_tests'
 process.env.STRIPE_WEBHOOK_SECRET ||= 'whsec_test_dummy_for_unit_tests'
+// 64-char hex (32 bytes) so the same value is valid for both consumers: the
+// AES-256-GCM branch-PIN key (encryption.ts requires 64-hex) AND the admin OTP
+// HMAC key (M0). Suites that need a SPECIFIC value to compute a matching HMAC
+// still set it locally; this only fills the gap for suites that don't.
+process.env.ENCRYPTION_KEY ||= '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
