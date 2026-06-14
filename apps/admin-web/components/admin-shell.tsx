@@ -25,8 +25,10 @@ import { NotificationBell } from '@/components/notification-bell'
 type NavItem = { label: string; href: string; cap: AdminCapability }
 
 // Future actioner screens declare the capability they require. Filtered by
-// `can(cap)` below. Intentionally empty for M1 (no actioner UI yet).
-const NAV_ITEMS: NavItem[] = []
+// `can(cap)` below.
+const NAV_ITEMS: NavItem[] = [
+  { label: 'Approval queue', href: '/queue', cap: 'approval:read' },
+]
 
 function RoleBadge({ role }: { role: string }) {
   return (
