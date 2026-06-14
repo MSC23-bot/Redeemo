@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Redeemo Admin : Actioner mockups (concept)</title>
+<style>
+  :root{
+    /* Redeemo brand tokens (from apps/customer-app/src/design-system/tokens.ts) */
+    --brand:#E20C04; --coral:#E84A00; --brand-grad:linear-gradient(135deg,#E20C04,#E84A00);
+    --brand-soft:#FEF6F5; --navy:#010C35; --cream:#FFF9F5;
+    --bg:#F7F8FA; --surface:#ffffff; --line:#E5E7EB; --line-strong:#D1D5DB;
+    --ink:#010C35; --ink-2:#4B5563; --ink-3:#9CA3AF;
+    --ok:#0F7A3E; --ok-soft:#E8F3EC; --warn:#B45309; --warn-soft:#FBF1E3;
+    --info:#0E7490; --info-soft:#E3F0F3; --bad:#B91C1C; --bad-soft:#FBEBEB;
+    --grey:#6B7280; --grey-soft:#F1F2F4; --savings:#16A34A;
+    --radius:12px; --radius-sm:8px; --shadow:0 1px 2px rgba(1,12,53,.06),0 1px 1px rgba(1,12,53,.04);
+    --shadow-pop:0 12px 34px rgba(1,12,53,.14);
+    font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
+  a{color:inherit}
+  .muted{color:var(--ink-2)} .faint{color:var(--ink-3)}
+  .ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:-3px}
+  .ic-sm{width:13px;height:13px}
+
+  .switcher{position:fixed;top:0;left:0;right:0;height:46px;background:var(--navy);color:#fff;display:flex;align-items:center;gap:6px;padding:0 14px;z-index:50;font-size:12.5px}
+  .switcher .mk{width:22px;height:22px;border-radius:6px;background:var(--brand-grad);color:#fff;display:grid;place-items:center;font-weight:800;font-size:13px;margin-right:6px}
+  .switcher b{font-weight:600;margin-right:12px;letter-spacing:.01em}
+  .switcher button{background:rgba(255,255,255,.10);color:#dfe3ee;border:0;padding:6px 11px;border-radius:6px;cursor:pointer;font:inherit}
+  .switcher button.active{background:#fff;color:var(--navy);font-weight:600}
+  .switcher .note{margin-left:auto;color:#aeb6cf;font-size:11.5px}
+  .app{padding-top:46px}
+
+  .shell{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 46px)}
+  .side{background:#fff;border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:2px}
+  .brand{display:flex;align-items:center;gap:9px;padding:6px 8px 16px}
+  .brand .dot{width:26px;height:26px;border-radius:7px;background:var(--brand-grad);color:#fff;display:grid;place-items:center;font-weight:800;font-size:15px}
+  .brand .nm{font-weight:700;letter-spacing:-.02em;color:var(--navy)}
+  .brand .nm small{display:block;font-weight:500;font-size:10px;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase}
+  .nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--ink-2);text-decoration:none;font-weight:500}
+  .nav a:hover{background:#fafbfc}
+  .nav a.active{background:var(--brand-soft);color:var(--brand);font-weight:600}
+  .nav a .count{margin-left:auto;background:var(--brand);color:#fff;font-size:11px;border-radius:20px;padding:1px 7px;font-weight:600}
+  .side .spacer{flex:1}
+  .who{display:flex;align-items:center;gap:9px;padding:8px;border-top:1px solid var(--line);margin-top:8px}
+  .who .av{width:28px;height:28px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:600}
+
+  .topbar{height:58px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 22px;gap:12px;position:sticky;top:46px;z-index:20}
+  .topbar h2{font-size:15px}
+  .topbar .crumb{color:var(--ink-3);font-size:13px}
+  .topbar .crumb b{color:var(--ink-2);font-weight:600;cursor:pointer}
+  .topbar .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .content{padding:22px}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:20px;font-size:11.5px;font-weight:600;line-height:1.7}
+  .b-warn{background:var(--warn-soft);color:var(--warn)} .b-info{background:var(--info-soft);color:var(--info)}
+  .b-ok{background:var(--ok-soft);color:var(--ok)} .b-bad{background:var(--bad-soft);color:var(--bad)}
+  .b-grey{background:var(--grey-soft);color:var(--grey)} .b-brand{background:var(--brand-soft);color:var(--brand)}
+  .dotmark{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block}
+  .btn{border:1px solid var(--line-strong);background:#fff;color:var(--ink);padding:8px 14px;border-radius:9px;font:inherit;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+  .btn:hover{background:#fafbfc}
+  .btn-pri{background:var(--brand);border-color:var(--brand);color:#fff}.btn-pri:hover{background:#c40a03}
+  .btn-grad{background:var(--brand-grad);border:0;color:#fff} .btn-grad:hover{filter:brightness(.97)}
+  .btn-ok{background:var(--ok);border-color:var(--ok);color:#fff}.btn-ok:hover{filter:brightness(.96)}
+  .btn-ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
+  .btn-danger{border-color:#f0cccc;background:#fff;color:var(--bad)}.btn-danger:hover{background:var(--bad-soft)}
+  .btn-sm{padding:5px 10px;font-size:12.5px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .card .hd{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px}
+  .card .hd h3{font-size:13.5px}
+  .hdsub{color:var(--ink-3);font-size:12px}
+  .hdsub::before{content:"·";margin:0 8px;color:var(--ink-3)}
+  .card .bd{padding:16px}
+  .kv{display:grid;grid-template-columns:128px 1fr;gap:7px 14px;font-size:13px}
+  .kv dt{color:var(--ink-3)} .kv dd{margin:0;color:var(--ink)}
+
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);font-weight:600;padding:10px 14px;border-bottom:1px solid var(--line)}
+  td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fafbfc}
+  .m-row{display:flex;align-items:center;gap:10px}
+  .m-logo{width:30px;height:30px;border-radius:7px;background:linear-gradient(135deg,#FEE2DF,#E7ECFF);display:grid;place-items:center;font-weight:700;color:var(--navy);font-size:12px}
+
+  .filters{display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap}
+  .chip{padding:6px 12px;border-radius:20px;border:1px solid var(--line-strong);background:#fff;font-size:12.5px;font-weight:600;color:var(--ink-2);cursor:pointer}
+  .chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
+  .chip .n{opacity:.7;font-weight:500;margin-left:3px}
+  .age-flag{color:var(--warn);font-weight:600;font-size:11.5px}
+  .age-old{color:var(--bad);font-weight:600;font-size:11.5px}
+
+  .auth{min-height:calc(100vh - 46px);display:grid;place-items:center;background:radial-gradient(900px 420px at 50% -8%,var(--cream),transparent),var(--bg)}
+  .auth .box{width:386px;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-pop);padding:30px 28px}
+  .auth .blogo{display:flex;align-items:center;gap:11px;margin-bottom:22px}
+  .auth .blogo .dot{width:32px;height:32px;border-radius:9px;background:var(--brand-grad);color:#fff;display:grid;place-items:center;font-weight:800;font-size:17px}
+  .field{margin:12px 0}
+  .field label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-2);margin-bottom:6px}
+  .field input{width:100%;padding:10px 12px;border:1px solid var(--line-strong);border-radius:9px;font:inherit;background:#fff}
+  .field input:focus{outline:2px solid var(--brand-soft);border-color:var(--brand)}
+  .otp{display:flex;gap:8px;justify-content:space-between}
+  .otp input{width:46px;height:52px;text-align:center;font-size:20px;font-weight:600;border:1px solid var(--line-strong);border-radius:10px}
+  .otp input:first-child{border-color:var(--brand);outline:2px solid var(--brand-soft)}
+  .authnote{display:flex;gap:9px;align-items:flex-start;background:var(--info-soft);color:#0b5563;border-radius:9px;padding:10px 12px;font-size:12.5px;margin:6px 0 4px}
+  .authnote .ic{color:#0b5563;flex:none;margin-top:1px}
+  .seg{display:inline-flex;background:var(--grey-soft);border-radius:9px;padding:3px;margin-bottom:8px}
+  .seg button{border:0;background:transparent;padding:6px 12px;border-radius:7px;font:inherit;font-weight:600;color:var(--ink-2);cursor:pointer;font-size:12.5px}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow)}
+
+  .hint{font-size:12px;color:var(--ink-3)}
+  .doc{display:flex;align-items:center;gap:11px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px}
+  .doc .ico{width:30px;height:34px;border-radius:5px;background:var(--grey-soft);display:grid;place-items:center;font-size:10px;font-weight:700;color:var(--ink-2)}
+  .doc .meta{flex:1}.doc .meta .t{font-weight:600;font-size:13px}.doc .meta .s{font-size:11.5px;color:var(--ink-3)}
+  .vch{border:1px solid var(--line);border-radius:10px;padding:12px 13px;margin-bottom:8px}
+  .vch .top{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .vch .save{font-weight:700;color:var(--navy)}
+  .checkline{display:flex;align-items:center;gap:9px;padding:7px 0;font-size:13px;border-bottom:1px dashed var(--line)}
+  .checkline:last-child{border-bottom:0}
+  .ck{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;flex:none}
+  .ck.y{background:var(--ok);color:#fff} .ck.n{background:#fff;border:1.5px solid var(--warn);color:var(--warn)}
+  .audit ul{margin:0;padding:0;font-size:12.5px}
+  .audit li{display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);list-style:none}
+  .audit li:last-child{border-bottom:0}
+  .audit .when{color:var(--ink-3);white-space:nowrap;min-width:92px}
+  .audit .who{font-weight:600}
+
+  .actionbar{position:sticky;bottom:0;background:rgba(255,255,255,.93);backdrop-filter:blur(6px);border-top:1px solid var(--line);padding:14px 22px;display:flex;align-items:center;gap:10px;margin:0 -22px -22px}
+  .actionbar .grow{flex:1;font-size:12.5px;color:var(--ink-2);display:flex;gap:8px;align-items:center}
+  .reasonbox{border:1px solid var(--line-strong);border-radius:10px;padding:13px;margin-bottom:12px;background:var(--cream)}
+  .reasonbox label{font-weight:600;font-size:12.5px;display:block;margin-bottom:6px}
+  .reasonbox textarea{width:100%;min-height:66px;border:1px solid var(--line-strong);border-radius:9px;padding:9px 11px;font:inherit;resize:vertical;background:#fff}
+  .reasonbox .quick{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+  .reasonbox .quick span{font-size:11.5px;border:1px solid var(--line-strong);border-radius:20px;padding:3px 9px;color:var(--ink-2);cursor:pointer;background:#fff}
+  .two{display:grid;grid-template-columns:1fr 332px;gap:16px;align-items:start}
+  @media(max-width:1080px){.two{grid-template-columns:1fr}}
+  .screen{display:none}.screen.show{display:block}
+  .pill-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .formgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .help{font-size:12px;color:var(--ink-3);margin-top:5px}
+  .callout{background:var(--brand-soft);border:1px solid #f6cdc9;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#9c1b12;display:flex;gap:9px;align-items:flex-start}
+  .callout .ic{color:var(--brand);flex:none;margin-top:1px}
+  .confirm{background:var(--ok-soft);border:1px solid #bfe3cd;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#0c5a2e;display:none;gap:9px;align-items:flex-start;margin-bottom:12px}
+</style>
+</head>
+<body>
+
+<!-- icon sprite -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24"><path d="m2 7 4.4-4.4A2 2 0 0 1 7.8 2h8.4a2 2 0 0 1 1.4.6L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M2 7h20"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h16.9a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.8 9.8 0 0 1 6.7 2.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.8 9.8 0 0 1-6.7-2.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6z"/><polyline points="9 12 11 14 15 10"/></symbol>
+</svg>
+
+<div class="switcher">
+  <span class="mk">R</span><b>Redeemo Admin · concept mockups</b>
+  <button data-s="login" class="active">1 · Login (email OTP)</button>
+  <button data-s="queue">2 · Approval queue</button>
+  <button data-s="review">3 · Merchant review</button>
+  <button data-s="create">4 · Create draft</button>
+  <span class="note">Static concept, not the real app, for spec review</span>
+</div>
+
+<div class="app">
+
+<!-- ============ 1. LOGIN ============ -->
+<section class="screen show" id="login">
+  <div class="auth">
+    <div class="box">
+      <div class="blogo"><span class="dot">R</span><div><div style="font-weight:700;color:var(--navy)">Redeemo Admin</div><div class="faint" style="font-size:11px;letter-spacing:.05em;text-transform:uppercase">Operations console</div></div></div>
+
+      <div class="seg" role="tablist">
+        <button class="on" onclick="loginStep('pw')">1 · Password</button>
+        <button onclick="loginStep('otp')">2 · Email code</button>
+      </div>
+
+      <div id="pw-step">
+        <div class="field"><label>Work email</label><input value="admin@redeemo.co.uk" /></div>
+        <div class="field"><label>Password</label><input type="password" value="redeemo-admin" /></div>
+        <button class="btn btn-grad" style="width:100%;justify-content:center;margin-top:6px" onclick="loginStep('otp')">Continue</button>
+        <p class="help" style="text-align:center;margin-top:12px"><a href="#" class="muted">Forgot password?</a></p>
+      </div>
+
+      <div id="otp-step" style="display:none">
+        <div class="authnote"><svg class="ic ic-sm"><use href="#i-lock"/></svg><div>We emailed a 6-digit code to <b>a•••n@redeemo.co.uk</b>. It expires in 10 minutes.</div></div>
+        <div class="field"><label>Enter the code</label>
+          <div class="otp"><input value="4"/><input value="9"/><input value="2"/><input value=""/><input value=""/><input value=""/></div>
+        </div>
+        <button class="btn btn-grad" style="width:100%;justify-content:center;margin-top:8px">Verify and sign in</button>
+        <p class="help" style="text-align:center;margin-top:12px">Didn’t get it? <a href="#">Resend in 0:24</a></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 2. QUEUE ============ -->
+<section class="screen" id="queue">
+  <div class="shell">
+    <aside class="side">
+      <div class="brand"><span class="dot">R</span><span class="nm">Redeemo<small>Admin</small></span></div>
+      <nav class="nav">
+        <a class="active" href="#"><svg class="ic"><use href="#i-inbox"/></svg> Approval queue <span class="count">7</span></a>
+        <a href="#"><svg class="ic"><use href="#i-store"/></svg> Merchants</a>
+        <a href="#"><svg class="ic"><use href="#i-pin"/></svg> Branches</a>
+        <a href="#"><svg class="ic"><use href="#i-file"/></svg> Audit log</a>
+        <a href="#"><svg class="ic"><use href="#i-gear"/></svg> Settings</a>
+      </nav>
+      <div class="spacer"></div>
+      <div class="who"><span class="av">SC</span><div><div style="font-weight:600;font-size:12.5px">Shebin C.</div><div class="faint" style="font-size:11px">OPERATIONS</div></div></div>
+    </aside>
+    <div class="main">
+      <div class="topbar"><h2>Approval queue</h2><span class="crumb">Merchants waiting to go live</span>
+        <div class="right"><button class="btn btn-sm"><svg class="ic ic-sm"><use href="#i-refresh"/></svg> Refresh</button><button class="btn btn-pri btn-sm" onclick="show('create')"><svg class="ic ic-sm"><use href="#i-plus"/></svg> Create merchant draft</button></div>
+      </div>
+      <div class="content">
+        <div class="filters">
+          <span class="chip on">All <span class="n">7</span></span>
+          <span class="chip">Submitted <span class="n">4</span></span>
+          <span class="chip">Under review <span class="n">2</span></span>
+          <span class="chip">Changes requested <span class="n">1</span></span>
+          <span style="margin-left:auto" class="hint">Sorted by oldest waiting (most urgent first)</span>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>Merchant</th><th>Type</th><th>Waiting</th><th>Verification</th><th>Status</th><th>Owner</th><th></th></tr></thead>
+            <tbody>
+              <tr onclick="show('review')" style="cursor:pointer">
+                <td><div class="m-row"><span class="m-logo">Ka</span><div><div style="font-weight:600">Karaara</div><div class="faint" style="font-size:12px">Huddersfield · Indian restaurant</div></div></div></td>
+                <td><span class="badge b-grey">Onboarding</span></td>
+                <td><span class="age-flag">2 days</span></td>
+                <td><span class="badge b-warn"><span class="dotmark"></span>Pending</span></td>
+                <td><span class="badge b-info">Under review</span></td>
+                <td class="muted">You</td>
+                <td><button class="btn btn-sm" onclick="event.stopPropagation();show('review')">Review <svg class="ic ic-sm"><use href="#i-chev"/></svg></button></td>
+              </tr>
+              <tr>
+                <td><div class="m-row"><span class="m-logo">OF</span><div><div style="font-weight:600">The Old Foundry</div><div class="faint" style="font-size:12px">Huddersfield · Café and bakery</div></div></div></td>
+                <td><span class="badge b-grey">Onboarding</span></td>
+                <td><span class="age-flag">3 days</span></td>
+                <td><span class="badge b-ok"><span class="dotmark"></span>Verified</span></td>
+                <td><span class="badge b-warn">Submitted</span></td>
+                <td class="faint">Unclaimed</td>
+                <td><button class="btn btn-sm">Claim and review</button></td>
+              </tr>
+              <tr>
+                <td><div class="m-row"><span class="m-logo">GS</span><div><div style="font-weight:600">Greenhead Salon</div><div class="faint" style="font-size:12px">Huddersfield · Hair and beauty</div></div></div></td>
+                <td><span class="badge b-grey">Onboarding</span></td>
+                <td><span class="age-old">6 days</span></td>
+                <td><span class="badge b-warn"><span class="dotmark"></span>Pending</span></td>
+                <td><span class="badge b-bad">Changes requested</span></td>
+                <td class="faint">Waiting on merchant</td>
+                <td><button class="btn btn-sm">View</button></td>
+              </tr>
+              <tr>
+                <td><div class="m-row"><span class="m-logo">TT</span><div><div style="font-weight:600">Thai Terrace</div><div class="faint" style="font-size:12px">Huddersfield · Thai restaurant</div></div></div></td>
+                <td><span class="badge b-grey">Onboarding</span></td>
+                <td><span class="muted" style="font-size:12.5px">1 day</span></td>
+                <td><span class="badge b-ok"><span class="dotmark"></span>Verified</span></td>
+                <td><span class="badge b-warn">Submitted</span></td>
+                <td class="faint">Unclaimed</td>
+                <td><button class="btn btn-sm">Claim and review</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 3. REVIEW DETAIL ============ -->
+<section class="screen" id="review">
+  <div class="shell">
+    <aside class="side">
+      <div class="brand"><span class="dot">R</span><span class="nm">Redeemo<small>Admin</small></span></div>
+      <nav class="nav">
+        <a class="active" href="#" onclick="show('queue')"><svg class="ic"><use href="#i-inbox"/></svg> Approval queue <span class="count">7</span></a>
+        <a href="#"><svg class="ic"><use href="#i-store"/></svg> Merchants</a>
+        <a href="#"><svg class="ic"><use href="#i-pin"/></svg> Branches</a>
+        <a href="#"><svg class="ic"><use href="#i-file"/></svg> Audit log</a>
+        <a href="#"><svg class="ic"><use href="#i-gear"/></svg> Settings</a>
+      </nav>
+      <div class="spacer"></div>
+      <div class="who"><span class="av">SC</span><div><div style="font-weight:600;font-size:12.5px">Shebin C.</div><div class="faint" style="font-size:11px">OPERATIONS</div></div></div>
+    </aside>
+    <div class="main">
+      <div class="topbar">
+        <span class="crumb"><b onclick="show('queue')">Approval queue</b> / Karaara</span>
+        <div class="right"><span class="badge b-info">Claimed by you</span><button class="btn btn-sm btn-ghost">Release</button></div>
+      </div>
+      <div class="content">
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="bd" style="display:flex;gap:16px;align-items:center">
+            <div class="m-logo" style="width:54px;height:54px;font-size:18px">Ka</div>
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:10px"><h1 style="font-size:19px">Karaara</h1><span class="muted">trading as “Karaara Kitchen”</span></div>
+              <div class="pill-row" style="margin-top:7px">
+                <span class="badge b-warn"><span class="dotmark"></span>PENDING_APPROVAL</span>
+                <span class="badge b-warn">Verification: pending</span>
+                <span class="badge b-grey">Contract: signed 11 Jun</span>
+                <span class="badge b-info">Step: UNDER_REVIEW</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="two">
+          <div>
+            <div class="card" style="margin-bottom:14px">
+              <div class="hd"><h3>Business profile</h3><span class="hdsub">what customers will see</span></div>
+              <div class="bd">
+                <dl class="kv">
+                  <dt>Legal name</dt><dd>Karaara Ltd</dd>
+                  <dt>Trading name</dt><dd>Karaara Kitchen</dd>
+                  <dt>Category</dt><dd>Restaurants · Indian</dd>
+                  <dt>Website</dt><dd><a href="#">karaarakitchen.co.uk</a></dd>
+                  <dt>Description</dt><dd>Family-run North-Indian kitchen on New Street, Huddersfield. Tandoor specials and weekday thalis.</dd>
+                  <dt>Logo and banner</dt><dd><span class="badge b-ok">Both uploaded</span> <a href="#" class="muted" style="margin-left:6px">view</a></dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="card" style="margin-bottom:14px">
+              <div class="hd"><h3>Branches</h3><span class="hdsub">2 branches</span></div>
+              <div class="bd" style="padding-top:6px">
+                <table>
+                  <thead><tr><th>Branch</th><th>Address</th><th>Location confidence</th><th>Status</th></tr></thead>
+                  <tbody>
+                    <tr><td><b>New Street</b> <span class="badge b-grey" style="margin-left:4px">Main</span></td><td class="muted">14 New St, Huddersfield, HD1 2AR <span class="faint">· Huddersfield</span></td><td><span class="badge b-ok"><span class="dotmark"></span>Address geocoded</span></td><td><span class="badge b-ok">Active</span></td></tr>
+                    <tr><td><b>Lindley</b></td><td class="muted">221 Lidget St, Lindley, HD3 3JB <span class="faint">· Lindley</span></td><td><span class="badge b-warn"><span class="dotmark"></span>Postcode centroid</span></td><td><span class="badge b-ok">Active</span></td></tr>
+                  </tbody>
+                </table>
+                <p class="help" style="display:flex;gap:7px;align-items:flex-start;margin:10px 4px 0"><svg class="ic ic-sm" style="color:var(--warn)"><use href="#i-alert"/></svg><span>Lindley sits on a postcode centroid; you can <a href="#">confirm its exact pin</a> before go-live. Branch PINs are never shown here.</span></p>
+              </div>
+            </div>
+
+            <div class="card" style="margin-bottom:14px">
+              <div class="hd"><h3>Uploaded documents</h3><span class="hdsub">open to verify</span></div>
+              <div class="bd">
+                <div class="doc"><span class="ico">PDF</span><div class="meta"><div class="t">Business registration certificate</div><div class="s">Uploaded 10 Jun · 412 KB</div></div><button class="btn btn-sm"><svg class="ic ic-sm"><use href="#i-eye"/></svg> View</button></div>
+                <div class="doc"><span class="ico">JPG</span><div class="meta"><div class="t">Food hygiene rating (FHRS) certificate</div><div class="s">Uploaded 10 Jun · 1.1 MB</div></div><button class="btn btn-sm"><svg class="ic ic-sm"><use href="#i-eye"/></svg> View</button></div>
+                <div class="doc"><span class="ico">PDF</span><div class="meta"><div class="t">Proof of ID, owner</div><div class="s">Uploaded 10 Jun · 280 KB</div></div><button class="btn btn-sm"><svg class="ic ic-sm"><use href="#i-eye"/></svg> View</button></div>
+                <p class="help" style="display:flex;gap:7px;align-items:center;margin-top:4px"><svg class="ic ic-sm" style="color:var(--ink-3)"><use href="#i-shield"/></svg> Opens via a short-lived signed link; raw storage paths are never exposed.</p>
+              </div>
+            </div>
+
+            <div class="card" style="margin-bottom:14px">
+              <div class="hd"><h3>Vouchers</h3><span class="hdsub">2 mandatory (RMV) and 1 custom</span></div>
+              <div class="bd">
+                <div class="vch">
+                  <div class="top"><span class="badge b-grey">RMV-001</span><span class="badge b-info">BOGO</span><span class="badge b-warn">Approval: pending</span></div>
+                  <div style="font-weight:600">Buy one main, get one free</div>
+                  <div class="hint">Mandatory flagship · <span class="save">saves up to £14.95</span> · terms: dine-in only, one per cycle, excludes specials</div>
+                </div>
+                <div class="vch">
+                  <div class="top"><span class="badge b-grey">RMV-002</span><span class="badge b-info">Spend and Save</span><span class="badge b-warn">Approval: pending</span></div>
+                  <div style="font-weight:600">£10 off when you spend £40</div>
+                  <div class="hint">Mandatory flagship · <span class="save">saves £10.00</span> · terms: one per cycle, not with other offers</div>
+                </div>
+                <div class="vch">
+                  <div class="top"><span class="badge b-grey">RCV-001</span><span class="badge b-info">Freebie</span><span class="badge b-ok">Approval: auto</span></div>
+                  <div style="font-weight:600">Free mango lassi with any thali</div>
+                  <div class="hint">Custom · <span class="save">saves £3.50</span> · terms: weekdays only</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="card" style="margin-bottom:14px">
+              <div class="hd"><h3>Go-live checklist</h3><span class="hdsub">summary</span></div>
+              <div class="bd" style="padding-top:8px">
+                <div class="checkline"><span class="ck y"><svg class="ic ic-sm"><use href="#i-check"/></svg></span> Profile complete</div>
+                <div class="checkline"><span class="ck y"><svg class="ic ic-sm"><use href="#i-check"/></svg></span> Contract signed</div>
+                <div class="checkline"><span class="ck y"><svg class="ic ic-sm"><use href="#i-check"/></svg></span> Documents uploaded (3)</div>
+                <div class="checkline"><span class="ck y"><svg class="ic ic-sm"><use href="#i-check"/></svg></span> Main branch and location</div>
+                <div class="checkline"><span class="ck y"><svg class="ic ic-sm"><use href="#i-check"/></svg></span> 2 RMV vouchers configured</div>
+                <div class="checkline"><span class="ck n"><svg class="ic ic-sm"><use href="#i-alert"/></svg></span> Not test data</div>
+                <p class="help" style="margin:10px 2px 0">Gates inform the decision; they are not the whole basis for it. The server re-checks them on approve.</p>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="hd"><h3>Audit and history</h3></div>
+              <div class="bd audit">
+                <ul>
+                  <li><span class="when">Today 14:02</span><div><span class="who">You</span> claimed for review</div></li>
+                  <li><span class="when">2 days ago</span><div><span class="who">Karaara</span> submitted for approval</div></li>
+                  <li><span class="when">4 days ago</span><div><span class="who">You</span> created the draft, claim email sent</div></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="reasonbox" id="reasonbox" style="display:none">
+          <label>Reason for changes (sent to the merchant by email)</label>
+          <textarea placeholder="Be specific and friendly, e.g. The FHRS certificate has expired. Please upload a current one and re-submit."></textarea>
+          <div class="quick"><span>Document expired</span><span>Photo unclear</span><span>Wrong category</span><span>Branch address</span></div>
+          <div style="display:flex;gap:8px;margin-top:4px"><button class="btn btn-pri btn-sm">Send request for changes</button><button class="btn btn-sm btn-ghost" onclick="toggleReason(false)">Cancel</button></div>
+        </div>
+        <div class="confirm" id="confirm"><svg class="ic"><use href="#i-shield"/></svg><div><b>Approve and go live?</b> The server re-checks every go-live gate, activates the 2 RMV vouchers, and emails the owner that they are live. This makes Karaara visible to customers.</div></div>
+        <div class="actionbar">
+          <span class="grow"><svg class="ic ic-sm" style="color:var(--ink-3)"><use href="#i-shield"/></svg> Approving re-checks gates server-side, activates RMVs, and notifies the owner.</span>
+          <button class="btn btn-danger">Reject</button>
+          <button class="btn" onclick="toggleReason(true)">Request changes</button>
+          <button class="btn btn-ok" onclick="toggleConfirm()"><svg class="ic ic-sm"><use href="#i-check"/></svg> Approve and go live</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 4. CREATE DRAFT ============ -->
+<section class="screen" id="create">
+  <div class="shell">
+    <aside class="side">
+      <div class="brand"><span class="dot">R</span><span class="nm">Redeemo<small>Admin</small></span></div>
+      <nav class="nav">
+        <a class="active" href="#" onclick="show('queue')"><svg class="ic"><use href="#i-inbox"/></svg> Approval queue <span class="count">7</span></a>
+        <a href="#"><svg class="ic"><use href="#i-store"/></svg> Merchants</a>
+        <a href="#"><svg class="ic"><use href="#i-pin"/></svg> Branches</a>
+        <a href="#"><svg class="ic"><use href="#i-file"/></svg> Audit log</a>
+        <a href="#"><svg class="ic"><use href="#i-gear"/></svg> Settings</a>
+      </nav>
+      <div class="spacer"></div>
+      <div class="who"><span class="av">SC</span><div><div style="font-weight:600;font-size:12.5px">Shebin C.</div><div class="faint" style="font-size:11px">OPERATIONS</div></div></div>
+    </aside>
+    <div class="main">
+      <div class="topbar"><span class="crumb"><b onclick="show('queue')">Approval queue</b> / Create merchant draft</span></div>
+      <div class="content" style="max-width:680px">
+        <div class="card">
+          <div class="hd"><h3>Create merchant draft</h3><span class="hdsub">starts onboarding for a recruited merchant</span></div>
+          <div class="bd">
+            <div class="formgrid">
+              <div class="field"><label>Business / legal name</label><input value="Karaara Ltd" /></div>
+              <div class="field"><label>Trading name (optional)</label><input value="Karaara Kitchen" /></div>
+              <div class="field"><label>Owner’s first name</label><input value="Anil" /></div>
+              <div class="field"><label>Owner’s last name</label><input value="Karaara" /></div>
+              <div class="field"><label>Owner’s work email</label><input value="anil@karaarakitchen.co.uk" /></div>
+              <div class="field"><label>Job title (optional)</label><input value="Owner" /></div>
+            </div>
+            <div class="callout"><svg class="ic"><use href="#i-mail"/></svg><div>A secure <b>claim email</b> is sent to the owner to set their own password and finish onboarding. No password is set here, and nothing goes live until you approve it.</div></div>
+            <div style="display:flex;gap:10px;margin-top:16px"><button class="btn btn-pri">Create draft and send claim email</button><button class="btn btn-ghost" onclick="show('queue')">Cancel</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<script>
+  function show(id){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('show'));
+    document.getElementById(id).classList.add('show');
+    document.querySelectorAll('.switcher button').forEach(b=>b.classList.toggle('active', b.dataset.s===id));
+    window.scrollTo(0,0);
+  }
+  document.querySelectorAll('.switcher button').forEach(b=>b.onclick=()=>show(b.dataset.s));
+  function loginStep(s){
+    document.getElementById('pw-step').style.display = s==='pw'?'block':'none';
+    document.getElementById('otp-step').style.display = s==='otp'?'block':'none';
+    document.querySelectorAll('#login .seg button').forEach((b,i)=>b.classList.toggle('on', (s==='pw'&&i===0)||(s==='otp'&&i===1)));
+  }
+  function toggleReason(v){document.getElementById('reasonbox').style.display=v?'block':'none';}
+  function toggleConfirm(){var c=document.getElementById('confirm');c.style.display=c.style.display==='flex'?'none':'flex';}
+</script>
+</body>
+</html>

@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import type Redis from 'ioredis'
 import { verifyPassword } from '../../shared/password'
@@ -22,6 +23,11 @@ const ACCESS_TOKEN_TTL  = '15m'
 const ADMIN_OTP_DEV_BYPASS_ENVS = new Set(['development', 'test'])
 const ADMIN_DEV_OTP_BYPASS_CODE = '000000'
 
+// M0: per-challenge wrong-code ceiling. On the Nth wrong attempt the challenge is
+// destroyed (the admin must restart login → a fresh code), bounding brute force
+// to N guesses per live challenge regardless of the edge rate-limit.
+const ADMIN_OTP_MAX_ATTEMPTS = 5
+
 export async function loginAdmin(
   prisma: PrismaClient,
   redis: Redis,
@@ -40,15 +46,42 @@ export async function loginAdmin(
   if (!admin.isActive) throw new AppError('ACCOUNT_SUSPENDED')
 
   const challenge = generateSecureToken(16)
+
+  // M0: generate a real 6-digit code, store only its challenge-bound HMAC (never
+  // the code itself, even in Redis), and email it via the outbox. The HMAC is
+  // keyed by ENCRYPTION_KEY and bound to THIS challenge so a code is meaningless
+  // against any other challenge. `attempts` caps brute force in verifyAdminOtp.
+  const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0')
+  const codeHmac = crypto
+    .createHmac('sha256', process.env.ENCRYPTION_KEY as string)
+    .update(challenge + ':' + code)
+    .digest('hex')
+
   await redis.set(
     RedisKey.otpChallenge('admin', challenge),
-    JSON.stringify({ adminId: admin.id, deviceId: data.deviceId, deviceType: data.deviceType }),
+    JSON.stringify({ adminId: admin.id, deviceId: data.deviceId, deviceType: data.deviceType, codeHmac, attempts: 0 }),
     'EX', OTP_CHALLENGE_TTL
   )
 
-  // TODO Phase 3: send the OTP code via Twilio to admin's phone.
-  // (The session challenge is returned to the client below; the OTP code itself
-  // is never logged — SEC-H1.)
+  // Deliver the code through the outbox (dark by default). Best-effort: a delivery
+  // failure must never change the response (no enumeration). The code is NEVER
+  // logged or returned — only the session challenge goes back to the client.
+  try {
+    const { notify } = await import('../../shared/notify')
+    const { adminOtpEmail } = await import('../../shared/emailTemplates')
+    await notify(prisma, redis, {
+      to: admin.email,
+      recipientType: 'ADMIN',
+      recipientId: admin.id,
+      userId: null,
+      type: 'admin_otp',
+      email: adminOtpEmail(code),
+      ip: data.ipAddress ?? null,
+    })
+  } catch {
+    // swallow — never reveal a delivery failure
+  }
+
   return { status: 'OTP_REQUIRED', sessionChallenge: challenge }
 }
 
@@ -58,27 +91,56 @@ export async function verifyAdminOtp(
   app: any,
   data: { sessionChallenge: string; code: string; ipAddress: string; userAgent: string }
 ): Promise<{ accessToken: string; refreshToken: string; admin: object }> {
-  const raw = await redis.get(RedisKey.otpChallenge('admin', data.sessionChallenge))
+  const key = RedisKey.otpChallenge('admin', data.sessionChallenge)
+  const raw = await redis.get(key)
   if (!raw) throw new AppError('ACTION_TOKEN_INVALID')
 
-  const { adminId, deviceId, deviceType } = JSON.parse(raw) as { adminId: string; deviceId: string; deviceType: string }
-  await redis.del(RedisKey.otpChallenge('admin', data.sessionChallenge))
+  const { adminId, deviceId, deviceType, codeHmac, attempts } = JSON.parse(raw) as {
+    adminId: string; deviceId: string; deviceType: string; codeHmac?: string; attempts?: number
+  }
+
+  // M0: verify the submitted code against the challenge-bound HMAC stored at
+  // login. We must NOT delete the challenge on a wrong code — instead increment
+  // `attempts` (with KEEPTTL so the 10-minute window is unchanged) and only
+  // delete once the per-challenge attempt cap is reached, so an attacker gets a
+  // hard ceiling, not unlimited guesses against one live challenge.
+  //
+  // The `000000` dev bypass still works in dev/test ONLY (allowlist, not
+  // `!== production`), so an unset / staging NODE_ENV fails CLOSED.
+  const devBypass =
+    ADMIN_OTP_DEV_BYPASS_ENVS.has(process.env.NODE_ENV ?? '') &&
+    data.code === ADMIN_DEV_OTP_BYPASS_CODE
+
+  let match = devBypass
+  if (!match && codeHmac) {
+    const submittedHmac = crypto
+      .createHmac('sha256', process.env.ENCRYPTION_KEY as string)
+      .update(data.sessionChallenge + ':' + data.code)
+      .digest('hex')
+    match =
+      submittedHmac.length === codeHmac.length &&
+      crypto.timingSafeEqual(Buffer.from(submittedHmac, 'hex'), Buffer.from(codeHmac, 'hex'))
+  }
+
+  if (!match) {
+    const next = (attempts ?? 0) + 1
+    if (next >= ADMIN_OTP_MAX_ATTEMPTS) {
+      await redis.del(key)
+    } else {
+      await redis.set(
+        key,
+        JSON.stringify({ adminId, deviceId, deviceType, codeHmac, attempts: next }),
+        'KEEPTTL'
+      )
+    }
+    throw new AppError('OTP_INVALID')
+  }
+
+  // Match: single-use — consume the challenge before issuing tokens.
+  await redis.del(key)
 
   const admin = await prisma.adminUser.findUnique({ where: { id: adminId } })
   if (!admin) throw new AppError('INVALID_CREDENTIALS')
-
-  // Admin OTP second factor. Real Twilio Verify is not wired yet (Phase 3), so
-  // there is no real code to check against. Until it is:
-  //   - dev/test ONLY: accept the documented bypass code so local admin QA works.
-  //   - production / staging / unset / any other env: FAIL CLOSED — no constant
-  //     code is ever accepted (closes the SEC-H4/F1 `000000` production backdoor).
-  // Phase 3 replaces this block with a real verification check.
-  if (
-    !ADMIN_OTP_DEV_BYPASS_ENVS.has(process.env.NODE_ENV ?? '') ||
-    data.code !== ADMIN_DEV_OTP_BYPASS_CODE
-  ) {
-    throw new AppError('OTP_INVALID')
-  }
 
   const sessionId  = generateSessionId()
   const rawRefresh = generateRefreshToken()

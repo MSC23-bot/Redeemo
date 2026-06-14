@@ -17,7 +17,9 @@ export async function adminAuthRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  app.post(`${prefix}/otp/verify`, async (req, reply) => {
+  app.post(`${prefix}/otp/verify`, {
+    config: { rateLimit: routeRateLimit('otpVerify') },
+  }, async (req, reply) => {
     const body = z.object({ sessionChallenge: z.string(), code: z.string().length(6) }).parse(req.body)
     const result = await verifyAdminOtp(app.prisma, app.redis, app, {
       ...body, ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
