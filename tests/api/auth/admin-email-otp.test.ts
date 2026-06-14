@@ -40,9 +40,9 @@ afterEach(() => {
 describe('loginAdmin — M0 generate + HMAC-store + email send', () => {
   function loginMocks() {
     const redis = {
-      get: vi.fn(async () => null),
-      set: vi.fn(async () => 'OK'),
-      del: vi.fn(async () => 1),
+      get: vi.fn(async (_k: string) => null as string | null),
+      set: vi.fn(async (_k: string, _v: string, ..._rest: unknown[]) => 'OK'),
+      del: vi.fn(async (_k: string) => 1),
     }
     const prisma = {
       adminUser: { findUnique: vi.fn(async () => ADMIN) },
@@ -86,10 +86,11 @@ describe('loginAdmin — M0 generate + HMAC-store + email send', () => {
     const arg = notifySpy.mock.calls[0][2]
     expect(arg.recipientType).toBe('ADMIN')
     expect(arg.type).toBe('admin_otp')
-    expect(arg.email.text).toMatch(/\b\d{6}\b/)
+    const emailText = arg.email.text ?? ''
+    expect(emailText).toMatch(/\b\d{6}\b/)
 
     // the stored codeHmac must equal the HMAC of the code that was emailed
-    const emailedCode = arg.email.text.match(/\b(\d{6})\b/)![1]
+    const emailedCode = emailText.match(/\b(\d{6})\b/)![1]
     expect(stored.codeHmac).toBe(hmacFor(res.sessionChallenge, emailedCode))
   })
 
@@ -120,7 +121,7 @@ describe('verifyAdminOtp — M0 HMAC verification + attempt limit', () => {
     }
     const redis = {
       get: vi.fn(async (k: string) => store[k] ?? null),
-      set: vi.fn(async (k: string, v: string) => { store[k] = v; return 'OK' }),
+      set: vi.fn(async (k: string, v: string, ..._rest: unknown[]) => { store[k] = v; return 'OK' }),
       del: vi.fn(async (k: string) => { delete store[k]; return 1 }),
     }
     const prisma = {
