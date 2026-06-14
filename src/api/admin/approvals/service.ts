@@ -187,7 +187,7 @@ export async function claimApproval(prisma: PrismaClient, id: string, adminId: s
 }
 
 /** Release a claim; merchant → SUBMITTED (back from UNDER_REVIEW). */
-export async function releaseApproval(prisma: PrismaClient, id: string, adminId: string, ctx: AuditCtx) {
+export async function releaseApproval(prisma: PrismaClient, id: string, adminId: string, adminRole: string, ctx: AuditCtx) {
   return prisma.$transaction(async (tx) => {
     const approval = await tx.adminApproval.findUnique({
       where: { id },
@@ -195,6 +195,12 @@ export async function releaseApproval(prisma: PrismaClient, id: string, adminId:
     })
     if (!approval) throw new AppError('APPROVAL_NOT_FOUND')
     if (!approval.claimedById) throw new AppError('APPROVAL_NOT_ACTIONABLE')
+    // D1: release-owner guard — the claimer can release their own claim; a
+    // SUPER_ADMIN can force-release anyone's; an ordinary admin cannot release
+    // another admin's claim. (Defence-in-depth: the UI also gates this.)
+    if (approval.claimedById !== adminId && adminRole !== 'SUPER_ADMIN') {
+      throw new AppError('APPROVAL_NOT_CLAIMER')
+    }
 
     await tx.adminApproval.update({ where: { id }, data: { claimedById: null, claimedAt: null } })
     if (approval.type === 'MERCHANT_ONBOARDING') {

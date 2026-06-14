@@ -92,12 +92,78 @@ describe('M3 — actioner review loop (real DB)', () => {
   it('release → claim cleared + back to SUBMITTED', async () => {
     const { merchantId, approvalId } = await makeSubmittedMerchant()
     await claimApproval(prisma, approvalId, ADMIN_ID, ctx)
-    await releaseApproval(prisma, approvalId, ADMIN_ID, ctx)
+    await releaseApproval(prisma, approvalId, ADMIN_ID, 'OPERATIONS', ctx)
 
     const ap = await prisma.adminApproval.findUnique({ where: { id: approvalId } })
     expect(ap?.claimedById).toBeNull()
     const m = await prisma.merchant.findUnique({ where: { id: merchantId } })
     expect(m?.onboardingStep).toBe('SUBMITTED')
+  })
+
+  // D1: release-owner guard cases (spec 5.2)
+  describe('release-owner guard (D1)', () => {
+    let ADMIN_B_ID = ''
+
+    beforeAll(async () => {
+      const b = await prisma.adminUser.create({
+        data: { email: `m5-admin-b-${Date.now()}@example.com`, passwordHash: 'x', firstName: 'B', lastName: 'Admin', role: 'OPERATIONS' },
+      })
+      ADMIN_B_ID = b.id
+    })
+
+    afterAll(async () => {
+      if (ADMIN_B_ID) await prisma.adminUser.delete({ where: { id: ADMIN_B_ID } }).catch(() => {})
+    })
+
+    it('(a) claimer releases own claim — succeeds, claim cleared, merchant back to SUBMITTED, audit written', async () => {
+      const { merchantId, approvalId } = await makeSubmittedMerchant()
+      await claimApproval(prisma, approvalId, ADMIN_ID, ctx)
+
+      const result = await releaseApproval(prisma, approvalId, ADMIN_ID, 'OPERATIONS', ctx)
+      expect(result).toEqual({ released: true })
+
+      const ap = await prisma.adminApproval.findUnique({ where: { id: approvalId } })
+      expect(ap?.claimedById).toBeNull()
+      expect(ap?.claimedAt).toBeNull()
+
+      const m = await prisma.merchant.findUnique({ where: { id: merchantId } })
+      expect(m?.onboardingStep).toBe('SUBMITTED')
+
+      const audit = await prisma.auditLog.findFirst({ where: { entityId: merchantId, event: 'MERCHANT_APPROVAL_RELEASED' } })
+      expect(audit?.actorId).toBe(ADMIN_ID)
+      expect(audit?.actorType).toBe('ADMIN')
+    })
+
+    it('(b) ordinary non-claimer cannot release — throws APPROVAL_NOT_CLAIMER, claim unchanged', async () => {
+      const { merchantId, approvalId } = await makeSubmittedMerchant()
+      await claimApproval(prisma, approvalId, ADMIN_ID, ctx)
+
+      await expect(releaseApproval(prisma, approvalId, ADMIN_B_ID, 'OPERATIONS', ctx)).rejects.toThrow('APPROVAL_NOT_CLAIMER')
+
+      // Claim must remain intact (ADMIN_ID still holds it)
+      const ap = await prisma.adminApproval.findUnique({ where: { id: approvalId } })
+      expect(ap?.claimedById).toBe(ADMIN_ID)
+    })
+
+    it('(c) SUPER_ADMIN force-release — succeeds even though actor is not the claimer', async () => {
+      const { approvalId } = await makeSubmittedMerchant()
+      await claimApproval(prisma, approvalId, ADMIN_ID, ctx)
+
+      const result = await releaseApproval(prisma, approvalId, ADMIN_B_ID, 'SUPER_ADMIN', ctx)
+      expect(result).toEqual({ released: true })
+
+      const ap = await prisma.adminApproval.findUnique({ where: { id: approvalId } })
+      expect(ap?.claimedById).toBeNull()
+    })
+
+    it('(d) unclaimed approval throws APPROVAL_NOT_ACTIONABLE (not APPROVAL_NOT_CLAIMER); missing id throws APPROVAL_NOT_FOUND', async () => {
+      // Unclaimed — guard order: NOT_ACTIONABLE fires before the claimer check
+      const { approvalId } = await makeSubmittedMerchant()
+      await expect(releaseApproval(prisma, approvalId, ADMIN_B_ID, 'OPERATIONS', ctx)).rejects.toThrow('APPROVAL_NOT_ACTIONABLE')
+
+      // Missing id
+      await expect(releaseApproval(prisma, 'no-such-id', ADMIN_ID, 'OPERATIONS', ctx)).rejects.toThrow('APPROVAL_NOT_FOUND')
+    })
   })
 
   it('request-changes → CHANGES_REQUESTED + NEEDS_CHANGES (status stays PENDING_APPROVAL) + notifies the owner', async () => {

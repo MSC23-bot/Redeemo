@@ -53,6 +53,23 @@ export const listApprovalsResponseSchema = z.object({
 })
 export type ListApprovalsResponse = z.infer<typeof listApprovalsResponseSchema>
 
+// ── Action response schemas ───────────────────────────────────────────────────
+
+const claimResponseSchema = z.object({ claimed: z.boolean() })
+const releaseResponseSchema = z.object({ released: z.boolean() })
+const requestChangesResponseSchema = z.object({ changesRequested: z.boolean() })
+const rejectResponseSchema = z.object({ rejected: z.boolean() })
+const approveResponseSchema = z.object({
+  approved: z.boolean(),
+  alreadyLive: z.boolean().optional(),
+})
+
+export type ClaimResponse = z.infer<typeof claimResponseSchema>
+export type ReleaseResponse = z.infer<typeof releaseResponseSchema>
+export type RequestChangesResponse = z.infer<typeof requestChangesResponseSchema>
+export type RejectResponse = z.infer<typeof rejectResponseSchema>
+export type ApproveResponse = z.infer<typeof approveResponseSchema>
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export const approvalsApi = {
@@ -79,5 +96,57 @@ export const approvalsApi = {
       auth: true,
     })
     return listApprovalsResponseSchema.parse(raw)
+  },
+
+  /** Claim an approval for review. Throws ApiError (APPROVAL_ALREADY_CLAIMED on race). */
+  claim: async (id: string): Promise<ClaimResponse> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/approvals/${id}/claim`, {
+      method: 'POST',
+      auth: true,
+    })
+    return claimResponseSchema.parse(raw)
+  },
+
+  /** Release a previously claimed approval. Throws ApiError (APPROVAL_NOT_CLAIMER, APPROVAL_NOT_ACTIONABLE). */
+  release: async (id: string): Promise<ReleaseResponse> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/approvals/${id}/release`, {
+      method: 'POST',
+      auth: true,
+    })
+    return releaseResponseSchema.parse(raw)
+  },
+
+  /** Request changes from the merchant. Throws ApiError on invalid state. */
+  requestChanges: async (id: string, reason: string): Promise<RequestChangesResponse> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/approvals/${id}/request-changes`, {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ reason }),
+    })
+    return requestChangesResponseSchema.parse(raw)
+  },
+
+  /** Reject the merchant application. Throws ApiError on invalid state. */
+  reject: async (id: string, reason: string): Promise<RejectResponse> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/approvals/${id}/reject`, {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ reason }),
+    })
+    return rejectResponseSchema.parse(raw)
+  },
+
+  /**
+   * Approve the merchant application and take them live.
+   * The server re-checks all go-live gates; throws ApiError on gate failures
+   * (ONBOARDING_GATES_INCOMPLETE, MAIN_BRANCH_LOCATION_UNCONFIRMED,
+   * APPROVAL_NOT_ACTIONABLE, APPROVAL_NOT_FOUND).
+   */
+  approve: async (id: string): Promise<ApproveResponse> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/approvals/${id}/approve`, {
+      method: 'POST',
+      auth: true,
+    })
+    return approveResponseSchema.parse(raw)
   },
 }

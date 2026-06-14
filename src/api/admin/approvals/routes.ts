@@ -53,7 +53,7 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
   })
 
   app.post(`${prefix}/:id/release`, { preHandler: [requireAdminCapability('approval:action')] }, async (req: any) => {
-    return releaseApproval(app.prisma, idParam(req), req.user.sub, auditCtx(req))
+    return releaseApproval(app.prisma, idParam(req), req.user.sub, req.user.adminRole, auditCtx(req))
   })
 
   app.post(`${prefix}/:id/request-changes`, { preHandler: [requireAdminCapability('approval:action')] }, async (req: any) => {
