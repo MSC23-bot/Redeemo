@@ -97,6 +97,12 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:3000
         run: npm run build
 
+      # Unit / component tests (jest + RTL, jsdom). No network/DB — the API layer
+      # is mocked in tests. Required (fails the job on a red test).
+      - name: Test (admin-web)
+        working-directory: apps/admin-web
+        run: npm test
+
       # Advisory only — NEVER fails the job (continue-on-error + always()). Scoped
       # to the admin-web workspace. Dependabot opens the structured update PRs;
       # dependency version remediation is a separate PR.
