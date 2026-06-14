@@ -401,6 +401,21 @@ describe('ReviewPage claim-state badge', () => {
     expect(badge).toHaveTextContent('Claimed by Dana Reviewer')
   })
 
+  it('shows "Claimed by an admin" when claimed by another admin with a null name', () => {
+    mockReview({
+      data: makeContext({
+        approval: {
+          ...makeContext().approval,
+          claimedAt: '2026-06-10T10:00:00.000Z',
+          claimedBy: { id: 'admin-x', name: null },
+        },
+      }),
+    })
+    renderPage()
+    const badge = screen.getByTestId('review-claim-badge')
+    expect(badge).toHaveTextContent('Claimed by an admin')
+  })
+
   it('shows "Unclaimed" when no admin has claimed the approval', () => {
     mockReview({ data: makeContext() }) // default claimedBy: null
     renderPage()

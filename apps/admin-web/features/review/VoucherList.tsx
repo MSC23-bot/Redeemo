@@ -13,6 +13,8 @@ interface VoucherListProps {
   vouchers: ReviewVoucher[]
 }
 
+// Intentionally always 'neutral' today: every voucher-type chip is neutral. This
+// is a seam for future per-type tones — do not infer per-type styling from it yet.
 function voucherTypeTone(): BadgeTone {
   return 'neutral'
 }

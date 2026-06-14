@@ -39,11 +39,22 @@ describe('DocumentList', () => {
     const link = screen.getByRole('link', { name: /open/i })
     expect(link).toHaveAttribute('href', 'https://example.com/signed')
     expect(link).toHaveAttribute('target', '_blank')
+    // Reverse-tabnabbing protection: a target="_blank" link must carry rel="noopener noreferrer".
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
   it('shows "Unavailable" badge and no link for an unavailable doc', () => {
     render(<DocumentList documents={[makeDoc({ available: false, url: null })]} />)
     expect(screen.getByText('Unavailable')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /open/i })).not.toBeInTheDocument()
+  })
+
+  it('renders "Unavailable" (not a null link) when available is true but url is null', () => {
+    // Pins the `doc.available && doc.url` guard: a truthy available flag with a
+    // missing url must NOT produce a link with a null href.
+    render(<DocumentList documents={[makeDoc({ available: true, url: null })]} />)
+    expect(screen.getByText('Unavailable')).toBeInTheDocument()
+    expect(screen.queryByText('Available')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /open/i })).not.toBeInTheDocument()
   })
 

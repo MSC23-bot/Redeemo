@@ -94,6 +94,11 @@ describe('ActivityList', () => {
     expect(screen.getByText('Admin')).toBeInTheDocument()
   })
 
+  it('shows "Unknown" actor label when actorType is null', () => {
+    render(<ActivityList activity={[makeActivity({ actorType: null, actor: null })]} />)
+    expect(screen.getByText('Unknown')).toBeInTheDocument()
+  })
+
   it('shows the reason when present', () => {
     render(
       <ActivityList

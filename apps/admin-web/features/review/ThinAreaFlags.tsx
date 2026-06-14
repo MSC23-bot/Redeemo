@@ -38,6 +38,9 @@ function FlagItem({ label, description, captured }: FlagItemProps) {
 }
 
 export function ThinAreaFlags({ thinAreas }: ThinAreaFlagsProps) {
+  // Note: thinAreas.documentsGated is part of the payload/type but is intentionally
+  // NOT listed as a gap here — it is a backend-gate informational flag, not a
+  // thin-area gap shown to the admin.
   const gaps = [
     {
       key: 'companyTypeCaptured' as const,
