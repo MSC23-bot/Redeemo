@@ -20,6 +20,7 @@ import { useSession } from '@/lib/auth/useSession'
 import { authApi } from '@/lib/api/auth'
 import { clearSession, type AdminCapability } from '@/lib/auth/session'
 import { Button } from '@/components/ui/button'
+import { NotificationBell } from '@/components/notification-bell'
 
 type NavItem = { label: string; href: string; cap: AdminCapability }
 
@@ -104,6 +105,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           ) : null}
 
           <div className="flex items-center gap-3">
+            <NotificationBell />
             {role ? <RoleBadge role={role} /> : null}
             <Button variant="outline" size="sm" onClick={onLogout}>
               <LogOut className="size-4" aria-hidden="true" />
