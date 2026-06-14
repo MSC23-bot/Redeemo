@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { verifyAdminOtp } from '../../../src/api/auth/admin/service'
+import { adminAuthRoutes } from '../../../src/api/auth/admin/routes'
+import { routeRateLimit } from '../../../src/api/plugins/rate-limit'
 import { RedisKey } from '../../../src/api/shared/redis-keys'
 
 // SEC F1: the admin OTP `000000` dev bypass must FAIL CLOSED outside dev/test.
@@ -110,5 +112,61 @@ describe('verifyAdminOtp — SEC F1 OTP bypass hardening', () => {
     })
     expect(m.app.jwt.admin.sign).not.toHaveBeenCalled()
     expect(m.prisma.userSession.create).not.toHaveBeenCalled()
+  })
+})
+
+// M0 Step D — the OTP-verify route must carry a route-level rate-limit so the
+// per-challenge attempt cap (5 in the service) is backed by an edge throttle on
+// repeated /otp/verify POSTs (per-IP, like the login tier). We pin the route-config
+// shape without spinning a full Fastify app — the limiter behaviour itself is
+// owned by @fastify/rate-limit (exercised elsewhere).
+type RouteCall = [path: string, optsOrHandler: unknown, handlerOrUndefined?: unknown]
+
+function captureRoutes() {
+  const get = vi.fn()
+  const post = vi.fn()
+  return { get, post, app: { get, post } as any }
+}
+const findPost = (post: ReturnType<typeof vi.fn>, path: string): RouteCall | undefined =>
+  (post.mock.calls as RouteCall[]).find((c) => c[0] === path)
+
+describe('otpVerify rate-limit tier', () => {
+  it('exists with a sensible per-IP max + 1-minute window', () => {
+    const tier = routeRateLimit('otpVerify')
+    expect(tier.max).toBeGreaterThanOrEqual(1)
+    expect(tier.timeWindow).toBe('1 minute')
+  })
+
+  it('prod ceiling is no looser than the login tier (an OTP guess is a credential attempt)', () => {
+    if (process.env.RATE_LIMIT_RELAX === 'true') return
+    expect(routeRateLimit('otpVerify').max).toBeLessThanOrEqual(routeRateLimit('login').max)
+  })
+})
+
+describe('adminAuthRoutes — POST /otp/verify rate-limit config', () => {
+  it('attaches a route-level rateLimit config to the OTP-verify endpoint', async () => {
+    const { post, app } = captureRoutes()
+    await adminAuthRoutes(app)
+
+    const call = findPost(post, '/api/v1/admin/auth/otp/verify')
+    expect(call).toBeDefined()
+    // 3-arg form `app.post(path, opts, handler)` — a route carrying a `config`
+    // object passes it as the 2nd arg. No config = 2-arg form only.
+    expect(call!.length).toBe(3)
+
+    const opts = call![1] as { config?: { rateLimit?: unknown } }
+    expect(opts.config).toBeDefined()
+    expect(opts.config!.rateLimit).toBeDefined()
+  })
+
+  it('uses the otpVerify tier values (max + timeWindow inherited from routeRateLimit)', async () => {
+    const { post, app } = captureRoutes()
+    await adminAuthRoutes(app)
+
+    const call = findPost(post, '/api/v1/admin/auth/otp/verify')!
+    const cfg = (call[1] as any).config.rateLimit
+    const tier = routeRateLimit('otpVerify')
+    expect(cfg.max).toBe(tier.max)
+    expect(cfg.timeWindow).toBe(tier.timeWindow)
   })
 })

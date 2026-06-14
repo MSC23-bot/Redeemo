@@ -7,6 +7,11 @@ const RELAX = process.env.RATE_LIMIT_RELAX === 'true' && process.env.NODE_ENV !=
 const TIERS = {
   login:          { prod: { max: 5,  timeWindow: '1 minute' }, dev: { max: 50,  timeWindow: '1 minute' } },
   forgotPassword: { prod: { max: 3,  timeWindow: '1 hour' },   dev: { max: 10,  timeWindow: '1 minute' } },
+  // Admin OTP-verify tier (M0). Per-IP, slightly STRICTER than login: an OTP
+  // guess is a credential attempt, and the service already caps a single
+  // challenge at 5 wrong tries — this edge throttle backstops repeated POSTs
+  // across many challenges (e.g. re-login spam to farm fresh codes).
+  otpVerify:      { prod: { max: 5,  timeWindow: '1 minute' }, dev: { max: 50,  timeWindow: '1 minute' } },
   // Merchant draft-owner claim (set-password via emailed token). Per-IP; the
   // 32-byte token is the primary defence — this just caps abuse + allows retries.
   claim:          { prod: { max: 5,  timeWindow: '1 minute' }, dev: { max: 50,  timeWindow: '1 minute' } },
