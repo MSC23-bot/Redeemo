@@ -95,7 +95,7 @@ export const listMerchantsResponseSchema = z.object({
 })
 export type ListMerchantsResponse = z.infer<typeof listMerchantsResponseSchema>
 
-// ── Option B B2.1 — merchant detail (read) + edit-on-behalf ───────────────────
+// ── Option B B2.1: merchant detail (read) + edit-on-behalf ────────────────────
 
 /**
  * A branch row on the merchant detail payload (GET /admin/merchants/:id). The

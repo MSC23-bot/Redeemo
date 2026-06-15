@@ -96,7 +96,7 @@ export function useConfirmLocation(approvalId: string) {
   })
 }
 
-// ── Option B B2.1 — edit-on-behalf (merchant profile + branch) ────────────────
+// ── Option B B2.1: edit-on-behalf (merchant profile + branch) ─────────────────
 
 /**
  * Invalidate the surfaces a B2.1 edit can shift: this merchant's detail (so the
