@@ -21,6 +21,7 @@ import type { PrismaClient } from '../../../../generated/prisma/client'
 import { EMAIL_QUEUE, MAINTENANCE_QUEUE, BULLMQ_PREFIX, enqueue, makeQueue } from '../index'
 import { makeQueueConnection } from '../connection'
 import { shouldLog } from '../logThrottle'
+import { CLAIM_STALE_JOB, sweepStaleClaims } from './claimStaleSweep'
 
 /** Only RE-ENQUEUE rows older than this — ≥ the worker's max retry-backoff window. */
 export const RECONCILE_GRACE_MS = 120_000 // 2 min
@@ -104,14 +105,19 @@ export async function reconcileOutbox(prisma: PrismaClient, now: Date = new Date
 }
 
 /**
- * Start the MAINTENANCE_QUEUE Worker that runs the sweep, on its OWN Redis
- * connection. Wired from src/worker.ts alongside the email worker.
+ * Start the MAINTENANCE_QUEUE Worker on its OWN Redis connection. One Worker
+ * serves the whole queue, dispatching by job name: the outbox reconciler
+ * (RECONCILE_JOB) and the WP4 stale-claim sweep (CLAIM_STALE_JOB). A single
+ * worker is deliberate, since two Workers on one queue round-robin jobs, so a
+ * reconcile tick could land on a claim-stale-only worker and be silently
+ * no-op'd. Wired from src/worker.ts alongside the email worker.
  */
 export function startReconcileWorker(prisma: PrismaClient, connection?: IORedis): Worker {
   const worker = new Worker(
     MAINTENANCE_QUEUE,
     async (job: Job) => {
       if (job.name === RECONCILE_JOB) await reconcileOutbox(prisma)
+      else if (job.name === CLAIM_STALE_JOB) await sweepStaleClaims(prisma)
     },
     {
       connection: (connection ?? makeQueueConnection()) as unknown as ConnectionOptions,
