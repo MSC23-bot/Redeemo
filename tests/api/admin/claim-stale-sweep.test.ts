@@ -38,7 +38,7 @@ beforeEach(() => {
   ;(adminNotify as any).mockResolvedValue(undefined)
 })
 
-describe('sweepStaleClaims — candidate scan', () => {
+describe('sweepStaleClaims: candidate scan', () => {
   it('scans only PENDING, claimed, and claimed-over-24h-ago rows (bounded)', async () => {
     const prisma = makePrisma([])
     await sweepStaleClaims(prisma, NOW)
@@ -52,7 +52,7 @@ describe('sweepStaleClaims — candidate scan', () => {
   })
 })
 
-describe('sweepStaleClaims — alert', () => {
+describe('sweepStaleClaims: alert', () => {
   it('alerts the claimer and stamps lastStaleAlertAt for a fresh stale claim', async () => {
     const prisma = makePrisma([
       { id: 'a1', claimedById: 'admin-1', claimedAt: hoursAgo(25), referenceId: 'm1', referenceType: 'merchant', lastStaleAlertAt: null },
@@ -76,7 +76,7 @@ describe('sweepStaleClaims — alert', () => {
   })
 })
 
-describe('sweepStaleClaims — dedup + re-arm', () => {
+describe('sweepStaleClaims: dedup + re-arm', () => {
   it('does NOT re-alert a claim already alerted (lastStaleAlertAt after claimedAt)', async () => {
     const claimedAt = hoursAgo(25)
     const prisma = makePrisma([
@@ -100,7 +100,7 @@ describe('sweepStaleClaims — dedup + re-arm', () => {
   })
 })
 
-describe('sweepStaleClaims — best-effort', () => {
+describe('sweepStaleClaims: best-effort', () => {
   it('continues the batch when one alert throws', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const prisma = makePrisma([
