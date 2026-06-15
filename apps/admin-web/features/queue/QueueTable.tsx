@@ -53,13 +53,15 @@ function ClaimCell({
   if (approval.claimedById === currentAdminId) {
     return <span className="text-sm font-medium text-foreground">You</span>
   }
-  // Claimed by someone else — check for staleness (> 24h).
+  // Claimed by someone else: show their name (falls back to "another admin"
+  // when the name could not be resolved) + check for staleness (> 24h).
   const isStale =
     approval.claimedAt != null &&
     Date.now() - new Date(approval.claimedAt).getTime() > 86_400_000
+  const claimerName = approval.claimedBy?.name ?? 'another admin'
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-sm text-foreground">Claimed</span>
+      <span className="text-sm text-foreground">Claimed by {claimerName}</span>
       {isStale && (
         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
           Stale

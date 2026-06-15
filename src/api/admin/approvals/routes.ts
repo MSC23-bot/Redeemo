@@ -29,6 +29,7 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
           .optional(),
         status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CHANGES_REQUESTED']).optional(),
         claimedById: z.string().min(1).optional(),
+        referenceId: z.string().min(1).optional(),
         olderThanMinutes: z.coerce.number().int().positive().optional(),
         page: z.coerce.number().int().positive().optional(),
         pageSize: z.coerce.number().int().positive().max(100).optional(),

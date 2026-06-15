@@ -41,6 +41,7 @@ function makeApproval(overrides: {
     actionedAt: null,
     claimedById: overrides.claimedById ?? null,
     claimedAt: overrides.claimedById ? '2026-06-14T08:00:00.000Z' : null,
+    claimedBy: overrides.claimedById ? { id: overrides.claimedById, name: 'Alex Reviewer' } : null,
     merchant: {
       id: 'm-1',
       businessName: 'Acme Coffee',

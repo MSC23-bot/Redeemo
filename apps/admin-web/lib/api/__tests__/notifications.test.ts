@@ -4,7 +4,7 @@
  * apiFetch is mocked to verify URL, method, auth option, and Zod parsing.
  * A malformed response must throw (Zod error, not a silent undefined).
  */
-import { notificationsApi } from '../notifications'
+import { notificationsApi, notificationSchema } from '../notifications'
 import { apiFetch } from '../client'
 
 // ── Mock apiFetch ─────────────────────────────────────────────────────────────
@@ -187,5 +187,36 @@ describe('notificationsApi.markAllRead', () => {
     mockedApiFetch.mockResolvedValueOnce({ not: 'right' })
 
     await expect(notificationsApi.markAllRead()).rejects.toThrow()
+  })
+})
+
+// ── (PR4) Emit-to-read contract seam ─────────────────────────────────────────
+// The M8 emitter (src/api/shared/adminNotify.ts) writes a merchant alert with
+// `referenceType: 'merchant'` (lowercase) + `referenceId: merchant.id`. The bell
+// click-through (components/notification-bell.tsx) hinges on those exact values
+// (`referenceType === 'merchant'` + a non-null referenceId). This pins that the
+// admin-web notificationSchema accepts that wire shape so the click-through hinge
+// cannot silently break if the schema drifts.
+
+describe('notificationSchema: emit to read contract seam (PR4)', () => {
+  it('round-trips a merchant alert with the exact M8 emitter wire shape', () => {
+    // Mirror of emitMerchantSubmittedAlert's adminNotify payload (plus the
+    // read-side fields the list endpoint adds: id/isRead/readAt/sentAt).
+    const emitted = {
+      id: 'notif-seam',
+      type: 'ADMIN_MERCHANT_SUBMITTED',
+      title: 'New merchant submitted for approval',
+      body: 'Acme Coffee has submitted for approval. Open the queue to review it.',
+      referenceId: 'merchant-abc123',
+      referenceType: 'merchant', // lowercase: the value the emitter writes
+      isRead: false,
+      readAt: null,
+      sentAt: '2026-06-14T11:45:00.000Z',
+    }
+
+    const parsed = notificationSchema.parse(emitted)
+    // The two fields the click-through hinges on survive parsing intact.
+    expect(parsed.referenceType).toBe('merchant')
+    expect(parsed.referenceId).toBe('merchant-abc123')
   })
 })

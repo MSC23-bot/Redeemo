@@ -8,6 +8,10 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
 let merchantId = ''
 let approvalId = ''
+// PR4: a seeded admin claimer so claimedBy.name resolution can be pinned.
+let claimerAdminId = ''
+const claimerFirstName = 'Jordan'
+const claimerLastName = 'Lee'
 
 beforeAll(async () => {
   const m = await prisma.merchant.create({
@@ -27,8 +31,27 @@ beforeAll(async () => {
   await prisma.merchantMembership.create({
     data: { merchantId: m.id, merchantAdminId: admin.id, role: 'OWNER', allBranches: true, status: 'ACTIVE' },
   })
+  // PR4: the admin who claims the approval (AdminUser, distinct from the
+  // merchant OWNER). claimedBy.name must resolve to "Jordan Lee".
+  const claimer = await prisma.adminUser.create({
+    data: {
+      email: `m3-claimer-${Date.now()}@example.com`,
+      passwordHash: 'x',
+      firstName: claimerFirstName,
+      lastName: claimerLastName,
+      role: 'OPERATIONS',
+    },
+  })
+  claimerAdminId = claimer.id
   const approval = await prisma.adminApproval.create({
-    data: { type: 'MERCHANT_ONBOARDING', status: 'PENDING', referenceId: m.id, referenceType: 'merchant' },
+    data: {
+      type: 'MERCHANT_ONBOARDING',
+      status: 'PENDING',
+      referenceId: m.id,
+      referenceType: 'merchant',
+      claimedById: claimer.id,
+      claimedAt: new Date(),
+    },
   })
   approvalId = approval.id
 })
@@ -38,6 +61,7 @@ afterAll(async () => {
   const adminIds = (await prisma.merchantMembership.findMany({ where: { merchantId }, select: { merchantAdminId: true } })).map((r) => r.merchantAdminId)
   await prisma.merchantMembership.deleteMany({ where: { merchantId } })
   await prisma.merchantAdmin.deleteMany({ where: { id: { in: adminIds } } })
+  if (claimerAdminId) await prisma.adminUser.delete({ where: { id: claimerAdminId } }).catch(() => {})
   await prisma.merchant.delete({ where: { id: merchantId } }).catch(() => {})
   await prisma.$disconnect()
 })
@@ -70,5 +94,30 @@ describe('M3 — actioner queue reads (real DB)', () => {
 
   it('getApproval on a non-existent id throws APPROVAL_NOT_FOUND', async () => {
     await expect(getApproval(prisma, 'no-such-approval-id')).rejects.toThrow('APPROVAL_NOT_FOUND')
+  })
+})
+
+describe('PR4: listApprovals claimedBy resolution + referenceId filter (real DB)', () => {
+  it('resolves claimedBy { id, name } from the batched AdminUser lookup', async () => {
+    const result = await listApprovals(prisma, { referenceId: merchantId, pageSize: 10 })
+    const row = result.approvals.find((a) => a.id === approvalId)
+    expect(row).toBeTruthy()
+    expect(row!.claimedBy).toEqual({
+      id: claimerAdminId,
+      name: `${claimerFirstName} ${claimerLastName}`,
+    })
+  })
+
+  it('referenceId filter returns only the matching merchant\'s approval', async () => {
+    const result = await listApprovals(prisma, { referenceId: merchantId, pageSize: 50 })
+    // Every returned row is for this merchant.
+    expect(result.approvals.every((a) => a.referenceId === merchantId)).toBe(true)
+    expect(result.approvals.some((a) => a.id === approvalId)).toBe(true)
+  })
+
+  it('referenceId filter for an unrelated merchant returns no rows', async () => {
+    const result = await listApprovals(prisma, { referenceId: 'no-such-merchant-id', pageSize: 10 })
+    expect(result.approvals).toHaveLength(0)
+    expect(result.total).toBe(0)
   })
 })
