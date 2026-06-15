@@ -17,6 +17,7 @@ import {
   useConfirmLocation,
   useEditMerchantProfile,
   useEditBranch,
+  useEditMerchantIdentity,
 } from '../useMerchantActions'
 import { merchantsApi } from '@/lib/api/merchants'
 import { branchesApi } from '@/lib/api/branches'
@@ -31,6 +32,7 @@ jest.mock('@/lib/api/merchants', () => ({
     suspend: jest.fn(),
     reactivate: jest.fn(),
     editProfile: jest.fn(),
+    editIdentity: jest.fn(),
   },
 }))
 jest.mock('@/lib/api/branches', () => ({
@@ -239,6 +241,34 @@ describe('useEditBranch', () => {
     const { result } = renderHook(() => useEditBranch(MERCHANT_ID), { wrapper: Wrapper })
 
     result.current.mutate({ branchId: 'br-1', input: { reason: 'x' } })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+})
+
+describe('useEditMerchantIdentity (B2.2)', () => {
+  it('invalidates this merchant detail AND the directory on success, passing the identity input', async () => {
+    ;(merchantsApi.editIdentity as jest.Mock).mockResolvedValueOnce({ id: MERCHANT_ID })
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useEditMerchantIdentity(MERCHANT_ID), { wrapper: Wrapper })
+
+    const input = { vatNumber: 'GB999', companyNumber: '12345678', reason: 'Correction.', confirm: true as const }
+    result.current.mutate(input)
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(merchantsApi.editIdentity).toHaveBeenCalledWith(MERCHANT_ID, input)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+
+  it('invalidates this merchant detail AND the directory on ERROR (stale state moved on)', async () => {
+    ;(merchantsApi.editIdentity as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useEditMerchantIdentity(MERCHANT_ID), { wrapper: Wrapper })
+
+    result.current.mutate({ vatNumber: null, companyNumber: null, reason: 'x', confirm: true })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
