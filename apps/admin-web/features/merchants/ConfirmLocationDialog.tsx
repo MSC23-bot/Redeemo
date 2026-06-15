@@ -7,11 +7,13 @@
  * (latitude -90..90, longitude -180..180); submit is disabled until both are
  * present and in range. On submit -> useConfirmLocation for the given branch.
  * On error (e.g. BRANCH_NOT_FOUND): NamedGateBanner inside.
- * Accessible: role=dialog, aria-label, focus-on-open, Escape + scrim close.
+ * Accessible via the shared Dialog primitive: role=dialog, aria-label,
+ * focus-on-open, Escape + scrim close, Tab focus-trap, focus-restore.
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useRef, useState } from 'react'
 import { useConfirmLocation } from '@/lib/merchants/useMerchantActions'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'
+import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 
 interface ConfirmLocationDialogProps {
@@ -54,16 +56,6 @@ export function ConfirmLocationDialog({
 
   const canSubmit = latInRange && lngInRange && !mutation.isPending
 
-  useEffect(() => {
-    latRef.current?.focus()
-  }, [])
-
-  function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'Escape') {
-      onCancel()
-    }
-  }
-
   async function handleSubmit() {
     if (!canSubmit || lat === null || lng === null) return
     try {
@@ -75,127 +67,113 @@ export function ConfirmLocationDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onKeyDown={handleKeyDown}
+    <Dialog
+      label="Confirm branch location"
+      onClose={onCancel}
+      scrimTestId="confirm-location-scrim"
+      panelTestId="confirm-location-dialog"
+      initialFocusRef={latRef}
     >
-      {/* Scrim */}
-      <div
-        className="absolute inset-0 bg-black/40"
-        aria-hidden="true"
-        onClick={onCancel}
-        data-testid="confirm-location-scrim"
-      />
+      <h2 className="mb-1 text-base font-semibold text-foreground">Confirm branch location</h2>
+      <p className="mb-4 text-xs text-muted-foreground">{branchName}</p>
 
-      {/* Dialog */}
-      <div
-        role="dialog"
-        aria-label="Confirm branch location"
-        aria-modal="true"
-        className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-xl"
-        data-testid="confirm-location-dialog"
-      >
-        <h2 className="mb-1 text-base font-semibold text-foreground">Confirm branch location</h2>
-        <p className="mb-4 text-xs text-muted-foreground">{branchName}</p>
+      <p className="mb-4 text-sm text-muted-foreground" data-testid="confirm-location-copy">
+        Enter the exact coordinates for this branch (for example from Google Maps). This sets the
+        branch location to manually confirmed.
+      </p>
 
-        <p className="mb-4 text-sm text-muted-foreground" data-testid="confirm-location-copy">
-          Enter the exact coordinates for this branch (for example from Google Maps). This sets the
-          branch location to manually confirmed.
-        </p>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label
-              htmlFor="confirm-location-latitude"
-              className="mb-1.5 block text-sm font-medium text-foreground"
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label
+            htmlFor="confirm-location-latitude"
+            className="mb-1.5 block text-sm font-medium text-foreground"
+          >
+            Latitude
+          </label>
+          <input
+            id="confirm-location-latitude"
+            ref={latRef}
+            type="number"
+            inputMode="decimal"
+            step="any"
+            value={latRaw}
+            onChange={(e) => setLatRaw(e.target.value)}
+            placeholder="53.6450"
+            aria-invalid={latError ? true : undefined}
+            aria-describedby={latError ? 'confirm-location-latitude-error' : undefined}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-destructive"
+            data-testid="confirm-location-latitude"
+          />
+          {latError && (
+            <p
+              id="confirm-location-latitude-error"
+              className="mt-1 text-xs text-destructive"
+              data-testid="confirm-location-latitude-error"
             >
-              Latitude
-            </label>
-            <input
-              id="confirm-location-latitude"
-              ref={latRef}
-              type="number"
-              inputMode="decimal"
-              step="any"
-              value={latRaw}
-              onChange={(e) => setLatRaw(e.target.value)}
-              placeholder="53.6450"
-              aria-invalid={latError ? true : undefined}
-              aria-describedby={latError ? 'confirm-location-latitude-error' : undefined}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-destructive"
-              data-testid="confirm-location-latitude"
-            />
-            {latError && (
-              <p
-                id="confirm-location-latitude-error"
-                className="mt-1 text-xs text-destructive"
-                data-testid="confirm-location-latitude-error"
-              >
-                {latError}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label
-              htmlFor="confirm-location-longitude"
-              className="mb-1.5 block text-sm font-medium text-foreground"
-            >
-              Longitude
-            </label>
-            <input
-              id="confirm-location-longitude"
-              type="number"
-              inputMode="decimal"
-              step="any"
-              value={lngRaw}
-              onChange={(e) => setLngRaw(e.target.value)}
-              placeholder="-1.7830"
-              aria-invalid={lngError ? true : undefined}
-              aria-describedby={lngError ? 'confirm-location-longitude-error' : undefined}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-destructive"
-              data-testid="confirm-location-longitude"
-            />
-            {lngError && (
-              <p
-                id="confirm-location-longitude-error"
-                className="mt-1 text-xs text-destructive"
-                data-testid="confirm-location-longitude-error"
-              >
-                {lngError}
-              </p>
-            )}
-          </div>
+              {latError}
+            </p>
+          )}
         </div>
 
-        {/* Error banner (e.g. BRANCH_NOT_FOUND). */}
-        {mutation.error && (
-          <div className="mt-4">
-            <NamedGateBanner error={mutation.error} />
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="mt-6 flex justify-end gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCancel}
-            disabled={mutation.isPending}
-            data-testid="confirm-location-cancel"
+        <div>
+          <label
+            htmlFor="confirm-location-longitude"
+            className="mb-1.5 block text-sm font-medium text-foreground"
           >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            data-testid="confirm-location-submit"
-          >
-            {mutation.isPending ? 'Confirming...' : 'Confirm location'}
-          </Button>
+            Longitude
+          </label>
+          <input
+            id="confirm-location-longitude"
+            type="number"
+            inputMode="decimal"
+            step="any"
+            value={lngRaw}
+            onChange={(e) => setLngRaw(e.target.value)}
+            placeholder="-1.7830"
+            aria-invalid={lngError ? true : undefined}
+            aria-describedby={lngError ? 'confirm-location-longitude-error' : undefined}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-destructive"
+            data-testid="confirm-location-longitude"
+          />
+          {lngError && (
+            <p
+              id="confirm-location-longitude-error"
+              className="mt-1 text-xs text-destructive"
+              data-testid="confirm-location-longitude-error"
+            >
+              {lngError}
+            </p>
+          )}
         </div>
       </div>
-    </div>
+
+      {/* Error banner (e.g. BRANCH_NOT_FOUND). */}
+      {mutation.error && (
+        <div className="mt-4">
+          <NamedGateBanner error={mutation.error} />
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="mt-6 flex justify-end gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={mutation.isPending}
+          data-testid="confirm-location-cancel"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          data-testid="confirm-location-submit"
+        >
+          {mutation.isPending ? 'Confirming...' : 'Confirm location'}
+        </Button>
+      </div>
+    </Dialog>
   )
 }
