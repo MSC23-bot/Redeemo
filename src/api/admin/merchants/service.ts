@@ -95,6 +95,12 @@ export async function listMerchants(prisma: PrismaClient, filters: ListMerchants
  * `merchant:edit-identity` capability on PATCH /:id/identity, NOT this read. No
  * MerchantAdmin/owner-password join; no tokens / raw storage keys / document
  * paths. Soft-deleted branches (deletedAt != null) are excluded.
+ *
+ * B2.3-read adds `primaryCategoryId` (the id, alongside the display `category`
+ * name) so the admin category editor can preselect, and `categoryLocked` (true
+ * when the merchant has any RMV in PENDING_APPROVAL/ACTIVE) so the UI can show a
+ * locked state WITHOUT a failed edit attempt. `categoryLocked` is exactly the
+ * `handleCategoryChange` CATEGORY_CHANGE_BLOCKED condition.
  */
 export async function getMerchantDetail(prisma: PrismaClient, merchantId: string) {
   const merchant = await prisma.merchant.findUnique({
@@ -110,6 +116,8 @@ export async function getMerchantDetail(prisma: PrismaClient, merchantId: string
       // B2.2: registered-identity fields, read-only on this merchant:read payload.
       vatNumber: true,
       companyNumber: true,
+      // B2.3-read: the category id (for preselection) alongside the display name.
+      primaryCategoryId: true,
       logoUrl: true,
       primaryCategory: { select: { name: true } },
       branches: {
@@ -137,10 +145,47 @@ export async function getMerchantDetail(prisma: PrismaClient, merchantId: string
   })
   if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
 
+  // B2.3-read: category is locked once any RMV is submitted/live. This is the
+  // exact condition handleCategoryChange uses to throw CATEGORY_CHANGE_BLOCKED,
+  // surfaced here so the UI shows a locked state instead of a failed round-trip.
+  const blockingRmvCount = await prisma.voucher.count({
+    where: { merchantId, isRmv: true, status: { in: ['PENDING_APPROVAL', 'ACTIVE'] } },
+  })
+
   const { primaryCategory, branches, ...rest } = merchant
   return {
-    merchant: { ...rest, category: primaryCategory?.name ?? null },
+    merchant: { ...rest, category: primaryCategory?.name ?? null, categoryLocked: blockingRmvCount > 0 },
     branches,
+  }
+}
+
+/**
+ * B2.3-read: the categories an admin can assign as a merchant's primaryCategoryId.
+ * `eligible = (active RMV templates >= 2)` mirrors the provisioning constraint
+ * (the category-set/change path throws NO_RMV_TEMPLATE for a category with < 2
+ * active templates), so the picker can disable ineligible categories. Top-level
+ * active categories only (parentId: null), matching the set the merchant
+ * onboarding category picker offers. Gated `merchant:read` at the route.
+ */
+export async function listAdminCategories(prisma: PrismaClient) {
+  const cats = await prisma.category.findMany({
+    where: { parentId: null, isActive: true },
+    select: {
+      id: true,
+      name: true,
+      parentId: true,
+      sortOrder: true,
+      _count: { select: { rmvTemplates: { where: { isActive: true } } } },
+    },
+    orderBy: { sortOrder: 'asc' },
+  })
+  return {
+    categories: cats.map((c) => ({
+      id: c.id,
+      name: c.name,
+      parentId: c.parentId,
+      eligible: c._count.rmvTemplates >= 2,
+    })),
   }
 }
 
