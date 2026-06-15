@@ -100,6 +100,22 @@ jest.mock('@/features/merchants/EditMerchantIdentityDialog', () => ({
   ),
 }))
 
+jest.mock('@/features/merchants/EditCategoryDialog', () => ({
+  EditCategoryDialog: ({
+    merchantId,
+    onCancel,
+  }: {
+    merchantId: string
+    onCancel: () => void
+  }) => (
+    <div data-testid="edit-category-dialog-mock" data-merchant-id={merchantId}>
+      <button onClick={onCancel} data-testid="edit-category-dialog-cancel">
+        Cancel
+      </button>
+    </div>
+  ),
+}))
+
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
 import type { UseMerchantDetailResult } from '@/lib/merchants/useMerchantDetail'
@@ -143,6 +159,8 @@ function makeDetail(overrides: Partial<MerchantDetail> = {}): MerchantDetail {
       companyNumber: '12345678',
       logoUrl: null,
       category: 'Restaurants',
+      primaryCategoryId: 'cat-1',
+      categoryLocked: false,
     },
     branches: [
       {
@@ -362,6 +380,67 @@ describe('MerchantDetailPage business registration card (B2.2)', () => {
     fireEvent.click(screen.getByTestId('merchant-identity-edit'))
     fireEvent.click(screen.getByTestId('edit-identity-dialog-cancel'))
     expect(screen.queryByTestId('edit-merchant-identity-dialog-mock')).not.toBeInTheDocument()
+  })
+})
+
+// ── B2.3: Category card + edit gating + locked state ──────────────────────────
+
+describe('MerchantDetailPage category card (B2.3)', () => {
+  it('renders the category card with the current category for a merchant:read admin', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-category-card')).toBeInTheDocument()
+    expect(screen.getByTestId('merchant-category-value')).toHaveTextContent('Restaurants')
+  })
+
+  it('shows "Not set" when the merchant has no category', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, category: null, primaryCategoryId: null } }) })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-category-value')).toHaveTextContent('Not set')
+  })
+
+  it('shows the category Edit button WITH merchant:edit-category and not locked', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-category-edit')).toBeInTheDocument()
+  })
+
+  it('HIDES the category Edit button for an admin without merchant:edit-category', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-category-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-category-edit')).not.toBeInTheDocument()
+  })
+
+  it('HIDES the category Edit and shows the locked note when categoryLocked is true', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, categoryLocked: true } }) })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('merchant-category-edit')).not.toBeInTheDocument()
+    expect(screen.getByTestId('merchant-category-locked-note')).toBeInTheDocument()
+  })
+
+  it('opens the category dialog when the category Edit is clicked', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('merchant-category-edit'))
+    const dialog = screen.getByTestId('edit-category-dialog-mock')
+    expect(dialog).toBeInTheDocument()
+    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
+  })
+
+  it('closes the category dialog on its Cancel', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('merchant-category-edit'))
+    fireEvent.click(screen.getByTestId('edit-category-dialog-cancel'))
+    expect(screen.queryByTestId('edit-category-dialog-mock')).not.toBeInTheDocument()
   })
 })
 
