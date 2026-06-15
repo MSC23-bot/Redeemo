@@ -35,6 +35,10 @@ export type AdminCapability =
   // ONLY by SUPER_ADMIN (via the hasCapability short-circuit). Keep aligned with
   // the backend src/api/admin/capability.ts.
   | 'merchant:edit-identity'
+  // Option B B2.3: gates the admin edit of a merchant's primaryCategoryId. NOT in
+  // ALL_SLICE1_CAPS, so it is held ONLY by SUPER_ADMIN. Keep aligned with the
+  // backend src/api/admin/capability.ts.
+  | 'merchant:edit-category'
 
 export type AdminRole =
   | 'SUPER_ADMIN'
