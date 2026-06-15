@@ -19,6 +19,7 @@
 
 export type AdminCapability =
   | 'merchant:create-draft'
+  | 'merchant:read'
   | 'approval:read'
   | 'approval:action'
   | 'merchant:suspend'
@@ -33,6 +34,7 @@ export type AdminRole =
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
+  'merchant:read',
   'approval:read',
   'approval:action',
   'merchant:suspend',

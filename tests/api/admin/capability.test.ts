@@ -7,6 +7,7 @@ import {
 
 const ALL: AdminCapability[] = [
   'merchant:create-draft',
+  'merchant:read',
   'approval:read',
   'approval:action',
   'merchant:suspend',
@@ -32,6 +33,14 @@ describe('M2 — admin capability map', () => {
     it('unknown / undefined role holds nothing', () => {
       expect(adminHasCapability(undefined, 'merchant:create-draft')).toBe(false)
       expect(adminHasCapability('NOT_A_ROLE', 'merchant:create-draft')).toBe(false)
+    })
+
+    it('WP2 — merchant:read held by OPERATIONS + SUPER_ADMIN, not FINANCE/CONTENT/SUPPORT', () => {
+      expect(adminHasCapability('OPERATIONS', 'merchant:read')).toBe(true)
+      expect(adminHasCapability('SUPER_ADMIN', 'merchant:read')).toBe(true)
+      for (const role of ['FINANCE', 'CONTENT', 'SUPPORT']) {
+        expect(adminHasCapability(role, 'merchant:read')).toBe(false)
+      }
     })
   })
 

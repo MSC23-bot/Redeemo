@@ -9,9 +9,18 @@
 // load-bearing when their routes land (approval:* in M3/M5, merchant:suspend +
 // branch:confirm-location in M4/M6). Declaring them now keeps the map the
 // single source of truth.
+//
+// `merchant:read` (admin follow-up WP2) gates the read-only merchants directory
+// (list + search) + the bell click-through + the future admin-edit surfaces. It
+// is intentionally distinct from the destructive `merchant:suspend` (so a
+// directory-read role need not also hold the takedown action) AND from
+// `approval:read` (the directory surfaces ALL merchants, not just those with a
+// pending approval, so coupling it to the approval workflow would be a semantic
+// mismatch).
 
 export type AdminCapability =
   | 'merchant:create-draft'
+  | 'merchant:read'
   | 'approval:read'
   | 'approval:action'
   | 'merchant:suspend'
@@ -19,6 +28,7 @@ export type AdminCapability =
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
+  'merchant:read',
   'approval:read',
   'approval:action',
   'merchant:suspend',

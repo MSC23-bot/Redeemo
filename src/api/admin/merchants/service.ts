@@ -1,9 +1,84 @@
 import { PrismaClient } from '../../../../generated/prisma/client'
+import type { MerchantStatus } from '../../../../generated/prisma/enums'
 import type { Redis } from 'ioredis'
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
 import { RedisKey } from '../../shared/redis-keys'
 import { revokeAllSessionsForEntity, revokeAllUserSessionRecords } from '../../shared/session'
+
+// ── WP2 — admin merchants directory (read-only list + search) ────────────────
+
+export interface ListMerchantsFilters {
+  q?: string
+  status?: MerchantStatus
+  page?: number
+  pageSize?: number
+}
+
+/**
+ * List merchants for the admin directory (admin follow-up WP2). Paginated +
+ * filterable by status and a case-insensitive name search (businessName OR
+ * tradingName), ordered newest-first.
+ *
+ * REDACTION: the select is deliberately tight — id, names, lifecycle status,
+ * verification, onboarding step, logo, createdAt, and the primary category name
+ * only. NO secrets are selected. `redemptionPin` lives on Branch (never on
+ * Merchant) and branches are not joined here, so no branch secret can leak; the
+ * owner's password fields live on MerchantAdmin and are never selected. The
+ * primaryCategory relation is flattened to a `category` string so the wire shape
+ * exposes only the category name, nothing else from the Category row.
+ */
+export async function listMerchants(prisma: PrismaClient, filters: ListMerchantsFilters) {
+  const page = Math.max(1, filters.page ?? 1)
+  const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20))
+
+  const where = {
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.q
+      ? {
+          OR: [
+            { businessName: { contains: filters.q, mode: 'insensitive' as const } },
+            { tradingName: { contains: filters.q, mode: 'insensitive' as const } },
+          ],
+        }
+      : {}),
+  }
+
+  const [total, rows] = await Promise.all([
+    prisma.merchant.count({ where }),
+    prisma.merchant.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        businessName: true,
+        tradingName: true,
+        status: true,
+        verificationStatus: true,
+        onboardingStep: true,
+        logoUrl: true,
+        createdAt: true,
+        primaryCategory: { select: { name: true } },
+        _count: { select: { branches: true } },
+        // redemptionPin lives on Branch and is NEVER selected here.
+        // owner password fields live on MerchantAdmin and are NEVER selected.
+      },
+    }),
+  ])
+
+  const merchants = rows.map((m) => {
+    const { primaryCategory, _count, ...rest } = m
+    return {
+      ...rest,
+      category: primaryCategory?.name ?? null,
+      branchCount: _count.branches,
+    }
+  })
+
+  return { page, pageSize, total, merchants }
+}
 
 export interface CreateMerchantDraftInput {
   businessName: string
