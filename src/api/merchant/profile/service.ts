@@ -1,14 +1,19 @@
 import { randomBytes } from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
-import { writeAuditLog } from '../../shared/audit'
-import { resolveAdminMerchant } from '../shared'
+import { writeAuditLog, writeAuditLogTx } from '../../shared/audit'
+import { resolveAdminMerchant, type EditActor } from '../shared'
 import { handleCategoryChange } from '../voucher/service'
 
 const SENSITIVE_FIELDS = ['businessName', 'tradingName', 'logoUrl', 'bannerUrl', 'description'] as const
-const DIRECT_FIELDS    = ['websiteUrl', 'vatNumber', 'companyNumber', 'primaryCategoryId'] as const
-// NOTE: primaryCategoryId is a direct-update field in this task.
-// RMV provisioning side-effect is added in Task 9 (updateMerchantProfile will be updated there).
+
+// Option B B2.1: the simple-DIRECT subset (the merchant DIRECT set minus
+// primaryCategoryId). These are the only fields the shared
+// `updateMerchantProfileDirectCore` writes. primaryCategoryId stays on its own
+// RMV-provisioning path (handled inline in updateMerchantProfile; NOT
+// admin-reachable in B2.1); the admin route narrows even further to websiteUrl
+// only.
+const DIRECT_SIMPLE_FIELDS = ['websiteUrl', 'vatNumber', 'companyNumber'] as const
 
 export async function getMerchantProfile(prisma: PrismaClient, adminId: string) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
@@ -18,6 +23,51 @@ export async function getMerchantProfile(prisma: PrismaClient, adminId: string) 
   })
   if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
   return merchant
+}
+
+/**
+ * Option B B2.1: the shared simple-DIRECT apply core. Filters `updates` to
+ * `DIRECT_SIMPLE_FIELDS`, captures a before-snapshot, then writes + audits inside
+ * one transaction. BOTH the merchant route (via `updateMerchantProfile`) and the
+ * new admin route call this, so the validation/apply/audit is identical (no
+ * weaker path). The audit row carries the actor (MERCHANT_ADMIN or ADMIN) +
+ * before/after + the ADMIN reason.
+ */
+export async function updateMerchantProfileDirectCore(
+  prisma: PrismaClient,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
+  updates: Record<string, unknown>,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const safe: Record<string, unknown> = {}
+  for (const k of DIRECT_SIMPLE_FIELDS) if (k in updates) safe[k] = updates[k]
+  if (Object.keys(safe).length === 0) return prisma.merchant.findUnique({ where: { id: merchantId } })
+
+  const beforeRow = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { websiteUrl: true, vatNumber: true, companyNumber: true },
+  })
+  if (!beforeRow) throw new AppError('MERCHANT_NOT_FOUND')
+
+  const before: Record<string, unknown> = {}
+  for (const k of Object.keys(safe)) before[k] = (beforeRow as any)[k]
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.merchant.update({ where: { id: merchantId }, data: safe })
+    await writeAuditLogTx(tx, {
+      entityId: merchantId,
+      entityType: 'merchant',
+      event: 'MERCHANT_PROFILE_UPDATED',
+      actorId: actor.id,
+      actorType: actor.type,
+      before,
+      after: safe,
+      reason: actor.reason,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    })
+    return updated
+  })
 }
 
 export async function updateMerchantProfile(
@@ -85,16 +135,16 @@ export async function updateMerchantProfile(
     return getMerchantProfile(prisma, adminId)
   }
 
-  // All other direct fields
-  const safe: Record<string, unknown> = {}
-  for (const key of DIRECT_FIELDS) {
-    if (key in updates && key !== 'primaryCategoryId') safe[key] = updates[key]
-  }
-  if (Object.keys(safe).length === 0) return getMerchantProfile(prisma, adminId)
-
-  const updated = await prisma.merchant.update({ where: { id: merchantId }, data: safe })
-  writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_PROFILE_UPDATED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent })
-  return updated
+  // All other direct fields: delegate to the shared simple-DIRECT core so the
+  // merchant path and the admin path run identical validation/apply/audit. The
+  // core filters `updates` to DIRECT_SIMPLE_FIELDS (websiteUrl/vatNumber/
+  // companyNumber) itself.
+  return updateMerchantProfileDirectCore(
+    prisma,
+    { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
+    updates,
+    ctx
+  )
 }
 
 export async function createMerchantEditRequest(

@@ -1,8 +1,8 @@
 import { PrismaClient } from '../../../../generated/prisma/client'
 import type Redis from 'ioredis'
 import { AppError } from '../../shared/errors'
-import { writeAuditLog } from '../../shared/audit'
-import { resolveAdminMerchant } from '../shared'
+import { writeAuditLog, writeAuditLogTx } from '../../shared/audit'
+import { resolveAdminMerchant, type EditActor } from '../shared'
 import { encrypt, decrypt } from '../../shared/encryption'
 import { resolvePostcode } from '../../lib/postcodeResolver'
 import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
@@ -143,6 +143,57 @@ export async function createBranch(
   return branch
 }
 
+/**
+ * Option B B2.1: the shared simple-DIRECT branch apply core. Resolves +
+ * ownership-validates the branch, filters `data` to DIRECT_FIELDS, captures a
+ * before-snapshot, then writes + audits inside one transaction. BOTH the merchant
+ * route (via `updateBranch`) and the new admin route call this so the
+ * validation/apply/audit is identical (no weaker path). The audit row uses the
+ * CORRECTED entity (entityType:'branch', entityId:branchId; matching the admin
+ * precedents confirmBranchLocation + B1 editApplier) and carries the actor +
+ * before/after + the ADMIN reason.
+ */
+export async function updateBranchDirectCore(
+  prisma: PrismaClient,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
+  branchId: string,
+  data: Record<string, unknown>,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const safe: Record<string, unknown> = {}
+  for (const key of DIRECT_FIELDS) {
+    if (key in data) safe[key] = data[key]
+  }
+
+  const branch = await resolveBranch(prisma, branchId, merchantId)
+  if (Object.keys(safe).length === 0) return branch
+
+  const before: Record<string, unknown> = {}
+  for (const k of Object.keys(safe)) before[k] = (branch as any)[k]
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.branch.update({
+      where: { id: branchId },
+      data: safe,
+      include: BRANCH_INCLUDE,
+    })
+    await writeAuditLogTx(tx, {
+      entityId: branchId,
+      entityType: 'branch',
+      event: 'BRANCH_UPDATED',
+      actorId: actor.id,
+      actorType: actor.type,
+      before,
+      after: safe,
+      reason: actor.reason,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      metadata: { merchantId },
+    })
+    return updated
+  })
+}
+
 export async function updateBranch(
   prisma: PrismaClient,
   adminId: string,
@@ -185,22 +236,16 @@ export async function updateBranch(
     return updated
   }
 
-  if (Object.keys(safe).length === 0) {
-    return resolveBranch(prisma, branchId, merchantId)
-  }
-
-  const updated = await prisma.branch.update({
-    where: { id: branchId },
-    data: safe,
-    include: BRANCH_INCLUDE,
-  })
-
-  writeAuditLog(prisma, {
-    entityId: merchantId, entityType: 'merchant',
-    event: 'BRANCH_UPDATED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    metadata: { branchId },
-  })
-  return updated
+  // Simple-DIRECT path: delegate to the shared core so the merchant path and
+  // the admin path run identical validation/apply/audit. The core re-resolves +
+  // ownership-validates the branch and filters `data` to DIRECT_FIELDS itself.
+  return updateBranchDirectCore(
+    prisma,
+    { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
+    branchId,
+    data,
+    ctx
+  )
 }
 
 export async function createBranchEditRequest(

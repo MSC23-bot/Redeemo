@@ -1,6 +1,15 @@
 import { PrismaClient } from '../../../generated/prisma/client'
+import type { MerchantStatus } from '../../../generated/prisma/enums'
 import { AppError } from '../shared/errors'
 import { getOwnerMembership } from '../shared/merchantMembership'
+
+// Option B B2.1: who is performing a direct profile/branch edit. The shared
+// `fnCore` helpers take this so the merchant route ({ type: 'MERCHANT_ADMIN' })
+// and the new admin route ({ type: 'ADMIN', reason }) run the SAME
+// validation/apply/audit path (no weaker path). `reason` is required on the
+// ADMIN path (the admin routes enforce a non-empty reason) and absent on the
+// merchant path.
+export type EditActor = { type: 'MERCHANT_ADMIN' | 'ADMIN'; id: string; reason?: string }
 
 export async function resolveAdminMerchant(
   prisma: PrismaClient,
@@ -21,4 +30,24 @@ export async function resolveAdminMerchant(
   // unaffected. Status is joined by getOwnerMembership — no extra query.
   if (membership.merchant?.status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
   return { adminId, merchantId: membership.merchantId }
+}
+
+/**
+ * Option B B2.1: resolve a merchant BY ID for an admin acting on the merchant's
+ * behalf. Unlike `resolveAdminMerchant` (which resolves the caller's OWN merchant
+ * via membership and refuses a SUSPENDED merchant), this looks the merchant up by
+ * id and does NOT block SUSPENDED: admins may edit a suspended merchant for
+ * operational fixes. The admin routes that call this REQUIRE a non-empty reason +
+ * write an audit row, so the action is always attributable.
+ */
+export async function resolveTargetMerchantForAdmin(
+  prisma: PrismaClient,
+  merchantId: string
+): Promise<{ merchantId: string; status: MerchantStatus }> {
+  const m = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { id: true, status: true },
+  })
+  if (!m) throw new AppError('MERCHANT_NOT_FOUND')
+  return { merchantId: m.id, status: m.status }
 }

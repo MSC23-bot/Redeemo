@@ -27,6 +27,9 @@ export type AdminCapability =
   // Option B B1: gates the Approve-edit / Reject-edit actions on a merchant
   // identity-edit review (MERCHANT_IDENTITY_EDIT / BRANCH_IDENTITY_EDIT).
   | 'approval:apply-edit'
+  // Option B B2.1: gates the admin direct-edit-on-behalf routes (PATCH a
+  // merchant's / branch's simple-DIRECT fields).
+  | 'merchant:edit'
 
 export type AdminRole =
   | 'SUPER_ADMIN'
@@ -43,6 +46,7 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:suspend',
   'branch:confirm-location',
   'approval:apply-edit',
+  'merchant:edit',
 ]
 
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `hasCapability`, so

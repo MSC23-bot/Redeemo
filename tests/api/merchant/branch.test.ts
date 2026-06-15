@@ -29,6 +29,10 @@ describe('merchant branch routes', () => {
       adminApproval: { create: vi.fn().mockResolvedValue({}) },
       branchUser: { updateMany: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
+      // B2.1: the simple-DIRECT branch update now runs inside a transaction
+      // (writeAuditLogTx is transactional + actor-aware). $transaction passes the
+      // same mock as `tx`.
+      $transaction: vi.fn().mockImplementation(async (cb: any) => cb((app as any).prisma)),
       // Plan 4 M1.21: createBranch + createBranchEditRequest now call
       // findOrCreateLocality which reads prisma.locality. Default the mock so
       // the existing route tests don't need to wire it per-test.
@@ -152,6 +156,37 @@ describe('merchant branch routes', () => {
     })
     expect(res.statusCode).toBe(409)
     expect(JSON.parse(res.body).error.code).toBe('PENDING_EDIT_EXISTS')
+  })
+
+  it('PATCH /api/v1/merchant/branches/:id updates direct fields (transactional actor audit, branch entity)', async () => {
+    app.prisma.branch.findFirst = vi.fn().mockResolvedValue({ ...mockBranch, phone: '+44111', isActive: true })
+    app.prisma.branch.update = vi.fn().mockResolvedValue({ ...mockBranch, phone: '+44222', isActive: false })
+
+    const res = await app.inject({
+      method: 'PATCH', url: '/api/v1/merchant/branches/b1',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { phone: '+44222', isActive: false },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(app.prisma.branch.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ phone: '+44222', isActive: false }) })
+    )
+    // B2.1: the simple-DIRECT path now audits via writeAuditLogTx with the
+    // CORRECTED entity (entityType:'branch', entityId:branchId) + MERCHANT_ADMIN
+    // actor, replacing the old fire-and-forget writeAuditLog(entityType:'merchant',
+    // metadata:{branchId}).
+    expect(app.prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          event: 'BRANCH_UPDATED',
+          entityType: 'branch',
+          entityId: 'b1',
+          actorType: 'MERCHANT_ADMIN',
+          actorId: 'ma1',
+        }),
+      })
+    )
   })
 
   it('POST /api/v1/merchant/branches/:id/hours upserts full week', async () => {

@@ -18,6 +18,9 @@ describe('merchant profile routes', () => {
       voucher: { count: vi.fn() },
       adminApproval: { create: vi.fn().mockResolvedValue({}) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
+      // B2.1: the simple-DIRECT path now runs inside a transaction (writeAuditLogTx
+      // is transactional + actor-aware). $transaction passes the same mock as `tx`.
+      $transaction: vi.fn().mockImplementation(async (cb: any) => cb((app as any).prisma)),
     } as any)
     app.decorate('redis', {
       get: vi.fn().mockResolvedValue(null),
@@ -80,7 +83,9 @@ describe('merchant profile routes', () => {
     expect(JSON.parse(res.body).error.code).toBe('SENSITIVE_FIELDS_REQUIRE_EDIT_REQUEST')
   })
 
-  it('PATCH /api/v1/merchant/profile updates non-sensitive fields', async () => {
+  it('PATCH /api/v1/merchant/profile updates non-sensitive fields (transactional actor audit)', async () => {
+    // beforeRow read for the audit before/after snapshot.
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ websiteUrl: 'https://old.com', vatNumber: null, companyNumber: null })
     app.prisma.merchant.update = vi.fn().mockResolvedValue({ id: 'm1', websiteUrl: 'https://test.com' })
 
     const res = await app.inject({
@@ -93,6 +98,19 @@ describe('merchant profile routes', () => {
     expect(res.statusCode).toBe(200)
     expect(app.prisma.merchant.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ websiteUrl: 'https://test.com' }) })
+    )
+    // B2.1: the simple-DIRECT path now writes a transactional, actor-aware audit
+    // (MERCHANT_ADMIN actor) via writeAuditLogTx, NOT fire-and-forget writeAuditLog.
+    expect(app.prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          event: 'MERCHANT_PROFILE_UPDATED',
+          actorType: 'MERCHANT_ADMIN',
+          actorId: 'ma1',
+          before: { websiteUrl: 'https://old.com' },
+          after: { websiteUrl: 'https://test.com' },
+        }),
+      })
     )
   })
 
