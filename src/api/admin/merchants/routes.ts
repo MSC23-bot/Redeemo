@@ -114,4 +114,41 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       auditCtx(req),
     )
   })
+
+  // Option B B2.2: admin edit of a merchant's registered identity fields
+  // (vatNumber / companyNumber) on the merchant's behalf. Gated on the
+  // SUPER_ADMIN-only `merchant:edit-identity` capability (NOT the broader
+  // `merchant:edit`). STRICT body: only vat/company + reason + confirm; any other
+  // key (e.g. websiteUrl / businessName) 400s before the service runs.
+  // `confirm: true` is required (backend confirmation, not just the UI checkbox).
+  // The shared core does the validation/apply/audit (the SAME path the merchant +
+  // B2.1 routes run, no weaker path), tagged with the distinct
+  // MERCHANT_IDENTITY_UPDATED event. resolveTargetMerchantForAdmin allows a
+  // SUSPENDED merchant (admins may correct identity for operational fixes).
+  app.patch(`${prefix}/:id/identity`, { preHandler: [requireAdminCapability('merchant:edit-identity')] }, async (req: any) => {
+    const body = z
+      .object({
+        vatNumber: z.string().trim().min(1).nullable().optional(),
+        companyNumber: z.string().trim().min(1).nullable().optional(),
+        reason: z.string().trim().min(1),
+        confirm: z.literal(true),
+      })
+      .strict()
+      .parse(req.body)
+
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+
+    const updates: Record<string, unknown> = {}
+    if ('vatNumber' in body) updates.vatNumber = body.vatNumber
+    if ('companyNumber' in body) updates.companyNumber = body.companyNumber
+
+    return updateMerchantProfileDirectCore(
+      app.prisma,
+      { merchantId: id, actor: { type: 'ADMIN', id: req.user.sub, reason: body.reason } },
+      updates,
+      auditCtx(req),
+      'MERCHANT_IDENTITY_UPDATED',
+    )
+  })
 }

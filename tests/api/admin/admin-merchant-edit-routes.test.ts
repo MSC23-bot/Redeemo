@@ -189,4 +189,89 @@ describe('B2.1: admin merchant/branch direct-edit routes (auth + capability + st
       expect(res.statusCode).toBe(200)
     })
   })
+
+  // Option B B2.2: the identity route is gated on the SUPER_ADMIN-only
+  // merchant:edit-identity capability (so OPERATIONS is denied), requires
+  // confirm:true + a reason, has a STRICT vat/company body, and tags the audit
+  // row with the distinct MERCHANT_IDENTITY_UPDATED event.
+  describe('PATCH /admin/merchants/:id/identity', () => {
+    const identityUrl = '/api/v1/admin/merchants/m1/identity'
+
+    it('401 when unauthenticated', async () => {
+      const res = await app.inject({ method: 'PATCH', url: identityUrl, payload: { vatNumber: 'GB1', reason: 'fix', confirm: true } })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('403 ADMIN_CAPABILITY_DENIED for OPERATIONS (lacks merchant:edit-identity)', async () => {
+      const res = await app.inject({
+        method: 'PATCH', url: identityUrl,
+        headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` },
+        payload: { vatNumber: 'GB1', reason: 'fix', confirm: true },
+      })
+      expect(res.statusCode).toBe(403)
+      expect(JSON.parse(res.body).error.code).toBe('ADMIN_CAPABILITY_DENIED')
+    })
+
+    it('403 ADMIN_CAPABILITY_DENIED for SUPPORT', async () => {
+      const res = await app.inject({
+        method: 'PATCH', url: identityUrl,
+        headers: { authorization: `Bearer ${signAdmin('SUPPORT')}` },
+        payload: { vatNumber: 'GB1', reason: 'fix', confirm: true },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('400 when confirm is missing (strict body)', async () => {
+      const res = await app.inject({
+        method: 'PATCH', url: identityUrl,
+        headers: { authorization: `Bearer ${signAdmin('SUPER_ADMIN')}` },
+        payload: { vatNumber: 'GB1', reason: 'fix' },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('400 when confirm is false', async () => {
+      const res = await app.inject({
+        method: 'PATCH', url: identityUrl,
+        headers: { authorization: `Bearer ${signAdmin('SUPER_ADMIN')}` },
+        payload: { vatNumber: 'GB1', reason: 'fix', confirm: false },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('400 when reason is missing', async () => {
+      const res = await app.inject({
+        method: 'PATCH', url: identityUrl,
+        headers: { authorization: `Bearer ${signAdmin('SUPER_ADMIN')}` },
+        payload: { vatNumber: 'GB1', confirm: true },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('400 when a non-allow-listed key is sent (websiteUrl, strict body)', async () => {
+      const res = await app.inject({
+        method: 'PATCH', url: identityUrl,
+        headers: { authorization: `Bearer ${signAdmin('SUPER_ADMIN')}` },
+        payload: { websiteUrl: 'https://x.com', reason: 'fix', confirm: true },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('200 for SUPER_ADMIN with vat/company + reason + confirm, audits MERCHANT_IDENTITY_UPDATED', async () => {
+      const res = await app.inject({
+        method: 'PATCH', url: identityUrl,
+        headers: { authorization: `Bearer ${signAdmin('SUPER_ADMIN')}` },
+        payload: { vatNumber: 'GB999', companyNumber: '12345678', reason: 'companies house correction', confirm: true },
+      })
+      expect(res.statusCode).toBe(200)
+      expect(app.prisma.merchant.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ vatNumber: 'GB999', companyNumber: '12345678' }) }),
+      )
+      expect(app.prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ event: 'MERCHANT_IDENTITY_UPDATED', actorType: 'ADMIN', reason: 'companies house correction' }),
+        }),
+      )
+    })
+  })
 })
