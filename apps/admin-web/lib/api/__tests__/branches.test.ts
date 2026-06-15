@@ -81,3 +81,60 @@ describe('branchesApi.confirmLocation', () => {
     ).rejects.toThrow()
   })
 })
+
+// ── edit (B2.1 edit-on-behalf) ────────────────────────────────────────────────
+
+describe('branchesApi.edit', () => {
+  it('PATCH /api/v1/admin/branches/:branchId with auth:true and the field body', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ id: 'br-1' })
+    const result = await branchesApi.edit('br-1', {
+      phone: '+447700900000',
+      email: 'new@branch.test',
+      websiteUrl: 'https://branch.test',
+      isActive: false,
+      reason: 'Owner asked to close this branch.',
+    })
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/branches/br-1', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify({
+        phone: '+447700900000',
+        email: 'new@branch.test',
+        websiteUrl: 'https://branch.test',
+        isActive: false,
+        reason: 'Owner asked to close this branch.',
+      }),
+    })
+    expect(result.id).toBe('br-1')
+  })
+
+  it('sends null contact fields to clear them', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ id: 'br-1' })
+    await branchesApi.edit('br-1', {
+      phone: null,
+      email: null,
+      websiteUrl: null,
+      isActive: true,
+      reason: 'Cleared stale contacts.',
+    })
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/branches/br-1', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify({
+        phone: null,
+        email: null,
+        websiteUrl: null,
+        isActive: true,
+        reason: 'Cleared stale contacts.',
+      }),
+    })
+  })
+
+  it('propagates ApiError with .code on BRANCH_NOT_FOUND', async () => {
+    const err = new ApiError(404, { error: { code: 'BRANCH_NOT_FOUND', message: 'Not found' } })
+    mockedApiFetch.mockRejectedValueOnce(err)
+    await expect(
+      branchesApi.edit('br-1', { reason: 'x' })
+    ).rejects.toMatchObject({ code: 'BRANCH_NOT_FOUND' })
+  })
+})
