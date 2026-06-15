@@ -155,6 +155,19 @@ describe('branchesApi.create', () => {
     expect(result.id).toBe('br-new')
   })
 
+  it('omits blank/undefined optional keys from the wire body (no empty strings sent)', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ id: 'br-new' })
+    // The dialog passes undefined for blank optionals; JSON.stringify must drop them
+    // so the backend .strict() body sees only the filled fields.
+    await branchesApi.create('m-1', { ...input, addressLine2: undefined, phone: undefined, email: undefined, websiteUrl: undefined })
+    const sentBody = JSON.parse((mockedApiFetch.mock.calls[0][1] as { body: string }).body)
+    expect(sentBody).not.toHaveProperty('addressLine2')
+    expect(sentBody).not.toHaveProperty('phone')
+    expect(sentBody).not.toHaveProperty('email')
+    expect(sentBody).not.toHaveProperty('websiteUrl')
+    expect(sentBody).toMatchObject({ name: 'New Branch', postcode: 'EC1A 1BB', reason: 'merchant asked' })
+  })
+
   it('propagates ApiError with .code on POSTCODE_NOT_FOUND', async () => {
     const err = new ApiError(400, { error: { code: 'POSTCODE_NOT_FOUND', message: 'Bad postcode' } })
     mockedApiFetch.mockRejectedValueOnce(err)
