@@ -15,7 +15,7 @@
  * if it is rejected the admin restarts from step 1 (that re-sends a fresh code),
  * which is the resend path.
  */
-import { useState, type FormEvent } from 'react'
+import { useState, Suspense, type FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ShieldCheck, Loader2, ArrowLeft } from 'lucide-react'
 import { authApi } from '@/lib/api/auth'
@@ -79,7 +79,7 @@ function messageFor(err: unknown, step: Step): string {
   return 'We could not sign you in. Please check your details and try again.'
 }
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const session = useSession()
@@ -277,5 +277,24 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </main>
+  )
+}
+
+/** Minimal fallback while the client renders (useSearchParams needs a Suspense boundary). */
+function LoginFallback() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background p-6">
+      <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading" />
+    </main>
+  )
+}
+
+// useSearchParams() (read in LoginForm for the ?next= return path) requires a
+// Suspense boundary at build time, or `next build` fails to prerender /login.
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginForm />
+    </Suspense>
   )
 }
