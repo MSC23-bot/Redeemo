@@ -89,26 +89,31 @@ beforeEach(() => {
 })
 
 afterAll(async () => {
-  // Prefix-scoped cleanup. Order respects FKs: pending edits + approvals + audit
-  // + branches before the merchants + owners.
-  for (const merchantId of createdMerchantIds) {
-    const branchIds = (await prisma.branch.findMany({ where: { merchantId }, select: { id: true } })).map((b) => b.id)
-    await prisma.auditLog.deleteMany({ where: { entityId: { in: [merchantId, ...branchIds] } } })
-    const merchantEdits = await prisma.merchantPendingEdit.findMany({ where: { merchantId }, select: { id: true } })
-    const branchEdits = await prisma.branchPendingEdit.findMany({ where: { merchantId }, select: { id: true } })
-    const editIds = [...merchantEdits.map((e) => e.id), ...branchEdits.map((e) => e.id)]
-    await prisma.adminApproval.deleteMany({ where: { referenceId: { in: editIds } } })
-    await prisma.branchPendingEdit.deleteMany({ where: { merchantId } })
-    await prisma.merchantPendingEdit.deleteMany({ where: { merchantId } })
-    await prisma.branch.deleteMany({ where: { merchantId } })
-    const adminIds = (await prisma.merchantMembership.findMany({ where: { merchantId }, select: { merchantAdminId: true } })).map((r) => r.merchantAdminId)
-    await prisma.merchantMembership.deleteMany({ where: { merchantId } })
-    await prisma.merchantAdmin.deleteMany({ where: { id: { in: adminIds } } })
-    await prisma.merchant.delete({ where: { id: merchantId } }).catch(() => {})
+  // BULK prefix-scoped cleanup (self-healing: catches this run AND any rows leaked
+  // by a prior timed-out run). One deleteMany per table instead of per-merchant, so
+  // the whole teardown is a handful of Neon round-trips, not ~100. FK order: audit +
+  // approvals + edits + branches before merchants + owners.
+  const merchantIds = (
+    await prisma.merchant.findMany({ where: { businessName: { startsWith: PREFIX } }, select: { id: true } })
+  ).map((m) => m.id)
+  if (merchantIds.length) {
+    const branchIds = (await prisma.branch.findMany({ where: { merchantId: { in: merchantIds } }, select: { id: true } })).map((b) => b.id)
+    await prisma.auditLog.deleteMany({ where: { entityId: { in: [...merchantIds, ...branchIds] } } })
+    const editIds = [
+      ...(await prisma.merchantPendingEdit.findMany({ where: { merchantId: { in: merchantIds } }, select: { id: true } })).map((e) => e.id),
+      ...(await prisma.branchPendingEdit.findMany({ where: { merchantId: { in: merchantIds } }, select: { id: true } })).map((e) => e.id),
+    ]
+    if (editIds.length) await prisma.adminApproval.deleteMany({ where: { referenceId: { in: editIds } } })
+    await prisma.branchPendingEdit.deleteMany({ where: { merchantId: { in: merchantIds } } })
+    await prisma.merchantPendingEdit.deleteMany({ where: { merchantId: { in: merchantIds } } })
+    await prisma.branch.deleteMany({ where: { merchantId: { in: merchantIds } } })
+    await prisma.merchantMembership.deleteMany({ where: { merchantId: { in: merchantIds } } })
+    await prisma.merchant.deleteMany({ where: { id: { in: merchantIds } } })
   }
-  if (ADMIN_ID) await prisma.adminUser.delete({ where: { id: ADMIN_ID } }).catch(() => {})
+  await prisma.merchantAdmin.deleteMany({ where: { email: { startsWith: PREFIX } } })
+  await prisma.adminUser.deleteMany({ where: { email: { startsWith: PREFIX } } })
   await prisma.$disconnect()
-})
+}, 60000)
 
 describe('B1: approveEdit (merchant identity, real DB)', () => {
   it('applies businessName to the live merchant, flips both statuses, audits ADMIN before/after', async () => {
