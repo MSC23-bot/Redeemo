@@ -4,6 +4,8 @@ import {
   passwordResetEmail,
   branchPinEmail,
   adminOtpEmail,
+  adminMerchantSubmittedEmail,
+  adminMerchantResubmittedEmail,
 } from '../../../src/api/shared/emailTemplates'
 
 // Phase 0 PR-0.4: the two transactional templates the placeholders need.
@@ -93,5 +95,43 @@ describe('adminOtpEmail', () => {
     expect(email.html).not.toContain('http')
     expect(email.html).not.toContain('href')
     expect(email.text).not.toContain('http')
+  })
+})
+
+describe('adminMerchantSubmittedEmail (M8) — injection defence', () => {
+  it('HTML-escapes a merchant-controlled business name (no raw <script>)', () => {
+    const email = adminMerchantSubmittedEmail('Joe\'s <script>alert(1)</script> Diner')
+    expect(email.html).not.toContain('<script>')
+    expect(email.html).toContain('&lt;script&gt;')
+  })
+
+  it('strips control chars (CR/LF) from the SUBJECT — header-injection defence', () => {
+    const CR = String.fromCharCode(13)
+    const LF = String.fromCharCode(10)
+    const email = adminMerchantSubmittedEmail(`Soho${CR}${LF}Bcc: evil@example.com`)
+    const hasControl = [...email.subject].some((c) => {
+      const code = c.charCodeAt(0)
+      return code === 10 || code === 13
+    })
+    expect(hasControl).toBe(false)
+  })
+})
+
+describe('adminMerchantResubmittedEmail (M8) — injection defence', () => {
+  it('HTML-escapes a merchant-controlled business name (no raw <script>)', () => {
+    const email = adminMerchantResubmittedEmail('<script>x</script> Bakery')
+    expect(email.html).not.toContain('<script>')
+    expect(email.html).toContain('&lt;script&gt;')
+  })
+
+  it('strips control chars (CR/LF) from the SUBJECT — header-injection defence', () => {
+    const CR = String.fromCharCode(13)
+    const LF = String.fromCharCode(10)
+    const email = adminMerchantResubmittedEmail(`A${CR}${LF}Bcc: evil@example.com`)
+    const hasControl = [...email.subject].some((c) => {
+      const code = c.charCodeAt(0)
+      return code === 10 || code === 13
+    })
+    expect(hasControl).toBe(false)
   })
 })
