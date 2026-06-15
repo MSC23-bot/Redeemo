@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { emailSchema } from '../../shared/schemas'
 import { requireAdminCapability } from '../capability'
-import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants } from './service'
+import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants, getMerchantDetail } from './service'
 import { issueMerchantClaim } from '../../auth/merchant/service'
 import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
 import { updateMerchantProfileDirectCore } from '../../merchant/profile/service'
@@ -26,6 +26,16 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       })
       .parse(req.query)
     return listMerchants(app.prisma, query)
+  })
+
+  // Option B B2.1-read: single merchant detail for the admin edit page
+  // (B2.1-web). Gated `merchant:read` (same as the directory). The service uses
+  // a TIGHT redacted select: branches are joined but `redemptionPin` and other
+  // branch secrets are NEVER returned (see getMerchantDetail). 404
+  // MERCHANT_NOT_FOUND if absent. Distinct path from GET `prefix` (the list).
+  app.get(`${prefix}/:id`, { preHandler: [requireAdminCapability('merchant:read')] }, async (req: any) => {
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params)
+    return getMerchantDetail(app.prisma, id)
   })
 
   // Create a merchant draft on the owner's behalf (M2, D-3). authenticateAdmin
