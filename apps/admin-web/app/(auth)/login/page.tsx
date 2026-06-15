@@ -15,8 +15,8 @@
  * if it is rejected the admin restarts from step 1 (that re-sends a fresh code),
  * which is the resend path.
  */
-import { useState, type FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, Suspense, type FormEvent } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ShieldCheck, Loader2, ArrowLeft } from 'lucide-react'
 import { authApi } from '@/lib/api/auth'
 import { ApiError } from '@/lib/api/client'
@@ -34,6 +34,26 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 type Step = 'credentials' | 'otp'
+
+/**
+ * Validate a `?next=` value as a SAME-ORIGIN in-app path before navigating to it
+ * after sign-in. Open-redirect defence: it must be a path on this origin, not a
+ * protocol-relative URL (`//evil.com`), a backslash-tricked one (`/\evil.com`),
+ * or the login page itself (would loop). Anything else falls back to `/`, which
+ * then redirects to the queue.
+ */
+function safeNextPath(raw: string | null): string {
+  if (
+    raw &&
+    raw.startsWith('/') &&
+    !raw.startsWith('//') &&
+    !raw.startsWith('/\\') &&
+    !raw.startsWith('/login')
+  ) {
+    return raw
+  }
+  return '/'
+}
 
 /** Map a thrown error to a clear, non-leaky message for the operator. */
 function messageFor(err: unknown, step: Step): string {
@@ -59,9 +79,13 @@ function messageFor(err: unknown, step: Step): string {
   return 'We could not sign you in. Please check your details and try again.'
 }
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const session = useSession()
+
+  // Where to land after a successful sign-in. Validated as a same-origin path.
+  const next = safeNextPath(searchParams.get('next'))
 
   const [step, setStep] = useState<Step>('credentials')
   const [email, setEmail] = useState('')
@@ -113,7 +137,7 @@ export default function LoginPage() {
         },
       })
       session.refresh()
-      router.replace('/')
+      router.replace(next)
     } catch (err) {
       setError(messageFor(err, 'otp'))
     } finally {
@@ -253,5 +277,24 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </main>
+  )
+}
+
+/** Minimal fallback while the client renders (useSearchParams needs a Suspense boundary). */
+function LoginFallback() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background p-6">
+      <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading" />
+    </main>
+  )
+}
+
+// useSearchParams() (read in LoginForm for the ?next= return path) requires a
+// Suspense boundary at build time, or `next build` fails to prerender /login.
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginForm />
+    </Suspense>
   )
 }

@@ -24,6 +24,8 @@ Set these **separately per environment** (staging and production each get their 
 
 > **Web canonical domain — D-E decided:** the public website canonical is the **apex `https://redeemo.co.uk`**; **`www.redeemo.co.uk` permanently redirects (308) to the apex**. This is a **Vercel domain config, not code** (customer-web links are relative/host-agnostic; the middleware redirects are host-relative — no source change). **Vercel:** add both `redeemo.co.uk` and `www.redeemo.co.uk`, set **apex as the primary/production domain**, and Vercel auto-redirects `www` → apex (TLS provisioned for both). **DNS:** apex `redeemo.co.uk` → Vercel (A/ALIAS or Vercel's apex method) + `www` CNAME → Vercel. **Verify** `https://www.redeemo.co.uk` 308-redirects to `https://redeemo.co.uk` **before** any aggressive HSTS (§5). Keep **both** apex + `www` in `CORS_ORIGIN` during the rollout. (The actual Vercel/DNS setup is a deploy-time owner/devops task — not done here.)
 
+> **Admin panel origin — MUST be in `CORS_ORIGIN`:** the Admin Panel (`apps/admin-web`) is a separate browser app deployed at **`https://admin.redeemo.co.uk`** that calls the **same** API at `api.redeemo.co.uk`. Because the API enforces CORS on browser origins, the production `CORS_ORIGIN` **MUST include `https://admin.redeemo.co.uk`** alongside the web apex/`www` origins, or every API call from the deployed admin panel is CORS-blocked (preflight rejected → the panel cannot load the queue, review, or notifications). `CORS_ORIGIN` is the allow-list of **browser origins that may call the API**; it is distinct from the CSP `connect-src` (which is derived from `NEXT_PUBLIC_API_URL` and controls which API hosts a page may fetch *from*). The admin subdomain DNS/hosting is provisioned in Phase 4 alongside the panel; add the origin to `CORS_ORIGIN` when that subdomain goes live.
+
 ### API (Railway/Render) — secrets (boot-validated; the API refuses to start if any is missing or a placeholder)
 | Variable | Source | Notes |
 |---|---|---|
@@ -48,7 +50,7 @@ Generate the JWT/ENCRYPTION secrets with the `randomBytes` command above. **Avoi
 |---|---|---|
 | `NODE_ENV` | `production` | |
 | `TRUST_PROXY` | `1` (single proxy) | **must set** — see §2. Do **not** use `true`. |
-| `CORS_ORIGIN` | `https://redeemo.co.uk,https://www.redeemo.co.uk` | HTTPS prod web origin(s); must agree with the CSP `connect-src` (§5). **Keep BOTH apex + `www` during the www→apex rollout (D-E)** so an in-flight `www`-origin request isn't blocked before the redirect lands. Default if unset is `localhost:3001` (breaks the real frontend). |
+| `CORS_ORIGIN` | `https://redeemo.co.uk,https://www.redeemo.co.uk` (+ `https://admin.redeemo.co.uk` once the admin panel is live) | HTTPS prod browser origin(s) that may call the API; must agree with the CSP `connect-src` (§5). **Keep BOTH apex + `www` during the www→apex rollout (D-E)** so an in-flight `www`-origin request isn't blocked before the redirect lands. **Add `https://admin.redeemo.co.uk` when the Admin Panel goes live (Phase 4)** or its API calls are CORS-blocked — see the admin-origin note above. Default if unset is `localhost:3001` (breaks the real frontend). |
 | `SMS_ALLOWED_COUNTRY_CODES` | `+44` | full E.164 codes only; default UK if unset (§6) |
 | `SMS_GLOBAL_DAILY_CAP` | `500` (tune to volume) | hard daily Twilio cost ceiling (§6) |
 | `RATE_LIMIT_RELAX` | **must be absent** | never set in prod; the code also neutralizes it when `NODE_ENV=production`, but keep it out of the env entirely |

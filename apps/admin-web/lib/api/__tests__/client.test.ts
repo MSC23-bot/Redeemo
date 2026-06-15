@@ -30,9 +30,10 @@ beforeEach(() => {
   global.fetch = fetchMock as unknown as typeof fetch
 
   // Make window.location.assign spy-able (jsdom's is non-configurable).
+  // pathname/search are read by redirectToLogin to build the ?next= return path.
   assignMock = jest.fn()
   Object.defineProperty(window, 'location', {
-    value: { assign: assignMock, href: '' },
+    value: { assign: assignMock, href: '', pathname: '/queue/abc', search: '' },
     writable: true,
   })
 })
@@ -138,7 +139,8 @@ describe('apiFetch — 401 refresh-once-retry', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2) // no third (retry) call
     expect(getAccessToken()).toBeNull() // session cleared
-    expect(assignMock).toHaveBeenCalledWith('/login')
+    // Captures the current location into ?next= so login can return the user.
+    expect(assignMock).toHaveBeenCalledWith('/login?next=%2Fqueue%2Fabc')
   })
 
   it('does not attempt refresh when there is no session (avoids a loop)', async () => {
@@ -150,6 +152,38 @@ describe('apiFetch — 401 refresh-once-retry', () => {
     )
 
     expect(fetchMock).toHaveBeenCalledTimes(1) // only the original; no refresh call
+    expect(assignMock).toHaveBeenCalledWith('/login?next=%2Fqueue%2Fabc')
+  })
+
+  it('captures pathname + search in ?next= when redirecting to login', async () => {
+    // Already on a deep page WITH a query string -> the whole thing round-trips.
+    Object.defineProperty(window, 'location', {
+      value: { assign: assignMock, href: '', pathname: '/merchants', search: '?focus=m-1' },
+      writable: true,
+    })
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { error: { code: 'TOKEN_EXPIRED' } }))
+
+    await expect(apiFetch('/api/v1/admin/thing', { auth: true })).rejects.toBeInstanceOf(
+      ApiError
+    )
+
+    expect(assignMock).toHaveBeenCalledWith(
+      `/login?next=${encodeURIComponent('/merchants?focus=m-1')}`
+    )
+  })
+
+  it('does NOT round-trip the login page itself into ?next= (no loop)', async () => {
+    // Already on /login -> redirect plainly, never /login?next=/login.
+    Object.defineProperty(window, 'location', {
+      value: { assign: assignMock, href: '', pathname: '/login', search: '' },
+      writable: true,
+    })
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { error: { code: 'TOKEN_EXPIRED' } }))
+
+    await expect(apiFetch('/api/v1/admin/thing', { auth: true })).rejects.toBeInstanceOf(
+      ApiError
+    )
+
     expect(assignMock).toHaveBeenCalledWith('/login')
   })
 

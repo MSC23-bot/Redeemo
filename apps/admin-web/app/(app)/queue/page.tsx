@@ -131,8 +131,13 @@ export default function QueuePage() {
         </div>
       </div>
 
-      {/* Status filter chips */}
-      <StatusFilter active={activeFilter} counts={counts} onChange={setActiveFilter} />
+      {/* Status filter chips — counts are hidden (skeleton) until the first fetch
+          lands so we never flash 0/0/0/0 on initial load. */}
+      <StatusFilter
+        active={activeFilter}
+        counts={isLoading ? undefined : counts}
+        onChange={setActiveFilter}
+      />
 
       {/* Content */}
       {isLoading ? (

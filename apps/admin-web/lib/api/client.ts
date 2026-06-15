@@ -72,7 +72,12 @@ export type ApiFetchOptions = RequestInit & {
 
 function redirectToLogin(): void {
   if (typeof window !== 'undefined') {
-    window.location.assign('/login')
+    const here = window.location.pathname + window.location.search
+    // Capture where the user was so login can return them after re-auth. Never
+    // round-trip the login page itself (would loop); the login page re-validates
+    // `next` as a same-origin path before using it (open-redirect defence).
+    const next = here.startsWith('/login') ? '' : here
+    window.location.assign(next ? `/login?next=${encodeURIComponent(next)}` : '/login')
   }
 }
 
