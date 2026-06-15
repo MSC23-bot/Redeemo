@@ -18,6 +18,7 @@ import {
   useEditMerchantProfile,
   useEditBranch,
   useEditMerchantIdentity,
+  useEditMerchantCategory,
 } from '../useMerchantActions'
 import { merchantsApi } from '@/lib/api/merchants'
 import { branchesApi } from '@/lib/api/branches'
@@ -33,6 +34,7 @@ jest.mock('@/lib/api/merchants', () => ({
     reactivate: jest.fn(),
     editProfile: jest.fn(),
     editIdentity: jest.fn(),
+    editCategory: jest.fn(),
   },
 }))
 jest.mock('@/lib/api/branches', () => ({
@@ -270,6 +272,49 @@ describe('useEditMerchantIdentity (B2.2)', () => {
 
     result.current.mutate({ vatNumber: null, companyNumber: null, reason: 'x', confirm: true })
 
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+})
+
+describe('useEditMerchantCategory (B2.3)', () => {
+  it('invalidates detail + directory when a change is APPLIED (changed)', async () => {
+    ;(merchantsApi.editCategory as jest.Mock).mockResolvedValueOnce({ changed: true })
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useEditMerchantCategory(MERCHANT_ID), { wrapper: Wrapper })
+
+    result.current.mutate({ primaryCategoryId: 'cat-new', reason: 'fix', confirm: true })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(merchantsApi.editCategory).toHaveBeenCalledWith(MERCHANT_ID, { primaryCategoryId: 'cat-new', reason: 'fix', confirm: true })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+
+  it('invalidates when a first-set is provisioned', async () => {
+    ;(merchantsApi.editCategory as jest.Mock).mockResolvedValueOnce({ provisioned: true })
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useEditMerchantCategory(MERCHANT_ID), { wrapper: Wrapper })
+    result.current.mutate({ primaryCategoryId: 'cat-new', reason: 'set' })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+  })
+
+  it('does NOT invalidate on a requiresConfirmation preview (nothing changed)', async () => {
+    ;(merchantsApi.editCategory as jest.Mock).mockResolvedValueOnce({ requiresConfirmation: true, message: 'discard drafts' })
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useEditMerchantCategory(MERCHANT_ID), { wrapper: Wrapper })
+    result.current.mutate({ primaryCategoryId: 'cat-new', reason: 'fix' })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+
+  it('invalidates on ERROR (e.g. CATEGORY_CHANGE_BLOCKED may have flipped categoryLocked)', async () => {
+    ;(merchantsApi.editCategory as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useEditMerchantCategory(MERCHANT_ID), { wrapper: Wrapper })
+    result.current.mutate({ primaryCategoryId: 'cat-new', reason: 'fix', confirm: true })
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
