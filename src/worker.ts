@@ -22,6 +22,7 @@ import { validateRequiredEnv } from './api/shared/env'
 import { closeQueues, makeQueueConnection } from './api/queues'
 import { startEmailWorker } from './api/queues/processors/email'
 import { startReconcileWorker, scheduleReconcile } from './api/queues/processors/outboxReconciler'
+import { scheduleClaimStaleSweep } from './api/queues/processors/claimStaleSweep'
 import { startModerationWorker } from './api/queues/processors/moderation'
 
 async function main(): Promise<void> {
@@ -41,10 +42,13 @@ async function main(): Promise<void> {
   const emailWorker = startEmailWorker(prisma, workerConnections[0])
   const reconcileWorker = startReconcileWorker(prisma, workerConnections[1])
   const moderationWorker = startModerationWorker(prisma, workerConnections[2])
-  // Idempotent: the stable jobId means exactly one repeatable sweep exists.
+  // Idempotent: each stable jobId means exactly one repeatable exists. Both
+  // repeatables live on MAINTENANCE_QUEUE and are dispatched by the reconcile
+  // worker (one worker per queue, branching on job name).
   await scheduleReconcile()
+  await scheduleClaimStaleSweep()
   const workers: Worker[] = [emailWorker, reconcileWorker, moderationWorker]
-  console.info(`[worker] started — ${workers.length} processor(s) registered (email + outbox-reconciler + photo-moderation)`)
+  console.info(`[worker] started: ${workers.length} processor(s) registered (email + maintenance[outbox-reconciler + claim-stale] + photo-moderation)`)
 
   let shuttingDown = false
   const shutdown = async (signal: string, exitCode: number): Promise<void> => {
