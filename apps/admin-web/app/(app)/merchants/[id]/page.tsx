@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button'
 import { EditMerchantWebsiteDialog } from '@/features/merchants/EditMerchantWebsiteDialog'
 import { EditBranchDialog } from '@/features/merchants/EditBranchDialog'
 import { EditMerchantIdentityDialog } from '@/features/merchants/EditMerchantIdentityDialog'
+import { EditCategoryDialog } from '@/features/merchants/EditCategoryDialog'
 import type { BadgeTone } from '@/features/shared/Badge'
 import type { BranchDetail } from '@/lib/api/merchants'
 
@@ -196,6 +197,7 @@ function BranchCard({
 type OpenDialog =
   | { kind: 'website' }
   | { kind: 'identity' }
+  | { kind: 'category' }
   | { kind: 'branch'; branch: BranchDetail }
   | null
 
@@ -208,6 +210,8 @@ export default function MerchantDetailPage() {
   // B2.2: identity edits are SUPER_ADMIN-only (merchant:edit-identity), a higher
   // bar than the merchant:edit website/branch edits.
   const canEditIdentity = can('merchant:edit-identity')
+  // B2.3: category edits are SUPER_ADMIN-only (merchant:edit-category).
+  const canEditCategory = can('merchant:edit-category')
 
   const { data, isLoading, isError, refetch } = useMerchantDetail(id, canRead)
 
@@ -346,6 +350,40 @@ export default function MerchantDetailPage() {
             </div>
           </section>
 
+          {/* Category card (B2.3): the current category for every merchant:read
+              admin; the Edit affordance is SUPER_ADMIN-only AND hidden when the
+              category is locked (the merchant has submitted/live vouchers). */}
+          <section
+            className="rounded-lg border border-border bg-card p-4"
+            data-testid="merchant-category-card"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-sm font-medium text-muted-foreground">Category</h2>
+                <p className="mt-1 text-foreground" data-testid="merchant-category-value">
+                  {data.merchant.category ?? 'Not set'}
+                </p>
+                {data.merchant.categoryLocked && (
+                  <p className="mt-1 text-xs text-muted-foreground" data-testid="merchant-category-locked-note">
+                    Category is locked while this merchant has submitted or live vouchers.
+                  </p>
+                )}
+              </div>
+              {canEditCategory && !data.merchant.categoryLocked && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDialog({ kind: 'category' })}
+                  data-testid="merchant-category-edit"
+                >
+                  <Pencil className="size-4" aria-hidden="true" />
+                  Edit
+                </Button>
+              )}
+            </div>
+          </section>
+
           {/* Branches */}
           <section className="space-y-3" data-testid="merchant-branches-section">
             <h2 className="text-sm font-medium text-muted-foreground">
@@ -383,6 +421,14 @@ export default function MerchantDetailPage() {
           merchantId={data.merchant.id}
           currentVatNumber={data.merchant.vatNumber}
           currentCompanyNumber={data.merchant.companyNumber}
+          onSuccess={onDialogSuccess}
+          onCancel={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'category' && data && (
+        <EditCategoryDialog
+          merchantId={data.merchant.id}
+          currentCategoryId={data.merchant.primaryCategoryId}
           onSuccess={onDialogSuccess}
           onCancel={closeDialog}
         />

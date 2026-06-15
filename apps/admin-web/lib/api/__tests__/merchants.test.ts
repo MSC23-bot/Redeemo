@@ -157,6 +157,8 @@ describe('merchantsApi.getById', () => {
       companyNumber: '12345678',
       logoUrl: null,
       category: 'Restaurants',
+      primaryCategoryId: 'cat-1',
+      categoryLocked: false,
     },
     branches: [
       {
@@ -205,6 +207,8 @@ describe('merchantsApi.getById', () => {
         companyNumber: null,
         logoUrl: null,
         category: null,
+        primaryCategoryId: null,
+        categoryLocked: false,
       },
       branches: [],
     }
@@ -316,5 +320,46 @@ describe('merchantsApi.editIdentity', () => {
     await expect(
       merchantsApi.editIdentity('m-1', { vatNumber: 'x', reason: 'y', confirm: true })
     ).rejects.toMatchObject({ code: 'MERCHANT_NOT_FOUND' })
+  })
+})
+
+// ── editCategory (B2.3 category edit-on-behalf) ───────────────────────────────
+
+describe('merchantsApi.editCategory', () => {
+  it('PATCH /api/v1/admin/merchants/:id/category, first call omits confirm', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ requiresConfirmation: true, message: 'Changing category will discard drafts.' })
+    const result = await merchantsApi.editCategory('m-1', { primaryCategoryId: 'cat-new', reason: 'wrong category' })
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1/category', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify({ primaryCategoryId: 'cat-new', reason: 'wrong category' }),
+    })
+    expect(result.requiresConfirmation).toBe(true)
+    expect(result.message).toBe('Changing category will discard drafts.')
+  })
+
+  it('second call sends confirm:true and returns changed', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ changed: true })
+    const result = await merchantsApi.editCategory('m-1', { primaryCategoryId: 'cat-new', reason: 'wrong category', confirm: true })
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1/category', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify({ primaryCategoryId: 'cat-new', reason: 'wrong category', confirm: true }),
+    })
+    expect(result.changed).toBe(true)
+  })
+
+  it('parses a first-set provisioned result', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ provisioned: true })
+    const result = await merchantsApi.editCategory('m-1', { primaryCategoryId: 'cat-new', reason: 'set' })
+    expect(result.provisioned).toBe(true)
+  })
+
+  it('propagates ApiError with .code on CATEGORY_CHANGE_BLOCKED', async () => {
+    const err = new ApiError(409, { error: { code: 'CATEGORY_CHANGE_BLOCKED', message: 'Blocked' } })
+    mockedApiFetch.mockRejectedValueOnce(err)
+    await expect(
+      merchantsApi.editCategory('m-1', { primaryCategoryId: 'cat-new', reason: 'x', confirm: true })
+    ).rejects.toMatchObject({ code: 'CATEGORY_CHANGE_BLOCKED' })
   })
 })

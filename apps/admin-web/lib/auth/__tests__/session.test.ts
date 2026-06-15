@@ -95,6 +95,22 @@ describe('merchant:edit-identity is SUPER_ADMIN-only (B2.2)', () => {
   })
 })
 
+// Option B B2.3: merchant:edit-category is also SUPER_ADMIN-only (NOT in
+// ALL_SLICE1_CAPS). Mirror must match the backend exactly.
+describe('merchant:edit-category is SUPER_ADMIN-only (B2.3)', () => {
+  it('SUPER_ADMIN holds it', () => {
+    expect(hasCapability('SUPER_ADMIN', 'merchant:edit-category')).toBe(true)
+  })
+  it('OPERATIONS does NOT hold it', () => {
+    expect(hasCapability('OPERATIONS', 'merchant:edit-category')).toBe(false)
+  })
+  it('FINANCE / CONTENT / SUPPORT do NOT hold it', () => {
+    expect(hasCapability('FINANCE', 'merchant:edit-category')).toBe(false)
+    expect(hasCapability('CONTENT', 'merchant:edit-category')).toBe(false)
+    expect(hasCapability('SUPPORT', 'merchant:edit-category')).toBe(false)
+  })
+})
+
 describe('session storage — set / get / clear', () => {
   const meta = {
     entityId: 'admin-1',

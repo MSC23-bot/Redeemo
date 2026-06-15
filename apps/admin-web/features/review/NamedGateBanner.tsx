@@ -48,6 +48,11 @@ const CODE_MESSAGES: Record<string, string> = {
   PENDING_EDIT_NOT_FOUND: 'This edit request no longer exists.',
   EDIT_PHOTO_APPLY_NOT_SUPPORTED:
     'Photo edits cannot be applied yet. You can reject this request, or apply it in a future update.',
+  // Option B B2.3: admin category edit.
+  CATEGORY_CHANGE_BLOCKED:
+    'Category is locked: this merchant has submitted or live vouchers. It cannot be changed.',
+  NO_RMV_TEMPLATE:
+    'That category has no mandatory voucher templates set up, so it cannot be assigned.',
 }
 
 function getMessage(error: unknown): string {

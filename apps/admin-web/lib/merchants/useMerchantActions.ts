@@ -25,7 +25,7 @@ import { QUEUE_KEY } from '@/lib/queue/useQueue'
 import { MERCHANTS_LIST_KEY } from '@/lib/merchants/useMerchantsList'
 import { merchantDetailQueryKey } from '@/lib/merchants/useMerchantDetail'
 import { reviewQueryKey } from '@/lib/review/useReview'
-import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse, EditMerchantProfileInput, EditMerchantIdentityInput } from '@/lib/api/merchants'
+import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse, EditMerchantProfileInput, EditMerchantIdentityInput, EditCategoryInput, EditCategoryResult } from '@/lib/api/merchants'
 import type { ConfirmLocationInput, ConfirmLocationResponse, EditBranchInput } from '@/lib/api/branches'
 
 /**
@@ -139,6 +139,24 @@ export function useEditMerchantIdentity(merchantId: string) {
   return useMutation<{ id: string }, Error, EditMerchantIdentityInput>({
     mutationFn: (input) => merchantsApi.editIdentity(merchantId, input),
     onSuccess: invalidate,
+    onError: invalidate,
+  })
+}
+
+// Option B B2.3: the SUPER_ADMIN-only category edit. The route gates
+// merchant:edit-category server-side. Invalidation differs from the simple edits:
+// a `requiresConfirmation` result (the first call of a two-stage CHANGE) changed
+// NOTHING, so it must NOT invalidate; only an applied result (provisioned /
+// changed / unchanged) and an error trigger a refetch (an error may have flipped
+// categoryLocked, so a resync is still useful).
+export function useEditMerchantCategory(merchantId: string) {
+  const invalidate = useInvalidateAfterEdit(merchantId)
+  return useMutation<EditCategoryResult, Error, EditCategoryInput>({
+    mutationFn: (input) => merchantsApi.editCategory(merchantId, input),
+    onSuccess: (result) => {
+      if (result.requiresConfirmation) return
+      invalidate()
+    },
     onError: invalidate,
   })
 }

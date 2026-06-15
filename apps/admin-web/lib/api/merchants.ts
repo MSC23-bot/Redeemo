@@ -137,6 +137,10 @@ export const merchantDetailSchema = z.object({
     companyNumber: z.string().nullable(),
     logoUrl: z.string().nullable(),
     category: z.string().nullable(),
+    // B2.3: the category id (for preselection) + categoryLocked (true when the
+    // merchant has submitted/live RMVs, so category can no longer be changed).
+    primaryCategoryId: z.string().nullable(),
+    categoryLocked: z.boolean(),
   }),
   branches: z.array(branchDetailSchema),
 })
@@ -159,6 +163,29 @@ export interface EditMerchantIdentityInput {
   reason: string
   confirm: true
 }
+
+// B2.3: the category edit. `confirm` is OPTIONAL here (two-stage): the first call
+// omits it and may come back as { requiresConfirmation } for a category CHANGE;
+// the second call sets confirm:true to apply. A first-SET (no existing category)
+// applies immediately without confirm.
+export interface EditCategoryInput {
+  primaryCategoryId: string
+  reason: string
+  confirm?: boolean
+}
+
+// The discriminated result the category route returns. Parsed leniently (extra
+// keys tolerated) because the UI branches on which discriminant is present.
+const editCategoryResultSchema = z
+  .object({
+    provisioned: z.boolean().optional(),
+    unchanged: z.boolean().optional(),
+    changed: z.boolean().optional(),
+    requiresConfirmation: z.boolean().optional(),
+    message: z.string().optional(),
+  })
+  .passthrough()
+export type EditCategoryResult = z.infer<typeof editCategoryResultSchema>
 
 // ── API calls ─────────────────────────────────────────────────────────────────
 
@@ -236,6 +263,23 @@ export const merchantsApi = {
       body: JSON.stringify(input),
     })
     return editAckSchema.parse(raw)
+  },
+
+  /**
+   * Set or change a merchant's primaryCategoryId on the merchant's behalf (B2.3,
+   * `merchant:edit-category`-gated; SUPER_ADMIN only). Two-stage: omit `confirm`
+   * for the first call (a CHANGE returns { requiresConfirmation, message }; a
+   * first-SET applies immediately); send `confirm: true` to apply a change. The
+   * discriminated result drives the dialog. Throws ApiError (MERCHANT_NOT_FOUND,
+   * CATEGORY_CHANGE_BLOCKED, NO_RMV_TEMPLATE).
+   */
+  editCategory: async (id: string, input: EditCategoryInput): Promise<EditCategoryResult> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${id}/category`, {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify(input),
+    })
+    return editCategoryResultSchema.parse(raw)
   },
 
   /**
