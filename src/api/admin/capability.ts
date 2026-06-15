@@ -36,6 +36,12 @@ export type AdminCapability =
   // B2.1 is the admin EDITING directly on the merchant's behalf. OPERATIONS +
   // SUPER_ADMIN hold it.
   | 'merchant:edit'
+  // Option B B2.2: gates the admin edit of a merchant's registered identity
+  // fields (vatNumber / companyNumber). Intentionally NOT in ALL_SLICE1_CAPS: it
+  // is held ONLY by SUPER_ADMIN (via the superuser short-circuit in
+  // adminHasCapability). OPERATIONS does NOT hold it, because identity edits are
+  // a higher bar than the websiteUrl / branch-contact edits gated by merchant:edit.
+  | 'merchant:edit-identity'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',

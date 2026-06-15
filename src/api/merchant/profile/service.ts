@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
-import { writeAuditLog, writeAuditLogTx } from '../../shared/audit'
+import { writeAuditLog, writeAuditLogTx, type AuditEvent } from '../../shared/audit'
 import { resolveAdminMerchant, type EditActor } from '../shared'
 import { handleCategoryChange } from '../voucher/service'
 
@@ -37,7 +37,8 @@ export async function updateMerchantProfileDirectCore(
   prisma: PrismaClient,
   { merchantId, actor }: { merchantId: string; actor: EditActor },
   updates: Record<string, unknown>,
-  ctx: { ipAddress: string; userAgent: string }
+  ctx: { ipAddress: string; userAgent: string },
+  event: AuditEvent = 'MERCHANT_PROFILE_UPDATED'
 ) {
   const safe: Record<string, unknown> = {}
   for (const k of DIRECT_SIMPLE_FIELDS) if (k in updates) safe[k] = updates[k]
@@ -57,7 +58,7 @@ export async function updateMerchantProfileDirectCore(
     await writeAuditLogTx(tx, {
       entityId: merchantId,
       entityType: 'merchant',
-      event: 'MERCHANT_PROFILE_UPDATED',
+      event,
       actorId: actor.id,
       actorType: actor.type,
       before,
