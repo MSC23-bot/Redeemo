@@ -50,6 +50,43 @@ export function merchantRejectedEmail(reason: string): RenderedEmail {
 }
 
 /**
+ * Option B B1 — admin applied a merchant-requested identity edit (merchant
+ * profile or branch identity field). No admin free text is shown; only the
+ * brand name is interpolated, so nothing here is admin-controlled.
+ */
+export function merchantEditAppliedEmail(): RenderedEmail {
+  return {
+    subject: `Your requested change has been applied on ${BRAND}`,
+    text:
+      `Good news: the change you requested has been reviewed and applied to your ${BRAND} listing.\n\n` +
+      `Sign in to your merchant portal to see it live. If something is not right, you can request another change from the portal.`,
+    html:
+      `<p>Good news: the change you requested has been reviewed and applied to your ${BRAND} listing.</p>` +
+      `<p>Sign in to your merchant portal to see it live. If something is not right, you can request another change from the portal.</p>`,
+  }
+}
+
+/**
+ * Option B B1 — admin rejected a merchant-requested identity edit. `reason` is
+ * admin-controlled free text shown to the merchant ⇒ HTML-escaped.
+ */
+export function merchantEditRejectedEmail(reason: string): RenderedEmail {
+  const safeReason = escapeHtml(reason)
+  return {
+    subject: `Update on your requested change on ${BRAND}`,
+    text:
+      `We reviewed the change you requested on your ${BRAND} listing and were unable to apply it.\n\n` +
+      `Reason:\n${reason}\n\n` +
+      `Your listing has not changed. You can review the note and submit a new request from your merchant portal.`,
+    html:
+      `<p>We reviewed the change you requested on your ${BRAND} listing and were unable to apply it.</p>` +
+      `<p><strong>Reason:</strong></p>` +
+      `<blockquote>${safeReason}</blockquote>` +
+      `<p>Your listing has not changed. You can review the note and submit a new request from your merchant portal.</p>`,
+  }
+}
+
+/**
  * Admin approved a merchant's onboarding and the merchant is now live. M5 owns
  * this template. `businessName` is the merchant's own name shown back to them;
  * HTML-escaped defensively so a name with markup can't break the body.

@@ -83,6 +83,13 @@ export type AuditEvent =
   | 'MERCHANT_GO_LIVE'
   // Phase 2 Slice 1 M6a — admin suspend (reactivate reuses MERCHANT_REACTIVATED)
   | 'MERCHANT_SUSPENDED'
+  // Option B B1 — admin applies / rejects a merchant-requested identity edit.
+  // APPROVED carries before/after (the live values vs the applied values);
+  // REJECTED carries the reason (live entity unchanged).
+  | 'MERCHANT_EDIT_APPROVED'
+  | 'MERCHANT_EDIT_REJECTED'
+  | 'BRANCH_EDIT_APPROVED'
+  | 'BRANCH_EDIT_REJECTED'
 
 export interface AuditContext {
   entityId: string
