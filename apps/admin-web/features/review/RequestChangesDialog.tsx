@@ -8,13 +8,15 @@
  *   - Soft min-length nudge: shows a helper line and disables submit below the threshold
  *   - Calls useRequestChanges on submit; on success calls onSuccess (parent closes + refetches)
  *   - On error: shows NamedGateBanner inside the dialog
- *   - Accessible: role=dialog, aria-label, Escape + scrim close
+ *   - Accessible via the shared Dialog primitive: role=dialog, aria-label,
+ *     focus-on-open, Escape + scrim close, Tab focus-trap, focus-restore.
  */
 'use client'
 
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useRef, useState } from 'react'
 import { useRequestChanges } from '@/lib/review/useReviewActions'
 import { NamedGateBanner } from './NamedGateBanner'
+import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 
 const QUICK_REASONS = [
@@ -45,17 +47,6 @@ export function RequestChangesDialog({
   const belowMin = trimmed.length < SOFT_MIN
   const canSubmit = !belowMin && !mutation.isPending
 
-  // Focus the textarea when the dialog opens.
-  useEffect(() => {
-    textareaRef.current?.focus()
-  }, [])
-
-  function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'Escape') {
-      onCancel()
-    }
-  }
-
   function handleChipClick(chip: string) {
     setReason((prev) => {
       if (prev.trim() === '') return chip
@@ -75,104 +66,90 @@ export function RequestChangesDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onKeyDown={handleKeyDown}
+    <Dialog
+      label="Request changes"
+      onClose={onCancel}
+      scrimTestId="request-changes-scrim"
+      panelTestId="request-changes-dialog"
+      initialFocusRef={textareaRef}
     >
-      {/* Scrim */}
-      <div
-        className="absolute inset-0 bg-black/40"
-        aria-hidden="true"
-        onClick={onCancel}
-        data-testid="request-changes-scrim"
+      <h2 className="mb-4 text-base font-semibold text-foreground">Request changes</h2>
+
+      {/* Quick-reason chips */}
+      <div className="mb-3 flex flex-wrap gap-2" data-testid="quick-reason-chips">
+        {QUICK_REASONS.map((chip) => (
+          <button
+            key={chip}
+            type="button"
+            onClick={() => handleChipClick(chip)}
+            className="rounded-full border border-border bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid={`quick-reason-chip-${chip.toLowerCase().replace(/\s+/g, '-')}`}
+          >
+            {chip}
+          </button>
+        ))}
+      </div>
+
+      {/* Reason textarea */}
+      <label
+        htmlFor="request-changes-reason"
+        className="mb-1.5 block text-sm font-medium text-foreground"
+      >
+        Reason for changes (sent to the merchant by email)
+      </label>
+      <textarea
+        id="request-changes-reason"
+        ref={textareaRef}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Be specific and friendly, e.g. The food hygiene certificate has expired. Please upload a current one and re-submit."
+        rows={4}
+        className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-testid="request-changes-reason-textarea"
       />
 
-      {/* Dialog */}
-      <div
-        role="dialog"
-        aria-label="Request changes"
-        aria-modal="true"
-        className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-xl"
-        data-testid="request-changes-dialog"
-      >
-        <h2 className="mb-4 text-base font-semibold text-foreground">Request changes</h2>
-
-        {/* Quick-reason chips */}
-        <div className="mb-3 flex flex-wrap gap-2" data-testid="quick-reason-chips">
-          {QUICK_REASONS.map((chip) => (
-            <button
-              key={chip}
-              type="button"
-              onClick={() => handleChipClick(chip)}
-              className="rounded-full border border-border bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              data-testid={`quick-reason-chip-${chip.toLowerCase().replace(/\s+/g, '-')}`}
-            >
-              {chip}
-            </button>
-          ))}
-        </div>
-
-        {/* Reason textarea */}
-        <label
-          htmlFor="request-changes-reason"
-          className="mb-1.5 block text-sm font-medium text-foreground"
+      {/* Soft-min nudge */}
+      {belowMin && trimmed.length > 0 && (
+        <p
+          className="mt-1.5 text-xs text-muted-foreground"
+          data-testid="request-changes-min-nudge"
         >
-          Reason for changes (sent to the merchant by email)
-        </label>
-        <textarea
-          id="request-changes-reason"
-          ref={textareaRef}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Be specific and friendly, e.g. The food hygiene certificate has expired. Please upload a current one and re-submit."
-          rows={4}
-          className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          data-testid="request-changes-reason-textarea"
-        />
-
-        {/* Soft-min nudge */}
-        {belowMin && trimmed.length > 0 && (
-          <p
-            className="mt-1.5 text-xs text-muted-foreground"
-            data-testid="request-changes-min-nudge"
-          >
-            Add a little more detail so the merchant knows what to fix.
-          </p>
-        )}
-
-        {/* Helper text */}
-        <p className="mt-2 text-xs text-muted-foreground" data-testid="request-changes-helper">
-          Be specific and friendly. This message is emailed to the merchant.
+          Add a little more detail so the merchant knows what to fix.
         </p>
+      )}
 
-        {/* Error banner */}
-        {mutation.error && (
-          <div className="mt-3">
-            <NamedGateBanner error={mutation.error} />
-          </div>
-        )}
+      {/* Helper text */}
+      <p className="mt-2 text-xs text-muted-foreground" data-testid="request-changes-helper">
+        Be specific and friendly. This message is emailed to the merchant.
+      </p>
 
-        {/* Actions */}
-        <div className="mt-5 flex justify-end gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCancel}
-            disabled={mutation.isPending}
-            data-testid="request-changes-cancel"
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            data-testid="request-changes-submit"
-          >
-            {mutation.isPending ? 'Sending...' : 'Send request for changes'}
-          </Button>
+      {/* Error banner */}
+      {mutation.error && (
+        <div className="mt-3">
+          <NamedGateBanner error={mutation.error} />
         </div>
+      )}
+
+      {/* Actions */}
+      <div className="mt-5 flex justify-end gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={mutation.isPending}
+          data-testid="request-changes-cancel"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          data-testid="request-changes-submit"
+        >
+          {mutation.isPending ? 'Sending...' : 'Send request for changes'}
+        </Button>
       </div>
-    </div>
+    </Dialog>
   )
 }
