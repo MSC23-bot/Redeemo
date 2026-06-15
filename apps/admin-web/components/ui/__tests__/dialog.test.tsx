@@ -1,5 +1,5 @@
 /**
- * Dialog — shared modal primitive.
+ * Dialog: shared modal primitive.
  *
  * Pins the two accessibility pieces the hand-rolled dialogs were missing:
  *   - Tab / Shift+Tab focus-trap (cycles within the panel),

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dialog — shared modal primitive for the admin console.
+ * Dialog: shared modal primitive for the admin console.
  *
  * Renders the project's standard scrim + centred card and adds the two pieces
  * of modal accessibility the hand-rolled dialogs were missing:
@@ -56,7 +56,7 @@ export function Dialog({
     return () => {
       previouslyFocused.current?.focus?.()
     }
-    // Mount/unmount only — the trigger + initial target are captured once.
+    // Mount/unmount only: the trigger + initial target are captured once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

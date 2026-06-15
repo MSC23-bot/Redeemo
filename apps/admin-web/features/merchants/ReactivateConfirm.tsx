@@ -8,8 +8,6 @@
  * Accessible via the shared Dialog primitive: role=dialog, aria-label,
  * focus-on-open (Cancel), Escape + scrim close, Tab focus-trap, focus-restore.
  */
-'use client'
-
 import { useRef } from 'react'
 import { useReactivate } from '@/lib/merchants/useMerchantActions'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'

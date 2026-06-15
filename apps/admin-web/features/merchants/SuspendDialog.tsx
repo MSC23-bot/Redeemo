@@ -12,8 +12,6 @@
  *   - Accessible via the shared Dialog primitive: role=dialog, aria-label,
  *     focus-on-open, Escape + scrim close, Tab focus-trap, focus-restore.
  */
-'use client'
-
 import { useRef, useState } from 'react'
 import { useSuspend } from '@/lib/merchants/useMerchantActions'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'
