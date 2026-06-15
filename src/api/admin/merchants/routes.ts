@@ -5,7 +5,7 @@ import { requireAdminCapability } from '../capability'
 import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants, getMerchantDetail, listAdminCategories } from './service'
 import { issueMerchantClaim } from '../../auth/merchant/service'
 import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
-import { updateMerchantProfileDirectCore } from '../../merchant/profile/service'
+import { updateMerchantProfileDirectCore, setMerchantCategoryCore } from '../../merchant/profile/service'
 
 export async function adminMerchantRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/merchants'
@@ -157,6 +157,38 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       updates,
       auditCtx(req),
       'MERCHANT_IDENTITY_UPDATED',
+    )
+  })
+
+  // Option B B2.3: admin set/change of a merchant's primaryCategoryId on the
+  // merchant's behalf. Gated SUPER_ADMIN-only (`merchant:edit-category`).
+  // Category change has RMV-provisioning side effects (it discards DRAFT RMVs and
+  // reprovisions 2 mandatory vouchers). STRICT body: primaryCategoryId + optional
+  // confirm + required reason. The shared core (setMerchantCategoryCore) runs the
+  // first-set provisioning OR handleCategoryChange (block / requiresConfirmation /
+  // apply) with actor-attributed audit - the SAME path the merchant route runs (no
+  // weaker path). resolveTargetMerchantForAdmin allows a SUSPENDED merchant. The
+  // change path is still BLOCKED if any RMV is submitted/active (CATEGORY_CHANGE_
+  // BLOCKED) - intentional; a live merchant's category is locked.
+  app.patch(`${prefix}/:id/category`, { preHandler: [requireAdminCapability('merchant:edit-category')] }, async (req: any) => {
+    const body = z
+      .object({
+        primaryCategoryId: z.string().min(1),
+        confirm: z.boolean().optional(),
+        reason: z.string().trim().min(1),
+      })
+      .strict()
+      .parse(req.body)
+
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+
+    return setMerchantCategoryCore(
+      app.prisma,
+      { merchantId: id, actor: { type: 'ADMIN', id: req.user.sub, reason: body.reason } },
+      body.primaryCategoryId,
+      body.confirm === true,
+      auditCtx(req),
     )
   })
 }
