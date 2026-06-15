@@ -13,6 +13,7 @@ const ALL: AdminCapability[] = [
   'merchant:suspend',
   'branch:confirm-location',
   'approval:apply-edit',
+  'merchant:edit',
 ]
 
 describe('M2 — admin capability map', () => {
@@ -49,6 +50,14 @@ describe('M2 — admin capability map', () => {
       expect(adminHasCapability('SUPER_ADMIN', 'approval:apply-edit')).toBe(true)
       for (const role of ['FINANCE', 'CONTENT', 'SUPPORT']) {
         expect(adminHasCapability(role, 'approval:apply-edit')).toBe(false)
+      }
+    })
+
+    it('B2.1: merchant:edit held by OPERATIONS + SUPER_ADMIN, not FINANCE/CONTENT/SUPPORT', () => {
+      expect(adminHasCapability('OPERATIONS', 'merchant:edit')).toBe(true)
+      expect(adminHasCapability('SUPER_ADMIN', 'merchant:edit')).toBe(true)
+      for (const role of ['FINANCE', 'CONTENT', 'SUPPORT']) {
+        expect(adminHasCapability(role, 'merchant:edit')).toBe(false)
       }
     })
   })

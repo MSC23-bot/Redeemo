@@ -4,6 +4,8 @@ import { emailSchema } from '../../shared/schemas'
 import { requireAdminCapability } from '../capability'
 import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants } from './service'
 import { issueMerchantClaim } from '../../auth/merchant/service'
+import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
+import { updateMerchantProfileDirectCore } from '../../merchant/profile/service'
 
 export async function adminMerchantRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/merchants'
@@ -70,5 +72,36 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
   // M6a — admin reactivate (reverse of suspend). Same capability.
   app.post(`${prefix}/:id/reactivate`, { preHandler: [requireAdminCapability('merchant:suspend')] }, async (req: any) => {
     return reactivateMerchant(app.prisma, req.user.sub, idParam(req), auditCtx(req))
+  })
+
+  // Option B B2.1: admin direct-edit-on-behalf of a merchant's simple-DIRECT
+  // fields. The admin allow-list is NARROWER than the merchant DIRECT set:
+  // websiteUrl ONLY (vatNumber / companyNumber / primaryCategoryId are out of
+  // B2.1 scope). STRICT body so any extra key (e.g. businessName / companyNumber
+  // / vatNumber) 400s before the service runs. A non-empty reason is required and
+  // lands on the audit row. The shared core does the validation/apply/audit (the
+  // SAME path the merchant route runs, no weaker path). resolveTargetMerchant-
+  // ForAdmin allows a SUSPENDED merchant (admins may edit for operational fixes).
+  app.patch(`${prefix}/:id/profile`, { preHandler: [requireAdminCapability('merchant:edit')] }, async (req: any) => {
+    const body = z
+      .object({
+        websiteUrl: z.string().url().nullable().optional(),
+        reason: z.string().trim().min(1),
+      })
+      .strict()
+      .parse(req.body)
+
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+
+    const updates: Record<string, unknown> = {}
+    if ('websiteUrl' in body) updates.websiteUrl = body.websiteUrl
+
+    return updateMerchantProfileDirectCore(
+      app.prisma,
+      { merchantId: id, actor: { type: 'ADMIN', id: req.user.sub, reason: body.reason } },
+      updates,
+      auditCtx(req),
+    )
   })
 }

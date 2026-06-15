@@ -1,7 +1,10 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { AppError } from '../../shared/errors'
 import { requireAdminCapability } from '../capability'
 import { confirmBranchLocation } from './service'
+import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
+import { updateBranchDirectCore } from '../../merchant/branch/service'
 
 export async function adminBranchRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/branches'
@@ -26,6 +29,51 @@ export async function adminBranchRoutes(app: FastifyInstance) {
         userAgent: req.headers['user-agent'] ?? '',
       })
       return reply.status(200).send(result)
+    },
+  )
+
+  // Option B B2.1: admin direct-edit-on-behalf of a branch's simple-DIRECT
+  // fields (phone / email / websiteUrl / isActive). STRICT body so an extra key
+  // 400s before the service runs; a non-empty reason is required and lands on the
+  // audit row. The branch's merchant is loaded so resolveTargetMerchantForAdmin
+  // can run (SUSPENDED allowed). The shared core does the validation/apply/audit
+  // (the SAME path the merchant route runs, no weaker path).
+  app.patch(
+    `${prefix}/:branchId`,
+    { preHandler: [requireAdminCapability('merchant:edit')] },
+    async (req: any) => {
+      const { branchId } = z.object({ branchId: z.string().min(1) }).parse(req.params)
+      const body = z
+        .object({
+          phone: z.string().nullable().optional(),
+          email: z.string().email().nullable().optional(),
+          websiteUrl: z.string().url().nullable().optional(),
+          isActive: z.boolean().optional(),
+          reason: z.string().trim().min(1),
+        })
+        .strict()
+        .parse(req.body)
+
+      const b = await app.prisma.branch.findFirst({
+        where: { id: branchId, deletedAt: null },
+        select: { merchantId: true },
+      })
+      if (!b) throw new AppError('BRANCH_NOT_FOUND')
+      await resolveTargetMerchantForAdmin(app.prisma, b.merchantId)
+
+      const data: Record<string, unknown> = {}
+      if ('phone' in body) data.phone = body.phone
+      if ('email' in body) data.email = body.email
+      if ('websiteUrl' in body) data.websiteUrl = body.websiteUrl
+      if ('isActive' in body) data.isActive = body.isActive
+
+      return updateBranchDirectCore(
+        app.prisma,
+        { merchantId: b.merchantId, actor: { type: 'ADMIN', id: req.user.sub, reason: body.reason } },
+        branchId,
+        data,
+        { ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' },
+      )
     },
   )
 }
