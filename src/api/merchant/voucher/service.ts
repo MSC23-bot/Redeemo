@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
-import { writeAuditLog } from '../../shared/audit'
+import { writeAuditLog, writeAuditLogTx, type ActorType } from '../../shared/audit'
 import { resolveAdminMerchant } from '../shared'
 
 // Only DRAFT vouchers can be edited, submitted, or deleted
@@ -479,9 +479,17 @@ export async function provisionRmvVouchers(
   return vouchers
 }
 
+/**
+ * Option B B2.3: the category-CHANGE path (an existing primaryCategoryId moving to
+ * a different one). Actor-aware so the admin path (actor ADMIN + reason) and the
+ * merchant path (actor MERCHANT_ADMIN) share it (no weaker path). The CATEGORY_
+ * CHANGE_BLOCKED / requiresConfirmation / NO_RMV_TEMPLATE semantics are unchanged;
+ * the only behavioural change is the audit, which moves INSIDE the transaction and
+ * carries the actor + reason + before/after (was fire-and-forget writeAuditLog).
+ */
 export async function handleCategoryChange(
   prisma: PrismaClient,
-  merchantId: string,
+  { merchantId, actor }: { merchantId: string; actor: { type: ActorType; id: string; reason?: string } },
   newCategoryId: string,
   confirm: boolean,
   ctx: { ipAddress: string; userAgent: string }
@@ -494,12 +502,15 @@ export async function handleCategoryChange(
 
   if (!confirm) {
     return {
-      requiresConfirmation: true,
+      requiresConfirmation: true as const,
       message: 'Changing category will discard your existing RMV drafts. Re-send with confirm: true to proceed.',
     }
   }
 
-  // Atomically: soft-delete existing draft RMVs + update category + provision new RMVs
+  const beforeRow = await prisma.merchant.findUnique({ where: { id: merchantId }, select: { primaryCategoryId: true } })
+
+  // Atomically: soft-delete existing draft RMVs + update category + provision new
+  // RMVs + write the actor-attributed audit (commits/rolls back with the change).
   await prisma.$transaction(async (tx) => {
     await tx.voucher.updateMany({
       where: { merchantId, isRmv: true, status: 'DRAFT' },
@@ -526,8 +537,15 @@ export async function handleCategoryChange(
         },
       })
     ))
+    await writeAuditLogTx(tx, {
+      entityId: merchantId, entityType: 'merchant', event: 'CATEGORY_CHANGED',
+      actorId: actor.id, actorType: actor.type, reason: actor.reason,
+      before: { primaryCategoryId: beforeRow?.primaryCategoryId ?? null },
+      after: { primaryCategoryId: newCategoryId },
+      metadata: { newCategoryId },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
   })
 
-  writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: 'CATEGORY_CHANGED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, metadata: { newCategoryId } })
-  return { changed: true }
+  return { changed: true as const }
 }

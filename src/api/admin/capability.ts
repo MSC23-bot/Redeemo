@@ -42,6 +42,12 @@ export type AdminCapability =
   // adminHasCapability). OPERATIONS does NOT hold it, because identity edits are
   // a higher bar than the websiteUrl / branch-contact edits gated by merchant:edit.
   | 'merchant:edit-identity'
+  // Option B B2.3: gates the admin edit of a merchant's primaryCategoryId.
+  // NOT in ALL_SLICE1_CAPS -> SUPER_ADMIN-only (via the superuser short-circuit).
+  // Category change has RMV-provisioning side effects (it discards DRAFT RMVs and
+  // reprovisions 2 mandatory vouchers), so it sits at the same higher bar as
+  // merchant:edit-identity.
+  | 'merchant:edit-category'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',

@@ -71,6 +71,79 @@ export async function updateMerchantProfileDirectCore(
   })
 }
 
+/**
+ * Option B B2.3: the shared category set/change dispatcher (the D4 seam). BOTH the
+ * merchant wrapper (actor MERCHANT_ADMIN) and the admin route (actor ADMIN +
+ * reason) call this, so the validation/side-effects/audit are identical (no weaker
+ * path). D7: the first-set provisioning and the change path stay DISTINCT - the
+ * change path is `handleCategoryChange`; they are NOT unified into one provisioning
+ * fn. Both paths write actor-attributed audit INSIDE their transaction.
+ *
+ * Returns a small discriminated result: { provisioned } (first set) |
+ * { unchanged } (same category) | { requiresConfirmation, message } (change preview)
+ * | { changed } (change applied). The merchant wrapper maps non-confirmation
+ * results back to getMerchantProfile; the admin route returns the result directly.
+ */
+export async function setMerchantCategoryCore(
+  prisma: PrismaClient,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
+  newCategoryId: string,
+  confirm: boolean,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { primaryCategoryId: true },
+  })
+  if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
+
+  // First-time set: provision RMVs atomically; no confirm needed.
+  if (merchant.primaryCategoryId === null) {
+    await prisma.$transaction(async (tx) => {
+      await tx.merchant.update({ where: { id: merchantId }, data: { primaryCategoryId: newCategoryId } })
+      const templates = await tx.rmvTemplate.findMany({ where: { categoryId: newCategoryId, isActive: true }, take: 2 })
+      if (templates.length < 2) throw new AppError('NO_RMV_TEMPLATE')
+      await Promise.all(templates.map(t =>
+        tx.voucher.create({
+          data: {
+            merchantId,
+            code:            `RMV-${randomBytes(4).toString('hex').toUpperCase()}`,
+            isRmv:           true,
+            isMandatory:     true,
+            rmvTemplateId:   t.id,
+            type:            t.voucherType,
+            title:           t.title,
+            description:     t.description,
+            estimatedSaving: t.minimumSaving,
+            status:          'DRAFT',
+            approvalStatus:  'PENDING',
+            merchantFields:  {},
+          },
+        })
+      ))
+      await writeAuditLogTx(tx, {
+        entityId: merchantId, entityType: 'merchant', event: 'RMV_PROVISIONED',
+        actorId: actor.id, actorType: actor.type, reason: actor.reason,
+        metadata: { categoryId: newCategoryId },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+      })
+      await writeAuditLogTx(tx, {
+        entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_PROFILE_UPDATED',
+        actorId: actor.id, actorType: actor.type, reason: actor.reason,
+        before: { primaryCategoryId: null }, after: { primaryCategoryId: newCategoryId },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+      })
+    })
+    return { provisioned: true as const }
+  }
+
+  // Same category: no-op.
+  if (merchant.primaryCategoryId === newCategoryId) return { unchanged: true as const }
+
+  // Change: delegate to handleCategoryChange (block / requiresConfirmation / apply).
+  return handleCategoryChange(prisma, { merchantId, actor }, newCategoryId, confirm, ctx)
+}
+
 export async function updateMerchantProfile(
   prisma: PrismaClient,
   adminId: string,
@@ -83,56 +156,21 @@ export async function updateMerchantProfile(
   const attemptedSensitive = SENSITIVE_FIELDS.filter(k => k in updates)
   if (attemptedSensitive.length > 0) throw new AppError('SENSITIVE_FIELDS_REQUIRE_EDIT_REQUEST')
 
-  // Handle primaryCategoryId specially — may trigger RMV provisioning
+  // Option B B2.3: primaryCategoryId (set or change) runs through the shared
+  // setMerchantCategoryCore seam (the SAME core the admin route calls), with the
+  // merchant as actor. `requiresConfirmation` surfaces to the caller; otherwise
+  // the wrapper returns the refreshed profile (unchanged external contract).
   if ('primaryCategoryId' in updates) {
-    const merchant = await prisma.merchant.findUnique({
-      where: { id: merchantId },
-      select: { primaryCategoryId: true },
-    })
-    if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
-
     const newCategoryId = updates.primaryCategoryId as string
     const confirm = updates.confirm === true
-
-    if (merchant.primaryCategoryId === null) {
-      // First time setting category: update merchant + provision RMVs atomically
-      // CRITICAL: both happen in the same transaction to prevent inconsistent state
-      await prisma.$transaction(async (tx) => {
-        await tx.merchant.update({ where: { id: merchantId }, data: { primaryCategoryId: newCategoryId } })
-        const templates = await tx.rmvTemplate.findMany({ where: { categoryId: newCategoryId, isActive: true }, take: 2 })
-        if (templates.length < 2) throw new AppError('NO_RMV_TEMPLATE')
-        await Promise.all(templates.map(t =>
-          tx.voucher.create({
-            data: {
-              merchantId,
-              code:            `RMV-${randomBytes(4).toString('hex').toUpperCase()}`,
-              isRmv:           true,
-              isMandatory:     true,
-              rmvTemplateId:   t.id,
-              type:            t.voucherType,
-              title:           t.title,
-              description:     t.description,
-              estimatedSaving: t.minimumSaving,
-              status:          'DRAFT',
-              approvalStatus:  'PENDING',
-              merchantFields:  {},
-            },
-          })
-        ))
-      })
-      writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: 'RMV_PROVISIONED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, metadata: { categoryId: newCategoryId } })
-      writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_PROFILE_UPDATED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent })
-      return getMerchantProfile(prisma, adminId)
-    }
-
-    if (merchant.primaryCategoryId !== newCategoryId) {
-      // Category change — apply change rules
-      const result = await handleCategoryChange(prisma, merchantId, newCategoryId, confirm, ctx)
-      if ('requiresConfirmation' in result) return result
-      writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_PROFILE_UPDATED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent })
-      return getMerchantProfile(prisma, adminId)
-    }
-    // Same category — no change needed
+    const result = await setMerchantCategoryCore(
+      prisma,
+      { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
+      newCategoryId,
+      confirm,
+      ctx,
+    )
+    if ('requiresConfirmation' in result) return result
     return getMerchantProfile(prisma, adminId)
   }
 
