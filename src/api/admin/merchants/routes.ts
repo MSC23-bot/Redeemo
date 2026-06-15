@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { emailSchema } from '../../shared/schemas'
 import { requireAdminCapability } from '../capability'
-import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants, getMerchantDetail } from './service'
+import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants, getMerchantDetail, listAdminCategories } from './service'
 import { issueMerchantClaim } from '../../auth/merchant/service'
 import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
 import { updateMerchantProfileDirectCore } from '../../merchant/profile/service'
@@ -36,6 +36,14 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
   app.get(`${prefix}/:id`, { preHandler: [requireAdminCapability('merchant:read')] }, async (req: any) => {
     const { id } = z.object({ id: z.string().min(1) }).parse(req.params)
     return getMerchantDetail(app.prisma, id)
+  })
+
+  // Option B B2.3-read: categories assignable as a merchant's primaryCategoryId,
+  // each with an `eligible` flag (>= 2 active RMV templates). Gated `merchant:read`
+  // (same as the directory + detail). Sibling path to the `${prefix}` routes;
+  // registered here for proximity to the merchant-detail consumer. No params.
+  app.get('/api/v1/admin/categories', { preHandler: [requireAdminCapability('merchant:read')] }, async () => {
+    return listAdminCategories(app.prisma)
   })
 
   // Create a merchant draft on the owner's behalf (M2, D-3). authenticateAdmin

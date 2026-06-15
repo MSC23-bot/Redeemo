@@ -19,6 +19,7 @@ describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)
     id: 'm1', businessName: 'Acme', tradingName: 'Acme Co', status: 'ACTIVE',
     verificationStatus: 'VERIFIED', onboardingStep: 'LIVE', websiteUrl: 'https://acme.example.com',
     vatNumber: 'GB123456789', companyNumber: '12345678',
+    primaryCategoryId: 'cat-1',
     logoUrl: null, primaryCategory: { name: 'Food' },
     branches: [
       {
@@ -32,7 +33,11 @@ describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)
 
   beforeEach(async () => {
     app = await buildApp()
-    app.decorate('prisma', { merchant: { findUnique: vi.fn().mockResolvedValue(detailRow) } } as any)
+    app.decorate('prisma', {
+      merchant: { findUnique: vi.fn().mockResolvedValue(detailRow) },
+      // B2.3-read: getMerchantDetail counts submitted/live RMVs for categoryLocked.
+      voucher: { count: vi.fn().mockResolvedValue(0) },
+    } as any)
     app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue('OK') } as any)
     await app.ready()
   })
@@ -57,6 +62,9 @@ describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)
     // B2.2: the registered-identity fields are now returned read-only.
     expect(body.merchant.vatNumber).toBe('GB123456789')
     expect(body.merchant.companyNumber).toBe('12345678')
+    // B2.3-read: the category id (for preselection) + categoryLocked (false here).
+    expect(body.merchant.primaryCategoryId).toBe('cat-1')
+    expect(body.merchant.categoryLocked).toBe(false)
     expect(body.merchant).not.toHaveProperty('primaryCategory')
     expect(body.branches[0]).toMatchObject({ id: 'b1', phone: '+44111', email: 'b@x.com', isActive: true })
     expect(body.branches[0]).not.toHaveProperty('redemptionPin')
@@ -69,6 +77,17 @@ describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)
     expect(findArgs.select.branches.select).not.toHaveProperty('logoUrl')
     expect(findArgs.select.vatNumber).toBe(true)
     expect(findArgs.select.companyNumber).toBe(true)
+    expect(findArgs.select.primaryCategoryId).toBe(true)
+  })
+
+  it('categoryLocked is true when the merchant has a submitted/live RMV', async () => {
+    ;(app as any).prisma.voucher.count.mockResolvedValueOnce(1)
+    const res = await app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` } })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).merchant.categoryLocked).toBe(true)
+    // The count query is exactly the CATEGORY_CHANGE_BLOCKED condition.
+    const countArgs = (app as any).prisma.voucher.count.mock.calls[0][0]
+    expect(countArgs.where).toMatchObject({ isRmv: true, status: { in: ['PENDING_APPROVAL', 'ACTIVE'] } })
   })
 
   it('200 for SUPER_ADMIN (superuser)', async () => {

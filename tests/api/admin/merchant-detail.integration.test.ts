@@ -17,8 +17,14 @@ const PIN_SENTINEL = 'REDPIN-SENTINEL-DO-NOT-LEAK'
 const VAT_VALUE = 'GB-VAT-B22-READONLY'
 const COMPANY_VALUE = 'COMPANY-B22-READONLY'
 let merchantId = ''
+let categoryId = ''
+let lockedMerchantId = ''
 
 beforeAll(async () => {
+  // B2.3-read: a throwaway category so the merchant has a primaryCategoryId to expose.
+  const cat = await prisma.category.create({ data: { name: `${PREFIX} Category`, isActive: true } })
+  categoryId = cat.id
+
   const m = await prisma.merchant.create({
     data: {
       businessName: `${PREFIX} Co`,
@@ -27,10 +33,23 @@ beforeAll(async () => {
       websiteUrl: 'https://b21read.example.com',
       vatNumber: VAT_VALUE,
       companyNumber: COMPANY_VALUE,
+      primaryCategoryId: categoryId,
       isTestData: true,
     },
   })
   merchantId = m.id
+
+  // B2.3-read: a second merchant with an ACTIVE RMV so categoryLocked is true.
+  const locked = await prisma.merchant.create({
+    data: { businessName: `${PREFIX} Locked Co`, status: 'ACTIVE', primaryCategoryId: categoryId, isTestData: true },
+  })
+  lockedMerchantId = locked.id
+  await prisma.voucher.create({
+    data: {
+      merchantId: locked.id, code: `${PREFIX}-RMV-1`, type: 'DISCOUNT_FIXED', title: 'RMV', estimatedSaving: 5,
+      isRmv: true, isMandatory: true, status: 'ACTIVE', isTestData: true,
+    },
+  })
   // Active main branch with the B2.1-editable contact fields + a redemptionPin sentinel.
   await prisma.branch.create({
     data: {
@@ -57,9 +76,12 @@ afterAll(async () => {
     await prisma.merchant.findMany({ where: { businessName: { startsWith: PREFIX } }, select: { id: true } })
   ).map((m) => m.id)
   if (ids.length) {
+    await prisma.voucher.deleteMany({ where: { merchantId: { in: ids } } })
     await prisma.branch.deleteMany({ where: { merchantId: { in: ids } } })
     await prisma.merchant.deleteMany({ where: { id: { in: ids } } })
   }
+  // Category last: merchants FK-reference it via primaryCategoryId.
+  await prisma.category.deleteMany({ where: { name: { startsWith: PREFIX } } })
   await prisma.$disconnect()
 }, 60000)
 
@@ -71,6 +93,9 @@ describe('getMerchantDetail (real DB)', () => {
     // B2.2: registered-identity fields returned read-only.
     expect(res.merchant.vatNumber).toBe(VAT_VALUE)
     expect(res.merchant.companyNumber).toBe(COMPANY_VALUE)
+    // B2.3-read: primaryCategoryId exposed; categoryLocked false (no RMV).
+    expect(res.merchant.primaryCategoryId).toBe(categoryId)
+    expect(res.merchant.categoryLocked).toBe(false)
     expect(res.branches).toHaveLength(1) // soft-deleted excluded
     const b = res.branches[0]
     expect(b.name).toBe(`${PREFIX} Main`)
@@ -93,6 +118,11 @@ describe('getMerchantDetail (real DB)', () => {
   it('excludes soft-deleted branches', async () => {
     const res = await getMerchantDetail(prisma, merchantId)
     expect(res.branches.every((b) => b.name !== `${PREFIX} Closed`)).toBe(true)
+  })
+
+  it('categoryLocked is true for a merchant with a submitted/live RMV (B2.3-read)', async () => {
+    const res = await getMerchantDetail(prisma, lockedMerchantId)
+    expect(res.merchant.categoryLocked).toBe(true)
   })
 
   it('throws MERCHANT_NOT_FOUND for an unknown id', async () => {
