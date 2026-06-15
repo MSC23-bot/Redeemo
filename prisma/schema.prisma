@@ -1565,6 +1565,12 @@ model AdminApproval {
   // authenticated admin's id; admins are not hard-deleted.
   claimedById   String? // the admin currently reviewing it
   claimedAt     DateTime?
+  // WP4: one-shot dedup for the ADMIN_CLAIM_STALE bell alert. Set by the
+  // maintenance sweep when it alerts the claimer; re-arms only when a LATER
+  // claim (claimedAt > lastStaleAlertAt, after release + reclaim) occurs.
+  // Nullable + no default => purely additive; existing rows backfill to NULL
+  // (never alerted, eligible on the first sweep).
+  lastStaleAlertAt DateTime?
 
   adminUser AdminUser? @relation(fields: [adminUserId], references: [id])
 
@@ -1572,6 +1578,7 @@ model AdminApproval {
   @@index([status])
   @@index([referenceId])
   @@index([claimedById])
+  @@index([status, claimedAt]) // WP4: stale-claim sweep scan
 }
 
 // ─────────────────────────────────────────
