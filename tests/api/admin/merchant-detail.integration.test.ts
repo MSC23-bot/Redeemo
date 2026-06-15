@@ -4,17 +4,18 @@ import { PrismaClient } from '../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { getMerchantDetail } from '../../../src/api/admin/merchants/service'
 
-// Option B B2.1-read: real-DB proof that getMerchantDetail returns the editable
-// + display fields, EXCLUDES soft-deleted branches, and NEVER leaks the branch
-// redemptionPin or the high-risk merchant fields (vatNumber/companyNumber).
+// Option B B2.1-read + B2.2: real-DB proof that getMerchantDetail returns the
+// editable + display fields PLUS the read-only registered-identity fields
+// (vatNumber/companyNumber, B2.2), EXCLUDES soft-deleted branches, and NEVER
+// leaks the branch redemptionPin.
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
 
 const PREFIX = `b21-read-it-${Date.now()}`
 const PIN_SENTINEL = 'REDPIN-SENTINEL-DO-NOT-LEAK'
-const VAT_SENTINEL = 'GB-VAT-SHOULD-NOT-LEAK'
-const COMPANY_SENTINEL = 'COMPANY-SHOULD-NOT-LEAK'
+const VAT_VALUE = 'GB-VAT-B22-READONLY'
+const COMPANY_VALUE = 'COMPANY-B22-READONLY'
 let merchantId = ''
 
 beforeAll(async () => {
@@ -24,8 +25,8 @@ beforeAll(async () => {
       tradingName: `${PREFIX} Trading`,
       status: 'ACTIVE',
       websiteUrl: 'https://b21read.example.com',
-      vatNumber: VAT_SENTINEL,
-      companyNumber: COMPANY_SENTINEL,
+      vatNumber: VAT_VALUE,
+      companyNumber: COMPANY_VALUE,
       isTestData: true,
     },
   })
@@ -63,10 +64,13 @@ afterAll(async () => {
 }, 60000)
 
 describe('getMerchantDetail (real DB)', () => {
-  it('returns the merchant websiteUrl + the active branch contact/display fields', async () => {
+  it('returns the merchant websiteUrl + read-only vat/company + the active branch fields', async () => {
     const res = await getMerchantDetail(prisma, merchantId)
     expect(res.merchant.id).toBe(merchantId)
     expect(res.merchant.websiteUrl).toBe('https://b21read.example.com')
+    // B2.2: registered-identity fields returned read-only.
+    expect(res.merchant.vatNumber).toBe(VAT_VALUE)
+    expect(res.merchant.companyNumber).toBe(COMPANY_VALUE)
     expect(res.branches).toHaveLength(1) // soft-deleted excluded
     const b = res.branches[0]
     expect(b.name).toBe(`${PREFIX} Main`)
@@ -79,15 +83,11 @@ describe('getMerchantDetail (real DB)', () => {
     expect(b.locationConfidence).toBeDefined() // default POSTCODE_CENTROID
   })
 
-  it('NEVER leaks redemptionPin or the high-risk merchant fields (redaction)', async () => {
+  it('NEVER leaks the branch redemptionPin (secret redaction)', async () => {
     const res = await getMerchantDetail(prisma, merchantId)
     const serialized = JSON.stringify(res)
     expect(serialized).not.toContain(PIN_SENTINEL) // redemptionPin never selected
-    expect(serialized).not.toContain(VAT_SENTINEL) // vatNumber excluded (B2.2)
-    expect(serialized).not.toContain(COMPANY_SENTINEL) // companyNumber excluded (B2.2)
     expect(res.branches[0]).not.toHaveProperty('redemptionPin')
-    expect(res.merchant).not.toHaveProperty('vatNumber')
-    expect(res.merchant).not.toHaveProperty('companyNumber')
   })
 
   it('excludes soft-deleted branches', async () => {
