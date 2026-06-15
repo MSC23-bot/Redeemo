@@ -4,7 +4,10 @@ import cors from '@fastify/cors'
 
 async function corsPlugin(app: FastifyInstance) {
   await app.register(cors, {
-    origin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3001'],
+    origin: process.env.CORS_ORIGIN?.split(',') ?? [
+      'http://localhost:3001', // customer-web
+      'http://localhost:3002', // admin-web
+    ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   })

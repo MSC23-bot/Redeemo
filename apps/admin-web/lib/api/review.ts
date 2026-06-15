@@ -118,15 +118,6 @@ export const reviewThinAreasSchema = z.object({
   documentsGated: z.boolean(),
 })
 
-export const reviewActivitySchema = z.object({
-  id: z.string(),
-  event: z.string(),
-  createdAt: z.string(),
-  actorType: z.string().nullable(),
-  reason: z.string().nullable(),
-  actor: adminActorSchema.nullable(),
-})
-
 export const reviewContextSchema = z.object({
   approval: reviewApprovalSchema,
   merchant: reviewMerchantSchema.nullable(),
@@ -136,7 +127,6 @@ export const reviewContextSchema = z.object({
   documents: z.array(reviewDocumentSchema),
   checklist: reviewChecklistSchema.nullable(),
   thinAreas: reviewThinAreasSchema.nullable(),
-  activity: z.array(reviewActivitySchema),
 })
 
 export type ReviewContext = z.infer<typeof reviewContextSchema>
@@ -148,7 +138,6 @@ export type ReviewVoucher = z.infer<typeof reviewVoucherSchema>
 export type ReviewDocument = z.infer<typeof reviewDocumentSchema>
 export type ReviewChecklist = z.infer<typeof reviewChecklistSchema>
 export type ReviewThinAreas = z.infer<typeof reviewThinAreasSchema>
-export type ReviewActivity = z.infer<typeof reviewActivitySchema>
 
 // ── API calls ─────────────────────────────────────────────────────────────────
 

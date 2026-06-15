@@ -84,7 +84,6 @@ function makeContext() {
       vatNumberProvided: false,
       documentsGated: false,
     },
-    activity: [],
   }
 }
 
@@ -103,24 +102,6 @@ describe('reviewContextSchema', () => {
     const ctx = { ...makeContext(), merchant: null, owner: null, checklist: null, thinAreas: null }
     const parsed = reviewContextSchema.parse(ctx)
     expect(parsed.merchant).toBeNull()
-  })
-
-  it('parses an activity row', () => {
-    const ctx = {
-      ...makeContext(),
-      activity: [
-        {
-          id: 'act-1',
-          event: 'MERCHANT_SUBMITTED_FOR_APPROVAL',
-          createdAt: '2026-06-10T09:00:00.000Z',
-          actorType: 'MERCHANT',
-          reason: null,
-          actor: null,
-        },
-      ],
-    }
-    const parsed = reviewContextSchema.parse(ctx)
-    expect(parsed.activity[0].event).toBe('MERCHANT_SUBMITTED_FOR_APPROVAL')
   })
 
   it('throws on missing required approval field', () => {

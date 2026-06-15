@@ -546,8 +546,10 @@ export async function approveApproval(
  * Assembles merchant profile, owner contact, branches (redemptionPin NEVER included),
  * all vouchers (estimatedSaving coerced to Number), documents (presigned GET per view;
  * raw R2 key NEVER returned; unavailable when storage is disabled / presign fails),
- * the onboarding checklist, thin-area signals, and a recent AuditLog activity list
- * with actor names resolved via a single batched AdminUser lookup.
+ * the onboarding checklist, and thin-area signals. The approval's claimer/actioner
+ * names are resolved via a single batched AdminUser lookup. (The merchant activity
+ * timeline is owned by the separate GET /admin/merchants/:id/timeline endpoint
+ * (M7) and is no longer assembled here.)
  *
  * Non-MERCHANT_ONBOARDING approvals degrade gracefully: approval block populated,
  * everything else null / []. No schema changes, no mutations.
@@ -578,14 +580,13 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
       documents: [] as unknown[],
       checklist: null,
       thinAreas: null,
-      activity: [] as unknown[],
     }
   }
 
   const merchantId = approval.referenceId
 
   // 3. Load all onboarding data in parallel.
-  const [merchant, owner, branches, vouchers, documents, checklist, activityRows] = await Promise.all([
+  const [merchant, owner, branches, vouchers, documents, checklist] = await Promise.all([
     // Merchant full profile + primary category
     prisma.merchant.findUnique({
       where: { id: merchantId },
@@ -665,30 +666,14 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
 
     // Onboarding checklist (reuses the shared helper)
     computeOnboardingChecklist(prisma, merchantId).catch(() => null),
-
-    // Recent merchant AuditLog (newest-first, capped at 50)
-    prisma.auditLog.findMany({
-      where: { entityId: merchantId, entityType: 'merchant' },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-      select: {
-        id: true,
-        event: true,
-        createdAt: true,
-        actorType: true,
-        actorId: true,
-        reason: true,
-      },
-    }),
   ])
 
-  // 4. Collect all AdminUser IDs referenced in the approval + activity, then batch-fetch.
+  // 4. The only AdminUser ids we resolve are the approval's claimer + actioner.
+  //    (The activity timeline, and its actor resolution, moved to the M7
+  //    GET /admin/merchants/:id/timeline endpoint.)
   const adminIdSet = new Set<string>()
   if (approval.claimedById) adminIdSet.add(approval.claimedById)
   if (approval.adminUserId) adminIdSet.add(approval.adminUserId)
-  for (const row of activityRows) {
-    if (row.actorType === 'ADMIN' && row.actorId) adminIdSet.add(row.actorId)
-  }
 
   const adminUsers = adminIdSet.size
     ? await prisma.adminUser.findMany({
@@ -787,16 +772,5 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
           documentsGated: false as const,
         }
       : null,
-    activity: activityRows.map((row) => ({
-      id: row.id,
-      event: row.event,
-      createdAt: row.createdAt,
-      actorType: row.actorType,
-      reason: row.reason,
-      actor:
-        row.actorType === 'ADMIN' && row.actorId
-          ? { id: row.actorId, name: adminById.get(row.actorId) ?? null }
-          : null,
-    })),
   }
 }

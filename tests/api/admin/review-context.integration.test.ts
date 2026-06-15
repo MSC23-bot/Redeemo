@@ -405,42 +405,10 @@ describe('M4 review context — thinAreas flags', () => {
   })
 })
 
-// ─── Assertion 7: activity — AuditLog rows + actor names resolved ──────────
-
-describe('M4 review context — activity (audit log)', () => {
-  it('returns AuditLog rows newest-first with actor names resolved for ADMIN actors', async () => {
-    const result = await getReviewContext(prisma, approvalId)
-
-    expect(Array.isArray(result.activity)).toBe(true)
-    expect(result.activity.length).toBeGreaterThanOrEqual(2)
-
-    // Should be newest-first
-    if (result.activity.length >= 2) {
-      const first = new Date((result.activity[0] as any).createdAt).getTime()
-      const second = new Date((result.activity[1] as any).createdAt).getTime()
-      expect(first).toBeGreaterThanOrEqual(second)
-    }
-
-    // Find one of our seeded rows and check actor resolution
-    const claimedRow = result.activity.find((a: any) => a.event === 'MERCHANT_APPROVAL_CLAIMED')
-    expect(claimedRow).toBeTruthy()
-    expect((claimedRow as any).actorType).toBe('ADMIN')
-    expect((claimedRow as any).actor).not.toBeNull()
-    expect((claimedRow as any).actor.id).toBe(adminUserId)
-    expect((claimedRow as any).actor.name).toBe('Ada Admin')
-
-    // A non-ADMIN actor (SYSTEM) resolves to actor: null — names are only
-    // resolved for actorType === 'ADMIN'.
-    const systemRow = result.activity.find((a: any) => a.actorType === 'SYSTEM')
-    expect(systemRow).toBeTruthy()
-    expect((systemRow as any).actor).toBeNull()
-  })
-})
-
 // ─── Assertion 8: non-MERCHANT_ONBOARDING graceful degrade ──────────────────
 
 describe('M4 review context — non-MERCHANT_ONBOARDING graceful degrade', () => {
-  it('returns approval block populated and merchant/owner/checklist/thinAreas null, branches/vouchers/documents/activity []', async () => {
+  it('returns approval block populated and merchant/owner/checklist/thinAreas null, branches/vouchers/documents []', async () => {
     const result = await getReviewContext(prisma, nonOnboardingApprovalId)
 
     expect(result.approval.type).toBe('VOUCHER')
@@ -452,7 +420,6 @@ describe('M4 review context — non-MERCHANT_ONBOARDING graceful degrade', () =>
     expect(result.branches).toEqual([])
     expect(result.vouchers).toEqual([])
     expect(result.documents).toEqual([])
-    expect(result.activity).toEqual([])
   })
 })
 

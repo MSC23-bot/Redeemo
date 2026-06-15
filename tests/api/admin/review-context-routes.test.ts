@@ -82,7 +82,6 @@ describe('M4 — /admin/approvals/:id/review route auth + capability gate', () =
     expect(body.branches).toEqual([])
     expect(body.vouchers).toEqual([])
     expect(body.documents).toEqual([])
-    expect(body.activity).toEqual([])
   })
 
   it('200 with SUPER_ADMIN token — gate passes', async () => {
