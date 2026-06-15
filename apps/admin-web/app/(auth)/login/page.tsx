@@ -16,7 +16,7 @@
  * which is the resend path.
  */
 import { useState, type FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ShieldCheck, Loader2, ArrowLeft } from 'lucide-react'
 import { authApi } from '@/lib/api/auth'
 import { ApiError } from '@/lib/api/client'
@@ -34,6 +34,26 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 type Step = 'credentials' | 'otp'
+
+/**
+ * Validate a `?next=` value as a SAME-ORIGIN in-app path before navigating to it
+ * after sign-in. Open-redirect defence: it must be a path on this origin, not a
+ * protocol-relative URL (`//evil.com`), a backslash-tricked one (`/\evil.com`),
+ * or the login page itself (would loop). Anything else falls back to `/`, which
+ * then redirects to the queue.
+ */
+function safeNextPath(raw: string | null): string {
+  if (
+    raw &&
+    raw.startsWith('/') &&
+    !raw.startsWith('//') &&
+    !raw.startsWith('/\\') &&
+    !raw.startsWith('/login')
+  ) {
+    return raw
+  }
+  return '/'
+}
 
 /** Map a thrown error to a clear, non-leaky message for the operator. */
 function messageFor(err: unknown, step: Step): string {
@@ -61,7 +81,11 @@ function messageFor(err: unknown, step: Step): string {
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const session = useSession()
+
+  // Where to land after a successful sign-in. Validated as a same-origin path.
+  const next = safeNextPath(searchParams.get('next'))
 
   const [step, setStep] = useState<Step>('credentials')
   const [email, setEmail] = useState('')
@@ -113,7 +137,7 @@ export default function LoginPage() {
         },
       })
       session.refresh()
-      router.replace('/')
+      router.replace(next)
     } catch (err) {
       setError(messageFor(err, 'otp'))
     } finally {

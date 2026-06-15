@@ -19,6 +19,8 @@ import { getSessionMeta, getAccessToken } from '@/lib/auth/session'
 const replaceMock = jest.fn()
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ replace: replaceMock, push: jest.fn() }),
+  // No `next` param in these tests -> the page falls back to '/'.
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 jest.mock('@/lib/api/auth', () => ({
