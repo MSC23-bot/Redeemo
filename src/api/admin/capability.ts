@@ -25,6 +25,11 @@ export type AdminCapability =
   | 'approval:action'
   | 'merchant:suspend'
   | 'branch:confirm-location'
+  // Option B B1: gates applying a merchant-requested identity edit
+  // (MERCHANT_IDENTITY_EDIT / BRANCH_IDENTITY_EDIT). Distinct from the
+  // onboarding-only `approval:action` so an edit-applier role need not also
+  // hold the go-live/reject actions. OPERATIONS + SUPER_ADMIN hold it.
+  | 'approval:apply-edit'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
@@ -33,6 +38,7 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'approval:action',
   'merchant:suspend',
   'branch:confirm-location',
+  'approval:apply-edit',
 ]
 
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `adminHasCapability`

@@ -27,6 +27,7 @@ const ALL_CAPS: AdminCapability[] = [
   'approval:action',
   'merchant:suspend',
   'branch:confirm-location',
+  'approval:apply-edit',
 ]
 
 const ALL_ROLES: AdminRole[] = [

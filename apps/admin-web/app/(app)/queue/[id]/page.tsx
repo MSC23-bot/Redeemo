@@ -40,8 +40,13 @@ import { MerchantLifecycleCard } from '@/features/merchants/MerchantLifecycleCar
 import { SuspendDialog } from '@/features/merchants/SuspendDialog'
 import { ReactivateConfirm } from '@/features/merchants/ReactivateConfirm'
 import { ConfirmLocationDialog } from '@/features/merchants/ConfirmLocationDialog'
+import { EditReviewPanel } from '@/features/review/EditReviewPanel'
 import { Button } from '@/components/ui/button'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'
+
+// Option B B1: the two merchant-requested identity-edit types route to the
+// edit-review surface instead of the generic non-onboarding notice.
+const EDIT_APPROVAL_TYPES = ['MERCHANT_IDENTITY_EDIT', 'BRANCH_IDENTITY_EDIT']
 
 // ── Shared loading / error / forbidden ───────────────────────────────────────
 
@@ -264,6 +269,15 @@ export default function ReviewPage({ params }: ReviewPageProps) {
         <LoadingState />
       ) : isError || !data ? (
         <ErrorState onRetry={refetch} />
+      ) : EDIT_APPROVAL_TYPES.includes(data.approval.type) ? (
+        // Option B B1: merchant-requested identity edit (its own field-diff
+        // surface with Approve-edit / Reject-edit). The actions are gated on
+        // approval:apply-edit; the diff read uses approval:read (already checked).
+        <EditReviewPanel
+          approvalId={id}
+          canRead={canRead}
+          canApplyEdit={can('approval:apply-edit')}
+        />
       ) : data.approval.type !== 'MERCHANT_ONBOARDING' ? (
         <NonOnboardingNotice type={data.approval.type} />
       ) : !data.merchant ? (

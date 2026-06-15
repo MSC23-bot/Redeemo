@@ -42,6 +42,12 @@ const CODE_MESSAGES: Record<string, string> = {
   MERCHANT_NOT_SUSPENDED:
     'This merchant is not suspended, so it cannot be reactivated.',
   BRANCH_NOT_FOUND: 'Branch not found.',
+  // Option B B1: pending-edit applier.
+  PENDING_EDIT_NOT_ACTIONABLE:
+    'This edit request is no longer pending and cannot be actioned. The page has refreshed.',
+  PENDING_EDIT_NOT_FOUND: 'This edit request no longer exists.',
+  EDIT_PHOTO_APPLY_NOT_SUPPORTED:
+    'Photo edits cannot be applied yet. You can reject this request, or apply it in a future update.',
 }
 
 function getMessage(error: unknown): string {

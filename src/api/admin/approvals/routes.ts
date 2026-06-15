@@ -11,6 +11,7 @@ import {
   approveApproval,
   getReviewContext,
 } from './service'
+import { approveEdit, rejectEdit, getEditReviewContext } from './editApplier'
 
 // Phase 2 Slice 1 M3 — actioner review-loop routes. `authenticateAdmin` is
 // applied by the admin-management plugin scope; each route adds its capability.
@@ -69,5 +70,21 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
   // other state-changing actions.
   app.post(`${prefix}/:id/approve`, { preHandler: [requireAdminCapability('approval:action')] }, async (req: any) => {
     return approveApproval(app.prisma, app.redis, idParam(req), req.user.sub, auditCtx(req))
+  })
+
+  // Option B B1: pending-edit applier (MERCHANT_IDENTITY_EDIT /
+  // BRANCH_IDENTITY_EDIT). Gated on its own approval:apply-edit capability so an
+  // edit-applier role need not also hold the onboarding go-live/reject actions.
+  // The field diff read reuses approval:read.
+  app.get(`${prefix}/:id/edit-review`, { preHandler: [requireAdminCapability('approval:read')] }, async (req: any) => {
+    return getEditReviewContext(app.prisma, idParam(req))
+  })
+
+  app.post(`${prefix}/:id/approve-edit`, { preHandler: [requireAdminCapability('approval:apply-edit')] }, async (req: any) => {
+    return approveEdit(app.prisma, app.redis, idParam(req), req.user.sub, auditCtx(req))
+  })
+
+  app.post(`${prefix}/:id/reject-edit`, { preHandler: [requireAdminCapability('approval:apply-edit')] }, async (req: any) => {
+    return rejectEdit(app.prisma, app.redis, idParam(req), req.user.sub, reasonBody(req), auditCtx(req))
   })
 }
