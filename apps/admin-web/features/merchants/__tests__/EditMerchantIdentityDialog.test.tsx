@@ -29,8 +29,8 @@ function renderDialog(
   return render(
     <EditMerchantIdentityDialog
       merchantId="m-1"
-      currentVatNumber={opts.currentVatNumber ?? 'GB123456789'}
-      currentCompanyNumber={opts.currentCompanyNumber ?? '12345678'}
+      currentVatNumber={'currentVatNumber' in opts ? (opts.currentVatNumber as string | null) : 'GB123456789'}
+      currentCompanyNumber={'currentCompanyNumber' in opts ? (opts.currentCompanyNumber as string | null) : '12345678'}
       onSuccess={opts.onSuccess ?? jest.fn()}
       onCancel={opts.onCancel ?? jest.fn()}
     />
