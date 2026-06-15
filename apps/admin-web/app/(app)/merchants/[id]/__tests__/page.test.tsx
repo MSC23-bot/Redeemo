@@ -116,6 +116,22 @@ jest.mock('@/features/merchants/EditCategoryDialog', () => ({
   ),
 }))
 
+jest.mock('@/features/merchants/AddBranchDialog', () => ({
+  AddBranchDialog: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
+    <div data-testid="add-branch-dialog-mock" data-merchant-id={merchantId}>
+      <button onClick={onCancel} data-testid="add-branch-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
+jest.mock('@/features/merchants/DeleteBranchConfirm', () => ({
+  DeleteBranchConfirm: ({ branchId, onCancel }: { branchId: string; onCancel: () => void }) => (
+    <div data-testid="delete-branch-confirm-mock" data-branch-id={branchId}>
+      <button onClick={onCancel} data-testid="delete-branch-confirm-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
 import type { UseMerchantDetailResult } from '@/lib/merchants/useMerchantDetail'
@@ -175,6 +191,21 @@ function makeDetail(overrides: Partial<MerchantDetail> = {}): MerchantDetail {
         locationConfidence: 'MANUALLY_CONFIRMED',
         phone: '+447700900123',
         email: 'main@acme.test',
+        websiteUrl: null,
+        isActive: true,
+      },
+      {
+        id: 'br-2',
+        name: 'Second Branch',
+        isMainBranch: false,
+        addressLine1: '2 Low Street',
+        addressLine2: null,
+        city: 'Huddersfield',
+        postcode: 'HD1 2BB',
+        localityName: 'Huddersfield',
+        locationConfidence: 'POSTCODE_CENTROID',
+        phone: null,
+        email: null,
         websiteUrl: null,
         isActive: true,
       },
@@ -441,6 +472,69 @@ describe('MerchantDetailPage category card (B2.3)', () => {
     fireEvent.click(screen.getByTestId('merchant-category-edit'))
     fireEvent.click(screen.getByTestId('edit-category-dialog-cancel'))
     expect(screen.queryByTestId('edit-category-dialog-mock')).not.toBeInTheDocument()
+  })
+})
+
+// ── B2.4: branch create + delete affordances ──────────────────────────────────
+
+describe('MerchantDetailPage branch manage affordances (B2.4)', () => {
+  it('shows the Add branch button WITH merchant:manage-branches', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-add-branch')).toBeInTheDocument()
+  })
+
+  it('HIDES the Add branch button for an admin without merchant:manage-branches', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-branches-section')).toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-add-branch')).not.toBeInTheDocument()
+  })
+
+  it('shows the Delete affordance on a NON-main branch but NOT the main branch', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('branch-delete-br-2')).toBeInTheDocument() // non-main
+    expect(screen.queryByTestId('branch-delete-br-1')).not.toBeInTheDocument() // main hidden
+  })
+
+  it('HIDES all Delete affordances for an admin without merchant:manage-branches', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('branch-delete-br-2')).not.toBeInTheDocument()
+  })
+
+  it('opens the AddBranchDialog when Add branch is clicked', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('merchant-add-branch'))
+    const dialog = screen.getByTestId('add-branch-dialog-mock')
+    expect(dialog).toBeInTheDocument()
+    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
+  })
+
+  it('opens the DeleteBranchConfirm with the branch id when Delete is clicked', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('branch-delete-br-2'))
+    const dialog = screen.getByTestId('delete-branch-confirm-mock')
+    expect(dialog).toBeInTheDocument()
+    expect(dialog).toHaveAttribute('data-branch-id', 'br-2')
+  })
+
+  it('closes the DeleteBranchConfirm on its Cancel', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('branch-delete-br-2'))
+    fireEvent.click(screen.getByTestId('delete-branch-confirm-cancel'))
+    expect(screen.queryByTestId('delete-branch-confirm-mock')).not.toBeInTheDocument()
   })
 })
 

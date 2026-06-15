@@ -26,6 +26,8 @@ import {
   Phone,
   MapPin,
   Pencil,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
@@ -35,6 +37,8 @@ import { EditMerchantWebsiteDialog } from '@/features/merchants/EditMerchantWebs
 import { EditBranchDialog } from '@/features/merchants/EditBranchDialog'
 import { EditMerchantIdentityDialog } from '@/features/merchants/EditMerchantIdentityDialog'
 import { EditCategoryDialog } from '@/features/merchants/EditCategoryDialog'
+import { AddBranchDialog } from '@/features/merchants/AddBranchDialog'
+import { DeleteBranchConfirm } from '@/features/merchants/DeleteBranchConfirm'
 import type { BadgeTone } from '@/features/shared/Badge'
 import type { BranchDetail } from '@/lib/api/merchants'
 
@@ -131,10 +135,16 @@ function BranchCard({
   branch,
   canEdit,
   onEdit,
+  canDelete,
+  onDelete,
 }: {
   branch: BranchDetail
   canEdit: boolean
   onEdit: (branch: BranchDetail) => void
+  // B2.4: per-branch delete affordance, gated on merchant:manage-branches and
+  // hidden on the main branch (the backend BRANCH_IS_MAIN guard is the enforcement).
+  canDelete: boolean
+  onDelete: (branch: BranchDetail) => void
 }) {
   return (
     <div
@@ -159,18 +169,32 @@ function BranchCard({
             {branch.locationConfidence}
           </p>
         </div>
-        {canEdit && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onEdit(branch)}
-            data-testid={`branch-edit-${branch.id}`}
-          >
-            <Pencil className="size-4" aria-hidden="true" />
-            Edit
-          </Button>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {canEdit && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onEdit(branch)}
+              data-testid={`branch-edit-${branch.id}`}
+            >
+              <Pencil className="size-4" aria-hidden="true" />
+              Edit
+            </Button>
+          )}
+          {canDelete && !branch.isMainBranch && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onDelete(branch)}
+              data-testid={`branch-delete-${branch.id}`}
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+              Delete
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Contact rows */}
@@ -199,6 +223,8 @@ type OpenDialog =
   | { kind: 'identity' }
   | { kind: 'category' }
   | { kind: 'branch'; branch: BranchDetail }
+  | { kind: 'add-branch' }
+  | { kind: 'delete-branch'; branch: BranchDetail }
   | null
 
 export default function MerchantDetailPage() {
@@ -212,6 +238,8 @@ export default function MerchantDetailPage() {
   const canEditIdentity = can('merchant:edit-identity')
   // B2.3: category edits are SUPER_ADMIN-only (merchant:edit-category).
   const canEditCategory = can('merchant:edit-category')
+  // B2.4: branch create/delete are SUPER_ADMIN-only (merchant:manage-branches).
+  const canManageBranches = can('merchant:manage-branches')
 
   const { data, isLoading, isError, refetch } = useMerchantDetail(id, canRead)
 
@@ -386,9 +414,23 @@ export default function MerchantDetailPage() {
 
           {/* Branches */}
           <section className="space-y-3" data-testid="merchant-branches-section">
-            <h2 className="text-sm font-medium text-muted-foreground">
-              Branches ({data.branches.length})
-            </h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-medium text-muted-foreground">
+                Branches ({data.branches.length})
+              </h2>
+              {canManageBranches && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDialog({ kind: 'add-branch' })}
+                  data-testid="merchant-add-branch"
+                >
+                  <Plus className="size-4" aria-hidden="true" />
+                  Add branch
+                </Button>
+              )}
+            </div>
             {data.branches.length === 0 ? (
               <div className="rounded-lg border border-border bg-card px-6 py-10 text-center">
                 <p className="text-sm text-muted-foreground">This merchant has no branches yet.</p>
@@ -400,6 +442,8 @@ export default function MerchantDetailPage() {
                   branch={branch}
                   canEdit={canEdit}
                   onEdit={(b) => setDialog({ kind: 'branch', branch: b })}
+                  canDelete={canManageBranches}
+                  onDelete={(b) => setDialog({ kind: 'delete-branch', branch: b })}
                 />
               ))
             )}
@@ -443,6 +487,22 @@ export default function MerchantDetailPage() {
             websiteUrl: dialog.branch.websiteUrl,
             isActive: dialog.branch.isActive,
           }}
+          onSuccess={onDialogSuccess}
+          onCancel={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'add-branch' && data && (
+        <AddBranchDialog
+          merchantId={data.merchant.id}
+          onSuccess={onDialogSuccess}
+          onCancel={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'delete-branch' && data && (
+        <DeleteBranchConfirm
+          branchId={dialog.branch.id}
+          branchName={dialog.branch.name}
+          merchantId={data.merchant.id}
           onSuccess={onDialogSuccess}
           onCancel={closeDialog}
         />
