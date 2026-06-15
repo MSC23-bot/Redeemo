@@ -54,9 +54,70 @@ export type CreateDraftResponse = z.infer<typeof createDraftResponseSchema>
 export type SuspendResponse = z.infer<typeof suspendResponseSchema>
 export type ReactivateResponse = z.infer<typeof reactivateResponseSchema>
 
+// ── WP2 — merchants directory (read-only list + search) ───────────────────────
+
+export const MERCHANT_STATUSES = [
+  'REGISTERED',
+  'PENDING_APPROVAL',
+  'ACTIVE',
+  'INACTIVE',
+  'SUSPENDED',
+  'DELETED',
+] as const
+export type MerchantStatusFilter = (typeof MERCHANT_STATUSES)[number]
+
+/**
+ * Redacted merchant summary returned by GET /admin/merchants. Mirrors the
+ * backend `listMerchants` select — no secrets. `.or(z.string())` on the enum
+ * fields keeps the client resilient if the backend adds a status/verification
+ * value before this mirror is updated (contract drift surfaces as a known value
+ * rather than a parse crash).
+ */
+export const merchantSummarySchema = z.object({
+  id: z.string(),
+  businessName: z.string(),
+  tradingName: z.string().nullable(),
+  status: z.enum(MERCHANT_STATUSES).or(z.string()),
+  verificationStatus: z.enum(['NOT_SUBMITTED', 'PENDING', 'VERIFIED', 'REJECTED']).or(z.string()),
+  onboardingStep: z.string(),
+  logoUrl: z.string().nullable(),
+  createdAt: z.string(),
+  category: z.string().nullable(),
+  branchCount: z.number(),
+})
+export type MerchantSummary = z.infer<typeof merchantSummarySchema>
+
+export const listMerchantsResponseSchema = z.object({
+  page: z.number(),
+  pageSize: z.number(),
+  total: z.number(),
+  merchants: z.array(merchantSummarySchema),
+})
+export type ListMerchantsResponse = z.infer<typeof listMerchantsResponseSchema>
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export const merchantsApi = {
+  /**
+   * Fetch a page of the merchants directory (WP2, `merchant:read`-gated). All
+   * params are optional; the response is Zod-validated (redacted summary shape).
+   */
+  list: async (params?: {
+    q?: string
+    status?: MerchantStatusFilter
+    page?: number
+    pageSize?: number
+  }): Promise<ListMerchantsResponse> => {
+    const qs = new URLSearchParams()
+    if (params?.q !== undefined && params.q !== '') qs.set('q', params.q)
+    if (params?.status !== undefined) qs.set('status', params.status)
+    if (params?.page !== undefined) qs.set('page', String(params.page))
+    if (params?.pageSize !== undefined) qs.set('pageSize', String(params.pageSize))
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    const raw = await apiFetch<unknown>(`/api/v1/admin/merchants${suffix}`, { auth: true })
+    return listMerchantsResponseSchema.parse(raw)
+  },
+
   /**
    * Create an admin-owned draft merchant. The owner claims the account via an
    * account-setup email; no token is ever returned to the client.

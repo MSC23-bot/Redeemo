@@ -24,10 +24,11 @@ import { NotificationBell } from '@/components/notification-bell'
 
 type NavItem = { label: string; href: string; cap: AdminCapability }
 
-// Future actioner screens declare the capability they require. Filtered by
-// `can(cap)` below.
+// Actioner screens declare the capability they require. Filtered by `can(cap)`
+// below, so each nav item shows only for roles that hold its capability.
 const NAV_ITEMS: NavItem[] = [
   { label: 'Approval queue', href: '/queue', cap: 'approval:read' },
+  { label: 'Merchants', href: '/merchants', cap: 'merchant:read' },
 ]
 
 function RoleBadge({ role }: { role: string }) {

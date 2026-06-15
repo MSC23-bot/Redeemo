@@ -18,7 +18,12 @@ import { Button } from '@/components/ui/button'
 
 interface SuspendDialogProps {
   merchantId: string
-  approvalId: string
+  /**
+   * Present when launched from the review screen (drives review + queue cache
+   * invalidation). Omitted on the WP2 `/merchants` list, where only the
+   * merchants directory is invalidated.
+   */
+  approvalId?: string
   onSuccess: () => void
   onCancel: () => void
 }

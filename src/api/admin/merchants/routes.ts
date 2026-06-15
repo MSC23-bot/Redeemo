@@ -2,11 +2,29 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { emailSchema } from '../../shared/schemas'
 import { requireAdminCapability } from '../capability'
-import { createMerchantDraft, suspendMerchant, reactivateMerchant } from './service'
+import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants } from './service'
 import { issueMerchantClaim } from '../../auth/merchant/service'
 
 export async function adminMerchantRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/merchants'
+
+  // WP2 — read-only merchants directory (list + name/status search). Gated on
+  // `merchant:read` (NOT the destructive `merchant:suspend`). Shares `prefix`
+  // with the create-draft POST below: same path, different method, so they
+  // coexist. The service select is redacted (no secrets) — see listMerchants.
+  app.get(prefix, { preHandler: [requireAdminCapability('merchant:read')] }, async (req: any) => {
+    const query = z
+      .object({
+        q: z.string().trim().min(1).max(200).optional(),
+        status: z
+          .enum(['REGISTERED', 'PENDING_APPROVAL', 'ACTIVE', 'INACTIVE', 'SUSPENDED', 'DELETED'])
+          .optional(),
+        page: z.coerce.number().int().positive().optional(),
+        pageSize: z.coerce.number().int().positive().max(100).optional(),
+      })
+      .parse(req.query)
+    return listMerchants(app.prisma, query)
+  })
 
   // Create a merchant draft on the owner's behalf (M2, D-3). authenticateAdmin
   // is applied by the admin-management plugin scope; this route additionally
