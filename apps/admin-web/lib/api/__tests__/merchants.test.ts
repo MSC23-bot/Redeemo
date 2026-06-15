@@ -140,3 +140,132 @@ describe('merchantsApi.reactivate', () => {
     await expect(merchantsApi.reactivate('m-1')).rejects.toThrow()
   })
 })
+
+// ── getById (B2.1 detail) ─────────────────────────────────────────────────────
+
+describe('merchantsApi.getById', () => {
+  const DETAIL = {
+    merchant: {
+      id: 'm-1',
+      businessName: 'Acme Coffee',
+      tradingName: 'Acme',
+      status: 'ACTIVE',
+      verificationStatus: 'VERIFIED',
+      onboardingStep: 'LIVE',
+      websiteUrl: 'https://acme.test',
+      logoUrl: null,
+      category: 'Restaurants',
+    },
+    branches: [
+      {
+        id: 'br-1',
+        name: 'Main Branch',
+        isMainBranch: true,
+        addressLine1: '1 High Street',
+        addressLine2: null,
+        city: 'Huddersfield',
+        postcode: 'HD1 1AA',
+        localityName: 'Huddersfield',
+        locationConfidence: 'MANUALLY_CONFIRMED',
+        phone: '+447700900123',
+        email: 'main@acme.test',
+        websiteUrl: null,
+        isActive: true,
+      },
+    ],
+  }
+
+  it('GET /api/v1/admin/merchants/:id with auth:true', async () => {
+    mockedApiFetch.mockResolvedValueOnce(DETAIL)
+    const result = await merchantsApi.getById('m-1')
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1', { auth: true })
+    expect(result.merchant.id).toBe('m-1')
+    expect(result.branches).toHaveLength(1)
+  })
+
+  it('Zod-parses the detail response including nullable fields', async () => {
+    mockedApiFetch.mockResolvedValueOnce(DETAIL)
+    const result = await merchantsApi.getById('m-1')
+    expect(result).toEqual(DETAIL)
+  })
+
+  it('parses a merchant with all-nullable optional fields and empty branches', async () => {
+    const minimal = {
+      merchant: {
+        id: 'm-2',
+        businessName: 'Bare Co',
+        tradingName: null,
+        status: 'REGISTERED',
+        verificationStatus: 'NOT_SUBMITTED',
+        onboardingStep: 'PROFILE',
+        websiteUrl: null,
+        logoUrl: null,
+        category: null,
+      },
+      branches: [],
+    }
+    mockedApiFetch.mockResolvedValueOnce(minimal)
+    const result = await merchantsApi.getById('m-2')
+    expect(result.merchant.tradingName).toBeNull()
+    expect(result.branches).toEqual([])
+  })
+
+  it('tolerates an unknown status / verification / locationConfidence string (drift resilience)', async () => {
+    const drifted = {
+      ...DETAIL,
+      merchant: { ...DETAIL.merchant, status: 'FROZEN', verificationStatus: 'ESCALATED' },
+      branches: [{ ...DETAIL.branches[0], locationConfidence: 'SOME_NEW_VALUE' }],
+    }
+    mockedApiFetch.mockResolvedValueOnce(drifted)
+    const result = await merchantsApi.getById('m-1')
+    expect(result.merchant.status).toBe('FROZEN')
+    expect(result.branches[0].locationConfidence).toBe('SOME_NEW_VALUE')
+  })
+
+  it('propagates ApiError with .code on MERCHANT_NOT_FOUND', async () => {
+    const err = new ApiError(404, { error: { code: 'MERCHANT_NOT_FOUND', message: 'Not found' } })
+    mockedApiFetch.mockRejectedValueOnce(err)
+    await expect(merchantsApi.getById('m-1')).rejects.toMatchObject({ code: 'MERCHANT_NOT_FOUND' })
+  })
+
+  it('throws on a malformed response (Zod validation)', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ bad: 'shape' })
+    await expect(merchantsApi.getById('m-1')).rejects.toThrow()
+  })
+})
+
+// ── editProfile (B2.1 edit-on-behalf) ─────────────────────────────────────────
+
+describe('merchantsApi.editProfile', () => {
+  it('PATCH /api/v1/admin/merchants/:id/profile with auth:true and { websiteUrl, reason } body', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ id: 'm-1' })
+    const result = await merchantsApi.editProfile('m-1', {
+      websiteUrl: 'https://new.test',
+      reason: 'Owner asked over the phone.',
+    })
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1/profile', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify({ websiteUrl: 'https://new.test', reason: 'Owner asked over the phone.' }),
+    })
+    expect(result.id).toBe('m-1')
+  })
+
+  it('sends a null websiteUrl to clear it', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ id: 'm-1' })
+    await merchantsApi.editProfile('m-1', { websiteUrl: null, reason: 'Removed dead link.' })
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1/profile', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify({ websiteUrl: null, reason: 'Removed dead link.' }),
+    })
+  })
+
+  it('propagates ApiError with .code on MERCHANT_NOT_FOUND', async () => {
+    const err = new ApiError(404, { error: { code: 'MERCHANT_NOT_FOUND', message: 'Not found' } })
+    mockedApiFetch.mockRejectedValueOnce(err)
+    await expect(
+      merchantsApi.editProfile('m-1', { websiteUrl: 'x', reason: 'y' })
+    ).rejects.toMatchObject({ code: 'MERCHANT_NOT_FOUND' })
+  })
+})

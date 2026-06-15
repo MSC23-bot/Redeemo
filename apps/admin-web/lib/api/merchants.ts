@@ -95,6 +95,59 @@ export const listMerchantsResponseSchema = z.object({
 })
 export type ListMerchantsResponse = z.infer<typeof listMerchantsResponseSchema>
 
+// ── Option B B2.1 — merchant detail (read) + edit-on-behalf ───────────────────
+
+/**
+ * A branch row on the merchant detail payload (GET /admin/merchants/:id). The
+ * enum-ish string fields use `.or(z.string())` for the same drift resilience as
+ * `merchantSummarySchema`: a new locationConfidence value surfaces as a known
+ * string rather than a parse crash.
+ */
+export const branchDetailSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  isMainBranch: z.boolean(),
+  addressLine1: z.string(),
+  addressLine2: z.string().nullable(),
+  city: z.string(),
+  postcode: z.string(),
+  localityName: z.string().nullable(),
+  locationConfidence: z.string(),
+  phone: z.string().nullable(),
+  email: z.string().nullable(),
+  websiteUrl: z.string().nullable(),
+  isActive: z.boolean(),
+})
+export type BranchDetail = z.infer<typeof branchDetailSchema>
+
+/** The full merchant detail payload: the merchant record + its branches. */
+export const merchantDetailSchema = z.object({
+  merchant: z.object({
+    id: z.string(),
+    businessName: z.string(),
+    tradingName: z.string().nullable(),
+    status: z.enum(MERCHANT_STATUSES).or(z.string()),
+    verificationStatus: z
+      .enum(['NOT_SUBMITTED', 'PENDING', 'VERIFIED', 'REJECTED'])
+      .or(z.string()),
+    onboardingStep: z.string(),
+    websiteUrl: z.string().nullable(),
+    logoUrl: z.string().nullable(),
+    category: z.string().nullable(),
+  }),
+  branches: z.array(branchDetailSchema),
+})
+export type MerchantDetail = z.infer<typeof merchantDetailSchema>
+
+// The edit endpoints return the updated record; the UI relies on query
+// invalidation (not the return value), so a minimal resilient parse is enough.
+const editAckSchema = z.object({ id: z.string() }).passthrough()
+
+export interface EditMerchantProfileInput {
+  websiteUrl?: string | null
+  reason: string
+}
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export const merchantsApi = {
@@ -130,6 +183,31 @@ export const merchantsApi = {
       body: JSON.stringify(fields),
     })
     return createDraftResponseSchema.parse(raw)
+  },
+
+  /**
+   * Fetch a single merchant's detail (B2.1, `merchant:read`-gated): the merchant
+   * record + its branches. The response is Zod-validated (detail shape).
+   * Throws ApiError (MERCHANT_NOT_FOUND).
+   */
+  getById: async (id: string): Promise<MerchantDetail> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${id}`, { auth: true })
+    return merchantDetailSchema.parse(raw)
+  },
+
+  /**
+   * Edit a merchant's simple-DIRECT profile fields on the merchant's behalf
+   * (B2.1, `merchant:edit`-gated). The reason is mandatory and recorded in the
+   * audit log. The return value is parsed only minimally (the UI re-reads via
+   * query invalidation). Throws ApiError (MERCHANT_NOT_FOUND).
+   */
+  editProfile: async (id: string, input: EditMerchantProfileInput): Promise<{ id: string }> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${id}/profile`, {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify(input),
+    })
+    return editAckSchema.parse(raw)
   },
 
   /**

@@ -20,6 +20,21 @@ export interface ConfirmLocationInput {
   longitude: number
 }
 
+/**
+ * Option B B2.1: edit a branch's simple-DIRECT fields on the merchant's behalf:
+ *
+ *   PATCH /api/v1/admin/branches/:branchId  (gated `merchant:edit`)
+ *
+ * The reason is mandatory and recorded in the audit log.
+ */
+export interface EditBranchInput {
+  phone?: string | null
+  email?: string | null
+  websiteUrl?: string | null
+  isActive?: boolean
+  reason: string
+}
+
 // ── Response schema ───────────────────────────────────────────────────────────
 
 const confirmLocationResponseSchema = z.object({
@@ -30,6 +45,10 @@ const confirmLocationResponseSchema = z.object({
 })
 
 export type ConfirmLocationResponse = z.infer<typeof confirmLocationResponseSchema>
+
+// The edit endpoint returns the updated branch; the UI relies on query
+// invalidation (not the return value), so a minimal resilient parse is enough.
+const editAckSchema = z.object({ id: z.string() }).passthrough()
 
 // ── API calls ─────────────────────────────────────────────────────────────────
 
@@ -52,5 +71,20 @@ export const branchesApi = {
       }
     )
     return confirmLocationResponseSchema.parse(raw)
+  },
+
+  /**
+   * Edit a branch's contact fields + active state on the merchant's behalf
+   * (B2.1, `merchant:edit`-gated). The reason is mandatory and recorded in the
+   * audit log. The return value is parsed only minimally - the UI re-reads via
+   * query invalidation. Throws ApiError (BRANCH_NOT_FOUND).
+   */
+  edit: async (branchId: string, input: EditBranchInput): Promise<{ id: string }> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/branches/${branchId}`, {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify(input),
+    })
+    return editAckSchema.parse(raw)
   },
 }
