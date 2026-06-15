@@ -35,6 +35,21 @@ export interface EditBranchInput {
   reason: string
 }
 
+// B2.4: admin create a branch on the merchant's behalf. latitude/longitude are
+// NOT accepted (location resolves from the postcode). reason is mandatory.
+export interface CreateBranchInput {
+  name: string
+  addressLine1: string
+  addressLine2?: string
+  city: string
+  postcode: string
+  country?: string
+  phone?: string
+  email?: string
+  websiteUrl?: string
+  reason: string
+}
+
 // ── Response schema ───────────────────────────────────────────────────────────
 
 const confirmLocationResponseSchema = z.object({
@@ -86,5 +101,37 @@ export const branchesApi = {
       body: JSON.stringify(input),
     })
     return editAckSchema.parse(raw)
+  },
+
+  /**
+   * Create a branch on the merchant's behalf (B2.4, `merchant:manage-branches`-
+   * gated; SUPER_ADMIN only). The reason is mandatory; location resolves from the
+   * postcode (the route rejects latitude/longitude). The return is the redacted
+   * branch shape, parsed minimally (the UI re-reads via query invalidation).
+   * Throws ApiError (MERCHANT_NOT_FOUND / POSTCODE_REQUIRED / POSTCODE_NOT_FOUND /
+   * GAZETTEER_UNAVAILABLE).
+   */
+  create: async (merchantId: string, input: CreateBranchInput): Promise<{ id: string }> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${merchantId}/branches`, {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify(input),
+    })
+    return editAckSchema.parse(raw)
+  },
+
+  /**
+   * Soft-delete a branch on the merchant's behalf (B2.4, `merchant:manage-
+   * branches`-gated; SUPER_ADMIN only). POST, not DELETE-with-body. The reason is
+   * mandatory. Permanently removes the branch and deactivates its staff logins.
+   * Throws ApiError (BRANCH_NOT_FOUND / BRANCH_IS_MAIN / BRANCH_LAST_ACTIVE).
+   */
+  softDelete: async (branchId: string, reason: string): Promise<{ ok: boolean }> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/branches/${branchId}/delete`, {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ reason }),
+    })
+    return z.object({ ok: z.boolean() }).passthrough().parse(raw)
   },
 }

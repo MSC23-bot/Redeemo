@@ -138,3 +138,47 @@ describe('branchesApi.edit', () => {
     ).rejects.toMatchObject({ code: 'BRANCH_NOT_FOUND' })
   })
 })
+
+// ── create (B2.4 branch create) ───────────────────────────────────────────────
+
+describe('branchesApi.create', () => {
+  const input = { name: 'New Branch', addressLine1: '1 St', city: 'London', postcode: 'EC1A 1BB', reason: 'merchant asked' }
+
+  it('POST /admin/merchants/:id/branches with auth:true and the body', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ id: 'br-new' })
+    const result = await branchesApi.create('m-1', input)
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1/branches', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify(input),
+    })
+    expect(result.id).toBe('br-new')
+  })
+
+  it('propagates ApiError with .code on POSTCODE_NOT_FOUND', async () => {
+    const err = new ApiError(400, { error: { code: 'POSTCODE_NOT_FOUND', message: 'Bad postcode' } })
+    mockedApiFetch.mockRejectedValueOnce(err)
+    await expect(branchesApi.create('m-1', input)).rejects.toMatchObject({ code: 'POSTCODE_NOT_FOUND' })
+  })
+})
+
+// ── softDelete (B2.4 branch soft-delete) ──────────────────────────────────────
+
+describe('branchesApi.softDelete', () => {
+  it('POST /admin/branches/:branchId/delete with auth:true and { reason } body', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ ok: true })
+    const result = await branchesApi.softDelete('br-1', 'permanently closed')
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/branches/br-1/delete', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ reason: 'permanently closed' }),
+    })
+    expect(result.ok).toBe(true)
+  })
+
+  it('propagates ApiError with .code on BRANCH_IS_MAIN', async () => {
+    const err = new ApiError(409, { error: { code: 'BRANCH_IS_MAIN', message: 'main' } })
+    mockedApiFetch.mockRejectedValueOnce(err)
+    await expect(branchesApi.softDelete('br-1', 'x')).rejects.toMatchObject({ code: 'BRANCH_IS_MAIN' })
+  })
+})

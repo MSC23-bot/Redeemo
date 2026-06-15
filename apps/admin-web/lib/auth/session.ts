@@ -39,6 +39,10 @@ export type AdminCapability =
   // ALL_SLICE1_CAPS, so it is held ONLY by SUPER_ADMIN. Keep aligned with the
   // backend src/api/admin/capability.ts.
   | 'merchant:edit-category'
+  // Option B B2.4: gates admin branch create + soft-delete. NOT in
+  // ALL_SLICE1_CAPS, so it is held ONLY by SUPER_ADMIN. Keep aligned with the
+  // backend src/api/admin/capability.ts.
+  | 'merchant:manage-branches'
 
 export type AdminRole =
   | 'SUPER_ADMIN'

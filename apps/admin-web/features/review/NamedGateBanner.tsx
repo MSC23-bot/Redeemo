@@ -53,6 +53,12 @@ const CODE_MESSAGES: Record<string, string> = {
     'Category is locked: this merchant has submitted or live vouchers. It cannot be changed.',
   NO_RMV_TEMPLATE:
     'That category has no mandatory voucher templates set up, so it cannot be assigned.',
+  // Option B B2.4: admin branch create + soft-delete.
+  POSTCODE_REQUIRED: 'A postcode is required to create a branch.',
+  POSTCODE_NOT_FOUND: 'That postcode could not be found. Check it and try again.',
+  GAZETTEER_UNAVAILABLE: 'Address lookup is temporarily unavailable. Try again shortly.',
+  BRANCH_IS_MAIN: 'The main branch cannot be deleted.',
+  BRANCH_LAST_ACTIVE: "This is the merchant's last active branch and cannot be deleted.",
 }
 
 function getMessage(error: unknown): string {
