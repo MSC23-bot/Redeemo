@@ -21,6 +21,7 @@ function makeApproval(overrides: Partial<AdminApproval> = {}): AdminApproval {
     actionedAt: null,
     claimedById: null,
     claimedAt: null,
+    claimedBy: null,
     merchant: {
       id: 'm-1',
       businessName: 'Acme Coffee',
@@ -82,7 +83,7 @@ describe('QueueTable claim cell', () => {
     expect(screen.getByText('Waiting on merchant')).toBeInTheDocument()
   })
 
-  it('shows "Claimed" when claimedById is another admin (not stale)', () => {
+  it('shows "Claimed by <name>" when claimedById is another admin (not stale)', () => {
     render(
       <QueueTable
         items={[
@@ -90,24 +91,67 @@ describe('QueueTable claim cell', () => {
             status: 'PENDING',
             claimedById: 'admin-other',
             claimedAt: new Date().toISOString(), // just now, not stale
+            claimedBy: { id: 'admin-other', name: 'Jordan Lee' },
           }),
         ]}
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Claimed')).toBeInTheDocument()
+    expect(screen.getByText('Claimed by Jordan Lee')).toBeInTheDocument()
     expect(screen.queryByText('Stale')).not.toBeInTheDocument()
   })
 
-  it('shows "Claimed" + "Stale" when claimedAt is > 24h ago', () => {
-    const staleAt = new Date(Date.now() - 25 * 3_600_000).toISOString() // 25h ago
+  it('falls back to "Claimed by another admin" when claimedBy is null (name unresolved)', () => {
     render(
       <QueueTable
-        items={[makeApproval({ status: 'PENDING', claimedById: 'admin-other', claimedAt: staleAt })]}
+        items={[
+          makeApproval({
+            status: 'PENDING',
+            claimedById: 'admin-other',
+            claimedAt: new Date().toISOString(),
+            claimedBy: null,
+          }),
+        ]}
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Claimed')).toBeInTheDocument()
+    expect(screen.getByText('Claimed by another admin')).toBeInTheDocument()
+    expect(screen.queryByText('Stale')).not.toBeInTheDocument()
+  })
+
+  it('falls back to "Claimed by another admin" when claimedBy.name is null', () => {
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            status: 'PENDING',
+            claimedById: 'admin-other',
+            claimedAt: new Date().toISOString(),
+            claimedBy: { id: 'admin-other', name: null },
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(screen.getByText('Claimed by another admin')).toBeInTheDocument()
+  })
+
+  it('shows the claimer name + "Stale" when claimedAt is > 24h ago', () => {
+    const staleAt = new Date(Date.now() - 25 * 3_600_000).toISOString() // 25h ago
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            status: 'PENDING',
+            claimedById: 'admin-other',
+            claimedAt: staleAt,
+            claimedBy: { id: 'admin-other', name: 'Sam Casey' },
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(screen.getByText('Claimed by Sam Casey')).toBeInTheDocument()
     expect(screen.getByText('Stale')).toBeInTheDocument()
   })
 
@@ -121,13 +165,14 @@ describe('QueueTable claim cell', () => {
             status: 'CHANGES_REQUESTED',
             claimedById: 'admin-other',
             claimedAt: new Date().toISOString(),
+            claimedBy: { id: 'admin-other', name: 'Jordan Lee' },
           }),
         ]}
         currentAdminId={CURRENT_ADMIN}
       />
     )
     expect(screen.getByText('Waiting on merchant')).toBeInTheDocument()
-    expect(screen.queryByText('Claimed')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Claimed by/)).not.toBeInTheDocument()
     expect(screen.queryByText('Stale')).not.toBeInTheDocument()
   })
 })

@@ -15,6 +15,7 @@
  */
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Bell, BellOff, Loader2 } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { cn } from '@/lib/utils'
@@ -25,6 +26,7 @@ import {
   useMarkRead,
   useMarkAllRead,
 } from '@/lib/notifications/useNotifications'
+import { approvalsApi } from '@/lib/api/approvals'
 import type { AdminNotification } from '@/lib/api/notifications'
 
 // ── Unread badge ──────────────────────────────────────────────────────────────
@@ -49,11 +51,11 @@ function UnreadBadge({ count }: { count: number }) {
 
 function NotificationRow({
   notification,
-  onMarkRead,
+  onSelect,
   isMarking,
 }: {
   notification: AdminNotification
-  onMarkRead: (id: string) => void
+  onSelect: (notification: AdminNotification) => void
   isMarking: boolean
 }) {
   const relative = formatRelativeTime(notification.sentAt)
@@ -64,9 +66,8 @@ function NotificationRow({
       aria-label={`${notification.title}: ${notification.body}`}
       disabled={!notification.isRead && isMarking}
       onClick={() => {
-        if (!notification.isRead && !isMarking) {
-          onMarkRead(notification.id)
-        }
+        if (!notification.isRead && isMarking) return
+        onSelect(notification)
       }}
       className={cn(
         'flex w-full flex-col gap-0.5 px-4 py-3 text-left transition-colors',
@@ -102,6 +103,7 @@ function NotificationRow({
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false)
+  const router = useRouter()
 
   const { data: unreadData } = useUnreadCount()
   const { data: listData, isLoading: listLoading, isError: listError } = useNotificationList(open)
@@ -112,8 +114,31 @@ export function NotificationBell() {
   const unreadCount = unreadData?.count ?? 0
   const notifications = listData?.notifications ?? []
 
-  function handleMarkRead(id: string) {
-    markRead.mutate(id)
+  /**
+   * Row click. Always mark the row read first (the existing optimistic flip).
+   * Then, for a merchant notification with a referenceId, resolve the merchant's
+   * open onboarding approval and navigate to its review screen, closing the
+   * popover. If no approval resolves (or the notification is not a merchant one /
+   * has no referenceId), it stays mark-read only with no navigation (D-PR4c).
+   */
+  async function handleSelect(notification: AdminNotification) {
+    if (!notification.isRead) {
+      markRead.mutate(notification.id)
+    }
+
+    if (notification.referenceType !== 'merchant' || !notification.referenceId) {
+      return
+    }
+
+    try {
+      const approvalId = await approvalsApi.resolveByMerchant(notification.referenceId)
+      if (approvalId) {
+        setOpen(false)
+        router.push(`/queue/${approvalId}`)
+      }
+    } catch {
+      // Resolution failed: leave the row mark-read only, no navigation.
+    }
   }
 
   function handleMarkAllRead() {
@@ -201,7 +226,7 @@ export function NotificationBell() {
                   <div key={n.id} role="listitem">
                     <NotificationRow
                       notification={n}
-                      onMarkRead={handleMarkRead}
+                      onSelect={handleSelect}
                       isMarking={markRead.isPending}
                     />
                   </div>

@@ -21,6 +21,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { type ReactNode } from 'react'
 import { NotificationBell } from '../notification-bell'
 import { notificationsApi } from '@/lib/api/notifications'
+import { approvalsApi } from '@/lib/api/approvals'
 import { formatRelativeTime } from '@/lib/notifications/relativeTime'
 
 // ── Mock the notifications API module ────────────────────────────────────────
@@ -34,7 +35,23 @@ jest.mock('@/lib/api/notifications', () => ({
   },
 }))
 
+// ── Mock the approvals API (bell click-through resolver) ─────────────────────
+
+jest.mock('@/lib/api/approvals', () => ({
+  approvalsApi: {
+    resolveByMerchant: jest.fn(),
+  },
+}))
+
+// ── Mock next/navigation router ───────────────────────────────────────────────
+
+const mockPush = jest.fn()
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+}))
+
 const mockedApi = notificationsApi as jest.Mocked<typeof notificationsApi>
+const mockedApprovals = approvalsApi as jest.Mocked<typeof approvalsApi>
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -54,6 +71,8 @@ let testQueryClient: QueryClient
 
 beforeEach(() => {
   testQueryClient = makeQueryClient()
+  mockPush.mockClear()
+  mockedApprovals.resolveByMerchant.mockReset()
 })
 
 function Wrapper({ children }: { children: ReactNode }) {
@@ -290,6 +309,114 @@ describe('clicking notification rows', () => {
     await user.click(row)
 
     expect(mockedApi.markRead).not.toHaveBeenCalled()
+  })
+})
+
+// ── (PR4) Bell click-through to the review screen ─────────────────────────────
+// referenceType uses the lowercase 'merchant' the M8 emitter actually writes
+// (src/api/shared/adminNotify.ts), so the click-through contract is pinned
+// against the real wire value, not the uppercase placeholder in older fixtures.
+
+const MERCHANT_NOTIFICATION = {
+  id: 'notif-m',
+  type: 'ADMIN_MERCHANT_SUBMITTED',
+  title: 'New merchant submitted for approval',
+  body: 'Acme Coffee has submitted for approval.',
+  referenceId: 'merchant-42',
+  referenceType: 'merchant',
+  isRead: false,
+  readAt: null,
+  sentAt: '2026-06-14T11:45:00.000Z',
+}
+
+const NON_MERCHANT_NOTIFICATION = {
+  ...MERCHANT_NOTIFICATION,
+  id: 'notif-other',
+  title: 'System notice',
+  body: 'Something else happened.',
+  referenceId: null,
+  referenceType: null,
+}
+
+describe('bell click-through (PR4)', () => {
+  it('merchant row: resolves approval, marks read, navigates, and closes the popover', async () => {
+    mockedApi.unreadCount.mockResolvedValue({ count: 1 })
+    mockedApi.list.mockResolvedValue({
+      notifications: [MERCHANT_NOTIFICATION],
+      page: 1,
+      pageSize: 10,
+      total: 1,
+    })
+    mockedApi.markRead.mockResolvedValue({ updated: 1 })
+    mockedApprovals.resolveByMerchant.mockResolvedValue('approval-99')
+
+    const user = userEvent.setup()
+    renderBell()
+
+    await user.click(screen.getByRole('button', { name: /notifications/i }))
+
+    const row = await screen.findByRole('button', {
+      name: /new merchant submitted for approval/i,
+    })
+    await user.click(row)
+
+    // Marks read (existing optimistic flip) ...
+    expect(mockedApi.markRead).toHaveBeenCalledWith('notif-m')
+    // ... resolves by the notification's referenceId ...
+    await waitFor(() =>
+      expect(mockedApprovals.resolveByMerchant).toHaveBeenCalledWith('merchant-42')
+    )
+    // ... navigates to the review screen and closes the popover.
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/queue/approval-99'))
+  })
+
+  it('merchant row with no open approval: marks read only, no navigation', async () => {
+    mockedApi.unreadCount.mockResolvedValue({ count: 1 })
+    mockedApi.list.mockResolvedValue({
+      notifications: [MERCHANT_NOTIFICATION],
+      page: 1,
+      pageSize: 10,
+      total: 1,
+    })
+    mockedApi.markRead.mockResolvedValue({ updated: 1 })
+    mockedApprovals.resolveByMerchant.mockResolvedValue(null)
+
+    const user = userEvent.setup()
+    renderBell()
+
+    await user.click(screen.getByRole('button', { name: /notifications/i }))
+    const row = await screen.findByRole('button', {
+      name: /new merchant submitted for approval/i,
+    })
+    await user.click(row)
+
+    expect(mockedApi.markRead).toHaveBeenCalledWith('notif-m')
+    await waitFor(() =>
+      expect(mockedApprovals.resolveByMerchant).toHaveBeenCalledWith('merchant-42')
+    )
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('non-merchant row: marks read only, never resolves or navigates', async () => {
+    mockedApi.unreadCount.mockResolvedValue({ count: 1 })
+    mockedApi.list.mockResolvedValue({
+      notifications: [NON_MERCHANT_NOTIFICATION],
+      page: 1,
+      pageSize: 10,
+      total: 1,
+    })
+    mockedApi.markRead.mockResolvedValue({ updated: 1 })
+
+    const user = userEvent.setup()
+    renderBell()
+
+    await user.click(screen.getByRole('button', { name: /notifications/i }))
+    const row = await screen.findByRole('button', { name: /system notice/i })
+    await user.click(row)
+
+    expect(mockedApi.markRead).toHaveBeenCalledWith('notif-other')
+    expect(mockedApprovals.resolveByMerchant).not.toHaveBeenCalled()
+    expect(mockPush).not.toHaveBeenCalled()
   })
 })
 

@@ -59,6 +59,8 @@ export interface ListApprovalsFilters {
   type?: ApprovalType
   status?: ApprovalStatus
   claimedById?: string
+  /** Resolve a single merchant's approvals (the bell click-through hinge, PR4). */
+  referenceId?: string
   /** Only approvals submitted more than N minutes ago (queue-age filter). */
   olderThanMinutes?: number
   page?: number
@@ -74,6 +76,7 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     ...(filters.type ? { type: filters.type } : {}),
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.claimedById ? { claimedById: filters.claimedById } : {}),
+    ...(filters.referenceId ? { referenceId: filters.referenceId } : {}),
     ...(filters.olderThanMinutes
       ? { submittedAt: { lt: new Date(Date.now() - filters.olderThanMinutes * 60_000) } }
       : {}),
@@ -105,6 +108,23 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     : []
   const merchantById = new Map(merchants.map((m) => [m.id, m]))
 
+  // Batch-resolve claimer names (mirrors the merchant-summary batch above + the
+  // getReviewContext adminById pattern): one AdminUser lookup over the distinct
+  // non-null claimedById set, keyed to "First Last". So the queue can render
+  // "Claimed by <name>" instead of a bare "Claimed".
+  const claimerIds = Array.from(
+    new Set(approvals.map((a) => a.claimedById).filter((id): id is string => id != null)),
+  )
+  const claimers = claimerIds.length
+    ? await prisma.adminUser.findMany({
+        where: { id: { in: claimerIds } },
+        select: { id: true, firstName: true, lastName: true },
+      })
+    : []
+  const claimerById = new Map(
+    claimers.map((c: { id: string; firstName: string; lastName: string }) => [c.id, `${c.firstName} ${c.lastName}`]),
+  )
+
   return {
     page,
     pageSize,
@@ -112,6 +132,7 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     approvals: approvals.map((a) => ({
       ...a,
       merchant: a.type === 'MERCHANT_ONBOARDING' ? (merchantById.get(a.referenceId) ?? null) : null,
+      claimedBy: a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null,
     })),
   }
 }

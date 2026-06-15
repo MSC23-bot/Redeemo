@@ -41,6 +41,7 @@ export const approvalSchema = z.object({
   actionedAt: z.string().nullable(),
   claimedById: z.string().nullable(),
   claimedAt: z.string().nullable(),
+  claimedBy: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
   merchant: merchantSummarySchema.nullable(),
 })
 export type AdminApproval = z.infer<typeof approvalSchema>
@@ -78,6 +79,7 @@ export const approvalsApi = {
     type?: string
     status?: string
     claimedById?: string
+    referenceId?: string
     olderThanMinutes?: number
     page?: number
     pageSize?: number
@@ -86,6 +88,7 @@ export const approvalsApi = {
     if (params?.type !== undefined) qs.set('type', params.type)
     if (params?.status !== undefined) qs.set('status', params.status)
     if (params?.claimedById !== undefined) qs.set('claimedById', params.claimedById)
+    if (params?.referenceId !== undefined) qs.set('referenceId', params.referenceId)
     if (params?.olderThanMinutes !== undefined) {
       qs.set('olderThanMinutes', String(params.olderThanMinutes))
     }
@@ -96,6 +99,22 @@ export const approvalsApi = {
       auth: true,
     })
     return listApprovalsResponseSchema.parse(raw)
+  },
+
+  /**
+   * Resolve a merchant's open onboarding approval id (the bell click-through
+   * hinge, PR4). Filters the queue by referenceId + MERCHANT_ONBOARDING and
+   * returns the first approval id, or null when the merchant has no such
+   * approval row. Used by NotificationBell to route a merchant notification to
+   * its review screen.
+   */
+  resolveByMerchant: async (merchantId: string): Promise<string | null> => {
+    const res = await approvalsApi.list({
+      referenceId: merchantId,
+      type: 'MERCHANT_ONBOARDING',
+      pageSize: 1,
+    })
+    return res.approvals[0]?.id ?? null
   },
 
   /** Claim an approval for review. Throws ApiError (APPROVAL_ALREADY_CLAIMED on race). */

@@ -37,6 +37,7 @@ const APPROVAL = {
   actionedAt: null,
   claimedById: null,
   claimedAt: null,
+  claimedBy: null,
   merchant: MERCHANT,
 }
 
