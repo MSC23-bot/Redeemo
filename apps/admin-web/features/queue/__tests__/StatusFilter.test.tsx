@@ -67,4 +67,17 @@ describe('StatusFilter', () => {
     const zeros = screen.getAllByText('0')
     expect(zeros).toHaveLength(4)
   })
+
+  it('renders the chips but no count numbers while loading (counts undefined)', () => {
+    render(<StatusFilter active="all" counts={undefined} onChange={() => {}} />)
+
+    // Chip labels still render so the tabs are usable while loading.
+    expect(screen.getByRole('tab', { name: /^all/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /submitted/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /under review/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /changes requested/i })).toBeInTheDocument()
+
+    // No flashing 0/0/0/0 — there are no numeric count labels at all.
+    expect(screen.queryByText('0')).toBeNull()
+  })
 })

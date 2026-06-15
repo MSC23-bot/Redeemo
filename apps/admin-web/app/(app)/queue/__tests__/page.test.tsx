@@ -170,6 +170,17 @@ describe('QueuePage OPERATIONS role (has approval:read)', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
+  it('does not flash 0/0/0/0 chip counts while the first fetch is loading', () => {
+    // Default mockQueue counts are all 0; with isLoading true the page must pass
+    // undefined to StatusFilter so the zeros are never shown.
+    mockQueue({ isLoading: true })
+    render(<QueuePage />)
+    // Chips still render...
+    expect(screen.getByRole('tab', { name: /^all/i })).toBeInTheDocument()
+    // ...but with no numeric count labels.
+    expect(screen.queryByText('0')).toBeNull()
+  })
+
   it('shows error state when isError is true', () => {
     mockQueue({ isError: true, isLoading: false })
     render(<QueuePage />)
