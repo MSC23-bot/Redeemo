@@ -12,6 +12,7 @@
  *
  * Badge tones reuse the shared Badge from the queue surface.
  */
+import Link from 'next/link'
 import { Badge } from '@/features/shared/Badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -182,11 +183,18 @@ export function MerchantsTable({ items, canSuspend, onSuspend, onReactivate }: M
                 idx % 2 === 0 ? 'bg-card' : 'bg-secondary/10'
               )}
             >
-              {/* Merchant */}
+              {/* Merchant - name links to the detail page (B2.1). The row is not
+                  fully clickable: the Actions cell carries Suspend / Reactivate. */}
               <td className="px-4 py-3">
                 <div className="flex items-center gap-3">
                   <MerchantAvatar name={item.businessName} />
-                  <span className="font-medium text-foreground">{item.businessName}</span>
+                  <Link
+                    href={`/merchants/${item.id}`}
+                    className="rounded-sm font-medium text-foreground transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    data-testid={`merchant-name-link-${item.id}`}
+                  >
+                    {item.businessName}
+                  </Link>
                 </div>
               </td>
 

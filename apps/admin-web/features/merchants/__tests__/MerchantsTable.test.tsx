@@ -10,6 +10,24 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { MerchantsTable } from '../MerchantsTable'
 import type { MerchantSummary } from '@/lib/api/merchants'
 
+jest.mock('next/link', () => {
+  return function MockLink({
+    href,
+    children,
+    ...rest
+  }: {
+    href: string
+    children: React.ReactNode
+    [key: string]: unknown
+  }) {
+    return (
+      <a href={href} {...rest}>
+        {children}
+      </a>
+    )
+  }
+})
+
 function row(overrides: Partial<MerchantSummary>): MerchantSummary {
   return {
     id: 'm-1',
@@ -47,6 +65,20 @@ describe('MerchantsTable rendering', () => {
   it('renders an empty state when there are no merchants', () => {
     render(<MerchantsTable items={[]} canSuspend onSuspend={noop} onReactivate={noop} />)
     expect(screen.getByText(/no merchants match this search/i)).toBeInTheDocument()
+  })
+
+  it('links the merchant name to /merchants/<id> (B2.1)', () => {
+    render(
+      <MerchantsTable
+        items={[row({ id: 'm-7', businessName: 'Gamma Grill' })]}
+        canSuspend={false}
+        onSuspend={noop}
+        onReactivate={noop}
+      />
+    )
+    const link = screen.getByTestId('merchant-name-link-m-7')
+    expect(link).toHaveTextContent('Gamma Grill')
+    expect(link).toHaveAttribute('href', '/merchants/m-7')
   })
 })
 
