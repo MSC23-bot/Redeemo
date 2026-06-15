@@ -82,6 +82,20 @@ describe('NamedGateBanner code mapping', () => {
     expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('Branch not found.')
   })
 
+  it('maps PENDING_EDIT_NOT_ACTIONABLE correctly (B1)', () => {
+    render(<NamedGateBanner error={makeApiError('PENDING_EDIT_NOT_ACTIONABLE')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This edit request is no longer pending and cannot be actioned.'
+    )
+  })
+
+  it('maps EDIT_PHOTO_APPLY_NOT_SUPPORTED correctly (B1)', () => {
+    render(<NamedGateBanner error={makeApiError('EDIT_PHOTO_APPLY_NOT_SUPPORTED')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'Photo edits cannot be applied yet.'
+    )
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)

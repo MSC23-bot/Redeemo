@@ -114,6 +114,17 @@ jest.mock('@/lib/review/useReviewActions', () => ({
   useApprove: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
 }))
 
+// ── B1: mock useEditReview (the EditReviewPanel mounted for edit approval types).
+// The panel + EditReviewDiff render unmocked; only the data hook + the action
+// hooks are mocked so there is no network call.
+
+const mockedUseEditReview = jest.fn()
+jest.mock('@/lib/review/useEditReview', () => ({
+  useEditReview: (...args: unknown[]) => mockedUseEditReview(...args),
+  useApproveEdit: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+  useRejectEdit: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+}))
+
 // ── Mock dialogs so we can check whether they mount ──────────────────────────
 
 jest.mock('@/features/review/RequestChangesDialog', () => ({
@@ -378,6 +389,75 @@ describe('ReviewPage non-onboarding approval', () => {
     })
     renderPage()
     expect(screen.getByTestId('review-non-onboarding')).toBeInTheDocument()
+  })
+})
+
+// ── B1: merchant identity-edit approval routes to the edit-review surface ──────
+
+describe('ReviewPage edit-approval surface (B1)', () => {
+  function editApproval(type: 'MERCHANT_IDENTITY_EDIT' | 'BRANCH_IDENTITY_EDIT') {
+    return makeContext({
+      approval: {
+        id: 'apr-edit-1',
+        type,
+        status: 'PENDING',
+        submittedAt: '2026-06-10T09:00:00.000Z',
+        actionedAt: null,
+        claimedAt: null,
+        comment: null,
+        claimedBy: null,
+        actionedBy: null,
+      },
+    })
+  }
+
+  beforeEach(() => {
+    mockedUseEditReview.mockReturnValue({
+      data: {
+        kind: 'merchant',
+        merchantId: 'm-1',
+        pendingEditId: 'pe-1',
+        status: 'PENDING',
+        includesPhotos: false,
+        fields: [{ field: 'businessName', current: 'Old Name', proposed: 'New Name', isCustomerVisible: true }],
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    })
+  })
+
+  it('renders the edit-review diff (NOT the generic non-onboarding notice) for MERCHANT_IDENTITY_EDIT', () => {
+    mockSession()
+    mockReview({ data: editApproval('MERCHANT_IDENTITY_EDIT') })
+    renderPage()
+    expect(screen.getByTestId('edit-review-diff')).toBeInTheDocument()
+    expect(screen.queryByTestId('review-non-onboarding')).not.toBeInTheDocument()
+    expect(screen.getByTestId('edit-field-proposed-businessName')).toHaveTextContent('New Name')
+  })
+
+  it('shows the Approve / Reject actions when the admin holds approval:apply-edit', () => {
+    mockSession({ can: () => true })
+    mockReview({ data: editApproval('MERCHANT_IDENTITY_EDIT') })
+    renderPage()
+    expect(screen.getByTestId('edit-approve-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('edit-reject-btn')).toBeInTheDocument()
+  })
+
+  it('hides the actions when the admin lacks approval:apply-edit', () => {
+    mockSession({ can: (cap: string) => cap !== 'approval:apply-edit' })
+    mockReview({ data: editApproval('BRANCH_IDENTITY_EDIT') })
+    renderPage()
+    expect(screen.getByTestId('edit-review-diff')).toBeInTheDocument()
+    expect(screen.queryByTestId('edit-review-actions')).not.toBeInTheDocument()
+  })
+
+  it('opens the approve-edit dialog when Approve edit is clicked', () => {
+    mockSession()
+    mockReview({ data: editApproval('MERCHANT_IDENTITY_EDIT') })
+    renderPage()
+    fireEvent.click(screen.getByTestId('edit-approve-btn'))
+    expect(screen.getByTestId('approve-edit-confirm-dialog')).toBeInTheDocument()
   })
 })
 
