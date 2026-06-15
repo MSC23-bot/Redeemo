@@ -4,7 +4,7 @@ import { AppError } from '../../shared/errors'
 import { requireAdminCapability } from '../capability'
 import { confirmBranchLocation } from './service'
 import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
-import { updateBranchDirectCore } from '../../merchant/branch/service'
+import { updateBranchDirectCore, softDeleteBranchCore } from '../../merchant/branch/service'
 
 export async function adminBranchRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/branches'
@@ -72,6 +72,37 @@ export async function adminBranchRoutes(app: FastifyInstance) {
         { merchantId: b.merchantId, actor: { type: 'ADMIN', id: req.user.sub, reason: body.reason } },
         branchId,
         data,
+        { ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' },
+      )
+    },
+  )
+
+  // Option B B2.4: admin soft-delete a branch on the merchant's behalf. Gated
+  // SUPER_ADMIN-only (`merchant:manage-branches`). POST (not DELETE-with-body):
+  // no DELETE-body precedent in the codebase, all admin action routes are POST,
+  // and DELETE request bodies are unreliable through proxies. The route resolves
+  // the branch's merchant first (it only has the branchId), then the shared core
+  // (softDeleteBranchCore) runs the guards (BRANCH_IS_MAIN / BRANCH_LAST_ACTIVE)
+  // + the atomic cascade (branch-user deactivation + soft-delete + audit). Actor-
+  // attributed, entityType:'branch'. resolveTargetMerchantForAdmin allows SUSPENDED.
+  app.post(
+    `${prefix}/:branchId/delete`,
+    { preHandler: [requireAdminCapability('merchant:manage-branches')] },
+    async (req: any) => {
+      const { branchId } = z.object({ branchId: z.string().min(1) }).parse(req.params)
+      const { reason } = z.object({ reason: z.string().trim().min(1) }).strict().parse(req.body)
+
+      const b = await app.prisma.branch.findFirst({
+        where: { id: branchId, deletedAt: null },
+        select: { merchantId: true },
+      })
+      if (!b) throw new AppError('BRANCH_NOT_FOUND')
+      await resolveTargetMerchantForAdmin(app.prisma, b.merchantId)
+
+      return softDeleteBranchCore(
+        app.prisma,
+        { merchantId: b.merchantId, actor: { type: 'ADMIN', id: req.user.sub, reason } },
+        branchId,
         { ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' },
       )
     },
