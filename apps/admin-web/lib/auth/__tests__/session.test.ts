@@ -111,6 +111,22 @@ describe('merchant:edit-category is SUPER_ADMIN-only (B2.3)', () => {
   })
 })
 
+// Option B B2.4: merchant:manage-branches is also SUPER_ADMIN-only (NOT in
+// ALL_SLICE1_CAPS). Mirror must match the backend exactly.
+describe('merchant:manage-branches is SUPER_ADMIN-only (B2.4)', () => {
+  it('SUPER_ADMIN holds it', () => {
+    expect(hasCapability('SUPER_ADMIN', 'merchant:manage-branches')).toBe(true)
+  })
+  it('OPERATIONS does NOT hold it', () => {
+    expect(hasCapability('OPERATIONS', 'merchant:manage-branches')).toBe(false)
+  })
+  it('FINANCE / CONTENT / SUPPORT do NOT hold it', () => {
+    expect(hasCapability('FINANCE', 'merchant:manage-branches')).toBe(false)
+    expect(hasCapability('CONTENT', 'merchant:manage-branches')).toBe(false)
+    expect(hasCapability('SUPPORT', 'merchant:manage-branches')).toBe(false)
+  })
+})
+
 describe('session storage — set / get / clear', () => {
   const meta = {
     entityId: 'admin-1',

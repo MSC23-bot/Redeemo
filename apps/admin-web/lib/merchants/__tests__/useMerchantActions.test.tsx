@@ -19,6 +19,8 @@ import {
   useEditBranch,
   useEditMerchantIdentity,
   useEditMerchantCategory,
+  useCreateBranch,
+  useDeleteBranch,
 } from '../useMerchantActions'
 import { merchantsApi } from '@/lib/api/merchants'
 import { branchesApi } from '@/lib/api/branches'
@@ -41,6 +43,8 @@ jest.mock('@/lib/api/branches', () => ({
   branchesApi: {
     confirmLocation: jest.fn(),
     edit: jest.fn(),
+    create: jest.fn(),
+    softDelete: jest.fn(),
   },
 }))
 
@@ -315,6 +319,57 @@ describe('useEditMerchantCategory (B2.3)', () => {
     const { invalidateSpy, Wrapper } = makeHarness()
     const { result } = renderHook(() => useEditMerchantCategory(MERCHANT_ID), { wrapper: Wrapper })
     result.current.mutate({ primaryCategoryId: 'cat-new', reason: 'fix', confirm: true })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+})
+
+describe('useCreateBranch (B2.4)', () => {
+  it('invalidates detail + directory on success, passing the create input', async () => {
+    ;(branchesApi.create as jest.Mock).mockResolvedValueOnce({ id: 'br-new' })
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useCreateBranch(MERCHANT_ID), { wrapper: Wrapper })
+
+    const input = { name: 'New', addressLine1: '1 St', city: 'London', postcode: 'EC1A 1BB', reason: 'merchant asked' }
+    result.current.mutate(input)
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(branchesApi.create).toHaveBeenCalledWith(MERCHANT_ID, input)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+
+  it('invalidates on ERROR (stale state moved on)', async () => {
+    ;(branchesApi.create as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useCreateBranch(MERCHANT_ID), { wrapper: Wrapper })
+    result.current.mutate({ name: 'New', addressLine1: '1 St', city: 'London', postcode: 'EC1A 1BB', reason: 'x' })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+})
+
+describe('useDeleteBranch (B2.4)', () => {
+  it('invalidates detail + directory on success, passing branchId + reason', async () => {
+    ;(branchesApi.softDelete as jest.Mock).mockResolvedValueOnce({ ok: true })
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useDeleteBranch(MERCHANT_ID), { wrapper: Wrapper })
+
+    result.current.mutate({ branchId: 'br-1', reason: 'permanently closed' })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(branchesApi.softDelete).toHaveBeenCalledWith('br-1', 'permanently closed')
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+
+  it('invalidates on ERROR', async () => {
+    ;(branchesApi.softDelete as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useDeleteBranch(MERCHANT_ID), { wrapper: Wrapper })
+    result.current.mutate({ branchId: 'br-1', reason: 'x' })
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
