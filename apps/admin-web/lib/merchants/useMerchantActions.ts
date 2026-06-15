@@ -23,9 +23,10 @@ import { merchantsApi } from '@/lib/api/merchants'
 import { branchesApi } from '@/lib/api/branches'
 import { QUEUE_KEY } from '@/lib/queue/useQueue'
 import { MERCHANTS_LIST_KEY } from '@/lib/merchants/useMerchantsList'
+import { merchantDetailQueryKey } from '@/lib/merchants/useMerchantDetail'
 import { reviewQueryKey } from '@/lib/review/useReview'
-import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse } from '@/lib/api/merchants'
-import type { ConfirmLocationInput, ConfirmLocationResponse } from '@/lib/api/branches'
+import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse, EditMerchantProfileInput } from '@/lib/api/merchants'
+import type { ConfirmLocationInput, ConfirmLocationResponse, EditBranchInput } from '@/lib/api/branches'
 
 /**
  * Invalidate the surfaces a lifecycle action (suspend/reactivate) can shift.
@@ -90,6 +91,41 @@ export function useConfirmLocation(approvalId: string) {
     { branchId: string; input: ConfirmLocationInput }
   >({
     mutationFn: ({ branchId, input }) => branchesApi.confirmLocation(branchId, input),
+    onSuccess: invalidate,
+    onError: invalidate,
+  })
+}
+
+// ── Option B B2.1 — edit-on-behalf (merchant profile + branch) ────────────────
+
+/**
+ * Invalidate the surfaces a B2.1 edit can shift: this merchant's detail (so the
+ * detail page re-reads the new value) AND the merchants directory (so a changed
+ * field shows wherever the list is open). Like the lifecycle actions, this runs
+ * on success AND on error (a stale-state error means the server state moved on,
+ * so the UI should refetch).
+ */
+function useInvalidateAfterEdit(merchantId: string) {
+  const qc = useQueryClient()
+  return () => {
+    void qc.invalidateQueries({ queryKey: merchantDetailQueryKey(merchantId) })
+    void qc.invalidateQueries({ queryKey: MERCHANTS_LIST_KEY })
+  }
+}
+
+export function useEditMerchantProfile(merchantId: string) {
+  const invalidate = useInvalidateAfterEdit(merchantId)
+  return useMutation<{ id: string }, Error, EditMerchantProfileInput>({
+    mutationFn: (input) => merchantsApi.editProfile(merchantId, input),
+    onSuccess: invalidate,
+    onError: invalidate,
+  })
+}
+
+export function useEditBranch(merchantId: string) {
+  const invalidate = useInvalidateAfterEdit(merchantId)
+  return useMutation<{ id: string }, Error, { branchId: string; input: EditBranchInput }>({
+    mutationFn: ({ branchId, input }) => branchesApi.edit(branchId, input),
     onSuccess: invalidate,
     onError: invalidate,
   })
