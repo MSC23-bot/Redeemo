@@ -6,12 +6,12 @@ import { getMerchantOwner } from './service'
 import { notify } from '../../shared/notify'
 import { merchantEditAppliedEmail, merchantEditRejectedEmail } from '../../shared/merchantEmails'
 
-// Option B B1 — the admin pending-edit APPLIER. Makes the previously-dead
+// Option B B1: the admin pending-edit APPLIER. Makes the previously-dead
 // MERCHANT_IDENTITY_EDIT / BRANCH_IDENTITY_EDIT AdminApproval rows actionable.
 //
 // "Act FOR, never AS" (spec constraint 1/4): every write audits actorType ADMIN
 // with before/after (+ reason on reject). The applied change is ALWAYS restricted
-// to the SENSITIVE allow-list of the target entity — proposedChanges is NEVER
+// to the SENSITIVE allow-list of the target entity: proposedChanges is NEVER
 // blind-spread into the update.
 //
 // Scope is ONLY the two wired edit types. Disambiguate by approval.type, NEVER
@@ -68,7 +68,7 @@ async function safeNotify(
     await notify(prisma, redis, input)
   } catch (err) {
     console.warn(
-      `[edit-applier] best-effort notify '${input.type}' (recipient ${input.recipientId}) failed — action committed, NOT rolled back:`,
+      `[edit-applier] best-effort notify '${input.type}' (recipient ${input.recipientId}) failed: action committed, NOT rolled back:`,
       err,
     )
   }
@@ -159,12 +159,12 @@ export async function approveEdit(
     if (!edit) throw new AppError('PENDING_EDIT_NOT_FOUND')
     if (edit.status !== 'PENDING') throw new AppError('PENDING_EDIT_NOT_ACTIONABLE')
 
-    // PHOTO BLOCK — BEFORE any mutation. B1 does not apply photo edits.
+    // PHOTO BLOCK: BEFORE any mutation. B1 does not apply photo edits.
     if (edit.includesPhotos === true) throw new AppError('EDIT_PHOTO_APPLY_NOT_SUPPORTED')
 
     const proposed = (edit.proposedChanges ?? {}) as Record<string, unknown>
     // Apply the customer-visible fields PLUS the eagerly-resolved location
-    // snapshot (verbatim — already resolved at request time). Both are explicit
+    // snapshot (verbatim: already resolved at request time). Both are explicit
     // allow-lists; proposedChanges is never blind-spread.
     const applied = {
       ...pickAllowed(proposed, BRANCH_SENSITIVE_FIELDS),
@@ -221,7 +221,7 @@ export async function approveEdit(
     })
   } else {
     console.warn(
-      `[edit-applier] approve-edit committed for merchant ${result.merchantId} but no ACTIVE OWNER membership found — merchant NOT notified`,
+      `[edit-applier] approve-edit committed for merchant ${result.merchantId} but no ACTIVE OWNER membership found: merchant NOT notified`,
     )
   }
   return { approved: true as const }
@@ -229,7 +229,7 @@ export async function approveEdit(
 
 /**
  * Reject a merchant-requested identity edit (Option B B1). The LIVE entity is
- * NEVER touched (no mutation), so there is no photo block — a photo edit can be
+ * NEVER touched (no mutation), so there is no photo block: a photo edit can be
  * rejected. One transaction: validate (same as approve), flip both statuses
  * (PendingEdit → REJECTED with reviewNote, AdminApproval → REJECTED with
  * comment), write a transactional ADMIN audit carrying the reason. After commit:
@@ -285,7 +285,7 @@ export async function rejectEdit(
       return { merchantId: edit.merchantId }
     }
 
-    // kind === 'branch'. Reject is safe for photo edits too — no mutation.
+    // kind === 'branch'. Reject is safe for photo edits too: no mutation.
     const edit = await tx.branchPendingEdit.findUnique({
       where: { id: approval.referenceId },
       select: { id: true, status: true, branchId: true, merchantId: true },
@@ -333,7 +333,7 @@ export async function rejectEdit(
     })
   } else {
     console.warn(
-      `[edit-applier] reject-edit committed for merchant ${result.merchantId} but no ACTIVE OWNER membership found — merchant NOT notified`,
+      `[edit-applier] reject-edit committed for merchant ${result.merchantId} but no ACTIVE OWNER membership found: merchant NOT notified`,
     )
   }
   return { rejected: true as const }
@@ -362,7 +362,7 @@ export interface EditReviewContext {
 /**
  * Build the field-by-field diff for an edit approval (gated approval:read).
  * current = live entity value; proposed = proposedChanges[field]. For a photo
- * edit, surface photoChanges (proposed add/remove URLs) — NOT silently ignored.
+ * edit, surface photoChanges (proposed add/remove URLs): NOT silently ignored.
  * No secret fields are read or returned.
  */
 export async function getEditReviewContext(prisma: PrismaClient, approvalId: string): Promise<EditReviewContext> {

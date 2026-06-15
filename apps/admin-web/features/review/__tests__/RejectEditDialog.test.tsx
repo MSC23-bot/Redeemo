@@ -1,5 +1,5 @@
 /**
- * RejectEditDialog (Option B B1) — reason mandatory (soft-min), rejects via
+ * RejectEditDialog (Option B B1): reason mandatory (soft-min), rejects via
  * useRejectEdit; the live listing is not touched.
  */
 import React from 'react'

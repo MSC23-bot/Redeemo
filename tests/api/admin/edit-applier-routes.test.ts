@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../../../src/api/app'
 
-// Option B B1 — auth + capability gate on the edit-applier routes (not business
+// Option B B1: auth + capability gate on the edit-applier routes (not business
 // logic). The gate fires in preHandlers (authenticateAdmin → requireAdminCapability)
 // before any service/prisma call, so for the gate cases a bare prisma mock suffices.
 //
 // approve-edit / reject-edit need approval:apply-edit; edit-review needs
 // approval:read. SUPPORT holds neither; OPERATIONS / SUPER_ADMIN hold both.
 
-describe('B1 — edit-applier route auth + capability gates', () => {
+describe('B1: edit-applier route auth + capability gates', () => {
   let app: FastifyInstance
   const signAdmin = (adminRole?: string) =>
     (app.jwt as any).admin.sign({ sub: 'admin-1', role: 'admin', adminRole, sessionId: 's1' }, { expiresIn: '1h' })
@@ -84,7 +84,7 @@ describe('B1 — edit-applier route auth + capability gates', () => {
 
 // OPERATIONS passes the cap gate; with a prisma mock we drive the route end-to-end
 // and pin the 200 response shapes for approve / reject / review.
-describe('B1 — edit-applier route success shapes (OPERATIONS, prisma mock)', () => {
+describe('B1: edit-applier route success shapes (OPERATIONS, prisma mock)', () => {
   let app: FastifyInstance
   const signOps = () =>
     (app.jwt as any).admin.sign(

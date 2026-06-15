@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { claimApproval } from '../../../src/api/admin/approvals/service'
 
-// Option B B1 T2 — claim-audit correctness for edit-type approval rows.
+// Option B B1 T2: claim-audit correctness for edit-type approval rows.
 //
 // claimApproval is NOT type-gated (it claims any PENDING row). The pre-B1 audit
 // wrote entityId = approval.referenceId, which is the PendingEdit id for an edit
@@ -20,7 +20,7 @@ function buildPrisma(tx: Record<string, unknown>) {
   } as never
 }
 
-describe('B1 T2 — claimApproval audit for edit rows', () => {
+describe('B1 T2: claimApproval audit for edit rows', () => {
   it('MERCHANT_IDENTITY_EDIT claim audits the merchant id (not the PendingEdit id)', async () => {
     const auditCreate = vi.fn().mockResolvedValue(undefined)
     const tx = {

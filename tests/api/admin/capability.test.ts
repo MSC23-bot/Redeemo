@@ -44,7 +44,7 @@ describe('M2 — admin capability map', () => {
       }
     })
 
-    it('B1 — approval:apply-edit held by OPERATIONS + SUPER_ADMIN, not FINANCE/CONTENT/SUPPORT', () => {
+    it('B1: approval:apply-edit held by OPERATIONS + SUPER_ADMIN, not FINANCE/CONTENT/SUPPORT', () => {
       expect(adminHasCapability('OPERATIONS', 'approval:apply-edit')).toBe(true)
       expect(adminHasCapability('SUPER_ADMIN', 'approval:apply-edit')).toBe(true)
       for (const role of ['FINANCE', 'CONTENT', 'SUPPORT']) {

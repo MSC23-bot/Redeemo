@@ -1,11 +1,11 @@
 'use client'
 
 /**
- * useEditReview — React Query hook for a single edit approval's field diff
+ * useEditReview: React Query hook for a single edit approval's field diff
  * (Option B B1). Fetches GET /api/v1/admin/approvals/:id/edit-review. Pass
  * `enabled: false` to suppress the request (session not ready / no approval:read).
  *
- * useApproveEdit / useRejectEdit — mutations that invalidate both the queue list
+ * useApproveEdit / useRejectEdit: mutations that invalidate both the queue list
  * and this review on success AND on stale-state errors, so the UI reflects the
  * latest server state automatically.
  */

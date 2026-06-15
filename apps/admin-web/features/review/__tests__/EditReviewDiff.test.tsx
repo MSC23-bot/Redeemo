@@ -1,5 +1,5 @@
 /**
- * EditReviewDiff (Option B B1) — field-diff render, photo display, capability
+ * EditReviewDiff (Option B B1): field-diff render, photo display, capability
  * gating of the Approve / Reject actions, and the photo-apply-disabled path.
  */
 import React from 'react'

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * EditReviewDiff (Option B B1) — the merchant-requested identity-edit review.
+ * EditReviewDiff (Option B B1): the merchant-requested identity-edit review.
  *
  * Renders the field-by-field diff (current vs proposed), a photo-change display
  * for photo edits, and the Approve-edit / Reject-edit actions. Approve is gated
@@ -95,7 +95,7 @@ interface EditReviewDiffProps {
 
 export function EditReviewDiff({ context, canApplyEdit, onApprove, onReject }: EditReviewDiffProps) {
   const isPending = context.status === 'PENDING'
-  // A photo edit cannot be applied by B1 — apply is disabled with a clear note;
+  // A photo edit cannot be applied by B1: apply is disabled with a clear note;
   // reject stays enabled.
   const approveDisabled = !isPending || context.includesPhotos
 
@@ -154,7 +154,7 @@ export function EditReviewDiff({ context, canApplyEdit, onApprove, onReject }: E
         </p>
       )}
 
-      {/* Actions — gated on approval:apply-edit. Hidden entirely without the cap. */}
+      {/* Actions: gated on approval:apply-edit. Hidden entirely without the cap. */}
       {canApplyEdit && (
         <div className="mt-6 flex justify-end gap-3" data-testid="edit-review-actions">
           <Button

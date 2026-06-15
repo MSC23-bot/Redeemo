@@ -1,5 +1,5 @@
 /**
- * ApproveEditConfirm (Option B B1) — applies the edit via useApproveEdit; shows
+ * ApproveEditConfirm (Option B B1): applies the edit via useApproveEdit; shows
  * the error banner on failure; never optimistically marks applied.
  */
 import React from 'react'

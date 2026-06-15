@@ -72,7 +72,7 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
     return approveApproval(app.prisma, app.redis, idParam(req), req.user.sub, auditCtx(req))
   })
 
-  // Option B B1 — pending-edit applier (MERCHANT_IDENTITY_EDIT /
+  // Option B B1: pending-edit applier (MERCHANT_IDENTITY_EDIT /
   // BRANCH_IDENTITY_EDIT). Gated on its own approval:apply-edit capability so an
   // edit-applier role need not also hold the onboarding go-live/reject actions.
   // The field diff read reuses approval:read.

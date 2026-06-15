@@ -270,7 +270,7 @@ export default function ReviewPage({ params }: ReviewPageProps) {
       ) : isError || !data ? (
         <ErrorState onRetry={refetch} />
       ) : EDIT_APPROVAL_TYPES.includes(data.approval.type) ? (
-        // Option B B1 — merchant-requested identity edit (its own field-diff
+        // Option B B1: merchant-requested identity edit (its own field-diff
         // surface with Approve-edit / Reject-edit). The actions are gated on
         // approval:apply-edit; the diff read uses approval:read (already checked).
         <EditReviewPanel

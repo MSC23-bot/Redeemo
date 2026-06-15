@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * EditReviewPanel (Option B B1) — self-contained edit-review surface for a
+ * EditReviewPanel (Option B B1): self-contained edit-review surface for a
  * MERCHANT_IDENTITY_EDIT / BRANCH_IDENTITY_EDIT approval. Owns the field-diff
  * fetch + the Approve-edit / Reject-edit dialog state, so the queue review page
  * only has to branch on the approval type and mount this.
@@ -17,9 +17,9 @@ import { RejectEditDialog } from './RejectEditDialog'
 
 interface EditReviewPanelProps {
   approvalId: string
-  /** ready && can('approval:read') — gates the data fetch. */
+  /** ready && can('approval:read'): gates the data fetch. */
   canRead: boolean
-  /** can('approval:apply-edit') — gates the Approve/Reject actions. */
+  /** can('approval:apply-edit'): gates the Approve/Reject actions. */
   canApplyEdit: boolean
 }
 

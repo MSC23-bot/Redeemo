@@ -62,7 +62,7 @@ export const ERROR_DEFINITIONS = {
   // withdrawn), so the linked approval cannot be applied or rejected.
   PENDING_EDIT_NOT_ACTIONABLE:    { statusCode: 409, message: 'This edit request is no longer pending and cannot be actioned.' },
   // Option B B1: a BRANCH_IDENTITY_EDIT that includes photo changes cannot be
-  // applied by B1 — photo apply ships in a follow-up. The edit can still be
+  // applied by B1 (photo apply ships in a follow-up). The edit can still be
   // rejected. (Field-only branch edits and merchant identity edits ARE applied.)
   EDIT_PHOTO_APPLY_NOT_SUPPORTED: { statusCode: 409, message: 'Photo edits cannot be applied yet. You can reject this request, or apply it in a future update.' },
   ACTION_TOKEN_INVALID:           { statusCode: 400, message: 'This action has expired. Please start again.' },

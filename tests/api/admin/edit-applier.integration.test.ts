@@ -110,7 +110,7 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
-describe('B1 — approveEdit (merchant identity, real DB)', () => {
+describe('B1: approveEdit (merchant identity, real DB)', () => {
   it('applies businessName to the live merchant, flips both statuses, audits ADMIN before/after', async () => {
     const merchantId = await makeMerchant('Merchant Approve Co')
     const { editId, approvalId } = await makeMerchantEdit(merchantId, { businessName: `${PREFIX} Renamed Co` })
@@ -161,7 +161,7 @@ describe('B1 — approveEdit (merchant identity, real DB)', () => {
   })
 })
 
-describe('B1 — approveEdit (branch identity, real DB)', () => {
+describe('B1: approveEdit (branch identity, real DB)', () => {
   it('applies a branch field + the location snapshot verbatim', async () => {
     const merchantId = await makeMerchant('Branch Approve Co')
     const branchId = await makeBranch(merchantId, 'Approve Branch')
@@ -189,7 +189,7 @@ describe('B1 — approveEdit (branch identity, real DB)', () => {
   })
 })
 
-describe('B1 — approveEdit photo block (real DB)', () => {
+describe('B1: approveEdit photo block (real DB)', () => {
   it('throws EDIT_PHOTO_APPLY_NOT_SUPPORTED and leaves the live branch + statuses unchanged', async () => {
     const merchantId = await makeMerchant('Photo Block Co')
     const branchId = await makeBranch(merchantId, 'Photo Branch')
@@ -232,7 +232,7 @@ describe('B1 — approveEdit photo block (real DB)', () => {
   })
 })
 
-describe('B1 — rejectEdit leaves the live row unchanged (real DB)', () => {
+describe('B1: rejectEdit leaves the live row unchanged (real DB)', () => {
   it('flips both statuses + audits reason; the live merchant is untouched', async () => {
     const merchantId = await makeMerchant('Merchant Reject Co')
     const originalName = `${PREFIX} Merchant Reject Co`
@@ -258,7 +258,7 @@ describe('B1 — rejectEdit leaves the live row unchanged (real DB)', () => {
   })
 })
 
-describe('B1 — error paths (real DB)', () => {
+describe('B1: error paths (real DB)', () => {
   it('unknown approval id -> APPROVAL_NOT_FOUND', async () => {
     await expect(approveEdit(prisma, dummyRedis, '00000000-0000-0000-0000-000000000000', ADMIN_ID, ctx))
       .rejects.toThrow('APPROVAL_NOT_FOUND')
@@ -288,7 +288,7 @@ describe('B1 — error paths (real DB)', () => {
   })
 })
 
-describe('B1 — getEditReviewContext (real DB)', () => {
+describe('B1: getEditReviewContext (real DB)', () => {
   it('returns the merchant field diff (current vs proposed)', async () => {
     const merchantId = await makeMerchant('Review Diff Co')
     const { editId, approvalId } = await makeMerchantEdit(merchantId, { businessName: `${PREFIX} Proposed Name` })

@@ -50,7 +50,7 @@ export function merchantRejectedEmail(reason: string): RenderedEmail {
 }
 
 /**
- * Option B B1 — admin applied a merchant-requested identity edit (merchant
+ * Option B B1: admin applied a merchant-requested identity edit (merchant
  * profile or branch identity field). No admin free text is shown; only the
  * brand name is interpolated, so nothing here is admin-controlled.
  */
@@ -67,7 +67,7 @@ export function merchantEditAppliedEmail(): RenderedEmail {
 }
 
 /**
- * Option B B1 — admin rejected a merchant-requested identity edit. `reason` is
+ * Option B B1: admin rejected a merchant-requested identity edit. `reason` is
  * admin-controlled free text shown to the merchant ⇒ HTML-escaped.
  */
 export function merchantEditRejectedEmail(reason: string): RenderedEmail {
