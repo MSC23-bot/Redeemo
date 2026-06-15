@@ -78,6 +78,23 @@ describe('hasCapability — truth table (5 roles x 5 caps)', () => {
   })
 })
 
+// Option B B2.2: merchant:edit-identity is intentionally NOT in ALL_SLICE1_CAPS,
+// so it is held ONLY by SUPER_ADMIN (via the superuser short-circuit). This
+// mirror must match the backend src/api/admin/capability.ts exactly.
+describe('merchant:edit-identity is SUPER_ADMIN-only (B2.2)', () => {
+  it('SUPER_ADMIN holds it', () => {
+    expect(hasCapability('SUPER_ADMIN', 'merchant:edit-identity')).toBe(true)
+  })
+  it('OPERATIONS does NOT hold it', () => {
+    expect(hasCapability('OPERATIONS', 'merchant:edit-identity')).toBe(false)
+  })
+  it('FINANCE / CONTENT / SUPPORT do NOT hold it', () => {
+    expect(hasCapability('FINANCE', 'merchant:edit-identity')).toBe(false)
+    expect(hasCapability('CONTENT', 'merchant:edit-identity')).toBe(false)
+    expect(hasCapability('SUPPORT', 'merchant:edit-identity')).toBe(false)
+  })
+})
+
 describe('session storage — set / get / clear', () => {
   const meta = {
     entityId: 'admin-1',

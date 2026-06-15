@@ -153,6 +153,8 @@ describe('merchantsApi.getById', () => {
       verificationStatus: 'VERIFIED',
       onboardingStep: 'LIVE',
       websiteUrl: 'https://acme.test',
+      vatNumber: 'GB123456789',
+      companyNumber: '12345678',
       logoUrl: null,
       category: 'Restaurants',
     },
@@ -199,6 +201,8 @@ describe('merchantsApi.getById', () => {
         verificationStatus: 'NOT_SUBMITTED',
         onboardingStep: 'PROFILE',
         websiteUrl: null,
+        vatNumber: null,
+        companyNumber: null,
         logoUrl: null,
         category: null,
       },
@@ -207,6 +211,8 @@ describe('merchantsApi.getById', () => {
     mockedApiFetch.mockResolvedValueOnce(minimal)
     const result = await merchantsApi.getById('m-2')
     expect(result.merchant.tradingName).toBeNull()
+    expect(result.merchant.vatNumber).toBeNull()
+    expect(result.merchant.companyNumber).toBeNull()
     expect(result.branches).toEqual([])
   })
 
@@ -266,6 +272,49 @@ describe('merchantsApi.editProfile', () => {
     mockedApiFetch.mockRejectedValueOnce(err)
     await expect(
       merchantsApi.editProfile('m-1', { websiteUrl: 'x', reason: 'y' })
+    ).rejects.toMatchObject({ code: 'MERCHANT_NOT_FOUND' })
+  })
+})
+
+// ── editIdentity (B2.2 identity edit-on-behalf) ───────────────────────────────
+
+describe('merchantsApi.editIdentity', () => {
+  it('PATCH /api/v1/admin/merchants/:id/identity with auth:true and { vat, company, reason, confirm } body', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ id: 'm-1' })
+    const result = await merchantsApi.editIdentity('m-1', {
+      vatNumber: 'GB999',
+      companyNumber: '87654321',
+      reason: 'Companies House correction.',
+      confirm: true,
+    })
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1/identity', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify({
+        vatNumber: 'GB999',
+        companyNumber: '87654321',
+        reason: 'Companies House correction.',
+        confirm: true,
+      }),
+    })
+    expect(result.id).toBe('m-1')
+  })
+
+  it('sends null fields to clear them', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ id: 'm-1' })
+    await merchantsApi.editIdentity('m-1', { vatNumber: null, companyNumber: null, reason: 'Cleared.', confirm: true })
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1/identity', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify({ vatNumber: null, companyNumber: null, reason: 'Cleared.', confirm: true }),
+    })
+  })
+
+  it('propagates ApiError with .code on MERCHANT_NOT_FOUND', async () => {
+    const err = new ApiError(404, { error: { code: 'MERCHANT_NOT_FOUND', message: 'Not found' } })
+    mockedApiFetch.mockRejectedValueOnce(err)
+    await expect(
+      merchantsApi.editIdentity('m-1', { vatNumber: 'x', reason: 'y', confirm: true })
     ).rejects.toMatchObject({ code: 'MERCHANT_NOT_FOUND' })
   })
 })

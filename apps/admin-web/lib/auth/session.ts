@@ -30,6 +30,11 @@ export type AdminCapability =
   // Option B B2.1: gates the admin direct-edit-on-behalf routes (PATCH a
   // merchant's / branch's simple-DIRECT fields).
   | 'merchant:edit'
+  // Option B B2.2: gates the admin edit of a merchant's registered identity
+  // fields (vatNumber / companyNumber). NOT in ALL_SLICE1_CAPS, so it is held
+  // ONLY by SUPER_ADMIN (via the hasCapability short-circuit). Keep aligned with
+  // the backend src/api/admin/capability.ts.
+  | 'merchant:edit-identity'
 
 export type AdminRole =
   | 'SUPER_ADMIN'
