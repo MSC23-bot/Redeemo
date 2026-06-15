@@ -64,7 +64,7 @@ const VALID_CO7_RESPONSE = {
 }
 
 function buildPrismaMock() {
-  return {
+  const mock: any = {
     merchantAdmin: {
       findUnique: vi.fn().mockResolvedValue({ id: ADMIN_ID, merchantId: MERCHANT_ID, status: 'ACTIVE' }),
     },
@@ -95,7 +95,11 @@ function buildPrismaMock() {
       })),
     },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
-  } as any
+  }
+  // B2.4: createBranchCore now wraps create + audit in a transaction; $transaction
+  // runs the callback with the same mock so tx.branch.create / tx.auditLog.create resolve.
+  mock.$transaction = vi.fn().mockImplementation(async (cb: any) => cb(mock))
+  return mock as any
 }
 
 describe('createBranch — Plan 4 M1.21 resolve-on-write', () => {
