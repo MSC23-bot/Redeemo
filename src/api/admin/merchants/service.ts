@@ -80,6 +80,65 @@ export async function listMerchants(prisma: PrismaClient, filters: ListMerchants
   return { page, pageSize, total, merchants }
 }
 
+/**
+ * Option B B2.1-read: single merchant detail for the admin edit page (B2.1-web).
+ * Returns the merchant identity/status summary + the editable `websiteUrl`, plus
+ * each non-soft-deleted branch's display fields + the B2.1-editable contact set
+ * (phone/email/websiteUrl/isActive).
+ *
+ * REDACTION: TIGHT explicit selects only. Branches ARE joined here (unlike
+ * listMerchants), so the branch select is an allow-list that NEVER includes
+ * `redemptionPin` (the AES-encrypted PIN) or other branch secrets/asset URLs
+ * (logoUrl/bannerUrl/priceListUrl/about). High-risk merchant fields
+ * (vatNumber/companyNumber) are excluded (they belong to B2.2). No
+ * MerchantAdmin/owner-password join; no tokens / raw storage keys / document
+ * paths. Soft-deleted branches (deletedAt != null) are excluded.
+ */
+export async function getMerchantDetail(prisma: PrismaClient, merchantId: string) {
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: {
+      id: true,
+      businessName: true,
+      tradingName: true,
+      status: true,
+      verificationStatus: true,
+      onboardingStep: true,
+      websiteUrl: true,
+      logoUrl: true,
+      primaryCategory: { select: { name: true } },
+      branches: {
+        where: { deletedAt: null },
+        orderBy: [{ isMainBranch: 'desc' }, { createdAt: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          isMainBranch: true,
+          addressLine1: true,
+          addressLine2: true,
+          city: true,
+          postcode: true,
+          localityName: true,
+          locationConfidence: true,
+          // B2.1-editable contact fields (the shipped PATCH allow-list):
+          phone: true,
+          email: true,
+          websiteUrl: true,
+          isActive: true,
+          // redemptionPin (AES-encrypted) is NEVER selected.
+        },
+      },
+    },
+  })
+  if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
+
+  const { primaryCategory, branches, ...rest } = merchant
+  return {
+    merchant: { ...rest, category: primaryCategory?.name ?? null },
+    branches,
+  }
+}
+
 export interface CreateMerchantDraftInput {
   businessName: string
   tradingName?: string
