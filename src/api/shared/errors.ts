@@ -57,6 +57,14 @@ export const ERROR_DEFINITIONS = {
   // approval, or a SUPER_ADMIN (force-release), may release it. An ordinary admin
   // releasing another admin's claim is refused with this code.
   APPROVAL_NOT_CLAIMER:           { statusCode: 403, message: 'Only the admin who claimed this approval, or a super admin, can release it.' },
+  // Option B B1 (admin pending-edit applier). The underlying MerchantPendingEdit
+  // / BranchPendingEdit is no longer PENDING (already approved, rejected, or
+  // withdrawn), so the linked approval cannot be applied or rejected.
+  PENDING_EDIT_NOT_ACTIONABLE:    { statusCode: 409, message: 'This edit request is no longer pending and cannot be actioned.' },
+  // Option B B1: a BRANCH_IDENTITY_EDIT that includes photo changes cannot be
+  // applied by B1 — photo apply ships in a follow-up. The edit can still be
+  // rejected. (Field-only branch edits and merchant identity edits ARE applied.)
+  EDIT_PHOTO_APPLY_NOT_SUPPORTED: { statusCode: 409, message: 'Photo edits cannot be applied yet. You can reject this request, or apply it in a future update.' },
   ACTION_TOKEN_INVALID:           { statusCode: 400, message: 'This action has expired. Please start again.' },
   PASSWORD_POLICY_VIOLATION:      { statusCode: 400, message: 'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.' },
   PASSWORD_CHANGE_REQUIRED:       { statusCode: 403, message: 'You must set a new password before continuing.' },

@@ -194,9 +194,33 @@ export async function claimApproval(prisma: PrismaClient, id: string, adminId: s
       await tx.merchant.update({ where: { id: approval.referenceId }, data: { onboardingStep: 'UNDER_REVIEW' } })
     }
 
+    // Audit-entity resolution. For onboarding the referenceId IS the merchant id.
+    // For the Option B B1 edit types the referenceId is a PendingEdit id, so the
+    // real target (merchant for MERCHANT_IDENTITY_EDIT; branch for
+    // BRANCH_IDENTITY_EDIT) must be resolved from the PendingEdit row. Disambiguate
+    // by approval.type, NEVER by referenceType. Defaults to the onboarding shape.
+    let entityId = approval.referenceId
+    let entityType: 'merchant' | 'branch' = 'merchant'
+    if (approval.type === 'MERCHANT_IDENTITY_EDIT') {
+      const edit = await tx.merchantPendingEdit.findUnique({
+        where: { id: approval.referenceId },
+        select: { merchantId: true },
+      })
+      if (edit) entityId = edit.merchantId
+    } else if (approval.type === 'BRANCH_IDENTITY_EDIT') {
+      const edit = await tx.branchPendingEdit.findUnique({
+        where: { id: approval.referenceId },
+        select: { branchId: true },
+      })
+      if (edit) {
+        entityId = edit.branchId
+        entityType = 'branch'
+      }
+    }
+
     await writeAuditLogTx(tx, {
-      entityId: approval.referenceId,
-      entityType: 'merchant',
+      entityId,
+      entityType,
       event: 'MERCHANT_APPROVAL_CLAIMED',
       actorId: adminId,
       actorType: 'ADMIN',
