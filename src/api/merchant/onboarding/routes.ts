@@ -24,7 +24,7 @@ export async function onboardingRoutes(app: FastifyInstance) {
   })
 
   app.post(`${prefix}/submit`, async (req: FastifyRequest, reply) => {
-    const result = await submitForApproval(app.prisma, req.user.sub, {
+    const result = await submitForApproval(app.prisma, app.redis, req.user.sub, {
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
     })
     return reply.send(result)

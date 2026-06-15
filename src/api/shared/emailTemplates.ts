@@ -119,6 +119,46 @@ export function adminOtpEmail(code: string): RenderedEmail {
   }
 }
 
+/**
+ * M8 admin alert: a merchant SUBMITTED for approval (first submission). Sent to
+ * the single ops inbox (ADMIN_OPS_ALERT_EMAIL). `businessName` is merchant-
+ * controlled ⇒ escaped in the body and stripped in the subject header.
+ */
+export function adminMerchantSubmittedEmail(businessName: string): RenderedEmail {
+  const safeName = escapeHtml(businessName)
+  return {
+    subject: `New merchant submitted for approval: ${sanitizeHeader(businessName)}`,
+    text:
+      `A merchant has submitted for ${BRAND} approval and is waiting in the review queue.\n\n` +
+      `Merchant: ${businessName}\n\n` +
+      `Open the admin panel to claim and review it.`,
+    html:
+      `<p>A merchant has submitted for ${BRAND} approval and is waiting in the review queue.</p>` +
+      `<p><strong>Merchant:</strong> ${safeName}</p>` +
+      `<p>Open the admin panel to claim and review it.</p>`,
+  }
+}
+
+/**
+ * M8 admin alert: a merchant RESUBMITTED after changes were requested. Sent to
+ * the reviewer who requested those changes. `businessName` is merchant-controlled
+ * ⇒ escaped in the body and stripped in the subject header.
+ */
+export function adminMerchantResubmittedEmail(businessName: string): RenderedEmail {
+  const safeName = escapeHtml(businessName)
+  return {
+    subject: `Merchant resubmitted after changes: ${sanitizeHeader(businessName)}`,
+    text:
+      `A merchant you requested changes from has resubmitted for ${BRAND} approval.\n\n` +
+      `Merchant: ${businessName}\n\n` +
+      `Open the admin panel to review the updated submission.`,
+    html:
+      `<p>A merchant you requested changes from has resubmitted for ${BRAND} approval.</p>` +
+      `<p><strong>Merchant:</strong> ${safeName}</p>` +
+      `<p>Open the admin panel to review the updated submission.</p>`,
+  }
+}
+
 /** Branch staff redemption-PIN email. branchName is merchant-controlled ⇒ escaped/sanitized. */
 export function branchPinEmail(branchName: string, pin: string): RenderedEmail {
   const safeName = escapeHtml(branchName)
