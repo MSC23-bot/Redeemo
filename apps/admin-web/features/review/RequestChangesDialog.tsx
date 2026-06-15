@@ -1,5 +1,5 @@
 /**
- * RequestChangesDialog — admin sends a reason-for-changes message to the merchant.
+ * RequestChangesDialog: admin sends a reason-for-changes message to the merchant.
  *
  * Features:
  *   - Textarea for the reason (mandatory, soft minimum 15 chars)

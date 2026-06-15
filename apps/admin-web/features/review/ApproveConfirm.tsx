@@ -1,5 +1,5 @@
 /**
- * ApproveConfirm — admin approves a merchant application and takes them live.
+ * ApproveConfirm: admin approves a merchant application and takes them live.
  *
  * Serious-tone dialog explaining the consequences of approve.
  * On a failed approve (ONBOARDING_GATES_INCOMPLETE, etc.): shows NamedGateBanner

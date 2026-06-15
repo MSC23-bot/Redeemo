@@ -1,5 +1,5 @@
 /**
- * RejectDialog — admin rejects a merchant application.
+ * RejectDialog: admin rejects a merchant application.
  *
  * Requirements:
  *   - Mandatory reason textarea
