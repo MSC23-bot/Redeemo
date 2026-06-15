@@ -84,6 +84,22 @@ jest.mock('@/features/merchants/EditBranchDialog', () => ({
   ),
 }))
 
+jest.mock('@/features/merchants/EditMerchantIdentityDialog', () => ({
+  EditMerchantIdentityDialog: ({
+    merchantId,
+    onCancel,
+  }: {
+    merchantId: string
+    onCancel: () => void
+  }) => (
+    <div data-testid="edit-merchant-identity-dialog-mock" data-merchant-id={merchantId}>
+      <button onClick={onCancel} data-testid="edit-identity-dialog-cancel">
+        Cancel
+      </button>
+    </div>
+  ),
+}))
+
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
 import type { UseMerchantDetailResult } from '@/lib/merchants/useMerchantDetail'
@@ -123,6 +139,8 @@ function makeDetail(overrides: Partial<MerchantDetail> = {}): MerchantDetail {
       verificationStatus: 'VERIFIED',
       onboardingStep: 'LIVE',
       websiteUrl: 'https://acme.test',
+      vatNumber: 'GB123456789',
+      companyNumber: '12345678',
       logoUrl: null,
       category: 'Restaurants',
     },
@@ -283,6 +301,67 @@ describe('MerchantDetailPage edit affordance gating', () => {
     expect(screen.getByTestId('merchant-detail-header')).toBeInTheDocument()
     expect(screen.queryByTestId('merchant-website-edit')).not.toBeInTheDocument()
     expect(screen.queryByTestId('branch-edit-br-1')).not.toBeInTheDocument()
+  })
+})
+
+// ── B2.2: Business registration card + identity-edit gating ───────────────────
+
+describe('MerchantDetailPage business registration card (B2.2)', () => {
+  it('renders the identity card with read-only vat/company for a merchant:read admin', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-identity-card')).toBeInTheDocument()
+    expect(screen.getByTestId('merchant-vat-value')).toHaveTextContent('GB123456789')
+    expect(screen.getByTestId('merchant-company-value')).toHaveTextContent('12345678')
+  })
+
+  it('shows "Not set" when vat/company are null', () => {
+    mockSession({ can: () => true })
+    mockDetail({
+      data: makeDetail({
+        merchant: { ...makeDetail().merchant, vatNumber: null, companyNumber: null },
+      }),
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-vat-value')).toHaveTextContent('Not set')
+    expect(screen.getByTestId('merchant-company-value')).toHaveTextContent('Not set')
+  })
+
+  it('shows the identity Edit button WITH merchant:edit-identity (SUPER_ADMIN)', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-identity-edit')).toBeInTheDocument()
+  })
+
+  it('HIDES the identity Edit button for an admin with merchant:read + merchant:edit but NOT merchant:edit-identity', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    // The card still renders read-only; the website Edit shows; identity Edit does NOT.
+    expect(screen.getByTestId('merchant-identity-card')).toBeInTheDocument()
+    expect(screen.getByTestId('merchant-website-edit')).toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-identity-edit')).not.toBeInTheDocument()
+  })
+
+  it('opens the identity dialog when the identity Edit is clicked', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('merchant-identity-edit'))
+    const dialog = screen.getByTestId('edit-merchant-identity-dialog-mock')
+    expect(dialog).toBeInTheDocument()
+    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
+  })
+
+  it('closes the identity dialog on its Cancel', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('merchant-identity-edit'))
+    fireEvent.click(screen.getByTestId('edit-identity-dialog-cancel'))
+    expect(screen.queryByTestId('edit-merchant-identity-dialog-mock')).not.toBeInTheDocument()
   })
 })
 

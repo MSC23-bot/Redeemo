@@ -35,6 +35,11 @@ export type AuditEvent =
   | 'MERCHANT_DEACTIVATED'
   | 'MERCHANT_REACTIVATED'
   | 'MERCHANT_PROFILE_UPDATED'
+  // Option B B2.2: a SUPER_ADMIN edited a merchant's registered identity fields
+  // (vatNumber / companyNumber) on the merchant's behalf. Distinct from
+  // MERCHANT_PROFILE_UPDATED so high-risk identity changes are filterable in the
+  // audit trail. `event` is a String column, so this is union-only (no migration).
+  | 'MERCHANT_IDENTITY_UPDATED'
   | 'MERCHANT_EDIT_REQUEST_CREATED'
   | 'MERCHANT_EDIT_REQUEST_WITHDRAWN'
   | 'MERCHANT_CONTRACT_ACCEPTED'

@@ -89,8 +89,10 @@ export async function listMerchants(prisma: PrismaClient, filters: ListMerchants
  * REDACTION: TIGHT explicit selects only. Branches ARE joined here (unlike
  * listMerchants), so the branch select is an allow-list that NEVER includes
  * `redemptionPin` (the AES-encrypted PIN) or other branch secrets/asset URLs
- * (logoUrl/bannerUrl/priceListUrl/about). High-risk merchant fields
- * (vatNumber/companyNumber) are excluded (they belong to B2.2). No
+ * (logoUrl/bannerUrl/priceListUrl/about). The merchant registered-identity
+ * fields (vatNumber/companyNumber) ARE returned read-only (B2.2) so an admin can
+ * understand the record; editing them is gated by the SUPER_ADMIN-only
+ * `merchant:edit-identity` capability on PATCH /:id/identity, NOT this read. No
  * MerchantAdmin/owner-password join; no tokens / raw storage keys / document
  * paths. Soft-deleted branches (deletedAt != null) are excluded.
  */
@@ -105,6 +107,9 @@ export async function getMerchantDetail(prisma: PrismaClient, merchantId: string
       verificationStatus: true,
       onboardingStep: true,
       websiteUrl: true,
+      // B2.2: registered-identity fields, read-only on this merchant:read payload.
+      vatNumber: true,
+      companyNumber: true,
       logoUrl: true,
       primaryCategory: { select: { name: true } },
       branches: {

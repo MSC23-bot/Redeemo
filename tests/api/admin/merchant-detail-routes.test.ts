@@ -2,13 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../../../src/api/app'
 
-// Option B B2.1-read: auth + capability gate + redaction on GET
+// Option B B2.1-read + B2.2: auth + capability gate + redaction on GET
 // /admin/merchants/:id. The gate (authenticateAdmin then
 // requireAdminCapability('merchant:read')) fires in preHandlers before the
-// service, so a tiny prisma mock suffices. The positive case also pins that the
-// query select redacts (no redemptionPin / vatNumber; soft-deleted branches
-// filtered) at the prisma-call level.
-describe('B2.1-read: GET /admin/merchants/:id (auth + capability + shape)', () => {
+// service, so a tiny prisma mock suffices. The positive case pins that the
+// merchant select exposes the read-only registered-identity fields
+// (vatNumber/companyNumber, B2.2) while still redacting branch secrets (no
+// redemptionPin; soft-deleted branches filtered) at the prisma-call level.
+describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)', () => {
   let app: FastifyInstance
   const signAdmin = (adminRole?: string) =>
     (app.jwt as any).admin.sign({ sub: 'admin-1', role: 'admin', adminRole, sessionId: 's1' }, { expiresIn: '1h' })
@@ -17,6 +18,7 @@ describe('B2.1-read: GET /admin/merchants/:id (auth + capability + shape)', () =
   const detailRow = {
     id: 'm1', businessName: 'Acme', tradingName: 'Acme Co', status: 'ACTIVE',
     verificationStatus: 'VERIFIED', onboardingStep: 'LIVE', websiteUrl: 'https://acme.example.com',
+    vatNumber: 'GB123456789', companyNumber: '12345678',
     logoUrl: null, primaryCategory: { name: 'Food' },
     branches: [
       {
@@ -52,20 +54,21 @@ describe('B2.1-read: GET /admin/merchants/:id (auth + capability + shape)', () =
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
     expect(body.merchant).toMatchObject({ id: 'm1', websiteUrl: 'https://acme.example.com', category: 'Food' })
-    expect(body.merchant).not.toHaveProperty('vatNumber')
-    expect(body.merchant).not.toHaveProperty('companyNumber')
+    // B2.2: the registered-identity fields are now returned read-only.
+    expect(body.merchant.vatNumber).toBe('GB123456789')
+    expect(body.merchant.companyNumber).toBe('12345678')
     expect(body.merchant).not.toHaveProperty('primaryCategory')
     expect(body.branches[0]).toMatchObject({ id: 'b1', phone: '+44111', email: 'b@x.com', isActive: true })
     expect(body.branches[0]).not.toHaveProperty('redemptionPin')
     // Pin the redaction at the query level: branches filtered to deletedAt:null,
-    // the branch select never includes redemptionPin, the merchant select never
-    // includes vatNumber/companyNumber.
+    // the branch select never includes redemptionPin / secrets. The merchant
+    // select DOES include the read-only identity fields (B2.2).
     const findArgs = (app as any).prisma.merchant.findUnique.mock.calls[0][0]
     expect(findArgs.select.branches.where).toEqual({ deletedAt: null })
     expect(findArgs.select.branches.select).not.toHaveProperty('redemptionPin')
     expect(findArgs.select.branches.select).not.toHaveProperty('logoUrl')
-    expect(findArgs.select).not.toHaveProperty('vatNumber')
-    expect(findArgs.select).not.toHaveProperty('companyNumber')
+    expect(findArgs.select.vatNumber).toBe(true)
+    expect(findArgs.select.companyNumber).toBe(true)
   })
 
   it('200 for SUPER_ADMIN (superuser)', async () => {

@@ -25,7 +25,7 @@ import { QUEUE_KEY } from '@/lib/queue/useQueue'
 import { MERCHANTS_LIST_KEY } from '@/lib/merchants/useMerchantsList'
 import { merchantDetailQueryKey } from '@/lib/merchants/useMerchantDetail'
 import { reviewQueryKey } from '@/lib/review/useReview'
-import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse, EditMerchantProfileInput } from '@/lib/api/merchants'
+import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse, EditMerchantProfileInput, EditMerchantIdentityInput } from '@/lib/api/merchants'
 import type { ConfirmLocationInput, ConfirmLocationResponse, EditBranchInput } from '@/lib/api/branches'
 
 /**
@@ -126,6 +126,18 @@ export function useEditBranch(merchantId: string) {
   const invalidate = useInvalidateAfterEdit(merchantId)
   return useMutation<{ id: string }, Error, { branchId: string; input: EditBranchInput }>({
     mutationFn: ({ branchId, input }) => branchesApi.edit(branchId, input),
+    onSuccess: invalidate,
+    onError: invalidate,
+  })
+}
+
+// Option B B2.2: the SUPER_ADMIN-only identity edit (vatNumber / companyNumber).
+// Same invalidation contract as the B2.1 edits (detail + directory, on success
+// AND error). The route gates merchant:edit-identity server-side.
+export function useEditMerchantIdentity(merchantId: string) {
+  const invalidate = useInvalidateAfterEdit(merchantId)
+  return useMutation<{ id: string }, Error, EditMerchantIdentityInput>({
+    mutationFn: (input) => merchantsApi.editIdentity(merchantId, input),
     onSuccess: invalidate,
     onError: invalidate,
   })

@@ -132,6 +132,9 @@ export const merchantDetailSchema = z.object({
       .or(z.string()),
     onboardingStep: z.string(),
     websiteUrl: z.string().nullable(),
+    // B2.2: registered-identity fields, returned read-only on this detail payload.
+    vatNumber: z.string().nullable(),
+    companyNumber: z.string().nullable(),
     logoUrl: z.string().nullable(),
     category: z.string().nullable(),
   }),
@@ -146,6 +149,15 @@ const editAckSchema = z.object({ id: z.string() }).passthrough()
 export interface EditMerchantProfileInput {
   websiteUrl?: string | null
   reason: string
+}
+
+// B2.2: the registered-identity edit (vatNumber / companyNumber). `confirm` is a
+// required literal true (backend confirmation, not just the UI checkbox).
+export interface EditMerchantIdentityInput {
+  vatNumber?: string | null
+  companyNumber?: string | null
+  reason: string
+  confirm: true
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
@@ -203,6 +215,22 @@ export const merchantsApi = {
    */
   editProfile: async (id: string, input: EditMerchantProfileInput): Promise<{ id: string }> => {
     const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${id}/profile`, {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify(input),
+    })
+    return editAckSchema.parse(raw)
+  },
+
+  /**
+   * Edit a merchant's registered identity fields (vatNumber / companyNumber) on
+   * the merchant's behalf (B2.2, `merchant:edit-identity`-gated; SUPER_ADMIN
+   * only). reason + confirm are mandatory; the change is audited as
+   * MERCHANT_IDENTITY_UPDATED. The return is parsed minimally (the UI re-reads
+   * via query invalidation). Throws ApiError (MERCHANT_NOT_FOUND).
+   */
+  editIdentity: async (id: string, input: EditMerchantIdentityInput): Promise<{ id: string }> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${id}/identity`, {
       method: 'PATCH',
       auth: true,
       body: JSON.stringify(input),

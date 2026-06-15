@@ -208,3 +208,63 @@ describe('B2.1: admin direct-edit-on-behalf (branch, real DB)', () => {
     expect(audit?.actorId).toBe(ownerAdminId)
   })
 })
+
+// Option B B2.2: the admin identity edit reuses the SAME shared core, tagged with
+// the distinct MERCHANT_IDENTITY_UPDATED event (passed via the core's optional
+// event param). Route auth / capability / confirm / strict-body / 404 are pinned
+// by the sibling mock test admin-merchant-edit-routes.test.ts.
+describe('B2.2: admin identity edit on-behalf (real DB)', () => {
+  it('admin sets vat/company; applied + MERCHANT_IDENTITY_UPDATED before/after/reason audit (ADMIN)', async () => {
+    const { merchantId } = await makeMerchant('Identity Edit Co')
+
+    await updateMerchantProfileDirectCore(
+      prisma,
+      { merchantId, actor: { type: 'ADMIN', id: ADMIN_ID, reason: 'companies house correction' } },
+      { vatNumber: 'GB424242', companyNumber: '87654321' },
+      ctx,
+      'MERCHANT_IDENTITY_UPDATED',
+    )
+
+    const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } })
+    expect(merchant?.vatNumber).toBe('GB424242')
+    expect(merchant?.companyNumber).toBe('87654321')
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { entityId: merchantId, event: 'MERCHANT_IDENTITY_UPDATED' },
+      orderBy: { createdAt: 'desc' },
+    })
+    expect(audit?.actorType).toBe('ADMIN')
+    expect(audit?.actorId).toBe(ADMIN_ID)
+    expect(audit?.reason).toBe('companies house correction')
+    expect(audit?.before).toMatchObject({ vatNumber: null, companyNumber: null })
+    expect(audit?.after).toMatchObject({ vatNumber: 'GB424242', companyNumber: '87654321' })
+    // The distinct event must NOT also write a MERCHANT_PROFILE_UPDATED row.
+    const profileEvt = await prisma.auditLog.findFirst({
+      where: { entityId: merchantId, event: 'MERCHANT_PROFILE_UPDATED' },
+    })
+    expect(profileEvt).toBeNull()
+  })
+
+  it('admin can edit a SUSPENDED merchant identity; edit applies, status stays SUSPENDED', async () => {
+    const { merchantId } = await makeMerchant('Suspended Identity Co', 'SUSPENDED')
+
+    await updateMerchantProfileDirectCore(
+      prisma,
+      { merchantId, actor: { type: 'ADMIN', id: ADMIN_ID, reason: 'operational identity correction' } },
+      { vatNumber: 'GB999000' },
+      ctx,
+      'MERCHANT_IDENTITY_UPDATED',
+    )
+
+    const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } })
+    expect(merchant?.vatNumber).toBe('GB999000')
+    expect(merchant?.status).toBe('SUSPENDED')
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { entityId: merchantId, event: 'MERCHANT_IDENTITY_UPDATED' },
+      orderBy: { createdAt: 'desc' },
+    })
+    expect(audit?.actorType).toBe('ADMIN')
+    expect(audit?.reason).toBe('operational identity correction')
+  })
+})
