@@ -88,6 +88,82 @@ export async function getBranch(prisma: PrismaClient, adminId: string, branchId:
   return resolveBranch(prisma, branchId, merchantId)
 }
 
+/**
+ * Option B B2.4: the tight admin-facing branch shape. NEVER includes
+ * `redemptionPin` (AES-encrypted) or asset/secret URLs (logoUrl/bannerUrl/
+ * priceListUrl/about). Mirrors getMerchantDetail's branch select so the admin
+ * create response cannot leak a branch secret.
+ */
+export function toAdminBranchShape(b: {
+  id: string; name: string; isMainBranch: boolean; addressLine1: string
+  addressLine2: string | null; city: string; postcode: string
+  localityName: string | null; locationConfidence: string
+  phone: string | null; email: string | null; websiteUrl: string | null; isActive: boolean
+}) {
+  return {
+    id: b.id, name: b.name, isMainBranch: b.isMainBranch,
+    addressLine1: b.addressLine1, addressLine2: b.addressLine2, city: b.city, postcode: b.postcode,
+    localityName: b.localityName, locationConfidence: b.locationConfidence,
+    phone: b.phone, email: b.email, websiteUrl: b.websiteUrl, isActive: b.isActive,
+  }
+}
+
+/**
+ * Option B B2.4: the shared branch-create core (D4 seam). BOTH the merchant
+ * wrapper (actor MERCHANT_ADMIN) and the new admin route (actor ADMIN + reason)
+ * call this, so validation/side-effects/audit are identical (no weaker path).
+ * The postcode resolve STAYS before the transaction (a bad postcode or gazetteer
+ * outage must reject before opening a tx); the branch.create + audit are inside
+ * one transaction, actor-attributed, `entityType:'branch'`. Caller lat/lng are
+ * dropped (pin-precise coords arrive via the separate confirm-location flow).
+ */
+export async function createBranchCore(
+  prisma: PrismaClient,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
+  data: Record<string, unknown>,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const existingCount = await prisma.branch.count({ where: { merchantId, deletedAt: null } })
+  const isMainBranch = existingCount === 0
+
+  const postcode = data.postcode as string | undefined
+  if (!postcode) throw new AppError('POSTCODE_REQUIRED')
+  const locationFields = await resolveBranchLocationFields(prisma, postcode)
+
+  return prisma.$transaction(async (tx) => {
+    const branch = await tx.branch.create({
+      data: {
+        merchantId,
+        isMainBranch,
+        name:         data.name as string,
+        addressLine1: data.addressLine1 as string,
+        addressLine2: data.addressLine2 as string | undefined,
+        city:         data.city as string,
+        postcode:     postcode,
+        country:      (data.country as string | undefined) ?? 'GB',  // legacy address-country
+        phone:        data.phone as string | undefined,
+        email:        data.email as string | undefined,
+        websiteUrl:   data.websiteUrl as string | undefined,
+        logoUrl:      data.logoUrl as string | undefined,
+        bannerUrl:    data.bannerUrl as string | undefined,
+        about:        data.about as string | undefined,
+        ...locationFields,  // latitude / longitude / localityId / localityName /
+                            // postTown / ladDistrict / adminCounty / region /
+                            // locationCountry / locationResolvedAt /
+                            // locationConfidence = POSTCODE_CENTROID
+      },
+      include: BRANCH_INCLUDE,
+    })
+    await writeAuditLogTx(tx, {
+      entityId: branch.id, entityType: 'branch', event: 'BRANCH_CREATED',
+      actorId: actor.id, actorType: actor.type, reason: actor.reason,
+      metadata: { merchantId },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return branch
+  })
+}
+
 export async function createBranch(
   prisma: PrismaClient,
   adminId: string,
@@ -95,52 +171,7 @@ export async function createBranch(
   ctx: { ipAddress: string; userAgent: string }
 ) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-
-  const existingCount = await prisma.branch.count({
-    where: { merchantId, deletedAt: null },
-  })
-  const isMainBranch = existingCount === 0
-
-  // Plan 4 M1.21 — resolve postcode → Locality + snapshot fields BEFORE the
-  // branch.create so a bad postcode or transient gazetteer outage rejects the
-  // create entirely (no half-written branch). Caller-supplied latitude/longitude
-  // are dropped on this path — pin-precise coords arrive via the admin
-  // pin-drop / Phase 4 Merchant Portal geocoder flow, which bypasses
-  // postcode resolve-on-write.
-  const postcode = data.postcode as string | undefined
-  if (!postcode) throw new AppError('POSTCODE_REQUIRED')
-  const locationFields = await resolveBranchLocationFields(prisma, postcode)
-
-  const branch = await prisma.branch.create({
-    data: {
-      merchantId,
-      isMainBranch,
-      name:         data.name as string,
-      addressLine1: data.addressLine1 as string,
-      addressLine2: data.addressLine2 as string | undefined,
-      city:         data.city as string,
-      postcode:     postcode,
-      country:      (data.country as string | undefined) ?? 'GB',  // legacy address-country
-      phone:        data.phone as string | undefined,
-      email:        data.email as string | undefined,
-      websiteUrl:   data.websiteUrl as string | undefined,
-      logoUrl:      data.logoUrl as string | undefined,
-      bannerUrl:    data.bannerUrl as string | undefined,
-      about:        data.about as string | undefined,
-      ...locationFields,  // latitude / longitude / localityId / localityName /
-                          // postTown / ladDistrict / adminCounty / region /
-                          // locationCountry / locationResolvedAt /
-                          // locationConfidence = POSTCODE_CENTROID
-    },
-    include: BRANCH_INCLUDE,
-  })
-
-  writeAuditLog(prisma, {
-    entityId: merchantId, entityType: 'merchant',
-    event: 'BRANCH_CREATED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    metadata: { branchId: branch.id },
-  })
-  return branch
+  return createBranchCore(prisma, { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } }, data, ctx)
 }
 
 /**
@@ -450,14 +481,21 @@ export async function setAmenities(
   return { ok: true }
 }
 
-export async function softDeleteBranch(
+/**
+ * Option B B2.4: the shared branch-soft-delete core (D4 seam). BOTH the merchant
+ * wrapper (actor MERCHANT_ADMIN) and the new admin route (actor ADMIN + reason)
+ * call this. The guards (reads) stay BEFORE the transaction; the staff-user
+ * deactivation cascade + the branch soft-delete + the audit are inside ONE
+ * transaction (atomic - was previously two separate writes). Audit is
+ * actor-attributed, `entityType:'branch'`. BRANCH_IS_MAIN + BRANCH_LAST_ACTIVE
+ * guards preserved.
+ */
+export async function softDeleteBranchCore(
   prisma: PrismaClient,
-  adminId: string,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
   branchId: string,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-
   const branch = await prisma.branch.findFirst({
     where: { id: branchId, merchantId, deletedAt: null },
   })
@@ -475,25 +513,30 @@ export async function softDeleteBranch(
     if (activeBranchCount <= 1) throw new AppError('BRANCH_LAST_ACTIVE')
   }
 
-  // Deactivate branch users
-  await prisma.branchUser.updateMany({
-    where: { branchId },
-    data: { status: 'INACTIVE' },
+  await prisma.$transaction(async (tx) => {
+    // Deactivate branch users (staff logins)
+    await tx.branchUser.updateMany({ where: { branchId }, data: { status: 'INACTIVE' } })
+    // Soft delete
+    await tx.branch.update({ where: { id: branchId }, data: { deletedAt: new Date(), isActive: false } })
+    await writeAuditLogTx(tx, {
+      entityId: branchId, entityType: 'branch', event: 'BRANCH_DELETED',
+      actorId: actor.id, actorType: actor.type, reason: actor.reason,
+      metadata: { merchantId },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
   })
 
-  // Soft delete
-  await prisma.branch.update({
-    where: { id: branchId },
-    data: { deletedAt: new Date(), isActive: false },
-  })
+  return { ok: true as const }
+}
 
-  writeAuditLog(prisma, {
-    entityId: merchantId, entityType: 'merchant',
-    event: 'BRANCH_DELETED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    metadata: { branchId },
-  })
-
-  return { ok: true }
+export async function softDeleteBranch(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  return softDeleteBranchCore(prisma, { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } }, branchId, ctx)
 }
 
 export async function getBranchPin(

@@ -48,6 +48,11 @@ export type AdminCapability =
   // reprovisions 2 mandatory vouchers), so it sits at the same higher bar as
   // merchant:edit-identity.
   | 'merchant:edit-category'
+  // Option B B2.4: gates admin branch create + soft-delete on the merchant's
+  // behalf. NOT in ALL_SLICE1_CAPS -> SUPER_ADMIN-only. Soft-delete is destructive
+  // (it permanently removes a branch and deactivates its staff logins), so it sits
+  // at the higher SUPER_ADMIN bar.
+  | 'merchant:manage-branches'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',

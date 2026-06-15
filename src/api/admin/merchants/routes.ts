@@ -6,6 +6,7 @@ import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants
 import { issueMerchantClaim } from '../../auth/merchant/service'
 import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
 import { updateMerchantProfileDirectCore, setMerchantCategoryCore } from '../../merchant/profile/service'
+import { createBranchCore, toAdminBranchShape } from '../../merchant/branch/service'
 
 export async function adminMerchantRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/merchants'
@@ -190,5 +191,43 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       body.confirm === true,
       auditCtx(req),
     )
+  })
+
+  // Option B B2.4: admin create a branch on the merchant's behalf. Gated
+  // SUPER_ADMIN-only (`merchant:manage-branches`). STRICT body: the create fields
+  // + required reason; latitude/longitude are NOT accepted (location resolves from
+  // the postcode; pin-precise correction is the separate confirm-location flow).
+  // The shared core (createBranchCore) does the validation/provisioning/audit (the
+  // SAME path the merchant route runs, no weaker path), actor-attributed +
+  // entityType:'branch'. The response is the TIGHT redacted shape (no
+  // redemptionPin/secrets). resolveTargetMerchantForAdmin allows SUSPENDED.
+  app.post(`${prefix}/:id/branches`, { preHandler: [requireAdminCapability('merchant:manage-branches')] }, async (req: any) => {
+    const body = z
+      .object({
+        name: z.string().min(1),
+        addressLine1: z.string().min(1),
+        addressLine2: z.string().optional(),
+        city: z.string().min(1),
+        postcode: z.string().min(1),
+        country: z.string().optional(),
+        phone: z.string().optional(),
+        email: z.string().optional(),
+        websiteUrl: z.string().optional(),
+        reason: z.string().trim().min(1),
+      })
+      .strict()
+      .parse(req.body)
+
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+
+    const { reason, ...data } = body
+    const branch = await createBranchCore(
+      app.prisma,
+      { merchantId: id, actor: { type: 'ADMIN', id: req.user.sub, reason } },
+      data,
+      auditCtx(req),
+    )
+    return toAdminBranchShape(branch)
   })
 }
