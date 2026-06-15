@@ -33,6 +33,7 @@ import { Badge } from '@/features/shared/Badge'
 import { Button } from '@/components/ui/button'
 import { EditMerchantWebsiteDialog } from '@/features/merchants/EditMerchantWebsiteDialog'
 import { EditBranchDialog } from '@/features/merchants/EditBranchDialog'
+import { EditMerchantIdentityDialog } from '@/features/merchants/EditMerchantIdentityDialog'
 import type { BadgeTone } from '@/features/shared/Badge'
 import type { BranchDetail } from '@/lib/api/merchants'
 
@@ -192,7 +193,11 @@ function BranchCard({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type OpenDialog = { kind: 'website' } | { kind: 'branch'; branch: BranchDetail } | null
+type OpenDialog =
+  | { kind: 'website' }
+  | { kind: 'identity' }
+  | { kind: 'branch'; branch: BranchDetail }
+  | null
 
 export default function MerchantDetailPage() {
   const params = useParams<{ id: string }>()
@@ -200,6 +205,9 @@ export default function MerchantDetailPage() {
   const { ready, can } = useSession()
   const canRead = ready && can('merchant:read')
   const canEdit = can('merchant:edit')
+  // B2.2: identity edits are SUPER_ADMIN-only (merchant:edit-identity), a higher
+  // bar than the merchant:edit website/branch edits.
+  const canEditIdentity = can('merchant:edit-identity')
 
   const { data, isLoading, isError, refetch } = useMerchantDetail(id, canRead)
 
@@ -303,6 +311,41 @@ export default function MerchantDetailPage() {
             </div>
           </section>
 
+          {/* Business registration card (B2.2): read-only vat/company for every
+              merchant:read admin; the Edit affordance is SUPER_ADMIN-only. */}
+          <section
+            className="rounded-lg border border-border bg-card p-4"
+            data-testid="merchant-identity-card"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-sm font-medium text-muted-foreground">Business registration</h2>
+                <dl className="mt-1 grid gap-1 text-sm">
+                  <div className="flex items-center gap-2 text-foreground">
+                    <span className="text-muted-foreground">VAT number:</span>
+                    <span data-testid="merchant-vat-value">{data.merchant.vatNumber ?? 'Not set'}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-foreground">
+                    <span className="text-muted-foreground">Company number:</span>
+                    <span data-testid="merchant-company-value">{data.merchant.companyNumber ?? 'Not set'}</span>
+                  </div>
+                </dl>
+              </div>
+              {canEditIdentity && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDialog({ kind: 'identity' })}
+                  data-testid="merchant-identity-edit"
+                >
+                  <Pencil className="size-4" aria-hidden="true" />
+                  Edit
+                </Button>
+              )}
+            </div>
+          </section>
+
           {/* Branches */}
           <section className="space-y-3" data-testid="merchant-branches-section">
             <h2 className="text-sm font-medium text-muted-foreground">
@@ -331,6 +374,15 @@ export default function MerchantDetailPage() {
         <EditMerchantWebsiteDialog
           merchantId={data.merchant.id}
           currentWebsiteUrl={data.merchant.websiteUrl}
+          onSuccess={onDialogSuccess}
+          onCancel={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'identity' && data && (
+        <EditMerchantIdentityDialog
+          merchantId={data.merchant.id}
+          currentVatNumber={data.merchant.vatNumber}
+          currentCompanyNumber={data.merchant.companyNumber}
           onSuccess={onDialogSuccess}
           onCancel={closeDialog}
         />
