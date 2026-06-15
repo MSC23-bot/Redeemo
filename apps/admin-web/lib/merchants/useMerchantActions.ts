@@ -26,7 +26,7 @@ import { MERCHANTS_LIST_KEY } from '@/lib/merchants/useMerchantsList'
 import { merchantDetailQueryKey } from '@/lib/merchants/useMerchantDetail'
 import { reviewQueryKey } from '@/lib/review/useReview'
 import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse, EditMerchantProfileInput, EditMerchantIdentityInput, EditCategoryInput, EditCategoryResult } from '@/lib/api/merchants'
-import type { ConfirmLocationInput, ConfirmLocationResponse, EditBranchInput } from '@/lib/api/branches'
+import type { ConfirmLocationInput, ConfirmLocationResponse, EditBranchInput, CreateBranchInput } from '@/lib/api/branches'
 
 /**
  * Invalidate the surfaces a lifecycle action (suspend/reactivate) can shift.
@@ -126,6 +126,27 @@ export function useEditBranch(merchantId: string) {
   const invalidate = useInvalidateAfterEdit(merchantId)
   return useMutation<{ id: string }, Error, { branchId: string; input: EditBranchInput }>({
     mutationFn: ({ branchId, input }) => branchesApi.edit(branchId, input),
+    onSuccess: invalidate,
+    onError: invalidate,
+  })
+}
+
+// Option B B2.4: the SUPER_ADMIN-only branch create + soft-delete. Same
+// invalidation contract as the B2.1 edits (detail + directory, on success AND
+// error). The routes gate merchant:manage-branches server-side.
+export function useCreateBranch(merchantId: string) {
+  const invalidate = useInvalidateAfterEdit(merchantId)
+  return useMutation<{ id: string }, Error, CreateBranchInput>({
+    mutationFn: (input) => branchesApi.create(merchantId, input),
+    onSuccess: invalidate,
+    onError: invalidate,
+  })
+}
+
+export function useDeleteBranch(merchantId: string) {
+  const invalidate = useInvalidateAfterEdit(merchantId)
+  return useMutation<{ ok: boolean }, Error, { branchId: string; reason: string }>({
+    mutationFn: ({ branchId, reason }) => branchesApi.softDelete(branchId, reason),
     onSuccess: invalidate,
     onError: invalidate,
   })
