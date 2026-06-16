@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx, type ActorType } from '../../shared/audit'
-import { resolveAdminMerchant } from '../shared'
+import { resolveAdminMerchant, type EditActor } from '../shared'
 
 // Only DRAFT vouchers can be edited, submitted, or deleted
 const EDITABLE_STATUSES = ['DRAFT'] as const
@@ -393,14 +393,24 @@ export async function listRmvVouchers(prisma: PrismaClient, adminId: string) {
   })
 }
 
-export async function updateRmvVoucher(
+/**
+ * Option B B5.1: the RMV-EDIT core. Actor-aware so the admin path (actor ADMIN +
+ * reason) and the merchant path (actor MERCHANT_ADMIN) share it (no weaker path).
+ * Behaviour is unchanged from the previous `updateRmvVoucher`: DRAFT-only,
+ * allowedFields KEY validation, merchantFields merge (top-level columns untouched).
+ * The only change is the audit, which moves INSIDE the transaction and carries the
+ * actor + reason + before/after (was fire-and-forget writeAuditLog). The
+ * voucher.findFirst stays scoped to merchantId, so an admin acting on
+ * /merchants/:id can never edit a voucher belonging to a different merchant (a
+ * mismatch returns RMV_NOT_FOUND).
+ */
+export async function updateRmvVoucherCore(
   prisma: PrismaClient,
-  adminId: string,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
   voucherId: string,
   proposedFields: Record<string, unknown>,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
   const voucher = await prisma.voucher.findFirst({
     where: { id: voucherId, merchantId, isRmv: true },
     include: { rmvTemplate: true },
@@ -417,14 +427,74 @@ export async function updateRmvVoucher(
   const currentFields = (voucher.merchantFields as Record<string, unknown>) ?? {}
   const merged = { ...currentFields, ...proposedFields }
 
-  const updated = await prisma.voucher.update({
-    where: { id: voucherId },
-    data: { merchantFields: merged as any },
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.voucher.update({
+      where: { id: voucherId },
+      data: { merchantFields: merged as any },
+    })
+    await writeAuditLogTx(tx, {
+      entityId: merchantId, entityType: 'merchant', event: 'RMV_UPDATED',
+      actorId: actor.id, actorType: actor.type, reason: actor.reason,
+      before: { merchantFields: currentFields }, after: { merchantFields: merged },
+      metadata: { voucherId }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return updated
   })
-  writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: 'RMV_UPDATED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, metadata: { voucherId } })
-  return updated
 }
 
+// Merchant wrapper: unchanged signature; resolves the caller's own merchant
+// (refuses SUSPENDED) and delegates to the core as MERCHANT_ADMIN.
+export async function updateRmvVoucher(
+  prisma: PrismaClient,
+  adminId: string,
+  voucherId: string,
+  proposedFields: Record<string, unknown>,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  return updateRmvVoucherCore(
+    prisma,
+    { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
+    voucherId,
+    proposedFields,
+    ctx
+  )
+}
+
+/**
+ * Option B B5.1: the RMV-SUBMIT core. Actor-aware (admin ADMIN + reason / merchant
+ * MERCHANT_ADMIN), no weaker path. Behaviour unchanged from the previous
+ * `submitRmvVoucher`: DRAFT-only gate (VOUCHER_NOT_SUBMITTABLE otherwise), NO
+ * allowedFields-completeness gate (a blank-fields RMV can still be submitted, same
+ * as the merchant path), status flips DRAFT -> PENDING_APPROVAL with publishedAt.
+ * Audit moves INSIDE the transaction with actor + reason + before/after.
+ */
+export async function submitRmvVoucherCore(
+  prisma: PrismaClient,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
+  voucherId: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const voucher = await prisma.voucher.findFirst({ where: { id: voucherId, merchantId, isRmv: true } })
+  if (!voucher) throw new AppError('RMV_NOT_FOUND')
+  if (voucher.status !== 'DRAFT') throw new AppError('VOUCHER_NOT_SUBMITTABLE')
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.voucher.update({
+      where: { id: voucherId },
+      data: { status: 'PENDING_APPROVAL', publishedAt: new Date() },
+    })
+    await writeAuditLogTx(tx, {
+      entityId: merchantId, entityType: 'merchant', event: 'RMV_SUBMITTED',
+      actorId: actor.id, actorType: actor.type, reason: actor.reason,
+      before: { status: 'DRAFT' }, after: { status: 'PENDING_APPROVAL' },
+      metadata: { voucherId }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return updated
+  })
+}
+
+// Merchant wrapper: unchanged signature; delegates to the core as MERCHANT_ADMIN.
 export async function submitRmvVoucher(
   prisma: PrismaClient,
   adminId: string,
@@ -432,16 +502,12 @@ export async function submitRmvVoucher(
   ctx: { ipAddress: string; userAgent: string }
 ) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-  const voucher = await prisma.voucher.findFirst({ where: { id: voucherId, merchantId, isRmv: true } })
-  if (!voucher) throw new AppError('RMV_NOT_FOUND')
-  if (voucher.status !== 'DRAFT') throw new AppError('VOUCHER_NOT_SUBMITTABLE')
-
-  const updated = await prisma.voucher.update({
-    where: { id: voucherId },
-    data: { status: 'PENDING_APPROVAL', publishedAt: new Date() },
-  })
-  writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: 'RMV_SUBMITTED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, metadata: { voucherId } })
-  return updated
+  return submitRmvVoucherCore(
+    prisma,
+    { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
+    voucherId,
+    ctx
+  )
 }
 
 export async function provisionRmvVouchers(

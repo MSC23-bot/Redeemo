@@ -73,6 +73,16 @@ export type AdminCapability =
   // detail page is gated on the lower `merchant:read` (consistent with the M4
   // review screen, where OPERATIONS already sees documents).
   | 'merchant:manage-documents'
+  // Option B B5.1: gates admin RMV co-build on behalf (edit allowedFields + submit
+  // the mandatory RMV vouchers during onboarding). An operational onboarding-
+  // completion helper (like merchant:submit), NOT a higher-bar destructive action,
+  // so it IS in ALL_SLICE1_CAPS (OPERATIONS holds it). RMV edits are template-
+  // constrained (allowedFields) and DRAFT-only, and the go-live approval
+  // (approval:action) stays the separation-of-duties backstop. VIEW of the RMV list
+  // is gated on the lower `merchant:read`. NOTE: B5.2 custom-voucher CRUD (creating
+  // PUBLIC custom offers) is a higher product/legal bar and may warrant a SEPARATE
+  // capability/tier; do not assume it reuses this one.
+  | 'merchant:manage-vouchers'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
@@ -84,6 +94,7 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'approval:apply-edit',
   'merchant:edit',
   'merchant:submit',
+  'merchant:manage-vouchers',
 ]
 
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `adminHasCapability`

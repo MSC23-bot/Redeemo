@@ -2,7 +2,8 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { emailSchema } from '../../shared/schemas'
 import { requireAdminCapability } from '../capability'
-import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants, getMerchantDetail, listAdminCategories } from './service'
+import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants, getMerchantDetail, listAdminCategories, listAdminRmvVouchers } from './service'
+import { updateRmvVoucherCore, submitRmvVoucherCore } from '../../merchant/voucher/service'
 import { issueMerchantClaim } from '../../auth/merchant/service'
 import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
 import { updateMerchantProfileDirectCore, setMerchantCategoryCore, createMerchantEditRequestCore } from '../../merchant/profile/service'
@@ -388,6 +389,69 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
     return deleteMerchantDocument(
       app.prisma,
       { merchantId: id, documentId, adminId: req.user.sub, reason },
+      auditCtx(req),
+    )
+  })
+
+  // ── Option B B5.1: admin RMV co-build on behalf (edit + submit) ──────────────
+
+  // Read: the merchant's mandatory RMV vouchers, for the admin co-build card. Gated
+  // `merchant:read` (VIEW), consistent with the documents read + M4 review screen:
+  // OPERATIONS can see them; the edit/submit affordances are the higher
+  // `merchant:manage-vouchers` below. No secrets in the payload (vouchers carry
+  // none; the PIN lives on Branch).
+  app.get(`${prefix}/:id/vouchers/rmv`, { preHandler: [requireAdminCapability('merchant:read')] }, async (req: any) => {
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+    return listAdminRmvVouchers(app.prisma, id)
+  })
+
+  // Edit: update a DRAFT RMV's template-allowed fields on the merchant's behalf.
+  // Gated OPERATIONS-level (`merchant:manage-vouchers`, in ALL_SLICE1_CAPS). Reuses
+  // the LIVE edit core (no weaker path): the SAME DRAFT-only gate (VOUCHER_NOT_
+  // EDITABLE), the SAME allowedFields KEY validation (RMV_FIELD_NOT_ALLOWED), the
+  // SAME merchantFields merge. NESTED body `{ fields, reason }`: `fields` is the
+  // dynamic allowedFields payload (separated from `reason` so a future allowedField
+  // literally named "reason" cannot collide); `reason` is required + audited.
+  // resolveTargetMerchantForAdmin allows SUSPENDED; the core's findFirst is scoped
+  // to merchantId, so a cross-merchant voucher id yields RMV_NOT_FOUND (no
+  // cross-merchant edit). Audited actorType ADMIN + reason.
+  app.patch(`${prefix}/:id/vouchers/:voucherId/rmv`, { preHandler: [requireAdminCapability('merchant:manage-vouchers')] }, async (req: any) => {
+    const { id, voucherId } = z
+      .object({ id: z.string().min(1), voucherId: z.string().min(1) })
+      .parse(req.params)
+    const body = z
+      .object({ fields: z.record(z.string(), z.unknown()), reason: z.string().trim().min(1) })
+      .strict()
+      .parse(req.body)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+    return updateRmvVoucherCore(
+      app.prisma,
+      { merchantId: id, actor: { type: 'ADMIN', id: req.user.sub, reason: body.reason } },
+      voucherId,
+      body.fields,
+      auditCtx(req),
+    )
+  })
+
+  // Submit: move a DRAFT RMV to PENDING_APPROVAL on the merchant's behalf. Gated
+  // OPERATIONS-level (`merchant:manage-vouchers`). Reuses the LIVE submit core (no
+  // weaker path): the SAME DRAFT-only gate (VOUCHER_NOT_SUBMITTABLE) and NO
+  // completeness gate (a blank-fields RMV still submits, exactly as the merchant
+  // path). Submitting only QUEUES the RMV for the go-live review; nothing goes live
+  // here; the actioner approve (approval:action) stays the separation-of-duties
+  // backstop that flips submitted RMVs to ACTIVE. STRICT body = reason only.
+  // Audited actorType ADMIN + reason.
+  app.post(`${prefix}/:id/vouchers/:voucherId/rmv/submit`, { preHandler: [requireAdminCapability('merchant:manage-vouchers')] }, async (req: any) => {
+    const { id, voucherId } = z
+      .object({ id: z.string().min(1), voucherId: z.string().min(1) })
+      .parse(req.params)
+    const { reason } = z.object({ reason: z.string().trim().min(1) }).strict().parse(req.body)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+    return submitRmvVoucherCore(
+      app.prisma,
+      { merchantId: id, actor: { type: 'ADMIN', id: req.user.sub, reason } },
+      voucherId,
       auditCtx(req),
     )
   })

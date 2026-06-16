@@ -234,6 +234,52 @@ export async function listAdminCategories(prisma: PrismaClient) {
   }
 }
 
+/**
+ * Option B B5.1-read: a merchant's mandatory RMV vouchers, for the admin RMV
+ * co-build surface. Gated `merchant:read` at the route. REDACTION: the select is a
+ * convenience shape (vouchers carry no secrets; the redemptionPin lives on Branch,
+ * never on Voucher), exposing only the fields the co-build card needs:
+ *   - the template-derived display fields (title, type, estimatedSaving);
+ *   - the lifecycle status + approval status;
+ *   - the editable `merchantFields` blob (current values);
+ *   - the template's `allowedFields` (which keys the admin form may render/edit).
+ * `estimatedSaving` is a Prisma Decimal (serialises as a string in JSON); coerce to
+ * Number so the wire type matches the client's `number` (the documented Decimal
+ * rule). Ordered createdAt asc, matching the merchant `listRmvVouchers`.
+ */
+export async function listAdminRmvVouchers(prisma: PrismaClient, merchantId: string) {
+  const rows = await prisma.voucher.findMany({
+    where: { merchantId, isRmv: true },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      code: true,
+      title: true,
+      type: true,
+      estimatedSaving: true,
+      status: true,
+      approvalStatus: true,
+      merchantFields: true,
+      rmvTemplate: { select: { allowedFields: true } },
+    },
+  })
+  return {
+    vouchers: rows.map((v) => ({
+      id: v.id,
+      code: v.code,
+      title: v.title,
+      type: v.type,
+      estimatedSaving: Number(v.estimatedSaving),
+      status: v.status,
+      approvalStatus: v.approvalStatus,
+      merchantFields: (v.merchantFields as Record<string, unknown> | null) ?? {},
+      allowedFields: Array.isArray(v.rmvTemplate?.allowedFields)
+        ? (v.rmvTemplate.allowedFields as string[])
+        : [],
+    })),
+  }
+}
+
 export interface CreateMerchantDraftInput {
   businessName: string
   tradingName?: string
