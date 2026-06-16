@@ -48,8 +48,9 @@ describe('B3: POST /admin/merchants/:id/submit (admin submit-on-behalf)', () => 
       auditLog: { create: vi.fn().mockResolvedValue({}) },
       // Owner-notice resolves the ACTIVE OWNER membership for the merchant.
       merchantMembership: { findFirst: vi.fn().mockResolvedValue({ merchantAdmin: { id: 'owner-ma', email: 'owner@x.com' } }) },
-      // emitMerchantSubmittedAlert fan-out set (empty → no bell rows here).
-      adminUser: { findMany: vi.fn().mockResolvedValue([]) },
+      // emitMerchantSubmittedAlert fan-out set (empty → no bell rows here);
+      // findUnique resolves the resubmit-alert reviewer (active) when that path runs.
+      adminUser: { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn().mockResolvedValue({ id: 'rev1', email: 'rev1@x.com', isActive: true }) },
       notification: { create: vi.fn().mockResolvedValue({}) },
       $transaction: vi.fn().mockImplementation(async (cb: any) => cb((app as any).prisma)),
     } as any)
@@ -148,6 +149,48 @@ describe('B3: POST /admin/merchants/:id/submit (admin submit-on-behalf)', () => 
     expect((app as any).prisma.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ event: 'MERCHANT_RESUBMITTED', actorType: 'ADMIN' }) }),
     )
+    // Non-self resubmit (reviewer rev1 != acting admin-1): the resubmit alert
+    // fires and resolves the requesting reviewer (contrast the self-silence pin below).
+    expect((app as any).prisma.adminUser.findUnique).toHaveBeenCalled()
+  })
+
+  it('M3 self-action-silence: admin resubmit where the acting admin IS the requesting reviewer skips the resubmit alert (owner notice still fires)', async () => {
+    ;(app as any).prisma.merchant.findUnique.mockResolvedValue({ ...readyMerchant, status: 'PENDING_APPROVAL', onboardingStep: 'NEEDS_CHANGES' })
+    // The reopened approval's requesting reviewer IS the acting admin (admin-1).
+    ;(app as any).prisma.adminApproval.findFirst.mockResolvedValue({ id: 'ap1', adminUserId: 'admin-1' })
+    const res = await app.inject({
+      method: 'POST', url,
+      headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` },
+      payload: { reason: 'resubmitting my own change' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect((app as any).prisma.adminApproval.update).toHaveBeenCalled() // reopened, not duplicated
+    expect((app as any).prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ event: 'MERCHANT_RESUBMITTED', actorType: 'ADMIN' }) }),
+    )
+    // Self-silence: the resubmit alert is skipped, so the reviewer lookup never runs.
+    expect((app as any).prisma.adminUser.findUnique).not.toHaveBeenCalled()
+    // Independent of the skip — the merchant OWNER is still notified exactly once.
+    expect(notifyMock).toHaveBeenCalledTimes(1)
+    expect(notifyMock.mock.calls[0][2]).toMatchObject({
+      recipientType: 'MERCHANT_ADMIN',
+      inApp: expect.objectContaining({ notificationType: 'MERCHANT_VERIFICATION_UPDATE' }),
+    })
+  })
+
+  it('D3 owner-notice defensive branch: no ACTIVE OWNER -> notice skipped, submit still succeeds', async () => {
+    ;(app as any).prisma.merchantMembership.findFirst.mockResolvedValue(null) // no ACTIVE OWNER to notify
+    const res = await app.inject({
+      method: 'POST', url,
+      headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` },
+      payload: { reason: 'submit anyway' },
+    })
+    // The (best-effort) owner notice must never fail the already-committed submit.
+    expect(res.statusCode).toBe(200)
+    expect((app as any).prisma.merchant.update).toHaveBeenCalled()
+    // The owner lookup ran and returned null → notify is NOT called (notice skipped).
+    expect((app as any).prisma.merchantMembership.findFirst).toHaveBeenCalled()
+    expect(notifyMock).not.toHaveBeenCalled()
   })
 
   it('404 MERCHANT_NOT_FOUND when the merchant is absent', async () => {
