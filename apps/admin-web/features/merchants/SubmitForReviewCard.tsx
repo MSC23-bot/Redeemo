@@ -26,6 +26,11 @@ import type { SubmitChecklist } from '@/lib/api/merchants'
 // flags; labels are shared with NamedGateBanner via GATE_LABELS.
 const GATE_ORDER = ['branch_created', 'contract_signed', 'rmv_configured'] as const
 
+// Links the disabled submit button to its "why it's disabled" note via
+// aria-describedby, so a screen-reader user hears the reason. Only referenced
+// while the note is rendered (gates incomplete).
+const INCOMPLETE_NOTE_ID = 'merchant-submit-incomplete-note'
+
 export function SubmitForReviewCard({
   onboardingStep,
   submitChecklist,
@@ -52,6 +57,7 @@ export function SubmitForReviewCard({
           type="button"
           onClick={onSubmit}
           disabled={!submitChecklist.all_complete}
+          aria-describedby={submitChecklist.all_complete ? undefined : INCOMPLETE_NOTE_ID}
           data-testid="merchant-submit-button"
         >
           <Send className="size-4" aria-hidden="true" />
@@ -59,7 +65,11 @@ export function SubmitForReviewCard({
         </Button>
       </div>
 
-      <ul className="mt-3 grid gap-1.5" data-testid="merchant-submit-checklist">
+      <ul
+        className="mt-3 grid gap-1.5"
+        aria-label="Submit requirements"
+        data-testid="merchant-submit-checklist"
+      >
         {GATE_ORDER.map((key) => {
           const met = submitChecklist[key]
           return (
@@ -83,6 +93,7 @@ export function SubmitForReviewCard({
 
       {!submitChecklist.all_complete && (
         <p
+          id={INCOMPLETE_NOTE_ID}
           className="mt-2 text-xs text-muted-foreground"
           data-testid="merchant-submit-incomplete-note"
         >

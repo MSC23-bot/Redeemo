@@ -43,6 +43,29 @@ describe('SubmitForReviewCard checklist', () => {
     expect(met).toHaveTextContent('Met:')
     expect(unmet).toHaveTextContent('Not met:')
   })
+
+  it('labels the checklist list for screen readers', () => {
+    renderCard({ checklist: PARTIAL })
+    expect(screen.getByTestId('merchant-submit-checklist')).toHaveAttribute('aria-label', 'Submit requirements')
+  })
+})
+
+describe('SubmitForReviewCard accessibility (disabled-reason link)', () => {
+  it('points the disabled button at the incomplete note via aria-describedby', () => {
+    renderCard({ checklist: PARTIAL })
+    const button = screen.getByTestId('merchant-submit-button')
+    const note = screen.getByTestId('merchant-submit-incomplete-note')
+    const describedBy = button.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    // The button's aria-describedby resolves to the note's id (so SR users hear why).
+    expect(note).toHaveAttribute('id', describedBy as string)
+  })
+
+  it('drops aria-describedby when all gates pass (the note is not rendered)', () => {
+    renderCard({ checklist: ALL_MET })
+    expect(screen.getByTestId('merchant-submit-button')).not.toHaveAttribute('aria-describedby')
+    expect(screen.queryByTestId('merchant-submit-incomplete-note')).not.toBeInTheDocument()
+  })
 })
 
 describe('SubmitForReviewCard submit button gating', () => {
