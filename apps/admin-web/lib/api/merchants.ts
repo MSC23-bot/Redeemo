@@ -141,6 +141,11 @@ export const merchantDetailSchema = z.object({
     // merchant has submitted/live RMVs, so category can no longer be changed).
     primaryCategoryId: z.string().nullable(),
     categoryLocked: z.boolean(),
+    // B2.5: the SENSITIVE description (read-only here, prefills the propose
+    // dialog) + whether an identity edit is already awaiting review (gates the
+    // propose affordance). The backend getMerchantDetail returns both.
+    description: z.string().nullable(),
+    hasPendingIdentityEdit: z.boolean(),
   }),
   branches: z.array(branchDetailSchema),
 })
@@ -173,6 +178,21 @@ export interface EditCategoryInput {
   reason: string
   confirm?: boolean
 }
+
+// B2.5: the propose-sensitive-edit request. Only the 3 text identity fields +
+// reason; each field is optional and the caller sends only CHANGED, non-empty
+// fields. logoUrl/bannerUrl are intentionally absent (the backend strict body
+// rejects them). This creates a review request via the B1 pending-edit lane; it
+// does NOT mutate the merchant.
+export interface ProposeMerchantEditInput {
+  businessName?: string
+  tradingName?: string
+  description?: string
+  reason: string
+}
+
+const proposeEditResponseSchema = z.object({ pendingEditId: z.string() })
+export type ProposeEditResponse = z.infer<typeof proposeEditResponseSchema>
 
 // The discriminated result the category route returns. Parsed leniently (extra
 // keys tolerated) because the UI branches on which discriminant is present.
@@ -280,6 +300,23 @@ export const merchantsApi = {
       body: JSON.stringify(input),
     })
     return editCategoryResultSchema.parse(raw)
+  },
+
+  /**
+   * Propose a change to a merchant's SENSITIVE identity text fields on the
+   * merchant's behalf (B2.5, `merchant:propose-edit`-gated; SUPER_ADMIN only).
+   * Routes into the B1 pending-edit review lane (does NOT mutate the merchant);
+   * an admin then approves/rejects it. reason is mandatory; send only changed,
+   * non-empty fields. Returns { pendingEditId }. Throws ApiError
+   * (NO_SENSITIVE_FIELDS, PENDING_EDIT_EXISTS, MERCHANT_NOT_FOUND).
+   */
+  proposeEdit: async (id: string, input: ProposeMerchantEditInput): Promise<ProposeEditResponse> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${id}/edit-request`, {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify(input),
+    })
+    return proposeEditResponseSchema.parse(raw)
   },
 
   /**
