@@ -42,6 +42,7 @@ import { AddBranchDialog } from '@/features/merchants/AddBranchDialog'
 import { DeleteBranchConfirm } from '@/features/merchants/DeleteBranchConfirm'
 import { SubmitForReviewCard } from '@/features/merchants/SubmitForReviewCard'
 import { SubmitMerchantDialog } from '@/features/merchants/SubmitMerchantDialog'
+import { MerchantDocumentsCard } from '@/features/merchants/MerchantDocumentsCard'
 import type { BadgeTone } from '@/features/shared/Badge'
 import type { BranchDetail } from '@/lib/api/merchants'
 
@@ -251,6 +252,9 @@ export default function MerchantDetailPage() {
   // B3: submitting onboarding for review on the merchant's behalf is OPERATIONS-
   // level (merchant:submit). The card additionally gates on canSubmitOnBehalf.
   const canSubmit = can('merchant:submit')
+  // B4: uploading/deleting documents on behalf is SUPER_ADMIN-only
+  // (merchant:manage-documents). VIEW is gated on merchant:read (the page itself).
+  const canManageDocuments = can('merchant:manage-documents')
 
   const { data, isLoading, isError, refetch } = useMerchantDetail(id, canRead)
 
@@ -492,6 +496,11 @@ export default function MerchantDetailPage() {
               )}
             </div>
           </section>
+
+          {/* Documents card (B4): view is gated on merchant:read (the page), so
+              the card always renders here; upload/delete affordances gate on
+              merchant:manage-documents (SUPER_ADMIN) via canManage. */}
+          <MerchantDocumentsCard merchantId={data.merchant.id} canManage={canManageDocuments} />
 
           {/* Branches */}
           <section className="space-y-3" data-testid="merchant-branches-section">

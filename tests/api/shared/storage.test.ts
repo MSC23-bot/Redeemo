@@ -5,16 +5,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Cloudflare credentials, no network. This is a library only: NO HTTP route, NO
 // multipart, NO DB writes, NO moderation (those are Phase 2 / PR-0.6).
 
-const { getSignedUrlMock, S3ClientCtor, PutObjectCommand, GetObjectCommand } = vi.hoisted(() => ({
+const { getSignedUrlMock, sendMock, S3ClientCtor, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = vi.hoisted(() => ({
   getSignedUrlMock: vi.fn(),
+  // B4: the S3 client `.send()` used by putObject / deleteObject (server-proxied).
+  sendMock: vi.fn(),
   // regular functions so they work as constructors + capture their args
   S3ClientCtor: vi.fn(function (this: any, cfg: any) {
     this.config = cfg
+    this.send = sendMock
   }),
   PutObjectCommand: vi.fn(function (this: any, input: any) {
     this.input = input
   }),
   GetObjectCommand: vi.fn(function (this: any, input: any) {
+    this.input = input
+  }),
+  DeleteObjectCommand: vi.fn(function (this: any, input: any) {
     this.input = input
   }),
 }))
@@ -23,6 +29,7 @@ vi.mock('@aws-sdk/client-s3', () => ({
   S3Client: S3ClientCtor,
   PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
 }))
 
 const R2_VARS = [
@@ -44,10 +51,13 @@ beforeEach(async () => {
     delete process.env[k]
   }
   getSignedUrlMock.mockReset()
+  sendMock.mockReset()
   S3ClientCtor.mockClear()
   PutObjectCommand.mockClear()
   GetObjectCommand.mockClear()
+  DeleteObjectCommand.mockClear()
   getSignedUrlMock.mockResolvedValue('https://r2.example/signed?sig=abc')
+  sendMock.mockResolvedValue({})
   vi.resetModules() // fresh module → lazy S3 client singleton reset
   storage = await import('../../../src/api/shared/storage')
 })
@@ -83,6 +93,19 @@ describe('storage — disabled (STORAGE_ENABLED != true)', () => {
   it('presignGet throws when disabled', async () => {
     await expect(storage.presignGet('document/x/y.pdf')).rejects.toThrow(/STORAGE_ENABLED|storage.*disabled/i)
     expect(S3ClientCtor).not.toHaveBeenCalled()
+  })
+
+  it('putObject throws when disabled and does NOT construct the S3 client', async () => {
+    await expect(
+      storage.putObject({ kind: 'document', ownerId: OWNER, contentType: 'application/pdf', body: Buffer.from('x') }),
+    ).rejects.toThrow(/STORAGE_ENABLED|storage.*disabled/i)
+    expect(S3ClientCtor).not.toHaveBeenCalled()
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('deleteObject throws when disabled', async () => {
+    await expect(storage.deleteObject('document/x/y.pdf')).rejects.toThrow(/STORAGE_ENABLED|storage.*disabled/i)
+    expect(sendMock).not.toHaveBeenCalled()
   })
 })
 
@@ -215,6 +238,81 @@ describe('storage — publicUrl', () => {
     // so publicUrl validates the FULL key shape and rejects it.
     expect(() => storage.publicUrl('logo/../document/owner/secret.pdf')).toThrow(/invalid object key/i)
     expect(() => storage.publicUrl('/logo/owner/x.png')).toThrow(/invalid object key/i)
+  })
+})
+
+describe('storage - putObject (B4 server-proxied upload)', () => {
+  beforeEach(enableStorage)
+
+  it('writes the object and returns a deterministic key; sends ContentLength = body.length', async () => {
+    const body = Buffer.from('%PDF-1.4 hello')
+    const res = await storage.putObject({ kind: 'document', ownerId: OWNER, contentType: 'application/pdf', body })
+    expect(res.key).toMatch(new RegExp(`^document/${OWNER}/[A-Za-z0-9_-]+\\.pdf$`))
+    expect(sendMock).toHaveBeenCalledTimes(1)
+    const cmd = sendMock.mock.calls[0][0]
+    expect(cmd.input).toMatchObject({
+      Bucket: 'redeemo-test',
+      Key: res.key,
+      Body: body,
+      ContentType: 'application/pdf',
+      ContentLength: body.length,
+    })
+  })
+
+  it('HARD size enforcement: rejects a body over the 10MB document cap (no write)', async () => {
+    const tooBig = Buffer.alloc(10 * 1024 * 1024 + 1)
+    await expect(
+      storage.putObject({ kind: 'document', ownerId: OWNER, contentType: 'application/pdf', body: tooBig }),
+    ).rejects.toThrow(/size|exceeds|too large/i)
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('allows a body AT the cap (boundary)', async () => {
+    const atCap = Buffer.alloc(10 * 1024 * 1024)
+    await expect(
+      storage.putObject({ kind: 'document', ownerId: OWNER, contentType: 'application/pdf', body: atCap }),
+    ).resolves.toMatchObject({ key: expect.any(String) })
+  })
+
+  it('rejects a disallowed content-type (no write)', async () => {
+    await expect(
+      storage.putObject({ kind: 'document', ownerId: OWNER, contentType: 'image/webp', body: Buffer.from('x') }),
+    ).rejects.toThrow(/content.?type/i)
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects an empty body (no write)', async () => {
+    await expect(
+      storage.putObject({ kind: 'document', ownerId: OWNER, contentType: 'application/pdf', body: Buffer.alloc(0) }),
+    ).rejects.toThrow(/body/i)
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('PATH-TRAVERSAL SAFE: rejects an unsafe ownerId (no write)', async () => {
+    for (const bad of ['../evil', 'a/b', 'owner id', '']) {
+      await expect(
+        storage.putObject({ kind: 'document', ownerId: bad, contentType: 'application/pdf', body: Buffer.from('x') }),
+      ).rejects.toThrow(/owner/i)
+    }
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('storage - deleteObject (B4)', () => {
+  beforeEach(enableStorage)
+
+  it('deletes by key (sends a DeleteObjectCommand with bucket + key)', async () => {
+    await storage.deleteObject('document/owner/abc.pdf')
+    expect(sendMock).toHaveBeenCalledTimes(1)
+    const cmd = sendMock.mock.calls[0][0]
+    expect(cmd.input).toMatchObject({ Bucket: 'redeemo-test', Key: 'document/owner/abc.pdf' })
+  })
+
+  it('rejects a malformed / traversal key before sending', async () => {
+    for (const bad of ['logo/../document/o/x.pdf', '/document/o/x.pdf', 'document/o/x.exe', '../etc/passwd']) {
+      await expect(storage.deleteObject(bad)).rejects.toThrow(/invalid object key/i)
+    }
+    expect(sendMock).not.toHaveBeenCalled()
   })
 })
 

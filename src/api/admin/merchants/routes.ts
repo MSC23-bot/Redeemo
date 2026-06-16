@@ -8,6 +8,11 @@ import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
 import { updateMerchantProfileDirectCore, setMerchantCategoryCore, createMerchantEditRequestCore } from '../../merchant/profile/service'
 import { createBranchCore, toAdminBranchShape } from '../../merchant/branch/service'
 import { submitForApprovalCore } from '../../merchant/onboarding/service'
+import { AppError } from '../../shared/errors'
+import { isStorageEnabled, kindPolicy } from '../../shared/storage'
+import { listMerchantDocuments, createMerchantDocument, deleteMerchantDocument } from './documents'
+
+const DOCUMENT_TYPES = ['BUSINESS_VERIFICATION_1', 'BUSINESS_VERIFICATION_2', 'PRICE_LIST', 'AGREEMENT'] as const
 
 export async function adminMerchantRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/merchants'
@@ -294,5 +299,96 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       onboardingStep: updated.onboardingStep,
       verificationStatus: updated.verificationStatus,
     }
+  })
+
+  // ── Option B B4: admin merchant documents (upload / view / delete on behalf) ──
+
+  // Read: list the merchant's documents with short-lived presigned GET URLs. Gated
+  // on `merchant:read` (D4a): OPERATIONS can VIEW, consistent with the M4 review
+  // screen. The raw R2 key (`fileUrl`) is NEVER returned; `available:false`/`url:null`
+  // when storage is dark or a presign fails (mirrors getReviewContext).
+  app.get(`${prefix}/:id/documents`, { preHandler: [requireAdminCapability('merchant:read')] }, async (req: any) => {
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+    return listMerchantDocuments(app.prisma, id)
+  })
+
+  // Upload: server-proxied multipart upload of a verification document on the
+  // merchant's behalf. Gated SUPER_ADMIN-only (`merchant:manage-documents`, D3).
+  // Fails closed with STORAGE_NOT_ENABLED BEFORE reading any bytes when storage is
+  // dark. The API holds the bytes, so content-type + size are HARD-validated
+  // server-side (the multipart layer also caps fileSize). Form fields:
+  // `documentType` (the existing enum), `reason` (mandatory, audited), and one file.
+  app.post(`${prefix}/:id/documents`, { preHandler: [requireAdminCapability('merchant:manage-documents')] }, async (req: any) => {
+    if (!isStorageEnabled()) throw new AppError('STORAGE_NOT_ENABLED')
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+
+    if (!req.isMultipart()) throw new AppError('FILE_REQUIRED')
+
+    let documentType: string | undefined
+    let reason: string | undefined
+    let fileBuffer: Buffer | undefined
+    let mimetype: string | undefined
+    try {
+      for await (const part of req.parts()) {
+        if (part.type === 'file') {
+          mimetype = part.mimetype
+          fileBuffer = await part.toBuffer() // throws if the part exceeds limits.fileSize
+        } else if (part.fieldname === 'documentType') {
+          documentType = String(part.value)
+        } else if (part.fieldname === 'reason') {
+          reason = String(part.value)
+        }
+      }
+    } catch (err: any) {
+      const code = typeof err?.code === 'string' ? err.code : ''
+      if (code === 'FST_REQ_FILE_TOO_LARGE') throw new AppError('FILE_TOO_LARGE')
+      // Any OTHER @fastify/multipart parser error (too many files / fields / parts,
+      // malformed body) is a client error, not a 500. Multipart error codes are
+      // `FST_*` but NOT the Fastify-core `FST_ERR_*` namespace, so this stays scoped
+      // to multipart parsing failures and won't swallow an unrelated core error.
+      if (code.startsWith('FST_') && !code.startsWith('FST_ERR_')) throw new AppError('INVALID_UPLOAD')
+      throw err
+    }
+
+    const meta = z
+      .object({ documentType: z.enum(DOCUMENT_TYPES), reason: z.string().trim().min(1) })
+      .parse({ documentType, reason })
+
+    if (!fileBuffer || fileBuffer.length === 0) throw new AppError('FILE_REQUIRED')
+    const policy = kindPolicy('document')
+    if (!mimetype || !(mimetype in policy.contentTypes)) throw new AppError('UNSUPPORTED_FILE_TYPE')
+    if (fileBuffer.length > policy.maxBytes) throw new AppError('FILE_TOO_LARGE')
+
+    return createMerchantDocument(
+      app.prisma,
+      {
+        merchantId: id,
+        adminId: req.user.sub,
+        documentType: meta.documentType,
+        contentType: mimetype,
+        body: fileBuffer,
+        reason: meta.reason,
+      },
+      auditCtx(req),
+    )
+  })
+
+  // Delete: remove a merchant document on the merchant's behalf. Gated SUPER_ADMIN-
+  // only (`merchant:manage-documents`, D3). POST `/delete` (reason body), matching
+  // the B2.4 no-DELETE-with-body precedent. Deletes the row + audits, then
+  // best-effort deletes the R2 object (a failure there does NOT fail the row delete).
+  app.post(`${prefix}/:id/documents/:documentId/delete`, { preHandler: [requireAdminCapability('merchant:manage-documents')] }, async (req: any) => {
+    const { id, documentId } = z
+      .object({ id: z.string().min(1), documentId: z.string().min(1) })
+      .parse(req.params)
+    const { reason } = z.object({ reason: z.string().trim().min(1) }).strict().parse(req.body)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+    return deleteMerchantDocument(
+      app.prisma,
+      { merchantId: id, documentId, adminId: req.user.sub, reason },
+      auditCtx(req),
+    )
   })
 }

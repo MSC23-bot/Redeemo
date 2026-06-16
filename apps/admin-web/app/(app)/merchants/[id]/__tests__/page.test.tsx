@@ -182,6 +182,12 @@ jest.mock('@/features/merchants/SubmitMerchantDialog', () => ({
   ),
 }))
 
+jest.mock('@/features/merchants/MerchantDocumentsCard', () => ({
+  MerchantDocumentsCard: ({ merchantId, canManage }: { merchantId: string; canManage: boolean }) => (
+    <div data-testid="merchant-documents-card-mock" data-merchant-id={merchantId} data-can-manage={String(canManage)} />
+  ),
+}))
+
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
 import type { UseMerchantDetailResult } from '@/lib/merchants/useMerchantDetail'
@@ -786,5 +792,30 @@ describe('MerchantDetailPage submit-for-review card (B3)', () => {
     fireEvent.click(screen.getByTestId('submit-card-trigger'))
     fireEvent.click(screen.getByTestId('submit-merchant-dialog-cancel'))
     expect(screen.queryByTestId('submit-merchant-dialog-mock')).not.toBeInTheDocument()
+  })
+})
+
+// ── B4: Documents card ────────────────────────────────────────────────────────
+
+describe('MerchantDetailPage documents card (B4)', () => {
+  it('always mounts the documents card for a merchant:read admin (view)', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-documents-card-mock')).toHaveAttribute('data-merchant-id', 'm-1')
+  })
+
+  it('passes canManage=true when the admin holds merchant:manage-documents', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-documents-card-mock')).toHaveAttribute('data-can-manage', 'true')
+  })
+
+  it('passes canManage=false when the admin lacks merchant:manage-documents', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-documents-card-mock')).toHaveAttribute('data-can-manage', 'false')
   })
 })

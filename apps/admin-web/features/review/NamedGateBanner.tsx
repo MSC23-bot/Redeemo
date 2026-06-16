@@ -71,6 +71,13 @@ const CODE_MESSAGES: Record<string, string> = {
   // (the backend surfaces that as ALREADY_SUBMITTED).
   ALREADY_SUBMITTED:
     'This merchant is not in a submittable state (already submitted, under review, or live). The page has refreshed.',
+  // Option B B4: admin document upload / delete on behalf.
+  STORAGE_NOT_ENABLED:
+    'Document storage is not enabled yet, so the document could not be uploaded. Please try again later or contact support.',
+  FILE_REQUIRED: 'Select a file to upload.',
+  FILE_TOO_LARGE: 'That file is too large. The maximum size is 10 MB.',
+  UNSUPPORTED_FILE_TYPE: 'Unsupported file type. Upload a PDF, JPG, or PNG.',
+  DOCUMENT_NOT_FOUND: 'This document no longer exists. The list has refreshed.',
 }
 
 function getMessage(error: unknown): string {

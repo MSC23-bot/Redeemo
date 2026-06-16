@@ -95,6 +95,12 @@ export type AuditEvent =
   | 'MERCHANT_EDIT_REJECTED'
   | 'BRANCH_EDIT_APPROVED'
   | 'BRANCH_EDIT_REJECTED'
+  // Option B B4: a SUPER_ADMIN uploaded / deleted a merchant verification document
+  // on the merchant's behalf. `event` is a String column, so this is union-only
+  // (no migration). The audit payload carries documentId + documentType only; the
+  // raw R2 storage key is deliberately NOT recorded (keeps keys out of the log too).
+  | 'DOCUMENT_UPLOADED'
+  | 'DOCUMENT_DELETED'
 
 export interface AuditContext {
   entityId: string

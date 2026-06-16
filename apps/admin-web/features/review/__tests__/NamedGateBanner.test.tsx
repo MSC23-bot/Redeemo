@@ -115,6 +115,26 @@ describe('NamedGateBanner code mapping', () => {
     )
   })
 
+  it('maps STORAGE_NOT_ENABLED correctly (B4)', () => {
+    render(<NamedGateBanner error={makeApiError('STORAGE_NOT_ENABLED')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('Document storage is not enabled yet')
+  })
+
+  it('maps UNSUPPORTED_FILE_TYPE correctly (B4)', () => {
+    render(<NamedGateBanner error={makeApiError('UNSUPPORTED_FILE_TYPE')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('Upload a PDF, JPG, or PNG.')
+  })
+
+  it('maps FILE_TOO_LARGE correctly (B4)', () => {
+    render(<NamedGateBanner error={makeApiError('FILE_TOO_LARGE')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('The maximum size is 10 MB.')
+  })
+
+  it('maps DOCUMENT_NOT_FOUND correctly (B4)', () => {
+    render(<NamedGateBanner error={makeApiError('DOCUMENT_NOT_FOUND')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('This document no longer exists.')
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)

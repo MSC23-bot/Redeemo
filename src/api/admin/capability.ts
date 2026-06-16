@@ -66,6 +66,13 @@ export type AdminCapability =
   // for review; claim + go-live stay the separate `approval:action` capability,
   // preserving the submit/approve separation of duties.
   | 'merchant:submit'
+  // Option B B4: gates the admin upload + delete of a merchant's verification
+  // documents on the merchant's behalf. NOT in ALL_SLICE1_CAPS -> SUPER_ADMIN-only.
+  // Uploading/removing documents on a merchant's behalf is sensitive (same higher
+  // bar as merchant:edit-identity / merchant:manage-branches). Document VIEW on the
+  // detail page is gated on the lower `merchant:read` (consistent with the M4
+  // review screen, where OPERATIONS already sees documents).
+  | 'merchant:manage-documents'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
