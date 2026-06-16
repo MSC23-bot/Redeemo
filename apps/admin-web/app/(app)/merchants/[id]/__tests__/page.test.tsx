@@ -148,6 +148,40 @@ jest.mock('@/features/merchants/DeleteBranchConfirm', () => ({
   ),
 }))
 
+jest.mock('@/features/merchants/SubmitForReviewCard', () => ({
+  SubmitForReviewCard: ({
+    onSubmit,
+    onboardingStep,
+  }: {
+    onSubmit: () => void
+    onboardingStep: string
+  }) => (
+    <div data-testid="submit-for-review-card-mock" data-onboarding-step={onboardingStep}>
+      <button onClick={onSubmit} data-testid="submit-card-trigger">Submit</button>
+    </div>
+  ),
+}))
+
+jest.mock('@/features/merchants/SubmitMerchantDialog', () => ({
+  SubmitMerchantDialog: ({
+    merchantId,
+    isResubmit,
+    onCancel,
+  }: {
+    merchantId: string
+    isResubmit: boolean
+    onCancel: () => void
+  }) => (
+    <div
+      data-testid="submit-merchant-dialog-mock"
+      data-merchant-id={merchantId}
+      data-is-resubmit={String(isResubmit)}
+    >
+      <button onClick={onCancel} data-testid="submit-merchant-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
 import type { UseMerchantDetailResult } from '@/lib/merchants/useMerchantDetail'
@@ -195,6 +229,10 @@ function makeDetail(overrides: Partial<MerchantDetail> = {}): MerchantDetail {
       categoryLocked: false,
       description: 'We sell coffee',
       hasPendingIdentityEdit: false,
+      // B3: an ACTIVE/LIVE merchant is NOT submittable, so the submit card hides
+      // by default. Tests that exercise the card override status + canSubmitOnBehalf.
+      submitChecklist: { branch_created: true, contract_signed: true, rmv_configured: true, all_complete: true },
+      canSubmitOnBehalf: false,
     },
     branches: [
       {
@@ -669,5 +707,84 @@ describe('MerchantDetailPage edit dialogs', () => {
     fireEvent.click(screen.getByTestId('branch-edit-br-1'))
     fireEvent.click(screen.getByTestId('edit-branch-dialog-cancel'))
     expect(screen.queryByTestId('edit-branch-dialog-mock')).not.toBeInTheDocument()
+  })
+})
+
+// ── B3: Submit for review card + submit dialog ────────────────────────────────
+
+describe('MerchantDetailPage submit-for-review card (B3)', () => {
+  function makeSubmittable(onboardingStep = 'REGISTERED'): MerchantDetail {
+    const base = makeDetail()
+    return makeDetail({
+      merchant: { ...base.merchant, status: 'REGISTERED', onboardingStep, canSubmitOnBehalf: true },
+    })
+  }
+
+  it('HIDES the card for a non-submittable merchant (canSubmitOnBehalf false), even with every cap', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() }) // ACTIVE/LIVE => canSubmitOnBehalf false
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('submit-for-review-card-mock')).not.toBeInTheDocument()
+  })
+
+  it('SHOWS the card when can(merchant:submit) AND canSubmitOnBehalf', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeSubmittable() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('submit-for-review-card-mock')).toBeInTheDocument()
+  })
+
+  it('HIDES the card when submittable but the admin lacks merchant:submit', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeSubmittable() })
+    render(<MerchantDetailPage />)
+    // The detail still renders (read), but no submit card.
+    expect(screen.getByTestId('merchant-detail-header')).toBeInTheDocument()
+    expect(screen.queryByTestId('submit-for-review-card-mock')).not.toBeInTheDocument()
+  })
+
+  it('renders the card BEFORE the Business identity card (placement)', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeSubmittable() })
+    render(<MerchantDetailPage />)
+    const card = screen.getByTestId('submit-for-review-card-mock')
+    const identity = screen.getByTestId('merchant-identity-fields-card')
+    // submit card precedes the identity card in document order.
+    expect(card.compareDocumentPosition(identity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('opens the SubmitMerchantDialog with the merchant id when the card triggers submit', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeSubmittable() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('submit-card-trigger'))
+    const dialog = screen.getByTestId('submit-merchant-dialog-mock')
+    expect(dialog).toBeInTheDocument()
+    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
+  })
+
+  it('passes isResubmit=true to the dialog when onboardingStep is NEEDS_CHANGES', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeSubmittable('NEEDS_CHANGES') })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('submit-card-trigger'))
+    expect(screen.getByTestId('submit-merchant-dialog-mock')).toHaveAttribute('data-is-resubmit', 'true')
+  })
+
+  it('passes isResubmit=false to the dialog for a first submit (REGISTERED)', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeSubmittable('REGISTERED') })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('submit-card-trigger'))
+    expect(screen.getByTestId('submit-merchant-dialog-mock')).toHaveAttribute('data-is-resubmit', 'false')
+  })
+
+  it('closes the submit dialog on its Cancel', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeSubmittable() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('submit-card-trigger'))
+    fireEvent.click(screen.getByTestId('submit-merchant-dialog-cancel'))
+    expect(screen.queryByTestId('submit-merchant-dialog-mock')).not.toBeInTheDocument()
   })
 })

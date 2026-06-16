@@ -161,6 +161,8 @@ describe('merchantsApi.getById', () => {
       categoryLocked: false,
       description: 'We sell coffee',
       hasPendingIdentityEdit: false,
+      submitChecklist: { branch_created: true, contract_signed: true, rmv_configured: true, all_complete: true },
+      canSubmitOnBehalf: false,
     },
     branches: [
       {
@@ -213,6 +215,8 @@ describe('merchantsApi.getById', () => {
         categoryLocked: false,
         description: null,
         hasPendingIdentityEdit: false,
+        submitChecklist: { branch_created: false, contract_signed: false, rmv_configured: false, all_complete: false },
+        canSubmitOnBehalf: true,
       },
       branches: [],
     }
@@ -391,12 +395,112 @@ describe('merchantDetailSchema surfaces B2.5 fields', () => {
         categoryLocked: false,
         description: 'We sell coffee',
         hasPendingIdentityEdit: true,
+        submitChecklist: { branch_created: true, contract_signed: false, rmv_configured: false, all_complete: false },
+        canSubmitOnBehalf: true,
       },
       branches: [],
     }
     const parsed = merchantDetailSchema.parse(payload)
     expect(parsed.merchant.description).toBe('We sell coffee')
     expect(parsed.merchant.hasPendingIdentityEdit).toBe(true)
+  })
+})
+
+// ── B3: merchantDetailSchema surfaces submitChecklist + canSubmitOnBehalf ──────
+
+describe('merchantDetailSchema surfaces B3 fields (regression: not stripped)', () => {
+  function payloadWith(extra: Record<string, unknown>) {
+    return {
+      merchant: {
+        id: 'm1',
+        businessName: 'Acme',
+        tradingName: null,
+        status: 'REGISTERED',
+        verificationStatus: 'NOT_SUBMITTED',
+        onboardingStep: 'NEEDS_CHANGES',
+        websiteUrl: null,
+        vatNumber: null,
+        companyNumber: null,
+        logoUrl: null,
+        category: null,
+        primaryCategoryId: null,
+        categoryLocked: false,
+        description: null,
+        hasPendingIdentityEdit: false,
+        ...extra,
+      },
+      branches: [],
+    }
+  }
+
+  it('parses submitChecklist + canSubmitOnBehalf (the plain z.object would otherwise strip them)', () => {
+    const parsed = merchantDetailSchema.parse(
+      payloadWith({
+        submitChecklist: { branch_created: true, contract_signed: false, rmv_configured: true, all_complete: false },
+        canSubmitOnBehalf: true,
+      })
+    )
+    expect(parsed.merchant.submitChecklist).toEqual({
+      branch_created: true,
+      contract_signed: false,
+      rmv_configured: true,
+      all_complete: false,
+    })
+    expect(parsed.merchant.canSubmitOnBehalf).toBe(true)
+  })
+
+  it('throws when submitChecklist is missing (required field)', () => {
+    expect(() => merchantDetailSchema.parse(payloadWith({ canSubmitOnBehalf: true }))).toThrow()
+  })
+})
+
+// ── B3: submit (admin submit-for-approval on behalf) ──────────────────────────
+
+describe('merchantsApi.submit', () => {
+  it('POST /api/v1/admin/merchants/:id/submit with auth:true and { reason } body', async () => {
+    mockedApiFetch.mockResolvedValueOnce({
+      id: 'm-1',
+      status: 'PENDING_APPROVAL',
+      onboardingStep: 'SUBMITTED',
+      verificationStatus: 'PENDING',
+    })
+    const result = await merchantsApi.submit('m-1', { reason: 'Owner asked us to submit.' })
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1/submit', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ reason: 'Owner asked us to submit.' }),
+    })
+    expect(result.status).toBe('PENDING_APPROVAL')
+    expect(result.onboardingStep).toBe('SUBMITTED')
+    expect(result.verificationStatus).toBe('PENDING')
+  })
+
+  it('tolerates an unknown status string (drift resilience)', async () => {
+    mockedApiFetch.mockResolvedValueOnce({
+      id: 'm-1',
+      status: 'FROZEN',
+      onboardingStep: 'SUBMITTED',
+      verificationStatus: 'PENDING',
+    })
+    const result = await merchantsApi.submit('m-1', { reason: 'x' })
+    expect(result.status).toBe('FROZEN')
+  })
+
+  it('propagates ApiError with .code on ALREADY_SUBMITTED', async () => {
+    const err = new ApiError(409, { error: { code: 'ALREADY_SUBMITTED', message: 'Not submittable' } })
+    mockedApiFetch.mockRejectedValueOnce(err)
+    await expect(merchantsApi.submit('m-1', { reason: 'x' })).rejects.toMatchObject({ code: 'ALREADY_SUBMITTED' })
+  })
+
+  it('propagates ApiError with .code on ONBOARDING_GATES_INCOMPLETE', async () => {
+    const err = new ApiError(409, { error: { code: 'ONBOARDING_GATES_INCOMPLETE', message: 'Gates' } })
+    mockedApiFetch.mockRejectedValueOnce(err)
+    await expect(merchantsApi.submit('m-1', { reason: 'x' })).rejects.toMatchObject({ code: 'ONBOARDING_GATES_INCOMPLETE' })
+  })
+
+  it('throws on a malformed response (Zod validation)', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ bad: 'shape' })
+    await expect(merchantsApi.submit('m-1', { reason: 'x' })).rejects.toThrow()
   })
 })
 

@@ -108,6 +108,13 @@ describe('NamedGateBanner code mapping', () => {
     )
   })
 
+  it('maps ALREADY_SUBMITTED correctly (B3)', () => {
+    render(<NamedGateBanner error={makeApiError('ALREADY_SUBMITTED')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This merchant is not in a submittable state (already submitted, under review, or live). The page has refreshed.'
+    )
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)

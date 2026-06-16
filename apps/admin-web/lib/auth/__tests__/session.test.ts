@@ -28,6 +28,9 @@ const ALL_CAPS: AdminCapability[] = [
   'merchant:suspend',
   'branch:confirm-location',
   'approval:apply-edit',
+  // B3: merchant:submit is OPERATIONS-held (in ALL_SLICE1_CAPS), so it behaves
+  // like the other Slice-1 caps in the truth table.
+  'merchant:submit',
 ]
 
 const ALL_ROLES: AdminRole[] = [
@@ -140,6 +143,22 @@ describe('merchant:propose-edit is SUPER_ADMIN-only (B2.5)', () => {
     expect(hasCapability('FINANCE', 'merchant:propose-edit')).toBe(false)
     expect(hasCapability('CONTENT', 'merchant:propose-edit')).toBe(false)
     expect(hasCapability('SUPPORT', 'merchant:propose-edit')).toBe(false)
+  })
+})
+
+// Option B B3: merchant:submit IS in ALL_SLICE1_CAPS, so OPERATIONS holds it
+// (unlike the B2.2-B2.5 SUPER_ADMIN-only caps). Mirror must match the backend.
+describe('merchant:submit is OPERATIONS-held (B3)', () => {
+  it('SUPER_ADMIN holds it', () => {
+    expect(hasCapability('SUPER_ADMIN', 'merchant:submit')).toBe(true)
+  })
+  it('OPERATIONS holds it', () => {
+    expect(hasCapability('OPERATIONS', 'merchant:submit')).toBe(true)
+  })
+  it('FINANCE / CONTENT / SUPPORT do NOT hold it', () => {
+    expect(hasCapability('FINANCE', 'merchant:submit')).toBe(false)
+    expect(hasCapability('CONTENT', 'merchant:submit')).toBe(false)
+    expect(hasCapability('SUPPORT', 'merchant:submit')).toBe(false)
   })
 })
 

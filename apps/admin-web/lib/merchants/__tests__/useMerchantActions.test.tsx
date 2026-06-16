@@ -22,6 +22,7 @@ import {
   useCreateBranch,
   useDeleteBranch,
   useProposeMerchantEdit,
+  useSubmitMerchant,
 } from '../useMerchantActions'
 import { merchantsApi } from '@/lib/api/merchants'
 import { branchesApi } from '@/lib/api/branches'
@@ -39,6 +40,7 @@ jest.mock('@/lib/api/merchants', () => ({
     editIdentity: jest.fn(),
     editCategory: jest.fn(),
     proposeEdit: jest.fn(),
+    submit: jest.fn(),
   },
 }))
 jest.mock('@/lib/api/branches', () => ({
@@ -378,6 +380,40 @@ describe('useProposeMerchantEdit (B2.5)', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+})
+
+describe('useSubmitMerchant (B3)', () => {
+  it('invalidates detail + directory + QUEUE on success, passing { reason }', async () => {
+    ;(merchantsApi.submit as jest.Mock).mockResolvedValueOnce({
+      id: MERCHANT_ID,
+      status: 'PENDING_APPROVAL',
+      onboardingStep: 'SUBMITTED',
+      verificationStatus: 'PENDING',
+    })
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useSubmitMerchant(MERCHANT_ID), { wrapper: Wrapper })
+
+    result.current.mutate({ reason: 'Owner asked us to submit.' })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(merchantsApi.submit).toHaveBeenCalledWith(MERCHANT_ID, { reason: 'Owner asked us to submit.' })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: QUEUE_KEY })
+  })
+
+  it('invalidates detail + directory + QUEUE on ERROR (stale state moved on)', async () => {
+    ;(merchantsApi.submit as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useSubmitMerchant(MERCHANT_ID), { wrapper: Wrapper })
+
+    result.current.mutate({ reason: 'x' })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: QUEUE_KEY })
   })
 })
 

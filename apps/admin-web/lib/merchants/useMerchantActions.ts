@@ -25,7 +25,7 @@ import { QUEUE_KEY } from '@/lib/queue/useQueue'
 import { MERCHANTS_LIST_KEY } from '@/lib/merchants/useMerchantsList'
 import { merchantDetailQueryKey } from '@/lib/merchants/useMerchantDetail'
 import { reviewQueryKey } from '@/lib/review/useReview'
-import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse, EditMerchantProfileInput, EditMerchantIdentityInput, EditCategoryInput, EditCategoryResult, ProposeMerchantEditInput, ProposeEditResponse } from '@/lib/api/merchants'
+import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse, EditMerchantProfileInput, EditMerchantIdentityInput, EditCategoryInput, EditCategoryResult, ProposeMerchantEditInput, ProposeEditResponse, SubmitOnBehalfInput, SubmitOnBehalfResponse } from '@/lib/api/merchants'
 import type { ConfirmLocationInput, ConfirmLocationResponse, EditBranchInput, CreateBranchInput } from '@/lib/api/branches'
 
 /**
@@ -192,6 +192,31 @@ export function useEditMerchantCategory(merchantId: string) {
       if (result.requiresConfirmation) return
       invalidate()
     },
+    onError: invalidate,
+  })
+}
+
+// Option B B3: admin submit-for-approval on the merchant's behalf. Invalidation
+// differs from the B2.1 edits (D-W1): submitting creates/reopens a
+// MERCHANT_ONBOARDING approval, so the QUEUE is invalidated too (alongside the
+// detail, whose `canSubmitOnBehalf` flips, and the directory, whose status badge
+// changes). On success AND error (a stale-state error means the server state
+// moved on, so a resync is still useful). The route gates merchant:submit
+// server-side.
+function useInvalidateAfterSubmit(merchantId: string) {
+  const qc = useQueryClient()
+  return () => {
+    void qc.invalidateQueries({ queryKey: merchantDetailQueryKey(merchantId) })
+    void qc.invalidateQueries({ queryKey: MERCHANTS_LIST_KEY })
+    void qc.invalidateQueries({ queryKey: QUEUE_KEY })
+  }
+}
+
+export function useSubmitMerchant(merchantId: string) {
+  const invalidate = useInvalidateAfterSubmit(merchantId)
+  return useMutation<SubmitOnBehalfResponse, Error, SubmitOnBehalfInput>({
+    mutationFn: (input) => merchantsApi.submit(merchantId, input),
+    onSuccess: invalidate,
     onError: invalidate,
   })
 }

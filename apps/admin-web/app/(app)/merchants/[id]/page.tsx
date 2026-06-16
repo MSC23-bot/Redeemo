@@ -40,6 +40,8 @@ import { ProposeMerchantEditDialog } from '@/features/merchants/ProposeMerchantE
 import { EditCategoryDialog } from '@/features/merchants/EditCategoryDialog'
 import { AddBranchDialog } from '@/features/merchants/AddBranchDialog'
 import { DeleteBranchConfirm } from '@/features/merchants/DeleteBranchConfirm'
+import { SubmitForReviewCard } from '@/features/merchants/SubmitForReviewCard'
+import { SubmitMerchantDialog } from '@/features/merchants/SubmitMerchantDialog'
 import type { BadgeTone } from '@/features/shared/Badge'
 import type { BranchDetail } from '@/lib/api/merchants'
 
@@ -227,6 +229,7 @@ type OpenDialog =
   | { kind: 'branch'; branch: BranchDetail }
   | { kind: 'add-branch' }
   | { kind: 'delete-branch'; branch: BranchDetail }
+  | { kind: 'submit' }
   | null
 
 export default function MerchantDetailPage() {
@@ -245,6 +248,9 @@ export default function MerchantDetailPage() {
   // B2.5: proposing sensitive identity edits is SUPER_ADMIN-only
   // (merchant:propose-edit). Routes into the B1 review lane, not a direct edit.
   const canProposeEdit = can('merchant:propose-edit')
+  // B3: submitting onboarding for review on the merchant's behalf is OPERATIONS-
+  // level (merchant:submit). The card additionally gates on canSubmitOnBehalf.
+  const canSubmit = can('merchant:submit')
 
   const { data, isLoading, isError, refetch } = useMerchantDetail(id, canRead)
 
@@ -316,6 +322,20 @@ export default function MerchantDetailPage() {
               </div>
             </div>
           </header>
+
+          {/* Submit for review card (B3): admin submit-on-behalf. Visible only
+              when the admin holds merchant:submit AND the merchant is in a
+              submittable state (canSubmitOnBehalf). The card shows the live submit
+              checklist and disables the button until all gates pass; the dialog
+              collects the mandatory reason. Queues review only (no approve / go
+              live / verify / contract accept). */}
+          {canSubmit && data.merchant.canSubmitOnBehalf && (
+            <SubmitForReviewCard
+              onboardingStep={data.merchant.onboardingStep}
+              submitChecklist={data.merchant.submitChecklist}
+              onSubmit={() => setDialog({ kind: 'submit' })}
+            />
+          )}
 
           {/* Business identity card (B2.5): the SENSITIVE identity text fields,
               read-only. The Propose affordance is SUPER_ADMIN-only and routes
@@ -576,6 +596,14 @@ export default function MerchantDetailPage() {
           branchId={dialog.branch.id}
           branchName={dialog.branch.name}
           merchantId={data.merchant.id}
+          onSuccess={onDialogSuccess}
+          onCancel={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'submit' && data && (
+        <SubmitMerchantDialog
+          merchantId={data.merchant.id}
+          isResubmit={data.merchant.onboardingStep === 'NEEDS_CHANGES'}
           onSuccess={onDialogSuccess}
           onCancel={closeDialog}
         />
