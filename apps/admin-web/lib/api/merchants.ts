@@ -120,6 +120,17 @@ export const branchDetailSchema = z.object({
 })
 export type BranchDetail = z.infer<typeof branchDetailSchema>
 
+// B3: the onboarding submit-readiness checklist mirrored from the backend
+// getMerchantDetail. The three gates are the LIVE submit gates (branch + contract
+// + RMV) - no docs-uploaded / branch-user gates (§B3-GATE-DRIFT preserved).
+export const submitChecklistSchema = z.object({
+  branch_created: z.boolean(),
+  contract_signed: z.boolean(),
+  rmv_configured: z.boolean(),
+  all_complete: z.boolean(),
+})
+export type SubmitChecklist = z.infer<typeof submitChecklistSchema>
+
 /** The full merchant detail payload: the merchant record + its branches. */
 export const merchantDetailSchema = z.object({
   merchant: z.object({
@@ -146,6 +157,12 @@ export const merchantDetailSchema = z.object({
     // propose affordance). The backend getMerchantDetail returns both.
     description: z.string().nullable(),
     hasPendingIdentityEdit: z.boolean(),
+    // B3: onboarding submit readiness. `submitChecklist` drives the in-card gate
+    // list; `canSubmitOnBehalf` mirrors the backend submittable-state gate
+    // (REGISTERED first-submit OR PENDING_APPROVAL+NEEDS_CHANGES resubmit) and
+    // gates the whole Submit-for-review card. The backend always returns both.
+    submitChecklist: submitChecklistSchema,
+    canSubmitOnBehalf: z.boolean(),
   }),
   branches: z.array(branchDetailSchema),
 })
@@ -193,6 +210,23 @@ export interface ProposeMerchantEditInput {
 
 const proposeEditResponseSchema = z.object({ pendingEditId: z.string() })
 export type ProposeEditResponse = z.infer<typeof proposeEditResponseSchema>
+
+// B3: admin submit-for-approval on the merchant's behalf. Body is reason-only.
+export interface SubmitOnBehalfInput {
+  reason: string
+}
+
+// The slim lifecycle shape the submit route returns. Drift-resilient enums (like
+// merchantSummarySchema) so a new status/verification value surfaces as a known
+// string rather than a parse crash. The UI relies on query invalidation, not this
+// return value, so a minimal resilient parse is enough.
+const submitOnBehalfResponseSchema = z.object({
+  id: z.string(),
+  status: z.enum(MERCHANT_STATUSES).or(z.string()),
+  onboardingStep: z.string(),
+  verificationStatus: z.enum(['NOT_SUBMITTED', 'PENDING', 'VERIFIED', 'REJECTED']).or(z.string()),
+})
+export type SubmitOnBehalfResponse = z.infer<typeof submitOnBehalfResponseSchema>
 
 // The discriminated result the category route returns. Parsed leniently (extra
 // keys tolerated) because the UI branches on which discriminant is present.
@@ -317,6 +351,22 @@ export const merchantsApi = {
       body: JSON.stringify(input),
     })
     return proposeEditResponseSchema.parse(raw)
+  },
+
+  /**
+   * Submit (or resubmit) a merchant's onboarding application for review ON THE
+   * MERCHANT'S BEHALF (B3, `merchant:submit`-gated; OPERATIONS). reason is
+   * mandatory. This QUEUES/reopens review only - it does NOT approve, go live,
+   * verify, or accept the contract. Returns the slim lifecycle shape. Throws
+   * ApiError (MERCHANT_NOT_FOUND, ALREADY_SUBMITTED, ONBOARDING_GATES_INCOMPLETE).
+   */
+  submit: async (id: string, input: SubmitOnBehalfInput): Promise<SubmitOnBehalfResponse> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${id}/submit`, {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify(input),
+    })
+    return submitOnBehalfResponseSchema.parse(raw)
   },
 
   /**

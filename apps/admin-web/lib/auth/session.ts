@@ -50,6 +50,12 @@ export type AdminCapability =
   // approval:apply-edit (the B1 APPLY side). Keep aligned with the backend
   // src/api/admin/capability.ts.
   | 'merchant:propose-edit'
+  // Option B B3: gates the admin submit-for-approval-on-behalf affordance (POST
+  // /admin/merchants/:id/submit). An operational lifecycle action (like
+  // merchant:create-draft / merchant:suspend), NOT approval, so it IS in
+  // ALL_SLICE1_CAPS (OPERATIONS holds it). Keep aligned with the backend
+  // src/api/admin/capability.ts.
+  | 'merchant:submit'
 
 export type AdminRole =
   | 'SUPER_ADMIN'
@@ -67,6 +73,7 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'branch:confirm-location',
   'approval:apply-edit',
   'merchant:edit',
+  'merchant:submit',
 ]
 
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `hasCapability`, so

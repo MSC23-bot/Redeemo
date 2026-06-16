@@ -17,7 +17,9 @@
 import { ApiError } from '@/lib/api/client'
 
 // Friendly labels for each gate that can fail under ONBOARDING_GATES_INCOMPLETE.
-const GATE_LABELS: Record<string, string> = {
+// Exported (B3) so the SubmitForReviewCard checklist and this banner share ONE
+// label source.
+export const GATE_LABELS: Record<string, string> = {
   branch_created: 'At least one branch',
   contract_signed: 'A signed contract',
   rmv_configured: '2 mandatory RMV vouchers',
@@ -64,6 +66,11 @@ const CODE_MESSAGES: Record<string, string> = {
     'No changes to propose. Edit at least one field, then send for review.',
   PENDING_EDIT_EXISTS:
     'This merchant already has an identity edit awaiting review. Action that request first.',
+  // Option B B3: admin submit-for-approval on behalf. Covers the not-submittable
+  // states (already submitted / under review / live), incl. a SUSPENDED merchant
+  // (the backend surfaces that as ALREADY_SUBMITTED).
+  ALREADY_SUBMITTED:
+    'This merchant is not in a submittable state (already submitted, under review, or live). The page has refreshed.',
 }
 
 function getMessage(error: unknown): string {
