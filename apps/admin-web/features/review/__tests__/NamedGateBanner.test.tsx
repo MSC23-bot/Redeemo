@@ -96,6 +96,18 @@ describe('NamedGateBanner code mapping', () => {
     )
   })
 
+  it('maps NO_SENSITIVE_FIELDS correctly (B2.5)', () => {
+    render(<NamedGateBanner error={makeApiError('NO_SENSITIVE_FIELDS')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('No changes to propose')
+  })
+
+  it('maps PENDING_EDIT_EXISTS correctly (B2.5)', () => {
+    render(<NamedGateBanner error={makeApiError('PENDING_EDIT_EXISTS')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'already has an identity edit awaiting review'
+    )
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)
