@@ -113,6 +113,9 @@ export async function getMerchantDetail(prisma: PrismaClient, merchantId: string
       verificationStatus: true,
       onboardingStep: true,
       websiteUrl: true,
+      // B3: contractStatus feeds the submit-readiness checklist (contract_signed).
+      // Read here and consumed below; NOT spread into the response.
+      contractStatus: true,
       // B2.2: registered-identity fields, read-only on this merchant:read payload.
       vatNumber: true,
       companyNumber: true,
@@ -162,13 +165,40 @@ export async function getMerchantDetail(prisma: PrismaClient, merchantId: string
     where: { merchantId, status: 'PENDING' }, select: { id: true },
   })
 
-  const { primaryCategory, branches, ...rest } = merchant
+  const { primaryCategory, branches, contractStatus, ...rest } = merchant
+
+  // B3: onboarding submit readiness, surfaced so the admin UI can show the
+  // checklist + gate the submit-on-behalf affordance WITHOUT a failed round-trip.
+  // Derived from data already fetched here (no extra queries): branches are joined
+  // with deletedAt:null (= computeOnboardingChecklist's branch_created), and
+  // blockingRmvCount reuses the EXACT RMV where-clause computeOnboardingChecklist
+  // uses (categoryLocked = count > 0; rmv_configured = count >= 2). These three
+  // predicates MUST stay equivalent to computeOnboardingChecklist (the
+  // authoritative gate the submit core runs); pinned by the route tests.
+  const branchCreated = branches.length >= 1
+  const contractSigned = contractStatus === 'SIGNED'
+  const rmvConfigured = blockingRmvCount >= 2
+  const submitChecklist = {
+    branch_created: branchCreated,
+    contract_signed: contractSigned,
+    rmv_configured: rmvConfigured,
+    all_complete: branchCreated && contractSigned && rmvConfigured,
+  }
+  // canSubmitOnBehalf mirrors the core's submittable-state gate (REGISTERED
+  // first-submit OR PENDING_APPROVAL+NEEDS_CHANGES resubmit). The card hides for
+  // any other state (PENDING_APPROVAL under review, ACTIVE/LIVE, SUSPENDED, …).
+  const canSubmitOnBehalf =
+    rest.status === 'REGISTERED' ||
+    (rest.status === 'PENDING_APPROVAL' && rest.onboardingStep === 'NEEDS_CHANGES')
+
   return {
     merchant: {
       ...rest,
       category: primaryCategory?.name ?? null,
       categoryLocked: blockingRmvCount > 0,
       hasPendingIdentityEdit: pendingIdentityEdit !== null,
+      submitChecklist,
+      canSubmitOnBehalf,
     },
     branches,
   }

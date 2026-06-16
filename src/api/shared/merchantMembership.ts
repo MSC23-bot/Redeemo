@@ -33,6 +33,28 @@ export async function getOwnerMembership(
 }
 
 /**
+ * Resolve the ACTIVE OWNER's contact (admin id + email) for a merchant, BY
+ * merchantId. The reverse of getOwnerMembership (which keys by adminId): this is
+ * used by code that already has the merchantId and needs to notify the owner
+ * (Option B B3 admin submit-on-behalf owner notice). Lives in shared so merchant
+ * code can use it without importing the admin layer. Mirrors the admin actioner's
+ * approvals.getMerchantOwner; kept as a thin parallel helper rather than a
+ * cross-layer import. Returns null when the merchant has no ACTIVE OWNER.
+ */
+export async function getMerchantOwnerContact(
+  prisma: PrismaClient,
+  merchantId: string
+): Promise<{ adminId: string; email: string } | null> {
+  const membership = await prisma.merchantMembership.findFirst({
+    where: { merchantId, role: 'OWNER', status: 'ACTIVE' },
+    select: { merchantAdmin: { select: { id: true, email: true } } },
+  })
+  return membership?.merchantAdmin
+    ? { adminId: membership.merchantAdmin.id, email: membership.merchantAdmin.email }
+    : null
+}
+
+/**
  * Guard: refuse to remove/deactivate the LAST active OWNER of a merchant.
  *
  * Throws `LAST_OWNER_PROTECTED` when `membershipId` is the only remaining ACTIVE

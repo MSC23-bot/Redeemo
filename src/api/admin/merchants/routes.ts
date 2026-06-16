@@ -7,6 +7,7 @@ import { issueMerchantClaim } from '../../auth/merchant/service'
 import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
 import { updateMerchantProfileDirectCore, setMerchantCategoryCore, createMerchantEditRequestCore } from '../../merchant/profile/service'
 import { createBranchCore, toAdminBranchShape } from '../../merchant/branch/service'
+import { submitForApprovalCore } from '../../merchant/onboarding/service'
 
 export async function adminMerchantRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/merchants'
@@ -262,5 +263,36 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       auditCtx(req),
     )
     return { pendingEditId: pendingEdit.id }
+  })
+
+  // Option B B3: admin submit-for-approval on the merchant's behalf. Gated
+  // OPERATIONS-level (`merchant:submit`, in ALL_SLICE1_CAPS) — an operational
+  // lifecycle action (like create-draft / suspend), NOT approval. Reuses the LIVE
+  // submit core (no weaker path): the SAME status gate + the SAME onboarding
+  // checklist (branch + contract SIGNED + RMV). B3 adds NO new gates and NO admin
+  // contract-signing — an unsigned merchant simply fails ONBOARDING_GATES_INCOMPLETE.
+  // STRICT body = reason only. resolveTargetMerchantForAdmin allows a SUSPENDED
+  // merchant; the core's status gate then yields ALREADY_SUBMITTED for any
+  // non-submittable state. Audited actorType ADMIN + reason. B3 only QUEUES —
+  // claim + go-live remain the separate actioner flow (approval:action).
+  app.post(`${prefix}/:id/submit`, { preHandler: [requireAdminCapability('merchant:submit')] }, async (req: any) => {
+    const { reason } = z.object({ reason: z.string().trim().min(1) }).strict().parse(req.body)
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+    const updated = await submitForApprovalCore(
+      app.prisma,
+      app.redis,
+      { merchantId: id, actor: { type: 'ADMIN', id: req.user.sub, reason } },
+      auditCtx(req),
+    )
+    // Slim response (M1): the merchant lifecycle fields only. The Merchant row has
+    // no secrets (the PIN lives on Branch), so this is a redaction of convenience,
+    // not of safety — the UI just needs the new state.
+    return {
+      id: updated.id,
+      status: updated.status,
+      onboardingStep: updated.onboardingStep,
+      verificationStatus: updated.verificationStatus,
+    }
   })
 }

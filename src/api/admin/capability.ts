@@ -59,6 +59,13 @@ export type AdminCapability =
   // Intentionally distinct from approval:apply-edit (the B1 APPLY side), so the
   // PROPOSE and APPLY capabilities are separable.
   | 'merchant:propose-edit'
+  // Option B B3: gates the admin submit-for-approval-on-behalf route (POST
+  // /admin/merchants/:id/submit). An operational lifecycle action (like
+  // merchant:create-draft / merchant:suspend) — NOT approval — so it IS in
+  // ALL_SLICE1_CAPS (OPERATIONS holds it). Submitting only QUEUES the merchant
+  // for review; claim + go-live stay the separate `approval:action` capability,
+  // preserving the submit/approve separation of duties.
+  | 'merchant:submit'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
@@ -69,6 +76,7 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'branch:confirm-location',
   'approval:apply-edit',
   'merchant:edit',
+  'merchant:submit',
 ]
 
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `adminHasCapability`
