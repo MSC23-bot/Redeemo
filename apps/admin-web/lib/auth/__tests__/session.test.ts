@@ -162,6 +162,22 @@ describe('merchant:submit is OPERATIONS-held (B3)', () => {
   })
 })
 
+// Option B B4: merchant:manage-documents is SUPER_ADMIN-only (NOT in
+// ALL_SLICE1_CAPS). Mirror must match the backend exactly.
+describe('merchant:manage-documents is SUPER_ADMIN-only (B4)', () => {
+  it('SUPER_ADMIN holds it', () => {
+    expect(hasCapability('SUPER_ADMIN', 'merchant:manage-documents')).toBe(true)
+  })
+  it('OPERATIONS does NOT hold it', () => {
+    expect(hasCapability('OPERATIONS', 'merchant:manage-documents')).toBe(false)
+  })
+  it('FINANCE / CONTENT / SUPPORT do NOT hold it', () => {
+    expect(hasCapability('FINANCE', 'merchant:manage-documents')).toBe(false)
+    expect(hasCapability('CONTENT', 'merchant:manage-documents')).toBe(false)
+    expect(hasCapability('SUPPORT', 'merchant:manage-documents')).toBe(false)
+  })
+})
+
 describe('session storage — set / get / clear', () => {
   const meta = {
     entityId: 'admin-1',

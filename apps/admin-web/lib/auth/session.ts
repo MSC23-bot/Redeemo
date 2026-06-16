@@ -56,6 +56,11 @@ export type AdminCapability =
   // ALL_SLICE1_CAPS (OPERATIONS holds it). Keep aligned with the backend
   // src/api/admin/capability.ts.
   | 'merchant:submit'
+  // Option B B4: gates the admin upload + delete of a merchant's verification
+  // documents on the merchant's behalf. NOT in ALL_SLICE1_CAPS, so it is held
+  // ONLY by SUPER_ADMIN (via the hasCapability short-circuit). Document VIEW uses
+  // the lower `merchant:read`. Keep aligned with the backend src/api/admin/capability.ts.
+  | 'merchant:manage-documents'
 
 export type AdminRole =
   | 'SUPER_ADMIN'

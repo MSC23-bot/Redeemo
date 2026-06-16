@@ -191,6 +191,15 @@ export const ERROR_DEFINITIONS = {
   POSTCODE_REQUIRED:               { statusCode: 400, message: 'A postcode is required.' },
   POSTCODE_NOT_FOUND:              { statusCode: 400, message: "We couldn't recognise this postcode. Please check and try again." },
   GAZETTEER_UNAVAILABLE:           { statusCode: 503, message: "We couldn't verify your postcode right now. Please try again in a moment." },
+  // Option B B4 (admin document support). Document upload is gated on R2 storage
+  // being provisioned (STORAGE_ENABLED + R2_* secrets); when dark, upload fails
+  // closed with this code BEFORE any bytes are read. The rest are server-side
+  // upload validation (the API holds the bytes, so type/size are HARD-enforced).
+  STORAGE_NOT_ENABLED:             { statusCode: 503, message: 'Document storage is not enabled yet. Please try again later or contact support.' },
+  DOCUMENT_NOT_FOUND:              { statusCode: 404, message: 'Document not found.' },
+  FILE_REQUIRED:                   { statusCode: 400, message: 'A file is required.' },
+  FILE_TOO_LARGE:                  { statusCode: 413, message: 'The file is too large. The maximum size is 10 MB.' },
+  UNSUPPORTED_FILE_TYPE:           { statusCode: 400, message: 'Unsupported file type. Upload a PDF, JPG, or PNG.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS

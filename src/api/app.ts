@@ -1,6 +1,8 @@
 import Fastify, { FastifyInstance, FastifyError } from 'fastify'
 import helmet from '@fastify/helmet'
+import multipart from '@fastify/multipart'
 import { ZodError } from 'zod'
+import { kindPolicy } from './shared/storage'
 import prismaPlugin from './plugins/prisma'
 import redisPlugin from './plugins/redis'
 import corsPlugin from './plugins/cors'
@@ -44,6 +46,19 @@ export async function buildApp(): Promise<FastifyInstance> {
   }
   await app.register(corsPlugin)
   await app.register(rateLimitPlugin)
+
+  // Option B B4: multipart/form-data support for the admin document upload route
+  // (server-proxied upload). Only activates for multipart requests, so JSON routes
+  // and the webhook raw-body parsers are unaffected. The fileSize limit is a HARD
+  // cap at the multipart layer, tied to the `document` storage policy (10 MB); the
+  // upload route ALSO validates content-type + the real buffer length server-side.
+  await app.register(multipart, {
+    limits: {
+      fileSize: kindPolicy('document').maxBytes,
+      files: 1,
+      fields: 10,
+    },
+  })
 
   // F4 (SEC): surface SMS_ALLOWED_COUNTRY_CODES typos at boot so an operator sees
   // e.g. "+4" was dropped (not silently degraded to the UK fallback). One-time,

@@ -20,7 +20,7 @@
 //   - Presigned URLs are short-lived.
 
 import crypto from 'node:crypto'
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { requireSecret } from './env'
 
@@ -77,7 +77,9 @@ function assertValidKey(key: string): void {
   }
 }
 
-const isStorageEnabled = (): boolean => (process.env.STORAGE_ENABLED ?? '') === 'true'
+// Exported (B4) so an upload route can fail closed with a clean STORAGE_NOT_ENABLED
+// BEFORE it reads any request bytes, rather than letting a deep helper throw.
+export const isStorageEnabled = (): boolean => (process.env.STORAGE_ENABLED ?? '') === 'true'
 
 function assertStorageEnabled(): void {
   if (!isStorageEnabled()) {
@@ -182,6 +184,77 @@ export async function presignGet(key: string): Promise<PresignGetResult> {
     expiresIn: GET_URL_TTL_SECONDS,
   })
   return { url, expiresIn: GET_URL_TTL_SECONDS }
+}
+
+export interface PutObjectInput {
+  kind: StorageKind
+  /** Owner scope (merchant/branch id), validated [A-Za-z0-9_-]+ (no path separators). */
+  ownerId: string
+  contentType: string
+  /** The actual file bytes. Its length is the HARD size check (and ContentLength). */
+  body: Buffer
+}
+
+/**
+ * Option B B4: server-proxied upload. Unlike `presignPut` (which hands the client
+ * a presigned URL and can only PRE-FLIGHT a client-declared size), this puts the
+ * bytes from the server, so content-type AND size are HARD-enforced against the
+ * real buffer before the object is written. Validates (kind / content-type /
+ * size / ownerId), mints the same deterministic `kind/ownerId/<random>.<ext>` key,
+ * sends it with an explicit ContentLength, and returns the key. Throws (BEFORE any
+ * write) if storage is disabled or any input is invalid.
+ */
+export async function putObject(input: PutObjectInput): Promise<{ key: string }> {
+  assertStorageEnabled()
+
+  const policy = kindPolicy(input.kind) // throws on unknown kind
+
+  if (!OWNER_ID_RE.test(input.ownerId)) {
+    throw new Error('[storage] invalid ownerId, must match [A-Za-z0-9_-]+ (no path separators)')
+  }
+
+  const ext = policy.contentTypes[input.contentType]
+  if (!ext) {
+    throw new Error(
+      `[storage] content-type "${input.contentType}" not allowed for kind "${input.kind}" ` +
+        `(allowed: ${Object.keys(policy.contentTypes).join(', ')})`,
+    )
+  }
+
+  if (!Buffer.isBuffer(input.body) || input.body.length === 0) {
+    throw new Error('[storage] body must be a non-empty Buffer')
+  }
+  // HARD size check on the actual bytes (closes the presignPut ContentLength gap).
+  if (input.body.length > policy.maxBytes) {
+    throw new Error(
+      `[storage] file size ${input.body.length} exceeds the ${policy.maxBytes}-byte cap for kind "${input.kind}"`,
+    )
+  }
+
+  const key = `${input.kind}/${input.ownerId}/${crypto.randomBytes(16).toString('hex')}.${ext}`
+
+  await s3().send(
+    new PutObjectCommand({
+      Bucket: bucket(),
+      Key: key,
+      Body: input.body,
+      ContentType: input.contentType,
+      ContentLength: input.body.length,
+    }),
+  )
+  return { key }
+}
+
+/**
+ * Option B B4: delete a stored object by its key. Validates the key shape first
+ * (rejecting traversal / malformed keys) so a caller-shaped key can never delete
+ * outside the scheme. Throws if storage is disabled. Callers treat this as
+ * best-effort (a failed object delete must not fail the row delete it accompanies).
+ */
+export async function deleteObject(key: string): Promise<void> {
+  assertStorageEnabled()
+  assertValidKey(key)
+  await s3().send(new DeleteObjectCommand({ Bucket: bucket(), Key: key }))
 }
 
 /**

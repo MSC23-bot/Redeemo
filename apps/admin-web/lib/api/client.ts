@@ -141,7 +141,9 @@ export async function apiFetch<T>(
   const { auth = false, _isRetry = false, ...init } = options
   const headers = new Headers(init.headers)
 
-  if (!headers.has('Content-Type') && init.body) {
+  // Default JSON, EXCEPT for a FormData body (B4 document upload): the browser
+  // must set `multipart/form-data` with its own boundary, so we leave it unset.
+  if (!headers.has('Content-Type') && init.body && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json')
   }
 
