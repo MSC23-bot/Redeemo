@@ -1,7 +1,7 @@
 # Merchant Portal Product Blueprint
 
 **Status:** Product blueprint + audit. NOT a spec, NOT a plan, NOT implementation-authorised. Feeds a Claude Design clickable prototype, then (after prototype approval) the Tier-3 `brainstorming` to `writing-plans` flow for Phase 3.
-**Date:** 2026-06-16 (v1.2)
+**Date:** 2026-06-16 (v1.3)
 **Owner:** Redeemo
 **Tier:** 3 (new surface + backend contracts + likely schema). This document is closed-scope planning only.
 **Source of truth for the underlying model:** `docs/superpowers/specs/2026-06-10-merchant-portal-admin-onboarding-design.md` (the June-10 design spec). This blueprint does not re-decide what that spec locked; it designs the merchant-facing operating experience over it and surfaces the genuinely-open product/UX forks.
@@ -9,6 +9,8 @@
 **v1.1 refinements (2026-06-16, second pass):** the reporting area is named **Insights & reports** and analytics are **distributed** across four surfaces (section 4 + 5.6); customer privacy is protected by an **aggregate-only, minimum-cohort, no-exact-address** model with a stop-and-review checkpoint (section 5.6.4 + 8.4); **location/maps/verification** is treated as a platform capability with the verified code reality (section 11); the left navigation is **regrouped** (section 2.1); and a **cross-check table** of owner clarifications to decisions is added (section 12).
 
 **v1.2 location decisions locked (2026-06-16):** merchant pin placement is submitted-for-review and does NOT by itself confer discovery visibility; new Google billable endpoints are a stop-and-approve checkpoint; and Google quota/cost protection must move to a multi-instance-safe limiter before any merchant-facing flow goes live (sections 11.2-11.4, 8.4, 12).
+
+**v1.3 security section (2026-06-16):** a dedicated security / authentication / authorization / abuse-prevention / privacy section (section 13), grounded in live-code inspection with a risk cross-check table. Headline: the backend auth/session/rate-limit/storage/audit foundation is shipped and sound, so reuse it (do NOT rebuild; record a stop-and-review before any external auth provider); the top portal risk is multi-tenant isolation (IDOR); add bot protection and portal-specific rate limits; move the Google quota to the Redis limiter; and keep customer insight aggregate-only.
 
 ---
 
@@ -445,7 +447,7 @@ Every surface is designed for: **empty** (teaches the next action), **loading** 
 - **Discovery-visibility predicate**: merchant self-confirm must NOT confer discovery visibility; reconcile spec section 19.1's `ADDRESS_GEOCODED` inclusion (and the `hasExactPosition` vs `ranking.ts` mismatch) to admin-confirmed-only for MVP (section 11.4). Touches customer discovery.
 
 ### 8.5 Security / privacy / redaction
-Branch `redemptionPin` is AES-256-GCM encrypted and never exposed cross-context; documents are signed-URL-only (raw keys never returned); the merchant sees only their own data; SEC-M1 / SEC-M2 live-status are go-live prerequisites; OWNER-only legal/identity/ownership; audit captures actor + before/after with PII-retention awareness; aggregate-only customer insight (section 5.6.5).
+Branch `redemptionPin` is AES-256-GCM encrypted and never exposed cross-context; documents are signed-URL-only (raw keys never returned); the merchant sees only their own data; SEC-M1 / SEC-M2 live-status are go-live prerequisites; OWNER-only legal/identity/ownership; audit captures actor + before/after with PII-retention awareness; aggregate-only customer insight (section 5.6.5). The full model is in section 13.
 
 ---
 
@@ -565,6 +567,67 @@ Treated as a platform capability, not a single branch widget. This section state
 | Mandatory vouchers viewable but not editable; change-by-request | RMVs locked, full read-only detail, "Request a change" to admin (5.1) | MVP-portal + small backend | RMV change-request lane |
 | Validate vouchers from the portal | "Validate a code" in Redemptions + topbar quick action (2.2, 5.2) | MVP | existing `POST /redemption/verify` (accepts merchant admin) |
 | Campaigns / featured / payments in the portal | "Grow your business" group as a Phase 5 "Coming soon" placeholder (5.9) | Phase 5 | Stripe + admin-managed pricing (own brainstorm) |
+
+---
+
+## 13. Security, authentication, authorization, abuse prevention, and privacy
+
+Grounded in live-code inspection (2026-06-16), not assumptions. The Merchant Portal is a new front end on the existing backend, so it inherits a shipped, tested security foundation. This section records what exists (with file:line evidence), what is genuinely new for the portal, and the build-vs-buy recommendation. The risk cross-check matrix is section 13.9.
+
+### 13.1 Authentication
+**Verified (EXISTS):** merchant login, OTP / new-device verification, refresh, logout, forgot-password, reset-password, token-claim, and self deactivate/reactivate are all live (`src/api/auth/merchant/service.ts` + `routes.ts`). Tokens are Bearer (the API sets NO cookies; confirmed by grep), access token 15 min, refresh token in Redis (`refresh:{role}:{entityId}:{sessionId}`, 90-day TTL, SHA-256 hashed) plus a `UserSession` row; each request re-checks the refresh-token key exists and rejects `SESSION_REVOKED` (`merchant/plugin.ts`). Realms are isolated by separate secrets (`JWT_SECRET_MERCHANT` / `_CUSTOMER` / `_BRANCH` / `_ADMIN`). Passwords are bcrypt (12 rounds); reset and claim tokens are 32-byte single-use, hashed in Redis, never logged (1-hour and 7-day TTL). **Partial:** OTP delivery is a Twilio STUB today (`verifyOtp` exists; SMS send not live).
+
+**Build vs buy (recorded decision).** Do NOT build a new auth system from scratch, and do NOT migrate to an external provider for v1. The existing primitives are sound: separate JWT realms, bcrypt-12, atomic-limited password reset, single-use hashed tokens, Redis session revocation, and the SEC-M1/M2 live-status checks. Reuse them for the merchant portal (it is the same backend). **Stop-and-review checkpoint:** before introducing ANY external auth provider (Auth0 / Clerk / WorkOS / Cognito / Supabase Auth). Only revisit if the product needs enterprise SSO / SAML for large chains or wants to offload MFA / passkeys / hosted login UI; a migration would fragment the four-realm model for little launch benefit.
+
+**Portal-new:** wire Twilio OTP for production; the new `merchant-web` app must store the Bearer token securely (mirror admin-web). Introducing httpOnly-cookie auth would change the cookieless model and is itself a stop-and-review.
+
+### 13.2 Authorization
+**Verified:** `MerchantMembership` roles OWNER / BRANCH_MANAGER / STAFF exist; `getOwnerMembership` (`src/api/shared/merchantMembership.ts`) is the source of truth; every merchant route resolves through it, so the portal is OWNER-only by construction today; `resolveAdminMerchant` re-checks live `SUSPENDED` status (SEC-M2); `assertNotLastOwner` guards orphaning; redemption-verify is actor-scoped (branch vs merchant). **Missing:** BRANCH_MANAGER / STAFF per-branch scoping has zero enforcement code (deferred).
+
+**The number-one portal risk is multi-tenant isolation (IDOR / broken access control):** one merchant reading or mutating another's data. MVP requirement: every new portal endpoint filters strictly by the resolved `merchantId` (and `branchId` ownership where a branch/voucher/redemption id is client-supplied), with a cross-tenant-denial test per endpoint. The backend is authoritative; frontend gating is UX only. OWNER-only actions stay server-enforced: contract acceptance (session-bound, no admin path), identity / legal / registered-ownership changes, billing, and destructive actions.
+
+### 13.3 Rate limiting and abuse protection
+**Verified:** the atomic Redis-Lua limiter (`src/api/shared/atomicLimiter.ts`, gate / abuser / victim / cooldown classes, proven no-overshoot under 50 concurrent) plus `@fastify/rate-limit` backed by Redis (multi-instance) give per-tier limits today: login 5/min/IP, forgot-password 3/hour/IP, OTP verify 5/min/IP, claim 5/min/IP, refresh 30/min/IP, plus `consumePwdResetAttempt` / `consumeSmsSend` / email-send caps in `notify`. **Missing:** no limits yet for the new portal flows (validate-a-code, document upload, search/filter/export, Google autocomplete, public self-register, support/contact), and NO CAPTCHA / honeypot anywhere.
+
+MVP requirement: add per-flow limits across IP, user, merchant, branch, session, and a global budget where appropriate; add CAPTCHA (for example Cloudflare Turnstile) + honeypot + client debounce + minimum query length on the public/unauthenticated entry points. **Locked:** multi-instance-safe limiter only, never file-based counters. Note the global limiter fails open on a Redis outage (`skipOnError: true`), which is acceptable since auth is Redis-dependent anyway, but it is a known property. A Cloudflare edge WAF / bot layer is the recommended defense-in-depth addition (it complements, not replaces, the app limiter).
+
+### 13.4 Session and account safety
+**Verified:** revocation on logout (refresh token + auth cache) and on password reset (ALL sessions + `UserSession.revokedAt` + auth cache); SEC-M1 re-checks live merchant status on the redemption-verify path; SEC-M2 re-checks live status on merchant refresh + resolve. **Gaps:** self-deactivate and admin-suspension do NOT auto-revoke existing sessions (they rely on the 15-min access-token TTL plus the status re-check on the next action/refresh); branch-staff refresh has no live-status re-check (only login does); the `AUTH_SESSION_REVOKED` audit event is defined but not fired.
+
+MVP: a logout confirmation in the UI (already locked in section 2.2); secure token storage in the new app; accept the short-TTL-plus-status-recheck behaviour as the v1 suspension story. Fast-follow hardening: auto-revoke on suspension/deactivation, branch-staff refresh live-status, and firing `AUTH_SESSION_REVOKED`. Stop-and-review: lengthening the access-token TTL (it would widen the suspension window).
+
+### 13.5 Privacy and data minimisation
+Per section 5.6: no individual customer identity in redemption rows by default; aggregate-only customer insight with minimum cohort thresholds; no exact customer address or individual postcode; a clear separation between merchant-owned data, customer data, admin data, and internal verification findings (the admin-facing verification pre-score is never shown to the merchant). Merchant DSAR (data export / deletion) is a real GDPR obligation, fast-follow. **Stop-and-review (hard, DPIA):** any demographic or location-derived insight, before build, likely with ICO / solicitor input.
+
+### 13.6 File and storage safety
+**Verified:** `src/api/shared/storage.ts` issues presigned URLs only; the key regex is traversal-safe (`kind/ownerId/<random>.<ext>`, allow-listed extensions, no path separators); per-kind content-type + size allow-lists (documents 10 MB pdf/jpg/png private; logo/banner/photo 5 MB jpg/png/webp public); 5-minute TTLs; `putObject` and `@fastify/multipart` hard-cap size server-side; admin document routes return presigned URLs only and NEVER the raw key, with a graceful `available:false` fallback on storage-dark. **Note:** `presignPut` size is an advisory pre-flight (ContentType is signed, ContentLength is not), so the upload route must enforce the hard cap server-side.
+
+Portal-new: merchant self-serve document + image upload routes (presigned, with ownership checks so the `ownerId` matches the requesting merchant/branch), and upload/download/delete audit. Future hardening checkpoint: malware scanning / magic-byte sniffing on documents (the photo-moderation hook already exists for images; extend the pattern to documents).
+
+### 13.7 Provider and cost safety
+**Verified:** Google Places Text Search is field-masked with a file-based daily/monthly cap, wired only to an owner CLI; Twilio has SEC-H3 toll-fraud controls (country allow-list + global daily cap + the atomic limiter); Resend email is rate-limited in `notify` and ships dark. **Locked (section 11):** before any merchant-facing Google flow, move the quota from the file-based counter to the Redis limiter; use field masks, Autocomplete session tokens, debounce, fallback to postcode/manual, and billing alerts; any new billable Google endpoint (Autocomplete / Place Details / Address Validation) is a stop-and-approve checkpoint.
+
+### 13.8 Audit and non-repudiation
+**Verified:** `writeAuditLog` (fire-and-forget, entity-only) and `writeAuditLogTx` (in-transaction, actor-attributed with `actorId` / `actorType` / before / after / reason) both exist; admin-on-behalf actions are attributed `actorType: 'ADMIN'` (Option B); the contract is clickwrap. **Gaps:** merchant auth/self-actions currently use the fire-and-forget path with no `actorType`; the contract does not persist `userAgent` yet (June-10 section 6 wants it plus an immutable accepted-version copy); the section 10 merchant-confirmation evidence for admin co-built vouchers is not built.
+
+MVP requirement: actor-attribute merchant state-changing actions; persist the contract `userAgent` + version copy; and capture a durable merchant-acceptance record before any co-built or material public offer goes live (non-repudiation, so a merchant cannot later disown an offer a customer redeems).
+
+### 13.9 Risk cross-check (live-code support to required hardening)
+
+| Risk area | Current live-code support | Missing gap | MVP requirement | Fast-follow / future hardening | Stop-and-review trigger |
+|---|---|---|---|---|---|
+| Merchant authentication | login/OTP/refresh/logout/reset/claim; Bearer; separate JWT secrets; bcrypt-12; single-use hashed tokens | OTP SMS is a stub; new-app token storage TBD | wire Twilio OTP; secure token storage (mirror admin-web) | passkeys / MFA | introducing any external auth provider or httpOnly-cookie auth |
+| Multi-tenant isolation (IDOR) | merchant routes resolve via `getOwnerMembership`; verify is actor-scoped | no automated cross-tenant test harness; each new endpoint must re-prove scope | strict `merchantId`/ownership filter + a cross-tenant-denial test per endpoint | shared tenancy-guard helper + lint | any endpoint keyed by a client-supplied id |
+| Role scoping (BRANCH_MANAGER/STAFF) | roles defined; OWNER-only by construction; last-OWNER guard | per-branch enforcement is zero-code | portal OWNER-only; design role-gating into the shell | per-branch enforcement when the role ships | enabling BRANCH_MANAGER |
+| Rate limiting / abuse | atomic Lua limiter + `@fastify/rate-limit` + Redis; login/forgot/OTP/claim/refresh tiers | no limits on validate/upload/export/autocomplete/register/contact | per-flow IP/user/merchant/branch/session/global caps | Cloudflare edge WAF / bot layer | any new public or unauthenticated endpoint |
+| Bot protection | none | no CAPTCHA / honeypot | CAPTCHA (Turnstile) + honeypot + debounce on public forms | edge bot management | shipping any public form |
+| Session invalidation | revoke on logout + reset (all sessions); SEC-M1/M2 live-status; per-request revocation check | no auto-revoke on suspension/deactivation; branch-staff refresh lacks live-status; `AUTH_SESSION_REVOKED` not fired | logout confirmation; accept short-TTL + status-recheck for v1 | auto-revoke on suspension/deactivation; branch refresh live-status | lengthening access-token TTL |
+| Privacy / customer data | redemptions carry `userId`; aggregate-only model locked (5.6) | no aggregation endpoints; demographic joins not built | no identity in redemption rows; non-PII aggregates only | pseudonymous cohorts, then demographics post-DPIA | any demographic / location-derived insight (DPIA) |
+| File / storage | presigned-only; traversal-safe keys; per-kind type+size allow-lists; raw keys never returned; hard size on put | merchant upload route not built; presignPut size advisory; no document malware scan | merchant upload routes with ownership checks + server-side hard size/type; upload/download/delete audit | malware scan + magic-byte sniffing; extend moderation to documents | accepting unknown/executable upload types |
+| Provider / cost (Google/Twilio/Resend) | Google field-masked + file cap (CLI-only); Twilio SEC-H3; Resend rate-limited + dark | Google quota not multi-instance-safe; no merchant-facing Google flow yet | move Google quota to Redis before any merchant-facing flow; session tokens + debounce + fallback | billing-alert dashboards | any new billable Google endpoint |
+| Audit / non-repudiation | `writeAuditLog` + actor-attributed `writeAuditLogTx`; admin-on-behalf = ADMIN; clickwrap | merchant self-actions not actor-attributed; contract `userAgent` not persisted; co-built-voucher acceptance evidence not built | actor-attribute merchant actions; persist contract userAgent + version copy; durable merchant-acceptance record before public go-live | signed audit export | a public offer going live without a durable merchant acceptance record |
+| Transport / headers / CORS / cookies | helmet (CSP/HSTS defaults); CORS allow-list via `CORS_ORIGIN`; boot secret validation; error handler hides internals; Zod `.strict()` | `merchant.redeemo.co.uk` not in CORS; CSP not portal-tuned; cookieless today | add merchant origin to CORS; portal CSP; keep Bearer or decide cookie model | tighten CSP; SRI | switching to httpOnly cookies (CSRF model changes) |
+| Open security-gate items | SEC-M1/M2/M3/H2/H3/H4/SEC.1 shipped | SEC-H6 (CI dependency scanning) missing; SEC.6 (email) decided but unwired | close SEC-H6 before exposing the portal; wire SEC.6 when email goes live | automated dependency + secret scanning in CI | adding web analytics (triggers PECR cookie-consent, SEC.9) |
 
 ---
 
