@@ -1,11 +1,28 @@
 # RMV Public-Offer Model Correction - Brainstorm Seed
 
-Status: BRAINSTORM SEED (Tier 3 product-model / likely schema-risk). NOT a spec, NOT a plan, NOT implementation approval.
-Date: 2026-06-16.
-Trigger: owner flagged that template-owned mandatory-RMV public offer content is not commercially feasible as the final model, during B5.1-web planning. B5.1-web is PAUSED pending this correction.
-Next step: this seed feeds a `superpowers:brainstorming` session -> spec -> plan BEFORE any code. Do not implement from this doc.
+> RECONCILED 2026-06-16 - SUPERSEDED AS A DESIGN by `docs/superpowers/specs/2026-06-10-merchant-portal-admin-onboarding-design.md`.
+>
+> A `superpowers:brainstorming` session (2026-06-16) found that the correction this seed proposes is ALREADY DESIGNED and owner-locked in the June-10 Merchant Portal / Admin Onboarding spec, which is the SOURCE OF TRUTH for the RMV public-offer model. Outcome:
+> - Canonical model (template defaults/guardrails + merchant-authored public offer) = June-10 §0 + §7.
+> - merchant-editable fields + structured per-type data = §21 (the `merchantFields` repurpose) + §21.5.
+> - The "merchantFields not shown to customers" finding in this seed = the catalogued deferred **§A3 customer-app swap** (§21.1), NOT a new discovery.
+> - Curated terms (no free-text) = §20; `minimumSaving` floor = §7 / §20.10.
+> - Admin-authored / co-built changes require merchant confirmation before go-live = §10/§206 + the §228 go-live gate (this seed's "Option C").
+> - Schema = additive, already enumerated (§13/§248-249/§20.8).
+>
+> Disposition (owner-approved, 2026-06-16):
+> - **B5.1-web is RETIRED as a standalone admin-panel slice** and folded into the Merchant Portal **Phase 2/3** offer-engine work (admin RMV co-build is rung-5 concierge co-build, §7, gated by the §10 confirmation primitive). Do NOT expose admin co-build via UI before the §10 confirmation gate exists.
+> - **B5.1-core (shipped `e50ca5c`, PR #259) remains shipped and INERT** - no urgent patch. Its admin RMV submit-on-behalf aligns with §10; its admin RMV edit (writes customer-invisible `merchantFields`) is superseded by the §21 builder + §A3 swap.
+> - Next real artifact = the Merchant Portal Phase 2/3 implementation planning (feeds `writing-plans`), NOT a fresh RMV spec.
+>
+> The analysis below is retained as the INSPECTION RECORD (live-code findings still accurate). Read it for the code facts; read the June-10 spec for the design.
 
-Related: B5.1-core (admin RMV co-build) shipped at merge `e50ca5c` (PR #259); plan `docs/superpowers/plans/2026-06-16-option-b-b5-1-admin-rmv-cobuild.md`. This seed supersedes the "RMV co-build" framing as the long-term model and reframes the B5.2 merchant-acceptance anchor recorded there.
+Status: RECONCILED / SUPERSEDED (was: BRAINSTORM SEED). Source of truth = `docs/superpowers/specs/2026-06-10-merchant-portal-admin-onboarding-design.md`. Retained as an inspection record. NOT a spec, NOT a plan, NOT implementation approval.
+Date: 2026-06-16 (reconciled 2026-06-16).
+Trigger: owner flagged that template-owned mandatory-RMV public offer content is not commercially feasible as the final model, during B5.1-web planning.
+Outcome: B5.1-web retired/folded into Merchant Portal Phase 2/3; B5.1-core shipped/inert; June-10 spec is the source of truth. Do not implement from this doc.
+
+Related: B5.1-core (admin RMV co-build) shipped at merge `e50ca5c` (PR #259); plan `docs/superpowers/plans/2026-06-16-option-b-b5-1-admin-rmv-cobuild.md`.
 
 ---
 
