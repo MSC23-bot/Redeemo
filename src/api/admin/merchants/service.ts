@@ -118,6 +118,9 @@ export async function getMerchantDetail(prisma: PrismaClient, merchantId: string
       companyNumber: true,
       // B2.3-read: the category id (for preselection) alongside the display name.
       primaryCategoryId: true,
+      // B2.5: the SENSITIVE description, read-only here so the propose dialog can
+      // prefill it. Editing it post-go-live routes through the B1 pending-edit lane.
+      description: true,
       logoUrl: true,
       primaryCategory: { select: { name: true } },
       branches: {
@@ -152,9 +155,21 @@ export async function getMerchantDetail(prisma: PrismaClient, merchantId: string
     where: { merchantId, isRmv: true, status: { in: ['PENDING_APPROVAL', 'ACTIVE'] } },
   })
 
+  // B2.5: whether a SENSITIVE identity edit is already awaiting review (one
+  // pending edit per merchant). Surfaced so the admin UI disables the propose
+  // affordance instead of a failed PENDING_EDIT_EXISTS round-trip.
+  const pendingIdentityEdit = await prisma.merchantPendingEdit.findFirst({
+    where: { merchantId, status: 'PENDING' }, select: { id: true },
+  })
+
   const { primaryCategory, branches, ...rest } = merchant
   return {
-    merchant: { ...rest, category: primaryCategory?.name ?? null, categoryLocked: blockingRmvCount > 0 },
+    merchant: {
+      ...rest,
+      category: primaryCategory?.name ?? null,
+      categoryLocked: blockingRmvCount > 0,
+      hasPendingIdentityEdit: pendingIdentityEdit !== null,
+    },
     branches,
   }
 }
