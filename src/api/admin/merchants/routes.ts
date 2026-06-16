@@ -342,7 +342,13 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
         }
       }
     } catch (err: any) {
-      if (err?.code === 'FST_REQ_FILE_TOO_LARGE') throw new AppError('FILE_TOO_LARGE')
+      const code = typeof err?.code === 'string' ? err.code : ''
+      if (code === 'FST_REQ_FILE_TOO_LARGE') throw new AppError('FILE_TOO_LARGE')
+      // Any OTHER @fastify/multipart parser error (too many files / fields / parts,
+      // malformed body) is a client error, not a 500. Multipart error codes are
+      // `FST_*` but NOT the Fastify-core `FST_ERR_*` namespace, so this stays scoped
+      // to multipart parsing failures and won't swallow an unrelated core error.
+      if (code.startsWith('FST_') && !code.startsWith('FST_ERR_')) throw new AppError('INVALID_UPLOAD')
       throw err
     }
 

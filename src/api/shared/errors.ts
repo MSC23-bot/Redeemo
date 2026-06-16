@@ -200,6 +200,9 @@ export const ERROR_DEFINITIONS = {
   FILE_REQUIRED:                   { statusCode: 400, message: 'A file is required.' },
   FILE_TOO_LARGE:                  { statusCode: 413, message: 'The file is too large. The maximum size is 10 MB.' },
   UNSUPPORTED_FILE_TYPE:           { statusCode: 400, message: 'Unsupported file type. Upload a PDF, JPG, or PNG.' },
+  // A multipart upload that breached a parser limit (more than one file, too many
+  // fields/parts) or was malformed. A client error, not a 500.
+  INVALID_UPLOAD:                  { statusCode: 400, message: 'The upload was invalid. Send a single file (PDF, JPG, or PNG) with the required fields.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS

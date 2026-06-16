@@ -198,6 +198,36 @@ describe('B4: admin merchant documents routes', () => {
     expect(deleteObjectMock).toHaveBeenCalledWith('document/m1/abcdef0123456789.pdf')
   })
 
+  it('POST 400 INVALID_UPLOAD for a multipart body with more than one file (FST_FILES_LIMIT)', async () => {
+    const boundary = '----b4multifileboundary'
+    const body = [
+      `--${boundary}`, 'Content-Disposition: form-data; name="documentType"', '', 'BUSINESS_VERIFICATION_1',
+      `--${boundary}`, 'Content-Disposition: form-data; name="reason"', '', 'two files',
+      `--${boundary}`, 'Content-Disposition: form-data; name="file"; filename="a.pdf"', 'Content-Type: application/pdf', '', '%PDF a',
+      `--${boundary}`, 'Content-Disposition: form-data; name="file"; filename="b.pdf"', 'Content-Type: application/pdf', '', '%PDF b',
+      `--${boundary}--`, '',
+    ].join('\r\n')
+    const res = await app.inject({
+      method: 'POST', url: listUrl,
+      headers: { authorization: `Bearer ${signAdmin('SUPER_ADMIN')}`, 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: body,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('INVALID_UPLOAD')
+    expect(putObjectMock).not.toHaveBeenCalled()
+  })
+
+  it('POST 400 FILE_REQUIRED for a non-multipart (JSON) body', async () => {
+    const res = await app.inject({
+      method: 'POST', url: listUrl,
+      headers: { authorization: `Bearer ${signAdmin('SUPER_ADMIN')}`, 'content-type': 'application/json' },
+      payload: { documentType: 'BUSINESS_VERIFICATION_1', reason: 'r' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('FILE_REQUIRED')
+    expect(putObjectMock).not.toHaveBeenCalled()
+  })
+
   // ── Delete (merchant:manage-documents, SUPER_ADMIN) ───────────────────────
 
   const delUrl = '/api/v1/admin/merchants/m1/documents/doc-1/delete'
