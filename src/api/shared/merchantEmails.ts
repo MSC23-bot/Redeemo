@@ -87,6 +87,24 @@ export function merchantEditRejectedEmail(reason: string): RenderedEmail {
 }
 
 /**
+ * Option B B3: an admin submitted the merchant's onboarding application for
+ * review ON THE MERCHANT'S BEHALF. `businessName` is the merchant's own name
+ * shown back to them; HTML-escaped defensively. No admin free text is shown.
+ */
+export function merchantSubmittedOnBehalfEmail(businessName: string): RenderedEmail {
+  const safeName = escapeHtml(businessName)
+  return {
+    subject: `Your ${BRAND} application was submitted for review`,
+    text:
+      `The ${BRAND} team submitted your merchant application for ${businessName} for review on your behalf.\n\n` +
+      `There is nothing you need to do right now. We will let you know the outcome, and you can check progress any time by signing in to your merchant portal.`,
+    html:
+      `<p>The ${BRAND} team submitted your merchant application for ${safeName} for review on your behalf.</p>` +
+      `<p>There is nothing you need to do right now. We will let you know the outcome, and you can check progress any time by signing in to your merchant portal.</p>`,
+  }
+}
+
+/**
  * Admin approved a merchant's onboarding and the merchant is now live. M5 owns
  * this template. `businessName` is the merchant's own name shown back to them;
  * HTML-escaped defensively so a name with markup can't break the body.

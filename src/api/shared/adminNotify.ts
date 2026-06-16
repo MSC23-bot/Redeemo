@@ -89,14 +89,21 @@ export interface AlertMerchant {
  * to that ops inbox. If the env var is unset the email is skipped — the bell rows
  * are still written. BEST-EFFORT: any failure is logged and swallowed so it can
  * never fail the caller's already-committed submit.
+ *
+ * Option B B3 / D4: `opts.excludeAdminId` drops one admin from the bell fan-out —
+ * the acting admin on an admin submit-on-behalf, so they are not alerted about
+ * their own action (self-action-silence). The merchant self-submit path passes no
+ * opts, so the full fan-out is unchanged. The ops EMAIL (a shared inbox, not the
+ * actor) is never filtered.
  */
 export async function emitMerchantSubmittedAlert(
   prisma: PrismaClient,
   redis: Redis,
   merchant: AlertMerchant,
+  opts?: { excludeAdminId?: string },
 ): Promise<void> {
   try {
-    const admins = await getAlertableAdmins(prisma)
+    const admins = (await getAlertableAdmins(prisma)).filter((a) => a.id !== opts?.excludeAdminId)
     for (const admin of admins) {
       await adminNotify(prisma, {
         adminUserId: admin.id,

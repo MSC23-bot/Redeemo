@@ -18,6 +18,7 @@ describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)
   const detailRow = {
     id: 'm1', businessName: 'Acme', tradingName: 'Acme Co', status: 'ACTIVE',
     verificationStatus: 'VERIFIED', onboardingStep: 'LIVE', websiteUrl: 'https://acme.example.com',
+    contractStatus: 'SIGNED',
     vatNumber: 'GB123456789', companyNumber: '12345678',
     primaryCategoryId: 'cat-1', description: 'We sell coffee',
     logoUrl: null, primaryCategory: { name: 'Food' },
@@ -84,6 +85,36 @@ describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)
     expect(findArgs.select.companyNumber).toBe(true)
     expect(findArgs.select.primaryCategoryId).toBe(true)
     expect(findArgs.select.description).toBe(true)
+    // B3: contractStatus is selected to feed the submit checklist, but NOT spread
+    // into the response (consumed only by submitChecklist.contract_signed).
+    expect(findArgs.select.contractStatus).toBe(true)
+    expect(body.merchant).not.toHaveProperty('contractStatus')
+    // B3: submit readiness derived inline from the already-fetched data. contract
+    // SIGNED + 1 branch, but 0 RMVs (voucher.count mock) → not all_complete. The
+    // merchant is ACTIVE/LIVE → not in a submittable state.
+    expect(body.merchant.submitChecklist).toEqual({ branch_created: true, contract_signed: true, rmv_configured: false, all_complete: false })
+    expect(body.merchant.canSubmitOnBehalf).toBe(false)
+  })
+
+  it('B3: canSubmitOnBehalf + all_complete true for a REGISTERED merchant with every gate met', async () => {
+    ;(app as any).prisma.merchant.findUnique.mockResolvedValueOnce({
+      ...detailRow, status: 'REGISTERED', onboardingStep: 'REGISTERED', contractStatus: 'SIGNED',
+    })
+    ;(app as any).prisma.voucher.count.mockResolvedValueOnce(2) // 2 RMVs → rmv_configured
+    const res = await app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` } })
+    expect(res.statusCode).toBe(200)
+    const m = JSON.parse(res.body).merchant
+    expect(m.submitChecklist).toEqual({ branch_created: true, contract_signed: true, rmv_configured: true, all_complete: true })
+    expect(m.canSubmitOnBehalf).toBe(true)
+  })
+
+  it('B3: canSubmitOnBehalf true for the PENDING_APPROVAL + NEEDS_CHANGES resubmit state', async () => {
+    ;(app as any).prisma.merchant.findUnique.mockResolvedValueOnce({
+      ...detailRow, status: 'PENDING_APPROVAL', onboardingStep: 'NEEDS_CHANGES', contractStatus: 'SIGNED',
+    })
+    const res = await app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` } })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).merchant.canSubmitOnBehalf).toBe(true)
   })
 
   it('hasPendingIdentityEdit is true when a PENDING identity edit exists', async () => {

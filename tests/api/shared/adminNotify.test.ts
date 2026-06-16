@@ -182,6 +182,28 @@ describe('emitMerchantSubmittedAlert', () => {
     prisma.notification.create.mockRejectedValue(new Error('db down'))
     await expect(emitMerchantSubmittedAlert(prisma, dummyRedis, MERCHANT)).resolves.toBeUndefined()
   })
+
+  it('B3/D4 self-action-silence: excludeAdminId drops the acting admin from the fan-out', async () => {
+    const prisma = makePrisma()
+    prisma.adminUser.findMany.mockResolvedValue([
+      { id: 'op1', email: 'op1@x.com', firstName: 'O', lastName: '1' },
+      { id: 'sa1', email: 'sa1@x.com', firstName: 'S', lastName: 'A' },
+    ])
+    await emitMerchantSubmittedAlert(prisma, dummyRedis, MERCHANT, { excludeAdminId: 'sa1' })
+    // sa1 (the acting admin) is filtered out; only op1 gets the bell.
+    expect(prisma.notification.create).toHaveBeenCalledTimes(1)
+    expect(prisma.notification.create.mock.calls[0][0].data.recipientId).toBe('op1')
+  })
+
+  it('B3/D4: no opts (merchant self-submit) keeps the full fan-out unchanged', async () => {
+    const prisma = makePrisma()
+    prisma.adminUser.findMany.mockResolvedValue([
+      { id: 'op1', email: 'op1@x.com', firstName: 'O', lastName: '1' },
+      { id: 'sa1', email: 'sa1@x.com', firstName: 'S', lastName: 'A' },
+    ])
+    await emitMerchantSubmittedAlert(prisma, dummyRedis, MERCHANT)
+    expect(prisma.notification.create).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('emitMerchantResubmittedAlert', () => {

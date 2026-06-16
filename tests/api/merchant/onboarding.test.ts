@@ -138,6 +138,11 @@ describe('merchant onboarding routes', () => {
       expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING_APPROVAL', onboardingStep: 'SUBMITTED', verificationStatus: 'PENDING' }) })
     )
     expect(app.prisma.adminApproval.create).toHaveBeenCalled()
+    // B3/D2 non-regression: the audit is now written IN-TRANSACTION and actor-
+    // attributed; the merchant self-submit path carries actorType MERCHANT_ADMIN.
+    expect(app.prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ event: 'MERCHANT_SUBMITTED_FOR_APPROVAL', actorType: 'MERCHANT_ADMIN', actorId: 'ma1' }) })
+    )
   })
 
   it('POST /submit RESUBMITS (reopens the same approval) when merchant is PENDING_APPROVAL + NEEDS_CHANGES', async () => {
@@ -162,5 +167,10 @@ describe('merchant onboarding routes', () => {
       expect.objectContaining({ where: { id: 'ap1' }, data: expect.objectContaining({ status: 'PENDING', claimedById: null }) })
     )
     expect(app.prisma.adminApproval.create).not.toHaveBeenCalled()
+    // B3/D2 non-regression: resubmit carries actorType MERCHANT_ADMIN + the
+    // MERCHANT_RESUBMITTED event, written in-transaction.
+    expect(app.prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ event: 'MERCHANT_RESUBMITTED', actorType: 'MERCHANT_ADMIN' }) })
+    )
   })
 })
