@@ -100,6 +100,22 @@ jest.mock('@/features/merchants/EditMerchantIdentityDialog', () => ({
   ),
 }))
 
+jest.mock('@/features/merchants/ProposeMerchantEditDialog', () => ({
+  ProposeMerchantEditDialog: ({
+    merchantId,
+    onCancel,
+  }: {
+    merchantId: string
+    onCancel: () => void
+  }) => (
+    <div data-testid="propose-merchant-edit-dialog-mock" data-merchant-id={merchantId}>
+      <button onClick={onCancel} data-testid="propose-edit-dialog-cancel">
+        Cancel
+      </button>
+    </div>
+  ),
+}))
+
 jest.mock('@/features/merchants/EditCategoryDialog', () => ({
   EditCategoryDialog: ({
     merchantId,
@@ -177,6 +193,8 @@ function makeDetail(overrides: Partial<MerchantDetail> = {}): MerchantDetail {
       category: 'Restaurants',
       primaryCategoryId: 'cat-1',
       categoryLocked: false,
+      description: 'We sell coffee',
+      hasPendingIdentityEdit: false,
     },
     branches: [
       {
@@ -535,6 +553,82 @@ describe('MerchantDetailPage branch manage affordances (B2.4)', () => {
     fireEvent.click(screen.getByTestId('branch-delete-br-2'))
     fireEvent.click(screen.getByTestId('delete-branch-confirm-cancel'))
     expect(screen.queryByTestId('delete-branch-confirm-mock')).not.toBeInTheDocument()
+  })
+})
+
+// ── B2.5: Business identity card + propose-edit gating + pending state ────────
+
+describe('MerchantDetailPage business identity card (B2.5)', () => {
+  it('renders the identity-fields card with businessName / tradingName / description', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-identity-fields-card')).toBeInTheDocument()
+    expect(screen.getByTestId('merchant-business-name-value')).toHaveTextContent('Acme Coffee')
+    expect(screen.getByTestId('merchant-trading-name-value')).toHaveTextContent('Acme')
+    expect(screen.getByTestId('merchant-description-value')).toHaveTextContent('We sell coffee')
+  })
+
+  it('shows "Not set" for null tradingName / description', () => {
+    mockSession({ can: () => true })
+    mockDetail({
+      data: makeDetail({
+        merchant: { ...makeDetail().merchant, tradingName: null, description: null },
+      }),
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-trading-name-value')).toHaveTextContent('Not set')
+    expect(screen.getByTestId('merchant-description-value')).toHaveTextContent('Not set')
+  })
+
+  it('shows the Propose changes button WITH merchant:propose-edit (SUPER_ADMIN)', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-identity-propose')).toBeInTheDocument()
+    expect(screen.getByTestId('merchant-identity-propose')).not.toBeDisabled()
+  })
+
+  it('HIDES the Propose changes button for an admin without merchant:propose-edit', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-identity-fields-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-identity-propose')).not.toBeInTheDocument()
+  })
+
+  it('keeps the Propose button visible but DISABLED with a note when an edit is already pending', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, hasPendingIdentityEdit: true } }) })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-identity-propose')).toBeDisabled()
+    expect(screen.getByTestId('merchant-identity-pending-note')).toBeInTheDocument()
+  })
+
+  it('does NOT show the pending note when no edit is pending', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('merchant-identity-pending-note')).not.toBeInTheDocument()
+  })
+
+  it('opens the propose dialog when Propose changes is clicked', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('merchant-identity-propose'))
+    const dialog = screen.getByTestId('propose-merchant-edit-dialog-mock')
+    expect(dialog).toBeInTheDocument()
+    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
+  })
+
+  it('closes the propose dialog on its Cancel', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('merchant-identity-propose'))
+    fireEvent.click(screen.getByTestId('propose-edit-dialog-cancel'))
+    expect(screen.queryByTestId('propose-merchant-edit-dialog-mock')).not.toBeInTheDocument()
   })
 })
 
