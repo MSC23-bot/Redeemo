@@ -127,6 +127,22 @@ describe('merchant:manage-branches is SUPER_ADMIN-only (B2.4)', () => {
   })
 })
 
+// Option B B2.5: merchant:propose-edit is also SUPER_ADMIN-only (NOT in
+// ALL_SLICE1_CAPS). Mirror must match the backend exactly.
+describe('merchant:propose-edit is SUPER_ADMIN-only (B2.5)', () => {
+  it('SUPER_ADMIN holds it', () => {
+    expect(hasCapability('SUPER_ADMIN', 'merchant:propose-edit')).toBe(true)
+  })
+  it('OPERATIONS does NOT hold it', () => {
+    expect(hasCapability('OPERATIONS', 'merchant:propose-edit')).toBe(false)
+  })
+  it('FINANCE / CONTENT / SUPPORT do NOT hold it', () => {
+    expect(hasCapability('FINANCE', 'merchant:propose-edit')).toBe(false)
+    expect(hasCapability('CONTENT', 'merchant:propose-edit')).toBe(false)
+    expect(hasCapability('SUPPORT', 'merchant:propose-edit')).toBe(false)
+  })
+})
+
 describe('session storage — set / get / clear', () => {
   const meta = {
     entityId: 'admin-1',

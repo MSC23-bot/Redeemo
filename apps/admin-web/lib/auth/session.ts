@@ -43,6 +43,13 @@ export type AdminCapability =
   // ALL_SLICE1_CAPS, so it is held ONLY by SUPER_ADMIN. Keep aligned with the
   // backend src/api/admin/capability.ts.
   | 'merchant:manage-branches'
+  // Option B B2.5: gates the admin PROPOSE of a merchant's SENSITIVE identity
+  // fields on the merchant's behalf (routes into the B1 pending-edit lane; does
+  // NOT directly mutate). NOT in ALL_SLICE1_CAPS, so it is held ONLY by
+  // SUPER_ADMIN (via the hasCapability short-circuit). Distinct from
+  // approval:apply-edit (the B1 APPLY side). Keep aligned with the backend
+  // src/api/admin/capability.ts.
+  | 'merchant:propose-edit'
 
 export type AdminRole =
   | 'SUPER_ADMIN'
