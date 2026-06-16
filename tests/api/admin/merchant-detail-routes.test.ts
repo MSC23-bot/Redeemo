@@ -19,7 +19,7 @@ describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)
     id: 'm1', businessName: 'Acme', tradingName: 'Acme Co', status: 'ACTIVE',
     verificationStatus: 'VERIFIED', onboardingStep: 'LIVE', websiteUrl: 'https://acme.example.com',
     vatNumber: 'GB123456789', companyNumber: '12345678',
-    primaryCategoryId: 'cat-1',
+    primaryCategoryId: 'cat-1', description: 'We sell coffee',
     logoUrl: null, primaryCategory: { name: 'Food' },
     branches: [
       {
@@ -37,6 +37,8 @@ describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)
       merchant: { findUnique: vi.fn().mockResolvedValue(detailRow) },
       // B2.3-read: getMerchantDetail counts submitted/live RMVs for categoryLocked.
       voucher: { count: vi.fn().mockResolvedValue(0) },
+      // B2.5: getMerchantDetail checks for a PENDING identity edit.
+      merchantPendingEdit: { findFirst: vi.fn().mockResolvedValue(null) },
     } as any)
     app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue('OK') } as any)
     await app.ready()
@@ -65,6 +67,9 @@ describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)
     // B2.3-read: the category id (for preselection) + categoryLocked (false here).
     expect(body.merchant.primaryCategoryId).toBe('cat-1')
     expect(body.merchant.categoryLocked).toBe(false)
+    // B2.5: description (for the propose dialog) + hasPendingIdentityEdit (false here).
+    expect(body.merchant.description).toBe('We sell coffee')
+    expect(body.merchant.hasPendingIdentityEdit).toBe(false)
     expect(body.merchant).not.toHaveProperty('primaryCategory')
     expect(body.branches[0]).toMatchObject({ id: 'b1', phone: '+44111', email: 'b@x.com', isActive: true })
     expect(body.branches[0]).not.toHaveProperty('redemptionPin')
@@ -78,6 +83,16 @@ describe('B2.1-read + B2.2: GET /admin/merchants/:id (auth + capability + shape)
     expect(findArgs.select.vatNumber).toBe(true)
     expect(findArgs.select.companyNumber).toBe(true)
     expect(findArgs.select.primaryCategoryId).toBe(true)
+    expect(findArgs.select.description).toBe(true)
+  })
+
+  it('hasPendingIdentityEdit is true when a PENDING identity edit exists', async () => {
+    ;(app as any).prisma.merchantPendingEdit.findFirst.mockResolvedValueOnce({ id: 'pe-1' })
+    const res = await app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` } })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).merchant.hasPendingIdentityEdit).toBe(true)
+    const peArgs = (app as any).prisma.merchantPendingEdit.findFirst.mock.calls[0][0]
+    expect(peArgs.where).toMatchObject({ status: 'PENDING' })
   })
 
   it('categoryLocked is true when the merchant has a submitted/live RMV', async () => {

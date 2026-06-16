@@ -34,16 +34,21 @@ beforeAll(async () => {
       vatNumber: VAT_VALUE,
       companyNumber: COMPANY_VALUE,
       primaryCategoryId: categoryId,
+      description: 'We sell coffee',
       isTestData: true,
     },
   })
   merchantId = m.id
 
   // B2.3-read: a second merchant with an ACTIVE RMV so categoryLocked is true.
+  // B2.5: also give it a PENDING identity edit so hasPendingIdentityEdit is true.
   const locked = await prisma.merchant.create({
     data: { businessName: `${PREFIX} Locked Co`, status: 'ACTIVE', primaryCategoryId: categoryId, isTestData: true },
   })
   lockedMerchantId = locked.id
+  await prisma.merchantPendingEdit.create({
+    data: { merchantId: locked.id, proposedChanges: { businessName: `${PREFIX} New` } as any, status: 'PENDING' },
+  })
   await prisma.voucher.create({
     data: {
       merchantId: locked.id, code: `${PREFIX}-RMV-1`, type: 'DISCOUNT_FIXED', title: 'RMV', estimatedSaving: 5,
@@ -77,6 +82,7 @@ afterAll(async () => {
   ).map((m) => m.id)
   if (ids.length) {
     await prisma.voucher.deleteMany({ where: { merchantId: { in: ids } } })
+    await prisma.merchantPendingEdit.deleteMany({ where: { merchantId: { in: ids } } })
     await prisma.branch.deleteMany({ where: { merchantId: { in: ids } } })
     await prisma.merchant.deleteMany({ where: { id: { in: ids } } })
   }
@@ -96,6 +102,9 @@ describe('getMerchantDetail (real DB)', () => {
     // B2.3-read: primaryCategoryId exposed; categoryLocked false (no RMV).
     expect(res.merchant.primaryCategoryId).toBe(categoryId)
     expect(res.merchant.categoryLocked).toBe(false)
+    // B2.5: description exposed; hasPendingIdentityEdit false (no pending edit).
+    expect(res.merchant.description).toBe('We sell coffee')
+    expect(res.merchant.hasPendingIdentityEdit).toBe(false)
     expect(res.branches).toHaveLength(1) // soft-deleted excluded
     const b = res.branches[0]
     expect(b.name).toBe(`${PREFIX} Main`)
@@ -123,6 +132,11 @@ describe('getMerchantDetail (real DB)', () => {
   it('categoryLocked is true for a merchant with a submitted/live RMV (B2.3-read)', async () => {
     const res = await getMerchantDetail(prisma, lockedMerchantId)
     expect(res.merchant.categoryLocked).toBe(true)
+  })
+
+  it('hasPendingIdentityEdit is true for a merchant with a PENDING identity edit (B2.5)', async () => {
+    const res = await getMerchantDetail(prisma, lockedMerchantId)
+    expect(res.merchant.hasPendingIdentityEdit).toBe(true)
   })
 
   it('throws MERCHANT_NOT_FOUND for an unknown id', async () => {

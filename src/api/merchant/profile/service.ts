@@ -186,18 +186,28 @@ export async function updateMerchantProfile(
   )
 }
 
-export async function createMerchantEditRequest(
+/**
+ * Option B B2.5: the shared SENSITIVE-edit PROPOSE core (D4 seam). BOTH the
+ * merchant wrapper (actor MERCHANT_ADMIN) and the new admin route (actor ADMIN +
+ * reason) call this, so the validation/creation/audit is identical (no weaker
+ * path). It routes the proposal into the EXISTING B1 pending-edit lane (creates a
+ * MerchantPendingEdit + an AdminApproval(MERCHANT_IDENTITY_EDIT)); the B1 applier
+ * (approveEdit/rejectEdit) reviews + applies it unchanged. The proposer + reason
+ * ride in the AdminApproval.comment (no schema). The two creates + the audit are
+ * ATOMIC (one transaction; was previously two separate writes + fire-and-forget
+ * audit). The audit is now awaited in-tx, so an audit-write failure rolls back the
+ * proposal (matching the B2.1-B2.4 posture).
+ */
+export async function createMerchantEditRequestCore(
   prisma: PrismaClient,
-  adminId: string,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
   proposedChanges: Record<string, unknown>,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-
   const sensitiveKeys = SENSITIVE_FIELDS.filter(k => k in proposedChanges)
   if (sensitiveKeys.length === 0) throw new AppError('NO_SENSITIVE_FIELDS')
 
-  // App-layer enforcement — no DB unique constraint on merchantId
+  // App-layer enforcement: no DB unique constraint on merchantId.
   const existing = await prisma.merchantPendingEdit.findFirst({
     where: { merchantId, status: 'PENDING' },
   })
@@ -206,22 +216,42 @@ export async function createMerchantEditRequest(
   const filteredChanges: Record<string, unknown> = {}
   for (const k of sensitiveKeys) filteredChanges[k] = proposedChanges[k]
 
-  const pendingEdit = await prisma.merchantPendingEdit.create({
-    data: { merchantId, proposedChanges: filteredChanges as any, status: 'PENDING' },
-  })
+  // The proposer + reason ride in the AdminApproval.comment (no schema). The
+  // merchant path keeps its original wording; the admin path records the actor.
+  const comment = actor.type === 'ADMIN'
+    ? `Admin-proposed identity field changes on the merchant's behalf. Reason: ${actor.reason ?? ''}`
+    : `Merchant ${merchantId} requested identity field changes`
 
-  await prisma.adminApproval.create({
-    data: {
-      type:          'MERCHANT_IDENTITY_EDIT',
-      status:        'PENDING',
-      referenceId:   pendingEdit.id,
-      referenceType: 'MerchantPendingEdit',
-      comment:       `Merchant ${merchantId} requested identity field changes`,
-    },
+  return prisma.$transaction(async (tx) => {
+    const pendingEdit = await tx.merchantPendingEdit.create({
+      data: { merchantId, proposedChanges: filteredChanges as any, status: 'PENDING' },
+    })
+    await tx.adminApproval.create({
+      data: {
+        type:          'MERCHANT_IDENTITY_EDIT',
+        status:        'PENDING',
+        referenceId:   pendingEdit.id,
+        referenceType: 'MerchantPendingEdit',
+        comment,
+      },
+    })
+    await writeAuditLogTx(tx, {
+      entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_EDIT_REQUEST_CREATED',
+      actorId: actor.id, actorType: actor.type, reason: actor.reason,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return pendingEdit
   })
+}
 
-  writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_EDIT_REQUEST_CREATED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent })
-  return pendingEdit
+export async function createMerchantEditRequest(
+  prisma: PrismaClient,
+  adminId: string,
+  proposedChanges: Record<string, unknown>,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  return createMerchantEditRequestCore(prisma, { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } }, proposedChanges, ctx)
 }
 
 export async function listMerchantEditRequests(prisma: PrismaClient, adminId: string) {

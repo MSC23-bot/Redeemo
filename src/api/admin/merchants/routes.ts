@@ -5,7 +5,7 @@ import { requireAdminCapability } from '../capability'
 import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants, getMerchantDetail, listAdminCategories } from './service'
 import { issueMerchantClaim } from '../../auth/merchant/service'
 import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
-import { updateMerchantProfileDirectCore, setMerchantCategoryCore } from '../../merchant/profile/service'
+import { updateMerchantProfileDirectCore, setMerchantCategoryCore, createMerchantEditRequestCore } from '../../merchant/profile/service'
 import { createBranchCore, toAdminBranchShape } from '../../merchant/branch/service'
 
 export async function adminMerchantRoutes(app: FastifyInstance) {
@@ -229,5 +229,38 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       auditCtx(req),
     )
     return toAdminBranchShape(branch)
+  })
+
+  // Option B B2.5: admin PROPOSE a change to a merchant's SENSITIVE identity text
+  // fields on the merchant's behalf. This does NOT mutate directly; it routes the
+  // proposal into the EXISTING B1 pending-edit lane (creates a MerchantPendingEdit
+  // + an AdminApproval) which an admin then reviews + applies/rejects via the B1
+  // applier (approval:apply-edit). Gated SUPER_ADMIN-only (merchant:propose-edit),
+  // distinct from the apply cap. STRICT body: only the 3 text fields + required
+  // reason (logoUrl/bannerUrl are asset territory and 400 here). The shared core
+  // does the validation/create/audit (the SAME path the merchant route runs, no
+  // weaker path). resolveTargetMerchantForAdmin allows SUSPENDED.
+  app.post(`${prefix}/:id/edit-request`, { preHandler: [requireAdminCapability('merchant:propose-edit')] }, async (req: any) => {
+    const body = z
+      .object({
+        businessName: z.string().trim().min(1).optional(),
+        tradingName: z.string().trim().min(1).optional(),
+        description: z.string().trim().min(1).optional(),
+        reason: z.string().trim().min(1),
+      })
+      .strict()
+      .parse(req.body)
+
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+
+    const { reason, ...proposed } = body
+    const pendingEdit = await createMerchantEditRequestCore(
+      app.prisma,
+      { merchantId: id, actor: { type: 'ADMIN', id: req.user.sub, reason } },
+      proposed,
+      auditCtx(req),
+    )
+    return { pendingEditId: pendingEdit.id }
   })
 }

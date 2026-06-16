@@ -53,6 +53,12 @@ export type AdminCapability =
   // (it permanently removes a branch and deactivates its staff logins), so it sits
   // at the higher SUPER_ADMIN bar.
   | 'merchant:manage-branches'
+  // Option B B2.5: gates the admin PROPOSE of a merchant's SENSITIVE identity
+  // fields on the merchant's behalf (routes into the B1 pending-edit lane; does
+  // NOT directly mutate). NOT in ALL_SLICE1_CAPS -> SUPER_ADMIN-only.
+  // Intentionally distinct from approval:apply-edit (the B1 APPLY side), so the
+  // PROPOSE and APPLY capabilities are separable.
+  | 'merchant:propose-edit'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
