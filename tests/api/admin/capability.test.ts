@@ -14,6 +14,7 @@ const ALL: AdminCapability[] = [
   'branch:confirm-location',
   'approval:apply-edit',
   'merchant:edit',
+  'merchant:manage-vouchers',
 ]
 
 describe('M2 — admin capability map', () => {
@@ -58,6 +59,14 @@ describe('M2 — admin capability map', () => {
       expect(adminHasCapability('SUPER_ADMIN', 'merchant:edit')).toBe(true)
       for (const role of ['FINANCE', 'CONTENT', 'SUPPORT']) {
         expect(adminHasCapability(role, 'merchant:edit')).toBe(false)
+      }
+    })
+
+    it('B5.1: merchant:manage-vouchers held by OPERATIONS + SUPER_ADMIN, not FINANCE/CONTENT/SUPPORT', () => {
+      expect(adminHasCapability('OPERATIONS', 'merchant:manage-vouchers')).toBe(true)
+      expect(adminHasCapability('SUPER_ADMIN', 'merchant:manage-vouchers')).toBe(true)
+      for (const role of ['FINANCE', 'CONTENT', 'SUPPORT']) {
+        expect(adminHasCapability(role, 'merchant:manage-vouchers')).toBe(false)
       }
     })
   })

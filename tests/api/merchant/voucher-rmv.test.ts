@@ -21,14 +21,20 @@ describe('merchant RMV voucher routes', () => {
 
   beforeEach(async () => {
     app = await buildApp()
-    app.decorate('prisma', {
+    const prismaMock: any = {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
       merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
       voucher: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
       rmvTemplate: { findMany: vi.fn() },
       merchant: { findUnique: vi.fn(), update: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
-    } as any)
+    }
+    // B5.1: the RMV edit/submit cores now wrap voucher.update + writeAuditLogTx in a
+    // $transaction (the audit commits/rolls back with the change). The mock runs the
+    // callback with the SAME prisma mock as the tx client, so the per-test
+    // voucher.update / auditLog.create reassignments + assertions still apply.
+    prismaMock.$transaction = vi.fn().mockImplementation(async (fn: any) => fn(prismaMock))
+    app.decorate('prisma', prismaMock as any)
     app.decorate('redis', { get: vi.fn().mockResolvedValue(null), exists: vi.fn().mockResolvedValue(1) } as any)
     await app.ready()
     merchantToken = (app.jwt as any).merchant.sign(
@@ -70,6 +76,39 @@ describe('merchant RMV voucher routes', () => {
     )
   })
 
+  // B5.1 non-regression: the merchant edit path now audits IN-TRANSACTION as
+  // MERCHANT_ADMIN (actorId = the JWT sub), with before/after merchantFields and no
+  // reason. Was a fire-and-forget writeAuditLog with no actor before B5.1.
+  it('PATCH merchant RMV writes an in-tx MERCHANT_ADMIN RMV_UPDATED audit', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
+      ...mockRmv,
+      merchantFields: { terms: 'Old terms' },
+      rmvTemplate: { ...mockTemplate, allowedFields: ['terms', 'expiryDate'] },
+    })
+    app.prisma.voucher.update = vi.fn().mockResolvedValue({ ...mockRmv })
+
+    const res = await app.inject({
+      method: 'PATCH', url: '/api/v1/merchant/vouchers/rmv/rmv1',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { terms: 'New terms' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(app.prisma.$transaction).toHaveBeenCalled()
+    expect(app.prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          event: 'RMV_UPDATED',
+          actorType: 'MERCHANT_ADMIN',
+          actorId: 'ma1',
+          reason: undefined,
+          before: { merchantFields: { terms: 'Old terms' } },
+          after: { merchantFields: { terms: 'New terms' } },
+          metadata: { voucherId: 'rmv1' },
+        }),
+      })
+    )
+  })
+
   it('PATCH /api/v1/merchant/vouchers/rmv/:id rejects disallowed fields', async () => {
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
       ...mockRmv,
@@ -97,6 +136,44 @@ describe('merchant RMV voucher routes', () => {
     expect(app.prisma.voucher.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING_APPROVAL' }) })
     )
+  })
+
+  // B5.1 non-regression: the merchant submit path audits IN-TRANSACTION as
+  // MERCHANT_ADMIN with the DRAFT -> PENDING_APPROVAL before/after.
+  it('POST merchant RMV submit writes an in-tx MERCHANT_ADMIN RMV_SUBMITTED audit', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({ ...mockRmv, status: 'DRAFT' })
+    app.prisma.voucher.update = vi.fn().mockResolvedValue({ ...mockRmv, status: 'PENDING_APPROVAL' })
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/merchant/vouchers/rmv/rmv1/submit',
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(app.prisma.$transaction).toHaveBeenCalled()
+    expect(app.prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          event: 'RMV_SUBMITTED',
+          actorType: 'MERCHANT_ADMIN',
+          actorId: 'ma1',
+          reason: undefined,
+          before: { status: 'DRAFT' },
+          after: { status: 'PENDING_APPROVAL' },
+          metadata: { voucherId: 'rmv1' },
+        }),
+      })
+    )
+  })
+
+  it('POST merchant RMV submit rejects a non-DRAFT voucher (VOUCHER_NOT_SUBMITTABLE)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({ ...mockRmv, status: 'PENDING_APPROVAL' })
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/merchant/vouchers/rmv/rmv1/submit',
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body).error.code).toBe('VOUCHER_NOT_SUBMITTABLE')
   })
 
   it('PATCH /api/v1/merchant/profile blocks category change if RMV submitted', async () => {
