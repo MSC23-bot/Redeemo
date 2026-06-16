@@ -4,7 +4,7 @@
  * apiFetch is mocked to verify URL, method, auth option, body, and Zod parsing.
  * Errors propagate as ApiError with .code.
  */
-import { merchantsApi } from '../merchants'
+import { merchantsApi, merchantDetailSchema } from '../merchants'
 import { apiFetch, ApiError } from '../client'
 
 jest.mock('../client', () => ({
@@ -159,6 +159,8 @@ describe('merchantsApi.getById', () => {
       category: 'Restaurants',
       primaryCategoryId: 'cat-1',
       categoryLocked: false,
+      description: 'We sell coffee',
+      hasPendingIdentityEdit: false,
     },
     branches: [
       {
@@ -209,6 +211,8 @@ describe('merchantsApi.getById', () => {
         category: null,
         primaryCategoryId: null,
         categoryLocked: false,
+        description: null,
+        hasPendingIdentityEdit: false,
       },
       branches: [],
     }
@@ -217,6 +221,8 @@ describe('merchantsApi.getById', () => {
     expect(result.merchant.tradingName).toBeNull()
     expect(result.merchant.vatNumber).toBeNull()
     expect(result.merchant.companyNumber).toBeNull()
+    expect(result.merchant.description).toBeNull()
+    expect(result.merchant.hasPendingIdentityEdit).toBe(false)
     expect(result.branches).toEqual([])
   })
 
@@ -361,5 +367,65 @@ describe('merchantsApi.editCategory', () => {
     await expect(
       merchantsApi.editCategory('m-1', { primaryCategoryId: 'cat-new', reason: 'x', confirm: true })
     ).rejects.toMatchObject({ code: 'CATEGORY_CHANGE_BLOCKED' })
+  })
+})
+
+// ── B2.5: merchantDetailSchema surfaces description + hasPendingIdentityEdit ───
+
+describe('merchantDetailSchema surfaces B2.5 fields', () => {
+  it('parses description + hasPendingIdentityEdit', () => {
+    const payload = {
+      merchant: {
+        id: 'm1',
+        businessName: 'Acme',
+        tradingName: null,
+        status: 'ACTIVE',
+        verificationStatus: 'VERIFIED',
+        onboardingStep: 'LIVE',
+        websiteUrl: null,
+        vatNumber: null,
+        companyNumber: null,
+        logoUrl: null,
+        category: null,
+        primaryCategoryId: null,
+        categoryLocked: false,
+        description: 'We sell coffee',
+        hasPendingIdentityEdit: true,
+      },
+      branches: [],
+    }
+    const parsed = merchantDetailSchema.parse(payload)
+    expect(parsed.merchant.description).toBe('We sell coffee')
+    expect(parsed.merchant.hasPendingIdentityEdit).toBe(true)
+  })
+})
+
+// ── B2.5: proposeEdit (admin propose-sensitive-edit) ──────────────────────────
+
+describe('merchantsApi.proposeEdit', () => {
+  it('POSTs only the supplied fields + reason and parses { pendingEditId }', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ pendingEditId: 'pe-1' })
+    const res = await merchantsApi.proposeEdit('m-1', { description: 'New bio', reason: 'rebrand' })
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1/edit-request', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ description: 'New bio', reason: 'rebrand' }),
+    })
+    expect(res.pendingEditId).toBe('pe-1')
+  })
+
+  it('propagates ApiError with .code on PENDING_EDIT_EXISTS', async () => {
+    const err = new ApiError(409, { error: { code: 'PENDING_EDIT_EXISTS', message: 'Exists' } })
+    mockedApiFetch.mockRejectedValueOnce(err)
+    await expect(
+      merchantsApi.proposeEdit('m-1', { businessName: 'New', reason: 'x' })
+    ).rejects.toMatchObject({ code: 'PENDING_EDIT_EXISTS' })
+  })
+
+  it('throws on a malformed response (Zod validation)', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ bad: 'shape' })
+    await expect(
+      merchantsApi.proposeEdit('m-1', { description: 'x', reason: 'y' })
+    ).rejects.toThrow()
   })
 })

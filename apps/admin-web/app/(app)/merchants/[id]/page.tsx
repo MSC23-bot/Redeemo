@@ -36,6 +36,7 @@ import { Button } from '@/components/ui/button'
 import { EditMerchantWebsiteDialog } from '@/features/merchants/EditMerchantWebsiteDialog'
 import { EditBranchDialog } from '@/features/merchants/EditBranchDialog'
 import { EditMerchantIdentityDialog } from '@/features/merchants/EditMerchantIdentityDialog'
+import { ProposeMerchantEditDialog } from '@/features/merchants/ProposeMerchantEditDialog'
 import { EditCategoryDialog } from '@/features/merchants/EditCategoryDialog'
 import { AddBranchDialog } from '@/features/merchants/AddBranchDialog'
 import { DeleteBranchConfirm } from '@/features/merchants/DeleteBranchConfirm'
@@ -221,6 +222,7 @@ function BranchCard({
 type OpenDialog =
   | { kind: 'website' }
   | { kind: 'identity' }
+  | { kind: 'propose-edit' }
   | { kind: 'category' }
   | { kind: 'branch'; branch: BranchDetail }
   | { kind: 'add-branch' }
@@ -240,6 +242,9 @@ export default function MerchantDetailPage() {
   const canEditCategory = can('merchant:edit-category')
   // B2.4: branch create/delete are SUPER_ADMIN-only (merchant:manage-branches).
   const canManageBranches = can('merchant:manage-branches')
+  // B2.5: proposing sensitive identity edits is SUPER_ADMIN-only
+  // (merchant:propose-edit). Routes into the B1 review lane, not a direct edit.
+  const canProposeEdit = can('merchant:propose-edit')
 
   const { data, isLoading, isError, refetch } = useMerchantDetail(id, canRead)
 
@@ -311,6 +316,62 @@ export default function MerchantDetailPage() {
               </div>
             </div>
           </header>
+
+          {/* Business identity card (B2.5): the SENSITIVE identity text fields,
+              read-only. The Propose affordance is SUPER_ADMIN-only and routes
+              into the B1 review lane (it does not mutate the merchant). When an
+              identity edit is already pending, the button stays visible but
+              disabled with a pointer to the approval queue. */}
+          <section
+            className="rounded-lg border border-border bg-card p-4"
+            data-testid="merchant-identity-fields-card"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-sm font-medium text-muted-foreground">Business identity</h2>
+                <dl className="mt-1 grid gap-1 text-sm">
+                  <div className="flex items-center gap-2 text-foreground">
+                    <span className="text-muted-foreground">Business name:</span>
+                    <span data-testid="merchant-business-name-value">{data.merchant.businessName}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-foreground">
+                    <span className="text-muted-foreground">Trading name:</span>
+                    <span data-testid="merchant-trading-name-value">
+                      {data.merchant.tradingName ?? 'Not set'}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2 text-foreground">
+                    <span className="shrink-0 text-muted-foreground">Description:</span>
+                    <span data-testid="merchant-description-value">
+                      {data.merchant.description ?? 'Not set'}
+                    </span>
+                  </div>
+                </dl>
+                {canProposeEdit && data.merchant.hasPendingIdentityEdit && (
+                  <p
+                    className="mt-2 text-xs text-muted-foreground"
+                    data-testid="merchant-identity-pending-note"
+                  >
+                    An identity edit is already awaiting review. Action that request in the approval
+                    queue before proposing another.
+                  </p>
+                )}
+              </div>
+              {canProposeEdit && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDialog({ kind: 'propose-edit' })}
+                  disabled={data.merchant.hasPendingIdentityEdit}
+                  data-testid="merchant-identity-propose"
+                >
+                  <Pencil className="size-4" aria-hidden="true" />
+                  Propose changes
+                </Button>
+              )}
+            </div>
+          </section>
 
           {/* Website card */}
           <section
@@ -465,6 +526,18 @@ export default function MerchantDetailPage() {
           merchantId={data.merchant.id}
           currentVatNumber={data.merchant.vatNumber}
           currentCompanyNumber={data.merchant.companyNumber}
+          onSuccess={onDialogSuccess}
+          onCancel={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'propose-edit' && data && (
+        <ProposeMerchantEditDialog
+          merchantId={data.merchant.id}
+          current={{
+            businessName: data.merchant.businessName,
+            tradingName: data.merchant.tradingName,
+            description: data.merchant.description,
+          }}
           onSuccess={onDialogSuccess}
           onCancel={closeDialog}
         />

@@ -59,6 +59,11 @@ const CODE_MESSAGES: Record<string, string> = {
   GAZETTEER_UNAVAILABLE: 'Address lookup is temporarily unavailable. Try again shortly.',
   BRANCH_IS_MAIN: 'The main branch cannot be deleted.',
   BRANCH_LAST_ACTIVE: "This is the merchant's last active branch and cannot be deleted.",
+  // Option B B2.5: admin propose-sensitive-edit.
+  NO_SENSITIVE_FIELDS:
+    'No changes to propose. Edit at least one field, then send for review.',
+  PENDING_EDIT_EXISTS:
+    'This merchant already has an identity edit awaiting review. Action that request first.',
 }
 
 function getMessage(error: unknown): string {

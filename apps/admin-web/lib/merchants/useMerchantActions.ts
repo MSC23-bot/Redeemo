@@ -25,7 +25,7 @@ import { QUEUE_KEY } from '@/lib/queue/useQueue'
 import { MERCHANTS_LIST_KEY } from '@/lib/merchants/useMerchantsList'
 import { merchantDetailQueryKey } from '@/lib/merchants/useMerchantDetail'
 import { reviewQueryKey } from '@/lib/review/useReview'
-import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse, EditMerchantProfileInput, EditMerchantIdentityInput, EditCategoryInput, EditCategoryResult } from '@/lib/api/merchants'
+import type { CreateDraftFields, CreateDraftResponse, SuspendResponse, ReactivateResponse, EditMerchantProfileInput, EditMerchantIdentityInput, EditCategoryInput, EditCategoryResult, ProposeMerchantEditInput, ProposeEditResponse } from '@/lib/api/merchants'
 import type { ConfirmLocationInput, ConfirmLocationResponse, EditBranchInput, CreateBranchInput } from '@/lib/api/branches'
 
 /**
@@ -159,6 +159,20 @@ export function useEditMerchantIdentity(merchantId: string) {
   const invalidate = useInvalidateAfterEdit(merchantId)
   return useMutation<{ id: string }, Error, EditMerchantIdentityInput>({
     mutationFn: (input) => merchantsApi.editIdentity(merchantId, input),
+    onSuccess: invalidate,
+    onError: invalidate,
+  })
+}
+
+// Option B B2.5: the SUPER_ADMIN-only propose-sensitive-edit. Routes into the B1
+// review lane (does NOT mutate the merchant). Same invalidation contract as the
+// B2.1 edits (detail + directory, on success AND error): success flips
+// hasPendingIdentityEdit on the detail; an error means server state moved on, so
+// a resync is still useful. The route gates merchant:propose-edit server-side.
+export function useProposeMerchantEdit(merchantId: string) {
+  const invalidate = useInvalidateAfterEdit(merchantId)
+  return useMutation<ProposeEditResponse, Error, ProposeMerchantEditInput>({
+    mutationFn: (input) => merchantsApi.proposeEdit(merchantId, input),
     onSuccess: invalidate,
     onError: invalidate,
   })

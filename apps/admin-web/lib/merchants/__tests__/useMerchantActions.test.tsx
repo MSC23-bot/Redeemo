@@ -21,6 +21,7 @@ import {
   useEditMerchantCategory,
   useCreateBranch,
   useDeleteBranch,
+  useProposeMerchantEdit,
 } from '../useMerchantActions'
 import { merchantsApi } from '@/lib/api/merchants'
 import { branchesApi } from '@/lib/api/branches'
@@ -37,6 +38,7 @@ jest.mock('@/lib/api/merchants', () => ({
     editProfile: jest.fn(),
     editIdentity: jest.fn(),
     editCategory: jest.fn(),
+    proposeEdit: jest.fn(),
   },
 }))
 jest.mock('@/lib/api/branches', () => ({
@@ -345,6 +347,34 @@ describe('useCreateBranch (B2.4)', () => {
     const { invalidateSpy, Wrapper } = makeHarness()
     const { result } = renderHook(() => useCreateBranch(MERCHANT_ID), { wrapper: Wrapper })
     result.current.mutate({ name: 'New', addressLine1: '1 St', city: 'London', postcode: 'EC1A 1BB', reason: 'x' })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+})
+
+describe('useProposeMerchantEdit (B2.5)', () => {
+  it('invalidates this merchant detail AND the directory on success, passing the input', async () => {
+    ;(merchantsApi.proposeEdit as jest.Mock).mockResolvedValueOnce({ pendingEditId: 'pe-1' })
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useProposeMerchantEdit(MERCHANT_ID), { wrapper: Wrapper })
+
+    const input = { description: 'New bio', reason: 'Owner requested.' }
+    result.current.mutate(input)
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(merchantsApi.proposeEdit).toHaveBeenCalledWith(MERCHANT_ID, input)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
+  })
+
+  it('invalidates this merchant detail AND the directory on ERROR (stale state moved on)', async () => {
+    ;(merchantsApi.proposeEdit as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const { invalidateSpy, Wrapper } = makeHarness()
+    const { result } = renderHook(() => useProposeMerchantEdit(MERCHANT_ID), { wrapper: Wrapper })
+
+    result.current.mutate({ businessName: 'New', reason: 'x' })
+
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: MERCHANTS_LIST_KEY })
