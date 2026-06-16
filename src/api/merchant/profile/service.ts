@@ -207,7 +207,7 @@ export async function createMerchantEditRequestCore(
   const sensitiveKeys = SENSITIVE_FIELDS.filter(k => k in proposedChanges)
   if (sensitiveKeys.length === 0) throw new AppError('NO_SENSITIVE_FIELDS')
 
-  // App-layer enforcement — no DB unique constraint on merchantId.
+  // App-layer enforcement: no DB unique constraint on merchantId.
   const existing = await prisma.merchantPendingEdit.findFirst({
     where: { merchantId, status: 'PENDING' },
   })
