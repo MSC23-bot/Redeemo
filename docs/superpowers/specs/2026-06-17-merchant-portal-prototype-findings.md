@@ -33,6 +33,9 @@ Purpose: capture the product and UX decisions validated, and the gaps discovered
 - Resume: after submitting voucher 1, the merchant can leave and return straight to voucher 2 without rebuilding voucher 1; the checklist reflects progress.
 - Success: "Both flagship vouchers have been submitted".
 
+### Dashboard tone: encouraging at low volumes
+- A brand-new live merchant has few redemptions, and some cycles are naturally quiet. The dashboard must never make a merchant feel they are failing. It carries an early or low-volume state (celebratory "you are live", encouraging placeholders instead of empty charts and lonely zeros, a "your first redemption is on its way" framing, and a "ways to bring in more customers" tips panel), frames quiet cycles constructively (no red doom "down" numbers; lead with the always-growing cumulative "Customers brought in"; offer growth tips), and celebrates milestones (first redemption, round numbers). Tone stays calm, warm, and genuine, never pushy or fake. This applies across the live merchant surfaces, not only the dashboard.
+
 ### Review model and status surfacing
 - Two review dimensions. At onboarding the business and its two mandatory flagship vouchers are reviewed together as ONE submission (the admin onboarding approval already includes the vouchers), so the merchant submits once. Each voucher still carries its own status (Draft, In review, Live, Changes requested, Paused, Expired), surfaced per-voucher in the Vouchers section and summarised on the dashboard during the In review state. Post-launch, a newly added or edited voucher goes through its own separate review before going live (the voucher preview already states "goes to Redeemo for review before it goes live"). The single onboarding Submit for review does not change; the voucher status is shown, not separately submitted.
 
