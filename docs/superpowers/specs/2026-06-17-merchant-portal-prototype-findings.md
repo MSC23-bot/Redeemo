@@ -40,6 +40,7 @@ Purpose: capture the product and UX decisions validated, and the gaps discovered
 - Dashboard-first plus checklist, refined to a guided staircase: Choose your category is first; Complete your business profile unlocks after category; Add your main branch, Set up your 2 flagship vouchers, and Sign the merchant agreement unlock only after both category and business profile are done.
 - Onboarding IA: light registration; category first on the dashboard; business and legal details (registered name, company registration number, VAT number, head office or registered address) in the Business profile step, not at registration.
 - Single demo persona across all screens: The Old Foundry Kitchen, owner James Whitfield. The business name is wired through; flipping the lifecycle switcher never changes the persona.
+- Contact split: the company head office contact (website, head office phone, head office email) is captured at the merchant level in the business profile; the customer-facing contact (the phone and email customers see and call) is branch-specific and captured when adding a branch. The registered or head office address is captured as structured UK fields (line 1, line 2, town or city, county, postcode) with postcode lookup, not a single free-text box.
 
 ### Taxonomy and identity
 - Three-tier attribute model:
