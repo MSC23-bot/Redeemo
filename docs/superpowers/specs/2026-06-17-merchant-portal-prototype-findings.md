@@ -61,6 +61,9 @@ Purpose: capture the product and UX decisions validated, and the gaps discovered
 - Cuisine-specific specialties are missing (the seed has generic food specialties only). Add specialties per cuisine (Indian: Curry House, Tandoor, Biryani, Thali, Street Food, Balti; and the same for Thai, Chinese, and the rest).
 - `SubcategoryTag` mappings need completing so tags only show for the subcategories and cuisines they fit. Today Cafe shows cuisines and an Indian Restaurant shows Pizza, which are mapping gaps.
 
+### Taxonomy content and policy (Phase 3)
+- Remove the identity-based HIGHLIGHT tags from the taxonomy seed (`prisma/seed-data/tags.ts`): Women-Owned, Black-Owned, LGBTQ+ Friendly. Owner direction is that these read as political or potentially discriminatory and should not be part of the platform. They are removed from the onboarding business-profile values section in the prototype. Decide in Phase 3 whether to remove them platform-wide (customer-facing filters and the merchant profile too), which is the recommendation. Keep neutral business values such as Independent, Family-Run, Locally Sourced, Eco-Conscious; Family-Run and Locally Sourced are not in the current seed and would need adding.
+
 ### Features to build
 - Merchant-proposed tag flow end to end: "Add your own" on cuisine and specialty, a pending state, routing to the admin panel, admin approval, then it joins the taxonomy. The schema already anticipates this via `Tag.createdBy` (`TagCreatedBy`). The admin side lands with the admin panel work.
 
