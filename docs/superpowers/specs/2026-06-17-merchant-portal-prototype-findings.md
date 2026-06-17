@@ -68,6 +68,10 @@ Purpose: capture the product and UX decisions validated, and the gaps discovered
 - Cuisine-specific specialties are missing (the seed has generic food specialties only). Add specialties per cuisine (Indian: Curry House, Tandoor, Biryani, Thali, Street Food, Balti; and the same for Thai, Chinese, and the rest).
 - `SubcategoryTag` mappings need completing so tags only show for the subcategories and cuisines they fit. Today Cafe shows cuisines and an Indian Restaurant shows Pizza, which are mapping gaps.
 
+### Branch features and amenities scoping (Phase 3)
+- Branch features and amenities must be category-specific, governed by the `CategoryAmenity` eligibility rules (a gym does not show High Chairs, a garage does not show Beer Garden). The prototype initially showed a fixed food-oriented list for every business.
+- Structural clean-up: the branch features section currently mixes true amenities (operational, `CategoryAmenity`-governed, for example Wi-Fi, Outdoor Seating, Free Parking) with physical HIGHLIGHT and DETAIL tags (Family-Friendly, Pet-Friendly, Takeaway Available, Contactless), and the seed has a tag-versus-amenity overlap (Outdoor Seating appears as both an amenity and a HIGHLIGHT tag). The `amenities.ts` header states a concept should live in exactly one system. Resolve the boundary and make sure both amenities and the physical tags are category-scoped, as part of the three-tier move of physical attributes to the branch level.
+
 ### Taxonomy content and policy (Phase 3)
 - Remove the identity-based HIGHLIGHT tags from the taxonomy seed (`prisma/seed-data/tags.ts`): Women-Owned, Black-Owned, LGBTQ+ Friendly. Owner direction is that these read as political or potentially discriminatory and should not be part of the platform. They are removed from the onboarding business-profile values section in the prototype. Decide in Phase 3 whether to remove them platform-wide (customer-facing filters and the merchant profile too), which is the recommendation. Keep neutral business values such as Independent, Family-Run, Locally Sourced, Eco-Conscious; Family-Run and Locally Sourced are not in the current seed and would need adding.
 
