@@ -22,7 +22,7 @@ Purpose: capture the product and UX decisions validated, and the gaps discovered
 
 ### Voucher preview card
 - Hierarchy: title leads; the saving is the hero figure in Mustica Pro savings-green; the identity row (logo, name, branch) is quieter; description muted; terms quietest.
-- Default banner uses the Redeemo brand gradient when no photo is set; a merchant photo overrides it. The Redeem button stays the single primary action.
+- Default banner uses the voucher type's colour as a per-type gradient when no photo is set (matching the customer app's per-type voucher card gradients), and a merchant photo overrides it. This refines the earlier brand-gradient default, which was chosen when a BOGO purple banner looked jarring; the real app uses per-type gradients, so per-type is the faithful choice (owner to confirm if they prefer a brand-gradient default instead). The Redeem button stays the single primary action.
 - Copy: "Save up to" (not "Save about"); CTA "Redeem this voucher".
 - Phase 3: the preview should mirror the live customer voucher card exactly (per-type gradient, R watermark, Mustica saving treatment).
 
@@ -42,6 +42,7 @@ Purpose: capture the product and UX decisions validated, and the gaps discovered
 ### Voucher builder modes and scoring rules
 - The builder runs in two modes. Flagship mode during onboarding: the two mandatory vouchers, "Create your flagship voucher", "Voucher 1 of 2", saved and submitted with the business. Custom mode when a merchant creates a voucher from the Vouchers page post-launch: "Create a voucher", "Build your voucher", a single voucher with no 1-of-2 framing, and it goes to Redeemo for review before it goes live (per the live-voucher review model), not submitted with the business.
 - Scoring and validation rules (apply to every type): the suggested title tracks the type's amounts (for example the spend and save values) so it never contradicts the offer; the minimum-saving floor is an absolute £5 check independent of the term count; the meter tier must agree with the improve list, so several improvement points cannot read Good. Type-dependent terms update live with their amount (for example the spend term follows the spend threshold). Suggested descriptions stay generic, not sector-specific.
+- Type identity in the builder: the builder names the voucher type in the top bar and heading (custom mode: "Spend and save voucher" / "Build your custom Spend and save voucher") and uses the type's colour as the header accent. The suggested description is customer-facing, written to the customer ("you" the customer), never explaining the offer to the merchant.
 
 ### Voucher trust and lifecycle
 - A live voucher is a commitment to customers, so merchants cannot casually pause, pull, or delete a live voucher. Pause and Delete are removed from live vouchers (Delete stays on Draft only). A live voucher runs to its expiry; ending one early is a "Request to end" that goes through review so Redeemo can manage the customer impact. The Paused state is Redeemo-initiated only (for example a suspension), not a merchant action.
