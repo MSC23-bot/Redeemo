@@ -75,6 +75,10 @@ Purpose: capture the product and UX decisions validated, and the gaps discovered
 ### Taxonomy content and policy (Phase 3)
 - Remove the identity-based HIGHLIGHT tags from the taxonomy seed (`prisma/seed-data/tags.ts`): Women-Owned, Black-Owned, LGBTQ+ Friendly. Owner direction is that these read as political or potentially discriminatory and should not be part of the platform. They are removed from the onboarding business-profile values section in the prototype. Decide in Phase 3 whether to remove them platform-wide (customer-facing filters and the merchant profile too), which is the recommendation. Keep neutral business values such as Independent, Family-Run, Locally Sourced, Eco-Conscious; Family-Run and Locally Sourced are not in the current seed and would need adding.
 
+### Image and file upload specs and limits (Phase 3)
+- Starting specs (tune later): branch photos JPG or PNG, landscape, min ~1200 by 800, up to 5 MB each, cap 8 per branch; logo square min 512 by 512 up to 2 MB; cover wide min 1600 by 600 up to 5 MB; verification documents PDF, JPG, or PNG up to 10 MB each, cap 5. Plus content guidance (real, well-lit photos of the space, not logos or stock).
+- Enforce format, size, dimension, and count limits both client-side and server-side, to prevent storage abuse. The B4 document upload already enforces type and size on the server buffer; photo count and size limits need the same server-side enforcement, not only the UI.
+
 ### Features to build
 - Merchant-proposed tag flow end to end: "Add your own" on cuisine and specialty, a pending state, routing to the admin panel, admin approval, then it joins the taxonomy. The schema already anticipates this via `Tag.createdBy` (`TagCreatedBy`). The admin side lands with the admin panel work.
 
