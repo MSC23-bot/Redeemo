@@ -363,6 +363,8 @@ KEY GROUNDING FACTS / GAPS:
 - Branch creation: first branch auto-becomes main (isMainBranch = existingCount===0).
 - Branch staff (BranchUser: email/phone/password/firstName/lastName/jobTitle/status) belong to branches but are managed on the separate Staff & access surface.
 
+Build brief SENT (2026-06-18): requirements-led Branches brief grounded in this contract (list with main-first; branch page grouping identity/address, derived location + confidence, contact, branding+moderated photos, one-period-per-day hours, category-governed amenities, reveal-on-demand PIN, open/closed toggle; the DIRECT-vs-REVIEW edit split mirroring the voucher change-request lane; lifecycle = one main, can't delete main or last-active). Grounding notes included (hours one-per-day so no split-shift/24h editor; location derived not typed). REVIEW WHEN BACK - watch the edit-split fidelity especially.
+
 ## 2O. Merchant analytics consistency (owner direction 2026-06-18, pre-Branches)
 
 Goal: make all analytics surfaces (Home dashboard, voucher View, Redemptions, Insights & reports, anywhere else) consistent with the voucher + redemption data now that both modules exist with sample data. Two parts:
