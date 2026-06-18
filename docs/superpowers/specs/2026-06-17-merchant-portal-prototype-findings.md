@@ -363,5 +363,20 @@ KEY GROUNDING FACTS / GAPS:
 - Branch creation: first branch auto-becomes main (isMainBranch = existingCount===0).
 - Branch staff (BranchUser: email/phone/password/firstName/lastName/jobTitle/status) belong to branches but are managed on the separate Staff & access surface.
 
+## 2O. Merchant analytics consistency (owner direction 2026-06-18, pre-Branches)
+
+Goal: make all analytics surfaces (Home dashboard, voucher View, Redemptions, Insights & reports, anywhere else) consistent with the voucher + redemption data now that both modules exist with sample data. Two parts:
+
+PART 1 - consistent DEFINITIONS (the real value; consolidates locked principles 2H/2K/2M). Proposed set, applied EVERYWHERE:
+- Redemptions (headline "used" number) = VALIDATED redemptions only (actually honoured); REVERSED excluded entirely; awaiting-validation shown separately (operational queue), not in the "used" total. (OWNER TO CONFIRM: validated-only headline vs all-redeemed-incl-pending; recommend validated.)
+- Savings / value delivered = saving summed over those validated redemptions; framed positively for the merchant (never money-lost).
+- Customers = distinct customers among them.
+- Trend = monthly, completed-month comparison, encouragement framing (no decline-shaming).
+- Reversed = excluded from every metric on every surface.
+
+PART 2 - demo numbers tie out: prototype surfaces currently use separate hardcoded demo data, so Home totals / per-voucher numbers / redemption log don't reconcile. Fix: one shared demo dataset every surface derives from (per-voucher counts sum to dashboard totals; redemption log matches). Achievable in the single .dc.html.
+
+NEXT: review the Home dashboard + Insights & reports (not yet seen) to spot mismatches, then brief the reconciliation. (Voucher View + Redemptions numbers already seen.)
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
