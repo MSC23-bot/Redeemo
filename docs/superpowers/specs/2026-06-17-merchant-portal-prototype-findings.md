@@ -494,5 +494,25 @@ PROTOTYPE: brief Claude Design to build Business profile (identity, registered i
 
 PHASE 4 (captured): (1) merchant-side document endpoints (mirror admin B4); (2) decide whether a distinct business/HQ contact is wanted (schema add) or owner + main-branch suffices (default: suffices); (3) surface the category-change guard to the merchant (handleCategoryChange already exists).
 
+## 2U. Business profile as-built review (owner screenshots 2026-06-19)
+
+Built and strong; edit-split faithful (review-lane modal "checked before they go live" + Submit for review; immediate modal "save straight away, no review" + Save changes; category LOCKED + guarded confirm "only continue if genuinely wrong, vouchers/redemptions not deleted, we will guide you"; business contact read-only "edit under My account"; states via demo switcher). Issues + fixes briefed:
+
+VISUAL (bugs):
+1. Hero overlap: the business name is bisected by the banner's lower edge (top half dark-on-dark, unreadable); logo straddles the edge awkwardly. Fix legibility/positioning (name fully readable, not cut by the boundary; logo may overlap avatar-style).
+2. Banner off-brand: hero + Public-identity card + edit-modal thumbnail all use a navy->rust gradient that is NOT Redeemo brand. Default = the brand red->coral gradient (design-system --brand-gradient) OR a clean "add a banner" empty state matching the logo's; consistent across all three.
+
+STRUCTURE / REDUNDANCY:
+3. Documents nav-page vs Business-profile section: it is ONE MerchantDocument set (no separate data) - only placement differs. DECISION (recommended + briefed): Documents nav page = the full manager (view/upload/replace); Business profile = a compact summary (status + count "N of 4 on file") linking there. NOT two full editors.
+4. Merchant agreement surfaced twice (Compliance "View signed agreement" + Documents "Signed merchant agreement · View/Replace"). One home: Compliance (the contract - signed/version/date/view + re-accept on version drift). In Documents it is NOT a separate replaceable file; the merchant can NEVER "Replace" a signed agreement (a record, not an upload) - remove Replace, at most view-only. (Copy: click-to-agree = "accepted", not "countersigned".)
+
+MISSING:
+5. "Compliance and status" is named for status but only shows the agreement - add the verification state (verified / in review / not submitted; VerificationStatus enum) so the section earns its name.
+
+COPY:
+6. Header subtitle "This is how customers see you on Redeemo, plus the details and documents we hold" overclaims - only Public identity is customer-facing; registered details, contact, documents, compliance are internal. Reword so it does not imply the whole page is customer-visible. Minor: "Upload to complete your file" (price list) -> clearer ("Add your menu or price list"); "Continue to category" button -> clearer ("Choose a new category"); "countersigned" -> "accepted" for click-to-agree.
+
+Fix brief SENT (2026-06-19, requirements-led; bugs specified since they are identified defects). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
