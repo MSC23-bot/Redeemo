@@ -160,5 +160,14 @@ Scoring nuance: a reusable offer's strength comes partly from repeat frequency, 
 
 Why no schema change: the stored voucher is type REUSABLE + title, description, estimatedSaving, terms + cooldownSeconds (already on the model) + optional expiryDate. The mechanic is a builder scaffold that collapses into those fields. The genuine difference Reusable adds is the cadence (repeatable with an interval, not once per cycle), already enforced app-side via availableAgainAt.
 
+## 2D. Builder guidance panel copy must be cadence-aware (added 2026-06-18)
+
+The navy "Strong for you, fair for customers" guidance panel at the foot of the voucher builders has a first bullet stating how often a customer can use the voucher plus the margin rationale. It hardcoded "once a month", which is correct only for the standard once-per-cycle types and is wrong for the two wrappers (it contradicts the model and inverts the rationale, since Reusable is explicitly for repeat use). The first bullet must switch on voucher type:
+- Standard types (Discount, BOGO, Freebie, Spend and save, Package, unwrapped): "once a month" framing (regulars still pay full price, bring in new faces).
+- Time-limited: "once each time the offer runs" (for example once a day for a daily happy hour); fill quieter times, plan saving around footfall.
+- Reusable: "again and again, available again after the set interval, not once a month"; built to reward regulars and keep them returning; set saving and interval around margin.
+
+The other three bullets in the panel (we help, pick terms, ask for help) are generic platform messaging and stay the same across types. General lesson: any builder copy that states the redemption cadence must be type-aware, the same way the Step 2 notes already are. This also applies to any future surface that restates the cadence (management list, View screen).
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
