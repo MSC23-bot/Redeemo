@@ -514,5 +514,30 @@ COPY:
 
 Fix brief SENT (2026-06-19, requirements-led; bugs specified since they are identified defects). REVIEW WHEN BACK.
 
+## 2V. Settings + My account: verified backend contract (added 2026-06-19)
+
+Verified against live code (MerchantAdmin model; auth/merchant/routes.ts + service.ts + plugin.ts; merchantMembership.ts).
+
+TWO entry points, recommend SPLIT:
+- MY ACCOUNT (avatar menu; the person = MerchantAdmin): profile, password, notification preferences, sessions. The Business contact card already links here ("edit under My account").
+- SETTINGS (nav, pinned; account + legal): deactivate/close the business, data protection (merchant DSAR), privacy & cookies, compliance links.
+
+WHAT EXISTS (auth/merchant/routes.ts):
+- logout (current session only); forgot-password + reset-password (LOGGED-OUT, token-email); claim (draft owner sets password); deactivate + reactivate (SELF-SERVICE, OWNER; sets the whole MERCHANT status INACTIVE<->ACTIVE = the BUSINESS goes offline / all vouchers inactive, NOT just a login; SUSPENDED can't self-deactivate out; reversible). Sessions = Redis per-session refresh tokens; revokeAllSessionsForEntity exists (the primitive behind a future "log out everywhere").
+
+WHAT'S MISSING (Phase 4):
+- Logged-in CHANGE PASSWORD (current->new): NOT built; only the logged-out reset flow. (Small route add.)
+- OWN-PROFILE EDIT (your MerchantAdmin firstName/lastName/jobTitle/phone; email change = sensitive verify-new flow): NOT built. The "edit under My account" link has no backing edit endpoint yet.
+- NOTIFICATION PREFERENCES: MerchantAdmin has NO prefs/consent fields (customer User has newsletterConsent; merchant has none) -> SCHEMA ADD + routes. STOP-AND-REPORT before any migration.
+- SESSIONS/DEVICES LIST: not built (logout kills only the current session; revokeAllSessionsForEntity can power a "log out of all devices" action without a full list). Customer app deliberately DROPPED its active-session row (CLAUDE.md hotfix) - precedent to keep this minimal.
+- DSAR (download-my-data / request-deletion): NOT built (blueprint "fast-follow"; real GDPR obligation). No hard-delete; no export.
+- Compliance links (terms, privacy, support): static, trivial.
+
+DEACTIVATE FRAMING (important): "deactivate" = take the WHOLE BUSINESS offline (all vouchers inactive, hidden from customers), owner-only, REVERSIBLE via reactivate, serious confirm. NOT "delete my login". No merchant PERMANENT delete (soft INACTIVE only; permanent DELETED is admin-side) - permanent closure = contact Redeemo / review, not self-serve.
+
+PROTOTYPE: brief the account cluster (My account = profile/password/notifications/log-out-everywhere; Settings = deactivate-business/DSAR/privacy/compliance links). Requirements-led; heavy-action rules specified (deactivate serious+reversible+owner-only; password current+new; DSAR; notification toggles); layout to Claude. Almost all backed by Phase-4 work - prototype shows intended UX.
+
+Brief SENT (2026-06-19; My account + Settings split recommended, owner can collapse to one). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
