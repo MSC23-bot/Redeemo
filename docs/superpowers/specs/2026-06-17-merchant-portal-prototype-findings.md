@@ -267,5 +267,16 @@ Run-again stats model (locked 2026-06-18): "Run this again" creates a NEW vouche
 
 2H round-2 owner-screenshot-verified (2026-06-18): run-again on an ENDED voucher confirmed (new "Run 2" in In review, original preserved in Finished as Ended with 34 redemptions); run-length fix confirmed ("ran 105 days"); growth framing confirmed (BOGO +50% green "up on the month before", "most redeemed voucher", saving as the small "£1,534 saved for them so far" line); grouping + needs-attention draft confirmed; "Run 2" pill disambiguates same-named lineage entries. Not yet shown in screenshots: the down-month "Holding steady" framing (the Spend £30 declining View) - pending a glance. Vouchers section wrapped; next surface Redemptions.
 
+## 2I. Redemptions surface: verified backend contract (added 2026-06-18)
+
+Verified against live code (`src/api/redemption/{routes,service}.ts`, schema) before briefing. Corrects an earlier-from-memory privacy claim.
+
+- PRIVACY CORRECTION: `listBranchRedemptions` returns `customer.name` (firstName + lastName); `verifyRedemption` returns the name too. Email/phone are NOT exposed. So the merchant DOES see customer names in the redemption history and on validate (operational reconciliation need). The "aggregate, no individual identity" rule applies to ANALYTICS, not the operational redemption list. The prototype should SHOW the customer name, not hide it.
+- BRANCH-SCOPED ONLY: the only reconciliation endpoint is `GET /branch/:branchId/redemptions`. There is NO merchant-wide "all branches" redemptions endpoint (confirmed: merchant routes only do branch-PIN get/set). A web Redemptions page across all branches needs either a branch selector or a new merchant-wide endpoint = Phase-4 backend gap.
+- THIN FILTERS: `listBranchRedemptions` filters on date range (from/to) + pagination only. No validated/unvalidated filter, no by-voucher filter at the API = backend extension if the web wants them.
+- VALIDATE: `POST /redemption/verify` accepts an 8-char code + method (QR_SCAN | MANUAL); web = MANUAL entry, mobile staff = QR_SCAN. ValidationMethod enum also has PIN (the separate customer-side branch-presence method, not staff verify). Guards: REDEMPTION_NOT_FOUND, ALREADY_VALIDATED, BRANCH_ACCESS_DENIED/MERCHANT_MISMATCH (scope), MERCHANT_SUSPENDED, BRANCH_UNAVAILABLE. Records validatedById (who) + validatedAt + method.
+- Per-redemption fields available: voucher {id,title}, customer.name, redemptionCode, estimatedSaving, redeemedAt, isValidated, validationMethod, validatedAt, branchId. (Raw userId is in the payload but opaque.)
+- LESSON: ground the surface in live code before briefing (owner prompted the thorough check; it caught the wrong privacy claim + the branch-scoping + filter gaps).
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
