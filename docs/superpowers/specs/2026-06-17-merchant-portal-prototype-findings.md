@@ -410,5 +410,21 @@ Branches round 7 (owner 2026-06-19): in the "Staff at this branch" section, add 
 
 Branches round 8 (owner 2026-06-19): the branch-page header (branch name + main badge + open status + address) should ALSO show the merchant logo + merchant name (brand context: this branch belongs to the business; Merchant.businessName + logoUrl available). Place tastefully (small logo + business name as a parent label above/beside the branch name). BROADER NOTE (later polish): the portal chrome shows the Redeemo brand, not the merchant's own brand; consider surfacing the merchant's brand more consistently across the portal in a future polish pass.
 
+## 2Q. Staff & access: verified backend contract (added 2026-06-19)
+
+Verified against live code (schema; `src/api/auth/merchant/branch-user.{routes,service}.ts`; `src/api/shared/merchantMembership.ts`).
+
+TWO DISTINCT, SEPARATE staff systems:
+- PORTAL TEAM MEMBERS (MerchantMembership): web-portal access. ROLE-BASED only - MerchantRole = OWNER / BRANCH_MANAGER / STAFF (no granular capabilities on the merchant side, unlike admin). Branch scope via `allBranches` Boolean (default true) OR specific branches in MerchantMembershipBranch. Tied to a MerchantAdmin account. @@unique([merchantId, merchantAdminId]).
+- BRANCH STAFF (BranchUser): mobile-app-only login, validates redemptions; belongs to ONE branch; fields email/phone/firstName/lastName/jobTitle/status/mustChangePassword. Separate login from portal members.
+
+BUILT: branch-staff management via merchant-auth routes - POST /user (create: contactName, jobTitle?, email, password, contactNumber, branchId; mustChangePassword=true), POST /user/reset-password, PATCH /user/deactivate, PATCH /user/reactivate, PATCH /pin. merchantMembership.ts provides getOwnerMembership / getMerchantOwnerContact / assertNotLastOwner (LAST_OWNER_PROTECTED guard).
+
+GAPS (Phase 4):
+- PORTAL-MEMBER MANAGEMENT is NOT built: no invite/add/list/change-role/assign-branches/remove flow. Only the OWNER membership exists (created at onboarding); invitedById is "forward-compat, no FK yet". So inviting a branch manager / staff to the PORTAL is a backend build. Guard that exists: cannot remove the last active OWNER.
+- UNIFICATION: portal members (MerchantAdmin/membership) and branch staff (BranchUser) are SEPARATE records. The prototype's "one staff person with Portal + app access" is a UX unification not matched by the backend (a membership + a branch user are two things). Modelling decision for Phase 4.
+
+Prototype can show the full Staff & access UX; flag portal-member management + the unification as Phase-4 backend work (branch-staff/app side IS real).
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
