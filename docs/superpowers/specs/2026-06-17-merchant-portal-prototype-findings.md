@@ -408,5 +408,7 @@ Branches round 6 (owner 2026-06-19): branch-page section cards leave a large emp
 
 Branches round 7 (owner 2026-06-19): in the "Staff at this branch" section, add a per-person Remove control (remove from THIS branch only; deliberate + quick confirm + success toast "Removed from this branch"). Full staff management stays on Staff & access. BACKEND NUANCE (Phase 4): a BranchUser belongs to ONE branch, so removing them is effectively removing their access (delete/deactivate the BranchUser); a portal member is removed via deleting the MerchantMembershipBranch join (member stays, loses this branch). The branch-page remove handles both.
 
+Branches round 8 (owner 2026-06-19): the branch-page header (branch name + main badge + open status + address) should ALSO show the merchant logo + merchant name (brand context: this branch belongs to the business; Merchant.businessName + logoUrl available). Place tastefully (small logo + business name as a parent label above/beside the branch name). BROADER NOTE (later polish): the portal chrome shows the Redeemo brand, not the merchant's own brand; consider surfacing the merchant's brand more consistently across the portal in a future polish pass.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
