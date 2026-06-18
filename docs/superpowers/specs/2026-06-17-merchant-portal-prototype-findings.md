@@ -114,5 +114,25 @@ Purpose: capture the product and UX decisions validated, and the gaps discovered
 - Required legal identifiers for a UK business at the Business profile step (company registration number, VAT number, registered address, anything sector-specific).
 - Preview button label "Redeem this voucher" to be reconciled against the live customer app wording.
 
+## 2A. Time-limited voucher: wrapper model (added 2026-06-18)
+
+Decision (builder-only, no schema change): a Time-limited voucher is an existing offer mechanic with a schedule attached. The builder asks two things, what runs and when it runs. What runs: the merchant picks Discount, Buy one get one, Freebie, or Spend and save, and fills that mechanic's existing field set, chips, scoring, and 5 pound saving floor. When it runs: the recurring weekly window editor already built. The saving is owned by the chosen mechanic, not a separate flat field. This reuses the per-type builders already designed. The earlier build wrongly stacked a flat offer line, a flat saving, and a buy/get-free block at once, which let a merchant create three contradictory deals (half price plus an 8 pound flat saving plus BOGO, numbers not reconciling: half of 18 pounds is 9, BOGO of 18 is 18, card said 8).
+
+Why no schema change: the Voucher model has no structured per-type columns (no buyItem, freeItem, threshold). Every type collapses to type, title, description, estimatedSaving, terms, plus type extras (availabilityWindows for Time-limited, cooldownSeconds for Reusable, expiryDate). The per-type builders are scaffolds that compute title, description, and saving; the stored Time-limited voucher stays type TIME_LIMITED. The genuine difference Time-limited adds is the redemption cadence: once per window occurrence (enforced by VoucherRedemption @@unique([userId, voucherId, windowStartsAt])), not once per cycle. So wrapping a BOGO in a schedule is meaningful (it changes how often a customer can use it) and is purely a builder concern.
+
+Preview fidelity: the merchant preview must mirror the real app's Time-limited states, not a static card. The app (HeroStatusBlock + VoucherDetailScreen, useTimeLimited hook) shows a live countdown and a state-dependent CTA:
+- active: eyebrow "Available now", live countdown, supporting "Window ends <time>"; red "Redeem This Voucher" (CTA_LABELS.redeemActive, Title Case).
+- urgent (under 60 min to close): eyebrow "Ending soon", same red CTA.
+- unavailable-today: eyebrow "Available later today" or "Available soon", countdown to open, supporting "Available from <time>"; disabled NAVY CTA "Not Available Right Now" with the schedule string subline (formatScheduleString, for example "Mon-Fri, 12pm-2pm"), not red.
+- unavailable-future-day: eyebrow "Available tomorrow" or "Available <Weekday>"; same disabled navy CTA plus schedule.
+- redeemed-this-window: eyebrow "Available again", countdown to next open.
+The prototype should expose a preview state switcher so the merchant can see in-window and out-of-window treatments without waiting on the clock.
+
+Open items for Phase 3:
+- Wrappable set: prototype offers Discount, Buy one get one, Freebie, Spend and save; Package left out. Confirm the final allowed set and whether Package is includable on a schedule.
+- Persisting the underlying mechanic: if the management list, View screen, or customer card should show "BOGO, Fri-Sun 5-9pm" with the mechanic's flavour, remember the chosen shape in the existing merchantFields JSON (additive, no migration). If not, title and description carry the meaning and nothing is stored. Decide in Phase 3.
+- CTA label reconciliation now covers the full Time-limited state set above, not just the single "Redeem this voucher" wording: active label is "Redeem This Voucher" (Title Case); out-of-window label is "Not Available Right Now" with a schedule subline.
+- Category-generic copy reapplied: offer placeholder, mechanic item chips, and terms must span all categories (not food). Booking terms surface only for categories where booking applies.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
