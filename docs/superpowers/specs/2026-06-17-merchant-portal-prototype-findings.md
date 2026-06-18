@@ -169,5 +169,24 @@ The navy "Strong for you, fair for customers" guidance panel at the foot of the 
 
 The other three bullets in the panel (we help, pick terms, ask for help) are generic platform messaging and stay the same across types. General lesson: any builder copy that states the redemption cadence must be type-aware, the same way the Step 2 notes already are. This also applies to any future surface that restates the cadence (management list, View screen).
 
+## 2E. Custom voucher creation: distinct type-picker with per-type explainer (added 2026-06-18)
+
+Decision: the custom "Create a voucher" entry (reached from the Vouchers management page) gets its own type-picker screen, distinct from the onboarding "Choose your flagship offer" screen which it currently clones. The onboarding flagship screen stays for onboarding (flagship mode, 2 mandatory, RECOMMENDED nudge, "Voucher 1 of 2"); the custom screen is general-purpose, single voucher, reviewed before live.
+
+Remove onboarding framing from the custom screen: the "Choose your flagship offer" title + flagship intro, the RECOMMENDED badge on BOGO, and the "How Redeemo vouchers work" primer whose "THE MOST IMPORTANT RULE: once a month" is both onboarding education and now inaccurate as a universal (the wrappers break once-a-month, per 2D).
+
+New core feature: selecting a voucher type reveals a human, plain-English explainer that helps the merchant choose with confidence: what it is, how it works, what it means for their business, and what it is best for (plus a "good to know" cadence line for the two wrappers). All seven types selectable (Discount, BOGO, Freebie, Spend and save, Package deal, Time limited, Reusable) with their Redeemo colours/icons. Primary action starts that type's builder; a calm "reviewed before it goes live" reassurance; a path back to management.
+
+Per-type explainer copy (full text held in the prototype brief; condensed here):
+- Discount: money off (set amount or percentage). Best for a clear, no-fuss saving almost any business can offer.
+- BOGO: buy one, get another of the same or similar free. Best for footfall and bring-a-friend; works when the second item costs little but feels generous.
+- Freebie: a free item, standalone or a free extra with a purchase. Best for first visits, tasters, small thank-yous.
+- Spend and save: spend over a threshold, save a fixed amount. Best for lifting average spend; protects margin.
+- Package deal: a bundle for one price. Best for signature combinations, set menus, kits; precise value control.
+- Time limited (wrapper): any offer on chosen days/times; usable once each time the window runs, not once a month. Best for filling quieter times. Good to know: plan saving + times around footfall and margin.
+- Reusable (wrapper): any offer usable again and again, available again after the interval you set. Best for loyalty and repeat visits. Good to know: set saving + interval around margin.
+
+Approach is requirements-led: provide the content (one-line summaries + per-type explainer copy above) and the functional requirements (seven types; selecting a type reveals its explainer; a primary action to start building; a calm reviewed-before-live reassurance; a back path; never an empty or confusing state), then hand ALL presentation to Claude Design. Do NOT prescribe layout, placement, or hierarchy (no master-detail / side-by-side / grouping instruction) per owner direction 2026-06-18: being too specific about where to place things makes Claude Design build exactly that and wastes its design judgment. The wrapper relationship (Time limited and Reusable wrap one of the other five) is already conveyed by the explainer copy, so no separate grouping instruction is needed. Constraints only: distinct from the onboarding screen, modern and genuinely user-friendly UI/UX, plain/human/category-neutral copy, per-type Redeemo colours/icons, brand rules. Short summaries avoid "cooldown" (Reusable: "An offer a customer can use again and again").
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
