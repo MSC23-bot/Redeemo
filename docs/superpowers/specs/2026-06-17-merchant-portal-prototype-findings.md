@@ -398,5 +398,7 @@ BACKEND (Phase 4): needs a delayed-effective mechanism for hours - new hours sto
 
 TRADE-OFF (noted): a blanket delay also slows a legitimate emergency closure (customers see "open" for ~2h); acceptable (merchant handles in person/signage); a separate "close now" could be added later if it proves a real problem.
 
+Branches round 3 (owner 2026-06-18): (1) the "Change awaiting review" banner must be SPECIFIC, not generic - name exactly which fields changed and show old->new for each (the field-level diff the voucher change-request shows; backend captures it in BranchPendingEdit.proposedChanges). (2) SUCCESS TOAST on every submit/save: review submission -> "Change submitted to Redeemo for review"; instant save (contact/hours/amenities/PIN) -> brief "Saved". PORTAL-WIDE pattern: any submit/save should confirm (same gap was flagged on the redemption reverse).
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
