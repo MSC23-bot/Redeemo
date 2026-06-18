@@ -406,5 +406,7 @@ Branches round 5 (owner 2026-06-19): the 2h cool-off landed on the branch-page h
 
 Branches round 6 (owner 2026-06-19): branch-page section cards leave a large empty gap - the tall Opening hours card (7 days) sizes the row, so the shorter Contact + Redemption PIN cards leave dead space below them before Amenities. Fix the layout to pack the cards efficiently (masonry-style flow / rebalance columns / let shorter cards fill the space beside the tall hours card); content unchanged. (Round-2 banner fix confirmed landed: "Banner set" area renders, not a line.)
 
+Branches round 7 (owner 2026-06-19): in the "Staff at this branch" section, add a per-person Remove control (remove from THIS branch only; deliberate + quick confirm + success toast "Removed from this branch"). Full staff management stays on Staff & access. BACKEND NUANCE (Phase 4): a BranchUser belongs to ONE branch, so removing them is effectively removing their access (delete/deactivate the BranchUser); a portal member is removed via deleting the MerchantMembershipBranch join (member stays, loses this branch). The branch-page remove handles both.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
