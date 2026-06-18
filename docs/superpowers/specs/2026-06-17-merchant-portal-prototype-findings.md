@@ -467,5 +467,32 @@ PROTOTYPE: brief Claude Design to add an owner-granted "Extra responsibilities" 
 
 PHASE 4 / SCHEMA - SUPERSEDES 2R's "no capability table needed": the moment grants are PER-PERSON (not per-role), the backend needs somewhere to store them. MerchantMembership is role-only today. Options (decide at build, do NOT implement now): (a) a `capabilities` array/JSON on MerchantMembership listing granted extras; (b) a MerchantMembershipCapability join table. Either is a SCHEMA CHANGE -> STOP-AND-REPORT exact SQL + rollback before any migration. Enforcement is then route guards that allow an action if the role baseline permits it OR the person has the matching granted extra. (2R's pure-route-guard framing still holds for the base roles; only the per-person grants add the schema need.)
 
+## 2T. Business profile + Documents: verified backend contract (added 2026-06-19)
+
+Verified against live code (schema Merchant / MerchantAdmin / MerchantDocument / MerchantContract / MerchantPendingEdit; profile.{routes,service}.ts; onboarding.{routes,service}.ts; admin/merchants/documents.ts).
+
+THE BUSINESS RECORD (Merchant model) - fields that exist:
+- Identity: businessName (req), tradingName?, description?, logoUrl?, bannerUrl?, primaryCategoryId? (+ primaryDescriptorTagId?).
+- Registered identity: companyNumber?, vatNumber?.
+- Web: websiteUrl?. (NO business phone/email/contact-person columns on Merchant - see CONTACT below.)
+- Lifecycle (read-only, system/admin-driven): status (REGISTERED/PENDING_APPROVAL/ACTIVE/INACTIVE/SUSPENDED/DELETED), verificationStatus (NOT_SUBMITTED/PENDING/VERIFIED/REJECTED), contractStatus (NOT_SIGNED/SIGNED), contractStartDate/contractEndDate, onboardingStep.
+
+EDIT SPLIT (verified, profile/service.ts - SAME DIRECT-vs-REVIEW pattern as Branches):
+- REVIEW lane (MerchantPendingEdit + AdminApproval(MERCHANT_IDENTITY_EDIT)): businessName, tradingName, logoUrl, bannerUrl, description. ONE pending edit at a time (PENDING_EDIT_EXISTS); list + withdraw; field-level proposedChanges JSON; the B1 admin applier (approveEdit/rejectEdit, PR #244) reviews + applies. Same field-level diff + withdraw + "change awaiting review" UX as Branches.
+- IMMEDIATE (PATCH /profile): websiteUrl, vatNumber, companyNumber.
+- CATEGORY (primaryCategoryId) = HIGH-CONSEQUENCE, effectively locked once set: first-set provisions the 2 mandatory RMVs atomically; a change runs handleCategoryChange (may BLOCK / require confirmation / apply) because it rewrites the starter offers. Treat as a guarded, warned action, NOT a casual field. (Blueprint: "category locked once RMVs configured.")
+
+CONTACT = THE OWNER'S ACCOUNT, not a Merchant field. The "contact person / position / email / phone" the blueprint imagined are NOT on Merchant. They map to the OWNER's MerchantAdmin (firstName, lastName, jobTitle = position, email, phone) via MerchantMembership. So the business contact IS the owner account, ALSO editable under "My account". A DISTINCT business/HQ phone+email (separate from the owner) is NOT modelled; closest real data is the MAIN BRANCH contact (Branch.phone/email). DECISION (defaulted): show the owner as the business contact here, read-only, with an "edit in My account" link (one edit path, no duplicate); do NOT invent a separate HQ phone/email for MVP (owner + main branch cover it; a distinct business contact = schema add, flag if wanted).
+
+CONTRACT (verified, onboarding): MerchantContract (signedAt, ipAddress, tcVersion, signatureMethod CLICK_TO_AGREE, zohoSignRequestId?); contractStatus SIGNED; CONTRACT_VERSION 1.0 + CONTRACT_TEXT; OWNER-only clickwrap (acceptContract, CONTRACT_ALREADY_SIGNED guard, sets contractStartDate); re-accept on version drift. Routes GET /onboarding/contract + POST /onboarding/contract/accept. Surface the signed agreement + date + version, "view signed copy", re-accept banner on version drift.
+
+DOCUMENTS (verified): MerchantDocument (documentType, fileUrl, uploadedAt). DocumentType = BUSINESS_VERIFICATION_1, BUSINESS_VERIFICATION_2, PRICE_LIST, AGREEMENT (fixed enum). Upload/list/delete are server-proxied, presigned GET, raw R2 key NEVER returned.
+- GAP (Phase 4): document upload/view/delete are ADMIN-ONLY today (Option B B4, admin/merchants/documents.ts). There is NO merchant-side document route. A merchant viewing/uploading their OWN documents in the portal is a backend build = mirror the B4 endpoints for the merchant session (list/upload/delete, same redaction). NOT a schema change (model exists) - route + service work.
+- Onboarding checklist does NOT gate on documents (only branch + contract SIGNED + 2 RMV). Documents are optional/admin-managed at submit (blueprint "documents optional at submit").
+
+PROTOTYPE: brief Claude Design to build Business profile (identity, registered identity, website, category, contract + compliance status, owner-as-contact) with the DIRECT-vs-REVIEW split (review-lane fields show field-level "awaiting review" diff + withdraw, same as Branches; immediate fields save inline + "Saved" toast; category = guarded change warning it affects the starter offers), plus a Documents area (the 4 fixed types, view + upload/replace). Requirements-led; hand layout to Claude.
+
+PHASE 4 (captured): (1) merchant-side document endpoints (mirror admin B4); (2) decide whether a distinct business/HQ contact is wanted (schema add) or owner + main-branch suffices (default: suffices); (3) surface the category-change guard to the merchant (handleCategoryChange already exists).
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
