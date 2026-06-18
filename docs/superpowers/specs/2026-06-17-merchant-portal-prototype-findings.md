@@ -539,5 +539,27 @@ PROTOTYPE: brief the account cluster (My account = profile/password/notification
 
 Brief SENT (2026-06-19; My account + Settings split recommended, owner can collapse to one). REVIEW WHEN BACK.
 
+## 2W. Settings rebuild: the right contents for a merchant portal (owner direction 2026-06-19)
+
+The built Settings (deactivate-business + DSAR + legal/help) is largely the WRONG content (well-built visually; wrong contents). Three owner corrections + a reasoned rebuild:
+
+MODEL CONFLICT - self-serve deactivate vs the 12-month contract (rule #9): a merchant signs a 12-month agreement to offer the mandatory + custom vouchers for that term, so they CANNOT self-serve take the business offline or close it mid-term ("we don't want them to do that"). REMOVE the self-serve "Deactivate the business" action. Closure/pause = CONTACT REDEEMO (admin-mediated; considers the contract + any early-termination terms), consistent with the branch-close-is-a-review-request pattern (2N). NOTE: the backend self-service deactivate endpoint (auth/merchant/deactivate, sets MERCHANT INACTIVE) EXISTS and contradicts this -> Phase-4 decision to restrict/remove/gate (e.g. post-contract only).
+
+RELOCATE - legal & help (terms, privacy policy, get help, contact Redeemo) + cookie preferences -> the HELP & SUPPORT module (pinned nav, unbuilt), not Settings. (Cookies: only the strictly-necessary auth cookie + no analytics -> no cookie-consent UI needed today.)
+
+DROP (owner) - data protection / download-my-data / request-deletion (DSAR): not offered for now. Remains a future GDPR obligation; revisit later.
+
+RECOMMENDED MERCHANT SETTINGS (lean BY DESIGN - the realisation: almost everything a merchant manages already has a module [vouchers/branches/staff/business profile/documents], so Settings is the personal account hub, not a catch-all). Collapse My account INTO Settings (one hub; the avatar "My account" + the Business-contact "edit under My account" link both land here):
+1. YOUR DETAILS (the logged-in person; owner = the business contact): name, job title, phone, login email. Name/jobTitle/phone edit inline; email change confirmed (it is the login). [MerchantAdmin.]
+2. LOGIN & SECURITY: change password (current + new); login verification shown on (OTP enforced at login); sign out of all devices.
+3. NOTIFICATIONS: per-event email preferences (approval outcomes, voucher review results, redemption milestones, document requests; later campaign/payment receipts) + marketing/newsletter opt-in. The in-app bell always shows these; this controls email.
+4. ACCOUNT (owner-only, light): agreement status + runs-until date (read-only; detail in Business profile) + calm "to pause or close, contact Redeemo" note. NO self-serve deactivate/delete.
+
+MULTI-USER NUANCE: the personal sections (details/security/notifications) are per-logged-in-user; the Account section is owner-only.
+
+PHASE-4 BACKEND: logged-in change-password (not built), own-profile edit (not built), notification preferences (SCHEMA ADD - MerchantAdmin has no prefs fields - STOP-AND-REPORT), sign-out-all-devices (revokeAllSessionsForEntity primitive exists), restrict/remove the self-service deactivate endpoint (contract).
+
+Rebuild brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
