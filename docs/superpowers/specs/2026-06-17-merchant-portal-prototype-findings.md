@@ -426,5 +426,7 @@ GAPS (Phase 4):
 
 Prototype can show the full Staff & access UX; flag portal-member management + the unification as Phase-4 backend work (branch-staff/app side IS real).
 
+Build brief SENT (2026-06-19, owner asked to proceed before seeing the screen): requirements-led, grounded in this contract. Unified people list (name, role, portal/app/both access, branches covered); Add staff (portal-with-role / app / both + branch scope all-or-specific); edit role/branches/access; remove/deactivate; reset password (app staff); search; roles-not-capabilities; last-Owner-protected; success toasts; premium dashboard consistent with Branches. Owner reminded of Phase-4 reality (portal-member management + unification = backend builds; branch-staff/app side is real). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
