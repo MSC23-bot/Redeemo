@@ -386,5 +386,17 @@ Branches refinements round 2 (owner 2026-06-18): the three structural changes la
 
 STAFF & ACCESS REQUIREMENT (captured for the next surface): staff must be assignable to SPECIFIC branches with scoped access for BOTH the merchant portal AND the merchant app. Grounded in the model: BranchUser (branch staff, belong to one branch, app validators) + MerchantMembership / MerchantMembershipBranch (portal members with per-user capabilities + branch restriction). Roles like branch manager / branch staff; a branch-scoped user sees/acts only on their branch(es).
 
+## 2P. Opening hours: delayed-effective, not instant (owner direction 2026-06-18)
+
+Opening hours move from "immediate" to a THIRD edit category: DELAYED-EFFECTIVE. The change saves immediately for the merchant and shows in the portal, but it only reaches the CUSTOMER APP after a cool-off of ~2 hours; customers keep seeing the previous hours until then. Reason: stop a merchant flipping open/closed the moment a customer is on their way (dispute prevention) and protect customers who rely on the displayed hours to travel. ~2h chosen (consistent with the existing 2h presentation window); tunable.
+
+Edit model is now THREE categories: (1) immediate (phone, email, website, amenities, PIN); (2) delayed-effective ~2h (opening hours); (3) review (name, address, description, logo, banner, photos; close/delete branch).
+
+PROTOTYPE: briefed (replace the hours "Saves instantly" tag with "goes live for customers in ~2 hours; customers see the previous hours until then").
+
+BACKEND (Phase 4): needs a delayed-effective mechanism for hours - new hours stored with an effective-at (~now+2h), customer-facing reads use the OLD hours until effective-at. BranchOpeningHours has no pending/effective-at concept today -> schema change -> STOP-AND-REPORT exact SQL + rollback before any migration.
+
+TRADE-OFF (noted): a blanket delay also slows a legitimate emergency closure (customers see "open" for ~2h); acceptable (merchant handles in person/signage); a separate "close now" could be added later if it proves a real problem.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
