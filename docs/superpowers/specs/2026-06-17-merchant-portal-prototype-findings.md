@@ -219,5 +219,20 @@ Current state is good (well-built list + a Voucher Overview modal that is alread
 
 2F list IA (owner direction 2026-06-18): the custom vouchers were dumped into one section regardless of status (Live scattered top and bottom, with draft/in-review/paused/expired jumbled between), which reads as no order. Fix: keep the flagship section on top (always live, own category); group "Your custom vouchers" by status with clear sub-headings in the order Live, In review, Draft, Paused, Expired; live/active most prominent, paused/expired lower and visually quieter; sort within each group sensibly (most redemptions or most recent); pairs with the existing filter tabs (a selected filter shows just that group). Layout/visual left to Claude Design. Prior-round demo-data flags resolved: "Loyalty Friday" renamed to "Loyalty reward, 10% off the bill" (clean Reusable, no day-lock) and the card now reads "10% off, again and again" (interval-paired, no bare "no cap"). NOTE: the full-page View redesign was reported finished but not yet visually reviewed by the owner.
 
+## 2G. Voucher View page v2: analytics + change-request system (added 2026-06-18)
+
+The full-page View (moved off the modal) still needs a hierarchy/action pass, plus voucher analytics and an action system. Requirements-led; layout left to Claude Design.
+
+- Hierarchy/actions: deliberate hero (title, type, status, customer preview, primary action) with the preview prominent (it was crammed in a corner) and a clear always-reachable action area (there was none); then analytics, then details/terms/where-applies/how-redeemed grouped logically; use the width.
+- Voucher analytics (grounded in what VoucherRedemption can measure): total redemptions, total saved, days live, simple trend (this week vs last); redemptions over time; busiest days/times; redemptions by branch (multi-branch); Reusable repeat-usage; Time-limited busiest window; validated rate; one plain-English insight line. Mark new-vs-returning and view counts as future (need tracking we do not have).
+- Change-request system (reuses the existing pending-edit/admin-review lane = Option B; NOT a new system): 
+  - Flagship (cannot edit/delete): action "Request a change" opens a form of the current customer-facing fields (title, description, offer/amount, terms, image, and schedule/interval for wrappers), merchant edits only what they want + adds a reason, submits to Redeemo review; voucher keeps current version live until approved; shows "Change requested, in review" (viewable + cancellable); approve applies, reject shows why.
+  - Live custom: "Edit voucher" opens the type's builder pre-filled; submit routes through the same review (current version stays live until approved); plus Request to end, Duplicate, View redemptions.
+  - Draft custom: edit freely (no review), Submit, Duplicate, Delete.
+  - All: View redemptions, Duplicate.
+- Owner-flagged assumption: change-requestable fields = all customer-facing (title, description, amount, terms, image, schedule), NOT the type or mandatory status. Owner to narrow if desired.
+- At Phase-4 build time the change-request flow is Tier 3 (brainstorm -> spec -> plan), reusing the Option B admin pending-edit lane.
+- Skills/scope note: implementation skills (frontend-design, shadcn) are out of the current closed prototyping scope (building happens in Claude Design); switching to building the portal in code would be a deliberate Tier 3 scope change, planned separately.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
