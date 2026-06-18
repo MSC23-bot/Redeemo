@@ -279,5 +279,16 @@ Verified against live code (`src/api/redemption/{routes,service}.ts`, schema) be
 - LESSON: ground the surface in live code before briefing (owner prompted the thorough check; it caught the wrong privacy claim + the branch-scoping + filter gaps).
 - Current screen state: a STUB ("Unlocks when your business goes live"; detailed screen deferred). Its placeholder copy already had the wrong line "Redemption rows never show an individual customer" (the real backend DOES show the name) - the brief corrects it. Brief sent to build: Validate-a-code flow (manual 8-char entry on web, confirm showing name/voucher/branch/saving/time, real error cases, records validator) + redemption log (newest-first rows: time, customer name, voucher, saving, validated-vs-pending; date filter + client-side validated/pending toggle) + branch selector for the per-branch reality (no fake all-branches aggregate).
 
+## 2J. Redemptions screen review + refinements (added 2026-06-18)
+
+Claude built a faithful Redemptions screen (customer name, code, saving, voucher, validated method+who+when, pending-vs-validated, branch selector, status tabs+counts, date range, error cases). Refinements:
+
+- IMPORTANT RULE (anti-fraud, locked): NO bulk-validate / "clear all" / "validate all" from the web. Validation is an in-person per-code check (customer shows their code, staff confirm). Bulk-validating without the customer present would let a merchant fake redemptions and breaks the whole purpose. Pending is NOT a chore to clear; it resolves when the customer uses the code, or lapses if they never visit. The "X still to confirm, validate each code in store" nudge is mis-framed as a to-do and must be reframed as information ("X codes are out and waiting to be used in store").
+- Two states only: Pending (redeemed in app, code issued, not yet confirmed in store) vs Validated (staff confirmed in store). Current "Awaiting confirmation in store" is unclear; spell the states out.
+- Validation method labelling inconsistent ("Manual" vs "Staff app"); show the real method clearly: "QR scan" (mobile app) vs "Manual entry" (web), keep who+when.
+- Actions on a record: ONLY Validate (pending, per-code). Records are immutable history (no edit/delete).
+- Additions to build: search (name/code/voucher); sort (newest/oldest/by-saving) + voucher filter; per-redemption detail view (voucher title/type/terms, name, branch, redeemed time, validation status+method+who+when, code, saving; NEVER email/phone); CSV export (same fields, never email/phone); pagination / load-more bounded by date range (do not render thousands at once).
+- BACKEND GAPS (Phase 4): search/sort/filter/export over FULL history (API only does date-range + pagination today, so prototype filters/search are client-side on the loaded page); the all-branches merchant-wide endpoint (per-branch only); and exporting customer names is a GDPR data-handling consideration for the merchant in production.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
