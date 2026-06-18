@@ -400,5 +400,7 @@ TRADE-OFF (noted): a blanket delay also slows a legitimate emergency closure (cu
 
 Branches round 3 (owner 2026-06-18): (1) the "Change awaiting review" banner must be SPECIFIC, not generic - name exactly which fields changed and show old->new for each (the field-level diff the voucher change-request shows; backend captures it in BranchPendingEdit.proposedChanges). (2) SUCCESS TOAST on every submit/save: review submission -> "Change submitted to Redeemo for review"; instant save (contact/hours/amenities/PIN) -> brief "Saved". PORTAL-WIDE pattern: any submit/save should confirm (same gap was flagged on the redemption reverse).
 
+Branches round 4 (owner 2026-06-18): the "Close this branch" section copy must be precise that it is PERMANENT (merchants confuse "close" with a temporary closure). Rename to "Permanently close/remove this branch"; copy = permanently removes the branch, still a request reviewed by Redeemo before it takes effect, stays live until approved, can't remove main/last; button "Request to close permanently" / "Request removal". REMOVE the "To pause for a day, mark that day closed in opening hours" line (do not promote the workaround; the permanent framing disambiguates). (Round-2 banner empty-state fix confirmed landed: "No banner added".)
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
