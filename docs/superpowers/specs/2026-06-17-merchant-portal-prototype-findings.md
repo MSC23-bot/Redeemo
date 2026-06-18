@@ -376,7 +376,7 @@ PART 1 - consistent DEFINITIONS (the real value; consolidates locked principles 
 
 PART 2 - demo numbers tie out: prototype surfaces currently use separate hardcoded demo data, so Home totals / per-voucher numbers / redemption log don't reconcile. Fix: one shared demo dataset every surface derives from (per-voucher counts sum to dashboard totals; redemption log matches). Achievable in the single .dc.html.
 
-NEXT: review the Home dashboard + Insights & reports (not yet seen) to spot mismatches, then brief the reconciliation. (Voucher View + Redemptions numbers already seen.)
+Reconciliation brief SENT (2026-06-18, owner asked to proceed before seeing Home/Insights): requirements-led (one shared demo dataset every surface derives from + the definitions above), so it works without the up-front review. Headline = validated-only (recommended default; owner can flip to all-redeemed). REVIEW AFTER: Home dashboard + Insights & reports - confirm the numbers tie out (Home total = sum of per-voucher validated = redemption log) and the framing is consistent (monthly, encouragement, reversed excluded).
 
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
