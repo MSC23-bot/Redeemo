@@ -234,5 +234,30 @@ The full-page View (moved off the modal) still needs a hierarchy/action pass, pl
 - At Phase-4 build time the change-request flow is Tier 3 (brainstorm -> spec -> plan), reusing the Option B admin pending-edit lane.
 - Skills/scope note: implementation skills (frontend-design, shadcn) are out of the current closed prototyping scope (building happens in Claude Design); switching to building the portal in code would be a deliberate Tier 3 scope change, planned separately.
 
+## 2H. Vouchers list + View refinements, lifecycle systems, encouragement (added 2026-06-18)
+
+The analytics-led View + change-request system landed well. This round refines them. Requirements-led; layout left to Claude Design.
+
+List:
+- Remove the Paused status/group entirely (no pause action exists). Add an Ended status = result of an approved Request to end. Group Ended + Expired as one "Finished" group (both no longer running).
+- Draft styling: drafts currently look washed-out like expired; a draft needs the merchant's attention (finish + go live), so style it as "needs attention", distinct from both live and finished, NOT washed out.
+- Whole voucher card clickable to open the page (not only three-dots -> View).
+- List three-dots actions MUST match the View page actions for a given voucher (no divergent sets).
+
+View page:
+- Headline trend weekly -> monthly ("this month vs last"); "Redemptions over time" chart weekly -> monthly. Reason: startup low volumes; weekly comparisons (and zero weeks) discourage. Matches the locked encouraging-at-low-volumes dashboard principle.
+- Replace the "Saved for customers" headline stat (a big "money given away" figure demotivates merchants) with unique customers who used the voucher (measurable via distinct userId), labelled positively/honestly ("Customers") but NOT "brought in"/"new" (new-vs-returning is the coming-later metric). Optional: customer saving demoted to a small positive supporting line.
+- For expired/ended vouchers, no decline-shaming trend ("100 percent fewer than last week"); show final totals positively.
+
+Actions + lifecycle systems:
+- BUG: Edit on a draft (and other existing vouchers) opens a blank "create a voucher" instead of the saved voucher pre-filled. Must open the existing voucher's content in its builder.
+- No status change on a single instant click. Withdraw from review (in review -> draft) = confirmation required (merchant's own submission, no Redeemo review, no reason needed), not instant.
+- Request to end (live custom) = new review-lane system mirroring Request a change: reason -> Redeemo review/approve -> Ended; not immediate; kept low-key (do not promote early ending); pending shows "End requested, in review" (cancellable).
+- Run again (finished vouchers): expired/ended offer "Run this again" = recreate that exact voucher as a new run through normal submit/review.
+- Flagship keeps only Request a change + View redemptions (no end, no delete).
+- Owner-flagged: replacement metric (unique customers) and withdraw-confirm-without-reason are interpretations to confirm.
+
+ENCOURAGEMENT PRINCIPLE (general, locked): merchant-facing analytics and copy must encourage, not discourage, given low startup volumes: monthly not weekly, customer-positive framing not money-lost, no decline-shaming on finished vouchers. Applies to every merchant surface (dashboard, View, Insights).
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
