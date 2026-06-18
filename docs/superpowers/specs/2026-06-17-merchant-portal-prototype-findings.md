@@ -404,5 +404,7 @@ Branches round 4 (owner 2026-06-18): the "Close this branch" section copy must b
 
 Branches round 5 (owner 2026-06-19): the 2h cool-off landed on the branch-page hours section ("2 hour customer cool off" badge + note), but (1) the Edit opening hours MODAL still has the old top line "This saves straight away. Customers see the update as soon as you save" - contradicts the cool-off; fix to "saves now, customers see it ~2h later". (2) Keep the cool-off wording CONCISE + CONSISTENT: the branch-page note ("...so no one is caught out on their way to you") over-explains; trim to one short line (e.g. "Saved now. Customers see the change about 2 hours later.") used in BOTH the modal and the section. Hours save should also fire a brief "Saved" toast.
 
+Branches round 6 (owner 2026-06-19): branch-page section cards leave a large empty gap - the tall Opening hours card (7 days) sizes the row, so the shorter Contact + Redemption PIN cards leave dead space below them before Amenities. Fix the layout to pack the cards efficiently (masonry-style flow / rebalance columns / let shorter cards fill the space beside the tall hours card); content unchanged. (Round-2 banner fix confirmed landed: "Banner set" area renders, not a line.)
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
