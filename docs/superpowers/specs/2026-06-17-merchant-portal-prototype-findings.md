@@ -144,5 +144,21 @@ Why this matters: prototype tools hardcode whatever fits the visible demo mercha
 
 Phase 3: this becomes a real per-category content source (seed or config) feeding the merchant voucher builder. The standalone per-type builders must read from the same source as the Time limited nested mechanics so they never drift. No schema change: suggestion and term content is builder configuration, not voucher columns; the chosen values still collapse into title, description, estimatedSaving, and terms on the stored voucher.
 
+## 2C. Reusable voucher: wrapper model + interval (added 2026-06-18)
+
+Decision (builder-only, no schema change): a Reusable voucher is the second wrapper type, parallel to Time-limited. The merchant picks an offer mechanic (Discount, Buy one get one, Freebie, Spend and save) and then sets how often a customer can use it (the reusable interval), instead of a schedule. Same four mechanics, same category-sourced suggestion chips and terms (2B), same scoring and 5 pound saving floor. The saving is owned by the mechanic; no separate flat field.
+
+The interval is the schema's `cooldownSeconds` (REUSABLE only): default 4 hours, server-clamped floor 1800 seconds (30 minutes) at redemption time. The builder offers presets (Every hour, Every 4 hours, Once a day) plus a Custom option with a 30-minute minimum, defaulting to Every 4 hours. Natural duration wording mirrors the app helper `formatCooldownDurationHuman` (30 minutes, 1 hour, 4 hours, 1 day). An optional "Does this offer end on a date?" toggle (off by default) maps to the existing nullable `expiryDate`, same as Time-limited.
+
+Customer copy lock (live app D42/D43): never the words "cooldown" or "wait" anywhere a customer or the preview can see. The cadence is always "Available again every <duration>". Merchant controls can use plain language ("How often can the same customer use this"), but the preview and any customer-facing copy must use the "Available again every <duration>" phrasing.
+
+Preview fidelity (real app: useReusable, ReusableRulesCard, ReusableGuidanceCard, HeroStatusBlock reusable states, cooldownFormat). The card uses the mint-teal gradient 84DCC2 to 198375 with a REUSABLE chip. Two states via a preview switcher:
+- reusable-available: eyebrow "Available now" with an alive/pulsing treatment; red "Redeem This Voucher"; rules line "Available again every 4 hours. Your subscription must stay active to redeem." (ReusableRulesCard body, verbatim shape).
+- reusable-cooldown: eyebrow "Available again"; live countdown (for example "3h 12m"); supporting "Available again from <time>"; disabled CTA "Available again in <duration>" (CTA flips to "Currently Unavailable" only in the D44 expiry-before-cooldown edge, an app-side detail not needed for the prototype).
+
+Scoring nuance: a reusable offer's strength comes partly from repeat frequency, so a frequent interval (for example once a day) with a modest saving should not auto-read as "too weak" (same spirit as the standalone Freebie exemption).
+
+Why no schema change: the stored voucher is type REUSABLE + title, description, estimatedSaving, terms + cooldownSeconds (already on the model) + optional expiryDate. The mechanic is a builder scaffold that collapses into those fields. The genuine difference Reusable adds is the cadence (repeatable with an interval, not once per cycle), already enforced app-side via availableAgainAt.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
