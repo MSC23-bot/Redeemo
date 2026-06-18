@@ -346,5 +346,22 @@ BACKEND REQUIRED (Phase 4, registered per owner): a new reverse-redemption opera
 
 2M follow-up (owner 2026-06-18): the 3 reverse follow-ups landed (success confirmation, badge "Awaiting validation", footer reword). New small addition: a "View voucher" cross-link on the redemption detail that navigates to that voucher's own View page in the Vouchers section (its details + analytics). Trivial: the redemption carries voucherId and the voucher View page already exists. Redemptions surface now complete.
 
+## 2N. Branches surface: verified backend contract (added 2026-06-18)
+
+Verified against live code (`prisma/schema.prisma` Branch + related models; `src/api/merchant/branch/{routes,service}.ts`) before briefing.
+
+Branch model fields: name, isMainBranch; about (description); address (addressLine1, addressLine2?, city, postcode, country default GB); location (latitude?, longitude? + Plan-4 locality snapshot localityId/localityName/postTown/ladDistrict/adminCounty/region/locationCountry + locationConfidence enum [MANUALLY_CONFIRMED / ADDRESS_GEOCODED / POSTCODE_CENTROID(default) / NEEDS_REVIEW]); contact (phone?, email?, websiteUrl?); media (logoUrl?, bannerUrl?, priceListUrl?, photos); redemptionPin? (AES-256-GCM encrypted 4-digit, customer-entered at redemption); isActive (open/closed toggle); deletedAt (soft-delete); isTestData. Relations: openingHours, amenities, photos, users (BranchUser=staff), redemptions, reviews, pendingEdits, favouritedBy.
+
+EDIT MODEL (critical, mirrors the voucher change-request lane): SENSITIVE_FIELDS require admin review via edit-request -> BranchPendingEdit (proposedChanges JSON) -> admin approve/apply: name, about, addressLine1, addressLine2, city, postcode, latitude, longitude, logoUrl, bannerUrl. DIRECT_FIELDS via PATCH (immediate): phone, email, websiteUrl, isActive. Also direct: opening hours (setOpeningHours), amenities (setAmenities), PIN (get/set/send). Photos go via photos/edit-request (review) AND moderation (BranchPhoto.moderationStatus PENDING until APPROVED; not public until approved).
+
+Routes: GET/POST / (list/create); GET/PATCH /:id; POST /:id/edit-request + GET /:id/edit-requests + DELETE /:id/edit-requests/:editId (review lane + withdraw); POST /:id/hours; POST /:id/amenities; POST /:id/photos/edit-request; DELETE /:id (soft-delete); GET/PUT/POST /:id/pin (+ /pin/send).
+
+KEY GROUNDING FACTS / GAPS:
+- Opening hours = ONE period per day (BranchOpeningHours @@unique([branchId, dayOfWeek]); openTime?/closeTime?/isClosed). Split shifts (multiple periods/day) and a distinct "Open 24 hours" field are NOT in the schema -> would be a schema change. (The earlier blueprint/prototype "multiple periods per day + Open 24 hours" is an aspiration, not the live model.)
+- Location is GEOCODED, not typed: merchant enters address (review-required) -> system derives lat/lng (POSTCODE_CENTROID/ADDRESS_GEOCODED) -> admin can MANUALLY_CONFIRM. Merchant never types coordinates; lat/lng are SENSITIVE (review) anyway.
+- Lifecycle: exactly one main branch (promoting another demotes the current via updateBranch); CANNOT delete the main branch (BRANCH_IS_MAIN) or the last active branch (BRANCH_LAST_ACTIVE). isActive = reversible open/closed; deletedAt = permanent soft-delete (history preserved by FK).
+- Branch creation: first branch auto-becomes main (isMainBranch = existingCount===0).
+- Branch staff (BranchUser: email/phone/password/firstName/lastName/jobTitle/status) belong to branches but are managed on the separate Staff & access surface.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
