@@ -316,5 +316,15 @@ ANALYTICS NOTE (Phase 4): the merchant's "actually honoured" number is the VALID
 
 2J code-column alignment (owner direction 2026-06-18): the redemption code sits inline after the variable-length voucher name, so codes land at different x-positions per row and "jump around" down the log. Fix: give the code its own fixed, aligned column so codes line up vertically regardless of voucher name length; keep it monospaced. (Confirmed in the same screenshot: the prior 3 fixes landed - QR rows named "by Emma Cole", pagination "Showing 8 of 14 / Load 6 more", Pending/Validated legend + nudge all present.)
 
+## 2L. Validation is a recording step, real-time OR deferred (owner direction 2026-06-18)
+
+Important model refinement. The actual "use" of a voucher is staff applying the discount on their own till at the counter; Redeemo's VALIDATION just RECORDS that they honoured it. So validation does NOT have to be real-time: in practice staff may be busy, note the code on the bill, and validate it later in the portal (even weekly/monthly). Therefore "used in store" and "validated" DECOUPLE - a pending code may already have been used in store and is merely waiting to be RECORDED/validated.
+
+Consequences:
+- COPY (prototype, briefed): banner reworded from "waiting to be used in store ... confirmed when the customer turns up, or lapses if they never do" to a validation-focused open version ("X codes are out and not yet validated. Validate each one when you confirm it, at the counter or later from a code your team noted down."). Validated legend: drop "with the customer present" (deferred validation has the customer gone) -> "Staff confirmed the code, by QR scan in person or by entering the code, at the counter or later."
+- BACKEND (Phase 4): validation must have NO time window - codes must be validatable later. This CORRECTS the earlier 2K suggestion to "enforce the 2h window on the backend verify"; that would break deferred validation, so scrap it. The 2h window stays customer-side only (stops the customer re-presenting; does not bound staff recording).
+- BATCH ENTRY (Phase 4): "enter several noted codes at once" is a legitimate efficiency feature for batch reconciliation - DISTINCT from the banned blind "validate all pending" because it requires the merchant to type the real recorded codes (data entry, not blind clearing). The no-bulk-validate rule still bans validate-all-without-codes.
+- ANTI-FRAUD HOLDS: the code is single-use (once validated cannot be re-validated) and the customer's live surface still expires after 2h, so they cannot reuse it. Deferred validation is just the merchant recording a real use on their own schedule.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
