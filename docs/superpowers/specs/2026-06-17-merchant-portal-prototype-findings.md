@@ -445,5 +445,27 @@ PROTOTYPE: briefed to make the role descriptions in the add/edit drawer spell ou
 
 PHASE 4: the 3 roles exist in the schema, but what each can DO is NOT defined/enforced - that is code-level route guards per action (NOT a schema change; no merchant capability table needed, unlike the admin side). Capture this matrix for the build.
 
+## 2S. Delegation: roles + grantable extras (owner-locked 2026-06-19, refines 2R)
+
+The fixed-3-role model in 2R does NOT cover the absentee/hands-off owner who wants a trusted manager to run the day-to-day. With only fixed roles, that owner has two bad options: keep them a Branch manager (can't create vouchers, and later can't touch campaigns/billing) or make them an Owner (full control incl. deleting/transferring the business - far too much). Neither is "hand over the running of it, keep the keys".
+
+LOCKED MODEL (owner chose "Roles plus grantable extras" over "add a near-owner Admin role" / "keep fixed roles"): keep the base roles (Owner / Branch manager / Staff) for the common case, AND let the OWNER grant specific business-wide responsibilities to a Branch manager on top of their role. Delegate exactly what you want, to whoever you want.
+
+GRANTABLE EXTRAS (the sensitive, account-level responsibilities NOT in the base manager role):
+- Manage vouchers (create/edit/end offers) - LIVE now; this is the immediate case (closes 2R decision (1): a Branch manager CAN create/edit vouchers IF granted, default off).
+- Manage campaigns - joins the list when campaigns ship (Phase 4+; "coming soon").
+- Manage billing & payments - joins the list when billing ships (Phase 4+; "coming soon").
+
+RULES:
+- Owner-only to grant. A Branch manager can never grant extras (to themselves or others). Granting extras is itself a never-delegable, owner-reserved action.
+- NEVER-DELEGABLE FLOOR (owner-only forever, regardless of extras): delete/transfer the business, change/remove the owner (incl. last-owner protection from 2Q), grant/revoke extras.
+- BUSINESS-WIDE nuance: vouchers/campaigns/billing are account-level, not per-branch (a voucher is merchant-wide). So a granted extra gives a branch-scoped manager BUSINESS-WIDE power in that area, even though their base role is one-branch. The UX must make that explicit ("applies across the whole business, not just their branch").
+- Capability summary becomes PER-PERSON (role baseline + granted extras), not per-role. The CAN/CANNOT panel from 2R must reflect the person's effective capabilities: a granted "Manage vouchers" flips that line from CANNOT to CAN (granted).
+- DEPUTY/ADMIN case ("assign all the day-to-day... or an admin or someone"): a Branch manager with all-branches scope + all extras IS the general manager / deputy. No separate Admin role needed - the grantable-extras model covers it. (Minor naming flag for later: the label "Branch manager" can read oddly when someone is fully empowered across all branches; a derived "General manager" label or a role rename is polish, not a blocker.)
+
+PROTOTYPE: brief Claude Design to add an owner-granted "Extra responsibilities" area to the add/edit drawer for Branch managers (Manage vouchers live; campaigns + billing shown as coming soon), owner-only, business-wide note, and make the role capability summary reflect role + granted extras.
+
+PHASE 4 / SCHEMA - SUPERSEDES 2R's "no capability table needed": the moment grants are PER-PERSON (not per-role), the backend needs somewhere to store them. MerchantMembership is role-only today. Options (decide at build, do NOT implement now): (a) a `capabilities` array/JSON on MerchantMembership listing granted extras; (b) a MerchantMembershipCapability join table. Either is a SCHEMA CHANGE -> STOP-AND-REPORT exact SQL + rollback before any migration. Enforcement is then route guards that allow an action if the role baseline permits it OR the person has the matching granted extra. (2R's pure-route-guard framing still holds for the base roles; only the per-person grants add the schema need.)
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
