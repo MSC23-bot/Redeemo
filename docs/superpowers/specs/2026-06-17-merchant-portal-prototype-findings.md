@@ -430,5 +430,20 @@ Build brief SENT (2026-06-19, owner asked to proceed before seeing the screen): 
 
 2Q as-built (2026-06-19): Staff & access built and EXCELLENT/faithful. Model fidelity correct (two access types portal/app; 3 roles Owner/Branch manager/Staff; branch scope all/specific with chips; unified people list; NO invented granular permissions). Last-owner protection enforced (only-owner can't be demoted/removed; menu hides destructive actions; "add another owner first" note). Add/edit drawer adapts (Portal role only when Portal on; app users get Reset password; branch chips for specific). Per-person menu (edit/reset app password/deactivate/reactivate/remove); premium register (People/Portal users/App users tiles + warm table); search; deactivated dimmed state. Refinements briefed: (1) capture + show a JOB TITLE for app/branch staff (model has BranchUser.jobTitle; app rows show generic "App user"); (2) clarify the People count ("7" but 8 rows - deactivated excluded; label active vs total); (3) optional "last active" column (model has lastLoginAt); (4) align "Add staff" button vs "Add a team member" drawer wording. NOTE TO CLAUDE: branch PIN stays on the branch page (a branch property, not staff) - do NOT surface it here.
 
+## 2R. Merchant access control: ROLE-based, capability matrix per role (owner question 2026-06-19)
+
+How to restrict what a portal user can do (delete/add/edit): by ROLE, not per-user permission toggles. Role-based is the locked model (matches the schema's MerchantRole enum + branch scope; simpler for small merchants than a granular permission grid). The restriction lives in the role.
+
+PROPOSED CAPABILITY MATRIX (per role; frames add/edit/delete):
+- OWNER: full control - add/edit/delete everything (vouchers, branches, staff, business profile, settings, billing).
+- BRANCH MANAGER (their assigned branch only): edit their branch details/hours/amenities/PIN; validate + view redemptions at their branch; view vouchers + their branch performance; manage their branch's app staff. CANNOT: create/end vouchers, create/close branches, manage other branches, change roles, billing/settings.
+- STAFF (limited): validate + view redemptions at their branch; view vouchers. CANNOT: create/edit/delete vouchers, branches, staff, settings (validate-and-view only).
+
+OWNER DECISIONS TO CONFIRM: (1) can a Branch manager create/edit vouchers? (default NO - vouchers are merchant-wide = owner-level; delegatable if wanted). (2) can a Branch manager manage their branch's app staff? (default YES - operational; portal-role changes stay Owner-only).
+
+PROTOTYPE: briefed to make the role descriptions in the add/edit drawer spell out what each role can/can't do (short line per option + fuller detail on select).
+
+PHASE 4: the 3 roles exist in the schema, but what each can DO is NOT defined/enforced - that is code-level route guards per action (NOT a schema change; no merchant capability table needed, unlike the admin side). Capture this matrix for the build.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
