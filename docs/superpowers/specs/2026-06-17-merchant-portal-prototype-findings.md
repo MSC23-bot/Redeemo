@@ -719,5 +719,23 @@ PROTOTYPE: brief the full Help & support per the above. Requirements-led; layout
 
 Brief REVISED + re-sent (2026-06-19, comprehensive per owner "think deeply"). REVIEW WHEN BACK.
 
+## 2AG. Help & support as-built review: structure + copy fixes (owner 2026-06-19)
+
+Built comprehensively + mostly accurate (5-step "How Redeemo works", 6 guides, topic-chip FAQs + "Something is wrong" troubleshooting, 4 printables incl. per-branch PIN card, ticket form + tracked "Your requests" with statuses, status/updates, legal footer; the 2AE quick-actions grid icon also landed in the top bar). Two problems:
+
+STRUCTURE (main): one very long single-scroll page, everything stacked. Restructure into a calm NAVIGABLE HUB (heading + search at top; the areas as entry points / tabs to drill into, not all stacked; FAQs stay accordions; guides/printables compact cards). CONSTRAINT: it is a dashboard SUB-PAGE - NOT a second dashboard (no second side-nav / heavy chrome). Sectioned, collapsible, easy to navigate.
+
+COPY / MODEL FIXES:
+1. "How Redeemo works" STEP 2 "they unlock / add your voucher ready to use next time" = WRONG (no save-for-later/wallet step). Customer browses then redeems AT the visit. Reframe step 2 = find/discover your offer.
+2. STEP 4 "the redemption is recorded" when you scan = WRONG per redeem-vs-validate (2K): recorded at PIN entry (step 3); step 4 = VALIDATE/CONFIRM. Reword to validate/confirm, not record.
+3. Guide card "Validate on the mobile app" subtitle "Redeem at the till from your phone" - merchant VALIDATES (customer redeems). Change to "validate".
+4. "Talk to Redeemo" shows a PLACEHOLDER email - use a real Redeemo support address (merchants@/support@redeemo.co.uk).
+5. "Talk to Redeemo" names a personal account manager ("Priya Nair") - only if EVERY merchant gets one; else neutral "your Redeemo contact" (don't over-promise).
+6. Status update "Faster voucher reviews" (customer-benefiting changes reviewed faster) = NOT a built/decided feature. Remove or replace with a real update (nothing untrue on the page). ("Reverse a redemption" + "Branch manager responsibilities" ARE real - keep.)
+
+ACCURATE (no change): step 1 (free to be listed), step 3 (PIN at counter), step 5 (once per cycle), flagship-vouchers + go-live cards, FAQ answers (account-cap, security-confirm, billing-free), troubleshooting set, printables, tracked requests, legal footer.
+
+Fix brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
