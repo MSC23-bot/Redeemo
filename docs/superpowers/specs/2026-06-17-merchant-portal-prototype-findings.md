@@ -856,5 +856,24 @@ Brief SENT (2026-06-19). AS-BUILT (per Claude Design log): menu role-aware (head
 
 Brief SENT (2026-06-19). AS-BUILT (per Claude Design log): (A) early/established already existed (live_new/live, liveEarly, demo switcher) - confirmed; demo Live labels now early/established. (B) lifecycle staging implemented + verified across ALL modules per the matrix above (vouchers flagship-drafts/in-review-RO/changes-requested/live+create/suspended-Paused+history; redemptions empty-pre-live/log+validate/suspended-RO; insights locked-teaser/full/suspended-RO; branches main-only-setup/manage/RO; staff owner-only-setup/manage/RO; business profile editable-setup/RO-in-review/reviewing-banner/live-split/suspended-banner). Visual review pending screenshots.
 
+## 2AO. Login / sign-in page (closes the 2AJ gap) (owner direction 2026-06-19)
+
+The portal sign-in was never designed (2AJ gap). Detailed brief prepared. Grounded in the merchant auth backend (auth/merchant): login is TWO-STEP (password -> OTP/sessionChallenge -> verify 6-digit); forgot/reset-password exist; self-serve registration is the prototype direction (backend = admin-invite+claim today; self-serve = Phase-4 new route).
+
+SCOPE: the WEB PORTAL sign-in (the staff mobile validation app = separate login). Auth cluster: sign-in form + the MANDATORY OTP step + forgot/reset password + email-verify handling + edge states.
+
+CONTENT/FLOW:
+- Sign-in: Redeemo for Business branding; email + password (show/hide); Forgot password; "Sign in" (brand gradient); "New to Redeemo? List your business" -> registration; optional cautious "keep me signed in" (off by default, personal-device note).
+- OTP step (login verification MANDATORY, 2X): 6-digit code to a MASKED destination; resend + cooldown; "didn't get a code?" recovery (-> contact Redeemo); reassurance ("protected with a one-time code at every sign-in"); -> dashboard.
+- Forgot password: email -> NO-ENUMERATION confirmation. Reset: new password + same rules/strength meter as registration.
+- EDGE STATES (plain, no security leak): neutral wrong-credentials ("those details do not match" - never which/whether-exists); email-not-verified -> verify + resend; suspended/deactivated -> calm + contact Redeemo; rate-limit; wrong/expired code; loading.
+- Brand: premium/warm/trustworthy; navy + brand gradient + cream; Mustica + Lato; counterpart to the registration screen. Responsive (phone browser too).
+
+FLAGS (Phase-4 backend alignment):
+- OTP CHANNEL: backend loginMerchant sketches Twilio/PHONE, but registration verifies EMAIL (phone deferred). Login OTP must use a VERIFIED channel - recommend EMAIL (or verify phone before relying on it). Brief kept channel-neutral; ALIGN before build.
+- SELF-SERVE REGISTRATION: the "List your business" target is Phase-4 (backend admin-invite+claim today) - already in Section 1 gaps.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
