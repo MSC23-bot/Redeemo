@@ -737,5 +737,19 @@ ACCURATE (no change): step 1 (free to be listed), step 3 (PIN at counter), step 
 
 Fix brief SENT (2026-06-19). REVIEW WHEN BACK.
 
+## 2AH. Documents folded into Business profile (owner decision 2026-06-19; supersedes the standalone-Documents-page parts of 2T/2U)
+
+Reviewed the onboarding-era standalone Documents screen. Its own copy reveals the true model: documents are OPTIONAL (Redeemo verifies via background check; onboarding does NOT gate on documents - only branch + 2 RMV + contract). The agreement is the click-to-agree CONTRACT (already in Business profile Compliance), NOT an uploaded file. Verification status is also in Business profile. So the only real documents = optional verification docs + an optional price list, and the only live-merchant action = RESPOND TO A REQUEST (rare). The earlier "4 fixed required slots" framing (2T/2U) OVER-STRUCTURED it.
+
+DECISION (owner chose "fold into Business profile" over "keep a light standalone module"): RETIRE the standalone Documents nav item + page. Fold documents into Business profile's "Compliance and status" section = the single compliance home:
+- Verification status (verified / in review / not submitted).
+- Merchant agreement (the contract record - signed/version/date/view/re-accept; NOT an uploaded file).
+- Documents (light): honest framing ("background check, you usually don't need to upload; we'll ask if we need something specific"), held docs (view/replace), add-a-document (PDF/JPG/PNG, 10MB, a handful; optionally tag type - proof of address / registration / price list), and show a DOCUMENT REQUEST clearly when Redeemo has asked.
+- Document requests reach a live merchant via a NOTIFICATION + a Home ATTENTION item deep-linking to this compliance area (they won't hunt for a Documents page).
+
+SUPERSEDES: 2T/2U "Documents nav page = full manager" + "Business profile shows a summary linking to it" (now: NO standalone page; documents live IN Business profile Compliance). 2T's DocumentType enum (BUSINESS_VERIFICATION_1/2, PRICE_LIST, AGREEMENT) stays the schema backing, but the UI treats them as OPTIONAL tagged uploads, not required slots; AGREEMENT = the contract record (not in the upload list). Merchant-side document upload still NOT built = Phase 4 (mirror admin B4).
+
+Brief SENT (2026-06-19; remove Documents nav/page + fold into Business profile Compliance). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
