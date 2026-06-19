@@ -840,7 +840,7 @@ ROLE-AWARE (consistent with 2AL view-as-role): header shows the person's role (+
 
 (Omitted: "Switch branch/business" - franchise/future, not MVP.)
 
-Brief SENT (2026-06-19). REVIEW WHEN BACK.
+Brief SENT (2026-06-19). AS-BUILT (per Claude Design log): menu role-aware (header business + person + role, +branch for manager/staff; Business profile hidden for STAFF; logout confirm matches). NAMING RESOLVED: the nav "Settings" + the page title were RENAMED to "My account" (one label/destination for menu + nav + page) - accurate now the hub is purely personal (2W). OWNER TO CONFIRM the nav label (keep "My account" vs revert nav to "Settings" + menu "My account" -> it). Role personas: Owner=James Whitfield, Branch manager=Sam Thorne, Staff=Emma Cole (all The Old Foundry Kitchen / High Street). Visual review pending screenshots.
 
 ## 2AN. Dashboard early->established transition + lifecycle-state across all modules (owner direction 2026-06-19)
 
@@ -854,7 +854,7 @@ Brief SENT (2026-06-19). REVIEW WHEN BACK.
 - STAFF & ACCESS: Setting up = owner only + "staff added later"; Live = manage; Suspended = read-only.
 - BUSINESS PROFILE: Setting up = completing, editable; Submitted/In review = read-only; Changes needed = flagged part to fix; Live = full (direct-vs-review split); Suspended = read-only + banner.
 
-Brief SENT (2026-06-19). REVIEW WHEN BACK.
+Brief SENT (2026-06-19). AS-BUILT (per Claude Design log): (A) early/established already existed (live_new/live, liveEarly, demo switcher) - confirmed; demo Live labels now early/established. (B) lifecycle staging implemented + verified across ALL modules per the matrix above (vouchers flagship-drafts/in-review-RO/changes-requested/live+create/suspended-Paused+history; redemptions empty-pre-live/log+validate/suspended-RO; insights locked-teaser/full/suspended-RO; branches main-only-setup/manage/RO; staff owner-only-setup/manage/RO; business profile editable-setup/RO-in-review/reviewing-banner/live-split/suspended-banner). Visual review pending screenshots.
 
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
