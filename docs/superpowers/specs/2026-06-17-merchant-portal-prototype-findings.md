@@ -593,5 +593,24 @@ Grounded before walking the analytics surfaces.
 
 NEXT STEP: the 2O reconciliation brief likely already built a Home + Insights version. Rather than re-brief from scratch (risking regressing 2O), REVIEW the current Home dashboard first, then refine. (If it is only a stub, brief a full build.)
 
+## 2Z. Notification bell: verified backend contract (added 2026-06-19)
+
+Verified against live code (schema Notification + enums; shared/notify.ts; admin/notifications routes; merchant emitters).
+
+STRONG existing foundation (built for the admin panel, reusable):
+- Notification model: recipientType (USER/MERCHANT_ADMIN/BRANCH_USER/ADMIN) + canonical recipientId; title/body/type/channel/referenceId/referenceType/isRead/readAt/sentAt. Bell-feed indexes already exist: (recipientType, recipientId, isRead) + (recipientType, recipientId, sentAt).
+- notify() (shared/notify.ts) is the SINGLE writer for both email (CommunicationLog) + in-app (Notification, channel IN_APP). Durable-outbox (QUEUED->SENT).
+- MERCHANT_ADMIN in-app notifications ARE ALREADY being written (a real feed exists): onboarding submit (MERCHANT_VERIFICATION_UPDATE), approval outcomes approved/changes-requested/rejected (admin/approvals/service.ts), identity/branch edit approve-reject (editApplier.ts + branch/service.ts), merchant auth events (auth/merchant/service.ts).
+
+NotificationType enum (existing, merchant-relevant): MERCHANT_VERIFICATION_UPDATE, VOUCHER_APPROVAL_UPDATE, VOUCHER_REDEEMED (already exists - backs the 2X Settings "voucher redeemed" add), CAMPAIGN_INVITE (P5), FEATURED_LISTING_UPDATE (P5), VOUCHER_EXPIRY_ALERT. MISSING (additive enum values, Phase 4): document-request (or reuse VERIFICATION), security-alert, redemption-milestone (or reuse VOUCHER_REDEEMED).
+
+GAP (Phase 4): merchant-facing READ endpoints are NOT built. The ADMIN has the 4 (GET list, GET /unread-count, POST /:id/read, POST /read-all at /api/v1/admin/notifications). MIRROR them for the merchant session (recipientType MERCHANT_ADMIN, recipientId = the logged-in MerchantAdmin id, isolation). The WRITE side already runs; only the merchant READ side + bell UI are missing.
+
+BELL <-> SETTINGS consistency (locked): the bell shows ALL in-app account/business notifications (always); the Settings toggles (2W/2X) control which ALSO email. Bell = actionable account/business events (approvals, voucher reviews, edit outcomes, documents, redemptions/milestones, security alerts, branch-PIN reminders, P5 campaign/payment). Pure marketing ("News and offers") is EMAIL-only, NOT a bell item.
+
+PROTOTYPE: brief the bell dropdown/panel - newest-first feed, per-type icon + title + body + relative time + read/unread, DEEP-LINK each to its surface (voucher review -> that voucher; verification -> Business profile; edit outcome -> branch/profile; document -> Documents; redemption -> Redemptions/Home; security -> Settings login&security; PIN -> branch), mark-read on open + mark-all-read, "see all", empty "all caught up", unread badge (9+ cap). Mirror the admin-web NotificationBell (Radix popover, ~45s poll). Requirements-led; layout to Claude.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
