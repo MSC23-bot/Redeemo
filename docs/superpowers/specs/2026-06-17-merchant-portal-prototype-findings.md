@@ -842,5 +842,19 @@ ROLE-AWARE (consistent with 2AL view-as-role): header shows the person's role (+
 
 Brief SENT (2026-06-19). REVIEW WHEN BACK.
 
+## 2AN. Dashboard early->established transition + lifecycle-state across all modules (owner direction 2026-06-19)
+
+(A) HOME EARLY vs ESTABLISHED transition (clarification): DATA-DRIVEN, not a fixed date. Early/encouraging treatment shows while there isn't enough activity for the real charts to be meaningful; established once there is. Trigger (TUNABLE, OWNER TO CONFIRM): ~2 weeks live + a baseline of validated redemptions (~20-30); below = early, above = established (volume matters more than time). GRADUAL, not a hard flip - each chart/stat appears once ITS own data is meaningful (trend replaces placeholder once enough days; busiest-times + new-vs-returning once enough volume). The no-doom encouragement framing (lead with cumulative "customers brought in", growth tips, milestones) PERSISTS for any quiet period even once established. DEMO: add an "early" vs "established" variant to the Live state so both are viewable.
+
+(B) LIFECYCLE STATE ACROSS ALL MODULES (not just Home): wire the demo lifecycle switcher (Setting up / Submitted / In review / Changes needed / Live / Suspended) to EVERY module. COMMON RULES: NO customer-facing activity data (redemptions/insights) before Live; submitted content READ-ONLY while Submitted/In review; Suspended = everything read-only + banner + historical data preserved. Per-module:
+- VOUCHERS: Setting up = 2 flagship being built (Draft); Submitted/In review = "In review" read-only; Changes needed = "Changes requested" + reason; Live = live + redemption counts + add custom; Suspended = inactive read-only.
+- REDEMPTIONS: pre-live = empty ("appears once live"); Live = log + validate; Suspended = historical read-only.
+- INSIGHTS: pre-live = locked/empty teaser ("once live + customers redeem"); Live = full; Suspended = historical read-only.
+- BRANCHES: Setting up = adding/added main branch; Live = manage; Suspended = read-only.
+- STAFF & ACCESS: Setting up = owner only + "staff added later"; Live = manage; Suspended = read-only.
+- BUSINESS PROFILE: Setting up = completing, editable; Submitted/In review = read-only; Changes needed = flagged part to fix; Live = full (direct-vs-review split); Suspended = read-only + banner.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
