@@ -916,5 +916,21 @@ PROTOTYPE (merchant side): (1) the invite email (Redeemo set up your account; bu
 
 Brief SENT (2026-06-19). AS-BUILT: EXCELLENT + matches brief end-to-end. (1) Invite email: navy banner "Your Redeemo for Business account is ready" + named greeting + "Set up your account" CTA + 7-day expiry + "ONCE YOU ARE IN" (confirm details+category / build 2 flagship vouchers / submit + go live) + security line + "Redeemo Limited, England and Wales" footer + demo expired-state affordance; reached from sign-in footer "Invited by Redeemo? Open your invite". (2) Claim page: "YOU HAVE BEEN INVITED" + "Welcome to Redeemo, [Business]" + READ-ONLY "Set up by Redeemo for you" card (business+owner+email) + create+confirm password + strength meter (registration rules) + security line + "Already set up? Sign in"; submit -> signed in -> setting-up dashboard (1 of 6, "Create account" done, takeover banner). (3) Expired/invalid: calm, account-safe, "Contact Redeemo for a new invite". Uses "flagship vouchers" (not offers). MINOR: ensure email FROM = noreply@redeemo.co.uk (D-F policy; screenshot masked). NOTE: the close-out (2AQ) + Home-reconciliation (2AP) briefs are STILL PENDING (sign-in trust line still reads "Trusted by...", not yet softened; voucher-wording sweep + Home<->Insights reconcile not yet run).
 
+## 2AS. Final completeness audit (Claude Design, 2026-06-19)
+
+Claude Design ran a full live completeness audit. VERDICT: COMPLETE.
+- All 11 nav items -> real screens (Promote + Payments = proper coming-soon, not dead ends).
+- All 7 lifecycle states walked across every module - no broken/empty; pre-live locked Redemptions/Insights; suspended read-only history; each Home variant has its own heading.
+- View-as roles correct (Owner full; Branch manager scoped + "Viewing as Sam Thorne" banner, no Promote/billing/voucher-create; Staff locked to Home/Redemptions/My account/Help + "validate and view, no editing" banner; clean switching incl. back to Owner).
+- Auth complete + reachable (sign-in + one-time code + timed resend, forgot/reset, self-serve registration, claim + expired-link).
+- Voucher builder: all 7 types (wrappers correctly ask for the inner voucher first); calibration meter + live preview + save-draft + submit-for-review.
+- NUMBERS RECONCILE: one canonical dataset; portfolio total = 318 redemptions (Home <-> Vouchers list <-> voucher detail <-> Insights cannot drift). Confirms the 2AP/2AQ reconciliation landed.
+- Brand consistent; NO emoji; NO em-dashes in rendered copy (only in dev code comments, never displayed).
+- FIXED by the audit: 6 user-visible "offer" leaks in the voucher builder -> "voucher" ("Change offer type", "Choose your flagship offer", desc placeholder, 2 calibration lines, 1 terms label, "from the offer types"). Left "offer" as a VERB ("what you offer") - correct English. CLOSES the 2AQ voucher-wording sweep.
+
+OPTIONAL POLISH (recommended + go-ahead sent): the "Changes needed" Home reuses the generic "Welcome to Redeemo, James" setup heading instead of acknowledging the change request. Functions correctly (checklist + reason present); brief sent to tailor the heading/subheading to acknowledge the review + the changes needed.
+
+=> PROTOTYPE COMPLETE. Ready to build - see `docs/superpowers/2026-06-19-merchant-portal-build-handover.md`.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
