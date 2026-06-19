@@ -682,5 +682,22 @@ PHASE 4: enforce count vs cap at add/invite (backend); store the cap per merchan
 
 Brief SENT (2026-06-19, mechanism addendum to Staff & access with placeholder numbers).
 
+## 2AE. Quick actions in the top bar (owner direction 2026-06-19)
+
+A global quick-actions entry in the top bar for the common immediate actions (the top bar already has "Validate a code" + bell + avatar). CAPABILITY-FILTERED (role + granted extras 2R/2S) - only show what the person can do.
+
+RECOMMENDED SET:
+- VALIDATE A CODE (already there) - most frequent in-store action; anyone who can validate (owner/manager/staff).
+- CREATE A VOUCHER -> the builder. Owner; branch manager only if granted the manage-vouchers extra (2S).
+- VIEW A BRANCH'S REDEMPTION PIN -> pick branch, REVEAL-ON-DEMAND (sensitive; never inline in the menu; gated). Owner + branch manager (their branch).
+- TODAY'S REDEMPTIONS -> Redemptions filtered to today (quick operational glance). Anyone who can view redemptions; scoped to the person's branch(es).
+- (Secondary/optional, a tap deeper: add a team member [owner]; get help.)
+
+NOTES: PIN stays reveal-on-demand + role-gated (a quick action must NOT weaken PIN security - opens the branch PIN view, never prints the PIN in the menu). Validate-a-code already exists - integrate (keep prominent or fold in). Role/extras gate which actions appear + scope (manager = their branch).
+
+PROTOTYPE: brief a top-bar quick-actions entry with the set above, capability-filtered, PIN reveal-on-demand. Requirements-led; layout (menu vs buttons) to Claude.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
