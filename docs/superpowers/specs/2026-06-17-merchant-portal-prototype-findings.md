@@ -1,0 +1,936 @@
+# Merchant Portal: Prototype-Driven Findings and Gaps
+
+- Date: 2026-06-17
+- Status: Working log. Closed scope: planning and prototyping only. No implementation, no schema changes.
+- Source: Live Claude Design prototyping session for the Merchant Portal (project "Redeemo for Business").
+- Companion: `docs/superpowers/specs/2026-06-16-merchant-portal-product-blueprint.md` (the canonical Phase 3 blueprint, PR #261).
+
+Purpose: capture the product and UX decisions validated, and the gaps discovered, while prototyping the Merchant Portal in Claude Design, so they can be folded into the blueprint, the taxonomy data, and the Phase 3 schema work later.
+
+## 1. Locked product and UX decisions (prototype-validated)
+
+### Voucher builder
+- Vocabulary: "voucher" everywhere, never "offer".
+- Voucher type differentiation: each type's builder must reinforce what makes that type distinct. The BOGO free item must be a second of the same or a similar item, not a different add-on (a free starter or dessert is a Freebie or a Package, not BOGO). If a merchant describes something that belongs to another type, gently point them to it.
+- Value fields: the bought item shows "Full price"; the free item shows "Value of the free item" (the saving the customer gets). Never label both "Full price".
+- Estimated saving lives in the customer-facing section, defaults to the free item's value, and is editable with a reset-to-suggested note.
+- Custom terms join the terms list as normal rows when added (the Add term action fully commits the term).
+- The score reflects the whole offer including the number of terms: a clean offer with few terms scores higher; many terms (especially Caution or Restrictive) can drop the meter to Too weak. The meter tier must never disagree with its own warning.
+- Brand-only colours on every control (no teal, no generic green).
+- Description limit raised to about 300 characters.
+- Minimum saving floor: a genuine saving under 5 pounds is flagged.
+
+### Voucher preview card
+- Hierarchy: title leads; the saving is the hero figure in Mustica Pro savings-green; the identity row (logo, name, branch) is quieter; description muted; terms quietest.
+- Default banner uses the voucher type's colour as a per-type gradient when no photo is set (matching the customer app's per-type voucher card gradients), and a merchant photo overrides it. This refines the earlier brand-gradient default, which was chosen when a BOGO purple banner looked jarring; the real app uses per-type gradients, so per-type is the faithful choice (owner to confirm if they prefer a brand-gradient default instead). The Redeem button stays the single primary action.
+- Copy: "Save up to" (not "Save about"); CTA "Redeem this voucher".
+- Phase 3: the preview should mirror the live customer voucher card exactly (per-type gradient, R watermark, Mustica saving treatment).
+
+### Submit and second-voucher flow
+- "Flagship vouchers" everywhere, never "starter vouchers".
+- The confirm modal is context-aware: the second voucher's modal signals that it is the second.
+- No "Recommended" badge on the second-voucher choice; the merchant may pick a different type.
+- Resume: after submitting voucher 1, the merchant can leave and return straight to voucher 2 without rebuilding voucher 1; the checklist reflects progress.
+- Success: "Both flagship vouchers have been submitted".
+
+### Dashboard tone: encouraging at low volumes
+- A brand-new live merchant has few redemptions, and some cycles are naturally quiet. The dashboard must never make a merchant feel they are failing. It carries an early or low-volume state (celebratory "you are live", encouraging placeholders instead of empty charts and lonely zeros, a "your first redemption is on its way" framing, and a "ways to bring in more customers" tips panel), frames quiet cycles constructively (no red doom "down" numbers; lead with the always-growing cumulative "Customers brought in"; offer growth tips), and celebrates milestones (first redemption, round numbers). Tone stays calm, warm, and genuine, never pushy or fake. This applies across the live merchant surfaces, not only the dashboard.
+
+### Voucher type system (verified against the customer app)
+- Source of truth: `apps/customer-app/src/features/voucher/utils/voucherTheme.ts`. The schema has 8 `VoucherType` enum values, but the customer app presents 7 customer-visible types because DISCOUNT_FIXED and DISCOUNT_PERCENT both display as "Discount" with one gradient. The merchant portal type picker shows 7 types (Discount as one card; the fixed-£ vs percentage choice is made inside the Discount builder and maps to the right enum).
+- Canonical labels (match the live customer app): Buy one, get one free (short BOGO); Spend & save; Discount; Freebie; Package deal; Time limited (short Time-limited); Reusable. The portal had used "Buy one get one" and "Spend and save"; align to the app. Owner to confirm the "&" vs "and" and the BOGO label (changing them means updating the customer app too, to keep one set).
+- Canonical per-type voucher card banner GRADIENTS (the earlier single hexes were the chip colours; the banner uses these gradients): BOGO #B7A4F2 to #6E3DD3; Discount #FB8896 to #D8302A; Freebie #A0E5BA to #208E50; Spend & save #FAB78E to #D6531B; Package deal #9CC0F5 to #2D5BCC; Time limited #F4D072 to #BC6D1C; Reusable #84DCC2 to #198375.
+- Package deal = the bundled items + the package price + the normal separate total; estimated saving = normal total minus package price; score driven by the saving as a share of the normal total. Itemise option: the merchant can either describe the package in one line or list the items (add item one, two, three), and when they list them the items compose the suggested title and description and show on the customer voucher.
+- Curated voucher terms are category-aware, not only type-aware: some terms are category-specific (for example "one table or visit" suits restaurants but becomes "one visit" for other categories), so the term set is driven by the merchant's category, like the field suggestions are. This applies to every voucher type.
+
+### Voucher type builders before management
+- The voucher management list and View screen are type-adaptive and display the fields each type captures at creation, so the per-type creation flows are built first; otherwise the management fields are guessed. All seven types reuse the Buy one get one builder structure (guided You decide, What customers will see, type-aware curated Terms, a live score, a live customer preview) with type-specific fields and a type-aware score. Spend and save = a spend threshold plus a saving amount (for example spend £30, save £8); the score is driven by the saving as a share of the spend; estimated saving is the saving amount. Freebie = the free item plus its value (the saving), plus whether it is with a purchase (and what they must buy) or standalone on its own; the free item is a different item, which separates it from Buy one get one. Discount = the one type that holds both kinds: a fixed amount off (saving = the amount; a straight amount off with NO minimum spend) or a percentage off. The percentage saving basis must match the spend the customer sees: when a minimum spend is set, base it on the minimum and show "Save at least £X" (and hide the typical-order field, since the minimum is the reference); when there is no minimum, use a typical order value (internal, not shown to customers) and show "Save about £X". An OPTIONAL minimum-spend toggle, off by default, is allowed only on the percentage kind; the percentage kind is the default. A fixed amount off with a spend threshold IS Spend and save, so the minimum is not offered on the fixed kind and the merchant is pointed to Spend and save. This keeps the types distinct: fixed Discount = straight amount off, percentage Discount = a share off optionally over a minimum, Spend and save = spend-a-threshold-to-save. Freebie-specific scoring: a standalone freebie (free on its own, no purchase) is inherently generous, so it is exempt from the weak-for-low-value penalty and from the £5 minimum-saving floor (no minimum-saving warning even below £5); the with-a-purchase variant uses the standard scoring and the £5 floor. Suggestions for both the free item and the qualifying purchase are category-driven, neutral, generic, and distinct, not food-locked or near-duplicates. Remaining types to build: Reusable.
+- Time-limited (more complex; backed by the `VoucherAvailabilityWindow` model, M4): recurring weekly availability windows, each a (dayOfWeek, openTime, closeTime) in Europe/London, with cross-midnight via the "24:00" sentinel; multiple windows allowed; an optional `expiryDate`. The offer is described (free-form "what is special") plus a saving amount; the windows are the defining structured feature and the customer card's hero. KEY cadence difference: redemption is once per (user, voucher, window-occurrence) via `windowStartsAt` + a unique index, NOT once per month, so a customer can redeem each time a window comes around (a daily happy hour daily). This must be surfaced to the merchant for the margin implication.
+
+### Voucher builder modes and scoring rules
+- The builder runs in two modes. Flagship mode during onboarding: the two mandatory vouchers, "Create your flagship voucher", "Voucher 1 of 2", saved and submitted with the business. Custom mode when a merchant creates a voucher from the Vouchers page post-launch: "Create a voucher", "Build your voucher", a single voucher with no 1-of-2 framing, and it goes to Redeemo for review before it goes live (per the live-voucher review model), not submitted with the business.
+- Scoring and validation rules (apply to every type): the suggested title tracks the type's amounts (for example the spend and save values) so it never contradicts the offer; the minimum-saving floor is an absolute £5 check independent of the term count; the meter tier must agree with the improve list, so several improvement points cannot read Good. Type-dependent terms update live with their amount (for example the spend term follows the spend threshold). Suggested descriptions stay generic, not sector-specific.
+- Type identity in the builder: the builder names the voucher type in the top bar and heading (custom mode: "Spend and save voucher" / "Build your custom Spend and save voucher") and uses the type's colour as the header accent. The suggested description is customer-facing, written to the customer ("you" the customer), never explaining the offer to the merchant.
+
+### Voucher trust and lifecycle
+- A live voucher is a commitment to customers, so merchants cannot casually pause, pull, or delete a live voucher. Pause and Delete are removed from live vouchers (Delete stays on Draft only). A live voucher runs to its expiry; ending one early is a "Request to end" that goes through review so Redeemo can manage the customer impact. The Paused state is Redeemo-initiated only (for example a suspension), not a merchant action.
+- Edits to live vouchers, including the flagship vouchers, go through review: the edit is submitted as a pending change, the voucher shows "Changes in review", and the current live version stays visible to customers until approved, then the new version replaces it (or shows "Changes requested" if rejected). Draft vouchers edit directly. Flagship vouchers can never be deleted and their edits always go through review. This reuses the platform's existing post-go-live pending-edit approval lane (Option B).
+
+### Review model and status surfacing
+- Two review dimensions. At onboarding the business and its two mandatory flagship vouchers are reviewed together as ONE submission (the admin onboarding approval already includes the vouchers), so the merchant submits once. Each voucher still carries its own status (Draft, In review, Live, Changes requested, Paused, Expired), surfaced per-voucher in the Vouchers section and summarised on the dashboard during the In review state. Post-launch, a newly added or edited voucher goes through its own separate review before going live (the voucher preview already states "goes to Redeemo for review before it goes live"). The single onboarding Submit for review does not change; the voucher status is shown, not separately submitted.
+
+### Onboarding and journey
+- Entry model: self-serve registration. This diverges from the current admin-invited backend; self-registered merchants feed the existing admin approval queue, so vetting stays at the approval gate.
+- Registration kept minimal: first name, surname, work email, mobile (collected, not verified at registration), password, business name. Nothing else.
+- Email-only verification at registration; phone verification deferred to reduce friction (verify later, before go-live).
+- Dashboard-first plus checklist, refined to a guided staircase: Choose your category is first; Complete your business profile unlocks after category; Add your main branch, Set up your 2 flagship vouchers, and Sign the merchant agreement unlock only after both category and business profile are done.
+- Onboarding IA: light registration; category first on the dashboard; business and legal details (registered name, company registration number, VAT number, head office or registered address) in the Business profile step, not at registration.
+- Single demo persona across all screens: The Old Foundry Kitchen, owner James Whitfield. The business name is wired through; flipping the lifecycle switcher never changes the persona.
+- Contact split: the company head office contact (website, head office phone, head office email) is captured at the merchant level in the business profile; the customer-facing contact (the phone and email customers see and call) is branch-specific and captured when adding a branch. The registered or head office address is captured as structured UK fields (line 1, line 2, town or city, county, postcode) with postcode lookup, not a single free-text box.
+- Save and resume: field-heavy onboarding steps (business profile, branch) offer both "Save and finish later" (saves partial progress, always available, leaves the step In progress) and "Save and continue" (requires all mandatory fields, marks the step Done). Each checklist step has three states: not started, in progress, Done. Downstream steps stay locked until the prerequisite step is Done, not merely in progress. A concise "Verify your business sooner" document-upload card also appears on the business profile, sharing the same documents as the Documents area, so a merchant can speed verification from there.
+- Branch redemption PIN, corrected model: the branch PIN is entered by the CUSTOMER in the customer app to confirm presence at the branch when redeeming. Staff can read the PIN out to the customer, so no one needs to touch the customer's phone. It is not a secret password but must not be displayed publicly or posted online, because it controls redemptions at the branch. Viewable and changeable later under Branches. The earlier onboarding copy that said staff enter the PIN in the merchant app was wrong. Note the separate step: staff validate the resulting redemption CODE in the merchant app, which is different from the branch PIN.
+- Branch reuse: the Add main branch step offers to reuse the business profile head office address, company website, description, and company banner (cover image) so a single-location merchant does not retype or re-upload them. Opening hours support multiple periods per day (split shifts) plus an Open 24 hours option, with validation: within a period the close must be after the open (an overnight close past midnight is allowed and shown as next day), multiple periods on a day must not overlap and are ordered by start, and closed days carry no periods. Enforce both client-side and server-side, since the customer open-now status and TODAY badge depend on well-formed hours. Branch-specific fields confirmed against the customer profile: name, banner, address, customer phone, branch website, branch description, opening hours, amenities or features, photos (distance, directions, open status, and reviews are derived or system). The banner is the branch hero image and can differ per branch, falling back to the company banner.
+- Branch staff and access: onboarding does not force staff setup. The registering owner is the default branch user and can validate redemptions immediately. The merchant assigns branch managers or staff, creates their accounts, and sets their roles later under Staff and access, where each staff member gets their own login. The branch screen surfaces a short guidance note pointing to this.
+- Signatory and personalised agreement: the business profile captures the registering person's title, first name and surname (prefilled from registration), and position via a business-type-agnostic dropdown (Owner, Director, Partner, Trustee, Company Secretary, General Manager, Authorised Representative, Other), used to confirm who is authorised to sign. The Sign the merchant agreement screen personalises the contract with the held business data (trading name, registered name, business type, head office address, company and VAT numbers, signatory and position). A comprehensive DRAFT Redeemo Merchant Agreement was written for the prototype (12-month initial term then rolling; listing free with paid placements; honour every valid voucher and no refusal; mandatory two flagship vouchers; merchant obligations and licences; review and immediate-suspension rights; content and IP licence; UK GDPR data protection; liability and indemnity; termination; England and Wales law). The binding legal text remains a legal sign-off item (the launch gate); the draft is representative, not final.
+- Pre-approval transparency: onboarding screens carry a short, human reminder, and the Submit for review step carries a fuller version, explaining that once Redeemo approves the business everything entered goes live on the app and website, and that later edits to key details go through a review before they show. The copy states the why (accuracy and trust, safeguarding customers, merchants, and the platform) without legal tone. This reflects the existing post-go-live pending-edit approval lane (Option B), so it is honest, not aspirational.
+
+### Taxonomy and identity
+- Three-tier attribute model:
+  - Merchant identity (same across all branches): category, subcategory, cuisine, specialties. Forms the customer-facing descriptor.
+  - Merchant profile (also brand-wide): description, logo, legal details, and ethos highlights (Independent, Women-Owned, Eco-Conscious, brand-wide Halal).
+  - Branch attributes (vary per branch): physical facilities and access (outdoor seating, beer garden, parking, wifi, step-free access, baby-changing, high chairs, payment methods, takeaway and delivery), consolidated with branch amenities.
+- Cuisine is identity, not a peripheral tag. It is already elevated in the model via `Merchant.primaryDescriptorTag` plus `descriptorEligible`. The descriptor composes from cuisine plus subcategory (Italian plus Restaurant reads "Italian Restaurant").
+- Cuisine is shown only for food-serving subcategories (Restaurant, Takeaway, Pub & Gastropub), not Cafe & Coffee, Bakery, Dessert Shop, Bar, or Food Hall.
+- Specialties are scoped to the subcategory and cuisine.
+- Merchants can propose a cuisine or specialty that is not listed via "Add your own"; it is marked Pending review and routes to the admin panel for approval before it appears to customers.
+
+## 2. Gaps and open items to pick up later
+
+### Schema and data-model (Phase 3, stop-and-report before any migration)
+- Move physical highlight and detail attributes (outdoor seating, parking, wifi, step-free access, baby-changing, high chairs, payment methods, takeaway and delivery) from the merchant level (`MerchantTag`) down to the branch level, alongside `BranchAmenity`. This is the structural change implied by the three-tier model. It needs the exact SQL and rollback presented for sign-off before any migration.
+- Self-serve merchant registration route. The current backend is admin-invited only (draft plus claim). New registration endpoint plus the wiring into the existing admin approval queue.
+- Business type and conditional identifiers. Add a `businessType` field to the merchant (Sole trader, Partnership, Ltd, LLP, PLC, CIC, Charity, Other). The company registration number is required only for the Companies House types (Ltd, LLP, PLC, CIC); charities use a charity number plus an optional company number; sole traders and partnerships have no company number (optional UTR). VAT is conditional on VAT registration (mandatory only above the 90,000 pound turnover threshold, confirmed since April 2024 and unchanged for 2025 and 2026), not on type, so the VAT number cannot be a universal mandatory field. Verification path differs by type: registered entities can be checked against Companies House or the Charity Commission; sole traders and partnerships are verified from uploaded documents. Schema today has `companyNumber` and `vatNumber` on the merchant but no `businessType`, charity number, or UTR, so this is an additive schema change for Phase 3.
+
+### Taxonomy data gaps (Phase 3 seed work)
+- Cuisine-specific specialties are missing (the seed has generic food specialties only). Add specialties per cuisine (Indian: Curry House, Tandoor, Biryani, Thali, Street Food, Balti; and the same for Thai, Chinese, and the rest).
+- `SubcategoryTag` mappings need completing so tags only show for the subcategories and cuisines they fit. Today Cafe shows cuisines and an Indian Restaurant shows Pizza, which are mapping gaps.
+
+### Branch features and amenities scoping (Phase 3)
+- Branch features and amenities must be category-specific, governed by the `CategoryAmenity` eligibility rules (a gym does not show High Chairs, a garage does not show Beer Garden). The prototype initially showed a fixed food-oriented list for every business.
+- Structural clean-up: the branch features section currently mixes true amenities (operational, `CategoryAmenity`-governed, for example Wi-Fi, Outdoor Seating, Free Parking) with physical HIGHLIGHT and DETAIL tags (Family-Friendly, Pet-Friendly, Takeaway Available, Contactless), and the seed has a tag-versus-amenity overlap (Outdoor Seating appears as both an amenity and a HIGHLIGHT tag). The `amenities.ts` header states a concept should live in exactly one system. Resolve the boundary and make sure both amenities and the physical tags are category-scoped, as part of the three-tier move of physical attributes to the branch level.
+
+### Taxonomy content and policy (Phase 3)
+- Remove the identity-based HIGHLIGHT tags from the taxonomy seed (`prisma/seed-data/tags.ts`): Women-Owned, Black-Owned, LGBTQ+ Friendly. Owner direction is that these read as political or potentially discriminatory and should not be part of the platform. They are removed from the onboarding business-profile values section in the prototype. Decide in Phase 3 whether to remove them platform-wide (customer-facing filters and the merchant profile too), which is the recommendation. Keep neutral business values such as Independent, Family-Run, Locally Sourced, Eco-Conscious; Family-Run and Locally Sourced are not in the current seed and would need adding.
+
+### Image and file upload specs and limits (Phase 3)
+- Starting specs (tune later): branch photos JPG or PNG, landscape, min ~1200 by 800, up to 5 MB each, cap 8 per branch; logo square min 512 by 512 up to 2 MB; cover wide min 1600 by 600 up to 5 MB; verification documents PDF, JPG, or PNG up to 10 MB each, cap 5. Plus content guidance (real, well-lit photos of the space, not logos or stock).
+- Enforce format, size, dimension, and count limits both client-side and server-side, to prevent storage abuse. The B4 document upload already enforces type and size on the server buffer; photo count and size limits need the same server-side enforcement, not only the UI.
+
+### Features to build
+- Merchant-proposed tag flow end to end: "Add your own" on cuisine and specialty, a pending state, routing to the admin panel, admin approval, then it joins the taxonomy. The schema already anticipates this via `Tag.createdBy` (`TagCreatedBy`). The admin side lands with the admin panel work.
+
+### Owner input needed
+- Flagship voucher type eligibility: which voucher types are allowed as a mandatory flagship voucher, and whether this varies by category. Starting position: BOGO, Discount, Freebie, Spend and save, and Package work well; Time-limited and Reusable are poor fits as a flagship. Needs the allowed set confirmed.
+- Required legal identifiers for a UK business at the Business profile step (company registration number, VAT number, registered address, anything sector-specific).
+- Preview button label "Redeem this voucher" to be reconciled against the live customer app wording.
+
+## 2A. Time-limited voucher: wrapper model (added 2026-06-18)
+
+Decision (builder-only, no schema change): a Time-limited voucher is an existing offer mechanic with a schedule attached. The builder asks two things, what runs and when it runs. What runs: the merchant picks Discount, Buy one get one, Freebie, or Spend and save, and fills that mechanic's existing field set, chips, scoring, and 5 pound saving floor. When it runs: the recurring weekly window editor already built. The saving is owned by the chosen mechanic, not a separate flat field. This reuses the per-type builders already designed. The earlier build wrongly stacked a flat offer line, a flat saving, and a buy/get-free block at once, which let a merchant create three contradictory deals (half price plus an 8 pound flat saving plus BOGO, numbers not reconciling: half of 18 pounds is 9, BOGO of 18 is 18, card said 8).
+
+Why no schema change: the Voucher model has no structured per-type columns (no buyItem, freeItem, threshold). Every type collapses to type, title, description, estimatedSaving, terms, plus type extras (availabilityWindows for Time-limited, cooldownSeconds for Reusable, expiryDate). The per-type builders are scaffolds that compute title, description, and saving; the stored Time-limited voucher stays type TIME_LIMITED. The genuine difference Time-limited adds is the redemption cadence: once per window occurrence (enforced by VoucherRedemption @@unique([userId, voucherId, windowStartsAt])), not once per cycle. So wrapping a BOGO in a schedule is meaningful (it changes how often a customer can use it) and is purely a builder concern.
+
+Preview fidelity: the merchant preview must mirror the real app's Time-limited states, not a static card. The app (HeroStatusBlock + VoucherDetailScreen, useTimeLimited hook) shows a live countdown and a state-dependent CTA:
+- active: eyebrow "Available now", live countdown, supporting "Window ends <time>"; red "Redeem This Voucher" (CTA_LABELS.redeemActive, Title Case).
+- urgent (under 60 min to close): eyebrow "Ending soon", same red CTA.
+- unavailable-today: eyebrow "Available later today" or "Available soon", countdown to open, supporting "Available from <time>"; disabled NAVY CTA "Not Available Right Now" with the schedule string subline (formatScheduleString, for example "Mon-Fri, 12pm-2pm"), not red.
+- unavailable-future-day: eyebrow "Available tomorrow" or "Available <Weekday>"; same disabled navy CTA plus schedule.
+- redeemed-this-window: eyebrow "Available again", countdown to next open.
+The prototype should expose a preview state switcher so the merchant can see in-window and out-of-window treatments without waiting on the clock.
+
+Open items for Phase 3:
+- Wrappable set LOCKED 2026-06-18: all five base offer types are wrappable on both wrappers (Discount, Buy one get one, Freebie, Spend and save, Package). Package was added (it is the only mechanic that can express a bundle, and Package-on-a-schedule, the early-bird set menu, is a strong fit). Freebie kept (standalone freebies and the free-coffee-every-day reusable are not expressible by BOGO, which always needs a purchase). Clean model: 5 base offer types, each optionally wrapped by a schedule (Time-limited) or by reuse (Reusable); the wrappable set equals the flagship-eligible set. The BOGO-vs-Freebie overlap is handled by sharper card-description copy ("Buy one item, get another of the same or similar free" vs "A free item on its own, or a free extra with a purchase"), not by removing Freebie.
+- Persisting the underlying mechanic: if the management list, View screen, or customer card should show "BOGO, Fri-Sun 5-9pm" with the mechanic's flavour, remember the chosen shape in the existing merchantFields JSON (additive, no migration). If not, title and description carry the meaning and nothing is stored. Decide in Phase 3.
+- CTA label reconciliation now covers the full Time-limited state set above, not just the single "Redeem this voucher" wording: active label is "Redeem This Voucher" (Title Case); out-of-window label is "Not Available Right Now" with a schedule subline.
+- Category-generic copy reapplied: offer placeholder, mechanic item chips, and terms must span all categories (not food). Booking terms surface only for categories where booking applies.
+
+## 2B. Voucher builder: category-sourced suggestions and terms (added 2026-06-18)
+
+Decision: the tappable suggestion chips (BOGO buy/free items, Freebie free item, Discount "what is it on") and the terms in the voucher builders are driven by the merchant's category, not hardcoded. One per-category map is shared by all mechanics, so the standalone Discount, BOGO, Freebie, and Spend and save builders and the same mechanics nested inside Time limited all read from one source. The active merchant's category selects the set; a neutral fallback covers unknown or uncategorised. Categories match the seed taxonomy (Food and Drink, Beauty and Wellness, Health and Fitness, Out and About, Shopping, Home and Local Services, Travel and Hotels, Health and Medical, Family and Kids, Auto and Garage, Pet Services).
+
+Terms are split into a universal core shown everywhere (Available only during the times shown; One redemption per customer each time the offer runs; Tell the staff before you order or pay; Not valid with any other offer; One voucher per customer each visit) plus category-conditional terms that only appear where they fit: booking terms (Booking recommended, Advance booking required) for booking-led categories (Beauty and Wellness, Health and Fitness, Travel and Hotels, Health and Medical, Pet Services, sit-down Food and Drink); Dine in only for Food and Drink; While stocks last for Shopping and Freebie; One treatment per visit for Beauty and Health and Medical; Valid on full price items only for Shopping and Food; Subject to availability for Travel and Hotels and fitness classes. Spend and save framing stays universal; only example amounts vary by category.
+
+Why this matters: prototype tools hardcode whatever fits the visible demo merchant (a restaurant), so suggestions default to food. The fix is a category-keyed data source, not relabelled food strings. The prototype carries a demo-only "Preview suggestions as" category toggle so the swap is verifiable; in production the merchant's real category drives it.
+
+Phase 3: this becomes a real per-category content source (seed or config) feeding the merchant voucher builder. The standalone per-type builders must read from the same source as the Time limited nested mechanics so they never drift. No schema change: suggestion and term content is builder configuration, not voucher columns; the chosen values still collapse into title, description, estimatedSaving, and terms on the stored voucher.
+
+## 2C. Reusable voucher: wrapper model + interval (added 2026-06-18)
+
+Decision (builder-only, no schema change): a Reusable voucher is the second wrapper type, parallel to Time-limited. The merchant picks an offer mechanic (all five base types: Discount, Buy one get one, Freebie, Spend and save, Package) and then sets how often a customer can use it (the reusable interval), instead of a schedule. Same five mechanics as Time-limited, same category-sourced suggestion chips and terms (2B), same scoring and 5 pound saving floor. The saving is owned by the mechanic; no separate flat field.
+
+The interval is the schema's `cooldownSeconds` (REUSABLE only): default 4 hours, server-clamped floor 1800 seconds (30 minutes) at redemption time. The builder offers presets (Every hour, Every 4 hours, Once a day) plus a Custom option with a 30-minute minimum, defaulting to Every 4 hours. Natural duration wording mirrors the app helper `formatCooldownDurationHuman` (30 minutes, 1 hour, 4 hours, 1 day). An optional "Does this offer end on a date?" toggle (off by default) maps to the existing nullable `expiryDate`, same as Time-limited.
+
+Customer copy lock (live app D42/D43): never the words "cooldown" or "wait" anywhere a customer or the preview can see. The cadence is always "Available again every <duration>". Merchant controls can use plain language ("How often can the same customer use this"), but the preview and any customer-facing copy must use the "Available again every <duration>" phrasing.
+
+Preview fidelity (real app: useReusable, ReusableRulesCard, ReusableGuidanceCard, HeroStatusBlock reusable states, cooldownFormat). The card uses the mint-teal gradient 84DCC2 to 198375 with a REUSABLE chip. Two states via a preview switcher:
+- reusable-available: eyebrow "Available now" with an alive/pulsing treatment; red "Redeem This Voucher"; rules line "Available again every 4 hours. Your subscription must stay active to redeem." (ReusableRulesCard body, verbatim shape).
+- reusable-cooldown: eyebrow "Available again"; live countdown (for example "3h 12m"); supporting "Available again from <time>"; disabled CTA "Available again in <duration>" (CTA flips to "Currently Unavailable" only in the D44 expiry-before-cooldown edge, an app-side detail not needed for the prototype).
+
+Scoring nuance: a reusable offer's strength comes partly from repeat frequency, so a frequent interval (for example once a day) with a modest saving should not auto-read as "too weak" (same spirit as the standalone Freebie exemption).
+
+Why no schema change: the stored voucher is type REUSABLE + title, description, estimatedSaving, terms + cooldownSeconds (already on the model) + optional expiryDate. The mechanic is a builder scaffold that collapses into those fields. The genuine difference Reusable adds is the cadence (repeatable with an interval, not once per cycle), already enforced app-side via availableAgainAt.
+
+## 2D. Builder guidance panel copy must be cadence-aware (added 2026-06-18)
+
+The navy "Strong for you, fair for customers" guidance panel at the foot of the voucher builders has a first bullet stating how often a customer can use the voucher plus the margin rationale. It hardcoded "once a month", which is correct only for the standard once-per-cycle types and is wrong for the two wrappers (it contradicts the model and inverts the rationale, since Reusable is explicitly for repeat use). The first bullet must switch on voucher type:
+- Standard types (Discount, BOGO, Freebie, Spend and save, Package, unwrapped): "once a month" framing (regulars still pay full price, bring in new faces).
+- Time-limited: "once each time the offer runs" (for example once a day for a daily happy hour); fill quieter times, plan saving around footfall.
+- Reusable: "again and again, available again after the set interval, not once a month"; built to reward regulars and keep them returning; set saving and interval around margin.
+
+The other three bullets in the panel (we help, pick terms, ask for help) are generic platform messaging and stay the same across types. General lesson: any builder copy that states the redemption cadence must be type-aware, the same way the Step 2 notes already are. This also applies to any future surface that restates the cadence (management list, View screen).
+
+## 2E. Custom voucher creation: distinct type-picker with per-type explainer (added 2026-06-18)
+
+Decision: the custom "Create a voucher" entry (reached from the Vouchers management page) gets its own type-picker screen, distinct from the onboarding "Choose your flagship offer" screen which it currently clones. The onboarding flagship screen stays for onboarding (flagship mode, 2 mandatory, RECOMMENDED nudge, "Voucher 1 of 2"); the custom screen is general-purpose, single voucher, reviewed before live.
+
+Remove onboarding framing from the custom screen: the "Choose your flagship offer" title + flagship intro, the RECOMMENDED badge on BOGO, and the OLD "How Redeemo vouchers work" primer whose "THE MOST IMPORTANT RULE: once a month" was inaccurate as a universal (the wrappers break once-a-month, per 2D). The primer is REPLACED by a corrected persistent card (below), not dropped outright.
+
+Persistent "How Redeemo vouchers work" card (owner direction 2026-06-18): a card always visible on the Create a voucher screen, regardless of which type is selected, separate from the per-type explainer. It is the corrected version of the removed primer: keep the education, make it accurate by including the two exceptions. A calm reference, not a warning. Content (corrected 2026-06-18, see round-3 note below): (1) The rule, framed PER VOUCHER to avoid the misread that a customer gets only one voucher total: each voucher the merchant creates can be used once a month by each customer; after a customer uses one of the merchant's vouchers, that voucher turns off for them until their next monthly cycle, then renews. (2) Why, framed to ENCOURAGE making more vouchers: the merchant can offer plenty of vouchers with confidence; each is used at most once a month per customer, giving genuine value and a reason to return while protecting margin and never giving away unlimited discounts. (3) The two exceptions: Time limited (once each time the offer runs, for example once a day for a daily happy hour, not once a month) and Reusable (again and again, available again after the set interval). This also satisfies improvement #2 (set expectations for the two wrappers). Placement/visual left to Claude Design (requirements-led).
+
+New core feature: selecting a voucher type reveals a human, plain-English explainer that helps the merchant choose with confidence: what it is, how it works, what it means for their business, and what it is best for (plus a "good to know" cadence line for the two wrappers). All seven types selectable (Discount, BOGO, Freebie, Spend and save, Package deal, Time limited, Reusable) with their Redeemo colours/icons. Primary action starts that type's builder; a calm "reviewed before it goes live" reassurance; a path back to management.
+
+Per-type explainer copy (full text held in the prototype brief; condensed here):
+- Discount: money off (set amount or percentage). Best for a clear, no-fuss saving almost any business can offer.
+- BOGO: buy one, get another of the same or similar free. Best for footfall and bring-a-friend; works when the second item costs little but feels generous.
+- Freebie: a free item, standalone or a free extra with a purchase. Best for first visits, tasters, small thank-yous.
+- Spend and save: spend over a threshold, save a fixed amount. Best for lifting average spend; protects margin.
+- Package deal: a bundle for one price. Best for signature combinations, set menus, kits; precise value control.
+- Time limited (wrapper): any offer on chosen days/times; usable once each time the window runs, not once a month. Best for filling quieter times. Good to know: plan saving + times around footfall and margin.
+- Reusable (wrapper): any offer usable again and again, available again after the interval you set. Best for loyalty and repeat visits. Good to know: set saving + interval around margin.
+
+Approach is requirements-led: provide the content (one-line summaries + per-type explainer copy above) and the functional requirements (seven types; selecting a type reveals its explainer; a primary action to start building; a calm reviewed-before-live reassurance; a back path; never an empty or confusing state), then hand ALL presentation to Claude Design. Do NOT prescribe layout, placement, or hierarchy (no master-detail / side-by-side / grouping instruction) per owner direction 2026-06-18: being too specific about where to place things makes Claude Design build exactly that and wastes its design judgment. The wrapper relationship (Time limited and Reusable wrap one of the other five) is already conveyed by the explainer copy, so no separate grouping instruction is needed. Constraints only: distinct from the onboarding screen, modern and genuinely user-friendly UI/UX, plain/human/category-neutral copy, per-type Redeemo colours/icons, brand rules. Short summaries avoid "cooldown" (Reusable: "An offer a customer can use again and again").
+
+Improvements applied (owner direction 2026-06-18, all in one pass): (1) list rows carry the goal / "best for" signal so the list is scannable by goal, not just type; (2) the per-type one-liner is not repeated on both the list row and the right-panel sub-title (rows show the goal; the right panel's "What it is" carries the description); (3) the screen signals that Time limited and Reusable wrap one of the other five (selecting either leads to choosing the base offer that runs inside it); (4) each type's explainer shows a small concrete sample of the customer voucher card for that type, using the merchant's category content (with a neutral fallback); (5) label LOCKED to "Spend & save" (ampersand, sentence case) to match the live customer app voucherTheme TYPE_LABELS, used everywhere (note: the design-system swatch HTML uses "Spend & Save" with a capital S and should be reconciled to match); (6) clear keyboard/focus states + graceful narrow-window degradation. All requirements-led; layout/visual left to Claude Design.
+
+Visual/branding pass (owner direction 2026-06-18): make the Create a voucher screen feel distinctly Redeemo. The heavy dark double-line selected-card border reads generic and harsh; redesign the selected state to be warm and on-brand (lean on brand or type colour, a soft tint, a gentle shadow lift, a brand-coloured check, not a thick dark outline), with the keyboard focus ring kept visually separate from the selected state. Warm up the overall screen (cream identity surfaces, brand-colour accents, soft navy-tinted shadows) while keeping it scannable; it currently reads a little flat and generic, with the brand only showing in the goal lines and example cards. Ensure Mustica Pro headings + Lato body (watch for font drift). Keep the working brand touches: type-coloured goal lines, gradient example cards, "builds on another voucher" tags, the persistent card. Requirements-led; exact treatment left to Claude Design. Minor open tidy: the goal line currently repeats on the list row and the right-panel sub-title.
+
+Visual refinement, round 2 (owner direction 2026-06-18): premium means restraint. The first visual pass over-corrected, stacking too many selection signals at once (tint + heavy dark border + coloured goal text + check), which reads busy, not premium. Directive: remove the dark border on the selected card ENTIRELY (flagged twice; do not replace with any other heavy/dark/high-contrast border; a single type-colour hairline is the absolute most, a soft shadow lift with no border is preferred); reduce selection to one quiet signal (gentle shadow lift + a whisper of tint) plus the type-colour check (keep the check, it is the one signal the owner likes); keep the focus ring separate and subtle; leave the already-calm unselected cards alone. Keep the warm cream surface from round 1. Also: add the merchant logo to the "What customers see" example card for personalization, matching how the real customer voucher card shows the merchant logo beside the name. General lesson for this brand: premium = fewer signals + calm + space, not more colour.
+
+Visual/copy fixes, round 3 (owner direction 2026-06-18): (a) the dark heavy selected-card border is STILL present after two removal attempts; root cause is most likely the keyboard focus ring or an outline/box-shadow showing on mouse click. Directive: remove every dark-edge source on the selected card (border, outline, box-shadow, ring); selected state = soft navy-tinted shadow lift + whisper of tint + type-colour check ONLY; the focus ring must be subtle and appear only on keyboard navigation (focus-visible), never on mouse click; verify by eye on the rendered card (prior edits were reported done while the border was still visible). (b) The goal line on the SMALL left picker cards should be a neutral colour, not the type colour; keep the type colour only on the large right detail panel (calm list, colour accent in the detail). (c) The persistent card's first line ("Each customer can use a voucher once a month") was ambiguous and could discourage merchants (misreads as one-voucher-total across everything they make); reworded to the per-voucher, encouraging framing recorded in 2E above. General lesson: cadence copy must be framed PER VOUCHER and must encourage, not deter, voucher creation.
+
+Round-3 fixes confirmed landed (2026-06-18): the dark selected-card edge was eliminated, root cause was an `outline: 2px solid #010C35` firing on mouse focus (exactly the focus-ring hypothesis), moved to keyboard-only `focus-visible` at navy 55%; the small picker goal lines are now neutral; the per-voucher primer copy is live; the merchant logo is on the example card. Selected card now reads calm and premium (whisper of tint + soft shadow lift + type-colour check, no border).
+
+Round-4 formatting (owner direction 2026-06-18): the two callout boxes on the Time limited and Reusable detail panels (the "this wraps another voucher" box at the top and the "Good to know" box at the bottom) use an inline label-then-text format; restructure both to label-on-top + body-beneath, matching the BEST FOR / WHAT IT IS eyebrow pattern, on both wrapper cards. Optional accuracy tweak: the wrapper box currently reads "You set the timing on top" for both; make it specific per wrapper (Time limited = "days and times"; Reusable = "how often it repeats").
+
+## 2F. Vouchers management page + type-aware View (added 2026-06-18)
+
+Current state is good (well-built list + a Voucher Overview modal that is already partly type-aware). This task finishes it: wiring + completeness + correctness, not a rebuild. Keep the layout.
+
+- Wiring (owner's primary ask): every list card must open its OWN voucher's View (its specific type, title, saving, status, dates, performance, details, terms), not a shared/hardcoded modal. Verify all vouchers, flagship and custom.
+- Demo data must include at least one of EACH of the seven types so every type's View is verifiable (the demo was missing Package and Reusable).
+- Type-aware "Voucher details" field spec per type: Discount (discount value, what it applies to, minimum spend if set, value); BOGO (buys, gets free, value); Freebie (free item, standalone-or-with-purchase, value); Spend and save (threshold, saving, value); Package (bundle contents, package price, normal total, saving); Time limited (underlying offer + days/times + once-per-window cadence + end date if set + value); Reusable (underlying offer + interval + again-and-again cadence + end date if set + value). The two wrappers MUST show both the underlying offer AND the schedule/interval.
+- Status-aware View: Live shows performance + days-live; In review shows "live once approved" (no performance); Draft shows "not submitted yet" + a submit action (no performance); Paused + Expired show their states (Expired keeps final performance). A draft/in-review voucher must NOT show live-only data (days-live, redemption counts).
+- Actions + lifecycle (locked rules): flagship (the 2 required) cannot be deleted or paused, edits go through review; live custom edits go through review and pause/end is a deliberate confirmed action explaining customers stop seeing it (no one-tap delete on live); drafts edit freely + submit; Edit opens the type's builder pre-filled, with a review note for live/flagship. NOTE: the original locked rule was "no pause/delete on live vouchers"; the prototype has a Paused state, so the interpretation here is flagship fully protected + live-custom pause/end allowed only as a deliberate explained action. Owner to confirm if strict no-pause-on-live is preferred.
+- List correctness: filter tabs actually filter; "Create a voucher" opens the type picker; per-type chip + left-stripe colours; per-voucher saving/status/counts correct; wrapper cards hint at schedule/interval; keep flagship + custom sections with the flagship note.
+
+2F as-built (2026-06-18): implemented and reported complete. Demo data now spans all seven types across Live/In review/Draft/Paused/Expired (added a live Reusable, converted the mislabelled festive set menu from Spend-and-save to Package). Per-type Voucher details rebuilt; both wrappers show underlying offer + schedule/interval + cadence + end date + value; status-aware (no live-only data on draft/in-review); lifecycle enforced (flagship cannot pause/delete and lost "Request to end"; live custom + flagship show edits-go-to-review banner); leftover "cooldown" wording + a dead duplicate branch removed; filter tabs filter + highlight. Two verification flags raised: (a) the Reusable demo "Loyalty Friday" is likely a mislabel (a day name reads as Time-limited; rename day-neutral, keep Reusable), (b) the Reusable View line "repeats with no cap" should be paired with the interval so it does not read as unlimited instant reuse. Pause-on-live interpretation (flagship fully protected; live custom end via a deliberate "Request to end") stands as implemented.
+
+2F View container (owner direction 2026-06-18): the voucher View was a narrow centred modal that crammed all sections into one column and forced a long scroll. Decision: move the View to a FULL PAGE (its own route), opened from the card or the row menu, with a back to the list. Requirements-led: keep all the content + type-awareness + status-awareness + lifecycle banners already built; use the screen width so the information reads with strong hierarchy and clear sections rather than a cramped scroll; surface the headline facts first (customer preview, type, status, saving, headline performance); position the primary action (Edit voucher) so it is easy to reach (not buried at the bottom) and clearly primary, with back + any lifecycle action (Request to end) placed sensibly; visually pleasing and on-brand. Layout/structure left to Claude Design. Still-open demo-data flags from the prior round: "Loyalty Friday" reads as Time-limited (Friday-only) not Reusable; the "no usage cap" wording should sit with the interval.
+
+2F list IA (owner direction 2026-06-18): the custom vouchers were dumped into one section regardless of status (Live scattered top and bottom, with draft/in-review/paused/expired jumbled between), which reads as no order. Fix: keep the flagship section on top (always live, own category); group "Your custom vouchers" by status with clear sub-headings in the order Live, In review, Draft, Paused, Expired; live/active most prominent, paused/expired lower and visually quieter; sort within each group sensibly (most redemptions or most recent); pairs with the existing filter tabs (a selected filter shows just that group). Layout/visual left to Claude Design. Prior-round demo-data flags resolved: "Loyalty Friday" renamed to "Loyalty reward, 10% off the bill" (clean Reusable, no day-lock) and the card now reads "10% off, again and again" (interval-paired, no bare "no cap"). NOTE: the full-page View redesign was reported finished but not yet visually reviewed by the owner.
+
+## 2G. Voucher View page v2: analytics + change-request system (added 2026-06-18)
+
+The full-page View (moved off the modal) still needs a hierarchy/action pass, plus voucher analytics and an action system. Requirements-led; layout left to Claude Design.
+
+- Hierarchy/actions: deliberate hero (title, type, status, customer preview, primary action) with the preview prominent (it was crammed in a corner) and a clear always-reachable action area (there was none); then analytics, then details/terms/where-applies/how-redeemed grouped logically; use the width.
+- Voucher analytics (grounded in what VoucherRedemption can measure): total redemptions, total saved, days live, simple trend (this week vs last); redemptions over time; busiest days/times; redemptions by branch (multi-branch); Reusable repeat-usage; Time-limited busiest window; validated rate; one plain-English insight line. Mark new-vs-returning and view counts as future (need tracking we do not have).
+- Change-request system (reuses the existing pending-edit/admin-review lane = Option B; NOT a new system): 
+  - Flagship (cannot edit/delete): action "Request a change" opens a form of the current customer-facing fields (title, description, offer/amount, terms, image, and schedule/interval for wrappers), merchant edits only what they want + adds a reason, submits to Redeemo review; voucher keeps current version live until approved; shows "Change requested, in review" (viewable + cancellable); approve applies, reject shows why.
+  - Live custom: "Edit voucher" opens the type's builder pre-filled; submit routes through the same review (current version stays live until approved); plus Request to end, Duplicate, View redemptions.
+  - Draft custom: edit freely (no review), Submit, Duplicate, Delete.
+  - All: View redemptions, Duplicate.
+- Owner-flagged assumption: change-requestable fields = all customer-facing (title, description, amount, terms, image, schedule), NOT the type or mandatory status. Owner to narrow if desired.
+- At Phase-4 build time the change-request flow is Tier 3 (brainstorm -> spec -> plan), reusing the Option B admin pending-edit lane.
+- Skills/scope note: implementation skills (frontend-design, shadcn) are out of the current closed prototyping scope (building happens in Claude Design); switching to building the portal in code would be a deliberate Tier 3 scope change, planned separately.
+
+## 2H. Vouchers list + View refinements, lifecycle systems, encouragement (added 2026-06-18)
+
+The analytics-led View + change-request system landed well. This round refines them. Requirements-led; layout left to Claude Design.
+
+List:
+- Remove the Paused status/group entirely (no pause action exists). Add an Ended status = result of an approved Request to end. Group Ended + Expired as one "Finished" group (both no longer running).
+- Draft styling: drafts currently look washed-out like expired; a draft needs the merchant's attention (finish + go live), so style it as "needs attention", distinct from both live and finished, NOT washed out.
+- Whole voucher card clickable to open the page (not only three-dots -> View).
+- List three-dots actions MUST match the View page actions for a given voucher (no divergent sets).
+
+View page:
+- Headline trend weekly -> monthly ("this month vs last"); "Redemptions over time" chart weekly -> monthly. Reason: startup low volumes; weekly comparisons (and zero weeks) discourage. Matches the locked encouraging-at-low-volumes dashboard principle.
+- Replace the "Saved for customers" headline stat (a big "money given away" figure demotivates merchants) with unique customers who used the voucher (measurable via distinct userId), labelled positively/honestly ("Customers") but NOT "brought in"/"new" (new-vs-returning is the coming-later metric). Optional: customer saving demoted to a small positive supporting line.
+- For expired/ended vouchers, no decline-shaming trend ("100 percent fewer than last week"); show final totals positively.
+
+Actions + lifecycle systems:
+- BUG: Edit on a draft (and other existing vouchers) opens a blank "create a voucher" instead of the saved voucher pre-filled. Must open the existing voucher's content in its builder.
+- No status change on a single instant click. Withdraw from review (in review -> draft) = confirmation required (merchant's own submission, no Redeemo review, no reason needed), not instant.
+- Request to end (live custom) = new review-lane system mirroring Request a change: reason -> Redeemo review/approve -> Ended; not immediate; kept low-key (do not promote early ending); pending shows "End requested, in review" (cancellable).
+- Run again (finished vouchers): expired/ended offer "Run this again" = recreate that exact voucher as a new run through normal submit/review.
+- Flagship keeps only Request a change + View redemptions (no end, no delete).
+- Owner-flagged: replacement metric (unique customers) and withdraw-confirm-without-reason are interpretations to confirm.
+
+ENCOURAGEMENT PRINCIPLE (general, locked): merchant-facing analytics and copy must encourage, not discourage, given low startup volumes: monthly not weekly, customer-positive framing not money-lost, no decline-shaming on finished vouchers. Applies to every merchant surface (dashboard, View, Insights).
+
+2H as-built + round 2 (2026-06-18): all 14 changes landed and verified (Paused removed; Ended + Finished group; needs-attention draft; whole-card-clickable; shared `actionsFor` action parity; monthly trend + chart; Customers metric with saving demoted to a small positive line; request-to-end review flow; run-again; edit-prefilled fix; withdraw-confirm). Two follow-up fixes raised: (1) the page still discourages and the comparison is unfair: insight "Slowing a little, 25 percent fewer than last month" + red down arrow violate the encouragement principle (low-volume swings are noise, not trends), AND "this month vs last" compares a partial current month to a full previous month (false early-month declines); fix = reframe declines constructively/neutrally in insight + stat card, reserve upbeat copy for real growth, and use a fair comparison (rolling 30 days vs prior 30, or completed months). (2) Data bug: the Ended "Kids eat free on Mondays" shows "ran 0 days" with 34 redemptions; run length not computed. Minor open notes: run-again lands straight in In review (consider landing as Draft for a confirm/tweak step); flagship now has Duplicate (intended only if it creates a custom copy/template, since there can't be a 3rd mandatory).
+
+Run-again stats model (locked 2026-06-18): "Run this again" creates a NEW voucher (own code, own redemptions) starting from zero; the original finished voucher keeps ALL its stats intact and stays in the Finished group as the permanent record of that run. NOT a reactivation of the same instance (merging runs would break days-live, leave a gap in the over-time chart, and drag stale per-cycle state for prior-run redeemers). Nothing is lost; aggregate/merchant-level totals still count both runs. UI: a run-again confirmation reassures stats are kept ("Your previous run and its stats stay saved. This starts a new run, with its own fresh numbers") so a fresh zero does not read as lost data (encouragement principle). Optional future enhancement: lineage link ("Run 2 of X") to compare runs; not required for v1.
+
+2H round-2 + run-again verified complete (2026-06-18, reported by Claude Design, not yet owner-screenshot-verified): constructive/fair performance framing (insight "Holding steady, with N redemptions in the last full month" for flat/down, "Picking up, X percent more" only for real growth >=20% AND a meaningful delta; grey "Steady" chip vs green up-chip; no red arrow/"slowing"/"fewer"; comparison uses completed months only); ended/expired run-length from real dates ("ran 105 days"); run-again confirmation copy verbatim + lineage ("Run 2" pill on list, "Run 2 of <voucher>" label + "See previous run" link, increments to Run 3+, original preserved with full record). Watch-item: "Holding steady" is right for noise but over-softens a genuine sustained decline (encouragement principle = do not shame a decline, not hide a real one); consider splitting roughly-flat ("Holding steady") from a real drop (gentle constructive nudge). Spot-checks pending owner: down-month insight wording; run-again on an ENDED voucher (not just expired); Run 3 lineage chain. With this, the Vouchers section is functionally wrapped (list + type-aware analytics View + change-request + request-to-end + run-again/lineage). Next surface: Redemptions.
+
+2H round-2 owner-screenshot-verified (2026-06-18): run-again on an ENDED voucher confirmed (new "Run 2" in In review, original preserved in Finished as Ended with 34 redemptions); run-length fix confirmed ("ran 105 days"); growth framing confirmed (BOGO +50% green "up on the month before", "most redeemed voucher", saving as the small "£1,534 saved for them so far" line); grouping + needs-attention draft confirmed; "Run 2" pill disambiguates same-named lineage entries. Not yet shown in screenshots: the down-month "Holding steady" framing (the Spend £30 declining View) - pending a glance. Vouchers section wrapped; next surface Redemptions.
+
+## 2I. Redemptions surface: verified backend contract (added 2026-06-18)
+
+Verified against live code (`src/api/redemption/{routes,service}.ts`, schema) before briefing. Corrects an earlier-from-memory privacy claim.
+
+- PRIVACY CORRECTION: `listBranchRedemptions` returns `customer.name` (firstName + lastName); `verifyRedemption` returns the name too. Email/phone are NOT exposed. So the merchant DOES see customer names in the redemption history and on validate (operational reconciliation need). The "aggregate, no individual identity" rule applies to ANALYTICS, not the operational redemption list. The prototype should SHOW the customer name, not hide it.
+- BRANCH-SCOPED ONLY: the only reconciliation endpoint is `GET /branch/:branchId/redemptions`. There is NO merchant-wide "all branches" redemptions endpoint (confirmed: merchant routes only do branch-PIN get/set). A web Redemptions page across all branches needs either a branch selector or a new merchant-wide endpoint = Phase-4 backend gap.
+- THIN FILTERS: `listBranchRedemptions` filters on date range (from/to) + pagination only. No validated/unvalidated filter, no by-voucher filter at the API = backend extension if the web wants them.
+- VALIDATE: `POST /redemption/verify` accepts an 8-char code + method (QR_SCAN | MANUAL); web = MANUAL entry, mobile staff = QR_SCAN. ValidationMethod enum also has PIN (the separate customer-side branch-presence method, not staff verify). Guards: REDEMPTION_NOT_FOUND, ALREADY_VALIDATED, BRANCH_ACCESS_DENIED/MERCHANT_MISMATCH (scope), MERCHANT_SUSPENDED, BRANCH_UNAVAILABLE. Records validatedById (who) + validatedAt + method.
+- Per-redemption fields available: voucher {id,title}, customer.name, redemptionCode, estimatedSaving, redeemedAt, isValidated, validationMethod, validatedAt, branchId. (Raw userId is in the payload but opaque.)
+- LESSON: ground the surface in live code before briefing (owner prompted the thorough check; it caught the wrong privacy claim + the branch-scoping + filter gaps).
+- Current screen state: a STUB ("Unlocks when your business goes live"; detailed screen deferred). Its placeholder copy already had the wrong line "Redemption rows never show an individual customer" (the real backend DOES show the name) - the brief corrects it. Brief sent to build: Validate-a-code flow (manual 8-char entry on web, confirm showing name/voucher/branch/saving/time, real error cases, records validator) + redemption log (newest-first rows: time, customer name, voucher, saving, validated-vs-pending; date filter + client-side validated/pending toggle) + branch selector for the per-branch reality (no fake all-branches aggregate).
+
+## 2J. Redemptions screen review + refinements (added 2026-06-18)
+
+Claude built a faithful Redemptions screen (customer name, code, saving, voucher, validated method+who+when, pending-vs-validated, branch selector, status tabs+counts, date range, error cases). Refinements:
+
+- IMPORTANT RULE (anti-fraud, locked): NO bulk-validate / "clear all" / "validate all" from the web. Validation is an in-person per-code check (customer shows their code, staff confirm). Bulk-validating without the customer present would let a merchant fake redemptions and breaks the whole purpose. Pending is NOT a chore to clear; it resolves when the customer uses the code, or lapses if they never visit. The "X still to confirm, validate each code in store" nudge is mis-framed as a to-do and must be reframed as information ("X codes are out and waiting to be used in store").
+- Two states only: Pending (redeemed in app, code issued, not yet confirmed in store) vs Validated (staff confirmed in store). Current "Awaiting confirmation in store" is unclear; spell the states out.
+- Validation method labelling inconsistent ("Manual" vs "Staff app"); show the real method clearly: "QR scan" (mobile app) vs "Manual entry" (web), keep who+when.
+- Actions on a record: ONLY Validate (pending, per-code). Records are immutable history (no edit/delete).
+- Additions to build: search (name/code/voucher); sort (newest/oldest/by-saving) + voucher filter; per-redemption detail view (voucher title/type/terms, name, branch, redeemed time, validation status+method+who+when, code, saving; NEVER email/phone); CSV export (same fields, never email/phone); pagination / load-more bounded by date range (do not render thousands at once).
+- BACKEND GAPS (Phase 4): search/sort/filter/export over FULL history (API only does date-range + pagination today, so prototype filters/search are client-side on the loaded page); the all-branches merchant-wide LIST endpoint (see correction below); and exporting customer names is a GDPR data-handling consideration for the merchant in production.
+- CORRECTION (2026-06-18, owner challenge): "all-branches is a backend gap" was OVERSTATED. Aggregating redemptions ACROSS branches is fully supported by the data model (VoucherRedemption carries voucherId + branchId; count/sum/groupBy across branches is trivial - that is exactly how the voucher View's total-redemptions + by-branch breakdown work; no limitation). The only thing not built today is a single ENDPOINT returning a row-by-row LIST across all branches (the existing list endpoint is per-branch); that is a small, certain addition (same query without the branch filter), NOT a capability limit. So an all-branches redemption LOG is entirely doable: add "All branches" to the branch selector (combined log, per-row branch label, stat counts reflect all branches, same search/filter/paging). All prototype data is demo regardless (merchant-portal analytics backend is Phase 4).
+
+2J as-built (2026-06-18): refinements landed excellently. States legend (Pending vs Validated) clear; pending nudge reframed as information ("X codes out and waiting ... or lapses"); method shown clearly ("QR scan" / "Manual entry") with who+when; search + voucher filter + sort + Export CSV + "Showing X of Y" paging; detail side-panel (voucher/type/terms, name, branch, redeemed time, code, per-code Validate, footer "records permanent, never edited/deleted, never email/phone"); validate modal (8-char, no-O/I, web-manual vs staff-app-QR, "Code not found" error); anti-fraud rule honoured (detail copy "Validate per code, never in bulk", no clear-all). Minor consistency items raised: (1) QR-scan rows say "by Staff app" instead of naming the staff member who scanned (validatedById exists; name them like manual rows do, for accountability); (2) Spend&save detail says "in one transaction" vs the voucher's "in a single visit" - keep merchant-entered wording. To verify in the new version (mid-build in the shots): All-branches selector option (per-row branch label + combined counts + Branch CSV column), and the validate "found" confirmation state shows name+voucher+confirm before marking validated (not instant on lookup).
+
+2J validate-vs-log disconnect + pending/lapse explanation (added 2026-06-18):
+
+- BUG (prototype only): validating a pending row's pre-filled code (e.g. K3WM 8X5P, visible in the log) returns "code not found" because the prototype's Validate lookup checks a SEPARATE hardcoded demo-code list disconnected from the log data. In the real product there is one source of truth (the VoucherRedemption table) so this cannot happen. Fix briefed: the lookup must resolve against the same redemptions as the log; a pending row's code -> show its details -> confirm -> flips to Validated (also builds the "found" confirmation state flagged earlier).
+- Pending/lapse semantics (verified): two real states - Pending (VoucherRedemption.isValidated=false) and Validated (staff verify -> isValidated=true). The customer app shows the live code for PRESENTATION_WINDOW_MS = 2 hours after redeemedAt, then hides it (src/api/redemption/presentation-window.ts), so an unused code becomes hard to present after ~2h. "Lapses" is a plain-language DESCRIPTION, NOT a built state: there is no automatic lapsed/expired status; an unused pending redemption just stays Pending in the record. The merchant banner ("X codes out and waiting ... or lapses if they never do") is accurate as an informational merchant heads-up (no merchant action; never validate proactively).
+- OPEN PRODUCT QUESTION (flag, not decided): the customer consumes their once-per-cycle slot at REDEEM time (UserVoucherCycleState updates when the code is created), NOT at validate time. So a customer who redeems but never validates has spent their one-per-cycle chance on that voucher without getting the offer. Intended (anti-abuse) vs should-an-unused-code-free-up is a customer-side product decision to settle in Phase 4. Possible merchant-side enhancement: distinguish live-pending (within 2h) from stale-pending (window passed) so "lapses" is shown honestly.
+
+## 2K. Redeem-vs-validate model: canonical explanation (added 2026-06-18)
+
+Verified in `createRedemption` (src/api/redemption/service.ts): the customer-supplied `pin` is timing-safe-compared against the branch's encrypted `redemptionPin` AFTER all eligibility guards; only then is the redemption created. So two distinct steps, two jobs:
+
+1. REDEEM (PIN, customer-side): customer enters the branch PIN in the app -> creates the VoucherRedemption (isValidated=false = Pending) + generates the 8-char code + consumes the once-per-cycle slot (cycle state updates at redeem time). Gates CREATING the code.
+2. VALIDATE (code, staff-side): staff scan QR / type the code in the merchant app/portal with the customer present -> isValidated=true (Validated) + the discount is applied. Gates HONOURING it.
+
+"Used in store" = VALIDATED, not merely redeemed. A row in the history = redeemed (PIN entered); it is "used" only when validated. The "X codes out and waiting" banner = X Pending (redeemed-not-yet-validated). Remembered-PIN-from-home scenario is handled safely: the customer creates a Pending row + burns their cycle slot but gets nothing until staff validate in store; the merchant only ever honours staff-validated redemptions. PIN = soft front gate (don't generate codes idly from home); validation = authoritative honour step. Whether the PIN is strictly necessary given validation is a fair design question to revisit later, but the model is sound.
+
+2-HOUR WINDOW = ANTI-FRAUD (owner clarification 2026-06-18). The purpose of the 2h presentation window is to stop a customer reusing a voucher. Once redeemed + validated on the bill, the customer cannot come back another day and re-show the same code to get the discount again, because the live "Show to Staff" surface (QR + 8-char code) is HIDDEN after the window closes OR once staff validate. The customer can still VIEW the redemption in their app history (for their records), but history is static and not presentable on Show to Staff. Show-to-Staff carries live trust signals - motion, a pulsing LIVE dot, a ticking live datetime, screen-capture protection - so staff can tell a genuine live code from a static screenshot (a screenshot freezes the live signals). This is the customer-side anti-fraud layer; staff validation is the merchant-side authoritative one. It is also WHY a pending code effectively lapses after ~2h: the customer can no longer present it live, so it cannot be validated. Full chain: PIN gates redeeming -> live Show-to-Staff makes it presentable + screenshot-resistant for 2h -> staff validation honours it on the bill -> surface disappears so it cannot be reused. PRECISION: the window is enforced on the CUSTOMER APP (hides the live surface; verified PRESENTATION_WINDOW_MS); the backend verifyRedemption does NOT itself check the window today, so the anti-fraud relies on staff validating only from the live surface (live signals = the trust mechanism). Possible Phase-4 belt-and-braces: also enforce the window on the backend verify.
+
+ANALYTICS NOTE (Phase 4): the merchant's "actually honoured" number is the VALIDATED count, not raw redeemed. In normal in-store use almost everything validates within seconds so they're nearly equal, but headline "used" stats/reports should count validated redemptions; whether each stat counts validated-only vs all-redeemed is a Phase-4 decision (lean validated for "used" numbers). Relates to 2K [[pending/lapse]] and the cycle-consumed-at-redeem question in 2J.
+
+2J/2K Redemptions WRAPPED (2026-06-18, per Claude report, no screenshots this round): code-not-found fix + 2 minor items verified. Validate lookup now resolves against the live redemption log across all branches (matches the merchant-admin verify contract: code resolves to its own branch, admin can validate any of their branches); a pending code opens the real redemption (customer/voucher/branch/saving/time) -> confirm -> Validated; genuine error states (already validated, not found, wrong branch, different merchant, branch unavailable) all behave. QR rows name the staff member ("by Emma Cole"); Spend&save detail reads "in a single visit". "Wrong branch" error is forward-compatible (branch-restricted portal users planned in Phase 4 §R4). Redemptions surface complete: per-branch + all-branches log, in-person per-code validation, detail panel, search/filter/sort/export, anti-fraud guardrails. Open product/analytics items remain parked (cycle-consumed-at-redeem; validated-vs-redeemed counts; backend 2h-window enforcement) for Phase 4. Next surface: Branches (ground in live code first).
+
+2J code-column alignment (owner direction 2026-06-18): the redemption code sits inline after the variable-length voucher name, so codes land at different x-positions per row and "jump around" down the log. Fix: give the code its own fixed, aligned column so codes line up vertically regardless of voucher name length; keep it monospaced. (Confirmed in the same screenshot: the prior 3 fixes landed - QR rows named "by Emma Cole", pagination "Showing 8 of 14 / Load 6 more", Pending/Validated legend + nudge all present.)
+
+## 2L. Validation is a recording step, real-time OR deferred (owner direction 2026-06-18)
+
+Important model refinement. The actual "use" of a voucher is staff applying the discount on their own till at the counter; Redeemo's VALIDATION just RECORDS that they honoured it. So validation does NOT have to be real-time: in practice staff may be busy, note the code on the bill, and validate it later in the portal (even weekly/monthly). Therefore "used in store" and "validated" DECOUPLE - a pending code may already have been used in store and is merely waiting to be RECORDED/validated.
+
+Consequences:
+- COPY (prototype, briefed): banner reworded from "waiting to be used in store ... confirmed when the customer turns up, or lapses if they never do" to a validation-focused open version ("X codes are out and not yet validated. Validate each one when you confirm it, at the counter or later from a code your team noted down."). Validated legend: drop "with the customer present" (deferred validation has the customer gone) -> "Staff confirmed the code, by QR scan in person or by entering the code, at the counter or later."
+- BACKEND (Phase 4): validation must have NO time window - codes must be validatable later. This CORRECTS the earlier 2K suggestion to "enforce the 2h window on the backend verify"; that would break deferred validation, so scrap it. The 2h window stays customer-side only (stops the customer re-presenting; does not bound staff recording).
+- BATCH ENTRY (Phase 4): "enter several noted codes at once" is a legitimate efficiency feature for batch reconciliation - DISTINCT from the banned blind "validate all pending" because it requires the merchant to type the real recorded codes (data entry, not blind clearing). The no-bulk-validate rule still bans validate-all-without-codes.
+- ANTI-FRAUD HOLDS: the code is single-use (once validated cannot be re-validated) and the customer's live surface still expires after 2h, so they cannot reuse it. Deferred validation is just the merchant recording a real use on their own schedule.
+
+2L follow-up (owner direction 2026-06-18): the banner copy fix landed, but the LEGEND + per-row text still wrongly claimed "not used in store yet". Reframe ALL state copy around VALIDATION, not use. Key honesty point: the system CANNOT know whether a pending code was used in store; it only knows validated vs not. So "Pending" = "redeemed but not yet validated" and must make NO claim about use. Every log row IS a redemption (redeemed is a given, not a distinguishing badge); the status badge is purely the validation state (Validated / Awaiting validation). Fixes: legend "Pending" def -> "redeemed and has a code, not yet validated" (no use claim); per-row "Code is out, not used in store yet" -> "Not yet validated" / "Awaiting validation"; "X pending" count + everywhere consistent; optional relabel "Pending" -> "Awaiting validation" (clearer). Plus LAYOUT: the Pending/Validated legend is crammed into a thin horizontal strip; give it a cleaner, clearer layout (Claude's design).
+
+2L further (owner direction 2026-06-18): (a) Redemption DETAIL should show the voucher more fully - add the voucher description + the banner image (when imageUrl is set; omit if none) + any other voucher info, alongside the type/title/saving/terms already shown, so the merchant sees the full voucher redeemed. Phase-4 backend note: the list endpoint returns only voucher {id, title}, so the detail's description/terms/image need a small full-voucher fetch in the real build (prototype uses demo data). (b) The Redemptions intro line ("Every redemption at this branch... When a customer redeems in the Redeemo app they get a code. Validate it in store to confirm the right person and the right offer.") is tutorial-toned + "validate it in store" no longer fits deferred validation; replace with a short functional management-screen line (e.g. "Track and validate the vouchers your customers redeem"), parallel to the Vouchers page subtitle.
+
+## 2M. Reverse / undo an accidental redemption (Phase-4 idea, owner 2026-06-18)
+
+Edge case: a customer accidentally redeems (burns their once-per-cycle slot) and wants it back. Verified: NO reverse/void/undo/cancel redemption exists in the backend today; the slot is consumed at redeem time (createRedemption writes UserVoucherCycleState.isRedeemedInCurrentCycle for standard vouchers; TIME_LIMITED uses the windowStartsAt unique claim; REUSABLE uses the cooldown).
+
+ACHIEVABLE: yes - a new transactional op = delete the VoucherRedemption row + revert the per-type cadence claim (clear the cycle flag for standard; free the window claim for TL; clear the cooldown for REUSABLE). Careful (touches once-per-cycle enforcement) but doable. WORTH IT: yes - accidental redemptions are common; admin tickets don't scale.
+
+DECISION LOCKED (owner 2026-06-18): MERCHANT-ONLY reverse, via the merchant portal. Customer self-undo REJECTED (owner: opens fraud/misuse - a customer button to roll back their own redemptions invites gaming). Admin stays the backstop for disputes. GUARDRAILS: action appears ONLY on UNVALIDATED redemptions (validated = honoured history, immutable - consistent with the no-edit/delete rule); deliberate confirmed action with a short reason; every reversal audited; after reversing, the redemption shows a "Reversed" status (who/when/why) rather than vanishing, with a Reversed filter; kept low-key (a correction tool, not encouraged).
+
+PROTOTYPE: briefed (merchant "Reverse redemption" action on an unvalidated row).
+
+BACKEND REQUIRED (Phase 4, registered per owner): a new reverse-redemption operation = void the VoucherRedemption + revert the per-type cadence claim (clear UserVoucherCycleState.isRedeemedInCurrentCycle for standard; free the windowStartsAt unique claim for TIME_LIMITED; clear the cooldown for REUSABLE) + write an AuditLog entry (existing writeAuditLog), all in one transaction. SCHEMA NOTE: deleting the row needs NO schema change; but persisting a visible "Reversed" record (status + reversedById + reversedAt + reason on VoucherRedemption) IS a schema change -> STOP-AND-REPORT exact SQL + rollback before any migration. CAVEAT (from 2L deferred validation): an unvalidated redemption MAY already have been used in store (discount applied, awaiting recording), so reversal relies on the merchant judging genuine accidents (they know if they honoured it) + the short window.
+
+2M/2L as-built (2026-06-18): merchant reverse-redemption + the state-copy/legend-layout + fuller-detail + intro line all landed well. Legend = 3 clean cards (Awaiting validation / Validated / Reversed), validation-focused copy; row text "Not yet validated"; banner reframed; Reverse action in its own "Redeemed by mistake?" section on unvalidated rows only, confirm dialog explains + shows the redemption + reason presets, Reversed rows show who/when/why + a Reversed filter; detail shows the full voucher (banner + description + terms); intro = "Track and validate the vouchers your customers redeem." Three follow-up fixes briefed: (1) no success confirmation after reversing (silently returns) -> add a success toast + make the row/detail visibly update to Reversed; (2) detail badge still says "Pending" while list/legend say "Awaiting validation" -> match; (3) immutability footer "cannot be edited or deleted" conflicts with reverse -> reword ("permanent; a reversal is kept on the record, never deleted").
+
+2M follow-up (owner 2026-06-18): the 3 reverse follow-ups landed (success confirmation, badge "Awaiting validation", footer reword). New small addition: a "View voucher" cross-link on the redemption detail that navigates to that voucher's own View page in the Vouchers section (its details + analytics). Trivial: the redemption carries voucherId and the voucher View page already exists. Redemptions surface now complete.
+
+## 2N. Branches surface: verified backend contract (added 2026-06-18)
+
+Verified against live code (`prisma/schema.prisma` Branch + related models; `src/api/merchant/branch/{routes,service}.ts`) before briefing.
+
+Branch model fields: name, isMainBranch; about (description); address (addressLine1, addressLine2?, city, postcode, country default GB); location (latitude?, longitude? + Plan-4 locality snapshot localityId/localityName/postTown/ladDistrict/adminCounty/region/locationCountry + locationConfidence enum [MANUALLY_CONFIRMED / ADDRESS_GEOCODED / POSTCODE_CENTROID(default) / NEEDS_REVIEW]); contact (phone?, email?, websiteUrl?); media (logoUrl?, bannerUrl?, priceListUrl?, photos); redemptionPin? (AES-256-GCM encrypted 4-digit, customer-entered at redemption); isActive (open/closed toggle); deletedAt (soft-delete); isTestData. Relations: openingHours, amenities, photos, users (BranchUser=staff), redemptions, reviews, pendingEdits, favouritedBy.
+
+EDIT MODEL (critical, mirrors the voucher change-request lane): SENSITIVE_FIELDS require admin review via edit-request -> BranchPendingEdit (proposedChanges JSON) -> admin approve/apply: name, about, addressLine1, addressLine2, city, postcode, latitude, longitude, logoUrl, bannerUrl. DIRECT_FIELDS via PATCH (immediate): phone, email, websiteUrl, isActive. Also direct: opening hours (setOpeningHours), amenities (setAmenities), PIN (get/set/send). Photos go via photos/edit-request (review) AND moderation (BranchPhoto.moderationStatus PENDING until APPROVED; not public until approved).
+
+Routes: GET/POST / (list/create); GET/PATCH /:id; POST /:id/edit-request + GET /:id/edit-requests + DELETE /:id/edit-requests/:editId (review lane + withdraw); POST /:id/hours; POST /:id/amenities; POST /:id/photos/edit-request; DELETE /:id (soft-delete); GET/PUT/POST /:id/pin (+ /pin/send).
+
+KEY GROUNDING FACTS / GAPS:
+- Opening hours = ONE period per day (BranchOpeningHours @@unique([branchId, dayOfWeek]); openTime?/closeTime?/isClosed). Split shifts (multiple periods/day) and a distinct "Open 24 hours" field are NOT in the schema -> would be a schema change. (The earlier blueprint/prototype "multiple periods per day + Open 24 hours" is an aspiration, not the live model.)
+- Location is GEOCODED, not typed: merchant enters address (review-required) -> system derives lat/lng (POSTCODE_CENTROID/ADDRESS_GEOCODED) -> admin can MANUALLY_CONFIRM. Merchant never types coordinates; lat/lng are SENSITIVE (review) anyway.
+- Lifecycle: exactly one main branch (promoting another demotes the current via updateBranch); CANNOT delete the main branch (BRANCH_IS_MAIN) or the last active branch (BRANCH_LAST_ACTIVE). isActive = reversible open/closed; deletedAt = permanent soft-delete (history preserved by FK).
+- Branch creation: first branch auto-becomes main (isMainBranch = existingCount===0).
+- Branch staff (BranchUser: email/phone/password/firstName/lastName/jobTitle/status) belong to branches but are managed on the separate Staff & access surface.
+
+Build brief SENT (2026-06-18): requirements-led Branches brief grounded in this contract (list with main-first; branch page grouping identity/address, derived location + confidence, contact, branding+moderated photos, one-period-per-day hours, category-governed amenities, reveal-on-demand PIN, open/closed toggle; the DIRECT-vs-REVIEW edit split mirroring the voucher change-request lane; lifecycle = one main, can't delete main or last-active). Grounding notes included (hours one-per-day so no split-shift/24h editor; location derived not typed). REVIEW WHEN BACK - watch the edit-split fidelity especially.
+
+Branches as-built + refinements (owner 2026-06-18): edit-split fidelity NAILED ("Saves instantly" on contact/hours/amenities/PIN; "Reviewed by Redeemo" on details/branding; location-derived + "no coordinates" note; reveal-on-demand PIN; per-photo approved/in-review status; main badge + Make main branch; one-period-per-day hours). Three owner fixes: (1) DASHBOARD not landing-page - the layout reads like a marketing web page (spacious cards, descriptive paragraphs, whitespace); redesign Branches to a tighter, denser, information-forward management-portal register. PORTAL-WIDE principle (other surfaces likely also landing-page-ish; broader pass may follow). (2) REMOVE the "Open for business" open/closed toggle - a merchant shouldn't casually deactivate a branch (unfair on customers; same spirit as no-pause-on-live-vouchers). No gap: temporary closure = mark days closed in opening hours; permanent closure = the review request below. (3) DELETE -> REVIEW: replace instant delete with a "Request to close this branch" (reason -> Redeemo approve; stays live until approved; can't remove main/last). BACKEND IMPLICATION (Phase 4): the current backend has isActive AND softDeleteBranch as merchant-DIRECT actions; moving both to Redeemo-review is a backend change (not just UI). Rest of the split already matches the backend.
+
+## 2O. Merchant analytics consistency (owner direction 2026-06-18, pre-Branches)
+
+Goal: make all analytics surfaces (Home dashboard, voucher View, Redemptions, Insights & reports, anywhere else) consistent with the voucher + redemption data now that both modules exist with sample data. Two parts:
+
+PART 1 - consistent DEFINITIONS (the real value; consolidates locked principles 2H/2K/2M). Proposed set, applied EVERYWHERE:
+- Redemptions (headline "used" number) = VALIDATED redemptions only (actually honoured); REVERSED excluded entirely; awaiting-validation shown separately (operational queue), not in the "used" total. (OWNER TO CONFIRM: validated-only headline vs all-redeemed-incl-pending; recommend validated.)
+- Savings / value delivered = saving summed over those validated redemptions; framed positively for the merchant (never money-lost).
+- Customers = distinct customers among them.
+- Trend = monthly, completed-month comparison, encouragement framing (no decline-shaming).
+- Reversed = excluded from every metric on every surface.
+
+PART 2 - demo numbers tie out: prototype surfaces currently use separate hardcoded demo data, so Home totals / per-voucher numbers / redemption log don't reconcile. Fix: one shared demo dataset every surface derives from (per-voucher counts sum to dashboard totals; redemption log matches). Achievable in the single .dc.html.
+
+Reconciliation brief SENT (2026-06-18, owner asked to proceed before seeing Home/Insights): requirements-led (one shared demo dataset every surface derives from + the definitions above), so it works without the up-front review. Headline = validated-only (recommended default; owner can flip to all-redeemed). REVIEW AFTER: Home dashboard + Insights & reports - confirm the numbers tie out (Home total = sum of per-voucher validated = redemption log) and the framing is consistent (monthly, encouragement, reversed excluded).
+
+Branches refinements round 2 (owner 2026-06-18): the three structural changes landed (dashboard list with summary tiles + dense table; open/closed toggle removed, status derives from hours; "Request to close" review flow with reason/withdraw/"Close requested" + can't-close-main/last). Four follow-ups briefed: (1) PREMIUM not plain - the dashboard redesign overshot into bare/grey and lost the brand warmth of Vouchers/Redemptions; keep the density but bring back cream/warm surfaces, subtle brand-colour accents, soft navy shadows, polish (a premium branded dashboard, not a plain table); applies to overview + branch page. (2) BANNER broken in Branding and photos (renders as just a line) - show the banner image or a proper "add a banner" empty state like the logo. (3) SEARCH on the overview (scales for many branches; quiet for few). (4) "Staff at this branch" section on the branch page (assigned people + role [branch manager/staff] + portal/app access + assign action; full management = Staff & access next, link there).
+
+STAFF & ACCESS REQUIREMENT (captured for the next surface): staff must be assignable to SPECIFIC branches with scoped access for BOTH the merchant portal AND the merchant app. Grounded in the model: BranchUser (branch staff, belong to one branch, app validators) + MerchantMembership / MerchantMembershipBranch (portal members with per-user capabilities + branch restriction). Roles like branch manager / branch staff; a branch-scoped user sees/acts only on their branch(es).
+
+## 2P. Opening hours: delayed-effective, not instant (owner direction 2026-06-18)
+
+Opening hours move from "immediate" to a THIRD edit category: DELAYED-EFFECTIVE. The change saves immediately for the merchant and shows in the portal, but it only reaches the CUSTOMER APP after a cool-off of ~2 hours; customers keep seeing the previous hours until then. Reason: stop a merchant flipping open/closed the moment a customer is on their way (dispute prevention) and protect customers who rely on the displayed hours to travel. ~2h chosen (consistent with the existing 2h presentation window); tunable.
+
+Edit model is now THREE categories: (1) immediate (phone, email, website, amenities, PIN); (2) delayed-effective ~2h (opening hours); (3) review (name, address, description, logo, banner, photos; close/delete branch).
+
+PROTOTYPE: briefed (replace the hours "Saves instantly" tag with "goes live for customers in ~2 hours; customers see the previous hours until then").
+
+BACKEND (Phase 4): needs a delayed-effective mechanism for hours - new hours stored with an effective-at (~now+2h), customer-facing reads use the OLD hours until effective-at. BranchOpeningHours has no pending/effective-at concept today -> schema change -> STOP-AND-REPORT exact SQL + rollback before any migration.
+
+TRADE-OFF (noted): a blanket delay also slows a legitimate emergency closure (customers see "open" for ~2h); acceptable (merchant handles in person/signage); a separate "close now" could be added later if it proves a real problem.
+
+Branches round 3 (owner 2026-06-18): (1) the "Change awaiting review" banner must be SPECIFIC, not generic - name exactly which fields changed and show old->new for each (the field-level diff the voucher change-request shows; backend captures it in BranchPendingEdit.proposedChanges). (2) SUCCESS TOAST on every submit/save: review submission -> "Change submitted to Redeemo for review"; instant save (contact/hours/amenities/PIN) -> brief "Saved". PORTAL-WIDE pattern: any submit/save should confirm (same gap was flagged on the redemption reverse).
+
+Branches round 4 (owner 2026-06-18): the "Close this branch" section copy must be precise that it is PERMANENT (merchants confuse "close" with a temporary closure). Rename to "Permanently close/remove this branch"; copy = permanently removes the branch, still a request reviewed by Redeemo before it takes effect, stays live until approved, can't remove main/last; button "Request to close permanently" / "Request removal". REMOVE the "To pause for a day, mark that day closed in opening hours" line (do not promote the workaround; the permanent framing disambiguates). (Round-2 banner empty-state fix confirmed landed: "No banner added".)
+
+Branches round 5 (owner 2026-06-19): the 2h cool-off landed on the branch-page hours section ("2 hour customer cool off" badge + note), but (1) the Edit opening hours MODAL still has the old top line "This saves straight away. Customers see the update as soon as you save" - contradicts the cool-off; fix to "saves now, customers see it ~2h later". (2) Keep the cool-off wording CONCISE + CONSISTENT: the branch-page note ("...so no one is caught out on their way to you") over-explains; trim to one short line (e.g. "Saved now. Customers see the change about 2 hours later.") used in BOTH the modal and the section. Hours save should also fire a brief "Saved" toast.
+
+Branches round 6 (owner 2026-06-19): branch-page section cards leave a large empty gap - the tall Opening hours card (7 days) sizes the row, so the shorter Contact + Redemption PIN cards leave dead space below them before Amenities. Fix the layout to pack the cards efficiently (masonry-style flow / rebalance columns / let shorter cards fill the space beside the tall hours card); content unchanged. (Round-2 banner fix confirmed landed: "Banner set" area renders, not a line.)
+
+Branches round 7 (owner 2026-06-19): in the "Staff at this branch" section, add a per-person Remove control (remove from THIS branch only; deliberate + quick confirm + success toast "Removed from this branch"). Full staff management stays on Staff & access. BACKEND NUANCE (Phase 4): a BranchUser belongs to ONE branch, so removing them is effectively removing their access (delete/deactivate the BranchUser); a portal member is removed via deleting the MerchantMembershipBranch join (member stays, loses this branch). The branch-page remove handles both.
+
+Branches round 8 (owner 2026-06-19): the branch-page header (branch name + main badge + open status + address) should ALSO show the merchant logo + merchant name (brand context: this branch belongs to the business; Merchant.businessName + logoUrl available). Place tastefully (small logo + business name as a parent label above/beside the branch name). BROADER NOTE (later polish): the portal chrome shows the Redeemo brand, not the merchant's own brand; consider surfacing the merchant's brand more consistently across the portal in a future polish pass.
+
+## 2Q. Staff & access: verified backend contract (added 2026-06-19)
+
+Verified against live code (schema; `src/api/auth/merchant/branch-user.{routes,service}.ts`; `src/api/shared/merchantMembership.ts`).
+
+TWO DISTINCT, SEPARATE staff systems:
+- PORTAL TEAM MEMBERS (MerchantMembership): web-portal access. ROLE-BASED only - MerchantRole = OWNER / BRANCH_MANAGER / STAFF (no granular capabilities on the merchant side, unlike admin). Branch scope via `allBranches` Boolean (default true) OR specific branches in MerchantMembershipBranch. Tied to a MerchantAdmin account. @@unique([merchantId, merchantAdminId]).
+- BRANCH STAFF (BranchUser): mobile-app-only login, validates redemptions; belongs to ONE branch; fields email/phone/firstName/lastName/jobTitle/status/mustChangePassword. Separate login from portal members.
+
+BUILT: branch-staff management via merchant-auth routes - POST /user (create: contactName, jobTitle?, email, password, contactNumber, branchId; mustChangePassword=true), POST /user/reset-password, PATCH /user/deactivate, PATCH /user/reactivate, PATCH /pin. merchantMembership.ts provides getOwnerMembership / getMerchantOwnerContact / assertNotLastOwner (LAST_OWNER_PROTECTED guard).
+
+GAPS (Phase 4):
+- PORTAL-MEMBER MANAGEMENT is NOT built: no invite/add/list/change-role/assign-branches/remove flow. Only the OWNER membership exists (created at onboarding); invitedById is "forward-compat, no FK yet". So inviting a branch manager / staff to the PORTAL is a backend build. Guard that exists: cannot remove the last active OWNER.
+- UNIFICATION: portal members (MerchantAdmin/membership) and branch staff (BranchUser) are SEPARATE records. The prototype's "one staff person with Portal + app access" is a UX unification not matched by the backend (a membership + a branch user are two things). Modelling decision for Phase 4.
+
+Prototype can show the full Staff & access UX; flag portal-member management + the unification as Phase-4 backend work (branch-staff/app side IS real).
+
+Build brief SENT (2026-06-19, owner asked to proceed before seeing the screen): requirements-led, grounded in this contract. Unified people list (name, role, portal/app/both access, branches covered); Add staff (portal-with-role / app / both + branch scope all-or-specific); edit role/branches/access; remove/deactivate; reset password (app staff); search; roles-not-capabilities; last-Owner-protected; success toasts; premium dashboard consistent with Branches. Owner reminded of Phase-4 reality (portal-member management + unification = backend builds; branch-staff/app side is real). REVIEW WHEN BACK.
+
+2Q as-built (2026-06-19): Staff & access built and EXCELLENT/faithful. Model fidelity correct (two access types portal/app; 3 roles Owner/Branch manager/Staff; branch scope all/specific with chips; unified people list; NO invented granular permissions). Last-owner protection enforced (only-owner can't be demoted/removed; menu hides destructive actions; "add another owner first" note). Add/edit drawer adapts (Portal role only when Portal on; app users get Reset password; branch chips for specific). Per-person menu (edit/reset app password/deactivate/reactivate/remove); premium register (People/Portal users/App users tiles + warm table); search; deactivated dimmed state. Refinements briefed: (1) capture + show a JOB TITLE for app/branch staff (model has BranchUser.jobTitle; app rows show generic "App user"); (2) clarify the People count ("7" but 8 rows - deactivated excluded; label active vs total); (3) optional "last active" column (model has lastLoginAt); (4) align "Add staff" button vs "Add a team member" drawer wording. NOTE TO CLAUDE: branch PIN stays on the branch page (a branch property, not staff) - do NOT surface it here.
+
+## 2R. Merchant access control: ROLE-based, capability matrix per role (owner question 2026-06-19)
+
+How to restrict what a portal user can do (delete/add/edit): by ROLE, not per-user permission toggles. Role-based is the locked model (matches the schema's MerchantRole enum + branch scope; simpler for small merchants than a granular permission grid). The restriction lives in the role.
+
+PROPOSED CAPABILITY MATRIX (per role; frames add/edit/delete):
+- OWNER: full control - add/edit/delete everything (vouchers, branches, staff, business profile, settings, billing).
+- BRANCH MANAGER (their assigned branch only): edit their branch details/hours/amenities/PIN; validate + view redemptions at their branch; view vouchers + their branch performance; manage their branch's app staff. CANNOT: create/end vouchers, create/close branches, manage other branches, change roles, billing/settings.
+- STAFF (limited): validate + view redemptions at their branch; view vouchers. CANNOT: create/edit/delete vouchers, branches, staff, settings (validate-and-view only).
+
+OWNER DECISIONS TO CONFIRM: (1) can a Branch manager create/edit vouchers? (default NO - vouchers are merchant-wide = owner-level; delegatable if wanted). (2) can a Branch manager manage their branch's app staff? (default YES - operational; portal-role changes stay Owner-only).
+
+PROTOTYPE: briefed to make the role descriptions in the add/edit drawer spell out what each role can/can't do (short line per option + fuller detail on select).
+
+PHASE 4: the 3 roles exist in the schema, but what each can DO is NOT defined/enforced - that is code-level route guards per action (NOT a schema change; no merchant capability table needed, unlike the admin side). Capture this matrix for the build.
+
+## 2S. Delegation: roles + grantable extras (owner-locked 2026-06-19, refines 2R)
+
+The fixed-3-role model in 2R does NOT cover the absentee/hands-off owner who wants a trusted manager to run the day-to-day. With only fixed roles, that owner has two bad options: keep them a Branch manager (can't create vouchers, and later can't touch campaigns/billing) or make them an Owner (full control incl. deleting/transferring the business - far too much). Neither is "hand over the running of it, keep the keys".
+
+LOCKED MODEL (owner chose "Roles plus grantable extras" over "add a near-owner Admin role" / "keep fixed roles"): keep the base roles (Owner / Branch manager / Staff) for the common case, AND let the OWNER grant specific business-wide responsibilities to a Branch manager on top of their role. Delegate exactly what you want, to whoever you want.
+
+GRANTABLE EXTRAS (the sensitive, account-level responsibilities NOT in the base manager role):
+- Manage vouchers (create/edit/end offers) - LIVE now; this is the immediate case (closes 2R decision (1): a Branch manager CAN create/edit vouchers IF granted, default off).
+- Manage campaigns - joins the list when campaigns ship (Phase 4+; "coming soon").
+- Manage billing & payments - joins the list when billing ships (Phase 4+; "coming soon").
+
+RULES:
+- Owner-only to grant. A Branch manager can never grant extras (to themselves or others). Granting extras is itself a never-delegable, owner-reserved action.
+- NEVER-DELEGABLE FLOOR (owner-only forever, regardless of extras): delete/transfer the business, change/remove the owner (incl. last-owner protection from 2Q), grant/revoke extras.
+- BUSINESS-WIDE nuance: vouchers/campaigns/billing are account-level, not per-branch (a voucher is merchant-wide). So a granted extra gives a branch-scoped manager BUSINESS-WIDE power in that area, even though their base role is one-branch. The UX must make that explicit ("applies across the whole business, not just their branch").
+- Capability summary becomes PER-PERSON (role baseline + granted extras), not per-role. The CAN/CANNOT panel from 2R must reflect the person's effective capabilities: a granted "Manage vouchers" flips that line from CANNOT to CAN (granted).
+- DEPUTY/ADMIN case ("assign all the day-to-day... or an admin or someone"): a Branch manager with all-branches scope + all extras IS the general manager / deputy. No separate Admin role needed - the grantable-extras model covers it. (Minor naming flag for later: the label "Branch manager" can read oddly when someone is fully empowered across all branches; a derived "General manager" label or a role rename is polish, not a blocker.)
+
+PROTOTYPE: brief Claude Design to add an owner-granted "Extra responsibilities" area to the add/edit drawer for Branch managers (Manage vouchers live; campaigns + billing shown as coming soon), owner-only, business-wide note, and make the role capability summary reflect role + granted extras.
+
+PHASE 4 / SCHEMA - SUPERSEDES 2R's "no capability table needed": the moment grants are PER-PERSON (not per-role), the backend needs somewhere to store them. MerchantMembership is role-only today. Options (decide at build, do NOT implement now): (a) a `capabilities` array/JSON on MerchantMembership listing granted extras; (b) a MerchantMembershipCapability join table. Either is a SCHEMA CHANGE -> STOP-AND-REPORT exact SQL + rollback before any migration. Enforcement is then route guards that allow an action if the role baseline permits it OR the person has the matching granted extra. (2R's pure-route-guard framing still holds for the base roles; only the per-person grants add the schema need.)
+
+## 2T. Business profile + Documents: verified backend contract (added 2026-06-19)
+
+Verified against live code (schema Merchant / MerchantAdmin / MerchantDocument / MerchantContract / MerchantPendingEdit; profile.{routes,service}.ts; onboarding.{routes,service}.ts; admin/merchants/documents.ts).
+
+THE BUSINESS RECORD (Merchant model) - fields that exist:
+- Identity: businessName (req), tradingName?, description?, logoUrl?, bannerUrl?, primaryCategoryId? (+ primaryDescriptorTagId?).
+- Registered identity: companyNumber?, vatNumber?.
+- Web: websiteUrl?. (NO business phone/email/contact-person columns on Merchant - see CONTACT below.)
+- Lifecycle (read-only, system/admin-driven): status (REGISTERED/PENDING_APPROVAL/ACTIVE/INACTIVE/SUSPENDED/DELETED), verificationStatus (NOT_SUBMITTED/PENDING/VERIFIED/REJECTED), contractStatus (NOT_SIGNED/SIGNED), contractStartDate/contractEndDate, onboardingStep.
+
+EDIT SPLIT (verified, profile/service.ts - SAME DIRECT-vs-REVIEW pattern as Branches):
+- REVIEW lane (MerchantPendingEdit + AdminApproval(MERCHANT_IDENTITY_EDIT)): businessName, tradingName, logoUrl, bannerUrl, description. ONE pending edit at a time (PENDING_EDIT_EXISTS); list + withdraw; field-level proposedChanges JSON; the B1 admin applier (approveEdit/rejectEdit, PR #244) reviews + applies. Same field-level diff + withdraw + "change awaiting review" UX as Branches.
+- IMMEDIATE (PATCH /profile): websiteUrl, vatNumber, companyNumber.
+- CATEGORY (primaryCategoryId) = HIGH-CONSEQUENCE, effectively locked once set: first-set provisions the 2 mandatory RMVs atomically; a change runs handleCategoryChange (may BLOCK / require confirmation / apply) because it rewrites the starter offers. Treat as a guarded, warned action, NOT a casual field. (Blueprint: "category locked once RMVs configured.")
+
+CONTACT = THE OWNER'S ACCOUNT, not a Merchant field. The "contact person / position / email / phone" the blueprint imagined are NOT on Merchant. They map to the OWNER's MerchantAdmin (firstName, lastName, jobTitle = position, email, phone) via MerchantMembership. So the business contact IS the owner account, ALSO editable under "My account". A DISTINCT business/HQ phone+email (separate from the owner) is NOT modelled; closest real data is the MAIN BRANCH contact (Branch.phone/email). DECISION (defaulted): show the owner as the business contact here, read-only, with an "edit in My account" link (one edit path, no duplicate); do NOT invent a separate HQ phone/email for MVP (owner + main branch cover it; a distinct business contact = schema add, flag if wanted).
+
+CONTRACT (verified, onboarding): MerchantContract (signedAt, ipAddress, tcVersion, signatureMethod CLICK_TO_AGREE, zohoSignRequestId?); contractStatus SIGNED; CONTRACT_VERSION 1.0 + CONTRACT_TEXT; OWNER-only clickwrap (acceptContract, CONTRACT_ALREADY_SIGNED guard, sets contractStartDate); re-accept on version drift. Routes GET /onboarding/contract + POST /onboarding/contract/accept. Surface the signed agreement + date + version, "view signed copy", re-accept banner on version drift.
+
+DOCUMENTS (verified): MerchantDocument (documentType, fileUrl, uploadedAt). DocumentType = BUSINESS_VERIFICATION_1, BUSINESS_VERIFICATION_2, PRICE_LIST, AGREEMENT (fixed enum). Upload/list/delete are server-proxied, presigned GET, raw R2 key NEVER returned.
+- GAP (Phase 4): document upload/view/delete are ADMIN-ONLY today (Option B B4, admin/merchants/documents.ts). There is NO merchant-side document route. A merchant viewing/uploading their OWN documents in the portal is a backend build = mirror the B4 endpoints for the merchant session (list/upload/delete, same redaction). NOT a schema change (model exists) - route + service work.
+- Onboarding checklist does NOT gate on documents (only branch + contract SIGNED + 2 RMV). Documents are optional/admin-managed at submit (blueprint "documents optional at submit").
+
+PROTOTYPE: brief Claude Design to build Business profile (identity, registered identity, website, category, contract + compliance status, owner-as-contact) with the DIRECT-vs-REVIEW split (review-lane fields show field-level "awaiting review" diff + withdraw, same as Branches; immediate fields save inline + "Saved" toast; category = guarded change warning it affects the starter offers), plus a Documents area (the 4 fixed types, view + upload/replace). Requirements-led; hand layout to Claude.
+
+PHASE 4 (captured): (1) merchant-side document endpoints (mirror admin B4); (2) decide whether a distinct business/HQ contact is wanted (schema add) or owner + main-branch suffices (default: suffices); (3) surface the category-change guard to the merchant (handleCategoryChange already exists).
+
+## 2U. Business profile as-built review (owner screenshots 2026-06-19)
+
+Built and strong; edit-split faithful (review-lane modal "checked before they go live" + Submit for review; immediate modal "save straight away, no review" + Save changes; category LOCKED + guarded confirm "only continue if genuinely wrong, vouchers/redemptions not deleted, we will guide you"; business contact read-only "edit under My account"; states via demo switcher). Issues + fixes briefed:
+
+VISUAL (bugs):
+1. Hero overlap: the business name is bisected by the banner's lower edge (top half dark-on-dark, unreadable); logo straddles the edge awkwardly. Fix legibility/positioning (name fully readable, not cut by the boundary; logo may overlap avatar-style).
+2. Banner off-brand: hero + Public-identity card + edit-modal thumbnail all use a navy->rust gradient that is NOT Redeemo brand. Default = the brand red->coral gradient (design-system --brand-gradient) OR a clean "add a banner" empty state matching the logo's; consistent across all three.
+
+STRUCTURE / REDUNDANCY:
+3. Documents nav-page vs Business-profile section: it is ONE MerchantDocument set (no separate data) - only placement differs. DECISION (recommended + briefed): Documents nav page = the full manager (view/upload/replace); Business profile = a compact summary (status + count "N of 4 on file") linking there. NOT two full editors.
+4. Merchant agreement surfaced twice (Compliance "View signed agreement" + Documents "Signed merchant agreement · View/Replace"). One home: Compliance (the contract - signed/version/date/view + re-accept on version drift). In Documents it is NOT a separate replaceable file; the merchant can NEVER "Replace" a signed agreement (a record, not an upload) - remove Replace, at most view-only. (Copy: click-to-agree = "accepted", not "countersigned".)
+
+MISSING:
+5. "Compliance and status" is named for status but only shows the agreement - add the verification state (verified / in review / not submitted; VerificationStatus enum) so the section earns its name.
+
+COPY:
+6. Header subtitle "This is how customers see you on Redeemo, plus the details and documents we hold" overclaims - only Public identity is customer-facing; registered details, contact, documents, compliance are internal. Reword so it does not imply the whole page is customer-visible. Minor: "Upload to complete your file" (price list) -> clearer ("Add your menu or price list"); "Continue to category" button -> clearer ("Choose a new category"); "countersigned" -> "accepted" for click-to-agree.
+
+Fix brief SENT (2026-06-19, requirements-led; bugs specified since they are identified defects). REVIEW WHEN BACK.
+
+## 2V. Settings + My account: verified backend contract (added 2026-06-19)
+
+Verified against live code (MerchantAdmin model; auth/merchant/routes.ts + service.ts + plugin.ts; merchantMembership.ts).
+
+TWO entry points, recommend SPLIT:
+- MY ACCOUNT (avatar menu; the person = MerchantAdmin): profile, password, notification preferences, sessions. The Business contact card already links here ("edit under My account").
+- SETTINGS (nav, pinned; account + legal): deactivate/close the business, data protection (merchant DSAR), privacy & cookies, compliance links.
+
+WHAT EXISTS (auth/merchant/routes.ts):
+- logout (current session only); forgot-password + reset-password (LOGGED-OUT, token-email); claim (draft owner sets password); deactivate + reactivate (SELF-SERVICE, OWNER; sets the whole MERCHANT status INACTIVE<->ACTIVE = the BUSINESS goes offline / all vouchers inactive, NOT just a login; SUSPENDED can't self-deactivate out; reversible). Sessions = Redis per-session refresh tokens; revokeAllSessionsForEntity exists (the primitive behind a future "log out everywhere").
+
+WHAT'S MISSING (Phase 4):
+- Logged-in CHANGE PASSWORD (current->new): NOT built; only the logged-out reset flow. (Small route add.)
+- OWN-PROFILE EDIT (your MerchantAdmin firstName/lastName/jobTitle/phone; email change = sensitive verify-new flow): NOT built. The "edit under My account" link has no backing edit endpoint yet.
+- NOTIFICATION PREFERENCES: MerchantAdmin has NO prefs/consent fields (customer User has newsletterConsent; merchant has none) -> SCHEMA ADD + routes. STOP-AND-REPORT before any migration.
+- SESSIONS/DEVICES LIST: not built (logout kills only the current session; revokeAllSessionsForEntity can power a "log out of all devices" action without a full list). Customer app deliberately DROPPED its active-session row (CLAUDE.md hotfix) - precedent to keep this minimal.
+- DSAR (download-my-data / request-deletion): NOT built (blueprint "fast-follow"; real GDPR obligation). No hard-delete; no export.
+- Compliance links (terms, privacy, support): static, trivial.
+
+DEACTIVATE FRAMING (important): "deactivate" = take the WHOLE BUSINESS offline (all vouchers inactive, hidden from customers), owner-only, REVERSIBLE via reactivate, serious confirm. NOT "delete my login". No merchant PERMANENT delete (soft INACTIVE only; permanent DELETED is admin-side) - permanent closure = contact Redeemo / review, not self-serve.
+
+PROTOTYPE: brief the account cluster (My account = profile/password/notifications/log-out-everywhere; Settings = deactivate-business/DSAR/privacy/compliance links). Requirements-led; heavy-action rules specified (deactivate serious+reversible+owner-only; password current+new; DSAR; notification toggles); layout to Claude. Almost all backed by Phase-4 work - prototype shows intended UX.
+
+Brief SENT (2026-06-19; My account + Settings split recommended, owner can collapse to one). REVIEW WHEN BACK.
+
+## 2W. Settings rebuild: the right contents for a merchant portal (owner direction 2026-06-19)
+
+The built Settings (deactivate-business + DSAR + legal/help) is largely the WRONG content (well-built visually; wrong contents). Three owner corrections + a reasoned rebuild:
+
+MODEL CONFLICT - self-serve deactivate vs the 12-month contract (rule #9): a merchant signs a 12-month agreement to offer the mandatory + custom vouchers for that term, so they CANNOT self-serve take the business offline or close it mid-term ("we don't want them to do that"). REMOVE the self-serve "Deactivate the business" action. Closure/pause = CONTACT REDEEMO (admin-mediated; considers the contract + any early-termination terms), consistent with the branch-close-is-a-review-request pattern (2N). NOTE: the backend self-service deactivate endpoint (auth/merchant/deactivate, sets MERCHANT INACTIVE) EXISTS and contradicts this -> Phase-4 decision to restrict/remove/gate (e.g. post-contract only).
+
+RELOCATE - legal & help (terms, privacy policy, get help, contact Redeemo) + cookie preferences -> the HELP & SUPPORT module (pinned nav, unbuilt), not Settings. (Cookies: only the strictly-necessary auth cookie + no analytics -> no cookie-consent UI needed today.)
+
+DROP (owner) - data protection / download-my-data / request-deletion (DSAR): not offered for now. Remains a future GDPR obligation; revisit later.
+
+RECOMMENDED MERCHANT SETTINGS (lean BY DESIGN - the realisation: almost everything a merchant manages already has a module [vouchers/branches/staff/business profile/documents], so Settings is the personal account hub, not a catch-all). Collapse My account INTO Settings (one hub; the avatar "My account" + the Business-contact "edit under My account" link both land here):
+1. YOUR DETAILS (the logged-in person; owner = the business contact): name, job title, phone, login email. Name/jobTitle/phone edit inline; email change confirmed (it is the login). [MerchantAdmin.]
+2. LOGIN & SECURITY: change password (current + new); login verification shown on (OTP enforced at login); sign out of all devices.
+3. NOTIFICATIONS: per-event email preferences (approval outcomes, voucher review results, redemption milestones, document requests; later campaign/payment receipts) + marketing/newsletter opt-in. The in-app bell always shows these; this controls email.
+4. ACCOUNT (owner-only, light): agreement status + runs-until date (read-only; detail in Business profile) + calm "to pause or close, contact Redeemo" note. NO self-serve deactivate/delete.
+
+MULTI-USER NUANCE: the personal sections (details/security/notifications) are per-logged-in-user; the Account section is owner-only.
+
+PHASE-4 BACKEND: logged-in change-password (not built), own-profile edit (not built), notification preferences (SCHEMA ADD - MerchantAdmin has no prefs fields - STOP-AND-REPORT), sign-out-all-devices (revokeAllSessionsForEntity primitive exists), restrict/remove the self-service deactivate endpoint (contract).
+
+Rebuild brief SENT (2026-06-19). REVIEW WHEN BACK.
+
+## 2X. Settings rebuild review + SECURITY pass (owner direction 2026-06-19)
+
+Rebuild landed well (Your details + separate Change email; Login & security = password [last-changed] + login-verification-ON + sign-out-everywhere; Notifications email-toggles; subtitle scopes Settings as personal + points elsewhere). Owner changes + a security pass:
+
+OWNER CHANGES:
+- REMOVE the Account section entirely (agreement card + 12-month contact-Redeemo line). The agreement lives in Business profile; not needed here. (Reverses part of 2W's "light Account section".)
+- ADD a "Voucher redeemed" notification (per-redemption). Value = activity signal + FRAUD MONITORING (spot unexpected redemptions, e.g. staff abuse). Volume: bell shows live; email best as a DAILY SUMMARY not one-per-redemption.
+
+SECURITY PASS (merchant ATO is high-value: fraudulent vouchers/validations, customer data, identity, future billing). Gaps + requirements:
+1. PHONE IS THE 2FA CHANNEL (login OTP -> Twilio SMS to MerchantAdmin.phone). Changing the phone must be as protected as email - currently a casual inline edit (BIGGEST GAP). Move phone OUT of the inline details edit into a confirmed change flow (verify it's you + verify the new number + alert). Name + job title stay casual inline.
+2. EMAIL CHANGE step-up: require password AND the login one-time code (not password alone), confirm via the NEW address, AND alert the OLD email with a "wasn't me" path. A stolen password alone must never move the account.
+3. SECURITY ALERTS notification - always-on, emailed: new sign-in (new device), email/phone/password changed, sign-out-everywhere used. The owner's ATO tripwire. Add locked-on.
+4. PASSWORD CHANGE: current-password required (have); on success alert by email + offer sign-out-other-devices. Consider OTP step-up.
+5. LOGIN VERIFICATION mandatory (no off switch) - keep. Add a recovery path for a lost OTP phone (backup / contact Redeemo).
+6. RECENT SIGN-IN ACTIVITY (where you're signed in / recent logins) - optional visibility feature (customer app dropped its session row, but a business account justifies it).
+7. CROSS-SURFACE (not Settings, flagged): promoting someone to OWNER / business transfer = highest privilege -> step-up + alert all owners + new-owner confirm; a real business SALE = admin-mediated (contract novation, 12-month term). Role elevation + grantable-extras (2S/2R) owner-only + verified. Branch PIN already role-gated (Branches). "Validate a code" must stay role-gated.
+
+PHASE-4 BACKEND SECURITY: step-up auth on sensitive actions (email/phone/password/sign-out/role-elevation); old-channel alerts (old email/phone); new-device login alerts; OTP delivery (Twilio currently TODO) + OTP-attempt rate-limit; recovery/backup codes; audit (writeAuditLog covers actions); session/CSRF posture; rate-limit sensitive Settings actions.
+
+Review brief SENT (2026-06-19). REVIEW WHEN BACK.
+
+## 2Y. Home dashboard + Insights: analytics grounding (added 2026-06-19)
+
+Grounded before walking the analytics surfaces.
+- NO merchant-facing analytics/aggregation backend exists. No analytics service/dir under src/api/merchant; the only redemption-aggregation primitive is listBranchRedemptions' voucherRedemption.count (per-branch, paginated) + a per-voucher count. The merchant DASHBOARD + INSIGHTS aggregation (today/week/month counts, redemptions-over-time, per-offer, per-branch, savings-sum, distinct-customers, recent feed) is ENTIRELY a Phase-4 build. (Customer-side savings aggregation exists [Phase 3C.1f] but that is a CUSTOMER's own savings, not merchant-side.)
+- DATA exists to power it: VoucherRedemption (isValidated [validated-vs-redeemed], validatedAt, branchId, voucherId, estimatedSaving [value], isTestData [exclude test/seed], reversal concept [2M, excluded from metrics]); Voucher (type/title); Branch; distinct userId (customers).
+- DEFINITIONS LOCKED (2O), apply to Home + Insights + every surface: headline redemptions = VALIDATED-only; REVERSED excluded everywhere; value/savings = sum over validated (positive framing, never "money lost"); customers = distinct; trend = MONTHLY completed-month, ENCOURAGEMENT framing (no decline-shaming); awaiting-validation shown separately (operational), not in the "used" headline.
+- HOME is STATE-AWARE: setting-up = the onboarding guided-staircase checklist (business profile / main branch / 2 RMVs / contract / docs) + what's-next; LIVE = the performance glance (headline metrics + attention items + recent-activity feed + top performers + quick actions + Phase-5 teaser).
+- RECONCILIATION (2O): Home headline = sum of per-voucher validated (Vouchers) = the Redemptions log. One shared demo dataset every surface derives from.
+
+NEXT STEP: the 2O reconciliation brief likely already built a Home + Insights version. Rather than re-brief from scratch (risking regressing 2O), REVIEW the current Home dashboard first, then refine. (If it is only a stub, brief a full build.)
+
+## 2Z. Notification bell: verified backend contract (added 2026-06-19)
+
+Verified against live code (schema Notification + enums; shared/notify.ts; admin/notifications routes; merchant emitters).
+
+STRONG existing foundation (built for the admin panel, reusable):
+- Notification model: recipientType (USER/MERCHANT_ADMIN/BRANCH_USER/ADMIN) + canonical recipientId; title/body/type/channel/referenceId/referenceType/isRead/readAt/sentAt. Bell-feed indexes already exist: (recipientType, recipientId, isRead) + (recipientType, recipientId, sentAt).
+- notify() (shared/notify.ts) is the SINGLE writer for both email (CommunicationLog) + in-app (Notification, channel IN_APP). Durable-outbox (QUEUED->SENT).
+- MERCHANT_ADMIN in-app notifications ARE ALREADY being written (a real feed exists): onboarding submit (MERCHANT_VERIFICATION_UPDATE), approval outcomes approved/changes-requested/rejected (admin/approvals/service.ts), identity/branch edit approve-reject (editApplier.ts + branch/service.ts), merchant auth events (auth/merchant/service.ts).
+
+NotificationType enum (existing, merchant-relevant): MERCHANT_VERIFICATION_UPDATE, VOUCHER_APPROVAL_UPDATE, VOUCHER_REDEEMED (already exists - backs the 2X Settings "voucher redeemed" add), CAMPAIGN_INVITE (P5), FEATURED_LISTING_UPDATE (P5), VOUCHER_EXPIRY_ALERT. MISSING (additive enum values, Phase 4): document-request (or reuse VERIFICATION), security-alert, redemption-milestone (or reuse VOUCHER_REDEEMED).
+
+GAP (Phase 4): merchant-facing READ endpoints are NOT built. The ADMIN has the 4 (GET list, GET /unread-count, POST /:id/read, POST /read-all at /api/v1/admin/notifications). MIRROR them for the merchant session (recipientType MERCHANT_ADMIN, recipientId = the logged-in MerchantAdmin id, isolation). The WRITE side already runs; only the merchant READ side + bell UI are missing.
+
+BELL <-> SETTINGS consistency (locked): the bell shows ALL in-app account/business notifications (always); the Settings toggles (2W/2X) control which ALSO email. Bell = actionable account/business events (approvals, voucher reviews, edit outcomes, documents, redemptions/milestones, security alerts, branch-PIN reminders, P5 campaign/payment). Pure marketing ("News and offers") is EMAIL-only, NOT a bell item.
+
+PROTOTYPE: brief the bell dropdown/panel - newest-first feed, per-type icon + title + body + relative time + read/unread, DEEP-LINK each to its surface (voucher review -> that voucher; verification -> Business profile; edit outcome -> branch/profile; document -> Documents; redemption -> Redemptions/Home; security -> Settings login&security; PIN -> branch), mark-read on open + mark-all-read, "see all", empty "all caught up", unread badge (9+ cap). Mirror the admin-web NotificationBell (Radix popover, ~45s poll). Requirements-led; layout to Claude.
+
+FINAL brief refined + re-sent 2026-06-19: redemptions in the bell = MILESTONES ONLY (per-redemption is the email alert, not the bell - per 2AB); SECURITY ALERTS included (per 2X). REVIEW WHEN BACK.
+
+## 2AA. Operational + report emails in Settings (owner direction 2026-06-19; recipient model A locked)
+
+Beyond the account-event email toggles (2X), the merchant needs OPERATIONAL + REPORT emails: redemption activity (a customer redeemed) + a monthly performance report. A distinct KIND - they carry a FREQUENCY (volume) + a SCOPE (branch vs business).
+
+RECIPIENT MODEL = A (owner chose "each person, auto-scoped" over "owner configures everyone"): every portal user manages their OWN in their own Settings; scope FOLLOWS ACCESS automatically (branch manager = their branch(es); owner = whole business, per-branch breakdown). No routing matrix. "Who gets them" is answered by role. Recipients = PORTAL members (owner + branch managers); mobile branch staff (BranchUser) are validators, not report recipients.
+
+THE TWO PREFERENCES (per-user, scoped):
+- REDEMPTION ACTIVITY email: each redemption / DAILY SUMMARY (default) / off. (Daily summary avoids per-redemption spam.) SUPERSEDES the 2X plain "voucher redeemed" toggle (becomes this frequency-aware pref).
+- MONTHLY PERFORMANCE REPORT email: on (default) / off. = the dashboard delivered as email (redemptions/value/customers/top vouchers+branches/trend), scoped. (Weekly digest = future option.)
+
+DEFAULTS ensure coverage without owner micromanaging: a new branch manager defaults to their branch daily summary + monthly report. OWNER ADD-ON: send the monthly BUSINESS report to an extra external email (accountant, non-portal-user).
+
+BELL refinement (cross-link 2Z): per-redemption stays EMAIL (digest), NOT a bell item (would flood); the bell keeps milestones (100th) + account events. PRIVACY: operational detail in emails; fuller customer info only in-portal (carry into the Phase-4 report design + the blueprint 5.6.4 aggregate stance).
+
+PHASE: email delivery = Phase 6 (Resend, unwired). Report generation needs the merchant analytics aggregation = Phase 4 (does NOT exist per 2Y). Prototype-now, build-later.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
+## 2AB. Redemption alerts: real-time, owner-chosen recipients (owner direction 2026-06-19; revises 2AA redemption-activity part)
+
+Owner refined 2AA: DROP the daily-summary digest. Redemption activity becomes a REAL-TIME email, one per redemption, sent to recipients the OWNER chooses ("branch managers or whoever the owner chooses"). REVISES 2AA's self-managed each/daily/off redemption-activity pref. The MONTHLY PERFORMANCE REPORT (2AA) stays as-is: self-managed (model A), scoped.
+
+RECIPIENT MODEL now SPLITS by email KIND:
+- MONTHLY REPORT + account-event emails = self-managed per-user (model A, 2X/2AA).
+- REAL-TIME REDEMPTION ALERTS = OWNER-configured recipients (per branch). The recipient is often NOT the logged-in user managing their own prefs - it is whoever the owner designates (a branch manager, a shared branch inbox, a specific person/non-portal email).
+
+DESIGN (locked direction):
+- Real-time email the moment a voucher is redeemed at a branch (NO digest).
+- PER BRANCH, the owner (and a branch manager for their own branch) picks recipients: the branch's assigned managers (toggle each) + add any extra email address. Off if no recipients.
+- Email carries operational detail (voucher, time, redemption code); mindful of customer PII (cross-ref blueprint 5.6.4 aggregate stance).
+
+PLACEMENT (recommended): on the BRANCH (Branches surface), alongside the redemption PIN + contact - per-branch operational config, keeps Settings = personal (2W lock). (Alternative: a central owner-only view in Settings - flagged; recommend branch-level.)
+
+PHASE: SCHEMA add (per-branch redemption-alert recipients: which managers + which extra emails) - STOP-AND-REPORT exact SQL before migration. Wire the redeem event (createRedemption) to fire notify() to those recipients in real-time. Delivery = Resend (Phase 6). VOUCHER_REDEEMED NotificationType already exists.
+
+Brief SENT (2026-06-19; branch-level Redemption alerts + Settings keeps only the monthly report for operational email). REVIEW WHEN BACK.
+
+## 2AC. Automated-email assignment in Staff & access user setup (owner direction 2026-06-19; refines 2AB placement)
+
+Owner: when creating/editing a portal user + assigning role/branch in Staff & access, add an "Automated emails" section so the OWNER assigns which automated emails that person receives (esp. branch managers; redemptions + others). REFINES 2AB's placement: the per-USER recipient assignment moves to Staff & access (the natural home - set up the person's role + branch + emails together).
+
+UNIFIED MODEL (reconciles 2X / 2AA / 2AB):
+- STAFF & ACCESS (create/edit user) = PRIMARY: owner ASSIGNS a USER's automated emails (redemption alerts + monthly report), AUTO-SCOPED to the role/branches already set in the drawer (manager = their branch(es); owner = business). Staff role (validate+view) = no automated emails by default.
+- BRANCH (Branches) = add EXTRA non-user recipients only (shared inbox / external email) to that branch's redemption alerts + a read-only summary of who is alerted for the branch. (Non-users have no Staff & access record.) The branch is NO LONGER where portal users are assigned (that moved here).
+- SETTINGS (personal) = the person sees + can self-adjust/opt-out their OWN automated emails. Owner assigns the starting point; person keeps autonomy (+ compliance unsubscribe).
+
+So: OWNER ASSIGNS at setup (Staff & access) + PERSON SELF-ADJUSTS (Settings) + NON-USER EXTRAS on the branch. Scope automatic by role/branch.
+
+ASSIGNABLE automated emails = the operational/reporting ones: real-time redemption alerts + monthly performance report. (Account-event emails [approvals etc.] come with portal access; not "assigned".)
+
+PHASE: per-user email-subscription storage + per-branch extra-emails (SCHEMA add - STOP-AND-REPORT). Same wiring as 2AB (createRedemption -> notify(); Resend Phase 6).
+
+Brief SENT (2026-06-19; Staff & access "Automated emails" section + branch extras/summary + Settings self-view). REVIEW WHEN BACK.
+
+## 2AD. Portal account cap (owner direction 2026-06-19)
+
+NEW business rule (none exists today - confirmed no seat/limit logic in merchant membership/auth). Cap the number of accounts a merchant can have.
+
+RECOMMENDED MODEL (two separate caps - two account types):
+- PORTAL TEAM MEMBERS (MerchantMembership: owner + branch managers + portal staff): a per-merchant cap on portal logins. Enforced at add/invite.
+- BRANCH STAFF (BranchUser: mobile validators): a PER-BRANCH cap (scales naturally with branches; each branch needs validators).
+- ADMIN-SET now (sensible default for all merchants), PLAN-BASED in Phase 5 (seats tied to tier). Owner needs more = contact Redeemo / upgrade.
+- LIMIT-REACHED UX (Staff & access): usage indicator ("4 of 8 team members"); at the cap the Add action is blocked with a clear message + contact-Redeemo (P5: upgrade). Deactivating someone frees a seat. Last-owner protection (2Q) still applies.
+
+NUMBERS = owner's call (TBD - placeholders in the prototype). OWNER TO CONFIRM: two-cap scope + the numbers.
+
+PHASE 4: enforce count vs cap at add/invite (backend); store the cap per merchant (SCHEMA - a maxPortalMembers/maxBranchStaff on Merchant, or a plan-derived value - STOP-AND-REPORT before migration).
+
+Brief SENT (2026-06-19, mechanism addendum to Staff & access with placeholder numbers).
+
+## 2AE. Quick actions in the top bar (owner direction 2026-06-19)
+
+A global quick-actions entry in the top bar for the common immediate actions (the top bar already has "Validate a code" + bell + avatar). CAPABILITY-FILTERED (role + granted extras 2R/2S) - only show what the person can do.
+
+RECOMMENDED SET:
+- VALIDATE A CODE (already there) - most frequent in-store action; anyone who can validate (owner/manager/staff).
+- CREATE A VOUCHER -> the builder. Owner; branch manager only if granted the manage-vouchers extra (2S).
+- VIEW A BRANCH'S REDEMPTION PIN -> pick branch, REVEAL-ON-DEMAND (sensitive; never inline in the menu; gated). Owner + branch manager (their branch).
+- TODAY'S REDEMPTIONS -> Redemptions filtered to today (quick operational glance). Anyone who can view redemptions; scoped to the person's branch(es).
+- (Secondary/optional, a tap deeper: add a team member [owner]; get help.)
+
+NOTES: PIN stays reveal-on-demand + role-gated (a quick action must NOT weaken PIN security - opens the branch PIN view, never prints the PIN in the menu). Validate-a-code already exists - integrate (keep prominent or fold in). Role/extras gate which actions appear + scope (manager = their branch).
+
+PROTOTYPE: brief a top-bar quick-actions entry with the set above, capability-filtered, PIN reveal-on-demand. Requirements-led; layout (menu vs buttons) to Claude.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
+## 2AF. Help & support: verified contract + scope (added 2026-06-19)
+
+Grounded: mostly STATIC + a future contact/ticket flow.
+- Legal pages EXIST on customer-web (apps/customer-web/app/{terms,privacy} + lib/legal.ts) - the static launch source of truth (memory: legal gate; CmsContent model exists at schema:1663 but is UNWIRED/deferred). Merchant portal LINKS to terms + privacy; the merchant AGREEMENT (contract) is separate, viewable in Business profile.
+- NO merchant support-ticket / helpdesk backend (customer-app SupportTicket + MerchantRequest were DEFERRED to Sub-PR 2; same posture for merchant). So a contact/support-request form is PROTOTYPE-only; submission backend = Phase 4 + email Phase 6 (planned addresses support@/merchants@redeemo.co.uk, unwired).
+- Inherits the legal & help links relocated from Settings (2W): terms, privacy, get help, contact Redeemo.
+
+CONTENT (owner asked to think comprehensively - merchants likely don't know how the platform works, so Help must TEACH + EQUIP):
+1. HOW REDEEMO WORKS (orientation): the model in plain terms (customers subscribe + unlock vouchers -> redeem in-store with your branch PIN -> you validate the code -> once per cycle), the mandatory vouchers, how you get approved + go live.
+2. GUIDES / TUTORIALS (step-by-step): create a voucher (+ what each type means), set up a branch + its PIN, add staff/managers (+ role capabilities), validate a code (QR scan + manual entry), use the mobile app, read the dashboard/reports. (Room for short videos later.)
+3. FAQs + TROUBLESHOOTING ("what to do when..."): by topic (vouchers / redemptions+validation / branch PIN / branches / staff / account / billing) + wrong-situation scenarios grounded in our mechanics: QR won't scan -> manual entry; customer redeemed by accident -> reverse it (2M); PIN not working/forgotten -> find + reset; not showing to customers -> verification pending; vouchers inactive -> suspended; can't log in.
+4. PRINTABLE COUNTER MATERIALS (owner's key example): downloadable/printable - a PER-BRANCH PIN CARD for the till (branch name + PIN, staff always have it), a "how to redeem" customer poster (merchant educates their own customers), a staff validate-a-code quick-guide, Redeemo "we're on Redeemo" window/counter materials.
+5. RAISE A SUPPORT REQUEST (ticket): describe + tag the area + attach a screenshot + TRACK status (open/responded/resolved); plus direct contact (support email, account manager).
+6. (Lighter) STATUS + UPDATES: service status + product announcements ("what's new").
+Plus LEGAL links (terms, privacy) + pointer to the agreement (Business profile). SEARCHABLE across help.
+
+PROTOTYPE: brief the full Help & support per the above. Requirements-led; layout to Claude. PHASE 4/6: static content now (CMS later); printable PDFs (per-branch PIN card) generated later; ticket submission + tracking backend later; contact/email later.
+
+Brief REVISED + re-sent (2026-06-19, comprehensive per owner "think deeply"). REVIEW WHEN BACK.
+
+## 2AG. Help & support as-built review: structure + copy fixes (owner 2026-06-19)
+
+Built comprehensively + mostly accurate (5-step "How Redeemo works", 6 guides, topic-chip FAQs + "Something is wrong" troubleshooting, 4 printables incl. per-branch PIN card, ticket form + tracked "Your requests" with statuses, status/updates, legal footer; the 2AE quick-actions grid icon also landed in the top bar). Two problems:
+
+STRUCTURE (main): one very long single-scroll page, everything stacked. Restructure into a calm NAVIGABLE HUB (heading + search at top; the areas as entry points / tabs to drill into, not all stacked; FAQs stay accordions; guides/printables compact cards). CONSTRAINT: it is a dashboard SUB-PAGE - NOT a second dashboard (no second side-nav / heavy chrome). Sectioned, collapsible, easy to navigate.
+
+COPY / MODEL FIXES:
+1. "How Redeemo works" STEP 2 "they unlock / add your voucher ready to use next time" = WRONG (no save-for-later/wallet step). Customer browses then redeems AT the visit. Reframe step 2 = find/discover your offer.
+2. STEP 4 "the redemption is recorded" when you scan = WRONG per redeem-vs-validate (2K): recorded at PIN entry (step 3); step 4 = VALIDATE/CONFIRM. Reword to validate/confirm, not record.
+3. Guide card "Validate on the mobile app" subtitle "Redeem at the till from your phone" - merchant VALIDATES (customer redeems). Change to "validate".
+4. "Talk to Redeemo" shows a PLACEHOLDER email - use a real Redeemo support address (merchants@/support@redeemo.co.uk).
+5. "Talk to Redeemo" names a personal account manager ("Priya Nair") - only if EVERY merchant gets one; else neutral "your Redeemo contact" (don't over-promise).
+6. Status update "Faster voucher reviews" (customer-benefiting changes reviewed faster) = NOT a built/decided feature. Remove or replace with a real update (nothing untrue on the page). ("Reverse a redemption" + "Branch manager responsibilities" ARE real - keep.)
+
+ACCURATE (no change): step 1 (free to be listed), step 3 (PIN at counter), step 5 (once per cycle), flagship-vouchers + go-live cards, FAQ answers (account-cap, security-confirm, billing-free), troubleshooting set, printables, tracked requests, legal footer.
+
+Fix brief SENT (2026-06-19). REVIEW WHEN BACK.
+
+## 2AH. Documents folded into Business profile (owner decision 2026-06-19; supersedes the standalone-Documents-page parts of 2T/2U)
+
+Reviewed the onboarding-era standalone Documents screen. Its own copy reveals the true model: documents are OPTIONAL (Redeemo verifies via background check; onboarding does NOT gate on documents - only branch + 2 RMV + contract). The agreement is the click-to-agree CONTRACT (already in Business profile Compliance), NOT an uploaded file. Verification status is also in Business profile. So the only real documents = optional verification docs + an optional price list, and the only live-merchant action = RESPOND TO A REQUEST (rare). The earlier "4 fixed required slots" framing (2T/2U) OVER-STRUCTURED it.
+
+DECISION (owner chose "fold into Business profile" over "keep a light standalone module"): RETIRE the standalone Documents nav item + page. Fold documents into Business profile's "Compliance and status" section = the single compliance home:
+- Verification status (verified / in review / not submitted).
+- Merchant agreement (the contract record - signed/version/date/view/re-accept; NOT an uploaded file).
+- Documents (light): honest framing ("background check, you usually don't need to upload; we'll ask if we need something specific"), held docs (view/replace), add-a-document (PDF/JPG/PNG, 10MB, a handful; optionally tag type - proof of address / registration / price list), and show a DOCUMENT REQUEST clearly when Redeemo has asked.
+- Document requests reach a live merchant via a NOTIFICATION + a Home ATTENTION item deep-linking to this compliance area (they won't hunt for a Documents page).
+
+SUPERSEDES: 2T/2U "Documents nav page = full manager" + "Business profile shows a summary linking to it" (now: NO standalone page; documents live IN Business profile Compliance). 2T's DocumentType enum (BUSINESS_VERIFICATION_1/2, PRICE_LIST, AGREEMENT) stays the schema backing, but the UI treats them as OPTIONAL tagged uploads, not required slots; AGREEMENT = the contract record (not in the upload list). Merchant-side document upload still NOT built = Phase 4 (mirror admin B4).
+
+Brief SENT (2026-06-19; remove Documents nav/page + fold into Business profile Compliance). REVIEW WHEN BACK.
+
+## 2AI. Insights & reports: recommended analytics + structure (owner direction 2026-06-19)
+
+The deep analytics module (Home = glance; Insights = deep history/breakdowns/export). Grounded in 2O definitions + 2Y (no backend yet; data exists) + blueprint 5.6 (reports-now/soon/privacy-gated).
+
+GROUND TRUTH / FRAMING (bake in):
+- It is the merchant's REDEEMO activity ONLY (NOT their whole business / total sales). Value = estimated SAVING delivered (positive framing; not revenue, not money-lost).
+- Locked defs (2O): validated-only headline; reversed excluded everywhere; value = saving over validated; customers = distinct; monthly completed-month compare; ENCOURAGEMENT framing (celebrate growth; neutral/constructive on dips; no shaming).
+- PRIVACY (blueprint 5.6.4): customer insight = AGGREGATE + PSEUDONYMOUS only; NO individual customer identity; minimum-cohort suppression.
+
+CONTROLS: time range (default current month vs last; +last-3-months/custom), branch scope (auto by role), voucher-type filter.
+
+INSIGHTS (tiered):
+- NOW (MVP, no PII): Overview headline (redemptions / distinct customers / value delivered + MoM trend); redemptions-over-time trend; offer performance (ranked vouchers + by type); branch performance (ranked, multi-branch); busiest days/times HEATMAP (aggregate); validation health (validated vs awaiting; QR vs manual).
+- SOON (pseudonymous): new vs returning customers (over userId, no identity).
+- FUTURE (privacy-gated, NOT in brief): aggregate demographics behind the 5.6.4 review.
+
+REPORTS (export): monthly performance report (= the emailed 2AA report: redemptions/value/customers/top offers+branches/trend); redemption export CSV (date/voucher/branch/value/validated/method; NO customer PII). Future: custom/scheduled.
+
+VISUALS: metric cards + trend; line/bar trend; ranked bars (offers/branches); share/donut (types); day x time heatmap (busy). STRUCTURE: full dashboard MODULE (richer than a sub-page) but organised - controls top, overview first, breakdowns in sections/tabs, reports last; NOT a mega-scroll (Help-page lesson).
+
+PHASE: all Phase-4 (the merchant analytics aggregation does NOT exist - 2Y). Prototype shows intended UX.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
+## 2AJ. Early-surfaces backfill (recovered from the transcript 2026-06-19)
+
+The doc was started partway into the prototyping, so the earliest surfaces were not all captured. Recovered from the actual live prototyping transcript (`ffcd2ba4...jsonl`, the Claude Design session 16-19 Jun; `bc5ad449` turned out to be a separate brand-system session). Section 1 + 2A-2AI already cover the onboarding journey, the voucher builder/types, category/identity, branches, staff, business profile, settings, redemptions, notifications, help, documents-fold, and Insights. The genuine gaps recovered below.
+
+LOGIN / SIGN-IN PAGE = NOT prototyped (a gap). The journey runs registration -> email verification -> straight to the Setting-up dashboard; no returning-user sign-in screen was ever designed. Only artefacts: an "Already have an account? Sign in" LINK on the registration screen (no destination), and "Login / OTP" listed as a planned-but-unreached screen. Auth DECISIONS are locked (self-serve registration feeding the admin approval queue; email-only verification, phone deferred; registration = first name / surname / work email / mobile / password [4-segment strength meter] / business name; primary "Create your business account"). ACTION: the login page still needs designing (future prototype pass / Phase 4).
+
+HOME DASHBOARD AS-BUILT (Section 1 had TONE only; full Home review still deferred to the end of the walk - this captures the early as-built so it is safe). State-aware via a demo switcher (Setting up / Submitted / In review / Changes needed / Live / Suspended).
+- SETTING-UP dashboard = the onboarding hub (owner: "best screen so far"): the "Get your business live" 6-STEP checklist (Create account -> Choose category [step 2 of 6] -> Complete business profile -> Add main branch -> Set up 2 flagship vouchers -> Sign agreement [step 6 of 6]) with "N of 6 complete"; an honest "Nothing is public yet" card; LOCKED Activity + Insights day-2 teaser cards; a "Submit for review" button disabled until required steps are done; the optional "Verify your business sooner" documents card.
+- LIVE dashboard = TWO states (locked principle): (1) ESTABLISHED - "Welcome back, James" + Live pill; TWO balanced charts side-by-side (30-day redemption trend + busiest-days bar) [owner rejected one dominating chart]; distinct no-repeat stat cards (Customers brought in [headline, cumulative] / New customers this cycle / Live vouchers / Busiest day); a "Needs your attention" action panel (+ "You are all caught up" empty state); a privacy-safe "Recent redemptions" feed (NO customer identity); a "Your vouchers" snapshot + "View full insights"; a foot privacy note. (2) EARLY / just-started - "The Old Foundry Kitchen is live on Redeemo" (business name leads); an encouraging placeholder chart "Your first redemptions will show here" (NOT a zero line); a "Ways to bring in more customers" tips panel.
+- LOCKED dashboard rules: REDUCE THE GREEN - navy #010C35 primary chart colour, rose/coral accent, GREEN reserved only for genuine Live/success ("too much green feels generic, not Redeemo"); NEVER a red "down"/doom number for a quiet cycle (lead with the only-growing "Customers brought in"); stat copy adapts to branch count ("this branch" vs "all branches"); the dashboard brand/green polish pass was PARKED until real vouchers + redemptions exist.
+
+NAV / IA / TOPBAR (foundational; canonical detail in blueprint §2.1/2.2, but not previously in this doc). "Offers" renamed to "Vouchers" throughout (owner direction). Grouped left nav (v1.1): Home; Vouchers & customers (Vouchers, Redemptions, Insights & reports); Locations & team (Branches, Staff & access); Business (Business profile, Documents [now folded into Business profile - 2AH]); Grow your business (Promote, Payments & billing - Phase 5 "Coming soon"); pinned Settings + Help & support; a live-status pill. Reporting named "Insights & reports"; analytics distributed across 4 surfaces (Home glance / per-voucher / Redemptions operational / Insights deep). Topbar: collapse + "Redeemo for Business" wordmark; right = Validate-a-code + notifications bell + business-logo avatar -> account menu (logout WITH confirmation "Log out of Redeemo for Business?"). Consistent checklist top-bar = 3 zones (Left back + R-badge + title / Centre "Setup step X of 6" / Right merchant logo + name + Close).
+
+ONBOARDING AS-BUILT specifics (Section 1 has the shape; these are concrete additions): registration header "List your business on Redeemo"; "Complete your business profile" is a DISTINCT checklist step the owner explicitly added (holds the heavy legal/identity detail, deliberately NOT at registration); category screen "Choose your category" + helper "This shapes the rest of your setup, including your flagship vouchers and where customers find you"; sign-agreement screen (step 6 of 6) = click-to-agree checkbox + TYPE-FULL-NAME to sign + date + "Agree and continue", personalised with held business data, vocabulary "accepted" not "countersigned"; the "Verify your business sooner" optional-docs card copy locks (drop "you usually do not need to upload"; do NOT name verification methods; do NOT imply a food business; do NOT lead with premises photos [impersonation risk]; verified state GREEN not red/amber).
+
+[CORRECTION / OWNER TO CONFIRM] Voucher preview DEFAULT BANNER. Section 1 ("Voucher preview card") currently says the default banner uses the PER-TYPE gradient (matching the customer app), with a parenthetical "owner to confirm if they prefer a brand-gradient default". The transcript shows the owner LOCKED the BRAND gradient (rose #E20C04 -> coral #E84A00, with the merchant logo + offer context) for the no-photo default, after the BOGO purple looked jarring; the per-type colour stays on the TYPE CHIP only; a merchant photo overrides. These two CONFLICT -> OWNER TO CONFIRM the final default: brand-gradient (the live prototyping decision) vs per-type (the customer-app-fidelity argument). Once confirmed, update Section 1 line. Preview copy locks reconfirmed: "Save up to £X" (not "Save about"); CTA "Redeem this voucher".
+
+## 2AK. Insights & reports as-built review + customer demographics added (owner direction 2026-06-19)
+
+AS-BUILT: excellent + RECONCILES. Framing ("your Redeemo performance... validated only... never your whole business"); 3 headline cards (Redemptions 61 / Distinct customers 41 / Value delivered £609, all +MoM); redemptions-over-time (current month brand-orange, reduce-green respected); 5 tabs (Offers/Branches/Customers/Busy times/Validation); reports (monthly report + CSV "no customer personal data"). Reconciliation ties: offers 32+14+9+6=61; validation 35+26=61; customers 25+16=41.
+
+FIXES:
+- COPY (vocabulary lock, Section 1 voucher-not-offer): "Top offers" -> "Top vouchers"; "the kind of offer" -> "the kind of voucher"; report "your top offers and branches" -> "top vouchers and branches".
+- RECONCILIATION (demo data must tie EXACTLY): branch value £368+£242=£610 vs headline £609 (£1 off); busy-times heatmap cells sum to 59 vs 61. Fix to reconcile to 61 / £609.
+- DEMO CONSISTENCY: Insights shows TWO branches (High Street + Mill Road, Cambridge) but the persona was single-branch (High Street) elsewhere. Make the persona consistently TWO branches across the WHOLE portal (better for demoing branch performance + scope). Recommend two-branch everywhere.
+- MINOR: the Reusable ("Loyalty reward, 10% off") top-vouchers bar should use the Reusable TYPE colour (teal #84DCC2->#198375), not green.
+
+CUSTOMER DEMOGRAPHICS - owner LIFTS the privacy gate (was deferred "future/privacy-gated" in 2AI; blueprint 5.6.4). Owner direction: show what KIND of crowd a merchant attracts, AGGREGATE only, NEVER individual identity. Captured at signup: age (DOB), gender, registered location/area, interests. ADD to the Customers tab:
+- AGE GROUPS (bands 18-24/25-34/35-44/45-54/55+) - the age mix of redeeming customers.
+- GENDER split (canonical: female/male/non-binary/prefer-not-to-say).
+- AREAS customers come from (their REGISTERED location = the catchment) - COARSE (town/region), NOT exact postcode.
+SAFEGUARDS (mandatory, baked into the brief): aggregate + pseudonymous; NO individual identity; MINIMUM-COHORT SUPPRESSION (hide any slice with too few customers - even aggregates re-identify at small N; show "not enough data yet"); coarse area only; prominent privacy note.
+LAUNCH GATE (honest flag): this IS the blueprint 5.6.4 privacy-review feature. Before it goes live: the customer PRIVACY POLICY must permit sharing aggregate demographics with merchants + a legal/ICO confirm. Owner approves the PRODUCT direction now; the legal sign-off remains a pre-launch gate (not a prototyping blocker).
+
+Brief SENT (2026-06-19; copy/vocabulary fix + reconciliation + two-branch demo + Reusable colour + demographics with safeguards). REVIEW WHEN BACK.
+
+## 2AL. View-as-role demo + Phase-5 teasers (owner direction 2026-06-19)
+
+(1) VIEW-AS-ROLE DEMO: a "view as" switcher (Owner / Branch manager / Staff) to see the whole portal per role - validates the capability model (2R/2S + blueprint §2.4) holistically, and shows the dashboard per role. Applies to the LIVE portal (setting-up = owner; managers/staff exist only post-launch). Sits alongside the lifecycle switcher. Per-role view:
+- OWNER: everything (full portal; all branches/data/actions).
+- BRANCH MANAGER (scoped to their branch[es]): Home / Redemptions / Branches / Staff & access / Insights / Help / own Settings, ALL branch-scoped; manages their branch operational details (hours/PIN/amenities/photos/contact) + their branch app/validation staff; NOT create/close branches, NOT portal roles/owners, NOT business-profile identity (read-only), NOT business closure / account-caps / billing, NOT other branches. Vouchers VIEW-only UNLESS granted "manage vouchers" (2S) -> then create/edit. Dashboard + Insights = their branch.
+- STAFF (validate+view only): lean - Home (validate + recent activity at their branch) / Redemptions (their branch, validate+view) / Help / own Settings. NO create/edit; no Branches-manage / Staff & access / Business profile / Insights / billing. Dashboard leads with "validate a code".
+- Optional toggle: Branch manager WITH "manage vouchers" granted, to show the extras effect.
+
+(2) PHASE-5 TEASERS (Grow your business group): coming-soon teaser pages (NOT functional).
+- PROMOTE: featured placement (home page + area) + location-targeted campaigns -> more customer discovery (featured/trending). Enticing preview + "coming soon" + optional register-interest.
+- PAYMENTS & BILLING: payment methods + invoices/receipts for the paid growth features; note being LISTED IS FREE, billing only for paid growth. "Coming soon" + optional register-interest.
+
+Both briefs SENT (2026-06-19). REVIEW WHEN BACK.
+
+## 2AM. Account menu (top-right avatar) (owner direction 2026-06-19)
+
+The top-right avatar (business logo / initials, e.g. "OF") opens the account menu. Must FUNCTION (open/close, items navigate, logout works). Grounded in blueprint §2.2 + our locked decisions.
+
+CONTENTS:
+- HEADER: who/what is signed in - business name + person's name + role (e.g. "The Old Foundry Kitchen" / "James Whitfield, Owner").
+- MY ACCOUNT -> the personal account hub (= Settings: your details / login & security / notifications). NOTE: "My account" and the nav "Settings" are the SAME destination (2W/2X folded My account into Settings) - keep ONE consistent label/destination so it isn't two things.
+- BUSINESS PROFILE -> quick link to the business record.
+- HELP & SUPPORT -> quick link.
+- LOG OUT -> with confirmation "Log out of Redeemo for Business?" (shared-device safety).
+
+ROLE-AWARE (consistent with 2AL view-as-role): header shows the person's role (+ branch for manager/staff); the menu only offers what that role can reach (e.g. STAFF: My account + Help + Log out; no Business profile).
+
+(Omitted: "Switch branch/business" - franchise/future, not MVP.)
+
+Brief SENT (2026-06-19). AS-BUILT (per Claude Design log): menu role-aware (header business + person + role, +branch for manager/staff; Business profile hidden for STAFF; logout confirm matches). NAMING RESOLVED: the nav "Settings" + the page title were RENAMED to "My account" (one label/destination for menu + nav + page) - accurate now the hub is purely personal (2W). OWNER TO CONFIRM the nav label (keep "My account" vs revert nav to "Settings" + menu "My account" -> it). Role personas: Owner=James Whitfield, Branch manager=Sam Thorne, Staff=Emma Cole (all The Old Foundry Kitchen / High Street). Visual review pending screenshots.
+
+## 2AN. Dashboard early->established transition + lifecycle-state across all modules (owner direction 2026-06-19)
+
+(A) HOME EARLY vs ESTABLISHED transition (clarification): DATA-DRIVEN, not a fixed date. Early/encouraging treatment shows while there isn't enough activity for the real charts to be meaningful; established once there is. Trigger (TUNABLE, OWNER TO CONFIRM): ~2 weeks live + a baseline of validated redemptions (~20-30); below = early, above = established (volume matters more than time). GRADUAL, not a hard flip - each chart/stat appears once ITS own data is meaningful (trend replaces placeholder once enough days; busiest-times + new-vs-returning once enough volume). The no-doom encouragement framing (lead with cumulative "customers brought in", growth tips, milestones) PERSISTS for any quiet period even once established. DEMO: add an "early" vs "established" variant to the Live state so both are viewable.
+
+(B) LIFECYCLE STATE ACROSS ALL MODULES (not just Home): wire the demo lifecycle switcher (Setting up / Submitted / In review / Changes needed / Live / Suspended) to EVERY module. COMMON RULES: NO customer-facing activity data (redemptions/insights) before Live; submitted content READ-ONLY while Submitted/In review; Suspended = everything read-only + banner + historical data preserved. Per-module:
+- VOUCHERS: Setting up = 2 flagship being built (Draft); Submitted/In review = "In review" read-only; Changes needed = "Changes requested" + reason; Live = live + redemption counts + add custom; Suspended = inactive read-only.
+- REDEMPTIONS: pre-live = empty ("appears once live"); Live = log + validate; Suspended = historical read-only.
+- INSIGHTS: pre-live = locked/empty teaser ("once live + customers redeem"); Live = full; Suspended = historical read-only.
+- BRANCHES: Setting up = adding/added main branch; Live = manage; Suspended = read-only.
+- STAFF & ACCESS: Setting up = owner only + "staff added later"; Live = manage; Suspended = read-only.
+- BUSINESS PROFILE: Setting up = completing, editable; Submitted/In review = read-only; Changes needed = flagged part to fix; Live = full (direct-vs-review split); Suspended = read-only + banner.
+
+Brief SENT (2026-06-19). AS-BUILT (per Claude Design log): (A) early/established already existed (live_new/live, liveEarly, demo switcher) - confirmed; demo Live labels now early/established. (B) lifecycle staging implemented + verified across ALL modules per the matrix above (vouchers flagship-drafts/in-review-RO/changes-requested/live+create/suspended-Paused+history; redemptions empty-pre-live/log+validate/suspended-RO; insights locked-teaser/full/suspended-RO; branches main-only-setup/manage/RO; staff owner-only-setup/manage/RO; business profile editable-setup/RO-in-review/reviewing-banner/live-split/suspended-banner). Visual review pending screenshots.
+
+## 2AO. Login / sign-in page (closes the 2AJ gap) (owner direction 2026-06-19)
+
+The portal sign-in was never designed (2AJ gap). Detailed brief prepared. Grounded in the merchant auth backend (auth/merchant): login is TWO-STEP (password -> OTP/sessionChallenge -> verify 6-digit); forgot/reset-password exist; self-serve registration is the prototype direction (backend = admin-invite+claim today; self-serve = Phase-4 new route).
+
+SCOPE: the WEB PORTAL sign-in (the staff mobile validation app = separate login). Auth cluster: sign-in form + the MANDATORY OTP step + forgot/reset password + email-verify handling + edge states.
+
+CONTENT/FLOW:
+- Sign-in: Redeemo for Business branding; email + password (show/hide); Forgot password; "Sign in" (brand gradient); "New to Redeemo? List your business" -> registration; optional cautious "keep me signed in" (off by default, personal-device note).
+- OTP step (login verification MANDATORY, 2X): 6-digit code to a MASKED destination; resend + cooldown; "didn't get a code?" recovery (-> contact Redeemo); reassurance ("protected with a one-time code at every sign-in"); -> dashboard.
+- Forgot password: email -> NO-ENUMERATION confirmation. Reset: new password + same rules/strength meter as registration.
+- EDGE STATES (plain, no security leak): neutral wrong-credentials ("those details do not match" - never which/whether-exists); email-not-verified -> verify + resend; suspended/deactivated -> calm + contact Redeemo; rate-limit; wrong/expired code; loading.
+- Brand: premium/warm/trustworthy; navy + brand gradient + cream; Mustica + Lato; counterpart to the registration screen. Responsive (phone browser too).
+
+FLAGS (Phase-4 backend alignment):
+- OTP CHANNEL: backend loginMerchant sketches Twilio/PHONE, but registration verifies EMAIL (phone deferred). Login OTP must use a VERIFIED channel - recommend EMAIL (or verify phone before relying on it). Brief kept channel-neutral; ALIGN before build.
+- SELF-SERVE REGISTRATION: the "List your business" target is Phase-4 (backend admin-invite+claim today) - already in Section 1 gaps.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
+## 2AP. Home dashboard as-built review - 3 states (owner screenshots 2026-06-19)
+
+All THREE states EXCELLENT + match the model (2AJ/2AN/2AL):
+- SETTING UP: "Welcome to Redeemo, James" + 6-step "Get your business live" checklist (5 of 6; vouchers in progress) + "Nothing is public yet" + LOCKED Activity/Insights teasers + "Verify your business sooner" docs card.
+- LIVE, JUST STARTED (early): celebratory "The Old Foundry Kitchen is live on Redeemo" + placeholder "Your first redemptions will show here" (NOT a zero line) + LIVE VOUCHERS READY / FIRST REDEMPTION on-its-way / NOW VISIBLE cards + "Ways to bring in more customers" tips.
+- LIVE (established): "Welcome back, James" + navy redemptions line + busiest-days bar (Sat) + 4 distinct stat cards (Customers brought in 212 / New this cycle 34 / Live vouchers 4 / Busiest Saturday) + "Needs your attention (3)" + privacy-safe "Recent redemptions" ("never who") + the View-as-role switcher (Owner/Branch manager/Staff personas + "prototype only" note). Two branches (High Street + Mill Road).
+
+FIXES (mainly reconcile Home <-> Insights = ONE shared dataset, per 2O):
+1. TREND label: Home "Holding steady" CONTRADICTS Insights "+13% up on last month" (same period). Make them agree (one dataset, one story). ENCOURAGEMENT rule: when genuinely UP, CELEBRATE it ("up 13%"), do NOT undersell growth as "holding steady"; "holding steady" only for genuinely flat; calm no-doom only for a quieter period.
+2. NEW CUSTOMERS: Home "new customers this cycle 34" vs Insights "new customers this month 25" - reconcile (same period -> same number; or clearly distinguish the period definitions).
+3. SHARED MONTHLY FIGURES: Home redemptions line (Nov-Jun) vs Insights bar (Jan-Jun) - overlapping months must match; Home current month must = Insights current month (61).
+4. VOCAB: "offers" -> "vouchers" on Home ("vouchers working for you", "flagship vouchers") per the Section 1 lock. RECURRING across surfaces - OWNER DECISION: enforce "voucher everywhere" vs relax to allow "offer" as a synonym (brief assumes vouchers).
+
+Everything else stays. Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
+## 2AQ. Close-out decisions (owner 2026-06-19)
+
+The portal walk is complete. Final owner decisions settling the open items:
+- NAV LABEL: "My account" CONFIRMED (keep the rename; accurate now the hub is purely personal). No change needed.
+- VOUCHER PREVIEW DEFAULT BANNER: PER-TYPE gradient CONFIRMED (matches the live customer voucher card; the preview mirrors what the customer sees). RESOLVES the 2AJ discrepancy + supersedes the owner's earlier brand-gradient prototyping pick. Section 1 line 25 "per-type is the faithful choice" is now confirmed ("owner to confirm" closed). CHANGE: the prototype currently defaults to brand-gradient -> switch to per-type; per-type colour also stays on the type chip; a merchant photo overrides.
+- VOCABULARY: ENFORCE "voucher" everywhere (never "offer"). Sweep stray "offers" (Insights "Top offers", Home "offers working for you", "by the kind of offer", etc.) -> "vouchers".
+- LOGIN TRUST LINE: soften "Trusted by independent businesses across the UK" (over-claim at launch) -> "Built for independent businesses across the UK".
+- EARLY->ESTABLISHED THRESHOLD: ~20-30 validated redemptions CONFIRMED (tunable).
+
+Final fix brief SENT (banner per-type + offers->vouchers sweep + trust-line). After this + the Home reconciliation (2AP) land, and a quick check of the Phase-5 teasers (2AL, briefed/unreviewed), the prototype is complete.
+
+## 2AR. Admin-invite + claim ("shell account") flow - grounded + merchant-side claim to prototype (owner direction 2026-06-19)
+
+Owner flagged a missing path: when Redeemo's admin INVITES a merchant (creates a shell/draft account the business takes over). GROUNDED - the backend flow EXISTS:
+- ADMIN create-draft (createMerchantDraft, admin/merchants/service.ts; admin-panel /merchants/new, cap merchant:create-draft): admin enters businessName + tradingName + ownerEmail + ownerFirstName/LastName + jobTitle -> creates a shell Merchant (status REGISTERED, name only) + the owner MerchantAdmin (no password, mustChangePassword) + OWNER membership. Guard EMAIL_ALREADY_EXISTS.
+- issueMerchantClaim: single-use 32-byte claim token, 7-DAY TTL (Redis merchant-claim:<token> -> adminId); sends claimAccountEmail (subject "Set up your Redeemo merchant account") via the notify outbox (DARK until Phase 6). Token NEVER logged/returned.
+- Link -> {MERCHANT_PORTAL_URL = https://merchant.redeemo.co.uk}/claim?token=... (7-day).
+- claimMerchantAccount (POST /merchant/auth/claim): owner sets password via the single-use token -> sets passwordHash, clears mustChangePassword, sets otpVerifiedAt (emailed link = interim proof of email control; phone OTP not wired). Single-use. Then login (still via device OTP).
+=> ADMIN side (create-draft + auto invite email) is BUILT (admin panel, M6). MERCHANT side (the claim/take-over screens) is the GAP - never prototyped.
+
+TWO ENTRY MODELS now coexist (both ship): (1) SELF-SERVE registration ("List your business" - the prototyped direction; Phase-4 new backend route); (2) ADMIN-INVITE + claim (the EXISTING backend; Redeemo's team sets up a business). Both converge on the SAME setting-up dashboard + onboarding checklist. The CLAIM page is the invited-merchant counterpart to the registration page.
+
+PROTOTYPE (merchant side): (1) the invite email (Redeemo set up your account; business named; "Set up your account" CTA; 7-day expiry; security line); (2) the /claim set-password page ("Welcome to Redeemo, [Business]"; show admin-prefilled business + owner name READ-ONLY; set password + same strength meter as registration; -> signed in -> setting-up dashboard with "create account" done + prefills); (3) expired/invalid link state (7-day; -> contact Redeemo for a new invite). Same brand world as sign-in/registration.
+
+Brief SENT (2026-06-19). AS-BUILT: EXCELLENT + matches brief end-to-end. (1) Invite email: navy banner "Your Redeemo for Business account is ready" + named greeting + "Set up your account" CTA + 7-day expiry + "ONCE YOU ARE IN" (confirm details+category / build 2 flagship vouchers / submit + go live) + security line + "Redeemo Limited, England and Wales" footer + demo expired-state affordance; reached from sign-in footer "Invited by Redeemo? Open your invite". (2) Claim page: "YOU HAVE BEEN INVITED" + "Welcome to Redeemo, [Business]" + READ-ONLY "Set up by Redeemo for you" card (business+owner+email) + create+confirm password + strength meter (registration rules) + security line + "Already set up? Sign in"; submit -> signed in -> setting-up dashboard (1 of 6, "Create account" done, takeover banner). (3) Expired/invalid: calm, account-safe, "Contact Redeemo for a new invite". Uses "flagship vouchers" (not offers). MINOR: ensure email FROM = noreply@redeemo.co.uk (D-F policy; screenshot masked). NOTE: the close-out (2AQ) + Home-reconciliation (2AP) briefs are STILL PENDING (sign-in trust line still reads "Trusted by...", not yet softened; voucher-wording sweep + Home<->Insights reconcile not yet run).
+
+## 2AS. Final completeness audit (Claude Design, 2026-06-19)
+
+Claude Design ran a full live completeness audit. VERDICT: COMPLETE.
+- All 11 nav items -> real screens (Promote + Payments = proper coming-soon, not dead ends).
+- All 7 lifecycle states walked across every module - no broken/empty; pre-live locked Redemptions/Insights; suspended read-only history; each Home variant has its own heading.
+- View-as roles correct (Owner full; Branch manager scoped + "Viewing as Sam Thorne" banner, no Promote/billing/voucher-create; Staff locked to Home/Redemptions/My account/Help + "validate and view, no editing" banner; clean switching incl. back to Owner).
+- Auth complete + reachable (sign-in + one-time code + timed resend, forgot/reset, self-serve registration, claim + expired-link).
+- Voucher builder: all 7 types (wrappers correctly ask for the inner voucher first); calibration meter + live preview + save-draft + submit-for-review.
+- NUMBERS RECONCILE: one canonical dataset; portfolio total = 318 redemptions (Home <-> Vouchers list <-> voucher detail <-> Insights cannot drift). Confirms the 2AP/2AQ reconciliation landed.
+- Brand consistent; NO emoji; NO em-dashes in rendered copy (only in dev code comments, never displayed).
+- FIXED by the audit: 6 user-visible "offer" leaks in the voucher builder -> "voucher" ("Change offer type", "Choose your flagship offer", desc placeholder, 2 calibration lines, 1 terms label, "from the offer types"). Left "offer" as a VERB ("what you offer") - correct English. CLOSES the 2AQ voucher-wording sweep.
+
+OPTIONAL POLISH (recommended + go-ahead sent): the "Changes needed" Home reuses the generic "Welcome to Redeemo, James" setup heading instead of acknowledging the change request. Functions correctly (checklist + reason present); brief sent to tailor the heading/subheading to acknowledge the review + the changes needed.
+
+=> PROTOTYPE COMPLETE. Ready to build - see `docs/superpowers/2026-06-19-merchant-portal-build-handover.md`.
+
+## 3. Disposition
+These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
