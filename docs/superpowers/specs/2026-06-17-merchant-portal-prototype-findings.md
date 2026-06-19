@@ -825,5 +825,22 @@ Brief SENT (2026-06-19; copy/vocabulary fix + reconciliation + two-branch demo +
 
 Both briefs SENT (2026-06-19). REVIEW WHEN BACK.
 
+## 2AM. Account menu (top-right avatar) (owner direction 2026-06-19)
+
+The top-right avatar (business logo / initials, e.g. "OF") opens the account menu. Must FUNCTION (open/close, items navigate, logout works). Grounded in blueprint §2.2 + our locked decisions.
+
+CONTENTS:
+- HEADER: who/what is signed in - business name + person's name + role (e.g. "The Old Foundry Kitchen" / "James Whitfield, Owner").
+- MY ACCOUNT -> the personal account hub (= Settings: your details / login & security / notifications). NOTE: "My account" and the nav "Settings" are the SAME destination (2W/2X folded My account into Settings) - keep ONE consistent label/destination so it isn't two things.
+- BUSINESS PROFILE -> quick link to the business record.
+- HELP & SUPPORT -> quick link.
+- LOG OUT -> with confirmation "Log out of Redeemo for Business?" (shared-device safety).
+
+ROLE-AWARE (consistent with 2AL view-as-role): header shows the person's role (+ branch for manager/staff); the menu only offers what that role can reach (e.g. STAFF: My account + Help + Log out; no Business profile).
+
+(Omitted: "Switch branch/business" - franchise/future, not MVP.)
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
