@@ -666,5 +666,21 @@ PHASE: per-user email-subscription storage + per-branch extra-emails (SCHEMA add
 
 Brief SENT (2026-06-19; Staff & access "Automated emails" section + branch extras/summary + Settings self-view). REVIEW WHEN BACK.
 
+## 2AD. Portal account cap (owner direction 2026-06-19)
+
+NEW business rule (none exists today - confirmed no seat/limit logic in merchant membership/auth). Cap the number of accounts a merchant can have.
+
+RECOMMENDED MODEL (two separate caps - two account types):
+- PORTAL TEAM MEMBERS (MerchantMembership: owner + branch managers + portal staff): a per-merchant cap on portal logins. Enforced at add/invite.
+- BRANCH STAFF (BranchUser: mobile validators): a PER-BRANCH cap (scales naturally with branches; each branch needs validators).
+- ADMIN-SET now (sensible default for all merchants), PLAN-BASED in Phase 5 (seats tied to tier). Owner needs more = contact Redeemo / upgrade.
+- LIMIT-REACHED UX (Staff & access): usage indicator ("4 of 8 team members"); at the cap the Add action is blocked with a clear message + contact-Redeemo (P5: upgrade). Deactivating someone frees a seat. Last-owner protection (2Q) still applies.
+
+NUMBERS = owner's call (TBD - placeholders in the prototype). OWNER TO CONFIRM: two-cap scope + the numbers.
+
+PHASE 4: enforce count vs cap at add/invite (backend); store the cap per merchant (SCHEMA - a maxPortalMembers/maxBranchStaff on Merchant, or a plan-derived value - STOP-AND-REPORT before migration).
+
+Brief SENT (2026-06-19, mechanism addendum to Staff & access with placeholder numbers).
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
