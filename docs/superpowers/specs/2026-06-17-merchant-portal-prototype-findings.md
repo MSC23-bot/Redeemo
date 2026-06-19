@@ -612,5 +612,23 @@ PROTOTYPE: brief the bell dropdown/panel - newest-first feed, per-type icon + ti
 
 Brief SENT (2026-06-19). REVIEW WHEN BACK.
 
+## 2AA. Operational + report emails in Settings (owner direction 2026-06-19; recipient model A locked)
+
+Beyond the account-event email toggles (2X), the merchant needs OPERATIONAL + REPORT emails: redemption activity (a customer redeemed) + a monthly performance report. A distinct KIND - they carry a FREQUENCY (volume) + a SCOPE (branch vs business).
+
+RECIPIENT MODEL = A (owner chose "each person, auto-scoped" over "owner configures everyone"): every portal user manages their OWN in their own Settings; scope FOLLOWS ACCESS automatically (branch manager = their branch(es); owner = whole business, per-branch breakdown). No routing matrix. "Who gets them" is answered by role. Recipients = PORTAL members (owner + branch managers); mobile branch staff (BranchUser) are validators, not report recipients.
+
+THE TWO PREFERENCES (per-user, scoped):
+- REDEMPTION ACTIVITY email: each redemption / DAILY SUMMARY (default) / off. (Daily summary avoids per-redemption spam.) SUPERSEDES the 2X plain "voucher redeemed" toggle (becomes this frequency-aware pref).
+- MONTHLY PERFORMANCE REPORT email: on (default) / off. = the dashboard delivered as email (redemptions/value/customers/top vouchers+branches/trend), scoped. (Weekly digest = future option.)
+
+DEFAULTS ensure coverage without owner micromanaging: a new branch manager defaults to their branch daily summary + monthly report. OWNER ADD-ON: send the monthly BUSINESS report to an extra external email (accountant, non-portal-user).
+
+BELL refinement (cross-link 2Z): per-redemption stays EMAIL (digest), NOT a bell item (would flood); the bell keeps milestones (100th) + account events. PRIVACY: operational detail in emails; fuller customer info only in-portal (carry into the Phase-4 report design + the blueprint 5.6.4 aggregate stance).
+
+PHASE: email delivery = Phase 6 (Resend, unwired). Report generation needs the merchant analytics aggregation = Phase 4 (does NOT exist per 2Y). Prototype-now, build-later.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
