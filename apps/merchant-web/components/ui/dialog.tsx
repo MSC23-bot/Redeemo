@@ -1,19 +1,18 @@
 'use client'
 
 /**
- * Dialog: shared modal primitive for the admin console.
+ * Dialog: the merchant portal's shared modal primitive.
  *
- * Renders the project's standard scrim + centred card and adds the two pieces
- * of modal accessibility the hand-rolled dialogs were missing:
+ * Renders the scrim + centred card and provides the modal accessibility pieces:
  *   - a Tab focus-trap (Tab / Shift+Tab cycle within the panel, never escaping
  *     to the page behind the scrim), and
  *   - focus restoration to the trigger element when the dialog unmounts.
- * It also owns Escape-to-close and scrim-click-to-close, and moves focus into
- * the dialog on open (an explicit initialFocusRef, else the first focusable).
+ * It owns Escape-to-close and scrim-click-to-close, and moves focus into the
+ * dialog on open (an explicit initialFocusRef, else the first focusable).
  *
  * Parents conditionally MOUNT this (it is "open" whenever rendered); closing is
  * the parent unmounting it via onClose. The scrim/panel testids and aria-label
- * are passed through so each refactored dialog keeps its existing test contract.
+ * pass through.
  */
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 

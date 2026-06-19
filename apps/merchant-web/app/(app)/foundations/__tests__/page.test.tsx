@@ -10,4 +10,16 @@ describe('Foundations page', () => {
     }
     expect(screen.getByRole('button', { name: /^save voucher$/i })).toBeInTheDocument()
   })
+
+  it('previews the surface primitives: cream Card, Input + Label, and the Table shell with empty-state', () => {
+    render(<FoundationsPage />)
+    // Cards: both the default white card and the cream-surface variant.
+    expect(screen.getByText('Default card')).toBeInTheDocument()
+    expect(screen.getByText('Cream card')).toBeInTheDocument()
+    // Input + Label, asserted via the label-for-control association (a11y pin).
+    expect(screen.getByLabelText('Business name')).toBeInTheDocument()
+    // Table shell (header) + the empty-state slot.
+    expect(screen.getByText('Voucher')).toBeInTheDocument()
+    expect(screen.getByText(/no redemptions to show yet/i)).toBeInTheDocument()
+  })
 })
