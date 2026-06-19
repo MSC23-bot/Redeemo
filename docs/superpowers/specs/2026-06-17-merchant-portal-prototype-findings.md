@@ -610,7 +610,7 @@ BELL <-> SETTINGS consistency (locked): the bell shows ALL in-app account/busine
 
 PROTOTYPE: brief the bell dropdown/panel - newest-first feed, per-type icon + title + body + relative time + read/unread, DEEP-LINK each to its surface (voucher review -> that voucher; verification -> Business profile; edit outcome -> branch/profile; document -> Documents; redemption -> Redemptions/Home; security -> Settings login&security; PIN -> branch), mark-read on open + mark-all-read, "see all", empty "all caught up", unread badge (9+ cap). Mirror the admin-web NotificationBell (Radix popover, ~45s poll). Requirements-led; layout to Claude.
 
-Brief SENT (2026-06-19). REVIEW WHEN BACK.
+FINAL brief refined + re-sent 2026-06-19: redemptions in the bell = MILESTONES ONLY (per-redemption is the email alert, not the bell - per 2AB); SECURITY ALERTS included (per 2X). REVIEW WHEN BACK.
 
 ## 2AA. Operational + report emails in Settings (owner direction 2026-06-19; recipient model A locked)
 
