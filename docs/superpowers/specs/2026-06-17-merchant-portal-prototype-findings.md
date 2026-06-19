@@ -792,5 +792,24 @@ ONBOARDING AS-BUILT specifics (Section 1 has the shape; these are concrete addit
 
 [CORRECTION / OWNER TO CONFIRM] Voucher preview DEFAULT BANNER. Section 1 ("Voucher preview card") currently says the default banner uses the PER-TYPE gradient (matching the customer app), with a parenthetical "owner to confirm if they prefer a brand-gradient default". The transcript shows the owner LOCKED the BRAND gradient (rose #E20C04 -> coral #E84A00, with the merchant logo + offer context) for the no-photo default, after the BOGO purple looked jarring; the per-type colour stays on the TYPE CHIP only; a merchant photo overrides. These two CONFLICT -> OWNER TO CONFIRM the final default: brand-gradient (the live prototyping decision) vs per-type (the customer-app-fidelity argument). Once confirmed, update Section 1 line. Preview copy locks reconfirmed: "Save up to £X" (not "Save about"); CTA "Redeem this voucher".
 
+## 2AK. Insights & reports as-built review + customer demographics added (owner direction 2026-06-19)
+
+AS-BUILT: excellent + RECONCILES. Framing ("your Redeemo performance... validated only... never your whole business"); 3 headline cards (Redemptions 61 / Distinct customers 41 / Value delivered £609, all +MoM); redemptions-over-time (current month brand-orange, reduce-green respected); 5 tabs (Offers/Branches/Customers/Busy times/Validation); reports (monthly report + CSV "no customer personal data"). Reconciliation ties: offers 32+14+9+6=61; validation 35+26=61; customers 25+16=41.
+
+FIXES:
+- COPY (vocabulary lock, Section 1 voucher-not-offer): "Top offers" -> "Top vouchers"; "the kind of offer" -> "the kind of voucher"; report "your top offers and branches" -> "top vouchers and branches".
+- RECONCILIATION (demo data must tie EXACTLY): branch value £368+£242=£610 vs headline £609 (£1 off); busy-times heatmap cells sum to 59 vs 61. Fix to reconcile to 61 / £609.
+- DEMO CONSISTENCY: Insights shows TWO branches (High Street + Mill Road, Cambridge) but the persona was single-branch (High Street) elsewhere. Make the persona consistently TWO branches across the WHOLE portal (better for demoing branch performance + scope). Recommend two-branch everywhere.
+- MINOR: the Reusable ("Loyalty reward, 10% off") top-vouchers bar should use the Reusable TYPE colour (teal #84DCC2->#198375), not green.
+
+CUSTOMER DEMOGRAPHICS - owner LIFTS the privacy gate (was deferred "future/privacy-gated" in 2AI; blueprint 5.6.4). Owner direction: show what KIND of crowd a merchant attracts, AGGREGATE only, NEVER individual identity. Captured at signup: age (DOB), gender, registered location/area, interests. ADD to the Customers tab:
+- AGE GROUPS (bands 18-24/25-34/35-44/45-54/55+) - the age mix of redeeming customers.
+- GENDER split (canonical: female/male/non-binary/prefer-not-to-say).
+- AREAS customers come from (their REGISTERED location = the catchment) - COARSE (town/region), NOT exact postcode.
+SAFEGUARDS (mandatory, baked into the brief): aggregate + pseudonymous; NO individual identity; MINIMUM-COHORT SUPPRESSION (hide any slice with too few customers - even aggregates re-identify at small N; show "not enough data yet"); coarse area only; prominent privacy note.
+LAUNCH GATE (honest flag): this IS the blueprint 5.6.4 privacy-review feature. Before it goes live: the customer PRIVACY POLICY must permit sharing aggregate demographics with merchants + a legal/ICO confirm. Owner approves the PRODUCT direction now; the legal sign-off remains a pre-launch gate (not a prototyping blocker).
+
+Brief SENT (2026-06-19; copy/vocabulary fix + reconciliation + two-branch demo + Reusable colour + demographics with safeguards). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
