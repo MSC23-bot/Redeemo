@@ -811,5 +811,19 @@ LAUNCH GATE (honest flag): this IS the blueprint 5.6.4 privacy-review feature. B
 
 Brief SENT (2026-06-19; copy/vocabulary fix + reconciliation + two-branch demo + Reusable colour + demographics with safeguards). REVIEW WHEN BACK.
 
+## 2AL. View-as-role demo + Phase-5 teasers (owner direction 2026-06-19)
+
+(1) VIEW-AS-ROLE DEMO: a "view as" switcher (Owner / Branch manager / Staff) to see the whole portal per role - validates the capability model (2R/2S + blueprint §2.4) holistically, and shows the dashboard per role. Applies to the LIVE portal (setting-up = owner; managers/staff exist only post-launch). Sits alongside the lifecycle switcher. Per-role view:
+- OWNER: everything (full portal; all branches/data/actions).
+- BRANCH MANAGER (scoped to their branch[es]): Home / Redemptions / Branches / Staff & access / Insights / Help / own Settings, ALL branch-scoped; manages their branch operational details (hours/PIN/amenities/photos/contact) + their branch app/validation staff; NOT create/close branches, NOT portal roles/owners, NOT business-profile identity (read-only), NOT business closure / account-caps / billing, NOT other branches. Vouchers VIEW-only UNLESS granted "manage vouchers" (2S) -> then create/edit. Dashboard + Insights = their branch.
+- STAFF (validate+view only): lean - Home (validate + recent activity at their branch) / Redemptions (their branch, validate+view) / Help / own Settings. NO create/edit; no Branches-manage / Staff & access / Business profile / Insights / billing. Dashboard leads with "validate a code".
+- Optional toggle: Branch manager WITH "manage vouchers" granted, to show the extras effect.
+
+(2) PHASE-5 TEASERS (Grow your business group): coming-soon teaser pages (NOT functional).
+- PROMOTE: featured placement (home page + area) + location-targeted campaigns -> more customer discovery (featured/trending). Enticing preview + "coming soon" + optional register-interest.
+- PAYMENTS & BILLING: payment methods + invoices/receipts for the paid growth features; note being LISTED IS FREE, billing only for paid growth. "Coming soon" + optional register-interest.
+
+Both briefs SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
