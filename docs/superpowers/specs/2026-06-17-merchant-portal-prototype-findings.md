@@ -649,5 +649,22 @@ PHASE: SCHEMA add (per-branch redemption-alert recipients: which managers + whic
 
 Brief SENT (2026-06-19; branch-level Redemption alerts + Settings keeps only the monthly report for operational email). REVIEW WHEN BACK.
 
+## 2AC. Automated-email assignment in Staff & access user setup (owner direction 2026-06-19; refines 2AB placement)
+
+Owner: when creating/editing a portal user + assigning role/branch in Staff & access, add an "Automated emails" section so the OWNER assigns which automated emails that person receives (esp. branch managers; redemptions + others). REFINES 2AB's placement: the per-USER recipient assignment moves to Staff & access (the natural home - set up the person's role + branch + emails together).
+
+UNIFIED MODEL (reconciles 2X / 2AA / 2AB):
+- STAFF & ACCESS (create/edit user) = PRIMARY: owner ASSIGNS a USER's automated emails (redemption alerts + monthly report), AUTO-SCOPED to the role/branches already set in the drawer (manager = their branch(es); owner = business). Staff role (validate+view) = no automated emails by default.
+- BRANCH (Branches) = add EXTRA non-user recipients only (shared inbox / external email) to that branch's redemption alerts + a read-only summary of who is alerted for the branch. (Non-users have no Staff & access record.) The branch is NO LONGER where portal users are assigned (that moved here).
+- SETTINGS (personal) = the person sees + can self-adjust/opt-out their OWN automated emails. Owner assigns the starting point; person keeps autonomy (+ compliance unsubscribe).
+
+So: OWNER ASSIGNS at setup (Staff & access) + PERSON SELF-ADJUSTS (Settings) + NON-USER EXTRAS on the branch. Scope automatic by role/branch.
+
+ASSIGNABLE automated emails = the operational/reporting ones: real-time redemption alerts + monthly performance report. (Account-event emails [approvals etc.] come with portal access; not "assigned".)
+
+PHASE: per-user email-subscription storage + per-branch extra-emails (SCHEMA add - STOP-AND-REPORT). Same wiring as 2AB (createRedemption -> notify(); Resend Phase 6).
+
+Brief SENT (2026-06-19; Staff & access "Automated emails" section + branch extras/summary + Settings self-view). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
