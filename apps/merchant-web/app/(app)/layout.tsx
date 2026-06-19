@@ -1,3 +1,5 @@
+import { MerchantPortalShell } from '@/components/shell/MerchantPortalShell'
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>
+  return <MerchantPortalShell>{children}</MerchantPortalShell>
 }
