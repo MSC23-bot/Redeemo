@@ -699,5 +699,18 @@ PROTOTYPE: brief a top-bar quick-actions entry with the set above, capability-fi
 
 Brief SENT (2026-06-19). REVIEW WHEN BACK.
 
+## 2AF. Help & support: verified contract + scope (added 2026-06-19)
+
+Grounded: mostly STATIC + a future contact/ticket flow.
+- Legal pages EXIST on customer-web (apps/customer-web/app/{terms,privacy} + lib/legal.ts) - the static launch source of truth (memory: legal gate; CmsContent model exists at schema:1663 but is UNWIRED/deferred). Merchant portal LINKS to terms + privacy; the merchant AGREEMENT (contract) is separate, viewable in Business profile.
+- NO merchant support-ticket / helpdesk backend (customer-app SupportTicket + MerchantRequest were DEFERRED to Sub-PR 2; same posture for merchant). So a contact/support-request form is PROTOTYPE-only; submission backend = Phase 4 + email Phase 6 (planned addresses support@/merchants@redeemo.co.uk, unwired).
+- Inherits the legal & help links relocated from Settings (2W): terms, privacy, get help, contact Redeemo.
+
+CONTENT (recommended): (1) Get help / contact Redeemo + a support-request message form (topic-tagged: vouchers/redemptions/branches/account/billing); (2) Help articles / FAQs browsable by topic + search (static now; CMS later); (3) Legal links (terms, privacy) + pointer to the agreement in Business profile.
+
+PROTOTYPE: brief the Help & support surface (contact/get-help + support-request form + FAQs-by-topic + legal links). Requirements-led; layout to Claude. Support-ticket submission + dynamic help content = Phase 4/6.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
