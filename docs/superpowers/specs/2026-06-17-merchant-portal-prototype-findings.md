@@ -751,5 +751,29 @@ SUPERSEDES: 2T/2U "Documents nav page = full manager" + "Business profile shows 
 
 Brief SENT (2026-06-19; remove Documents nav/page + fold into Business profile Compliance). REVIEW WHEN BACK.
 
+## 2AI. Insights & reports: recommended analytics + structure (owner direction 2026-06-19)
+
+The deep analytics module (Home = glance; Insights = deep history/breakdowns/export). Grounded in 2O definitions + 2Y (no backend yet; data exists) + blueprint 5.6 (reports-now/soon/privacy-gated).
+
+GROUND TRUTH / FRAMING (bake in):
+- It is the merchant's REDEEMO activity ONLY (NOT their whole business / total sales). Value = estimated SAVING delivered (positive framing; not revenue, not money-lost).
+- Locked defs (2O): validated-only headline; reversed excluded everywhere; value = saving over validated; customers = distinct; monthly completed-month compare; ENCOURAGEMENT framing (celebrate growth; neutral/constructive on dips; no shaming).
+- PRIVACY (blueprint 5.6.4): customer insight = AGGREGATE + PSEUDONYMOUS only; NO individual customer identity; minimum-cohort suppression.
+
+CONTROLS: time range (default current month vs last; +last-3-months/custom), branch scope (auto by role), voucher-type filter.
+
+INSIGHTS (tiered):
+- NOW (MVP, no PII): Overview headline (redemptions / distinct customers / value delivered + MoM trend); redemptions-over-time trend; offer performance (ranked vouchers + by type); branch performance (ranked, multi-branch); busiest days/times HEATMAP (aggregate); validation health (validated vs awaiting; QR vs manual).
+- SOON (pseudonymous): new vs returning customers (over userId, no identity).
+- FUTURE (privacy-gated, NOT in brief): aggregate demographics behind the 5.6.4 review.
+
+REPORTS (export): monthly performance report (= the emailed 2AA report: redemptions/value/customers/top offers+branches/trend); redemption export CSV (date/voucher/branch/value/validated/method; NO customer PII). Future: custom/scheduled.
+
+VISUALS: metric cards + trend; line/bar trend; ranked bars (offers/branches); share/donut (types); day x time heatmap (busy). STRUCTURE: full dashboard MODULE (richer than a sub-page) but organised - controls top, overview first, breakdowns in sections/tabs, reports last; NOT a mega-scroll (Help-page lesson).
+
+PHASE: all Phase-4 (the merchant analytics aggregation does NOT exist - 2Y). Prototype shows intended UX.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
