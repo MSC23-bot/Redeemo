@@ -36,7 +36,7 @@ export function MerchantPortalShell({ children }: { children: React.ReactNode })
       )}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <Topbar onMenu={() => (isNarrow ? setDrawerOpen((v) => !v) : undefined)} />
+        <Topbar onMenu={() => setDrawerOpen((v) => !v)} isNarrow={isNarrow} />
         <main style={{ flex: 1, padding: isNarrow ? '20px 16px 88px' : '30px 40px 64px' }}>
           <div style={{ maxWidth: 1180, margin: '0 auto' }}>{children}</div>
         </main>
