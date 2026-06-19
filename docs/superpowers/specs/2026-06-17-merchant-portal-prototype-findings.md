@@ -582,5 +582,16 @@ PHASE-4 BACKEND SECURITY: step-up auth on sensitive actions (email/phone/passwor
 
 Review brief SENT (2026-06-19). REVIEW WHEN BACK.
 
+## 2Y. Home dashboard + Insights: analytics grounding (added 2026-06-19)
+
+Grounded before walking the analytics surfaces.
+- NO merchant-facing analytics/aggregation backend exists. No analytics service/dir under src/api/merchant; the only redemption-aggregation primitive is listBranchRedemptions' voucherRedemption.count (per-branch, paginated) + a per-voucher count. The merchant DASHBOARD + INSIGHTS aggregation (today/week/month counts, redemptions-over-time, per-offer, per-branch, savings-sum, distinct-customers, recent feed) is ENTIRELY a Phase-4 build. (Customer-side savings aggregation exists [Phase 3C.1f] but that is a CUSTOMER's own savings, not merchant-side.)
+- DATA exists to power it: VoucherRedemption (isValidated [validated-vs-redeemed], validatedAt, branchId, voucherId, estimatedSaving [value], isTestData [exclude test/seed], reversal concept [2M, excluded from metrics]); Voucher (type/title); Branch; distinct userId (customers).
+- DEFINITIONS LOCKED (2O), apply to Home + Insights + every surface: headline redemptions = VALIDATED-only; REVERSED excluded everywhere; value/savings = sum over validated (positive framing, never "money lost"); customers = distinct; trend = MONTHLY completed-month, ENCOURAGEMENT framing (no decline-shaming); awaiting-validation shown separately (operational), not in the "used" headline.
+- HOME is STATE-AWARE: setting-up = the onboarding guided-staircase checklist (business profile / main branch / 2 RMVs / contract / docs) + what's-next; LIVE = the performance glance (headline metrics + attention items + recent-activity feed + top performers + quick actions + Phase-5 teaser).
+- RECONCILIATION (2O): Home headline = sum of per-voucher validated (Vouchers) = the Redemptions log. One shared demo dataset every surface derives from.
+
+NEXT STEP: the 2O reconciliation brief likely already built a Home + Insights version. Rather than re-brief from scratch (risking regressing 2O), REVIEW the current Home dashboard first, then refine. (If it is only a stub, brief a full build.)
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
