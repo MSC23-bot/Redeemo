@@ -890,5 +890,16 @@ FIXES (mainly reconcile Home <-> Insights = ONE shared dataset, per 2O):
 
 Everything else stays. Brief SENT (2026-06-19). REVIEW WHEN BACK.
 
+## 2AQ. Close-out decisions (owner 2026-06-19)
+
+The portal walk is complete. Final owner decisions settling the open items:
+- NAV LABEL: "My account" CONFIRMED (keep the rename; accurate now the hub is purely personal). No change needed.
+- VOUCHER PREVIEW DEFAULT BANNER: PER-TYPE gradient CONFIRMED (matches the live customer voucher card; the preview mirrors what the customer sees). RESOLVES the 2AJ discrepancy + supersedes the owner's earlier brand-gradient prototyping pick. Section 1 line 25 "per-type is the faithful choice" is now confirmed ("owner to confirm" closed). CHANGE: the prototype currently defaults to brand-gradient -> switch to per-type; per-type colour also stays on the type chip; a merchant photo overrides.
+- VOCABULARY: ENFORCE "voucher" everywhere (never "offer"). Sweep stray "offers" (Insights "Top offers", Home "offers working for you", "by the kind of offer", etc.) -> "vouchers".
+- LOGIN TRUST LINE: soften "Trusted by independent businesses across the UK" (over-claim at launch) -> "Built for independent businesses across the UK".
+- EARLY->ESTABLISHED THRESHOLD: ~20-30 validated redemptions CONFIRMED (tunable).
+
+Final fix brief SENT (banner per-type + offers->vouchers sweep + trust-line). After this + the Home reconciliation (2AP) land, and a quick check of the Phase-5 teasers (2AL, briefed/unreviewed), the prototype is complete.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
