@@ -706,11 +706,18 @@ Grounded: mostly STATIC + a future contact/ticket flow.
 - NO merchant support-ticket / helpdesk backend (customer-app SupportTicket + MerchantRequest were DEFERRED to Sub-PR 2; same posture for merchant). So a contact/support-request form is PROTOTYPE-only; submission backend = Phase 4 + email Phase 6 (planned addresses support@/merchants@redeemo.co.uk, unwired).
 - Inherits the legal & help links relocated from Settings (2W): terms, privacy, get help, contact Redeemo.
 
-CONTENT (recommended): (1) Get help / contact Redeemo + a support-request message form (topic-tagged: vouchers/redemptions/branches/account/billing); (2) Help articles / FAQs browsable by topic + search (static now; CMS later); (3) Legal links (terms, privacy) + pointer to the agreement in Business profile.
+CONTENT (owner asked to think comprehensively - merchants likely don't know how the platform works, so Help must TEACH + EQUIP):
+1. HOW REDEEMO WORKS (orientation): the model in plain terms (customers subscribe + unlock vouchers -> redeem in-store with your branch PIN -> you validate the code -> once per cycle), the mandatory vouchers, how you get approved + go live.
+2. GUIDES / TUTORIALS (step-by-step): create a voucher (+ what each type means), set up a branch + its PIN, add staff/managers (+ role capabilities), validate a code (QR scan + manual entry), use the mobile app, read the dashboard/reports. (Room for short videos later.)
+3. FAQs + TROUBLESHOOTING ("what to do when..."): by topic (vouchers / redemptions+validation / branch PIN / branches / staff / account / billing) + wrong-situation scenarios grounded in our mechanics: QR won't scan -> manual entry; customer redeemed by accident -> reverse it (2M); PIN not working/forgotten -> find + reset; not showing to customers -> verification pending; vouchers inactive -> suspended; can't log in.
+4. PRINTABLE COUNTER MATERIALS (owner's key example): downloadable/printable - a PER-BRANCH PIN CARD for the till (branch name + PIN, staff always have it), a "how to redeem" customer poster (merchant educates their own customers), a staff validate-a-code quick-guide, Redeemo "we're on Redeemo" window/counter materials.
+5. RAISE A SUPPORT REQUEST (ticket): describe + tag the area + attach a screenshot + TRACK status (open/responded/resolved); plus direct contact (support email, account manager).
+6. (Lighter) STATUS + UPDATES: service status + product announcements ("what's new").
+Plus LEGAL links (terms, privacy) + pointer to the agreement (Business profile). SEARCHABLE across help.
 
-PROTOTYPE: brief the Help & support surface (contact/get-help + support-request form + FAQs-by-topic + legal links). Requirements-led; layout to Claude. Support-ticket submission + dynamic help content = Phase 4/6.
+PROTOTYPE: brief the full Help & support per the above. Requirements-led; layout to Claude. PHASE 4/6: static content now (CMS later); printable PDFs (per-branch PIN card) generated later; ticket submission + tracking backend later; contact/email later.
 
-Brief SENT (2026-06-19). REVIEW WHEN BACK.
+Brief REVISED + re-sent (2026-06-19, comprehensive per owner "think deeply"). REVIEW WHEN BACK.
 
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
