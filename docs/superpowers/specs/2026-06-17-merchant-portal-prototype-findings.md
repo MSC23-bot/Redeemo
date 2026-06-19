@@ -630,5 +630,24 @@ PHASE: email delivery = Phase 6 (Resend, unwired). Report generation needs the m
 
 Brief SENT (2026-06-19). REVIEW WHEN BACK.
 
+## 2AB. Redemption alerts: real-time, owner-chosen recipients (owner direction 2026-06-19; revises 2AA redemption-activity part)
+
+Owner refined 2AA: DROP the daily-summary digest. Redemption activity becomes a REAL-TIME email, one per redemption, sent to recipients the OWNER chooses ("branch managers or whoever the owner chooses"). REVISES 2AA's self-managed each/daily/off redemption-activity pref. The MONTHLY PERFORMANCE REPORT (2AA) stays as-is: self-managed (model A), scoped.
+
+RECIPIENT MODEL now SPLITS by email KIND:
+- MONTHLY REPORT + account-event emails = self-managed per-user (model A, 2X/2AA).
+- REAL-TIME REDEMPTION ALERTS = OWNER-configured recipients (per branch). The recipient is often NOT the logged-in user managing their own prefs - it is whoever the owner designates (a branch manager, a shared branch inbox, a specific person/non-portal email).
+
+DESIGN (locked direction):
+- Real-time email the moment a voucher is redeemed at a branch (NO digest).
+- PER BRANCH, the owner (and a branch manager for their own branch) picks recipients: the branch's assigned managers (toggle each) + add any extra email address. Off if no recipients.
+- Email carries operational detail (voucher, time, redemption code); mindful of customer PII (cross-ref blueprint 5.6.4 aggregate stance).
+
+PLACEMENT (recommended): on the BRANCH (Branches surface), alongside the redemption PIN + contact - per-branch operational config, keeps Settings = personal (2W lock). (Alternative: a central owner-only view in Settings - flagged; recommend branch-level.)
+
+PHASE: SCHEMA add (per-branch redemption-alert recipients: which managers + which extra emails) - STOP-AND-REPORT exact SQL before migration. Wire the redeem event (createRedemption) to fire notify() to those recipients in real-time. Delivery = Resend (Phase 6). VOUCHER_REDEEMED NotificationType already exists.
+
+Brief SENT (2026-06-19; branch-level Redemption alerts + Settings keeps only the monthly report for operational email). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
