@@ -901,5 +901,20 @@ The portal walk is complete. Final owner decisions settling the open items:
 
 Final fix brief SENT (banner per-type + offers->vouchers sweep + trust-line). After this + the Home reconciliation (2AP) land, and a quick check of the Phase-5 teasers (2AL, briefed/unreviewed), the prototype is complete.
 
+## 2AR. Admin-invite + claim ("shell account") flow - grounded + merchant-side claim to prototype (owner direction 2026-06-19)
+
+Owner flagged a missing path: when Redeemo's admin INVITES a merchant (creates a shell/draft account the business takes over). GROUNDED - the backend flow EXISTS:
+- ADMIN create-draft (createMerchantDraft, admin/merchants/service.ts; admin-panel /merchants/new, cap merchant:create-draft): admin enters businessName + tradingName + ownerEmail + ownerFirstName/LastName + jobTitle -> creates a shell Merchant (status REGISTERED, name only) + the owner MerchantAdmin (no password, mustChangePassword) + OWNER membership. Guard EMAIL_ALREADY_EXISTS.
+- issueMerchantClaim: single-use 32-byte claim token, 7-DAY TTL (Redis merchant-claim:<token> -> adminId); sends claimAccountEmail (subject "Set up your Redeemo merchant account") via the notify outbox (DARK until Phase 6). Token NEVER logged/returned.
+- Link -> {MERCHANT_PORTAL_URL = https://merchant.redeemo.co.uk}/claim?token=... (7-day).
+- claimMerchantAccount (POST /merchant/auth/claim): owner sets password via the single-use token -> sets passwordHash, clears mustChangePassword, sets otpVerifiedAt (emailed link = interim proof of email control; phone OTP not wired). Single-use. Then login (still via device OTP).
+=> ADMIN side (create-draft + auto invite email) is BUILT (admin panel, M6). MERCHANT side (the claim/take-over screens) is the GAP - never prototyped.
+
+TWO ENTRY MODELS now coexist (both ship): (1) SELF-SERVE registration ("List your business" - the prototyped direction; Phase-4 new backend route); (2) ADMIN-INVITE + claim (the EXISTING backend; Redeemo's team sets up a business). Both converge on the SAME setting-up dashboard + onboarding checklist. The CLAIM page is the invited-merchant counterpart to the registration page.
+
+PROTOTYPE (merchant side): (1) the invite email (Redeemo set up your account; business named; "Set up your account" CTA; 7-day expiry; security line); (2) the /claim set-password page ("Welcome to Redeemo, [Business]"; show admin-prefilled business + owner name READ-ONLY; set password + same strength meter as registration; -> signed in -> setting-up dashboard with "create account" done + prefills); (3) expired/invalid link state (7-day; -> contact Redeemo for a new invite). Same brand world as sign-in/registration.
+
+Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
