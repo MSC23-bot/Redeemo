@@ -561,5 +561,26 @@ PHASE-4 BACKEND: logged-in change-password (not built), own-profile edit (not bu
 
 Rebuild brief SENT (2026-06-19). REVIEW WHEN BACK.
 
+## 2X. Settings rebuild review + SECURITY pass (owner direction 2026-06-19)
+
+Rebuild landed well (Your details + separate Change email; Login & security = password [last-changed] + login-verification-ON + sign-out-everywhere; Notifications email-toggles; subtitle scopes Settings as personal + points elsewhere). Owner changes + a security pass:
+
+OWNER CHANGES:
+- REMOVE the Account section entirely (agreement card + 12-month contact-Redeemo line). The agreement lives in Business profile; not needed here. (Reverses part of 2W's "light Account section".)
+- ADD a "Voucher redeemed" notification (per-redemption). Value = activity signal + FRAUD MONITORING (spot unexpected redemptions, e.g. staff abuse). Volume: bell shows live; email best as a DAILY SUMMARY not one-per-redemption.
+
+SECURITY PASS (merchant ATO is high-value: fraudulent vouchers/validations, customer data, identity, future billing). Gaps + requirements:
+1. PHONE IS THE 2FA CHANNEL (login OTP -> Twilio SMS to MerchantAdmin.phone). Changing the phone must be as protected as email - currently a casual inline edit (BIGGEST GAP). Move phone OUT of the inline details edit into a confirmed change flow (verify it's you + verify the new number + alert). Name + job title stay casual inline.
+2. EMAIL CHANGE step-up: require password AND the login one-time code (not password alone), confirm via the NEW address, AND alert the OLD email with a "wasn't me" path. A stolen password alone must never move the account.
+3. SECURITY ALERTS notification - always-on, emailed: new sign-in (new device), email/phone/password changed, sign-out-everywhere used. The owner's ATO tripwire. Add locked-on.
+4. PASSWORD CHANGE: current-password required (have); on success alert by email + offer sign-out-other-devices. Consider OTP step-up.
+5. LOGIN VERIFICATION mandatory (no off switch) - keep. Add a recovery path for a lost OTP phone (backup / contact Redeemo).
+6. RECENT SIGN-IN ACTIVITY (where you're signed in / recent logins) - optional visibility feature (customer app dropped its session row, but a business account justifies it).
+7. CROSS-SURFACE (not Settings, flagged): promoting someone to OWNER / business transfer = highest privilege -> step-up + alert all owners + new-owner confirm; a real business SALE = admin-mediated (contract novation, 12-month term). Role elevation + grantable-extras (2S/2R) owner-only + verified. Branch PIN already role-gated (Branches). "Validate a code" must stay role-gated.
+
+PHASE-4 BACKEND SECURITY: step-up auth on sensitive actions (email/phone/password/sign-out/role-elevation); old-channel alerts (old email/phone); new-device login alerts; OTP delivery (Twilio currently TODO) + OTP-attempt rate-limit; recovery/backup codes; audit (writeAuditLog covers actions); session/CSRF posture; rate-limit sensitive Settings actions.
+
+Review brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
