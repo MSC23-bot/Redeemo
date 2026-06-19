@@ -111,6 +111,44 @@ jobs:
         continue-on-error: true
         run: npm audit --workspace=@redeemo/admin-web --audit-level=high
 
+  merchant-web:
+    name: merchant-web (typecheck / lint / build / test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc # repo-level source of truth (root .nvmrc)
+          cache: npm
+
+      - name: Install (root install, hoists workspaces)
+        run: npm ci
+
+      - name: Typecheck (merchant-web)
+        working-directory: apps/merchant-web
+        run: npm run typecheck
+
+      - name: Lint (merchant-web)
+        working-directory: apps/merchant-web
+        run: npm run lint
+
+      - name: Build (merchant-web)
+        working-directory: apps/merchant-web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3000
+        run: npm run build
+
+      - name: Test (merchant-web)
+        working-directory: apps/merchant-web
+        run: npm test
+
+      - name: Dependency audit (advisory, merchant-web high+)
+        if: ${{ always() }}
+        continue-on-error: true
+        run: npm audit --workspace=@redeemo/merchant-web --audit-level=high
+
   backend:
     name: backend (typecheck + unit)
     runs-on: ubuntu-latest
