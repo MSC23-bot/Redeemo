@@ -875,5 +875,20 @@ FLAGS (Phase-4 backend alignment):
 
 Brief SENT (2026-06-19). REVIEW WHEN BACK.
 
+## 2AP. Home dashboard as-built review - 3 states (owner screenshots 2026-06-19)
+
+All THREE states EXCELLENT + match the model (2AJ/2AN/2AL):
+- SETTING UP: "Welcome to Redeemo, James" + 6-step "Get your business live" checklist (5 of 6; vouchers in progress) + "Nothing is public yet" + LOCKED Activity/Insights teasers + "Verify your business sooner" docs card.
+- LIVE, JUST STARTED (early): celebratory "The Old Foundry Kitchen is live on Redeemo" + placeholder "Your first redemptions will show here" (NOT a zero line) + LIVE VOUCHERS READY / FIRST REDEMPTION on-its-way / NOW VISIBLE cards + "Ways to bring in more customers" tips.
+- LIVE (established): "Welcome back, James" + navy redemptions line + busiest-days bar (Sat) + 4 distinct stat cards (Customers brought in 212 / New this cycle 34 / Live vouchers 4 / Busiest Saturday) + "Needs your attention (3)" + privacy-safe "Recent redemptions" ("never who") + the View-as-role switcher (Owner/Branch manager/Staff personas + "prototype only" note). Two branches (High Street + Mill Road).
+
+FIXES (mainly reconcile Home <-> Insights = ONE shared dataset, per 2O):
+1. TREND label: Home "Holding steady" CONTRADICTS Insights "+13% up on last month" (same period). Make them agree (one dataset, one story). ENCOURAGEMENT rule: when genuinely UP, CELEBRATE it ("up 13%"), do NOT undersell growth as "holding steady"; "holding steady" only for genuinely flat; calm no-doom only for a quieter period.
+2. NEW CUSTOMERS: Home "new customers this cycle 34" vs Insights "new customers this month 25" - reconcile (same period -> same number; or clearly distinguish the period definitions).
+3. SHARED MONTHLY FIGURES: Home redemptions line (Nov-Jun) vs Insights bar (Jan-Jun) - overlapping months must match; Home current month must = Insights current month (61).
+4. VOCAB: "offers" -> "vouchers" on Home ("vouchers working for you", "flagship vouchers") per the Section 1 lock. RECURRING across surfaces - OWNER DECISION: enforce "voucher everywhere" vs relax to allow "offer" as a synonym (brief assumes vouchers).
+
+Everything else stays. Brief SENT (2026-06-19). REVIEW WHEN BACK.
+
 ## 3. Disposition
 These items are captured for Phase 3. None are being implemented now. Schema items will stop for explicit sign-off with exact SQL and rollback before any migration. The locked decisions in section 1 should be folded into the blueprint when it is next revised.
