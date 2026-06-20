@@ -1,6 +1,9 @@
 # Merchant Portal M2 (Onboarding) - Locked Decisions + Prototype Extraction Checkpoint
 
-> Status: ACTIVE BRAINSTORM CHECKPOINT (pre-spec). Date: 2026-06-20.
+> Status: SUPERSEDED 2026-06-20 by the M2 design spec
+> `docs/superpowers/specs/2026-06-20-merchant-web-m2-onboarding-design.md`, which absorbs the D1-D10
+> decisions + the prototype extraction + the cross-check tables and is now the single source of truth.
+> Retained as the historical decision log (the grill-me record). Date: 2026-06-20.
 > Purpose: a durable anti-drift source of truth for the M2 onboarding decisions, so the long
 > brainstorm thread cannot be lost to context compression. The eventual M2 design spec MUST
 > carry this section ("M2 Locked Decisions + Prototype Extraction Checkpoint") prominently and
