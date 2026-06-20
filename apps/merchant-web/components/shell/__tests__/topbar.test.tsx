@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { Topbar } from '../Topbar'
 
 describe('Topbar', () => {
@@ -25,5 +25,27 @@ describe('Topbar', () => {
     render(<Topbar onMenu={() => {}} isNarrow />)
     expect(screen.getByRole('button', { name: /toggle navigation/i })).toBeInTheDocument()
     expect(screen.getByText('Redeemo for Business')).toBeInTheDocument()
+  })
+
+  it('opens the account menu and signs out (M1 Slice 5)', () => {
+    const onSignOut = jest.fn()
+    render(<Topbar onMenu={() => {}} businessName="Roe Cafe" onSignOut={onSignOut} />)
+    // closed by default
+    expect(screen.queryByRole('menuitem', { name: /sign out/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /account menu/i }))
+    expect(screen.getByText('Roe Cafe')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: /sign out/i }))
+    expect(onSignOut).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes the account menu on Escape and returns focus to the trigger (M1 Slice 5 a11y)', () => {
+    render(<Topbar onMenu={() => {}} businessName="Roe Cafe" onSignOut={jest.fn()} />)
+    const trigger = screen.getByRole('button', { name: /account menu/i })
+    expect(trigger).toHaveAttribute('aria-haspopup', 'menu')
+    fireEvent.click(trigger)
+    expect(screen.getByRole('menuitem', { name: /sign out/i })).toHaveFocus()
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+    expect(screen.queryByRole('menuitem', { name: /sign out/i })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 })

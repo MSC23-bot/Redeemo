@@ -12,8 +12,8 @@
 //     external scripts. 'unsafe-eval' is dev-only (React Fast Refresh).
 //   - style-src 'unsafe-inline' is unavoidable with Tailwind/runtime style attrs.
 //   - connect-src is scoped to self + the backend API origin (NEXT_PUBLIC_API_URL),
-//     so admin data fetches reach the API and nothing else.
-//   - frame-ancestors 'none' + X-Frame-Options DENY: the admin console is never
+//     so merchant data fetches reach the API and nothing else.
+//   - frame-ancestors 'none' + X-Frame-Options DENY: the merchant portal is never
 //     embedded in a frame (clickjacking guard).
 
 export interface SecurityHeaderOptions {
@@ -39,9 +39,16 @@ function originOf(url: string): string | null {
 export function buildContentSecurityPolicy(opts: SecurityHeaderOptions): string {
   const api = originOf(opts.apiUrl)
 
+  // M1 Slice 1: Cloudflare Turnstile (registration captcha). The widget loads a
+  // script from challenges.cloudflare.com (script-src), renders an iframe from it
+  // (frame-src), and posts the siteverify challenge (connect-src). Registration-only
+  // surface, but CSP is page-level so the origins are allowed app-wide.
+  const TURNSTILE = 'https://challenges.cloudflare.com'
+
   const scriptSrc = [
     "'self'",
     "'unsafe-inline'",
+    TURNSTILE,
     ...(opts.isProduction ? [] : ["'unsafe-eval'"]), // dev: React Fast Refresh
   ]
   const styleSrc = ["'self'", "'unsafe-inline'"]
@@ -55,8 +62,10 @@ export function buildContentSecurityPolicy(opts: SecurityHeaderOptions): string 
   const connectSrc = [
     "'self'",
     ...(api ? [api] : []), // backend API (NEXT_PUBLIC_API_URL)
+    TURNSTILE,
     ...(opts.isProduction ? [] : ['ws:']), // dev: Next.js HMR websocket
   ]
+  const frameSrc = [TURNSTILE] // Turnstile widget iframe (default-src 'self' would otherwise block it)
 
   return [
     "default-src 'self'",
@@ -68,6 +77,7 @@ export function buildContentSecurityPolicy(opts: SecurityHeaderOptions): string 
     `img-src ${imgSrc.join(' ')}`,
     "font-src 'self'",
     `connect-src ${connectSrc.join(' ')}`,
+    `frame-src ${frameSrc.join(' ')}`,
   ].join('; ')
 }
 
