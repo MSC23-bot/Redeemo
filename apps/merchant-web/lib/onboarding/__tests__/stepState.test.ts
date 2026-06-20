@@ -143,6 +143,18 @@ describe('deriveStepStates - downstream gating chain (branch/vouchers/agreement 
     expect(branchStep.lockedHint).toBeTruthy()
     expect(branchStep.action).toBeFalsy()
   })
+
+  it('the locked agreement step carries the same downstream hint as its gate-siblings (no empty pill)', () => {
+    const { steps } = deriveStepStates(FRESH)
+    const agreementStep = byId(steps, 'agreement')
+    const branchStep = byId(steps, 'branch')
+    const vouchersStep = byId(steps, 'vouchers')
+    // all three share the SAME downstream gate, so all three must carry the SAME non-empty hint
+    expect(agreementStep.locked).toBe(true)
+    expect(agreementStep.lockedHint).toBeTruthy()
+    expect(agreementStep.lockedHint).toBe(branchStep.lockedHint)
+    expect(agreementStep.lockedHint).toBe(vouchersStep.lockedHint)
+  })
 })
 
 describe('deriveStepStates - branch/vouchers/agreement done-ness', () => {
@@ -187,22 +199,52 @@ describe('deriveStepStates - voucher 1 of 2 partial', () => {
   })
 })
 
-describe('deriveStepStates - submit gating', () => {
-  it('submitEnabled is false until checklist.all_complete', () => {
+describe('deriveStepStates - submit gating (prototype-aligned: ALL 6 steps done)', () => {
+  it('submitEnabled is false while the downstream 3 gates are unmet', () => {
     expect(deriveStepStates(FRESH).submitEnabled).toBe(false)
+    // category + profile done, downstream gates open, but branch/vouchers/agreement
+    // are all still not done -> not submittable.
     const open = inputs({
       profile: { primaryCategoryId: 'subcat-1', description: 'Great food.' },
-      checklist: { branch_created: true, contract_signed: true, rmv_configured: true, all_complete: false },
+      checklist: { branch_created: false, contract_signed: false, rmv_configured: false, all_complete: false },
     })
     expect(deriveStepStates(open).submitEnabled).toBe(false)
   })
 
-  it('submitEnabled is true once checklist.all_complete', () => {
+  it('submitEnabled stays FALSE when the backend says all_complete but profile is NOT done (empty description)', () => {
+    // The backend 3-gate (branch+contract+rmv) can be satisfied while the staircase
+    // still shows an incomplete profile. The prototype gates Submit on ALL 6 steps,
+    // so this must NOT enable Submit and the header must read "5 of 6".
+    const noDescription = inputs({
+      profile: { primaryCategoryId: 'subcat-1', description: null },
+      checklist: { branch_created: true, contract_signed: true, rmv_configured: true, all_complete: true },
+    })
+    const derived = deriveStepStates(noDescription)
+    expect(derived.submitEnabled).toBe(false)
+    expect(derived.doneCount).toBe(5)
+    expect(derived.totalCount).toBe(6)
+  })
+
+  it('submitEnabled stays FALSE when one downstream step is missing even if the rest are done', () => {
+    // category + profile + branch + contract done, but vouchers NOT done -> 5 of 6
+    const noVouchers = inputs({
+      profile: { primaryCategoryId: 'subcat-1', description: 'Great food.' },
+      checklist: { branch_created: true, contract_signed: true, rmv_configured: false, all_complete: false },
+    })
+    const derived = deriveStepStates(noVouchers)
+    expect(derived.submitEnabled).toBe(false)
+    expect(derived.doneCount).toBe(5)
+  })
+
+  it('submitEnabled is true ONLY once all 6 staircase steps are done', () => {
     const allDone = inputs({
       profile: { primaryCategoryId: 'subcat-1', description: 'Great food.' },
       checklist: { branch_created: true, contract_signed: true, rmv_configured: true, all_complete: true },
     })
-    expect(deriveStepStates(allDone).submitEnabled).toBe(true)
+    const derived = deriveStepStates(allDone)
+    expect(derived.submitEnabled).toBe(true)
+    // header agrees: every step done
+    expect(derived.steps.every((s) => s.state === 'done')).toBe(true)
   })
 
   it('reports done/total counts for the progress header', () => {

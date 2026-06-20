@@ -42,6 +42,28 @@ describe('StepList', () => {
     expect(screen.queryByRole('button', { name: /open business profile/i })).not.toBeInTheDocument()
   })
 
+  it('the locked agreement step renders its hint chip (no empty pill on the fresh hub)', () => {
+    render(<StepList staircase={build()} onNavigate={jest.fn()} />)
+    const agreementRow = document.querySelector('[data-step-id="agreement"]') as HTMLElement
+    expect(agreementRow).toBeTruthy()
+    expect(agreementRow.getAttribute('data-state')).toBe('locked')
+    // branch/vouchers/agreement all share the same downstream gate -> 3 identical hint chips
+    expect(screen.getAllByText(/available once your category and business profile are done/i)).toHaveLength(3)
+  })
+
+  it('renders NO empty hint chip for any locked step (every rendered chip has text)', () => {
+    const { container } = render(<StepList staircase={build()} onNavigate={jest.fn()} />)
+    // the hint chip is the bordered pill inside each locked row; none may be empty
+    const lockedRows = container.querySelectorAll('[data-state="locked"]')
+    expect(lockedRows.length).toBeGreaterThan(0)
+    lockedRows.forEach((row) => {
+      const chips = row.querySelectorAll('span.rounded-full')
+      chips.forEach((chip) => {
+        expect((chip.textContent ?? '').trim().length).toBeGreaterThan(0)
+      })
+    })
+  })
+
   it('shows the "1 of 2" partial on the vouchers step', () => {
     const oneSaved = build({
       profile: { primaryCategoryId: 'c1', description: 'Tasty.' },

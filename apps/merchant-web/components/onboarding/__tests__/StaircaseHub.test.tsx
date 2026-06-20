@@ -14,6 +14,15 @@ const ALL_DONE: OnboardingInputs = {
   rmvActiveCount: 2,
 }
 
+// Backend 3-gate satisfied (branch+contract+rmv => all_complete) but the staircase
+// profile step is NOT done (empty description). The prototype gates Submit on ALL 6
+// steps, so the header must read "5 of 6" and Submit must stay disabled.
+const BACKEND_COMPLETE_PROFILE_INCOMPLETE: OnboardingInputs = {
+  profile: { status: 'REGISTERED', onboardingStep: 'REGISTERED', primaryCategoryId: 'c1', description: null },
+  checklist: { branch_created: true, contract_signed: true, rmv_configured: true, all_complete: true },
+  rmvActiveCount: 2,
+}
+
 function baseProps() {
   return {
     businessName: 'Roe Cafe',
@@ -45,8 +54,16 @@ describe('StaircaseHub', () => {
     expect(screen.getByRole('button', { name: /submit for review/i })).toBeDisabled()
   })
 
-  it('enables Submit for review when all_complete, and opens the confirm modal on click', () => {
+  it('keeps Submit disabled and the header at "5 of 6" when the backend reports all_complete but a staircase step is not done', () => {
+    // header + footer + Submit button must AGREE: 5 of 6 done -> not submittable
+    render(<StaircaseHub {...baseProps()} staircase={deriveStepStates(BACKEND_COMPLETE_PROFILE_INCOMPLETE)} />)
+    expect(screen.getByText(/5 of 6/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /submit for review/i })).toBeDisabled()
+  })
+
+  it('enables Submit for review when all 6 steps are done, and opens the confirm modal on click', () => {
     render(<StaircaseHub {...baseProps()} staircase={deriveStepStates(ALL_DONE)} />)
+    expect(screen.getByText(/6 of 6/i)).toBeInTheDocument()
     const submit = screen.getByRole('button', { name: /submit for review/i })
     expect(submit).toBeEnabled()
     fireEvent.click(submit)

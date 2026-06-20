@@ -95,7 +95,7 @@ function StepRow({ step, index, onNavigate }: { step: DerivedStep; index: number
         <div className="mt-0.5 text-[13px] leading-relaxed" style={{ color: step.locked ? '#B0B6C4' : '#6B7390' }}>
           {step.description}
         </div>
-        {step.locked ? (
+        {step.locked && step.lockedHint ? (
           <span
             className="mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
             style={{ background: '#F4F6FA', color: '#8089A4', border: '1px solid #E5E7EB' }}
