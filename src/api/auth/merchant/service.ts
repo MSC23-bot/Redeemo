@@ -12,6 +12,8 @@ import {
   revokeAllUserSessionRecords, writeUserSession, validateRefreshToken,
 } from '../../shared/session'
 import { writeAuditLog, writeAuditLogTx } from '../../shared/audit'
+import { merchantVerifyEmail, merchantAccountExistsEmail, type RenderedEmail } from '../../shared/emailTemplates'
+import { TERMS_VERSION } from '../../shared/legal'
 
 const OTP_CHALLENGE_TTL = 600   // 10 minutes
 const PWD_RESET_TTL     = 3600
@@ -69,11 +71,6 @@ export async function loginMerchant(
     throw new AppError('INVALID_CREDENTIALS')
   }
 
-  // M1 Slice R: block sign-in until the email is verified. Self-registered owners
-  // start unverified (flip true on email-verify); claimed/seeded owners are
-  // pre-verified by the migration backfill, so this never locks them out.
-  if (!admin.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED')
-
   // M6b (D-1): resolve the merchant via the MerchantMembership source of truth,
   // NOT the (dropped) MerchantAdmin.merchant relation / merchantId column.
   const merchantInfo = await resolveMerchantInfo(prisma, admin.id)
@@ -82,6 +79,12 @@ export async function loginMerchant(
   if (merchantInfo.status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
   if (merchantInfo.status === 'INACTIVE')  throw new AppError('MERCHANT_DEACTIVATED')
   if (admin.status === 'SUSPENDED') throw new AppError('ACCOUNT_SUSPENDED')
+
+  // M1 Slice R: block sign-in until the email is verified. Placed AFTER the status
+  // checks so suspension/deactivation take precedence (spec Section 6.1). Self-
+  // registered owners start unverified (flip true on email-verify); claimed/seeded
+  // owners are pre-verified by the migration backfill, so this never locks them out.
+  if (!admin.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED')
 
   // Check known devices (stored as JSON list in Redis)
   const knownRaw = await redis.get(`known-devices:merchant:${admin.id}`)
@@ -109,7 +112,7 @@ export async function loginMerchant(
 
     // Deliver the code through the outbox (dark by default). Best-effort: a
     // delivery failure must never change the response (no enumeration). The code
-    // is NEVER logged or returned — only the session challenge goes to the client.
+    // is NEVER logged or returned; only the session challenge goes to the client.
     try {
       const { notify } = await import('../../shared/notify')
       const { merchantOtpEmail } = await import('../../shared/emailTemplates')
@@ -118,12 +121,12 @@ export async function loginMerchant(
         recipientType: 'MERCHANT_ADMIN',
         recipientId: admin.id,
         userId: null,
-        type: 'merchant_otp',
+        type: 'merchant_login_otp',
         email: merchantOtpEmail(code),
         ip: data.ipAddress ?? null,
       })
     } catch {
-      // swallow — never reveal a delivery failure
+      // swallow: never reveal a delivery failure
     }
 
     return { status: 'OTP_REQUIRED', sessionChallenge: challenge }
@@ -147,7 +150,7 @@ export async function verifyMerchantOtp(
   }
 
   // M1 Slice 0: verify the submitted code against the challenge-bound HMAC stored
-  // at login. We must NOT delete the challenge on a wrong code — increment
+  // at login. We must NOT delete the challenge on a wrong code; increment
   // `attempts` (KEEPTTL so the 10-minute window is unchanged) and only delete once
   // the per-challenge cap is reached, so an attacker gets a hard ceiling, not
   // unlimited guesses against one live challenge. The `000000` dev bypass works in
@@ -181,7 +184,7 @@ export async function verifyMerchantOtp(
     throw new AppError('OTP_INVALID')
   }
 
-  // Match: single-use — consume the challenge before issuing tokens.
+  // Match: single-use, consume the challenge before issuing tokens.
   await redis.del(key)
 
   const admin = await prisma.merchantAdmin.findUnique({
@@ -371,7 +374,11 @@ export async function resetPasswordMerchant(
   if (!adminId) throw new AppError('RESET_TOKEN_EXPIRED')
 
   const passwordHash = await hashPassword(data.newPassword)
-  await prisma.merchantAdmin.update({ where: { id: adminId }, data: { passwordHash } })
+  // M1 Slice R: a consumed reset token proves email control (the link reached the
+  // owner's inbox), so mark emailVerified true. Without this a never-verified shell
+  // that recovers via reset would set a passwordHash but stay blocked by the login
+  // emailVerified gate, bricking the account.
+  await prisma.merchantAdmin.update({ where: { id: adminId }, data: { passwordHash, emailVerified: true } })
   await redis.del(key)
 
   await revokeAllSessionsForEntity(redis, { role: 'merchant', entityId: adminId })
@@ -447,21 +454,67 @@ export async function claimMerchantAccount(
   })
 }
 
+// M1 Slice R: store a merchant email-verify challenge (real OR decoy). A decoy
+// passes a random codeHmac that no emailed code can match, so /register/verify
+// returns OTP_INVALID on a decoy exactly as on a fresh-but-wrong code: closes the
+// error-code enumeration oracle (a missing row would otherwise yield a distinct
+// VERIFICATION_TOKEN_INVALID).
+async function storeMerchantVerifyChallenge(
+  redis: Redis,
+  challenge: string,
+  adminId: string,
+  deviceId: string,
+  deviceType: string,
+  codeHmac: string
+): Promise<void> {
+  await redis.set(
+    RedisKey.merchantEmailVerify(challenge),
+    JSON.stringify({ adminId, deviceId, deviceType, codeHmac, attempts: 0 }),
+    'EX', EMAIL_VERIFY_TTL
+  )
+}
+
+// Best-effort merchant-auth email send (dark-safe). Swallows so a delivery failure
+// never changes the response or reveals account existence.
+async function sendMerchantAuthEmail(
+  prisma: PrismaClient,
+  redis: Redis,
+  params: { to: string; recipientId: string; type: string; email: RenderedEmail; ip?: string | null }
+): Promise<void> {
+  try {
+    const { notify } = await import('../../shared/notify')
+    await notify(prisma, redis, {
+      to: params.to, recipientType: 'MERCHANT_ADMIN', recipientId: params.recipientId,
+      userId: null, type: params.type, email: params.email, ip: params.ip ?? null,
+    })
+  } catch {
+    // best-effort: never reveal a delivery failure
+  }
+}
+
 /**
- * M1 Slice R: self-serve merchant registration. PUBLIC endpoint. Non-enumerating:
- * a duplicate email creates NOTHING, emails the real account holder an "account
- * exists" notice, and returns the SAME { status: 'VERIFY_EMAIL_SENT', sessionChallenge }
- * shape as a fresh signup (the decoy challenge never verifies). A fresh signup
- * creates Merchant(REGISTERED) + MerchantAdmin(emailVerified:false) + OWNER
- * MerchantMembership atomically, stores a 6-digit email-verify challenge (HMAC,
- * never the code), and queues the verify code via the outbox (best-effort).
- * Cloudflare Turnstile is checked first (no-op when CAPTCHA_ENABLED is off).
+ * M1 Slice R: self-serve merchant registration. PUBLIC endpoint. Non-enumerating
+ * across BOTH the response and the follow-up /register/verify step:
+ *  - A FRESH email creates Merchant(REGISTERED) + MerchantAdmin(emailVerified:false)
+ *    + OWNER MerchantMembership atomically, stores a real 6-digit email-verify
+ *    challenge (HMAC, never the code), and emails the code.
+ *  - A duplicate VERIFIED email creates nothing, stores a DECOY challenge (random
+ *    HMAC that never verifies), and emails the real holder an "account exists" notice.
+ *  - A duplicate UNVERIFIED email (abandoned signup / hit the attempt cap) RECOVERS:
+ *    it re-issues a real verify challenge + code to the same admin so the account is
+ *    not permanently bricked.
+ * All three return the identical { VERIFY_EMAIL_SENT, sessionChallenge } shape and,
+ * because every path stores a challenge row, /register/verify returns OTP_INVALID
+ * for all of them. Password is hashed UNCONDITIONALLY before the existence check so
+ * the dominant (~bcrypt) cost is equal on every path (no timing oracle). Cloudflare
+ * Turnstile is checked first (no-op when CAPTCHA_ENABLED is off).
  */
 export async function registerMerchant(
   prisma: PrismaClient,
   redis: Redis,
   data: {
     firstName: string; lastName: string; email: string; password: string; businessName: string;
+    mobile?: string; mobileCountryCode?: string;
     deviceId: string; deviceType: string; turnstileToken: string; ipAddress: string; userAgent: string
   }
 ): Promise<{ status: 'VERIFY_EMAIL_SENT'; sessionChallenge: string }> {
@@ -472,7 +525,12 @@ export async function registerMerchant(
   // 2. Password policy (defence in depth; the route also enforces it).
   if (!validatePasswordPolicy(data.password)) throw new AppError('PASSWORD_POLICY_VIOLATION')
 
-  // 3. A verify challenge + 6-digit code (store only the HMAC, never the code).
+  // 3. Hash UNCONDITIONALLY, before the existence check, so the fresh and duplicate
+  //    paths pay the same dominant (~bcrypt) cost: closes the timing enumeration
+  //    oracle. The fresh path's extra transaction (~ms) is within network jitter.
+  const passwordHash = await hashPassword(data.password)
+
+  // 4. A verify challenge + 6-digit code (store only the HMAC, never the code).
   const challenge = generateSecureToken(16)
   const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0')
   const codeHmac = crypto
@@ -480,25 +538,26 @@ export async function registerMerchant(
     .update(challenge + ':' + code)
     .digest('hex')
 
-  const existing = await prisma.merchantAdmin.findUnique({ where: { email: data.email }, select: { id: true } })
+  const existing = await prisma.merchantAdmin.findUnique({
+    where: { email: data.email },
+    select: { id: true, emailVerified: true },
+  })
 
   if (existing) {
-    // NON-ENUMERATION: never reveal existence. Email the real holder; return the
-    // generic shape with a decoy challenge that has no stored row (will not verify).
-    try {
-      const { notify } = await import('../../shared/notify')
-      const { merchantAccountExistsEmail } = await import('../../shared/emailTemplates')
-      await notify(prisma, redis, {
-        to: data.email, recipientType: 'MERCHANT_ADMIN', recipientId: existing.id, userId: null,
-        type: 'merchant_account_exists', email: merchantAccountExistsEmail(), ip: data.ipAddress ?? null,
-      })
-    } catch {
-      // best-effort: never reveal a delivery failure
+    if (existing.emailVerified) {
+      // Verified account: never reveal. DECOY challenge (random HMAC) so verify is
+      // indistinguishable; email the real holder an "account exists" notice.
+      await storeMerchantVerifyChallenge(redis, challenge, existing.id, data.deviceId, data.deviceType, crypto.randomBytes(32).toString('hex'))
+      await sendMerchantAuthEmail(prisma, redis, { to: data.email, recipientId: existing.id, type: 'merchant_account_exists', email: merchantAccountExistsEmail(), ip: data.ipAddress })
+    } else {
+      // Unverified existing account: RECOVER it. Re-issue a real verify challenge +
+      // code to the same admin (observably identical to a fresh signup, so it leaks
+      // nothing, and it un-bricks an abandoned / attempt-capped registration).
+      await storeMerchantVerifyChallenge(redis, challenge, existing.id, data.deviceId, data.deviceType, codeHmac)
+      await sendMerchantAuthEmail(prisma, redis, { to: data.email, recipientId: existing.id, type: 'merchant_email_verify', email: merchantVerifyEmail(code), ip: data.ipAddress })
     }
     return { status: 'VERIFY_EMAIL_SENT', sessionChallenge: challenge }
   }
-
-  const passwordHash = await hashPassword(data.password)
 
   let adminId: string
   try {
@@ -510,6 +569,7 @@ export async function registerMerchant(
       const admin = await tx.merchantAdmin.create({
         data: {
           email: data.email, firstName: data.firstName, lastName: data.lastName,
+          phone: data.mobile ?? null, phoneCountryCode: data.mobileCountryCode ?? null,
           passwordHash, mustChangePassword: false, emailVerified: false, status: 'ACTIVE',
         },
         select: { id: true },
@@ -521,35 +581,24 @@ export async function registerMerchant(
         entityId: merchant.id, entityType: 'merchant', event: 'MERCHANT_SELF_REGISTERED',
         actorId: admin.id, actorType: 'MERCHANT_ADMIN',
         ipAddress: data.ipAddress, userAgent: data.userAgent,
+        // M1: platform-terms consent is recorded in the audit trail (no schema column).
+        metadata: { termsAccepted: true, termsVersion: TERMS_VERSION },
       })
       return admin.id
     })
   } catch (e) {
-    // A concurrent signup with the same email races the @unique constraint. Treat
-    // exactly like the duplicate path (non-enumeration): the transaction rolled
-    // back (no orphan merchant), so just return the generic shape.
+    // A concurrent signup raced the @unique email. The transaction rolled back (no
+    // orphan merchant). Store a DECOY challenge so /register/verify is still
+    // indistinguishable, then return the generic shape.
     if ((e as { code?: string })?.code === 'P2002') {
+      await storeMerchantVerifyChallenge(redis, challenge, 'decoy', data.deviceId, data.deviceType, crypto.randomBytes(32).toString('hex'))
       return { status: 'VERIFY_EMAIL_SENT', sessionChallenge: challenge }
     }
     throw e
   }
 
-  await redis.set(
-    RedisKey.merchantEmailVerify(challenge),
-    JSON.stringify({ adminId, deviceId: data.deviceId, deviceType: data.deviceType, codeHmac, attempts: 0 }),
-    'EX', EMAIL_VERIFY_TTL
-  )
-
-  try {
-    const { notify } = await import('../../shared/notify')
-    const { merchantVerifyEmail } = await import('../../shared/emailTemplates')
-    await notify(prisma, redis, {
-      to: data.email, recipientType: 'MERCHANT_ADMIN', recipientId: adminId, userId: null,
-      type: 'merchant_email_verify', email: merchantVerifyEmail(code), ip: data.ipAddress ?? null,
-    })
-  } catch {
-    // best-effort: never reveal a delivery failure
-  }
+  await storeMerchantVerifyChallenge(redis, challenge, adminId, data.deviceId, data.deviceType, codeHmac)
+  await sendMerchantAuthEmail(prisma, redis, { to: data.email, recipientId: adminId, type: 'merchant_email_verify', email: merchantVerifyEmail(code), ip: data.ipAddress })
 
   return { status: 'VERIFY_EMAIL_SENT', sessionChallenge: challenge }
 }

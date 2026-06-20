@@ -121,7 +121,7 @@ export function adminOtpEmail(code: string): RenderedEmail {
 
 /**
  * Merchant sign-in OTP email (M1 Slice 0). Mirrors adminOtpEmail: the 6-digit code
- * is the WHOLE payload — there is no link to click (an OTP is entered manually).
+ * is the WHOLE payload (there is no link to click; an OTP is entered manually).
  * Code is numeric (server-generated), so no escaping is needed; never logged
  * (SEC-H1).
  */

@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { emailSchema, passwordSchema, deviceSchema } from '../../shared/schemas'
+import { emailSchema, passwordSchema, deviceSchema, otpCodeSchema } from '../../shared/schemas'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog } from '../../shared/audit'
 import { routeRateLimit } from '../../plugins/rate-limit'
@@ -31,10 +31,12 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  app.post(`${prefix}/otp/verify`, async (req, reply) => {
+  app.post(`${prefix}/otp/verify`, {
+    config: { rateLimit: routeRateLimit('otpVerify') },
+  }, async (req, reply) => {
     const body = z.object({
       sessionChallenge: z.string(),
-      code: z.string().length(6),
+      code: otpCodeSchema,
     }).parse(req.body)
 
     const result = await verifyMerchantOtp(app.prisma, app.redis, app, {
@@ -99,13 +101,15 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
     config: { rateLimit: routeRateLimit('register') },
   }, async (req, reply) => {
     const body = z.object({
-      firstName:      z.string().trim().min(1).max(100),
-      lastName:       z.string().trim().min(1).max(100),
-      email:          emailSchema,
-      password:       passwordSchema,
-      businessName:   z.string().trim().min(1).max(200),
-      termsAccepted:  z.literal(true),   // platform terms (distinct from the later merchant contract)
-      turnstileToken: z.string(),
+      firstName:         z.string().trim().min(1).max(100),
+      lastName:          z.string().trim().min(1).max(100),
+      email:             emailSchema,
+      mobile:            z.string().trim().max(20).optional(),
+      mobileCountryCode: z.string().trim().max(6).optional(),
+      password:          passwordSchema,
+      businessName:      z.string().trim().min(1).max(200),
+      termsAccepted:     z.literal(true),   // platform terms (distinct from the later merchant contract)
+      turnstileToken:    z.string(),
       ...deviceSchema.shape,
     }).parse(req.body)
 
@@ -121,7 +125,7 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     const body = z.object({
       sessionChallenge: z.string(),
-      code: z.string().length(6),
+      code: otpCodeSchema,
     }).parse(req.body)
 
     const result = await verifyMerchantEmail(app.prisma, app.redis, app, {

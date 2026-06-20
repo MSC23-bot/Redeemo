@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { verifyTurnstile, isCaptchaEnabled } from '../../../src/api/shared/turnstile'
 
-// M1 Slice R — Turnstile verify helper. Feature-gated by CAPTCHA_ENABLED. Tests
+// M1 Slice R: Turnstile verify helper. Feature-gated by CAPTCHA_ENABLED. Tests
 // NEVER hit the real Cloudflare endpoint: global fetch is mocked, and the disabled
 // path asserts no fetch happens at all.
 const TEST_SECRET = '1x0000000000000000000000000000000AA' // Cloudflare always-pass test secret

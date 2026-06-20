@@ -21,7 +21,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 const adapter = new PrismaPg(pool)
 const prisma = new PrismaClient({ adapter } as any)
 
-const MERCHANT_TYPES = ['merchant_otp', 'merchant_email_verify', 'merchant_claim', 'password_reset']
+const MERCHANT_TYPES = ['merchant_login_otp', 'merchant_email_verify', 'merchant_account_exists', 'merchant_claim', 'password_reset']
 
 async function main() {
   const emailFilter = process.argv[2]
@@ -60,7 +60,7 @@ async function main() {
 
   for (const r of rows) {
     const html = (r.payload as any)?.html as string | undefined
-    let value = '(payload NULL — worker terminalised it)'
+    let value = '(payload NULL, worker terminalised it)'
     if (html) {
       const code = html.match(/\b\d{6}\b/)?.[0]
       const token = html.match(/[?&]token=([^"&\s]+)/)?.[1]

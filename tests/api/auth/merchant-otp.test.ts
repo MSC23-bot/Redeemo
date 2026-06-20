@@ -4,7 +4,7 @@ import { loginMerchant, verifyMerchantOtp } from '../../../src/api/auth/merchant
 import { merchantOtpEmail } from '../../../src/api/shared/emailTemplates'
 import { RedisKey } from '../../../src/api/shared/redis-keys'
 
-// M1 Slice 0 — merchant login OTP is now a REAL emailed 6-digit code, verified
+// M1 Slice 0: merchant login OTP is now a REAL emailed 6-digit code, verified
 // with a challenge-bound HMAC plus a per-challenge attempt limit. Email only (no
 // SMS/Twilio). The `000000` dev bypass stays for development/test only. Mirrors
 // tests/api/auth/admin-email-otp.test.ts.
@@ -51,7 +51,7 @@ describe('merchantOtpEmail', () => {
 })
 
 // ── loginMerchant generates a code, HMAC-stores it, and emails it ──────────────
-describe('loginMerchant — M1 generate + HMAC-store + email send', () => {
+describe('loginMerchant: M1 generate + HMAC-store + email send', () => {
   function loginMocks() {
     const redis = {
       get: vi.fn(async (_k: string) => null as string | null),
@@ -93,7 +93,7 @@ describe('loginMerchant — M1 generate + HMAC-store + email send', () => {
     expect(notifySpy).toHaveBeenCalledTimes(1)
     const arg = notifySpy.mock.calls[0][2]
     expect(arg.recipientType).toBe('MERCHANT_ADMIN')
-    expect(arg.type).toBe('merchant_otp')
+    expect(arg.type).toBe('merchant_login_otp')
     expect(arg.userId).toBeNull()
     const emailText = arg.email.text ?? ''
     expect(emailText).toMatch(/\b\d{6}\b/)
@@ -119,7 +119,7 @@ describe('loginMerchant — M1 generate + HMAC-store + email send', () => {
 })
 
 // ── verifyMerchantOtp: HMAC match + per-challenge attempt limit ────────────────
-describe('verifyMerchantOtp — M1 HMAC verification + attempt limit', () => {
+describe('verifyMerchantOtp: M1 HMAC verification + attempt limit', () => {
   const CORRECT_CODE = '492018'
 
   function verifyMocks(attempts = 0, codeHmac = hmacFor(CHALLENGE, CORRECT_CODE)) {
