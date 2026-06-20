@@ -34,7 +34,7 @@ The backend onboarding spine (checklist, contract, profile/category, branch, vou
 admin queue) is already shipped and battle-tested; **M2 is overwhelmingly a guided frontend wizard
 plus a small set of no-schema backend enablers and a seed-data task.**
 
-## 1. Locked decisions (D1-D7)
+## 1. Locked decisions (D1-D8)
 
 ### D1 - LOCKED: lifecycle-conditioned bypass for sensitive-field writes during onboarding
 - **Profile:** while the application is a DRAFT (`status REGISTERED`, plus the `NEEDS_CHANGES`
@@ -182,6 +182,20 @@ plus a small set of no-schema backend enablers and a seed-data task.**
 - **Scope:** NO merchant document upload in M2 (separate later milestone). No schema expected; if
   implementation discovers schema is needed, stop and report before planning.
 
+### D8 - LOCKED: opening-hours validation + changes-requested reason read; minimumSaving floor reframed
+- **D8a (include): server-side opening-hours validation** on `setOpeningHours` (overlaps, ordering, the
+  `24:00` sentinel, close-after-open, closed-days carry no periods). The customer "open now" / TODAY badge
+  depend on well-formed hours; the backend does none today. No schema.
+- **D8c (include): merchant-facing changes-requested reason read** - expose the admin's reason/items
+  (from `AdminApproval.comment`) for the merchant's OWN onboarding approval, to drive the `NEEDS_CHANGES`
+  home (otherwise "changes needed" with no "what to fix"). No schema (reads an existing column).
+- **D8b (REFRAMED): the per-(category,type) `minimumSaving` floor is an ADVISORY client-side scoring
+  input** (drives Too-weak/Good/Great per the section 1B model), NOT a hard server submission gate. The
+  server may do basic sanity (saving present + positive) but must NOT reject purely for being below the
+  ideal floor. Weak offers can be SENT BACK at admin review (the quality backstop, per D2). Cross-ref
+  section 1B (scoring model + the generic-feedback / category-config / auto-compose nuances).
+- No schema expected; if implementation finds schema is required, stop and report before planning.
+
 ## 1A. Live prototype browse verification (2026-06-20, Playwright over the local export)
 
 Drove the interactive prototype. Confirmed and corrected:
@@ -309,9 +323,7 @@ no-schema (frontend config + client scoring). The heavier `TermsClause` RULES EN
 conflict detection / type-bans / value-erosion weights) stays M4; M2 uses the config map + client scoring +
 the admin-review backstop.
 
-## 2. Pending decisions (D8-D10)
-- **D8:** small backend quality enablers - server-side opening-hours validation; `minimumSaving` floor
-  enforcement; merchant-facing changes-requested reason read.
+## 2. Pending decisions (D9-D10)
 - **D9:** contract - minimal placeholder clickwrap for M2 (real binding legal text + personalisation =
   launch gate / M3 schema) vs build personalised now. **Verified nuance:** the contract is NOT
   OWNER-role-gated in code today - `GET /onboarding/contract` + `POST /onboarding/contract/accept` are
@@ -392,9 +404,12 @@ Schema/Route legend: Y = supported now, N = not supported, P = partial.
    server-side content-type + size + dimension validation; public-image storage kind in `storage.ts`
    `KIND_POLICIES` if needed (code/config, not schema); `STORAGE_ENABLED` deploy-gated; NO merchant
    document upload in M2. (D7 locked.)
-7. Server-side opening-hours validation - pending D8.
-8. `minimumSaving` floor enforcement (keys on the chosen-(category,type) floor) - pending D8.
-9. Merchant-facing changes-requested reason read - pending D8.
+7. Server-side opening-hours validation (overlaps / ordering / 24:00 sentinel / close-after-open /
+   closed-days-no-periods). (D8a locked.)
+8. `minimumSaving` floor = ADVISORY client-side scoring input ONLY (NOT a hard server gate); server does
+   basic present/positive sanity. Admin review is the quality backstop. (D8b reframed.)
+9. Merchant-facing changes-requested reason read (`AdminApproval.comment`, own onboarding approval).
+   (D8c locked.)
 10. REVISED RMV seed/config (data, not schema): per category, the eligible flagship types +
     recommended/default + per-(category,type) `minimumSaving` floor + guidance + suggestions +
     curated-terms config; the global ineligible list (Time limited, Reusable) + disabled-card copy;
