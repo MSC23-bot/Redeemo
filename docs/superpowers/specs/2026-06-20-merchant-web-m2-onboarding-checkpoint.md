@@ -34,7 +34,7 @@ The backend onboarding spine (checklist, contract, profile/category, branch, vou
 admin queue) is already shipped and battle-tested; **M2 is overwhelmingly a guided frontend wizard
 plus a small set of no-schema backend enablers and a seed-data task.**
 
-## 1. Locked decisions (D1-D5)
+## 1. Locked decisions (D1-D6)
 
 ### D1 - LOCKED: lifecycle-conditioned bypass for sensitive-field writes during onboarding
 - **Profile:** while the application is a DRAFT (`status REGISTERED`, plus the `NEEDS_CHANGES`
@@ -153,6 +153,19 @@ plus a small set of no-schema backend enablers and a seed-data task.**
   known-for chips, generated label ("Indian Restaurant" / "Body Shop") via `buildDescriptor`.
 - "Add your own" cuisine/specialty is DEFERRED (needs admin approval/tooling); M2 uses seeded tags only.
 
+### D6 - LOCKED: guided staircase (the 6-step prototype setup model)
+- M2 follows the prototype's 6-step guided setup: account / category / business profile / main branch /
+  flagship vouchers / merchant agreement. The pre-live home is the "Get your business live" checklist
+  hub with not-started / in-progress / done states, ordered progression, downstream locking where
+  dependencies require, a gated "Submit for review", the "Nothing is public yet" reassurance, locked
+  dashboard/insights teasers, and the documents card retained as a deferred/later surface (not M2).
+- **Step state is CLIENT-DERIVED from saved data. No persisted onboarding-progress model, no schema.**
+- **Hard dependency:** category must happen before flagship voucher setup (category + the eligible-type
+  set + RMV creation depend on it).
+- **Save nuance (per backend reality):** profile supports a TRUE partial save (`PATCH /profile`); the
+  branch step CANNOT persist a half-branch until the minimum create fields exist (postcode etc.); each
+  step defines what "Save and finish later" means against its backend constraints.
+
 ## 1A. Live prototype browse verification (2026-06-20, Playwright over the local export)
 
 Drove the interactive prototype. Confirmed and corrected:
@@ -198,9 +211,7 @@ accordingly. Verified achievable WITHOUT schema (see D2/D3 revised + the M2.0 le
   co-build UI is gated (Phase-3, confirmation primitive).
 - "Save as draft" + build 2 flagship vouchers; they submit together with the business for review.
 
-## 2. Pending decisions (D6-D10)
-- **D6:** onboarding flow model - guided staircase (category -> profile -> branch/vouchers/contract,
-  locking + 3-state steps + save-and-resume, derived client-side) vs flat checklist.
+## 2. Pending decisions (D7-D10)
 - **D7:** logo/banner image upload (merchant presign endpoint + upload component) vs defer.
 - **D8:** small backend quality enablers - server-side opening-hours validation; `minimumSaving` floor
   enforcement; merchant-facing changes-requested reason read.
