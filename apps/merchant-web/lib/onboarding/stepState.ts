@@ -168,7 +168,9 @@ export function deriveStepStates(input: OnboardingInputs): DerivedStaircase {
       locked: !agreementDone && !downstreamUnlocked,
       action: agreementDone ? 'View agreement' : 'Review and sign',
       href: ROUTE.agreement,
-      lockedHint: '',
+      // Shares the SAME downstream gate as branch/vouchers, so it carries the SAME
+      // hint. (The empty string here was an oversight that rendered an empty pill.)
+      lockedHint: DOWNSTREAM_HINT,
       progress: '',
     },
   ]
@@ -191,9 +193,18 @@ export function deriveStepStates(input: OnboardingInputs): DerivedStaircase {
 
   const doneCount = raw.filter((s) => s.done).length
 
+  // Prototype-aligned submit gate: ALL 6 staircase steps must be `done` (this
+  // includes category + profile, not just the backend 3-gate). This is STRICTER
+  // than and IMPLIES checklist.all_complete (branch + contract + rmv are 3 of the
+  // 6), so `POST /onboarding/submit` stays a correct server backstop and no
+  // legitimate submit is ever blocked. It also makes the "N of 6" header, the
+  // footer copy, and the Submit button AGREE. Do NOT revert to
+  // checklist.all_complete: that re-opens the "5 of 6 yet Submit enabled" incoherence.
+  const submitEnabled = steps.every((s) => s.state === 'done')
+
   return {
     steps,
-    submitEnabled: checklist.all_complete,
+    submitEnabled,
     doneCount,
     totalCount: raw.length,
   }
