@@ -1,7 +1,7 @@
 import * as React from 'react'
 
 export type LifecycleState =
-  | 'setup' | 'submitted' | 'in_review' | 'changes' | 'live' | 'live_new' | 'suspended'
+  | 'setup' | 'submitted' | 'in_review' | 'changes' | 'live' | 'live_new' | 'suspended' | 'rejected'
 
 interface PillStyle { label: string; dot: string; bg: string; fg: string; pulse?: boolean }
 
@@ -13,6 +13,7 @@ const STATUS: Record<LifecycleState, PillStyle> = {
   live:      { label: 'Live',              dot: '#0F7A3E', bg: '#E9F7EF', fg: '#0F7A3E', pulse: true },
   live_new:  { label: 'Live, just started',dot: '#0F7A3E', bg: '#E9F7EF', fg: '#0F7A3E', pulse: true },
   suspended: { label: 'Suspended',         dot: '#B91C1C', bg: '#FEECEC', fg: '#B91C1C' },
+  rejected:  { label: 'Not approved',      dot: '#B91C1C', bg: '#FEECEC', fg: '#B91C1C' },
 }
 
 /**

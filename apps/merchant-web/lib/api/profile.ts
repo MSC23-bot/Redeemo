@@ -11,6 +11,11 @@ export const merchantProfileSchema = z
     businessName: z.string(),
     status: z.string(), // MerchantStatus enum value
     onboardingStep: z.string(), // OnboardingStep enum value
+    // M2 F1: the staircase hub derives category-done from primaryCategoryId and
+    // profile-done from description. Both are nullable on a fresh merchant row;
+    // .nullish() tolerates absent/null. The rest stays .passthrough()-ed.
+    primaryCategoryId: z.string().nullish(),
+    description: z.string().nullish(),
   })
   .passthrough()
 
