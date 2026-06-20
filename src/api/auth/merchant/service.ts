@@ -546,8 +546,13 @@ export async function registerMerchant(
   if (existing) {
     if (existing.emailVerified) {
       // Verified account: never reveal. DECOY challenge (random HMAC) so verify is
-      // indistinguishable; email the real holder an "account exists" notice.
-      await storeMerchantVerifyChallenge(redis, challenge, existing.id, data.deviceId, data.deviceType, crypto.randomBytes(32).toString('hex'))
+      // indistinguishable; email the real holder an "account exists" notice. The
+      // challenge adminId is the non-resolvable 'decoy' (NOT the real id) so that
+      // even the dev/test 000000 bypass cannot use it to auto-login as the existing
+      // account: on a match the subsequent findUnique({id:'decoy'}) returns null and
+      // throws INVALID_CREDENTIALS. (recipientId on the email is still the real id so
+      // the notice + its CommunicationLog are correctly attributed.)
+      await storeMerchantVerifyChallenge(redis, challenge, 'decoy', data.deviceId, data.deviceType, crypto.randomBytes(32).toString('hex'))
       await sendMerchantAuthEmail(prisma, redis, { to: data.email, recipientId: existing.id, type: 'merchant_account_exists', email: merchantAccountExistsEmail(), ip: data.ipAddress })
     } else {
       // Unverified existing account: RECOVER it. Re-issue a real verify challenge +

@@ -138,10 +138,13 @@ describe('registerMerchant: self-serve signup', () => {
     expect(password.hashPassword).toHaveBeenCalledTimes(1) // bcrypt runs on the duplicate path too (no timing oracle)
 
     // a DECOY challenge IS stored so /register/verify returns OTP_INVALID, not the
-    // distinguishable VERIFICATION_TOKEN_INVALID (closes the error-code oracle)
+    // distinguishable VERIFICATION_TOKEN_INVALID (closes the error-code oracle). Its
+    // adminId is the non-resolvable 'decoy' so even the dev/test 000000 bypass cannot
+    // use it to auto-login as the existing verified account.
     const key = RedisKey.merchantEmailVerify(res.sessionChallenge)
     expect(m.store[key]).toBeTruthy()
     expect(JSON.parse(m.store[key]).attempts).toBe(0)
+    expect(JSON.parse(m.store[key]).adminId).toBe('decoy')
 
     expect(notifySpy).toHaveBeenCalledTimes(1)
     const arg = notifySpy.mock.calls[0][2]
@@ -192,6 +195,30 @@ describe('registerMerchant: self-serve signup', () => {
     vi.spyOn(notify, 'notify').mockRejectedValue(new Error('resend down'))
     const res = await registerMerchant(m.prisma as any, m.redis as any, REG_INPUT)
     expect(res.status).toBe('VERIFY_EMAIL_SENT')
+  })
+
+  it('P2002 race (a concurrent signup won the unique email): returns the generic shape, stores a DECOY challenge, sends NO email, and does not fall through to the real-challenge / verify-email path', async () => {
+    const m = freshMocks()
+    // findUnique returns null (the existence check raced ahead of the other signup),
+    // then the transaction violates the @unique email constraint.
+    m.prisma.$transaction = vi.fn(async () => { throw Object.assign(new Error('unique violation'), { code: 'P2002' }) })
+    const notify = await import('../../../src/api/shared/notify')
+    const notifySpy = vi.spyOn(notify, 'notify').mockResolvedValue({ queued: true, communicationLogId: 'log-1', enqueued: true })
+
+    const res = await registerMerchant(m.prisma as any, m.redis as any, REG_INPUT)
+
+    // identical generic response (no enumeration)
+    expect(res.status).toBe('VERIFY_EMAIL_SENT')
+    expect(res.sessionChallenge).toBeTruthy()
+
+    // a DECOY challenge is stored (adminId 'decoy', attempts:0) so /register/verify is
+    // indistinguishable; the rolled-back transaction leaves no orphan and the catch
+    // returns early (it did NOT fall through to store a real codeHmac or send a code).
+    const key = RedisKey.merchantEmailVerify(res.sessionChallenge)
+    const stored = JSON.parse(m.store[key])
+    expect(stored.adminId).toBe('decoy')
+    expect(stored.attempts).toBe(0)
+    expect(notifySpy).not.toHaveBeenCalled() // no real verify email on the race-loss path
   })
 })
 
