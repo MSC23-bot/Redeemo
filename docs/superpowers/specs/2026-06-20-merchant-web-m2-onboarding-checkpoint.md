@@ -23,6 +23,12 @@
    (`2026-06-19-merchant-portal-build-handover.md`) are guides, now superseded in precision by the
    prototype + live-code inspection for M2 onboarding.
 
+**Tooling/process (owner-granted 2026-06-20):** Playwright MCP may be used whenever useful to inspect the
+Merchant Portal prototype or verify behaviour (fields, logic, copy, interactions, scoring, state
+transitions). Drive it against the local export served over localhost (`file://` is blocked) or the
+available prototype source. If Playwright access fails, report it and ask for screenshots/export rather
+than guessing. The prototype is a first-class source of truth for all Merchant Portal work.
+
 M2 = the merchant journey from authenticated entry (M1 shipped) to ready-to-submit-for-approval.
 The backend onboarding spine (checklist, contract, profile/category, branch, voucher/RMV, submit ->
 admin queue) is already shipped and battle-tested; **M2 is overwhelmingly a guided frontend wizard
@@ -45,9 +51,18 @@ plus a small set of no-schema backend enablers and a seed-data task.**
   tiering in M2.
 - **No schema.** Small M2.0 backend enabler (profile + branch services).
 
-### D2 - LOCKED: mandatory RMV-only for M2, guided builder, no custom CRUD, no offer-engine schema
-- M2 builds the configuration of the **2 mandatory RMVs only**. **No custom voucher (RCV) CRUD in
-  M2. No `TermsClause`/offer-engine schema in M2.**
+### D2 - LOCKED (REVISED 2026-06-20 after the live prototype browse): mandatory flagship-voucher setup, merchant CHOOSES the type from an eligible set
+- M2 builds **mandatory flagship voucher setup only**. **No custom voucher (RCV) CRUD in M2. No
+  `TermsClause`/offer-engine schema in M2.**
+- **Merchant CHOOSES the flagship voucher type** (prototype model), then authors the voucher via the
+  guided builder; NOT two backend-preselected fixed types. BOGO may be recommended.
+- **Flagship type eligibility (5 of 7):** ELIGIBLE = Buy one get one, Spend & save, Discount, Freebie,
+  Package deal. INELIGIBLE = Time limited, Reusable, shown in the picker as washed-out/disabled cards
+  with helper copy (refine wording, preserve intent): "These voucher types are not available for your
+  two flagship vouchers. Once your flagship vouchers are set up, you can create these as custom vouchers
+  later." Rationale: one size does not fit all (the merchant picks the fitting type), but mandatory
+  go-live offers stay constrained to strong, evergreen flagship types. Time-limited + Reusable live only
+  in custom-voucher creation (M4).
 - The RMV builder must NOT be a bare form. It must be **guided, category-aware, scored/quality-aware
   where feasible, suggestion-driven, and preview-based**: weak/good/great scoring against the
   template `minimumSaving` floor; helper text + "what makes it strong / stronger"; field-connected
@@ -59,9 +74,10 @@ plus a small set of no-schema backend enablers and a seed-data task.**
   requires it. They persist while the merchant is active/on-contract (matches the contract text).
 - **The current seed `RmvTemplate.allowedFields = ['terms', 'expiryDate']` is too thin** (it would
   give a terms-only form, and it wrongly exposes expiry) and MUST be corrected for M2: drop
-  `expiryDate`, and expand `allowedFields` so the merchant composes the offer (template provides
-  defaults + guardrails: type fixed, `minimumSaving` floor). `allowedFields`/`merchantFields` are
-  already Json columns -> no schema.
+  `expiryDate`; the merchant composes the offer; the template/config provides per-(category,type)
+  DEFAULTS + the `minimumSaving` floor as guardrails. The type is merchant-CHOSEN from the eligible set
+  (NOT fixed). `allowedFields` / `merchantFields` / `type` / nullable `rmvTemplateId` are all existing
+  columns -> no schema.
 - **Admin-managed RMV template/suggestion tooling is FUTURE work, not M2** (the M2 suggestion content
   is a frontend config map; the real admin-editable source = a config schema + admin-panel CRUD,
   Phase-3 fast-follow).
@@ -77,6 +93,21 @@ plus a small set of no-schema backend enablers and a seed-data task.**
   So D3 = author proper templates across all 11 (keep/refine 2, replace 4 generic, create 5). Data/
   seed + frontend config; no schema. First-pass draft at
   `docs/superpowers/specs/2026-06-10-rmv-templates-9-categories.md`.
+- **REVISED seed/config model (2026-06-20, after the type-choice decision):** no longer "2 fixed
+  templates per category". Define, per category: the ELIGIBLE flagship types (a subset of the 5
+  allowed), a recommended/default type, and a per-(category,type) `minimumSaving` floor + guidance +
+  suggestion + curated-term config. Globally INELIGIBLE flagship types (Time limited, Reusable) + the
+  disabled-card copy are config. `RmvTemplate` is reframed from "a fixed RMV to provision" into
+  "per-(category,type) defaults + floor" (multiple rows per category; `@@unique([categoryId,title])`
+  permits it) -> more seed rows, no schema. Suggestions + curated terms ride the frontend config map
+  (prototype section 2B).
+- **Backend provisioning reconciliation (no schema, M2.0):** replace auto-provision-2-fixed-RMVs with
+  merchant-driven flagship creation. The merchant picks an eligible type -> the backend creates an RMV
+  (`isRmv`/`isMandatory`, chosen `type`, optional `rmvTemplateId`) -> guided update (`merchantFields` +
+  composed columns + terms) -> submit. Verified no-schema: `Voucher.type` settable, `rmvTemplateId`
+  nullable, `merchantFields` Json, NO constraint requires a template (rmvTemplateId is only ever set,
+  never required). `handleCategoryChange` must re-handle DRAFT flagships on a category change (eligible
+  types differ per category). The submit checklist (2 `isRmv` in PENDING_APPROVAL/ACTIVE) is unchanged.
 - **Reconciliation (no schema):** store the merchant's category identity at the **subcategory** level
   (`primaryCategoryId` = subcategory, so the customer descriptor "Indian Restaurant" composes
   correctly), but **resolve the top-level parent for RMV template lookup** (provisioning currently
@@ -135,6 +166,12 @@ type") was WRONG against the prototype. Reconciliation (no schema, but a backend
 make RMV creation type-flexible (merchant picks from an eligible-type set per category; the floor +
 guidance come from a per-(category,type) config / template), or keep the fixed-type backend model and
 reframe the picker. This also enlarges D3 seed work (a floor/guidance per eligible type per category).
+
+**DIVERGENCE + CHOSEN DIRECTION (owner-decided 2026-06-20):** Prototype = the merchant chooses the
+voucher type. Backend today = category templates pre-provision fixed-type RMVs. CHOSEN = follow the
+prototype (merchant chooses from the 5 ELIGIBLE flagship types: BOGO, Spend & save, Discount, Freebie,
+Package deal; Time limited + Reusable shown disabled-with-copy) and redesign the M2 provisioning flow
+accordingly. Verified achievable WITHOUT schema (see D2/D3 revised + the M2.0 ledger). No migration.
 
 **Builder details (all no-schema / Path A / frontend-config per prototype section 2B):**
 - Structured per-type fields (buy item + full price; free item + value) -> `merchantFields` (Json) +
@@ -224,10 +261,11 @@ Schema/Route legend: Y = supported now, N = not supported, P = partial.
 | Submit for approval | Y | Y (`/onboarding/submit`) | M2 | frontend | 3-gate; resubmit handled |
 | Changes-requested reason to merchant | Y (`AdminApproval.comment`) | N merchant-side | M2 (D8) | backend enabler (read) | small |
 
-## 4. M2.0 backend-enabler ledger (no schema; report-first; each small)
+## 4. M2.0 backend-enabler ledger (no schema; report-first; mostly small, item 12 is a provisioning redesign)
 1. D1 profile sensitive-field draft-window bypass.
 2. D1 branch sensitive-edit draft-window bypass (+ postcode re-resolution).
-3. RMV provisioning parent-walk reconciliation (resolve subcategory -> top-level for template lookup).
+3. RMV parent-walk reconciliation (resolve subcategory -> top-level for template/eligibility lookup;
+   drives the eligible-type set + the per-(category,type) floor for the chosen flagship type).
 4. Merchant taxonomy READ endpoint for the onboarding picker (hierarchy + `SubcategoryTag` tags, NOT
    supply-filtered) - pending D5. Why a NEW endpoint and not the customer `GET /categories`: that one
    supply-filters subcategories to >=1 ACTIVE merchant UK-wide (`listActiveCategories`), so it hides
@@ -237,10 +275,20 @@ Schema/Route legend: Y = supported now, N = not supported, P = partial.
    + MerchantCategory) - pending D5.
 6. Logo/banner presign upload endpoint - pending D7.
 7. Server-side opening-hours validation - pending D8.
-8. `minimumSaving` floor enforcement - pending D8.
+8. `minimumSaving` floor enforcement (keys on the chosen-(category,type) floor) - pending D8.
 9. Merchant-facing changes-requested reason read - pending D8.
-10. RmvTemplate 9-category seed + `allowedFields` correction (data, not schema).
+10. REVISED RMV seed/config (data, not schema): per category, the eligible flagship types +
+    recommended/default + per-(category,type) `minimumSaving` floor + guidance + suggestions +
+    curated-terms config; the global ineligible list (Time limited, Reusable) + disabled-card copy;
+    drop `expiryDate` from `allowedFields`. `RmvTemplate` reframed to per-(category,type) defaults+floor
+    (multiple rows per category).
 11. Seed adds: `Family-Run`, `Locally Sourced` value tags (only if values land in M2; currently M3).
+12. **RMV-creation redesign (no schema; the one larger item):** replace auto-provision-2-fixed with
+    merchant-choose-eligible-type -> create RMV (`isRmv`/`isMandatory`, chosen `type`, optional
+    `rmvTemplateId`) -> guided update (`merchantFields` + composed columns + terms) -> submit.
+    Supersedes the current `provisionRmvVouchers` / `setMerchantCategoryCore` auto-provisioning.
+13. `handleCategoryChange` re-handle DRAFT flagships on a category change (eligible types differ per
+    category) - no schema.
 
 ## 5. Deferred prototype items (with reason)
 | Item | Reason | Target |
