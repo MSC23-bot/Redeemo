@@ -34,7 +34,7 @@ The backend onboarding spine (checklist, contract, profile/category, branch, vou
 admin queue) is already shipped and battle-tested; **M2 is overwhelmingly a guided frontend wizard
 plus a small set of no-schema backend enablers and a seed-data task.**
 
-## 1. Locked decisions (D1-D9)
+## 1. Locked decisions (D1-D10, COMPLETE)
 
 ### D1 - LOCKED: lifecycle-conditioned bypass for sensitive-field writes during onboarding
 - **Profile:** while the application is a DRAFT (`status REGISTERED`, plus the `NEEDS_CHANGES`
@@ -211,6 +211,20 @@ plus a small set of no-schema backend enablers and a seed-data task.**
   become explicitly OWNER-gated so non-owner staff cannot accept the merchant agreement.
 - No schema.
 
+### D10 - LOCKED: react-hook-form + zod for M2 onboarding forms; local stepper / upload / toast
+- Use **react-hook-form + zod resolver** for the M2 onboarding forms. Add `react-hook-form` +
+  `@hookform/resolvers` as M2 form deps (zod ^4.4.1 already present as the schema layer).
+- **Keep the M1 auth screens as-is** (sign-in / register / OTP / claim / forgot / reset stay on their
+  existing useState pattern; NO migration). Deliberate pattern split by form complexity, not a migration.
+- Build **local M2 primitives**: stepper/wizard; the file-upload component (D7); a toast/save-confirmation.
+- **No select/combobox primitive for M2** unless live inspection proves it is needed: the prototype uses
+  tiles/chips for category/subcategory/cuisine/specialty/voucher selection; the business-type + position
+  dropdowns are deferred to M3.
+- Rationale: M1 forms are small (useState was fine); M2 is a step-change (guided onboarding, business
+  profile, branch/address/opening-hours arrays, the voucher builder with live scoring + preview + curated
+  terms, file uploads, save-and-resume, dirty/touched state, field arrays). Frontend-only; no schema, no
+  backend enabler.
+
 ## 1A. Live prototype browse verification (2026-06-20, Playwright over the local export)
 
 Drove the interactive prototype. Confirmed and corrected:
@@ -338,9 +352,10 @@ no-schema (frontend config + client scoring). The heavier `TermsClause` RULES EN
 conflict detection / type-bans / value-erosion weights) stays M4; M2 uses the config map + client scoring +
 the admin-review backstop.
 
-## 2. Pending decisions (D10)
-- **D10:** frontend form/wizard architecture (react-hook-form + zod + stepper + select/combobox + toast
-  + file-upload component) vs alternatives.
+## 2. Pending decisions: NONE - the D1-D10 grill-me decision tree is COMPLETE (all locked 2026-06-20).
+Next step (owner-gated): the M2 spec (superpowers brainstorming -> spec -> writing-plans), which MUST
+absorb this checkpoint's "M2 Locked Decisions + Prototype Extraction Checkpoint" + the cross-check table.
+Do NOT write the spec/plan/code/migration/PR until the owner explicitly directs.
 
 ## 3. Prototype-vs-code cross-check table
 
