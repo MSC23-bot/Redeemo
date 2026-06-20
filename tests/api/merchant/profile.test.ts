@@ -72,7 +72,12 @@ describe('merchant profile routes', () => {
     expect(res.statusCode).toBe(401)
   })
 
-  it('PATCH /api/v1/merchant/profile returns 400 when sensitive fields are included', async () => {
+  it('PATCH /api/v1/merchant/profile returns 400 when sensitive fields are included on a live (non-draft-window) merchant', async () => {
+    // M2 B1 (D1): sensitive fields are rejected outside the draft window. A live
+    // (ACTIVE / LIVE) merchant keeps routing through the governed edit-request
+    // lane. The service reads the lifecycle (status + onboardingStep) to decide.
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ status: 'ACTIVE', onboardingStep: 'LIVE' })
+
     const res = await app.inject({
       method: 'PATCH',
       url: '/api/v1/merchant/profile',
@@ -81,6 +86,39 @@ describe('merchant profile routes', () => {
     })
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body).error.code).toBe('SENSITIVE_FIELDS_REQUIRE_EDIT_REQUEST')
+  })
+
+  it('PATCH /api/v1/merchant/profile writes sensitive fields DIRECTLY in the draft window (REGISTERED)', async () => {
+    // M2 B1 (D1): in the draft window the sensitive write applies directly + audits
+    // + creates NO MerchantPendingEdit. findUnique serves both the lifecycle read
+    // and the sensitive-core before-snapshot.
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({
+      status: 'REGISTERED', onboardingStep: 'REGISTERED',
+      businessName: 'Old Co', tradingName: null, logoUrl: null, bannerUrl: null, description: null,
+    })
+    app.prisma.merchant.update = vi.fn().mockResolvedValue({ id: 'm1', businessName: 'New Co Ltd' })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/merchant/profile',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { businessName: 'New Co Ltd' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(app.prisma.merchant.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ businessName: 'New Co Ltd' }) })
+    )
+    expect(app.prisma.merchantPendingEdit.create).not.toHaveBeenCalled()
+    expect(app.prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          event: 'MERCHANT_PROFILE_UPDATED',
+          actorType: 'MERCHANT_ADMIN',
+          actorId: 'ma1',
+        }),
+      })
+    )
   })
 
   it('PATCH /api/v1/merchant/profile updates non-sensitive fields (transactional actor audit)', async () => {

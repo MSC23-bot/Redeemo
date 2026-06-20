@@ -11,6 +11,32 @@ import { getOwnerMembership } from '../shared/merchantMembership'
 // merchant path.
 export type EditActor = { type: 'MERCHANT_ADMIN' | 'ADMIN'; id: string; reason?: string }
 
+/**
+ * M2 B1 (D1): the lifecycle "draft window" predicate. While a merchant
+ * application is being set up (`status REGISTERED`) OR an admin has asked for
+ * changes during onboarding (`onboardingStep NEEDS_CHANGES`, which sits on
+ * `status PENDING_APPROVAL`), sensitive identity fields write DIRECTLY (no admin
+ * edit-request round-trip). Once SUBMITTED / UNDER_REVIEW (view-only) or live
+ * (APPROVED / LIVE / ACTIVE), the governed edit-request lane is the path again.
+ *
+ * Confirmed against the lifecycle projection (spec section 4.1) + the enums:
+ * `MerchantStatus` carries REGISTERED / PENDING_APPROVAL / ACTIVE / ...; the
+ * SUBMITTED / UNDER_REVIEW / NEEDS_CHANGES / LIVE / REJECTED states live on
+ * `OnboardingStep`. SUBMITTED / UNDER_REVIEW are intentionally NOT in the draft
+ * window (B1 does not add new locking there; their direct-edit refusal stays via
+ * the existing edit-request lane).
+ *
+ * Shaped as a single clean predicate so the day-2 edit tiering (e.g.
+ * `description` -> instant when live) drops in as a separate, field-aware refinement
+ * later. B1 does NOT build day-2 tiering.
+ */
+export function isDraftWindow(merchant: {
+  status: string | null | undefined
+  onboardingStep: string | null | undefined
+}): boolean {
+  return merchant.status === 'REGISTERED' || merchant.onboardingStep === 'NEEDS_CHANGES'
+}
+
 export async function resolveAdminMerchant(
   prisma: PrismaClient,
   adminId: string
