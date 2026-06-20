@@ -227,6 +227,75 @@ accordingly. Verified achievable WITHOUT schema (see D2/D3 revised + the M2.0 le
   co-build UI is gated (Phase-3, confirmation primitive).
 - "Save as draft" + build 2 flagship vouchers; they submit together with the business for review.
 
+## 1B. Voucher builder logic: scoring + per-type fields + per-category terms/suggestions (prototype = source of truth)
+
+Captured from Co-Designer (authoritative scoring logic, owner-relayed 2026-06-20) + prototype section 2B
+(category-driven suggestions/terms) + blueprint section 6.9 (per-type fields) + the live BOGO Step-2
+browse. This is the M2 builder spec detail; all of it is CLIENT-SIDE scoring + FRONTEND config (no schema),
+consistent with D2 (admin review is the backstop) and the D8b reframe (the score is advisory, not a gate).
+
+### Scoring model ("How this voucher stacks up") - client-side, advisory
+- **3 tiers only: Too weak / Good / Great.** No "too generous / too risky" - generosity is NEVER
+  punished; the only floor is a minimum. The meter + the two lists ("What is strong" / "What could make
+  it better") are computed from ONE fact set so they can never disagree.
+- **Too weak** if ANY: saving below the GBP 5 minimum (absolute); OR terms too restrictive; OR 4+
+  material improvements still open.
+- **Great** only when: zero material improvements left AND the saving is genuinely generous AND no
+  restrictive terms AND the terms list is clean (<=3). (Great requires "what could make it better" empty.)
+- **Good** = everything in between.
+- **Inputs:** (1) Saving generosity (the heart): generous = ABSOLUTE (~GBP 15+ most types, GBP 10+
+  freebie, GBP 6+ time-limited) OR RELATIVE share-of-price (~20%+ Discount / Spend&save / Package, 40%+
+  BOGO); below GBP 5 absolute triggers the minimum-saving fail, EXCEPT a standalone freebie (generous by
+  nature). (2) Clear title (long enough or contains "GBP X off / X% off"). (3) Helpful description (~30+
+  chars AND edited into the merchant's own words; the auto-suggested text alone does NOT count). (4) Photo
+  (a real image beats the default banner). (5) Terms cleanliness (the key behavioural lever): each term is
+  tagged **Fair / Caution / Restrictive**; becoming restrictive = 1+ restrictive OR 5+ terms OR 2+ caution;
+  too restrictive (forces Too weak) = 2+ restrictive OR 7+ terms OR 4+ caution. (6) Type-specific:
+  time-limited rewards usable windows (penalises a window under 2h); reusable rewards a frequent interval
+  (a daily repeat scores well even at modest saving). NOTE: TL + Reusable are flagship-INELIGIBLE (D2), so
+  their type-specific scoring only matters for custom vouchers (M4); flagship scoring uses the 5 eligible.
+- **Framing:** the only "down" pressures are a below-floor saving and over-loading terms. "Compares to
+  similar businesses on Redeemo" is MOTIVATIONAL framing ONLY - it shows NO real competitor data.
+
+### Per-type structured fields (the 5 eligible flagship types; blueprint 6.9, validated vs the BOGO build)
+- **BOGO:** buy/qualifying item + full price; free item + value-of-free-item (+ the cheaper-item-applies
+  rule). estimatedSaving = free item value (auto, editable).
+- **Spend & save:** threshold (spend) + saveAmount. estimatedSaving = saveAmount.
+- **Discount:** fixed (amount + eligibleScope "what is it on") OR percent (percentage + eligibleScope).
+- **Freebie:** free item (+ optional triggerPurchase). estimatedSaving = free item value (standalone
+  freebie is exempt from the too-weak floor).
+- **Package deal:** includedItems[] + packageValue + packagePrice. estimatedSaving = packageValue - packagePrice.
+- All feed `merchantFields` (Json) AND compose the customer-visible `title`/`description`/`estimatedSaving`/
+  `terms` (Path A, no customer-app change). No schema.
+
+### Per-category terms + suggestions dependency (section 2B)
+- **Terms = a universal CORE** shown everywhere (tell staff before you order/pay; one redemption per
+  customer each time; not valid with any other offer; one voucher per customer each visit) **PLUS
+  category-conditional terms** shown only where they fit: booking terms (Booking recommended / Advance
+  booking required) for booking-led categories (Beauty & Wellness, Health & Fitness, Travel & Hotels,
+  Health & Medical, Pet Services, sit-down Food); "Dine in only" for Food & Drink; "While stocks last" for
+  Shopping + Freebie; "One treatment per visit" for Beauty + Health & Medical; "Valid on full price items
+  only" for Shopping + Food; "Subject to availability" for Travel & Hotels + fitness classes.
+- Each term carries a **Fair / Caution / Restrictive** tag (feeds the scoring stacking thresholds above);
+  Caution/Restrictive are badged in the UI. Plus "Add your own term".
+- **Suggestion chips** (buy/free item, discount target, etc.) are also category-driven (Food: "a main",
+  "a starter", "a hot drink"; Auto/others: different sets). The active merchant's CATEGORY selects the set;
+  a neutral fallback covers unknown. Prototype has a demo-only "Preview suggestions as" category switcher.
+- **Section 2B lock:** "No schema change: suggestion AND term content is builder configuration, not
+  voucher columns; the chosen values collapse into title/description/estimatedSaving/terms." -> a FRONTEND
+  CONFIG MAP.
+
+### M2 spec scope (record) + the verbatim-extraction task
+The M2 spec/plan MUST capture, FROM THE PROTOTYPE: (a) the scoring algorithm above (client-side, advisory,
+admin-backstopped); (b) the per-type field sets + per-type estimatedSaving derivation + per-type score
+thresholds; (c) the per-(category, subcategory, type) suggestion + term config map WITH the Fair/Caution/
+Restrictive tags; (d) the universal-core terms; (e) the neutral fallback. **Verbatim extraction task:** the
+exact per-category chip lists + per-term tags + exact thresholds are to be extracted verbatim from the
+prototype config (`Redeemo for Business.dc.html`) during spec/plan authoring (Playwright + source). All
+no-schema (frontend config + client scoring). The heavier `TermsClause` RULES ENGINE (server-validated
+conflict detection / type-bans / value-erosion weights) stays M4; M2 uses the config map + client scoring +
+the admin-review backstop.
+
 ## 2. Pending decisions (D8-D10)
 - **D8:** small backend quality enablers - server-side opening-hours validation; `minimumSaving` floor
   enforcement; merchant-facing changes-requested reason read.
