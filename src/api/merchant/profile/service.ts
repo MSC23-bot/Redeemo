@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx, type AuditEvent } from '../../shared/audit'
-import { resolveAdminMerchant, isDraftWindow, type EditActor } from '../shared'
+import { resolveAdminMerchant, isDraftWindow, resolveTopLevelCategoryId, type EditActor } from '../shared'
 import { handleCategoryChange } from '../voucher/service'
 
 const SENSITIVE_FIELDS = ['businessName', 'tradingName', 'logoUrl', 'bannerUrl', 'description'] as const
@@ -145,9 +145,15 @@ export async function setMerchantCategoryCore(
 
   // First-time set: provision RMVs atomically; no confirm needed.
   if (merchant.primaryCategoryId === null) {
+    // M2 B2: the identity write stores primaryCategoryId at the SUBCATEGORY level,
+    // but RMV templates are seeded at the TOP-LEVEL. Resolve the top-level parent
+    // for the template lookup (a top-level id resolves to itself), so
+    // auto-provisioning keeps working after B2. Merchant.primaryCategoryId is still
+    // set to the SUBCATEGORY id (newCategoryId) so the descriptor composes.
+    const templateCategoryId = await resolveTopLevelCategoryId(prisma, newCategoryId)
     await prisma.$transaction(async (tx) => {
       await tx.merchant.update({ where: { id: merchantId }, data: { primaryCategoryId: newCategoryId } })
-      const templates = await tx.rmvTemplate.findMany({ where: { categoryId: newCategoryId, isActive: true }, take: 2 })
+      const templates = await tx.rmvTemplate.findMany({ where: { categoryId: templateCategoryId, isActive: true }, take: 2 })
       if (templates.length < 2) throw new AppError('NO_RMV_TEMPLATE')
       await Promise.all(templates.map(t =>
         tx.voucher.create({
@@ -188,6 +194,128 @@ export async function setMerchantCategoryCore(
 
   // Change: delegate to handleCategoryChange (block / requiresConfirmation / apply).
   return handleCategoryChange(prisma, { merchantId, actor }, newCategoryId, confirm, ctx)
+}
+
+/**
+ * M2 B2 (D5): the full merchant category-identity write. Stores the chosen
+ * SUBCATEGORY as `primaryCategoryId` (so `buildDescriptor` composes the
+ * customer-facing label correctly), the chosen cuisine Tag as
+ * `primaryDescriptorTagId` (nullable), the chosen specialty Tags as `MerchantTag`
+ * rows, and maintains the `MerchantCategory(isPrimary)` row. Transactional +
+ * actor-attributed audit (MERCHANT_ADMIN on the merchant route).
+ *
+ * Validation (BEFORE the transaction): the subcategory must exist
+ * (CATEGORY_NOT_FOUND) and be a real subcategory, not a top-level category
+ * (NOT_A_SUBCATEGORY); every chosen tag (descriptor + specialties) must be linked
+ * to that subcategory via `SubcategoryTag` (TAG_NOT_ELIGIBLE); the descriptor tag
+ * must additionally be `isPrimaryEligible`.
+ *
+ * Idempotent: the specialty MerchantTag set is replaced (deleteMany + createMany)
+ * so re-saving the identity is safe. This is a NEW core distinct from
+ * `setMerchantCategoryCore` (the RMV auto-provisioning path) so the existing admin
+ * category route + provisioning are untouched. RMV auto-provisioning on first
+ * category-set still flows through `updateMerchantProfile`'s `primaryCategoryId`
+ * branch / `setMerchantCategoryCore`; this write sets the identity only and does
+ * NOT provision (provisioning resolves the top-level parent via the parent-walk).
+ */
+export async function setMerchantIdentityCore(
+  prisma: PrismaClient,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
+  identity: { subcategoryId: string; primaryDescriptorTagId?: string | null; specialtyTagIds?: string[] },
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const subcategoryId = identity.subcategoryId
+  const descriptorTagId = identity.primaryDescriptorTagId ?? null
+  const specialtyTagIds = Array.from(new Set(identity.specialtyTagIds ?? []))
+
+  // 1. The subcategory must exist + be a real subcategory (parentId set).
+  const subcategory = await prisma.category.findUnique({
+    where: { id: subcategoryId },
+    select: { id: true, parentId: true },
+  })
+  if (!subcategory) throw new AppError('CATEGORY_NOT_FOUND')
+  if (subcategory.parentId === null) throw new AppError('NOT_A_SUBCATEGORY')
+
+  // 2. Validate every chosen tag is eligible for this subcategory (SubcategoryTag).
+  //    The descriptor tag must additionally be isPrimaryEligible.
+  const requestedTagIds = Array.from(new Set([...(descriptorTagId ? [descriptorTagId] : []), ...specialtyTagIds]))
+  if (requestedTagIds.length > 0) {
+    const links = await prisma.subcategoryTag.findMany({
+      where: { subcategoryId, tagId: { in: requestedTagIds } },
+      select: { tagId: true, isPrimaryEligible: true },
+    })
+    const eligibleById = new Map(links.map((l) => [l.tagId, l.isPrimaryEligible]))
+    for (const tagId of requestedTagIds) {
+      if (!eligibleById.has(tagId)) throw new AppError('TAG_NOT_ELIGIBLE')
+    }
+    if (descriptorTagId && eligibleById.get(descriptorTagId) !== true) {
+      throw new AppError('TAG_NOT_ELIGIBLE')
+    }
+  }
+
+  // 3. Apply atomically: merchant identity columns + MerchantCategory(isPrimary) +
+  //    the specialty MerchantTag set (replaced) + the actor-attributed audit.
+  const beforeRow = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { primaryCategoryId: true, primaryDescriptorTagId: true },
+  })
+  if (!beforeRow) throw new AppError('MERCHANT_NOT_FOUND')
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.merchant.update({
+      where: { id: merchantId },
+      data: { primaryCategoryId: subcategoryId, primaryDescriptorTagId: descriptorTagId },
+    })
+
+    // Maintain the MerchantCategory primary-flag invariant: demote any existing
+    // rows, then upsert the chosen subcategory as primary.
+    await tx.merchantCategory.updateMany({ where: { merchantId }, data: { isPrimary: false } })
+    await tx.merchantCategory.upsert({
+      where: { merchantId_categoryId: { merchantId, categoryId: subcategoryId } },
+      update: { isPrimary: true },
+      create: { merchantId, categoryId: subcategoryId, isPrimary: true },
+    })
+
+    // Replace the specialty MerchantTag set (idempotent re-save).
+    await tx.merchantTag.deleteMany({ where: { merchantId } })
+    if (specialtyTagIds.length > 0) {
+      await tx.merchantTag.createMany({
+        data: specialtyTagIds.map((tagId) => ({ merchantId, tagId })),
+        skipDuplicates: true,
+      })
+    }
+
+    await writeAuditLogTx(tx, {
+      entityId: merchantId,
+      entityType: 'merchant',
+      event: 'MERCHANT_PROFILE_UPDATED',
+      actorId: actor.id,
+      actorType: actor.type,
+      reason: actor.reason,
+      before: { primaryCategoryId: beforeRow.primaryCategoryId, primaryDescriptorTagId: beforeRow.primaryDescriptorTagId },
+      after: { primaryCategoryId: subcategoryId, primaryDescriptorTagId: descriptorTagId },
+      metadata: { specialtyTagIds },
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    })
+
+    return updated
+  })
+}
+
+/**
+ * M2 B2: merchant-facing wrapper for the identity write. Resolves the caller's OWN
+ * merchant (resolveAdminMerchant; keeps INVALID_CREDENTIALS + the SEC-M2 SUSPENDED
+ * block) and delegates to the shared core as a MERCHANT_ADMIN actor.
+ */
+export async function setMerchantIdentity(
+  prisma: PrismaClient,
+  adminId: string,
+  identity: { subcategoryId: string; primaryDescriptorTagId?: string | null; specialtyTagIds?: string[] },
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  return setMerchantIdentityCore(prisma, { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } }, identity, ctx)
 }
 
 export async function updateMerchantProfile(

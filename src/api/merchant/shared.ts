@@ -37,6 +37,38 @@ export function isDraftWindow(merchant: {
   return merchant.status === 'REGISTERED' || merchant.onboardingStep === 'NEEDS_CHANGES'
 }
 
+/**
+ * M2 B2 (D3/D5): the category parent-walk. The merchant identity write stores
+ * `Merchant.primaryCategoryId` at the SUBCATEGORY level (so the customer
+ * `buildDescriptor` composes "Indian Restaurant" correctly), but RMV templates +
+ * eligibility live at the TOP-LEVEL category. This resolves a category id to its
+ * top-level parent (`parentId`), returning a TOP-LEVEL id unchanged (parentId
+ * null -> the id itself).
+ *
+ * LENIENT by design: if the row is missing (or `prisma.category` is unavailable in
+ * a bare test mock), it falls back to the passed id. A genuinely missing template
+ * is then caught downstream by the existing NO_RMV_TEMPLATE guard, NOT by a crash
+ * here. This keeps the admin category path (which passes a top-level id and does
+ * not always mock `category.findUnique`) working unchanged after B2.
+ *
+ * Used by BOTH the identity write (to validate/lookup) and the auto-provisioning
+ * (so first-time-set + category-change template lookups query the top-level
+ * parent, not the subcategory). Placed in shared.ts alongside B1's isDraftWindow.
+ */
+export async function resolveTopLevelCategoryId(
+  prisma: Pick<PrismaClient, 'category'> | { category?: { findUnique?: Function } },
+  categoryId: string
+): Promise<string> {
+  const findUnique = (prisma as any)?.category?.findUnique
+  if (typeof findUnique !== 'function') return categoryId
+  const row = await findUnique.call((prisma as any).category, {
+    where: { id: categoryId },
+    select: { parentId: true },
+  })
+  if (!row) return categoryId
+  return row.parentId ?? categoryId
+}
+
 export async function resolveAdminMerchant(
   prisma: PrismaClient,
   adminId: string
