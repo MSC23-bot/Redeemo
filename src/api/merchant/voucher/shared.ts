@@ -26,3 +26,14 @@ export type EligibleFlagshipType = (typeof ELIGIBLE_FLAGSHIP_TYPES)[number]
 export function isEligibleFlagshipType(type: string): type is EligibleFlagshipType {
   return (ELIGIBLE_FLAGSHIP_TYPES as readonly string[]).includes(type)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M2 B3 (review fix): backend cap of two mandatory flagship RMVs per merchant.
+//
+// The product rule is exactly two mandatory flagship vouchers (RMV-001 / RMV-002)
+// before admin approval. The onboarding checklist only checks rmvCount >= 2 and the
+// admin go-live path activates ALL submitted RMVs, so without this cap a direct API
+// caller or a double-submitting frontend could create + submit MORE than two and have
+// them all go live. The cap is enforced in createFlagshipRmvVoucher.
+// ─────────────────────────────────────────────────────────────────────────────
+export const FLAGSHIP_RMV_CAP = 2

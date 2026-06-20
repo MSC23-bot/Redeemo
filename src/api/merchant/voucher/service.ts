@@ -3,7 +3,7 @@ import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx, type ActorType } from '../../shared/audit'
 import { resolveAdminMerchant, resolveTopLevelCategoryId, type EditActor } from '../shared'
-import { isEligibleFlagshipType } from './shared'
+import { isEligibleFlagshipType, FLAGSHIP_RMV_CAP } from './shared'
 
 // Only DRAFT vouchers can be edited, submitted, or deleted
 const EDITABLE_STATUSES = ['DRAFT'] as const
@@ -426,9 +426,24 @@ export async function createFlagshipRmvVoucher(
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
 
   // Eligibility gate FIRST (before any merchant/category/template read), so an
-  // ineligible type is rejected cheaply with a clear error.
+  // ineligible type is rejected cheaply with a clear error. This stays ahead of the
+  // cap check below so an ineligible type rejects before ANY DB work.
   if (!isEligibleFlagshipType(voucherType)) {
     throw new AppError('VOUCHER_TYPE_NOT_ELIGIBLE')
+  }
+
+  // Cap check: at most FLAGSHIP_RMV_CAP (2) mandatory flagship RMVs per merchant.
+  // Count only slot-occupying statuses (DRAFT / PENDING_APPROVAL / ACTIVE); INACTIVE
+  // and REJECTED free a slot, matching handleCategoryChange's DRAFT->INACTIVE discard.
+  // This is a sequential / count guard: the realistic vector is repeated API calls
+  // or a buggy / double-submitting frontend. A fully concurrent double-submit race
+  // would need a DB constraint (schema) and is intentionally out of scope for this
+  // no-schema slice; no transaction is added here for race-safety.
+  const flagshipCount = await prisma.voucher.count({
+    where: { merchantId, isRmv: true, status: { in: ['DRAFT', 'PENDING_APPROVAL', 'ACTIVE'] } },
+  })
+  if (flagshipCount >= FLAGSHIP_RMV_CAP) {
+    throw new AppError('FLAGSHIP_RMV_LIMIT_REACHED')
   }
 
   const merchant = await prisma.merchant.findUnique({

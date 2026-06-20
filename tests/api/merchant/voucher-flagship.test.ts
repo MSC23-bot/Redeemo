@@ -33,7 +33,10 @@ describe('merchant flagship-RMV create-flagship route (M2 B3)', () => {
       merchant: { findUnique: vi.fn().mockResolvedValue({ id: 'm1', primaryCategoryId: 'sub-restaurant' }) },
       category: { findUnique: vi.fn().mockResolvedValue({ parentId: 'cat-food' }) },
       rmvTemplate: { findFirst: vi.fn() },
-      voucher: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+      // B3 review fix: default the flagship-RMV cap count to 0 so the existing
+      // happy-path / audit / update / submit tests run UNDER the cap of 2. The
+      // dedicated cap tests below override this per-case.
+      voucher: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn().mockResolvedValue(0) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
     }
     prismaMock.$transaction = vi.fn().mockImplementation(async (fn: any) => fn(prismaMock))
@@ -92,7 +95,7 @@ describe('merchant flagship-RMV create-flagship route (M2 B3)', () => {
     expect(createArg.data.code).toMatch(/^RMV-/)
   })
 
-  it.each(['TIME_LIMITED', 'REUSABLE'])('rejects ineligible flagship type %s before any template lookup', async (type) => {
+  it.each(['TIME_LIMITED', 'REUSABLE'])('rejects ineligible flagship type %s before ANY DB work (cap count, template lookup, create)', async (type) => {
     const res = await app.inject({
       method: 'POST', url: '/api/v1/merchant/vouchers/rmv/create-flagship',
       headers: { authorization: `Bearer ${merchantToken}` },
@@ -101,8 +104,112 @@ describe('merchant flagship-RMV create-flagship route (M2 B3)', () => {
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body).error.code).toBe('VOUCHER_TYPE_NOT_ELIGIBLE')
-    // No template lookup / no voucher created for an ineligible type.
+    // Eligibility rejects BEFORE any DB work: no cap count, no template lookup,
+    // no voucher created. Proves the eligibility gate stays first, ahead of the
+    // new cap check.
+    expect(app.prisma.voucher.count).not.toHaveBeenCalled()
+    expect(app.prisma.rmvTemplate.findFirst).not.toHaveBeenCalled()
     expect(app.prisma.voucher.create).not.toHaveBeenCalled()
+  })
+
+  // ─── B3 review fix: flagship-RMV cap of 2 ─────────────────────────────────
+  //
+  // createFlagshipRmvVoucher previously created an unbounded number of mandatory
+  // flagship RMVs. The onboarding checklist only checks rmvCount >= 2 and the
+  // admin go-live path activates ALL submitted RMVs, so a direct API caller or a
+  // double-submitting frontend could push more than two mandatory flagships live.
+  // The cap blocks the 3rd create once a merchant already occupies two slots.
+
+  it('allows the FIRST flagship create when the merchant has zero existing flagship RMVs (count=0 -> 201)', async () => {
+    app.prisma.voucher.count = vi.fn().mockResolvedValue(0)
+    app.prisma.rmvTemplate.findFirst = vi.fn().mockResolvedValue(bogoTemplate)
+    app.prisma.voucher.create = vi.fn().mockImplementation(async ({ data }: any) => ({ id: 'rmv-1', ...data }))
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/merchant/vouchers/rmv/create-flagship',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { voucherType: 'BOGO' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(app.prisma.voucher.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows the SECOND flagship create when the merchant has one existing flagship RMV (count=1 -> 201)', async () => {
+    app.prisma.voucher.count = vi.fn().mockResolvedValue(1)
+    app.prisma.rmvTemplate.findFirst = vi.fn().mockResolvedValue(bogoTemplate)
+    app.prisma.voucher.create = vi.fn().mockImplementation(async ({ data }: any) => ({ id: 'rmv-2', ...data }))
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/merchant/vouchers/rmv/create-flagship',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { voucherType: 'BOGO' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(app.prisma.voucher.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects the THIRD flagship create with 409 FLAGSHIP_RMV_LIMIT_REACHED when the merchant already has two (count=2)', async () => {
+    app.prisma.voucher.count = vi.fn().mockResolvedValue(2)
+    app.prisma.rmvTemplate.findFirst = vi.fn().mockResolvedValue(bogoTemplate)
+    app.prisma.voucher.create = vi.fn()
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/merchant/vouchers/rmv/create-flagship',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { voucherType: 'BOGO' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body).error.code).toBe('FLAGSHIP_RMV_LIMIT_REACHED')
+  })
+
+  it('does NOT look up a template or create a voucher when the cap is reached', async () => {
+    app.prisma.voucher.count = vi.fn().mockResolvedValue(2)
+    app.prisma.rmvTemplate.findFirst = vi.fn().mockResolvedValue(bogoTemplate)
+    app.prisma.voucher.create = vi.fn()
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/merchant/vouchers/rmv/create-flagship',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { voucherType: 'BOGO' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    // Cap check sits AFTER eligibility but BEFORE the template lookup + create,
+    // so neither runs once the cap is hit.
+    expect(app.prisma.rmvTemplate.findFirst).not.toHaveBeenCalled()
+    expect(app.prisma.voucher.create).not.toHaveBeenCalled()
+  })
+
+  it('counts existing DRAFT, PENDING_APPROVAL and ACTIVE flagship RMVs toward the cap (INACTIVE/REJECTED free the slot)', async () => {
+    // A merchant already at the cap (regardless of whether the two slots are DRAFT,
+    // PENDING_APPROVAL or ACTIVE) is blocked. The where clause must scope the count
+    // to the slot-occupying statuses only.
+    app.prisma.voucher.count = vi.fn().mockResolvedValue(2)
+    app.prisma.voucher.create = vi.fn()
+
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/merchant/vouchers/rmv/create-flagship',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { voucherType: 'BOGO' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body).error.code).toBe('FLAGSHIP_RMV_LIMIT_REACHED')
+    // Assert the actual where clause passed to count: own merchant, flagship RMVs,
+    // and only the slot-occupying statuses (INACTIVE/REJECTED are excluded so they
+    // free a slot, matching handleCategoryChange's DRAFT->INACTIVE discard).
+    expect(app.prisma.voucher.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          merchantId: 'm1',
+          isRmv: true,
+          status: { in: ['DRAFT', 'PENDING_APPROVAL', 'ACTIVE'] },
+        }),
+      })
+    )
   })
 
   it('throws NO_RMV_TEMPLATE when no template exists for the (category, type) pair', async () => {
