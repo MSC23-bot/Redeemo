@@ -256,6 +256,19 @@ consistent with D2 (admin review is the backstop) and the D8b reframe (the score
   their type-specific scoring only matters for custom vouchers (M4); flagship scoring uses the 5 eligible.
 - **Framing:** the only "down" pressures are a below-floor saving and over-loading terms. "Compares to
   similar businesses on Redeemo" is MOTIVATIONAL framing ONLY - it shows NO real competitor data.
+- **Score-feedback copy is GENERIC (type- and merchant-agnostic):** the "What is strong" / "What could
+  make it better" lines are UNIVERSAL across all merchant + voucher types - they are driven by WHICH
+  facts are weak/strong (saving, title, description, photo, terms), NOT by category. Only the suggestion
+  chips + the terms SET are category-specific (section 2B). So the score-feedback strings are shared/
+  generic; the suggestions + terms are the category-driven config (lower authoring/maintenance cost: one
+  feedback-copy set, many category suggestion/term maps).
+- **Title + Description auto-compose from the "You decide" structured fields** so a merchant gets a
+  sensible, natural-reading voucher from simple clicks / minimal entry (low-friction). The builder then
+  ENCOURAGES personalising them, and un-personalised auto-text is exactly what "What could make it
+  better" flags (the description must be edited into the merchant's own words to count toward Great).
+  **Design intent (locked principle):** the easiest possible guided / assisted / encouraging builder that
+  STILL yields valuable, not-undervalued offers - value is enforced by the GBP 5 floor in the score + the
+  admin-review backstop, while the guidance keeps creation effortless.
 
 ### Per-type structured fields (the 5 eligible flagship types; blueprint 6.9, validated vs the BOGO build)
 - **BOGO:** buy/qualifying item + full price; free item + value-of-free-item (+ the cheaper-item-applies
