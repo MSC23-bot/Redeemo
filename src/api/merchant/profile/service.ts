@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx, type AuditEvent } from '../../shared/audit'
-import { resolveAdminMerchant, type EditActor } from '../shared'
+import { resolveAdminMerchant, isDraftWindow, type EditActor } from '../shared'
 import { handleCategoryChange } from '../voucher/service'
 
 const SENSITIVE_FIELDS = ['businessName', 'tradingName', 'logoUrl', 'bannerUrl', 'description'] as const
@@ -59,6 +59,52 @@ export async function updateMerchantProfileDirectCore(
       entityId: merchantId,
       entityType: 'merchant',
       event,
+      actorId: actor.id,
+      actorType: actor.type,
+      before,
+      after: safe,
+      reason: actor.reason,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    })
+    return updated
+  })
+}
+
+/**
+ * M2 B1 (D1): the draft-window SENSITIVE-direct apply core. Filters `updates` to
+ * `SENSITIVE_FIELDS`, captures a before-snapshot, then writes + audits inside one
+ * transaction. ONLY reachable from the draft window (`updateMerchantProfile`
+ * gates on `isDraftWindow`); outside the draft window the sensitive fields keep
+ * throwing SENSITIVE_FIELDS_REQUIRE_EDIT_REQUEST and route through the governed
+ * edit-request lane. Mirrors `updateMerchantProfileDirectCore`'s audit shape
+ * (actor-attributed MERCHANT_ADMIN, before/after, transactional).
+ */
+async function updateMerchantProfileSensitiveDirectCore(
+  prisma: PrismaClient,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
+  updates: Record<string, unknown>,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const safe: Record<string, unknown> = {}
+  for (const k of SENSITIVE_FIELDS) if (k in updates) safe[k] = updates[k]
+  if (Object.keys(safe).length === 0) return prisma.merchant.findUnique({ where: { id: merchantId } })
+
+  const beforeRow = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { businessName: true, tradingName: true, logoUrl: true, bannerUrl: true, description: true },
+  })
+  if (!beforeRow) throw new AppError('MERCHANT_NOT_FOUND')
+
+  const before: Record<string, unknown> = {}
+  for (const k of Object.keys(safe)) before[k] = (beforeRow as any)[k]
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.merchant.update({ where: { id: merchantId }, data: safe })
+    await writeAuditLogTx(tx, {
+      entityId: merchantId,
+      entityType: 'merchant',
+      event: 'MERCHANT_PROFILE_UPDATED',
       actorId: actor.id,
       actorType: actor.type,
       before,
@@ -152,9 +198,29 @@ export async function updateMerchantProfile(
 ) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
 
-  // Reject if any sensitive fields are passed — they must go through POST /edit-request
+  // M2 B1 (D1): sensitive fields write DIRECTLY in the draft window (status
+  // REGISTERED, or onboardingStep NEEDS_CHANGES); outside it they keep routing
+  // through the governed edit-request lane (POST /edit-request). The lifecycle
+  // read is a single targeted select; the governed lane is untouched.
   const attemptedSensitive = SENSITIVE_FIELDS.filter(k => k in updates)
-  if (attemptedSensitive.length > 0) throw new AppError('SENSITIVE_FIELDS_REQUIRE_EDIT_REQUEST')
+  if (attemptedSensitive.length > 0) {
+    const lifecycle = await prisma.merchant.findUnique({
+      where: { id: merchantId },
+      select: { status: true, onboardingStep: true },
+    })
+    if (!lifecycle) throw new AppError('MERCHANT_NOT_FOUND')
+    if (!isDraftWindow(lifecycle)) throw new AppError('SENSITIVE_FIELDS_REQUIRE_EDIT_REQUEST')
+
+    // Draft window: apply the sensitive fields directly (transactional + audit).
+    await updateMerchantProfileSensitiveDirectCore(
+      prisma,
+      { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
+      updates,
+      ctx
+    )
+    // Fall through so any DIRECT_SIMPLE / category fields in the same payload are
+    // also applied; finally return the refreshed profile (unchanged contract).
+  }
 
   // Option B B2.3: primaryCategoryId (set or change) runs through the shared
   // setMerchantCategoryCore seam (the SAME core the admin route calls), with the

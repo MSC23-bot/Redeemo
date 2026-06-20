@@ -2,7 +2,7 @@ import { PrismaClient } from '../../../../generated/prisma/client'
 import type Redis from 'ioredis'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx } from '../../shared/audit'
-import { resolveAdminMerchant, type EditActor } from '../shared'
+import { resolveAdminMerchant, isDraftWindow, type EditActor } from '../shared'
 import { encrypt, decrypt } from '../../shared/encryption'
 import { resolvePostcode } from '../../lib/postcodeResolver'
 import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
@@ -225,6 +225,68 @@ export async function updateBranchDirectCore(
   })
 }
 
+/**
+ * M2 B1 (D1): the draft-window SENSITIVE-direct branch apply core. Writes the
+ * sensitive branch fields directly (transactional + actor audit), re-resolving
+ * location via `resolveBranchLocationFields` when `postcode` is among the changes
+ * (so a postcode change re-anchors lat/lng/locality to the postcode centroid -
+ * NEVER writes a raw postcode without re-resolving). ONLY reachable from the
+ * draft window (`updateBranch` gates on `isDraftWindow`); outside it the sensitive
+ * fields keep routing through the governed `createBranchEditRequest` lane.
+ *
+ * Direct fields in the same payload are written alongside the sensitive ones. The
+ * postcode resolve STAYS before the transaction (a bad postcode / gazetteer outage
+ * must reject before opening a tx), matching `createBranchCore`.
+ */
+async function updateBranchSensitiveDirectCore(
+  prisma: PrismaClient,
+  { merchantId, actor }: { merchantId: string; actor: EditActor },
+  branchId: string,
+  data: Record<string, unknown>,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const branch = await resolveBranch(prisma, branchId, merchantId)
+
+  const safe: Record<string, unknown> = {}
+  for (const key of SENSITIVE_FIELDS) if (key in data) safe[key] = data[key]
+  for (const key of DIRECT_FIELDS) if (key in data) safe[key] = data[key]
+  if (Object.keys(safe).length === 0) return branch
+
+  // Re-resolve location on a postcode change (mirrors createBranchCore +
+  // createBranchEditRequest). The resolved snapshot OVERWRITES any caller-supplied
+  // latitude/longitude in `safe` - a postcode change re-anchors the pin to the
+  // postcode centroid. trim() the candidate up front (PR #81 contract).
+  if (typeof safe.postcode === 'string' && safe.postcode.trim().length > 0) {
+    const locationFields = await resolveBranchLocationFields(prisma, safe.postcode as string)
+    Object.assign(safe, locationFields)
+  }
+
+  const before: Record<string, unknown> = {}
+  for (const k of Object.keys(safe)) before[k] = (branch as any)[k]
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.branch.update({
+      where: { id: branchId },
+      data: safe,
+      include: BRANCH_INCLUDE,
+    })
+    await writeAuditLogTx(tx, {
+      entityId: branchId,
+      entityType: 'branch',
+      event: 'BRANCH_UPDATED',
+      actorId: actor.id,
+      actorType: actor.type,
+      before,
+      after: safe,
+      reason: actor.reason,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      metadata: { merchantId },
+    })
+    return updated
+  })
+}
+
 export async function updateBranch(
   prisma: PrismaClient,
   adminId: string,
@@ -265,6 +327,36 @@ export async function updateBranch(
       metadata: { branchId },
     })
     return updated
+  }
+
+  // M2 B1 (D1): sensitive branch fields write DIRECTLY in the draft window
+  // (status REGISTERED, or onboardingStep NEEDS_CHANGES) with postcode
+  // re-resolution; outside it they keep routing through the governed
+  // createBranchEditRequest lane. The lifecycle read is a single targeted select.
+  const attemptedSensitive = SENSITIVE_FIELDS.filter(key => key in data)
+  if (attemptedSensitive.length > 0) {
+    const lifecycle = await prisma.merchant.findUnique({
+      where: { id: merchantId },
+      select: { status: true, onboardingStep: true },
+    })
+    if (!lifecycle) throw new AppError('MERCHANT_NOT_FOUND')
+
+    if (isDraftWindow(lifecycle)) {
+      // Draft window: apply sensitive (+ any direct) fields directly, re-resolving
+      // location on a postcode change.
+      return updateBranchSensitiveDirectCore(
+        prisma,
+        { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
+        branchId,
+        data,
+        ctx
+      )
+    }
+
+    // Live / governed: route the sensitive fields through the EXISTING
+    // edit-request lane (createBranchEditRequest does its own ownership re-check,
+    // PENDING_EDIT_EXISTS guard, and eager postcode resolution). Unchanged path.
+    return createBranchEditRequest(prisma, adminId, branchId, data, false, ctx)
   }
 
   // Simple-DIRECT path: delegate to the shared core so the merchant path and
