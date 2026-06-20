@@ -11,11 +11,12 @@ import {
   storeRefreshToken, revokeRefreshToken, revokeAllSessionsForEntity,
   revokeAllUserSessionRecords, writeUserSession, validateRefreshToken,
 } from '../../shared/session'
-import { writeAuditLog } from '../../shared/audit'
+import { writeAuditLog, writeAuditLogTx } from '../../shared/audit'
 
 const OTP_CHALLENGE_TTL = 600   // 10 minutes
 const PWD_RESET_TTL     = 3600
 const CLAIM_TTL         = 7 * 24 * 3600   // 7 days — draft-owner claim token
+const EMAIL_VERIFY_TTL  = 24 * 3600       // 24 hours: self-serve registration email verify
 const ACCESS_TOKEN_TTL  = '15m'
 
 // M1 Slice 0: merchant login OTP mirrors the admin email-HMAC pattern. The dev
@@ -67,6 +68,11 @@ export async function loginMerchant(
     writeAuditLog(prisma, { entityId: admin.id, entityType: 'merchant', event: 'AUTH_LOGIN_FAILED', ipAddress: data.ipAddress, userAgent: data.userAgent })
     throw new AppError('INVALID_CREDENTIALS')
   }
+
+  // M1 Slice R: block sign-in until the email is verified. Self-registered owners
+  // start unverified (flip true on email-verify); claimed/seeded owners are
+  // pre-verified by the migration backfill, so this never locks them out.
+  if (!admin.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED')
 
   // M6b (D-1): resolve the merchant via the MerchantMembership source of truth,
   // NOT the (dropped) MerchantAdmin.merchant relation / merchantId column.
@@ -429,7 +435,9 @@ export async function claimMerchantAccount(
   const passwordHash = await hashPassword(data.newPassword)
   await prisma.merchantAdmin.update({
     where: { id: adminId },
-    data:  { passwordHash, mustChangePassword: false, otpVerifiedAt: new Date() },
+    // M1 Slice R: the emailed claim link proves email control, so the claim also
+    // marks the owner email-verified (clears the new login emailVerified gate).
+    data:  { passwordHash, mustChangePassword: false, otpVerifiedAt: new Date(), emailVerified: true },
   })
   await redis.del(key)   // single-use — reuse hits CLAIM_TOKEN_EXPIRED
 
@@ -437,4 +445,232 @@ export async function claimMerchantAccount(
     entityId: adminId, entityType: 'merchant', event: 'MERCHANT_CLAIM_COMPLETED',
     ipAddress: data.ipAddress, userAgent: data.userAgent,
   })
+}
+
+/**
+ * M1 Slice R: self-serve merchant registration. PUBLIC endpoint. Non-enumerating:
+ * a duplicate email creates NOTHING, emails the real account holder an "account
+ * exists" notice, and returns the SAME { status: 'VERIFY_EMAIL_SENT', sessionChallenge }
+ * shape as a fresh signup (the decoy challenge never verifies). A fresh signup
+ * creates Merchant(REGISTERED) + MerchantAdmin(emailVerified:false) + OWNER
+ * MerchantMembership atomically, stores a 6-digit email-verify challenge (HMAC,
+ * never the code), and queues the verify code via the outbox (best-effort).
+ * Cloudflare Turnstile is checked first (no-op when CAPTCHA_ENABLED is off).
+ */
+export async function registerMerchant(
+  prisma: PrismaClient,
+  redis: Redis,
+  data: {
+    firstName: string; lastName: string; email: string; password: string; businessName: string;
+    deviceId: string; deviceType: string; turnstileToken: string; ipAddress: string; userAgent: string
+  }
+): Promise<{ status: 'VERIFY_EMAIL_SENT'; sessionChallenge: string }> {
+  // 1. Human check (no network call / no-op when CAPTCHA_ENABLED is off).
+  const { verifyTurnstile } = await import('../../shared/turnstile')
+  if (!(await verifyTurnstile(data.turnstileToken, data.ipAddress))) throw new AppError('CAPTCHA_FAILED')
+
+  // 2. Password policy (defence in depth; the route also enforces it).
+  if (!validatePasswordPolicy(data.password)) throw new AppError('PASSWORD_POLICY_VIOLATION')
+
+  // 3. A verify challenge + 6-digit code (store only the HMAC, never the code).
+  const challenge = generateSecureToken(16)
+  const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0')
+  const codeHmac = crypto
+    .createHmac('sha256', process.env.ENCRYPTION_KEY as string)
+    .update(challenge + ':' + code)
+    .digest('hex')
+
+  const existing = await prisma.merchantAdmin.findUnique({ where: { email: data.email }, select: { id: true } })
+
+  if (existing) {
+    // NON-ENUMERATION: never reveal existence. Email the real holder; return the
+    // generic shape with a decoy challenge that has no stored row (will not verify).
+    try {
+      const { notify } = await import('../../shared/notify')
+      const { merchantAccountExistsEmail } = await import('../../shared/emailTemplates')
+      await notify(prisma, redis, {
+        to: data.email, recipientType: 'MERCHANT_ADMIN', recipientId: existing.id, userId: null,
+        type: 'merchant_account_exists', email: merchantAccountExistsEmail(), ip: data.ipAddress ?? null,
+      })
+    } catch {
+      // best-effort: never reveal a delivery failure
+    }
+    return { status: 'VERIFY_EMAIL_SENT', sessionChallenge: challenge }
+  }
+
+  const passwordHash = await hashPassword(data.password)
+
+  let adminId: string
+  try {
+    adminId = await prisma.$transaction(async (tx) => {
+      const merchant = await tx.merchant.create({
+        data: { businessName: data.businessName, status: 'REGISTERED' },
+        select: { id: true },
+      })
+      const admin = await tx.merchantAdmin.create({
+        data: {
+          email: data.email, firstName: data.firstName, lastName: data.lastName,
+          passwordHash, mustChangePassword: false, emailVerified: false, status: 'ACTIVE',
+        },
+        select: { id: true },
+      })
+      await tx.merchantMembership.create({
+        data: { merchantId: merchant.id, merchantAdminId: admin.id, role: 'OWNER', allBranches: true, status: 'ACTIVE' },
+      })
+      await writeAuditLogTx(tx, {
+        entityId: merchant.id, entityType: 'merchant', event: 'MERCHANT_SELF_REGISTERED',
+        actorId: admin.id, actorType: 'MERCHANT_ADMIN',
+        ipAddress: data.ipAddress, userAgent: data.userAgent,
+      })
+      return admin.id
+    })
+  } catch (e) {
+    // A concurrent signup with the same email races the @unique constraint. Treat
+    // exactly like the duplicate path (non-enumeration): the transaction rolled
+    // back (no orphan merchant), so just return the generic shape.
+    if ((e as { code?: string })?.code === 'P2002') {
+      return { status: 'VERIFY_EMAIL_SENT', sessionChallenge: challenge }
+    }
+    throw e
+  }
+
+  await redis.set(
+    RedisKey.merchantEmailVerify(challenge),
+    JSON.stringify({ adminId, deviceId: data.deviceId, deviceType: data.deviceType, codeHmac, attempts: 0 }),
+    'EX', EMAIL_VERIFY_TTL
+  )
+
+  try {
+    const { notify } = await import('../../shared/notify')
+    const { merchantVerifyEmail } = await import('../../shared/emailTemplates')
+    await notify(prisma, redis, {
+      to: data.email, recipientType: 'MERCHANT_ADMIN', recipientId: adminId, userId: null,
+      type: 'merchant_email_verify', email: merchantVerifyEmail(code), ip: data.ipAddress ?? null,
+    })
+  } catch {
+    // best-effort: never reveal a delivery failure
+  }
+
+  return { status: 'VERIFY_EMAIL_SENT', sessionChallenge: challenge }
+}
+
+/**
+ * M1 Slice R: complete self-serve registration by verifying the emailed 6-digit
+ * code (same HMAC + per-challenge attempt-cap model as login OTP). On success it
+ * flips emailVerified + otpVerifiedAt true, seeds the device, and AUTO-LOGS-IN
+ * (issues tokens) so the owner lands straight in the portal. A missing/expired
+ * challenge throws VERIFICATION_TOKEN_INVALID; a wrong code throws OTP_INVALID.
+ */
+export async function verifyMerchantEmail(
+  prisma: PrismaClient,
+  redis: Redis,
+  app: any,
+  data: { sessionChallenge: string; code: string; ipAddress: string; userAgent: string }
+): Promise<{ accessToken: string; refreshToken: string; merchant: object }> {
+  const key = RedisKey.merchantEmailVerify(data.sessionChallenge)
+  const raw = await redis.get(key)
+  if (!raw) throw new AppError('VERIFICATION_TOKEN_INVALID')
+
+  const { adminId, deviceId, deviceType, codeHmac, attempts } = JSON.parse(raw) as {
+    adminId: string; deviceId: string; deviceType: string; codeHmac?: string; attempts?: number
+  }
+
+  const devBypass =
+    MERCHANT_OTP_DEV_BYPASS_ENVS.has(process.env.NODE_ENV ?? '') &&
+    data.code === MERCHANT_DEV_OTP_BYPASS_CODE
+
+  let match = devBypass
+  if (!match && codeHmac) {
+    const submittedHmac = crypto
+      .createHmac('sha256', process.env.ENCRYPTION_KEY as string)
+      .update(data.sessionChallenge + ':' + data.code)
+      .digest('hex')
+    match =
+      submittedHmac.length === codeHmac.length &&
+      crypto.timingSafeEqual(Buffer.from(submittedHmac, 'hex'), Buffer.from(codeHmac, 'hex'))
+  }
+
+  if (!match) {
+    const next = (attempts ?? 0) + 1
+    if (next >= MERCHANT_OTP_MAX_ATTEMPTS) {
+      await redis.del(key)
+    } else {
+      await redis.set(
+        key,
+        JSON.stringify({ adminId, deviceId, deviceType, codeHmac, attempts: next }),
+        'KEEPTTL'
+      )
+    }
+    throw new AppError('OTP_INVALID')
+  }
+
+  await redis.del(key)
+
+  const admin = await prisma.merchantAdmin.findUnique({ where: { id: adminId } })
+  if (!admin) throw new AppError('INVALID_CREDENTIALS')
+
+  // Verifying the emailed code proves email control: flip emailVerified + mark the
+  // device OTP-verified so the auto-login (and future logins on this device) skip
+  // the device-OTP step.
+  await prisma.merchantAdmin.update({
+    where: { id: admin.id },
+    data: { emailVerified: true, otpVerifiedAt: new Date() },
+  })
+
+  writeAuditLog(prisma, {
+    entityId: admin.id, entityType: 'merchant', event: 'MERCHANT_EMAIL_VERIFIED',
+    ipAddress: data.ipAddress, userAgent: data.userAgent,
+  })
+
+  const knownRaw = await redis.get(`known-devices:merchant:${admin.id}`)
+  const knownDevices: string[] = knownRaw ? JSON.parse(knownRaw) : []
+  if (!knownDevices.includes(deviceId)) knownDevices.push(deviceId)
+  await redis.set(`known-devices:merchant:${admin.id}`, JSON.stringify(knownDevices), 'EX', 7776000)
+
+  const merchantInfo = await resolveMerchantInfo(prisma, admin.id)
+  return completeMerchantLogin(prisma, redis, app, admin, merchantInfo, {
+    deviceId, deviceType, ipAddress: data.ipAddress, userAgent: data.userAgent,
+  }, knownDevices)
+}
+
+/**
+ * M1 Slice R: re-issue the registration verify code, bound to the SAME challenge
+ * (so the client keeps its verify session). Anti-enumeration: a missing/invalid
+ * challenge, an already-verified account, or a vanished admin all return void with
+ * no signal. Re-issuing resets the attempt counter and refreshes the TTL.
+ */
+export async function resendMerchantVerification(
+  prisma: PrismaClient,
+  redis: Redis,
+  data: { sessionChallenge: string; ipAddress?: string | null }
+): Promise<void> {
+  const key = RedisKey.merchantEmailVerify(data.sessionChallenge)
+  const raw = await redis.get(key)
+  if (!raw) return
+
+  const { adminId, deviceId, deviceType } = JSON.parse(raw) as { adminId: string; deviceId: string; deviceType: string }
+  const admin = await prisma.merchantAdmin.findUnique({ where: { id: adminId }, select: { email: true, emailVerified: true } })
+  if (!admin || admin.emailVerified) return
+
+  const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0')
+  const codeHmac = crypto
+    .createHmac('sha256', process.env.ENCRYPTION_KEY as string)
+    .update(data.sessionChallenge + ':' + code)
+    .digest('hex')
+  await redis.set(
+    key,
+    JSON.stringify({ adminId, deviceId, deviceType, codeHmac, attempts: 0 }),
+    'EX', EMAIL_VERIFY_TTL
+  )
+
+  try {
+    const { notify } = await import('../../shared/notify')
+    const { merchantVerifyEmail } = await import('../../shared/emailTemplates')
+    await notify(prisma, redis, {
+      to: admin.email, recipientType: 'MERCHANT_ADMIN', recipientId: adminId, userId: null,
+      type: 'merchant_email_verify', email: merchantVerifyEmail(code), ip: data.ipAddress ?? null,
+    })
+  } catch {
+    // best-effort: never reveal a delivery failure
+  }
 }

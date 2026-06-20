@@ -15,6 +15,14 @@ const TIERS = {
   // Merchant draft-owner claim (set-password via emailed token). Per-IP; the
   // 32-byte token is the primary defence — this just caps abuse + allows retries.
   claim:          { prod: { max: 5,  timeWindow: '1 minute' }, dev: { max: 50,  timeWindow: '1 minute' } },
+  // Self-serve merchant registration (M1 Slice R). Per-IP; account creation is
+  // expensive + spam-prone, so a strict 5/hour prod window (mirrors the
+  // forgotPassword '1 hour' precedent). The Turnstile captcha is the primary
+  // human check; this edge throttle backstops automated signup floods. NOTE: the
+  // dev/test relaxed window only applies when RATE_LIMIT_RELAX=true (NOT keyed on
+  // NODE_ENV), so unit tests run under the 5/hour prod limit; keep register
+  // tests under 5 POSTs per IP, or vary the source IP.
+  register:       { prod: { max: 5,  timeWindow: '1 hour' },   dev: { max: 50,  timeWindow: '1 minute' } },
   // Refresh tier — generous so it cannot false-positive on legitimate
   // active sessions. A single device refreshes ~once per 15 minutes;
   // 30/min/IP comfortably covers concurrent requests, retry behaviour,

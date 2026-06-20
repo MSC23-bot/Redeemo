@@ -13,7 +13,7 @@ import { RedisKey } from '../../../src/api/shared/redis-keys'
 // expected codeHmac the same way the service does.
 const TEST_ENCRYPTION_KEY = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90'
 const CHALLENGE = 'merchant-challenge-token'
-const ADMIN = { id: 'ma-1', email: 'merchant@example.com', passwordHash: 'hash', otpVerifiedAt: null, status: 'ACTIVE' }
+const ADMIN = { id: 'ma-1', email: 'merchant@example.com', passwordHash: 'hash', otpVerifiedAt: null, status: 'ACTIVE', emailVerified: true }
 const MEMBERSHIP = { id: 'mm-1', merchantId: 'm1', merchantAdminId: 'ma-1', merchant: { status: 'ACTIVE', businessName: 'Test Co' } }
 const KEY = RedisKey.otpChallenge('merchant', CHALLENGE)
 

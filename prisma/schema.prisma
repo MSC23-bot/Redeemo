@@ -195,6 +195,9 @@ model MerchantAdmin {
   updatedAt          DateTime   @updatedAt
   otpVerifiedAt      DateTime?
   mustChangePassword Boolean    @default(false)
+  // M1 Slice R: gate merchant login on a verified email. Self-registered owners
+  // start false (flip true on email-verify); claimed/seeded owners backfilled true.
+  emailVerified      Boolean    @default(false)
 
   // Phase 2 Slice 1 M6b (D-1): MerchantAdmin.merchantId + the `merchant` relation
   // were DROPPED — MerchantMembership is now the sole source of truth linking an

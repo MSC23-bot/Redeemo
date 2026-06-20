@@ -1680,16 +1680,20 @@ async function main() {
 
   // ── Dev merchant admin ──
   const merchantAdmin = await prisma.merchantAdmin.upsert({
-    where: { email: 'merchant@redeemo.com' },
+    // M1 Slice R: non-routable .test domain (Redeemo does NOT own redeemo.com).
+    where: { email: 'merchant@redeemo.test' },
     update: {},
     create: {
       // M6b (D-1): no merchantId — the OWNER membership below is the sole link.
-      email: 'merchant@redeemo.com',
+      email: 'merchant@redeemo.test',
       passwordHash: devHash('Merchant1234!'),
       firstName: 'John',
       lastName: 'Doe',
       jobTitle: 'Owner',
       status: 'ACTIVE',
+      // M1 Slice R: dev merchant is pre-verified so it clears the login emailVerified
+      // gate on a fresh seed (the migration backfill covers already-seeded DBs).
+      emailVerified: true,
     },
   })
 

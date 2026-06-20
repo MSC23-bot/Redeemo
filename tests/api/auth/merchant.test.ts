@@ -52,6 +52,7 @@ describe('merchant auth routes', () => {
       passwordHash: hash,
       otpVerifiedAt: null,
       status: 'ACTIVE',
+      emailVerified: true,
     })
     app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue({
       id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'ACTIVE', businessName: 'Test Co' },
@@ -71,12 +72,36 @@ describe('merchant auth routes', () => {
     expect(JSON.parse(res.body).status).toBe('OTP_REQUIRED')
   })
 
+  it('POST /api/v1/merchant/auth/login returns 403 EMAIL_NOT_VERIFIED for an unverified self-registered merchant', async () => {
+    const { hashPassword } = await import('../../../src/api/shared/password')
+    const hash = await hashPassword('MyPass123!')
+
+    // emailVerified:false means a self-registered owner who has not verified their email
+    // yet. The gate fires after the password check, before any merchant resolution.
+    app.prisma.merchantAdmin.findUnique = vi.fn().mockResolvedValue({
+      id: 'ma1', email: 'merchant@example.com', passwordHash: hash, otpVerifiedAt: null, status: 'ACTIVE', emailVerified: false,
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/auth/login',
+      payload: {
+        email: 'merchant@example.com',
+        password: 'MyPass123!',
+        deviceId: '550e8400-e29b-41d4-a716-446655440000',
+        deviceType: 'web',
+      },
+    })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('EMAIL_NOT_VERIFIED')
+  })
+
   it('POST /api/v1/merchant/auth/login returns 403 for suspended merchant', async () => {
     const { hashPassword } = await import('../../../src/api/shared/password')
     const hash = await hashPassword('MyPass123!')
 
     app.prisma.merchantAdmin.findUnique = vi.fn().mockResolvedValue({
-      id: 'ma1', passwordHash: hash, otpVerifiedAt: new Date(), status: 'ACTIVE',
+      id: 'ma1', passwordHash: hash, otpVerifiedAt: new Date(), status: 'ACTIVE', emailVerified: true,
     })
     app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue({
       id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'SUSPENDED', businessName: 'Test Co' },
