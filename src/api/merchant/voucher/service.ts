@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx, type ActorType } from '../../shared/audit'
-import { resolveAdminMerchant, type EditActor } from '../shared'
+import { resolveAdminMerchant, resolveTopLevelCategoryId, type EditActor } from '../shared'
 
 // Only DRAFT vouchers can be edited, submitted, or deleted
 const EDITABLE_STATUSES = ['DRAFT'] as const
@@ -575,6 +575,12 @@ export async function handleCategoryChange(
 
   const beforeRow = await prisma.merchant.findUnique({ where: { id: merchantId }, select: { primaryCategoryId: true } })
 
+  // M2 B2: resolve the TOP-LEVEL parent for the template lookup (templates are
+  // seeded at top-level; the new category may be a subcategory). A top-level id
+  // resolves to itself, so the admin category path (which passes top-level ids) is
+  // unchanged. Merchant.primaryCategoryId is still set to newCategoryId (subcategory).
+  const templateCategoryId = await resolveTopLevelCategoryId(prisma, newCategoryId)
+
   // Atomically: soft-delete existing draft RMVs + update category + provision new
   // RMVs + write the actor-attributed audit (commits/rolls back with the change).
   await prisma.$transaction(async (tx) => {
@@ -583,7 +589,7 @@ export async function handleCategoryChange(
       data:  { status: 'INACTIVE' },
     })
     await tx.merchant.update({ where: { id: merchantId }, data: { primaryCategoryId: newCategoryId } })
-    const templates = await tx.rmvTemplate.findMany({ where: { categoryId: newCategoryId, isActive: true }, take: 2 })
+    const templates = await tx.rmvTemplate.findMany({ where: { categoryId: templateCategoryId, isActive: true }, take: 2 })
     if (templates.length < 2) throw new AppError('NO_RMV_TEMPLATE')
     await Promise.all(templates.map(t =>
       tx.voucher.create({
