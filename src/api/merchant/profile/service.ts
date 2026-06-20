@@ -217,6 +217,24 @@ export async function setMerchantCategoryCore(
  * category-set still flows through `updateMerchantProfile`'s `primaryCategoryId`
  * branch / `setMerchantCategoryCore`; this write sets the identity only and does
  * NOT provision (provisioning resolves the top-level parent via the parent-walk).
+ *
+ * Lifecycle gate (M2 B2 review fix): the identity write is an ONBOARDING-only
+ * action (spec D5), so it is gated to the draft window (status REGISTERED, or
+ * onboardingStep NEEDS_CHANGES; via B1's `isDraftWindow`). Outside the draft window
+ * it REFUSES with IDENTITY_EDIT_REQUIRES_DRAFT. This makes identity-edit
+ * onboarding-only for M2 and prevents flipping primaryCategoryId AFTER submission,
+ * which would decouple the customer-facing descriptor + MerchantCategory(isPrimary)
+ * from already-submitted/active RMVs (the CATEGORY_CHANGE_BLOCKED rule, spec section
+ * 4.2). Day-2 governed identity edits are M3. A submitted/active merchant is never in
+ * the draft window, so the draft-window gate subsumes the CATEGORY_CHANGE_BLOCKED
+ * check (submitted/active RMVs cannot occur here).
+ *
+ * Within the draft window, if the chosen subcategory's TOP-LEVEL parent differs from
+ * the merchant's current category's top-level parent, existing DRAFT RMVs are
+ * discarded (set INACTIVE) in the SAME transaction so the descriptor + RMVs stay
+ * coherent (mirrors `handleCategoryChange`'s DRAFT-discard). No re-provisioning here
+ * (that is B3's redesign). A first-time set (no current category) or a same-top-level
+ * change leaves RMVs untouched.
  */
 export async function setMerchantIdentityCore(
   prisma: PrismaClient,
@@ -227,6 +245,17 @@ export async function setMerchantIdentityCore(
   const subcategoryId = identity.subcategoryId
   const descriptorTagId = identity.primaryDescriptorTagId ?? null
   const specialtyTagIds = Array.from(new Set(identity.specialtyTagIds ?? []))
+
+  // 0. Lifecycle gate (FIRST, before any validation): the identity write is
+  //    onboarding-only, so it is refused outside the draft window. This also reads
+  //    the merchant's current category + identity columns (reused below as the
+  //    before-snapshot + the top-level-change comparison).
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { primaryCategoryId: true, primaryDescriptorTagId: true, status: true, onboardingStep: true },
+  })
+  if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
+  if (!isDraftWindow(merchant)) throw new AppError('IDENTITY_EDIT_REQUIRES_DRAFT')
 
   // 1. The subcategory must exist + be a real subcategory (parentId set).
   const subcategory = await prisma.category.findUnique({
@@ -253,15 +282,36 @@ export async function setMerchantIdentityCore(
     }
   }
 
-  // 3. Apply atomically: merchant identity columns + MerchantCategory(isPrimary) +
-  //    the specialty MerchantTag set (replaced) + the actor-attributed audit.
-  const beforeRow = await prisma.merchant.findUnique({
-    where: { id: merchantId },
-    select: { primaryCategoryId: true, primaryDescriptorTagId: true },
-  })
-  if (!beforeRow) throw new AppError('MERCHANT_NOT_FOUND')
+  // 3. Within the draft window, decide whether the TOP-LEVEL category changes. The
+  //    chosen subcategory's top-level parent vs the merchant's current category's
+  //    top-level parent (both via the parent-walk; a top-level id resolves to
+  //    itself). A first-time set (no current category) never discards. If the
+  //    top-level changes, existing DRAFT RMVs are discarded (set INACTIVE) inside
+  //    the transaction so the descriptor + RMVs stay coherent. Submitted/active RMVs
+  //    cannot occur in the draft window, so CATEGORY_CHANGE_BLOCKED need not be
+  //    re-checked here (the lifecycle gate above subsumes it). No re-provisioning
+  //    (B3's redesign).
+  const currentCategoryId = merchant.primaryCategoryId
+  let topLevelChanged = false
+  if (currentCategoryId && currentCategoryId !== subcategoryId) {
+    const [newTop, currentTop] = await Promise.all([
+      resolveTopLevelCategoryId(prisma, subcategoryId),
+      resolveTopLevelCategoryId(prisma, currentCategoryId),
+    ])
+    topLevelChanged = newTop !== currentTop
+  }
 
+  // 4. Apply atomically: (optional DRAFT-RMV discard) + merchant identity columns +
+  //    MerchantCategory(isPrimary) + the specialty MerchantTag set (replaced) + the
+  //    actor-attributed audit.
   return prisma.$transaction(async (tx) => {
+    if (topLevelChanged) {
+      await tx.voucher.updateMany({
+        where: { merchantId, isRmv: true, status: 'DRAFT' },
+        data: { status: 'INACTIVE' },
+      })
+    }
+
     const updated = await tx.merchant.update({
       where: { id: merchantId },
       data: { primaryCategoryId: subcategoryId, primaryDescriptorTagId: descriptorTagId },
@@ -292,9 +342,9 @@ export async function setMerchantIdentityCore(
       actorId: actor.id,
       actorType: actor.type,
       reason: actor.reason,
-      before: { primaryCategoryId: beforeRow.primaryCategoryId, primaryDescriptorTagId: beforeRow.primaryDescriptorTagId },
+      before: { primaryCategoryId: merchant.primaryCategoryId, primaryDescriptorTagId: merchant.primaryDescriptorTagId },
       after: { primaryCategoryId: subcategoryId, primaryDescriptorTagId: descriptorTagId },
-      metadata: { specialtyTagIds },
+      metadata: { specialtyTagIds, discardedDraftRmvs: topLevelChanged },
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
     })

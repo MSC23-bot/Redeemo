@@ -144,8 +144,8 @@ describe('auto-provisioning uses the parent-walk after B2 (M2 B2/B3 coordination
   })
 
   it('admin setMerchantCategoryCore first-set path still provisions with a bare mock (no category accessor)', async () => {
-    // Regression: mirror the admin-route unit-test mock shape exactly — prisma has
-    // NO `category` accessor. The parent-walk must tolerate this (lenient fallback
+    // Regression: mirror the admin-route unit-test mock shape exactly (prisma has
+    // NO `category` accessor). The parent-walk must tolerate this (lenient fallback
     // to the passed id) so the admin category path keeps provisioning unchanged.
     const prisma: any = {
       $transaction: vi.fn().mockImplementation(async (cb: any) => cb(prisma)),
