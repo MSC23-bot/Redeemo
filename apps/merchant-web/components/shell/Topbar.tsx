@@ -36,6 +36,20 @@ export function Topbar({
   onSignOut?: () => void
 }) {
   const [menuOpen, setMenuOpen] = React.useState(false)
+  const triggerRef = React.useRef<HTMLButtonElement>(null)
+  const firstItemRef = React.useRef<HTMLButtonElement>(null)
+
+  // Move focus into the menu when it opens (keyboard users land on the first item).
+  React.useEffect(() => {
+    if (menuOpen) firstItemRef.current?.focus()
+  }, [menuOpen])
+
+  // Close + optionally return focus to the trigger (Escape / outside-click dismissal).
+  const closeMenu = React.useCallback((returnFocus: boolean) => {
+    setMenuOpen(false)
+    if (returnFocus) triggerRef.current?.focus()
+  }, [])
+
   return (
     <header
       style={{
@@ -62,8 +76,10 @@ export function Topbar({
       <IconButton label="Notifications"><Bell size={18} /></IconButton>
       <div style={{ position: 'relative' }}>
         <button
+          ref={triggerRef}
           type="button"
           aria-label="Account menu"
+          aria-haspopup="menu"
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((o) => !o)}
           style={{ width: 38, height: 38, borderRadius: 999, border: '1px solid #E5E7EB', background: '#FEF0EE', color: '#E20C04', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}
@@ -72,12 +88,23 @@ export function Topbar({
         </button>
         {menuOpen && (
           <>
-            <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 45 }} />
-            <div role="menu" style={{ position: 'absolute', right: 0, top: 46, zIndex: 50, minWidth: 184, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, boxShadow: 'var(--shadow-md)', padding: 8 }}>
+            <div onClick={() => closeMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 45 }} />
+            <div
+              role="menu"
+              aria-label="Account options"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.stopPropagation()
+                  closeMenu(true)
+                }
+              }}
+              style={{ position: 'absolute', right: 0, top: 46, zIndex: 50, minWidth: 184, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, boxShadow: 'var(--shadow-md)', padding: 8 }}
+            >
               {businessName && (
                 <div style={{ padding: '6px 10px 8px', fontSize: 13, fontWeight: 700, color: '#010C35', borderBottom: '1px solid #EEF1F4', marginBottom: 4 }}>{businessName}</div>
               )}
               <button
+                ref={firstItemRef}
                 type="button"
                 role="menuitem"
                 onClick={() => {

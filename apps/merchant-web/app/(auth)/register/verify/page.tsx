@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { AuthShell } from '@/components/auth/AuthShell'
 import { FormBanner } from '@/components/auth/FormBanner'
@@ -24,6 +24,10 @@ export default function RegisterVerifyPage() {
   const [expired, setExpired] = useState(false)
   const [resendMsg, setResendMsg] = useState<string | null>(null)
   const [cooldown, setCooldown] = useState(0)
+  const [resending, setResending] = useState(false)
+  // Ref guard: catches a synchronous double-click BEFORE the resending state re-render
+  // disables the button, so the tight backend resend bucket is never double-spent.
+  const resendInFlight = useRef(false)
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(VERIFY_CHALLENGE_KEY)
@@ -66,7 +70,9 @@ export default function RegisterVerifyPage() {
   }
 
   async function onResend() {
-    if (!challenge || cooldown > 0) return
+    if (!challenge || cooldown > 0 || resendInFlight.current) return
+    resendInFlight.current = true
+    setResending(true)
     setResendMsg(null)
     try {
       await authApi.resendVerification({ sessionChallenge: challenge })
@@ -75,6 +81,8 @@ export default function RegisterVerifyPage() {
       setResendMsg(authErrorMessage(err).message)
     } finally {
       setCooldown(RESEND_COOLDOWN_SECONDS)
+      setResending(false)
+      resendInFlight.current = false
     }
   }
 
@@ -101,10 +109,10 @@ export default function RegisterVerifyPage() {
           <button
             type="button"
             onClick={onResend}
-            disabled={cooldown > 0}
+            disabled={cooldown > 0 || resending}
             className="w-full text-center text-sm font-medium text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
           >
-            {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
+            {resending ? 'Sending...' : cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
           </button>
         </form>
       )}

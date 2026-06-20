@@ -12,8 +12,8 @@
 //     external scripts. 'unsafe-eval' is dev-only (React Fast Refresh).
 //   - style-src 'unsafe-inline' is unavoidable with Tailwind/runtime style attrs.
 //   - connect-src is scoped to self + the backend API origin (NEXT_PUBLIC_API_URL),
-//     so admin data fetches reach the API and nothing else.
-//   - frame-ancestors 'none' + X-Frame-Options DENY: the admin console is never
+//     so merchant data fetches reach the API and nothing else.
+//   - frame-ancestors 'none' + X-Frame-Options DENY: the merchant portal is never
 //     embedded in a frame (clickjacking guard).
 
 export interface SecurityHeaderOptions {

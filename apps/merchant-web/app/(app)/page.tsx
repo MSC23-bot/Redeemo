@@ -1,5 +1,6 @@
 'use client'
 
+import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useSession } from '@/lib/auth/session'
 import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
@@ -35,8 +36,29 @@ export default function HomePage() {
   const session = useSession()
   const profile = useMerchantProfile(session.isAuthenticated)
 
+  if (profile.isError) {
+    return (
+      <div className="space-y-6" role="alert">
+        <h1 className="font-display text-2xl font-semibold text-foreground">Something went wrong</h1>
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display text-lg">We could not load your account</CardTitle>
+            <CardDescription>
+              There was a problem reaching Redeemo. Check your connection and try again.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+        <Button onClick={() => profile.refetch()}>Try again</Button>
+      </div>
+    )
+  }
+
   if (profile.isLoading || !profile.data) {
-    return <div className="text-sm text-muted-foreground">Loading your account...</div>
+    return (
+      <div role="status" aria-live="polite" className="text-sm text-muted-foreground">
+        Loading your account...
+      </div>
+    )
   }
 
   const state = deriveStatusPill(profile.data)

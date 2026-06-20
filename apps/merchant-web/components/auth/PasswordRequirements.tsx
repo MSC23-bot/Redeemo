@@ -23,6 +23,9 @@ export function PasswordRequirements({ password }: { password: string }) {
             aria-hidden
             className={cn('inline-block h-1.5 w-1.5 shrink-0 rounded-full', ok ? 'bg-[var(--success)]' : 'bg-border')}
           />
+          {/* Met state is conveyed by colour AND the dot fill; add a text equivalent so it
+              is not colour-only (WCAG 1.4.1) for screen-reader / colour-blind users. */}
+          <span className="sr-only">{ok ? 'Met. ' : 'Not met. '}</span>
           {label}
         </li>
       ))}

@@ -37,4 +37,15 @@ describe('Topbar', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /sign out/i }))
     expect(onSignOut).toHaveBeenCalledTimes(1)
   })
+
+  it('closes the account menu on Escape and returns focus to the trigger (M1 Slice 5 a11y)', () => {
+    render(<Topbar onMenu={() => {}} businessName="Roe Cafe" onSignOut={jest.fn()} />)
+    const trigger = screen.getByRole('button', { name: /account menu/i })
+    expect(trigger).toHaveAttribute('aria-haspopup', 'menu')
+    fireEvent.click(trigger)
+    expect(screen.getByRole('menuitem', { name: /sign out/i })).toHaveFocus()
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+    expect(screen.queryByRole('menuitem', { name: /sign out/i })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
 })

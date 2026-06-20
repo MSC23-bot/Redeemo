@@ -1,10 +1,12 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import HomePage from '@/app/(app)/page'
 
 jest.mock('@/lib/auth/session', () => ({ useSession: () => ({ isAuthenticated: true }) }))
 interface ProfileQuery {
   data?: { status: string; onboardingStep: string; businessName: string }
   isLoading: boolean
+  isError?: boolean
+  refetch?: () => void
 }
 let mockProfile: ProfileQuery
 jest.mock('@/lib/auth/useMerchantProfile', () => ({ useMerchantProfile: () => mockProfile }))
@@ -14,6 +16,15 @@ describe('HomePage (M1 Slice 5 lifecycle home)', () => {
     mockProfile = { data: undefined, isLoading: true }
     render(<HomePage />)
     expect(screen.getByText(/loading your account/i)).toBeInTheDocument()
+  })
+
+  it('renders an error state with a working Retry when the profile fetch fails', () => {
+    const refetch = jest.fn()
+    mockProfile = { data: undefined, isLoading: false, isError: true, refetch }
+    render(<HomePage />)
+    expect(screen.getByText(/we could not load your account/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }))
+    expect(refetch).toHaveBeenCalledTimes(1)
   })
 
   it('renders the pre-live setup home for a fresh registered merchant', () => {

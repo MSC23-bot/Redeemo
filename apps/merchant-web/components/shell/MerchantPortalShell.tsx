@@ -36,7 +36,7 @@ export function MerchantPortalShell({ children }: { children: React.ReactNode })
   // unauthenticated visitor (the effect above is redirecting them).
   if (!session.ready || !session.isAuthenticated) {
     return (
-      <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: '#fff', color: '#6B7390', fontSize: 14 }}>
+      <div role="status" aria-live="polite" style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: '#fff', color: '#6B7390', fontSize: 14 }}>
         Loading...
       </div>
     )

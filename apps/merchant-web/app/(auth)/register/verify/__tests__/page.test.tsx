@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import RegisterVerifyPage from '@/app/(auth)/register/verify/page'
 import { ApiError } from '@/lib/api/client'
 
@@ -56,6 +56,21 @@ describe('RegisterVerifyPage (M1 Slice 4)', () => {
     render(<RegisterVerifyPage />)
     fireEvent.click(screen.getByRole('button', { name: /^resend code$/i }))
     await waitFor(() => expect(mockResend).toHaveBeenCalledWith({ sessionChallenge: 'vch' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /resend code in/i })).toBeInTheDocument())
+  })
+
+  it('guards resend against a double-submit while one request is in flight', async () => {
+    window.sessionStorage.setItem(KEY, 'vch')
+    let resolveResend: (v: unknown) => void = () => {}
+    mockResend.mockImplementation(() => new Promise((r) => { resolveResend = r }))
+    render(<RegisterVerifyPage />)
+    const btn = screen.getByRole('button', { name: /^resend code$/i })
+    fireEvent.click(btn)
+    fireEvent.click(btn) // second click while the first is still pending
+    expect(mockResend).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      resolveResend({ message: 'ok' })
+    })
     await waitFor(() => expect(screen.getByRole('button', { name: /resend code in/i })).toBeInTheDocument())
   })
 })
