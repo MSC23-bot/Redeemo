@@ -24,7 +24,18 @@ function IconButton({ label, children }: { label: string; children: React.ReactN
  * narrow top bar). When false (wide), neither the hamburger nor the centred wordmark
  * is rendered; the sidebar lockup is always visible on wide.
  */
-export function Topbar({ onMenu, isNarrow = false }: { onMenu: () => void; isNarrow?: boolean }) {
+export function Topbar({
+  onMenu,
+  isNarrow = false,
+  businessName = null,
+  onSignOut,
+}: {
+  onMenu: () => void
+  isNarrow?: boolean
+  businessName?: string | null
+  onSignOut?: () => void
+}) {
+  const [menuOpen, setMenuOpen] = React.useState(false)
   return (
     <header
       style={{
@@ -49,7 +60,38 @@ export function Topbar({ onMenu, isNarrow = false }: { onMenu: () => void; isNar
       <Button variant="navy" size="default"><ScanLine size={16} /> Validate a code</Button>
       <IconButton label="Quick actions"><Grid3x3 size={18} /></IconButton>
       <IconButton label="Notifications"><Bell size={18} /></IconButton>
-      <button type="button" aria-label="Account menu" style={{ width: 38, height: 38, borderRadius: 999, border: '1px solid #E5E7EB', background: '#FEF0EE', color: '#E20C04', fontWeight: 800, fontSize: 13 }}>R</button>
+      <div style={{ position: 'relative' }}>
+        <button
+          type="button"
+          aria-label="Account menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((o) => !o)}
+          style={{ width: 38, height: 38, borderRadius: 999, border: '1px solid #E5E7EB', background: '#FEF0EE', color: '#E20C04', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}
+        >
+          R
+        </button>
+        {menuOpen && (
+          <>
+            <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 45 }} />
+            <div role="menu" style={{ position: 'absolute', right: 0, top: 46, zIndex: 50, minWidth: 184, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 12, boxShadow: 'var(--shadow-md)', padding: 8 }}>
+              {businessName && (
+                <div style={{ padding: '6px 10px 8px', fontSize: 13, fontWeight: 700, color: '#010C35', borderBottom: '1px solid #EEF1F4', marginBottom: 4 }}>{businessName}</div>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false)
+                  onSignOut?.()
+                }}
+                style={{ width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 8, border: 'none', background: 'transparent', color: '#B91C1C', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
+              >
+                Sign out
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </header>
   )
 }
