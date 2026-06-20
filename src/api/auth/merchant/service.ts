@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import type Redis from 'ioredis'
 import { verifyPassword, validatePasswordPolicy, hashPassword } from '../../shared/password'
@@ -16,6 +17,17 @@ const OTP_CHALLENGE_TTL = 600   // 10 minutes
 const PWD_RESET_TTL     = 3600
 const CLAIM_TTL         = 7 * 24 * 3600   // 7 days — draft-owner claim token
 const ACCESS_TOKEN_TTL  = '15m'
+
+// M1 Slice 0: merchant login OTP mirrors the admin email-HMAC pattern. The dev
+// bypass is an ALLOWLIST (not `!== production`) so an unset / typo'd / staging
+// NODE_ENV fails CLOSED. Real email is dark (Phase 6); dev reads the code from
+// the CommunicationLog outbox.
+const MERCHANT_OTP_DEV_BYPASS_ENVS = new Set(['development', 'test'])
+const MERCHANT_DEV_OTP_BYPASS_CODE = '000000'
+// Per-challenge wrong-code ceiling: on the Nth wrong attempt the challenge is
+// destroyed (the merchant must restart login for a fresh code), bounding brute
+// force to N guesses per live challenge regardless of the edge rate-limit.
+const MERCHANT_OTP_MAX_ATTEMPTS = 5
 
 function otpRequired(admin: any, deviceId: string, knownDevices: string[]): boolean {
   if (!admin.otpVerifiedAt) return true                       // first ever login
@@ -71,13 +83,43 @@ export async function loginMerchant(
 
   if (otpRequired(admin, data.deviceId, knownDevices)) {
     const challenge = generateSecureToken(16)
+
+    // M1 Slice 0: generate a real 6-digit code, store only its challenge-bound
+    // HMAC (never the code itself, even in Redis), and email it via the outbox.
+    // The HMAC is keyed by ENCRYPTION_KEY and bound to THIS challenge so a code is
+    // meaningless against any other challenge. `attempts` caps brute force in
+    // verifyMerchantOtp. Replaces the dark Twilio path.
+    const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0')
+    const codeHmac = crypto
+      .createHmac('sha256', process.env.ENCRYPTION_KEY as string)
+      .update(challenge + ':' + code)
+      .digest('hex')
+
     await redis.set(
       RedisKey.otpChallenge('merchant', challenge),
-      JSON.stringify({ adminId: admin.id, deviceId: data.deviceId, deviceType: data.deviceType }),
+      JSON.stringify({ adminId: admin.id, deviceId: data.deviceId, deviceType: data.deviceType, codeHmac, attempts: 0 }),
       'EX', OTP_CHALLENGE_TTL
     )
-    // TODO Phase 3: send the OTP code via Twilio. The session challenge is
-    // returned to the client below; the OTP code is never logged (SEC-H1).
+
+    // Deliver the code through the outbox (dark by default). Best-effort: a
+    // delivery failure must never change the response (no enumeration). The code
+    // is NEVER logged or returned — only the session challenge goes to the client.
+    try {
+      const { notify } = await import('../../shared/notify')
+      const { merchantOtpEmail } = await import('../../shared/emailTemplates')
+      await notify(prisma, redis, {
+        to: admin.email,
+        recipientType: 'MERCHANT_ADMIN',
+        recipientId: admin.id,
+        userId: null,
+        type: 'merchant_otp',
+        email: merchantOtpEmail(code),
+        ip: data.ipAddress ?? null,
+      })
+    } catch {
+      // swallow — never reveal a delivery failure
+    }
+
     return { status: 'OTP_REQUIRED', sessionChallenge: challenge }
   }
 
@@ -90,26 +132,56 @@ export async function verifyMerchantOtp(
   app: any,
   data: { sessionChallenge: string; code: string; ipAddress: string; userAgent: string }
 ): Promise<{ accessToken: string; refreshToken: string; merchant: object }> {
-  const raw = await redis.get(RedisKey.otpChallenge('merchant', data.sessionChallenge))
+  const key = RedisKey.otpChallenge('merchant', data.sessionChallenge)
+  const raw = await redis.get(key)
   if (!raw) throw new AppError('ACTION_TOKEN_INVALID')
 
-  const { adminId, deviceId, deviceType } = JSON.parse(raw) as { adminId: string; deviceId: string; deviceType: string }
-  await redis.del(RedisKey.otpChallenge('merchant', data.sessionChallenge))
+  const { adminId, deviceId, deviceType, codeHmac, attempts } = JSON.parse(raw) as {
+    adminId: string; deviceId: string; deviceType: string; codeHmac?: string; attempts?: number
+  }
+
+  // M1 Slice 0: verify the submitted code against the challenge-bound HMAC stored
+  // at login. We must NOT delete the challenge on a wrong code — increment
+  // `attempts` (KEEPTTL so the 10-minute window is unchanged) and only delete once
+  // the per-challenge cap is reached, so an attacker gets a hard ceiling, not
+  // unlimited guesses against one live challenge. The `000000` dev bypass works in
+  // dev/test ONLY (allowlist, not `!== production`) so unset/staging fails CLOSED.
+  const devBypass =
+    MERCHANT_OTP_DEV_BYPASS_ENVS.has(process.env.NODE_ENV ?? '') &&
+    data.code === MERCHANT_DEV_OTP_BYPASS_CODE
+
+  let match = devBypass
+  if (!match && codeHmac) {
+    const submittedHmac = crypto
+      .createHmac('sha256', process.env.ENCRYPTION_KEY as string)
+      .update(data.sessionChallenge + ':' + data.code)
+      .digest('hex')
+    match =
+      submittedHmac.length === codeHmac.length &&
+      crypto.timingSafeEqual(Buffer.from(submittedHmac, 'hex'), Buffer.from(codeHmac, 'hex'))
+  }
+
+  if (!match) {
+    const next = (attempts ?? 0) + 1
+    if (next >= MERCHANT_OTP_MAX_ATTEMPTS) {
+      await redis.del(key)
+    } else {
+      await redis.set(
+        key,
+        JSON.stringify({ adminId, deviceId, deviceType, codeHmac, attempts: next }),
+        'KEEPTTL'
+      )
+    }
+    throw new AppError('OTP_INVALID')
+  }
+
+  // Match: single-use — consume the challenge before issuing tokens.
+  await redis.del(key)
 
   const admin = await prisma.merchantAdmin.findUnique({
     where: { id: adminId },
   })
   if (!admin) throw new AppError('INVALID_CREDENTIALS')
-
-  // Verify OTP via Twilio
-  const { verifyOtp, clearOtpAttempts } = await import('../../shared/otp')
-  const phone = (admin as any).phone ?? ''
-  const result = await verifyOtp(redis, phone, data.code, admin.id, 'merchant')
-
-  if (result.locked) throw new AppError('OTP_MAX_ATTEMPTS')
-  if (!result.success) throw new AppError('OTP_INVALID')
-
-  await clearOtpAttempts(redis, admin.id, 'merchant')
 
   // Mark OTP verified + add device
   await prisma.merchantAdmin.update({
