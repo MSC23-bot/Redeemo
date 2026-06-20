@@ -114,6 +114,17 @@ export const ERROR_DEFINITIONS = {
   MERCHANT_NOT_SUSPENDED:         { statusCode: 409, message: 'This merchant is not suspended, so it cannot be reactivated.' },
   CONTRACT_ALREADY_SIGNED:        { statusCode: 409, message: 'The contract has already been accepted.' },
   NO_RMV_TEMPLATE:                { statusCode: 422, message: 'No RMV template found for this category. Please contact Redeemo support.' },
+  // M2 B3 (D2): the merchant chose a flagship voucher type that is not eligible
+  // for a mandatory flagship RMV. Eligible: BOGO, SPEND_AND_SAVE, DISCOUNT_FIXED,
+  // DISCOUNT_PERCENT, FREEBIE, PACKAGE_DEAL. Ineligible: TIME_LIMITED, REUSABLE
+  // (custom-only, M4). Surfaced by the create-flagship endpoint before any
+  // template lookup.
+  VOUCHER_TYPE_NOT_ELIGIBLE:      { statusCode: 400, message: 'This voucher type is not available for a flagship voucher. Choose Buy one get one, Spend and save, Discount, Freebie, or Package deal.' },
+  // M2 B3 (review fix): backend cap of two mandatory flagship RMVs per merchant.
+  // The merchant already occupies both flagship slots (DRAFT, PENDING_APPROVAL or
+  // ACTIVE). Enforced in createFlagshipRmvVoucher before any template lookup or
+  // create; INACTIVE/REJECTED RMVs free a slot and do not count.
+  FLAGSHIP_RMV_LIMIT_REACHED:     { statusCode: 409, message: 'You can set up at most two mandatory flagship vouchers. Edit or remove an existing one to add a different type.' },
   NO_SENSITIVE_FIELDS:            { statusCode: 400, message: 'No editable sensitive fields were provided. Use PATCH /profile for non-sensitive fields.' },
   SENSITIVE_FIELDS_REQUIRE_EDIT_REQUEST: { statusCode: 400, message: 'Sensitive fields cannot be changed directly. Submit an edit request instead.' },
   PLAN_NOT_FOUND:                  { statusCode: 404, message: 'Subscription plan not found.' },

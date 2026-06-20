@@ -200,6 +200,33 @@ data + tests (NO schema files). **Rollback:** revert to `provisionRmvVouchers` a
 **Stop-and-report:** any schema need surfaced by the create-flagship or the seed reframe. **Review** (the
 heaviest checkpoint: explicitly diff the actioner + B5.1 behaviour).
 
+### B3 AS SHIPPED (Decision D, MINIMAL form)
+
+B3 shipped in the owner-decided MINIMAL ("Decision D") form. A hidden coupling was found: the admin Option B
+B2.3 route `PATCH /admin/merchants/:id/category` shares `setMerchantCategoryCore` / `handleCategoryChange` (the
+"no weaker path" invariant). To avoid touching that shared core / the admin path, B3 was scoped down to four
+additive things and nothing more:
+
+1. ADD a merchant create-flagship endpoint + service core: `POST /api/v1/merchant/vouchers/rmv/create-flagship`
+   -> `createFlagshipRmvVoucher` in `src/api/merchant/voucher/service.ts`. The merchant chooses an eligible
+   type; the core resolves ownership, reads `primaryCategoryId`, walks to the top-level parent via the existing
+   `resolveTopLevelCategoryId`, validates eligibility, finds the per-(category, type) `RmvTemplate`, and creates
+   ONE template-linked DRAFT RMV (defaults from the template; RMV-prefixed code; audit `RMV_CREATED`).
+2. ADD the eligible-type code-level constant `ELIGIBLE_FLAGSHIP_TYPES` in `src/api/merchant/voucher/shared.ts`
+   (BOGO, SPEND_AND_SAVE, DISCOUNT_FIXED, DISCOUNT_PERCENT, FREEBIE, PACKAGE_DEAL). Ineligible TIME_LIMITED /
+   REUSABLE are rejected with the additive error `VOUCHER_TYPE_NOT_ELIGIBLE`.
+3. REFRAME the RMV seed (`prisma/seed-data/referencePhases.ts` `seedRmvTemplates`) to a per-(category, eligible
+   type) flagship model across all 11 top-level categories (11 x 6 = 66 templates), `expiryDate` dropped from
+   `allowedFields`, advisory PLACEHOLDER floors (no hard server floor). The `seedRmvTemplates(prisma, foodCatId,
+   beautyCatId)` export + signature are preserved (args ignored internally; categories derived from the DB).
+
+**Deliberately NOT done in B3 (deferred to a separate, owner-gated slice C):** the admin category-edit
+harmonisation. `setMerchantCategoryCore`, `handleCategoryChange`, and the standalone `provisionRmvVouchers`
+were left EXACTLY as-is (they still auto-provision the old fixed-2 RMVs on category-set / category-change). The
+`updateRmvVoucherCore` / `submitRmvVoucherCore` (B5.1) cores and the onboarding checklist gate (`rmvCount >= 2`)
+are unchanged. No schema, no dependency, no admin source/test changes. The admin actioner + B5.1 + the
+category-parent-walk tests all stay green against the reframed seed.
+
 ---
 
 ## Backend slice B4: hours validation + saving sanity + changes-reason read

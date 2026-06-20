@@ -435,96 +435,114 @@ export async function seedSubscriptionPlans(
   console.log('Created subscription plans:', monthlyPlan.name, annualPlan.name)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// M2 B3 (Decision D, D2/D3): RMV template reframe. Per-(category, eligible
+// flagship type) templates for ALL 11 top-level categories.
+//
+// Each top-level category gets ONE template per eligible flagship type (the six
+// `ELIGIBLE_FLAGSHIP_TYPES`: BOGO, SPEND_AND_SAVE, DISCOUNT_FIXED, DISCOUNT_PERCENT,
+// FREEBIE, PACKAGE_DEAL). TIME_LIMITED + REUSABLE are flagship-INELIGIBLE
+// (custom-only, M4) and get NO template. So the seed authors 11 x 6 = 66 templates.
+//
+// `allowedFields` = the editable keys the guided builder may PATCH for that type
+// (validated by `updateRmvVoucherCore` and merged into `merchantFields`). Every
+// type can edit the shared "what customers will see" fields (title, description,
+// estimatedSaving, terms, imageUrl), plus its per-type structured fields (from
+// the verbatim extraction section 3). `expiryDate` is DROPPED (D2 / extraction
+// CC-13: flagship RMVs do NOT expose a merchant-entered expiry).
+//
+// `minimumSaving` = the ADVISORY placeholder floor per type (from the verbatim
+// extraction section 4.3 absolute-generosity values + spec section 5.4: GBP 15 for
+// most types, GBP 10 for Freebie). It is the template DEFAULT for `estimatedSaving`
+// on create, and the advisory client-side scoring input (D8b); NOT a hard server
+// gate. Admin review is the quality backstop.
+//
+// NOTE: the (foodCatId, beautyCatId) args are kept for SIGNATURE compatibility
+// (seed.ts + the reference-phases-extraction guard call it this way) but are no
+// longer used internally; all 11 categories are derived from the DB.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// PLACEHOLDER advisory floor: subject to commercial review (D8b); NOT a hard gate.
+const RMV_FLAGSHIP_TEMPLATES: Array<{
+  voucherType: 'BOGO' | 'SPEND_AND_SAVE' | 'DISCOUNT_FIXED' | 'DISCOUNT_PERCENT' | 'FREEBIE' | 'PACKAGE_DEAL'
+  title: string
+  description: string
+  allowedFields: string[]
+  minimumSaving: number
+}> = [
+  {
+    voucherType: 'BOGO',
+    title: 'Buy one, get one free',
+    description: 'Buy one item at full price and get a second of the same or a similar item free.',
+    // Shared customer-facing fields + BOGO structured fields (§3.1, merchantFields).
+    allowedFields: ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl', 'merchantFields'],
+    // PLACEHOLDER advisory floor: subject to commercial review (D8b); NOT a hard gate.
+    minimumSaving: 15.00,
+  },
+  {
+    voucherType: 'SPEND_AND_SAVE',
+    title: 'Spend and save',
+    description: 'Spend a set amount in a single visit and save a fixed amount off.',
+    allowedFields: ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl', 'merchantFields'],
+    // PLACEHOLDER advisory floor: subject to commercial review (D8b); NOT a hard gate.
+    minimumSaving: 15.00,
+  },
+  {
+    voucherType: 'DISCOUNT_FIXED',
+    title: 'Fixed amount off',
+    description: 'A straight fixed amount off the price.',
+    allowedFields: ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl', 'merchantFields'],
+    // PLACEHOLDER advisory floor: subject to commercial review (D8b); NOT a hard gate.
+    minimumSaving: 15.00,
+  },
+  {
+    voucherType: 'DISCOUNT_PERCENT',
+    title: 'Percentage off',
+    description: 'A percentage off the price.',
+    allowedFields: ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl', 'merchantFields'],
+    // PLACEHOLDER advisory floor: subject to commercial review (D8b); NOT a hard gate.
+    minimumSaving: 15.00,
+  },
+  {
+    voucherType: 'FREEBIE',
+    title: 'Free item',
+    description: 'A free item the customer receives, with or without a qualifying purchase.',
+    allowedFields: ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl', 'merchantFields'],
+    // PLACEHOLDER advisory floor (lower for a freebie): subject to commercial review (D8b); NOT a hard gate.
+    minimumSaving: 10.00,
+  },
+  {
+    voucherType: 'PACKAGE_DEAL',
+    title: 'Package deal',
+    description: 'A bundle of items sold together at one set price.',
+    allowedFields: ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl', 'merchantFields'],
+    // PLACEHOLDER advisory floor: subject to commercial review (D8b); NOT a hard gate.
+    minimumSaving: 15.00,
+  },
+]
+
 export async function seedRmvTemplates(
   prisma: PrismaClient,
-  foodCatId: string,
-  beautyCatId: string,
+  _foodCatId: string,
+  _beautyCatId: string,
 ): Promise<void> {
-  // Food & Drink — suitable for restaurants, cafes, bars
-  const rmvFoodTemplates = [
-    {
-      voucherType: 'BOGO' as const,
-      title: 'Buy One Get One Free',
-      description: 'Customer gets a second item free when they purchase one at full price.',
-      allowedFields: ['terms', 'expiryDate'],
-      minimumSaving: 5.00,
-    },
-    {
-      voucherType: 'DISCOUNT_PERCENT' as const,
-      title: '25% Off Your Total Bill',
-      description: 'Customer receives 25% off their total food/drink bill.',
-      allowedFields: ['terms', 'expiryDate'],
-      minimumSaving: 5.00,
-    },
-  ]
-  for (const t of rmvFoodTemplates) {
-    await prisma.rmvTemplate.upsert({
-      where: { categoryId_title: { categoryId: foodCatId, title: t.title } },
-      update: {},
-      create: { ...t, categoryId: foodCatId, isActive: true },
-    })
-  }
+  // Derive ALL 11 top-level categories from the DB (parentId null). The reframe is
+  // category-agnostic: every top-level category gets the same six eligible-type
+  // flagship templates. The two args are kept for signature compatibility only.
+  const topLevels = await prisma.category.findMany({ where: { parentId: null } })
 
-  // Beauty & Wellness — suitable for salons, spas, nail bars
-  const rmvBeautyTemplates = [
-    {
-      voucherType: 'DISCOUNT_PERCENT' as const,
-      title: '20% Off Your First Visit',
-      description: 'New customers receive 20% off any service on their first visit.',
-      allowedFields: ['terms', 'expiryDate'],
-      minimumSaving: 5.00,
-    },
-    {
-      voucherType: 'FREEBIE' as const,
-      title: 'Free Treatment with Any Booking',
-      description: 'Customer receives a complimentary add-on treatment with any full-price booking.',
-      allowedFields: ['terms', 'expiryDate'],
-      minimumSaving: 5.00,
-    },
-  ]
-  for (const t of rmvBeautyTemplates) {
-    await prisma.rmvTemplate.upsert({
-      where: { categoryId_title: { categoryId: beautyCatId, title: t.title } },
-      update: {},
-      create: { ...t, categoryId: beautyCatId, isActive: true },
-    })
-  }
-
-  // Generic fallback templates for remaining top-level categories.
-  // Note: top-level names changed in this seed (Retail & Shopping → Shopping,
-  // Entertainment → Out & About, Professional Services → Home & Local Services).
-  const otherCats = await prisma.category.findMany({
-    where: {
-      name: { in: ['Health & Fitness', 'Shopping', 'Out & About', 'Home & Local Services'] },
-      parentId: null,
-    },
-  })
-  for (const cat of otherCats) {
-    const genericTemplates = [
-      {
-        voucherType: 'DISCOUNT_PERCENT' as const,
-        title: '20% Off',
-        description: 'Customer receives 20% off any product or service.',
-        allowedFields: ['terms', 'expiryDate'],
-        minimumSaving: 5.00,
-      },
-      {
-        voucherType: 'SPEND_AND_SAVE' as const,
-        title: 'Spend £30, Save £10',
-        description: 'Customer saves £10 when they spend £30 or more.',
-        allowedFields: ['terms', 'expiryDate'],
-        minimumSaving: 10.00,
-      },
-    ]
-    for (const t of genericTemplates) {
+  let written = 0
+  for (const cat of topLevels) {
+    for (const t of RMV_FLAGSHIP_TEMPLATES) {
       await prisma.rmvTemplate.upsert({
         where: { categoryId_title: { categoryId: cat.id, title: t.title } },
         update: {},
         create: { ...t, categoryId: cat.id, isActive: true },
       })
+      written += 1
     }
   }
-  console.log('Created RMV templates')
+  console.log(`Created RMV templates: ${written} (${topLevels.length} categories x ${RMV_FLAGSHIP_TEMPLATES.length} eligible flagship types)`)
 }
 
 export async function seedInterests(prisma: PrismaClient): Promise<void> {

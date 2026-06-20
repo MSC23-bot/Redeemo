@@ -54,6 +54,7 @@ export type AuditEvent =
   | 'VOUCHER_UPDATED'
   | 'VOUCHER_DELETED'
   | 'VOUCHER_SUBMITTED'
+  | 'RMV_CREATED'
   | 'RMV_UPDATED'
   | 'RMV_SUBMITTED'
   | 'RMV_PROVISIONED'

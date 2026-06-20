@@ -3,6 +3,7 @@ import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx, type ActorType } from '../../shared/audit'
 import { resolveAdminMerchant, resolveTopLevelCategoryId, type EditActor } from '../shared'
+import { isEligibleFlagshipType, FLAGSHIP_RMV_CAP } from './shared'
 
 // Only DRAFT vouchers can be edited, submitted, or deleted
 const EDITABLE_STATUSES = ['DRAFT'] as const
@@ -391,6 +392,101 @@ export async function listRmvVouchers(prisma: PrismaClient, adminId: string) {
     include: { rmvTemplate: true },
     orderBy: { createdAt: 'asc' },
   })
+}
+
+/**
+ * M2 B3 (Decision D, D2/D3): the merchant flagship-RMV create path. The merchant
+ * CHOOSES an eligible voucher type; this creates ONE template-linked DRAFT RMV with
+ * defaults from the per-(category, type) RmvTemplate. Replaces the old auto-provision
+ * -2-fixed flow for the merchant builder (the standalone `provisionRmvVouchers` +
+ * the auto-provisioning inside `setMerchantCategoryCore` / `handleCategoryChange`
+ * are intentionally left untouched in this MINIMAL slice; their harmonisation is a
+ * separate owner-gated slice C).
+ *
+ * Flow: resolve the caller's OWN merchant (refuses SUSPENDED) -> read the merchant's
+ * primaryCategoryId (the SUBCATEGORY) -> walk to the TOP-LEVEL parent (templates +
+ * eligibility live at top-level) -> validate the chosen type is flagship-eligible
+ * (reject TIME_LIMITED / REUSABLE with VOUCHER_TYPE_NOT_ELIGIBLE) -> find the
+ * (categoryId, voucherType, isActive) template (NO_RMV_TEMPLATE if missing) ->
+ * create the RMV linked to that template (isRmv / isMandatory / rmvTemplateId / type
+ * + title/description/estimatedSaving defaulted from the template; status DRAFT,
+ * approvalStatus PENDING, merchantFields {}) with an RMV-prefixed code -> audit.
+ *
+ * The RMV stays TEMPLATE-LINKED so `updateRmvVoucherCore` (B5.1) can read
+ * `allowedFields` and the guided update keeps working. There is NO server-side
+ * saving floor here: the floor is an ADVISORY scoring input (D8b); admin review is
+ * the quality backstop. Light present/positive saving sanity is B4, not B3.
+ */
+export async function createFlagshipRmvVoucher(
+  prisma: PrismaClient,
+  adminId: string,
+  voucherType: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+
+  // Eligibility gate FIRST (before any merchant/category/template read), so an
+  // ineligible type is rejected cheaply with a clear error. This stays ahead of the
+  // cap check below so an ineligible type rejects before ANY DB work.
+  if (!isEligibleFlagshipType(voucherType)) {
+    throw new AppError('VOUCHER_TYPE_NOT_ELIGIBLE')
+  }
+
+  // Cap check: at most FLAGSHIP_RMV_CAP (2) mandatory flagship RMVs per merchant.
+  // Count only slot-occupying statuses (DRAFT / PENDING_APPROVAL / ACTIVE); INACTIVE
+  // and REJECTED free a slot, matching handleCategoryChange's DRAFT->INACTIVE discard.
+  // This is a sequential / count guard: the realistic vector is repeated API calls
+  // or a buggy / double-submitting frontend. A fully concurrent double-submit race
+  // would need a DB constraint (schema) and is intentionally out of scope for this
+  // no-schema slice; no transaction is added here for race-safety.
+  const flagshipCount = await prisma.voucher.count({
+    where: { merchantId, isRmv: true, status: { in: ['DRAFT', 'PENDING_APPROVAL', 'ACTIVE'] } },
+  })
+  if (flagshipCount >= FLAGSHIP_RMV_CAP) {
+    throw new AppError('FLAGSHIP_RMV_LIMIT_REACHED')
+  }
+
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { primaryCategoryId: true },
+  })
+  if (!merchant?.primaryCategoryId) throw new AppError('NO_RMV_TEMPLATE')
+
+  // Templates + eligibility live at the TOP-LEVEL category; primaryCategoryId is the
+  // SUBCATEGORY. Walk to the top-level parent for the lookup (a top-level id resolves
+  // to itself).
+  const templateCategoryId = await resolveTopLevelCategoryId(prisma, merchant.primaryCategoryId)
+
+  const template = await prisma.rmvTemplate.findFirst({
+    where: { categoryId: templateCategoryId, voucherType: voucherType as any, isActive: true },
+  })
+  if (!template) throw new AppError('NO_RMV_TEMPLATE')
+
+  const voucher = await prisma.voucher.create({
+    data: {
+      merchantId,
+      code:            `RMV-${randomBytes(4).toString('hex').toUpperCase()}`,
+      isRmv:           true,
+      isMandatory:     true,
+      rmvTemplateId:   template.id,
+      type:            template.voucherType,
+      title:           template.title,
+      description:     template.description,
+      estimatedSaving: template.minimumSaving,
+      status:          'DRAFT',
+      approvalStatus:  'PENDING',
+      merchantFields:  {},
+    },
+  })
+  writeAuditLog(prisma, {
+    entityId: merchantId,
+    entityType: 'merchant',
+    event: 'RMV_CREATED',
+    ipAddress: ctx.ipAddress,
+    userAgent: ctx.userAgent,
+    metadata: { voucherId: voucher.id, voucherType, rmvTemplateId: template.id },
+  })
+  return voucher
 }
 
 /**
