@@ -56,7 +56,8 @@ export function FileUpload({ kind, label, hint, onUploaded, className, id }: Fil
   const [error, setError] = React.useState<string | null>(null)
 
   async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+    const input = e.target
+    const file = input.files?.[0]
     if (!file) return
 
     setError(null)
@@ -66,6 +67,8 @@ export function FileUpload({ kind, label, hint, onUploaded, className, id }: Fil
       setStatus('error')
       setFileName(null)
       setError('Use a PNG or JPG image.')
+      // Reset so re-picking the same file refires onChange (see catch below).
+      input.value = ''
       return
     }
     // Client-side size pre-check (mirrors the backend per-kind cap).
@@ -74,6 +77,8 @@ export function FileUpload({ kind, label, hint, onUploaded, className, id }: Fil
       setStatus('error')
       setFileName(null)
       setError(`That file is too large. Keep it under ${humanMb(cap)}.`)
+      // Reset so re-picking the same file refires onChange (see catch below).
+      input.value = ''
       return
     }
 
@@ -92,6 +97,11 @@ export function FileUpload({ kind, label, hint, onUploaded, className, id }: Fil
     } catch {
       setStatus('error')
       setError('Upload failed. Please try again.')
+    } finally {
+      // Reset the native input value so re-selecting the EXACT same file refires
+      // onChange (the input does not emit a change for an identical value). Without
+      // this, a user could not retry the same file after a transient upload failure.
+      input.value = ''
     }
   }
 

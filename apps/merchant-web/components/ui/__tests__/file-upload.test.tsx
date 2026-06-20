@@ -81,6 +81,30 @@ describe('FileUpload', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument()
   })
 
+  it('lets the user re-select the SAME file and retry after a failed upload', async () => {
+    // First attempt fails (transient upload failure), second attempt with the
+    // EXACT same file succeeds. The input value must be reset after each change
+    // so re-picking an identical file refires onChange and hits the route again.
+    apiFetchMock
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ url: 'https://cdn.example/logo.png' })
+    const onUploaded = jest.fn()
+    render(<FileUpload kind="logo" label="Logo" onUploaded={onUploaded} />)
+
+    const input = screen.getByLabelText(/Logo/i) as HTMLInputElement
+    const sameFile = PNG()
+
+    // First selection -> failure.
+    await userEvent.upload(input, sameFile)
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+    // Re-select the SAME file -> the handler refires and retries the route.
+    await userEvent.upload(input, sameFile)
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(onUploaded).toHaveBeenCalledWith('https://cdn.example/logo.png'))
+  })
+
   it('applies the banner kind cap (5MB) and path when kind="banner"', async () => {
     apiFetchMock.mockResolvedValue({ url: 'https://cdn.example/cover.png' })
     render(<FileUpload kind="banner" label="Cover" />)
