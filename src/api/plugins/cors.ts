@@ -7,6 +7,7 @@ async function corsPlugin(app: FastifyInstance) {
     origin: process.env.CORS_ORIGIN?.split(',') ?? [
       'http://localhost:3001', // customer-web
       'http://localhost:3002', // admin-web
+      'http://localhost:3003', // merchant-web
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
