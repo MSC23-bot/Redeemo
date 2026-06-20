@@ -28,7 +28,7 @@ The backend onboarding spine (checklist, contract, profile/category, branch, vou
 admin queue) is already shipped and battle-tested; **M2 is overwhelmingly a guided frontend wizard
 plus a small set of no-schema backend enablers and a seed-data task.**
 
-## 1. Locked decisions (D1-D4)
+## 1. Locked decisions (D1-D5)
 
 ### D1 - LOCKED: lifecycle-conditioned bypass for sensitive-field writes during onboarding
 - **Profile:** while the application is a DRAFT (`status REGISTERED`, plus the `NEEDS_CHANGES`
@@ -101,13 +101,21 @@ plus a small set of no-schema backend enablers and a seed-data task.**
 - **Documents ("Verify your business sooner") OUT of M2** - a later merchant-documents milestone
   (model exists; merchant-side route is missing; admin-only B4 today).
 
-## 2. Pending decisions (D5-D10)
-- **D5 (in progress):** category-selection depth + endpoint shape - whether M2 captures the full
-  prototype flow (primary -> subcategory/best-fit -> cuisine -> "what you are known for" -> generated
-  customer-facing label). Inspection result: the full chain is **no-schema** (models + `buildDescriptor`
-  exist + seeded), but needs a new merchant taxonomy READ endpoint (not supply-filtered) + an extended
-  WRITE (subcategory + cuisine + specialties + the parent-walk reconciliation). "Add your own" pending-
-  tag flow is admin-approval-dependent (defer). Recommendation: full capture (a).
+### D5 - LOCKED: full category-identity capture (primary -> subcategory -> cuisine -> known-for -> label)
+- M2 captures the full prototype chain. Storage on existing schema (no migration): `primaryCategoryId` =
+  the selected SUBCATEGORY; cuisine via `primaryDescriptorTagId`; specialties via `MerchantTag`; maintain
+  `MerchantCategory` (isPrimary). RMV provisioning resolves the subcategory to its TOP-LEVEL parent for
+  template lookup (the D3 parent-walk reconciliation).
+- New no-schema backend enablers: `GET /api/v1/merchant/onboarding/taxonomy` for the picker (NOT the
+  customer categories endpoint, which supply-filters and is unsuitable) returning top-level categories
+  (+ RMV-eligible flag) + full subcategories (NOT supply-filtered) + per-subcategory cuisine/specialty
+  tags from `SubcategoryTag`; plus a merchant category/identity WRITE endpoint that saves the full chain
+  and provisions RMVs via the parent-walk.
+- Frontend mirrors the prototype: primary tiles, subcategory chips, cuisine chips (where relevant),
+  known-for chips, generated label ("Indian Restaurant" / "Body Shop") via `buildDescriptor`.
+- "Add your own" cuisine/specialty is DEFERRED (needs admin approval/tooling); M2 uses seeded tags only.
+
+## 2. Pending decisions (D6-D10)
 - **D6:** onboarding flow model - guided staircase (category -> profile -> branch/vouchers/contract,
   locking + 3-state steps + save-and-resume, derived client-side) vs flat checklist.
 - **D7:** logo/banner image upload (merchant presign endpoint + upload component) vs defer.
@@ -131,9 +139,9 @@ Schema/Route legend: Y = supported now, N = not supported, P = partial.
 | Prototype field/control | Schema | Route | Decision | Impl type | Owner decision / status |
 |---|---|---|---|---|---|
 | Primary category (11 tiles) | Y | P | M2 | frontend + backend enabler + seed | D5; triggers RMV provisioning |
-| Subcategory "best fits" | Y | N | M2 (if D5=full) | frontend + backend enabler | becomes `primaryCategoryId` (subcategory) |
-| Cuisine (multi, Food) | Y | N | M2 (if D5=full) | backend enabler (no schema) | drives descriptor |
-| "What you are known for" specialties | Y | N | M2 (if D5=full) | backend enabler (no schema) | `SubcategoryTag`-scoped |
+| Subcategory "best fits" | Y | N | M2 | frontend + backend enabler | becomes `primaryCategoryId` (subcategory) |
+| Cuisine (multi, Food) | Y | N | M2 | backend enabler (no schema) | drives descriptor |
+| "What you are known for" specialties | Y | N | M2 | backend enabler (no schema) | `SubcategoryTag`-scoped |
 | "Add your own" cuisine/specialty | P (`Tag.createdBy`) | N | later | backend enabler + admin-tooling future | admin-approval-dependent |
 | Generated customer-facing label | Y (`buildDescriptor`) | Y read-side | M2 | frontend | mirror for live preview |
 
