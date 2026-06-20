@@ -205,6 +205,11 @@ export const ERROR_DEFINITIONS = {
   // A multipart upload that breached a parser limit (more than one file, too many
   // fields/parts) or was malformed. A client error, not a 500.
   INVALID_UPLOAD:                  { statusCode: 400, message: 'The upload was invalid. Send a single file (PDF, JPG, or PNG) with the required fields.' },
+  // M2 B5 (merchant server-proxied image upload). Per-kind image validation
+  // (content-type + size + dimensions) BEFORE the object is written.
+  IMAGE_TOO_LARGE:                 { statusCode: 413, message: 'The image is too large. The maximum size is 2 MB for logos and 5 MB for banners and photos.' },
+  IMAGE_UNREADABLE:                { statusCode: 400, message: "We couldn't read that image. Upload a valid PNG or JPEG." },
+  IMAGE_DIMENSIONS_INVALID:        { statusCode: 400, message: 'The image dimensions are not allowed. Logos must be square (at least 512x512); banners must be landscape (at least 1600x600); photos must be landscape (at least 1200x600).' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS
