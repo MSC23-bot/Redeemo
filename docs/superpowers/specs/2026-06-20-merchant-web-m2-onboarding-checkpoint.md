@@ -63,6 +63,13 @@ plus a small set of no-schema backend enablers and a seed-data task.**
   later." Rationale: one size does not fit all (the merchant picks the fitting type), but mandatory
   go-live offers stay constrained to strong, evergreen flagship types. Time-limited + Reusable live only
   in custom-voucher creation (M4).
+- **Admin review is the quality backstop (builder is guided, not a free-for-all):** the merchant
+  chooses from the eligible types and authors freely above the floor, but the builder must make clear
+  that weak offers can be sent back at review. Builder copy (refine wording, preserve intent): "Very
+  weak offers may be sent back by the Redeemo team before your business can go live." Principle:
+  merchants choose eligible types; Redeemo guides while they build; the Too-weak/Good/Great score helps
+  them improve; admin review (approve / request changes / reject) is the final quality gate; weak offers
+  can be sent back for changes.
 - The RMV builder must NOT be a bare form. It must be **guided, category-aware, scored/quality-aware
   where feasible, suggestion-driven, and preview-based**: weak/good/great scoring against the
   template `minimumSaving` floor; helper text + "what makes it strong / stronger"; field-connected
@@ -304,6 +311,7 @@ Schema/Route legend: Y = supported now, N = not supported, P = partial.
 | Custom voucher (RCV) builder | scope; bonus tier, not submit-gated | M4 |
 | Curated `TermsClause` clause library + rules engine + calibration margin model | schema + heavyweight | M4 / Phase-3 offer engine |
 | Admin-managed RMV template/suggestion CRUD | needs config schema + admin UI | Phase-3 fast-follow |
+| Admin-panel voucher-scoring alignment (actioner sees Too-weak/Good/Great when approving / requesting changes / rejecting) | future enhancement; M2 builds the merchant-side score, admin reuse not required for M2 unless already cheap | admin-panel / later |
 | Day-2 edit tiering (live-state sensitive edits) | live-state concern, not onboarding | M3 |
 | Personalised/comprehensive contract + real binding legal text | schema + legal sign-off | launch gate |
 
