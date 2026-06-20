@@ -31,10 +31,11 @@ function jwt(payload: object): string {
 function jsonRes(status: number, body: unknown) {
   return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response
 }
-function mockReq(body: unknown, headers: Record<string, string> = {}): NextRequest {
+function mockReq(body: unknown, headers: Record<string, string> = {}, nextOrigin = 'http://localhost:3003'): NextRequest {
   return {
     json: async () => body,
     headers: { get: (k: string) => headers[k.toLowerCase()] ?? null },
+    nextUrl: { origin: nextOrigin },
   } as unknown as NextRequest
 }
 
@@ -102,7 +103,7 @@ describe('BFF merchant-auth route handlers (M1 Slice 1)', () => {
   })
 
   it('refresh: 401 REFRESH_TOKEN_INVALID when there is no cookie', async () => {
-    const res = await refreshPOST()
+    const res = await refreshPOST(mockReq(undefined))
     expect(res.status).toBe(401)
     expect((await res.json()).error.code).toBe('REFRESH_TOKEN_INVALID')
   })
@@ -115,7 +116,7 @@ describe('BFF merchant-auth route handlers (M1 Slice 1)', () => {
       sentBody = JSON.parse(init.body as string)
       return jsonRes(200, { accessToken: access, refreshToken: 'NEW' })
     }) as unknown as typeof fetch
-    const res = await refreshPOST()
+    const res = await refreshPOST(mockReq(undefined))
     expect(sentBody).toEqual({ refreshToken: 'OLD', sessionId: 's1', entityId: 'ma1' })
     expect(await res.json()).toEqual({ accessToken: access }) // no refresh token leaks
     expect(JSON.parse(cookieStore.set.mock.calls.at(-1)![1]).refreshToken).toBe('NEW')
@@ -124,18 +125,40 @@ describe('BFF merchant-auth route handlers (M1 Slice 1)', () => {
   it('refresh: clears the cookie + forwards the status on a backend failure', async () => {
     store.set('redeemo_merchant_session', { value: JSON.stringify({ refreshToken: 'OLD', sessionId: 's1', entityId: 'ma1' }) })
     global.fetch = jest.fn(async () => jsonRes(401, { error: { code: 'REFRESH_TOKEN_INVALID' } })) as unknown as typeof fetch
-    const res = await refreshPOST()
+    const res = await refreshPOST(mockReq(undefined))
     expect(res.status).toBe(401)
     expect(cookieStore.delete).toHaveBeenCalledWith('redeemo_merchant_session')
   })
 
-  it('logout: forwards the Bearer best-effort and ALWAYS clears the cookie', async () => {
+  it('logout: forwards the Bearer best-effort (no JSON content-type on the bodyless POST) and ALWAYS clears the cookie', async () => {
     const fetchMock = jest.fn(async () => jsonRes(200, { message: 'Logged out.' }))
     global.fetch = fetchMock as unknown as typeof fetch
     const res = await logoutPOST(mockReq(undefined, { authorization: 'Bearer tok' }))
     expect((await res.json()).ok).toBe(true)
-    expect(((fetchMock.mock.calls[0] as unknown[])[1] as { headers: Record<string, string> }).headers.authorization).toBe('Bearer tok')
+    const forwarded = ((fetchMock.mock.calls[0] as unknown[])[1] as { headers: Record<string, string>; body?: unknown }).headers
+    expect(forwarded.authorization).toBe('Bearer tok')
+    // a JSON content-type + empty body makes Fastify reject (FST_ERR_CTP_EMPTY_JSON_BODY),
+    // which would silently fail the server-side revoke -> the bodyless POST must omit it.
+    expect(forwarded['content-type']).toBeUndefined()
+    expect(((fetchMock.mock.calls[0] as unknown[])[1] as { body?: unknown }).body).toBeUndefined()
     expect(cookieStore.delete).toHaveBeenCalledWith('redeemo_merchant_session')
+  })
+
+  it('CSRF: rejects a cross-origin POST with 403 and does NOT clear the cookie or call the backend', async () => {
+    const fetchMock = jest.fn()
+    global.fetch = fetchMock as unknown as typeof fetch
+    const res = await logoutPOST(mockReq(undefined, { authorization: 'Bearer tok', origin: 'http://evil.example' }))
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('CROSS_ORIGIN_BLOCKED')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(cookieStore.delete).not.toHaveBeenCalled() // no forced logout
+  })
+
+  it('same-origin requests (matching Origin header) are allowed', async () => {
+    global.fetch = jest.fn(async () => jsonRes(200, { message: 'Logged out.' })) as unknown as typeof fetch
+    const res = await logoutPOST(mockReq(undefined, { origin: 'http://localhost:3003' }))
+    expect((await res.json()).ok).toBe(true)
+    expect(cookieStore.delete).toHaveBeenCalled()
   })
 
   it('logout: clears the cookie even with no Bearer (skips the backend call)', async () => {

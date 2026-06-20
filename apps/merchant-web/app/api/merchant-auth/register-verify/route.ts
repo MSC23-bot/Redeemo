@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { backendPost, completeBffLogin } from '@/lib/auth/bff'
+import { assertSameOrigin, backendPost, completeBffLogin } from '@/lib/auth/bff'
 
 // POST /api/merchant-auth/register-verify -> backend /register/verify (note the path
 // asymmetry: hyphen here, nested there). Verifying the emailed code AUTO-LOGS-IN the
 // new owner: the backend returns tokens, which we convert into an httpOnly session
 // cookie + { accessToken, merchant } so they land straight in the portal.
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const blocked = assertSameOrigin(req)
+  if (blocked) return blocked
   const body = await req.json().catch(() => ({}))
   const { res, data } = await backendPost('/register/verify', body)
   if (!res.ok) {

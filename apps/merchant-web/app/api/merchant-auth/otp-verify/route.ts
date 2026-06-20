@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { backendPost, completeBffLogin } from '@/lib/auth/bff'
+import { assertSameOrigin, backendPost, completeBffLogin } from '@/lib/auth/bff'
 
 // POST /api/merchant-auth/otp-verify -> backend /otp/verify. On success the backend
 // returns tokens; we park the refresh token in the httpOnly cookie and return
 // { accessToken, merchant }.
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const blocked = assertSameOrigin(req)
+  if (blocked) return blocked
   const body = await req.json().catch(() => ({}))
   const { res, data } = await backendPost('/otp/verify', body)
   if (!res.ok) {

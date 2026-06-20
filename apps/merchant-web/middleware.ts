@@ -24,7 +24,10 @@ export function middleware(req: NextRequest): NextResponse {
 
 export const config = {
   // Gate everything EXCEPT the (auth) pages, the BFF + Next API, and static assets.
+  // The (auth)/api tokens are anchored to a FULL path segment ((?:/|$)) so a future
+  // authed path that merely STARTS WITH one (e.g. /otp-settings, /claims, /registration)
+  // is still gated, not silently treated as public.
   matcher: [
-    '/((?!sign-in|otp|forgot-password|reset-password|claim|register|api|_next/static|_next/image|favicon.ico|fonts|robots.txt|sitemap.xml).*)',
+    '/((?!(?:sign-in|otp|forgot-password|reset-password|claim|register|api)(?:/|$)|_next/|favicon\\.ico|fonts/|robots\\.txt|sitemap\\.xml).*)',
   ],
 }

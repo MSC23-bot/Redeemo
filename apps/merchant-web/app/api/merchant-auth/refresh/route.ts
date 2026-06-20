@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
-import { backendPost } from '@/lib/auth/bff'
+import { NextRequest, NextResponse } from 'next/server'
+import { assertSameOrigin, backendPost } from '@/lib/auth/bff'
 import { readSessionCookie, setSessionCookie, clearSessionCookie } from '@/lib/auth/cookies'
 import { decodeMerchantJwt } from '@/lib/auth/jwt'
 
@@ -8,7 +8,9 @@ import { decodeMerchantJwt } from '@/lib/auth/jwt'
 // with the new (single-use) refresh token, and returns ONLY { accessToken } to the
 // browser. On any failure the cookie is cleared (the session is dead) and the
 // backend status is forwarded so the client can hard-logout.
-export async function POST(): Promise<NextResponse> {
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  const blocked = assertSameOrigin(req)
+  if (blocked) return blocked
   const session = await readSessionCookie()
   if (!session) {
     return NextResponse.json(

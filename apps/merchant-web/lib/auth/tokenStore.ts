@@ -11,6 +11,9 @@ export function getAccessToken(): string | null {
 
 export function setAccessToken(token: string | null): void {
   accessToken = token
+  // A fresh (non-null) token re-arms the hard-logout latch, so a later dead session
+  // can teardown again.
+  if (token) sessionLostFired = false
 }
 
 // apiFetch triggers a HARD logout when a refresh fails or the backend reports the
@@ -19,11 +22,19 @@ export function setAccessToken(token: string | null): void {
 // to /sign-in. Default fallback (no provider mounted): a full-page nav to /sign-in.
 let onSessionLost: (() => void) | null = null
 
+// At-most-once latch: when several authed requests 401 concurrently they each reach
+// the hard-logout path after the shared refresh fails. The latch guarantees the
+// teardown (router.replace / full-page nav) fires exactly once until a fresh token
+// re-arms it, regardless of how many requests failed.
+let sessionLostFired = false
+
 export function setOnSessionLost(fn: (() => void) | null): void {
   onSessionLost = fn
 }
 
 export function triggerSessionLost(): void {
+  if (sessionLostFired) return
+  sessionLostFired = true
   if (onSessionLost) {
     onSessionLost()
   } else if (typeof window !== 'undefined') {
