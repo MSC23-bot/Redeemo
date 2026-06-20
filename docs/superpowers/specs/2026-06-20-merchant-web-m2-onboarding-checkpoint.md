@@ -34,7 +34,7 @@ The backend onboarding spine (checklist, contract, profile/category, branch, vou
 admin queue) is already shipped and battle-tested; **M2 is overwhelmingly a guided frontend wizard
 plus a small set of no-schema backend enablers and a seed-data task.**
 
-## 1. Locked decisions (D1-D6)
+## 1. Locked decisions (D1-D7)
 
 ### D1 - LOCKED: lifecycle-conditioned bypass for sensitive-field writes during onboarding
 - **Profile:** while the application is a DRAFT (`status REGISTERED`, plus the `NEEDS_CHANGES`
@@ -166,6 +166,22 @@ plus a small set of no-schema backend enablers and a seed-data task.**
   branch step CANNOT persist a half-branch until the minimum create fields exist (postcode etc.); each
   step defines what "Save and finish later" means against its backend constraints.
 
+### D7 - LOCKED: merchant-facing server-proxied image upload (logo + banner + voucher photo)
+- Build a **server-proxied** merchant image upload mirroring the safer admin B4 document pattern
+  (`putObject` holds the bytes + validates), NOT direct client->R2 presigned upload. Switch to presigned
+  only if live-code proves server-proxied is not viable, and stop/report first.
+- Covers **logo, banner/cover, and voucher photo**. Add the shared merchant-web file-upload component
+  these onboarding surfaces need (also fills an M0 design-system gap).
+- **Validate content-type, file size, AND image dimensions server-side** (not only client-side).
+  Prototype constraints (anchors): logo square PNG/JPG >=512x512 <=2MB; cover/banner landscape PNG/JPG
+  >=1600x600 <=5MB; voucher photo landscape PNG/JPG >=1200x600 <=5MB.
+- These are **public customer-visible images** (unlike private documents). If a public image storage
+  kind/policy const is needed in `storage.ts` `KIND_POLICIES`, add it as **code/config only, not schema**.
+- `STORAGE_ENABLED` stays the deploy/env gate: M2 builds + tests the path; live uploads depend on R2
+  config (dark in dev, like email).
+- **Scope:** NO merchant document upload in M2 (separate later milestone). No schema expected; if
+  implementation discovers schema is needed, stop and report before planning.
+
 ## 1A. Live prototype browse verification (2026-06-20, Playwright over the local export)
 
 Drove the interactive prototype. Confirmed and corrected:
@@ -211,8 +227,7 @@ accordingly. Verified achievable WITHOUT schema (see D2/D3 revised + the M2.0 le
   co-build UI is gated (Phase-3, confirmation primitive).
 - "Save as draft" + build 2 flagship vouchers; they submit together with the business for review.
 
-## 2. Pending decisions (D7-D10)
-- **D7:** logo/banner image upload (merchant presign endpoint + upload component) vs defer.
+## 2. Pending decisions (D8-D10)
 - **D8:** small backend quality enablers - server-side opening-hours validation; `minimumSaving` floor
   enforcement; merchant-facing changes-requested reason read.
 - **D9:** contract - minimal placeholder clickwrap for M2 (real binding legal text + personalisation =
@@ -291,7 +306,10 @@ Schema/Route legend: Y = supported now, N = not supported, P = partial.
    the first in their category. The picker must show the FULL taxonomy regardless of supply.
 5. Merchant category/identity WRITE (primaryCategoryId=subcategory + primaryDescriptorTag + MerchantTag
    + MerchantCategory) - pending D5.
-6. Logo/banner presign upload endpoint - pending D7.
+6. Merchant SERVER-PROXIED image upload (logo + banner + voucher photo), mirroring admin B4 `putObject`;
+   server-side content-type + size + dimension validation; public-image storage kind in `storage.ts`
+   `KIND_POLICIES` if needed (code/config, not schema); `STORAGE_ENABLED` deploy-gated; NO merchant
+   document upload in M2. (D7 locked.)
 7. Server-side opening-hours validation - pending D8.
 8. `minimumSaving` floor enforcement (keys on the chosen-(category,type) floor) - pending D8.
 9. Merchant-facing changes-requested reason read - pending D8.
