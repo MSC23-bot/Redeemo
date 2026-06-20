@@ -13,6 +13,23 @@ function generateVoucherCode(prefix: string): string {
   return `${prefix}-${randomBytes(4).toString('hex').toUpperCase()}`
 }
 
+// ─── M2 B4 (D8b): advisory saving sanity ─────────────────────────────────────
+//
+// A light present/positive check on the merchant voucher SAVE paths where the
+// merchant writes a TOP-LEVEL estimatedSaving value (createVoucher always, and
+// updateVoucher only when estimatedSaving is in the patch). The value must be a
+// finite number greater than zero. There is NO hard floor (a below-ideal-floor
+// but positive value is accepted; the floor is an advisory client-side scoring
+// input per D8b, with admin review the quality backstop) and NO use of
+// RmvTemplate.minimumSaving as a gate. The RMV create / edit cores do not let the
+// merchant write a top-level estimatedSaving (create uses the template default;
+// the RMV edit core only merges merchantFields), so this never touches B5.1.
+function assertSavingSane(value: unknown): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new AppError('SAVING_INVALID')
+  }
+}
+
 // ─── M4a-7: TIME_LIMITED availability-window validation ─────────────────────
 //
 // Enforces spec §3.2 rules 1-4 + 7 + type-attachment (D2 lock):
@@ -168,6 +185,10 @@ export async function createVoucher(
   ctx: { ipAddress: string; userAgent: string }
 ) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // M2 B4 (D8b): advisory present/positive saving sanity BEFORE any create. Zero /
+  // negative / absent estimatedSaving is rejected with SAVING_INVALID; a positive
+  // value (even below the advisory floor) is accepted.
+  assertSavingSane(data.estimatedSaving)
   // M4a-7: validate windows BEFORE the Prisma create. Type-attachment +
   // per-row format + per-day overlap checks all run synchronously.
   validateAvailabilityWindows(data.type, data.availabilityWindows)
@@ -245,6 +266,14 @@ export async function updateVoucher(
     if (key in data) safe[key] = data[key]
   }
   if (data.expiryDate) safe.expiryDate = new Date(data.expiryDate as string)
+
+  // M2 B4 (D8b): saving sanity ONLY when the patch writes a top-level
+  // estimatedSaving value. A patch that omits estimatedSaving leaves the existing
+  // value untouched and never trips the check. Zero / negative is rejected with
+  // SAVING_INVALID; a positive value (even below the advisory floor) is accepted.
+  if ('estimatedSaving' in safe) {
+    assertSavingSane(safe.estimatedSaving)
+  }
 
   // M4a-7: resolve effective type (post-merge) and effective windows.
   // Type-change rule: TIME_LIMITED → other type rejected when windows still attached.

@@ -6,6 +6,7 @@ import { resolveAdminMerchant, isDraftWindow, type EditActor } from '../shared'
 import { encrypt, decrypt } from '../../shared/encryption'
 import { resolvePostcode } from '../../lib/postcodeResolver'
 import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
+import { validateOpeningHours } from './openingHours'
 
 /**
  * Plan 4 M1.21 — resolve a postcode via postcodes.io + find-or-create the
@@ -538,6 +539,13 @@ export async function setOpeningHours(
   branchId: string,
   hours: Array<{ dayOfWeek: number; openTime?: string; closeTime?: string; isClosed: boolean }>
 ) {
+  // M2 B4 (D8a): validate the single-period-per-day model BEFORE any DB work, so a
+  // bad payload (duplicate day / closed-day-with-times / malformed time / bad
+  // 24:00 / zero-length period) rejects with OPENING_HOURS_INVALID before the
+  // upserts run. Overnight close (close < open) is accepted (the customer-app
+  // consumer treats it as crossing midnight).
+  validateOpeningHours(hours)
+
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
   await resolveBranch(prisma, branchId, merchantId)
 

@@ -236,6 +236,20 @@ export const ERROR_DEFINITIONS = {
   IMAGE_TOO_LARGE:                 { statusCode: 413, message: 'The image is too large. The maximum size is 2 MB for logos and 5 MB for banners and photos.' },
   IMAGE_UNREADABLE:                { statusCode: 400, message: "We couldn't read that image. Upload a valid PNG or JPEG." },
   IMAGE_DIMENSIONS_INVALID:        { statusCode: 400, message: 'The image dimensions are not allowed. Logos must be square (at least 512x512); banners must be landscape (at least 1600x600); photos must be landscape (at least 1200x600).' },
+  // M2 B4 (D8a): server-side opening-hours validation on setOpeningHours. The
+  // LIVE storage is single-period-per-day, so a duplicate dayOfWeek (the
+  // single-period "overlap"), a dayOfWeek out of 0-6, a closed day still carrying
+  // times, an open day missing times, a malformed time (incl. "24:00" as
+  // openTime), or a degenerate zero-length period (openTime === closeTime) are
+  // rejected. close < open is ACCEPTED (overnight close, per the customer-app
+  // consumer); "24:00" is allowed only as a closeTime (end-of-day / Open 24h).
+  OPENING_HOURS_INVALID:           { statusCode: 400, message: 'The opening hours are invalid. Check the days, times, and that closed days have no hours set.' },
+  // M2 B4 (D8b): advisory present/positive saving sanity on the merchant voucher
+  // SAVE paths that write a top-level estimatedSaving value. The saving must be
+  // present and greater than zero. There is NO hard floor (a below-ideal-floor but
+  // positive value is accepted; the floor is an advisory client-side scoring input
+  // per D8b, with admin review the quality backstop).
+  SAVING_INVALID:                  { statusCode: 400, message: 'Enter a saving amount greater than zero.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS
