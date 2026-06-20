@@ -115,6 +115,45 @@ plus a small set of no-schema backend enablers and a seed-data task.**
   known-for chips, generated label ("Indian Restaurant" / "Body Shop") via `buildDescriptor`.
 - "Add your own" cuisine/specialty is DEFERRED (needs admin approval/tooling); M2 uses seeded tags only.
 
+## 1A. Live prototype browse verification (2026-06-20, Playwright over the local export)
+
+Drove the interactive prototype. Confirmed and corrected:
+- **Pre-live home = the 6-step guided staircase** ("Get your business live", 5 of 6): account / category
+  (Modern British Restaurant) / business profile / main branch / **vouchers (the incomplete step)** /
+  merchant agreement, with a gated "Submit for review", "Nothing is public yet", locked dashboard +
+  insights teasers, and the documents card. Confirms D6.
+- **Flagship voucher builder** ("Set up vouchers" -> "Voucher 1 of 2, Step 1 of 2"): a TYPE PICKER
+  (all 7 types, BOGO "Recommended") + a "How Redeemo vouchers work" primer (once-a-month rule; "you
+  write the offer, we help keep it strong"; "our team can help, you approve before it goes live"); then
+  Step 2 = the guided builder.
+
+**CORRECTION / DIVERGENCE (flag; may reopen D2/D3 - owner to decide):** the prototype lets the merchant
+**CHOOSE the flagship voucher type** ("Change voucher type" is present) and author 2 flagship vouchers of
+chosen types. The current backend **pre-provisions 2 FIXED-type RMVs** from the category's RmvTemplates
+(merchant edits `allowedFields` only; no type choice). My earlier framing ("merchant does not pick the
+type") was WRONG against the prototype. Reconciliation (no schema, but a backend provisioning redesign):
+make RMV creation type-flexible (merchant picks from an eligible-type set per category; the floor +
+guidance come from a per-(category,type) config / template), or keep the fixed-type backend model and
+reframe the picker. This also enlarges D3 seed work (a floor/guidance per eligible type per category).
+
+**Builder details (all no-schema / Path A / frontend-config per prototype section 2B):**
+- Structured per-type fields (buy item + full price; free item + value) -> `merchantFields` (Json) +
+  compose the customer-visible `title`/`description`/`estimatedSaving`/`terms`.
+- Category-driven suggestion chips + a demo-only "Preview suggestions as" category switcher.
+- Curated TERMS picker: universal core + category-conditional + Caution/Restrictive badges + "Add your
+  own term" -> a FRONTEND config map (section 2B: "suggestion AND term content is builder config, no
+  schema"); chosen terms collapse into the `terms` column. The heavier `TermsClause` rules engine
+  (conflicts / value-erosion / type-bans) stays M4.
+- "Strong for you, fair for customers" guidance panel + a Too-weak / Good / Great score with "what is
+  strong / what could make it better" -> a CLIENT-SIDE heuristic (saving %, title clarity, terms
+  count/severity, description customised, photo present) + the `minimumSaving` floor. The "compares to
+  similar businesses on Redeemo" framing is aspirational (no data dependency taken for M2).
+- Photo upload on the voucher card (1200x600) -> presign (D7-adjacent).
+- "Ask the Redeemo team to help with this offer" concierge co-build toggle ("you always approve before
+  it goes live") -> the B5.1 admin co-build path; for M2 capture as a flag/request only, the admin
+  co-build UI is gated (Phase-3, confirmation primitive).
+- "Save as draft" + build 2 flagship vouchers; they submit together with the business for review.
+
 ## 2. Pending decisions (D6-D10)
 - **D6:** onboarding flow model - guided staircase (category -> profile -> branch/vouchers/contract,
   locking + 3-state steps + save-and-resume, derived client-side) vs flat checklist.
