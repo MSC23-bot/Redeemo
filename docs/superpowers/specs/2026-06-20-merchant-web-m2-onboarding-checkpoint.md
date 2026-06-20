@@ -34,7 +34,7 @@ The backend onboarding spine (checklist, contract, profile/category, branch, vou
 admin queue) is already shipped and battle-tested; **M2 is overwhelmingly a guided frontend wizard
 plus a small set of no-schema backend enablers and a seed-data task.**
 
-## 1. Locked decisions (D1-D8)
+## 1. Locked decisions (D1-D9)
 
 ### D1 - LOCKED: lifecycle-conditioned bypass for sensitive-field writes during onboarding
 - **Profile:** while the application is a DRAFT (`status REGISTERED`, plus the `NEEDS_CHANGES`
@@ -196,6 +196,21 @@ plus a small set of no-schema backend enablers and a seed-data task.**
   section 1B (scoring model + the generic-feedback / category-config / auto-compose nuances).
 - No schema expected; if implementation finds schema is required, stop and report before planning.
 
+### D9 - LOCKED: minimal click-to-agree contract for M2; personalisation + OWNER-gate deferred to M3
+- Use the EXISTING minimal click-to-agree contract: `GET /onboarding/contract` + `POST
+  /onboarding/contract/accept` (creates `MerchantContract`, sets `contractStatus=SIGNED` +
+  `contractStartDate`, idempotent `CONTRACT_ALREADY_SIGNED`). Show the agreement -> click-to-agree ->
+  signed state + signed date + contract version; re-accept on version drift.
+- The current inline `CONTRACT_TEXT` (v1.0) is PLACEHOLDER/MVP text for M2. The real binding legal text is
+  a LAUNCH / legal sign-off gate (not a build blocker).
+- The personalised, comprehensive agreement is DEFERRED to M3 (depends on M3 fields: `businessType`,
+  registered/head-office address, signatory details).
+- **OWNER role-gate: NOT added in M2.** The contract routes are not OWNER-role-gated in code, but M2 is
+  owner-by-absence (no staff/multi-user surface yet), so the only account that can accept IS the owner.
+  **Required M3 security follow-up (recorded):** when staff/multi-user lands, the contract routes MUST
+  become explicitly OWNER-gated so non-owner staff cannot accept the merchant agreement.
+- No schema.
+
 ## 1A. Live prototype browse verification (2026-06-20, Playwright over the local export)
 
 Drove the interactive prototype. Confirmed and corrected:
@@ -323,14 +338,7 @@ no-schema (frontend config + client scoring). The heavier `TermsClause` RULES EN
 conflict detection / type-bans / value-erosion weights) stays M4; M2 uses the config map + client scoring +
 the admin-review backstop.
 
-## 2. Pending decisions (D9-D10)
-- **D9:** contract - minimal placeholder clickwrap for M2 (real binding legal text + personalisation =
-  launch gate / M3 schema) vs build personalised now. **Verified nuance:** the contract is NOT
-  OWNER-role-gated in code today - `GET /onboarding/contract` + `POST /onboarding/contract/accept` are
-  open to any authenticated merchant admin (the blueprint's "OWNER-only clickwrap" is aspirational, not
-  enforced). In M2 the merchant has only the owner account (staff/multi-user is M3), so it is
-  owner-in-practice; an explicit OWNER role-gate becomes meaningful when multi-user lands (M3). D9
-  should state whether to add the gate now or defer.
+## 2. Pending decisions (D10)
 - **D10:** frontend form/wizard architecture (react-hook-form + zod + stepper + select/combobox + toast
   + file-upload component) vs alternatives.
 
@@ -437,6 +445,7 @@ Schema/Route legend: Y = supported now, N = not supported, P = partial.
 | Custom voucher (RCV) builder | scope; bonus tier, not submit-gated | M4 |
 | Curated `TermsClause` clause library + rules engine + calibration margin model | schema + heavyweight | M4 / Phase-3 offer engine |
 | Admin-managed RMV template/suggestion CRUD | needs config schema + admin UI | Phase-3 fast-follow |
+| Contract routes OWNER-role-gate | not needed in M2 (owner-by-absence; routes not OWNER-gated in code) | REQUIRED M3 security follow-up when staff/multi-user lands |
 | Admin-panel voucher-scoring alignment (actioner sees Too-weak/Good/Great when approving / requesting changes / rejecting) | future enhancement; M2 builds the merchant-side score, admin reuse not required for M2 unless already cheap | admin-panel / later |
 | Day-2 edit tiering (live-state sensitive edits) | live-state concern, not onboarding | M3 |
 | Personalised/comprehensive contract + real binding legal text | schema + legal sign-off | launch gate |
