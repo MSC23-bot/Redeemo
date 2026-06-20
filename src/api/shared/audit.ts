@@ -101,6 +101,10 @@ export type AuditEvent =
   // raw R2 storage key is deliberately NOT recorded (keeps keys out of the log too).
   | 'DOCUMENT_UPLOADED'
   | 'DOCUMENT_DELETED'
+  // M1 Slice R: merchant self-serve registration + email-verify. `event` is a
+  // String column, so these are union-only (no migration).
+  | 'MERCHANT_SELF_REGISTERED'
+  | 'MERCHANT_EMAIL_VERIFIED'
 
 export interface AuditContext {
   entityId: string

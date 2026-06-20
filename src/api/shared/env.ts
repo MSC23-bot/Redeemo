@@ -83,6 +83,11 @@ export const FEATURE_GATED_SECRETS: ReadonlyArray<{
     enabledValue: 'true',
     secrets: ['R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_ENDPOINT', 'R2_BUCKET', 'R2_PUBLIC_BASE_URL'],
   },
+  // Cloudflare Turnstile (M1 Slice R, merchant self-serve registration captcha).
+  // Default OFF: with CAPTCHA_ENABLED unset/false the verify helper skips (no
+  // network call) and TURNSTILE_SECRET_KEY is NOT required, so dev/CI/test boot
+  // without it. When CAPTCHA_ENABLED=true the secret is required (fail-closed).
+  { flag: 'CAPTCHA_ENABLED', enabledValue: 'true', secrets: ['TURNSTILE_SECRET_KEY'] },
 ]
 
 /**

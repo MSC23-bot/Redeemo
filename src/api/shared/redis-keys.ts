@@ -30,6 +30,11 @@ export const RedisKey = {
   passwordReset:       (role: string, token: string) => `pwd-reset:${role}:${token}`,
   // Merchant draft-owner claim token (set-password). Value = merchantAdminId. 7-day TTL.
   merchantClaim:       (token: string)               => `merchant-claim:${token}`,
+  // M1 Slice R: merchant self-serve registration email-verify challenge. Value =
+  // JSON {adminId, deviceId, deviceType, codeHmac, attempts}. Role-scoped (NOT the
+  // customer `email-verify:` namespace) so a merchant token can never be consumed
+  // by the customer verify endpoint, and vice versa. 24h TTL.
+  merchantEmailVerify: (challenge: string)           => `merchant-email-verify:${challenge}`,
 
   // BranchUser first-login temp token
   branchTempToken:     (token: string)            => `branch-temp:${token}`,

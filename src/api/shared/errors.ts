@@ -70,6 +70,8 @@ export const ERROR_DEFINITIONS = {
   PASSWORD_CHANGE_REQUIRED:       { statusCode: 403, message: 'You must set a new password before continuing.' },
   VERIFICATION_TOKEN_INVALID:     { statusCode: 400, message: 'This verification link is invalid.' },
   VERIFICATION_TOKEN_EXPIRED:     { statusCode: 400, message: 'This verification link has expired.' },
+  // M1 Slice R: self-serve merchant registration captcha (Cloudflare Turnstile).
+  CAPTCHA_FAILED:                 { statusCode: 400, message: "We couldn't verify that you're human. Please try again." },
   MERCHANT_NOT_FOUND:             { statusCode: 404, message: 'Merchant not found.' },
   BRANCH_NOT_FOUND:               { statusCode: 404, message: 'Branch not found.' },
   BRANCH_UNAVAILABLE:             { statusCode: 404, message: 'This branch is no longer available.' },

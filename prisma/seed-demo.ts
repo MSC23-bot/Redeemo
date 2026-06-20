@@ -677,7 +677,9 @@ async function seedDemo() {
     // Merchant admin (one per merchant)
     const demoAdmin = await prisma.merchantAdmin.upsert({
       where: { email: m.adminEmail },
-      update: {},
+      // M1 Slice R: heal any already-seeded demo admin so the login emailVerified
+      // gate does not lock out demo merchants on a non-fresh DB.
+      update: { emailVerified: true },
       create: {
         // M6b (D-1): no merchantId — the OWNER membership below is the sole link.
         email: m.adminEmail,
@@ -686,6 +688,8 @@ async function seedDemo() {
         lastName: m.tradingName,
         jobTitle: 'Owner',
         status: 'ACTIVE',
+        // M1 Slice R: pre-verified so a fresh demo seed clears the login gate.
+        emailVerified: true,
       },
     })
 

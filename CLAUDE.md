@@ -66,8 +66,10 @@ Redeemo is a UK-based, location-first digital marketplace connecting consumers w
 |---|---|---|
 | Admin | admin@redeemo.com | Admin1234! |
 | Customer | customer@redeemo.com | Customer1234! |
-| Merchant Admin | merchant@redeemo.com | Merchant1234! |
+| Merchant Admin | merchant@redeemo.test | Merchant1234! |
 | Branch Staff | staff@redeemo.com | Staff1234! |
+
+> Note: the Merchant Admin dev email uses the non-routable `.test` domain (M1 Slice R) because Redeemo does NOT own `redeemo.com`, and the Merchant Portal now queues login-OTP / registration-verify emails. The `admin@` / `customer@` / `staff@` `.com` seed addresses are a tracked platform-wide seed-email-hygiene follow-up (out of M1 scope).
 
 ---
 

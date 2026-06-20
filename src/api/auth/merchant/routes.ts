@@ -1,12 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { emailSchema, passwordSchema, deviceSchema } from '../../shared/schemas'
+import { emailSchema, passwordSchema, deviceSchema, otpCodeSchema } from '../../shared/schemas'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog } from '../../shared/audit'
 import { routeRateLimit } from '../../plugins/rate-limit'
 import {
   loginMerchant, verifyMerchantOtp, refreshMerchantToken,
   logoutMerchant, forgotPasswordMerchant, resetPasswordMerchant, claimMerchantAccount,
+  registerMerchant, verifyMerchantEmail, resendMerchantVerification,
 } from './service'
 import { getOwnerMembership } from '../../shared/merchantMembership'
 
@@ -30,10 +31,12 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  app.post(`${prefix}/otp/verify`, async (req, reply) => {
+  app.post(`${prefix}/otp/verify`, {
+    config: { rateLimit: routeRateLimit('otpVerify') },
+  }, async (req, reply) => {
     const body = z.object({
       sessionChallenge: z.string(),
-      code: z.string().length(6),
+      code: otpCodeSchema,
     }).parse(req.body)
 
     const result = await verifyMerchantOtp(app.prisma, app.redis, app, {
@@ -87,6 +90,57 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
       ...body, ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
     })
     return reply.send({ message: 'Password set. You can now log in.' })
+  })
+
+  // ── M1 Slice R: self-serve merchant registration ─────────────────────────────
+  // PUBLIC. Non-enumerating (a duplicate email returns the same shape as a fresh
+  // signup). Cloudflare Turnstile + a strict per-IP register rate-limit guard
+  // signup floods. Email is dark (Phase 6); dev reads the verify code from the
+  // outbox via prisma/_get-merchant-otp.ts.
+  app.post(`${prefix}/register`, {
+    config: { rateLimit: routeRateLimit('register') },
+  }, async (req, reply) => {
+    const body = z.object({
+      firstName:         z.string().trim().min(1).max(100),
+      lastName:          z.string().trim().min(1).max(100),
+      email:             emailSchema,
+      mobile:            z.string().trim().max(20).optional(),
+      mobileCountryCode: z.string().trim().max(6).optional(),
+      password:          passwordSchema,
+      businessName:      z.string().trim().min(1).max(200),
+      termsAccepted:     z.literal(true),   // platform terms (distinct from the later merchant contract)
+      turnstileToken:    z.string(),
+      ...deviceSchema.shape,
+    }).parse(req.body)
+
+    const result = await registerMerchant(app.prisma, app.redis, {
+      ...body, ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send(result)
+  })
+
+  // Verify the emailed 6-digit code; on success the owner is auto-logged-in.
+  app.post(`${prefix}/register/verify`, {
+    config: { rateLimit: routeRateLimit('otpVerify') },
+  }, async (req, reply) => {
+    const body = z.object({
+      sessionChallenge: z.string(),
+      code: otpCodeSchema,
+    }).parse(req.body)
+
+    const result = await verifyMerchantEmail(app.prisma, app.redis, app, {
+      ...body, ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send(result)
+  })
+
+  // Re-issue the verify code for the same challenge. Generic response (anti-enum).
+  app.post(`${prefix}/register/resend`, {
+    config: { rateLimit: routeRateLimit('forgotPassword') },
+  }, async (req, reply) => {
+    const { sessionChallenge } = z.object({ sessionChallenge: z.string() }).parse(req.body)
+    await resendMerchantVerification(app.prisma, app.redis, { sessionChallenge, ipAddress: req.ip })
+    return reply.send({ message: 'If your account still needs verifying, a new code has been sent.' })
   })
 
   // Soft-deactivate merchant (self-service)

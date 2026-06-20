@@ -120,6 +120,74 @@ export function adminOtpEmail(code: string): RenderedEmail {
 }
 
 /**
+ * Merchant sign-in OTP email (M1 Slice 0). Mirrors adminOtpEmail: the 6-digit code
+ * is the WHOLE payload (there is no link to click; an OTP is entered manually).
+ * Code is numeric (server-generated), so no escaping is needed; never logged
+ * (SEC-H1).
+ */
+export function merchantOtpEmail(code: string): RenderedEmail {
+  return {
+    subject: `Your ${BRAND} for Business sign-in code`,
+    text:
+      `Your ${BRAND} for Business sign-in code is ${code}.\n\n` +
+      `Enter it to finish signing in. It expires in 10 minutes.\n\n` +
+      `If you did not try to sign in, you can ignore this email.`,
+    html:
+      `<p>Your ${BRAND} for Business sign-in code is:</p>` +
+      `<p style="font-size:28px;font-weight:bold;letter-spacing:4px">${code}</p>` +
+      `<p>Enter it to finish signing in. It expires in 10 minutes.</p>` +
+      `<p>If you did not try to sign in, you can ignore this email.</p>`,
+  }
+}
+
+/**
+ * Merchant self-serve registration email-verify (M1 Slice R). 6-digit CODE model
+ * (consistent with the login OTP; robust while the portal domain may be unhosted),
+ * no link to follow. Code is numeric (server-generated), never escaped, never
+ * logged (SEC-H1).
+ */
+export function merchantVerifyEmail(code: string): RenderedEmail {
+  return {
+    subject: `Verify your ${BRAND} for Business email`,
+    text:
+      `Welcome to ${BRAND} for Business. Your email verification code is ${code}.\n\n` +
+      `Enter it to finish setting up your account. It expires in 24 hours.\n\n` +
+      `If you did not create a ${BRAND} for Business account, you can ignore this email.`,
+    html:
+      `<p>Welcome to ${BRAND} for Business. Your email verification code is:</p>` +
+      `<p style="font-size:28px;font-weight:bold;letter-spacing:4px">${code}</p>` +
+      `<p>Enter it to finish setting up your account. It expires in 24 hours.</p>` +
+      `<p>If you did not create a ${BRAND} for Business account, you can ignore this email.</p>`,
+  }
+}
+
+/**
+ * Sent when someone tries to self-register with an email that ALREADY has a
+ * merchant account (M1 Slice R). The registration endpoint returns the SAME
+ * response shape as a fresh signup (anti-enumeration); this email, sent only to
+ * the real account holder, is how the truth reaches the right person without
+ * leaking existence to the requester. Carries no code/token: directs to sign-in
+ * or password reset only.
+ */
+export function merchantAccountExistsEmail(): RenderedEmail {
+  const base = (process.env.MERCHANT_PORTAL_URL || 'https://merchant.redeemo.co.uk').replace(/\/+$/, '')
+  const signInUrl = `${base}/sign-in`
+  return {
+    subject: `Your ${BRAND} for Business account`,
+    text:
+      `Someone tried to create a ${BRAND} for Business account with this email address, but you already have one.\n\n` +
+      `If this was you, just sign in: ${signInUrl}\n` +
+      `If you have forgotten your password, you can reset it from the sign-in page.\n\n` +
+      `If this was not you, no new account was created and you can safely ignore this email.`,
+    html:
+      `<p>Someone tried to create a ${BRAND} for Business account with this email address, but you already have one.</p>` +
+      `<p>If this was you, just <a href="${escapeHtml(signInUrl)}">sign in</a>. ` +
+      `If you have forgotten your password, you can reset it from the sign-in page.</p>` +
+      `<p>If this was not you, no new account was created and you can safely ignore this email.</p>`,
+  }
+}
+
+/**
  * M8 admin alert: a merchant SUBMITTED for approval (first submission). Sent to
  * the single ops inbox (ADMIN_OPS_ALERT_EMAIL). `businessName` is merchant-
  * controlled ⇒ escaped in the body and stripped in the subject header.

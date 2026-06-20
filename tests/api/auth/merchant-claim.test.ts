@@ -19,7 +19,7 @@ describe('claimMerchantAccount (service)', () => {
     auditLog:      { create: vi.fn().mockResolvedValue({}) },
   })
 
-  it('sets passwordHash, clears mustChangePassword, sets otpVerifiedAt, and deletes the token (single-use)', async () => {
+  it('sets passwordHash, clears mustChangePassword, sets otpVerifiedAt + emailVerified, and deletes the token (single-use)', async () => {
     const prisma = prismaMock()
     const redis  = { get: vi.fn().mockResolvedValue('ma-1'), del: vi.fn().mockResolvedValue(1) }
 
@@ -31,6 +31,8 @@ describe('claimMerchantAccount (service)', () => {
     expect(update.data.passwordHash).toEqual(expect.any(String))
     expect(update.data.mustChangePassword).toBe(false)
     expect(update.data.otpVerifiedAt).toBeInstanceOf(Date)
+    // M1 Slice R: the emailed claim link proves email control, so claim verifies email.
+    expect(update.data.emailVerified).toBe(true)
     expect(redis.del).toHaveBeenCalledWith('merchant-claim:claim-token-abc') // single-use
     expect(prisma.auditLog.create).toHaveBeenCalled()
   })
@@ -98,7 +100,7 @@ describe('login after claim — recognised-device path only (unknown-device OTP 
     // A claimed owner: passwordHash set, otpVerifiedAt set (claim cleared the
     // first-ever-login OTP), ACTIVE, with an ACTIVE merchant.
     app.decorate('prisma', {
-      merchantAdmin:      { findUnique: vi.fn().mockResolvedValue({ id: 'ma-1', passwordHash: hash, otpVerifiedAt: new Date(), status: 'ACTIVE' }) },
+      merchantAdmin:      { findUnique: vi.fn().mockResolvedValue({ id: 'ma-1', passwordHash: hash, otpVerifiedAt: new Date(), status: 'ACTIVE', emailVerified: true }) },
       merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma-1', merchant: { status: 'ACTIVE', businessName: 'Claim Co' } }) },
       userSession:        { create: vi.fn().mockResolvedValue({}) },
       auditLog:           { create: vi.fn().mockResolvedValue({}) },
