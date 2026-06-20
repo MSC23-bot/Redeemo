@@ -1,0 +1,218 @@
+# Merchant Portal M2 (Onboarding) - Locked Decisions + Prototype Extraction Checkpoint
+
+> Status: ACTIVE BRAINSTORM CHECKPOINT (pre-spec). Date: 2026-06-20.
+> Purpose: a durable anti-drift source of truth for the M2 onboarding decisions, so the long
+> brainstorm thread cannot be lost to context compression. The eventual M2 design spec MUST
+> carry this section ("M2 Locked Decisions + Prototype Extraction Checkpoint") prominently and
+> keep it in sync. Owner-driven; brainstorming/planning only (no code, no PR, no migration yet).
+
+## 0. Source-of-truth hierarchy (READ FIRST)
+
+1. **The Claude Design prototype is a FIRST-CLASS source of truth, not visual inspiration.** It
+   evolved after the blueprint and carries fields, copy, states, dependencies, and logic that the
+   earlier blueprint/spec do not all capture. Prototype project: "Redeemo for Business - Merchant
+   Portal" (id `09a77423-ca03-4360-badb-1dca1687c5ab`); on-disk export:
+   `docs/design/merchant-portal/prototype-handoff/Redeemo-for-Business-Merchant-Portal-handoff.zip`
+   (single `Redeemo for Business.dc.html` React-in-HTML demo). Doc-level extraction lives in
+   `docs/superpowers/specs/2026-06-17-merchant-portal-prototype-findings.md` (esp. the onboarding/
+   journey section, §2B category-sourced suggestions, §2T/§2U business profile).
+2. **Live code + schema** (`prisma/schema.prisma`, `src/api/merchant/**`, `src/api/admin/**`) is the
+   reality check. Where the prototype and code disagree, the gap is recorded below, not silently
+   resolved.
+3. Blueprint (`2026-06-16-merchant-portal-product-blueprint.md`) + handover
+   (`2026-06-19-merchant-portal-build-handover.md`) are guides, now superseded in precision by the
+   prototype + live-code inspection for M2 onboarding.
+
+M2 = the merchant journey from authenticated entry (M1 shipped) to ready-to-submit-for-approval.
+The backend onboarding spine (checklist, contract, profile/category, branch, voucher/RMV, submit ->
+admin queue) is already shipped and battle-tested; **M2 is overwhelmingly a guided frontend wizard
+plus a small set of no-schema backend enablers and a seed-data task.**
+
+## 1. Locked decisions (D1-D4)
+
+### D1 - LOCKED: lifecycle-conditioned bypass for sensitive-field writes during onboarding
+- **Profile:** while the application is a DRAFT (`status REGISTERED`, plus the `NEEDS_CHANGES`
+  resubmit window) all profile fields write directly; once live/approved, sensitive identity fields
+  route through the existing governed edit-request lane. Today `updateMerchantProfile` rejects
+  sensitive fields unconditionally ([profile/service.ts:156-157](../../../src/api/merchant/profile/service.ts)),
+  which breaks the prototype's "full draft edit".
+- **Branch:** apply the same draft-window bypass to **branch sensitive edits**. Branch *create*
+  already sets all fields directly; the gap is *editing* a sensitive branch field pre-submit. The
+  branch bypass MUST re-resolve location when `postcode` changes (re-run `resolveBranchLocationFields`,
+  as `createBranchCore` does), not just write the raw postcode.
+- **Predicate shaping:** keep the bypass a clean draft-window check so the day-2 refinement
+  (`description` -> instant when live, per blueprint §3.4) drops in easily. Do NOT solve day-2 edit
+  tiering in M2.
+- **No schema.** Small M2.0 backend enabler (profile + branch services).
+
+### D2 - LOCKED: mandatory RMV-only for M2, guided builder, no custom CRUD, no offer-engine schema
+- M2 builds the configuration of the **2 mandatory RMVs only**. **No custom voucher (RCV) CRUD in
+  M2. No `TermsClause`/offer-engine schema in M2.**
+- The RMV builder must NOT be a bare form. It must be **guided, category-aware, scored/quality-aware
+  where feasible, suggestion-driven, and preview-based**: weak/good/great scoring against the
+  template `minimumSaving` floor; helper text + "what makes it strong / stronger"; field-connected
+  guidance; a live customer-app-style preview (Path A - compose `title`/`description`/
+  `estimatedSaving`/`terms`; no customer-app change); category/subcategory-aware suggestion + terms
+  maps as a **frontend config map** (prototype §2B: explicitly "builder configuration, not voucher
+  columns, no schema change").
+- **Mandatory RMVs must NOT expose a normal merchant-entered expiry date** unless legal/product later
+  requires it. They persist while the merchant is active/on-contract (matches the contract text).
+- **The current seed `RmvTemplate.allowedFields = ['terms', 'expiryDate']` is too thin** (it would
+  give a terms-only form, and it wrongly exposes expiry) and MUST be corrected for M2: drop
+  `expiryDate`, and expand `allowedFields` so the merchant composes the offer (template provides
+  defaults + guardrails: type fixed, `minimumSaving` floor). `allowedFields`/`merchantFields` are
+  already Json columns -> no schema.
+- **Admin-managed RMV template/suggestion tooling is FUTURE work, not M2** (the M2 suggestion content
+  is a frontend config map; the real admin-editable source = a config schema + admin-panel CRUD,
+  Phase-3 fast-follow).
+- **Custom vouchers are DEFERRED, not cancelled** -> M4 ("Vouchers builder + management + Redemptions"
+  per the baseline M-series), alongside the full offer engine.
+
+### D3 - LOCKED: seed all categories (no Food/Beauty beta) + the level reconciliation
+- Seed **all 11 top-level categories** with >=2 RMV templates each. Verified seed baseline
+  (`prisma/seed-data/referencePhases.ts` ~444-527): **2 authored** (Food & Drink, Beauty & Wellness)
+  + **4 GENERIC brand-contradicting placeholders** (Health & Fitness, Shopping, Out & About, Home &
+  Local Services) + **5 with NONE** (Travel & Hotels, Health & Medical, Family & Kids, Auto & Garage,
+  Pet Services). The 5 empty throw `NO_RMV_TEMPLATE` today; the 4 generic still need real authoring.
+  So D3 = author proper templates across all 11 (keep/refine 2, replace 4 generic, create 5). Data/
+  seed + frontend config; no schema. First-pass draft at
+  `docs/superpowers/specs/2026-06-10-rmv-templates-9-categories.md`.
+- **Reconciliation (no schema):** store the merchant's category identity at the **subcategory** level
+  (`primaryCategoryId` = subcategory, so the customer descriptor "Indian Restaurant" composes
+  correctly), but **resolve the top-level parent for RMV template lookup** (provisioning currently
+  queries templates on the exact id with no parent-walk; templates live at top-level). This fixes a
+  real live inconsistency: seed sets `primaryCategoryId` = subcategory + creates RMVs directly, while
+  provisioning + the admin picker assume top-level.
+- Per-category `minimumSaving` floors are a **commercial decision** - exact values flagged for
+  owner/commercial review before final lock.
+
+### D4 - LOCKED: Lean M2 business profile boundary
+- **Tier 1 in M2 (no schema; relies on the D1 bypass + a small upload/presign enabler):** logo, cover/
+  banner, business description, public website, registered-name/trading-name mapping
+  (`businessName`=registered, `tradingName`=trading), company registration number, VAT registered
+  Y/N + VAT number, plus the prototype helper copy + visual structure.
+- **Tier 3 deferred to an M3 schema batch:** `businessType` (Sole trader/Ltd/Partnership/LLP/PLC/CIC/
+  Charity), `charityNumber`, `UTR`, registered/head-office address (line1/2/town/county), distinct
+  head-office phone/email, title (Mr/Mrs).
+- **Tier 2:** position/jobTitle deferred to M3 (confirmed NOT needed for the M2 contract - D9 uses the
+  minimal placeholder contract, no signatory personalisation). Values/highlights deferred to M3
+  (small, identity-not-gated; the `MerchantTag`/`MerchantHighlight` write path that D5 would build
+  makes a later add cheap). Cuisine/specialty/category identity -> resolved in D5.
+- **Documents ("Verify your business sooner") OUT of M2** - a later merchant-documents milestone
+  (model exists; merchant-side route is missing; admin-only B4 today).
+
+## 2. Pending decisions (D5-D10)
+- **D5 (in progress):** category-selection depth + endpoint shape - whether M2 captures the full
+  prototype flow (primary -> subcategory/best-fit -> cuisine -> "what you are known for" -> generated
+  customer-facing label). Inspection result: the full chain is **no-schema** (models + `buildDescriptor`
+  exist + seeded), but needs a new merchant taxonomy READ endpoint (not supply-filtered) + an extended
+  WRITE (subcategory + cuisine + specialties + the parent-walk reconciliation). "Add your own" pending-
+  tag flow is admin-approval-dependent (defer). Recommendation: full capture (a).
+- **D6:** onboarding flow model - guided staircase (category -> profile -> branch/vouchers/contract,
+  locking + 3-state steps + save-and-resume, derived client-side) vs flat checklist.
+- **D7:** logo/banner image upload (merchant presign endpoint + upload component) vs defer.
+- **D8:** small backend quality enablers - server-side opening-hours validation; `minimumSaving` floor
+  enforcement; merchant-facing changes-requested reason read.
+- **D9:** contract - minimal placeholder clickwrap for M2 (real binding legal text + personalisation =
+  launch gate / M3 schema) vs build personalised now. **Verified nuance:** the contract is NOT
+  OWNER-role-gated in code today - `GET /onboarding/contract` + `POST /onboarding/contract/accept` are
+  open to any authenticated merchant admin (the blueprint's "OWNER-only clickwrap" is aspirational, not
+  enforced). In M2 the merchant has only the owner account (staff/multi-user is M3), so it is
+  owner-in-practice; an explicit OWNER role-gate becomes meaningful when multi-user lands (M3). D9
+  should state whether to add the gate now or defer.
+- **D10:** frontend form/wizard architecture (react-hook-form + zod + stepper + select/combobox + toast
+  + file-upload component) vs alternatives.
+
+## 3. Prototype-vs-code cross-check table
+
+Schema/Route legend: Y = supported now, N = not supported, P = partial.
+
+### 3.1 Choose your category (Setup Step 2)
+| Prototype field/control | Schema | Route | Decision | Impl type | Owner decision / status |
+|---|---|---|---|---|---|
+| Primary category (11 tiles) | Y | P | M2 | frontend + backend enabler + seed | D5; triggers RMV provisioning |
+| Subcategory "best fits" | Y | N | M2 (if D5=full) | frontend + backend enabler | becomes `primaryCategoryId` (subcategory) |
+| Cuisine (multi, Food) | Y | N | M2 (if D5=full) | backend enabler (no schema) | drives descriptor |
+| "What you are known for" specialties | Y | N | M2 (if D5=full) | backend enabler (no schema) | `SubcategoryTag`-scoped |
+| "Add your own" cuisine/specialty | P (`Tag.createdBy`) | N | later | backend enabler + admin-tooling future | admin-approval-dependent |
+| Generated customer-facing label | Y (`buildDescriptor`) | Y read-side | M2 | frontend | mirror for live preview |
+
+### 3.2 Complete your business profile (Setup Step 3)
+| Prototype field/control | Schema | Route | Decision | Impl type | Owner decision / status |
+|---|---|---|---|---|---|
+| Logo upload | Y (`logoUrl`) | P (sensitive; no presign) | M2 | backend enabler (D1+presign) + frontend | D4 Tier 1 |
+| Cover/banner upload | Y (`bannerUrl`) | P (sensitive) | M2 | backend enabler + frontend | D4 Tier 1 |
+| Business description | Y (`description`) | P (sensitive) | M2 | backend enabler (D1) + frontend | D4 Tier 1 |
+| Head-office phone | N | N | M3 (or M2 read-only owner) | schema or map-to-owner | reuse owner recommended |
+| Head-office email | N | N | M3 (or M2 read-only owner) | schema or map-to-owner | reuse owner recommended |
+| Public website | Y (`websiteUrl`) | Y (DIRECT) | M2 | frontend | D4 Tier 1 |
+| Branch phone/email per-branch note | n/a | n/a | M2 | frontend copy | - |
+| Title (Mr/Mrs) | N | N | M3 (or omit) | schema or omit | Tier 3 |
+| First name / Surname | Y (`MerchantAdmin`) | P (set at register; logged-in edit missing) | M2 read / M3 edit | frontend + backend enabler (edit=M3) | prefill |
+| Position in business | Y (`MerchantAdmin.jobTitle?`) | N | M3 | backend enabler (small) | deferred (not needed for M2 contract) |
+| Business type (7 UK) | N | N | M3 | schema migration | Tier 3 |
+| Registered business name | Y (`businessName`) | P (sensitive -> D1) | M2 | frontend (label mapping) | D4 Tier 1 |
+| Company registration number | Y (`companyNumber`) | Y (DIRECT) | M2 | frontend | conditional-required needs businessType (M3) |
+| VAT registered Y/N + number | Y (`vatNumber`) | Y (DIRECT) | M2 | frontend | D4 Tier 1 |
+| Registered/head-office address | N | N | M3 | schema migration | main branch address substitutes for M2 |
+| Verify-your-business document upload | Y (`MerchantDocument`) | N merchant-side (admin-only B4) | OUT of M2 -> later | backend enabler (mirror B4) + frontend | closed scope; optional, not gated |
+| Your values (Independent/Family-Run/...) | P (`MerchantHighlight`; 2 tags need seed) | N | M3 (deferred) | backend enabler (no schema) + seed | D4: deferred unless tiny |
+| "Add your own" value | P (`Tag.createdBy`) | N | later | backend enabler + admin-tooling future | admin-approval-dependent |
+
+### 3.3 Vouchers / RMV (Setup step)
+| Prototype element | Schema | Route | Decision | Impl type | Status |
+|---|---|---|---|---|---|
+| 2 mandatory RMV configure + submit | Y (`Voucher` isRmv; `updateRmvVoucher`/`submitRmvVoucher`) | Y | M2 | frontend (guided builder) + seed (allowedFields) | D2 |
+| RMV expiry date input | Y (`expiryDate`; in `allowedFields`) | Y | REMOVE for M2 | seed (`allowedFields`) + frontend | D2 mismatch fix |
+| Category-aware suggestion chips/terms | n/a (config) | n/a | M2 | frontend config map | D2/§2B, no schema |
+| weak/good/great scoring | Y (`RmvTemplate.minimumSaving`) | Y | M2 (basic) | frontend + (D8) floor enforce | rich margin model = Phase 3 |
+| Curated `TermsClause` library | N | N | M4/Phase-3 | schema migration | offer engine, deferred |
+| Custom voucher (RCV) builder | Y (`createVoucher`) | Y | M4 | deferred | not in M2 |
+
+### 3.4 Contract + submit
+| Prototype element | Schema | Route | Decision | Impl type | Status |
+|---|---|---|---|---|---|
+| Contract read + clickwrap accept | Y (`MerchantContract`, v1.0) | Y (`/onboarding/contract[/accept]`) | M2 | frontend | D9 (placeholder text) |
+| Personalised/comprehensive agreement | N (needs businessType/address/signatory) | N | M3+/legal | schema + legal sign-off | launch gate |
+| Submit for approval | Y | Y (`/onboarding/submit`) | M2 | frontend | 3-gate; resubmit handled |
+| Changes-requested reason to merchant | Y (`AdminApproval.comment`) | N merchant-side | M2 (D8) | backend enabler (read) | small |
+
+## 4. M2.0 backend-enabler ledger (no schema; report-first; each small)
+1. D1 profile sensitive-field draft-window bypass.
+2. D1 branch sensitive-edit draft-window bypass (+ postcode re-resolution).
+3. RMV provisioning parent-walk reconciliation (resolve subcategory -> top-level for template lookup).
+4. Merchant taxonomy READ endpoint for the onboarding picker (hierarchy + `SubcategoryTag` tags, NOT
+   supply-filtered) - pending D5. Why a NEW endpoint and not the customer `GET /categories`: that one
+   supply-filters subcategories to >=1 ACTIVE merchant UK-wide (`listActiveCategories`), so it hides
+   categories/subcategories with no merchants yet - wrong for onboarding, where the merchant is often
+   the first in their category. The picker must show the FULL taxonomy regardless of supply.
+5. Merchant category/identity WRITE (primaryCategoryId=subcategory + primaryDescriptorTag + MerchantTag
+   + MerchantCategory) - pending D5.
+6. Logo/banner presign upload endpoint - pending D7.
+7. Server-side opening-hours validation - pending D8.
+8. `minimumSaving` floor enforcement - pending D8.
+9. Merchant-facing changes-requested reason read - pending D8.
+10. RmvTemplate 9-category seed + `allowedFields` correction (data, not schema).
+11. Seed adds: `Family-Run`, `Locally Sourced` value tags (only if values land in M2; currently M3).
+
+## 5. Deferred prototype items (with reason)
+| Item | Reason | Target |
+|---|---|---|
+| businessType + charityNumber + UTR + conditional validation | schema | M3 batch |
+| Registered/head-office address fields | schema (no `Merchant` address) | M3 batch |
+| Distinct head-office phone/email | schema (only owner contact exists) | M3 (or reuse owner in M2) |
+| Title (Mr/Mrs) | schema (not on `MerchantAdmin`) | M3 / omit |
+| Position/jobTitle | backend route missing; not needed for M2 contract | M3 |
+| Your values / highlights | backend route missing (no schema) + 2 seed tags | M3 (cheap if D5 builds tag-write) |
+| Document upload ("Verify sooner") | merchant-side route missing (admin-only B4); closed scope | later merchant-documents milestone |
+| "Add your own" cuisine/specialty/value | needs admin approval flow (admin panel) | later admin-dependent milestone |
+| Custom voucher (RCV) builder | scope; bonus tier, not submit-gated | M4 |
+| Curated `TermsClause` clause library + rules engine + calibration margin model | schema + heavyweight | M4 / Phase-3 offer engine |
+| Admin-managed RMV template/suggestion CRUD | needs config schema + admin UI | Phase-3 fast-follow |
+| Day-2 edit tiering (live-state sensitive edits) | live-state concern, not onboarding | M3 |
+| Personalised/comprehensive contract + real binding legal text | schema + legal sign-off | launch gate |
+
+## 6. M-series placement (for reference)
+M0 scaffold (done) · M1 auth+entry (done) · **M2 onboarding (this)** · M3 day-2 Business profile +
+Branches + Staff + the schema batch (businessType/identifiers, address, capabilities, account caps,
+three-tier attribute move) · M4 Vouchers builder + management (custom RCV + offer engine) + Redemptions.
