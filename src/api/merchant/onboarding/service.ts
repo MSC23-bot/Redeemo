@@ -130,6 +130,41 @@ export async function getOnboardingTaxonomy(prisma: PrismaClient) {
   }
 }
 
+/**
+ * M2 B4 (D8c): the merchant-facing read of the merchant's OWN onboarding approval
+ * status + changes-requested reason. The onboarding `AdminApproval` is identified
+ * by `{ type: 'MERCHANT_ONBOARDING', referenceId: merchantId }` (the same shape
+ * `submitForApprovalCore` creates/reopens). `comment` carries the admin's
+ * changes-requested reason when the admin requests changes; a system string
+ * otherwise. Returns `{ status, comment, actionedAt }`.
+ *
+ * Scoped via `resolveAdminMerchant`, so the caller can NEVER read another
+ * merchant's approval (the referenceId is always the caller's own merchantId, never
+ * an attacker-supplied id). When no approval row exists yet (never submitted), a
+ * null-ish shape is returned (NOT a 500) so the lifecycle home can render a clean
+ * "not submitted yet" state.
+ *
+ * Read-only over the existing AdminApproval.comment + status (no schema, no write).
+ */
+export async function getOnboardingStatus(prisma: PrismaClient, adminId: string) {
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  const approval = await prisma.adminApproval.findFirst({
+    where:   { type: 'MERCHANT_ONBOARDING', referenceId: merchantId },
+    select:  { status: true, comment: true, actionedAt: true },
+    // submitForApprovalCore reopens the SAME onboarding row (no duplicate threads),
+    // so there is normally one row; the order is defensive (newest first).
+    orderBy: { submittedAt: 'desc' },
+  })
+  if (!approval) {
+    return { status: null, comment: null, actionedAt: null }
+  }
+  return {
+    status:     approval.status,
+    comment:    approval.comment,
+    actionedAt: approval.actionedAt,
+  }
+}
+
 export async function acceptContract(
   prisma: PrismaClient,
   adminId: string,

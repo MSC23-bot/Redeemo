@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import '../types'
-import { CONTRACT_VERSION, CONTRACT_TEXT, getOnboardingChecklist, getOnboardingTaxonomy, acceptContract, submitForApproval } from './service'
+import { CONTRACT_VERSION, CONTRACT_TEXT, getOnboardingChecklist, getOnboardingTaxonomy, getOnboardingStatus, acceptContract, submitForApproval } from './service'
 import { setMerchantIdentity } from '../profile/service'
 
 export async function onboardingRoutes(app: FastifyInstance) {
@@ -10,6 +10,15 @@ export async function onboardingRoutes(app: FastifyInstance) {
   app.get(`${prefix}/checklist`, async (req: FastifyRequest, reply) => {
     const checklist = await getOnboardingChecklist(app.prisma, req.user.sub)
     return reply.send(checklist)
+  })
+
+  // M2 B4 (D8c): the merchant-facing read of their OWN onboarding approval status
+  // + changes-requested reason (AdminApproval.comment). Merchant-auth (the plugin
+  // preHandler); the service resolves the caller's OWN merchant via
+  // resolveAdminMerchant so it can never read another merchant's approval.
+  app.get(`${prefix}/status`, async (req: FastifyRequest, reply) => {
+    const status = await getOnboardingStatus(app.prisma, req.user.sub)
+    return reply.send(status)
   })
 
   // M2 B2 (D5): the non-supply-filtered taxonomy for the category + identity
