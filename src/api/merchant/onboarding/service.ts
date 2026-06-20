@@ -49,6 +49,87 @@ export async function getOnboardingChecklist(prisma: PrismaClient, adminId: stri
   return computeOnboardingChecklist(prisma, merchantId)
 }
 
+/**
+ * M2 B2 (D5): the merchant-facing onboarding taxonomy READ for the category +
+ * identity picker. Returns active TOP-LEVEL categories, each with:
+ *   - `eligible`: active rmvTemplates >= 2 for that category (mirrors the admin
+ *     `listAdminCategories` flag + the provisioning constraint), so the picker can
+ *     surface which categories can yet onboard their two flagship vouchers. (B3
+ *     reframes templates to per-(category,type) and may revisit this rule.)
+ *   - `subcategories`: the category's FULL child list. This is the OPPOSITE of the
+ *     customer `listActiveCategories`, which supply-filters subcategories to
+ *     `merchants: { some active }` UK-wide. A merchant is often the FIRST in their
+ *     subcategory, so onboarding MUST show the full taxonomy regardless of supply.
+ *   - per-subcategory cuisine/specialty `tags` from SubcategoryTag, each carrying
+ *     `isPrimaryEligible` so the UI knows which can be the primary descriptor.
+ *
+ * Reads existing tables only (Category + SubcategoryTag + Tag). No schema, no
+ * supply filter, no write.
+ */
+export async function getOnboardingTaxonomy(prisma: PrismaClient) {
+  const [topLevels, subcategories] = await Promise.all([
+    prisma.category.findMany({
+      where: { parentId: null, isActive: true },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        parentId: true,
+        sortOrder: true,
+        _count: { select: { rmvTemplates: { where: { isActive: true } } } },
+      },
+    }),
+    // NON-supply-filtered: no `merchants: { some: ... }` clause. Every active
+    // subcategory surfaces regardless of how many merchants it has.
+    prisma.category.findMany({
+      where: { parentId: { not: null }, isActive: true },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        parentId: true,
+        sortOrder: true,
+        tagLinks: {
+          select: {
+            isPrimaryEligible: true,
+            tag: { select: { id: true, label: true, type: true } },
+          },
+        },
+      },
+    }),
+  ])
+
+  // Group subcategories under their top-level parent (preserve sortOrder ordering
+  // from the query).
+  const subsByParent = new Map<string, typeof subcategories>()
+  for (const sub of subcategories) {
+    const key = sub.parentId as string
+    const list = subsByParent.get(key) ?? []
+    list.push(sub)
+    subsByParent.set(key, list)
+  }
+
+  return {
+    categories: topLevels.map((c) => ({
+      id: c.id,
+      name: c.name,
+      parentId: c.parentId,
+      eligible: c._count.rmvTemplates >= 2,
+      subcategories: (subsByParent.get(c.id) ?? []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        parentId: s.parentId,
+        tags: s.tagLinks.map((tl) => ({
+          id: tl.tag.id,
+          label: tl.tag.label,
+          type: tl.tag.type,
+          isPrimaryEligible: tl.isPrimaryEligible,
+        })),
+      })),
+    })),
+  }
+}
+
 export async function acceptContract(
   prisma: PrismaClient,
   adminId: string,

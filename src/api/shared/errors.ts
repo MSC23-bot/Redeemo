@@ -88,6 +88,21 @@ export const ERROR_DEFINITIONS = {
   RMV_NOT_FOUND:                  { statusCode: 404, message: 'RMV voucher not found.' },
   RMV_FIELD_NOT_ALLOWED:          { statusCode: 400, message: 'One or more fields cannot be edited on this RMV voucher.' },
   CATEGORY_CHANGE_BLOCKED:        { statusCode: 409, message: 'Category cannot be changed after RMV vouchers have been submitted. Contact support.' },
+  // M2 B2 (D5): merchant identity write validation. The chosen subcategory must
+  // exist (CATEGORY_NOT_FOUND), be a real subcategory and not a top-level category
+  // (NOT_A_SUBCATEGORY), and every chosen cuisine/specialty tag must be linked to
+  // that subcategory via SubcategoryTag (TAG_NOT_ELIGIBLE; the descriptor tag must
+  // additionally be isPrimaryEligible).
+  CATEGORY_NOT_FOUND:             { statusCode: 404, message: 'That category could not be found.' },
+  NOT_A_SUBCATEGORY:              { statusCode: 400, message: 'Choose a specific subcategory, not a top-level category.' },
+  TAG_NOT_ELIGIBLE:               { statusCode: 400, message: 'One or more selected tags are not available for this subcategory.' },
+  // M2 B2 (review fix): the merchant identity write is an ONBOARDING-only action
+  // (spec D5). It is gated to the draft window (status REGISTERED, or
+  // onboardingStep NEEDS_CHANGES) so it can never flip primaryCategoryId AFTER
+  // submission and decouple the customer-facing descriptor + MerchantCategory
+  // (isPrimary) from already-submitted/active RMVs (the CATEGORY_CHANGE_BLOCKED
+  // rule, spec section 4.2). Day-2 governed identity edits are M3.
+  IDENTITY_EDIT_REQUIRES_DRAFT:   { statusCode: 409, message: 'Your category and identity can only be changed while your application is in draft. Submit an edit request instead.' },
   ONBOARDING_GATES_INCOMPLETE:    { statusCode: 409, message: 'Not all onboarding requirements are complete. Check your onboarding checklist.' },
   ALREADY_SUBMITTED:              { statusCode: 409, message: 'This merchant has already been submitted for approval.' },
   // Phase 2 Slice 1 M5: go-live gate — the merchant's main branch location is
