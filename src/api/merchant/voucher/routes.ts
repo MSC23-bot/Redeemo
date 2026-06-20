@@ -9,6 +9,7 @@ import {
   submitVoucher,
   deleteVoucher,
   listRmvVouchers,
+  createFlagshipRmvVoucher,
   updateRmvVoucher,
   submitRmvVoucher,
 } from './service'
@@ -154,6 +155,20 @@ export async function voucherRoutes(app: FastifyInstance) {
 
   app.get(rmvPrefix, async (req: FastifyRequest, reply) => {
     return reply.send(await listRmvVouchers(app.prisma, req.user.sub))
+  })
+
+  // M2 B3 (D2/D3): create one flagship RMV of a merchant-chosen eligible type. The
+  // body carries the full VoucherType enum so an ineligible type (TIME_LIMITED /
+  // REUSABLE) reaches the service and is rejected with the clear
+  // VOUCHER_TYPE_NOT_ELIGIBLE (400) rather than a generic Zod validation error.
+  const createFlagshipSchema = z.object({ voucherType: VoucherTypeEnum })
+
+  app.post(`${rmvPrefix}/create-flagship`, async (req: FastifyRequest, reply) => {
+    const { voucherType } = createFlagshipSchema.parse(req.body)
+    const voucher = await createFlagshipRmvVoucher(app.prisma, req.user.sub, voucherType, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.status(201).send(voucher)
   })
 
   app.patch(`${rmvPrefix}/:id`, async (req: FastifyRequest, reply) => {
