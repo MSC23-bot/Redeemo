@@ -24,7 +24,8 @@
 - Modify `src/api/merchant/redemptions/routes.ts` + `service.ts` - add a `voucherId` filter (additive).
 - Modify `src/api/merchant/voucher/service.ts` `listVouchers` (+ `listRmvVouchers`) - curated select + `_count: { select: { redemptions: true } }`.
 - Create `src/api/admin/approvals/voucherApprover.ts` - `getVoucherReviewContext`, `approveVoucher`, `rejectVoucher`, `requestVoucherChanges` (mirror `editApplier.ts`), incl. the `VOUCHER_APPROVAL_UPDATE` producer + Model 1 activation-for-live-merchant.
-- Modify `src/api/admin/approvals/routes.ts` - 4 voucher routes (`/:id/voucher-review`, `/:id/approve-voucher`, `/:id/reject-voucher`, `/:id/request-voucher-changes`) gated `approval:action`.
+- Modify `src/api/admin/approvals/routes.ts` - 4 voucher routes: GET `/:id/voucher-review` gated `approval:read`; the 3 action routes (`/:id/approve-voucher`, `/:id/reject-voucher`, `/:id/request-voucher-changes`) gated `approval:action`.
+- Modify `src/api/admin/approvals/service.ts` `listApprovals` - enrich VOUCHER rows (voucher title + merchant businessName + type/status/approvalStatus + the go-live-now-vs-waiting hint), mirroring the MERCHANT_ONBOARDING merchant enrichment.
 - Modify `src/api/admin/approvals/service.ts` `approveApproval` (onboarding) - second `updateMany` to activate approved customs + per-voucher `now-live` notification.
 - Tests under `tests/api/merchant/voucher/`, `tests/api/merchant/redemptions/`, `tests/api/admin/approvals/`.
 
@@ -40,6 +41,7 @@
 ### PR-C admin-web (`feat/day2-vouchers-admin-web`, stacked on PR-A)
 - Create `apps/admin-web/lib/api/voucherReview.ts` + `apps/admin-web/lib/review/useVoucherReview.ts`.
 - Create `apps/admin-web/features/review/VoucherReviewPanel.tsx` (mirror `EditReviewPanel.tsx`).
+- Modify the admin queue LIST page (`apps/admin-web/app/(app)/queue/page.tsx` or the queue-row component) - render VOUCHER rows with the PR-A `listApprovals` enrichment (voucher title + business name + type/status/approvalStatus + the go-live-vs-waiting hint) so a VOUCHER row shows context before opening.
 - Modify `apps/admin-web/app/(app)/queue/[id]/page.tsx` - a `type==='VOUCHER'` branch rendering `VoucherReviewPanel` (replaces the current `NonOnboardingNotice` for VOUCHER) + the action bar wiring.
 - Tests under each `__tests__/`.
 
@@ -143,8 +145,8 @@ await tx.adminApproval.update({ where: { id: approval.id }, data: { status: 'APP
 
 **Files:** Modify `voucherApprover.ts` (fold into the A5 handlers) + add the now-live notify in A7; Test `tests/api/admin/approvals/voucher-notify.test.ts` (new).
 
-- [ ] **Step 1: failing tests** - approve fires `notify(MERCHANT_ADMIN, recipientId: merchant owner adminId, notificationType:'VOUCHER_APPROVAL_UPDATE', referenceType:'voucher', referenceId:voucherId)` with copy distinguishing approved-and-live vs approved-waiting; reject + request-changes fire the same `type` with their copy; no notification on submit. (Resolve the owner adminId via the existing `getMerchantOwner` helper used by the onboarding notify.)
-- [ ] **Step 2: run, expect fail. Step 3: implement** - add the `notify(...)` calls in the A5 handlers, mirroring the onboarding approve/reject/request-changes notify shape (`src/api/admin/approvals/service.ts:320/398/567`) but `notificationType:'VOUCHER_APPROVAL_UPDATE'`, `referenceType:'voucher'`, `referenceId:voucherId`. Email block optional (email dark) - keep `inApp` only OR include a dark email block consistent with the existing pattern.
+- [ ] **Step 1: failing tests** - approve fires the `inApp` `VOUCHER_APPROVAL_UPDATE` (`recipientType:MERCHANT_ADMIN`, `recipientId`: the owner adminId, `referenceType:'voucher'`, `referenceId:voucherId`) with copy distinguishing approved-and-live vs approved-waiting; reject + request-changes fire the same in-app `type` with their copy; the now-live activation (A7) fires the now-live in-app copy; no notification on submit. (Resolve the owner adminId + email via the existing `getMerchantOwner` helper used by the onboarding notify.)
+- [ ] **Step 2: run, expect fail. Step 3: implement** - use **`safeNotify`** (the actioner-safe wrapper used by `approveApproval`/`rejectApproval`/`requestChanges` at `src/api/admin/approvals/service.ts:316`+, which never fails the admin action if notify errors), passing the SAME shape: `{ to: owner.email, recipientType:'MERCHANT_ADMIN', recipientId: owner.adminId, type:'<voucher_*>', email: {...}, inApp: { notificationType:'VOUCHER_APPROVAL_UPDATE', title, body, referenceType:'voucher', referenceId:voucherId }, ip }`. **`notify()` requires the `email` payload, so it MUST be provided** - construct voucher email templates mirroring the existing merchant email templates (e.g. `merchantChangesRequestedEmail`); **email DELIVERY stays dark/deferred (not part of this milestone)** - the only user-visible notification requirement here is the in-app `VOUCHER_APPROVAL_UPDATE`. Tests assert the in-app row; do NOT assert email send. Copy variants: voucher_approved_live / voucher_approved_waiting / voucher_now_live / voucher_changes_requested / voucher_rejected.
 - [ ] **Step 4: run, expect pass. Step 5: commit.**
 
 ### Task A7: Model 1 activation - extend onboarding-approve to activate approved customs
@@ -165,11 +167,14 @@ if (activatedCustoms.length > 0) {
     where: { merchantId: merchant.id, isRmv: false, approvalStatus: 'APPROVED', status: 'PENDING_APPROVAL' },
     data: { status: 'ACTIVE' },
   })
-  // fire one now-live VOUCHER_APPROVAL_UPDATE per id (outside the tx or via the post-commit notify pattern this file already uses)
+  // fire one now-live VOUCHER_APPROVAL_UPDATE per activated id via safeNotify (same
+  // shape as A6: to owner.email, recipientType MERCHANT_ADMIN, type 'voucher_now_live',
+  // email payload provided but delivery dark, inApp VOUCHER_APPROVAL_UPDATE + referenceType
+  // 'voucher'), using the post-commit notify pattern this file already uses for onboarding.
 }
 ```
 
-Keep the flagship `updateMany` first; this addition must be a strict no-op when there are no approved customs (verify the onboarding-approve tests still pass).
+Keep the flagship `updateMany` first; this addition must be a strict no-op when there are no approved customs (verify the onboarding-approve tests still pass). The now-live notify uses `safeNotify` (never fails the onboarding-approve transaction).
 
 - [ ] **Step 4: run, expect pass; run `npx vitest run tests/api/admin/approvals` to confirm onboarding-approve unregressed. Step 5: commit.**
 
@@ -180,6 +185,14 @@ Keep the flagship `updateMany` first; this addition must be a strict no-op when 
 - [ ] **Step 1: failing tests** - `GET /:id/voucher-review` (gated `approval:read`), `POST /:id/approve-voucher`, `POST /:id/reject-voucher` (reason body), `POST /:id/request-voucher-changes` (`{ proposed?, note }` body), all gated `approval:action`; each dispatches to the matching `voucherApprover` fn with `req.user.sub`; a non-VOUCHER approval id returns `APPROVAL_NOT_ACTIONABLE`.
 - [ ] **Step 2: run, expect fail. Step 3: implement** - mirror the editApplier route registrations (`routes.ts:80-88`) with the 4 voucher routes calling `voucherApprover`.
 - [ ] **Step 4: run, expect pass. Step 5: commit.**
+
+### Task A8b: VOUCHER queue enrichment in `listApprovals`
+
+**Files:** Modify `src/api/admin/approvals/service.ts` (`listApprovals`); Test `tests/api/admin/approvals/voucher-queue-enrichment.test.ts` (new).
+
+- [ ] **Step 1: failing tests** - `listApprovals` enriches each VOUCHER row with enough context to show in the queue BEFORE opening: the voucher `title` + `type` + `status` + `approvalStatus`, the merchant `businessName`, and a `goLiveHint` (`'live-now' | 'waiting-for-go-live'` derived from `merchant.status==='ACTIVE' && flagship-live`). MERCHANT_ONBOARDING rows keep their existing merchant enrichment (unregressed); edit-type rows unchanged.
+- [ ] **Step 2: run, expect fail. Step 3: implement** - mirror the MERCHANT_ONBOARDING enrichment block in `listApprovals` (~line 95): collect VOUCHER `referenceId`s, batch-load the vouchers (curated select: id/title/type/status/approvalStatus/merchantId) + their merchants (businessName/status), and attach a `voucher` + `goLiveHint` summary to each VOUCHER row (mirroring how `merchant:` is attached to onboarding rows). No PII/redemptionPin.
+- [ ] **Step 4: run, expect pass; run `npx vitest run tests/api/admin/approvals` to confirm onboarding/edit queue rows unregressed. Step 5: commit.**
 
 ### Task A9: honesty-note regression guards (spec §11)
 
@@ -280,10 +293,17 @@ Keep the flagship `updateMany` first; this addition must be a strict no-op when 
 - [ ] **Step 1: failing tests** - for a VOUCHER approval, the page renders `VoucherReviewPanel` (NOT `NonOnboardingNotice`); the action bar calls the C1 client fns; the existing MERCHANT_ONBOARDING + edit-type rendering is unchanged (the current "shows the non-onboarding notice for VOUCHER" test is updated to assert the panel instead).
 - [ ] **Step 2: implement** - add a `data.approval.type === 'VOUCHER'` branch (before the `NonOnboardingNotice` fallback) rendering `VoucherReviewPanel`. **Step 3: run jest, expect pass. Step 4: commit.**
 
+### Task C4: VOUCHER queue-list row rendering
+
+**Files:** Modify `apps/admin-web/app/(app)/queue/page.tsx` (or its queue-row component); Test `app/(app)/queue/__tests__/page.test.tsx`.
+
+- [ ] **Step 1: failing tests** - a VOUCHER queue row renders the enriched context from PR-A `listApprovals` (voucher title, business name, type/status/approvalStatus, the go-live-now-vs-waiting hint) and links to `/queue/[id]`; a VOUCHER row no longer falls into the generic non-onboarding placeholder; MERCHANT_ONBOARDING + edit-type rows are unchanged. An end-to-end queue->detail pin: a VOUCHER row is clickable and routes to its review screen.
+- [ ] **Step 2: implement** - render the VOUCHER row using the enriched fields (mirror how MERCHANT_ONBOARDING rows render their merchant summary). **Step 3: run jest, expect pass. Step 4: commit.**
+
 ### PR-C gate + open
 
 - [ ] `cd apps/admin-web && npx tsc --noEmit` clean; `npx jest --forceExit` green; `npm run lint` clean; `npm run build` succeeds; dash-clean; scope = `apps/admin-web/**` only.
-- [ ] **Adversarial review checklist (PR-C):** the VOUCHER panel + actions are admin-capability-gated (the routes are `approval:action`); approve/reject/request-changes call the right endpoints; the proposed-corrections form sends only the allow-listed fields; the onboarding + edit review panels are unregressed; no PII/redemptionPin shown; the queue lists VOUCHER rows.
+- [ ] **Adversarial review checklist (PR-C):** the VOUCHER panel + actions are admin-capability-gated (the 3 action routes are `approval:action`; the GET review is `approval:read`); approve/reject/request-changes call the right endpoints; the proposed-corrections form sends only the allow-listed fields; the **queue list renders VOUCHER rows with the enriched context** (title/business/type/status/go-live-hint), VOUCHER is **usable queue -> detail** and **no longer hits the generic non-onboarding placeholder**; the onboarding + edit review panels AND queue rows are unregressed; no PII/redemptionPin shown.
 - [ ] **Rollback notes:** admin-web-only; revert = revert the PR.
 - [ ] **Stop-and-report triggers:** any backend contract mismatch (report, do not patch backend); scope creep beyond `apps/admin-web`.
 - [ ] **Open PR-C** stacked on PR-A, PAUSE at the SHA-bound merge gate.
@@ -298,7 +318,7 @@ Per slice: fresh implementer subagent (TDD, explicit COMMIT step, scope-locked) 
 
 ## Self-review (plan vs spec)
 
-- **Spec coverage:** merchant Vouchers list page (B3) · voucher detail pages (B4) · create/edit-draft/submit/delete/duplicate (B5) · admin VOUCHER approval lane (A4/A5/A8 + C1/C2/C3) · Model 1 approve-early/activate-delayed (A5 approve + A7 activation) · VOUCHER_APPROVAL_UPDATE notifications (A6 + A7 now-live) · concierge admin-proposed + merchant apply-diff (A5 requestVoucherChanges + B6) · per-voucher redemption count + View-redemptions deep-link (A1 + A2 + B4) · no-schema proof + the two §11 honesty assumptions (A9). All mapped.
+- **Spec coverage:** merchant Vouchers list page (B3) · voucher detail pages (B4) · create/edit-draft/submit/delete/duplicate (B5) · admin VOUCHER approval lane + queue enrichment (A4/A5/A8/A8b + C1/C2/C3/C4) · Model 1 approve-early/activate-delayed (A5 approve + A7 activation) · `VOUCHER_APPROVAL_UPDATE` in-app notifications via `safeNotify` with the required (dark) email payload (A6 + A7 now-live) · concierge admin-proposed + merchant apply-diff (A5 requestVoucherChanges + B6) · per-voucher redemption count + View-redemptions deep-link (A1 + A2 + B4) · no-schema proof + the two §11 honesty assumptions (A9). All mapped.
 - **No-schema:** every task is additive endpoints/fields/UI over existing schema; A9 pins the two honesty assumptions; stop-and-report on any schema need.
 - **Type consistency:** `redemptionCount` (A2 backend -> B1 client -> B3/B4 UI); `merchantFields.adminProposed`/`adminNote` (A5 write -> B6 read -> C2 write); the VOUCHER routes (A8) match the C1 client; `approvalStatus`/`status` derived display states consistent across B3/B4.
 - **Placeholder scan:** none - each step has real code/tests or a concrete test list + the exact files.
