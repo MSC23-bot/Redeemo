@@ -17,4 +17,5 @@ export {
   Grid3x3,
   ChevronDown,
   Menu,
+  CircleCheck,
 } from 'lucide-react'
