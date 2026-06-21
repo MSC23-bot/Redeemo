@@ -28,6 +28,19 @@ const TAXONOMY: OnboardingTaxonomy = {
           parentId: 'cat-food',
           tags: [{ id: 'spec-sourdough', label: 'Sourdough', type: 'SPECIALTY', isPrimaryEligible: false }],
         },
+        // Bar: CUISINE tags exist but are ALL isPrimaryEligible:false (mirrors the real
+        // seed for Cafe & Coffee / Bakery / Dessert Shop / Bar / Food Hall). Cuisine
+        // must NOT apply: a previewed cuisine could never persist as the descriptor.
+        {
+          id: 'sub-bar',
+          name: 'Bar',
+          parentId: 'cat-food',
+          tags: [
+            { id: 'cui-cocktail', label: 'Cocktail', type: 'CUISINE', isPrimaryEligible: false },
+            { id: 'cui-wine', label: 'Wine', type: 'CUISINE', isPrimaryEligible: false },
+            { id: 'spec-craft-beer', label: 'Craft Beer', type: 'SPECIALTY', isPrimaryEligible: false },
+          ],
+        },
       ],
     },
     {
@@ -98,6 +111,46 @@ describe('CategoryIdentityForm', () => {
     expect(screen.getByRole('button', { name: /save and continue/i })).toBeEnabled()
   })
 
+  it('hides the cuisine step for a food subcategory whose CUISINE tags are ALL non-eligible (Bar), allows save without a cuisine, and uses the subcategory name as the descriptor', () => {
+    const props = baseProps()
+    render(<CategoryIdentityForm {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: /food & drink/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^bar$/i }))
+    // No cuisine step, no forced pick, no un-persistable cuisine option offered.
+    expect(screen.queryByText(/choose your cuisine/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^cocktail$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^wine$/i })).not.toBeInTheDocument()
+    // Descriptor is exactly the subcategory name (preview === stored), nothing lost.
+    expect(screen.getByTestId('category-descriptor')).toHaveTextContent('Bar')
+    // Save is allowed without a cuisine.
+    const save = screen.getByRole('button', { name: /save and continue/i })
+    expect(save).toBeEnabled()
+    fireEvent.click(save)
+    expect(props.onSave).toHaveBeenCalledWith({
+      subcategoryId: 'sub-bar',
+      primaryDescriptorTagId: null,
+      specialtyTagIds: [],
+    })
+  })
+
+  it('on a food subcategory only offers the eligible cuisines and previews ONLY the primary descriptor (preview === stored)', () => {
+    const props = baseProps()
+    render(<CategoryIdentityForm {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: /food & drink/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^restaurant$/i }))
+    // both eligible cuisines are offered
+    fireEvent.click(screen.getByRole('button', { name: /modern british/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^italian$/i }))
+    // descriptor previews ONLY the primary (first) cuisine; the 2nd folds into specialties
+    expect(screen.getByTestId('category-descriptor')).toHaveTextContent('Modern British Restaurant')
+    fireEvent.click(screen.getByRole('button', { name: /save and continue/i }))
+    expect(props.onSave).toHaveBeenCalledWith({
+      subcategoryId: 'sub-restaurant',
+      primaryDescriptorTagId: 'cui-modern-british',
+      specialtyTagIds: ['cui-italian'],
+    })
+  })
+
   it('treats specialties as optional (save stays enabled with none selected)', () => {
     render(<CategoryIdentityForm {...baseProps()} />)
     fireEvent.click(screen.getByRole('button', { name: /beauty & wellness/i }))
@@ -109,7 +162,7 @@ describe('CategoryIdentityForm', () => {
     expect(screen.getByRole('button', { name: /save and continue/i })).toBeEnabled()
   })
 
-  it('composes the live descriptor as [cuisines, subcategory].join(" ")', () => {
+  it('composes the live descriptor as [primary cuisine, subcategory].join(" ") (preview === stored)', () => {
     render(<CategoryIdentityForm {...baseProps()} />)
     // empty-state copy first
     expect(screen.getByText(/pick a category to see your descriptor/i)).toBeInTheDocument()
@@ -119,8 +172,10 @@ describe('CategoryIdentityForm', () => {
     expect(screen.getByTestId('category-descriptor')).toHaveTextContent('Restaurant')
     fireEvent.click(screen.getByRole('button', { name: /modern british/i }))
     expect(screen.getByTestId('category-descriptor')).toHaveTextContent('Modern British Restaurant')
+    // a second cuisine folds into specialties; the descriptor still previews ONLY the
+    // primary descriptor cuisine, so the preview never diverges from what persists
     fireEvent.click(screen.getByRole('button', { name: /^italian$/i }))
-    expect(screen.getByTestId('category-descriptor')).toHaveTextContent('Modern British Italian Restaurant')
+    expect(screen.getByTestId('category-descriptor')).toHaveTextContent('Modern British Restaurant')
   })
 
   it('saves the exact identity body (subcategoryId + primaryDescriptorTagId + specialtyTagIds)', () => {

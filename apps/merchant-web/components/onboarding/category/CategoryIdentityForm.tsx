@@ -7,6 +7,7 @@ import {
   canSave,
   composeDescriptor,
   cuisineApplies,
+  cuisineOptions,
   cuisineTags,
   specialtyTags,
 } from '@/components/onboarding/category/lib/identitySelection'
@@ -78,7 +79,9 @@ export function CategoryIdentityForm({
     [category, subcategoryId],
   )
 
-  const cuisines = subcategory ? cuisineTags(subcategory) : []
+  // Only the eligible cuisines are offered: a user can never pick a cuisine that would
+  // not persist as the descriptor (so the previewed identity is never silently lost).
+  const cuisines = subcategory ? cuisineOptions(subcategory) : []
   const specialties = subcategory ? specialtyTags(subcategory) : []
   const showCuisine = cuisineApplies(subcategory)
   const showSpecialties = !!subcategory && specialties.length > 0

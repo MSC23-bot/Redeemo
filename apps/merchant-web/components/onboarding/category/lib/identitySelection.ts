@@ -5,17 +5,35 @@
 //
 // Key backend-derived rules (see src/api/merchant/onboarding/service.ts
 // getOnboardingTaxonomy + src/api/merchant/profile/service.ts setMerchantIdentityCore):
-//   - cuisine applies to a subcategory iff it has at least one CUISINE-type tag link.
 //   - the identity POST body is { subcategoryId, primaryDescriptorTagId?, specialtyTagIds? }.
 //   - the descriptor tag (primaryDescriptorTagId) must be a CUISINE tag that is
-//     isPrimaryEligible; the rest of the selected cuisines + every selected specialty
-//     ride in the MerchantTag set (specialtyTagIds).
+//     isPrimaryEligible; the backend rejects a non-eligible descriptor (TAG_NOT_ELIGIBLE).
+//   - cuisine therefore APPLIES to a subcategory iff it has at least one CUISINE tag
+//     that is isPrimaryEligible. A food subcategory whose CUISINE tags are ALL
+//     isPrimaryEligible:false (per the real seed: Cafe & Coffee, Bakery, Dessert Shop,
+//     Bar, Food Hall) does NOT get a cuisine step and is NOT forced to pick one, because
+//     any picked cuisine could never persist as the descriptor (it would silently fold
+//     into the MerchantTag set with a NULL descriptor, losing the previewed identity).
+//   - the SELECTABLE cuisines are the eligible ones only, so the user can never select a
+//     cuisine that would not persist as the descriptor.
+//   - the rest of the selected cuisines + every selected specialty ride in the MerchantTag
+//     set (specialtyTagIds).
 
 import type { TaxonomySubcategory, TaxonomyTag } from '@/lib/api/taxonomy'
 
-/** The CUISINE-type tags linked to a subcategory (the "Choose your cuisine" options). */
+/** The CUISINE-type tags linked to a subcategory (eligible AND non-eligible). */
 export function cuisineTags(subcategory: TaxonomySubcategory): TaxonomyTag[] {
   return subcategory.tags.filter((t) => t.type === 'CUISINE')
+}
+
+/**
+ * The SELECTABLE cuisines (the "Choose your cuisine" options) = the isPrimaryEligible
+ * CUISINE-type tags only. A non-eligible cuisine is never offered, so the user can never
+ * pick a cuisine that the backend would refuse as the descriptor (TAG_NOT_ELIGIBLE) and
+ * that would therefore be silently dropped from the stored identity.
+ */
+export function cuisineOptions(subcategory: TaxonomySubcategory): TaxonomyTag[] {
+  return cuisineTags(subcategory).filter((t) => t.isPrimaryEligible)
 }
 
 /** The SPECIALTY-type tags linked to a subcategory (the "What you are known for" options). */
@@ -25,12 +43,26 @@ export function specialtyTags(subcategory: TaxonomySubcategory): TaxonomyTag[] {
 
 /**
  * Cuisine applies (the "Choose your cuisine" step shows + min-1 is required) iff the
- * chosen subcategory carries at least one CUISINE-type tag. Derived from the backend
- * taxonomy, NOT the prototype's hardcoded CUISINE_SUBS list.
+ * chosen subcategory carries at least one isPrimaryEligible CUISINE tag, i.e. there is at
+ * least one cuisine that could actually persist as the descriptor. A subcategory whose
+ * CUISINE tags are ALL non-eligible is treated as cuisine-NOT-applicable (no cuisine step,
+ * no forced pick, descriptor = subcategory name). Derived from the backend taxonomy, NOT
+ * the prototype's hardcoded CUISINE_SUBS list.
  */
 export function cuisineApplies(subcategory: TaxonomySubcategory | null): boolean {
   if (!subcategory) return false
-  return subcategory.tags.some((t) => t.type === 'CUISINE')
+  return cuisineOptions(subcategory).length > 0
+}
+
+/**
+ * The primary descriptor cuisine id = the FIRST selected cuisine that is isPrimaryEligible.
+ * This is the single source of truth shared by composeDescriptor (preview) and
+ * buildIdentityBody (persist) so the previewed descriptor ALWAYS equals the stored one.
+ * null when cuisine does not apply or no eligible cuisine is selected.
+ */
+function primaryDescriptorIdOf(subcategory: TaxonomySubcategory, selectedCuisineIds: string[]): string | null {
+  const eligible = new Set(cuisineOptions(subcategory).map((t) => t.id))
+  return selectedCuisineIds.find((id) => eligible.has(id)) ?? null
 }
 
 /**
@@ -49,10 +81,13 @@ export function canSave(args: {
 }
 
 /**
- * The live descriptor: "[cuisineLabels.join(' '), subcategoryLabel].filter(Boolean).join(' ')".
- * When cuisine applies and at least one is picked, the cuisine labels precede the
- * subcategory label (e.g. "Modern British Restaurant"); otherwise just the subcategory
- * label (e.g. "Barber"). Returns '' when nothing is chosen yet.
+ * The live descriptor: "[primaryCuisineLabel, subcategoryLabel].filter(Boolean).join(' ')".
+ * Previews ONLY the primary descriptor cuisine (the first selected isPrimaryEligible
+ * cuisine, the one that becomes primaryDescriptorTagId), so the previewed descriptor
+ * ALWAYS equals the stored descriptor. Any extra selected cuisines fold into
+ * specialtyTagIds and are NOT shown in the descriptor. When cuisine does not apply (or no
+ * eligible cuisine is selected yet) the descriptor is just the subcategory label (e.g.
+ * "Barber", "Bar"). Returns '' when nothing is chosen yet.
  */
 export function composeDescriptor(args: {
   subcategory: TaxonomySubcategory | null
@@ -61,10 +96,10 @@ export function composeDescriptor(args: {
   const { subcategory, selectedCuisineIds } = args
   if (!subcategory) return ''
   const parts: string[] = []
-  if (cuisineApplies(subcategory) && selectedCuisineIds.length > 0) {
-    const byId = new Map(cuisineTags(subcategory).map((t) => [t.id, t.label]))
-    const labels = selectedCuisineIds.map((id) => byId.get(id)).filter((l): l is string => !!l)
-    if (labels.length > 0) parts.push(labels.join(' '))
+  const primaryId = primaryDescriptorIdOf(subcategory, selectedCuisineIds)
+  if (primaryId) {
+    const label = cuisineTags(subcategory).find((t) => t.id === primaryId)?.label
+    if (label) parts.push(label)
   }
   parts.push(subcategory.name)
   return parts.filter(Boolean).join(' ')
@@ -89,15 +124,8 @@ export function buildIdentityBody(args: {
 }): { subcategoryId: string; primaryDescriptorTagId: string | null; specialtyTagIds: string[] } {
   const { subcategory, selectedCuisineIds, selectedSpecialtyIds } = args
 
-  let primaryDescriptorTagId: string | null = null
-  if (cuisineApplies(subcategory)) {
-    const eligible = new Set(
-      cuisineTags(subcategory)
-        .filter((t) => t.isPrimaryEligible)
-        .map((t) => t.id),
-    )
-    primaryDescriptorTagId = selectedCuisineIds.find((id) => eligible.has(id)) ?? null
-  }
+  // Lockstep with composeDescriptor: the previewed cuisine IS the stored descriptor.
+  const primaryDescriptorTagId = primaryDescriptorIdOf(subcategory, selectedCuisineIds)
 
   const extraCuisineIds = selectedCuisineIds.filter((id) => id !== primaryDescriptorTagId)
   const specialtyTagIds = Array.from(new Set([...selectedSpecialtyIds, ...extraCuisineIds]))
