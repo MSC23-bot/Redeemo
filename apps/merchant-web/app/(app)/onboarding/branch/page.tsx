@@ -16,6 +16,7 @@ import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
 import {
   listBranches,
   createBranch,
+  updateBranch,
   setBranchHours,
   getBranchAmenities,
   setBranchAmenities,
@@ -25,6 +26,7 @@ import {
   type Amenity,
   type Branch,
   type BranchCreateBody,
+  type BranchUpdateBody,
 } from '@/lib/api/branch'
 import {
   defaultHoursState,
@@ -71,6 +73,25 @@ function buildCreateBody(v: BranchFormValues): BranchCreateBody {
     postcode: v.postcode.trim(),
   }
   if (v.addressLine2.trim()) body.addressLine2 = v.addressLine2.trim()
+  if (v.phone.trim()) body.phone = v.phone.trim()
+  if (v.email.trim()) body.email = v.email.trim()
+  if (v.websiteUrl.trim()) body.websiteUrl = v.websiteUrl.trim()
+  if (v.bannerUrl) body.bannerUrl = v.bannerUrl
+  if (v.about.trim()) body.about = v.about.trim()
+  return body
+}
+
+// Build the PATCH body for an EXISTING (reused) branch, so the merchant's edited
+// detail fields are persisted instead of silently dropped. Mirrors buildCreateBody's
+// filtering: only provided values are sent. The backend persists these directly
+// during the draft window (a postcode change re-resolves location server-side).
+function buildUpdateBody(v: BranchFormValues): BranchUpdateBody {
+  const body: BranchUpdateBody = {}
+  if (v.name.trim()) body.name = v.name.trim()
+  if (v.addressLine1.trim()) body.addressLine1 = v.addressLine1.trim()
+  if (v.addressLine2.trim()) body.addressLine2 = v.addressLine2.trim()
+  if (v.city.trim()) body.city = v.city.trim()
+  if (v.postcode.trim()) body.postcode = v.postcode.trim()
   if (v.phone.trim()) body.phone = v.phone.trim()
   if (v.email.trim()) body.email = v.email.trim()
   if (v.websiteUrl.trim()) body.websiteUrl = v.websiteUrl.trim()
@@ -229,10 +250,17 @@ export default function BranchPage() {
       //    backend requires name + address; the create-minimum was validated for the
       //    continue path, and the finish-later path is gated above. After a successful
       //    create we PIN the branch (ref + state) immediately, so a retry triggered by
-      //    a later sub-step failure REUSES it and never creates a duplicate.
+      //    a later sub-step failure REUSES it and never creates a duplicate. When the
+      //    branch already exists (loaded main branch OR a prior-attempt create), we
+      //    PATCH the edited detail fields first so those edits are not silently dropped
+      //    by going straight to the hours/amenities/pin/photos sub-steps.
       let branch = alreadyPersisted
       if (!branch) {
         branch = await createBranch(buildCreateBody(values))
+        persistedBranchRef.current = branch
+        setExistingBranch(branch)
+      } else {
+        branch = await updateBranch(branch.id, buildUpdateBody(values))
         persistedBranchRef.current = branch
         setExistingBranch(branch)
       }

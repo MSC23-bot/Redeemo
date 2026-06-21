@@ -38,6 +38,7 @@ jest.mock('@/components/ui/file-upload', () => ({
 
 const listBranches = jest.fn()
 const createBranch = jest.fn()
+const updateBranch = jest.fn()
 const setBranchHours = jest.fn()
 const getBranchAmenities = jest.fn()
 const setBranchAmenities = jest.fn()
@@ -47,6 +48,7 @@ const requestBranchPhotoEdit = jest.fn()
 jest.mock('@/lib/api/branch', () => ({
   listBranches: () => listBranches(),
   createBranch: (body: unknown) => createBranch(body),
+  updateBranch: (id: string, body: unknown) => updateBranch(id, body),
   setBranchHours: (id: string, hours: unknown) => setBranchHours(id, hours),
   getBranchAmenities: (catId: string) => getBranchAmenities(catId),
   setBranchAmenities: (id: string, ids: unknown) => setBranchAmenities(id, ids),
@@ -91,6 +93,7 @@ beforeEach(() => {
   refetch.mockClear()
   listBranches.mockReset().mockResolvedValue([])
   createBranch.mockReset().mockResolvedValue({ id: 'b1', name: 'Old Foundry' })
+  updateBranch.mockReset().mockImplementation((id: string) => Promise.resolve({ id, name: 'Old Foundry' }))
   setBranchHours.mockReset().mockResolvedValue({ ok: true })
   getBranchAmenities.mockReset().mockResolvedValue([
     { id: 'a1', name: 'Free wifi', iconUrl: null, isActive: true },
@@ -149,6 +152,8 @@ describe('BranchPage (M2 F4 route)', () => {
     await waitFor(() => expect(setBranchPin).toHaveBeenCalledWith('b1', '4821'))
     await waitFor(() => expect(push).toHaveBeenCalledWith('/'))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['onboardingChecklist'] })
+    // A fresh branch sets its details via the create body -> no redundant PATCH.
+    expect(updateBranch).not.toHaveBeenCalled()
   })
 
   it('routes the branch photos through the governed photo edit-request lane', async () => {
@@ -223,6 +228,57 @@ describe('BranchPage (M2 F4 route)', () => {
     expect(createBranch).not.toHaveBeenCalled()
   })
 
+  it('PATCHes edited detail fields on the EXISTING branch (not silently dropped) BEFORE setting hours', async () => {
+    listBranches.mockResolvedValueOnce([
+      {
+        id: 'b1',
+        name: 'Old Foundry',
+        isMainBranch: true,
+        addressLine1: '12 Mill Lane',
+        addressLine2: null,
+        city: 'Huddersfield',
+        postcode: 'HD1 1AA',
+        phone: '+441484000000',
+        email: null,
+        websiteUrl: null,
+        about: null,
+        bannerUrl: null,
+        openingHours: [],
+        amenities: [],
+        photos: [],
+      },
+    ])
+    const calls: string[] = []
+    updateBranch.mockImplementation((id: string) => {
+      calls.push('update')
+      return Promise.resolve({ id, name: 'New Foundry' })
+    })
+    setBranchHours.mockImplementation(() => {
+      calls.push('hours')
+      return Promise.resolve({ ok: true })
+    })
+
+    renderPage()
+    await waitFor(() => expect(screen.getByLabelText(/branch name/i)).toHaveValue('Old Foundry'))
+    // The merchant edits detail fields on the reused branch.
+    fireEvent.change(screen.getByLabelText(/branch name/i), { target: { value: 'New Foundry' } })
+    fireEvent.change(screen.getByLabelText(/branch phone/i), { target: { value: '+441484999999' } })
+    fireEvent.click(screen.getByRole('button', { name: /save and continue/i }))
+
+    // Edited details are persisted via PATCH on the reused branch id.
+    await waitFor(() => expect(updateBranch).toHaveBeenCalledTimes(1))
+    expect(updateBranch).toHaveBeenCalledWith(
+      'b1',
+      expect.objectContaining({ name: 'New Foundry', phone: '+441484999999' }),
+    )
+    // No second branch is created.
+    expect(createBranch).not.toHaveBeenCalled()
+    // The PATCH happens BEFORE the hours sub-step.
+    await waitFor(() => expect(setBranchHours).toHaveBeenCalledWith('b1', expect.any(Array)))
+    expect(calls.indexOf('update')).toBeLessThan(calls.indexOf('hours'))
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/'))
+  })
+
   it('reuses the same branch on an in-session retry after a sub-step failure (no duplicate create)', async () => {
     // createBranch SUCCEEDS, but the very next sub-step (setBranchHours) throws ONCE.
     // The user fixes nothing, clicks Save again. The component must reuse the branch
@@ -242,11 +298,14 @@ describe('BranchPage (M2 F4 route)', () => {
     await waitFor(() => expect(createBranch).toHaveBeenCalledTimes(1))
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not save your branch/i)
 
-    // Second attempt (natural recovery): same branch reused, NO second create.
+    // Second attempt (natural recovery): same branch reused, NO second create. The
+    // retry now takes the reuse/PATCH path (the branch was persisted on attempt one).
     fireEvent.click(screen.getByRole('button', { name: /save and continue/i }))
     await waitFor(() => expect(setBranchHours).toHaveBeenCalledTimes(2))
 
     expect(createBranch).toHaveBeenCalledTimes(1)
+    // The retry reuses the persisted branch via PATCH (no duplicate create).
+    expect(updateBranch).toHaveBeenCalledWith('b1', expect.any(Object))
     // Both hours calls target the SAME branch id from the single create.
     expect(setBranchHours.mock.calls[0][0]).toBe('b1')
     expect(setBranchHours.mock.calls[1][0]).toBe('b1')
