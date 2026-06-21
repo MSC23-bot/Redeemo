@@ -81,6 +81,35 @@ export async function createBranch(body: BranchCreateBody): Promise<Branch> {
   return branchSchema.parse(branch)
 }
 
+// --- Update -----------------------------------------------------------------
+// PATCH /api/v1/merchant/branches/:id. Persists the editable branch DETAIL fields
+// on an EXISTING (reused) branch so onboarding edits are not silently dropped. The
+// backend writes phone/email/websiteUrl directly, and the sensitive identity fields
+// (name/about/address/banner) directly too while the application is in the draft
+// window (a postcode change re-resolves lat/lng server-side). Only the provided keys
+// are sent. Returns the updated branch.
+export interface BranchUpdateBody {
+  name?: string
+  addressLine1?: string
+  addressLine2?: string
+  city?: string
+  postcode?: string
+  phone?: string
+  email?: string
+  websiteUrl?: string
+  bannerUrl?: string
+  about?: string
+}
+
+export async function updateBranch(branchId: string, body: BranchUpdateBody): Promise<Branch> {
+  const branch = await apiFetch(`/api/v1/merchant/branches/${branchId}`, {
+    method: 'PATCH',
+    auth: true,
+    body: JSON.stringify(body),
+  })
+  return branchSchema.parse(branch)
+}
+
 // --- Opening hours ----------------------------------------------------------
 // POST /api/v1/merchant/branches/:id/hours, body { hours }. Single-period-per-day;
 // closed rows OMIT openTime/closeTime. Server-validated by B4.

@@ -1,6 +1,7 @@
 import {
   listBranches,
   createBranch,
+  updateBranch,
   setBranchHours,
   getBranchAmenities,
   setBranchAmenities,
@@ -59,6 +60,39 @@ describe('lib/api/branch', () => {
         websiteUrl: 'oldfoundry.co.uk',
         bannerUrl: 'https://cdn.test/banner.png',
         about: 'A lovely place.',
+      }),
+    })
+    expect(branch.id).toBe('b1')
+  })
+
+  it('updateBranch PATCHes only the provided editable detail fields and returns the parsed branch', async () => {
+    apiFetch.mockResolvedValueOnce({ id: 'b1', name: 'New Foundry' })
+    const branch = await updateBranch('b1', {
+      name: 'New Foundry',
+      addressLine1: '13 Mill Lane',
+      addressLine2: 'Unit 3',
+      city: 'Huddersfield',
+      postcode: 'HD1 2BB',
+      phone: '+441484111111',
+      email: 'hi@newfoundry.co.uk',
+      websiteUrl: 'newfoundry.co.uk',
+      bannerUrl: 'https://cdn.test/banner2.png',
+      about: 'An even lovelier place.',
+    })
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify({
+        name: 'New Foundry',
+        addressLine1: '13 Mill Lane',
+        addressLine2: 'Unit 3',
+        city: 'Huddersfield',
+        postcode: 'HD1 2BB',
+        phone: '+441484111111',
+        email: 'hi@newfoundry.co.uk',
+        websiteUrl: 'newfoundry.co.uk',
+        bannerUrl: 'https://cdn.test/banner2.png',
+        about: 'An even lovelier place.',
       }),
     })
     expect(branch.id).toBe('b1')
