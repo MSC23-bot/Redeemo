@@ -77,11 +77,19 @@ Source-extracted from the prototype handoff (`/tmp/mp-handoff/.../Redeemo for Bu
 
 ### 3.1 In scope
 - **PR-A backend enabler:** the VOUCHER approval lane (submit creates/reopens `AdminApproval{VOUCHER}`; `voucherApprover` approve/reject/request-changes; review context; actioner type-dispatch); Model 1 activation (onboarding-approve extension + immediate-for-live-merchant); the `VOUCHER_APPROVAL_UPDATE` producer; the concierge `merchantFields.adminProposed` write + the `askHelp`/`merchantFields` custom-create support; the two thin additives (`voucherId` redemptions filter, `_count` on the voucher lists).
-- **PR-B merchant-web:** the `/vouchers` module (list + detail + the decoupled day-2 builder + create/edit-draft/submit/delete + duplicate + view-redemptions + the approved-waiting display + the concierge proposed-vs-current diff/apply). Owner-only management.
+- **PR-B merchant-web:** the merchant-facing **Vouchers module page + voucher detail pages** (see §3.3) + the decoupled day-2 builder + create/edit-draft/submit/delete + duplicate + the approved-waiting display + the concierge proposed-vs-current diff/apply. Owner-only management.
 - **PR-C admin-web:** the VOUCHER review panel + queue enrichment + the action bar (claim/approve/reject/request-changes-with-proposed-corrections).
 
 ### 3.2 Out of scope (deferred - see section 10)
 Live-voucher change-request lane (`VoucherPendingEdit` schema) · flagship live "request a change" · request-to-end · run-again + lineage · rich per-voucher analytics/charts/per-row totals · merchant email producer · branch-manager/staff role-gated management.
+
+### 3.3 Merchant-facing Vouchers module + detail (explicit, PR-B)
+This milestone explicitly includes the merchant-facing Vouchers UI:
+- **Vouchers list page** (`app/(app)/vouchers/page.tsx`): **flagship vouchers pinned/locked at the top** (read-only), then **custom vouchers grouped + filterable by status** - Live (`ACTIVE`), In review (`PENDING_APPROVAL`), Draft (`DRAFT`), Finished (`INACTIVE`/`EXPIRED`), and a "Rejected" grouping (`INACTIVE` + `approvalStatus:REJECTED`). Filters: All / Live / In review / Draft / Finished. A header stat strip (totals) + the "Create a voucher" action.
+- **Clickable rows/cards -> a voucher detail page** (`app/(app)/vouchers/[id]/page.tsx`), available for **every safe state** the backend can represent (live, approved-waiting, in review, draft, changes-requested, rejected, inactive/expired). Suspended/in-review lifecycles render read-only.
+- **Detail page shows safe core voucher information only:** title, type, status (incl. the approved-waiting and changes-requested derived states), description, saving/amount, terms, the customer-preview card, "where it applies" (merchant-wide), submission/review state (incl. the concierge proposed-vs-current diff when `CHANGES_REQUESTED`), and a **per-voucher redemption count + "view redemptions" deep-link** (the no-schema `_count` + `voucherId`-filter additives). No customer PII, no `redemptionPin`.
+- **Custom voucher actions:** create / edit-draft / submit-for-review / delete-draft / duplicate (client-orchestrated) + apply-Redeemo-suggestions (concierge).
+- **Explicitly DEFERRED on the detail/list (recorded in §10):** per-row redemption totals on the list; per-voucher analytics/charts/trends/branch-breakdown/validated-rate; the live-voucher "request a change" / "request to end" / "run again" row actions; the prototype `ended`-vs-`expired` and `end_review`/`changes_review` sub-states beyond what (status, approvalStatus) can represent.
 
 ---
 
@@ -191,6 +199,7 @@ Halt and report (with exact SQL + rollback + rationale) if any of these is hit:
 - **Prototype `changes_review`/`end_review`/`ended`-vs-`expired` sub-states** are richer than the backend enum; M5 maps what it can to (status, approvalStatus) and DEFERS the rest (end/run-again). The plan should pin the exact status-to-display mapping.
 - **`adminProposed` structured fields** beyond title/description/terms/estimatedSaving/windows/cooldown: the plan confirms the exact composable field set per voucher type from `lib/voucher/*`.
 - **Duplicate** is client-orchestrated (no route) - confirmed; the plan pins the prefill mapping.
+- **Assumptions to verify in the plan (honesty notes on the no-schema model):** (1) the "approved-waiting" state is the NEW combination `status:PENDING_APPROVAL + approvalStatus:APPROVED`; the plan must add a regression check that **no existing query assumes `PENDING_APPROVAL` implies `approvalStatus:PENDING`** (customer queries gate on `status:ACTIVE` so they are safe; merchant edit/submit/delete gate on `status:DRAFT` so an approved-waiting voucher is correctly immutable to the merchant; verified, but pin it). (2) the **admin actionable queue must key "needs review" off the `AdminApproval.status` (PENDING/CLAIMED), NOT the voucher status**, so an approved-waiting voucher (its `AdminApproval` is `APPROVED`) never re-surfaces as actionable. Both are plan-verification items; if either turns out to need a new status value or column, that is a **stop-and-report** (section 8).
 - **Self-review:** every section maps to an owner-approved decision; the no-schema proof covers each backend touch-point; the security invariants are server-side + test-pinned; the deferred set is explicit; no placeholders; the only schema-bearing ideas (live change-request, request-to-end, run-again, analytics) are deferred with their re-entry path; the cross-surface scope is decomposed into PR-A/B/C, each independently reviewable.
 
 ---
