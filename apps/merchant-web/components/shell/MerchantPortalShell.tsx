@@ -3,6 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
+import { ValidateDialogProvider } from '@/components/redemptions/ValidateDialogProvider'
 import { useSession } from '@/lib/auth/session'
 import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
 import { deriveStatusPill } from '@/lib/auth/lifecycle'
@@ -61,17 +62,19 @@ export function MerchantPortalShell({ children }: { children: React.ReactNode })
         <div onClick={() => setDrawerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(1,12,53,0.38)' }} />
       )}
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <Topbar
-          onMenu={() => setDrawerOpen((v) => !v)}
-          isNarrow={isNarrow}
-          businessName={session.businessName ?? profile.data?.businessName ?? null}
-          onSignOut={session.signOut}
-        />
-        <main style={{ flex: 1, padding: isNarrow ? '20px 16px 88px' : '30px 40px 64px' }}>
-          <div style={{ maxWidth: 1180, margin: '0 auto' }}>{children}</div>
-        </main>
-      </div>
+      <ValidateDialogProvider>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <Topbar
+            onMenu={() => setDrawerOpen((v) => !v)}
+            isNarrow={isNarrow}
+            businessName={session.businessName ?? profile.data?.businessName ?? null}
+            onSignOut={session.signOut}
+          />
+          <main style={{ flex: 1, padding: isNarrow ? '20px 16px 88px' : '30px 40px 64px' }}>
+            <div style={{ maxWidth: 1180, margin: '0 auto' }}>{children}</div>
+          </main>
+        </div>
+      </ValidateDialogProvider>
     </div>
   )
 }

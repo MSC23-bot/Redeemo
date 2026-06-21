@@ -12,7 +12,7 @@ export const NAV_GROUPS: NavGroup[] = [
     title: 'Vouchers & customers',
     items: [
       { label: 'Vouchers', href: '#', icon: Ticket },
-      { label: 'Redemptions', href: '#', icon: ScanLine },
+      { label: 'Redemptions', href: '/redemptions', icon: ScanLine },
       { label: 'Insights & reports', href: '#', icon: BarChart3 },
     ],
   },

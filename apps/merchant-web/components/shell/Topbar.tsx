@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { Menu, ScanLine, Grid3x3, Bell } from '@/lib/icons'
 import { Button } from '@/components/ui/button'
+import { useValidateDialog } from '@/components/redemptions/validateDialogContext'
 
 function IconButton({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -38,6 +39,7 @@ export function Topbar({
   const [menuOpen, setMenuOpen] = React.useState(false)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
   const firstItemRef = React.useRef<HTMLButtonElement>(null)
+  const { openValidate } = useValidateDialog()
 
   // Move focus into the menu when it opens (keyboard users land on the first item).
   React.useEffect(() => {
@@ -71,7 +73,7 @@ export function Topbar({
       ) : (
         <div style={{ flex: 1 }} />
       )}
-      <Button variant="navy" size="default"><ScanLine size={16} /> Validate a code</Button>
+      <Button variant="navy" size="default" onClick={openValidate}><ScanLine size={16} /> Validate a code</Button>
       <IconButton label="Quick actions"><Grid3x3 size={18} /></IconButton>
       <IconButton label="Notifications"><Bell size={18} /></IconButton>
       <div style={{ position: 'relative' }}>
