@@ -8,7 +8,7 @@
  * Escape closes + returns focus to the trigger (mirrors the account-menu pattern);
  * empty/loading/error states; no PII in the rendered rows.
  */
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { NotificationBell } from '../NotificationBell'
 
