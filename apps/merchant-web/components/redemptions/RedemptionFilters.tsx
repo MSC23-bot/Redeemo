@@ -96,7 +96,7 @@ export function RedemptionFilters({
           className="w-[160px]"
           value={filters.from ? filters.from.slice(0, 10) : ''}
           onChange={(e) =>
-            onChange({ from: e.target.value ? new Date(e.target.value).toISOString() : undefined })
+            onChange({ from: e.target.value ? new Date(e.target.value + 'T00:00:00.000Z').toISOString() : undefined })
           }
         />
       </label>
@@ -108,7 +108,7 @@ export function RedemptionFilters({
           className="w-[160px]"
           value={filters.to ? filters.to.slice(0, 10) : ''}
           onChange={(e) =>
-            onChange({ to: e.target.value ? new Date(e.target.value).toISOString() : undefined })
+            onChange({ to: e.target.value ? new Date(e.target.value + 'T23:59:59.999Z').toISOString() : undefined })
           }
         />
       </label>
