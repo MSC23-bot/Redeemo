@@ -223,6 +223,52 @@ describe('BranchPage (M2 F4 route)', () => {
     expect(createBranch).not.toHaveBeenCalled()
   })
 
+  it('reuses the same branch on an in-session retry after a sub-step failure (no duplicate create)', async () => {
+    // createBranch SUCCEEDS, but the very next sub-step (setBranchHours) throws ONCE.
+    // The user fixes nothing, clicks Save again. The component must reuse the branch
+    // created on the first attempt and never call createBranch a second time, or the
+    // backend (no duplicate guard) would persist a second non-main branch.
+    setBranchHours
+      .mockReset()
+      .mockRejectedValueOnce(new ApiError(500, { error: { code: 'INTERNAL' } }))
+      .mockResolvedValue({ ok: true })
+
+    renderPage()
+    await screen.findByLabelText(/branch name/i)
+    fillCreateMinimum()
+
+    // First attempt: create succeeds, hours fails -> generic save error surfaces.
+    fireEvent.click(screen.getByRole('button', { name: /save and continue/i }))
+    await waitFor(() => expect(createBranch).toHaveBeenCalledTimes(1))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not save your branch/i)
+
+    // Second attempt (natural recovery): same branch reused, NO second create.
+    fireEvent.click(screen.getByRole('button', { name: /save and continue/i }))
+    await waitFor(() => expect(setBranchHours).toHaveBeenCalledTimes(2))
+
+    expect(createBranch).toHaveBeenCalledTimes(1)
+    // Both hours calls target the SAME branch id from the single create.
+    expect(setBranchHours.mock.calls[0][0]).toBe('b1')
+    expect(setBranchHours.mock.calls[1][0]).toBe('b1')
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/'))
+  })
+
+  it('Save and finish later surfaces invalid hours inline instead of relying on a backend 400', async () => {
+    renderPage()
+    await screen.findByLabelText(/branch name/i)
+    fillCreateMinimum()
+    // Make Monday invalid (open === close) so the client hours mirror should catch it.
+    fireEvent.change(screen.getByLabelText(/monday closing time/i), { target: { value: '09:00' } })
+    fireEvent.click(screen.getByRole('button', { name: /save and finish later/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/cannot be the same/i)).toBeInTheDocument()
+    })
+    // Finish-later must NOT have persisted anything when the client hours mirror fails.
+    expect(createBranch).not.toHaveBeenCalled()
+    expect(setBranchHours).not.toHaveBeenCalled()
+  })
+
   it('surfaces a backend opening-hours error from the hours POST', async () => {
     setBranchHours.mockRejectedValueOnce(new ApiError(400, { error: { code: 'OPENING_HOURS_INVALID' } }))
     renderPage()

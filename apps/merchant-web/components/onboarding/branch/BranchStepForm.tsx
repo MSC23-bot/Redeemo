@@ -128,6 +128,17 @@ export function BranchStepForm({
     onSaveContinue(values)
   }
 
+  function handleSaveLater() {
+    // Finish-later does NOT require the create-minimum (the page gates that), but it
+    // runs the SAME client hours mirror as continue, so invalid hours surface inline
+    // here rather than as a backend OPENING_HOURS_INVALID 400. Days left closed carry
+    // no times and pass cleanly, so finish-later still works without setting hours.
+    const hours = validateHoursState(values.hours)
+    setHoursErrors(hours)
+    if (Object.keys(hours).length > 0) return
+    onSaveLater(values)
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-[linear-gradient(180deg,#FFFFFF_0%,#FFF6F1_100%)] text-[#010C35]">
       {/* Header */}
@@ -512,7 +523,7 @@ export function BranchStepForm({
           </p>
           <button
             type="button"
-            onClick={() => onSaveLater(values)}
+            onClick={handleSaveLater}
             disabled={saving}
             className="h-[52px] rounded-[13px] border-[1.5px] border-[#D7DBE2] bg-white px-[22px] text-[15px] font-bold text-[#010C35] transition-colors hover:bg-[#F8F9FB] disabled:cursor-not-allowed disabled:opacity-60"
           >
