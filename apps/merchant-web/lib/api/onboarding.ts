@@ -65,3 +65,38 @@ export async function countActiveRmvVouchers(): Promise<number> {
 export async function submitOnboarding(): Promise<unknown> {
   return apiFetch('/api/v1/merchant/onboarding/submit', { method: 'POST', auth: true })
 }
+
+// M2 F6: the merchant-agreement contract step.
+//
+// GET /api/v1/merchant/onboarding/contract -> { version, text }. The backend owns
+// the canonical version (CONTRACT_VERSION) + the draft agreement text. The signer
+// reads `text` in the full-agreement modal and signs against `version`.
+// .passthrough() so a future backend field cannot break this client.
+export const onboardingContractSchema = z
+  .object({
+    version: z.string(),
+    text: z.string(),
+  })
+  .passthrough()
+
+export type OnboardingContract = z.infer<typeof onboardingContractSchema>
+
+export async function getContract(): Promise<OnboardingContract> {
+  return onboardingContractSchema.parse(
+    await apiFetch('/api/v1/merchant/onboarding/contract', { method: 'GET', auth: true }),
+  )
+}
+
+// POST /api/v1/merchant/onboarding/contract/accept body { version } -> marks the
+// merchant's contractStatus SIGNED (which flips the checklist contract_signed gate).
+// This is the agreement STEP completion; it does NOT submit the business for review
+// (the final submit is the F1 hub Submit). The typed signer name + date are UI/legal
+// affordances captured on-screen; the backend only needs the accepted `version`.
+// Defensively the backend may throw CONTRACT_ALREADY_SIGNED if it is re-accepted.
+export async function acceptContract(version: string): Promise<unknown> {
+  return apiFetch('/api/v1/merchant/onboarding/contract/accept', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ version }),
+  })
+}
