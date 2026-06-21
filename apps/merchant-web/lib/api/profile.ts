@@ -16,6 +16,10 @@ export const merchantProfileSchema = z
     // .nullish() tolerates absent/null. The rest stays .passthrough()-ed.
     primaryCategoryId: z.string().nullish(),
     description: z.string().nullish(),
+    // M2 F2: the category/identity step preselects the current descriptor cuisine on
+    // an edit and uses primaryCategoryId (the SUBCATEGORY id) to gate the
+    // change-category confirm. Both nullable on a fresh row.
+    primaryDescriptorTagId: z.string().nullish(),
   })
   .passthrough()
 
