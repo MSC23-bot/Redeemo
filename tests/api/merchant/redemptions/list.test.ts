@@ -136,6 +136,13 @@ describe('GET /api/v1/merchant/redemptions (B1 list)', () => {
     expect(findManyArg().where.voucher).toEqual({ is: { type: 'BOGO' } })
   })
 
+  it('an invalid voucherType is rejected with a clean 400 (never reaches Prisma as a 500)', async () => {
+    const res = await get('/api/v1/merchant/redemptions?voucherType=NONSENSE')
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    expect(app.prisma.voucherRedemption.findMany).not.toHaveBeenCalled()
+  })
+
   it('code filter prefixes the normalised redemptionCode', async () => {
     await get('/api/v1/merchant/redemptions?code=a7k2')
     expect(findManyArg().where.redemptionCode).toEqual({ startsWith: 'A7K2' })

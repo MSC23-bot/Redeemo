@@ -9,7 +9,7 @@ const filterSchema = z.object({
   status: z.enum(['awaiting', 'validated']).optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
-  voucherType: z.string().optional(),
+  voucherType: z.enum(['BOGO', 'SPEND_AND_SAVE', 'DISCOUNT_FIXED', 'DISCOUNT_PERCENT', 'FREEBIE', 'PACKAGE_DEAL', 'TIME_LIMITED', 'REUSABLE']).optional(),
   code: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
   offset: z.coerce.number().int().min(0).default(0),
