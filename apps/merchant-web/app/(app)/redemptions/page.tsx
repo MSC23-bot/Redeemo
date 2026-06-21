@@ -16,11 +16,13 @@ import { Card } from '@/components/ui/card'
 import { ScanLine } from '@/lib/icons'
 import { RedemptionsTable } from '@/components/redemptions/RedemptionsTable'
 import { RedemptionFilters } from '@/components/redemptions/RedemptionFilters'
+import { RedemptionDetail } from '@/components/redemptions/RedemptionDetail'
 import { useValidateDialog } from '@/components/redemptions/validateDialogContext'
 import {
   listRedemptions,
   downloadRedemptionsCsv,
   type RedemptionFilters as Filters,
+  type RedemptionRow,
 } from '@/lib/api/redemptions'
 import { listBranches } from '@/lib/api/branch'
 
@@ -30,6 +32,7 @@ export default function RedemptionsPage() {
   const { openValidate } = useValidateDialog()
   const [filters, setFilters] = React.useState<Filters>({})
   const [offset, setOffset] = React.useState(0)
+  const [selected, setSelected] = React.useState<RedemptionRow | null>(null)
   const [exporting, setExporting] = React.useState(false)
   const [exportError, setExportError] = React.useState<string | null>(null)
 
@@ -121,7 +124,7 @@ export default function RedemptionsPage() {
         </Card>
       ) : (
         <>
-          <RedemptionsTable rows={items} onRowClick={() => {}} />
+          <RedemptionsTable rows={items} onRowClick={setSelected} />
           {total > PAGE_SIZE && (
             <div className="flex items-center justify-between text-sm text-muted-foreground">
               <span>
@@ -149,6 +152,8 @@ export default function RedemptionsPage() {
           )}
         </>
       )}
+
+      {selected && <RedemptionDetail row={selected} onClose={() => setSelected(null)} />}
     </div>
   )
 }
