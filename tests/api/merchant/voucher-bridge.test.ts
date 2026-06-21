@@ -346,4 +346,121 @@ describe('M2 flagship voucher bridge (submitRmvVoucherCore promotion + re-link)'
     expect(JSON.parse(res.body).error.code).toBe('VOUCHER_NOT_SUBMITTABLE')
     expect(app.prisma.voucher.update).not.toHaveBeenCalled()
   })
+
+  // ── Type-guarded promotion against a poisoned bag ──────────────────────────
+  //
+  // The RMV PATCH body is z.record(z.string(), z.unknown()) and B5.1 validates
+  // allowed KEYS but NOT value TYPES, so an off-contract direct API caller can
+  // store a malformed value in the bag. The bridge must never pass a wrong-typed
+  // or out-of-range value through to Prisma.
+  //
+  // Strings: a non-string value is IGNORED (the column keeps its template
+  // default), same philosophy as the existing presence check (a malformed value
+  // is treated like an absent key).
+
+  it.each([
+    ['title', { title: 123 }],
+    ['description', { description: 123 }],
+    ['terms', { terms: { nested: true } }],
+    ['imageUrl', { imageUrl: 42 }],
+  ] as const)(
+    'ignores a non-string %s in the bag (column keeps its default, no 500)',
+    async (field, partial) => {
+      app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+        draftRmv({ merchantFields: { ...partial } })
+      )
+      app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+      const res = await submit()
+      expect(res.statusCode).toBe(200)
+      const data = firstUpdateData()
+      expect(field in data).toBe(false)
+      expect(data.status).toBe('PENDING_APPROVAL')
+    }
+  )
+
+  it('promotes a valid string sibling but ignores a non-string title (mixed bag)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({ merchantFields: { title: 123, description: 'Good desc' } })
+    )
+    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+    const res = await submit()
+    expect(res.statusCode).toBe(200)
+    const data = firstUpdateData()
+    expect('title' in data).toBe(false)
+    expect(data.description).toBe('Good desc')
+  })
+
+  it('rejects a non-number estimatedSaving with SAVING_INVALID (no update)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({ merchantFields: { estimatedSaving: 'abc' } })
+    )
+    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+    const res = await submit()
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('SAVING_INVALID')
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['negative', -5],
+    ['zero', 0],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['object', {}],
+    ['1e12 overflow', 1e12],
+  ] as const)(
+    'rejects an out-of-contract estimatedSaving (%s) with SAVING_INVALID (no update)',
+    async (_label, value) => {
+      app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+        // NaN / Infinity / object do not survive JSON, so they are constructed
+        // directly in the mock bag here.
+        draftRmv({ merchantFields: { estimatedSaving: value } })
+      )
+      app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+      const res = await submit()
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error.code).toBe('SAVING_INVALID')
+      expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+    }
+  )
+
+  it('promotes a valid numeric estimatedSaving (12.5)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({ merchantFields: { estimatedSaving: 12.5 } })
+    )
+    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+    const res = await submit()
+    expect(res.statusCode).toBe(200)
+    expect(firstUpdateData().estimatedSaving).toBe(12.5)
+  })
+
+  it('is poison-safe when merchantFields is a non-object string (no re-link, valid fields still promote)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({
+        type: 'DISCOUNT_PERCENT', rmvTemplateId: 'tmpl-pct', rmvTemplate: percentTemplate,
+        merchantFields: {
+          title: 'Still Promotes', description: 'Good copy', estimatedSaving: 7,
+          merchantFields: 'garbage', // non-object: discountKind read is a safe no-op
+        },
+      })
+    )
+    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+    const res = await submit()
+    expect(res.statusCode).toBe(200)
+    // No re-link attempted (discountKind unreadable from a string).
+    expect(app.prisma.rmvTemplate.findFirst).not.toHaveBeenCalled()
+    const data = firstUpdateData()
+    expect('type' in data).toBe(false)
+    expect('rmvTemplateId' in data).toBe(false)
+    // Valid top-level fields still promote.
+    expect(data.title).toBe('Still Promotes')
+    expect(data.description).toBe('Good copy')
+    expect(data.estimatedSaving).toBe(7)
+  })
 })

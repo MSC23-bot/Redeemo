@@ -30,6 +30,10 @@ function assertSavingSane(value: unknown): void {
   }
 }
 
+// Decimal(10,2) holds at most 99999999.99; reject a bag value that would overflow
+// the column so a poisoned saving maps to a clean SAVING_INVALID, never a Prisma error.
+const RMV_SAVING_COLUMN_MAX = 100000000
+
 // ─── M4a-7: TIME_LIMITED availability-window validation ─────────────────────
 //
 // Enforces spec §3.2 rules 1-4 + 7 + type-attachment (D2 lock):
@@ -622,16 +626,45 @@ export async function submitRmvVoucherCore(
   // transaction so it commits/rolls back atomically with the status flip.
   const bag = (voucher.merchantFields as Record<string, unknown> | null) ?? {}
 
-  // Step 1 (A): promote the merchant-authored fields. Presence check per field:
-  // a key absent (or null) from the bag keeps the existing column value (the
-  // template default). title/description/terms/estimatedSaving are always set by
-  // the builder once edited; imageUrl may be undefined when no photo was set, in
+  // Step 1 (A): promote the merchant-authored fields, TYPE-GUARDED. Presence check
+  // per field: a key absent (or null) from the bag keeps the existing column value
+  // (the template default). title/description/terms/estimatedSaving are always set
+  // by the builder once edited; imageUrl may be undefined when no photo was set, in
   // which case we keep the existing column.
+  //
+  // The RMV PATCH body is z.record(z.string(), z.unknown()) and updateRmvVoucherCore
+  // (B5.1) validates allowed KEYS but NOT value TYPES, so an off-contract direct API
+  // caller can store a malformed value in the bag. We guard each field so a poisoned
+  // bag can never reach Prisma as a wrong-typed / out-of-range value.
   const promoted: Record<string, unknown> = {}
-  for (const field of ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl'] as const) {
-    if (field in bag && bag[field] != null) {
+
+  // Strings (title/description/terms/imageUrl): promote ONLY when the value is a
+  // string; a non-string value is IGNORED (the column keeps its template default).
+  // This is consistent with the presence-check philosophy above (a malformed value
+  // is treated like an absent key); the only producer of these bag keys is the F5
+  // builder, which always sends strings, so this is a defensive backstop against
+  // off-contract direct callers. Graceful degradation to the template default is
+  // safer than hard-failing a legitimate submit, and admin review is the content
+  // backstop.
+  for (const field of ['title', 'description', 'terms', 'imageUrl'] as const) {
+    if (field in bag && typeof bag[field] === 'string') {
       promoted[field] = bag[field]
     }
+  }
+
+  // estimatedSaving is a customer-facing Decimal column (load-bearing quantitative
+  // data the customer sees). If present and non-null it MUST be a finite number > 0
+  // that also fits Decimal(10,2); otherwise we throw the existing clean SAVING_INVALID
+  // (a 400, not a Prisma 500). We do NOT silently drop an invalid saving to the
+  // template default. Absent/null keeps the existing column (unchanged behaviour).
+  // The throw happens BEFORE prisma.$transaction, so there is no partial write.
+  if ('estimatedSaving' in bag && bag.estimatedSaving != null) {
+    const saving = bag.estimatedSaving
+    assertSavingSane(saving) // not a number / not finite / <= 0 throws SAVING_INVALID
+    if ((saving as number) >= RMV_SAVING_COLUMN_MAX) {
+      throw new AppError('SAVING_INVALID')
+    }
+    promoted.estimatedSaving = saving
   }
 
   // Step 2 (A-style): re-link the discount type. The builder draft bag is nested
