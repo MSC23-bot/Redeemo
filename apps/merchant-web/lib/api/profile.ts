@@ -20,6 +20,17 @@ export const merchantProfileSchema = z
     // an edit and uses primaryCategoryId (the SUBCATEGORY id) to gate the
     // change-category confirm. Both nullable on a fresh row.
     primaryDescriptorTagId: z.string().nullish(),
+    // M2 F3 (D4, Tier-1 ONLY): the business-profile step prefills from these fields.
+    // The sensitive set (businessName, tradingName, logoUrl, bannerUrl, description)
+    // writes DIRECTLY in the draft window via B1; the simple-direct set (websiteUrl,
+    // vatNumber, companyNumber) always writes direct. All are nullable on a fresh row
+    // except businessName, which the backend Merchant row always carries.
+    tradingName: z.string().nullish(),
+    logoUrl: z.string().nullish(),
+    bannerUrl: z.string().nullish(),
+    websiteUrl: z.string().nullish(),
+    vatNumber: z.string().nullish(),
+    companyNumber: z.string().nullish(),
   })
   .passthrough()
 
@@ -28,5 +39,35 @@ export type MerchantProfile = z.infer<typeof merchantProfileSchema>
 export async function getMerchantProfile(): Promise<MerchantProfile> {
   return merchantProfileSchema.parse(
     await apiFetch('/api/v1/merchant/profile', { method: 'GET', auth: true }),
+  )
+}
+
+// M2 F3 (D4): the Tier-1 business-profile PATCH body. The backend
+// `updateMerchantProfile` (PATCH /api/v1/merchant/profile) accepts the SENSITIVE set
+// (businessName, tradingName, logoUrl, bannerUrl, description) directly in the draft
+// window (B1) and the simple-direct set (websiteUrl, vatNumber, companyNumber)
+// always. Every field is optional so a partial save ("Save and finish later") sends
+// only the filled keys. Nulls clear a value (e.g. VAT switched to No clears
+// vatNumber).
+export interface MerchantProfileUpdateBody {
+  businessName?: string
+  tradingName?: string | null
+  logoUrl?: string
+  bannerUrl?: string
+  description?: string
+  websiteUrl?: string | null
+  vatNumber?: string | null
+  companyNumber?: string | null
+}
+
+export async function updateMerchantProfile(
+  body: MerchantProfileUpdateBody,
+): Promise<MerchantProfile> {
+  return merchantProfileSchema.parse(
+    await apiFetch('/api/v1/merchant/profile', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify(body),
+    }),
   )
 }
