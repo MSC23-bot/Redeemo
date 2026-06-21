@@ -21,12 +21,12 @@ const mockPrisma = () => ({
 
 const baseCtx = { ipAddress: '127.0.0.1', userAgent: 'test' }
 
-function activeRedemption(branchId = 'b1', merchantId = 'm1') {
+function activeRedemption(branchId = 'b1', merchantId = 'm1', user: { firstName: string | null; lastName: string | null } = { firstName: 'Jane', lastName: 'Doe' }) {
   return {
     id: 'r1', userId: 'u1', isValidated: false, branchId,
     voucher: { merchantId, merchant: { status: 'ACTIVE' } },
     branch: { isActive: true },
-    user: { firstName: 'Jane', lastName: 'Doe' },
+    user,
   }
 }
 
@@ -99,5 +99,53 @@ describe('verifyRedemption validator attribution (OD6 / B3)', () => {
         }),
       })
     )
+  })
+})
+
+// OD4 (Finding 1): the customer identity returned to a MERCHANT-ADMIN portal
+// validation crosses the merchant-portal API boundary, so it must be first
+// name + last initial only (formatCustomerName) - NEVER the full surname.
+// Branch-staff validation is the in-person mobile-app path (face-to-face), so
+// it keeps the full name unchanged.
+describe('verifyRedemption customer identity at the merchant-portal boundary (OD4 / Finding 1)', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('merchant actor: customer.name is first + last initial (Bob S.), NOT the full surname', async () => {
+    const prisma = mockPrisma()
+    prisma.voucherRedemption.findUnique.mockResolvedValue(
+      activeRedemption('b-any', 'm1', { firstName: 'Bob', lastName: 'Smith' })
+    )
+    prisma.voucherRedemption.update.mockResolvedValue({
+      id: 'r1', isValidated: true, validatedAt: new Date(), validationMethod: 'MANUAL',
+    })
+
+    const result = await verifyRedemption(
+      prisma, 'A7K2P9X4', 'MANUAL',
+      { role: 'merchant', branchId: null, merchantId: 'm1', actorId: 'ma1' },
+      baseCtx
+    )
+
+    expect(result.customer.name).toBe('Bob S.')
+    // The merchant portal must NEVER receive the full surname.
+    expect(result.customer.name).not.toContain('Smith')
+    expect(JSON.stringify(result)).not.toContain('Smith')
+  })
+
+  it('branch actor: customer.name is the FULL name (Bob Smith), unchanged for the in-person path', async () => {
+    const prisma = mockPrisma()
+    prisma.voucherRedemption.findUnique.mockResolvedValue(
+      activeRedemption('b1', 'm1', { firstName: 'Bob', lastName: 'Smith' })
+    )
+    prisma.voucherRedemption.update.mockResolvedValue({
+      id: 'r1', isValidated: true, validatedAt: new Date(), validationMethod: 'QR_SCAN',
+    })
+
+    const result = await verifyRedemption(
+      prisma, 'A7K2P9X4', 'QR_SCAN',
+      { role: 'branch', branchId: 'b1', merchantId: 'm1', actorId: 'bu1' },
+      baseCtx
+    )
+
+    expect(result.customer.name).toBe('Bob Smith')
   })
 })

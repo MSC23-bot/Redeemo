@@ -1,19 +1,14 @@
 import { Prisma } from '../../../../generated/prisma/client'
+import { formatCustomerName } from '../../shared/customerName'
 
 export type RedemptionStatus = 'AWAITING_VALIDATION' | 'VALIDATED'
 
-// OD4: customer identity shown to merchants is first name + last initial only,
-// formatted at the API boundary. NEVER a full surname, never email/phone. This
-// is the single source of the OD4 format, shared by the list, lookup, detail,
-// and CSV paths.
-export function formatCustomerName(firstName?: string | null, lastName?: string | null): string {
-  const first = (firstName ?? '').trim()
-  const last = (lastName ?? '').trim()
-  if (!first && !last) return 'Customer'
-  if (!last) return first
-  if (!first) return last.charAt(0).toUpperCase() + '.'
-  return first + ' ' + last.charAt(0).toUpperCase() + '.'
-}
+// OD4: the customer-name formatter now lives in one shared module so the
+// merchant-redemption paths AND the merchant-admin redemption-verify response
+// share a single source of truth. Re-exported here so existing imports of
+// `formatCustomerName` from this module keep resolving; the local import above
+// is what `validatedByLabel` / `toMerchantRedemptionRow` reference.
+export { formatCustomerName }
 
 export function deriveRedemptionStatus(isValidated: boolean): RedemptionStatus {
   return isValidated ? 'VALIDATED' : 'AWAITING_VALIDATION'
