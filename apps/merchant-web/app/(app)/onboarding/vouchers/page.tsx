@@ -296,17 +296,39 @@ export default function VouchersPage() {
   )
 }
 
-// Build the builder resume-seed from a saved DRAFT RMV row. The guided builder reads
-// the per-type structured fields + edited flags + selected clauses back out of
-// merchantFields; the top-level title/description/estimatedSaving carry the merchant's
-// overrides (rehydrated only when the matching edited flag is set inside the bag).
+// Build the builder resume-seed from a saved DRAFT RMV row.
+//
+// ROUND-TRIP SHAPE (read the backend, do not guess): buildPayload PATCHes a body of
+// { title, description, estimatedSaving, terms, imageUrl, merchantFields: <draft bag> }.
+// updateRmvVoucherCore merges that WHOLE body into Voucher.merchantFields and writes
+// NOTHING to the top-level columns; those keep the create-flagship TEMPLATE DEFAULTS.
+// So for a saved DRAFT, listRmvVouchers returns:
+//   row.title / row.description / row.estimatedSaving / row.imageUrl = TEMPLATE DEFAULTS
+//   row.merchantFields = { title, description, estimatedSaving, terms, imageUrl,
+//                          merchantFields: { builderType, ...draft, selectedClauseIds,
+//                            customTerms, askHelp, titleEdited, descEdited } }
+//
+// The merchant's edits therefore live INSIDE row.merchantFields: the edited
+// title/description/estimatedSaving/imageUrl at its TOP level (flattened keys), and the
+// per-type structured draft bag one level DEEPER under merchantFields.merchantFields.
+// This flattens both into the single clean seed the builder consumes, preferring the
+// stored (edited) values and falling back to the top-level row defaults only when a bag
+// key is absent (e.g. a DRAFT created but never edited).
 function resumeSeedFromRmv(row: RmvVoucher): BuilderResumeSeed {
+  const bag: Record<string, unknown> = (row.merchantFields as Record<string, unknown> | null | undefined) ?? {}
+  const bagStr = (k: string): string | null => (typeof bag[k] === 'string' ? (bag[k] as string) : null)
+  const bagNum = (k: string): number | null => (typeof bag[k] === 'number' ? (bag[k] as number) : null)
+  // The nested per-type structured-field bag (the inner merchantFields).
+  const nested = (bag.merchantFields as Record<string, unknown> | undefined) ?? null
+
+  const rowSaving = typeof row.estimatedSaving === 'number' ? row.estimatedSaving : null
+
   return {
-    title: row.title ?? null,
-    description: row.description ?? null,
-    estimatedSaving: typeof row.estimatedSaving === 'number' ? row.estimatedSaving : null,
-    imageUrl: row.imageUrl ?? null,
-    merchantFields: row.merchantFields ?? null,
+    title: 'title' in bag ? bagStr('title') : (row.title ?? null),
+    description: 'description' in bag ? bagStr('description') : (row.description ?? null),
+    estimatedSaving: 'estimatedSaving' in bag ? bagNum('estimatedSaving') : rowSaving,
+    imageUrl: 'imageUrl' in bag ? bagStr('imageUrl') : (row.imageUrl ?? null),
+    fields: nested,
   }
 }
 
