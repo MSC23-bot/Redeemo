@@ -41,4 +41,9 @@ describe('formatRelativeTime', () => {
     const out = formatRelativeTime('2026-06-14T12:00:00.000Z', NOW)
     expect(out).not.toMatch(/ago/)
   })
+
+  it('returns an empty string for an unparseable date (safe fallback, never throws)', () => {
+    expect(() => formatRelativeTime('not-a-date', NOW)).not.toThrow()
+    expect(formatRelativeTime('not-a-date', NOW)).toBe('')
+  })
 })
