@@ -549,7 +549,7 @@ export async function verifyRedemption(
       isValidated:      true,
       validatedAt:      new Date(),
       validationMethod: method,
-      validatedById:    actor.actorId,
+      validatedById:    actor.role === 'branch' ? actor.actorId : null,
     },
   })
 
