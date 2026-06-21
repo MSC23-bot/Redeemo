@@ -1,8 +1,9 @@
 'use client'
 import * as React from 'react'
-import { Menu, ScanLine, Grid3x3, Bell } from '@/lib/icons'
+import { Menu, ScanLine, Grid3x3 } from '@/lib/icons'
 import { Button } from '@/components/ui/button'
 import { useValidateDialog } from '@/components/redemptions/validateDialogContext'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
 
 function IconButton({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -75,7 +76,7 @@ export function Topbar({
       )}
       <Button variant="navy" size="default" onClick={openValidate}><ScanLine size={16} /> Validate a code</Button>
       <IconButton label="Quick actions"><Grid3x3 size={18} /></IconButton>
-      <IconButton label="Notifications"><Bell size={18} /></IconButton>
+      <NotificationBell />
       <div style={{ position: 'relative' }}>
         <button
           ref={triggerRef}
