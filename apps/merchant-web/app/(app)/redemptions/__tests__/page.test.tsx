@@ -1,0 +1,146 @@
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import RedemptionsPage from '@/app/(app)/redemptions/page'
+
+// --- API client mock --------------------------------------------------------
+const listRedemptions = jest.fn()
+const downloadRedemptionsCsv = jest.fn((_f?: unknown) => Promise.resolve())
+jest.mock('@/lib/api/redemptions', () => ({
+  listRedemptions: (f: unknown) => listRedemptions(f),
+  downloadRedemptionsCsv: (f: unknown) => downloadRedemptionsCsv(f),
+  lookupRedemptionByCode: jest.fn(),
+  validateRedemptionCode: jest.fn(),
+}))
+
+// Branches feed the branch filter selector.
+const listBranches = jest.fn()
+jest.mock('@/lib/api/branch', () => ({
+  listBranches: () => listBranches(),
+}))
+
+// The shared Validate dialog opener.
+const openValidate = jest.fn()
+jest.mock('@/components/redemptions/validateDialogContext', () => ({
+  useValidateDialog: () => ({ openValidate }),
+}))
+
+const ROW = {
+  id: 'r1',
+  redemptionCode: 'A7K2P9X4',
+  voucher: { id: 'v1', title: 'Free coffee', type: 'FREEBIE' },
+  branch: { id: 'b1', name: 'High Street' },
+  customerName: 'Sarah K.',
+  redeemedAt: '2026-06-21T10:00:00.000Z',
+  status: 'AWAITING_VALIDATION',
+  validatedAt: null,
+  validationMethod: null,
+  validatedByLabel: null,
+  estimatedSaving: 3.5,
+}
+const VALIDATED_ROW = {
+  ...ROW,
+  id: 'r2',
+  redemptionCode: 'B8L3Q1Y5',
+  voucher: { id: 'v2', title: 'Lunch deal', type: 'DISCOUNT_PERCENT' },
+  customerName: 'Tom B.',
+  status: 'VALIDATED',
+  validatedAt: '2026-06-21T11:00:00.000Z',
+  validationMethod: 'MANUAL',
+  validatedByLabel: 'Validated in the portal',
+}
+
+function renderPage() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RedemptionsPage />
+    </QueryClientProvider>,
+  )
+}
+
+beforeEach(() => {
+  listRedemptions.mockReset()
+  downloadRedemptionsCsv.mockReset().mockResolvedValue(undefined)
+  listBranches.mockReset().mockResolvedValue([{ id: 'b1', name: 'High Street' }])
+  openValidate.mockReset()
+})
+
+describe('RedemptionsPage (F1 log + filters)', () => {
+  it('renders a loading state while the list is in flight', () => {
+    listRedemptions.mockReturnValue(new Promise(() => {}))
+    renderPage()
+    expect(screen.getByRole('status')).toBeInTheDocument()
+  })
+
+  it('renders the redemptions table with status pills and merchant-safe fields', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW, VALIDATED_ROW], total: 2, limit: 25, offset: 0 })
+    renderPage()
+    expect(await screen.findByText('Free coffee')).toBeInTheDocument()
+    const table = screen.getByRole('table')
+    expect(within(table).getByText('A7K2 P9X4')).toBeInTheDocument()
+    expect(within(table).getByText('Sarah K.')).toBeInTheDocument()
+    expect(within(table).getByText(/awaiting validation/i)).toBeInTheDocument()
+    expect(within(table).getByText(/^validated$/i)).toBeInTheDocument()
+    expect(within(table).getByText('Validated in the portal')).toBeInTheDocument()
+  })
+
+  it('NEVER renders a full surname, email or phone', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    const { container } = renderPage()
+    await screen.findByText('Free coffee')
+    const text = container.textContent ?? ''
+    expect(text).toContain('Sarah K.')
+    expect(text).not.toMatch(/Khan|Smith|@|07\d{9}|\+44/)
+  })
+
+  it('renders the empty state when there are no redemptions', async () => {
+    listRedemptions.mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 })
+    renderPage()
+    expect(await screen.findByText(/redemptions appear once customers start redeeming/i)).toBeInTheDocument()
+  })
+
+  it('renders an error state when the list fails', async () => {
+    listRedemptions.mockRejectedValue(new Error('boom'))
+    renderPage()
+    expect(await screen.findByText(/could not load your redemptions/i)).toBeInTheDocument()
+  })
+
+  it('a status filter change drives a new query (refetch with the filter)', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    listRedemptions.mockClear()
+    fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'validated' } })
+    await waitFor(() =>
+      expect(listRedemptions).toHaveBeenCalledWith(expect.objectContaining({ status: 'validated' })),
+    )
+  })
+
+  it('a branch filter change drives a new query', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    await waitFor(() => expect(listBranches).toHaveBeenCalled())
+    listRedemptions.mockClear()
+    fireEvent.change(screen.getByLabelText(/branch/i), { target: { value: 'b1' } })
+    await waitFor(() =>
+      expect(listRedemptions).toHaveBeenCalledWith(expect.objectContaining({ branchId: 'b1' })),
+    )
+  })
+
+  it('the Export CSV button uses the current filters and triggers a download', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    fireEvent.click(screen.getByRole('button', { name: /export csv/i }))
+    await waitFor(() => expect(downloadRedemptionsCsv).toHaveBeenCalledTimes(1))
+  })
+
+  it('the "Validate a code" action opens the shared dialog', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    fireEvent.click(screen.getByRole('button', { name: /validate a code/i }))
+    expect(openValidate).toHaveBeenCalledTimes(1)
+  })
+})
