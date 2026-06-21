@@ -600,19 +600,82 @@ export async function submitRmvVoucherCore(
   voucherId: string,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const voucher = await prisma.voucher.findFirst({ where: { id: voucherId, merchantId, isRmv: true } })
+  // `rmvTemplate` is included so the discount re-link (step 2 below) can read the
+  // current template's top-level categoryId for the sibling lookup.
+  const voucher = await prisma.voucher.findFirst({
+    where: { id: voucherId, merchantId, isRmv: true },
+    include: { rmvTemplate: true },
+  })
   if (!voucher) throw new AppError('RMV_NOT_FOUND')
   if (voucher.status !== 'DRAFT') throw new AppError('VOUCHER_NOT_SUBMITTABLE')
+
+  // ── M2 flagship voucher bridge ──────────────────────────────────────────
+  //
+  // The F5 builder PATCHes the whole edit body into Voucher.merchantFields (via
+  // updateRmvVoucherCore / B5.1, which writes NOTHING to the top-level columns).
+  // So the merchant-authored title/description/estimatedSaving/terms/imageUrl sit
+  // in the bag, and the discount type may have been flipped (fixed<->percent) in
+  // the builder while Voucher.type stayed as created. Customer + admin reads use
+  // the TOP-LEVEL columns, so at submit time we promote those fields onto the
+  // columns and (for discount vouchers) re-link type + template to match the
+  // merchant's chosen discountKind. All of this is part of the existing submit
+  // transaction so it commits/rolls back atomically with the status flip.
+  const bag = (voucher.merchantFields as Record<string, unknown> | null) ?? {}
+
+  // Step 1 (A): promote the merchant-authored fields. Presence check per field:
+  // a key absent (or null) from the bag keeps the existing column value (the
+  // template default). title/description/terms/estimatedSaving are always set by
+  // the builder once edited; imageUrl may be undefined when no photo was set, in
+  // which case we keep the existing column.
+  const promoted: Record<string, unknown> = {}
+  for (const field of ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl'] as const) {
+    if (field in bag && bag[field] != null) {
+      promoted[field] = bag[field]
+    }
+  }
+
+  // Step 2 (A-style): re-link the discount type. The builder draft bag is nested
+  // one level deeper under bag.merchantFields; discountKind is 'fixed' | 'percent'.
+  const nested = (bag.merchantFields as Record<string, unknown> | undefined) ?? undefined
+  const discountKind = nested?.discountKind
+  const currentType = voucher.type as unknown as string
+  let impliedType: 'DISCOUNT_FIXED' | 'DISCOUNT_PERCENT' | null = null
+  if (currentType === 'DISCOUNT_PERCENT' || currentType === 'DISCOUNT_FIXED') {
+    if (discountKind === 'fixed') impliedType = 'DISCOUNT_FIXED'
+    else if (discountKind === 'percent') impliedType = 'DISCOUNT_PERCENT'
+  }
+  let relink: { type: string; rmvTemplateId: string } | null = null
+  if (impliedType && impliedType !== currentType) {
+    // The implied type differs from the current type: find the sibling template
+    // for the SAME top-level category. Defensively keep the current type/template
+    // if the sibling is missing (both kinds are seeded per category, so this
+    // should not happen) so the submit never fails on a missing sibling.
+    const categoryId = voucher.rmvTemplate?.categoryId
+    if (categoryId) {
+      const sibling = await prisma.rmvTemplate.findFirst({
+        where: { categoryId, voucherType: impliedType as any, isActive: true },
+      })
+      if (sibling) relink = { type: impliedType, rmvTemplateId: sibling.id }
+    }
+  }
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.voucher.update({
       where: { id: voucherId },
-      data: { status: 'PENDING_APPROVAL', publishedAt: new Date() },
+      data: {
+        ...promoted,
+        ...(relink ?? {}),
+        status: 'PENDING_APPROVAL',
+        publishedAt: new Date(),
+      } as any,
     })
     await writeAuditLogTx(tx, {
       entityId: merchantId, entityType: 'merchant', event: 'RMV_SUBMITTED',
       actorId: actor.id, actorType: actor.type, reason: actor.reason,
       before: { status: 'DRAFT' }, after: { status: 'PENDING_APPROVAL' },
+      // The promoted/relinked columns travel on the voucher.update above. The
+      // RMV_SUBMITTED audit before/after/metadata shape is left unchanged so the
+      // existing merchant + admin co-build submit audit contracts still hold.
       metadata: { voucherId }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     })
     return updated
