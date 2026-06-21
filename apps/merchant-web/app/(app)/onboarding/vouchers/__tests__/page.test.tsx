@@ -138,3 +138,119 @@ describe('2-voucher flow', () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith('/'))
   })
 })
+
+describe('DRAFT resume + cap consistency (review-mandated fix)', () => {
+  it('save-as-draft then return: mounts the BUILDER resuming the DRAFT, does NOT create a new one', async () => {
+    // A single DRAFT exists (the merchant saved-as-draft earlier and came back).
+    listRmvVouchers.mockResolvedValue([
+      {
+        id: 'rmv-draft-1',
+        type: 'BOGO',
+        status: 'DRAFT',
+        title: 'Buy one main, get one free',
+        description: 'Some body',
+        estimatedSaving: 12,
+        merchantFields: {
+          builderType: 'bogo',
+          categoryKey: 'food_drink',
+          type: 'bogo',
+          bogoBuy: 'a main',
+          bogoFree: 'a second main',
+          bogoFreePrice: 12,
+          selectedClauseIds: [],
+          customTerms: [],
+          askHelp: false,
+          titleEdited: false,
+          descEdited: false,
+        },
+      },
+    ])
+    renderPage()
+    // The guided builder mounts directly (resuming the DRAFT) - NOT the picker.
+    expect(await screen.findByText('What does the customer buy?')).toBeInTheDocument()
+    // The saved buy item rehydrated.
+    expect((screen.getByLabelText('Item') as HTMLInputElement).value).toBe('a main')
+    // No create-flagship call: we RESUMED, not created.
+    expect(createFlagshipRmv).not.toHaveBeenCalled()
+    // Resuming voucher 1 of 2 (0 submitted) - the builder eyebrow reads the index.
+    expect(screen.getByText(/Flagship voucher 1 of 2/i)).toBeInTheDocument()
+  })
+
+  it('save-as-draft DRAFT: resuming + submitting it advances to voucher 2 of 2', async () => {
+    const draftRow = {
+      id: 'rmv-draft-1',
+      type: 'BOGO',
+      status: 'DRAFT',
+      merchantFields: {
+        builderType: 'bogo',
+        categoryKey: 'food_drink',
+        type: 'bogo',
+        selectedClauseIds: [],
+        customTerms: [],
+        askHelp: false,
+        titleEdited: false,
+        descEdited: false,
+      },
+    }
+    // Realistic backend transition: before submit the list has the DRAFT; after submit
+    // the same row is PENDING_APPROVAL (so the refetch no longer sees it as a draft).
+    listRmvVouchers.mockResolvedValueOnce([draftRow]).mockResolvedValue([{ ...draftRow, status: 'PENDING_APPROVAL' }])
+    renderPage()
+    await screen.findByText('What does the customer buy?')
+    // Submit the resumed DRAFT -> updates THIS draft id then submits it.
+    fireEvent.click(screen.getByRole('button', { name: /Save voucher 1 of 2/i }))
+    await waitFor(() => expect(submitRmvVoucher).toHaveBeenCalledWith('rmv-draft-1'))
+    expect(createFlagshipRmv).not.toHaveBeenCalled()
+    // Advances to voucher 2 of 2 (still does not leave to the hub): picker for #2.
+    expect(await screen.findByText(/2 of 2/i)).toBeInTheDocument()
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('two DRAFTs already exist (prior buggy state): resumes a draft, never creates', async () => {
+    listRmvVouchers.mockResolvedValue([
+      {
+        id: 'rmv-draft-1',
+        type: 'BOGO',
+        status: 'DRAFT',
+        merchantFields: { builderType: 'bogo', categoryKey: 'food_drink', type: 'bogo', selectedClauseIds: [], customTerms: [], askHelp: false, titleEdited: false, descEdited: false },
+      },
+      {
+        id: 'rmv-draft-2',
+        type: 'FREEBIE',
+        status: 'DRAFT',
+        merchantFields: { builderType: 'freebie', categoryKey: 'food_drink', type: 'freebie', selectedClauseIds: [], customTerms: [], askHelp: false, titleEdited: false, descEdited: false },
+      },
+    ])
+    renderPage()
+    // Resumes a DRAFT in the builder, never the picker, never create-flagship.
+    expect(await screen.findByText('What does the customer buy?')).toBeInTheDocument()
+    expect(createFlagshipRmv).not.toHaveBeenCalled()
+    // The type picker is NOT shown.
+    expect(screen.queryByText(/Choose your flagship voucher/i)).not.toBeInTheDocument()
+  })
+
+  it('1 submitted + 1 DRAFT: index reads "2 of 2" and resumes the DRAFT', async () => {
+    listRmvVouchers.mockResolvedValue([
+      { id: 'rmv-1', type: 'BOGO', status: 'PENDING_APPROVAL' },
+      {
+        id: 'rmv-draft-2',
+        type: 'FREEBIE',
+        status: 'DRAFT',
+        merchantFields: { builderType: 'freebie', categoryKey: 'food_drink', type: 'freebie', selectedClauseIds: [], customTerms: [], askHelp: false, titleEdited: false, descEdited: false },
+      },
+    ])
+    renderPage()
+    // 1 submitted -> "2 of 2"; resumes the DRAFT (no create).
+    expect(await screen.findByText('What does the customer get free?')).toBeInTheDocument()
+    expect(screen.getByText(/Flagship voucher 2 of 2/i)).toBeInTheDocument()
+    expect(createFlagshipRmv).not.toHaveBeenCalled()
+  })
+
+  it('fresh start (no RMVs): the picker shows and picking creates a flagship', async () => {
+    listRmvVouchers.mockResolvedValue([])
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /Buy one, get one free/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
+    await waitFor(() => expect(createFlagshipRmv).toHaveBeenCalledWith('BOGO'))
+  })
+})

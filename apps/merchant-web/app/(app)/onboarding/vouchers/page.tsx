@@ -13,13 +13,14 @@ import {
   updateRmvVoucher,
   submitRmvVoucher,
   listRmvVouchers,
+  type RmvVoucher,
 } from '@/lib/api/voucher'
 import { ApiError } from '@/lib/api/client'
 import { resolveCategoryKey, type CategoryKey } from '@/lib/voucher/config'
-import { builderTypeToEnum } from '@/lib/voucher/typeMeta'
+import { builderTypeToEnum, enumToBuilderType } from '@/lib/voucher/typeMeta'
 import type { BuilderType } from '@/lib/voucher/terms'
 import { TypePicker } from '@/components/onboarding/vouchers/TypePicker'
-import { BuilderForm, type BuilderSavePayload } from '@/components/onboarding/vouchers/BuilderForm'
+import { BuilderForm, type BuilderSavePayload, type BuilderResumeSeed } from '@/components/onboarding/vouchers/BuilderForm'
 
 // M2 F5: the flagship voucher builder onboarding page. Wires the two-step flow:
 //   Step 1 picker -> POST create-flagship (DRAFT RMV) -> Step 2 guided builder ->
@@ -34,7 +35,13 @@ import { BuilderForm, type BuilderSavePayload } from '@/components/onboarding/vo
 // additionally rejects ineligible types with VOUCHER_TYPE_NOT_ELIGIBLE.
 
 const HUB = '/'
+// A flagship RMV occupies a slot the moment it is created. The backend cap
+// (FLAGSHIP_RMV_CAP = 2) counts DRAFT + PENDING_APPROVAL + ACTIVE, so the page must
+// count the same way to stay cap-consistent: a saved-as-draft voucher still holds a
+// slot. SUBMITTED (PENDING_APPROVAL / ACTIVE) drives the "1 of 2" / "2 of 2" index +
+// the "both ready" terminal; DRAFT holds a slot but is still resumable.
 const RMV_SUBMITTED = new Set(['PENDING_APPROVAL', 'ACTIVE'])
+const RMV_DRAFT = 'DRAFT'
 
 type Stage = 'picker' | 'builder'
 
@@ -68,6 +75,11 @@ export default function VouchersPage() {
   // Local mirror of "vouchers submitted so far" so we advance to 2 of 2 in-session
   // without waiting on a refetch.
   const [submittedCount, setSubmittedCount] = useState<number | null>(null)
+  // When resuming a saved DRAFT, the seed the builder rehydrates from.
+  const [resumeSeed, setResumeSeed] = useState<BuilderResumeSeed | null>(null)
+  // Once we have read the RMV list and decided picker-vs-resume, this is true so a later
+  // refetch (e.g. after an in-session submit) does not re-resume a stale DRAFT.
+  const [resumeResolved, setResumeResolved] = useState(false)
 
   // Resolve the merchant's TOP-LEVEL category NAME from the taxonomy (the merchant's
   // primaryCategoryId is the SUBCATEGORY id), then map it to the S0 config key.
@@ -86,11 +98,35 @@ export default function VouchersPage() {
     staleTime: 30_000,
   })
 
+  // First read of the RMV list: seed submittedCount AND decide picker-vs-resume.
+  // submittedCount (PENDING_APPROVAL / ACTIVE) drives the index + terminal; slotCount
+  // (submitted + drafts) is the cap-aware count. When there is still a slot to fill and
+  // a DRAFT exists, RESUME it (one at a time) instead of showing the picker. This keeps
+  // the page consistent with the backend cap and stops orphaned DRAFTs accumulating.
   useEffect(() => {
-    if (rmvQuery.data && submittedCount === null) {
-      setSubmittedCount(rmvQuery.data.filter((r) => RMV_SUBMITTED.has(r.status)).length)
+    const rows = rmvQuery.data
+    if (!rows || resumeResolved) return
+
+    const submitted = rows.filter((r) => RMV_SUBMITTED.has(r.status))
+    const drafts = rows.filter((r) => r.status === RMV_DRAFT)
+    setSubmittedCount(submitted.length)
+
+    // Both flagships submitted -> nothing to build; the render below routes to the hub.
+    if (submitted.length >= 2) {
+      setResumeResolved(true)
+      return
     }
-  }, [rmvQuery.data, submittedCount])
+
+    // A saved DRAFT exists -> resume the oldest one in the guided builder.
+    const draft = drafts[0]
+    if (draft) {
+      setDraftRmvId(draft.id)
+      setPickedType(enumToBuilderType(draft.type))
+      setResumeSeed(resumeSeedFromRmv(draft))
+      setStage('builder')
+    }
+    setResumeResolved(true)
+  }, [rmvQuery.data, resumeResolved])
 
   const subId = profile.data?.primaryCategoryId ?? null
   const categoryKey: CategoryKey = resolveCategoryKey(
@@ -101,6 +137,13 @@ export default function VouchersPage() {
   // The current flagship index (1 or 2). Two already submitted -> the cap is reached.
   const builtCount = submittedCount ?? 0
   const voucherIndex: 1 | 2 = builtCount >= 1 ? 2 : 1
+
+  // Cap-aware slot count (submitted + drafts), consistent with the backend cap of 2.
+  // When the slots are full there is nothing left to create; the page resumes the
+  // existing drafts one at a time instead of attempting another create-flagship.
+  const rmvRows: RmvVoucher[] = rmvQuery.data ?? []
+  const draftCount = rmvRows.filter((r) => r.status === RMV_DRAFT).length
+  const slotCount = builtCount + draftCount
 
   if (profile.isError) {
     return (
@@ -142,7 +185,13 @@ export default function VouchersPage() {
   }
 
   async function handleContinue(type: BuilderType) {
+    // Cap guard: never create when the two flagship slots are already occupied. The
+    // picker is only reachable with room, but guard defensively so a stale render can
+    // never fire an over-cap create (the backend would reject with
+    // FLAGSHIP_RMV_LIMIT_REACHED, which is still mapped below as a backstop).
+    if (slotCount >= 2) return
     setPickedType(type)
+    setResumeSeed(null)
     setError(null)
     setSaving(true)
     try {
@@ -188,10 +237,18 @@ export default function VouchersPage() {
       // Reset for the next voucher.
       setDraftRmvId(null)
       setPickedType(null)
+      setResumeSeed(null)
       setStage('picker')
 
       // After the SECOND flagship, return to the hub.
-      if (nextCount >= 2) router.push(HUB)
+      if (nextCount >= 2) {
+        router.push(HUB)
+      } else {
+        // Re-resolve picker-vs-resume against the refreshed list so any OTHER saved
+        // DRAFT is resumed for voucher 2 (rather than dumping the merchant on the picker
+        // and risking a second create over the cap).
+        setResumeResolved(false)
+      }
     } catch (err) {
       setError(voucherErrorMessage(err))
     } finally {
@@ -202,12 +259,16 @@ export default function VouchersPage() {
   if (stage === 'builder' && pickedType) {
     return (
       <BuilderForm
+        // Key on the draft id so resuming a DIFFERENT draft remounts the form and
+        // re-runs its seed initialisers (the resume rehydration is mount-time).
+        key={draftRmvId ?? 'new'}
         type={pickedType}
         categoryKey={categoryKey}
         merchantBusinessName={merchantBusinessName}
         voucherIndex={voucherIndex}
         saving={saving}
         saveError={error}
+        initialFields={resumeSeed ?? undefined}
         onSave={(p) => persist(p, false)}
         onSubmit={(p) => persist(p, true)}
         onBack={() => {
@@ -233,6 +294,20 @@ export default function VouchersPage() {
       />
     </div>
   )
+}
+
+// Build the builder resume-seed from a saved DRAFT RMV row. The guided builder reads
+// the per-type structured fields + edited flags + selected clauses back out of
+// merchantFields; the top-level title/description/estimatedSaving carry the merchant's
+// overrides (rehydrated only when the matching edited flag is set inside the bag).
+function resumeSeedFromRmv(row: RmvVoucher): BuilderResumeSeed {
+  return {
+    title: row.title ?? null,
+    description: row.description ?? null,
+    estimatedSaving: typeof row.estimatedSaving === 'number' ? row.estimatedSaving : null,
+    imageUrl: row.imageUrl ?? null,
+    merchantFields: row.merchantFields ?? null,
+  }
 }
 
 // Walk the taxonomy to find the TOP-LEVEL category NAME that owns a given subcategory
