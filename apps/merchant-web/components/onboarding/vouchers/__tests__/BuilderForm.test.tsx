@@ -96,6 +96,24 @@ describe('terms section with Fair/Caution/Restrictive tags (S0 §2)', () => {
     expect(within(terms).getAllByText('Caution').length).toBeGreaterThan(0)
     expect(within(terms).getByText('Not valid with any other voucher')).toBeInTheDocument()
   })
+
+  it('a caution term row exposes the tier severity in the checkbox accessible name (a11y)', () => {
+    // The wrapping <label> supplies the name, so it includes BOTH the clause text AND the
+    // "Caution" tier badge. An aria-label on the checkbox would override the label and
+    // drop the tier severity from what a screen reader announces.
+    setup({ type: 'discount', categoryKey: 'food_drink' })
+    const terms = screen.getByTestId('terms-section')
+    const cautionBox = within(terms).getByRole('checkbox', { name: /Booking recommended\s+Caution/i })
+    expect(cautionBox).toBeInTheDocument()
+  })
+
+  it('a fair term row has no tier suffix in the accessible name (no badge)', () => {
+    setup({ type: 'discount', categoryKey: 'food_drink' })
+    const terms = screen.getByTestId('terms-section')
+    // Fair terms carry no badge, so the name is just the clause text.
+    const fairBox = within(terms).getByRole('checkbox', { name: 'Not valid with any other voucher' })
+    expect(fairBox).toBeInTheDocument()
+  })
 })
 
 describe('advisory score widget (S0 §4) - CC-1 advisory, NOT a gate', () => {
