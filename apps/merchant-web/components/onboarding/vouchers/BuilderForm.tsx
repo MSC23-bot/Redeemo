@@ -70,6 +70,18 @@ export interface BuilderSavePayload {
   merchantFields: Record<string, unknown>
 }
 
+// A previously-saved RMV DRAFT, used to RESUME the builder where the merchant left off.
+// The INVERSE of buildPayload: merchantFields holds the per-type structured-field bag +
+// the picker context + the edited flags; the top-level title/description/estimatedSaving
+// hold the merchant's overrides when the respective edited flag is set.
+export interface BuilderResumeSeed {
+  title?: string | null
+  description?: string | null
+  estimatedSaving?: number | null
+  imageUrl?: string | null
+  merchantFields?: Record<string, unknown> | null
+}
+
 interface BuilderFormProps {
   type: BuilderType
   categoryKey: CategoryKey
@@ -80,6 +92,46 @@ interface BuilderFormProps {
   onSave: (payload: BuilderSavePayload) => void
   onSubmit: (payload: BuilderSavePayload) => void
   onBack: () => void
+  /** When present, seeds the form from a previously-saved DRAFT. Absent = fresh start. */
+  initialFields?: BuilderResumeSeed
+}
+
+// Pull the DraftFields-shaped keys back out of a saved merchantFields bag (the inverse
+// of the buildPayload spread). Only known DraftFields keys are lifted; the bag's own
+// meta keys (builderType, categoryKey, selectedClauseIds, customTerms, askHelp, the
+// edited flags) are NOT part of DraftFields and are rehydrated separately.
+function draftFromSeed(type: BuilderType, merchantBusinessName: string, seed?: BuilderResumeSeed): DraftFields {
+  const base: DraftFields = {
+    type,
+    merchantBusinessName,
+    discountKind: type === 'discount' ? 'percent' : undefined,
+    freeNeedsPurchase: type === 'freebie' ? true : undefined,
+  }
+  const mf = seed?.merchantFields
+  if (!mf) return base
+  const str = (k: string): string | undefined => (typeof mf[k] === 'string' ? (mf[k] as string) : undefined)
+  const numF = (k: string): number | undefined => (typeof mf[k] === 'number' ? (mf[k] as number) : undefined)
+  return {
+    ...base,
+    bogoBuy: str('bogoBuy'),
+    bogoBuyFullPrice: numF('bogoBuyFullPrice'),
+    bogoFree: str('bogoFree'),
+    bogoFreePrice: numF('bogoFreePrice'),
+    spendAmount: numF('spendAmount'),
+    spendSave: numF('spendSave'),
+    discountKind: mf.discountKind === 'fixed' || mf.discountKind === 'percent' ? mf.discountKind : base.discountKind,
+    discAmount: numF('discAmount'),
+    discPercent: numF('discPercent'),
+    discTypicalOrder: numF('discTypicalOrder'),
+    discMin: numF('discMin'),
+    freeItem: str('freeItem'),
+    freeWorth: numF('freeWorth'),
+    freeNeedsPurchase: typeof mf.freeNeedsPurchase === 'boolean' ? (mf.freeNeedsPurchase as boolean) : base.freeNeedsPurchase,
+    freeQualify: str('freeQualify'),
+    packageItems: str('packageItems'),
+    packagePrice: numF('packagePrice'),
+    packageNormal: numF('packageNormal'),
+  }
 }
 
 export function BuilderForm({
@@ -92,29 +144,46 @@ export function BuilderForm({
   onSave,
   onSubmit,
   onBack,
+  initialFields,
 }: BuilderFormProps) {
-  // Per-type structured fields bag (the DraftFields model).
-  const [draft, setDraft] = useState<DraftFields>(() => ({
-    type,
-    merchantBusinessName,
-    discountKind: type === 'discount' ? 'percent' : undefined,
-    freeNeedsPurchase: type === 'freebie' ? true : undefined,
-  }))
+  // The saved merchantFields bag (when resuming), so the rehydration helpers below can
+  // read the edited flags + selected clauses + custom terms back out.
+  const seedFields = initialFields?.merchantFields ?? undefined
 
-  // Terms: selected built-in clause ids + custom terms + the custom draft.
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(defaultSelectedClauseIds(type)))
-  const [customs, setCustoms] = useState<CustomTerm[]>([])
+  // Per-type structured fields bag (the DraftFields model). Seeded from the saved bag on
+  // resume; a fresh start gets the per-type defaults.
+  const [draft, setDraft] = useState<DraftFields>(() => draftFromSeed(type, merchantBusinessName, initialFields))
+
+  // Terms: selected built-in clause ids + custom terms + the custom draft. On resume,
+  // rehydrate the previously-selected clause ids + custom terms from the saved bag.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
+    const saved = seedFields?.selectedClauseIds
+    if (Array.isArray(saved)) return new Set(saved.filter((id): id is string => typeof id === 'string'))
+    return new Set(defaultSelectedClauseIds(type))
+  })
+  const [customs, setCustoms] = useState<CustomTerm[]>(() => {
+    const saved = seedFields?.customTerms
+    if (Array.isArray(saved)) {
+      return saved
+        .filter((c): c is { text: string; tier?: unknown } => !!c && typeof (c as { text?: unknown }).text === 'string')
+        .map((c) => ({ text: c.text, tier: c.tier === 'restrictive' || c.tier === 'caution' || c.tier === 'fair' ? c.tier : tierOf(c.text) }))
+    }
+    return []
+  })
   const [customDraft, setCustomDraft] = useState('')
 
-  // "What customers will see" overrides + the edited flags.
-  const [titleOverride, setTitleOverride] = useState('')
-  const [titleEdited, setTitleEdited] = useState(false)
-  const [descOverride, setDescOverride] = useState('')
-  const [descEdited, setDescEdited] = useState(false)
+  // "What customers will see" overrides + the edited flags. On resume, when the saved
+  // edited flag is set, seed the override from the stored top-level title/description.
+  const seedTitleEdited = seedFields?.titleEdited === true
+  const seedDescEdited = seedFields?.descEdited === true
+  const [titleOverride, setTitleOverride] = useState(() => (seedTitleEdited ? initialFields?.title ?? '' : ''))
+  const [titleEdited, setTitleEdited] = useState(seedTitleEdited)
+  const [descOverride, setDescOverride] = useState(() => (seedDescEdited ? initialFields?.description ?? '' : ''))
+  const [descEdited, setDescEdited] = useState(seedDescEdited)
   const [savingOverride, setSavingOverride] = useState('')
   const [savingEdited, setSavingEdited] = useState(false)
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
-  const [askHelp, setAskHelp] = useState(false)
+  const [photoUrl, setPhotoUrl] = useState<string | null>(() => initialFields?.imageUrl ?? null)
+  const [askHelp, setAskHelp] = useState(seedFields?.askHelp === true)
 
   // Saving is READ-ONLY (computed) for Spend / Freebie / Package (S0 §3.6).
   const savingReadOnly = type === 'spend' || type === 'freebie' || type === 'package'

@@ -28,6 +28,7 @@ function setup(props: Partial<React.ComponentProps<typeof BuilderForm>> = {}) {
       onSave={onSave}
       onSubmit={onSubmit}
       onBack={jest.fn()}
+      initialFields={props.initialFields}
     />,
   )
   return { onSave, onSubmit }
@@ -170,5 +171,119 @@ describe('save payloads', () => {
     expect(typeof payload.estimatedSaving).toBe('number')
     expect(payload.estimatedSaving).toBeGreaterThan(0)
     expect(payload.merchantFields.builderType).toBe('discount')
+  })
+})
+
+describe('resume rehydration (initialFields)', () => {
+  it('seeds the per-type structured fields + chosen options from a saved merchantFields bag', () => {
+    // A previously-saved BOGO DRAFT bag: the merchant had filled the buy item.
+    setup({
+      type: 'bogo',
+      categoryKey: 'food_drink',
+      initialFields: {
+        merchantFields: {
+          builderType: 'bogo',
+          categoryKey: 'food_drink',
+          type: 'bogo',
+          bogoBuy: 'a main',
+          bogoBuyFullPrice: 12,
+          bogoFree: 'a second main',
+          bogoFreePrice: 12,
+          selectedClauseIds: [],
+          customTerms: [],
+          askHelp: false,
+          titleEdited: false,
+          descEdited: false,
+        },
+      },
+    })
+    // The form initialises with those values: the buy item field holds the saved text.
+    expect((screen.getByLabelText('Item') as HTMLInputElement).value).toBe('a main')
+    // And the live preview reflects the rehydrated draft.
+    expect(screen.getByTestId('preview-title')).toHaveTextContent(/Buy one main, get one free/i)
+  })
+
+  it('rehydrates a saved title/description override (titleEdited flag + stored top-level title)', () => {
+    setup({
+      type: 'discount',
+      categoryKey: 'food_drink',
+      initialFields: {
+        title: 'My own headline',
+        description: 'My own body copy',
+        estimatedSaving: 8,
+        merchantFields: {
+          builderType: 'discount',
+          categoryKey: 'food_drink',
+          type: 'discount',
+          discountKind: 'percent',
+          discPercent: 20,
+          discTypicalOrder: 40,
+          selectedClauseIds: [],
+          customTerms: [],
+          askHelp: false,
+          titleEdited: true,
+          descEdited: true,
+        },
+      },
+    })
+    // Edited title/description rehydrate from the stored top-level values, not the suggestion.
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('My own headline')
+    expect(screen.getByTestId('preview-title')).toHaveTextContent('My own headline')
+    expect(screen.getByTestId('preview-desc')).toHaveTextContent('My own body copy')
+  })
+
+  it('rehydrates the discount kind from merchantFields (fixed)', () => {
+    setup({
+      type: 'discount',
+      categoryKey: 'food_drink',
+      initialFields: {
+        merchantFields: {
+          builderType: 'discount',
+          categoryKey: 'food_drink',
+          type: 'discount',
+          discountKind: 'fixed',
+          discAmount: 10,
+          selectedClauseIds: [],
+          customTerms: [],
+          askHelp: false,
+          titleEdited: false,
+          descEdited: false,
+        },
+      },
+    })
+    // Fixed kind -> the "Amount off" field is present (percent field is not).
+    expect(screen.getByLabelText('Amount off')).toBeInTheDocument()
+    expect(screen.getByTestId('preview-title')).toHaveTextContent(/£10 off/i)
+  })
+
+  it('rehydrates selected clause ids + custom terms', () => {
+    setup({
+      type: 'discount',
+      categoryKey: 'food_drink',
+      initialFields: {
+        merchantFields: {
+          builderType: 'discount',
+          categoryKey: 'food_drink',
+          type: 'discount',
+          discountKind: 'percent',
+          discPercent: 20,
+          selectedClauseIds: ['disc_total_bill'],
+          customTerms: [{ text: 'Eat in only please', tier: 'caution' }],
+          askHelp: false,
+          titleEdited: false,
+          descEdited: false,
+        },
+      },
+    })
+    // The custom term rehydrates into the terms list.
+    const terms = screen.getByTestId('terms-section')
+    expect(within(terms).getByText('Eat in only please')).toBeInTheDocument()
+  })
+
+  it('default (no initialFields) keeps fresh-start behaviour unchanged', () => {
+    setup({ type: 'bogo', categoryKey: 'food_drink' })
+    // Fresh start -> the buy item field is empty.
+    expect((screen.getByLabelText('Item') as HTMLInputElement).value).toBe('')
+    expect(screen.getByTestId('preview-title')).toHaveTextContent(/Your voucher title|Buy one, get one free/i)
   })
 })
