@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { Topbar } from '../Topbar'
+import { ValidateDialogContext } from '@/components/redemptions/validateDialogContext'
 
 describe('Topbar', () => {
   it('renders the Validate-a-code CTA and the icon slots', () => {
@@ -47,5 +48,16 @@ describe('Topbar', () => {
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
     expect(screen.queryByRole('menuitem', { name: /sign out/i })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
+  })
+
+  it('Validate-a-code opens the shared dialog via the context (M3 F2)', () => {
+    const openValidate = jest.fn()
+    render(
+      <ValidateDialogContext.Provider value={{ openValidate }}>
+        <Topbar onMenu={() => {}} />
+      </ValidateDialogContext.Provider>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /validate a code/i }))
+    expect(openValidate).toHaveBeenCalledTimes(1)
   })
 })
