@@ -480,7 +480,11 @@ describe('verifyRedemption', () => {
       baseCtx
     )
 
-    expect(result.customer.name).toBe('Bob Smith')
+    // OD4 (Finding 1): a merchant-admin portal validation crosses the
+    // merchant-portal API boundary, so the customer identity is first name +
+    // last initial only - never the full surname.
+    expect(result.customer.name).toBe('Bob S.')
+    expect(result.customer.name).not.toContain('Smith')
   })
 })
 

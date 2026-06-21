@@ -12,6 +12,7 @@ import {
   type AvailabilityWindow,
 } from '../shared/voucherAvailability'
 import { effectiveCooldownSeconds } from './reusable'
+import { formatCustomerName } from '../shared/customerName'
 
 // Redemption code alphabet (locked 2026-05-07 from device QA).
 //
@@ -549,7 +550,7 @@ export async function verifyRedemption(
       isValidated:      true,
       validatedAt:      new Date(),
       validationMethod: method,
-      validatedById:    actor.actorId,
+      validatedById:    actor.role === 'branch' ? actor.actorId : null,
     },
   })
 
@@ -560,13 +561,21 @@ export async function verifyRedemption(
     metadata: { redemptionCode: code, method, actorId: actor.actorId },
   })
 
+  // OD4: a merchant-admin portal validation crosses the merchant-portal API
+  // boundary, so the customer identity is first name + last initial only
+  // (formatCustomerName) - never the full surname. Branch-staff validation is
+  // the in-person mobile-app path (face-to-face), so it keeps the full name.
+  const customerName = actor.role === 'merchant'
+    ? formatCustomerName(redemption.user.firstName, redemption.user.lastName)
+    : [redemption.user.firstName, redemption.user.lastName].filter(Boolean).join(' ')
+
   return {
     id:               updated.id,
     isValidated:      updated.isValidated,
     validatedAt:      updated.validatedAt,
     validationMethod: updated.validationMethod,
     customer: {
-      name: [redemption.user.firstName, redemption.user.lastName].filter(Boolean).join(' '),
+      name: customerName,
     },
   }
 }
