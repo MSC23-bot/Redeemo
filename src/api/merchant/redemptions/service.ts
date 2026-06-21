@@ -60,8 +60,13 @@ export async function getMerchantRedemptionsForExport(prisma: PrismaClient, merc
   return { rows: rows.slice(0, EXPORT_CAP).map(toMerchantRedemptionRow), truncated }
 }
 
+// OWASP CSV-injection mitigation: a cell value that begins with = + - @ tab or
+// CR can execute as a spreadsheet formula in Excel/Sheets. Prepend a single
+// apostrophe to neutralise it BEFORE the quote-escaping so the value renders as
+// literal text (e.g. `=SUM(A1:A2)` -> cell `"'=SUM(A1:A2)"`).
 function csvCell(v: unknown): string {
-  const s = v == null ? '' : String(v)
+  let s = v == null ? '' : String(v)
+  if (s.length > 0 && /^[=+\-@\t\r]/.test(s)) s = "'" + s
   return '"' + s.replace(/"/g, '""') + '"'
 }
 

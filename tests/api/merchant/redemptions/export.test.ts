@@ -119,6 +119,53 @@ describe('redemptionsToCsv (privacy-safe columns)', () => {
     const dataLine = redemptionsToCsv([r], false).split('\r\n')[1]
     expect(dataLine.endsWith('"7.00"')).toBe(true)
   })
+
+  // Finding 2 (CSV formula injection / OWASP): a cell value beginning with
+  // = + - @ tab or CR can execute as a spreadsheet formula in Excel/Sheets.
+  // csvCell must prepend a single apostrophe to neutralise it BEFORE the
+  // quote-escaping, so the value renders as literal text.
+  describe('CSV formula injection mitigation (Finding 2)', () => {
+    it('neutralises a voucher title, branch name, and customer name that begin with formula characters', () => {
+      const injected = toMerchantRedemptionRow(dbRow({
+        voucher: { id: 'v9', title: '=SUM(A1:A2)', type: 'BOGO' },
+        branch: { id: 'b9', name: '+44 Branch' },
+        // firstName begins with `=` so the formatted customerName is formula-like.
+        user: { firstName: '=HYPERLINK("x")', lastName: 'Khan' },
+      }))
+      const dataLine = redemptionsToCsv([injected], false).split('\r\n')[1]
+      // Each formula-leading cell gets a leading apostrophe inside the quotes.
+      expect(dataLine).toContain('"\'=SUM(A1:A2)"')
+      expect(dataLine).toContain('"\'+44 Branch"')
+      expect(dataLine).toContain('"\'=HYPERLINK(""x"") K."')
+    })
+
+    it('neutralises a `-`-leading title (e.g. "-50% off") while leaving "Half-price pizza" untouched', () => {
+      const minus = toMerchantRedemptionRow(dbRow({ voucher: { id: 'vm', title: '-50% off', type: 'BOGO' } }))
+      const minusLine = redemptionsToCsv([minus], false).split('\r\n')[1]
+      expect(minusLine).toContain('"\'-50% off"')
+
+      // "Half-price pizza" starts with `H`, so it is NOT neutralised.
+      const normal = toMerchantRedemptionRow(dbRow({ voucher: { id: 'vn', title: 'Half-price pizza', type: 'BOGO' } }))
+      const normalLine = redemptionsToCsv([normal], false).split('\r\n')[1]
+      expect(normalLine).toContain('"Half-price pizza"')
+      expect(normalLine).not.toContain("'Half-price")
+    })
+
+    it('neutralises an `@`-leading value', () => {
+      const at = toMerchantRedemptionRow(dbRow({ branch: { id: 'ba', name: '@everyone offer' } }))
+      const atLine = redemptionsToCsv([at], false).split('\r\n')[1]
+      expect(atLine).toContain('"\'@everyone offer"')
+    })
+
+    it('still quote-escapes a `"` after neutralising a formula-leading value', () => {
+      const tricky = toMerchantRedemptionRow(dbRow({
+        voucher: { id: 'vt', title: '=A1&"x"', type: 'BOGO' },
+      }))
+      const trickyLine = redemptionsToCsv([tricky], false).split('\r\n')[1]
+      // Apostrophe neutraliser AND doubled embedded quote.
+      expect(trickyLine).toContain('"\'=A1&""x"""')
+    })
+  })
 })
 
 // buildRedemptionWhere is shared by B1 and B4: a direct parity pin.
