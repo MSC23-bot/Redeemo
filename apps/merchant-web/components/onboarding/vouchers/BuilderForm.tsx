@@ -356,12 +356,15 @@ export function BuilderForm({
               return (
                 <li key={c.id}>
                   <label className="flex cursor-pointer items-start gap-2.5 rounded-[10px] p-2 hover:bg-[#FBFAF9]">
+                    {/* No aria-label here: the wrapping <label> supplies the accessible
+                        name, so it includes BOTH the clause text AND the tier badge span
+                        (Caution / Restrictive). An aria-label would override the label and
+                        drop the tier severity from the SR-announced name. */}
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggleClause(c.id)}
                       className="mt-0.5 size-4 accent-[#E20C04]"
-                      aria-label={c.label}
                     />
                     <span className="flex flex-1 flex-wrap items-center gap-2">
                       <span className="text-[13px] leading-relaxed text-[#1F2A4A]">{c.label}</span>

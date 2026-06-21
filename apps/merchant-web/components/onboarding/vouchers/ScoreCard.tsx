@@ -30,6 +30,11 @@ export function ScoreCard({ score }: { score: ScoreResult | null }) {
     <Card className="border-[#E5E7EB] p-5">
       <h2 className="font-display text-lg font-semibold text-[#010C35]">How this voucher stacks up</h2>
 
+      {/* The results recompute live as the merchant types (the score is a useMemo in the
+          parent). aria-live="polite" announces the meter state, strengths, and
+          improvements to screen-reader users as they change. Advisory only (CC-1): this
+          never gates submit. */}
+      <div data-testid="score-results" aria-live="polite" aria-atomic="true">
       {/* Meter */}
       <div data-testid="score-meter" className="mt-3 flex flex-col gap-2">
         <div className="flex gap-1.5">
@@ -85,6 +90,7 @@ export function ScoreCard({ score }: { score: ScoreResult | null }) {
           </ul>
         </div>
       ) : null}
+      </div>
 
       <p className="mt-4 border-t border-[#EFEAE6] pt-3 text-xs leading-relaxed text-[#8089A4]">
         {PLATFORM_FRAMING}
