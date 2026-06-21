@@ -1,40 +1,47 @@
 'use client'
 
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { StaircaseHub } from '@/components/onboarding/StaircaseHub'
+import { LifecycleHome } from '@/components/onboarding/LifecycleHome'
 import { useSession } from '@/lib/auth/session'
 import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
-import { deriveStatusPill, homeFor } from '@/lib/auth/lifecycle'
-import type { LifecycleState } from '@/components/shell/StatusPill'
+import { deriveStatusPill } from '@/lib/auth/lifecycle'
+import { deriveStepStates } from '@/lib/onboarding/stepState'
+import {
+  getOnboardingChecklist,
+  getOnboardingStatus,
+  countActiveRmvVouchers,
+  submitOnboarding,
+} from '@/lib/api/onboarding'
+import { ApiError } from '@/lib/api/client'
 
-// M1 Slice 5: the lifecycle home. Two PLACEHOLDER homes (pre-live vs live) keyed off
-// the derived StatusPill state. The real dashboard is a later phase.
-const PRE_LIVE_COPY: Partial<Record<LifecycleState, { title: string; body: string }>> = {
-  setup: {
-    title: 'Finish setting up',
-    body: 'Add your branches, vouchers, and contract to submit your business for approval. Your setup tools are coming soon.',
-  },
-  submitted: {
-    title: 'Submitted for review',
-    body: 'Your business has been submitted. Our team will review it and email you with the next steps.',
-  },
-  in_review: {
-    title: 'Under review',
-    body: 'Our team is reviewing your business. We will email you as soon as it is approved.',
-  },
-  changes: {
-    title: 'Changes needed',
-    body: 'We have asked for a few changes before your business can go live. Check your email for the details.',
-  },
-  suspended: {
-    title: 'Account suspended',
-    body: 'This account is currently suspended. Please contact support to resolve it.',
-  },
-}
+// M2 F1: the merchant portal home. Replaces the M1 placeholder. CLIENT-DERIVES the
+// guided onboarding staircase hub (setup / changes) + the read-only / live
+// lifecycle homes from the merged backend reads (profile + checklist + status +
+// rmv count). The granular OnboardingStep enum is never trusted for step state
+// (spec 4.1) - step done-ness comes from the actual saved data.
 
 export default function HomePage() {
   const session = useSession()
+  const router = useRouter()
+  const queryClient = useQueryClient()
   const profile = useMerchantProfile(session.isAuthenticated)
+
+  // The onboarding reads. Fetched once the profile has loaded; they drive the hub
+  // + the changes banner. Kept always-enabled-when-authed so a return to setup
+  // after a NEEDS_CHANGES round-trip re-derives correctly. The data is only
+  // consumed by the hub/changes states; the read-only homes ignore it.
+  const enabled = session.isAuthenticated && !!profile.data
+  const checklist = useQuery({ queryKey: ['onboardingChecklist'], queryFn: getOnboardingChecklist, enabled, staleTime: 30_000 })
+  const status = useQuery({ queryKey: ['onboardingStatus'], queryFn: getOnboardingStatus, enabled, staleTime: 30_000 })
+  const rmvCount = useQuery({ queryKey: ['rmvActiveCount'], queryFn: countActiveRmvVouchers, enabled, staleTime: 30_000 })
+
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   if (profile.isError) {
     return (
@@ -63,34 +70,61 @@ export default function HomePage() {
 
   const state = deriveStatusPill(profile.data)
   const businessName = profile.data.businessName
+  const statusData = status.data ?? null
 
-  if (homeFor(state) === 'live') {
-    return (
-      <div className="space-y-6">
-        <h1 className="font-display text-2xl font-semibold text-foreground">Welcome back, {businessName}</h1>
-        <Card>
-          <CardHeader>
-            <CardTitle className="font-display text-lg">Your business is live</CardTitle>
-            <CardDescription>
-              Customers can discover and redeem your vouchers. Your full dashboard with insights and management tools is
-              coming soon.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-    )
+  // Read-only + live homes (submitted / in_review / suspended / rejected / live).
+  if (state === 'submitted' || state === 'in_review' || state === 'suspended' || state === 'rejected' || state === 'live' || state === 'live_new') {
+    return <LifecycleHome state={state} businessName={businessName} status={statusData} />
   }
 
-  const copy = PRE_LIVE_COPY[state] ?? PRE_LIVE_COPY.setup!
+  // setup / changes -> the staircase hub. Derive from the merged reads.
+  const staircase = deriveStepStates({
+    profile: {
+      status: profile.data.status,
+      onboardingStep: profile.data.onboardingStep,
+      primaryCategoryId: profile.data.primaryCategoryId ?? null,
+      description: profile.data.description ?? null,
+    },
+    checklist: checklist.data ?? { branch_created: false, contract_signed: false, rmv_configured: false, all_complete: false },
+    rmvActiveCount: rmvCount.data ?? 0,
+  })
+
+  async function handleSubmit() {
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      await submitOnboarding()
+      // Refetch the lifecycle source + onboarding reads so the page flips to the
+      // submitted home.
+      await Promise.all([
+        profile.refetch(),
+        queryClient.invalidateQueries({ queryKey: ['onboardingChecklist'] }),
+        queryClient.invalidateQueries({ queryKey: ['onboardingStatus'] }),
+      ])
+    } catch (err) {
+      // Defensive: the backend re-checks the gates and may throw
+      // ONBOARDING_GATES_INCOMPLETE even though the client thought all were done.
+      const code = err instanceof ApiError ? err.code : undefined
+      setSubmitError(
+        code === 'ONBOARDING_GATES_INCOMPLETE'
+          ? 'Some steps are still incomplete. Please finish every step and try again.'
+          : 'We could not submit your business just now. Please try again.',
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
-    <div className="space-y-6">
-      <h1 className="font-display text-2xl font-semibold text-foreground">Welcome, {businessName}</h1>
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-display text-lg">{copy.title}</CardTitle>
-          <CardDescription>{copy.body}</CardDescription>
-        </CardHeader>
-      </Card>
-    </div>
+    <StaircaseHub
+      businessName={businessName}
+      staircase={staircase}
+      state={state === 'changes' ? 'changes' : 'setup'}
+      status={statusData}
+      onNavigate={(href) => router.push(href)}
+      onSubmit={handleSubmit}
+      submitting={submitting}
+      submitError={submitError}
+    />
   )
 }
