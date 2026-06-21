@@ -143,4 +143,29 @@ describe('RedemptionsPage (F1 log + filters)', () => {
     fireEvent.click(screen.getByRole('button', { name: /validate a code/i }))
     expect(openValidate).toHaveBeenCalledTimes(1)
   })
+
+  it('a row click opens the merchant-safe detail (full voucher, no contact field)', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    const titleCell = await screen.findByText('Free coffee')
+    fireEvent.click(titleCell.closest('tr')!)
+    const detail = await screen.findByRole('dialog')
+    expect(within(detail).getByText('A7K2 P9X4')).toBeInTheDocument()
+    expect(within(detail).getByText('Sarah K.')).toBeInTheDocument()
+    expect(within(detail).getByText('High Street')).toBeInTheDocument()
+    expect(detail.textContent ?? '').not.toMatch(/@|07\d{9}|\+44|Khan/)
+  })
+
+  it('the Export CSV button passes the active filters (not the pagination)', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'validated' } })
+    fireEvent.click(screen.getByRole('button', { name: /export csv/i }))
+    await waitFor(() =>
+      expect(downloadRedemptionsCsv).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'validated' }),
+      ),
+    )
+  })
 })
