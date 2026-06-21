@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -97,6 +97,12 @@ export default function BranchPage() {
 
   const [loadingBranch, setLoadingBranch] = useState(true)
   const [existingBranch, setExistingBranch] = useState<Branch | null>(null)
+  // Synchronous mirror of the branch that has been created/loaded this session. We
+  // consult this BEFORE React flushes setExistingBranch so a retry that happens
+  // after a successful create but a failed sub-step (hours/amenities/pin) reuses the
+  // SAME branch and never fires a duplicate createBranch (the backend has no
+  // duplicate guard). Kept in sync with existingBranch in the load effect + persist.
+  const persistedBranchRef = useRef<Branch | null>(null)
   const [existingPin, setExistingPin] = useState<string | null>(null)
   const [amenities, setAmenities] = useState<Amenity[]>([])
   const [saving, setSaving] = useState(false)
@@ -114,6 +120,7 @@ export default function BranchPage() {
         const branches = await listBranches()
         const main = branches.find((b) => b.isMainBranch) ?? branches[0] ?? null
         if (cancelled) return
+        persistedBranchRef.current = main
         setExistingBranch(main)
         if (main) {
           try {
@@ -204,8 +211,13 @@ export default function BranchPage() {
   }
 
   async function persist(values: BranchFormValues, partial: boolean) {
+    // The branch we already hold this session: the loaded main branch OR one created
+    // on a prior (sub-step-failed) attempt. The ref is the synchronous authority so a
+    // fast retry reuses it before React flushes setExistingBranch.
+    const alreadyPersisted = persistedBranchRef.current ?? existingBranch
+
     // Save and finish later with nothing to persist yet: surface a note, do not POST.
-    if (partial && !existingBranch && !hasCreateMinimum(values)) {
+    if (partial && !alreadyPersisted && !hasCreateMinimum(values)) {
       setSaveError('Add a branch name and address before saving, or use Save and continue.')
       return
     }
@@ -213,10 +225,17 @@ export default function BranchPage() {
     setSaving(true)
     setSaveError(null)
     try {
-      // 1. Create the branch (or reuse the existing one). The backend requires
-      //    name + address; the create-minimum was validated for the continue path,
-      //    and the finish-later path is gated above.
-      const branch = existingBranch ?? (await createBranch(buildCreateBody(values)))
+      // 1. Create the branch (or reuse the one already persisted this session). The
+      //    backend requires name + address; the create-minimum was validated for the
+      //    continue path, and the finish-later path is gated above. After a successful
+      //    create we PIN the branch (ref + state) immediately, so a retry triggered by
+      //    a later sub-step failure REUSES it and never creates a duplicate.
+      let branch = alreadyPersisted
+      if (!branch) {
+        branch = await createBranch(buildCreateBody(values))
+        persistedBranchRef.current = branch
+        setExistingBranch(branch)
+      }
 
       // 2. Set hours (single-period; closed days OMIT times via toHoursPayload).
       await setBranchHours(branch.id, toHoursPayload(values.hours))

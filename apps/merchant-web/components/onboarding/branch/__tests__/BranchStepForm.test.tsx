@@ -226,6 +226,41 @@ describe('BranchStepForm (M2 F4)', () => {
     expect(onSaveLater).toHaveBeenCalledWith(expect.objectContaining({ name: 'Partial Branch' }))
   })
 
+  it('Save and finish later flags invalid hours inline and does NOT call onSaveLater', async () => {
+    const { onSaveLater } = renderForm()
+    // Make Monday open === close so the client hours mirror should catch it on the
+    // finish-later path too (parity with Save and continue), not defer to a 400.
+    fireEvent.change(screen.getByLabelText(/monday closing time/i), { target: { value: '09:00' } })
+    fireEvent.click(screen.getByRole('button', { name: /save and finish later/i }))
+    await waitFor(() => {
+      expect(screen.getByText(/cannot be the same/i)).toBeInTheDocument()
+    })
+    expect(onSaveLater).not.toHaveBeenCalled()
+  })
+
+  it('accepts an OVERNIGHT day (close < open) through to onSaveContinue with both times in the payload', async () => {
+    const { onSaveContinue } = renderForm()
+    fireEvent.change(screen.getByLabelText(/branch name/i), { target: { value: 'Night Diner' } })
+    fireEvent.change(screen.getByLabelText(/address line 1/i), { target: { value: '1 Late St' } })
+    fireEvent.change(screen.getByLabelText(/^town or city/i), { target: { value: 'Leeds' } })
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: 'LS1 1AA' } })
+    // Monday opens 18:00 and closes 02:00 (past midnight). This is valid.
+    fireEvent.change(screen.getByLabelText(/monday opening time/i), { target: { value: '18:00' } })
+    fireEvent.change(screen.getByLabelText(/monday closing time/i), { target: { value: '02:00' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /save and continue/i }))
+    await waitFor(() => expect(onSaveContinue).toHaveBeenCalledTimes(1))
+    // No inline hours error rendered for the overnight day.
+    expect(screen.queryByText(/closing time must be/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/cannot be the same/i)).not.toBeInTheDocument()
+
+    const values = onSaveContinue.mock.calls[0][0] as BranchFormValues
+    const monday = values.hours.find((d) => d.dayOfWeek === 1)!
+    expect(monday.isClosed).toBe(false)
+    expect(monday.openTime).toBe('18:00')
+    expect(monday.closeTime).toBe('02:00')
+  })
+
   it('surfaces a save error passed from the parent', () => {
     renderForm({ saveError: 'We could not save your branch just now. Please try again.' })
     expect(screen.getByRole('alert')).toHaveTextContent(/could not save your branch/i)
