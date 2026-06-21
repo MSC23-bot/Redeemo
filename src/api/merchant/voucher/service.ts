@@ -661,10 +661,17 @@ export async function submitRmvVoucherCore(
   if ('estimatedSaving' in bag && bag.estimatedSaving != null) {
     const saving = bag.estimatedSaving
     assertSavingSane(saving) // not a number / not finite / <= 0 throws SAVING_INVALID
-    if ((saving as number) >= RMV_SAVING_COLUMN_MAX) {
+    // Postgres rounds a numeric(10,2) input half-away-from-zero to scale 2 BEFORE the
+    // precision check, so a raw value just under the column max (e.g. 99999999.995)
+    // would round up to 100000000.00 and overflow. Round to scale 2 here to match what
+    // Postgres will store, reject if the rounded value overflows the column, and promote
+    // the rounded value so Postgres receives an already-scale-2 number it cannot re-round
+    // into an overflow.
+    const roundedSaving = Math.round((saving as number) * 100) / 100
+    if (roundedSaving >= RMV_SAVING_COLUMN_MAX) {
       throw new AppError('SAVING_INVALID')
     }
-    promoted.estimatedSaving = saving
+    promoted.estimatedSaving = roundedSaving
   }
 
   // Step 2 (A-style): re-link the discount type. The builder draft bag is nested

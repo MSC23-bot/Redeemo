@@ -439,6 +439,75 @@ describe('M2 flagship voucher bridge (submitRmvVoucherCore promotion + re-link)'
     expect(firstUpdateData().estimatedSaving).toBe(12.5)
   })
 
+  // ── Decimal(10,2) scale-2 rounding boundary (column-overflow guard) ─────────
+  //
+  // Postgres rounds a numeric(10,2) input half-away-from-zero to scale 2 BEFORE
+  // the precision check. A raw value in [99999999.995, 100000000) is strictly
+  // below RMV_SAVING_COLUMN_MAX (1e8) so the naive `>= max` guard passes it, but
+  // Postgres rounds it up to 100000000.00 (9 integer digits) which overflows the
+  // numeric(10,2) column (precision 10, scale 2) and raises a Prisma 500. The
+  // bridge rounds to scale 2 in JS to MATCH what Postgres stores, bound-checks the
+  // ROUNDED value, and promotes the rounded value so Postgres receives an
+  // already-scale-2 number it cannot re-round into an overflow.
+
+  it('promotes the exact column max that fits (99999999.99)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({ merchantFields: { estimatedSaving: 99999999.99 } })
+    )
+    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+    const res = await submit()
+    expect(res.statusCode).toBe(200)
+    expect(firstUpdateData().estimatedSaving).toBe(99999999.99)
+  })
+
+  it('rejects a value that rounds UP to the column overflow (99999999.995) with SAVING_INVALID (no update)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({ merchantFields: { estimatedSaving: 99999999.995 } })
+    )
+    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+    const res = await submit()
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('SAVING_INVALID')
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+  })
+
+  it('rejects 99999999.996 (also rounds up to 1e8) with SAVING_INVALID (no update)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({ merchantFields: { estimatedSaving: 99999999.996 } })
+    )
+    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+    const res = await submit()
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('SAVING_INVALID')
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+  })
+
+  it('rejects the exact RMV_SAVING_COLUMN_MAX (100000000) with SAVING_INVALID (no update)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({ merchantFields: { estimatedSaving: 100000000 } })
+    )
+    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+    const res = await submit()
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('SAVING_INVALID')
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+  })
+
+  it('promotes a value that rounds DOWN to a fitting scale-2 number (99999999.994 -> 99999999.99)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({ merchantFields: { estimatedSaving: 99999999.994 } })
+    )
+    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+    const res = await submit()
+    expect(res.statusCode).toBe(200)
+    expect(firstUpdateData().estimatedSaving).toBe(99999999.99)
+  })
+
   it('is poison-safe when merchantFields is a non-object string (no re-link, valid fields still promote)', async () => {
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
       draftRmv({
