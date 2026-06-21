@@ -1,5 +1,5 @@
-import { render, screen, fireEvent, within } from '@testing-library/react'
-import { BuilderForm } from '@/components/onboarding/vouchers/BuilderForm'
+import { render, screen, fireEvent, within, cleanup } from '@testing-library/react'
+import { BuilderForm, type BuilderResumeSeed, type BuilderSavePayload } from '@/components/onboarding/vouchers/BuilderForm'
 
 // M2 F5: the guided builder (Step 2). Pins: per-type fields render + chips per
 // category; the terms section with Fair/Caution/Restrictive tags; the LIVE advisory
@@ -174,110 +174,170 @@ describe('save payloads', () => {
   })
 })
 
-describe('resume rehydration (initialFields)', () => {
-  it('seeds the per-type structured fields + chosen options from a saved merchantFields bag', () => {
-    // A previously-saved BOGO DRAFT bag: the merchant had filled the buy item.
-    setup({
-      type: 'bogo',
-      categoryKey: 'food_drink',
-      initialFields: {
-        merchantFields: {
-          builderType: 'bogo',
-          categoryKey: 'food_drink',
-          type: 'bogo',
-          bogoBuy: 'a main',
-          bogoBuyFullPrice: 12,
-          bogoFree: 'a second main',
-          bogoFreePrice: 12,
-          selectedClauseIds: [],
-          customTerms: [],
-          askHelp: false,
-          titleEdited: false,
-          descEdited: false,
-        },
-      },
+// ── REAL round-trip resume fixtures (review-mandated) ────────────────────────
+//
+// The OLD resume tests passed a FLAT merchantFields bag the system NEVER writes
+// (bogoBuy / selectedClauseIds / discountKind directly under merchantFields), so they
+// validated the wrong contract and the data-loss bug shipped. These tests rebuild the
+// resume fixtures from the EXACT shape the backend stores after a real save:
+//
+//   1. The merchant fills BuilderForm and clicks "Save as draft". onSave receives
+//      buildPayload() = { title, description, estimatedSaving, terms, imageUrl,
+//        merchantFields: { builderType, ...draft, selectedClauseIds, customTerms,
+//        askHelp, titleEdited, descEdited } }.
+//   2. The PATCH body IS that payload; updateRmvVoucherCore merges the WHOLE body into
+//      Voucher.merchantFields (top-level columns keep the template defaults).
+//      So stored merchantFields = { ...patchBody } (the bag nests under .merchantFields).
+//   3. listRmvVouchers returns row.title/description/estimatedSaving/imageUrl = TEMPLATE
+//      DEFAULTS, and row.merchantFields = the stored bag from step 2.
+//   4. The page flattens that row into the clean resume seed BuilderForm consumes:
+//        { title, description, estimatedSaving, imageUrl, fields: <nested draft bag> }
+//      reading the merchant's edited title/desc/saving/imageUrl from the FLATTENED keys
+//      in the stored bag (template-default fallback when absent), and the draft fields
+//      from the NESTED merchantFields.merchantFields bag.
+//
+// captureSavePayload renders a throwaway BuilderForm, applies the field edits, captures
+// the real buildPayload() output via onSave, then unmounts. simulateBackendMerge +
+// flattenToSeed reproduce steps 2 + 4 so each test round-trips end to end.
+
+function captureSavePayload(
+  type: React.ComponentProps<typeof BuilderForm>['type'],
+  categoryKey: React.ComponentProps<typeof BuilderForm>['categoryKey'],
+  edit: () => void,
+): BuilderSavePayload {
+  const onSave = jest.fn()
+  render(
+    <BuilderForm
+      type={type}
+      categoryKey={categoryKey}
+      merchantBusinessName="The Old Foundry"
+      voucherIndex={1}
+      saving={false}
+      saveError={null}
+      onSave={onSave}
+      onSubmit={jest.fn()}
+      onBack={jest.fn()}
+    />,
+  )
+  edit()
+  fireEvent.click(screen.getByRole('button', { name: /Save as draft/i }))
+  const payload = onSave.mock.calls[0][0] as BuilderSavePayload
+  cleanup() // tear down the capture form before the resume form renders
+  return payload
+}
+
+// Reproduce updateRmvVoucherCore: the WHOLE PATCH body merges into merchantFields.
+function simulateBackendMerge(payload: BuilderSavePayload): Record<string, unknown> {
+  return { ...payload }
+}
+
+// Reproduce the page's resumeSeedFromRmv: flatten the stored bag into the clean seed.
+// row.title/description/estimatedSaving/imageUrl are TEMPLATE DEFAULTS; the merchant's
+// edits live inside the stored bag (flattened keys + nested draft bag).
+function flattenToSeed(
+  storedMerchantFields: Record<string, unknown>,
+  templateDefaults: { title?: string | null; description?: string | null; estimatedSaving?: number | null; imageUrl?: string | null } = {},
+): BuilderResumeSeed {
+  const mf = storedMerchantFields
+  const asNum = (v: unknown): number | null => (typeof v === 'number' ? v : null)
+  const asStr = (v: unknown): string | null => (typeof v === 'string' ? v : null)
+  return {
+    title: 'title' in mf ? asStr(mf.title) : (templateDefaults.title ?? null),
+    description: 'description' in mf ? asStr(mf.description) : (templateDefaults.description ?? null),
+    estimatedSaving: 'estimatedSaving' in mf ? asNum(mf.estimatedSaving) : (templateDefaults.estimatedSaving ?? null),
+    imageUrl: 'imageUrl' in mf ? asStr(mf.imageUrl) : (templateDefaults.imageUrl ?? null),
+    fields: (mf.merchantFields as Record<string, unknown>) ?? null,
+  }
+}
+
+// Build the resume seed exactly as a real saved DRAFT would produce it.
+function realResumeSeed(
+  type: React.ComponentProps<typeof BuilderForm>['type'],
+  categoryKey: React.ComponentProps<typeof BuilderForm>['categoryKey'],
+  edit: () => void,
+  templateDefaults?: { title?: string | null; description?: string | null; estimatedSaving?: number | null; imageUrl?: string | null },
+): BuilderResumeSeed {
+  const payload = captureSavePayload(type, categoryKey, edit)
+  const stored = simulateBackendMerge(payload)
+  return flattenToSeed(stored, templateDefaults)
+}
+
+describe('resume rehydration (real round-trip shape)', () => {
+  it('BOGO draft: round-trips the buy item + free price through save then store then resume', () => {
+    const seed = realResumeSeed('bogo', 'food_drink', () => {
+      fireEvent.change(screen.getByLabelText('Item') as HTMLInputElement, { target: { value: 'a main' } })
+      fireEvent.change(screen.getByLabelText('Full price') as HTMLInputElement, { target: { value: '12' } })
+      fireEvent.change(screen.getByLabelText('Value of the free item') as HTMLInputElement, { target: { value: '12' } })
     })
-    // The form initialises with those values: the buy item field holds the saved text.
+
+    // TEMPLATE DEFAULTS would be wrong: assert the resume shows the MERCHANT's edits.
+    setup({ type: 'bogo', categoryKey: 'food_drink', initialFields: seed })
     expect((screen.getByLabelText('Item') as HTMLInputElement).value).toBe('a main')
-    // And the live preview reflects the rehydrated draft.
+    expect((screen.getByLabelText('Value of the free item') as HTMLInputElement).value).toBe('12')
     expect(screen.getByTestId('preview-title')).toHaveTextContent(/Buy one main, get one free/i)
   })
 
-  it('rehydrates a saved title/description override (titleEdited flag + stored top-level title)', () => {
-    setup({
-      type: 'discount',
-      categoryKey: 'food_drink',
-      initialFields: {
-        title: 'My own headline',
-        description: 'My own body copy',
-        estimatedSaving: 8,
-        merchantFields: {
-          builderType: 'discount',
-          categoryKey: 'food_drink',
-          type: 'discount',
-          discountKind: 'percent',
-          discPercent: 20,
-          discTypicalOrder: 40,
-          selectedClauseIds: [],
-          customTerms: [],
-          askHelp: false,
-          titleEdited: true,
-          descEdited: true,
-        },
-      },
+  it('discount draft: rehydrates discountKind (fixed) + amount through the round-trip', () => {
+    const seed = realResumeSeed('discount', 'food_drink', () => {
+      // Switch to a FIXED discount and set the amount.
+      fireEvent.click(screen.getByRole('radio', { name: 'A fixed amount off' }))
+      fireEvent.change(screen.getByLabelText('Amount off') as HTMLInputElement, { target: { value: '10' } })
     })
-    // Edited title/description rehydrate from the stored top-level values, not the suggestion.
-    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('My own headline')
-    expect(screen.getByTestId('preview-title')).toHaveTextContent('My own headline')
-    expect(screen.getByTestId('preview-desc')).toHaveTextContent('My own body copy')
-  })
 
-  it('rehydrates the discount kind from merchantFields (fixed)', () => {
-    setup({
-      type: 'discount',
-      categoryKey: 'food_drink',
-      initialFields: {
-        merchantFields: {
-          builderType: 'discount',
-          categoryKey: 'food_drink',
-          type: 'discount',
-          discountKind: 'fixed',
-          discAmount: 10,
-          selectedClauseIds: [],
-          customTerms: [],
-          askHelp: false,
-          titleEdited: false,
-          descEdited: false,
-        },
-      },
-    })
-    // Fixed kind -> the "Amount off" field is present (percent field is not).
+    setup({ type: 'discount', categoryKey: 'food_drink', initialFields: seed })
+    // The fixed kind survived: the Amount off field exists (the percent field does not).
     expect(screen.getByLabelText('Amount off')).toBeInTheDocument()
+    expect((screen.getByLabelText('Amount off') as HTMLInputElement).value).toBe('10')
     expect(screen.getByTestId('preview-title')).toHaveTextContent(/£10 off/i)
   })
 
-  it('rehydrates selected clause ids + custom terms', () => {
-    setup({
-      type: 'discount',
-      categoryKey: 'food_drink',
-      initialFields: {
-        merchantFields: {
-          builderType: 'discount',
-          categoryKey: 'food_drink',
-          type: 'discount',
-          discountKind: 'percent',
-          discPercent: 20,
-          selectedClauseIds: ['disc_total_bill'],
-          customTerms: [{ text: 'Eat in only please', tier: 'caution' }],
-          askHelp: false,
-          titleEdited: false,
-          descEdited: false,
-        },
+  it('discount draft with edited title/description + selected clauses + custom terms + askHelp', () => {
+    const seed = realResumeSeed(
+      'discount',
+      'food_drink',
+      () => {
+        fireEvent.change(screen.getByLabelText(/What percentage off/i) as HTMLInputElement, { target: { value: '25' } })
+        fireEvent.change(screen.getByLabelText(/typical order value/i) as HTMLInputElement, { target: { value: '40' } })
+        // Edit the title + description so titleEdited / descEdited are stored true.
+        fireEvent.change(screen.getByLabelText('Title') as HTMLInputElement, { target: { value: 'My own headline' } })
+        fireEvent.change(screen.getByLabelText('Description') as HTMLInputElement, { target: { value: 'My own body copy' } })
+        // Select a clause + add a custom term.
+        const terms = screen.getByTestId('terms-section')
+        fireEvent.click(within(terms).getByRole('checkbox', { name: 'Not valid with any other voucher' }))
+        fireEvent.change(screen.getByLabelText('Add your own term') as HTMLInputElement, { target: { value: 'Eat in only please' } })
+        fireEvent.click(screen.getByRole('button', { name: 'Add term' }))
+        // Flag the concierge help toggle.
+        fireEvent.click(screen.getByRole('switch', { name: /Ask the Redeemo team to help/i }))
       },
-    })
-    // The custom term rehydrates into the terms list.
+      // TEMPLATE DEFAULTS the resume must NOT fall back to (they would be the wrong values).
+      { title: 'Template default title', description: 'Template default body', estimatedSaving: 5 },
+    )
+
+    setup({ type: 'discount', categoryKey: 'food_drink', initialFields: seed })
+    // Edited title/description rehydrate from the STORED bag, not the template defaults.
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('My own headline')
+    expect(screen.getByTestId('preview-title')).toHaveTextContent('My own headline')
+    expect(screen.getByTestId('preview-desc')).toHaveTextContent('My own body copy')
+    // The selected clause stays selected + the custom term rehydrates.
     const terms = screen.getByTestId('terms-section')
+    expect((within(terms).getByRole('checkbox', { name: 'Not valid with any other voucher' }) as HTMLInputElement).checked).toBe(true)
     expect(within(terms).getByText('Eat in only please')).toBeInTheDocument()
+    // The concierge toggle stays on.
+    expect((screen.getByRole('switch', { name: /Ask the Redeemo team to help/i }) as HTMLInputElement).getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('draft with a photo: round-trips the uploaded imageUrl into the preview', () => {
+    const seed = realResumeSeed('bogo', 'food_drink', () => {
+      fireEvent.change(screen.getByLabelText('Item') as HTMLInputElement, { target: { value: 'a main' } })
+      // The mocked FileUpload sets a fixed url on click.
+      fireEvent.click(screen.getByRole('button', { name: /Add a photo/i }))
+    })
+    // The stored bag carries the photo url at the flattened imageUrl key.
+    expect(seed.imageUrl).toBe('https://cdn.test/voucher.png')
+
+    setup({ type: 'bogo', categoryKey: 'food_drink', initialFields: seed })
+    // The photo rehydrates: the upload button now reads "Replace photo".
+    expect(screen.getByRole('button', { name: /Replace photo/i })).toBeInTheDocument()
   })
 
   it('default (no initialFields) keeps fresh-start behaviour unchanged', () => {

@@ -70,16 +70,27 @@ export interface BuilderSavePayload {
   merchantFields: Record<string, unknown>
 }
 
-// A previously-saved RMV DRAFT, used to RESUME the builder where the merchant left off.
-// The INVERSE of buildPayload: merchantFields holds the per-type structured-field bag +
-// the picker context + the edited flags; the top-level title/description/estimatedSaving
-// hold the merchant's overrides when the respective edited flag is set.
+// A previously-saved RMV DRAFT, FLATTENED by the page into one unambiguous shape (see
+// resumeSeedFromRmv in page.tsx). The merchant's edited title/description/estimatedSaving
+// /imageUrl are the merchant's OVERRIDES (read out of the stored merchantFields bag, with
+// a template-default fallback); `fields` is the nested per-type structured-field bag (the
+// DraftFields model) plus the picker context + the edited flags + selected clauses +
+// custom terms + askHelp.
+//
+// IMPORTANT round-trip note: buildPayload PATCHes { title, description, estimatedSaving,
+// terms, imageUrl, merchantFields: <draft bag> }; the backend (updateRmvVoucherCore)
+// merges that WHOLE body into Voucher.merchantFields and writes NOTHING to the top-level
+// columns. So on resume the merchant's edits live INSIDE the stored merchantFields bag:
+// the title/description/estimatedSaving/imageUrl at its top level, and the draft bag one
+// level deeper under merchantFields.merchantFields. The page flattens that into this seed
+// so the form reads a single clean shape.
 export interface BuilderResumeSeed {
   title?: string | null
   description?: string | null
   estimatedSaving?: number | null
   imageUrl?: string | null
-  merchantFields?: Record<string, unknown> | null
+  /** The nested per-type structured-field bag + edited flags + clauses + custom terms. */
+  fields?: Record<string, unknown> | null
 }
 
 interface BuilderFormProps {
@@ -96,10 +107,10 @@ interface BuilderFormProps {
   initialFields?: BuilderResumeSeed
 }
 
-// Pull the DraftFields-shaped keys back out of a saved merchantFields bag (the inverse
-// of the buildPayload spread). Only known DraftFields keys are lifted; the bag's own
-// meta keys (builderType, categoryKey, selectedClauseIds, customTerms, askHelp, the
-// edited flags) are NOT part of DraftFields and are rehydrated separately.
+// Pull the DraftFields-shaped keys back out of the nested draft bag (the inverse of the
+// buildPayload spread). Only known DraftFields keys are lifted; the bag's own meta keys
+// (builderType, categoryKey, selectedClauseIds, customTerms, askHelp, the edited flags)
+// are NOT part of DraftFields and are rehydrated separately.
 function draftFromSeed(type: BuilderType, merchantBusinessName: string, seed?: BuilderResumeSeed): DraftFields {
   const base: DraftFields = {
     type,
@@ -107,7 +118,7 @@ function draftFromSeed(type: BuilderType, merchantBusinessName: string, seed?: B
     discountKind: type === 'discount' ? 'percent' : undefined,
     freeNeedsPurchase: type === 'freebie' ? true : undefined,
   }
-  const mf = seed?.merchantFields
+  const mf = seed?.fields
   if (!mf) return base
   const str = (k: string): string | undefined => (typeof mf[k] === 'string' ? (mf[k] as string) : undefined)
   const numF = (k: string): number | undefined => (typeof mf[k] === 'number' ? (mf[k] as number) : undefined)
@@ -146,9 +157,9 @@ export function BuilderForm({
   onBack,
   initialFields,
 }: BuilderFormProps) {
-  // The saved merchantFields bag (when resuming), so the rehydration helpers below can
-  // read the edited flags + selected clauses + custom terms back out.
-  const seedFields = initialFields?.merchantFields ?? undefined
+  // The nested draft bag (when resuming), so the rehydration helpers below can read the
+  // edited flags + selected clauses + custom terms back out.
+  const seedFields = initialFields?.fields ?? undefined
 
   // Per-type structured fields bag (the DraftFields model). Seeded from the saved bag on
   // resume; a fresh start gets the per-type defaults.

@@ -1,7 +1,8 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import VouchersPage from '@/app/(app)/onboarding/vouchers/page'
 import { ApiError } from '@/lib/api/client'
+import { BuilderForm, type BuilderSavePayload } from '@/components/onboarding/vouchers/BuilderForm'
 
 // M2 F5: the vouchers onboarding page. Wires the type picker -> create-flagship ->
 // guided builder -> update + submit; tracks "voucher 1 of 2" / "2 of 2"; on building
@@ -65,6 +66,66 @@ function renderPage() {
       <VouchersPage />
     </QueryClientProvider>,
   )
+}
+
+// ── REAL round-trip DRAFT fixtures (review-mandated) ─────────────────────────
+//
+// A saved DRAFT row is NOT a flat merchantFields bag. buildPayload PATCHes a body
+// { title, description, estimatedSaving, terms, imageUrl, merchantFields: <draft bag> };
+// the backend (updateRmvVoucherCore) merges the WHOLE body into Voucher.merchantFields
+// and leaves the top-level columns at their create-flagship TEMPLATE DEFAULTS. So a
+// resumed row has row.title/description = TEMPLATE DEFAULTS and row.merchantFields =
+// { ...patchBody } (the draft bag nested one level deeper). These helpers reproduce that
+// EXACT shape from a real buildPayload so the resume fixtures stay honest and drift-proof.
+
+function captureSavePayload(
+  type: React.ComponentProps<typeof BuilderForm>['type'],
+  edit?: () => void,
+): BuilderSavePayload {
+  const onSave = jest.fn()
+  render(
+    <BuilderForm
+      type={type}
+      categoryKey="food_drink"
+      merchantBusinessName="The Old Foundry"
+      voucherIndex={1}
+      saving={false}
+      saveError={null}
+      onSave={onSave}
+      onSubmit={jest.fn()}
+      onBack={jest.fn()}
+    />,
+  )
+  edit?.()
+  fireEvent.click(screen.getByRole('button', { name: /Save as draft/i }))
+  const payload = onSave.mock.calls[0][0] as BuilderSavePayload
+  cleanup() // tear down the capture form before the page renders
+  return payload
+}
+
+// Build a saved DRAFT row exactly as the backend stores it after a real save:
+// the top-level columns keep the TEMPLATE DEFAULTS; merchantFields = the merged PATCH body.
+// `type` uses the REAL backend VoucherType enum (the create-flagship template type),
+// because the page resolves the builder type via enumToBuilderType(row.type).
+function draftRow(
+  id: string,
+  type: 'BOGO' | 'FREEBIE' | 'DISCOUNT_PERCENT' | 'DISCOUNT_FIXED' | 'SPEND_AND_SAVE' | 'PACKAGE_DEAL',
+  builderType: React.ComponentProps<typeof BuilderForm>['type'],
+  templateDefaults: { title: string; description: string; estimatedSaving: number },
+  edit?: () => void,
+) {
+  const payload = captureSavePayload(builderType, edit)
+  return {
+    id,
+    type,
+    status: 'DRAFT',
+    // TEMPLATE DEFAULTS on the top-level columns (the backend never overwrites these).
+    title: templateDefaults.title,
+    description: templateDefaults.description,
+    estimatedSaving: templateDefaults.estimatedSaving,
+    // The merged PATCH body lands in merchantFields (the draft bag nests under .merchantFields).
+    merchantFields: { ...payload },
+  }
 }
 
 beforeEach(() => {
@@ -140,61 +201,65 @@ describe('2-voucher flow', () => {
 })
 
 describe('DRAFT resume + cap consistency (review-mandated fix)', () => {
-  it('save-as-draft then return: mounts the BUILDER resuming the DRAFT, does NOT create a new one', async () => {
-    // A single DRAFT exists (the merchant saved-as-draft earlier and came back).
-    listRmvVouchers.mockResolvedValue([
-      {
-        id: 'rmv-draft-1',
-        type: 'BOGO',
-        status: 'DRAFT',
-        title: 'Buy one main, get one free',
-        description: 'Some body',
-        estimatedSaving: 12,
-        merchantFields: {
-          builderType: 'bogo',
-          categoryKey: 'food_drink',
-          type: 'bogo',
-          bogoBuy: 'a main',
-          bogoFree: 'a second main',
-          bogoFreePrice: 12,
-          selectedClauseIds: [],
-          customTerms: [],
-          askHelp: false,
-          titleEdited: false,
-          descEdited: false,
-        },
-      },
-    ])
+  // TEMPLATE DEFAULTS the backend leaves on the top-level columns. The resume must show
+  // the MERCHANT's edits, NOT these. If the resume ever reads row.title (= the template
+  // default) and passes row.merchantFields as the seed bag, the edits are lost and these
+  // tests fail.
+  const BOGO_TEMPLATE = { title: 'Buy one, get one free', description: 'Template body copy', estimatedSaving: 5 }
+  const FREEBIE_TEMPLATE = { title: 'Free item', description: 'Template body copy', estimatedSaving: 5 }
+
+  it('save-as-draft then return: mounts the BUILDER resuming the DRAFT with the merchant edits, does NOT create a new one', async () => {
+    // A single DRAFT, stored EXACTLY as a real save then backend-merge produces it: the
+    // merchant filled the buy item + free price; the top-level columns keep the defaults.
+    const row = draftRow('rmv-draft-1', 'BOGO', 'bogo', BOGO_TEMPLATE, () => {
+      fireEvent.change(screen.getByLabelText('Item') as HTMLInputElement, { target: { value: 'a main' } })
+      fireEvent.change(screen.getByLabelText('Value of the free item') as HTMLInputElement, { target: { value: '12' } })
+    })
+    listRmvVouchers.mockResolvedValue([row])
     renderPage()
     // The guided builder mounts directly (resuming the DRAFT) - NOT the picker.
     expect(await screen.findByText('What does the customer buy?')).toBeInTheDocument()
-    // The saved buy item rehydrated.
+    // The MERCHANT's saved buy item rehydrated (NOT the template default, NOT undefined).
     expect((screen.getByLabelText('Item') as HTMLInputElement).value).toBe('a main')
+    expect((screen.getByLabelText('Value of the free item') as HTMLInputElement).value).toBe('12')
     // No create-flagship call: we RESUMED, not created.
     expect(createFlagshipRmv).not.toHaveBeenCalled()
     // Resuming voucher 1 of 2 (0 submitted) - the builder eyebrow reads the index.
     expect(screen.getByText(/Flagship voucher 1 of 2/i)).toBeInTheDocument()
   })
 
+  it('resumes a DRAFT with an edited title/description + selected clause + custom term + askHelp (full round-trip)', async () => {
+    const row = draftRow('rmv-draft-1', 'DISCOUNT_PERCENT', 'discount', { title: 'Template default title', description: 'Template default body', estimatedSaving: 5 }, () => {
+      fireEvent.change(screen.getByLabelText(/What percentage off/i) as HTMLInputElement, { target: { value: '25' } })
+      fireEvent.change(screen.getByLabelText(/typical order value/i) as HTMLInputElement, { target: { value: '40' } })
+      fireEvent.change(screen.getByLabelText('Title') as HTMLInputElement, { target: { value: 'My own headline' } })
+      fireEvent.change(screen.getByLabelText('Description') as HTMLInputElement, { target: { value: 'My own body copy' } })
+      const terms = screen.getByTestId('terms-section')
+      fireEvent.click(within(terms).getByRole('checkbox', { name: 'Not valid with any other voucher' }))
+      fireEvent.change(screen.getByLabelText('Add your own term') as HTMLInputElement, { target: { value: 'Eat in only please' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Add term' }))
+      fireEvent.click(screen.getByRole('switch', { name: /Ask the Redeemo team to help/i }))
+    })
+    listRmvVouchers.mockResolvedValue([row])
+    renderPage()
+    await screen.findByText('What kind of discount?')
+    // Edited title/description rehydrate from the STORED bag, not the template defaults.
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('My own headline')
+    expect(screen.getByTestId('preview-desc')).toHaveTextContent('My own body copy')
+    // The selected clause stays selected + the custom term rehydrates.
+    const termsSection = screen.getByTestId('terms-section')
+    expect((within(termsSection).getByRole('checkbox', { name: 'Not valid with any other voucher' }) as HTMLInputElement).checked).toBe(true)
+    expect(within(termsSection).getByText('Eat in only please')).toBeInTheDocument()
+    // The concierge toggle stays on.
+    expect(screen.getByRole('switch', { name: /Ask the Redeemo team to help/i }).getAttribute('aria-checked')).toBe('true')
+    expect(createFlagshipRmv).not.toHaveBeenCalled()
+  })
+
   it('save-as-draft DRAFT: resuming + submitting it advances to voucher 2 of 2', async () => {
-    const draftRow = {
-      id: 'rmv-draft-1',
-      type: 'BOGO',
-      status: 'DRAFT',
-      merchantFields: {
-        builderType: 'bogo',
-        categoryKey: 'food_drink',
-        type: 'bogo',
-        selectedClauseIds: [],
-        customTerms: [],
-        askHelp: false,
-        titleEdited: false,
-        descEdited: false,
-      },
-    }
+    const row = draftRow('rmv-draft-1', 'BOGO', 'bogo', BOGO_TEMPLATE)
     // Realistic backend transition: before submit the list has the DRAFT; after submit
     // the same row is PENDING_APPROVAL (so the refetch no longer sees it as a draft).
-    listRmvVouchers.mockResolvedValueOnce([draftRow]).mockResolvedValue([{ ...draftRow, status: 'PENDING_APPROVAL' }])
+    listRmvVouchers.mockResolvedValueOnce([row]).mockResolvedValue([{ ...row, status: 'PENDING_APPROVAL' }])
     renderPage()
     await screen.findByText('What does the customer buy?')
     // Submit the resumed DRAFT -> updates THIS draft id then submits it.
@@ -208,18 +273,8 @@ describe('DRAFT resume + cap consistency (review-mandated fix)', () => {
 
   it('two DRAFTs already exist (prior buggy state): resumes a draft, never creates', async () => {
     listRmvVouchers.mockResolvedValue([
-      {
-        id: 'rmv-draft-1',
-        type: 'BOGO',
-        status: 'DRAFT',
-        merchantFields: { builderType: 'bogo', categoryKey: 'food_drink', type: 'bogo', selectedClauseIds: [], customTerms: [], askHelp: false, titleEdited: false, descEdited: false },
-      },
-      {
-        id: 'rmv-draft-2',
-        type: 'FREEBIE',
-        status: 'DRAFT',
-        merchantFields: { builderType: 'freebie', categoryKey: 'food_drink', type: 'freebie', selectedClauseIds: [], customTerms: [], askHelp: false, titleEdited: false, descEdited: false },
-      },
+      draftRow('rmv-draft-1', 'BOGO', 'bogo', BOGO_TEMPLATE),
+      draftRow('rmv-draft-2', 'FREEBIE', 'freebie', FREEBIE_TEMPLATE),
     ])
     renderPage()
     // Resumes a DRAFT in the builder, never the picker, never create-flagship.
@@ -232,12 +287,7 @@ describe('DRAFT resume + cap consistency (review-mandated fix)', () => {
   it('1 submitted + 1 DRAFT: index reads "2 of 2" and resumes the DRAFT', async () => {
     listRmvVouchers.mockResolvedValue([
       { id: 'rmv-1', type: 'BOGO', status: 'PENDING_APPROVAL' },
-      {
-        id: 'rmv-draft-2',
-        type: 'FREEBIE',
-        status: 'DRAFT',
-        merchantFields: { builderType: 'freebie', categoryKey: 'food_drink', type: 'freebie', selectedClauseIds: [], customTerms: [], askHelp: false, titleEdited: false, descEdited: false },
-      },
+      draftRow('rmv-draft-2', 'FREEBIE', 'freebie', FREEBIE_TEMPLATE),
     ])
     renderPage()
     // 1 submitted -> "2 of 2"; resumes the DRAFT (no create).
