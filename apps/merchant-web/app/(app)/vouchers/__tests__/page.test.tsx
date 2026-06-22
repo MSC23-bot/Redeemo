@@ -146,6 +146,24 @@ describe('VouchersPage list', () => {
     expect(screen.getByText(/12 redemptions/i)).toBeInTheDocument()
   })
 
+  it('B-7: renders the header stat strip with Total / Live / In review / Draft counts', async () => {
+    listCustomVouchers.mockResolvedValue([
+      row({ id: 'v1', title: 'Live one', status: 'ACTIVE', approvalStatus: 'APPROVED' }),
+      row({ id: 'v2', title: 'Review one', status: 'PENDING_APPROVAL', approvalStatus: 'PENDING' }),
+      row({ id: 'v3', title: 'Draft one', status: 'DRAFT', approvalStatus: 'PENDING' }),
+      row({ id: 'v4', title: 'Draft two', status: 'DRAFT', approvalStatus: 'CHANGES_REQUESTED' }),
+    ])
+    renderPage()
+    await screen.findByText('Live one')
+    const strip = screen.getByTestId('voucher-stat-strip')
+    const { getByTestId } = within(strip)
+    expect(getByTestId('voucher-stat-total')).toHaveTextContent('4')
+    expect(getByTestId('voucher-stat-live')).toHaveTextContent('1')
+    expect(getByTestId('voucher-stat-in-review')).toHaveTextContent('1')
+    // changes-requested groups with Draft, so Draft is 2.
+    expect(getByTestId('voucher-stat-draft')).toHaveTextContent('2')
+  })
+
   it('NEVER renders any customer PII or a redemption PIN, even when the rows carry them (B-6)', async () => {
     // .passthrough() keeps these extra keys on the parsed row; the list must never
     // surface them. Injecting real PII-shaped values makes the assertion non-trivial.
