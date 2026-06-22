@@ -525,7 +525,19 @@ export async function submitVoucher(
       // is DRAFT-only, and a submitted custom voucher should always be the tidy
       // PENDING_APPROVAL + PENDING under review (display already works status-first;
       // this clears the stale value and protects future code that reads the pair jointly).
-      data: { status: 'PENDING_APPROVAL', approvalStatus: 'PENDING', publishedAt: new Date() },
+      //
+      // B1 item 4: spec §4.4 — the server-owned concierge keys (adminProposed /
+      // adminNote) are CLEARED on resubmit. stripAdminOwnedKeys removes exactly
+      // those two keys; a normal DRAFT submit (no admin keys) is a no-op. The
+      // stripped bag is strictly a subset of the stored bag, so no size concern.
+      data: {
+        status: 'PENDING_APPROVAL',
+        approvalStatus: 'PENDING',
+        publishedAt: new Date(),
+        merchantFields: stripAdminOwnedKeys(
+          (voucher.merchantFields as Record<string, unknown>) ?? {}
+        ) as Prisma.InputJsonValue,
+      },
     })
 
     const existing = await tx.adminApproval.findFirst({

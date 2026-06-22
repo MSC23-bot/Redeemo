@@ -119,4 +119,45 @@ describe('A4: submitVoucher creates/reopens the VOUCHER AdminApproval', () => {
     expect(reopen.where).toEqual({ id: 'appr-existing' })
     expect(reopen.data.status).toBe('PENDING')
   })
+
+  // B1 item 4: spec §4.4 says the server-owned concierge keys (adminProposed /
+  // adminNote) are CLEARED on resubmit. submitVoucher must strip them from the
+  // bag inside the transaction. stripAdminOwnedKeys removes exactly those two
+  // keys; a normal DRAFT submit (no admin keys) is a no-op.
+  it('resubmit-after-changes CLEARS adminProposed/adminNote from merchantFields (keeps the merchant keys)', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
+      ...draft,
+      approvalStatus: 'CHANGES_REQUESTED',
+      merchantFields: {
+        askHelp: true,
+        builderType: 'bogo',
+        draftFields: { headline: 'BOGO night' },
+        adminProposed: { title: 'x' },
+        adminNote: 'y',
+      },
+    })
+    app.prisma.adminApproval.findFirst = vi.fn().mockResolvedValue({ id: 'appr-existing', status: 'CHANGES_REQUESTED' })
+    const res = await submit()
+    expect(res.statusCode).toBe(200)
+    const upd = (app.prisma.voucher.update as any).mock.calls[0][0]
+    // server-owned keys stripped
+    expect(upd.data.merchantFields).toEqual({
+      askHelp: true,
+      builderType: 'bogo',
+      draftFields: { headline: 'BOGO night' },
+    })
+    expect(upd.data.merchantFields.adminProposed).toBeUndefined()
+    expect(upd.data.merchantFields.adminNote).toBeUndefined()
+  })
+
+  it('a normal DRAFT submit (no admin keys) leaves merchantFields unchanged', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
+      ...draft,
+      merchantFields: { askHelp: false, builderType: 'freebie' },
+    })
+    const res = await submit()
+    expect(res.statusCode).toBe(200)
+    const upd = (app.prisma.voucher.update as any).mock.calls[0][0]
+    expect(upd.data.merchantFields).toEqual({ askHelp: false, builderType: 'freebie' })
+  })
 })
