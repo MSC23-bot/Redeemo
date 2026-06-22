@@ -426,9 +426,44 @@ export async function submitVoucher(
     throw new AppError('TIME_LIMITED_REQUIRES_WINDOW')
   }
 
-  const updated = await prisma.voucher.update({
-    where: { id: voucherId },
-    data: { status: 'PENDING_APPROVAL', publishedAt: new Date() },
+  // Day-2 Vouchers A4: the status flip AND the VOUCHER approval lane row are
+  // committed atomically. Create the AdminApproval{ type:'VOUCHER' } on first
+  // submit; reopen the SAME row (clear the prior claim) on resubmit-after-changes,
+  // mirroring the onboarding submitForApprovalCore reopen so the review thread is
+  // never duplicated. NO notification fires on submit (no submit bell, spec §0).
+  const updated = await prisma.$transaction(async (tx) => {
+    const v = await tx.voucher.update({
+      where: { id: voucherId },
+      data: { status: 'PENDING_APPROVAL', publishedAt: new Date() },
+    })
+
+    const existing = await tx.adminApproval.findFirst({
+      where: { type: 'VOUCHER', referenceId: voucherId },
+      select: { id: true },
+    })
+    if (existing) {
+      await tx.adminApproval.update({
+        where: { id: existing.id },
+        data: {
+          status: 'PENDING',
+          claimedById: null,
+          claimedAt: null,
+          actionedAt: null,
+          comment: 'Merchant resubmitted voucher for approval',
+        },
+      })
+    } else {
+      await tx.adminApproval.create({
+        data: {
+          type: 'VOUCHER',
+          status: 'PENDING',
+          referenceId: voucherId,
+          referenceType: 'voucher',
+          comment: 'Merchant submitted voucher for approval',
+        },
+      })
+    }
+    return v
   })
   writeAuditLog(prisma, {
     entityId: merchantId,
