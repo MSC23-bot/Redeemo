@@ -7,7 +7,7 @@ import { getOnboardingTaxonomy } from '@/lib/api/taxonomy'
 // Day-2 Vouchers B3: resolve the merchant's TOP-LEVEL category NAME (the string the
 // builder's lib/voucher/config keys its suggestion chips off via resolveCategoryKey).
 // The profile carries only primaryCategoryId (the SUBCATEGORY id), so we walk the
-// taxonomy to the top-level parent and return its name. Returns null when unknown —
+// taxonomy to the top-level parent and return its name. Returns null when unknown -
 // resolveCategoryKey(null) safely falls back to the CATEGORY_FALLBACK chip set.
 
 export function useVoucherCategoryName(): string | null {

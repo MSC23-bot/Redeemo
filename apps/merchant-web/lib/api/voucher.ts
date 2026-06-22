@@ -178,7 +178,7 @@ export type MerchantFields = z.infer<typeof merchantFieldsSchema>
 // The full DETAIL shape (GET /vouchers/:id). Extends the list row with the
 // detail-only fields (merchantFields; availabilityWindows when the backend
 // includes them). NOTE (contract): the PR-A getVoucher uses include:{ _count }
-// only, so availabilityWindows is NOT returned today — modelled as optional so
+// only, so availabilityWindows is NOT returned today - modelled as optional so
 // the client never breaks if/when it is added.
 export const customVoucherDetailSchema = customVoucherListRowSchema
   .extend({
@@ -191,7 +191,7 @@ export const customVoucherDetailSchema = customVoucherListRowSchema
 export type CustomVoucherDetail = z.infer<typeof customVoucherDetailSchema>
 
 // The create payload. The merchant NEVER sends status/approvalStatus/isRmv/merchantId
-// (the server sets them) — they are intentionally absent from this type.
+// (the server sets them) - they are intentionally absent from this type.
 export interface CreateVoucherPayload {
   type: VoucherTypeEnum
   title: string

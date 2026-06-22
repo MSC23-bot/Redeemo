@@ -17,7 +17,7 @@ import { toChipType, voucherTypeLabel } from './typeChip'
 // through to the detail page. The action menu (Edit/Submit/Delete/Duplicate) is
 // wired in B5 via the `actions` slot so this card has no management logic itself.
 //
-// The card renders ONLY safe core fields — never customer PII or a redemption PIN.
+// The card renders ONLY safe core fields - never customer PII or a redemption PIN.
 
 const STATE_COLOUR: Record<VoucherDisplayState, string> = {
   live: '#16A34A',

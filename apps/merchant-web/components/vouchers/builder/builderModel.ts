@@ -140,7 +140,7 @@ export function descIsUntouched(state: BuilderState): boolean {
 // Build the API payload from the builder state. The merchantFields bag stores the
 // builder draft (builderType + the DraftFields + askHelp) so a later edit can
 // rehydrate. status/approvalStatus/isRmv/merchantId are NEVER set here (the server
-// sets them) — they are not in CreateVoucherPayload by construction.
+// sets them) - they are not in CreateVoucherPayload by construction.
 export function toCreatePayload(state: BuilderState): CreateVoucherPayload {
   const type = pickerIdToEnum(state)
   const title = effectiveTitle(state) || defaultTitleFor(state)
