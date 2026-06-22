@@ -425,10 +425,16 @@ export async function requestVoucherChanges(
     // (CHANGES_REQUESTED approval) has not been resubmitted; re-validate the entity.
     if (voucher.status !== 'PENDING_APPROVAL') throw new AppError('VOUCHER_NOT_ACTIONABLE')
 
+    // Fix 4 (clear stale adminProposed): always strip any PRIOR-round adminProposed
+    // from the merged bag. A comment-only round (no valid proposed keys) must not
+    // leave the previous round's proposal in the bag (stale proposal shown to the
+    // merchant); when valid keys ARE proposed, the fresh adminProposed is written
+    // below. Either way adminProposed reflects only the CURRENT round.
     const currentBag = (voucher.merchantFields as Record<string, unknown> | null) ?? {}
     const adminProposed = input.proposed ? buildAdminProposed(input.proposed) : {}
+    const { adminProposed: _stale, ...bagWithoutProposed } = currentBag
     const mergedBag: Record<string, unknown> = {
-      ...currentBag,
+      ...bagWithoutProposed,
       ...(Object.keys(adminProposed).length > 0 ? { adminProposed } : {}),
       adminNote: input.note,
     }

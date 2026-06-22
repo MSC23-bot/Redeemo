@@ -359,6 +359,23 @@ describe('A5/A6: requestVoucherChanges concierge (real DB)', () => {
     expect(bag.adminNote).toBe('Add clearer terms.')
   })
 
+  // Fix 4 (clear stale adminProposed): a comment-only round AFTER a prior proposed
+  // round must DROP the stale adminProposed so the bag reflects only the current
+  // round. Other existing keys (askHelp) are preserved.
+  it('comment-only round clears a stale adminProposed from a prior proposed round', async () => {
+    const { merchantId } = await makeMerchant('Stale Proposed Co', 'ACTIVE')
+    const { voucherId, approvalId } = await makeSubmittedVoucher(merchantId, {
+      merchantFields: { askHelp: true, adminProposed: { title: 'Old proposal' }, adminNote: 'old note' },
+    })
+
+    await requestVoucherChanges(prisma, dummyRedis, approvalId, ADMIN_ID, { note: 'Just a comment now.' }, ctx)
+
+    const bag = (await prisma.voucher.findUnique({ where: { id: voucherId } }))?.merchantFields as Record<string, unknown>
+    expect(bag).not.toHaveProperty('adminProposed') // stale proposal dropped
+    expect(bag.askHelp).toBe(true) // other keys preserved
+    expect(bag.adminNote).toBe('Just a comment now.')
+  })
+
   it('NEVER blind-spreads proposed: a malformed estimatedSaving + a non-string title are dropped, valid keys kept', async () => {
     const { merchantId } = await makeMerchant('Malformed Proposed Co', 'ACTIVE')
     const { voucherId, approvalId } = await makeSubmittedVoucher(merchantId)
