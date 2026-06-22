@@ -41,6 +41,7 @@ import { SuspendDialog } from '@/features/merchants/SuspendDialog'
 import { ReactivateConfirm } from '@/features/merchants/ReactivateConfirm'
 import { ConfirmLocationDialog } from '@/features/merchants/ConfirmLocationDialog'
 import { EditReviewPanel } from '@/features/review/EditReviewPanel'
+import { VoucherReviewPanel } from '@/features/review/VoucherReviewPanel'
 import { Button } from '@/components/ui/button'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'
 
@@ -277,6 +278,16 @@ export default function ReviewPage({ params }: ReviewPageProps) {
           approvalId={id}
           canRead={canRead}
           canApplyEdit={can('approval:apply-edit')}
+        />
+      ) : data.approval.type === 'VOUCHER' ? (
+        // Day-2 Vouchers PR-C: a submitted custom voucher (its own review surface
+        // with Approve / Reject / Request-changes). The review read uses
+        // approval:read (already checked); the 3 actions are gated on
+        // approval:action (backend is the real authority).
+        <VoucherReviewPanel
+          approvalId={id}
+          canRead={canRead}
+          canAction={can('approval:action')}
         />
       ) : data.approval.type !== 'MERCHANT_ONBOARDING' ? (
         <NonOnboardingNotice type={data.approval.type} />
