@@ -222,3 +222,82 @@ describe('QueueTable navigation', () => {
     expect(screen.queryByRole('button', { name: /release/i })).not.toBeInTheDocument()
   })
 })
+
+// ── Day-2 Vouchers PR-C: VOUCHER row enrichment ───────────────────────────────
+
+function makeVoucherApproval(overrides: Partial<AdminApproval> = {}): AdminApproval {
+  return makeApproval({
+    id: 'a-voucher-1',
+    type: 'VOUCHER',
+    referenceId: 'voucher-1',
+    referenceType: 'voucher',
+    // A VOUCHER-row merchant carries only { id, businessName, status }.
+    merchant: { id: 'm-1', businessName: 'Acme Coffee', status: 'ACTIVE' } as AdminApproval['merchant'],
+    voucher: { title: '20% off all mains', type: 'DISCOUNT', status: 'PENDING_APPROVAL', approvalStatus: 'PENDING' },
+    goLiveHint: 'live-now',
+    ...overrides,
+  })
+}
+
+describe('QueueTable VOUCHER row', () => {
+  it('renders the voucher title alongside the merchant business name', () => {
+    render(<QueueTable items={[makeVoucherApproval()]} currentAdminId={CURRENT_ADMIN} />)
+    const row = screen.getByTestId('queue-row-a-voucher-1')
+    expect(row).toHaveTextContent('20% off all mains')
+    expect(row).toHaveTextContent('Acme Coffee')
+  })
+
+  it('renders the voucher type label (Discount) and the "Voucher" type badge', () => {
+    render(<QueueTable items={[makeVoucherApproval()]} currentAdminId={CURRENT_ADMIN} />)
+    const row = screen.getByTestId('queue-row-a-voucher-1')
+    expect(row).toHaveTextContent('Voucher')
+    expect(row).toHaveTextContent('Discount')
+  })
+
+  it('renders the go-live-now hint', () => {
+    render(<QueueTable items={[makeVoucherApproval({ goLiveHint: 'live-now' })]} currentAdminId={CURRENT_ADMIN} />)
+    expect(screen.getByTestId('queue-row-a-voucher-1')).toHaveTextContent(/go live now/i)
+  })
+
+  it('renders the waiting-for-go-live hint', () => {
+    render(<QueueTable items={[makeVoucherApproval({ goLiveHint: 'waiting-for-go-live' })]} currentAdminId={CURRENT_ADMIN} />)
+    expect(screen.getByTestId('queue-row-a-voucher-1')).toHaveTextContent(/waiting to go live/i)
+  })
+
+  it('does NOT render a verification badge for a VOUCHER row (no verificationStatus)', () => {
+    render(<QueueTable items={[makeVoucherApproval()]} currentAdminId={CURRENT_ADMIN} />)
+    // The onboarding-only verification labels must not appear on a voucher row.
+    const row = screen.getByTestId('queue-row-a-voucher-1')
+    expect(row).not.toHaveTextContent('Verified')
+    expect(row).not.toHaveTextContent('Rejected')
+  })
+
+  it('links the VOUCHER row to its review screen at /queue/<id> (queue -> detail)', () => {
+    render(<QueueTable items={[makeVoucherApproval()]} currentAdminId={CURRENT_ADMIN} />)
+    const link = screen.getByRole('link', { name: /20% off all mains/i })
+    expect(link).toHaveAttribute('href', '/queue/a-voucher-1')
+  })
+
+  it('degrades gracefully when the voucher summary is null (shows merchant name, no crash)', () => {
+    render(
+      <QueueTable
+        items={[makeVoucherApproval({ voucher: null, goLiveHint: null })]}
+        currentAdminId={CURRENT_ADMIN}
+      />,
+    )
+    expect(screen.getByTestId('queue-row-a-voucher-1')).toHaveTextContent('Acme Coffee')
+  })
+
+  it('renders a MERCHANT_ONBOARDING row unchanged alongside a VOUCHER row', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ id: 'a-onb' }), makeVoucherApproval()]}
+        currentAdminId={CURRENT_ADMIN}
+      />,
+    )
+    // Onboarding row still shows its verification badge.
+    const onbRow = screen.getByTestId('queue-row-a-onb')
+    expect(onbRow).toHaveTextContent('Pending')
+    expect(onbRow).toHaveTextContent('Onboarding')
+  })
+})

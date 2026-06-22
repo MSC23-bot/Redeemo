@@ -219,6 +219,43 @@ describe('QueuePage OPERATIONS role (has approval:read)', () => {
   })
 })
 
+// ── Day-2 Vouchers PR-C: VOUCHER row renders with enriched context ────────────
+
+describe('QueuePage VOUCHER row (PR-C)', () => {
+  function voucherItem() {
+    return {
+      id: 'a-voucher-1',
+      type: 'VOUCHER' as const,
+      referenceId: 'voucher-1',
+      referenceType: 'voucher',
+      status: 'PENDING' as const,
+      adminUserId: null,
+      comment: null,
+      submittedAt: new Date(Date.now() - 3_600_000).toISOString(),
+      actionedAt: null,
+      claimedById: null,
+      claimedAt: null,
+      claimedBy: null,
+      merchant: { id: 'm-1', businessName: 'Acme Coffee', status: 'ACTIVE' },
+      voucher: { title: '20% off all mains', type: 'DISCOUNT', status: 'PENDING_APPROVAL', approvalStatus: 'PENDING' },
+      goLiveHint: 'live-now' as const,
+    }
+  }
+
+  it('renders a VOUCHER row (voucher title + business name + type) and links to its review screen', () => {
+    mockSession({ can: () => true })
+    mockQueue({ items: [voucherItem()] })
+    render(<QueuePage />)
+    const row = screen.getByTestId('queue-row-a-voucher-1')
+    expect(row).toHaveTextContent('20% off all mains')
+    expect(row).toHaveTextContent('Acme Coffee')
+    expect(row).toHaveTextContent('Voucher')
+    // queue -> detail: the row links to the VOUCHER review screen.
+    const link = screen.getByRole('link', { name: /20% off all mains/i })
+    expect(link).toHaveAttribute('href', '/queue/a-voucher-1')
+  })
+})
+
 // ── M6: Create merchant draft topbar entry ────────────────────────────────────
 
 describe('QueuePage create-draft topbar entry', () => {

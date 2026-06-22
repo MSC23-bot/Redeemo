@@ -134,6 +134,57 @@ describe('approvalsApi.list', () => {
     expect(result.approvals[1].merchant).toBeNull()
   })
 
+  it('parses a Day-2 VOUCHER row enriched with a voucher summary + goLiveHint', async () => {
+    const voucherRow = {
+      ...APPROVAL,
+      id: 'approval-v1',
+      type: 'VOUCHER',
+      referenceId: 'voucher-1',
+      referenceType: 'voucher',
+      // VOUCHER-row merchant carries only { id, businessName, status }.
+      merchant: { id: 'merchant-1', businessName: 'Acme Coffee', status: 'ACTIVE' },
+      voucher: { title: '20% off all mains', type: 'DISCOUNT', status: 'PENDING_APPROVAL', approvalStatus: 'PENDING' },
+      goLiveHint: 'live-now',
+    }
+    mockedApiFetch.mockResolvedValueOnce({ ...LIST_RESPONSE, approvals: [voucherRow] })
+
+    const result = await approvalsApi.list()
+
+    expect(result.approvals[0].voucher?.title).toBe('20% off all mains')
+    expect(result.approvals[0].goLiveHint).toBe('live-now')
+    expect(result.approvals[0].merchant?.businessName).toBe('Acme Coffee')
+    // The onboarding-only merchant fields are absent on a VOUCHER row.
+    expect(result.approvals[0].merchant?.verificationStatus).toBeUndefined()
+  })
+
+  it('parses a VOUCHER row whose voucher could not be loaded (voucher:null, goLiveHint:null)', async () => {
+    const voucherRow = {
+      ...APPROVAL,
+      id: 'approval-v2',
+      type: 'VOUCHER',
+      referenceId: 'voucher-x',
+      referenceType: 'voucher',
+      merchant: null,
+      voucher: null,
+      goLiveHint: null,
+    }
+    mockedApiFetch.mockResolvedValueOnce({ ...LIST_RESPONSE, approvals: [voucherRow] })
+
+    const result = await approvalsApi.list()
+
+    expect(result.approvals[0].voucher).toBeNull()
+    expect(result.approvals[0].goLiveHint).toBeNull()
+  })
+
+  it('still parses a MERCHANT_ONBOARDING row carrying the full merchant summary', async () => {
+    mockedApiFetch.mockResolvedValueOnce(LIST_RESPONSE)
+    const result = await approvalsApi.list()
+    expect(result.approvals[0].merchant?.verificationStatus).toBe('PENDING')
+    expect(result.approvals[0].merchant?.onboardingStep).toBe('SUBMIT_FOR_REVIEW')
+    // No voucher enrichment on an onboarding row.
+    expect(result.approvals[0].voucher).toBeUndefined()
+  })
+
   it('throws on a malformed response (Zod validation)', async () => {
     mockedApiFetch.mockResolvedValueOnce({ bad: 'shape' })
 
