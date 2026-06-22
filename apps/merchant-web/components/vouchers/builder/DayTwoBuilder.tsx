@@ -1,0 +1,261 @@
+'use client'
+
+import * as React from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Button } from '@/components/ui/button'
+import { resolveCategoryKey } from '@/lib/voucher/config'
+import type { DraftFields } from '@/lib/voucher/compose'
+import {
+  createVoucher,
+  updateVoucher,
+  submitVoucher,
+  type AvailabilityWindow,
+  type AdminProposed,
+} from '@/lib/api/voucher'
+import { TypePicker } from './TypePicker'
+import { BuilderFields } from './BuilderFields'
+import { BuilderPreview } from './BuilderPreview'
+import { BuilderScore } from './BuilderScore'
+import { ConciergeDiff } from '../ConciergeDiff'
+import { TextAreaField } from './fields'
+import {
+  emptyBuilderState,
+  enumToPickerId,
+  toCreatePayload,
+  effectiveTitle,
+  effectiveDescription,
+  effectiveSaving,
+  type BuilderState,
+  type DayTwoPickerId,
+} from './builderModel'
+
+// Day-2 Vouchers B2 (+ B6 concierge): the decoupled day-2 builder. Reuses the
+// validated pure logic in lib/voucher/* for the structured 5 types and handles
+// TIME_LIMITED windows + REUSABLE cooldown on top. NO onboarding imports/state.
+//
+// Save path:
+//   - new voucher: createVoucher(payload) -> DRAFT.
+//   - existing draft (voucherId set): updateVoucher(id, payload).
+//   then, when the action is "submit", submitVoucher(id) flips DRAFT->PENDING_APPROVAL.
+//
+// B6: when initialAdminProposed is set (a CHANGES_REQUESTED voucher), the concierge
+// diff renders at the top and "Apply Redeemo's suggestions" writes the proposed
+// values into the form state.
+
+export interface DayTwoBuilderProps {
+  /** The merchant's top-level category NAME (drives the suggestion chips). */
+  categoryName: string | null
+  /** Called after a successful save/submit (the parent typically closes + refetches). */
+  onDone: (result: { id: string }) => void
+  onCancel: () => void
+  /** Edit mode: the existing draft id. When set, save PATCHes instead of POSTing. */
+  voucherId?: string
+  /** Edit/duplicate prefill: the voucher type enum. */
+  initialType?: string
+  /** Edit/duplicate prefill: the persisted builder DraftFields + flags. */
+  initialFields?: Record<string, unknown> | null
+  /** Edit prefill: top-level overrides. */
+  initialTitle?: string | null
+  initialDescription?: string | null
+  initialTerms?: string | null
+  initialSaving?: number | null
+  initialWindows?: AvailabilityWindow[] | null
+  initialCooldown?: number | null
+  /** B6 concierge: the admin-proposed corrections + note (CHANGES_REQUESTED only). */
+  initialAdminProposed?: AdminProposed | null
+  initialAdminNote?: string | null
+}
+
+function seedState(props: DayTwoBuilderProps): BuilderState | null {
+  if (!props.initialType) return null
+  const pickerId = enumToPickerId(props.initialType)
+  const base = emptyBuilderState(pickerId)
+  const bag = props.initialFields ?? {}
+  // Prefer the persisted draftFields bag; fall back to treating initialFields itself
+  // as the bag (cast through unknown — it may carry the structured keys directly).
+  const nested = bag.draftFields as DraftFields | undefined
+  const flat = bag as unknown as DraftFields
+  const draft = nested && nested.type ? nested : flat && flat.type ? flat : undefined
+  return {
+    ...base,
+    fields: draft ?? base.fields,
+    titleOverride: props.initialTitle ?? undefined,
+    descriptionOverride: props.initialDescription ?? undefined,
+    savingOverride: typeof props.initialSaving === 'number' ? props.initialSaving : undefined,
+    terms: props.initialTerms ?? undefined,
+    askHelp: bag.askHelp === true,
+    availabilityWindows: props.initialWindows ?? [],
+    cooldownSeconds:
+      pickerId === 'reusable' ? props.initialCooldown ?? base.cooldownSeconds : props.initialCooldown ?? undefined,
+  }
+}
+
+export function DayTwoBuilder(props: DayTwoBuilderProps) {
+  const { categoryName, onDone, onCancel, voucherId } = props
+  const qc = useQueryClient()
+  const categoryKey = resolveCategoryKey(categoryName)
+
+  const [state, setState] = React.useState<BuilderState | null>(() => seedState(props))
+  const [error, setError] = React.useState<string | null>(null)
+
+  const save = useMutation({
+    mutationFn: async (action: 'draft' | 'submit') => {
+      if (!state) throw new Error('No voucher type selected')
+      const payload = toCreatePayload(state)
+      const saved = voucherId
+        ? await updateVoucher(voucherId, payload)
+        : await createVoucher(payload)
+      const id = (saved as { id: string }).id
+      if (action === 'submit') {
+        await submitVoucher(id)
+      }
+      return { id }
+    },
+    onSuccess: (result) => {
+      void qc.invalidateQueries({ queryKey: ['vouchers'] })
+      void qc.invalidateQueries({ queryKey: ['voucher', result.id] })
+      onDone(result)
+    },
+    onError: () => {
+      setError('We could not save your voucher just now. Please try again.')
+    },
+  })
+
+  function pickType(id: DayTwoPickerId) {
+    setState(emptyBuilderState(id))
+    setError(null)
+  }
+
+  function patchFields(patch: Partial<DraftFields>) {
+    setState((prev) => (prev ? { ...prev, fields: { ...prev.fields, ...patch } } : prev))
+  }
+  function setWindows(windows: AvailabilityWindow[]) {
+    setState((prev) => (prev ? { ...prev, availabilityWindows: windows } : prev))
+  }
+  function setCooldown(seconds: number) {
+    setState((prev) => (prev ? { ...prev, cooldownSeconds: seconds } : prev))
+  }
+  function setDescription(v: string) {
+    setState((prev) => (prev ? { ...prev, descriptionOverride: v } : prev))
+  }
+  function setTerms(v: string) {
+    setState((prev) => (prev ? { ...prev, terms: v } : prev))
+  }
+
+  // B6: apply the admin-proposed corrections into the form state.
+  function applyAdminProposed(proposed: AdminProposed) {
+    setState((prev) => {
+      if (!prev) return prev
+      const next: BuilderState = { ...prev }
+      if (typeof proposed.title === 'string') next.titleOverride = proposed.title
+      if (typeof proposed.description === 'string') next.descriptionOverride = proposed.description
+      if (typeof proposed.terms === 'string') next.terms = proposed.terms
+      if (typeof proposed.estimatedSaving === 'number') next.savingOverride = proposed.estimatedSaving
+      if (Array.isArray(proposed.availabilityWindows)) next.availabilityWindows = proposed.availabilityWindows
+      if (typeof proposed.cooldownSeconds === 'number') next.cooldownSeconds = proposed.cooldownSeconds
+      return next
+    })
+  }
+
+  // Type picker (no type chosen yet).
+  if (!state) {
+    return (
+      <div className="space-y-5">
+        {props.initialAdminProposed || props.initialAdminNote ? (
+          <ConciergeDiff
+            proposed={props.initialAdminProposed ?? null}
+            note={props.initialAdminNote ?? null}
+            current={{}}
+            onApply={() => {}}
+          />
+        ) : null}
+        <div className="space-y-1">
+          <h2 className="font-display text-xl font-semibold text-[#010C35]">Choose a voucher type</h2>
+          <p className="text-sm text-[#6B7390]">Pick the kind of offer you want to create.</p>
+        </div>
+        <TypePicker value={null} onChange={pickType} />
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  const currentForDiff = {
+    title: effectiveTitle(state),
+    description: effectiveDescription(state),
+    terms: state.terms,
+    estimatedSaving: effectiveSaving(state),
+  }
+
+  return (
+    <div className="space-y-5">
+      {props.initialAdminProposed || props.initialAdminNote ? (
+        <ConciergeDiff
+          proposed={props.initialAdminProposed ?? null}
+          note={props.initialAdminNote ?? null}
+          current={currentForDiff}
+          onApply={applyAdminProposed}
+        />
+      ) : null}
+
+      <div className="flex items-center justify-between">
+        <h2 className="font-display text-xl font-semibold text-[#010C35]">Build your voucher</h2>
+        <Button variant="ghost" size="sm" onClick={() => pickType(state.pickerId)}>
+          Change type
+        </Button>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <div className="space-y-6">
+          <BuilderFields
+            state={state}
+            categoryKey={categoryKey}
+            onFields={patchFields}
+            onWindows={setWindows}
+            onCooldown={setCooldown}
+          />
+
+          <TextAreaField
+            label="Description (optional, but recommended)"
+            value={state.descriptionOverride ?? effectiveDescription(state)}
+            onChange={setDescription}
+            placeholder="Tell customers why they will love this offer."
+          />
+
+          <TextAreaField
+            label="Terms (optional)"
+            value={state.terms ?? ''}
+            onChange={setTerms}
+            placeholder="Any conditions a customer should know."
+          />
+        </div>
+
+        <div className="space-y-4">
+          <BuilderPreview state={state} />
+          <BuilderScore state={state} categoryName={categoryName} />
+        </div>
+      </div>
+
+      {error ? (
+        <div role="alert" className="text-sm" style={{ color: 'var(--danger)' }}>
+          {error}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center justify-end gap-3 border-t border-[#E5E7EB] pt-4">
+        <Button variant="ghost" onClick={onCancel} disabled={save.isPending}>
+          Cancel
+        </Button>
+        <Button variant="secondary" onClick={() => save.mutate('draft')} disabled={save.isPending}>
+          {save.isPending ? 'Saving...' : 'Save as draft'}
+        </Button>
+        <Button variant="gradient" onClick={() => save.mutate('submit')} disabled={save.isPending}>
+          {save.isPending ? 'Submitting...' : 'Submit for review'}
+        </Button>
+      </div>
+    </div>
+  )
+}
