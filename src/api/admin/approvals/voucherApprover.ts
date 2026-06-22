@@ -184,7 +184,15 @@ export async function getVoucherReviewContext(prisma: PrismaClient, approvalId: 
   }
 }
 
-/** A merchant's flagship RMVs are "live" when NONE of them is in a non-ACTIVE status. */
+/**
+ * A merchant's flagship RMVs are "live" when NONE of them is in a non-ACTIVE
+ * status. Fix 5 (defensive note): a count-of-not-ACTIVE === 0 also reads true for
+ * a merchant with ZERO RMVs, but that case is benign by construction. This is only
+ * consulted as part of goLive, which additionally requires merchant.status ===
+ * 'ACTIVE'; the approveApproval go-live gate guarantees an ACTIVE merchant always
+ * has its two flagship RMVs activated (>= 2 ACTIVE flagships), so an ACTIVE merchant
+ * can never have zero RMVs here.
+ */
 async function isFlagshipLive(
   client: { voucher: { count: (args: any) => Promise<number> } },
   merchantId: string,
