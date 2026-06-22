@@ -13,6 +13,26 @@ function generateVoucherCode(prefix: string): string {
   return `${prefix}-${randomBytes(4).toString('hex').toUpperCase()}`
 }
 
+// Codex review FIX 2: adminProposed + adminNote are SERVER-OWNED concierge keys.
+// They are written ONLY by voucherApprover.requestVoucherChanges and PR-B renders
+// them to the merchant as Redeemo-authored suggestions. The merchant create/update
+// merchantFields bag is free-form (z.record(z.string(), z.unknown())), so a merchant
+// could otherwise self-inject these keys (UI spoofing) or clobber a real admin
+// proposal. We strip them from any MERCHANT-supplied bag; on update the existing
+// server-written values in the current bag are preserved because the merge spreads
+// the stripped incoming bag OVER the current bag (the admin keys never appear in the
+// incoming side, so they are never overwritten). These keys must NEVER be settable
+// from the merchant bag.
+const ADMIN_OWNED_MERCHANTFIELDS_KEYS = ['adminProposed', 'adminNote'] as const
+
+function stripAdminOwnedKeys(bag: Record<string, unknown>): Record<string, unknown> {
+  const copy = { ...bag }
+  for (const key of ADMIN_OWNED_MERCHANTFIELDS_KEYS) {
+    delete copy[key]
+  }
+  return copy
+}
+
 // ─── M2 B4 (D8b): advisory saving sanity ─────────────────────────────────────
 //
 // A light present/positive check on the merchant voucher SAVE paths where the
@@ -280,7 +300,9 @@ export async function createVoucher(
       // draft). Default to {} so the column is never null for a custom voucher,
       // matching the RMV create paths. status/approvalStatus/isRmv/merchantId are
       // server-set above and CANNOT be overridden by the bag.
-      merchantFields: (data.merchantFields ?? {}) as Prisma.InputJsonValue,
+      // Codex review FIX 2: strip the server-owned adminProposed/adminNote concierge
+      // keys so a merchant cannot self-inject a fake Redeemo suggestion at create.
+      merchantFields: stripAdminOwnedKeys(data.merchantFields ?? {}) as Prisma.InputJsonValue,
       // M5 Task 12.5 — propagate validated cooldown. Zod refine (Task
       // 12) guarantees: REUSABLE → null OR >= 1800; non-REUSABLE → null.
       cooldownSeconds: data.cooldownSeconds ?? null,
@@ -347,7 +369,12 @@ export async function updateVoucher(
   // ACTIVE / APPROVED (security invariant spec §6.1).
   if ('merchantFields' in data && data.merchantFields && typeof data.merchantFields === 'object') {
     const currentBag = (voucher.merchantFields as Record<string, unknown> | null) ?? {}
-    safe.merchantFields = { ...currentBag, ...(data.merchantFields as Record<string, unknown>) }
+    // Codex review FIX 2: strip the server-owned adminProposed/adminNote keys from the
+    // INCOMING bag before the merge. Because they are absent from the incoming side,
+    // the existing server-written values in currentBag are PRESERVED (a merchant
+    // editing other builder fields does not clear a real admin proposal), and a
+    // merchant attempt to set/overwrite them is dropped.
+    safe.merchantFields = { ...currentBag, ...stripAdminOwnedKeys(data.merchantFields as Record<string, unknown>) }
   }
 
   // M2 B4 (D8b): saving sanity ONLY when the patch writes a top-level

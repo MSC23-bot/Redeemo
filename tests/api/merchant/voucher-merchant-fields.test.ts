@@ -86,4 +86,47 @@ describe('A3: custom voucher merchantFields storage + body allow-listing', () =>
     expect(data.approvedBy).toBeUndefined()
     expect(data.title).toBe('New title')
   })
+
+  // Codex review FIX 2: merchantFields trust boundary. adminProposed + adminNote
+  // are SERVER-OWNED concierge keys (written only by voucherApprover.requestVoucher
+  // Changes). PR-B renders them to the merchant as Redeemo-authored suggestions, so
+  // a merchant must never set or overwrite them via the free-form bag (UI spoofing +
+  // clobbering a real admin proposal). They are stripped from merchant input on both
+  // create and update; server-written values already in the bag are preserved on update.
+
+  it('create STRIPS admin-owned keys (adminProposed/adminNote) from the merchant bag, storing only merchant keys', async () => {
+    const res = await post({
+      type: 'BOGO', title: 'BOGO night', estimatedSaving: 5,
+      merchantFields: { askHelp: true, adminProposed: { title: 'fake' }, adminNote: 'fake' },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(createArg().data.merchantFields).toEqual({ askHelp: true })
+  })
+
+  it('update STRIPS admin-owned keys from the patch when the current bag has none', async () => {
+    // current bag carries NO admin keys
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
+      ...draft, merchantFields: { askHelp: true, builderType: 'bogo' },
+    })
+    await patch({ merchantFields: { askHelp: false, adminProposed: { title: 'fake' } } })
+    const merged = updateArg().data.merchantFields
+    expect(merged).toEqual({ askHelp: false, builderType: 'bogo' })
+    expect(merged.adminProposed).toBeUndefined()
+  })
+
+  it('update PRESERVES server-written admin keys and a merchant clobber attempt does NOT overwrite them', async () => {
+    // current bag carries SERVER-written adminProposed + adminNote
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
+      ...draft, merchantFields: { askHelp: true, adminProposed: { title: 'real' }, adminNote: 'real', builderType: 'bogo' },
+    })
+    // merchant PATCH sets askHelp false AND tries to clobber adminProposed
+    await patch({ merchantFields: { askHelp: false, adminProposed: { title: 'evil' } } })
+    const merged = updateArg().data.merchantFields
+    // server keys preserved at their real values; merchant clobber dropped
+    expect(merged.adminProposed).toEqual({ title: 'real' })
+    expect(merged.adminNote).toBe('real')
+    // merchant's own field still applied
+    expect(merged.askHelp).toBe(false)
+    expect(merged.builderType).toBe('bogo')
+  })
 })
