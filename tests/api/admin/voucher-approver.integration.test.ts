@@ -244,6 +244,27 @@ describe('A5/A6: approveVoucher Model 1 (real DB)', () => {
     await expect(approveVoucher(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)).rejects.toThrow('APPROVAL_NOT_ACTIONABLE')
     expect(notifyMock).not.toHaveBeenCalled()
   })
+
+  // Fix 1 (entity-status guard): the AdminApproval status (CHANGES_REQUESTED) is
+  // actionable, but the voucher itself is DRAFT (the merchant has NOT resubmitted
+  // yet). Approving here would force-publish a DRAFT, bypassing resubmit/re-review,
+  // so the voucher status is re-validated and VOUCHER_NOT_ACTIONABLE is thrown.
+  it('voucher status DRAFT (AdminApproval CHANGES_REQUESTED, not yet resubmitted) -> VOUCHER_NOT_ACTIONABLE; notifies nobody', async () => {
+    const { merchantId } = await makeMerchant('Draft Force-Activate Co', 'ACTIVE')
+    await makeRmv(merchantId, 'ACTIVE')
+    const { voucherId, approvalId } = await makeSubmittedVoucher(merchantId, {
+      status: 'DRAFT',
+      approvalStatus: 'CHANGES_REQUESTED',
+    })
+    await prisma.adminApproval.update({ where: { id: approvalId }, data: { status: 'CHANGES_REQUESTED' } })
+    notifyMock.mockClear()
+    await expect(approveVoucher(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)).rejects.toThrow('VOUCHER_NOT_ACTIONABLE')
+    // No write happened: the voucher stays DRAFT, never force-published.
+    const v = await prisma.voucher.findUnique({ where: { id: voucherId } })
+    expect(v?.status).toBe('DRAFT')
+    expect(v?.approvalStatus).toBe('CHANGES_REQUESTED')
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('A5/A6: rejectVoucher (real DB)', () => {
@@ -268,6 +289,33 @@ describe('A5/A6: rejectVoucher (real DB)', () => {
 
     expect(notifyMock.mock.calls[0][2].type).toBe('voucher_rejected')
     expect(notifyMock.mock.calls[0][2].inApp.referenceType).toBe('voucher')
+  })
+
+  // Fix 1 (entity-status guard): a DRAFT voucher (CHANGES_REQUESTED approval) is
+  // not a genuinely-submitted voucher, so reject re-validates the voucher status.
+  it('voucher status DRAFT (CHANGES_REQUESTED) -> VOUCHER_NOT_ACTIONABLE on reject', async () => {
+    const { merchantId } = await makeMerchant('Reject Draft Co', 'ACTIVE')
+    const { voucherId, approvalId } = await makeSubmittedVoucher(merchantId, {
+      status: 'DRAFT',
+      approvalStatus: 'CHANGES_REQUESTED',
+    })
+    await prisma.adminApproval.update({ where: { id: approvalId }, data: { status: 'CHANGES_REQUESTED' } })
+    notifyMock.mockClear()
+    await expect(rejectVoucher(prisma, dummyRedis, approvalId, ADMIN_ID, 'no', ctx)).rejects.toThrow('VOUCHER_NOT_ACTIONABLE')
+    expect((await prisma.voucher.findUnique({ where: { id: voucherId } }))?.status).toBe('DRAFT')
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+
+  // Fix 6 (negative): a non-VOUCHER approval id surfaces APPROVAL_NOT_ACTIONABLE
+  // (the type gate runs before the voucher lookup).
+  it('non-VOUCHER approval type -> APPROVAL_NOT_ACTIONABLE on reject', async () => {
+    const { merchantId } = await makeMerchant('Reject Wrong Type Co', 'ACTIVE')
+    const approval = await prisma.adminApproval.create({
+      data: { type: 'MERCHANT_ONBOARDING', status: 'PENDING', referenceId: merchantId, referenceType: 'merchant' },
+    })
+    notifyMock.mockClear()
+    await expect(rejectVoucher(prisma, dummyRedis, approval.id, ADMIN_ID, 'no', ctx)).rejects.toThrow('APPROVAL_NOT_ACTIONABLE')
+    expect(notifyMock).not.toHaveBeenCalled()
   })
 })
 
@@ -330,5 +378,58 @@ describe('A5/A6: requestVoucherChanges concierge (real DB)', () => {
     expect(proposed).toEqual({ description: 'Valid text', terms: 'Valid terms' })
     expect(proposed).not.toHaveProperty('title')
     expect(proposed).not.toHaveProperty('estimatedSaving')
+  })
+
+  // Fix 6 (buildAdminProposed via the service): estimatedSaving:0 (not > 0) AND a
+  // column-overflowing value (>= 1e8) are both DROPPED from adminProposed; the
+  // valid string key survives.
+  it('drops estimatedSaving:0 and estimatedSaving >= 1e8 from adminProposed; keeps valid string', async () => {
+    const { merchantId } = await makeMerchant('Saving Edge Proposed Co', 'ACTIVE')
+    const zero = await makeSubmittedVoucher(merchantId)
+    await requestVoucherChanges(prisma, dummyRedis, zero.approvalId, ADMIN_ID, {
+      proposed: { title: 'Kept', estimatedSaving: 0 } as any,
+      note: 'Zero saving dropped.',
+    }, ctx)
+    const zeroBag = (await prisma.voucher.findUnique({ where: { id: zero.voucherId } }))?.merchantFields as Record<string, unknown>
+    expect(zeroBag.adminProposed).toEqual({ title: 'Kept' })
+
+    const over = await makeSubmittedVoucher(merchantId)
+    await requestVoucherChanges(prisma, dummyRedis, over.approvalId, ADMIN_ID, {
+      proposed: { title: 'Kept', estimatedSaving: 100000000 } as any,
+      note: 'Overflow saving dropped.',
+    }, ctx)
+    const overBag = (await prisma.voucher.findUnique({ where: { id: over.voucherId } }))?.merchantFields as Record<string, unknown>
+    expect(overBag.adminProposed).toEqual({ title: 'Kept' })
+  })
+
+  // Fix 1 (entity-status guard): a DRAFT voucher (CHANGES_REQUESTED approval) is
+  // not genuinely submitted, so request-changes re-validates the voucher status.
+  it('voucher status DRAFT (CHANGES_REQUESTED) -> VOUCHER_NOT_ACTIONABLE on request-changes', async () => {
+    const { merchantId } = await makeMerchant('Changes Draft Co', 'ACTIVE')
+    const { voucherId, approvalId } = await makeSubmittedVoucher(merchantId, {
+      status: 'DRAFT',
+      approvalStatus: 'CHANGES_REQUESTED',
+      merchantFields: { askHelp: true },
+    })
+    await prisma.adminApproval.update({ where: { id: approvalId }, data: { status: 'CHANGES_REQUESTED' } })
+    notifyMock.mockClear()
+    await expect(
+      requestVoucherChanges(prisma, dummyRedis, approvalId, ADMIN_ID, { note: 'again' }, ctx),
+    ).rejects.toThrow('VOUCHER_NOT_ACTIONABLE')
+    expect((await prisma.voucher.findUnique({ where: { id: voucherId } }))?.status).toBe('DRAFT')
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+
+  // Fix 6 (negative): a non-VOUCHER approval id surfaces APPROVAL_NOT_ACTIONABLE.
+  it('non-VOUCHER approval type -> APPROVAL_NOT_ACTIONABLE on request-changes', async () => {
+    const { merchantId } = await makeMerchant('Changes Wrong Type Co', 'ACTIVE')
+    const approval = await prisma.adminApproval.create({
+      data: { type: 'MERCHANT_ONBOARDING', status: 'PENDING', referenceId: merchantId, referenceType: 'merchant' },
+    })
+    notifyMock.mockClear()
+    await expect(
+      requestVoucherChanges(prisma, dummyRedis, approval.id, ADMIN_ID, { note: 'x' }, ctx),
+    ).rejects.toThrow('APPROVAL_NOT_ACTIONABLE')
+    expect(notifyMock).not.toHaveBeenCalled()
   })
 })

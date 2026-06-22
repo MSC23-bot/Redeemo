@@ -231,6 +231,13 @@ export async function approveVoucher(
       select: { id: true, merchantId: true, title: true, status: true, approvalStatus: true },
     })
     if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
+    // Fix 1 (entity-status guard): re-validate the voucher's OWN status. The
+    // AdminApproval may be actionable (CHANGES_REQUESTED) while the voucher is still
+    // DRAFT (merchant has not resubmitted), so approving here would force-publish a
+    // DRAFT and bypass resubmit/re-review. Only a genuinely-submitted
+    // (PENDING_APPROVAL) voucher can be approved. (This also guarantees publishedAt
+    // is never set on a DRAFT.)
+    if (voucher.status !== 'PENDING_APPROVAL') throw new AppError('VOUCHER_NOT_ACTIONABLE')
 
     const merchant = await tx.merchant.findUnique({
       where: { id: voucher.merchantId },
@@ -325,6 +332,10 @@ export async function rejectVoucher(
       select: { id: true, merchantId: true, title: true, status: true, approvalStatus: true },
     })
     if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
+    // Fix 1 (entity-status guard): only a genuinely-submitted (PENDING_APPROVAL)
+    // voucher can be rejected. A DRAFT (CHANGES_REQUESTED approval) is not
+    // submitted, so re-validate the entity status.
+    if (voucher.status !== 'PENDING_APPROVAL') throw new AppError('VOUCHER_NOT_ACTIONABLE')
 
     const now = new Date()
     await tx.voucher.update({
@@ -409,6 +420,10 @@ export async function requestVoucherChanges(
       select: { id: true, merchantId: true, title: true, status: true, approvalStatus: true, merchantFields: true },
     })
     if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
+    // Fix 1 (entity-status guard): only a genuinely-submitted (PENDING_APPROVAL)
+    // voucher can have changes requested. A voucher already in DRAFT
+    // (CHANGES_REQUESTED approval) has not been resubmitted; re-validate the entity.
+    if (voucher.status !== 'PENDING_APPROVAL') throw new AppError('VOUCHER_NOT_ACTIONABLE')
 
     const currentBag = (voucher.merchantFields as Record<string, unknown> | null) ?? {}
     const adminProposed = input.proposed ? buildAdminProposed(input.proposed) : {}
