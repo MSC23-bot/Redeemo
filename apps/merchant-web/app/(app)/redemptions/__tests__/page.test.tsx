@@ -24,6 +24,12 @@ jest.mock('@/components/redemptions/validateDialogContext', () => ({
   useValidateDialog: () => ({ openValidate }),
 }))
 
+// B-2: the page reads ?voucherId=<id> from the URL to apply the deep-link filter.
+let searchParams = new URLSearchParams()
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => searchParams,
+}))
+
 const ROW = {
   id: 'r1',
   redemptionCode: 'A7K2P9X4',
@@ -63,6 +69,7 @@ beforeEach(() => {
   downloadRedemptionsCsv.mockReset().mockResolvedValue(undefined)
   listBranches.mockReset().mockResolvedValue([{ id: 'b1', name: 'High Street' }])
   openValidate.mockReset()
+  searchParams = new URLSearchParams()
 })
 
 describe('RedemptionsPage (F1 log + filters)', () => {
@@ -167,5 +174,40 @@ describe('RedemptionsPage (F1 log + filters)', () => {
         expect.objectContaining({ status: 'validated' }),
       ),
     )
+  })
+})
+
+describe('RedemptionsPage voucherId deep-link (B-2)', () => {
+  it('applies the ?voucherId= filter on first load', async () => {
+    searchParams = new URLSearchParams('voucherId=v1')
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    await waitFor(() =>
+      expect(listRedemptions).toHaveBeenCalledWith(expect.objectContaining({ voucherId: 'v1' })),
+    )
+  })
+
+  it('shows a removable "Filtered to this voucher" chip that clears the filter', async () => {
+    searchParams = new URLSearchParams('voucherId=v1')
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    const chip = await screen.findByRole('button', { name: /filtered to this voucher/i })
+    expect(chip).toBeInTheDocument()
+    listRedemptions.mockClear()
+    fireEvent.click(chip)
+    // Clearing the chip drops the voucherId from the query.
+    await waitFor(() => expect(listRedemptions).toHaveBeenCalled())
+    const lastCall = listRedemptions.mock.calls[listRedemptions.mock.calls.length - 1][0]
+    expect(lastCall).not.toHaveProperty('voucherId')
+    expect(screen.queryByRole('button', { name: /filtered to this voucher/i })).toBeNull()
+  })
+
+  it('shows no voucher chip when there is no ?voucherId=', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    expect(screen.queryByRole('button', { name: /filtered to this voucher/i })).toBeNull()
   })
 })
