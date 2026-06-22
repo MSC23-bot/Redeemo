@@ -122,11 +122,23 @@ describe('VoucherDetailPage render', () => {
     expect(link).toHaveAttribute('href', '/redemptions?voucherId=v1')
   })
 
-  it('NEVER renders customer PII or a redemption PIN', async () => {
-    getVoucher.mockResolvedValue(voucher())
+  it('NEVER renders customer PII or a redemption PIN, even when the payload carries them (B-6)', async () => {
+    // Inject PII-shaped extras: .passthrough() keeps them on the parsed object, so a
+    // careless render would leak them. The detail view must drop them entirely.
+    getVoucher.mockResolvedValue(
+      voucher({
+        redemptionPin: '4821',
+        customerEmail: 'leaky.customer@example.com',
+        customerPhone: '07123456789',
+        ownerEmail: 'merchant.owner@example.com',
+      }),
+    )
     const { container } = renderPage()
     await screen.findAllByText('Free coffee with breakfast')
     const text = container.textContent ?? ''
+    expect(text).not.toContain('leaky.customer@example.com')
+    expect(text).not.toContain('merchant.owner@example.com')
+    expect(text).not.toContain('4821')
     expect(text).not.toMatch(/@|07\d{9}|\+44|redemptionPin/i)
     expect(text).not.toMatch(/\bPIN\b/)
   })
