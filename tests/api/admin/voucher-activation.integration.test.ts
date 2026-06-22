@@ -187,7 +187,7 @@ describe('A7 - onboarding-approve activates approved-waiting customs (real DB)',
     expect(types).not.toContain('voucher_now_live')
   })
 
-  it('activates ALL approved-waiting customs (one now-live notify each) but leaves a DRAFT custom alone', async () => {
+  it('activates ALL approved-waiting customs (ONE batched now-live notify) but leaves a DRAFT custom alone', async () => {
     const { approvalId, customIds } = await makePreparedMerchant([
       { approvalStatus: 'APPROVED', status: 'PENDING_APPROVAL' },
       { approvalStatus: 'APPROVED', status: 'PENDING_APPROVAL' },
@@ -202,7 +202,38 @@ describe('A7 - onboarding-approve activates approved-waiting customs (real DB)',
     expect((await prisma.voucher.findUnique({ where: { id: customIds[1] } }))?.status).toBe('ACTIVE')
     expect((await prisma.voucher.findUnique({ where: { id: customIds[2] } }))?.status).toBe('DRAFT')
 
-    const nowLiveCount = notifyMock.mock.calls.filter((c) => c[2].type === 'voucher_now_live').length
-    expect(nowLiveCount).toBe(2)
+    // Fix 2 (notification-loss): exactly ONE now-live notify fires for the whole
+    // activated set (was one-per-voucher, which the 5/hour notify limit silently
+    // dropped from the 6th onward). The bell still deep-links to the first id.
+    const nowLive = notifyMock.mock.calls.filter((c) => c[2].type === 'voucher_now_live')
+    expect(nowLive).toHaveLength(1)
+    expect(nowLive[0][2].inApp.referenceType).toBe('voucher')
+    expect([customIds[0], customIds[1]]).toContain(nowLive[0][2].inApp.referenceId)
   })
+
+  // Fix 2 (notification-loss): with MANY (7) approved-waiting customs activating at
+  // go-live, exactly ONE voucher_now_live in-app notification fires (not 7, which
+  // would lose the 6th+ to notify()'s 5/hour per-(type,recipient) send limit before
+  // the in-app row is written). The merchant_live bell still fires too.
+  it('fires exactly ONE batched now-live notify when MANY approved-waiting customs activate', async () => {
+    const { approvalId, customIds } = await makePreparedMerchant(
+      Array.from({ length: 7 }, () => ({ approvalStatus: 'APPROVED', status: 'PENDING_APPROVAL' })),
+    )
+    const res = await approveApproval(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)
+
+    const activated = (res as any).activatedCustoms as { id: string }[]
+    expect(activated).toHaveLength(7)
+    for (const id of customIds) {
+      expect((await prisma.voucher.findUnique({ where: { id } }))?.status).toBe('ACTIVE')
+    }
+
+    const nowLive = notifyMock.mock.calls.filter((c) => c[2].type === 'voucher_now_live')
+    expect(nowLive).toHaveLength(1) // ONE notify for the whole set, regardless of N
+    expect(nowLive[0][2].inApp.notificationType).toBe('VOUCHER_APPROVAL_UPDATE')
+    expect(nowLive[0][2].inApp.referenceType).toBe('voucher')
+    expect(customIds).toContain(nowLive[0][2].inApp.referenceId) // still deep-links
+
+    // merchant_live (owner go-live) still fires alongside.
+    expect(notifyMock.mock.calls.some((c) => c[2].type === 'merchant_live')).toBe(true)
+  }, 45_000)
 })

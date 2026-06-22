@@ -157,6 +157,25 @@ export function voucherNowLiveEmail(voucherTitle: string): RenderedEmail {
   }
 }
 
+/**
+ * Fix 2 (notification-loss): when go-live activates MORE THAN ONE approved-waiting
+ * custom at once, a SINGLE batched now-live notification is sent (one per voucher
+ * would lose the 6th+ to notify()'s 5/hour per-(type,recipient) send limit before
+ * the in-app row is written). `count` is server-computed (the activated set size),
+ * not free text, so nothing here is admin/merchant-controlled.
+ */
+export function voucherNowLiveBatchEmail(count: number): RenderedEmail {
+  return {
+    subject: `Your ${BRAND} vouchers are now live`,
+    text:
+      `${count} of your custom vouchers are now live on ${BRAND}.\n\n` +
+      `Members in your area can find and redeem them from today. Sign in to your merchant portal to see them.`,
+    html:
+      `<p>${count} of your custom vouchers are now live on ${BRAND}.</p>` +
+      `<p>Members in your area can find and redeem them from today. Sign in to your merchant portal to see them.</p>`,
+  }
+}
+
 /** Admin requested changes on a voucher. `reason` is admin-controlled to escaped. */
 export function voucherChangesRequestedEmail(voucherTitle: string, reason: string): RenderedEmail {
   const safeTitle = escapeHtml(voucherTitle)

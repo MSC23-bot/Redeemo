@@ -4,7 +4,7 @@ import { ApprovalType, ApprovalStatus } from '../../../../generated/prisma/enums
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
 import { notify } from '../../shared/notify'
-import { merchantChangesRequestedEmail, merchantRejectedEmail, merchantLiveEmail, voucherNowLiveEmail } from '../../shared/merchantEmails'
+import { merchantChangesRequestedEmail, merchantRejectedEmail, merchantLiveEmail, voucherNowLiveEmail, voucherNowLiveBatchEmail } from '../../shared/merchantEmails'
 import { computeOnboardingChecklist } from '../../merchant/onboarding/service'
 import { isBranchLocationConfirmed } from '../../shared/location'
 import { presignGet } from '../../shared/storage'
@@ -664,29 +664,44 @@ export async function approveApproval(
     )
   }
 
-  // Day-2 Vouchers A7 - after the owner go-live notify, fire one now-live
-  // VOUCHER_APPROVAL_UPDATE per CUSTOM voucher activated by the delayed-activation
-  // block above. Best-effort via safeNotify so a notify failure NEVER fails the
-  // already-committed go-live. Email payload is provided (notify requires it) but
-  // delivery stays dark this milestone; the in-app bell is the user-visible signal.
+  // Day-2 Vouchers A7 - after the owner go-live notify, fire ONE now-live
+  // VOUCHER_APPROVAL_UPDATE for the WHOLE set of CUSTOM vouchers activated by the
+  // delayed-activation block above. Best-effort via safeNotify so a notify failure
+  // NEVER fails the already-committed go-live. Email payload is provided (notify
+  // requires it) but delivery stays dark this milestone; the in-app bell is the
+  // user-visible signal.
+  //
+  // Fix 2 (notification-loss, review-driven deviation from the plan's literal
+  // "one per voucher"): notify()'s 5/hour per-(type,recipient) send limit returns
+  // BEFORE writing the in-app Notification row, so a per-voucher loop would silently
+  // drop the 6th+ bell rows when many approved-waiting customs activate at once. We
+  // send exactly ONE notify regardless of N. With a single activated voucher it
+  // references that voucher by id + names its title; with many it carries a summary
+  // body and deep-links to the first activated id so the bell still navigates.
   if (owner && result.activatedCustoms.length > 0) {
-    for (const voucher of result.activatedCustoms) {
-      await safeNotify(prisma, redis, {
-        to: owner.email,
-        recipientType: 'MERCHANT_ADMIN',
-        recipientId: owner.adminId,
-        type: 'voucher_now_live',
-        email: { ...voucherNowLiveEmail(voucher.title), sender: 'merchant' },
-        inApp: {
-          notificationType: 'VOUCHER_APPROVAL_UPDATE',
-          title: 'Your voucher is now live',
-          body: 'Members in your area can find and redeem it from today.',
-          referenceId: voucher.id,
-          referenceType: 'voucher',
-        },
-        ip: ctx.ipAddress,
-      })
-    }
+    const customs = result.activatedCustoms
+    const count = customs.length
+    const single = count === 1
+    await safeNotify(prisma, redis, {
+      to: owner.email,
+      recipientType: 'MERCHANT_ADMIN',
+      recipientId: owner.adminId,
+      type: 'voucher_now_live',
+      email: {
+        ...(single ? voucherNowLiveEmail(customs[0].title) : voucherNowLiveBatchEmail(count)),
+        sender: 'merchant',
+      },
+      inApp: {
+        notificationType: 'VOUCHER_APPROVAL_UPDATE',
+        title: single ? 'Your voucher is now live' : 'Your vouchers are now live',
+        body: single
+          ? 'Members in your area can find and redeem it from today.'
+          : `${count} of your custom vouchers are now live on Redeemo.`,
+        referenceId: customs[0].id, // single id, or first of the set for deep-link
+        referenceType: 'voucher',
+      },
+      ip: ctx.ipAddress,
+    })
   }
 
   return { approved: true, alreadyLive: false as const, activatedCustoms: result.activatedCustoms }
