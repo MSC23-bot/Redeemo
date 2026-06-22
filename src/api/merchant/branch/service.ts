@@ -2,7 +2,13 @@ import { PrismaClient } from '../../../../generated/prisma/client'
 import type Redis from 'ioredis'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx } from '../../shared/audit'
-import { resolveAdminMerchant, isDraftWindow, type EditActor } from '../shared'
+import {
+  resolveAdminMerchant,
+  resolveMerchantContext,
+  assertBranchAllowed,
+  isDraftWindow,
+  type EditActor,
+} from '../shared'
 import { encrypt, decrypt } from '../../shared/encryption'
 import { resolvePostcode } from '../../lib/postcodeResolver'
 import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
@@ -76,17 +82,28 @@ async function resolveBranch(
 }
 
 export async function listBranches(prisma: PrismaClient, adminId: string) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 SCOPED-READ): a scoped member sees only their allowed
+  // branches; owner / allBranches sees all. resolveMerchantContext keeps the SEC-M2
+  // suspended guard.
+  const ctx = await resolveMerchantContext(prisma, adminId)
   return prisma.branch.findMany({
-    where: { merchantId, deletedAt: null },
+    where: {
+      merchantId: ctx.merchantId,
+      deletedAt: null,
+      // Scoped member: restrict to allowedBranchIds; owner / allBranches: no clause.
+      ...(ctx.allBranches ? {} : { id: { in: ctx.allowedBranchIds } }),
+    },
     include: BRANCH_INCLUDE,
     orderBy: [{ isMainBranch: 'desc' }, { createdAt: 'asc' }],
   })
 }
 
 export async function getBranch(prisma: PrismaClient, adminId: string, branchId: string) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-  return resolveBranch(prisma, branchId, merchantId)
+  // Staff & Access B5 (§4.3 SCOPED-READ): a scoped member can only read a branch in
+  // their allowed set; assertBranchAllowed throws INSUFFICIENT_PERMISSIONS otherwise.
+  const ctx = await resolveMerchantContext(prisma, adminId)
+  assertBranchAllowed(ctx, branchId)
+  return resolveBranch(prisma, branchId, ctx.merchantId)
 }
 
 /**
