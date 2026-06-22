@@ -9,7 +9,7 @@
  * approve hint (go-live-now vs waiting), and the request-changes proposal form.
  */
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { VoucherReviewPanel } from '../VoucherReviewPanel'
 import type { VoucherReviewContext } from '@/lib/api/voucherReview'
 
@@ -230,22 +230,33 @@ describe('VoucherReviewPanel approve dialog', () => {
     expect(dialog).toHaveTextContent(/go live when the merchant is live/i)
   })
 
-  it('calls the approve mutation when confirmed', async () => {
+  it('calls the approve mutation when confirmed, then closes the dialog and refetches', async () => {
     mockApprove.mutateAsync.mockResolvedValueOnce({ approved: true, goLive: true })
-    mockReview({ data: makeContext() })
+    const refetch = jest.fn()
+    mockReview({ data: makeContext(), refetch })
     renderPanel()
     fireEvent.click(screen.getByTestId('voucher-approve-btn'))
     fireEvent.click(screen.getByTestId('voucher-approve-confirm'))
+    // The approve hook fires; the other two mutation hooks must NOT.
     expect(mockApprove.mutateAsync).toHaveBeenCalledTimes(1)
+    expect(mockReject.mutateAsync).not.toHaveBeenCalled()
+    expect(mockRequestChanges.mutateAsync).not.toHaveBeenCalled()
+    // On success: handleDialogSuccess closes the dialog (state update captured in
+    // act via waitFor) and refetches the review context.
+    await waitFor(() =>
+      expect(screen.queryByTestId('voucher-approve-dialog')).not.toBeInTheDocument(),
+    )
+    expect(refetch).toHaveBeenCalledTimes(1)
   })
 })
 
 // ── Reject dialog ─────────────────────────────────────────────────────────────
 
 describe('VoucherReviewPanel reject dialog', () => {
-  it('opens the reject dialog and submits the reason', async () => {
+  it('opens the reject dialog, submits the reason, then closes the dialog and refetches', async () => {
     mockReject.mutateAsync.mockResolvedValueOnce({ rejected: true })
-    mockReview({ data: makeContext() })
+    const refetch = jest.fn()
+    mockReview({ data: makeContext(), refetch })
     renderPanel()
     fireEvent.click(screen.getByTestId('voucher-reject-btn'))
     expect(screen.getByTestId('voucher-reject-dialog')).toBeInTheDocument()
@@ -253,9 +264,17 @@ describe('VoucherReviewPanel reject dialog', () => {
       target: { value: 'The saving claim is not accurate for this offer.' },
     })
     fireEvent.click(screen.getByTestId('voucher-reject-submit'))
+    // The reject hook fires; the other two mutation hooks must NOT.
     expect(mockReject.mutateAsync).toHaveBeenCalledWith(
       'The saving claim is not accurate for this offer.',
     )
+    expect(mockApprove.mutateAsync).not.toHaveBeenCalled()
+    expect(mockRequestChanges.mutateAsync).not.toHaveBeenCalled()
+    // On success: dialog closes (state update captured in act) and the context refetches.
+    await waitFor(() =>
+      expect(screen.queryByTestId('voucher-reject-dialog')).not.toBeInTheDocument(),
+    )
+    expect(refetch).toHaveBeenCalledTimes(1)
   })
 
   it('disables reject submit until a sufficiently long reason is entered', () => {
@@ -274,9 +293,10 @@ describe('VoucherReviewPanel reject dialog', () => {
 // ── Request-changes (concierge) dialog ────────────────────────────────────────
 
 describe('VoucherReviewPanel request-changes dialog', () => {
-  it('sends a note-only request when no fields are edited', async () => {
+  it('sends a note-only request when no fields are edited, then closes and refetches', async () => {
     mockRequestChanges.mutateAsync.mockResolvedValueOnce({ changesRequested: true })
-    mockReview({ data: makeContext() })
+    const refetch = jest.fn()
+    mockReview({ data: makeContext(), refetch })
     renderPanel()
     fireEvent.click(screen.getByTestId('voucher-request-changes-btn'))
     expect(screen.getByTestId('voucher-request-changes-dialog')).toBeInTheDocument()
@@ -284,14 +304,23 @@ describe('VoucherReviewPanel request-changes dialog', () => {
       target: { value: 'Please add clearer terms before resubmitting.' },
     })
     fireEvent.click(screen.getByTestId('voucher-rc-submit'))
+    // The request-changes hook fires; the other two mutation hooks must NOT.
     expect(mockRequestChanges.mutateAsync).toHaveBeenCalledWith({
       note: 'Please add clearer terms before resubmitting.',
     })
+    expect(mockApprove.mutateAsync).not.toHaveBeenCalled()
+    expect(mockReject.mutateAsync).not.toHaveBeenCalled()
+    // On success: dialog closes (state update captured in act) and the context refetches.
+    await waitFor(() =>
+      expect(screen.queryByTestId('voucher-request-changes-dialog')).not.toBeInTheDocument(),
+    )
+    expect(refetch).toHaveBeenCalledTimes(1)
   })
 
   it('sends only the edited allow-listed fields as proposed', async () => {
     mockRequestChanges.mutateAsync.mockResolvedValueOnce({ changesRequested: true })
-    mockReview({ data: makeContext() })
+    const refetch = jest.fn()
+    mockReview({ data: makeContext(), refetch })
     renderPanel()
     fireEvent.click(screen.getByTestId('voucher-request-changes-btn'))
     // Edit the title + the saving; leave description/terms unchanged.
@@ -309,6 +338,11 @@ describe('VoucherReviewPanel request-changes dialog', () => {
       proposed: { title: 'A sharper title', estimatedSaving: 7.5 },
       note: 'Suggested a sharper title and a more accurate saving.',
     })
+    // On success: dialog closes (state update captured in act) and the context refetches.
+    await waitFor(() =>
+      expect(screen.queryByTestId('voucher-request-changes-dialog')).not.toBeInTheDocument(),
+    )
+    expect(refetch).toHaveBeenCalledTimes(1)
   })
 
   it('disables the request-changes submit until a note is entered', () => {
