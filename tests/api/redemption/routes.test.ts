@@ -33,6 +33,18 @@ describe('redemption routes', () => {
     app = await buildApp()
 
     app.decorate('prisma', {
+      // Staff & Access PR-B (B6): the merchant-actor verify + branch-redemptions
+      // routes now resolveMerchantContext (getActiveMembership -> findMany) to enforce
+      // branch scope. MERCHANT_ADMIN_ID is an OWNER + allBranches member here, so the
+      // assertBranchAllowed guard passes by construction (existing behaviour preserved).
+      merchantMembership: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([{
+          id: 'mm1', merchantId: MERCHANT_ID, merchantAdminId: MERCHANT_ADMIN_ID, role: 'OWNER',
+          allBranches: true, canManageVouchers: false,
+          merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [],
+        }]),
+      },
       voucherRedemption: {
         create:     vi.fn(),
         findUnique: vi.fn(),
@@ -219,7 +231,10 @@ describe('redemption routes', () => {
       'A7K2P9X4',
       'MANUAL',
       expect.objectContaining({ role: 'branch', branchId: BRANCH_ID, merchantId: MERCHANT_ID }),
-      expect.objectContaining({ ipAddress: expect.any(String) })
+      expect.objectContaining({ ipAddress: expect.any(String) }),
+      // Staff & Access B6: branch-actor path passes NO merchantCtx (undefined) — the
+      // scoped-merchant guard never applies to a BranchUser.
+      undefined,
     )
   })
 
@@ -243,7 +258,10 @@ describe('redemption routes', () => {
       'XYZ123',
       'QR_SCAN',
       expect.objectContaining({ role: 'merchant', branchId: null, merchantId: MERCHANT_ID }),
-      expect.any(Object)
+      expect.any(Object),
+      // Staff & Access B6: merchant-actor path passes the resolved MerchantContext so
+      // the service can enforce branch scope. OWNER + allBranches here.
+      expect.objectContaining({ merchantId: MERCHANT_ID, role: 'OWNER', allBranches: true }),
     )
   })
 

@@ -13,6 +13,7 @@ import {
 } from '../shared/voucherAvailability'
 import { effectiveCooldownSeconds } from './reusable'
 import { formatCustomerName } from '../shared/customerName'
+import { assertBranchAllowed, type MerchantContext } from '../merchant/shared'
 
 // Redemption code alphabet (locked 2026-05-07 from device QA).
 //
@@ -518,7 +519,13 @@ export async function verifyRedemption(
   code: string,
   method: 'QR_SCAN' | 'MANUAL',
   actor: VerifyActor,
-  ctx: RequestCtx
+  ctx: RequestCtx,
+  // Staff & Access PR-B (B6, §4.3 † SCOPED-WRITE): the resolved MERCHANT-actor
+  // context. When present (the merchant-actor verify route always passes it), the
+  // merchant branch additionally enforces branch scope: a scoped non-owner cannot
+  // validate a code at a branch outside their allowed set. Optional + merchant-only,
+  // so the BRANCH-actor (BranchUser) path is entirely unaffected.
+  merchantCtx?: MerchantContext,
 ) {
   const redemption = await prisma.voucherRedemption.findUnique({
     where: { redemptionCode: code },
@@ -536,6 +543,11 @@ export async function verifyRedemption(
     if (redemption.branchId !== actor.branchId) throw new AppError('BRANCH_ACCESS_DENIED')
   } else {
     if (redemption.voucher.merchantId !== actor.merchantId) throw new AppError('MERCHANT_MISMATCH')
+    // Staff & Access B6: branch-scope enforcement for the merchant actor. A scoped
+    // member can only validate codes at their own branches; owner / allBranches
+    // members pass by construction (ctx.allBranches). Keeps the merchantId tenancy
+    // check above (defence-in-depth).
+    if (merchantCtx) assertBranchAllowed(merchantCtx, redemption.branchId)
   }
 
   // SEC-M1 (M6a): decide active/suspended from the LIVE DB, never the cached
