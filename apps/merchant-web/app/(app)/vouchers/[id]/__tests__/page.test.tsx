@@ -143,3 +143,45 @@ describe('VoucherDetailPage render', () => {
     expect(screen.getByText(/all your branches/i)).toBeInTheDocument()
   })
 })
+
+describe('VoucherDetailPage concierge on the read view (B-3)', () => {
+  it('a CHANGES_REQUESTED voucher shows the adminNote + a proposed-vs-current row on the READ view', async () => {
+    getVoucher.mockResolvedValue(
+      voucher({
+        status: 'DRAFT',
+        approvalStatus: 'CHANGES_REQUESTED',
+        merchantFields: {
+          builderType: 'freebie',
+          adminNote: 'Please raise the saving and sharpen the title.',
+          adminProposed: { title: 'A sharper title', estimatedSaving: 6 },
+        },
+      }),
+    )
+    renderPage()
+    await screen.findAllByText('Free coffee with breakfast')
+    // The note shows on the read view (not only after clicking Edit).
+    expect(screen.getByText(/raise the saving and sharpen the title/i)).toBeInTheDocument()
+    // At least one proposed-vs-current row renders read-only (no Apply button here).
+    expect(screen.getByTestId('concierge-readonly-proposed-title')).toHaveTextContent('A sharper title')
+    expect(screen.getByTestId('concierge-readonly-current-title')).toHaveTextContent(
+      'Free coffee with breakfast',
+    )
+    // The Apply action lives only in the Edit builder, not the read view.
+    expect(screen.queryByRole('button', { name: /apply redeemo's suggestions/i })).toBeNull()
+    // There is a clear "Edit to resubmit" affordance.
+    expect(screen.getByText(/edit to resubmit/i)).toBeInTheDocument()
+  })
+
+  it('a comment-only CHANGES_REQUESTED voucher shows the note even with no adminProposed', async () => {
+    getVoucher.mockResolvedValue(
+      voucher({
+        status: 'DRAFT',
+        approvalStatus: 'CHANGES_REQUESTED',
+        merchantFields: { builderType: 'freebie', adminNote: 'Tighten the wording a little.' },
+      }),
+    )
+    renderPage()
+    await screen.findAllByText('Free coffee with breakfast')
+    expect(screen.getByText(/tighten the wording a little/i)).toBeInTheDocument()
+  })
+})

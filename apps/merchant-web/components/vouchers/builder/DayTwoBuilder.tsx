@@ -123,7 +123,9 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
     setState((prev) => (prev ? { ...prev, fields: { ...prev.fields, ...patch } } : prev))
   }
   function setWindows(windows: AvailabilityWindow[]) {
-    setState((prev) => (prev ? { ...prev, availabilityWindows: windows } : prev))
+    // An explicit window edit means the editor now owns the windows; mark loaded so
+    // toCreatePayload sends them (B-1) instead of omitting the key.
+    setState((prev) => (prev ? { ...prev, availabilityWindows: windows, windowsLoaded: true } : prev))
   }
   function setCooldown(seconds: number) {
     setState((prev) => (prev ? { ...prev, cooldownSeconds: seconds } : prev))
@@ -144,7 +146,12 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
       if (typeof proposed.description === 'string') next.descriptionOverride = proposed.description
       if (typeof proposed.terms === 'string') next.terms = proposed.terms
       if (typeof proposed.estimatedSaving === 'number') next.savingOverride = proposed.estimatedSaving
-      if (Array.isArray(proposed.availabilityWindows)) next.availabilityWindows = proposed.availabilityWindows
+      if (Array.isArray(proposed.availabilityWindows)) {
+        next.availabilityWindows = proposed.availabilityWindows
+        // Applying admin-proposed windows means we now own them; mark loaded so the
+        // PATCH sends them (B-1).
+        next.windowsLoaded = true
+      }
       if (typeof proposed.cooldownSeconds === 'number') next.cooldownSeconds = proposed.cooldownSeconds
       return next
     })

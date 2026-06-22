@@ -44,6 +44,34 @@ describe('ConciergeDiff (proposed-vs-current)', () => {
     render(<ConciergeDiff proposed={{}} note="Comment only." current={current} onApply={jest.fn()} />)
     expect(screen.queryByRole('button', { name: /apply redeemo's suggestions/i })).toBeNull()
   })
+
+  it('B-10: renders a human-readable availabilityWindows + cooldownSeconds row', () => {
+    const proposed: AdminProposed = {
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '14:00', closeTime: '17:00' }],
+      cooldownSeconds: 3600,
+    }
+    render(
+      <ConciergeDiff
+        proposed={proposed}
+        note="Tighten the timings."
+        current={{
+          availabilityWindows: [{ dayOfWeek: 2, openTime: '09:00', closeTime: '11:00' }],
+          cooldownSeconds: 1800,
+        }}
+        onApply={jest.fn()}
+      />,
+    )
+    // Windows render as "Mon 14:00-17:00" not the raw object.
+    expect(screen.getByTestId('concierge-proposed-availabilityWindows')).toHaveTextContent(
+      'Mon 14:00-17:00',
+    )
+    expect(screen.getByTestId('concierge-current-availabilityWindows')).toHaveTextContent(
+      'Tue 09:00-11:00',
+    )
+    // Cooldown renders as a friendly duration.
+    expect(screen.getByTestId('concierge-proposed-cooldownSeconds')).toHaveTextContent('1 hour')
+    expect(screen.getByTestId('concierge-current-cooldownSeconds')).toHaveTextContent('30 minutes')
+  })
 })
 
 // --- Builder apply + resubmit-via-updateVoucher integration -----------------
