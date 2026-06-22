@@ -57,6 +57,11 @@ export interface RedemptionFilters {
   from?: string
   to?: string
   voucherType?: string
+  // The per-voucher deep-link filter (B-2): the Voucher Detail "View redemptions"
+  // link routes to /redemptions?voucherId=<id>. The PR-A backend filter is
+  // IDOR-safe (the voucher must belong to the session merchant). The generic qs()
+  // builder already serialises this key once it is on the typed filter shape.
+  voucherId?: string
   code?: string
   limit?: number
   offset?: number

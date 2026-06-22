@@ -73,6 +73,13 @@ describe('listRedemptions', () => {
     apiFetch.mockResolvedValueOnce({ items: [{ id: 'x' }], total: 1, limit: 25, offset: 0 })
     await expect(listRedemptions()).rejects.toBeDefined()
   })
+
+  it('includes voucherId in the querystring (B-2 deep-link filter)', async () => {
+    apiFetch.mockResolvedValueOnce({ items: [], total: 0, limit: 25, offset: 0 })
+    await listRedemptions({ voucherId: 'v1' })
+    const path = apiFetch.mock.calls[0][0] as string
+    expect(path).toContain('voucherId=v1')
+  })
 })
 
 describe('lookupRedemptionByCode', () => {
