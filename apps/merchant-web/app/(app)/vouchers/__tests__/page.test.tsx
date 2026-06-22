@@ -1,0 +1,156 @@
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import VouchersPage from '@/app/(app)/vouchers/page'
+import { NAV_GROUPS } from '@/components/shell/navItems'
+
+// Day-2 Vouchers B3: the Vouchers list page. Flagship pinned/locked at the top
+// (read-only); custom vouchers grouped + filterable by derived display state; the
+// approved-waiting state gets a distinct label; "Create a voucher" opens the
+// builder; a row click routes to /vouchers/[id].
+
+const listCustomVouchers = jest.fn()
+const listFlagshipVouchers = jest.fn()
+jest.mock('@/lib/api/voucher', () => {
+  const actual = jest.requireActual('@/lib/api/voucher')
+  return {
+    ...actual,
+    listCustomVouchers: () => listCustomVouchers(),
+    listFlagshipVouchers: () => listFlagshipVouchers(),
+  }
+})
+
+// The builder is exercised in its own suite; stub it here so the page test focuses
+// on the list. The stub exposes a marker + a Cancel hook.
+jest.mock('@/components/vouchers/builder/DayTwoBuilder', () => ({
+  DayTwoBuilder: (props: { onCancel: () => void }) => (
+    <div data-testid="day-two-builder">
+      <button onClick={props.onCancel}>builder-cancel</button>
+    </div>
+  ),
+}))
+
+const push = jest.fn()
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push }),
+}))
+
+// The resolved top-level category name feeds the builder's suggestion chips.
+jest.mock('@/lib/voucher/useVoucherCategoryName', () => ({
+  useVoucherCategoryName: () => 'Food & Drink',
+}))
+
+function row(over: Record<string, unknown> = {}) {
+  return {
+    id: 'v1',
+    title: 'Free coffee with breakfast',
+    type: 'FREEBIE',
+    status: 'ACTIVE',
+    approvalStatus: 'APPROVED',
+    estimatedSaving: 4,
+    isRmv: false,
+    createdAt: '2026-06-19T10:00:00.000Z',
+    redemptionCount: 7,
+    ...over,
+  }
+}
+
+function renderPage() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <VouchersPage />
+    </QueryClientProvider>,
+  )
+}
+
+beforeEach(() => {
+  push.mockReset()
+  listCustomVouchers.mockReset().mockResolvedValue([])
+  listFlagshipVouchers.mockReset().mockResolvedValue([])
+})
+
+describe('navItems', () => {
+  it('routes the Vouchers item to /vouchers', () => {
+    const item = NAV_GROUPS.flatMap((g) => g.items).find((i) => i.label === 'Vouchers')
+    expect(item?.href).toBe('/vouchers')
+  })
+})
+
+describe('VouchersPage list', () => {
+  it('renders a loading state while the lists are in flight', () => {
+    listCustomVouchers.mockReturnValue(new Promise(() => {}))
+    renderPage()
+    expect(screen.getByRole('status')).toBeInTheDocument()
+  })
+
+  it('pins flagship vouchers at the top as read-only (no edit/delete)', async () => {
+    listFlagshipVouchers.mockResolvedValue([
+      row({ id: 'rmv1', title: 'Flagship BOGO', type: 'BOGO', isRmv: true }),
+    ])
+    listCustomVouchers.mockResolvedValue([row()])
+    renderPage()
+    const flagship = await screen.findByTestId('flagship-section')
+    expect(within(flagship).getByText('Flagship BOGO')).toBeInTheDocument()
+    // A flagship card carries no edit/delete affordance.
+    expect(within(flagship).queryByRole('button', { name: /edit|delete/i })).toBeNull()
+  })
+
+  it('renders the approved-waiting distinct label', async () => {
+    listCustomVouchers.mockResolvedValue([
+      row({ id: 'v2', title: 'Waiting voucher', status: 'PENDING_APPROVAL', approvalStatus: 'APPROVED' }),
+    ])
+    renderPage()
+    expect(await screen.findByText('Waiting voucher')).toBeInTheDocument()
+    expect(screen.getByText(/goes live when your business is live/i)).toBeInTheDocument()
+  })
+
+  it('filters by status (In review hides a Live voucher)', async () => {
+    listCustomVouchers.mockResolvedValue([
+      row({ id: 'v1', title: 'Live voucher', status: 'ACTIVE', approvalStatus: 'APPROVED' }),
+      row({ id: 'v2', title: 'Review voucher', status: 'PENDING_APPROVAL', approvalStatus: 'PENDING' }),
+    ])
+    renderPage()
+    await screen.findByText('Live voucher')
+    fireEvent.click(screen.getByRole('tab', { name: /in review/i }))
+    await waitFor(() => expect(screen.queryByText('Live voucher')).toBeNull())
+    expect(screen.getByText('Review voucher')).toBeInTheDocument()
+  })
+
+  it('a custom row click routes to /vouchers/[id]', async () => {
+    listCustomVouchers.mockResolvedValue([row({ id: 'v9', title: 'Tappable voucher' })])
+    renderPage()
+    const title = await screen.findByText('Tappable voucher')
+    fireEvent.click(title.closest('[data-voucher-card]')!)
+    expect(push).toHaveBeenCalledWith('/vouchers/v9')
+  })
+
+  it('the Create a voucher action opens the builder', async () => {
+    // A populated list shows exactly one Create button (the section header one).
+    listCustomVouchers.mockResolvedValue([row()])
+    renderPage()
+    await screen.findByText('Free coffee with breakfast')
+    fireEvent.click(screen.getByRole('button', { name: /create a voucher/i }))
+    expect(await screen.findByTestId('day-two-builder')).toBeInTheDocument()
+  })
+
+  it('renders the empty state when there are no custom vouchers', async () => {
+    listCustomVouchers.mockResolvedValue([])
+    renderPage()
+    expect(await screen.findByText(/create your first voucher/i)).toBeInTheDocument()
+  })
+
+  it('renders the per-voucher redemption count on a card', async () => {
+    listCustomVouchers.mockResolvedValue([row({ redemptionCount: 12 })])
+    renderPage()
+    await screen.findByText('Free coffee with breakfast')
+    expect(screen.getByText(/12 redemptions/i)).toBeInTheDocument()
+  })
+
+  it('NEVER renders any customer PII or a redemption PIN', async () => {
+    listCustomVouchers.mockResolvedValue([row()])
+    const { container } = renderPage()
+    await screen.findByText('Free coffee with breakfast')
+    const text = container.textContent ?? ''
+    expect(text).not.toMatch(/@|07\d{9}|\+44|redemptionPin|PIN/i)
+  })
+})
