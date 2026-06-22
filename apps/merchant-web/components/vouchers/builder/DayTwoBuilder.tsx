@@ -72,7 +72,7 @@ function seedState(props: DayTwoBuilderProps): BuilderState | null {
   const base = emptyBuilderState(pickerId)
   const bag = props.initialFields ?? {}
   // Prefer the persisted draftFields bag; fall back to treating initialFields itself
-  // as the bag (cast through unknown — it may carry the structured keys directly).
+  // as the bag (cast through unknown - it may carry the structured keys directly).
   const nested = bag.draftFields as DraftFields | undefined
   const flat = bag as unknown as DraftFields
   const draft = nested && nested.type ? nested : flat && flat.type ? flat : undefined

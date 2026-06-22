@@ -36,7 +36,7 @@ export function BuilderScore({
   const categoryKey = resolveCategoryKey(categoryName)
   const type = state.pickerId as ScoreType
   const f = state.fields
-  // The built-in selected clauses for the live type (default selection) — drives
+  // The built-in selected clauses for the live type (default selection) - drives
   // the term-stacking inputs to the score. Customs are not surfaced in the day-2
   // builder UI yet, so the score uses the built-in defaults only.
   const selectedClauses = buildClauseList({

@@ -4,7 +4,7 @@
 // and the per-state detail render.
 //
 // Model 1 (spec §4.1): "approved, waiting for go-live" is the NEW combination
-// status:PENDING_APPROVAL + approvalStatus:APPROVED — a DISTINCT label, not customer-
+// status:PENDING_APPROVAL + approvalStatus:APPROVED - a DISTINCT label, not customer-
 // visible (the customer gate requires status:ACTIVE).
 //
 // The UI NEVER sends status/approvalStatus (server-set); it only READS them to derive

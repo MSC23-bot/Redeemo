@@ -3,7 +3,7 @@
 // Day-2 Vouchers B3 (spec §0 / §6: owner-only management in v1). A SINGLE
 // capability seam for voucher management. v1 returns canManage:true for every
 // authenticated merchant session (there is no branch-manager / staff role model
-// yet — that is the deferred Staff & access milestone). When that role model
+// yet - that is the deferred Staff & access milestone). When that role model
 // lands, this hook becomes the one place to branch on it; every voucher surface
 // already routes its can-edit / can-create gating through here, so no caller
 // changes are needed beyond this file.
