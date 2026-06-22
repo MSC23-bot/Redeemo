@@ -203,9 +203,20 @@ export async function getVoucher(
   // merchantFields, needed for the concierge proposed-vs-current diff) are kept
   // while the detail page gets a per-voucher redemption count. We strip the
   // internal _count and surface a flat redemptionCount.
+  //
+  // PR-B review fix: availabilityWindows is a RELATION, not a scalar, so it is
+  // NOT returned by `include:{_count}` alone. The merchant-web builder rehydrates
+  // a TIME_LIMITED voucher's windows on edit/duplicate from this read; without the
+  // relation a TIME_LIMITED edit-save sent availabilityWindows:[] and the wholesale
+  // deleteMany replace path WIPED every existing window (data loss, even on a
+  // description-only edit). Include the windows here so edit/duplicate round-trip
+  // them. (create/update/submit already include them on their own returns.)
   const voucher = await prisma.voucher.findFirst({
     where: { id: voucherId, merchantId, isRmv: false },
-    include: { _count: { select: { redemptions: true } } },
+    include: {
+      _count: { select: { redemptions: true } },
+      availabilityWindows: { select: { dayOfWeek: true, openTime: true, closeTime: true } },
+    },
   })
   if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
   const { _count, ...rest } = voucher

@@ -67,21 +67,27 @@ describe('A2: voucher list + detail redemptionCount', () => {
     expect((rows[0] as any).rmvTemplate).toEqual({ id: 't1', allowedFields: ['title'] })
   })
 
-  it('getVoucher keeps all scalars incl merchantFields and adds redemptionCount', async () => {
+  it('getVoucher keeps all scalars incl merchantFields, includes availabilityWindows, and adds redemptionCount', async () => {
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
-      id: 'v1', merchantId: 'm1', title: 'T', type: 'BOGO', status: 'DRAFT',
+      id: 'v1', merchantId: 'm1', title: 'T', type: 'TIME_LIMITED', status: 'DRAFT',
       approvalStatus: 'PENDING', isRmv: false, estimatedSaving: 5,
       merchantFields: { askHelp: true, adminProposed: { title: 'Better' } },
+      availabilityWindows: [{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }],
       _count: { redemptions: 2 },
     })
     const v = await getVoucher(app.prisma as any, 'ma1', 'v1')
     const arg = (app.prisma.voucher.findFirst as any).mock.calls[0][0]
     // Additive include (all scalars kept; merchantFields survives).
     expect(arg.include._count).toEqual({ select: { redemptions: true } })
+    // PR-B review fix: availabilityWindows is a RELATION and MUST be included, else a
+    // TIME_LIMITED edit-save would wipe the windows (data loss). Pin the include.
+    expect(arg.include.availabilityWindows).toEqual({ select: { dayOfWeek: true, openTime: true, closeTime: true } })
     expect(arg.where).toEqual({ id: 'v1', merchantId: 'm1', isRmv: false })
     expect(v.redemptionCount).toBe(2)
     // merchantFields (incl adminProposed) survives for the concierge diff.
     expect((v as any).merchantFields).toEqual({ askHelp: true, adminProposed: { title: 'Better' } })
+    // The TIME_LIMITED windows round-trip so the builder can rehydrate them on edit/duplicate.
+    expect((v as any).availabilityWindows).toEqual([{ dayOfWeek: 1, openTime: '11:00', closeTime: '15:00' }])
     expect((v as any)._count).toBeUndefined()
   })
 })
