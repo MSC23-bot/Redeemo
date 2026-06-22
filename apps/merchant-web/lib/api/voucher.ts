@@ -166,6 +166,11 @@ export type AdminProposed = z.infer<typeof adminProposedSchema>
 
 // The merchantFields bag (askHelp + builder draft + the concierge adminProposed /
 // adminNote). .passthrough() everywhere so unknown builder keys round-trip.
+//
+// INVARIANT (B-13): merchantFields is fully CLIENT-READABLE and CLIENT-ECHOED - the
+// merchant edits it and the same shape is sent back on create/update. It must NEVER
+// be used to carry server-private data (customer PII, redemption PINs, internal
+// flags). Anything the backend wants to keep private must live OUTSIDE this bag.
 export const merchantFieldsSchema = z
   .object({
     askHelp: z.boolean().optional(),
