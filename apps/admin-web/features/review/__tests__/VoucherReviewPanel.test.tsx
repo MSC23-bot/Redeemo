@@ -1,5 +1,5 @@
 /**
- * VoucherReviewPanel (Day-2 Vouchers PR-C) — self-contained VOUCHER review surface.
+ * VoucherReviewPanel (Day-2 Vouchers PR-C): self-contained VOUCHER review surface.
  *
  * Mocks useVoucherReview + the three mutation hooks so there is no network call;
  * the panel + its dialogs render unmocked. Tests cover: loading/error, voucher
