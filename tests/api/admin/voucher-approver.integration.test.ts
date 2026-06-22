@@ -25,6 +25,10 @@ const ctx = { ipAddress: '127.0.0.1', userAgent: 'a5-voucher-approver-test' }
 const dummyRedis = {} as any
 let ADMIN_ID = ''
 let seq = 0
+// Fix 8: salt the voucher codes with a per-process run id (Date.now + random) so a
+// partial-cleanup leftover or an accidental parallel run with
+// voucher-activation.integration.test.ts cannot collide on the unique `code`.
+const RUN = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 
 /** A merchant + ACTIVE OWNER membership so the after-commit owner notify can resolve. */
 async function makeMerchant(businessName: string, status: 'ACTIVE' | 'PENDING_APPROVAL' = 'ACTIVE') {
@@ -48,7 +52,7 @@ async function makeSubmittedVoucher(
   const v = await prisma.voucher.create({
     data: {
       merchantId,
-      code: `RCV-${PREFIX}-${seq++}`,
+      code: `RCV-${PREFIX}-${RUN}-${seq++}`,
       isRmv: false,
       isMandatory: false,
       type: 'DISCOUNT_FIXED' as any,
@@ -72,7 +76,7 @@ async function makeRmv(merchantId: string, status: 'ACTIVE' | 'PENDING_APPROVAL'
   await prisma.voucher.create({
     data: {
       merchantId,
-      code: `RMV-${PREFIX}-${seq++}`,
+      code: `RMV-${PREFIX}-${RUN}-${seq++}`,
       isRmv: true,
       isMandatory: true,
       type: 'BOGO' as any,
@@ -224,7 +228,7 @@ describe('A5/A6: approveVoucher Model 1 (real DB)', () => {
     const { merchantId } = await makeMerchant('Rmv Reject Co', 'ACTIVE')
     const rmv = await prisma.voucher.create({
       data: {
-        merchantId, code: `RMV-${PREFIX}-x${seq++}`, isRmv: true, isMandatory: true,
+        merchantId, code: `RMV-${PREFIX}-${RUN}-x${seq++}`, isRmv: true, isMandatory: true,
         type: 'BOGO' as any, title: `${PREFIX} R`, estimatedSaving: 5,
         status: 'PENDING_APPROVAL' as any, approvalStatus: 'PENDING' as any, merchantFields: {} as any,
       },
