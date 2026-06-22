@@ -229,7 +229,7 @@ export function QueueTable({ items, currentAdminId }: QueueTableProps) {
                   'hover:bg-muted/40 transition-colors'
                 )}
               >
-                {/* Merchant / voucher — cell contains the row-level link */}
+                {/* Merchant / voucher: cell contains the row-level link */}
                 <td className="px-4 py-3">
                   <Link
                     href={`/queue/${item.id}`}

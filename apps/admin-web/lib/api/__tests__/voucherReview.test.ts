@@ -1,5 +1,5 @@
 /**
- * lib/api/voucherReview — Zod schema parsing + apiFetch wiring (Day-2 Vouchers PR-C).
+ * lib/api/voucherReview: Zod schema parsing + apiFetch wiring (Day-2 Vouchers PR-C).
  *
  * Mirrors lib/api/__tests__/review.test.ts. Validates the VoucherReviewContext
  * schema and the four endpoint wrappers (get / approve / reject / requestChanges)

@@ -1,9 +1,9 @@
 /**
- * useVoucherReview hooks (Day-2 Vouchers PR-C) — verifies:
- *   useVoucherReview        — fetches the context, respects `enabled`
- *   useApproveVoucher       — invalidates QUEUE_KEY + voucherReviewQueryKey(id) on success AND error
- *   useRejectVoucher        — same invalidation contract; passes the reason through
- *   useRequestVoucherChanges— same invalidation contract; passes { proposed, note } through
+ * useVoucherReview hooks (Day-2 Vouchers PR-C). Verifies:
+ *   useVoucherReview         : fetches the context, respects `enabled`
+ *   useApproveVoucher        : invalidates QUEUE_KEY + voucherReviewQueryKey(id) on success AND error
+ *   useRejectVoucher         : same invalidation contract; passes the reason through
+ *   useRequestVoucherChanges : same invalidation contract; passes { proposed, note } through
  *
  * The underlying API calls are mocked; assertions are on invalidateQueries spies.
  */
