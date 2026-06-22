@@ -108,6 +108,44 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     : []
   const merchantById = new Map(merchants.map((m) => [m.id, m]))
 
+  // Day-2 Vouchers A8b — VOUCHER queue enrichment (mirrors the onboarding
+  // merchant-summary batch above). Collect the VOUCHER referenceIds, batch-load
+  // the vouchers (curated select: id/title/type/status/approvalStatus/merchantId,
+  // NO PII/redemptionPin) + their merchants (id/businessName/status), and compute
+  // a per-distinct-merchant flagship-live flag (no N+1: one count per distinct
+  // VOUCHER merchant). The .map below attaches a `voucher` summary + a
+  // `goLiveHint` ('live-now' | 'waiting-for-go-live') so the queue can show enough
+  // context before the reviewer opens the row. ONBOARDING / edit rows are untouched.
+  const voucherIds = approvals.filter((a) => a.type === 'VOUCHER').map((a) => a.referenceId)
+  const voucherRows = voucherIds.length
+    ? await prisma.voucher.findMany({
+        where: { id: { in: voucherIds } },
+        select: { id: true, title: true, type: true, status: true, approvalStatus: true, merchantId: true },
+      })
+    : []
+  const voucherById = new Map(voucherRows.map((v) => [v.id, v]))
+
+  const voucherMerchantIds = Array.from(new Set(voucherRows.map((v) => v.merchantId)))
+  const voucherMerchants = voucherMerchantIds.length
+    ? await prisma.merchant.findMany({
+        where: { id: { in: voucherMerchantIds } },
+        select: { id: true, businessName: true, status: true },
+      })
+    : []
+  const voucherMerchantById = new Map(voucherMerchants.map((m) => [m.id, m]))
+
+  // Flagship-live per DISTINCT voucher merchant (one count each — no N+1 per row).
+  const flagshipLiveByMerchant = new Map<string, boolean>(
+    await Promise.all(
+      voucherMerchantIds.map(async (mid): Promise<[string, boolean]> => {
+        const notLive = await prisma.voucher.count({
+          where: { merchantId: mid, isRmv: true, status: { not: 'ACTIVE' } },
+        })
+        return [mid, notLive === 0]
+      }),
+    ),
+  )
+
   // Batch-resolve claimer names (mirrors the merchant-summary batch above + the
   // getReviewContext adminById pattern): one AdminUser lookup over the distinct
   // non-null claimedById set, keyed to "First Last". So the queue can render
@@ -129,11 +167,28 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     page,
     pageSize,
     total,
-    approvals: approvals.map((a) => ({
-      ...a,
-      merchant: a.type === 'MERCHANT_ONBOARDING' ? (merchantById.get(a.referenceId) ?? null) : null,
-      claimedBy: a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null,
-    })),
+    approvals: approvals.map((a) => {
+      // Day-2 Vouchers A8b — VOUCHER rows get a voucher summary + merchant +
+      // goLiveHint; ONBOARDING rows keep the existing merchant block; all other
+      // rows (edit lanes) carry null for both.
+      if (a.type === 'VOUCHER') {
+        const v = voucherById.get(a.referenceId) ?? null
+        const m = v ? (voucherMerchantById.get(v.merchantId) ?? null) : null
+        const goLive = !!m && m.status === 'ACTIVE' && (flagshipLiveByMerchant.get(v!.merchantId) ?? false)
+        return {
+          ...a,
+          merchant: m,
+          voucher: v ? { title: v.title, type: v.type, status: v.status, approvalStatus: v.approvalStatus } : null,
+          goLiveHint: v ? (goLive ? ('live-now' as const) : ('waiting-for-go-live' as const)) : null,
+          claimedBy: a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null,
+        }
+      }
+      return {
+        ...a,
+        merchant: a.type === 'MERCHANT_ONBOARDING' ? (merchantById.get(a.referenceId) ?? null) : null,
+        claimedBy: a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null,
+      }
+    }),
   }
 }
 
