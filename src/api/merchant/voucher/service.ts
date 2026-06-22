@@ -492,7 +492,13 @@ export async function submitVoucher(
   const updated = await prisma.$transaction(async (tx) => {
     const v = await tx.voucher.update({
       where: { id: voucherId },
-      data: { status: 'PENDING_APPROVAL', publishedAt: new Date() },
+      // Codex review FIX 3 (cleanup): also reset approvalStatus to PENDING. A
+      // resubmit after a CHANGES_REQUESTED concierge round would otherwise leave the
+      // voucher at the transient PENDING_APPROVAL + CHANGES_REQUESTED pair. submitVoucher
+      // is DRAFT-only, and a submitted custom voucher should always be the tidy
+      // PENDING_APPROVAL + PENDING under review (display already works status-first;
+      // this clears the stale value and protects future code that reads the pair jointly).
+      data: { status: 'PENDING_APPROVAL', approvalStatus: 'PENDING', publishedAt: new Date() },
     })
 
     const existing = await tx.adminApproval.findFirst({

@@ -98,4 +98,25 @@ describe('A4: submitVoucher creates/reopens the VOUCHER AdminApproval', () => {
     expect(app.prisma.adminApproval.create).not.toHaveBeenCalled()
     expect(app.prisma.adminApproval.update).not.toHaveBeenCalled()
   })
+
+  // Codex review FIX 3 (cleanup): a resubmit after a CHANGES_REQUESTED concierge
+  // round must leave the voucher at the tidy PENDING_APPROVAL + PENDING pair, not
+  // the transient PENDING_APPROVAL + CHANGES_REQUESTED. The voucher update inside
+  // the transaction now also sets approvalStatus:'PENDING'. The AdminApproval reopen
+  // to PENDING is unchanged.
+  it('resubmit of a CHANGES_REQUESTED voucher resets the voucher approvalStatus to PENDING (and still reopens the approval)', async () => {
+    // a DRAFT voucher whose approvalStatus is the stale CHANGES_REQUESTED
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({ ...draft, approvalStatus: 'CHANGES_REQUESTED' })
+    app.prisma.adminApproval.findFirst = vi.fn().mockResolvedValue({ id: 'appr-existing', status: 'CHANGES_REQUESTED' })
+    const res = await submit()
+    expect(res.statusCode).toBe(200)
+    // voucher update sets the tidy pair
+    const upd = (app.prisma.voucher.update as any).mock.calls[0][0]
+    expect(upd.data.status).toBe('PENDING_APPROVAL')
+    expect(upd.data.approvalStatus).toBe('PENDING')
+    // AdminApproval reopen unchanged
+    const reopen = (app.prisma.adminApproval.update as any).mock.calls[0][0]
+    expect(reopen.where).toEqual({ id: 'appr-existing' })
+    expect(reopen.data.status).toBe('PENDING')
+  })
 })
