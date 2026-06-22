@@ -56,6 +56,12 @@ const baseVoucherFields = {
   // level; the cross-field refine() below rejects non-null values on
   // non-REUSABLE types.
   cooldownSeconds: z.number().int().min(1800).nullable().optional(),
+  // Day-2 Vouchers A3 — an opaque merchant-authored bag (askHelp + builder
+  // draft state; later the concierge adminProposed is written admin-side). Stored
+  // in the existing Voucher.merchantFields Json? column. This is the ONLY way the
+  // bag can be set from a merchant request; status/approvalStatus/isRmv/merchantId
+  // are server-set and are NOT in this base shape, so Zod strips them.
+  merchantFields: z.record(z.string(), z.unknown()).optional(),
 } as const
 
 // Cross-field refine — only REUSABLE may carry a non-null cooldownSeconds.
