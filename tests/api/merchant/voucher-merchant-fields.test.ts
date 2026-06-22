@@ -129,4 +129,60 @@ describe('A3: custom voucher merchantFields storage + body allow-listing', () =>
     expect(merged.askHelp).toBe(false)
     expect(merged.builderType).toBe('bogo')
   })
+
+  // B1 item 3: defensive merchantFields size guard. The bag is free-form
+  // (z.record(z.string(), z.unknown()), NO Zod cap), so a pathological/poisoned
+  // bag must be rejected with a clean 400 MERCHANT_FIELDS_TOO_LARGE at the
+  // service layer BEFORE it ever reaches Prisma. Limits: >16KB JSON OR >50
+  // top-level keys. The guard runs on the FINAL written bag (create: the
+  // stripped incoming bag; update: the MERGED bag).
+
+  it('create REJECTS a merchantFields bag whose JSON exceeds 16KB with 400 MERCHANT_FIELDS_TOO_LARGE (no Prisma call)', async () => {
+    // ~20KB of value content in a single key -> JSON byteLength > 16384.
+    const huge = 'x'.repeat(20 * 1024)
+    const res = await post({
+      type: 'BOGO', title: 'Too big', estimatedSaving: 5,
+      merchantFields: { askHelp: true, blob: huge },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('MERCHANT_FIELDS_TOO_LARGE')
+    expect(app.prisma.voucher.create).not.toHaveBeenCalled()
+  })
+
+  it('create REJECTS a merchantFields bag with more than 50 top-level keys with 400 MERCHANT_FIELDS_TOO_LARGE (no Prisma call)', async () => {
+    const manyKeys: Record<string, unknown> = {}
+    for (let i = 0; i < 60; i++) manyKeys[`k${i}`] = i
+    const res = await post({
+      type: 'BOGO', title: 'Too many keys', estimatedSaving: 5,
+      merchantFields: manyKeys,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('MERCHANT_FIELDS_TOO_LARGE')
+    expect(app.prisma.voucher.create).not.toHaveBeenCalled()
+  })
+
+  it('create ACCEPTS a normal builder draft (askHelp/builderType/draftFields, a few KB)', async () => {
+    const res = await post({
+      type: 'BOGO', title: 'Normal', estimatedSaving: 5,
+      merchantFields: {
+        askHelp: false,
+        builderType: 'bogo',
+        draftFields: { headline: 'Buy one get one', detail: 'y'.repeat(2 * 1024) },
+      },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(app.prisma.voucher.create).toHaveBeenCalled()
+  })
+
+  it('update REJECTS when the MERGED bag exceeds the cap with 400 MERCHANT_FIELDS_TOO_LARGE (no Prisma call)', async () => {
+    // The existing bag already holds ~12KB; the patch adds another ~8KB, so the
+    // MERGE crosses 16KB even though neither side alone necessarily does.
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
+      ...draft, merchantFields: { askHelp: true, existingBlob: 'a'.repeat(12 * 1024) },
+    })
+    const res = await patch({ merchantFields: { newBlob: 'b'.repeat(8 * 1024) } })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('MERCHANT_FIELDS_TOO_LARGE')
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+  })
 })

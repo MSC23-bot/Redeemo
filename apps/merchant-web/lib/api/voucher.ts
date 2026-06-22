@@ -187,7 +187,6 @@ export type MerchantFields = z.infer<typeof merchantFieldsSchema>
 // the client never breaks if/when it is added.
 export const customVoucherDetailSchema = customVoucherListRowSchema
   .extend({
-    code: z.string().nullish(),
     merchantFields: merchantFieldsSchema.nullish(),
     availabilityWindows: z.array(availabilityWindowSchema.passthrough()).nullish(),
     imageUrl: z.string().nullish(),

@@ -259,6 +259,10 @@ export const ERROR_DEFINITIONS = {
   // positive value is accepted; the floor is an advisory client-side scoring input
   // per D8b, with admin review the quality backstop).
   SAVING_INVALID:                  { statusCode: 400, message: 'Enter a saving amount greater than zero.' },
+  // Day-2 Vouchers B1 (item 3): defensive guard on the free-form Voucher
+  // merchantFields bag (no Zod cap). Rejected when the bag exceeds 16KB of JSON
+  // or more than 50 top-level keys, before it can reach Prisma.
+  MERCHANT_FIELDS_TOO_LARGE:       { statusCode: 400, message: 'The voucher details are too large. Please simplify and try again.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS

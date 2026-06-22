@@ -281,6 +281,15 @@ export async function claimApproval(prisma: PrismaClient, id: string, adminId: s
         entityId = edit.branchId
         entityType = 'branch'
       }
+    } else if (approval.type === 'VOUCHER') {
+      // For a VOUCHER approval the referenceId is the Voucher id. The audit
+      // target is the owning merchant (matching the voucherApprover DECISION
+      // audits: entityId: voucher.merchantId, entityType:'merchant').
+      const voucher = await tx.voucher.findUnique({
+        where: { id: approval.referenceId },
+        select: { merchantId: true },
+      })
+      if (voucher) entityId = voucher.merchantId
     }
 
     await writeAuditLogTx(tx, {
@@ -317,8 +326,21 @@ export async function releaseApproval(prisma: PrismaClient, id: string, adminId:
       await tx.merchant.update({ where: { id: approval.referenceId }, data: { onboardingStep: 'SUBMITTED' } })
     }
 
+    // Audit-entity resolution. For onboarding (and the pre-existing edit-type
+    // path, which is out of scope here) the referenceId is the merchant id. For
+    // a VOUCHER approval the referenceId is the Voucher id, so resolve the
+    // owning merchantId (matching the voucherApprover DECISION audits).
+    let entityId = approval.referenceId
+    if (approval.type === 'VOUCHER') {
+      const voucher = await tx.voucher.findUnique({
+        where: { id: approval.referenceId },
+        select: { merchantId: true },
+      })
+      if (voucher) entityId = voucher.merchantId
+    }
+
     await writeAuditLogTx(tx, {
-      entityId: approval.referenceId,
+      entityId,
       entityType: 'merchant',
       event: 'MERCHANT_APPROVAL_RELEASED',
       actorId: adminId,

@@ -33,6 +33,27 @@ function stripAdminOwnedKeys(bag: Record<string, unknown>): Record<string, unkno
   return copy
 }
 
+// ─── B1 item 3: defensive merchantFields size guard ──────────────────────────
+//
+// The merchantFields bag is free-form (z.record(z.string(), z.unknown()) at the
+// route, NO Zod cap), so a pathological/poisoned bag could otherwise reach the
+// Voucher.merchantFields Json column unbounded. This single service-layer guard
+// is shared by the create + update WRITE paths (so the cap is applied to the
+// FINAL bag actually written) and throws a clean 400 AppError before Prisma is
+// ever called. Two independent limits: total JSON byte size and a top-level key
+// count (rejecting an absurd flat key explosion).
+const MERCHANT_FIELDS_MAX_BYTES = 16 * 1024 // 16384
+const MERCHANT_FIELDS_MAX_TOP_LEVEL_KEYS = 50
+
+function assertMerchantFieldsWithinLimit(bag: Record<string, unknown>): void {
+  if (Object.keys(bag).length > MERCHANT_FIELDS_MAX_TOP_LEVEL_KEYS) {
+    throw new AppError('MERCHANT_FIELDS_TOO_LARGE')
+  }
+  if (Buffer.byteLength(JSON.stringify(bag), 'utf8') > MERCHANT_FIELDS_MAX_BYTES) {
+    throw new AppError('MERCHANT_FIELDS_TOO_LARGE')
+  }
+}
+
 // ─── M2 B4 (D8b): advisory saving sanity ─────────────────────────────────────
 //
 // A light present/positive check on the merchant voucher SAVE paths where the
@@ -281,6 +302,9 @@ export async function createVoucher(
 
   const code = generateVoucherCode('RCV')
   const hasWindows = !!data.availabilityWindows && data.availabilityWindows.length > 0
+  // B1 item 3: guard the FINAL stripped bag before the create reaches Prisma.
+  const merchantFieldsToStore = stripAdminOwnedKeys(data.merchantFields ?? {})
+  assertMerchantFieldsWithinLimit(merchantFieldsToStore)
   const voucher = await prisma.voucher.create({
     data: {
       merchantId,
@@ -302,7 +326,7 @@ export async function createVoucher(
       // server-set above and CANNOT be overridden by the bag.
       // Codex review FIX 2: strip the server-owned adminProposed/adminNote concierge
       // keys so a merchant cannot self-inject a fake Redeemo suggestion at create.
-      merchantFields: stripAdminOwnedKeys(data.merchantFields ?? {}) as Prisma.InputJsonValue,
+      merchantFields: merchantFieldsToStore as Prisma.InputJsonValue,
       // M5 Task 12.5 — propagate validated cooldown. Zod refine (Task
       // 12) guarantees: REUSABLE → null OR >= 1800; non-REUSABLE → null.
       cooldownSeconds: data.cooldownSeconds ?? null,
@@ -374,7 +398,10 @@ export async function updateVoucher(
     // the existing server-written values in currentBag are PRESERVED (a merchant
     // editing other builder fields does not clear a real admin proposal), and a
     // merchant attempt to set/overwrite them is dropped.
-    safe.merchantFields = { ...currentBag, ...stripAdminOwnedKeys(data.merchantFields as Record<string, unknown>) }
+    const mergedBag = { ...currentBag, ...stripAdminOwnedKeys(data.merchantFields as Record<string, unknown>) }
+    // B1 item 3: guard the FINAL merged bag before the update reaches Prisma.
+    assertMerchantFieldsWithinLimit(mergedBag)
+    safe.merchantFields = mergedBag
   }
 
   // M2 B4 (D8b): saving sanity ONLY when the patch writes a top-level
@@ -498,7 +525,19 @@ export async function submitVoucher(
       // is DRAFT-only, and a submitted custom voucher should always be the tidy
       // PENDING_APPROVAL + PENDING under review (display already works status-first;
       // this clears the stale value and protects future code that reads the pair jointly).
-      data: { status: 'PENDING_APPROVAL', approvalStatus: 'PENDING', publishedAt: new Date() },
+      //
+      // B1 item 4: spec §4.4: the server-owned concierge keys (adminProposed /
+      // adminNote) are CLEARED on resubmit. stripAdminOwnedKeys removes exactly
+      // those two keys; a normal DRAFT submit (no admin keys) is a no-op. The
+      // stripped bag is strictly a subset of the stored bag, so no size concern.
+      data: {
+        status: 'PENDING_APPROVAL',
+        approvalStatus: 'PENDING',
+        publishedAt: new Date(),
+        merchantFields: stripAdminOwnedKeys(
+          (voucher.merchantFields as Record<string, unknown>) ?? {}
+        ) as Prisma.InputJsonValue,
+      },
     })
 
     const existing = await tx.adminApproval.findFirst({
