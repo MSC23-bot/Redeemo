@@ -125,6 +125,18 @@ jest.mock('@/lib/review/useEditReview', () => ({
   useRejectEdit: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
 }))
 
+// ── PR-C: mock useVoucherReview (the VoucherReviewPanel mounted for VOUCHER
+// approvals). The panel renders unmocked; only the data hook + the action hooks
+// are mocked so there is no network call.
+
+const mockedUseVoucherReview = jest.fn()
+jest.mock('@/lib/review/useVoucherReview', () => ({
+  useVoucherReview: (...args: unknown[]) => mockedUseVoucherReview(...args),
+  useApproveVoucher: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+  useRejectVoucher: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+  useRequestVoucherChanges: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+}))
+
 // ── Mock dialogs so we can check whether they mount ──────────────────────────
 
 jest.mock('@/features/review/RequestChangesDialog', () => ({
@@ -366,17 +378,96 @@ describe('ReviewPage loading/error states', () => {
   })
 })
 
-// ── Non-onboarding approval ───────────────────────────────────────────────────
+// ── PR-C: VOUCHER approval routes to the VoucherReviewPanel ───────────────────
 
-describe('ReviewPage non-onboarding approval', () => {
-  beforeEach(() => mockSession())
+describe('ReviewPage VOUCHER approval surface (PR-C)', () => {
+  function voucherApproval() {
+    return makeContext({
+      approval: {
+        id: 'apr-2',
+        type: 'VOUCHER',
+        status: 'PENDING',
+        submittedAt: '2026-06-10T09:00:00.000Z',
+        actionedAt: null,
+        claimedAt: null,
+        comment: null,
+        claimedBy: null,
+        actionedBy: null,
+      },
+    })
+  }
 
-  it('shows the non-onboarding notice for VOUCHER approval type', () => {
+  beforeEach(() => {
+    mockedUseVoucherReview.mockReturnValue({
+      data: {
+        voucher: {
+          id: 'v-1',
+          title: '20% off all mains',
+          type: 'DISCOUNT',
+          status: 'PENDING_APPROVAL',
+          approvalStatus: 'PENDING',
+          description: 'Enjoy 20% off your main course.',
+          terms: null,
+          estimatedSaving: 6.5,
+          expiryDate: null,
+          cooldownSeconds: null,
+          merchantFields: null,
+          availabilityWindows: [],
+        },
+        merchant: { id: 'm-1', businessName: 'Acme Coffee', status: 'ACTIVE' },
+        goLive: true,
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    })
+  })
+
+  it('renders the VoucherReviewPanel (NOT the generic non-onboarding notice) for a VOUCHER approval', () => {
+    mockSession()
+    mockReview({ data: voucherApproval() })
+    renderPage()
+    expect(screen.getByTestId('voucher-review-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('review-non-onboarding')).not.toBeInTheDocument()
+    expect(screen.getByTestId('voucher-review-panel')).toHaveTextContent('20% off all mains')
+  })
+
+  it('gates the voucher-review fetch on approval:read (passes enabled through)', () => {
+    mockSession({ can: (cap: string) => cap === 'approval:read' })
+    mockReview({ data: voucherApproval() })
+    renderPage()
+    expect(mockedUseVoucherReview).toHaveBeenCalledWith('apr-1', true)
+  })
+
+  it('shows the action bar when the admin holds approval:action', () => {
+    mockSession({ can: () => true })
+    mockReview({ data: voucherApproval() })
+    renderPage()
+    expect(screen.getByTestId('voucher-review-actions')).toBeInTheDocument()
+  })
+
+  it('hides the action bar when the admin lacks approval:action', () => {
+    mockSession({ can: (cap: string) => cap !== 'approval:action' })
+    mockReview({ data: voucherApproval() })
+    renderPage()
+    expect(screen.getByTestId('voucher-review-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('voucher-review-actions')).not.toBeInTheDocument()
+  })
+
+  it('does NOT render the merchant-onboarding action bar for a VOUCHER approval', () => {
+    mockSession()
+    mockReview({ data: voucherApproval() })
+    renderPage()
+    expect(screen.queryByTestId('action-bar-container')).not.toBeInTheDocument()
+  })
+
+  it('still shows the non-onboarding notice for a non-VOUCHER, non-edit type (MERCHANT_PROFILE_EDIT)', () => {
+    mockSession()
     mockReview({
       data: makeContext({
         approval: {
-          id: 'apr-2',
-          type: 'VOUCHER',
+          id: 'apr-3',
+          type: 'MERCHANT_PROFILE_EDIT',
           status: 'PENDING',
           submittedAt: '2026-06-10T09:00:00.000Z',
           actionedAt: null,
