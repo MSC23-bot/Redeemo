@@ -147,10 +147,34 @@ function validateAvailabilityWindows(
 
 export async function listVouchers(prisma: PrismaClient, adminId: string) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-  return prisma.voucher.findMany({
+  // Day-2 Vouchers A2: curated select (the Vouchers-module list consumer) + a
+  // per-voucher redemption count via _count. The select is deliberately narrow
+  // (no raw merchantFields, no redemptionPin-bearing relations) and pulls the
+  // fields the list/card render needs. redemptionCount is mapped off _count so
+  // the wire shape never exposes the internal aggregate object.
+  const rows = await prisma.voucher.findMany({
     where: { merchantId, isRmv: false },
     orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      status: true,
+      approvalStatus: true,
+      approvalComment: true,
+      estimatedSaving: true,
+      description: true,
+      terms: true,
+      isRmv: true,
+      cooldownSeconds: true,
+      publishedAt: true,
+      expiryDate: true,
+      approvedAt: true,
+      createdAt: true,
+      _count: { select: { redemptions: true } },
+    },
   })
+  return rows.map(({ _count, ...r }) => ({ ...r, redemptionCount: _count?.redemptions ?? 0 }))
 }
 
 export async function getVoucher(
@@ -159,11 +183,17 @@ export async function getVoucher(
   voucherId: string
 ) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Day-2 Vouchers A2: include _count additively so ALL scalar columns (incl
+  // merchantFields, needed for the concierge proposed-vs-current diff) are kept
+  // while the detail page gets a per-voucher redemption count. We strip the
+  // internal _count and surface a flat redemptionCount.
   const voucher = await prisma.voucher.findFirst({
     where: { id: voucherId, merchantId, isRmv: false },
+    include: { _count: { select: { redemptions: true } } },
   })
   if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
-  return voucher
+  const { _count, ...rest } = voucher
+  return { ...rest, redemptionCount: _count?.redemptions ?? 0 }
 }
 
 export async function createVoucher(
@@ -420,11 +450,17 @@ export async function deleteVoucher(
 
 export async function listRmvVouchers(prisma: PrismaClient, adminId: string) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-  return prisma.voucher.findMany({
+  // Day-2 Vouchers A2: ADD the per-voucher redemption count ADDITIVELY. The
+  // existing onboarding flagship UI consumes rmvTemplate, so we keep
+  // include:{ rmvTemplate:true } and only add _count (NOT a restrictive select,
+  // which would drop rmvTemplate and break onboarding). redemptionCount is mapped
+  // off _count; rmvTemplate and every scalar are preserved on the row.
+  const rows = await prisma.voucher.findMany({
     where: { merchantId, isRmv: true },
-    include: { rmvTemplate: true },
+    include: { rmvTemplate: true, _count: { select: { redemptions: true } } },
     orderBy: { createdAt: 'asc' },
   })
+  return rows.map(({ _count, ...r }) => ({ ...r, redemptionCount: _count?.redemptions ?? 0 }))
 }
 
 /**
