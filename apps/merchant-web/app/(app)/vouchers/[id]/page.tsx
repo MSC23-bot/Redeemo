@@ -35,6 +35,7 @@ import { isEditable, deriveDisplayState } from '@/lib/voucher/displayState'
 import { useVoucherCapability } from '@/lib/voucher/useVoucherCapability'
 import { useVoucherCategoryName } from '@/lib/voucher/useVoucherCategoryName'
 import { VoucherDetail } from '@/components/vouchers/VoucherDetail'
+import { ConciergeReadOnly } from '@/components/vouchers/ConciergeDiff'
 import { DuplicateAction } from '@/components/vouchers/DuplicateAction'
 import { DayTwoBuilder } from '@/components/vouchers/builder/DayTwoBuilder'
 
@@ -182,6 +183,25 @@ export default function VoucherDetailPage() {
                   onSubmit={() => submit.mutate()}
                   onDelete={() => setConfirmingDelete(true)}
                   onDuplicate={() => setMode('duplicate')}
+                />
+              ) : null
+            }
+            // B-3: a CHANGES_REQUESTED voucher surfaces the concierge note +
+            // proposed-vs-current diff read-only on the detail page itself. The
+            // Apply action stays in the Edit builder.
+            changesBanner={
+              deriveDisplayState(voucher) === 'changes-requested' ? (
+                <ConciergeReadOnly
+                  proposed={voucher.merchantFields?.adminProposed ?? null}
+                  note={voucher.merchantFields?.adminNote ?? null}
+                  current={{
+                    title: voucher.title,
+                    description: voucher.description ?? undefined,
+                    terms: voucher.terms ?? undefined,
+                    estimatedSaving: voucher.estimatedSaving,
+                    availabilityWindows: voucher.availabilityWindows ?? undefined,
+                    cooldownSeconds: voucher.cooldownSeconds ?? undefined,
+                  }}
                 />
               ) : null
             }
