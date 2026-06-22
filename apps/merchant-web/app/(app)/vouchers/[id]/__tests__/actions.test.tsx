@@ -11,6 +11,7 @@ const getVoucher = jest.fn()
 const submitVoucher = jest.fn()
 const deleteVoucher = jest.fn()
 const createVoucher = jest.fn()
+const updateVoucher = jest.fn()
 jest.mock('@/lib/api/voucher', () => {
   const actual = jest.requireActual('@/lib/api/voucher')
   return {
@@ -19,6 +20,7 @@ jest.mock('@/lib/api/voucher', () => {
     submitVoucher: (id: string) => submitVoucher(id),
     deleteVoucher: (id: string) => deleteVoucher(id),
     createVoucher: (b: unknown) => createVoucher(b),
+    updateVoucher: (id: string, b: unknown) => updateVoucher(id, b),
   }
 })
 
@@ -62,6 +64,21 @@ function renderPage() {
   )
 }
 
+// A TIME_LIMITED draft that carries availability windows (PR-A getVoucher now
+// returns them). Used to pin the B-1 window round-trip on edit + duplicate.
+const TL_WINDOW = { dayOfWeek: 1, openTime: '14:00', closeTime: '17:00' }
+function timeLimitedVoucher(over: Record<string, unknown> = {}) {
+  return voucher({
+    title: 'Happy hour',
+    type: 'TIME_LIMITED',
+    status: 'DRAFT',
+    approvalStatus: 'PENDING',
+    merchantFields: { builderType: 'time' },
+    availabilityWindows: [TL_WINDOW],
+    ...over,
+  })
+}
+
 beforeEach(() => {
   push.mockReset()
   back.mockReset()
@@ -69,6 +86,7 @@ beforeEach(() => {
   submitVoucher.mockReset().mockResolvedValue(voucher({ status: 'PENDING_APPROVAL' }))
   deleteVoucher.mockReset().mockResolvedValue({ deleted: true })
   createVoucher.mockReset().mockResolvedValue(voucher({ id: 'copy1' }))
+  updateVoucher.mockReset().mockResolvedValue(voucher({ id: 'v1' }))
 })
 
 describe('VoucherDetail actions (DRAFT)', () => {
@@ -125,6 +143,53 @@ describe('VoucherDetail actions (non-DRAFT)', () => {
     expect(screen.queryByRole('button', { name: /^edit$/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /submit for review/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /^delete$/i })).toBeNull()
+  })
+})
+
+describe('VoucherDetail TIME_LIMITED window round-trip (B-1)', () => {
+  it('editing a TIME_LIMITED voucher and saving a description-only change preserves the windows', async () => {
+    getVoucher.mockResolvedValue(timeLimitedVoucher())
+    renderPage()
+    await screen.findAllByText('Happy hour')
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    // The builder opens prefilled. Change ONLY the description, then save the draft.
+    const desc = await screen.findByPlaceholderText(/why they will love this offer/i)
+    fireEvent.change(desc, { target: { value: 'A fresh new description for happy hour.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    const [calledId, payload] = updateVoucher.mock.calls[0]
+    expect(calledId).toBe('v1')
+    // The PATCH carries the same windows (loaded), never [] (which would wipe them).
+    expect(payload.availabilityWindows).toEqual([TL_WINDOW])
+  })
+
+  it('editing a TIME_LIMITED voucher whose windows were NOT loaded omits availabilityWindows on save', async () => {
+    // The detail payload did NOT carry windows (null) - the PATCH must omit the key.
+    getVoucher.mockResolvedValue(timeLimitedVoucher({ availabilityWindows: null }))
+    renderPage()
+    await screen.findAllByText('Happy hour')
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    const desc = await screen.findByPlaceholderText(/why they will love this offer/i)
+    fireEvent.change(desc, { target: { value: 'A fresh new description.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    const payload = updateVoucher.mock.calls[0][1]
+    expect(payload).not.toHaveProperty('availabilityWindows')
+  })
+
+  it('duplicating a TIME_LIMITED voucher carries its windows into the new DRAFT', async () => {
+    getVoucher.mockResolvedValue(timeLimitedVoucher({ status: 'ACTIVE', approvalStatus: 'APPROVED' }))
+    renderPage()
+    await screen.findAllByText('Happy hour')
+    fireEvent.click(screen.getByRole('button', { name: /^duplicate$/i }))
+    const saveBtn = await screen.findByRole('button', { name: /save as draft/i })
+    fireEvent.click(saveBtn)
+    await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
+    const payload = createVoucher.mock.calls[0][0]
+    expect(payload.type).toBe('TIME_LIMITED')
+    expect(payload.title).toBe('Happy hour (copy)')
+    // The duplicate is submittable because it carries the windows the backend requires.
+    expect(payload.availabilityWindows).toEqual([TL_WINDOW])
   })
 })
 
