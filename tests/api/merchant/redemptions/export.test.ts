@@ -186,7 +186,11 @@ describe('GET /api/v1/merchant/redemptions/export.csv (route)', () => {
     app = await buildApp()
     const prismaMock: any = {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
-      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'ACTIVE', businessName: 'Acme' } }) },
+      merchantMembership: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'ACTIVE', businessName: 'Acme' } }),
+        // Staff & Access PR-B: export route resolves via resolveMerchantContext (OWNER + allBranches).
+        findMany: vi.fn().mockResolvedValue([{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]),
+      },
       voucherRedemption: { findMany: vi.fn().mockResolvedValue([dbRow()]), count: vi.fn(), findUnique: vi.fn() },
     }
     app.decorate('prisma', prismaMock as any)
@@ -225,9 +229,9 @@ describe('GET /api/v1/merchant/redemptions/export.csv (route)', () => {
   })
 
   it('a suspended merchant gets MERCHANT_SUSPENDED on export', async () => {
-    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue({
-      id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'SUSPENDED', businessName: 'Acme' },
-    })
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue([{
+      id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'SUSPENDED', businessName: 'Acme' }, branches: [],
+    }])
     const res = await get('/api/v1/merchant/redemptions/export.csv')
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body).error.code).toBe('MERCHANT_SUSPENDED')
