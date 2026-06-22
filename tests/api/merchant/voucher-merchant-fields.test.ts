@@ -41,8 +41,8 @@ describe('A3 — custom voucher merchantFields storage + body allow-listing', ()
 
   afterEach(async () => { await app.close() })
 
-  const post = (payload: unknown) => app.inject({ method: 'POST', url: '/api/v1/merchant/vouchers', headers: { authorization: `Bearer ${merchantToken}` }, payload })
-  const patch = (payload: unknown) => app.inject({ method: 'PATCH', url: '/api/v1/merchant/vouchers/v1', headers: { authorization: `Bearer ${merchantToken}` }, payload })
+  const post = (payload: Record<string, unknown>) => app.inject({ method: 'POST', url: '/api/v1/merchant/vouchers', headers: { authorization: `Bearer ${merchantToken}` }, payload })
+  const patch = (payload: Record<string, unknown>) => app.inject({ method: 'PATCH', url: '/api/v1/merchant/vouchers/v1', headers: { authorization: `Bearer ${merchantToken}` }, payload })
   const createArg = () => (app.prisma.voucher.create as any).mock.calls[0][0]
   const updateArg = () => (app.prisma.voucher.update as any).mock.calls[0][0]
 

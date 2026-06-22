@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { PrismaClient } from '../../../../generated/prisma/client'
+import { PrismaClient, Prisma } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx, type ActorType } from '../../shared/audit'
 import { resolveAdminMerchant, resolveTopLevelCategoryId, type EditActor } from '../shared'
@@ -251,7 +251,7 @@ export async function createVoucher(
       // draft). Default to {} so the column is never null for a custom voucher,
       // matching the RMV create paths. status/approvalStatus/isRmv/merchantId are
       // server-set above and CANNOT be overridden by the bag.
-      merchantFields: data.merchantFields ?? {},
+      merchantFields: (data.merchantFields ?? {}) as Prisma.InputJsonValue,
       // M5 Task 12.5 — propagate validated cooldown. Zod refine (Task
       // 12) guarantees: REUSABLE → null OR >= 1800; non-REUSABLE → null.
       cooldownSeconds: data.cooldownSeconds ?? null,
