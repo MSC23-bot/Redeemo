@@ -148,6 +148,15 @@ describe('GET /api/v1/merchant/redemptions (B1 list)', () => {
     expect(findManyArg().where.redemptionCode).toEqual({ startsWith: 'A7K2' })
   })
 
+  // Day-2 Vouchers A1: voucherId filter (additive). Scopes to that voucher AND
+  // keeps the branch.merchantId IDOR boundary, so a cross-tenant voucher yields empty.
+  it('voucherId filter scopes to that voucher (AND branch.merchantId)', async () => {
+    await get('/api/v1/merchant/redemptions?voucherId=v1')
+    const where = findManyArg().where
+    expect(where.voucherId).toBe('v1')
+    expect(where.branch).toEqual({ merchantId: 'm1' })
+  })
+
   it('a non-RMV (REUSABLE) redemption row renders through the same path (voucher-type-generic)', async () => {
     app.prisma.voucherRedemption.findMany = vi.fn().mockResolvedValue([
       row({ voucher: { id: 'v9', title: 'Coffee club', type: 'REUSABLE' } }),

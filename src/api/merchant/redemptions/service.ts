@@ -8,6 +8,8 @@ export interface RedemptionFilters {
   from?: Date
   to?: Date
   voucherType?: string
+  // Day-2 Vouchers A1: per-voucher filter (additive). ANDed with branch.merchantId.
+  voucherId?: string
   code?: string
 }
 
@@ -19,6 +21,9 @@ export interface RedemptionFilters {
 export function buildRedemptionWhere(merchantId: string, f: RedemptionFilters): Prisma.VoucherRedemptionWhereInput {
   const where: Prisma.VoucherRedemptionWhereInput = { branch: { merchantId }, isTestData: false }
   if (f.branchId) where.branchId = f.branchId
+  // Day-2 Vouchers A1: scope to a single voucher. The branch.merchantId clause
+  // already present keeps the IDOR boundary, so a cross-tenant voucherId yields empty.
+  if (f.voucherId) where.voucherId = f.voucherId
   if (f.status === 'awaiting') where.isValidated = false
   if (f.status === 'validated') where.isValidated = true
   if (f.from || f.to) where.redeemedAt = { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) }
