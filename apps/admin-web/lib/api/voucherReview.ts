@@ -39,7 +39,10 @@ const voucherReviewVoucherSchema = z.object({
   estimatedSaving: z.number(),
   expiryDate: z.string().nullable(),
   cooldownSeconds: z.number().nullable(),
-  merchantFields: z.record(z.string(), z.unknown()).nullable(),
+  // The backend hands through the raw Prisma Json column. A non-object Json
+  // (array / scalar) would fail z.record and crash the whole panel into its
+  // error state, so degrade a malformed bag to null via .catch(null).
+  merchantFields: z.record(z.string(), z.unknown()).nullable().catch(null),
   availabilityWindows: z.array(availabilityWindowSchema),
 })
 
