@@ -12,7 +12,7 @@ import { listVouchers, listRmvVouchers, getVoucher } from '../../../src/api/merc
 // drop rmvTemplate and break onboarding). getVoucher (the detail page) keeps all
 // scalars incl merchantFields and adds redemptionCount additively.
 
-describe('A2 — voucher list + detail redemptionCount', () => {
+describe('A2: voucher list + detail redemptionCount', () => {
   let app: FastifyInstance
 
   beforeEach(async () => {

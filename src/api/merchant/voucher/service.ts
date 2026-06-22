@@ -231,7 +231,7 @@ export async function createVoucher(
     // null column (`undefined` = Prisma "do nothing" against a nullable
     // column with no default).
     cooldownSeconds?: number | null
-    // Day-2 Vouchers A3 — opaque merchant-authored bag (askHelp + builder draft).
+    // Day-2 Vouchers A3: opaque merchant-authored bag (askHelp + builder draft).
     // Written to Voucher.merchantFields. Defaults to {} when omitted.
     merchantFields?: Record<string, unknown>
   },
@@ -265,7 +265,7 @@ export async function createVoucher(
       expiryDate: data.expiryDate ? new Date(data.expiryDate) : undefined,
       status: 'DRAFT',
       approvalStatus: 'PENDING',
-      // Day-2 Vouchers A3 — store the merchant-authored bag (askHelp + builder
+      // Day-2 Vouchers A3: store the merchant-authored bag (askHelp + builder
       // draft). Default to {} so the column is never null for a custom voucher,
       // matching the RMV create paths. status/approvalStatus/isRmv/merchantId are
       // server-set above and CANNOT be overridden by the bag.
@@ -327,7 +327,7 @@ export async function updateVoucher(
   }
   if (data.expiryDate) safe.expiryDate = new Date(data.expiryDate as string)
 
-  // Day-2 Vouchers A3 — merchantFields MERGES (never replaces). This preserves
+  // Day-2 Vouchers A3: merchantFields MERGES (never replaces). This preserves
   // existing keys (askHelp, the concierge adminProposed / adminNote, builder
   // draft state) when the patch only touches a subset of the bag. merchantFields
   // is intentionally NOT in allowedFields (which copies a value verbatim); it is

@@ -10,9 +10,9 @@ import type { FastifyInstance } from 'fastify'
 //   - resubmit after changes: the SAME approval row (found by type+referenceId) is
 //     REOPENED to PENDING (claim cleared), never duplicated. Mirrors the onboarding
 //     submitForApprovalCore reopen pattern.
-// No notification on submit (no submit bell — spec §0 Notifications).
+// No notification on submit (no submit bell; spec §0 Notifications).
 
-describe('A4 — submitVoucher creates/reopens the VOUCHER AdminApproval', () => {
+describe('A4: submitVoucher creates/reopens the VOUCHER AdminApproval', () => {
   let app: FastifyInstance
   let merchantToken: string
 

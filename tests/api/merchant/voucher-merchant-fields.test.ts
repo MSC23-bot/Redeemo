@@ -8,7 +8,7 @@ import type { FastifyInstance } from 'fastify'
 // the server sets status:DRAFT, approvalStatus:PENDING, isRmv:false on create.
 // On update, merchantFields MERGES (preserve askHelp / adminProposed), never replaces.
 
-describe('A3 — custom voucher merchantFields storage + body allow-listing', () => {
+describe('A3: custom voucher merchantFields storage + body allow-listing', () => {
   let app: FastifyInstance
   let merchantToken: string
 
@@ -55,7 +55,7 @@ describe('A3 — custom voucher merchantFields storage + body allow-listing', ()
   it('create ALWAYS sets status:DRAFT, approvalStatus:PENDING, isRmv:false and ignores client-supplied status/approvalStatus/isRmv/merchantId/approvedBy', async () => {
     await post({
       type: 'BOGO', title: 'Sneaky', estimatedSaving: 5,
-      // hostile fields — must be dropped by Zod + never reach create data
+      // hostile fields; must be dropped by Zod + never reach create data
       status: 'ACTIVE', approvalStatus: 'APPROVED', isRmv: true, merchantId: 'other', approvedBy: 'self',
     })
     const data = createArg().data
