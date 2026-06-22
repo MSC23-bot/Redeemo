@@ -75,6 +75,20 @@ export function VouchersList({
           ) : null}
         </div>
 
+        {/* B-7 (spec 3.3): a small at-a-glance totals strip. changes-requested is
+            counted under Draft and approved-waiting under In review (see counts). */}
+        {custom.length > 0 ? (
+          <div
+            data-testid="voucher-stat-strip"
+            className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+          >
+            <StatTile testId="voucher-stat-total" label="Total" value={counts.all} />
+            <StatTile testId="voucher-stat-live" label="Live" value={counts.live} />
+            <StatTile testId="voucher-stat-in-review" label="In review" value={counts['in-review']} />
+            <StatTile testId="voucher-stat-draft" label="Draft" value={counts.draft} />
+          </div>
+        ) : null}
+
         {custom.length > 0 ? <VoucherStatusFilter value={filter} counts={counts} onChange={setFilter} /> : null}
 
         {custom.length === 0 ? (
@@ -104,6 +118,17 @@ export function VouchersList({
           </div>
         )}
       </section>
+    </div>
+  )
+}
+
+function StatTile({ testId, label, value }: { testId: string; label: string; value: number }) {
+  return (
+    <div className="rounded-[12px] border border-[#E5E7EB] bg-white px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-[#8089A4]">{label}</p>
+      <p data-testid={testId} className="mt-0.5 font-display text-2xl font-semibold text-[#010C35]">
+        {value}
+      </p>
     </div>
   )
 }
