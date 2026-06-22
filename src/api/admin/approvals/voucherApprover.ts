@@ -16,7 +16,7 @@ import {
 // request-changes, local safeNotify, post-commit best-effort owner notify, and
 // the NEVER-blind-spread allow-list for the concierge proposal).
 //
-// Model 1 — approve-early, activate-delayed (spec §4):
+// Model 1 - approve-early, activate-delayed (spec §4):
 //   approveVoucher always sets approvalStatus:APPROVED. It additionally flips
 //   status:ACTIVE ONLY when the merchant is ACTIVE AND every flagship RMV is
 //   already ACTIVE (goLive). Otherwise the voucher is "approved-waiting"
@@ -26,7 +26,7 @@ import {
 // §11 HONESTY-NOTE INVARIANTS pinned here (do NOT regress):
 //   (1) "approved-waiting" is the NEW combination status:PENDING_APPROVAL +
 //       approvalStatus:APPROVED. No existing query assumes PENDING_APPROVAL
-//       implies approvalStatus:PENDING — customer queries gate on status:ACTIVE
+//       implies approvalStatus:PENDING - customer queries gate on status:ACTIVE
 //       (so an approved-waiting voucher is correctly invisible), and the merchant
 //       edit/submit/delete paths gate on status:DRAFT (so it is correctly
 //       immutable to the merchant). Pinned by
@@ -58,7 +58,7 @@ const SAVING_COLUMN_MAX = 100000000
  * a notify/enqueue failure must NEVER fail an already-committed decision. The
  * email channel for voucher decisions is dark/deferred this milestone (notify()
  * requires an email payload, so we build + pass real templates, but delivery
- * stays off) — the user-visible signal is the in-app VOUCHER_APPROVAL_UPDATE.
+ * stays off) - the user-visible signal is the in-app VOUCHER_APPROVAL_UPDATE.
  */
 async function safeNotify(
   prisma: PrismaClient,
@@ -379,7 +379,7 @@ export async function rejectVoucher(
 /**
  * Request changes (the concierge round). One transaction: validate (VOUCHER type,
  * actionable, isRmv:false), MERGE merchantFields = { ...existing,
- * ...(proposed valid keys ? { adminProposed } : {}), adminNote: note } — proposed
+ * ...(proposed valid keys ? { adminProposed } : {}), adminNote: note } - proposed
  * is NEVER blind-spread (buildAdminProposed allow-lists + type-guards each key); a
  * comment-only call (no valid proposed) writes adminNote but NOT adminProposed.
  * Voucher -> status:DRAFT / approvalStatus:CHANGES_REQUESTED; AdminApproval ->

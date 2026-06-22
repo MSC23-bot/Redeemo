@@ -108,7 +108,7 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     : []
   const merchantById = new Map(merchants.map((m) => [m.id, m]))
 
-  // Day-2 Vouchers A8b — VOUCHER queue enrichment (mirrors the onboarding
+  // Day-2 Vouchers A8b - VOUCHER queue enrichment (mirrors the onboarding
   // merchant-summary batch above). Collect the VOUCHER referenceIds, batch-load
   // the vouchers (curated select: id/title/type/status/approvalStatus/merchantId,
   // NO PII/redemptionPin) + their merchants (id/businessName/status), and compute
@@ -134,7 +134,7 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     : []
   const voucherMerchantById = new Map(voucherMerchants.map((m) => [m.id, m]))
 
-  // Flagship-live per DISTINCT voucher merchant (one count each — no N+1 per row).
+  // Flagship-live per DISTINCT voucher merchant (one count each - no N+1 per row).
   const flagshipLiveByMerchant = new Map<string, boolean>(
     await Promise.all(
       voucherMerchantIds.map(async (mid): Promise<[string, boolean]> => {
@@ -168,7 +168,7 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     pageSize,
     total,
     approvals: approvals.map((a) => {
-      // Day-2 Vouchers A8b — VOUCHER rows get a voucher summary + merchant +
+      // Day-2 Vouchers A8b - VOUCHER rows get a voucher summary + merchant +
       // goLiveHint; ONBOARDING rows keep the existing merchant block; all other
       // rows (edit lanes) carry null for both.
       if (a.type === 'VOUCHER') {
@@ -578,7 +578,7 @@ export async function approveApproval(
       data: { status: 'ACTIVE', approvalStatus: 'APPROVED', approvedBy: adminId, approvedAt: now },
     })
 
-    // Day-2 Vouchers A7 — Model 1 delayed activation. With the merchant now live
+    // Day-2 Vouchers A7 - Model 1 delayed activation. With the merchant now live
     // AND the flagship RMVs just activated above, BOTH prerequisites for an
     // approved-waiting CUSTOM voucher are satisfied by construction, so flip every
     // approved-waiting custom (isRmv:false, approvalStatus:APPROVED,
@@ -664,7 +664,7 @@ export async function approveApproval(
     )
   }
 
-  // Day-2 Vouchers A7 — after the owner go-live notify, fire one now-live
+  // Day-2 Vouchers A7 - after the owner go-live notify, fire one now-live
   // VOUCHER_APPROVAL_UPDATE per CUSTOM voucher activated by the delayed-activation
   // block above. Best-effort via safeNotify so a notify failure NEVER fails the
   // already-committed go-live. Email payload is provided (notify requires it) but

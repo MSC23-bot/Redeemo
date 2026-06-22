@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { buildApp } from '../../../src/api/app'
 import type { FastifyInstance } from 'fastify'
 
-// Day-2 Vouchers A9 — §11 honesty-note regression guards.
+// Day-2 Vouchers A9 - §11 honesty-note regression guards.
 //
 // (1) The NEW "approved-waiting" state is the combination
 //     status:PENDING_APPROVAL + approvalStatus:APPROVED. No existing query
@@ -162,7 +162,7 @@ describe('A9 (§11 honesty note 2): the actionable queue keys off AdminApproval.
       headers: { authorization: `Bearer ${signOps()}` },
     })
     expect(res.statusCode).toBe(200)
-    // The where clause keys off AdminApproval.status (PENDING) — NOT voucher status.
+    // The where clause keys off AdminApproval.status (PENDING) - NOT voucher status.
     // An approveVoucher decision sets the AdminApproval to APPROVED, so it cannot
     // match status:PENDING and never re-surfaces as actionable.
     expect(findManyWhere?.status).toBe('PENDING')

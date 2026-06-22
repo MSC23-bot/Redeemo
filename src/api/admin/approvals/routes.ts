@@ -96,7 +96,7 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
 
   // Day-2 Vouchers A8: the VOUCHER approval lane. Mirrors the editApplier route
   // registrations. The review read reuses approval:read; the three decisions
-  // reuse approval:action (the SAME capability as the onboarding actioner — no
+  // reuse approval:action (the SAME capability as the onboarding actioner - no
   // new capability per the no-schema model). A non-VOUCHER approval id surfaces
   // APPROVAL_NOT_ACTIONABLE from voucherApprover.
   app.get(`${prefix}/:id/voucher-review`, { preHandler: [requireAdminCapability('approval:read')] }, async (req: any) => {

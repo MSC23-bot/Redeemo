@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vites
 import { PrismaClient } from '../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 
-// Day-2 Vouchers A7 — Model 1 delayed activation. When onboarding-approve takes
+// Day-2 Vouchers A7 - Model 1 delayed activation. When onboarding-approve takes
 // a merchant live, any approved-waiting CUSTOM voucher
 // (isRmv:false, approvalStatus:APPROVED, status:PENDING_APPROVAL) is flipped to
 // ACTIVE in the SAME transaction (after the flagship RMVs) and a now-live
@@ -132,7 +132,7 @@ afterAll(async () => {
   await prisma.$disconnect()
 }, 30_000)
 
-describe('A7 — onboarding-approve activates approved-waiting customs (real DB)', () => {
+describe('A7 - onboarding-approve activates approved-waiting customs (real DB)', () => {
   it('flips an approved-waiting custom to ACTIVE in the same transaction + fires a now-live notify', async () => {
     const { merchantId, ownerAdminId, approvalId, customIds } = await makePreparedMerchant([
       { approvalStatus: 'APPROVED', status: 'PENDING_APPROVAL' }, // approved-waiting
@@ -142,7 +142,7 @@ describe('A7 — onboarding-approve activates approved-waiting customs (real DB)
 
     const custom = await prisma.voucher.findUnique({ where: { id: customIds[0] } })
     expect(custom?.status).toBe('ACTIVE')
-    expect(custom?.approvalStatus).toBe('APPROVED') // unchanged — already approved
+    expect(custom?.approvalStatus).toBe('APPROVED') // unchanged - already approved
 
     // result carries the activated customs.
     expect((res as any).activatedCustoms).toEqual([{ id: customIds[0], title: 'Custom 0' }])
@@ -164,7 +164,7 @@ describe('A7 — onboarding-approve activates approved-waiting customs (real DB)
     const res = await approveApproval(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)
     expect((res as any).activatedCustoms ?? []).toEqual([])
 
-    // Only the merchant_live notify fired — no voucher_now_live.
+    // Only the merchant_live notify fired - no voucher_now_live.
     const types = notifyMock.mock.calls.map((c) => c[2].type)
     expect(types).toEqual(['merchant_live'])
 

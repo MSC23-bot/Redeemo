@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../../../src/api/app'
 
 // Day-2 Vouchers A8: auth + capability gate on the admin VOUCHER routes (not
-// business logic). The gate fires in preHandlers (authenticateAdmin →
+// business logic). The gate fires in preHandlers (authenticateAdmin to
 // requireAdminCapability) before any service/prisma call, so for the gate cases
 // a bare prisma mock suffices.
 //

@@ -108,10 +108,10 @@ export function merchantSubmittedOnBehalfEmail(businessName: string): RenderedEm
 //
 // The merchant email channel for voucher decisions is dark/deferred (notify()
 // requires an email payload, so we construct real templates and pass them, but
-// delivery stays off this milestone — the user-visible signal is the in-app
+// delivery stays off this milestone - the user-visible signal is the in-app
 // VOUCHER_APPROVAL_UPDATE bell). `voucherTitle` is the merchant's own offer name
 // shown back to them; HTML-escaped defensively. `reason` (changes/reject) is
-// admin-controlled merchant-facing free text ⇒ HTML-escaped.
+// admin-controlled merchant-facing free text to HTML-escaped.
 
 /** A voucher was approved and is live now (merchant + flagship already live). */
 export function voucherApprovedLiveEmail(voucherTitle: string): RenderedEmail {
@@ -157,7 +157,7 @@ export function voucherNowLiveEmail(voucherTitle: string): RenderedEmail {
   }
 }
 
-/** Admin requested changes on a voucher. `reason` is admin-controlled ⇒ escaped. */
+/** Admin requested changes on a voucher. `reason` is admin-controlled to escaped. */
 export function voucherChangesRequestedEmail(voucherTitle: string, reason: string): RenderedEmail {
   const safeTitle = escapeHtml(voucherTitle)
   const safeReason = escapeHtml(reason)
@@ -175,7 +175,7 @@ export function voucherChangesRequestedEmail(voucherTitle: string, reason: strin
   }
 }
 
-/** Admin rejected a voucher. `reason` is admin-controlled ⇒ escaped. */
+/** Admin rejected a voucher. `reason` is admin-controlled to escaped. */
 export function voucherRejectedEmail(voucherTitle: string, reason: string): RenderedEmail {
   const safeTitle = escapeHtml(voucherTitle)
   const safeReason = escapeHtml(reason)
