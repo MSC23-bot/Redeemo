@@ -526,7 +526,7 @@ export async function submitVoucher(
       // PENDING_APPROVAL + PENDING under review (display already works status-first;
       // this clears the stale value and protects future code that reads the pair jointly).
       //
-      // B1 item 4: spec §4.4 — the server-owned concierge keys (adminProposed /
+      // B1 item 4: spec §4.4: the server-owned concierge keys (adminProposed /
       // adminNote) are CLEARED on resubmit. stripAdminOwnedKeys removes exactly
       // those two keys; a normal DRAFT submit (no admin keys) is a no-op. The
       // stripped bag is strictly a subset of the stored bag, so no size concern.

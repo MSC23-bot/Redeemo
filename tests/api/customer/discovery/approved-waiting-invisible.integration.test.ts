@@ -4,7 +4,7 @@
 // Model 1 "approved-waiting" invariant.
 //
 // Model 1 (approve-early / activate-delayed): a custom voucher can be APPROVED
-// by admin but still waiting to activate — approvalStatus:'APPROVED' +
+// by admin but still waiting to activate (approvalStatus:'APPROVED' +
 // status:'PENDING_APPROVAL'. It must NOT be customer-visible until it is
 // activated (status:'ACTIVE'). The customer-facing queries gate on
 // status:ACTIVE + approvalStatus:APPROVED + isTestData:false, so an
@@ -34,7 +34,7 @@ const VOUCHER_APPROVED_WAITING_ID = `${FIXTURE_PREFIX}voucher-aw`
 const VOUCHER_ACTIVE_ID = `${FIXTURE_PREFIX}voucher-active`
 
 beforeAll(async () => {
-  // §BU pattern — warm the connection before fresh-per-test fixtures.
+  // §BU pattern: warm the connection before fresh-per-test fixtures.
   await prisma.$queryRaw`SELECT 1`
 
   await prisma.merchant.upsert({
