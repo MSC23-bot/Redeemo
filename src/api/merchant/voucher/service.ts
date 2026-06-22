@@ -34,6 +34,22 @@ function assertSavingSane(value: unknown): void {
 // the column so a poisoned saving maps to a clean SAVING_INVALID, never a Prisma error.
 const RMV_SAVING_COLUMN_MAX = 100000000
 
+// Fix 3 (Decimal(10,2) overflow guard): the custom create/update paths let a
+// merchant write a TOP-LEVEL estimatedSaving directly. assertSavingSane only checks
+// finite+positive, so a value like 1e9 reaches Prisma and overflows Decimal(10,2)
+// (Postgres 22003 -> raw 500). Mirror the RMV bridge's rounding-boundary logic
+// (Math.round(v*100)/100 then >= RMV_SAVING_COLUMN_MAX reject) so a too-large value
+// is the clean SAVING_INVALID 400. Call AFTER assertSavingSane (which guarantees a
+// finite number). Postgres rounds half-away-from-zero to scale 2 BEFORE the
+// precision check, so a value just under the max (99999999.995) must be rejected too.
+// Does NOT touch the RMV create / edit cores (they keep their own identical guard).
+function assertSavingFitsColumn(value: number): void {
+  const rounded = Math.round(value * 100) / 100
+  if (rounded >= RMV_SAVING_COLUMN_MAX) {
+    throw new AppError('SAVING_INVALID')
+  }
+}
+
 // ─── M4a-7: TIME_LIMITED availability-window validation ─────────────────────
 //
 // Enforces spec §3.2 rules 1-4 + 7 + type-attachment (D2 lock):
@@ -226,6 +242,8 @@ export async function createVoucher(
   // negative / absent estimatedSaving is rejected with SAVING_INVALID; a positive
   // value (even below the advisory floor) is accepted.
   assertSavingSane(data.estimatedSaving)
+  // Fix 3: also reject a value that overflows Decimal(10,2) (clean 400, not a 500).
+  assertSavingFitsColumn(data.estimatedSaving)
   // M4a-7: validate windows BEFORE the Prisma create. Type-attachment +
   // per-row format + per-day overlap checks all run synchronously.
   validateAvailabilityWindows(data.type, data.availabilityWindows)
@@ -327,6 +345,8 @@ export async function updateVoucher(
   // SAVING_INVALID; a positive value (even below the advisory floor) is accepted.
   if ('estimatedSaving' in safe) {
     assertSavingSane(safe.estimatedSaving)
+    // Fix 3: also reject a value that overflows Decimal(10,2) (clean 400, not a 500).
+    assertSavingFitsColumn(safe.estimatedSaving as number)
   }
 
   // M4a-7: resolve effective type (post-merge) and effective windows.
