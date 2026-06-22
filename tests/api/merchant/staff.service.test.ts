@@ -422,21 +422,40 @@ describe('B2 resendInvite', () => {
 
 })
 
-// SPECIFIC_BRANCHES_ENABLED gate (false in chunk-1 — the second implementer flips
-// it in B7). A scoped (allBranches:false) invite is refused by the body zod schema
-// (-> ZodError -> VALIDATION_ERROR 400 at the route). The service never reaches the
-// membership create.
-describe('B1 inviteMember — SPECIFIC_BRANCHES gate', () => {
+// SPECIFIC_BRANCHES_ENABLED gate. B7 FLIPPED it to TRUE now that branch-scope
+// enforcement (B5 + B6) lands, so a scoped (allBranches:false) invite is now
+// ACCEPTED: it creates the membership AND writes MerchantMembershipBranch scope
+// rows for the requested branches (validated to belong to the merchant first).
+describe('B1 inviteMember — SPECIFIC_BRANCHES gate (B7: enabled)', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('rejects a scoped (allBranches:false) invite while SPECIFIC_BRANCHES_ENABLED is off', async () => {
+  it('accepts a scoped (allBranches:false) invite and writes MerchantMembershipBranch rows', async () => {
     const scopedBody = {
       email: 'invitee@x.com', firstName: 'In', lastName: 'Vitee', jobTitle: 'Cashier',
       role: 'BRANCH_MANAGER' as const, allBranches: false, branchIds: ['b1'],
     }
     const prisma = makePrisma()
+    const res = await inviteMember(prisma, redis, OWNER_CTX.adminId, scopedBody, { ...OWNER_CTX, ...reqMeta })
+    expect(res.memberId).toBe('new-mm')
+    // The membership is created with allBranches:false.
+    expect(prisma.merchantMembership.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ allBranches: false }) }),
+    )
+    // The branch-scope rows are written for the requested branch.
+    expect(prisma.merchantMembershipBranch.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [{ membershipId: 'new-mm', branchId: 'b1' }] }),
+    )
+  })
+
+  it('rejects a scoped invite whose branchId does not belong to the merchant (BRANCH_NOT_OWNED)', async () => {
+    const scopedBody = {
+      email: 'invitee2@x.com', firstName: 'In', lastName: 'Vitee', jobTitle: 'Cashier',
+      role: 'BRANCH_MANAGER' as const, allBranches: false, branchIds: ['b-not-mine'],
+    }
+    // branch.findMany returns empty -> owned.length !== wantBranchIds.length -> reject.
+    const prisma = makePrisma({ branchFindMany: vi.fn().mockResolvedValue([]) })
     await expect(inviteMember(prisma, redis, OWNER_CTX.adminId, scopedBody, { ...OWNER_CTX, ...reqMeta }))
-      .rejects.toThrow(/Specific branches|ZodError/i)
+      .rejects.toThrow(/BRANCH_NOT_OWNED/)
     expect(prisma.merchantMembership.create).not.toHaveBeenCalled()
   })
 })

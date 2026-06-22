@@ -28,12 +28,16 @@ import { listBranchAppUsers } from '../../auth/merchant/branch-user.service'
 // `issueMerchantClaim` (Redis + the CommunicationLog payload). See §5.1.2.
 //
 // SPECIFIC_BRANCHES_ENABLED gates "Specific branches" (allBranches:false) invites.
-// It is FALSE in this chunk — the second implementer flips it to true in Task B7
-// once branch-scope enforcement (Tasks B5+B6) lands. Until then, invites are
-// all-branches only (no branch boundary exists yet to enforce).
+// FLIPPED to TRUE in Task B7 (spec §5.2 in-v1 sequencing gate): branch-scope
+// enforcement is now complete across the SCOPED route set (Tasks B5 + B6 — branch
+// reads, redemptions reads, and the two † redemption routes all enforce
+// assertBranchAllowed / allowed-branch intersect), so the invariant "never display a
+// branch boundary the server does not enforce" (D4) is satisfied and scoped invites
+// are now accepted. inviteMember/updateMemberAccess still validate that every
+// requested branch belongs to the caller's merchant before writing the scope rows.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const SPECIFIC_BRANCHES_ENABLED = false
+export const SPECIFIC_BRANCHES_ENABLED = true
 
 // `event` is a String column at runtime (see audit.ts header). The staff-specific
 // event literals are union-only additions; `src/api/shared/audit.ts` is out of
