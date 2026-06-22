@@ -10,10 +10,11 @@
  * initial from the API; this surface never receives or renders email/phone/PIN.
  */
 import * as React from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { ScanLine } from '@/lib/icons'
+import { ScanLine, X } from '@/lib/icons'
 import { RedemptionsTable } from '@/components/redemptions/RedemptionsTable'
 import { RedemptionFilters } from '@/components/redemptions/RedemptionFilters'
 import { RedemptionDetail } from '@/components/redemptions/RedemptionDetail'
@@ -30,7 +31,13 @@ const PAGE_SIZE = 25
 
 export default function RedemptionsPage() {
   const { openValidate } = useValidateDialog()
-  const [filters, setFilters] = React.useState<Filters>({})
+  const searchParams = useSearchParams()
+  // B-2: a /redemptions?voucherId=<id> deep-link (from the Voucher Detail "View
+  // redemptions" link) seeds the filter so the log opens scoped to that voucher.
+  const initialVoucherId = searchParams?.get('voucherId') ?? undefined
+  const [filters, setFilters] = React.useState<Filters>(
+    initialVoucherId ? { voucherId: initialVoucherId } : {},
+  )
   const [offset, setOffset] = React.useState(0)
   const [selected, setSelected] = React.useState<RedemptionRow | null>(null)
   const [exporting, setExporting] = React.useState(false)
@@ -59,6 +66,17 @@ export default function RedemptionsPage() {
   // A filter change resets pagination to the first page.
   function patchFilters(patch: Partial<Filters>) {
     setFilters((prev) => ({ ...prev, ...patch }))
+    setOffset(0)
+  }
+
+  // B-2: drop the voucher deep-link filter (the removable chip). The voucherId key
+  // is omitted entirely so the list query reverts to the merchant-wide log.
+  function clearVoucherFilter() {
+    setFilters((prev) => {
+      const next = { ...prev }
+      delete next.voucherId
+      return next
+    })
     setOffset(0)
   }
 
@@ -104,6 +122,18 @@ export default function RedemptionsPage() {
           {exportError}
         </div>
       )}
+
+      {filters.voucherId ? (
+        <button
+          type="button"
+          onClick={clearVoucherFilter}
+          className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#E20C04]/30 bg-[#E20C04]/10 px-3 py-1 text-[13px] font-semibold text-[#E20C04] hover:bg-[#E20C04]/15"
+        >
+          Filtered to this voucher
+          <X size={14} aria-hidden />
+          <span className="sr-only">Clear the voucher filter</span>
+        </button>
+      ) : null}
 
       <RedemptionFilters filters={filters} branches={branchOptions} onChange={patchFilters} />
 

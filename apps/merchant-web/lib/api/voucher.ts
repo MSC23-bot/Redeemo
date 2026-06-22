@@ -83,3 +83,190 @@ export async function listRmvVouchers(): Promise<RmvVoucher[]> {
     .array(rmvVoucherSchema)
     .parse(await apiFetch('/api/v1/merchant/vouchers/rmv', { method: 'GET', auth: true }))
 }
+
+// ─── Day-2 Vouchers B1: the custom (RCV) voucher client ──────────────────────
+//
+// Calls the REAL merged PR-A backend (src/api/merchant/voucher/*). Direct
+// browser->backend authed calls (Bearer token). Contracts (read the real code,
+// do not guess):
+//   GET    /api/v1/merchant/vouchers          -> curated custom rows. The list
+//          omits merchantFields/code/availabilityWindows (detail-only) but
+//          carries redemptionCount, approvalComment, approvalStatus, etc.
+//   GET    /api/v1/merchant/vouchers/:id       -> the FULL custom voucher INCL
+//          merchantFields (carries askHelp +, on CHANGES_REQUESTED, adminProposed
+//          + adminNote) + redemptionCount.
+//   POST   /api/v1/merchant/vouchers           -> create DRAFT. The server sets
+//          status:DRAFT / approvalStatus:PENDING / isRmv:false. The client NEVER
+//          sends status/approvalStatus/isRmv/merchantId (not in the payload type).
+//   PATCH  /api/v1/merchant/vouchers/:id        -> DRAFT-only partial; merchantFields MERGES server-side.
+//   POST   /api/v1/merchant/vouchers/:id/submit -> DRAFT -> PENDING_APPROVAL (+ creates/reopens the VOUCHER approval).
+//   DELETE /api/v1/merchant/vouchers/:id        -> DRAFT-only delete.
+//   GET    /api/v1/merchant/vouchers/rmv        -> flagship rows (now incl redemptionCount).
+
+// The 8 customer-facing voucher types (the backend VoucherTypeEnum).
+export const VOUCHER_TYPES = [
+  'BOGO',
+  'SPEND_AND_SAVE',
+  'DISCOUNT_FIXED',
+  'DISCOUNT_PERCENT',
+  'FREEBIE',
+  'PACKAGE_DEAL',
+  'TIME_LIMITED',
+  'REUSABLE',
+] as const
+export type VoucherTypeEnum = (typeof VOUCHER_TYPES)[number]
+
+// An availability window (TIME_LIMITED only). Mirrors the backend Zod shape.
+export const availabilityWindowSchema = z.object({
+  dayOfWeek: z.number().int().min(0).max(6),
+  openTime: z.string(),
+  closeTime: z.string(),
+})
+export type AvailabilityWindow = z.infer<typeof availabilityWindowSchema>
+
+// The curated LIST row shape (GET /vouchers). .passthrough() so a future backend
+// field cannot break this client; estimatedSaving is Decimal-on-the-wire so we
+// coerce to a number. redemptionCount is the per-voucher aggregate. The list does
+// NOT carry merchantFields/availabilityWindows (detail-only).
+export const customVoucherListRowSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    type: z.string(),
+    status: z.string(),
+    approvalStatus: z.string(),
+    approvalComment: z.string().nullish(),
+    estimatedSaving: z.coerce.number(),
+    description: z.string().nullish(),
+    terms: z.string().nullish(),
+    isRmv: z.boolean().default(false),
+    cooldownSeconds: z.number().nullish(),
+    publishedAt: z.string().nullish(),
+    expiryDate: z.string().nullish(),
+    approvedAt: z.string().nullish(),
+    createdAt: z.string(),
+    redemptionCount: z.number().default(0),
+  })
+  .passthrough()
+export type CustomVoucherListRow = z.infer<typeof customVoucherListRowSchema>
+
+// The concierge adminProposed bag (a subset of the editable fields). Every key is
+// optional; the admin only proposes what they want to change.
+export const adminProposedSchema = z
+  .object({
+    title: z.string().optional(),
+    description: z.string().optional(),
+    terms: z.string().optional(),
+    estimatedSaving: z.coerce.number().optional(),
+    availabilityWindows: z.array(availabilityWindowSchema).optional(),
+    cooldownSeconds: z.number().nullish(),
+  })
+  .passthrough()
+export type AdminProposed = z.infer<typeof adminProposedSchema>
+
+// The merchantFields bag (askHelp + builder draft + the concierge adminProposed /
+// adminNote). .passthrough() everywhere so unknown builder keys round-trip.
+//
+// INVARIANT (B-13): merchantFields is fully CLIENT-READABLE and CLIENT-ECHOED - the
+// merchant edits it and the same shape is sent back on create/update. It must NEVER
+// be used to carry server-private data (customer PII, redemption PINs, internal
+// flags). Anything the backend wants to keep private must live OUTSIDE this bag.
+export const merchantFieldsSchema = z
+  .object({
+    askHelp: z.boolean().optional(),
+    adminProposed: adminProposedSchema.nullish(),
+    adminNote: z.string().nullish(),
+  })
+  .passthrough()
+export type MerchantFields = z.infer<typeof merchantFieldsSchema>
+
+// The full DETAIL shape (GET /vouchers/:id). Extends the list row with the
+// detail-only fields (merchantFields; availabilityWindows when the backend
+// includes them). NOTE (contract): the PR-A getVoucher uses include:{ _count }
+// only, so availabilityWindows is NOT returned today - modelled as optional so
+// the client never breaks if/when it is added.
+export const customVoucherDetailSchema = customVoucherListRowSchema
+  .extend({
+    code: z.string().nullish(),
+    merchantFields: merchantFieldsSchema.nullish(),
+    availabilityWindows: z.array(availabilityWindowSchema.passthrough()).nullish(),
+    imageUrl: z.string().nullish(),
+  })
+  .passthrough()
+export type CustomVoucherDetail = z.infer<typeof customVoucherDetailSchema>
+
+// The create payload. The merchant NEVER sends status/approvalStatus/isRmv/merchantId
+// (the server sets them) - they are intentionally absent from this type.
+export interface CreateVoucherPayload {
+  type: VoucherTypeEnum
+  title: string
+  estimatedSaving: number
+  description?: string
+  terms?: string
+  imageUrl?: string
+  expiryDate?: string
+  availabilityWindows?: AvailabilityWindow[]
+  cooldownSeconds?: number | null
+  merchantFields?: Record<string, unknown>
+}
+
+// The update payload is a partial of the create payload (DRAFT-only PATCH).
+export type UpdateVoucherPayload = Partial<CreateVoucherPayload>
+
+export async function listCustomVouchers(): Promise<CustomVoucherListRow[]> {
+  return z
+    .array(customVoucherListRowSchema)
+    .parse(await apiFetch('/api/v1/merchant/vouchers', { method: 'GET', auth: true }))
+}
+
+export async function getVoucher(id: string): Promise<CustomVoucherDetail> {
+  return customVoucherDetailSchema.parse(
+    await apiFetch(`/api/v1/merchant/vouchers/${id}`, { method: 'GET', auth: true }),
+  )
+}
+
+export async function createVoucher(payload: CreateVoucherPayload): Promise<CustomVoucherDetail> {
+  return customVoucherDetailSchema.parse(
+    await apiFetch('/api/v1/merchant/vouchers', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify(payload),
+    }),
+  )
+}
+
+export async function updateVoucher(
+  id: string,
+  payload: UpdateVoucherPayload,
+): Promise<CustomVoucherDetail> {
+  return customVoucherDetailSchema.parse(
+    await apiFetch(`/api/v1/merchant/vouchers/${id}`, {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify(payload),
+    }),
+  )
+}
+
+export async function submitVoucher(id: string): Promise<CustomVoucherDetail> {
+  return customVoucherDetailSchema.parse(
+    await apiFetch(`/api/v1/merchant/vouchers/${id}/submit`, { method: 'POST', auth: true }),
+  )
+}
+
+export async function deleteVoucher(id: string): Promise<{ deleted: boolean }> {
+  return z
+    .object({ deleted: z.boolean() })
+    .parse(await apiFetch(`/api/v1/merchant/vouchers/${id}`, { method: 'DELETE', auth: true }))
+}
+
+// Flagship list, parsed as custom rows + isRmv:true so the Vouchers page can pin
+// them at the top. The flagship endpoint now also carries redemptionCount (PR-A A2).
+const flagshipRowSchema = customVoucherListRowSchema.extend({ isRmv: z.boolean().default(true) })
+export type FlagshipVoucherRow = z.infer<typeof flagshipRowSchema>
+
+export async function listFlagshipVouchers(): Promise<FlagshipVoucherRow[]> {
+  return z
+    .array(flagshipRowSchema)
+    .parse(await apiFetch('/api/v1/merchant/vouchers/rmv', { method: 'GET', auth: true }))
+}
