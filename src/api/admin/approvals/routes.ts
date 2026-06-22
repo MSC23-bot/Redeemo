@@ -12,6 +12,12 @@ import {
   getReviewContext,
 } from './service'
 import { approveEdit, rejectEdit, getEditReviewContext } from './editApplier'
+import {
+  getVoucherReviewContext,
+  approveVoucher,
+  rejectVoucher,
+  requestVoucherChanges,
+} from './voucherApprover'
 
 // Phase 2 Slice 1 M3 — actioner review-loop routes. `authenticateAdmin` is
 // applied by the admin-management plugin scope; each route adds its capability.
@@ -86,5 +92,32 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
 
   app.post(`${prefix}/:id/reject-edit`, { preHandler: [requireAdminCapability('approval:apply-edit')] }, async (req: any) => {
     return rejectEdit(app.prisma, app.redis, idParam(req), req.user.sub, reasonBody(req), auditCtx(req))
+  })
+
+  // Day-2 Vouchers A8: the VOUCHER approval lane. Mirrors the editApplier route
+  // registrations. The review read reuses approval:read; the three decisions
+  // reuse approval:action (the SAME capability as the onboarding actioner — no
+  // new capability per the no-schema model). A non-VOUCHER approval id surfaces
+  // APPROVAL_NOT_ACTIONABLE from voucherApprover.
+  app.get(`${prefix}/:id/voucher-review`, { preHandler: [requireAdminCapability('approval:read')] }, async (req: any) => {
+    return getVoucherReviewContext(app.prisma, idParam(req))
+  })
+
+  app.post(`${prefix}/:id/approve-voucher`, { preHandler: [requireAdminCapability('approval:action')] }, async (req: any) => {
+    return approveVoucher(app.prisma, app.redis, idParam(req), req.user.sub, auditCtx(req))
+  })
+
+  app.post(`${prefix}/:id/reject-voucher`, { preHandler: [requireAdminCapability('approval:action')] }, async (req: any) => {
+    return rejectVoucher(app.prisma, app.redis, idParam(req), req.user.sub, reasonBody(req), auditCtx(req))
+  })
+
+  app.post(`${prefix}/:id/request-voucher-changes`, { preHandler: [requireAdminCapability('approval:action')] }, async (req: any) => {
+    const body = z
+      .object({
+        proposed: z.record(z.string(), z.unknown()).optional(),
+        note: z.string().min(1).max(2000),
+      })
+      .parse(req.body)
+    return requestVoucherChanges(app.prisma, app.redis, idParam(req), req.user.sub, body, auditCtx(req))
   })
 }
