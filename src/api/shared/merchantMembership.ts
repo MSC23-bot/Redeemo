@@ -54,6 +54,46 @@ export async function getMerchantOwnerContact(
     : null
 }
 
+export type ActiveMembership = {
+  id: string
+  merchantId: string
+  merchantAdminId: string
+  role: 'OWNER' | 'BRANCH_MANAGER' | 'STAFF'
+  allBranches: boolean
+  canManageVouchers: boolean
+  allowedBranchIds: string[]
+  merchant?: { status: string; businessName: string } | null
+}
+
+/**
+ * Resolve the caller's single ACTIVE membership (any role). Throws
+ * MULTI_MEMBERSHIP_UNSUPPORTED if the person has >1 (multi-merchant identity is
+ * deferred; enforced here at resolve time, not just at invite). Returns null if none.
+ * `take: 2` is the cheap >1 detector.
+ */
+export async function getActiveMembership(
+  prisma: PrismaClient,
+  adminId: string
+): Promise<ActiveMembership | null> {
+  const rows = await prisma.merchantMembership.findMany({
+    where: { merchantAdminId: adminId, status: 'ACTIVE' },
+    select: {
+      id: true, merchantId: true, merchantAdminId: true, role: true, allBranches: true, canManageVouchers: true,
+      merchant: { select: { status: true, businessName: true } },
+      branches: { select: { branchId: true } },
+    },
+    take: 2,
+  })
+  if (rows.length === 0) return null
+  if (rows.length > 1) throw new AppError('MULTI_MEMBERSHIP_UNSUPPORTED')
+  const r = rows[0]
+  return {
+    id: r.id, merchantId: r.merchantId, merchantAdminId: r.merchantAdminId,
+    role: r.role as ActiveMembership['role'], allBranches: r.allBranches, canManageVouchers: r.canManageVouchers,
+    allowedBranchIds: r.branches.map((b) => b.branchId), merchant: r.merchant,
+  }
+}
+
 /**
  * Guard: refuse to remove/deactivate the LAST active OWNER of a merchant.
  *
