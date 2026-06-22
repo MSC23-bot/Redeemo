@@ -53,7 +53,11 @@ describe('merchant voucher routes — cooldownSeconds Zod validation (M5 Task 12
     app = await buildApp()
     app.decorate('prisma', {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
-      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
+      merchantMembership: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }),
+        // Staff & Access PR-B: voucher service resolves via resolveMerchantContext (OWNER row -> voucher power by role).
+        findMany: vi.fn().mockResolvedValue([{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]),
+      },
       voucher: {
         findMany:  vi.fn(),
         findFirst: vi.fn().mockResolvedValue({ ...mockVoucher }),

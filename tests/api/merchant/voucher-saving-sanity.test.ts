@@ -15,7 +15,11 @@ const baseCtx = { ipAddress: '1.2.3.4', userAgent: 'test' }
 function mockPrisma() {
   return {
     // resolveAdminMerchant resolves via MerchantMembership (default OWNER of m1).
-    merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
+    merchantMembership: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }),
+      // Staff & Access PR-B: voucher service resolves via resolveMerchantContext (OWNER row -> voucher power by role).
+      findMany: vi.fn().mockResolvedValue([{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]),
+    },
     voucher: {
       findFirst: vi.fn(),
       create: vi.fn().mockImplementation(async ({ data }: any) => ({ id: 'v1', ...data })),

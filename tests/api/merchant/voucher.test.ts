@@ -35,7 +35,12 @@ describe('merchant custom voucher routes', () => {
     app = await buildApp()
     const prismaMock: any = {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
-      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
+      merchantMembership: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }),
+        // Staff & Access PR-B: voucher service now resolves via resolveMerchantContext
+        // (getActiveMembership -> findMany). OWNER row -> voucher power by role.
+        findMany: vi.fn().mockResolvedValue([{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]),
+      },
       voucher: {
         findMany: vi.fn(),
         findFirst: vi.fn(),

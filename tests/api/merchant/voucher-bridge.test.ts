@@ -74,7 +74,11 @@ describe('M2 flagship voucher bridge (submitRmvVoucherCore promotion + re-link)'
     app = await buildApp()
     const prismaMock: any = {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
-      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
+      merchantMembership: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }),
+        // Staff & Access PR-B: voucher service resolves via resolveMerchantContext (OWNER row -> voucher power by role).
+        findMany: vi.fn().mockResolvedValue([{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]),
+      },
       voucher: { findFirst: vi.fn(), update: vi.fn() },
       rmvTemplate: { findFirst: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
