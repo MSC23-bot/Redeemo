@@ -6,7 +6,7 @@ import { generateRefreshToken, hashRefreshToken, generateSessionId, generateSecu
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
 import { consumePwdResetAttempt } from '../../shared/pwdResetLimiter'
-import { getOwnerMembership } from '../../shared/merchantMembership'
+import { getOwnerMembership, getActiveMembership } from '../../shared/merchantMembership'
 import {
   storeRefreshToken, revokeRefreshToken, revokeAllSessionsForEntity,
   revokeAllUserSessionRecords, writeUserSession, validateRefreshToken,
@@ -41,14 +41,27 @@ function otpRequired(admin: any, deviceId: string, knownDevices: string[]): bool
 /**
  * M6b (D-1): resolve a merchant-admin's merchant via the MerchantMembership
  * source of truth — replaces the dropped MerchantAdmin.merchant relation /
- * merchantId column. Throws INVALID_CREDENTIALS when the admin has no active
- * OWNER membership (or its joined merchant is absent).
+ * merchantId column.
+ *
+ * Staff & Access PR-B B8 (THE CUTOVER, §4.4): resolves ANY ACTIVE membership
+ * (getActiveMembership) rather than only the OWNER membership — this is what lets a
+ * BRANCH_MANAGER / STAFF member authenticate into a working merchant session. Per-
+ * request role + branch scope are resolved separately by resolveMerchantContext on
+ * each guarded route (NOT stored in the JWT/session, which keeps its
+ * `{ sub, role:'merchant', deviceId, sessionId }` shape), so enabling non-owner
+ * login only exposes the deliberately-migrated PR-B route set + the two † routes,
+ * which all now carry their guard. getActiveMembership throws
+ * MULTI_MEMBERSHIP_UNSUPPORTED for a >1-active-membership person (multi-merchant
+ * deferred). The SEC-M2 suspended throw is preserved below.
+ *
+ * Throws INVALID_CREDENTIALS when the admin has no active membership (or its joined
+ * merchant is absent).
  */
 async function resolveMerchantInfo(
   prisma: PrismaClient,
   adminId: string
 ): Promise<{ merchantId: string; status: string; businessName: string }> {
-  const membership = await getOwnerMembership(prisma, adminId)
+  const membership = await getActiveMembership(prisma, adminId)
   if (!membership?.merchant) throw new AppError('INVALID_CREDENTIALS')
   return { merchantId: membership.merchantId, status: membership.merchant.status, businessName: membership.merchant.businessName }
 }

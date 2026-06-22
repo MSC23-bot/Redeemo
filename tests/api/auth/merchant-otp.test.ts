@@ -14,7 +14,14 @@ import { RedisKey } from '../../../src/api/shared/redis-keys'
 const TEST_ENCRYPTION_KEY = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90'
 const CHALLENGE = 'merchant-challenge-token'
 const ADMIN = { id: 'ma-1', email: 'merchant@example.com', passwordHash: 'hash', otpVerifiedAt: null, status: 'ACTIVE', emailVerified: true }
-const MEMBERSHIP = { id: 'mm-1', merchantId: 'm1', merchantAdminId: 'ma-1', merchant: { status: 'ACTIVE', businessName: 'Test Co' } }
+// Staff & Access PR-B B8 (cutover): resolveMerchantInfo now uses getActiveMembership
+// (merchantMembership.findMany, ANY active role), so the membership row carries the
+// full ActiveMembership shape (role/allBranches/canManageVouchers/branches).
+const MEMBERSHIP = {
+  id: 'mm-1', merchantId: 'm1', merchantAdminId: 'ma-1', role: 'OWNER',
+  allBranches: true, canManageVouchers: false,
+  merchant: { status: 'ACTIVE', businessName: 'Test Co' }, branches: [],
+}
 const KEY = RedisKey.otpChallenge('merchant', CHALLENGE)
 
 function hmacFor(challenge: string, code: string): string {
@@ -60,7 +67,7 @@ describe('loginMerchant: M1 generate + HMAC-store + email send', () => {
     }
     const prisma = {
       merchantAdmin: { findUnique: vi.fn(async () => ADMIN) },
-      merchantMembership: { findFirst: vi.fn(async () => MEMBERSHIP) },
+      merchantMembership: { findMany: vi.fn(async () => [MEMBERSHIP]) },
     }
     const app = {}
     return { redis, prisma, app }
@@ -133,7 +140,7 @@ describe('verifyMerchantOtp: M1 HMAC verification + attempt limit', () => {
     }
     const prisma = {
       merchantAdmin: { findUnique: vi.fn(async () => ({ id: ADMIN.id, email: ADMIN.email })), update: vi.fn(async () => ({})) },
-      merchantMembership: { findFirst: vi.fn(async () => MEMBERSHIP) },
+      merchantMembership: { findMany: vi.fn(async () => [MEMBERSHIP]) },
       userSession: { create: vi.fn(async () => ({})), updateMany: vi.fn(async () => ({ count: 0 })) },
       auditLog: { create: vi.fn(async () => ({})) },
     }

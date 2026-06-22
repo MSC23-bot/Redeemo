@@ -101,7 +101,8 @@ describe('login after claim — recognised-device path only (unknown-device OTP 
     // first-ever-login OTP), ACTIVE, with an ACTIVE merchant.
     app.decorate('prisma', {
       merchantAdmin:      { findUnique: vi.fn().mockResolvedValue({ id: 'ma-1', passwordHash: hash, otpVerifiedAt: new Date(), status: 'ACTIVE', emailVerified: true }) },
-      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma-1', merchant: { status: 'ACTIVE', businessName: 'Claim Co' } }) },
+      // Staff & Access PR-B B8 (cutover): login resolves via getActiveMembership (findMany).
+      merchantMembership: { findMany: vi.fn().mockResolvedValue([{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma-1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Claim Co' }, branches: [] }]) },
       userSession:        { create: vi.fn().mockResolvedValue({}) },
       auditLog:           { create: vi.fn().mockResolvedValue({}) },
     } as any)

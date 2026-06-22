@@ -238,7 +238,9 @@ describe('verifyMerchantEmail: complete registration (auto-login)', () => {
     }
     const prisma = {
       merchantAdmin: { findUnique: vi.fn(async () => ({ id: 'ma-new', email: 'new@merchant.test' })), update: vi.fn(async (_args: any) => ({})) },
-      merchantMembership: { findFirst: vi.fn(async () => ({ id: 'mm-new', merchantId: 'm-new', merchantAdminId: 'ma-new', merchant: { status: 'REGISTERED', businessName: 'Roe Cafe' } })) },
+      // Staff & Access PR-B B8 (cutover): register/verify auto-login resolves via
+      // getActiveMembership (findMany, the full ActiveMembership shape).
+      merchantMembership: { findMany: vi.fn(async () => [{ id: 'mm-new', merchantId: 'm-new', merchantAdminId: 'ma-new', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'REGISTERED', businessName: 'Roe Cafe' }, branches: [] }]) },
       userSession: { create: vi.fn(async () => ({})), updateMany: vi.fn(async () => ({ count: 0 })) },
       auditLog: { create: vi.fn(async () => ({})) },
     }
