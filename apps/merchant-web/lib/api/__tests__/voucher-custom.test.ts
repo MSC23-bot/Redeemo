@@ -6,6 +6,7 @@ import {
   submitVoucher,
   deleteVoucher,
   listFlagshipVouchers,
+  customVoucherDetailSchema,
   type CreateVoucherPayload,
   type UpdateVoucherPayload,
 } from '@/lib/api/voucher'
@@ -100,6 +101,12 @@ describe('getVoucher', () => {
     expect(mf.askHelp).toBe(true)
     expect((mf.adminProposed as Record<string, unknown>).title).toBe('Better title')
     expect(mf.adminNote).toBe('Please raise the saving.')
+  })
+
+  // B1 item 2: the unused `code` field was removed from the detail schema. It is
+  // never consumed anywhere in merchant-web; the schema must not declare it.
+  it('does not declare a `code` field in the detail schema', () => {
+    expect(Object.keys(customVoucherDetailSchema.shape)).not.toContain('code')
   })
 })
 
