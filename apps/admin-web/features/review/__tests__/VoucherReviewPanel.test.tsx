@@ -201,6 +201,54 @@ describe('VoucherReviewPanel voucher display', () => {
     const diff = screen.getByTestId('voucher-admin-proposed')
     expect(diff).toBeInTheDocument()
     expect(diff).toHaveTextContent('Sharper title')
+    // The admin note for the prior round renders too.
+    expect(diff).toHaveTextContent('Tightened the wording.')
+    // renderProposedValue: a numeric adminProposed value renders as raw text.
+    expect(diff).toHaveTextContent('7')
+  })
+
+  it('renders an (empty) fallback for a null adminProposed value', () => {
+    mockReview({
+      data: makeContext({
+        voucher: {
+          ...makeContext().voucher,
+          approvalStatus: 'CHANGES_REQUESTED',
+          merchantFields: {
+            adminProposed: { description: null },
+            adminNote: 'Drop the description.',
+          },
+        },
+      }),
+    })
+    renderPanel()
+    expect(screen.getByTestId('voucher-admin-proposed')).toHaveTextContent('(empty)')
+  })
+
+  it('renders the (none) fallback for a null voucher description', () => {
+    mockReview({
+      data: makeContext({ voucher: { ...makeContext().voucher, description: null } }),
+    })
+    renderPanel()
+    expect(screen.getByTestId('voucher-review-panel')).toHaveTextContent('(none)')
+  })
+
+  it('renders the expiry date when present and omits it when null', () => {
+    // Midday UTC so the rendered calendar day is stable across CI timezones.
+    mockReview({
+      data: makeContext({
+        voucher: { ...makeContext().voucher, expiryDate: '2026-12-31T12:00:00.000Z' },
+      }),
+    })
+    const { unmount } = renderPanel()
+    const expiry = screen.getByTestId('voucher-expiry')
+    expect(expiry).toBeInTheDocument()
+    expect(expiry).toHaveTextContent('31 Dec 2026')
+    unmount()
+
+    // Null expiry: the row is not rendered.
+    mockReview({ data: makeContext() })
+    renderPanel()
+    expect(screen.queryByTestId('voucher-expiry')).not.toBeInTheDocument()
   })
 })
 
@@ -290,6 +338,13 @@ describe('VoucherReviewPanel reject dialog', () => {
     expect(refetch).toHaveBeenCalledTimes(1)
   })
 
+  it('focuses the reason textarea on open (initialFocusRef)', () => {
+    mockReview({ data: makeContext() })
+    renderPanel()
+    fireEvent.click(screen.getByTestId('voucher-reject-btn'))
+    expect(screen.getByTestId('voucher-reject-reason')).toHaveFocus()
+  })
+
   it('disables reject submit until a sufficiently long reason is entered', () => {
     mockReview({ data: makeContext() })
     renderPanel()
@@ -356,6 +411,13 @@ describe('VoucherReviewPanel request-changes dialog', () => {
       expect(screen.queryByTestId('voucher-request-changes-dialog')).not.toBeInTheDocument(),
     )
     expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('focuses the title field on open (initialFocusRef)', () => {
+    mockReview({ data: makeContext() })
+    renderPanel()
+    fireEvent.click(screen.getByTestId('voucher-request-changes-btn'))
+    expect(screen.getByTestId('voucher-rc-title')).toHaveFocus()
   })
 
   it('disables the request-changes submit until a note is entered', () => {

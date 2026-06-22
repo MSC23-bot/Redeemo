@@ -30,9 +30,11 @@ const merchantSummarySchema = z.object({
 
 // Day-2 Vouchers PR-C: VOUCHER rows are enriched with a voucher summary + a
 // go-live hint so the queue shows enough context before opening. The merchant
-// summary on a VOUCHER row uses the same merchantSummarySchema shape; the
-// onboardingStep field may be absent on that flavour, so it is loosened to a
-// dedicated optional schema for the voucher-row merchant.
+// summary on a VOUCHER row reuses the SAME merchantSummarySchema above (no
+// separate schema): the three onboarding-only fields (onboardingStep /
+// verificationStatus / contractStatus) are .optional() on it, so a VOUCHER row's
+// leaner { id, businessName, status } merchant still parses against that one
+// schema.
 const voucherSummarySchema = z.object({
   title: z.string(),
   type: z.string(),
