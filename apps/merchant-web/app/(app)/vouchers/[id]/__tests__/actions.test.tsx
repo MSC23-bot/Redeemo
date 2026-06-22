@@ -99,11 +99,13 @@ describe('VoucherDetail actions (DRAFT)', () => {
     expect(screen.getByRole('button', { name: /^duplicate$/i })).toBeInTheDocument()
   })
 
-  it('Submit calls submitVoucher then refetches/back-navigates', async () => {
+  it('Submit calls submitVoucher then routes back to /vouchers', async () => {
     renderPage()
     await screen.findAllByText('Free coffee with breakfast')
     fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
     await waitFor(() => expect(submitVoucher).toHaveBeenCalledWith('v1'))
+    // B-9: the detail-page Submit routes back to the list on success.
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/vouchers'))
   })
 
   it('Delete asks for confirmation, then calls deleteVoucher and routes to /vouchers', async () => {
@@ -194,7 +196,7 @@ describe('VoucherDetail TIME_LIMITED window round-trip (B-1)', () => {
 })
 
 describe('VoucherDetail Duplicate (client-orchestrated)', () => {
-  it('Duplicate opens the builder; saving creates a new DRAFT titled "<title> (copy)"', async () => {
+  it('Duplicate opens the builder; saving creates a new DRAFT titled "<title> (copy)" with the source type + fields', async () => {
     getVoucher.mockResolvedValue(voucher({ status: 'ACTIVE', approvalStatus: 'APPROVED' }))
     renderPage()
     await screen.findAllByText('Free coffee with breakfast')
@@ -205,8 +207,15 @@ describe('VoucherDetail Duplicate (client-orchestrated)', () => {
     await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
     const payload = createVoucher.mock.calls[0][0]
     expect(payload.title).toBe('Free coffee with breakfast (copy)')
+    // B-8: the duplicate preserves the source TYPE (not just the copied title)...
+    expect(payload.type).toBe('FREEBIE')
+    // ...and a structured field round-trips through the persisted draftFields bag.
+    expect(payload.merchantFields.builderType).toBe('freebie')
+    expect(payload.merchantFields.draftFields).toMatchObject({ type: 'freebie', freeItem: 'A coffee' })
     // Duplicate creates (never updates) and never sends status/approvalStatus.
     expect(payload).not.toHaveProperty('status')
     expect(payload).not.toHaveProperty('approvalStatus')
+    expect(createVoucher).toHaveBeenCalledTimes(1)
+    expect(updateVoucher).not.toHaveBeenCalled()
   })
 })

@@ -146,11 +146,23 @@ describe('VouchersPage list', () => {
     expect(screen.getByText(/12 redemptions/i)).toBeInTheDocument()
   })
 
-  it('NEVER renders any customer PII or a redemption PIN', async () => {
-    listCustomVouchers.mockResolvedValue([row()])
+  it('NEVER renders any customer PII or a redemption PIN, even when the rows carry them (B-6)', async () => {
+    // .passthrough() keeps these extra keys on the parsed row; the list must never
+    // surface them. Injecting real PII-shaped values makes the assertion non-trivial.
+    listCustomVouchers.mockResolvedValue([
+      row({
+        redemptionPin: '4821',
+        customerEmail: 'leaky.customer@example.com',
+        customerPhone: '07123456789',
+        ownerEmail: 'merchant.owner@example.com',
+      }),
+    ])
     const { container } = renderPage()
     await screen.findByText('Free coffee with breakfast')
     const text = container.textContent ?? ''
+    expect(text).not.toContain('leaky.customer@example.com')
+    expect(text).not.toContain('merchant.owner@example.com')
+    expect(text).not.toContain('4821')
     expect(text).not.toMatch(/@|07\d{9}|\+44|redemptionPin|PIN/i)
   })
 })

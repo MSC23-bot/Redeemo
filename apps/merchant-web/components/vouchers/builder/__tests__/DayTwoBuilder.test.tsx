@@ -98,6 +98,17 @@ describe('DayTwoBuilder save path (create draft + optional submit)', () => {
     await waitFor(() => expect(submitVoucher).toHaveBeenCalledWith('new1'))
   })
 
+  it('B-5: Discount toggled to "fixed" saves type DISCOUNT_FIXED (the default percent path is also covered)', async () => {
+    renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /a straight saving off the price/i }))
+    // The discount fields default to "A percentage"; toggle to the fixed-amount kind
+    // (the kind is a segmented radio control, not a plain button).
+    fireEvent.click(await screen.findByRole('radio', { name: /a fixed amount/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
+    expect(createVoucher.mock.calls[0][0].type).toBe('DISCOUNT_FIXED')
+  })
+
   it('updates an existing draft instead of creating when editing', async () => {
     renderBuilder({
       voucherId: 'v9',
