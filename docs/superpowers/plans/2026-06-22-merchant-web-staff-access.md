@@ -41,7 +41,8 @@ This is the spec §4.3 matrix translated to exact code actions. **PR-A migrates 
 | `PATCH /merchant/profile`, `/profile/edit-request*` | OWNER | **stay** |
 | `onboarding/*` (`onboarding/routes.ts`) | OWNER (taxonomy + contract GET = AUTH/REF, no resolver) | **stay** |
 | `notifications/*` (`notifications/routes.ts`) | OWN-RECIPIENT | **stay** (already `recipientId=req.user.sub`, no resolver; suspended-reachable - do NOT add a resolver) |
-| `POST /merchant/uploads/:kind` (`upload/routes.ts:19`) | OWNER\|MV (v1) | migrate to `resolveMerchantContext` + `assertCanManageVouchers` (plan note: acceptable broad grant; URL inert without a guarded write) |
+| `POST /merchant/uploads/:kind` - **`kind=photo`** (`upload/routes.ts:19`) | OWNER\|MV | migrate to `resolveMerchantContext` + `assertCanManageVouchers` (voucher photo) |
+| `POST /merchant/uploads/:kind` - **`kind=logo` / `kind=banner`** | OWNER | migrate to `resolveMerchantContext` + `assertOwner` (business identity feeds OWNER-only profile writes) |
 | `branch-user` create/reset/deactivate/reactivate/pin (`auth/merchant/branch-user.routes.ts`) | OWNER (v1) | **stay** (still `resolveAdminMerchant` via `assertBranchOwnership`); ADD the findFirst-ambiguity guard (Task B7) |
 | NEW `staff/*` (membership CRUD) | OWNER | new routes use `resolveAdminMerchant` + `assertOwner` on the resolved membership role |
 | **† `POST /redemption/verify`** (merchant actor) (`redemption/routes.ts:123`) | SCOPED-WRITE | **bespoke:** in the merchant-actor branch, after `merchantVerify()`, call `resolveMerchantContext(adminId)` and pass `ctx` into `verifyRedemption`; `assertBranchAllowed(ctx, redemption.branchId)` before validating |
@@ -301,10 +302,13 @@ The migration is additive default-false with no backfill - safe to leave even if
 
 ```typescript
 export async function listMembers(prisma, adminId): Promise<MemberRow[]>
-export async function inviteMember(prisma, redis, adminId, body: { email; firstName; lastName; jobTitle?; role; allBranches; branchIds?; canManageVouchers? }, ctx): Promise<{ memberId: string }>
+export async function inviteMember(prisma, redis, adminId, body: { email; firstName; lastName; jobTitle?; role; allBranches; branchIds?; canManageVouchers? }, ctx):
+  Promise<{ memberId: string; inviteDelivery: 'EMAIL_DARK' | 'QUEUED' }>
 ```
 
 `inviteMember` body validated by zod; transaction creates admin + membership (+ branch rows) + audit `MEMBER_INVITED`, then `issueMerchantClaim(prisma, redis, { adminId: newAdminId, email, ip })`. Role-elevation guard: if `body.role === 'OWNER' || body.canManageVouchers` require the caller is OWNER (the caller always is in v1 since management is owner-only, but assert it server-side). Scope: if `!allBranches`, require `branchIds` non-empty and that each branch belongs to `merchantId`. **In v1, gate `allBranches=false` (Specific branches) behind a feature constant `SPECIFIC_BRANCHES_ENABLED` (see Task B6)** - until enforcement coverage lands, invites are all-branches only.
+
+**Invite-delivery contract (Codex amendment - non-secret, no token):** `inviteMember` returns a NON-SECRET `inviteDelivery` status so merchant-web can avoid claiming a false "email sent" while email is dark - it **never** returns or exposes the claim token (the token stays in Redis + the `CommunicationLog` payload per spec §5.1.2). Derive it from the existing email master-switch: `inviteDelivery = isEmailEnabled() ? 'QUEUED' : 'EMAIL_DARK'`. Export `isEmailEnabled` from `src/api/shared/email.ts:48` (a one-line `export` - the only change to that file; added to PR-B scope) and import it in the staff service; `issueMerchantClaim` stays `void` and unchanged. Required test additions for this task: (a) `inviteDelivery === 'EMAIL_DARK'` when `EMAIL_ENABLED` is unset; (b) `'QUEUED'` when `EMAIL_ENABLED==='true'`; (c) the response body contains **no** `token`/`claimLink`/`claimToken` field (assert absence).
 
 - [ ] **Step 4: Run - expect PASS.** Commit.
 
@@ -328,7 +332,7 @@ export async function inviteMember(prisma, redis, adminId, body: { email; firstN
 - Modify: `src/api/merchant/plugin.ts` (register `staffRoutes` in the scoped block)
 - Create: `tests/api/merchant/staff.routes.test.ts`
 
-- [ ] **Step 1: Write failing route tests** (mirroring `tests/api/merchant/profile.test.ts`: build app, mock prisma/redis, sign an OWNER merchant token): `GET /api/v1/merchant/staff` (200, no `passwordHash` in payload); `POST /api/v1/merchant/staff` (invite -> 200/201); `PATCH /api/v1/merchant/staff/:id`; `POST /api/v1/merchant/staff/:id/deactivate`; `POST /api/v1/merchant/staff/:id/reactivate`; `DELETE /api/v1/merchant/staff/:id`; `POST /api/v1/merchant/staff/:id/resend-invite`. Plus: a **non-owner** caller (BRANCH_MANAGER membership) hitting any of these -> `INSUFFICIENT_PERMISSIONS` (403).
+- [ ] **Step 1: Write failing route tests** (mirroring `tests/api/merchant/profile.test.ts`: build app, mock prisma/redis, sign an OWNER merchant token): `GET /api/v1/merchant/staff` (200, no `passwordHash` in payload); `GET /api/v1/merchant/staff/app-users` (200, the app-user read surface - **no `passwordHash`** in payload, see B4); `POST /api/v1/merchant/staff` (invite -> 200/201); `PATCH /api/v1/merchant/staff/:id`; `POST /api/v1/merchant/staff/:id/deactivate`; `POST /api/v1/merchant/staff/:id/reactivate`; `DELETE /api/v1/merchant/staff/:id`; `POST /api/v1/merchant/staff/:id/resend-invite`. Plus: a **non-owner** caller (BRANCH_MANAGER membership) hitting any of these -> `INSUFFICIENT_PERMISSIONS` (403).
 
 - [ ] **Step 2-4:** Implement `routes.ts` (prefix `/api/v1/merchant/staff`, mirror `profile/routes.ts` zod-parse + service-call shape); register in `plugin.ts`. Run green, commit.
 
@@ -336,10 +340,12 @@ export async function inviteMember(prisma, redis, adminId, body: { email; firstN
 
 **Files:**
 - Modify: `src/api/auth/merchant/branch-user.service.ts` (add the count guard to `resetBranchUserPassword`/`deactivateBranchUser`/`reactivateBranchUser`; add `listBranchAppUsers`)
-- Modify: `src/api/merchant/staff/service.ts` (expose `listBranchAppUsers` for the staff surface) or place the read in `staff/service.ts`
-- Create: `tests/api/merchant/branch-user-ambiguity.test.ts`
+- Modify: `src/api/merchant/staff/service.ts` (re-export / wrap `listBranchAppUsers` for the staff surface) + `src/api/merchant/staff/routes.ts` (the new GET route)
+- Create: `tests/api/merchant/branch-user-ambiguity.test.ts` + extend `tests/api/merchant/staff.routes.test.ts` (the route-level curated test)
 
-- [ ] **Step 1: Write failing tests:** (a) a branch with **2** `BranchUser` rows -> `resetBranchUserPassword`/`deactivate`/`reactivate` each throw `MULTIPLE_BRANCH_USERS` and **mutate nothing** (assert `branchUser.update` not called); (b) exactly **1** -> acts on that row's id; (c) **0** -> `BRANCH_USER_NOT_FOUND`; (d) `listBranchAppUsers` returns app users grouped by branch with a per-branch count, curated select (no `passwordHash`).
+- [ ] **Step 1: Write failing tests:** (a) a branch with **2** `BranchUser` rows -> `resetBranchUserPassword`/`deactivate`/`reactivate` each throw `MULTIPLE_BRANCH_USERS` and **mutate nothing** (assert `branchUser.update` not called); (b) exactly **1** -> acts on that row's id; (c) **0** -> `BRANCH_USER_NOT_FOUND`; (d) `listBranchAppUsers` returns app users for the merchant's branches with a per-branch `appUserCount`, curated select (**no `passwordHash`**); (e) **route-level:** `GET /api/v1/merchant/staff/app-users` returns 200 with the curated list and the response JSON contains **no `passwordHash`** anywhere; a non-owner caller -> `INSUFFICIENT_PERMISSIONS` (403).
+
+- [ ] **Step 1b: App-user read endpoint contract (Codex amendment - explicit route).** Define **`GET /api/v1/merchant/staff/app-users`** in `src/api/merchant/staff/routes.ts` (the same `staff` module registered in B3, so already inside the `authenticateMerchant` scope). Handler: `resolveAdminMerchant` -> `resolveMerchantContext` -> `assertOwner(ctx)` (owner-only in v1, D7) -> `listBranchAppUsers(prisma, ctx.merchantId)`. Response shape (curated, locked for PR-C to consume verbatim): `{ branches: [{ branchId, branchName, appUserCount, users: [{ id, branchId, firstName, lastName, jobTitle, email, status, lastLoginAt }] }] }` - **never `passwordHash`**. (Portal members stay on `GET /api/v1/merchant/staff`; app users are a SEPARATE endpoint, reflecting the Option-C split backend - not folded into the members list.)
 
 - [ ] **Step 2: Run - expect FAIL.**
 
@@ -366,7 +372,7 @@ Add `listBranchAppUsers(prisma, merchantId)`: `findMany` BranchUsers where `bran
 - [ ] **Step 1 (vouchers):** Write failing tests for the **four-case voucher matrix** (spec §5.1.1) against `POST /merchant/vouchers` (representative write): owner allowed; BRANCH_MANAGER+`canManageVouchers` allowed; BRANCH_MANAGER without it -> `INSUFFICIENT_PERMISSIONS`; STAFF -> `INSUFFICIENT_PERMISSIONS`; **read** (`GET /merchant/vouchers`) allowed for all four. Plus: a STAFF payload carrying `canManageVouchers:true` is ignored (the value comes from the resolved membership, never the body).
 - [ ] **Step 2-4:** Migrate the voucher service read fns to `resolveMerchantContext` (no branch filter) and the write fns to `resolveMerchantContext` + `assertCanManageVouchers`. Run green, commit.
 - [ ] **Step 5 (redemptions):** Write failing tests: scoped BRANCH_MANAGER (`allowedBranchIds:['b1']`) listing redemptions -> only `b1` rows; requesting `?branchId=b2` (not allowed) -> empty/`INSUFFICIENT_PERMISSIONS`; owner -> all. Migrate `listMerchantRedemptions`/`lookup`/`export.csv` to intersect with `ctx.allowedBranchIds`. Run green, commit.
-- [ ] **Step 6 (branches read + profile read + uploads):** Migrate `listBranches` (filter to allowed), `getBranch` (`assertBranchAllowed`), `getMerchantProfile` (MEMBER-READ), `POST /uploads/:kind` (`assertCanManageVouchers`). Tests pin scoped vs owner. Run green, commit.
+- [ ] **Step 6 (branches read + profile read + uploads):** Migrate `listBranches` (filter to allowed), `getBranch` (`assertBranchAllowed`), `getMerchantProfile` (MEMBER-READ). **Uploads split by `kind`** (`upload/routes.ts`, kinds are `logo`/`banner`/`photo` via `isImageUploadKind`): migrate the handler to `resolveMerchantContext`, then branch the guard - `kind === 'photo'` -> `assertCanManageVouchers(ctx)`; `kind === 'logo' || kind === 'banner'` -> `assertOwner(ctx)`. Tests pin: BRANCH_MANAGER+`canManageVouchers` can upload `photo` but is denied `logo`/`banner` (`INSUFFICIENT_PERMISSIONS`); owner can upload all; STAFF denied all. Run green, commit.
 
 ### Task B6: The two † resolver-bypassing redemption routes
 
@@ -412,7 +418,7 @@ Add `listBranchAppUsers(prisma, merchantId)`: `findMany` BranchUsers where `bran
 
 ### PR-B scope guard (closed)
 
-`src/api/merchant/staff/**`, `src/api/merchant/plugin.ts` (registration line only), the voucher/redemptions/branch/profile/upload **service** files (resolver swap + guard only - no business-logic change), `src/api/auth/merchant/branch-user.service.ts` (findFirst guard + `listBranchAppUsers`), `src/api/redemption/{routes,service}.ts` (merchant-actor branch only), `src/api/auth/merchant/service.ts` (`resolveMerchantInfo` only), and the corresponding `tests/**`. **No merchant-web file. No schema. No JWT shape change. No branch-actor redemption change.**
+`src/api/merchant/staff/**`, `src/api/merchant/plugin.ts` (registration line only), the voucher/redemptions/branch/profile/upload **service** files (resolver swap + guard only - no business-logic change; uploads split by `kind`), `src/api/auth/merchant/branch-user.service.ts` (findFirst guard + `listBranchAppUsers`), `src/api/redemption/{routes,service}.ts` (merchant-actor branch only), `src/api/auth/merchant/service.ts` (`resolveMerchantInfo` only), `src/api/shared/email.ts` (**one-line `export` of `isEmailEnabled` only** - no behaviour change), and the corresponding `tests/**`. **No merchant-web file. No schema. No JWT shape change. No branch-actor redemption change.**
 
 ### PR-B rollback notes
 
@@ -438,7 +444,7 @@ Live `gh api compare` scope check per sub-PR; `REDEEMO_PR_SCOPE_VERIFIED=<head-s
 ### Task C1: API client + zod (`lib/api/staff.ts`)
 
 - [ ] **Step 1: Write failing tests** (`apps/merchant-web/lib/api/__tests__/staff.test.ts`) for `listStaff`/`inviteStaff`/`updateStaff`/`deactivateStaff`/`reactivateStaff`/`removeStaff`/`resendInvite` + `listBranchAppUsers` + the reset/deactivate/reactivate app-user calls, mirroring `lib/api/redemptions.ts` (zod `.passthrough()` row schemas, `apiFetch` with `auth:true`).
-- [ ] **Step 2-4:** Implement against the PR-B endpoints (`/api/v1/merchant/staff*`, `/api/v1/merchant/branches/:branchId/user*`). Zod schemas: `memberRowSchema` (role, status, accessPills, branchIds, claimed, lastLoginAt), `appUserRowSchema`. Run green, commit. **No new BFF route needed** (client calls backend directly with the Bearer token; M1 BFF only handles refresh).
+- [ ] **Step 2-4:** Implement against the PR-B endpoints. **Members:** `GET/POST /api/v1/merchant/staff`, `PATCH /api/v1/merchant/staff/:id`, `POST .../:id/deactivate|reactivate|resend-invite`, `DELETE .../:id`. **App users (read):** `GET /api/v1/merchant/staff/app-users` -> parse the locked B1b shape `{ branches: [{ branchId, branchName, appUserCount, users: [...] }] }` (the `appUserCount` drives the C5 disable-on->1 UI guard). **App-user actions:** `/api/v1/merchant/branches/:branchId/user/reset-password|deactivate|reactivate`. Zod schemas: `memberRowSchema` (role, status, accessPills, branchIds, claimed, lastLoginAt), `appUserBranchSchema` (with `appUserCount` + `users[]`), and `inviteResponseSchema` (`{ memberId, inviteDelivery: 'EMAIL_DARK' | 'QUEUED' }` - see C5). Run green, commit. **No new BFF route needed** (client calls backend directly with the Bearer token; M1 BFF only handles refresh).
 
 ### Task C2: React Query hooks (`lib/staff/useStaff.ts`)
 
@@ -455,14 +461,16 @@ Live `gh api compare` scope check per sub-PR; `REDEEMO_PR_SCOPE_VERIFIED=<head-s
 
 **Files:** `components/staff/StaffAddEditDrawer.tsx` (+ a `Sheet` primitive if needed, else the handrolled `Dialog`)
 
-- [ ] **Step 1: Write failing RTL tests:** full name / email / job title; Access toggles (Portal/App, `Switch`); Portal role radios (Owner/Branch manager/Staff) with Can/Cannot copy; Extra responsibilities (Manage vouchers = `canManageVouchers`; Manage campaigns + Manage billing = disabled "coming soon"); Branches (All / Specific - **Specific only rendered when the backend has it enabled**; if `SPECIFIC_BRANCHES_ENABLED` is off, show all-branches only); Automated emails = **read-only informational** (spec §D9, no editable toggles); App-password reset row (edit + app user only). Title swaps "Add staff member" / "Edit {name}". Submit calls the right mutation.
+> **D7 reconciliation (Codex amendment #2):** the spec §6 drawer description lists an "Access (Portal/App)" control, but D7 / §5.3 **defer app-user create/edit from the unified Staff & Access UI** in v1. So in v1 the drawer **creates/edits a PORTAL member only** (`MerchantAdmin` + `MerchantMembership`); it does **not** create or toggle a `BranchUser`. App access is therefore **display-only/disabled** here, and app-user lifecycle actions (reset password / deactivate / reactivate) live on the **App users view + row actions** (C5), consuming the B4 endpoints - never the member create/edit drawer. Expanding the drawer to create/edit BranchUsers is **out of scope and a stop-and-report**, not a silent fake.
+
+- [ ] **Step 1: Write failing RTL tests:** full name / email / job title; **Portal access** is the active path (the drawer provisions portal access); **App access shown DISPLAY-ONLY / disabled** with informational copy ("App access is managed on the App users view") and a test asserting the App control is **non-interactive** (disabled, no mutation fires from it); Portal role radios (Owner/Branch manager/Staff) with Can/Cannot copy; Extra responsibilities (Manage vouchers = `canManageVouchers`; Manage campaigns + Manage billing = disabled "coming soon"); Branches (All / Specific - **Specific only rendered when the backend has it enabled**; if `SPECIFIC_BRANCHES_ENABLED` is off, show all-branches only); Automated emails = **read-only informational** (spec §D9, no editable toggles). Title swaps "Add staff member" / "Edit {name}". Submit calls the **portal** invite/update mutation (never a BranchUser create). (The app-password-reset action is NOT in this drawer - it is a C5 App-users row action.)
 - [ ] **Step 2-4:** Implement (a `Sheet`/side-drawer is preferred per the prototype; if not present, add `components/ui/sheet.tsx` via shadcn or use the handrolled `Dialog`). Run green, commit.
 
 ### Task C5: Row actions + invite-delivery UX
 
 **Files:** `components/staff/StaffRowActions.tsx`
 
-- [ ] **Step 1: Write failing RTL tests:** Edit access; Reset app password (app users; **disabled when the branch has >1 app user** per the count from `listBranchAppUsers` - the §5.3 UI guard); Reactivate (deactivated only); Deactivate (active, not last owner); Remove from team (not last owner); Resend invite (not-yet-claimed only); last-owner lock footnote. Plus the **invite-delivery dependency UX** (spec §5.1.2): when email is dark, the invite confirmation surfaces the claim link to the owner / a clear "invite will send once email is live" state rather than implying delivery (the exact copy is a C-task decision; the test pins that no "email sent" claim is shown when the API indicates dark delivery).
+- [ ] **Step 1: Write failing RTL tests.** **Member row actions:** Edit access; Reactivate (deactivated only); Deactivate (active, not last owner); Remove from team (not last owner); Resend invite (not-yet-claimed only); last-owner lock footnote. **App-users view row actions** (consuming `GET /api/v1/merchant/staff/app-users`): Reset app password / Deactivate / Reactivate, each **disabled when that branch's `appUserCount > 1`** (the §5.3 UI guard, driven by the backend `appUserCount`). **Invite-delivery UX (Codex amendment #3, spec §5.1.2)** - driven by the API's non-secret `inviteDelivery` field, never the token: on `inviteDelivery === 'EMAIL_DARK'`, the confirmation shows generic operator-oriented copy (e.g. "Invite created. Email delivery is not live yet - an admin will share the sign-in link.") and **must not** say "email sent"; on `'QUEUED'`, show "Invite email queued for {email}". Tests pin: (a) with `EMAIL_DARK` the UI shows **no** "email sent"/"email delivered" text; (b) the UI **never** renders a `token`/claim-link string (the API doesn't return one); (c) `QUEUED` copy differs from `EMAIL_DARK` copy.
 - [ ] **Step 2-4:** Implement. Run green, commit.
 
 ### PR-C verification
@@ -482,8 +490,9 @@ Frontend-only; revert the branch. The `navItems.ts` href revert (`/staff` -> `#`
 
 - Owner-only management enforced in UI (non-owner sees no Add/row-actions) AND backed by PR-B's `assertOwner` (UI is not the security boundary).
 - "Specific branches" only rendered when backend-enabled; Automated-emails read-only (no editable toggles, §D9); caps hardcoded with "contact Redeemo" copy.
-- Reset/deactivate app-user action disabled on multi-app-user branches (§5.3 UI guard).
-- Invite UX does not claim email delivery while dark (§5.1.2); brand tokens, no em-dashes.
+- Reset/deactivate app-user action disabled on multi-app-user branches (§5.3 UI guard), driven by the backend `appUserCount` from `GET /api/v1/merchant/staff/app-users` (consumed verbatim, no `passwordHash`).
+- **App access in the Add/Edit drawer is display-only/disabled** (D7) - the drawer never creates/edits a BranchUser; submit fires only the portal mutation.
+- Invite UX consumes `inviteDelivery` and does not claim email delivery while dark, and never renders the claim token/link (§5.1.2); brand tokens, no em-dashes.
 
 ### PR-C SHA-bound merge gate
 
@@ -505,6 +514,10 @@ Live `gh api compare` scope check (only `apps/merchant-web/**`); `REDEEMO_PR_SCO
 | Re-invite-after-remove (D5b×D6) | B2a |
 | findFirst ambiguity guard + atomicity (§5.3) | B4 |
 | App-user read surface (D7) | B4 |
+| **App-user read endpoint** `GET /api/v1/merchant/staff/app-users` (curated, no `passwordHash`, owner-only) | B1b + B4 (route + curated test); consumed verbatim by C1/C5 |
+| **App access display-only in drawer** (D7 reconciliation - drawer creates PORTAL members only) | C4 (disabled/informational; portal-only mutation) |
+| **Invite-delivery non-secret status** `inviteDelivery: EMAIL_DARK\|QUEUED` (§5.1.2, never the token) | B1 (derive via exported `isEmailEnabled`) + C5 (copy, never "email sent" while dark) |
+| **Upload auth split by `kind`** | matrix mapping + B5 Step 6 (`photo` = OWNER\|canManageVouchers; `logo`/`banner` = OWNER) |
 | Specific-branches in-v1 gate (§5.2) | B1/B3 (gated) + B7 (flip) |
 | Non-owner login cutover (§4.4) | B8 (last) |
 | Suspended = blocked (§6.1) | B (resolver throws) + C3 (UI blocked state) |
