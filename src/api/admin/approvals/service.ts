@@ -4,7 +4,7 @@ import { ApprovalType, ApprovalStatus } from '../../../../generated/prisma/enums
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
 import { notify } from '../../shared/notify'
-import { merchantChangesRequestedEmail, merchantRejectedEmail, merchantLiveEmail } from '../../shared/merchantEmails'
+import { merchantChangesRequestedEmail, merchantRejectedEmail, merchantLiveEmail, voucherNowLiveEmail } from '../../shared/merchantEmails'
 import { computeOnboardingChecklist } from '../../merchant/onboarding/service'
 import { isBranchLocationConfirmed } from '../../shared/location'
 import { presignGet } from '../../shared/storage'
@@ -523,6 +523,27 @@ export async function approveApproval(
       data: { status: 'ACTIVE', approvalStatus: 'APPROVED', approvedBy: adminId, approvedAt: now },
     })
 
+    // Day-2 Vouchers A7 — Model 1 delayed activation. With the merchant now live
+    // AND the flagship RMVs just activated above, BOTH prerequisites for an
+    // approved-waiting CUSTOM voucher are satisfied by construction, so flip every
+    // approved-waiting custom (isRmv:false, approvalStatus:APPROVED,
+    // status:PENDING_APPROVAL) to ACTIVE in the SAME transaction. STRICT no-op when
+    // there are none (the findMany returns []; the updateMany is skipped). A
+    // SUBMITTED-not-approved custom (approvalStatus:PENDING) is intentionally NOT
+    // matched, so it is not activated. approvalStatus is already APPROVED, so only
+    // status flips. The now-live notifications fire post-commit (see below) so they
+    // can never roll back this transaction.
+    const activatedCustoms = await tx.voucher.findMany({
+      where: { merchantId: merchant.id, isRmv: false, approvalStatus: 'APPROVED', status: 'PENDING_APPROVAL' },
+      select: { id: true, title: true },
+    })
+    if (activatedCustoms.length > 0) {
+      await tx.voucher.updateMany({
+        where: { merchantId: merchant.id, isRmv: false, approvalStatus: 'APPROVED', status: 'PENDING_APPROVAL' },
+        data: { status: 'ACTIVE' },
+      })
+    }
+
     // Approval resolved.
     await tx.adminApproval.update({
       where: { id },
@@ -554,7 +575,12 @@ export async function approveApproval(
       userAgent: ctx.userAgent,
     })
 
-    return { merchantId: merchant.id, businessName: merchant.businessName, alreadyLive: false as const }
+    return {
+      merchantId: merchant.id,
+      businessName: merchant.businessName,
+      alreadyLive: false as const,
+      activatedCustoms,
+    }
   })
 
   if (result.alreadyLive) return { approved: true, alreadyLive: true as const }
@@ -582,7 +608,33 @@ export async function approveApproval(
       `[actioner] approve/go-live committed for merchant ${result.merchantId} but no ACTIVE OWNER membership found — merchant NOT notified`
     )
   }
-  return { approved: true, alreadyLive: false as const }
+
+  // Day-2 Vouchers A7 — after the owner go-live notify, fire one now-live
+  // VOUCHER_APPROVAL_UPDATE per CUSTOM voucher activated by the delayed-activation
+  // block above. Best-effort via safeNotify so a notify failure NEVER fails the
+  // already-committed go-live. Email payload is provided (notify requires it) but
+  // delivery stays dark this milestone; the in-app bell is the user-visible signal.
+  if (owner && result.activatedCustoms.length > 0) {
+    for (const voucher of result.activatedCustoms) {
+      await safeNotify(prisma, redis, {
+        to: owner.email,
+        recipientType: 'MERCHANT_ADMIN',
+        recipientId: owner.adminId,
+        type: 'voucher_now_live',
+        email: { ...voucherNowLiveEmail(voucher.title), sender: 'merchant' },
+        inApp: {
+          notificationType: 'VOUCHER_APPROVAL_UPDATE',
+          title: 'Your voucher is now live',
+          body: 'Members in your area can find and redeem it from today.',
+          referenceId: voucher.id,
+          referenceType: 'voucher',
+        },
+        ip: ctx.ipAddress,
+      })
+    }
+  }
+
+  return { approved: true, alreadyLive: false as const, activatedCustoms: result.activatedCustoms }
 }
 
 /**
