@@ -127,4 +127,35 @@ describe('A8b: VOUCHER queue enrichment in listApprovals', () => {
     // Two distinct VOUCHER merchants -> exactly two flagship-live count calls.
     expect((app.prisma.voucher.count as any).mock.calls.length).toBe(2)
   })
+
+  // Codex review FIX 1: a VOUCHER approval pointing at a missing/deleted voucher
+  // (no row in the batch load) must yield the safe null shape and NEVER throw. The
+  // prior code reached the row via a fragile `v!` non-null assertion that was only
+  // runtime-safe because the && chain short-circuited; an explicit null guard now
+  // returns voucher:null / merchant:null / goLiveHint:null without touching the
+  // flagship-live map.
+  it('VOUCHER approval whose referenceId matches no voucher yields voucher:null/merchant:null/goLiveHint:null and does not throw', async () => {
+    // A stale VOUCHER row (referenceId points at a voucher that no longer exists).
+    const stale = {
+      id: 'appr-v-stale', type: 'VOUCHER', referenceId: 'v-gone', referenceType: 'voucher',
+      status: 'PENDING', adminUserId: null, comment: null,
+      submittedAt: new Date('2026-06-22T10:04:00.000Z'), actionedAt: null, claimedById: null, claimedAt: null,
+    }
+    // findMany still returns ONLY v-live + v-wait (v-gone is absent from the batch).
+    app.prisma.adminApproval.findMany = vi.fn().mockResolvedValue([stale])
+    app.prisma.adminApproval.count = vi.fn().mockResolvedValue(1)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/approvals',
+      headers: { authorization: `Bearer ${signOps()}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    const row = body.approvals.find((a: any) => a.id === 'appr-v-stale')
+    expect(row).toBeTruthy()
+    expect(row.voucher ?? null).toBeNull()
+    expect(row.merchant ?? null).toBeNull()
+    expect(row.goLiveHint ?? null).toBeNull()
+  })
 })

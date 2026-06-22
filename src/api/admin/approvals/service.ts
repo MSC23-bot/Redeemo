@@ -172,15 +172,25 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
       // goLiveHint; ONBOARDING rows keep the existing merchant block; all other
       // rows (edit lanes) carry null for both.
       if (a.type === 'VOUCHER') {
+        const claimedBy = a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null
         const v = voucherById.get(a.referenceId) ?? null
-        const m = v ? (voucherMerchantById.get(v.merchantId) ?? null) : null
-        const goLive = !!m && m.status === 'ACTIVE' && (flagshipLiveByMerchant.get(v!.merchantId) ?? false)
+        // Codex review FIX 1: a VOUCHER approval pointing at a missing/deleted
+        // voucher (no row in the batch load) returns the safe null shape EXPLICITLY.
+        // This removes the prior fragile `v!` non-null assertion: it was only
+        // runtime-safe because the goLive `&&` chain short-circuited when `m` was
+        // null, so a reorder/refactor could have null-deref'd. The null branch never
+        // touches flagshipLiveByMerchant.
+        if (!v) {
+          return { ...a, merchant: null, voucher: null, goLiveHint: null, claimedBy }
+        }
+        const m = voucherMerchantById.get(v.merchantId) ?? null
+        const goLive = !!m && m.status === 'ACTIVE' && (flagshipLiveByMerchant.get(v.merchantId) ?? false)
         return {
           ...a,
           merchant: m,
-          voucher: v ? { title: v.title, type: v.type, status: v.status, approvalStatus: v.approvalStatus } : null,
-          goLiveHint: v ? (goLive ? ('live-now' as const) : ('waiting-for-go-live' as const)) : null,
-          claimedBy: a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null,
+          voucher: { title: v.title, type: v.type, status: v.status, approvalStatus: v.approvalStatus },
+          goLiveHint: goLive ? ('live-now' as const) : ('waiting-for-go-live' as const),
+          claimedBy,
         }
       }
       return {
