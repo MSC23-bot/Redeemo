@@ -40,6 +40,14 @@ export interface BuilderState {
   askHelp: boolean
   // TIME_LIMITED only.
   availabilityWindows: AvailabilityWindow[]
+  // TIME_LIMITED only: whether the editor actually LOADED the windows. A fresh
+  // CREATE builder always knows its windows (loaded, starts []); an EDIT/duplicate
+  // is "loaded" only when the detail payload carried availabilityWindows. When the
+  // windows were NOT loaded, toCreatePayload OMITS the key on a TIME_LIMITED PATCH
+  // so the backend leaves the existing windows untouched (a present key is a
+  // wholesale replace). Distinguishing "loaded zero" from "not loaded" prevents a
+  // description-only edit from silently wiping the merchant's windows.
+  windowsLoaded: boolean
   // REUSABLE only.
   cooldownSeconds?: number
 }
@@ -56,6 +64,8 @@ export function emptyBuilderState(pickerId: DayTwoPickerId): BuilderState {
     },
     askHelp: false,
     availabilityWindows: [],
+    // A fresh CREATE builder owns its window state from the start.
+    windowsLoaded: true,
     cooldownSeconds: pickerId === 'reusable' ? REUSABLE_COOLDOWN_FLOOR : undefined,
   }
 }
@@ -165,7 +175,13 @@ export function toCreatePayload(state: BuilderState): CreateVoucherPayload {
   }
 
   if (state.pickerId === 'time') {
-    payload.availabilityWindows = state.availabilityWindows
+    // Defensive guard (B-1): only send availabilityWindows when the editor actually
+    // loaded them. An EDIT that never loaded windows OMITS the key so the backend
+    // (which treats a present key as a wholesale replace) leaves the existing
+    // windows untouched, instead of silently wiping them with [].
+    if (state.windowsLoaded) {
+      payload.availabilityWindows = state.availabilityWindows
+    }
   }
   if (state.pickerId === 'reusable') {
     payload.cooldownSeconds = Math.max(REUSABLE_COOLDOWN_FLOOR, state.cooldownSeconds ?? REUSABLE_COOLDOWN_FLOOR)
@@ -181,10 +197,11 @@ function defaultTitleFor(state: BuilderState): string {
   return 'A new voucher'
 }
 
-// Rehydrate a builder state from a getVoucher detail (the edit / duplicate path).
-// Reads the persisted merchantFields.draftFields when present, else seeds an empty
-// structured bag and falls back to the top-level columns as overrides.
-export function fromDetail(input: {
+// The detail-prefill input shape (the edit / duplicate path). Shared by fromDetail
+// and the React-prop seedState in DayTwoBuilder so the rehydration lives in ONE
+// place (B-11). `availabilityWindows: null` means the detail payload did NOT carry
+// windows (not loaded); an array (even empty) means it DID (loaded).
+export interface VoucherDetailPrefill {
   type: string
   title?: string | null
   description?: string | null
@@ -194,10 +211,22 @@ export function fromDetail(input: {
   cooldownSeconds?: number | null
   availabilityWindows?: AvailabilityWindow[] | null
   merchantFields?: Record<string, unknown> | null
-}): BuilderState {
+}
+
+// Rehydrate a builder state from a getVoucher detail (the edit / duplicate path).
+// Reads the persisted merchantFields.draftFields when present, else falls back to
+// treating merchantFields itself as the structured bag (legacy), else an empty bag;
+// the top-level columns become overrides. Sets windowsLoaded:true only when the
+// detail carried an availabilityWindows array (so a not-loaded EDIT omits the key
+// on save - see toCreatePayload).
+export function fromDetail(input: VoucherDetailPrefill): BuilderState {
   const pickerId = enumToPickerId(input.type)
   const bag = input.merchantFields ?? {}
-  const draft = (bag.draftFields as DraftFields | undefined) ?? undefined
+  // Prefer the persisted draftFields bag; fall back to treating the bag itself as
+  // the structured DraftFields (legacy bags carry the keys directly).
+  const nested = bag.draftFields as DraftFields | undefined
+  const flat = bag as unknown as DraftFields
+  const draft = nested && nested.type ? nested : flat && flat.type ? flat : undefined
   const base = emptyBuilderState(pickerId)
 
   return {
@@ -211,17 +240,11 @@ export function fromDetail(input: {
     imageUrl: input.imageUrl ?? undefined,
     askHelp: bag.askHelp === true,
     availabilityWindows: input.availabilityWindows ?? [],
+    // Loaded only when the detail payload actually carried a windows array.
+    windowsLoaded: Array.isArray(input.availabilityWindows),
     cooldownSeconds:
       pickerId === 'reusable'
         ? input.cooldownSeconds ?? REUSABLE_COOLDOWN_FLOOR
         : input.cooldownSeconds ?? undefined,
   }
-}
-
-// A fresh duplicate state from a source detail (title suffixed " (copy)").
-export function duplicateFromDetail(input: Parameters<typeof fromDetail>[0]): BuilderState {
-  const state = fromDetail(input)
-  const sourceTitle = (input.title ?? '').trim()
-  state.titleOverride = sourceTitle ? `${sourceTitle} (copy)` : undefined
-  return state
 }

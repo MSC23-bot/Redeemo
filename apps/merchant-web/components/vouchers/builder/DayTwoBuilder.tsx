@@ -20,7 +20,7 @@ import { ConciergeDiff } from '../ConciergeDiff'
 import { TextAreaField } from './fields'
 import {
   emptyBuilderState,
-  enumToPickerId,
+  fromDetail,
   toCreatePayload,
   effectiveTitle,
   effectiveDescription,
@@ -66,28 +66,21 @@ export interface DayTwoBuilderProps {
   initialAdminNote?: string | null
 }
 
+// The edit/duplicate prefill. Delegates to the single fromDetail rehydrator (B-11)
+// so the windowsLoaded distinction (loaded-zero vs not-loaded) is computed in one
+// place. The parent already suffixes the title with " (copy)" for a duplicate.
 function seedState(props: DayTwoBuilderProps): BuilderState | null {
   if (!props.initialType) return null
-  const pickerId = enumToPickerId(props.initialType)
-  const base = emptyBuilderState(pickerId)
-  const bag = props.initialFields ?? {}
-  // Prefer the persisted draftFields bag; fall back to treating initialFields itself
-  // as the bag (cast through unknown - it may carry the structured keys directly).
-  const nested = bag.draftFields as DraftFields | undefined
-  const flat = bag as unknown as DraftFields
-  const draft = nested && nested.type ? nested : flat && flat.type ? flat : undefined
-  return {
-    ...base,
-    fields: draft ?? base.fields,
-    titleOverride: props.initialTitle ?? undefined,
-    descriptionOverride: props.initialDescription ?? undefined,
-    savingOverride: typeof props.initialSaving === 'number' ? props.initialSaving : undefined,
-    terms: props.initialTerms ?? undefined,
-    askHelp: bag.askHelp === true,
-    availabilityWindows: props.initialWindows ?? [],
-    cooldownSeconds:
-      pickerId === 'reusable' ? props.initialCooldown ?? base.cooldownSeconds : props.initialCooldown ?? undefined,
-  }
+  return fromDetail({
+    type: props.initialType,
+    title: props.initialTitle,
+    description: props.initialDescription,
+    terms: props.initialTerms,
+    estimatedSaving: props.initialSaving,
+    cooldownSeconds: props.initialCooldown,
+    availabilityWindows: props.initialWindows,
+    merchantFields: props.initialFields,
+  })
 }
 
 export function DayTwoBuilder(props: DayTwoBuilderProps) {
