@@ -1,7 +1,7 @@
 import { PrismaClient } from '../../../generated/prisma/client'
 import type { MerchantStatus } from '../../../generated/prisma/enums'
 import { AppError } from '../shared/errors'
-import { getOwnerMembership } from '../shared/merchantMembership'
+import { getOwnerMembership, getActiveMembership } from '../shared/merchantMembership'
 
 // Option B B2.1: who is performing a direct profile/branch edit. The shared
 // `fnCore` helpers take this so the merchant route ({ type: 'MERCHANT_ADMIN' })
@@ -108,4 +108,45 @@ export async function resolveTargetMerchantForAdmin(
   })
   if (!m) throw new AppError('MERCHANT_NOT_FOUND')
   return { merchantId: m.id, status: m.status }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Staff & Access (v1) PR-A — role-aware resolver + guards (§4.1, §4.2).
+//
+// `resolveAdminMerchant` (above) is left BYTE-UNCHANGED: it resolves the OWNER
+// membership only and denies non-owners by construction (the safe-default-deny
+// pattern). Routes that intentionally admit non-owners migrate to
+// `resolveMerchantContext` + an explicit guard in PR-B. In PR-A nothing consumes
+// these yet (no route migrated, non-owner login NOT live), so adding them cannot
+// change any live behaviour.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type MerchantContext = {
+  adminId: string
+  merchantId: string
+  role: 'OWNER' | 'BRANCH_MANAGER' | 'STAFF'
+  allBranches: boolean
+  allowedBranchIds: string[]
+  canManageVouchers: boolean
+}
+
+/** Role-aware resolver for routes that intentionally admit non-owners (§4.1). Keeps the SEC-M2 suspended guard. */
+export async function resolveMerchantContext(prisma: PrismaClient, adminId: string): Promise<MerchantContext> {
+  const m = await getActiveMembership(prisma, adminId)
+  if (!m) throw new AppError('INVALID_CREDENTIALS')
+  if (m.merchant?.status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
+  return {
+    adminId, merchantId: m.merchantId, role: m.role, allBranches: m.allBranches,
+    allowedBranchIds: m.allowedBranchIds, canManageVouchers: m.role === 'OWNER' || m.canManageVouchers,
+  }
+}
+
+export function assertOwner(ctx: MerchantContext): void {
+  if (ctx.role !== 'OWNER') throw new AppError('INSUFFICIENT_PERMISSIONS')
+}
+export function assertCanManageVouchers(ctx: MerchantContext): void {
+  if (!(ctx.role === 'OWNER' || ctx.canManageVouchers)) throw new AppError('INSUFFICIENT_PERMISSIONS')
+}
+export function assertBranchAllowed(ctx: MerchantContext, branchId: string): void {
+  if (!(ctx.allBranches || ctx.allowedBranchIds.includes(branchId))) throw new AppError('INSUFFICIENT_PERMISSIONS')
 }
