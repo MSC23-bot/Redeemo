@@ -73,15 +73,23 @@ export type RequestVoucherChangesResponse = z.infer<typeof requestVoucherChanges
 /**
  * The concierge proposal. Only the allow-listed correction fields are sent; the
  * backend allow-lists + type-guards them, so a non-allow-listed key never reaches
- * Prisma. Match the backend buildAdminProposed allow-list (PR-A voucherApprover).
+ * Prisma.
+ *
+ * These are exactly the fields this v1 dialog offers (title / description / terms
+ * / estimatedSaving). The CANONICAL allow-list is `buildAdminProposed` in
+ * src/api/admin/approvals/voucherApprover.ts (PROPOSAL_STRING_FIELDS = title /
+ * description / terms / imageUrl, plus estimatedSaving). That backend allow-list
+ * ALSO accepts `imageUrl`, which this v1 dialog does not offer; proposing it is a
+ * deferred follow-up. `availabilityWindows` / `cooldownSeconds` corrections are
+ * NOT in the backend allow-list (the backend silently drops them), so they are
+ * deliberately omitted here too: proposing them is DEFERRED and would require
+ * extending the backend allow-list first.
  */
 export interface VoucherProposal {
   title?: string
   description?: string
   terms?: string
   estimatedSaving?: number
-  availabilityWindows?: VoucherAvailabilityWindow[]
-  cooldownSeconds?: number
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
