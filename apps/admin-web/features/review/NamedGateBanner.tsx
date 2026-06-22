@@ -9,6 +9,8 @@
  *   APPROVAL_ALREADY_CLAIMED     — race condition on claim
  *   APPROVAL_NOT_CLAIMER         — non-claimer attempted release
  *   APPROVAL_NOT_FOUND           — approval has been removed
+ *   VOUCHER_NOT_ACTIONABLE       — VOUCHER lane: voucher state changed; refreshed
+ *   VOUCHER_NOT_FOUND            — VOUCHER lane: voucher could not be found
  *   (default) — ApiError.message or a generic fallback
  *
  * Also exports `failedChecklistGates` to extract the checklist payload from
@@ -78,6 +80,10 @@ const CODE_MESSAGES: Record<string, string> = {
   FILE_TOO_LARGE: 'That file is too large. The maximum size is 10 MB.',
   UNSUPPORTED_FILE_TYPE: 'Unsupported file type. Upload a PDF, JPG, or PNG.',
   DOCUMENT_NOT_FOUND: 'This document no longer exists. The list has refreshed.',
+  // Day-2 Vouchers PR-C: the VOUCHER approval lane (voucherApprover.ts).
+  VOUCHER_NOT_ACTIONABLE:
+    'This voucher is not in a state that can be actioned. The page has refreshed.',
+  VOUCHER_NOT_FOUND: 'This voucher could not be found. The page has refreshed.',
 }
 
 function getMessage(error: unknown): string {
