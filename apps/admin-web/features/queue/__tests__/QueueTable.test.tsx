@@ -288,6 +288,22 @@ describe('QueueTable VOUCHER row', () => {
     expect(screen.getByTestId('queue-row-a-voucher-1')).toHaveTextContent('Acme Coffee')
   })
 
+  // Codex FIX 1 (PR-A): a stale VOUCHER approval (its referenceId points at a
+  // missing/deleted voucher) now comes back as the safe shape voucher:null +
+  // merchant:null + goLiveHint:null. The queue row must render it without crashing,
+  // falling back to "Unknown merchant", and stay clickable to its review screen.
+  it('renders a stale VOUCHER row (voucher + merchant both null) as "Unknown merchant", linked, no crash', () => {
+    render(
+      <QueueTable
+        items={[makeVoucherApproval({ voucher: null, merchant: null, goLiveHint: null })]}
+        currentAdminId={CURRENT_ADMIN}
+      />,
+    )
+    const row = screen.getByTestId('queue-row-a-voucher-1')
+    expect(row).toHaveTextContent('Unknown merchant')
+    expect(screen.getByRole('link', { name: /Unknown merchant/i })).toHaveAttribute('href', '/queue/a-voucher-1')
+  })
+
   it('renders a MERCHANT_ONBOARDING row unchanged alongside a VOUCHER row', () => {
     render(
       <QueueTable
