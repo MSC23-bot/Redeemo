@@ -104,6 +104,95 @@ export function merchantSubmittedOnBehalfEmail(businessName: string): RenderedEm
   }
 }
 
+// ─── Day-2 Vouchers: VOUCHER approval-lane email templates ───────────────────
+//
+// The merchant email channel for voucher decisions is dark/deferred (notify()
+// requires an email payload, so we construct real templates and pass them, but
+// delivery stays off this milestone — the user-visible signal is the in-app
+// VOUCHER_APPROVAL_UPDATE bell). `voucherTitle` is the merchant's own offer name
+// shown back to them; HTML-escaped defensively. `reason` (changes/reject) is
+// admin-controlled merchant-facing free text ⇒ HTML-escaped.
+
+/** A voucher was approved and is live now (merchant + flagship already live). */
+export function voucherApprovedLiveEmail(voucherTitle: string): RenderedEmail {
+  const safe = escapeHtml(voucherTitle)
+  return {
+    subject: `Your ${BRAND} voucher is approved and live`,
+    text:
+      `Good news: your voucher "${voucherTitle}" has been approved and is now live on ${BRAND}.\n\n` +
+      `Members in your area can find and redeem it from today. Sign in to your merchant portal to see it.`,
+    html:
+      `<p>Good news: your voucher "${safe}" has been approved and is now live on ${BRAND}.</p>` +
+      `<p>Members in your area can find and redeem it from today. Sign in to your merchant portal to see it.</p>`,
+  }
+}
+
+/** A voucher was approved but is waiting for the merchant to go live. */
+export function voucherApprovedWaitingEmail(voucherTitle: string): RenderedEmail {
+  const safe = escapeHtml(voucherTitle)
+  return {
+    subject: `Your ${BRAND} voucher is approved`,
+    text:
+      `Your voucher "${voucherTitle}" has been approved on ${BRAND}.\n\n` +
+      `It will go live automatically once your business is live and your flagship vouchers are live. ` +
+      `There is nothing more you need to do.`,
+    html:
+      `<p>Your voucher "${safe}" has been approved on ${BRAND}.</p>` +
+      `<p>It will go live automatically once your business is live and your flagship vouchers are live. ` +
+      `There is nothing more you need to do.</p>`,
+  }
+}
+
+/** A previously-approved-waiting voucher just went live (delayed activation). */
+export function voucherNowLiveEmail(voucherTitle: string): RenderedEmail {
+  const safe = escapeHtml(voucherTitle)
+  return {
+    subject: `Your ${BRAND} voucher is now live`,
+    text:
+      `Your approved voucher "${voucherTitle}" is now live on ${BRAND}.\n\n` +
+      `Members in your area can find and redeem it from today.`,
+    html:
+      `<p>Your approved voucher "${safe}" is now live on ${BRAND}.</p>` +
+      `<p>Members in your area can find and redeem it from today.</p>`,
+  }
+}
+
+/** Admin requested changes on a voucher. `reason` is admin-controlled ⇒ escaped. */
+export function voucherChangesRequestedEmail(voucherTitle: string, reason: string): RenderedEmail {
+  const safeTitle = escapeHtml(voucherTitle)
+  const safeReason = escapeHtml(reason)
+  return {
+    subject: `Changes requested on your ${BRAND} voucher`,
+    text:
+      `We reviewed your voucher "${voucherTitle}" and need a few changes before we can approve it.\n\n` +
+      `What to change:\n${reason}\n\n` +
+      `Sign in to your merchant portal, update the voucher, and resubmit. We will review it again as soon as you do.`,
+    html:
+      `<p>We reviewed your voucher "${safeTitle}" and need a few changes before we can approve it.</p>` +
+      `<p><strong>What to change:</strong></p>` +
+      `<blockquote>${safeReason}</blockquote>` +
+      `<p>Sign in to your merchant portal, update the voucher, and resubmit. We will review it again as soon as you do.</p>`,
+  }
+}
+
+/** Admin rejected a voucher. `reason` is admin-controlled ⇒ escaped. */
+export function voucherRejectedEmail(voucherTitle: string, reason: string): RenderedEmail {
+  const safeTitle = escapeHtml(voucherTitle)
+  const safeReason = escapeHtml(reason)
+  return {
+    subject: `Update on your ${BRAND} voucher`,
+    text:
+      `After review, we are unable to approve your voucher "${voucherTitle}" on ${BRAND} at this time.\n\n` +
+      `Reason:\n${reason}\n\n` +
+      `You can duplicate it and submit a fresh version from your merchant portal.`,
+    html:
+      `<p>After review, we are unable to approve your voucher "${safeTitle}" on ${BRAND} at this time.</p>` +
+      `<p><strong>Reason:</strong></p>` +
+      `<blockquote>${safeReason}</blockquote>` +
+      `<p>You can duplicate it and submit a fresh version from your merchant portal.</p>`,
+  }
+}
+
 /**
  * Admin approved a merchant's onboarding and the merchant is now live. M5 owns
  * this template. `businessName` is the merchant's own name shown back to them;
