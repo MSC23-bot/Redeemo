@@ -53,6 +53,15 @@ export const ERROR_DEFINITIONS = {
   APPROVAL_NOT_FOUND:             { statusCode: 404, message: 'Approval not found.' },
   APPROVAL_ALREADY_CLAIMED:       { statusCode: 409, message: 'This approval is already being reviewed by another admin.' },
   APPROVAL_NOT_ACTIONABLE:        { statusCode: 409, message: 'This approval is not in a state that can be actioned.' },
+  // Day-2 Vouchers PR-A (Fix 1): the voucher's OWN status is not PENDING_AWAITING
+  // approval. Distinct from APPROVAL_NOT_ACTIONABLE (which gates the AdminApproval
+  // status). A CHANGES_REQUESTED AdminApproval is "actionable", but if the voucher
+  // is still DRAFT (the merchant has not resubmitted), approving/rejecting/
+  // requesting-changes would act on a not-genuinely-submitted voucher (force-
+  // publishing a DRAFT). The voucher-decision handlers re-validate the entity
+  // status and throw this when voucher.status !== 'PENDING_APPROVAL', mirroring
+  // editApplier's independent re-validation of the underlying entity.
+  VOUCHER_NOT_ACTIONABLE:         { statusCode: 409, message: 'This voucher is not in a state that can be actioned.' },
   // Phase 2 Slice 1 M5: release-owner guard (D1). Only the admin who CLAIMED the
   // approval, or a SUPER_ADMIN (force-release), may release it. An ordinary admin
   // releasing another admin's claim is refused with this code.

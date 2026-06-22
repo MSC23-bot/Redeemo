@@ -54,6 +54,14 @@ export type AuditEvent =
   | 'VOUCHER_UPDATED'
   | 'VOUCHER_DELETED'
   | 'VOUCHER_SUBMITTED'
+  // Day-2 Vouchers A5: admin VOUCHER-lane decisions. `event` is a String column
+  // (see the MERCHANT_IDENTITY_UPDATED note above), so these are union-only
+  // literals with NO migration, mirroring the editApplier's MERCHANT_EDIT_APPROVED
+  // / MERCHANT_EDIT_REJECTED additions. Distinct from VOUCHER_UPDATED so an admin
+  // approve / reject / request-changes decision is filterable in the audit trail.
+  | 'VOUCHER_APPROVED'
+  | 'VOUCHER_REJECTED'
+  | 'VOUCHER_CHANGES_REQUESTED'
   | 'RMV_CREATED'
   | 'RMV_UPDATED'
   | 'RMV_SUBMITTED'

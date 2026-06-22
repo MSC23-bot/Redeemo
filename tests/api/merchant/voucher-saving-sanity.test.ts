@@ -64,6 +64,30 @@ describe('createVoucher saving sanity (M2 B4 / D8b)', () => {
     }, baseCtx)
     expect(prisma.voucher.create).toHaveBeenCalledTimes(1)
   })
+
+  // Fix 3 (Decimal(10,2) overflow guard): a value that, rounded to scale 2, is
+  // >= the column max overflows Decimal(10,2) -> Postgres 22003 -> raw 500. It must
+  // surface as the clean SAVING_INVALID 400 instead, BEFORE the create.
+  it('rejects an out-of-range estimatedSaving (1e9) with a clean SAVING_INVALID, not a Prisma 500', async () => {
+    await expect(createVoucher(prisma, 'ma1', {
+      type: 'BOGO', title: 'Test', estimatedSaving: 1_000_000_000,
+    }, baseCtx)).rejects.toThrow('SAVING_INVALID')
+    expect(prisma.voucher.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a value that rounds UP to the column max (99999999.995) with SAVING_INVALID', async () => {
+    await expect(createVoucher(prisma, 'ma1', {
+      type: 'BOGO', title: 'Test', estimatedSaving: 99999999.995,
+    }, baseCtx)).rejects.toThrow('SAVING_INVALID')
+    expect(prisma.voucher.create).not.toHaveBeenCalled()
+  })
+
+  it('ACCEPTS the largest in-range estimatedSaving (99999999.99)', async () => {
+    await createVoucher(prisma, 'ma1', {
+      type: 'BOGO', title: 'Test', estimatedSaving: 99999999.99,
+    }, baseCtx)
+    expect(prisma.voucher.create).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('updateVoucher saving sanity (M2 B4 / D8b)', () => {
@@ -96,6 +120,25 @@ describe('updateVoucher saving sanity (M2 B4 / D8b)', () => {
     // A PATCH that only edits other fields must not trip the saving sanity (the
     // check only fires when a top-level estimatedSaving value is actually written).
     await updateVoucher(prisma, 'ma1', 'v1', { title: 'New title' }, baseCtx)
+    expect(prisma.voucher.update).toHaveBeenCalledTimes(1)
+  })
+
+  // Fix 3 (Decimal(10,2) overflow guard): a PATCH with an out-of-range saving must
+  // be a clean SAVING_INVALID 400, not a Prisma 500.
+  it('rejects an out-of-range estimatedSaving (1e9) on update with SAVING_INVALID', async () => {
+    await expect(updateVoucher(prisma, 'ma1', 'v1', { estimatedSaving: 1_000_000_000 }, baseCtx))
+      .rejects.toThrow('SAVING_INVALID')
+    expect(prisma.voucher.update).not.toHaveBeenCalled()
+  })
+
+  it('rejects a value that rounds UP to the column max (99999999.995) on update with SAVING_INVALID', async () => {
+    await expect(updateVoucher(prisma, 'ma1', 'v1', { estimatedSaving: 99999999.995 }, baseCtx))
+      .rejects.toThrow('SAVING_INVALID')
+    expect(prisma.voucher.update).not.toHaveBeenCalled()
+  })
+
+  it('ACCEPTS the largest in-range estimatedSaving (99999999.99) on update', async () => {
+    await updateVoucher(prisma, 'ma1', 'v1', { estimatedSaving: 99999999.99 }, baseCtx)
     expect(prisma.voucher.update).toHaveBeenCalledTimes(1)
   })
 })

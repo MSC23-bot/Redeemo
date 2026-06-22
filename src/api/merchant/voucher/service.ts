@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { PrismaClient } from '../../../../generated/prisma/client'
+import { PrismaClient, Prisma } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx, type ActorType } from '../../shared/audit'
 import { resolveAdminMerchant, resolveTopLevelCategoryId, type EditActor } from '../shared'
@@ -11,6 +11,26 @@ const SUBMITTABLE_STATUSES = ['DRAFT'] as const
 
 function generateVoucherCode(prefix: string): string {
   return `${prefix}-${randomBytes(4).toString('hex').toUpperCase()}`
+}
+
+// Codex review FIX 2: adminProposed + adminNote are SERVER-OWNED concierge keys.
+// They are written ONLY by voucherApprover.requestVoucherChanges and PR-B renders
+// them to the merchant as Redeemo-authored suggestions. The merchant create/update
+// merchantFields bag is free-form (z.record(z.string(), z.unknown())), so a merchant
+// could otherwise self-inject these keys (UI spoofing) or clobber a real admin
+// proposal. We strip them from any MERCHANT-supplied bag; on update the existing
+// server-written values in the current bag are preserved because the merge spreads
+// the stripped incoming bag OVER the current bag (the admin keys never appear in the
+// incoming side, so they are never overwritten). These keys must NEVER be settable
+// from the merchant bag.
+const ADMIN_OWNED_MERCHANTFIELDS_KEYS = ['adminProposed', 'adminNote'] as const
+
+function stripAdminOwnedKeys(bag: Record<string, unknown>): Record<string, unknown> {
+  const copy = { ...bag }
+  for (const key of ADMIN_OWNED_MERCHANTFIELDS_KEYS) {
+    delete copy[key]
+  }
+  return copy
 }
 
 // ─── M2 B4 (D8b): advisory saving sanity ─────────────────────────────────────
@@ -33,6 +53,22 @@ function assertSavingSane(value: unknown): void {
 // Decimal(10,2) holds at most 99999999.99; reject a bag value that would overflow
 // the column so a poisoned saving maps to a clean SAVING_INVALID, never a Prisma error.
 const RMV_SAVING_COLUMN_MAX = 100000000
+
+// Fix 3 (Decimal(10,2) overflow guard): the custom create/update paths let a
+// merchant write a TOP-LEVEL estimatedSaving directly. assertSavingSane only checks
+// finite+positive, so a value like 1e9 reaches Prisma and overflows Decimal(10,2)
+// (Postgres 22003 -> raw 500). Mirror the RMV bridge's rounding-boundary logic
+// (Math.round(v*100)/100 then >= RMV_SAVING_COLUMN_MAX reject) so a too-large value
+// is the clean SAVING_INVALID 400. Call AFTER assertSavingSane (which guarantees a
+// finite number). Postgres rounds half-away-from-zero to scale 2 BEFORE the
+// precision check, so a value just under the max (99999999.995) must be rejected too.
+// Does NOT touch the RMV create / edit cores (they keep their own identical guard).
+function assertSavingFitsColumn(value: number): void {
+  const rounded = Math.round(value * 100) / 100
+  if (rounded >= RMV_SAVING_COLUMN_MAX) {
+    throw new AppError('SAVING_INVALID')
+  }
+}
 
 // ─── M4a-7: TIME_LIMITED availability-window validation ─────────────────────
 //
@@ -147,10 +183,34 @@ function validateAvailabilityWindows(
 
 export async function listVouchers(prisma: PrismaClient, adminId: string) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-  return prisma.voucher.findMany({
+  // Day-2 Vouchers A2: curated select (the Vouchers-module list consumer) + a
+  // per-voucher redemption count via _count. The select is deliberately narrow
+  // (no raw merchantFields, no redemptionPin-bearing relations) and pulls the
+  // fields the list/card render needs. redemptionCount is mapped off _count so
+  // the wire shape never exposes the internal aggregate object.
+  const rows = await prisma.voucher.findMany({
     where: { merchantId, isRmv: false },
     orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      status: true,
+      approvalStatus: true,
+      approvalComment: true,
+      estimatedSaving: true,
+      description: true,
+      terms: true,
+      isRmv: true,
+      cooldownSeconds: true,
+      publishedAt: true,
+      expiryDate: true,
+      approvedAt: true,
+      createdAt: true,
+      _count: { select: { redemptions: true } },
+    },
   })
+  return rows.map(({ _count, ...r }) => ({ ...r, redemptionCount: _count?.redemptions ?? 0 }))
 }
 
 export async function getVoucher(
@@ -159,11 +219,28 @@ export async function getVoucher(
   voucherId: string
 ) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Day-2 Vouchers A2: include _count additively so ALL scalar columns (incl
+  // merchantFields, needed for the concierge proposed-vs-current diff) are kept
+  // while the detail page gets a per-voucher redemption count. We strip the
+  // internal _count and surface a flat redemptionCount.
+  //
+  // PR-B review fix: availabilityWindows is a RELATION, not a scalar, so it is
+  // NOT returned by `include:{_count}` alone. The merchant-web builder rehydrates
+  // a TIME_LIMITED voucher's windows on edit/duplicate from this read; without the
+  // relation a TIME_LIMITED edit-save sent availabilityWindows:[] and the wholesale
+  // deleteMany replace path WIPED every existing window (data loss, even on a
+  // description-only edit). Include the windows here so edit/duplicate round-trip
+  // them. (create/update/submit already include them on their own returns.)
   const voucher = await prisma.voucher.findFirst({
     where: { id: voucherId, merchantId, isRmv: false },
+    include: {
+      _count: { select: { redemptions: true } },
+      availabilityWindows: { select: { dayOfWeek: true, openTime: true, closeTime: true } },
+    },
   })
   if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
-  return voucher
+  const { _count, ...rest } = voucher
+  return { ...rest, redemptionCount: _count?.redemptions ?? 0 }
 }
 
 export async function createVoucher(
@@ -185,6 +262,9 @@ export async function createVoucher(
     // null column (`undefined` = Prisma "do nothing" against a nullable
     // column with no default).
     cooldownSeconds?: number | null
+    // Day-2 Vouchers A3: opaque merchant-authored bag (askHelp + builder draft).
+    // Written to Voucher.merchantFields. Defaults to {} when omitted.
+    merchantFields?: Record<string, unknown>
   },
   ctx: { ipAddress: string; userAgent: string }
 ) {
@@ -193,6 +273,8 @@ export async function createVoucher(
   // negative / absent estimatedSaving is rejected with SAVING_INVALID; a positive
   // value (even below the advisory floor) is accepted.
   assertSavingSane(data.estimatedSaving)
+  // Fix 3: also reject a value that overflows Decimal(10,2) (clean 400, not a 500).
+  assertSavingFitsColumn(data.estimatedSaving)
   // M4a-7: validate windows BEFORE the Prisma create. Type-attachment +
   // per-row format + per-day overlap checks all run synchronously.
   validateAvailabilityWindows(data.type, data.availabilityWindows)
@@ -214,6 +296,13 @@ export async function createVoucher(
       expiryDate: data.expiryDate ? new Date(data.expiryDate) : undefined,
       status: 'DRAFT',
       approvalStatus: 'PENDING',
+      // Day-2 Vouchers A3: store the merchant-authored bag (askHelp + builder
+      // draft). Default to {} so the column is never null for a custom voucher,
+      // matching the RMV create paths. status/approvalStatus/isRmv/merchantId are
+      // server-set above and CANNOT be overridden by the bag.
+      // Codex review FIX 2: strip the server-owned adminProposed/adminNote concierge
+      // keys so a merchant cannot self-inject a fake Redeemo suggestion at create.
+      merchantFields: stripAdminOwnedKeys(data.merchantFields ?? {}) as Prisma.InputJsonValue,
       // M5 Task 12.5 — propagate validated cooldown. Zod refine (Task
       // 12) guarantees: REUSABLE → null OR >= 1800; non-REUSABLE → null.
       cooldownSeconds: data.cooldownSeconds ?? null,
@@ -271,12 +360,31 @@ export async function updateVoucher(
   }
   if (data.expiryDate) safe.expiryDate = new Date(data.expiryDate as string)
 
+  // Day-2 Vouchers A3: merchantFields MERGES (never replaces). This preserves
+  // existing keys (askHelp, the concierge adminProposed / adminNote, builder
+  // draft state) when the patch only touches a subset of the bag. merchantFields
+  // is intentionally NOT in allowedFields (which copies a value verbatim); it is
+  // merged here. status/approvalStatus/isRmv/merchantId are never updatable from
+  // the body (not in allowedFields and not merged), so the merchant cannot set
+  // ACTIVE / APPROVED (security invariant spec §6.1).
+  if ('merchantFields' in data && data.merchantFields && typeof data.merchantFields === 'object') {
+    const currentBag = (voucher.merchantFields as Record<string, unknown> | null) ?? {}
+    // Codex review FIX 2: strip the server-owned adminProposed/adminNote keys from the
+    // INCOMING bag before the merge. Because they are absent from the incoming side,
+    // the existing server-written values in currentBag are PRESERVED (a merchant
+    // editing other builder fields does not clear a real admin proposal), and a
+    // merchant attempt to set/overwrite them is dropped.
+    safe.merchantFields = { ...currentBag, ...stripAdminOwnedKeys(data.merchantFields as Record<string, unknown>) }
+  }
+
   // M2 B4 (D8b): saving sanity ONLY when the patch writes a top-level
   // estimatedSaving value. A patch that omits estimatedSaving leaves the existing
   // value untouched and never trips the check. Zero / negative is rejected with
   // SAVING_INVALID; a positive value (even below the advisory floor) is accepted.
   if ('estimatedSaving' in safe) {
     assertSavingSane(safe.estimatedSaving)
+    // Fix 3: also reject a value that overflows Decimal(10,2) (clean 400, not a 500).
+    assertSavingFitsColumn(safe.estimatedSaving as number)
   }
 
   // M4a-7: resolve effective type (post-merge) and effective windows.
@@ -376,9 +484,50 @@ export async function submitVoucher(
     throw new AppError('TIME_LIMITED_REQUIRES_WINDOW')
   }
 
-  const updated = await prisma.voucher.update({
-    where: { id: voucherId },
-    data: { status: 'PENDING_APPROVAL', publishedAt: new Date() },
+  // Day-2 Vouchers A4: the status flip AND the VOUCHER approval lane row are
+  // committed atomically. Create the AdminApproval{ type:'VOUCHER' } on first
+  // submit; reopen the SAME row (clear the prior claim) on resubmit-after-changes,
+  // mirroring the onboarding submitForApprovalCore reopen so the review thread is
+  // never duplicated. NO notification fires on submit (no submit bell, spec §0).
+  const updated = await prisma.$transaction(async (tx) => {
+    const v = await tx.voucher.update({
+      where: { id: voucherId },
+      // Codex review FIX 3 (cleanup): also reset approvalStatus to PENDING. A
+      // resubmit after a CHANGES_REQUESTED concierge round would otherwise leave the
+      // voucher at the transient PENDING_APPROVAL + CHANGES_REQUESTED pair. submitVoucher
+      // is DRAFT-only, and a submitted custom voucher should always be the tidy
+      // PENDING_APPROVAL + PENDING under review (display already works status-first;
+      // this clears the stale value and protects future code that reads the pair jointly).
+      data: { status: 'PENDING_APPROVAL', approvalStatus: 'PENDING', publishedAt: new Date() },
+    })
+
+    const existing = await tx.adminApproval.findFirst({
+      where: { type: 'VOUCHER', referenceId: voucherId },
+      select: { id: true },
+    })
+    if (existing) {
+      await tx.adminApproval.update({
+        where: { id: existing.id },
+        data: {
+          status: 'PENDING',
+          claimedById: null,
+          claimedAt: null,
+          actionedAt: null,
+          comment: 'Merchant resubmitted voucher for approval',
+        },
+      })
+    } else {
+      await tx.adminApproval.create({
+        data: {
+          type: 'VOUCHER',
+          status: 'PENDING',
+          referenceId: voucherId,
+          referenceType: 'voucher',
+          comment: 'Merchant submitted voucher for approval',
+        },
+      })
+    }
+    return v
   })
   writeAuditLog(prisma, {
     entityId: merchantId,
@@ -420,11 +569,17 @@ export async function deleteVoucher(
 
 export async function listRmvVouchers(prisma: PrismaClient, adminId: string) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-  return prisma.voucher.findMany({
+  // Day-2 Vouchers A2: ADD the per-voucher redemption count ADDITIVELY. The
+  // existing onboarding flagship UI consumes rmvTemplate, so we keep
+  // include:{ rmvTemplate:true } and only add _count (NOT a restrictive select,
+  // which would drop rmvTemplate and break onboarding). redemptionCount is mapped
+  // off _count; rmvTemplate and every scalar are preserved on the row.
+  const rows = await prisma.voucher.findMany({
     where: { merchantId, isRmv: true },
-    include: { rmvTemplate: true },
+    include: { rmvTemplate: true, _count: { select: { redemptions: true } } },
     orderBy: { createdAt: 'asc' },
   })
+  return rows.map(({ _count, ...r }) => ({ ...r, redemptionCount: _count?.redemptions ?? 0 }))
 }
 
 /**

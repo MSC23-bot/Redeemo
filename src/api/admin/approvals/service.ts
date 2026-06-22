@@ -4,7 +4,7 @@ import { ApprovalType, ApprovalStatus } from '../../../../generated/prisma/enums
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
 import { notify } from '../../shared/notify'
-import { merchantChangesRequestedEmail, merchantRejectedEmail, merchantLiveEmail } from '../../shared/merchantEmails'
+import { merchantChangesRequestedEmail, merchantRejectedEmail, merchantLiveEmail, voucherNowLiveEmail, voucherNowLiveBatchEmail } from '../../shared/merchantEmails'
 import { computeOnboardingChecklist } from '../../merchant/onboarding/service'
 import { isBranchLocationConfirmed } from '../../shared/location'
 import { presignGet } from '../../shared/storage'
@@ -108,6 +108,44 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     : []
   const merchantById = new Map(merchants.map((m) => [m.id, m]))
 
+  // Day-2 Vouchers A8b - VOUCHER queue enrichment (mirrors the onboarding
+  // merchant-summary batch above). Collect the VOUCHER referenceIds, batch-load
+  // the vouchers (curated select: id/title/type/status/approvalStatus/merchantId,
+  // NO PII/redemptionPin) + their merchants (id/businessName/status), and compute
+  // a per-distinct-merchant flagship-live flag (no N+1: one count per distinct
+  // VOUCHER merchant). The .map below attaches a `voucher` summary + a
+  // `goLiveHint` ('live-now' | 'waiting-for-go-live') so the queue can show enough
+  // context before the reviewer opens the row. ONBOARDING / edit rows are untouched.
+  const voucherIds = approvals.filter((a) => a.type === 'VOUCHER').map((a) => a.referenceId)
+  const voucherRows = voucherIds.length
+    ? await prisma.voucher.findMany({
+        where: { id: { in: voucherIds } },
+        select: { id: true, title: true, type: true, status: true, approvalStatus: true, merchantId: true },
+      })
+    : []
+  const voucherById = new Map(voucherRows.map((v) => [v.id, v]))
+
+  const voucherMerchantIds = Array.from(new Set(voucherRows.map((v) => v.merchantId)))
+  const voucherMerchants = voucherMerchantIds.length
+    ? await prisma.merchant.findMany({
+        where: { id: { in: voucherMerchantIds } },
+        select: { id: true, businessName: true, status: true },
+      })
+    : []
+  const voucherMerchantById = new Map(voucherMerchants.map((m) => [m.id, m]))
+
+  // Flagship-live per DISTINCT voucher merchant (one count each - no N+1 per row).
+  const flagshipLiveByMerchant = new Map<string, boolean>(
+    await Promise.all(
+      voucherMerchantIds.map(async (mid): Promise<[string, boolean]> => {
+        const notLive = await prisma.voucher.count({
+          where: { merchantId: mid, isRmv: true, status: { not: 'ACTIVE' } },
+        })
+        return [mid, notLive === 0]
+      }),
+    ),
+  )
+
   // Batch-resolve claimer names (mirrors the merchant-summary batch above + the
   // getReviewContext adminById pattern): one AdminUser lookup over the distinct
   // non-null claimedById set, keyed to "First Last". So the queue can render
@@ -129,11 +167,38 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     page,
     pageSize,
     total,
-    approvals: approvals.map((a) => ({
-      ...a,
-      merchant: a.type === 'MERCHANT_ONBOARDING' ? (merchantById.get(a.referenceId) ?? null) : null,
-      claimedBy: a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null,
-    })),
+    approvals: approvals.map((a) => {
+      // Day-2 Vouchers A8b - VOUCHER rows get a voucher summary + merchant +
+      // goLiveHint; ONBOARDING rows keep the existing merchant block; all other
+      // rows (edit lanes) carry null for both.
+      if (a.type === 'VOUCHER') {
+        const claimedBy = a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null
+        const v = voucherById.get(a.referenceId) ?? null
+        // Codex review FIX 1: a VOUCHER approval pointing at a missing/deleted
+        // voucher (no row in the batch load) returns the safe null shape EXPLICITLY.
+        // This removes the prior fragile `v!` non-null assertion: it was only
+        // runtime-safe because the goLive `&&` chain short-circuited when `m` was
+        // null, so a reorder/refactor could have null-deref'd. The null branch never
+        // touches flagshipLiveByMerchant.
+        if (!v) {
+          return { ...a, merchant: null, voucher: null, goLiveHint: null, claimedBy }
+        }
+        const m = voucherMerchantById.get(v.merchantId) ?? null
+        const goLive = !!m && m.status === 'ACTIVE' && (flagshipLiveByMerchant.get(v.merchantId) ?? false)
+        return {
+          ...a,
+          merchant: m,
+          voucher: { title: v.title, type: v.type, status: v.status, approvalStatus: v.approvalStatus },
+          goLiveHint: goLive ? ('live-now' as const) : ('waiting-for-go-live' as const),
+          claimedBy,
+        }
+      }
+      return {
+        ...a,
+        merchant: a.type === 'MERCHANT_ONBOARDING' ? (merchantById.get(a.referenceId) ?? null) : null,
+        claimedBy: a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null,
+      }
+    }),
   }
 }
 
@@ -523,6 +588,27 @@ export async function approveApproval(
       data: { status: 'ACTIVE', approvalStatus: 'APPROVED', approvedBy: adminId, approvedAt: now },
     })
 
+    // Day-2 Vouchers A7 - Model 1 delayed activation. With the merchant now live
+    // AND the flagship RMVs just activated above, BOTH prerequisites for an
+    // approved-waiting CUSTOM voucher are satisfied by construction, so flip every
+    // approved-waiting custom (isRmv:false, approvalStatus:APPROVED,
+    // status:PENDING_APPROVAL) to ACTIVE in the SAME transaction. STRICT no-op when
+    // there are none (the findMany returns []; the updateMany is skipped). A
+    // SUBMITTED-not-approved custom (approvalStatus:PENDING) is intentionally NOT
+    // matched, so it is not activated. approvalStatus is already APPROVED, so only
+    // status flips. The now-live notifications fire post-commit (see below) so they
+    // can never roll back this transaction.
+    const activatedCustoms = await tx.voucher.findMany({
+      where: { merchantId: merchant.id, isRmv: false, approvalStatus: 'APPROVED', status: 'PENDING_APPROVAL' },
+      select: { id: true, title: true },
+    })
+    if (activatedCustoms.length > 0) {
+      await tx.voucher.updateMany({
+        where: { merchantId: merchant.id, isRmv: false, approvalStatus: 'APPROVED', status: 'PENDING_APPROVAL' },
+        data: { status: 'ACTIVE' },
+      })
+    }
+
     // Approval resolved.
     await tx.adminApproval.update({
       where: { id },
@@ -554,7 +640,12 @@ export async function approveApproval(
       userAgent: ctx.userAgent,
     })
 
-    return { merchantId: merchant.id, businessName: merchant.businessName, alreadyLive: false as const }
+    return {
+      merchantId: merchant.id,
+      businessName: merchant.businessName,
+      alreadyLive: false as const,
+      activatedCustoms,
+    }
   })
 
   if (result.alreadyLive) return { approved: true, alreadyLive: true as const }
@@ -582,7 +673,48 @@ export async function approveApproval(
       `[actioner] approve/go-live committed for merchant ${result.merchantId} but no ACTIVE OWNER membership found — merchant NOT notified`
     )
   }
-  return { approved: true, alreadyLive: false as const }
+
+  // Day-2 Vouchers A7 - after the owner go-live notify, fire ONE now-live
+  // VOUCHER_APPROVAL_UPDATE for the WHOLE set of CUSTOM vouchers activated by the
+  // delayed-activation block above. Best-effort via safeNotify so a notify failure
+  // NEVER fails the already-committed go-live. Email payload is provided (notify
+  // requires it) but delivery stays dark this milestone; the in-app bell is the
+  // user-visible signal.
+  //
+  // Fix 2 (notification-loss, review-driven deviation from the plan's literal
+  // "one per voucher"): notify()'s 5/hour per-(type,recipient) send limit returns
+  // BEFORE writing the in-app Notification row, so a per-voucher loop would silently
+  // drop the 6th+ bell rows when many approved-waiting customs activate at once. We
+  // send exactly ONE notify regardless of N. With a single activated voucher it
+  // references that voucher by id + names its title; with many it carries a summary
+  // body and deep-links to the first activated id so the bell still navigates.
+  if (owner && result.activatedCustoms.length > 0) {
+    const customs = result.activatedCustoms
+    const count = customs.length
+    const single = count === 1
+    await safeNotify(prisma, redis, {
+      to: owner.email,
+      recipientType: 'MERCHANT_ADMIN',
+      recipientId: owner.adminId,
+      type: 'voucher_now_live',
+      email: {
+        ...(single ? voucherNowLiveEmail(customs[0].title) : voucherNowLiveBatchEmail(count)),
+        sender: 'merchant',
+      },
+      inApp: {
+        notificationType: 'VOUCHER_APPROVAL_UPDATE',
+        title: single ? 'Your voucher is now live' : 'Your vouchers are now live',
+        body: single
+          ? 'Members in your area can find and redeem it from today.'
+          : `${count} of your custom vouchers are now live on Redeemo.`,
+        referenceId: customs[0].id, // single id, or first of the set for deep-link
+        referenceType: 'voucher',
+      },
+      ip: ctx.ipAddress,
+    })
+  }
+
+  return { approved: true, alreadyLive: false as const, activatedCustoms: result.activatedCustoms }
 }
 
 /**

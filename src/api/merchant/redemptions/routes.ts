@@ -10,6 +10,10 @@ const filterSchema = z.object({
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   voucherType: z.enum(['BOGO', 'SPEND_AND_SAVE', 'DISCOUNT_FIXED', 'DISCOUNT_PERCENT', 'FREEBIE', 'PACKAGE_DEAL', 'TIME_LIMITED', 'REUSABLE']).optional(),
+  // Day-2 Vouchers A1: per-voucher filter (the "View redemptions" deep-link from
+  // the Vouchers detail page). ANDed with branch.merchantId so a cross-tenant
+  // voucherId yields an empty result rather than leaking another merchant's data.
+  voucherId: z.string().optional(),
   code: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
   offset: z.coerce.number().int().min(0).default(0),

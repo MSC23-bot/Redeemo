@@ -33,7 +33,7 @@ describe('merchant custom voucher routes', () => {
 
   beforeEach(async () => {
     app = await buildApp()
-    app.decorate('prisma', {
+    const prismaMock: any = {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
       merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
       voucher: {
@@ -43,8 +43,17 @@ describe('merchant custom voucher routes', () => {
         update: vi.fn(),
         delete: vi.fn(),
       },
+      // Day-2 Vouchers A4: submitVoucher now creates/reopens the VOUCHER approval
+      // inside a $transaction. The mock runs the callback against the same mock.
+      adminApproval: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'appr1' }),
+        update: vi.fn().mockResolvedValue({ id: 'appr1' }),
+      },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
-    } as any)
+    }
+    prismaMock.$transaction = vi.fn().mockImplementation(async (fn: any) => fn(prismaMock))
+    app.decorate('prisma', prismaMock as any)
     app.decorate('redis', { get: vi.fn().mockResolvedValue(null), exists: vi.fn().mockResolvedValue(1) } as any)
     await app.ready()
     const jwtAny = app.jwt as any
