@@ -9,8 +9,8 @@
  *   APPROVAL_ALREADY_CLAIMED     — race condition on claim
  *   APPROVAL_NOT_CLAIMER         — non-claimer attempted release
  *   APPROVAL_NOT_FOUND           — approval has been removed
- *   VOUCHER_NOT_ACTIONABLE       — VOUCHER lane: voucher state changed; refreshed
- *   VOUCHER_NOT_FOUND            — VOUCHER lane: voucher could not be found
+ *   VOUCHER_NOT_ACTIONABLE       : VOUCHER lane: voucher state changed; refreshed
+ *   VOUCHER_NOT_FOUND            : VOUCHER lane: voucher could not be found
  *   (default) — ApiError.message or a generic fallback
  *
  * Also exports `failedChecklistGates` to extract the checklist payload from
