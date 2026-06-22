@@ -16,5 +16,9 @@ export interface VoucherCapability {
 export function useVoucherCapability(): VoucherCapability {
   // v1: owner-only by construction (the only merchant session today is the owner).
   // The seam exists so the future role model has exactly one edit point.
+  //
+  // INVARIANT (B-13): this is a DISPLAY-ONLY gate. Any privileged capability it
+  // unlocks (create / edit / submit / delete / duplicate) MUST ALSO be enforced
+  // server-side - the client gate only decides what to show, never what is allowed.
   return { canManage: true }
 }

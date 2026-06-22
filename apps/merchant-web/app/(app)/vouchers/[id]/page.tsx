@@ -251,7 +251,6 @@ function DetailActions({
   onDuplicate: () => void
 }) {
   const editable = isEditable(voucher.status)
-  const state = deriveDisplayState(voucher)
   return (
     <>
       {editable ? (
@@ -268,9 +267,6 @@ function DetailActions({
         </>
       ) : null}
       <DuplicateAction onDuplicate={onDuplicate} />
-      {/* state is surfaced for future state-specific actions; referenced to keep the
-          render explicit about which states reach here. */}
-      <span data-action-state={state} className="sr-only" />
     </>
   )
 }
