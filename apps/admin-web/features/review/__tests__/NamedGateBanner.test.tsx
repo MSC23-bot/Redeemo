@@ -135,6 +135,20 @@ describe('NamedGateBanner code mapping', () => {
     expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('This document no longer exists.')
   })
 
+  it('maps VOUCHER_NOT_ACTIONABLE correctly (Day-2 Vouchers PR-C)', () => {
+    render(<NamedGateBanner error={makeApiError('VOUCHER_NOT_ACTIONABLE')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This voucher is not in a state that can be actioned. The page has refreshed.'
+    )
+  })
+
+  it('maps VOUCHER_NOT_FOUND correctly (Day-2 Vouchers PR-C)', () => {
+    render(<NamedGateBanner error={makeApiError('VOUCHER_NOT_FOUND')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This voucher could not be found. The page has refreshed.'
+    )
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)

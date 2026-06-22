@@ -14,13 +14,32 @@ import { apiFetch } from './client'
 
 // ── Response schemas ──────────────────────────────────────────────────────────
 
+// A MERCHANT_ONBOARDING row carries the full merchant summary
+// (onboardingStep / verificationStatus / contractStatus); a Day-2 Vouchers
+// VOUCHER row carries only { id, businessName, status } (the backend's
+// voucher-merchant select). Those three onboarding-only fields are therefore
+// optional so BOTH row shapes parse against one schema.
 const merchantSummarySchema = z.object({
   id: z.string(),
   businessName: z.string(),
   status: z.string(),
-  onboardingStep: z.string(),
-  verificationStatus: z.enum(['PENDING', 'VERIFIED', 'REJECTED']).or(z.string()),
-  contractStatus: z.string(),
+  onboardingStep: z.string().optional(),
+  verificationStatus: z.enum(['PENDING', 'VERIFIED', 'REJECTED']).or(z.string()).optional(),
+  contractStatus: z.string().optional(),
+})
+
+// Day-2 Vouchers PR-C: VOUCHER rows are enriched with a voucher summary + a
+// go-live hint so the queue shows enough context before opening. The merchant
+// summary on a VOUCHER row reuses the SAME merchantSummarySchema above (no
+// separate schema): the three onboarding-only fields (onboardingStep /
+// verificationStatus / contractStatus) are .optional() on it, so a VOUCHER row's
+// leaner { id, businessName, status } merchant still parses against that one
+// schema.
+const voucherSummarySchema = z.object({
+  title: z.string(),
+  type: z.string(),
+  status: z.string(),
+  approvalStatus: z.string(),
 })
 
 export const approvalSchema = z.object({
@@ -43,6 +62,11 @@ export const approvalSchema = z.object({
   claimedAt: z.string().nullable(),
   claimedBy: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
   merchant: merchantSummarySchema.nullable(),
+  // VOUCHER-only enrichment (optional so MERCHANT_ONBOARDING + edit rows, which
+  // do not carry these, still parse). nullable too: a VOUCHER row whose voucher
+  // could not be loaded carries voucher:null + goLiveHint:null.
+  voucher: voucherSummarySchema.nullable().optional(),
+  goLiveHint: z.enum(['live-now', 'waiting-for-go-live']).nullable().optional(),
 })
 export type AdminApproval = z.infer<typeof approvalSchema>
 

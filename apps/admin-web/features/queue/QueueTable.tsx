@@ -33,6 +33,22 @@ function getTypeLabel(type: AdminApproval['type']): string {
   return map[type] ?? type
 }
 
+// Day-2 Vouchers PR-C: friendly customer-facing voucher-type label for the
+// VOUCHER row's voucher summary.
+const VOUCHER_TYPE_LABELS: Record<string, string> = {
+  BOGO: 'BOGO',
+  DISCOUNT: 'Discount',
+  FREEBIE: 'Freebie',
+  SPEND_AND_SAVE: 'Spend and save',
+  PACKAGE_DEAL: 'Package deal',
+  TIME_LIMITED: 'Time limited',
+  REUSABLE: 'Reusable',
+}
+
+function voucherTypeLabel(type: string): string {
+  return VOUCHER_TYPE_LABELS[type] ?? type
+}
+
 // ── Claim / owner cell ────────────────────────────────────────────────────────
 
 function ClaimCell({
@@ -133,6 +149,16 @@ function VerificationBadge({ status }: { status: string }) {
   )
 }
 
+// ── Go-live hint (Day-2 Vouchers PR-C) ────────────────────────────────────────
+// A VOUCHER row carries a go-live hint instead of a merchant verification status.
+
+function GoLiveHintBadge({ hint }: { hint: 'live-now' | 'waiting-for-go-live' }) {
+  if (hint === 'live-now') {
+    return <Badge tone="success">Go live now</Badge>
+  }
+  return <Badge tone="warn">Waiting to go live</Badge>
+}
+
 // ── Type badge ────────────────────────────────────────────────────────────────
 
 function TypeBadge({ type }: { type: AdminApproval['type'] }) {
@@ -185,16 +211,25 @@ export function QueueTable({ items, currentAdminId }: QueueTableProps) {
             const businessName = item.merchant?.businessName ?? 'Unknown merchant'
             const displayStatus = getDisplayStatus(item)
 
+            // Day-2 Vouchers PR-C: a VOUCHER row leads with the voucher title and
+            // shows the business name as a sub-line; the verification column shows
+            // the go-live hint instead of a merchant verification status (the
+            // voucher-row merchant carries no verificationStatus).
+            const isVoucherRow = item.type === 'VOUCHER'
+            const primaryLabel =
+              isVoucherRow && item.voucher ? item.voucher.title : businessName
+
             return (
               <tr
                 key={item.id}
+                data-testid={`queue-row-${item.id}`}
                 className={cn(
                   'border-b border-border last:border-0',
                   idx % 2 === 0 ? 'bg-card' : 'bg-secondary/10',
                   'hover:bg-muted/40 transition-colors'
                 )}
               >
-                {/* Merchant — cell contains the row-level link */}
+                {/* Merchant / voucher: cell contains the row-level link */}
                 <td className="px-4 py-3">
                   <Link
                     href={`/queue/${item.id}`}
@@ -202,10 +237,17 @@ export function QueueTable({ items, currentAdminId }: QueueTableProps) {
                       'flex items-center gap-3',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm'
                     )}
-                    aria-label={`Review ${businessName}`}
+                    aria-label={`Review ${primaryLabel}`}
                   >
                     <MerchantAvatar name={businessName} />
-                    <span className="font-medium text-foreground">{businessName}</span>
+                    <span className="min-w-0">
+                      <span className="block font-medium text-foreground">{primaryLabel}</span>
+                      {isVoucherRow && item.voucher && (
+                        <span className="block text-xs text-muted-foreground">
+                          {businessName} · {voucherTypeLabel(item.voucher.type)}
+                        </span>
+                      )}
+                    </span>
                   </Link>
                 </td>
 
@@ -219,9 +261,15 @@ export function QueueTable({ items, currentAdminId }: QueueTableProps) {
                   <UrgencyBadge submittedAtIso={item.submittedAt} />
                 </td>
 
-                {/* Verification */}
+                {/* Verification (onboarding) / go-live hint (voucher) */}
                 <td className="px-4 py-3">
-                  {item.merchant ? (
+                  {isVoucherRow ? (
+                    item.goLiveHint ? (
+                      <GoLiveHintBadge hint={item.goLiveHint} />
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )
+                  ) : item.merchant?.verificationStatus ? (
                     <VerificationBadge status={item.merchant.verificationStatus} />
                   ) : (
                     <span className="text-muted-foreground">-</span>
