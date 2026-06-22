@@ -10,7 +10,7 @@
  * (the action bar is hidden without it). The fetch is gated on approval:read
  * (passed in as canRead). No PII / no redemptionPin is present in the context.
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Loader2, AlertCircle, HelpCircle, Clock, RefreshCw } from 'lucide-react'
 import {
   useVoucherReview,
@@ -60,6 +60,13 @@ function dayLabel(dayOfWeek: number): string {
 
 function formatSaving(value: number): string {
   return `£${value.toFixed(2)}`
+}
+
+/** Format an ISO expiry date for display, or null when unparseable. */
+function formatExpiry(iso: string): string | null {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function formatCooldown(seconds: number): string {
@@ -133,6 +140,7 @@ export function VoucherReviewPanel({ approvalId, canRead, canAction }: VoucherRe
   }
 
   const { voucher, merchant, goLive } = data
+  const expiryLabel = voucher.expiryDate ? formatExpiry(voucher.expiryDate) : null
   const askHelp = voucher.merchantFields?.askHelp === true
   const adminProposed =
     voucher.merchantFields && typeof voucher.merchantFields.adminProposed === 'object' && voucher.merchantFields.adminProposed !== null
@@ -179,6 +187,12 @@ export function VoucherReviewPanel({ approvalId, canRead, canAction }: VoucherRe
             <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Saving</dt>
             <dd className="mt-0.5 text-sm font-medium text-foreground">{formatSaving(voucher.estimatedSaving)}</dd>
           </div>
+          {expiryLabel && (
+            <div data-testid="voucher-expiry">
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Expires</dt>
+              <dd className="mt-0.5 text-sm font-medium text-foreground">{expiryLabel}</dd>
+            </div>
+          )}
           <div className="sm:col-span-2">
             <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Description</dt>
             <dd className="mt-0.5 text-sm text-foreground">
@@ -389,6 +403,8 @@ function ApproveVoucherDialog({
 // ── Reject dialog ─────────────────────────────────────────────────────────────
 
 const REASON_SOFT_MIN = 15
+// The backend caps the reason / note at 2000 chars; make the cap visible.
+const TEXT_MAX = 2000
 
 function RejectVoucherDialog({
   approvalId,
@@ -401,6 +417,7 @@ function RejectVoucherDialog({
 }) {
   const [reason, setReason] = useState('')
   const mutation = useRejectVoucher(approvalId)
+  const reasonRef = useRef<HTMLTextAreaElement>(null)
 
   const trimmed = reason.trim()
   const belowMin = trimmed.length < REASON_SOFT_MIN
@@ -422,6 +439,7 @@ function RejectVoucherDialog({
       onClose={onCancel}
       scrimTestId="voucher-reject-scrim"
       panelTestId="voucher-reject-dialog"
+      initialFocusRef={reasonRef}
     >
       <h2 className="mb-4 text-base font-semibold text-foreground">Reject this voucher</h2>
       <label htmlFor="voucher-reject-reason" className="mb-1.5 block text-sm font-medium text-foreground">
@@ -429,10 +447,12 @@ function RejectVoucherDialog({
       </label>
       <textarea
         id="voucher-reject-reason"
+        ref={reasonRef}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         placeholder="Explain clearly why this voucher cannot be approved."
         rows={4}
+        maxLength={TEXT_MAX}
         className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid="voucher-reject-reason"
       />
@@ -493,6 +513,7 @@ function RequestVoucherChangesDialog({
 }) {
   const { voucher } = context
   const mutation = useRequestVoucherChanges(approvalId)
+  const titleRef = useRef<HTMLInputElement>(null)
 
   // Correction inputs are pre-filled with the current values; the proposal sends
   // ONLY the fields the admin actually changed (allow-listed: title / description
@@ -549,6 +570,7 @@ function RequestVoucherChangesDialog({
       onClose={onCancel}
       scrimTestId="voucher-rc-scrim"
       panelTestId="voucher-request-changes-dialog"
+      initialFocusRef={titleRef}
     >
       <h2 className="mb-1 text-base font-semibold text-foreground">Request changes</h2>
       <p className="mb-4 text-xs text-muted-foreground">
@@ -560,6 +582,7 @@ function RequestVoucherChangesDialog({
           <label htmlFor="voucher-rc-title" className="mb-1 block text-xs font-medium text-foreground">Title</label>
           <input
             id="voucher-rc-title"
+            ref={titleRef}
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -613,6 +636,7 @@ function RequestVoucherChangesDialog({
             onChange={(e) => setNote(e.target.value)}
             placeholder="Explain what you would like the merchant to change."
             rows={3}
+            maxLength={TEXT_MAX}
             className={`${fieldClass} resize-none`}
             data-testid="voucher-rc-note"
           />
