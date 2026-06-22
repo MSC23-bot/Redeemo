@@ -82,6 +82,21 @@ describe('voucherReviewContextSchema', () => {
     expect(parsed.voucher.merchantFields).toBeNull()
   })
 
+  it('degrades a non-object merchantFields (array / scalar) to null instead of crashing', () => {
+    const ctx = makeContext()
+    // The backend passes the raw Prisma Json column through; a non-object Json
+    // (array or scalar) must not fail z.record and crash the whole panel into
+    // its error state. The schema .catch(null)s it to a benign null.
+    for (const bad of [['not', 'an', 'object'], 'a string', 42, true]) {
+      const parsed = voucherReviewContextSchema.parse({
+        ...ctx,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        voucher: { ...ctx.voucher, merchantFields: bad as any },
+      })
+      expect(parsed.voucher.merchantFields).toBeNull()
+    }
+  })
+
   it('parses availability windows for a TIME_LIMITED voucher', () => {
     const ctx = makeContext()
     const bag = {

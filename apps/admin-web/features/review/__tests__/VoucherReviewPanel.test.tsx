@@ -171,6 +171,19 @@ describe('VoucherReviewPanel voucher display', () => {
     expect(screen.getByTestId('voucher-cooldown')).toBeInTheDocument()
   })
 
+  it('renders cleanly when merchantFields is null (a malformed bag degrades to null upstream)', () => {
+    // The voucherReview schema .catch(null)s a non-object merchantFields, so the
+    // panel only ever sees an object or null. Confirm a null bag renders the
+    // panel (no askHelp, no adminProposed diff) instead of crashing.
+    mockReview({
+      data: makeContext({ voucher: { ...makeContext().voucher, merchantFields: null } }),
+    })
+    renderPanel()
+    expect(screen.getByTestId('voucher-review-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('voucher-ask-help')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('voucher-admin-proposed')).not.toBeInTheDocument()
+  })
+
   it('renders the existing adminProposed diff when present in merchantFields', () => {
     mockReview({
       data: makeContext({
