@@ -45,7 +45,11 @@ export type SendEmailResult =
   | { skipped: true; reason: 'disabled' | 'sandbox-no-allowlist' }
   | { skipped: false; externalId: string; status: 'sent' }
 
-const isEmailEnabled = (): boolean => (process.env.EMAIL_ENABLED ?? '') === 'true'
+// Exported (Staff & Access PR-B B1) so the staff invite service can derive the
+// non-secret `inviteDelivery` status (EMAIL_DARK vs QUEUED) from the master
+// switch WITHOUT exposing the claim token. Behaviour is unchanged — this is a
+// one-line `export` of the existing predicate.
+export const isEmailEnabled = (): boolean => (process.env.EMAIL_ENABLED ?? '') === 'true'
 const isSandbox = (): boolean => (process.env.EMAIL_SANDBOX ?? '') === 'true'
 
 function sandboxAllowlist(): string[] {
