@@ -19,6 +19,9 @@ import type { Branch } from '@/lib/api/branch'
 import { openNow, type OpeningHoursRow } from '@/lib/branches/openNow'
 import { ReviewStateBanners } from '@/components/branches/ReviewStateBanners'
 import { StaffAtBranchCard } from '@/components/branches/StaffAtBranchCard'
+import { ContactCard } from '@/components/branches/sections/ContactCard'
+import { AmenitiesCard } from '@/components/branches/sections/AmenitiesCard'
+import { PinCard } from '@/components/branches/sections/PinCard'
 
 export function BranchDetail({
   branch,
@@ -42,11 +45,20 @@ export function BranchDetail({
 
       {/* TODO by task F7: BranchDetailsCard (identity values + reviewed edit modal + pending edits + withdraw). */}
       {/* TODO by task F9: LocationCard (read-only confidence badge + static map stub + locked lookup affordance). */}
-      {/* TODO by task F4: ContactCard (phone / email / website instant-save, owner-only). */}
+
+      {/* F4: contact instant-save (phone / email / website). Owner-only edit; BM read-only. */}
+      <ContactCard branch={branch} isOwner={ready && isOwner} />
+
       {/* TODO by task F10: OpeningHoursCard (read-only hours table + locked Edit affordance). */}
-      {/* TODO by task F6: PinCard (masked reveal / change / send, owner-only). */}
+
+      {/* F6: masked PIN with on-demand reveal + change + send. Owner-only (renders nothing for a non-owner). */}
+      <PinCard branch={branch} isOwner={ready && isOwner} />
+
       {/* TODO by task F13: redemption-alerts card (whole card visible but disabled). */}
-      {/* TODO by task F5: AmenitiesCard (catalogue toggle, owner-only). */}
+
+      {/* F5: amenities catalogue toggle (full-replace). Owner-only edit; BM read-only. */}
+      <AmenitiesCard branch={branch} isOwner={ready && isOwner} />
+
       {/* TODO by task F11: BrandingPhotosCard (logo / banner via F7 + photo grid display-only + locked Add). */}
       {/* TODO by task F8: MainBranchControl ("Make main branch" action, owner-only) where not already main. */}
 

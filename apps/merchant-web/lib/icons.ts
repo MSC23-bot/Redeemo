@@ -40,4 +40,9 @@ export {
   CheckCircle2,
   Info,
   ArrowRight,
+  Check,
+  Phone,
+  Mail,
+  Eye,
+  EyeOff,
 } from 'lucide-react'

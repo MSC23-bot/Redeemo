@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ToastProvider } from '@/components/ui/toast'
 import { ApiError } from '@/lib/api/client'
 import BranchDetailPage from '@/app/(app)/branches/[id]/page'
 
@@ -69,9 +70,14 @@ function branch(over: Record<string, unknown> = {}) {
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // The detail composes the section cards (F4-F6), which use the toast primitive
+  // for instant-save feedback; the real (app) layout wraps the page in a
+  // ToastProvider, so the test harness mirrors that.
   return render(
     <QueryClientProvider client={qc}>
-      <BranchDetailPage />
+      <ToastProvider>
+        <BranchDetailPage />
+      </ToastProvider>
     </QueryClientProvider>,
   )
 }
