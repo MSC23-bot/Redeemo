@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { buildApp } from '../../../src/api/app'
 import type { FastifyInstance } from 'fastify'
 import { RedisKey } from '../../../src/api/shared/redis-keys'
+import { verifyRedemption, type VerifyActor } from '../../../src/api/redemption/service'
+import type { MerchantContext } from '../../../src/api/merchant/shared'
 
 // Staff & Access PR-B (B6, §4.3 † routes): the two resolver-bypassing redemption
 // routes (POST /redemption/verify + GET /branch/:branchId/redemptions) authorize off
@@ -91,13 +93,14 @@ describe('† POST /redemption/verify (merchant actor) branch-scope guard (B6)',
     expect(made.prismaMock.voucherRedemption.update).toHaveBeenCalled()
   })
 
-  it('scoped member validating a code at a NON-allowed branch -> denied, no validation write', async () => {
+  it('scoped member validating a code at a NON-allowed branch -> MASKED as REDEMPTION_NOT_FOUND (review FIX 3, spec §4.3 †)', async () => {
     const made = await makeApp([scopedMembership()]); app = made.app
     made.prismaMock.voucherRedemption.findUnique = vi.fn().mockResolvedValue(redemptionAtBranch('b2'))
     const res = await verify(made.app, made.token)
-    expect(res.statusCode).not.toBe(200)
-    // Denied via a branch-access / permission code; never a successful validation.
-    expect(['BRANCH_ACCESS_DENIED', 'INSUFFICIENT_PERMISSIONS', 'REDEMPTION_NOT_FOUND']).toContain(JSON.parse(res.body).error.code)
+    expect(res.statusCode).toBe(404)
+    // Spec-faithful mask: a code at a sibling branch of the same merchant must be
+    // indistinguishable from a non-existent code (no intra-merchant existence oracle).
+    expect(JSON.parse(res.body).error.code).toBe('REDEMPTION_NOT_FOUND')
     expect(made.prismaMock.voucherRedemption.update).not.toHaveBeenCalled()
   })
 
@@ -178,5 +181,43 @@ describe('† branch-actor path unchanged (B6 regression guard)', () => {
     expect(res.statusCode).toBe(200)
     // Branch-actor path must NOT resolve a merchant membership (no scoped-merchant guard).
     expect(prismaMock.merchantMembership.findMany).not.toHaveBeenCalled()
+  })
+})
+
+// review FIX 2 (FAIL-CLOSED): a MERCHANT actor with NO resolved MerchantContext must
+// be REFUSED (INSUFFICIENT_PERMISSIONS) rather than silently allowed merchant-wide.
+// This is a direct service-level pin (the route always passes merchantCtx; this guards
+// against a future mis-wire that drops it).
+describe('verifyRedemption fail-closed when a merchant actor has no merchantCtx (review FIX 2)', () => {
+  const ctxMeta = { ipAddress: '1.2.3.4', userAgent: 'test' }
+  const merchantActor: VerifyActor = { role: 'merchant', branchId: null, merchantId: MERCHANT_ID, actorId: 'ma1' }
+
+  function prismaWithRedemption() {
+    return {
+      voucherRedemption: {
+        findUnique: vi.fn().mockResolvedValue(redemptionAtBranch('b1')),
+        update: vi.fn().mockResolvedValue({ id: 'r1', isValidated: true, validatedAt: new Date(), validationMethod: 'MANUAL' }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    } as any
+  }
+
+  it('merchant actor + merchantCtx === undefined -> INSUFFICIENT_PERMISSIONS, no validation write', async () => {
+    const prisma = prismaWithRedemption()
+    await expect(
+      verifyRedemption(prisma, 'A7K2P9X4', 'MANUAL', merchantActor, ctxMeta /* merchantCtx omitted */),
+    ).rejects.toThrow('INSUFFICIENT_PERMISSIONS')
+    expect(prisma.voucherRedemption.update).not.toHaveBeenCalled()
+  })
+
+  it('merchant actor WITH an allBranches owner ctx still validates (positive control)', async () => {
+    const prisma = prismaWithRedemption()
+    const ownerCtx: MerchantContext = {
+      adminId: 'ma1', merchantId: MERCHANT_ID, role: 'OWNER',
+      allBranches: true, allowedBranchIds: [], canManageVouchers: true,
+    }
+    const res = await verifyRedemption(prisma, 'A7K2P9X4', 'MANUAL', merchantActor, ctxMeta, ownerCtx)
+    expect(res.isValidated).toBe(true)
+    expect(prisma.voucherRedemption.update).toHaveBeenCalled()
   })
 })

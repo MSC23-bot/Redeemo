@@ -13,7 +13,7 @@ import {
 } from '../shared/voucherAvailability'
 import { effectiveCooldownSeconds } from './reusable'
 import { formatCustomerName } from '../shared/customerName'
-import { assertBranchAllowed, type MerchantContext } from '../merchant/shared'
+import { type MerchantContext } from '../merchant/shared'
 
 // Redemption code alphabet (locked 2026-05-07 from device QA).
 //
@@ -543,11 +543,25 @@ export async function verifyRedemption(
     if (redemption.branchId !== actor.branchId) throw new AppError('BRANCH_ACCESS_DENIED')
   } else {
     if (redemption.voucher.merchantId !== actor.merchantId) throw new AppError('MERCHANT_MISMATCH')
-    // Staff & Access B6: branch-scope enforcement for the merchant actor. A scoped
-    // member can only validate codes at their own branches; owner / allBranches
-    // members pass by construction (ctx.allBranches). Keeps the merchantId tenancy
-    // check above (defence-in-depth).
-    if (merchantCtx) assertBranchAllowed(merchantCtx, redemption.branchId)
+    // Staff & Access B6 (review FIX 2 — FAIL-CLOSED): a merchant actor MUST carry a
+    // resolved MerchantContext. The merchant-actor verify route always passes it
+    // (resolveMerchantContext); if it is ever absent (a future mis-wire), refuse rather
+    // than silently fall through to merchant-wide validation. INSUFFICIENT_PERMISSIONS
+    // (not the masked code) here is correct — this is an internal contract violation,
+    // not an out-of-scope code probe.
+    if (!merchantCtx) throw new AppError('INSUFFICIENT_PERMISSIONS')
+    // Staff & Access B6 (review FIX 3 — SPEC-FAITHFUL MASK, spec §4.3 †): a scoped
+    // member can only validate codes at their own branches. When the redemption is at
+    // a branch OUTSIDE the actor's allowed set, MASK with REDEMPTION_NOT_FOUND so a
+    // code at a sibling branch of the same merchant is indistinguishable from a code
+    // that does not exist (closes an intra-merchant existence oracle). Owner /
+    // allBranches members pass by construction. This is the verify-specific mask — the
+    // branch-redemptions READ path (a chosen path param, no code-existence leak) keeps
+    // assertBranchAllowed / INSUFFICIENT_PERMISSIONS. The merchantId tenancy check
+    // above is retained for defence-in-depth.
+    if (!merchantCtx.allBranches && !merchantCtx.allowedBranchIds.includes(redemption.branchId)) {
+      throw new AppError('REDEMPTION_NOT_FOUND')
+    }
   }
 
   // SEC-M1 (M6a): decide active/suspended from the LIVE DB, never the cached

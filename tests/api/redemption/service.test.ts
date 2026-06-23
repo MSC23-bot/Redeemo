@@ -477,7 +477,8 @@ describe('verifyRedemption', () => {
     const result = await verifyRedemption(
       prisma, 'A7K2P9X4', 'MANUAL',
       { role: 'merchant', branchId: null, merchantId: 'm1', actorId: 'ma1' },
-      baseCtx
+      baseCtx,
+      { adminId: 'ma1', merchantId: 'm1', role: 'OWNER', allBranches: true, allowedBranchIds: [], canManageVouchers: true },
     )
 
     // OD4 (Finding 1): a merchant-admin portal validation crosses the
