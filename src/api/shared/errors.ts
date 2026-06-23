@@ -96,6 +96,13 @@ export const ERROR_DEFINITIONS = {
   BRANCH_NOT_FOUND:               { statusCode: 404, message: 'Branch not found.' },
   BRANCH_UNAVAILABLE:             { statusCode: 404, message: 'This branch is no longer available.' },
   PHOTO_LIMIT_REACHED:            { statusCode: 409, message: 'This branch has reached its photo limit. Remove a photo before adding another.' },
+  // Branches PR-3 (instant photo-removal). Additive code-only (no schema).
+  // BRANCH_PHOTO_NOT_FOUND: the targeted BranchPhoto id is not on this branch
+  // (unknown / cross-branch). PHOTO_NOT_REMOVABLE: the instant-removal route only
+  // deletes a live (moderationStatus APPROVED) photo; a PENDING/FLAGGED row is
+  // guarded out (pending adds are not rows, so they never reach this).
+  BRANCH_PHOTO_NOT_FOUND:         { statusCode: 404, message: 'Photo not found.' },
+  PHOTO_NOT_REMOVABLE:            { statusCode: 409, message: 'This photo cannot be removed in its current state.' },
   VOUCHER_NOT_FOUND:              { statusCode: 404, message: 'Voucher not found.' },
   USER_NOT_FOUND:                 { statusCode: 404, message: 'User not found.' },
   PENDING_EDIT_EXISTS:            { statusCode: 409, message: 'A pending edit already exists. Withdraw it before submitting a new one.' },

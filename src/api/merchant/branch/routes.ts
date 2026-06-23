@@ -1,6 +1,8 @@
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import '../types'
+import { AppError } from '../../shared/errors'
+import { isStorageEnabled } from '../../shared/storage'
 import {
   listBranches,
   getBranch,
@@ -8,6 +10,8 @@ import {
   updateBranch,
   createBranchEditRequest,
   createBranchPhotoEditRequest,
+  uploadBranchPhotoAsset,
+  removeBranchPhoto,
   listBranchEditRequests,
   withdrawBranchEditRequest,
   setOpeningHours,
@@ -20,6 +24,7 @@ import {
 
 const idParam = z.object({ id: z.string() })
 const editIdParam = z.object({ id: z.string(), editId: z.string() })
+const photoIdParam = z.object({ id: z.string(), photoId: z.string() })
 
 const createBranchBody = z.object({
   name:         z.string(),
@@ -153,6 +158,58 @@ export async function branchRoutes(app: FastifyInstance) {
       }
     )
     return reply.status(201).send(pendingEdit)
+  })
+
+  // POST /api/v1/merchant/branches/:id/photos/upload — branch-scoped photo-asset
+  // upload (Branches PR-3 §6c). Server-proxied multipart, mirroring the merchant
+  // /uploads/:kind handler, but gated by BRANCH ASSIGNMENT (resolveMerchantContext
+  // + assertBranchAllowed inside uploadBranchPhotoAsset) instead of the voucher
+  // assertCanManageVouchers gate. The voucher /uploads/photo path is left UNCHANGED.
+  // Returns { url }; the URL then feeds the photo edit-request lane (admin-reviewed).
+  app.post(`${prefix}/:id/photos/upload`, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+
+    // Fail closed BEFORE reading any bytes when storage is dark.
+    if (!isStorageEnabled()) throw new AppError('STORAGE_NOT_ENABLED')
+    if (!req.isMultipart()) throw new AppError('FILE_REQUIRED')
+
+    let fileBuffer: Buffer | undefined
+    let mimetype: string | undefined
+    try {
+      for await (const part of (req as any).parts()) {
+        if (part.type === 'file') {
+          mimetype = part.mimetype
+          fileBuffer = await part.toBuffer() // throws if the part exceeds limits.fileSize
+        }
+        // Any non-file fields are ignored: the branch id is in the path.
+      }
+    } catch (err: any) {
+      const code = typeof err?.code === 'string' ? err.code : ''
+      if (code === 'FST_REQ_FILE_TOO_LARGE') throw new AppError('IMAGE_TOO_LARGE')
+      // Any OTHER @fastify/multipart parser error (too many files / fields / parts,
+      // malformed body) is a client error, not a 500. Scoped to multipart codes
+      // (FST_* but NOT the Fastify-core FST_ERR_* namespace).
+      if (code.startsWith('FST_') && !code.startsWith('FST_ERR_')) throw new AppError('INVALID_UPLOAD')
+      throw err
+    }
+
+    if (!fileBuffer || fileBuffer.length === 0 || !mimetype) throw new AppError('FILE_REQUIRED')
+
+    const result = await uploadBranchPhotoAsset(app.prisma, req.user.sub, id, {
+      contentType: mimetype, body: fileBuffer,
+    })
+    return reply.send(result)
+  })
+
+  // DELETE /api/v1/merchant/branches/:id/photos/:photoId — instant removal of a
+  // LIVE (APPROVED) branch photo (Branches PR-3 §6b). OWNER-ONLY in v1 (the service
+  // resolves via resolveAdminMerchant). Remove-by-ID, branch-scoped, APPROVED-only.
+  app.delete(`${prefix}/:id/photos/:photoId`, async (req: FastifyRequest, reply) => {
+    const { id, photoId } = photoIdParam.parse(req.params)
+    const result = await removeBranchPhoto(app.prisma, req.user.sub, id, photoId, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send(result)
   })
 
   // DELETE /api/v1/merchant/branches/:id — soft delete branch
