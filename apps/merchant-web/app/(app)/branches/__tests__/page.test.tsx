@@ -250,3 +250,36 @@ describe('BranchesPage Add branch (locked affordance)', () => {
     expect(push).not.toHaveBeenCalled()
   })
 })
+
+// F14 QA: prototype-fidelity copy, keyboard operability, and the narrow-viewport
+// horizontal-scroll wrapper on the branch table.
+describe('BranchesPage F14 (fidelity + a11y + responsive)', () => {
+  it('renders the prototype subtitle copy verbatim ("save instantly")', () => {
+    renderPage()
+    // Prototype 01/12 reads "Hours, amenities, contact and PIN save instantly. ...".
+    expect(screen.getByText(/PIN save instantly/i)).toBeInTheDocument()
+  })
+
+  it('navigates on Enter and Space when a row is keyboard-focused', async () => {
+    listBranches.mockResolvedValue([branch({ id: 'b9', name: 'Keyboard branch' })])
+    renderPage()
+    const row = (await screen.findByText('Keyboard branch')).closest('tr')!
+    expect(row).toHaveAttribute('role', 'button')
+    expect(row).toHaveAttribute('tabIndex', '0')
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(push).toHaveBeenLastCalledWith('/branches/b9')
+    push.mockClear()
+    fireEvent.keyDown(row, { key: ' ' })
+    expect(push).toHaveBeenLastCalledWith('/branches/b9')
+  })
+
+  it('wraps the branch table in a horizontal-scroll container for narrow viewports', async () => {
+    listBranches.mockResolvedValue([branch()])
+    const { container } = renderPage()
+    await screen.findByText('High Street')
+    const table = container.querySelector('table')!
+    // The table sits inside an overflow-x-auto wrapper so a narrow viewport scrolls
+    // it horizontally instead of clipping it under the Card's overflow-hidden.
+    expect(table.closest('.overflow-x-auto')).not.toBeNull()
+  })
+})

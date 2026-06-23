@@ -70,21 +70,26 @@ export function BranchesOverview({
             <div className="flex items-center justify-end px-3 pt-4">
               <AddBranchButton />
             </div>
-            <Table>
-              <THead>
-                <TR className="border-border">
-                  <TH>Branch</TH>
-                  <TH>Today</TH>
-                  <TH>Setup</TH>
-                  <TH>Status</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {branches.map((b) => (
-                  <BranchTableRow key={b.id} branch={b as BranchRow} now={now} onOpen={onOpen} />
-                ))}
-              </TBody>
-            </Table>
+            {/* Responsive (F14): on a narrow viewport the 4-column table scrolls
+                horizontally instead of being clipped by the Card's overflow-hidden,
+                matching the established RedemptionsTable / StaffTable pattern. */}
+            <div className="overflow-x-auto">
+              <Table>
+                <THead>
+                  <TR className="border-border">
+                    <TH>Branch</TH>
+                    <TH>Today</TH>
+                    <TH>Setup</TH>
+                    <TH>Status</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {branches.map((b) => (
+                    <BranchTableRow key={b.id} branch={b as BranchRow} now={now} onOpen={onOpen} />
+                  ))}
+                </TBody>
+              </Table>
+            </div>
           </>
         )}
       </Card>
@@ -106,7 +111,9 @@ function SummaryCard({
   return (
     <Card data-testid={testId} className="gap-2 py-5">
       <div className="flex items-center gap-1.5 px-6 text-[11px] font-extrabold uppercase tracking-wide text-muted-foreground">
-        <span className="text-success" aria-hidden>
+        {/* Prototype 01/12: the summary-card icons are muted/dark to match the gray
+            label. Green is reserved for the live row open-status dot, not these icons. */}
+        <span className="text-muted-foreground" aria-hidden>
           {icon}
         </span>
         {label}

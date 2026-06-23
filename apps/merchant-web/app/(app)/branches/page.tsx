@@ -41,7 +41,7 @@ export default function BranchesPage() {
         <div className="space-y-1">
           <h1 className="font-display text-2xl font-semibold text-foreground">Branches</h1>
           <p className="text-sm text-muted-foreground">
-            Hours, amenities, contact and PIN use instantly. Name, address, images and closures go
+            Hours, amenities, contact and PIN save instantly. Name, address, images and closures go
             to Redeemo to review.
           </p>
         </div>

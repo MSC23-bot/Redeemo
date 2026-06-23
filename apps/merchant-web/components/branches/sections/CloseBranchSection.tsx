@@ -21,7 +21,7 @@ export function CloseBranchSection({ isOwner }: { isOwner: boolean }) {
     <div
       data-testid="branch-close-section"
       className="flex flex-wrap items-center justify-between gap-4 rounded-xl border p-5"
-      style={{ background: '#FEECEC', borderColor: '#FBCED0' }}
+      style={{ background: 'var(--danger-bg)', borderColor: '#FBCED0' }}
     >
       <div className="flex items-start gap-3">
         <AlertTriangle size={18} aria-hidden className="mt-0.5 shrink-0" style={{ color: 'var(--destructive)' }} />

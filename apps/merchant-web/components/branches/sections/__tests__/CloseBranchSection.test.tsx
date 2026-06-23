@@ -43,4 +43,14 @@ describe('CloseBranchSection', () => {
     const { container } = render(<CloseBranchSection isOwner={false} />)
     expect(container).toBeEmptyDOMElement()
   })
+
+  // F14 token nit: the warning background must NOT use the raw #FEECEC hex (it now uses
+  // the var(--danger-bg) token). jsdom's CSS parser silently DROPS a `var()` value from
+  // the `background` shorthand, so the positive token presence is not jsdom-observable;
+  // we regression-guard the raw hex being gone, which is the regression that matters.
+  it('does not paint the warning background with the raw #FEECEC hex', () => {
+    render(<CloseBranchSection isOwner />)
+    const style = screen.getByTestId('branch-close-section').getAttribute('style') ?? ''
+    expect(style.toUpperCase()).not.toContain('#FEECEC')
+  })
 })
