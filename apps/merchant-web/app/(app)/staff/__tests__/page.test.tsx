@@ -154,6 +154,27 @@ describe('StaffPage (C3 list + cards + lifecycle)', () => {
     expect(screen.getByText(/contact redeemo to raise/i)).toBeInTheDocument()
   })
 
+  it('disables the live Add button at the portal cap, with a "raise" tooltip', async () => {
+    // 8 portal members = PORTAL_CAP; the live owner Add affordance is locked.
+    const full = Array.from({ length: 8 }).map((_, i) => ({ ...OWNER, id: `m${i}`, email: `o${i}@x.test` }))
+    listStaff.mockResolvedValue(full)
+    renderPage()
+    await screen.findByText('o0@x.test')
+    const addBtn = screen.getByRole('button', { name: /add staff member/i })
+    expect(addBtn).toBeDisabled()
+    expect(addBtn).toHaveAttribute('title', expect.stringMatching(/limit reached/i))
+  })
+
+  it('keeps the live Add button enabled below the portal cap', async () => {
+    // 7 portal members < PORTAL_CAP (8): Add stays available.
+    const below = Array.from({ length: 7 }).map((_, i) => ({ ...OWNER, id: `m${i}`, email: `o${i}@x.test` }))
+    listStaff.mockResolvedValue(below)
+    renderPage()
+    await screen.findByText('o0@x.test')
+    const addBtn = screen.getByRole('button', { name: /add staff member/i })
+    expect(addBtn).toBeEnabled()
+  })
+
   it('shows the people search only when there are more than 4 people', async () => {
     const five = [OWNER, MANAGER, { ...OWNER, id: 'm3', email: 'c@x.test', name: 'C Three' }, { ...OWNER, id: 'm4', email: 'd@x.test', name: 'D Four' }, { ...OWNER, id: 'm5', email: 'e@x.test', name: 'E Five' }]
     listStaff.mockResolvedValue(five)
@@ -213,6 +234,22 @@ describe('StaffPage (C3 list + cards + lifecycle)', () => {
     expect(await screen.findByText(/only an owner can invite or change members/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /add staff member/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /actions for/i })).toBeNull()
+  })
+
+  it('a non-owner where BOTH endpoints 403 degrades gracefully (calm banner, empty not errored)', async () => {
+    // The real owner-only backend 403s both /staff AND /staff/app-users for a
+    // non-owner; with no people the table must NOT claim a search has no matches.
+    listStaff.mockRejectedValue(new ApiError(403, { error: { code: 'INSUFFICIENT_PERMISSIONS' } }))
+    listBranchAppUsers.mockRejectedValue(new ApiError(403, { error: { code: 'INSUFFICIENT_PERMISSIONS' } }))
+    renderPage()
+    expect(await screen.findByText(/only an owner can invite or change members/i)).toBeInTheDocument()
+    // Calm, not errored: no "We could not load your team" failure card.
+    expect(screen.queryByText(/we could not load your team/i)).toBeNull()
+    // No search is active, so the search-empty copy must NOT appear.
+    expect(screen.queryByText(/no one matches your search/i)).toBeNull()
+    // The neutral empty-state copy shows instead.
+    expect(screen.getByText(/your team will appear here/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /add staff member/i })).toBeNull()
   })
 
   it('owner rows expose a row-actions menu trigger', async () => {

@@ -44,7 +44,7 @@ import {
   useDeactivateAppUser,
   useReactivateAppUser,
 } from '@/lib/staff/useStaff'
-import { SEARCH_THRESHOLD } from '@/lib/staff/display'
+import { SEARCH_THRESHOLD, PORTAL_CAP } from '@/lib/staff/display'
 import { staffErrorMessage } from '@/lib/staff/errorMessages'
 import { StaffSummaryCards, type StaffCounts } from '@/components/staff/StaffSummaryCards'
 import { StaffSearch } from '@/components/staff/StaffSearch'
@@ -220,6 +220,11 @@ export default function StaffPage() {
   // The drawer + row actions render only for owners (UI hide; backend enforces).
   const canManage = isOwner && !preLive
 
+  // Portal-cap affordance (frontend only; the backend does NOT enforce caps in v1,
+  // and PORTAL_CAP is a placeholder). At the cap the live Add button is disabled and
+  // the allowance banner (in StaffSummaryCards) explains how to raise it.
+  const portalCapReached = counts.portalUsed >= PORTAL_CAP
+
   function openAdd() {
     setDrawerError(null)
     setInviteResult(null)
@@ -322,7 +327,11 @@ export default function StaffPage() {
     <div className="space-y-6">
       <Header
         action={
-          canManage ? (
+          canManage && portalCapReached ? (
+            <Button variant="gradient" disabled title="Limit reached: contact Redeemo to raise">
+              <UserPlus size={16} /> Add staff member
+            </Button>
+          ) : canManage ? (
             <Button variant="gradient" onClick={openAdd}>
               <UserPlus size={16} /> Add staff member
             </Button>
@@ -385,6 +394,7 @@ export default function StaffPage() {
         <StaffTable
           people={filtered}
           branchNameById={branchNameById}
+          emptyLabel={term ? 'No one matches your search.' : 'Your team will appear here.'}
           renderRowActions={
             canManage ? (person) => <StaffRowActions person={person} handlers={rowHandlers} /> : undefined
           }
@@ -422,7 +432,7 @@ function Header({ action }: { action?: React.ReactNode }) {
   return (
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div className="space-y-1">
-        <h1 className="font-display text-2xl font-semibold text-foreground">Staff and access</h1>
+        <h1 className="font-display text-2xl font-semibold text-foreground">Staff & access</h1>
         <p className="text-sm text-muted-foreground">
           Portal access lets someone manage on the web. App access lets them validate at their branches.
         </p>

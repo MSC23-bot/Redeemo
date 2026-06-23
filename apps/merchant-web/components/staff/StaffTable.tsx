@@ -20,7 +20,7 @@ import { Table, THead, TBody, TR, TH, TD, TableEmpty } from '@/components/ui/tab
 import { Badge } from '@/components/ui/badge'
 import { Star } from '@/lib/icons'
 import { formatRelativeTime } from '@/lib/notifications/relativeTime'
-import { ROLE_LABEL, branchCoverageLabel, lastSeenLabel } from '@/lib/staff/display'
+import { ROLE_LABEL, branchCoverageLabel, lastSeenLabel, memberStatusLabel } from '@/lib/staff/display'
 import type { Person } from './types'
 
 function initials(name: string): string {
@@ -55,6 +55,13 @@ function RoleChip({ label }: { label: string }) {
 function PersonCell({ person }: { person: Person }) {
   const deactivated = person.status === 'INACTIVE'
   const isOwner = person.kind === 'portal' && person.role === 'OWNER'
+  // A portal member who has not yet claimed their invite reads as "Invite pending"
+  // (display only; never authorization). App users have no claim concept, and a
+  // deactivated member shows the Deactivated pill instead.
+  const invitePending =
+    person.kind === 'portal' &&
+    !deactivated &&
+    memberStatusLabel(person.status, person.claimed) === 'Invite pending'
   return (
     <div className="flex items-center gap-3">
       <span
@@ -76,6 +83,7 @@ function PersonCell({ person }: { person: Person }) {
             />
           )}
           {deactivated && <Badge variant="restrictive">Deactivated</Badge>}
+          {invitePending && <Badge variant="caution">Invite pending</Badge>}
         </div>
         <span className="truncate text-[13px] text-muted-foreground">{person.email}</span>
       </div>
@@ -135,16 +143,23 @@ export function StaffTable({
   people,
   branchNameById,
   renderRowActions,
+  emptyLabel = 'No one matches your search.',
 }: {
   people: Person[]
   branchNameById: (id: string) => string | undefined
   /** The page supplies the kebab menu (C5). When omitted, no actions column shows. */
   renderRowActions?: (person: Person) => React.ReactNode
+  /**
+   * Empty-state copy. Defaults to the search-empty copy, but the page passes a calm
+   * neutral message when no search is active (e.g. a non-owner whose data is empty),
+   * so the table never claims a search has no matches when none is running.
+   */
+  emptyLabel?: string
 }) {
   if (people.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-card">
-        <TableEmpty>No one matches your search.</TableEmpty>
+        <TableEmpty>{emptyLabel}</TableEmpty>
       </div>
     )
   }

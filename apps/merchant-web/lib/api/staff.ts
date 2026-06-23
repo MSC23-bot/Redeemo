@@ -7,7 +7,7 @@ import { apiFetch } from './client'
 // calls (Bearer access token via apiFetch auth:true). No BFF route is needed (no
 // token issuance; the M1 BFF only handles refresh).
 //
-// Backend contracts (read the real code, do not guess) — locked PR-B shapes:
+// Backend contracts (read the real code, do not guess): locked PR-B shapes:
 //   GET    /api/v1/merchant/staff                 -> { members: MemberRow[] }
 //   POST   /api/v1/merchant/staff                 -> { memberId, inviteDelivery }
 //   PATCH  /api/v1/merchant/staff/:id             -> { id }   (edit access)
