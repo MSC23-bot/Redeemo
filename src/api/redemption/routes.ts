@@ -13,6 +13,7 @@ import {
 import { RedisKey } from '../shared/redis-keys'
 import { AppError } from '../shared/errors'
 import { routeRateLimit } from '../plugins/rate-limit'
+import { resolveMerchantContext, assertBranchAllowed, type MerchantContext } from '../merchant/shared'
 
 const prefix = '/api/v1'
 
@@ -128,6 +129,11 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
 
     // Try branch session first
     let actor: VerifyActor | null = null
+    // Staff & Access B6 (§4.3 † SCOPED-WRITE): the resolved MERCHANT-actor context.
+    // Populated ONLY in the merchant branch below; the branch-actor path leaves it
+    // null so its behaviour is unchanged. Passed into verifyRedemption so the service
+    // can enforce branch scope for a scoped non-owner merchant member.
+    let merchantCtx: MerchantContext | null = null
 
     // Attempt branch token verification
     try {
@@ -152,6 +158,11 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
         const merchantSession = JSON.parse(raw) as { merchantId: string; isSuspended: boolean; approvalStatus: string }
         if (merchantSession.isSuspended) throw new AppError('MERCHANT_SUSPENDED')
         actor = { role: 'merchant', branchId: null, merchantId: merchantSession.merchantId, actorId }
+        // Staff & Access B6: resolve role + branch scope for the merchant actor. The
+        // service enforces assertBranchAllowed(ctx, redemption.branchId) before
+        // validating, so a scoped non-owner cannot validate at a branch they do not
+        // own. resolveMerchantContext also keeps the live SEC-M2 suspended guard.
+        merchantCtx = await resolveMerchantContext(app.prisma, actorId)
       } catch (merchantErr) {
         if (merchantErr instanceof AppError) throw merchantErr
         throw new AppError('BRANCH_ACCESS_DENIED')
@@ -163,7 +174,8 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
       body.code,
       body.method,
       actor,
-      { ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' }
+      { ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' },
+      merchantCtx ?? undefined,
     )
 
     return reply.send(result)
@@ -217,6 +229,14 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
         })
         if (!branch || branch.merchantId !== merchantSession.merchantId) throw new AppError('BRANCH_ACCESS_DENIED')
         if (branch.merchant.status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
+
+        // Staff & Access B6 (§4.3 † SCOPED-READ): a scoped non-owner member can only
+        // list redemptions for branches in their allowed set. resolveMerchantContext
+        // surfaces role + branch scope; assertBranchAllowed denies an out-of-scope
+        // branch with INSUFFICIENT_PERMISSIONS (owner / allBranches pass by
+        // construction). Layered on top of the merchant-ownership check above.
+        const ctx = await resolveMerchantContext(app.prisma, actorId)
+        assertBranchAllowed(ctx, branchId)
 
         resolved = true
       } catch (merchantErr) {

@@ -13,7 +13,10 @@ describe('issueMerchantClaim', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('stores a 7-day claim token keyed to the owner admin, queues the claim email, and returns NO token', async () => {
-    const redis = { set: vi.fn().mockResolvedValue('OK') }
+    // PR-B review FIX A (supersession): issueMerchantClaim now reads the per-admin
+    // current-token pointer (get), deletes any prior token (del), then writes BOTH
+    // the new token AND the pointer (two sets). The double must support get/del.
+    const redis = { get: vi.fn().mockResolvedValue(null), del: vi.fn().mockResolvedValue(0), set: vi.fn().mockResolvedValue('OK') }
 
     const ret = await issueMerchantClaim({} as any, redis as any, {
       adminId: 'ma-1', email: 'owner@example.com', ip: '1.2.3.4',
@@ -23,13 +26,25 @@ describe('issueMerchantClaim', () => {
     // never reach the admin API response, which returns the createMerchantDraft result).
     expect(ret).toBeUndefined()
 
-    // token stored: merchant-claim:<token> = adminId, EX = 7 days
-    expect(redis.set).toHaveBeenCalledTimes(1)
+    // First call: NO prior token (get → null), so no prior delete.
+    expect(redis.get).toHaveBeenCalledWith('merchant-claim-current:ma-1')
+    expect(redis.del).not.toHaveBeenCalled()
+
+    // Two sets: (1) merchant-claim:<token> = adminId, EX = 7 days, (2) the pointer.
+    expect(redis.set).toHaveBeenCalledTimes(2)
     const [key, value, ex, ttl] = redis.set.mock.calls[0]
     expect(key).toMatch(/^merchant-claim:.+/)
     expect(value).toBe('ma-1')
     expect(ex).toBe('EX')
     expect(ttl).toBe(7 * 24 * 3600)
+
+    // The pointer write: merchant-claim-current:<adminId> = <token>, same TTL.
+    const token = key.slice('merchant-claim:'.length)
+    const [pKey, pValue, pEx, pTtl] = redis.set.mock.calls[1]
+    expect(pKey).toBe('merchant-claim-current:ma-1')
+    expect(pValue).toBe(token)
+    expect(pEx).toBe('EX')
+    expect(pTtl).toBe(7 * 24 * 3600)
 
     // claim email queued via the notify outbox — transactional, userId null, MERCHANT_ADMIN
     expect(notify).toHaveBeenCalledTimes(1)
@@ -46,10 +61,11 @@ describe('issueMerchantClaim', () => {
 
   it('is best-effort: a notify failure does NOT throw — the token is still stored', async () => {
     vi.mocked(notify).mockRejectedValueOnce(new Error('email dark'))
-    const redis = { set: vi.fn().mockResolvedValue('OK') }
+    const redis = { get: vi.fn().mockResolvedValue(null), del: vi.fn().mockResolvedValue(0), set: vi.fn().mockResolvedValue('OK') }
     await expect(
       issueMerchantClaim({} as any, redis as any, { adminId: 'ma-2', email: 'x@y.com' })
     ).resolves.toBeUndefined()
-    expect(redis.set).toHaveBeenCalledTimes(1)
+    // Token + pointer both written despite the notify failure (best-effort send).
+    expect(redis.set).toHaveBeenCalledTimes(2)
   })
 })

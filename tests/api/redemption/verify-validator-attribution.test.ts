@@ -67,7 +67,8 @@ describe('verifyRedemption validator attribution (OD6 / B3)', () => {
     await verifyRedemption(
       prisma, 'A7K2P9X4', 'MANUAL',
       { role: 'merchant', branchId: null, merchantId: 'm1', actorId: 'ma1' },
-      baseCtx
+      baseCtx,
+      { adminId: 'ma1', merchantId: 'm1', role: 'OWNER', allBranches: true, allowedBranchIds: [], canManageVouchers: true },
     )
 
     const updateArg = (prisma.voucherRedemption.update as any).mock.calls[0][0]
@@ -88,7 +89,8 @@ describe('verifyRedemption validator attribution (OD6 / B3)', () => {
     await verifyRedemption(
       prisma, 'A7K2P9X4', 'MANUAL',
       { role: 'merchant', branchId: null, merchantId: 'm1', actorId: 'ma1' },
-      baseCtx
+      baseCtx,
+      { adminId: 'ma1', merchantId: 'm1', role: 'OWNER', allBranches: true, allowedBranchIds: [], canManageVouchers: true },
     )
 
     expect(prisma.auditLog.create).toHaveBeenCalledWith(
@@ -122,7 +124,8 @@ describe('verifyRedemption customer identity at the merchant-portal boundary (OD
     const result = await verifyRedemption(
       prisma, 'A7K2P9X4', 'MANUAL',
       { role: 'merchant', branchId: null, merchantId: 'm1', actorId: 'ma1' },
-      baseCtx
+      baseCtx,
+      { adminId: 'ma1', merchantId: 'm1', role: 'OWNER', allBranches: true, allowedBranchIds: [], canManageVouchers: true },
     )
 
     expect(result.customer.name).toBe('Bob S.')

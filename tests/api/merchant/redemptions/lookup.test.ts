@@ -31,7 +31,11 @@ describe('GET /api/v1/merchant/redemptions/lookup (B2 preview)', () => {
     app = await buildApp()
     const prismaMock: any = {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
-      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'ACTIVE', businessName: 'Acme' } }) },
+      merchantMembership: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'ACTIVE', businessName: 'Acme' } }),
+        // Staff & Access PR-B: lookup route resolves via resolveMerchantContext (OWNER + allBranches).
+        findMany: vi.fn().mockResolvedValue([{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]),
+      },
       voucherRedemption: { findUnique: vi.fn().mockResolvedValue(dbRow()), update: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     }
     app.decorate('prisma', prismaMock as any)
@@ -125,9 +129,9 @@ describe('GET /api/v1/merchant/redemptions/lookup (B2 preview)', () => {
   })
 
   it('a suspended merchant gets MERCHANT_SUSPENDED on the preview (live DB)', async () => {
-    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue({
-      id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'SUSPENDED', businessName: 'Acme' },
-    })
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue([{
+      id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'SUSPENDED', businessName: 'Acme' }, branches: [],
+    }])
     const res = await get('/api/v1/merchant/redemptions/lookup?code=A7K2P9X4')
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body).error.code).toBe('MERCHANT_SUSPENDED')

@@ -13,6 +13,7 @@ import {
 } from '../shared/voucherAvailability'
 import { effectiveCooldownSeconds } from './reusable'
 import { formatCustomerName } from '../shared/customerName'
+import { type MerchantContext } from '../merchant/shared'
 
 // Redemption code alphabet (locked 2026-05-07 from device QA).
 //
@@ -518,7 +519,13 @@ export async function verifyRedemption(
   code: string,
   method: 'QR_SCAN' | 'MANUAL',
   actor: VerifyActor,
-  ctx: RequestCtx
+  ctx: RequestCtx,
+  // Staff & Access PR-B (B6, §4.3 † SCOPED-WRITE): the resolved MERCHANT-actor
+  // context. When present (the merchant-actor verify route always passes it), the
+  // merchant branch additionally enforces branch scope: a scoped non-owner cannot
+  // validate a code at a branch outside their allowed set. Optional + merchant-only,
+  // so the BRANCH-actor (BranchUser) path is entirely unaffected.
+  merchantCtx?: MerchantContext,
 ) {
   const redemption = await prisma.voucherRedemption.findUnique({
     where: { redemptionCode: code },
@@ -530,12 +537,45 @@ export async function verifyRedemption(
   })
 
   if (!redemption) throw new AppError('REDEMPTION_NOT_FOUND')
+
+  // PR-B review FIX B (P1): for the MERCHANT actor, tenant + scope checks MUST run
+  // BEFORE the shared ALREADY_VALIDATED check below. Otherwise a scoped non-owner
+  // probing an out-of-scope (sibling-branch, same-merchant) ALREADY-VALIDATED code
+  // would learn it exists + is validated (ALREADY_VALIDATED) instead of the masked
+  // REDEMPTION_NOT_FOUND — an intra-merchant existence/validated-status oracle. The
+  // cross-tenant MERCHANT_MISMATCH check also moves up so a cross-tenant code's
+  // validated status is never leaked either.
+  if (actor.role === 'merchant') {
+    if (redemption.voucher.merchantId !== actor.merchantId) throw new AppError('MERCHANT_MISMATCH')
+    // Staff & Access B6 (review FIX 2 — FAIL-CLOSED): a merchant actor MUST carry a
+    // resolved MerchantContext. The merchant-actor verify route always passes it
+    // (resolveMerchantContext); if it is ever absent (a future mis-wire), refuse rather
+    // than silently fall through to merchant-wide validation. INSUFFICIENT_PERMISSIONS
+    // (not the masked code) here is correct — this is an internal contract violation,
+    // not an out-of-scope code probe.
+    if (!merchantCtx) throw new AppError('INSUFFICIENT_PERMISSIONS')
+    // Staff & Access B6 (review FIX 3 — SPEC-FAITHFUL MASK, spec §4.3 †): a scoped
+    // member can only validate codes at their own branches. When the redemption is at
+    // a branch OUTSIDE the actor's allowed set, MASK with REDEMPTION_NOT_FOUND so a
+    // code at a sibling branch of the same merchant is indistinguishable from a code
+    // that does not exist (closes an intra-merchant existence oracle). Owner /
+    // allBranches members pass by construction. This is the verify-specific mask — the
+    // branch-redemptions READ path (a chosen path param, no code-existence leak) keeps
+    // assertBranchAllowed / INSUFFICIENT_PERMISSIONS. The merchantId tenancy check
+    // above is retained for defence-in-depth.
+    if (!merchantCtx.allBranches && !merchantCtx.allowedBranchIds.includes(redemption.branchId)) {
+      throw new AppError('REDEMPTION_NOT_FOUND')
+    }
+  }
+
+  // Shared ALREADY_VALIDATED check. For the MERCHANT actor this now runs AFTER the
+  // tenant + scope masking above (FIX B). For the BRANCH actor it intentionally runs
+  // BEFORE the branchId check below — preserving the existing branch-actor ordering
+  // (ALREADY_VALIDATED beats BRANCH_ACCESS_DENIED).
   if (redemption.isValidated) throw new AppError('ALREADY_VALIDATED')
 
   if (actor.role === 'branch') {
     if (redemption.branchId !== actor.branchId) throw new AppError('BRANCH_ACCESS_DENIED')
-  } else {
-    if (redemption.voucher.merchantId !== actor.merchantId) throw new AppError('MERCHANT_MISMATCH')
   }
 
   // SEC-M1 (M6a): decide active/suspended from the LIVE DB, never the cached

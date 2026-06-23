@@ -11,6 +11,13 @@ export interface RedemptionFilters {
   // Day-2 Vouchers A1: per-voucher filter (additive). ANDed with branch.merchantId.
   voucherId?: string
   code?: string
+  // Staff & Access B5 (§4.3 SCOPED-READ): the caller's allowed-branch set. Owner /
+  // allBranches members pass `null`/`undefined` (no restriction = all branches).
+  // A scoped member passes their `allowedBranchIds`; the where-builder then
+  // intersects: a requested `branchId` outside the set, or an empty set, yields an
+  // empty result (`branchId IN []`), never a leak. Never trusts the client branchId
+  // on its own.
+  allowedBranchIds?: string[] | null
 }
 
 // The IDOR boundary: `branch: { merchantId }` scopes every query to the
@@ -18,9 +25,29 @@ export interface RedemptionFilters {
 // cross-tenant branchId resolves to an empty result rather than leaking
 // another merchant's data. isTestData=true rows (seed/QA noise) are excluded
 // by default, matching how Popular/Trending exclude them.
+//
+// Staff & Access B5 (§4.3 SCOPED-READ): when `f.allowedBranchIds` is provided (a
+// scoped non-owner member), the requested `branchId` is INTERSECTED with that set:
+//   - owner / allBranches member  -> allowedBranchIds null/undefined -> no extra clause (all branches).
+//   - scoped member, no branchId  -> restrict to `branchId IN allowedBranchIds`.
+//   - scoped member, branchId in set    -> filter to that single branch.
+//   - scoped member, branchId NOT in set -> `branchId IN []` -> empty result (denied, not leaked).
 export function buildRedemptionWhere(merchantId: string, f: RedemptionFilters): Prisma.VoucherRedemptionWhereInput {
   const where: Prisma.VoucherRedemptionWhereInput = { branch: { merchantId }, isTestData: false }
-  if (f.branchId) where.branchId = f.branchId
+
+  if (f.allowedBranchIds == null) {
+    // Owner / allBranches: no branch-scope restriction; honour an optional client branchId.
+    if (f.branchId) where.branchId = f.branchId
+  } else {
+    // Scoped member: intersect the (optional) requested branchId with the allowed set.
+    const allowed = f.allowedBranchIds
+    if (f.branchId) {
+      where.branchId = allowed.includes(f.branchId) ? f.branchId : { in: [] }
+    } else {
+      where.branchId = { in: allowed }
+    }
+  }
+
   // Day-2 Vouchers A1: scope to a single voucher. The branch.merchantId clause
   // already present keeps the IDOR boundary, so a cross-tenant voucherId yields empty.
   if (f.voucherId) where.voucherId = f.voucherId
@@ -46,10 +73,25 @@ export async function listMerchantRedemptions(
 // B2: read-only lookup-by-code preview. Normalises the code, finds the
 // redemption, and scopes to the session merchant: a cross-tenant code is
 // masked as REDEMPTION_NOT_FOUND so existence is never leaked. Never writes.
-export async function lookupMerchantRedemptionByCode(prisma: PrismaClient, merchantId: string, rawCode: string) {
+//
+// Staff & Access B5 (§4.3 SCOPED-READ): when `allowedBranchIds` is provided (a
+// scoped non-owner member), a code whose branch is outside the allowed set is
+// masked as REDEMPTION_NOT_FOUND too (existence never leaked). Owner / allBranches
+// members pass `null`/`undefined` -> no branch restriction.
+export async function lookupMerchantRedemptionByCode(
+  prisma: PrismaClient,
+  merchantId: string,
+  rawCode: string,
+  allowedBranchIds?: string[] | null,
+) {
   const code = normalizeRedemptionCode(rawCode)
   const r = await prisma.voucherRedemption.findUnique({ where: { redemptionCode: code }, select: ROW_SELECT_WITH_MERCHANT })
   if (!r || (r as any).voucher.merchantId !== merchantId) throw new AppError('REDEMPTION_NOT_FOUND')
+  // Branch-scope intersect: a scoped member can only preview codes from their own
+  // branches; an out-of-scope branch is masked identically to a cross-tenant code.
+  if (allowedBranchIds != null && !allowedBranchIds.includes((r as any).branch.id)) {
+    throw new AppError('REDEMPTION_NOT_FOUND')
+  }
   // toMerchantRedemptionRow maps voucher to {id,title,type} only, so merchantId never leaks out.
   return toMerchantRedemptionRow(r)
 }

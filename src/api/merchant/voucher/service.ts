@@ -2,7 +2,12 @@ import { randomBytes } from 'crypto'
 import { PrismaClient, Prisma } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx, type ActorType } from '../../shared/audit'
-import { resolveAdminMerchant, resolveTopLevelCategoryId, type EditActor } from '../shared'
+import {
+  resolveMerchantContext,
+  assertCanManageVouchers,
+  resolveTopLevelCategoryId,
+  type EditActor,
+} from '../shared'
 import { isEligibleFlagshipType, FLAGSHIP_RMV_CAP } from './shared'
 
 // Only DRAFT vouchers can be edited, submitted, or deleted
@@ -203,7 +208,10 @@ function validateAvailabilityWindows(
 // ─── Custom Vouchers ────────────────────────────────────────────────────────
 
 export async function listVouchers(prisma: PrismaClient, adminId: string) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 MEMBER-READ): any active member can view vouchers
+  // (vouchers are merchant-wide, no branch filter). resolveMerchantContext keeps
+  // the SEC-M2 suspended guard.
+  const { merchantId } = await resolveMerchantContext(prisma, adminId)
   // Day-2 Vouchers A2: curated select (the Vouchers-module list consumer) + a
   // per-voucher redemption count via _count. The select is deliberately narrow
   // (no raw merchantFields, no redemptionPin-bearing relations) and pulls the
@@ -239,7 +247,8 @@ export async function getVoucher(
   adminId: string,
   voucherId: string
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 MEMBER-READ): any active member can view a voucher.
+  const { merchantId } = await resolveMerchantContext(prisma, adminId)
   // Day-2 Vouchers A2: include _count additively so ALL scalar columns (incl
   // merchantFields, needed for the concierge proposed-vs-current diff) are kept
   // while the detail page gets a per-voucher redemption count. We strip the
@@ -289,7 +298,10 @@ export async function createVoucher(
   },
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 OWNER|MV): voucher write requires OWNER or canManageVouchers.
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
   // M2 B4 (D8b): advisory present/positive saving sanity BEFORE any create. Zero /
   // negative / absent estimatedSaving is rejected with SAVING_INVALID; a positive
   // value (even below the advisory floor) is accepted.
@@ -354,7 +366,10 @@ export async function updateVoucher(
   data: Record<string, unknown>,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 OWNER|MV): voucher write requires OWNER or canManageVouchers.
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
   const voucher = await prisma.voucher.findFirst({
     where: { id: voucherId, merchantId, isRmv: false },
     include: { availabilityWindows: true },
@@ -492,7 +507,10 @@ export async function submitVoucher(
   voucherId: string,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 OWNER|MV): voucher submit requires OWNER or canManageVouchers.
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
   const voucher = await prisma.voucher.findFirst({
     where: { id: voucherId, merchantId, isRmv: false },
     include: { availabilityWindows: true },
@@ -585,7 +603,10 @@ export async function deleteVoucher(
   voucherId: string,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 OWNER|MV): voucher delete requires OWNER or canManageVouchers.
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
   const voucher = await prisma.voucher.findFirst({
     where: { id: voucherId, merchantId, isRmv: false },
   })
@@ -607,7 +628,8 @@ export async function deleteVoucher(
 // ─── RMV ───────────────────────────────────────────────────────────────────
 
 export async function listRmvVouchers(prisma: PrismaClient, adminId: string) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 MEMBER-READ): any active member can view RMV vouchers.
+  const { merchantId } = await resolveMerchantContext(prisma, adminId)
   // Day-2 Vouchers A2: ADD the per-voucher redemption count ADDITIVELY. The
   // existing onboarding flagship UI consumes rmvTemplate, so we keep
   // include:{ rmvTemplate:true } and only add _count (NOT a restrictive select,
@@ -650,7 +672,10 @@ export async function createFlagshipRmvVoucher(
   voucherType: string,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 OWNER|MV): flagship create requires OWNER or canManageVouchers.
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
 
   // Eligibility gate FIRST (before any merchant/category/template read), so an
   // ineligible type is rejected cheaply with a clear error. This stays ahead of the
@@ -774,7 +799,12 @@ export async function updateRmvVoucher(
   proposedFields: Record<string, unknown>,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 OWNER|MV): RMV edit requires OWNER or canManageVouchers.
+  // The Core stays merchantId-only (shared with the Option B admin path); only this
+  // merchant-facing wrapper's resolver swaps + adds the capability guard.
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
   return updateRmvVoucherCore(
     prisma,
     { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
@@ -923,7 +953,10 @@ export async function submitRmvVoucher(
   voucherId: string,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 OWNER|MV): RMV submit requires OWNER or canManageVouchers.
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
   return submitRmvVoucherCore(
     prisma,
     { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },

@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLog, writeAuditLogTx, type AuditEvent } from '../../shared/audit'
-import { resolveAdminMerchant, isDraftWindow, resolveTopLevelCategoryId, type EditActor } from '../shared'
+import { resolveAdminMerchant, resolveMerchantContext, isDraftWindow, resolveTopLevelCategoryId, type EditActor } from '../shared'
 import { handleCategoryChange } from '../voucher/service'
 
 const SENSITIVE_FIELDS = ['businessName', 'tradingName', 'logoUrl', 'bannerUrl', 'description'] as const
@@ -16,7 +16,9 @@ const SENSITIVE_FIELDS = ['businessName', 'tradingName', 'logoUrl', 'bannerUrl',
 const DIRECT_SIMPLE_FIELDS = ['websiteUrl', 'vatNumber', 'companyNumber'] as const
 
 export async function getMerchantProfile(prisma: PrismaClient, adminId: string) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access B5 (§4.3 MEMBER-READ): any active member can read business info
+  // (not branch-specific). resolveMerchantContext keeps the SEC-M2 suspended guard.
+  const { merchantId } = await resolveMerchantContext(prisma, adminId)
   const merchant = await prisma.merchant.findUnique({
     where: { id: merchantId },
     include: { pendingEdits: { where: { status: 'PENDING' }, take: 1 } },

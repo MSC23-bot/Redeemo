@@ -50,7 +50,8 @@ describe('M6a — SEC-M1 verifyRedemption live status', () => {
     const { merchantId, code } = await makeRedemption()
     await prisma.merchant.update({ where: { id: merchantId }, data: { status: 'SUSPENDED' } }) // suspend AFTER redeem
     await expect(
-      verifyRedemption(prisma, code, 'QR_SCAN', { role: 'merchant', actorId: 'staff-1', merchantId } as any, ctx)
+      verifyRedemption(prisma, code, 'QR_SCAN', { role: 'merchant', actorId: 'staff-1', merchantId } as any, ctx,
+        { adminId: 'staff-1', merchantId, role: 'OWNER', allBranches: true, allowedBranchIds: [], canManageVouchers: true })
     ).rejects.toThrow('MERCHANT_SUSPENDED')
   })
 

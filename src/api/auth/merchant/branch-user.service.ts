@@ -84,6 +84,27 @@ export async function createBranchUser(
   return { branchUser: { id: branchUser.id, email: branchUser.email, branchId: data.branchId } }
 }
 
+/**
+ * Staff & Access B4 (spec §5.3): the one-app-user-per-branch route shape selects
+ * the target by `branchId` alone. With >1 BranchUser at a branch the old
+ * `findFirst({where:{branchId}})` acted on a NON-DETERMINISTIC row. This resolves
+ * the single target ATOMICALLY inside `tx`: `findMany({take:2})` is the cheap >1
+ * detector. 0 -> BRANCH_USER_NOT_FOUND; >1 -> refuse with MULTIPLE_BRANCH_USERS
+ * (mutate nothing); exactly 1 -> the caller acts on that row's id. The re-count
+ * inside the transaction closes the read-then-act TOCTOU residual called out in
+ * §5.3 (it must become a hard guard once multi-user-per-branch / by-id addressing
+ * lands; flagged there).
+ */
+async function resolveSingleBranchUserId(
+  tx: { branchUser: { findMany: (args: any) => Promise<Array<{ id: string }>> } },
+  branchId: string
+): Promise<string> {
+  const rows = await tx.branchUser.findMany({ where: { branchId }, select: { id: true }, take: 2 })
+  if (rows.length === 0) throw new AppError('BRANCH_USER_NOT_FOUND')
+  if (rows.length > 1) throw new AppError('MULTIPLE_BRANCH_USERS')
+  return rows[0].id
+}
+
 export async function resetBranchUserPassword(
   prisma: PrismaClient,
   redis: Redis,
@@ -96,20 +117,22 @@ export async function resetBranchUserPassword(
 ): Promise<{ message: string; temporaryPassword: string }> {
   await assertBranchOwnership(prisma, data.merchantAdminId, data.branchId)
 
-  const branchUser = await prisma.branchUser.findFirst({ where: { branchId: data.branchId } })
-  if (!branchUser) throw new AppError('BRANCH_USER_NOT_FOUND')
-
   const tempPassword = generateSecureToken(8).slice(0, 12).replace(/[^a-zA-Z0-9]/g, 'x') + 'A1!'
   const passwordHash = await hashPassword(tempPassword)
 
-  await prisma.branchUser.update({
-    where: { id: branchUser.id },
-    data:  { passwordHash, mustChangePassword: true },
+  // B4: count+select+update atomically; the >1 path refuses + mutates nothing.
+  const branchUserId = await prisma.$transaction(async (tx) => {
+    const id = await resolveSingleBranchUserId(tx, data.branchId)
+    await tx.branchUser.update({
+      where: { id },
+      data:  { passwordHash, mustChangePassword: true },
+    })
+    return id
   })
 
-  await revokeAllSessionsForEntity(redis, { role: 'branch', entityId: branchUser.id })
-  await revokeAllUserSessionRecords(prisma, { entityId: branchUser.id, entityType: 'branch', reason: 'ADMIN_PASSWORD_RESET' })
-  await redis.del(RedisKey.authBranch(branchUser.id))
+  await revokeAllSessionsForEntity(redis, { role: 'branch', entityId: branchUserId })
+  await revokeAllUserSessionRecords(prisma, { entityId: branchUserId, entityType: 'branch', reason: 'ADMIN_PASSWORD_RESET' })
+  await redis.del(RedisKey.authBranch(branchUserId))
 
   writeAuditLog(prisma, {
     entityId:   data.merchantAdminId,
@@ -117,7 +140,7 @@ export async function resetBranchUserPassword(
     event:      'BRANCH_USER_PASSWORD_RESET',
     ipAddress:  data.ipAddress,
     userAgent:  data.userAgent,
-    metadata:   { branchUserId: branchUser.id, branchId: data.branchId },
+    metadata:   { branchUserId, branchId: data.branchId },
   })
 
   // SEC-H1: the temp password is returned to the authenticated merchant admin
@@ -136,19 +159,21 @@ export async function deactivateBranchUser(
 ): Promise<{ message: string }> {
   await assertBranchOwnership(prisma, data.merchantAdminId, data.branchId)
 
-  const branchUser = await prisma.branchUser.findFirst({ where: { branchId: data.branchId } })
-  if (!branchUser) throw new AppError('BRANCH_USER_NOT_FOUND')
+  // B4: count+select+update atomically; the >1 path refuses + mutates nothing.
+  const branchUserId = await prisma.$transaction(async (tx) => {
+    const id = await resolveSingleBranchUserId(tx, data.branchId)
+    await tx.branchUser.update({ where: { id }, data: { status: 'INACTIVE' } })
+    return id
+  })
 
-  await prisma.branchUser.update({ where: { id: branchUser.id }, data: { status: 'INACTIVE' } })
-
-  await revokeAllSessionsForEntity(redis, { role: 'branch', entityId: branchUser.id })
-  await revokeAllUserSessionRecords(prisma, { entityId: branchUser.id, entityType: 'branch', reason: 'BRANCH_USER_DEACTIVATED' })
-  await redis.del(RedisKey.authBranch(branchUser.id))
+  await revokeAllSessionsForEntity(redis, { role: 'branch', entityId: branchUserId })
+  await revokeAllUserSessionRecords(prisma, { entityId: branchUserId, entityType: 'branch', reason: 'BRANCH_USER_DEACTIVATED' })
+  await redis.del(RedisKey.authBranch(branchUserId))
 
   writeAuditLog(prisma, {
     entityId: data.merchantAdminId, entityType: 'merchant', event: 'BRANCH_USER_DEACTIVATED',
     ipAddress: data.ipAddress, userAgent: data.userAgent,
-    metadata: { branchUserId: branchUser.id, branchId: data.branchId },
+    metadata: { branchUserId, branchId: data.branchId },
   })
 
   return { message: 'Branch user deactivated.' }
@@ -161,18 +186,82 @@ export async function reactivateBranchUser(
 ): Promise<{ message: string }> {
   await assertBranchOwnership(prisma, data.merchantAdminId, data.branchId)
 
-  const branchUser = await prisma.branchUser.findFirst({ where: { branchId: data.branchId } })
-  if (!branchUser) throw new AppError('BRANCH_USER_NOT_FOUND')
-
-  await prisma.branchUser.update({ where: { id: branchUser.id }, data: { status: 'ACTIVE' } })
+  // B4: count+select+update atomically; the >1 path refuses + mutates nothing.
+  const branchUserId = await prisma.$transaction(async (tx) => {
+    const id = await resolveSingleBranchUserId(tx, data.branchId)
+    await tx.branchUser.update({ where: { id }, data: { status: 'ACTIVE' } })
+    return id
+  })
 
   writeAuditLog(prisma, {
     entityId: data.merchantAdminId, entityType: 'merchant', event: 'BRANCH_USER_REACTIVATED',
     ipAddress: data.ipAddress, userAgent: data.userAgent,
-    metadata: { branchUserId: branchUser.id },
+    metadata: { branchUserId },
   })
 
   return { message: 'Branch user reactivated.' }
+}
+
+/**
+ * Staff & Access B4 / B1b (D7): the read-only app-user surface. Lists the
+ * merchant's BranchUsers grouped by branch, with a per-branch `appUserCount` so
+ * the merchant-web UI can disable the per-user reset/deactivate/reactivate row
+ * actions when a branch has >1 app user (the §5.3 UI guard). Curated select:
+ * NEVER returns `passwordHash`. Owner-only management is enforced upstream in the
+ * staff route (`assertOwner`); this query is scoped to the merchant's branches.
+ */
+export async function listBranchAppUsers(
+  prisma: PrismaClient,
+  merchantId: string
+): Promise<{
+  branches: Array<{
+    branchId: string
+    branchName: string
+    appUserCount: number
+    users: Array<{
+      id: string
+      branchId: string
+      firstName: string
+      lastName: string
+      jobTitle: string | null
+      email: string
+      status: string
+      lastLoginAt: Date | null
+    }>
+  }>
+}> {
+  const branches = await prisma.branch.findMany({
+    where: { merchantId, deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: [{ isMainBranch: 'desc' }, { name: 'asc' }],
+  })
+
+  const users = await prisma.branchUser.findMany({
+    where: { branch: { merchantId } },
+    select: {
+      id: true,
+      branchId: true,
+      firstName: true,
+      lastName: true,
+      jobTitle: true,
+      email: true,
+      status: true,
+      lastLoginAt: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  })
+
+  return {
+    branches: branches.map((b) => {
+      const branchUsers = users.filter((u) => u.branchId === b.id)
+      return {
+        branchId: b.id,
+        branchName: b.name,
+        appUserCount: branchUsers.length,
+        users: branchUsers,
+      }
+    }),
+  }
 }
 
 export async function setBranchPin(

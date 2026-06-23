@@ -94,6 +94,13 @@ describe('B5: merchant image upload routes', () => {
           merchantAdminId: 'ma1',
           merchant: { status: 'ACTIVE' },
         }),
+        // Staff & Access PR-B: upload route resolves via resolveMerchantContext
+        // (getActiveMembership -> findMany) + a per-kind guard. OWNER passes all kinds.
+        findMany: vi.fn().mockResolvedValue([{
+          id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER',
+          allBranches: true, canManageVouchers: false,
+          merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [],
+        }]),
       },
     } as any)
     app.decorate('redis', {

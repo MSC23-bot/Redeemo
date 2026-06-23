@@ -6,7 +6,7 @@ import { generateRefreshToken, hashRefreshToken, generateSessionId, generateSecu
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
 import { consumePwdResetAttempt } from '../../shared/pwdResetLimiter'
-import { getOwnerMembership } from '../../shared/merchantMembership'
+import { getActiveMembership } from '../../shared/merchantMembership'
 import {
   storeRefreshToken, revokeRefreshToken, revokeAllSessionsForEntity,
   revokeAllUserSessionRecords, writeUserSession, validateRefreshToken,
@@ -41,14 +41,27 @@ function otpRequired(admin: any, deviceId: string, knownDevices: string[]): bool
 /**
  * M6b (D-1): resolve a merchant-admin's merchant via the MerchantMembership
  * source of truth — replaces the dropped MerchantAdmin.merchant relation /
- * merchantId column. Throws INVALID_CREDENTIALS when the admin has no active
- * OWNER membership (or its joined merchant is absent).
+ * merchantId column.
+ *
+ * Staff & Access PR-B B8 (THE CUTOVER, §4.4): resolves ANY ACTIVE membership
+ * (getActiveMembership) rather than only the OWNER membership — this is what lets a
+ * BRANCH_MANAGER / STAFF member authenticate into a working merchant session. Per-
+ * request role + branch scope are resolved separately by resolveMerchantContext on
+ * each guarded route (NOT stored in the JWT/session, which keeps its
+ * `{ sub, role:'merchant', deviceId, sessionId }` shape), so enabling non-owner
+ * login only exposes the deliberately-migrated PR-B route set + the two † routes,
+ * which all now carry their guard. getActiveMembership throws
+ * MULTI_MEMBERSHIP_UNSUPPORTED for a >1-active-membership person (multi-merchant
+ * deferred). The SEC-M2 suspended throw is preserved below.
+ *
+ * Throws INVALID_CREDENTIALS when the admin has no active membership (or its joined
+ * merchant is absent).
  */
 async function resolveMerchantInfo(
   prisma: PrismaClient,
   adminId: string
 ): Promise<{ merchantId: string; status: string; businessName: string }> {
-  const membership = await getOwnerMembership(prisma, adminId)
+  const membership = await getActiveMembership(prisma, adminId)
   if (!membership?.merchant) throw new AppError('INVALID_CREDENTIALS')
   return { merchantId: membership.merchantId, status: membership.merchant.status, businessName: membership.merchant.businessName }
 }
@@ -284,9 +297,18 @@ export async function refreshMerchantToken(
   // SEC-M2 (M6a): refuse to renew a SUSPENDED merchant's session — live DB read
   // via the membership source of truth (NOT the MerchantAdmin.merchantId column;
   // that reroute is M6b). Lenient: only an explicitly suspended merchant is
-  // refused. Status is joined by getOwnerMembership — no extra query.
-  const ownerMembership = await getOwnerMembership(prisma, data.entityId)
-  if (ownerMembership?.merchant?.status === 'SUSPENDED') {
+  // refused. Status is joined by getActiveMembership — no extra query.
+  //
+  // Staff & Access PR-B B8 (review FIX 1): resolved via getActiveMembership (ANY
+  // active role) rather than getOwnerMembership (OWNER-only). After the B8 cutover a
+  // non-owner (BRANCH_MANAGER / STAFF) member has a live merchant session, and
+  // getOwnerMembership returns null for them (it filters role:'OWNER'), which SKIPPED
+  // the suspended throw and let a suspended merchant's non-owner staff refresh forever.
+  // getActiveMembership joins merchant.status for any role, so the suspended gate now
+  // fires for owners AND non-owners alike. A person with >1 active membership throws
+  // MULTI_MEMBERSHIP_UNSUPPORTED here (multi-merchant deferred), matching login.
+  const membership = await getActiveMembership(prisma, data.entityId)
+  if (membership?.merchant?.status === 'SUSPENDED') {
     writeAuditLog(prisma, { entityId: data.entityId, entityType: 'merchant', event: 'AUTH_REFRESH_FAILED', ipAddress: data.ipAddress, userAgent: data.userAgent })
     throw new AppError('MERCHANT_SUSPENDED')
   }
@@ -401,7 +423,17 @@ export async function issueMerchantClaim(
   data: { adminId: string; email: string; ip?: string | null }
 ): Promise<void> {
   const token = generateSecureToken(32)
+
+  // Supersession (PR-B review FIX A): a re-issue (resend / re-invite-after-remove)
+  // must mint a FRESH token AND invalidate the prior one. Claim tokens are stored
+  // by token-key only, so without a per-admin pointer the old token would stay
+  // valid for the full 7-day TTL alongside the new one. Read the current pointer,
+  // delete the prior token if present, then store the new token + re-point.
+  const priorToken = await redis.get(RedisKey.merchantClaimCurrent(data.adminId))
+  if (priorToken) await redis.del(RedisKey.merchantClaim(priorToken))
+
   await redis.set(RedisKey.merchantClaim(token), data.adminId, 'EX', CLAIM_TTL)
+  await redis.set(RedisKey.merchantClaimCurrent(data.adminId), token, 'EX', CLAIM_TTL)
 
   try {
     const { notify } = await import('../../shared/notify')
@@ -446,7 +478,11 @@ export async function claimMerchantAccount(
     // marks the owner email-verified (clears the new login emailVerified gate).
     data:  { passwordHash, mustChangePassword: false, otpVerifiedAt: new Date(), emailVerified: true },
   })
-  await redis.del(key)   // single-use — reuse hits CLAIM_TOKEN_EXPIRED
+  // Single-use — reuse hits CLAIM_TOKEN_EXPIRED. PR-B review FIX A: also clear the
+  // per-admin current-token pointer so a stale pointer can't keep a dead token's
+  // identity around (and a future re-issue starts clean with no prior to delete).
+  await redis.del(key)
+  await redis.del(RedisKey.merchantClaimCurrent(adminId))
 
   writeAuditLog(prisma, {
     entityId: adminId, entityType: 'merchant', event: 'MERCHANT_CLAIM_COMPLETED',

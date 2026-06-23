@@ -3,7 +3,7 @@ import { z } from 'zod'
 import '../types'
 import { AppError } from '../../shared/errors'
 import { isStorageEnabled } from '../../shared/storage'
-import { resolveAdminMerchant } from '../shared'
+import { resolveMerchantContext, assertCanManageVouchers, assertOwner } from '../shared'
 import { uploadMerchantImage, isImageUploadKind } from './service'
 
 // M2 B5: merchant-facing server-proxied image upload (logo / banner / voucher
@@ -27,7 +27,19 @@ export async function uploadRoutes(app: FastifyInstance) {
     if (!req.isMultipart()) throw new AppError('FILE_REQUIRED')
 
     // Resolve the caller's merchant from the JWT (never trust a body-supplied id).
-    const { merchantId } = await resolveAdminMerchant(app.prisma, req.user.sub)
+    // Staff & Access B5 (§4.3): role-aware resolver + a per-kind guard, BEFORE any
+    // bytes are read. A voucher photo needs voucher-management power (OWNER ||
+    // canManageVouchers); logo/banner feed OWNER-only business-identity writes, so
+    // they require OWNER. The kind is validated by isImageUploadKind above
+    // (logo/banner/photo).
+    const ctx = await resolveMerchantContext(app.prisma, req.user.sub)
+    if (kind === 'photo') {
+      assertCanManageVouchers(ctx)
+    } else {
+      // kind === 'logo' || kind === 'banner'
+      assertOwner(ctx)
+    }
+    const { merchantId } = ctx
 
     let fileBuffer: Buffer | undefined
     let mimetype: string | undefined

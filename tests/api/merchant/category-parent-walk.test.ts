@@ -64,7 +64,12 @@ describe('auto-provisioning uses the parent-walk after B2 (M2 B2/B3 coordination
     app = await buildApp()
     const prismaMock: any = {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
-      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
+      merchantMembership: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }),
+        // Staff & Access PR-B: updateMerchantProfile returns via getMerchantProfile,
+        // which now resolves via resolveMerchantContext (getActiveMembership -> findMany).
+        findMany: vi.fn().mockResolvedValue([{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]),
+      },
       merchant: { findUnique: vi.fn(), update: vi.fn() },
       category: { findUnique: vi.fn() },
       voucher: { findMany: vi.fn(), create: vi.fn().mockResolvedValue({ id: 'v1' }) },

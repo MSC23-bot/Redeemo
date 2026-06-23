@@ -18,7 +18,13 @@ describe('merchant redemptions cross-tenant denial (B5 IDOR)', () => {
     app = await buildApp()
     const prismaMock: any = {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'maB', merchantId: 'mB' }) },
-      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mmB', merchantId: 'mB', merchantAdminId: 'maB', merchant: { status: 'ACTIVE', businessName: 'Merchant B' } }) },
+      merchantMembership: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'mmB', merchantId: 'mB', merchantAdminId: 'maB', merchant: { status: 'ACTIVE', businessName: 'Merchant B' } }),
+        // Staff & Access PR-B: redemption routes resolve via resolveMerchantContext.
+        // OWNER + allBranches -> allowedBranchIds null -> the client branchId is NOT
+        // intersected away (the IDOR boundary is still branch.merchantId = mB).
+        findMany: vi.fn().mockResolvedValue([{ id: 'mmB', merchantId: 'mB', merchantAdminId: 'maB', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Merchant B' }, branches: [] }]),
+      },
       voucherRedemption: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), findUnique: vi.fn().mockResolvedValue(null), update: vi.fn() },
     }
     app.decorate('prisma', prismaMock as any)

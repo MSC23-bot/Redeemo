@@ -32,7 +32,12 @@ describe('GET /api/v1/merchant/redemptions (B1 list)', () => {
     app = await buildApp()
     const prismaMock: any = {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
-      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'ACTIVE', businessName: 'Acme' } }) },
+      merchantMembership: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'ACTIVE', businessName: 'Acme' } }),
+        // Staff & Access PR-B: redemptions routes resolve via resolveMerchantContext
+        // (getActiveMembership -> findMany). OWNER + allBranches -> all-branches read.
+        findMany: vi.fn().mockResolvedValue([{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]),
+      },
       voucherRedemption: { findMany: vi.fn().mockResolvedValue([row()]), count: vi.fn().mockResolvedValue(1), findUnique: vi.fn() },
     }
     app.decorate('prisma', prismaMock as any)
@@ -166,10 +171,10 @@ describe('GET /api/v1/merchant/redemptions (B1 list)', () => {
     expect(JSON.parse(res.body).items[0].voucher.type).toBe('REUSABLE')
   })
 
-  it('a suspended merchant (resolveAdminMerchant throws) returns MERCHANT_SUSPENDED', async () => {
-    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue({
-      id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: 'SUSPENDED', businessName: 'Acme' },
-    })
+  it('a suspended merchant (resolveMerchantContext throws) returns MERCHANT_SUSPENDED', async () => {
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue([{
+      id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'SUSPENDED', businessName: 'Acme' }, branches: [],
+    }])
     const res = await get('/api/v1/merchant/redemptions')
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body).error.code).toBe('MERCHANT_SUSPENDED')
