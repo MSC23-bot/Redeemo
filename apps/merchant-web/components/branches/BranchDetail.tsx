@@ -14,7 +14,6 @@
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
 import Image from 'next/image'
-import { Star } from '@/lib/icons'
 import type { Branch } from '@/lib/api/branch'
 import { openNow, type OpeningHoursRow } from '@/lib/branches/openNow'
 import { ReviewStateBanners } from '@/components/branches/ReviewStateBanners'
@@ -22,6 +21,8 @@ import { StaffAtBranchCard } from '@/components/branches/StaffAtBranchCard'
 import { ContactCard } from '@/components/branches/sections/ContactCard'
 import { AmenitiesCard } from '@/components/branches/sections/AmenitiesCard'
 import { PinCard } from '@/components/branches/sections/PinCard'
+import { BranchDetailsCard } from '@/components/branches/sections/BranchDetailsCard'
+import { MainBranchControl } from '@/components/branches/sections/MainBranchControl'
 
 export function BranchDetail({
   branch,
@@ -38,12 +39,19 @@ export function BranchDetail({
 }) {
   return (
     <div className="space-y-5">
-      <BranchHeader branch={branch} businessName={businessName} now={now} />
+      <BranchHeader
+        branch={branch}
+        businessName={businessName}
+        isOwner={ready && isOwner}
+        now={now}
+      />
 
       {/* F3: the review-state banners (photos in review + awaiting location check). */}
       <ReviewStateBanners branch={branch} />
 
-      {/* TODO by task F7: BranchDetailsCard (identity values + reviewed edit modal + pending edits + withdraw). */}
+      {/* F7: branch-details identity values (read-only) + reviewed edit modal + pending edits + withdraw. */}
+      <BranchDetailsCard branch={branch} isOwner={ready && isOwner} />
+
       {/* TODO by task F9: LocationCard (read-only confidence badge + static map stub + locked lookup affordance). */}
 
       {/* F4: contact instant-save (phone / email / website). Owner-only edit; BM read-only. */}
@@ -60,7 +68,6 @@ export function BranchDetail({
       <AmenitiesCard branch={branch} isOwner={ready && isOwner} />
 
       {/* TODO by task F11: BrandingPhotosCard (logo / banner via F7 + photo grid display-only + locked Add). */}
-      {/* TODO by task F8: MainBranchControl ("Make main branch" action, owner-only) where not already main. */}
 
       {/* F12: owner-only staff-at-branch card. Renders nothing for a non-owner. */}
       <StaffAtBranchCard branchId={branch.id} isOwner={isOwner} ready={ready} />
@@ -73,10 +80,12 @@ export function BranchDetail({
 function BranchHeader({
   branch,
   businessName,
+  isOwner,
   now,
 }: {
   branch: Branch
   businessName: string | null
+  isOwner: boolean
   now: Date
 }) {
   const locality = branch.city ?? null
@@ -130,15 +139,8 @@ function BranchHeader({
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="font-display text-2xl font-semibold text-foreground">{branch.name}</h1>
-                {branch.isMainBranch ? (
-                  <span
-                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold"
-                    style={{ background: 'var(--tint-deep)', color: 'var(--rose)' }}
-                  >
-                    <Star size={13} aria-hidden style={{ fill: 'var(--rose)' }} /> Main branch
-                  </span>
-                ) : null}
-                {/* When not main, F8 slots its "Make main branch" action here. */}
+                {/* F8: asymmetric main-branch control (badge when main, owner action otherwise). */}
+                <MainBranchControl branch={branch} isOwner={isOwner} />
               </div>
               {address ? <p className="text-sm text-muted-foreground">{address}</p> : null}
             </div>
