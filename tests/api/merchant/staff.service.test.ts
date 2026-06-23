@@ -362,7 +362,7 @@ describe('B2 deactivateMember', () => {
 describe('B2 reactivateMember', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('sets status ACTIVE + audits', async () => {
+  it('reactivates an INACTIVE member -> ACTIVE + audits (works)', async () => {
     const target = targetMembership({ status: 'INACTIVE' })
     const prisma = makePrismaWithTarget(target)
     await reactivateMember(prisma, redis, OWNER_CTX.adminId, 'mm-target', { ...OWNER_CTX, ...reqMeta })
@@ -372,6 +372,49 @@ describe('B2 reactivateMember', () => {
     expect(prisma.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ event: 'MEMBER_REACTIVATED' }) })
     )
+  })
+
+  // FIX C (P2): normal reactivate applies ONLY to INACTIVE. A DELETED (soft-removed)
+  // membership must NOT be restored by reactivate — it reads as MEMBER_NOT_FOUND (a
+  // removed member should appear gone to this path; restore is the re-invite path B2a).
+  it('rejects reactivate of a DELETED member -> MEMBER_NOT_FOUND, NOT restored', async () => {
+    const target = targetMembership({ status: 'DELETED' })
+    const prisma = makePrismaWithTarget(target)
+    await expect(reactivateMember(prisma, redis, OWNER_CTX.adminId, 'mm-target', { ...OWNER_CTX, ...reqMeta }))
+      .rejects.toThrow('MEMBER_NOT_FOUND')
+    expect(prisma.merchantMembership.update).not.toHaveBeenCalled()
+    expect(prisma.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  // An already-ACTIVE member reactivate is a stale/invalid request (the UI only offers
+  // Reactivate on INACTIVE rows). Rejected as MEMBER_NOT_FOUND for the non-INACTIVE case.
+  it('rejects reactivate of an already-ACTIVE member -> MEMBER_NOT_FOUND, no status write', async () => {
+    const target = targetMembership({ status: 'ACTIVE' })
+    const prisma = makePrismaWithTarget(target)
+    await expect(reactivateMember(prisma, redis, OWNER_CTX.adminId, 'mm-target', { ...OWNER_CTX, ...reqMeta }))
+      .rejects.toThrow('MEMBER_NOT_FOUND')
+    expect(prisma.merchantMembership.update).not.toHaveBeenCalled()
+  })
+
+  // The re-invite path (B2a, inviteMember) remains the ONLY way to restore a DELETED
+  // membership: it reactivates the DELETED row to ACTIVE (reactivateMember refuses it).
+  it('re-invite (B2a) IS the path that restores a DELETED membership (reactivate is not)', async () => {
+    const existingAdminId = 'removed-admin'
+    const prisma = makePrisma({
+      adminFindUnique: vi.fn().mockResolvedValue({
+        id: existingAdminId,
+        memberships: [{ id: 'old-mm', merchantId: 'm1', status: 'DELETED' }],
+      }),
+    })
+    await inviteMember(prisma, redis, OWNER_CTX.adminId, {
+      email: 're@x.com', firstName: 'Re', lastName: 'Member',
+      role: 'STAFF', allBranches: true,
+    }, { ...OWNER_CTX, ...reqMeta })
+    // The DELETED membership row was reactivated to ACTIVE via the re-invite path.
+    expect(prisma.merchantMembership.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'old-mm' }, data: expect.objectContaining({ status: 'ACTIVE' }) })
+    )
+    expect(issueMerchantClaim).toHaveBeenCalled()
   })
 })
 

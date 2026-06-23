@@ -151,6 +151,13 @@ describe('merchant staff routes — OWNER caller', () => {
   })
 
   it('POST /api/v1/merchant/staff/:id/reactivate (200)', async () => {
+    // FIX C (P2): reactivate applies ONLY to an INACTIVE member. The shared target
+    // double is ACTIVE, so override the target lookup to INACTIVE for this route test.
+    app.prisma.merchantMembership.findUnique = vi.fn().mockResolvedValue({
+      id: 'mm-target', merchantId: 'm1', merchantAdminId: 'target-admin',
+      role: 'STAFF', status: 'INACTIVE', allBranches: true, canManageVouchers: false,
+      merchantAdmin: { id: 'target-admin', email: 't@x.com', passwordHash: null, firstName: 'T', lastName: 'X' },
+    })
     const res = await app.inject({ method: 'POST', url: '/api/v1/merchant/staff/mm-target/reactivate', headers: { authorization: `Bearer ${token}` } })
     expect(res.statusCode).toBe(200)
   })

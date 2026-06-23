@@ -438,6 +438,15 @@ export async function reactivateMember(
   const merchantId = await resolveCallerMerchant(prisma, adminId)
   const target = await loadTarget(prisma, merchantId, memberId)
 
+  // PR-B review FIX C (P2): normal reactivate applies ONLY to an INACTIVE membership.
+  // A DELETED (soft-removed) membership is restored ONLY through the re-invite path
+  // (B2a — inviteMember reactivates a DELETED row), never here. Any non-INACTIVE
+  // target reads as MEMBER_NOT_FOUND: a removed member should appear gone to this
+  // path, and an already-ACTIVE member is a stale/invalid request (the UI only offers
+  // Reactivate on INACTIVE rows). Masking both as MEMBER_NOT_FOUND keeps the response
+  // uniform and avoids confirming a DELETED member still exists.
+  if (target.status !== 'INACTIVE') throw new AppError('MEMBER_NOT_FOUND')
+
   await prisma.$transaction(async (tx) => {
     await tx.merchantMembership.update({ where: { id: target.id }, data: { status: 'ACTIVE' } })
     await writeAuditLogTx(tx, {
