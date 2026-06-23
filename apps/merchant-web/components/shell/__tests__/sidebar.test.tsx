@@ -24,4 +24,10 @@ describe('Sidebar', () => {
     render(<Sidebar />)
     expect(screen.queryByText('Documents')).not.toBeInTheDocument()
   })
+
+  it('wires the Branches nav entry to /branches (PR-1 F13)', () => {
+    render(<Sidebar />)
+    const link = screen.getByText('Branches').closest('a')
+    expect(link).toHaveAttribute('href', '/branches')
+  })
 })

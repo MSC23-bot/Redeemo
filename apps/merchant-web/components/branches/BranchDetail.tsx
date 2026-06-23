@@ -23,6 +23,11 @@ import { AmenitiesCard } from '@/components/branches/sections/AmenitiesCard'
 import { PinCard } from '@/components/branches/sections/PinCard'
 import { BranchDetailsCard } from '@/components/branches/sections/BranchDetailsCard'
 import { MainBranchControl } from '@/components/branches/sections/MainBranchControl'
+import { LocationCard } from '@/components/branches/sections/LocationCard'
+import { OpeningHoursCard } from '@/components/branches/sections/OpeningHoursCard'
+import { BrandingPhotosCard } from '@/components/branches/sections/BrandingPhotosCard'
+import { RedemptionAlertsCard } from '@/components/branches/sections/RedemptionAlertsCard'
+import { CloseBranchSection } from '@/components/branches/sections/CloseBranchSection'
 
 export function BranchDetail({
   branch,
@@ -52,27 +57,32 @@ export function BranchDetail({
       {/* F7: branch-details identity values (read-only) + reviewed edit modal + pending edits + withdraw. */}
       <BranchDetailsCard branch={branch} isOwner={ready && isOwner} />
 
-      {/* TODO by task F9: LocationCard (read-only confidence badge + static map stub + locked lookup affordance). */}
+      {/* F9: read-only location confidence badge + static (no-network) map stub + locked PR-6 lookup affordance. */}
+      <LocationCard branch={branch} isOwner={ready && isOwner} />
 
       {/* F4: contact instant-save (phone / email / website). Owner-only edit; BM read-only. */}
       <ContactCard branch={branch} isOwner={ready && isOwner} />
 
-      {/* TODO by task F10: OpeningHoursCard (read-only hours table + locked Edit affordance). */}
+      {/* F10: read-only opening-hours table (incl. Closed days) + locked PR-4 Edit + locked PR-8 multi-window. */}
+      <OpeningHoursCard branch={branch} isOwner={ready && isOwner} now={now} />
 
       {/* F6: masked PIN with on-demand reveal + change + send. Owner-only (renders nothing for a non-owner). */}
       <PinCard branch={branch} isOwner={ready && isOwner} />
 
-      {/* TODO by task F13: redemption-alerts card (whole card visible but disabled). */}
+      {/* F13: redemption-alerts card (whole card visible, all controls disabled; alerts ship in PR-7). */}
+      <RedemptionAlertsCard isOwner={ready && isOwner} />
 
       {/* F5: amenities catalogue toggle (full-replace). Owner-only edit; BM read-only. */}
       <AmenitiesCard branch={branch} isOwner={ready && isOwner} />
 
-      {/* TODO by task F11: BrandingPhotosCard (logo / banner via F7 + photo grid display-only + locked Add). */}
+      {/* F11: logo / banner display (edit via the F7 modal) + photo grid display-only + locked PR-3 Add. */}
+      <BrandingPhotosCard branch={branch} isOwner={ready && isOwner} />
 
       {/* F12: owner-only staff-at-branch card. Renders nothing for a non-owner. */}
       <StaffAtBranchCard branchId={branch.id} isOwner={isOwner} ready={ready} />
 
-      {/* TODO by task F13: Close-branch section (whole section visible but disabled). */}
+      {/* F13: Close-branch section (visible warning card with a disabled, no-action close control; PR-5). */}
+      <CloseBranchSection isOwner={ready && isOwner} />
     </div>
   )
 }

@@ -45,4 +45,6 @@ export {
   Mail,
   Eye,
   EyeOff,
+  Image,
+  AlertTriangle,
 } from 'lucide-react'

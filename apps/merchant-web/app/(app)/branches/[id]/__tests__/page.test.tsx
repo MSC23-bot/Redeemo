@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '@/components/ui/toast'
 import { ApiError } from '@/lib/api/client'
@@ -139,7 +139,9 @@ describe('BranchDetailPage header', () => {
     getBranch.mockResolvedValue(branch({ isActive: false }))
     renderPage()
     await screen.findByRole('heading', { name: 'High Street' })
-    expect(screen.getByText(/closed/i)).toBeInTheDocument()
+    // Scope to the status pill: the read-only opening-hours table also renders
+    // "Closed" day cells, so assert the pill itself rather than a global text match.
+    expect(screen.getByTestId('branch-status-pill')).toHaveTextContent(/closed/i)
   })
 })
 
@@ -221,6 +223,46 @@ describe('BranchDetailPage staff panel (F12 wiring)', () => {
     renderPage()
     await screen.findByRole('heading', { name: 'High Street' })
     await waitFor(() => expect(screen.getByText(/staff at this branch/i)).toBeInTheDocument())
+  })
+})
+
+describe('BranchDetailPage locked affordances (F13 wiring)', () => {
+  it('composes the read-only location, hours and branding cards', async () => {
+    capability = { isOwner: true, ready: true }
+    getBranch.mockResolvedValue(branch())
+    renderPage()
+    await screen.findByRole('heading', { name: 'High Street' })
+    expect(screen.getByTestId('branch-location-card')).toBeInTheDocument()
+    expect(screen.getByTestId('branch-hours-card')).toBeInTheDocument()
+    expect(screen.getByTestId('branch-branding-card')).toBeInTheDocument()
+  })
+
+  it('renders the redemption-alerts card (visible) with disabled controls', async () => {
+    capability = { isOwner: true, ready: true }
+    getBranch.mockResolvedValue(branch())
+    renderPage()
+    await screen.findByRole('heading', { name: 'High Street' })
+    const alerts = screen.getByTestId('branch-alerts-card')
+    expect(alerts).toBeInTheDocument()
+    for (const b of within(alerts).getAllByRole('button')) expect(b).toBeDisabled()
+  })
+
+  it('renders the close-branch section for an owner with a disabled close control', async () => {
+    capability = { isOwner: true, ready: true }
+    getBranch.mockResolvedValue(branch())
+    renderPage()
+    await screen.findByRole('heading', { name: 'High Street' })
+    const close = screen.getByTestId('branch-close-section')
+    expect(close).toBeInTheDocument()
+    expect(within(close).getByRole('button')).toBeDisabled()
+  })
+
+  it('hides the close-branch section for a non-owner', async () => {
+    capability = { isOwner: false, ready: true }
+    getBranch.mockResolvedValue(branch())
+    renderPage()
+    await screen.findByRole('heading', { name: 'High Street' })
+    expect(screen.queryByTestId('branch-close-section')).not.toBeInTheDocument()
   })
 })
 

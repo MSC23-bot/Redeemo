@@ -11,12 +11,12 @@
 
 import * as React from 'react'
 import { Card } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Table, THead, TBody, TR, TH, TD, TableEmpty } from '@/components/ui/table'
 import { MapPin, Clock, CircleCheck, KeyRound, Plus, Grid3x3 } from '@/lib/icons'
 import { openNow, type OpeningHoursRow } from '@/lib/branches/openNow'
 import { isWithRedeemo } from '@/lib/branches/withRedeemo'
+import { LockedAffordance } from '@/components/branches/LockedAffordance'
 import type { Branch } from '@/lib/api/branch'
 
 // A branch row carries the encrypted pin under `redemptionPin` (passthrough). We
@@ -183,23 +183,11 @@ function BranchTableRow({
   )
 }
 
-// Branches PR-1 F13 lands a shared LockedAffordance; for F2 the Add-branch control
-// is a disabled button with the rollout subtext, performing NO network call.
+// Branches PR-1 F13: the Add-branch control is the shared LockedAffordance (a disabled
+// gradient CTA + rollout subtext, performing NO network call). Consolidated from the
+// previous local button so every locked Branches affordance shares one component.
 function AddBranchButton() {
-  return (
-    <span className="inline-flex flex-col items-end gap-1">
-      <Button
-        type="button"
-        variant="gradient"
-        disabled
-        title="Coming in this Branches rollout"
-        aria-label="Add branch (coming in this Branches rollout)"
-      >
-        <Plus size={16} aria-hidden /> Add branch
-      </Button>
-      <span className="text-[11px] text-muted-foreground">Coming in this Branches rollout</span>
-    </span>
-  )
+  return <LockedAffordance label="Add branch" variant="gradient" icon={<Plus size={16} aria-hidden />} />
 }
 
 // --- Today's-hours cell -----------------------------------------------------
