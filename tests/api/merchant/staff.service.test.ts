@@ -115,7 +115,55 @@ describe('B1 listMembers', () => {
       expect.objectContaining({ where: expect.objectContaining({ merchantId: 'm1', status: { not: 'DELETED' } }) })
     )
   })
+
+  // review FIX 4: passwordHash is selected ONLY to derive `claimed`; it must NEVER
+  // appear anywhere in the returned member rows. Deep check (every member object +
+  // serialised form), with both a claimed (hash present) and unclaimed (hash null)
+  // member in the fixture.
+  it('NEVER exposes passwordHash anywhere in the returned rows (deep check, review FIX 4)', async () => {
+    const prisma = makePrisma({
+      membershipFindMany: vi.fn().mockResolvedValue([
+        {
+          id: 'mm1', role: 'OWNER', status: 'ACTIVE', canManageVouchers: false, allBranches: true,
+          merchantAdmin: { id: 'a1', firstName: 'Owner', lastName: 'One', email: 'o@x.com', passwordHash: 'SUPER_SECRET_HASH', lastLoginAt: null },
+          branches: [],
+        },
+        {
+          id: 'mm2', role: 'BRANCH_MANAGER', status: 'ACTIVE', canManageVouchers: true, allBranches: false,
+          merchantAdmin: { id: 'a2', firstName: 'Mgr', lastName: 'Two', email: 'm@x.com', passwordHash: null, lastLoginAt: null },
+          branches: [{ branchId: 'b1' }],
+        },
+      ]),
+    })
+
+    const rows = await listMembers(prisma, OWNER_CTX.adminId)
+
+    // claimed is still correctly derived from passwordHash presence.
+    expect(rows.find((r) => r.id === 'mm1')?.claimed).toBe(true)
+    expect(rows.find((r) => r.id === 'mm2')?.claimed).toBe(false)
+
+    // No `passwordHash` key on any member object (top-level deep check).
+    for (const row of rows) {
+      expect(row).not.toHaveProperty('passwordHash')
+      // Recursive deep check: the key must not appear at ANY nesting depth.
+      expect(deepHasKey(row, 'passwordHash')).toBe(false)
+    }
+    // And the secret value never leaks via the serialised payload.
+    const json = JSON.stringify(rows)
+    expect(json).not.toContain('passwordHash')
+    expect(json).not.toContain('SUPER_SECRET_HASH')
+  })
 })
+
+// Recursive key-presence check used by the FIX 4 deep regression test.
+function deepHasKey(value: unknown, key: string): boolean {
+  if (Array.isArray(value)) return value.some((v) => deepHasKey(v, key))
+  if (value !== null && typeof value === 'object') {
+    if (Object.prototype.hasOwnProperty.call(value, key)) return true
+    return Object.values(value as Record<string, unknown>).some((v) => deepHasKey(v, key))
+  }
+  return false
+}
 
 describe('B1 inviteMember', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -409,17 +457,35 @@ describe('B2 resendInvite', () => {
     )
   })
 
-  it('refuses to resend when the member has already claimed (passwordHash!=null)', async () => {
-    // No `errors.ts` change is in chunk-1 scope, so an already-claimed member reuses
-    // the existing ALREADY_VERIFIED (409): claiming sets emailVerified=true, so a
-    // claimed member IS verified — semantically accurate and avoids a new code.
+  it('refuses to resend when the member has already claimed (passwordHash!=null) -> MEMBER_ALREADY_CLAIMED', async () => {
+    // review FIX 5: dedicated MEMBER_ALREADY_CLAIMED (409) — member-specific copy
+    // (replaces the previously-reused generic ALREADY_VERIFIED).
     const target = targetMembership({ merchantAdmin: { id: 'target-admin', email: 't@x.com', passwordHash: 'HASH', firstName: 'T', lastName: 'X' } })
     const prisma = makePrismaWithTarget(target)
     await expect(resendInvite(prisma, redis, OWNER_CTX.adminId, 'mm-target', { ...OWNER_CTX, ...reqMeta }))
-      .rejects.toThrow('ALREADY_VERIFIED')
+      .rejects.toThrow('MEMBER_ALREADY_CLAIMED')
     expect(issueMerchantClaim).not.toHaveBeenCalled()
   })
 
+})
+
+// review FIX 5: the target-membership-not-found / cross-tenant path now throws the
+// dedicated MEMBER_NOT_FOUND (404) instead of the reused generic USER_NOT_FOUND.
+describe('B2 loadTarget — MEMBER_NOT_FOUND (review FIX 5)', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('throws MEMBER_NOT_FOUND when the target membership does not exist', async () => {
+    const prisma = makePrismaWithTarget(null, { membershipFindUnique: vi.fn().mockResolvedValue(null) })
+    await expect(deactivateMember(prisma, redis, OWNER_CTX.adminId, 'missing-mm', { ...OWNER_CTX, ...reqMeta }))
+      .rejects.toThrow('MEMBER_NOT_FOUND')
+  })
+
+  it('throws MEMBER_NOT_FOUND for a cross-tenant membership (belongs to a different merchant)', async () => {
+    const otherMerchantTarget = targetMembership({ merchantId: 'm-other' })
+    const prisma = makePrismaWithTarget(otherMerchantTarget)
+    await expect(updateMemberAccess(prisma, redis, OWNER_CTX.adminId, 'mm-target', { role: 'STAFF', allBranches: true }, { ...OWNER_CTX, ...reqMeta }))
+      .rejects.toThrow('MEMBER_NOT_FOUND')
+  })
 })
 
 // SPECIFIC_BRANCHES_ENABLED gate. B7 FLIPPED it to TRUE now that branch-scope
@@ -457,5 +523,22 @@ describe('B1 inviteMember — SPECIFIC_BRANCHES gate (B7: enabled)', () => {
     await expect(inviteMember(prisma, redis, OWNER_CTX.adminId, scopedBody, { ...OWNER_CTX, ...reqMeta }))
       .rejects.toThrow(/BRANCH_NOT_OWNED/)
     expect(prisma.merchantMembership.create).not.toHaveBeenCalled()
+  })
+
+  // review FIX 6: a duplicated branchId must NOT false-reject (owned.length is
+  // distinct-by-id; without dedupe the lengths would differ and wrongly throw
+  // BRANCH_NOT_OWNED). It de-dupes to a single branch row.
+  it('de-duplicates a repeated branchId (no false BRANCH_NOT_OWNED) and writes one branch row', async () => {
+    const scopedBody = {
+      email: 'invitee3@x.com', firstName: 'In', lastName: 'Vitee', jobTitle: 'Cashier',
+      role: 'BRANCH_MANAGER' as const, allBranches: false, branchIds: ['b1', 'b1'],
+    }
+    // branch.findMany returns the single owned branch (distinct by id).
+    const prisma = makePrisma({ branchFindMany: vi.fn().mockResolvedValue([{ id: 'b1', merchantId: 'm1' }]) })
+    const res = await inviteMember(prisma, redis, OWNER_CTX.adminId, scopedBody, { ...OWNER_CTX, ...reqMeta })
+    expect(res.memberId).toBe('new-mm')
+    expect(prisma.merchantMembershipBranch.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [{ membershipId: 'new-mm', branchId: 'b1' }] }),
+    )
   })
 })

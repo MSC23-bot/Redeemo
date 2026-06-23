@@ -274,6 +274,13 @@ export const ERROR_DEFINITIONS = {
   // merchantFields bag (no Zod cap). Rejected when the bag exceeds 16KB of JSON
   // or more than 50 top-level keys, before it can reach Prisma.
   MERCHANT_FIELDS_TOO_LARGE:       { statusCode: 400, message: 'The voucher details are too large. Please simplify and try again.' },
+  // Staff & Access (v1) PR-B (review FIX 5): dedicated portal-member error codes,
+  // replacing the previously-reused ALREADY_VERIFIED (resend-invite on an
+  // already-claimed member) and USER_NOT_FOUND (target membership not found /
+  // cross-tenant). Member-specific copy so the portal UI can speak about a team
+  // member rather than a generic account/user.
+  MEMBER_ALREADY_CLAIMED:          { statusCode: 409, message: 'This team member has already set up their account.' },
+  MEMBER_NOT_FOUND:                { statusCode: 404, message: 'Team member not found.' },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS

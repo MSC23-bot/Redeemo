@@ -156,7 +156,10 @@ export async function listMembers(prisma: PrismaClient, adminId: string): Promis
       status: true,
       canManageVouchers: true,
       allBranches: true,
-      // NEVER select passwordHash — only the fields the UI needs + the claimed flag.
+      // Select passwordHash ONLY to derive the `claimed` boolean (passwordHash != null);
+      // it is NEVER returned in the MemberRow response (see the map below — only `claimed`
+      // is exposed). Pinned by the staff.routes.test.ts + staff.service.test.ts
+      // no-passwordHash-in-response regression tests.
       merchantAdmin: { select: { id: true, firstName: true, lastName: true, email: true, passwordHash: true, lastLoginAt: true } },
       branches: { select: { branchId: true } },
     },
@@ -199,7 +202,10 @@ export async function inviteMember(
   const parsed = inviteBodySchema.parse(body)
   assertRoleElevationAllowed(ctx, parsed)
 
-  const wantBranchIds = !parsed.allBranches && parsed.branchIds ? parsed.branchIds : []
+  // review FIX 6: de-duplicate so a repeated branchId can't false-reject the
+  // ownership check (owned.length is distinct-by-id; a duplicated wantBranchIds
+  // would otherwise make the lengths differ and wrongly throw BRANCH_NOT_OWNED).
+  const wantBranchIds = !parsed.allBranches && parsed.branchIds ? [...new Set(parsed.branchIds)] : []
   // Validate every requested branch belongs to this merchant (defence-in-depth;
   // only reachable once SPECIFIC_BRANCHES_ENABLED is on).
   if (wantBranchIds.length > 0) {
@@ -327,10 +333,9 @@ async function loadTarget(prisma: PrismaClient, merchantId: string, memberId: st
     },
   })
   // Cross-tenant safe: a membership of another merchant is treated as not found.
-  // No `errors.ts` change is in chunk-1 scope, so reuse the existing USER_NOT_FOUND
-  // (404) — a portal member is a person/user. (A dedicated MEMBER_NOT_FOUND code is
-  // a trivial later add if the UI wants member-specific copy.)
-  if (!m || m.merchantId !== merchantId) throw new AppError('USER_NOT_FOUND')
+  // review FIX 5: dedicated MEMBER_NOT_FOUND (404) — member-specific copy for the
+  // portal UI (replaces the previously-reused generic USER_NOT_FOUND).
+  if (!m || m.merchantId !== merchantId) throw new AppError('MEMBER_NOT_FOUND')
   return m as TargetMembership
 }
 
@@ -356,7 +361,9 @@ export async function updateMemberAccess(
     await assertNotLastOwner(prisma, merchantId, target.id)
   }
 
-  const wantBranchIds = !parsed.allBranches && parsed.branchIds ? parsed.branchIds : []
+  // review FIX 6: de-duplicate (see inviteMember) so a repeated branchId can't
+  // false-reject the ownership count comparison.
+  const wantBranchIds = !parsed.allBranches && parsed.branchIds ? [...new Set(parsed.branchIds)] : []
   if (wantBranchIds.length > 0) {
     const owned = await prisma.branch.findMany({ where: { id: { in: wantBranchIds }, merchantId }, select: { id: true } })
     if (owned.length !== wantBranchIds.length) throw new AppError('BRANCH_NOT_OWNED')
@@ -484,9 +491,10 @@ export async function resendInvite(
   const target = await loadTarget(prisma, merchantId, memberId)
 
   // Only an unclaimed member (passwordHash==null) can be re-invited. A claimed
-  // member already set their own password (claim sets emailVerified=true), so we
-  // reuse ALREADY_VERIFIED (409) rather than a new error code.
-  if (target.merchantAdmin.passwordHash != null) throw new AppError('ALREADY_VERIFIED')
+  // member already set their own password (claim sets emailVerified=true).
+  // review FIX 5: dedicated MEMBER_ALREADY_CLAIMED (409) — member-specific copy
+  // (replaces the previously-reused generic ALREADY_VERIFIED).
+  if (target.merchantAdmin.passwordHash != null) throw new AppError('MEMBER_ALREADY_CLAIMED')
 
   // issueMerchantClaim mints a FRESH single-use token (the prior one is superseded:
   // claim consumes by token, and a new token is the only live credential the member
