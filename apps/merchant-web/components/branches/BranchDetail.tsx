@@ -1,0 +1,161 @@
+'use client'
+
+// Branches PR-1 F3: the branch detail layout. The orchestrator page (the route)
+// owns the loading / error / not-found states and the data fetch; this component
+// renders a resolved branch: the header (banner + logo + name + sub-brand + status
+// pill + Main-branch badge), the review-state banners, and the owner-only staff
+// card (F12). It is structured so the later tasks slot their section cards into the
+// clearly-marked mount points below WITHOUT reshaping the header or banners.
+//
+// Owner gate (plan §1.5): `isOwner` (from useBranchCapability on the page) gates the
+// write controls the later tasks add; F3 only uses it for the staff panel (which is
+// itself owner-gated) and threads it down so F4-F8 can gate on it. The backend
+// owner-only resolver is the real boundary.
+//
+// House style: brand tokens, no em-dashes, SVG icons not emojis.
+import Image from 'next/image'
+import { Star } from '@/lib/icons'
+import type { Branch } from '@/lib/api/branch'
+import { openNow, type OpeningHoursRow } from '@/lib/branches/openNow'
+import { ReviewStateBanners } from '@/components/branches/ReviewStateBanners'
+import { StaffAtBranchCard } from '@/components/branches/StaffAtBranchCard'
+
+export function BranchDetail({
+  branch,
+  businessName,
+  isOwner,
+  ready,
+  now = new Date(),
+}: {
+  branch: Branch
+  businessName: string | null
+  isOwner: boolean
+  ready: boolean
+  now?: Date
+}) {
+  return (
+    <div className="space-y-5">
+      <BranchHeader branch={branch} businessName={businessName} now={now} />
+
+      {/* F3: the review-state banners (photos in review + awaiting location check). */}
+      <ReviewStateBanners branch={branch} />
+
+      {/* TODO by task F7: BranchDetailsCard (identity values + reviewed edit modal + pending edits + withdraw). */}
+      {/* TODO by task F9: LocationCard (read-only confidence badge + static map stub + locked lookup affordance). */}
+      {/* TODO by task F4: ContactCard (phone / email / website instant-save, owner-only). */}
+      {/* TODO by task F10: OpeningHoursCard (read-only hours table + locked Edit affordance). */}
+      {/* TODO by task F6: PinCard (masked reveal / change / send, owner-only). */}
+      {/* TODO by task F13: redemption-alerts card (whole card visible but disabled). */}
+      {/* TODO by task F5: AmenitiesCard (catalogue toggle, owner-only). */}
+      {/* TODO by task F11: BrandingPhotosCard (logo / banner via F7 + photo grid display-only + locked Add). */}
+      {/* TODO by task F8: MainBranchControl ("Make main branch" action, owner-only) where not already main. */}
+
+      {/* F12: owner-only staff-at-branch card. Renders nothing for a non-owner. */}
+      <StaffAtBranchCard branchId={branch.id} isOwner={isOwner} ready={ready} />
+
+      {/* TODO by task F13: Close-branch section (whole section visible but disabled). */}
+    </div>
+  )
+}
+
+function BranchHeader({
+  branch,
+  businessName,
+  now,
+}: {
+  branch: Branch
+  businessName: string | null
+  now: Date
+}) {
+  const locality = branch.city ?? null
+  const address = [branch.addressLine1, locality, branch.postcode].filter(Boolean).join(', ')
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      {/* Hero / banner. A warm-tinted band when there is no banner image. */}
+      <div className="relative h-28 w-full sm:h-36" style={{ background: 'var(--tint)' }}>
+        {branch.bannerUrl ? (
+          <Image
+            src={branch.bannerUrl}
+            alt=""
+            fill
+            sizes="100vw"
+            className="object-cover"
+            unoptimized
+          />
+        ) : null}
+      </div>
+
+      <div className="px-5 pb-5">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="flex items-end gap-4">
+            {/* Logo mark in the small cream/peach box (prototype 02/05). */}
+            <div
+              className="-mt-8 flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-[14px] border-2 sm:-mt-10 sm:size-20"
+              style={{ background: 'var(--cream)', borderColor: 'var(--page)' }}
+            >
+              {branch.logoUrl ? (
+                <Image
+                  src={branch.logoUrl}
+                  alt=""
+                  width={80}
+                  height={80}
+                  className="size-full object-cover"
+                  unoptimized
+                />
+              ) : (
+                <span className="font-display text-xl font-semibold" style={{ color: 'var(--rose)' }}>
+                  {branch.name.trim().charAt(0).toUpperCase() || '?'}
+                </span>
+              )}
+            </div>
+
+            <div className="min-w-0 space-y-1 pb-1">
+              {businessName ? (
+                <p className="text-[12px] font-extrabold uppercase tracking-wide text-muted-foreground">
+                  {businessName}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="font-display text-2xl font-semibold text-foreground">{branch.name}</h1>
+                {branch.isMainBranch ? (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold"
+                    style={{ background: 'var(--tint-deep)', color: 'var(--rose)' }}
+                  >
+                    <Star size={13} aria-hidden style={{ fill: 'var(--rose)' }} /> Main branch
+                  </span>
+                ) : null}
+                {/* When not main, F8 slots its "Make main branch" action here. */}
+              </div>
+              {address ? <p className="text-sm text-muted-foreground">{address}</p> : null}
+            </div>
+          </div>
+
+          <StatusPill branch={branch} now={now} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Read-only status pill (derived from isActive + open-now). PR-1 does NOT expose an
+// isActive toggle anywhere; the active/closed state is display-only here.
+function StatusPill({ branch, now }: { branch: Branch; now: Date }) {
+  const closed = branch.isActive === false
+  const isOpen = !closed && openNow((branch.openingHours ?? []) as OpeningHoursRow[], now)
+  const label = closed ? 'Closed' : isOpen ? 'Open now' : 'Active'
+  return (
+    <span
+      data-testid="branch-status-pill"
+      className="inline-flex items-center gap-1.5 text-[13px] font-semibold"
+    >
+      <span
+        aria-hidden
+        className="inline-block size-1.5 rounded-full"
+        style={{ backgroundColor: closed ? 'var(--muted-foreground)' : 'var(--success)' }}
+      />
+      <span className={closed ? 'text-muted-foreground' : 'text-foreground'}>{label}</span>
+    </span>
+  )
+}

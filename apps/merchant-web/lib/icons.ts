@@ -39,4 +39,5 @@ export {
   Globe,
   CheckCircle2,
   Info,
+  ArrowRight,
 } from 'lucide-react'
