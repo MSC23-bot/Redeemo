@@ -59,7 +59,18 @@ const SENSITIVE_FIELDS = [
   'latitude', 'longitude', 'logoUrl', 'bannerUrl',
 ] as const
 
-// Directly editable fields via PATCH
+// Directly editable fields via PATCH. The shared cores
+// (updateBranchDirectCore / updateBranchSensitiveDirectCore) write whichever of
+// these keys they are given, so the admin route + the owner paths set `isActive`
+// through them — this set stays complete.
+//
+// Staff & Access PR-2 (D3): the BM-allowed direct subset is phone/email/websiteUrl
+// only. `isActive` is OWNER-ONLY — setting it false takes the branch offline
+// (removed from all customer discovery feeds), a close/lifecycle-adjacent action
+// D3 reserves to OWNERS (same governance reasoning that keeps `isMainBranch`
+// owner-only). The owner gate for `isActive` lives in `updateBranch` (the merchant
+// route entry point), so a BM PATCHing it gets 403 before any DB write while the
+// admin/owner cores keep writing it.
 const DIRECT_FIELDS = ['phone', 'email', 'websiteUrl', 'isActive'] as const
 
 const BRANCH_INCLUDE = {
@@ -316,17 +327,26 @@ export async function updateBranch(
   // Staff & Access PR-2 (D3, spec §3 PR-2): the PATCH route is split by
   // authorization WITHIN the service.
   //   - setting `isMainBranch` is an OWNER-ONLY action (assertOwner);
+  //   - setting `isActive` is an OWNER-ONLY action — it takes the branch offline
+  //     (removed from all customer discovery feeds), which is close/lifecycle-
+  //     adjacent and D3-reserved to OWNERS (same reasoning as `isMainBranch`);
   //   - the draft-window SENSITIVE-direct path is onboarding (REGISTERED /
   //     NEEDS_CHANGES) and stays OWNER-ONLY (it is not a day-2 BM action);
   //   - the live-merchant SENSITIVE → governed edit-request lane is BM-allowed
   //     for an assigned branch (it routes through createBranchEditRequest, which
   //     re-resolves its own scope);
-  //   - the simple DIRECT_FIELDS path (phone/email/websiteUrl/isActive) is
-  //     BM-allowed for an assigned branch (assertBranchAllowed).
+  //   - the BM-allowed simple-DIRECT subset is phone/email/websiteUrl only.
   // resolveMerchantContext keeps the SEC-M2 suspended-merchant guard.
   const ctxMerchant = await resolveMerchantContext(prisma, adminId)
   assertBranchAllowed(ctxMerchant, branchId)
   const { merchantId } = ctxMerchant
+
+  // OWNER-ONLY: changing the active flag is close/lifecycle-adjacent (D3 grants a
+  // Branch Manager view/contact/amenities/PIN/edit-request/withdraw, and DENIES
+  // close/request-close). Gate BEFORE any DB write so a BM PATCHing `isActive`
+  // gets 403 with NO branch update.
+  if ('isActive' in data) assertOwner(ctxMerchant)
+
   await resolveBranch(prisma, branchId, merchantId)
 
   // Build safe update object (only direct fields)
