@@ -3,6 +3,7 @@ import { z } from 'zod'
 import '../types'
 import { AppError } from '../../shared/errors'
 import { isStorageEnabled } from '../../shared/storage'
+import { resolveMerchantContext, assertBranchAllowed } from '../shared'
 import {
   listBranches,
   getBranch,
@@ -172,6 +173,19 @@ export async function branchRoutes(app: FastifyInstance) {
     // Fail closed BEFORE reading any bytes when storage is dark.
     if (!isStorageEnabled()) throw new AppError('STORAGE_NOT_ENABLED')
     if (!req.isMultipart()) throw new AppError('FILE_REQUIRED')
+
+    // Fail FAST: resolve the caller's merchant + assert branch scope BEFORE
+    // consuming any multipart bytes (mirrors the voucher /uploads/:kind handler,
+    // which resolves + guards before its parts() loop). Without this, an
+    // authenticated-but-unassigned member would force the server to buffer up to
+    // the 5MB photo cap before getting the 403 from the service's own assert.
+    // resolveMerchantContext keeps the SEC-M2 suspended guard; assertBranchAllowed
+    // is the same branch-SCOPE gate (OWNER any branch || BM/STAFF assigned branch,
+    // NO canManageVouchers) that uploadBranchPhotoAsset asserts internally — that
+    // service assert is intentionally KEPT as defence-in-depth so a direct call
+    // stays safe.
+    const ctx = await resolveMerchantContext(app.prisma, req.user.sub)
+    assertBranchAllowed(ctx, id)
 
     let fileBuffer: Buffer | undefined
     let mimetype: string | undefined

@@ -189,6 +189,32 @@ describe('Branches PR-3 §6c — branch-scoped photo upload role matrix', () => 
     expect(putObjectMock).not.toHaveBeenCalled()
   })
 
+  it('FAIL-FAST: an UNASSIGNED-BM upload is 403 BEFORE the body is consumed (auth precedes buffering)', async () => {
+    // The route now resolves the merchant context + asserts branch scope BEFORE the
+    // parts()/toBuffer() loop (mirrors the voucher /uploads/:kind handler), so an
+    // authenticated-but-unassigned member is rejected before any file bytes are read.
+    //
+    // We prove "auth ran first / body never consumed" structurally: the only path
+    // that consumes the multipart body is the parts() loop, which is followed by the
+    // service call uploadBranchPhotoAsset -> resolveBranch -> prisma.branch.findFirst.
+    // With the early route assert firing the 403, that branch.findFirst is NEVER
+    // reached. (Before the fix the body was buffered and only the SERVICE's own
+    // assert produced the 403 — same status code, but after the body had been read.)
+    const made = await makeApp(bmNoMV()); app = made.app
+    const payload = multipartPayload(pngBuffer(1200, 600))
+    const res = await made.app.inject({
+      method: 'POST', url: `/api/v1/merchant/branches/${UNASSIGNED_BRANCH}/photos/upload`,
+      headers: { authorization: `Bearer ${made.token}`, 'content-type': payload.contentType },
+      payload: payload.body,
+    })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+    // The branch lookup lives INSIDE the service, AFTER the body-consuming parts()
+    // loop — never reached because the route asserted scope before reading any bytes.
+    expect(made.prismaMock.branch.findFirst).not.toHaveBeenCalled()
+    expect(putObjectMock).not.toHaveBeenCalled()
+  })
+
   it('any role for an UNASSIGNED branch -> 403 (assertBranchAllowed is the locked gate)', async () => {
     // assertBranchAllowed is a branch-SCOPE check (allBranches || allowedBranchIds),
     // not a role check — the locked §6c contract. A member not scoped to the target
