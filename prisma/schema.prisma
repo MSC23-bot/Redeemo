@@ -228,6 +228,7 @@ model MerchantMembership {
   merchantAdminId String
   role            MerchantRole
   allBranches     Boolean      @default(true)
+  canManageVouchers Boolean    @default(false) // Staff & Access D3: owner-granted voucher-management delegation for a BRANCH_MANAGER
   status          UserStatus   @default(ACTIVE)
   invitedById     String? // forward-compat: who invited this member (no FK yet)
   createdAt       DateTime     @default(now())

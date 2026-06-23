@@ -44,6 +44,17 @@ export const ERROR_DEFINITIONS = {
   BRANCH_USER_NOT_FOUND:          { statusCode: 404, message: 'No user is assigned to this branch.' },
   BRANCH_NOT_OWNED:               { statusCode: 403, message: 'You do not have access to this branch.' },
   INSUFFICIENT_PERMISSIONS:       { statusCode: 403, message: 'You do not have permission to perform this action.' },
+  // Staff & Access (v1) PR-A. Code-only additions (not schema).
+  // MULTIPLE_BRANCH_USERS (§5.3): a branch has >1 BranchUser, so a reset/
+  // deactivate/reactivate action keyed by branchId is ambiguous — the service
+  // refuses (mutates nothing) instead of acting on a non-deterministic findFirst
+  // row. MULTI_MEMBERSHIP_UNSUPPORTED (§4.1): a person somehow holds >1 ACTIVE
+  // MerchantMembership; resolveMerchantContext/getActiveMembership refuse
+  // deterministically (multi-merchant identity is deferred). Role/owner/
+  // capability denials REUSE INSUFFICIENT_PERMISSIONS (403) above — no new
+  // generic forbidden code.
+  MULTIPLE_BRANCH_USERS:          { statusCode: 409, message: 'This branch has more than one app user. Use the app-management screen to choose which one to update.' },
+  MULTI_MEMBERSHIP_UNSUPPORTED:   { statusCode: 400, message: 'This account is linked to more than one business, which is not supported yet.' },
   // Phase 2 Slice 1 M1: ownership-integrity guard. A merchant must always
   // retain at least one ACTIVE OWNER membership.
   LAST_OWNER_PROTECTED:           { statusCode: 409, message: 'This is the only owner of the merchant account and cannot be removed or deactivated.' },
