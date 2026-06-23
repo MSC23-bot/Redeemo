@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import crypto from 'crypto'
-import { loginMerchant, verifyMerchantOtp } from '../../../src/api/auth/merchant/service'
+import { loginMerchant, verifyMerchantOtp, refreshMerchantToken } from '../../../src/api/auth/merchant/service'
 import { RedisKey } from '../../../src/api/shared/redis-keys'
 
 // Staff & Access PR-B B8 (THE CUTOVER, §4.4): non-owner login is now LIVE.
@@ -147,5 +147,89 @@ describe('B8 cutover: non-owner (BRANCH_MANAGER) login', () => {
       email: BM_ADMIN.email, password: 'MyPass123!', deviceId: 'd1', deviceType: 'web',
       ipAddress: '1.2.3.4', userAgent: 'test',
     })).rejects.toThrow('MULTI_MEMBERSHIP_UNSUPPORTED')
+  })
+})
+
+// PR-B review FIX 1 (MAJOR security): refreshMerchantToken's SEC-M2 suspended-merchant
+// gate must use getActiveMembership (any-role) so a non-owner (BRANCH_MANAGER / STAFF)
+// member of a SUSPENDED merchant cannot refresh their session forever. Before the fix
+// the gate used getOwnerMembership (OWNER-only), so a non-owner resolved null and the
+// suspended throw was skipped.
+describe('FIX 1: refreshMerchantToken suspended-merchant gate (any-role)', () => {
+  const SESSION_ID = 's1'
+  const ENTITY_ID = 'bm-1'
+  const REFRESH_TOKEN = 'raw-refresh-token'
+  const REFRESH_KEY = RedisKey.refreshToken('merchant', ENTITY_ID, SESSION_ID)
+
+  // The stored refresh record validateRefreshToken checks against. validateRefreshToken
+  // hashes the raw token and compares to the stored tokenHash, so build it from the
+  // shared hasher to keep the test honest.
+  async function storedRecord(): Promise<string> {
+    const tokens = await import('../../../src/api/shared/tokens')
+    return JSON.stringify({ tokenHash: tokens.hashRefreshToken(REFRESH_TOKEN), deviceId: 'd1', deviceType: 'web' })
+  }
+
+  it('rejects a non-owner BRANCH_MANAGER of a SUSPENDED merchant with MERCHANT_SUSPENDED', async () => {
+    const store: Record<string, string | null> = { [REFRESH_KEY]: await storedRecord() }
+    const redis = {
+      get: vi.fn(async (k: string) => store[k] ?? null),
+      set: vi.fn(async (k: string, v: string) => { store[k] = v; return 'OK' }),
+      del: vi.fn(async (k: string) => { delete store[k]; return 1 }),
+    }
+    const prisma = {
+      // getActiveMembership uses findMany (any role); a BRANCH_MANAGER of a SUSPENDED merchant.
+      merchantMembership: { findMany: vi.fn(async () => [bmMembership('SUSPENDED')]), findFirst: vi.fn(async () => null) },
+      auditLog: { create: vi.fn(async () => ({})) },
+      userSession: { updateMany: vi.fn(async () => ({ count: 0 })) },
+    }
+    const app = { jwt: { merchant: { sign: vi.fn(() => 'access.jwt.token') } } }
+
+    await expect(refreshMerchantToken(prisma as any, redis as any, app as any, {
+      refreshToken: REFRESH_TOKEN, sessionId: SESSION_ID, entityId: ENTITY_ID, ipAddress: '1.2.3.4', userAgent: 'test',
+    })).rejects.toThrow('MERCHANT_SUSPENDED')
+    // No new access token issued for a suspended merchant.
+    expect(app.jwt.merchant.sign).not.toHaveBeenCalled()
+  })
+
+  it('still rejects an OWNER of a SUSPENDED merchant with MERCHANT_SUSPENDED (existing behaviour preserved)', async () => {
+    const store: Record<string, string | null> = { [REFRESH_KEY]: await storedRecord() }
+    const redis = {
+      get: vi.fn(async (k: string) => store[k] ?? null),
+      set: vi.fn(async (k: string, v: string) => { store[k] = v; return 'OK' }),
+      del: vi.fn(async (k: string) => { delete store[k]; return 1 }),
+    }
+    const ownerSuspended = { ...bmMembership('SUSPENDED'), id: 'mm-owner', role: 'OWNER', allBranches: true, branches: [] }
+    const prisma = {
+      merchantMembership: { findMany: vi.fn(async () => [ownerSuspended]), findFirst: vi.fn(async () => null) },
+      auditLog: { create: vi.fn(async () => ({})) },
+      userSession: { updateMany: vi.fn(async () => ({ count: 0 })) },
+    }
+    const app = { jwt: { merchant: { sign: vi.fn(() => 'access.jwt.token') } } }
+
+    await expect(refreshMerchantToken(prisma as any, redis as any, app as any, {
+      refreshToken: REFRESH_TOKEN, sessionId: SESSION_ID, entityId: ENTITY_ID, ipAddress: '1.2.3.4', userAgent: 'test',
+    })).rejects.toThrow('MERCHANT_SUSPENDED')
+    expect(app.jwt.merchant.sign).not.toHaveBeenCalled()
+  })
+
+  it('allows refresh for a non-owner BRANCH_MANAGER of an ACTIVE merchant', async () => {
+    const store: Record<string, string | null> = { [REFRESH_KEY]: await storedRecord() }
+    const redis = {
+      get: vi.fn(async (k: string) => store[k] ?? null),
+      set: vi.fn(async (k: string, v: string) => { store[k] = v; return 'OK' }),
+      del: vi.fn(async (k: string) => { delete store[k]; return 1 }),
+    }
+    const prisma = {
+      merchantMembership: { findMany: vi.fn(async () => [bmMembership('ACTIVE')]), findFirst: vi.fn(async () => null) },
+      auditLog: { create: vi.fn(async () => ({})) },
+      userSession: { updateMany: vi.fn(async () => ({ count: 0 })) },
+    }
+    const app = { jwt: { merchant: { sign: vi.fn(() => 'access.jwt.token') } } }
+
+    const res = await refreshMerchantToken(prisma as any, redis as any, app as any, {
+      refreshToken: REFRESH_TOKEN, sessionId: SESSION_ID, entityId: ENTITY_ID, ipAddress: '1.2.3.4', userAgent: 'test',
+    })
+    expect(res.accessToken).toBe('access.jwt.token')
+    expect((res as any).refreshToken).toBeTruthy()
   })
 })

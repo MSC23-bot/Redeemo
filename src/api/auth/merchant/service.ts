@@ -6,7 +6,7 @@ import { generateRefreshToken, hashRefreshToken, generateSessionId, generateSecu
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
 import { consumePwdResetAttempt } from '../../shared/pwdResetLimiter'
-import { getOwnerMembership, getActiveMembership } from '../../shared/merchantMembership'
+import { getActiveMembership } from '../../shared/merchantMembership'
 import {
   storeRefreshToken, revokeRefreshToken, revokeAllSessionsForEntity,
   revokeAllUserSessionRecords, writeUserSession, validateRefreshToken,
@@ -297,9 +297,18 @@ export async function refreshMerchantToken(
   // SEC-M2 (M6a): refuse to renew a SUSPENDED merchant's session — live DB read
   // via the membership source of truth (NOT the MerchantAdmin.merchantId column;
   // that reroute is M6b). Lenient: only an explicitly suspended merchant is
-  // refused. Status is joined by getOwnerMembership — no extra query.
-  const ownerMembership = await getOwnerMembership(prisma, data.entityId)
-  if (ownerMembership?.merchant?.status === 'SUSPENDED') {
+  // refused. Status is joined by getActiveMembership — no extra query.
+  //
+  // Staff & Access PR-B B8 (review FIX 1): resolved via getActiveMembership (ANY
+  // active role) rather than getOwnerMembership (OWNER-only). After the B8 cutover a
+  // non-owner (BRANCH_MANAGER / STAFF) member has a live merchant session, and
+  // getOwnerMembership returns null for them (it filters role:'OWNER'), which SKIPPED
+  // the suspended throw and let a suspended merchant's non-owner staff refresh forever.
+  // getActiveMembership joins merchant.status for any role, so the suspended gate now
+  // fires for owners AND non-owners alike. A person with >1 active membership throws
+  // MULTI_MEMBERSHIP_UNSUPPORTED here (multi-merchant deferred), matching login.
+  const membership = await getActiveMembership(prisma, data.entityId)
+  if (membership?.merchant?.status === 'SUSPENDED') {
     writeAuditLog(prisma, { entityId: data.entityId, entityType: 'merchant', event: 'AUTH_REFRESH_FAILED', ipAddress: data.ipAddress, userAgent: data.userAgent })
     throw new AppError('MERCHANT_SUSPENDED')
   }
