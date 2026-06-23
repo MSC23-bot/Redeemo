@@ -15,7 +15,7 @@
 import * as React from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Check, Grid3x3 } from '@/lib/icons'
+import { Check } from '@/lib/icons'
 import { useToast } from '@/components/ui/toast'
 import { useSetAmenities } from '@/lib/branches/useBranches'
 import { getBranchAmenities, type Amenity, type Branch } from '@/lib/api/branch'
@@ -44,11 +44,15 @@ export function AmenitiesCard({ branch, isOwner }: { branch: Branch; isOwner: bo
   const [selected, setSelected] = React.useState<Set<string>>(new Set(currentIds))
   const [actionError, setActionError] = React.useState<string | null>(null)
 
-  // Load the catalogue once, as soon as a category exists (so view + edit are both
-  // ready instantly). SKIPPED entirely when the merchant has no primaryCategoryId
-  // (the missing-category fallback path never fetches).
+  // Load the catalogue LAZILY: only when an owner actually opens edit mode AND a
+  // category exists to key the request. View mode (owner or non-owner) never fetches,
+  // so a read-only viewer triggers no customer-endpoint GET. SKIPPED entirely when the
+  // merchant has no primaryCategoryId (the missing-category fallback never fetches and
+  // never reaches edit mode). The catalogue is cached after the first edit open so a
+  // re-open does not refetch.
   React.useEffect(() => {
-    if (!hasCategory) return
+    if (!isOwner || !editing || !hasCategory) return
+    if (catalogue) return
     let cancelled = false
     setCatalogueLoading(true)
     setActionError(null)
@@ -66,7 +70,7 @@ export function AmenitiesCard({ branch, isOwner }: { branch: Branch; isOwner: bo
     return () => {
       cancelled = true
     }
-  }, [hasCategory, primaryCategoryId])
+  }, [isOwner, editing, hasCategory, primaryCategoryId, catalogue])
 
   function startEdit() {
     setSelected(new Set(currentIds))
@@ -102,10 +106,7 @@ export function AmenitiesCard({ branch, isOwner }: { branch: Branch; isOwner: bo
   return (
     <Card className="gap-4" data-testid="branch-amenities-card">
       <div className="flex flex-wrap items-center justify-between gap-3 px-6">
-        <div className="flex items-center gap-2">
-          <Grid3x3 size={16} aria-hidden style={{ color: 'var(--text-tertiary)' }} />
-          <h2 className="font-display text-lg font-semibold text-foreground">Amenities</h2>
-        </div>
+        <h2 className="font-display text-lg font-semibold text-foreground">Amenities</h2>
         <div className="flex items-center gap-3">
           <span
             className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold"

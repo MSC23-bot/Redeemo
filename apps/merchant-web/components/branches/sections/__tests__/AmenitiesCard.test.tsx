@@ -3,11 +3,12 @@ import { AmenitiesCard } from '@/components/branches/sections/AmenitiesCard'
 import type { Branch } from '@/lib/api/branch'
 
 // Branches PR-1 F5: the owner-only Amenities card (prototype 04). The catalogue is
-// fetched from the OPEN customer endpoint keyed by the merchant's primaryCategoryId;
-// the current selection is read from branch.amenities[].amenity.id; saving does a
-// full-replace POST. A non-owner is read-only. When the merchant has no
-// primaryCategoryId the card shows the current amenities read-only with a note and
-// NO edit control, and skips the catalogue fetch.
+// fetched LAZILY from the OPEN customer endpoint keyed by the merchant's
+// primaryCategoryId, ONLY when an owner opens edit mode (never on view/mount, and
+// never for a non-owner). The current selection is read from
+// branch.amenities[].amenity.id; saving does a full-replace POST. A non-owner is
+// read-only. When the merchant has no primaryCategoryId the card shows the current
+// amenities read-only with a note and NO edit control, and never fetches.
 
 // --- catalogue read (lib/api/branch.getBranchAmenities) ---------------------
 const getBranchAmenities = jest.fn()
@@ -58,20 +59,26 @@ beforeEach(() => {
 })
 
 describe('AmenitiesCard catalogue + owner gating', () => {
-  it('fetches the catalogue keyed by the merchant primaryCategoryId', async () => {
+  it('does NOT fetch the catalogue on mount (owner, view mode) but DOES once Edit opens, keyed by primaryCategoryId', async () => {
     render(<AmenitiesCard branch={branch()} isOwner />)
+    // Lazy: nothing requested while the owner is just viewing the card.
+    expect(getBranchAmenities).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     await waitFor(() => expect(getBranchAmenities).toHaveBeenCalledWith('cat-1'))
   })
 
-  it('shows current selected amenities read-only for a non-owner (no Edit control)', async () => {
+  it('shows current selected amenities read-only for a non-owner with NO Edit control and NO catalogue fetch', async () => {
     render(<AmenitiesCard branch={branch()} isOwner={false} />)
-    expect(await screen.findByText('Outdoor Seating')).toBeInTheDocument()
+    expect(screen.getByText('Outdoor Seating')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument()
+    // A read-only viewer must never hit the customer amenity endpoint.
+    await waitFor(() => expect(getBranchAmenities).not.toHaveBeenCalled())
   })
 
   it('shows an Edit control for an owner', () => {
     render(<AmenitiesCard branch={branch()} isOwner />)
     expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument()
+    expect(getBranchAmenities).not.toHaveBeenCalled()
   })
 
   it('renders the "Saves instantly" hint', () => {
