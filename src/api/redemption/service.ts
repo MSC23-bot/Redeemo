@@ -537,11 +537,15 @@ export async function verifyRedemption(
   })
 
   if (!redemption) throw new AppError('REDEMPTION_NOT_FOUND')
-  if (redemption.isValidated) throw new AppError('ALREADY_VALIDATED')
 
-  if (actor.role === 'branch') {
-    if (redemption.branchId !== actor.branchId) throw new AppError('BRANCH_ACCESS_DENIED')
-  } else {
+  // PR-B review FIX B (P1): for the MERCHANT actor, tenant + scope checks MUST run
+  // BEFORE the shared ALREADY_VALIDATED check below. Otherwise a scoped non-owner
+  // probing an out-of-scope (sibling-branch, same-merchant) ALREADY-VALIDATED code
+  // would learn it exists + is validated (ALREADY_VALIDATED) instead of the masked
+  // REDEMPTION_NOT_FOUND — an intra-merchant existence/validated-status oracle. The
+  // cross-tenant MERCHANT_MISMATCH check also moves up so a cross-tenant code's
+  // validated status is never leaked either.
+  if (actor.role === 'merchant') {
     if (redemption.voucher.merchantId !== actor.merchantId) throw new AppError('MERCHANT_MISMATCH')
     // Staff & Access B6 (review FIX 2 — FAIL-CLOSED): a merchant actor MUST carry a
     // resolved MerchantContext. The merchant-actor verify route always passes it
@@ -562,6 +566,16 @@ export async function verifyRedemption(
     if (!merchantCtx.allBranches && !merchantCtx.allowedBranchIds.includes(redemption.branchId)) {
       throw new AppError('REDEMPTION_NOT_FOUND')
     }
+  }
+
+  // Shared ALREADY_VALIDATED check. For the MERCHANT actor this now runs AFTER the
+  // tenant + scope masking above (FIX B). For the BRANCH actor it intentionally runs
+  // BEFORE the branchId check below — preserving the existing branch-actor ordering
+  // (ALREADY_VALIDATED beats BRANCH_ACCESS_DENIED).
+  if (redemption.isValidated) throw new AppError('ALREADY_VALIDATED')
+
+  if (actor.role === 'branch') {
+    if (redemption.branchId !== actor.branchId) throw new AppError('BRANCH_ACCESS_DENIED')
   }
 
   // SEC-M1 (M6a): decide active/suspended from the LIVE DB, never the cached

@@ -221,3 +221,87 @@ describe('verifyRedemption fail-closed when a merchant actor has no merchantCtx 
     expect(prisma.voucherRedemption.update).toHaveBeenCalled()
   })
 })
+
+// FIX B (P1): for a MERCHANT actor, tenant + scope checks must run BEFORE the shared
+// ALREADY_VALIDATED check, so an out-of-scope ALREADY-VALIDATED code is masked as
+// REDEMPTION_NOT_FOUND (no intra-merchant existence/validated-status oracle), and a
+// cross-tenant already-validated code is masked as MERCHANT_MISMATCH (no cross-tenant
+// validated-status leak). An IN-SCOPE already-validated code still correctly surfaces
+// ALREADY_VALIDATED. The BRANCH actor path is intentionally PRESERVED: it keeps
+// ALREADY_VALIDATED BEFORE BRANCH_ACCESS_DENIED.
+describe('verifyRedemption merchant-actor scope/tenant masking precedes ALREADY_VALIDATED (FIX B)', () => {
+  const ctxMeta = { ipAddress: '1.2.3.4', userAgent: 'test' }
+  const merchantActor: VerifyActor = { role: 'merchant', branchId: null, merchantId: MERCHANT_ID, actorId: 'ma1' }
+  const branchActor: VerifyActor = { role: 'branch', branchId: 'b1', merchantId: MERCHANT_ID, actorId: 'bu1' }
+
+  // A redemption that has ALREADY been validated, at a given branch (+ optional merchant override).
+  function validatedRedemption(branchId: string, merchantId: string = MERCHANT_ID) {
+    return {
+      id: 'rV', branchId, isValidated: true, userId: 'cust1',
+      voucher: { merchantId, merchant: { status: 'ACTIVE' } },
+      branch: { isActive: true },
+      user: { firstName: 'Jane', lastName: 'Doe' },
+    }
+  }
+
+  function prismaWith(redemption: any) {
+    return {
+      voucherRedemption: {
+        findUnique: vi.fn().mockResolvedValue(redemption),
+        update: vi.fn().mockResolvedValue({ id: redemption.id, isValidated: true, validatedAt: new Date(), validationMethod: 'MANUAL' }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    } as any
+  }
+
+  const scopedCtx: MerchantContext = {
+    adminId: 'ma1', merchantId: MERCHANT_ID, role: 'BRANCH_MANAGER',
+    allBranches: false, allowedBranchIds: ['b1'], canManageVouchers: false,
+  }
+  const ownerCtx: MerchantContext = {
+    adminId: 'ma1', merchantId: MERCHANT_ID, role: 'OWNER',
+    allBranches: true, allowedBranchIds: [], canManageVouchers: true,
+  }
+
+  it('scoped merchant actor + OUT-OF-SCOPE + ALREADY-VALIDATED code -> REDEMPTION_NOT_FOUND (NOT ALREADY_VALIDATED)', async () => {
+    const prisma = prismaWith(validatedRedemption('b2'))   // b2 not in allowed set ['b1']
+    await expect(
+      verifyRedemption(prisma, 'A7K2P9X4', 'MANUAL', merchantActor, ctxMeta, scopedCtx),
+    ).rejects.toThrow('REDEMPTION_NOT_FOUND')
+    expect(prisma.voucherRedemption.update).not.toHaveBeenCalled()
+  })
+
+  it('scoped merchant actor + IN-SCOPE + ALREADY-VALIDATED code -> ALREADY_VALIDATED', async () => {
+    const prisma = prismaWith(validatedRedemption('b1'))   // b1 IS in allowed set
+    await expect(
+      verifyRedemption(prisma, 'A7K2P9X4', 'MANUAL', merchantActor, ctxMeta, scopedCtx),
+    ).rejects.toThrow('ALREADY_VALIDATED')
+    expect(prisma.voucherRedemption.update).not.toHaveBeenCalled()
+  })
+
+  it('owner (allBranches) merchant actor + ALREADY-VALIDATED in-tenant code -> ALREADY_VALIDATED', async () => {
+    const prisma = prismaWith(validatedRedemption('b9'))
+    await expect(
+      verifyRedemption(prisma, 'A7K2P9X4', 'MANUAL', merchantActor, ctxMeta, ownerCtx),
+    ).rejects.toThrow('ALREADY_VALIDATED')
+    expect(prisma.voucherRedemption.update).not.toHaveBeenCalled()
+  })
+
+  it('merchant actor + CROSS-TENANT + ALREADY-VALIDATED code -> MERCHANT_MISMATCH (validated status not leaked across tenants)', async () => {
+    const prisma = prismaWith(validatedRedemption('bX', 'other-merchant'))
+    await expect(
+      verifyRedemption(prisma, 'A7K2P9X4', 'MANUAL', merchantActor, ctxMeta, ownerCtx),
+    ).rejects.toThrow('MERCHANT_MISMATCH')
+    expect(prisma.voucherRedemption.update).not.toHaveBeenCalled()
+  })
+
+  it('PRESERVED: branch actor + OTHER-branch ALREADY-VALIDATED code -> still ALREADY_VALIDATED (branch-actor ordering unchanged)', async () => {
+    // The redemption is at b2; the branch actor is at b1. The branch-actor path keeps
+    // ALREADY_VALIDATED BEFORE BRANCH_ACCESS_DENIED, so a validated code wins.
+    const prisma = prismaWith(validatedRedemption('b2'))
+    await expect(
+      verifyRedemption(prisma, 'A7K2P9X4', 'MANUAL', branchActor, ctxMeta /* no merchantCtx for branch */),
+    ).rejects.toThrow('ALREADY_VALIDATED')
+    expect(prisma.voucherRedemption.update).not.toHaveBeenCalled()
+  })
+})
