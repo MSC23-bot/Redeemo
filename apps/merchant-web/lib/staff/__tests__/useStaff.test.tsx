@@ -91,51 +91,131 @@ describe('useBranchAppUsers', () => {
   })
 })
 
-type ApiKey = keyof typeof api
-// A minimal mutation shape covering the only method these tests drive.
-interface MutationLike {
-  mutateAsync: (vars: unknown) => Promise<unknown>
+// Plain per-hook tests (no it.each helper that would trip rules-of-hooks): each
+// renderHook call sites a real custom hook, and each mutation is invoked with its
+// own concrete variables. Every member mutation invalidates ['staff']; every
+// app-user mutation invalidates ['branchAppUsers']; the success path asserts both.
+function expectStaffInvalidation(invalidate: jest.SpyInstance) {
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['staff'] })
+}
+function expectAppUsersInvalidation(invalidate: jest.SpyInstance) {
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['branchAppUsers'] })
 }
 
 describe('member mutations invalidate [staff]', () => {
-  const cases: Array<[string, () => MutationLike, (m: MutationLike) => Promise<unknown>, ApiKey]> = [
-    ['useInviteStaff', () => useInviteStaff(), (m) => m.mutateAsync({ email: 'a@b.test' }), 'inviteStaff'],
-    ['useUpdateStaff', () => useUpdateStaff(), (m) => m.mutateAsync({ memberId: 'm1', body: {} }), 'updateStaff'],
-    ['useDeactivateStaff', () => useDeactivateStaff(), (m) => m.mutateAsync('m1'), 'deactivateStaff'],
-    ['useReactivateStaff', () => useReactivateStaff(), (m) => m.mutateAsync('m1'), 'reactivateStaff'],
-    ['useRemoveStaff', () => useRemoveStaff(), (m) => m.mutateAsync('m1'), 'removeStaff'],
-    ['useResendInvite', () => useResendInvite(), (m) => m.mutateAsync('m1'), 'resendInvite'],
-  ]
-
-  it.each(cases)('%s invalidates [staff] on success', async (_name, useHook, run, apiKey) => {
-    api[apiKey].mockResolvedValue({ ok: true })
+  it('useInviteStaff invalidates [staff] on success', async () => {
+    api.inviteStaff.mockResolvedValue({ memberId: 'm9', inviteDelivery: 'QUEUED' })
     const qc = freshClient()
     const invalidate = jest.spyOn(qc, 'invalidateQueries')
-    const { result } = renderHook(() => useHook() as MutationLike, { wrapper: wrapper(qc) })
+    const { result } = renderHook(() => useInviteStaff(), { wrapper: wrapper(qc) })
     await act(async () => {
-      await run(result.current)
+      await result.current.mutateAsync({
+        email: 'a@b.test',
+        firstName: 'A',
+        lastName: 'B',
+        role: 'STAFF',
+        allBranches: true,
+      })
     })
-    expect(api[apiKey]).toHaveBeenCalledTimes(1)
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['staff'] })
+    expect(api.inviteStaff).toHaveBeenCalledTimes(1)
+    expectStaffInvalidation(invalidate)
+  })
+
+  it('useUpdateStaff invalidates [staff] on success', async () => {
+    api.updateStaff.mockResolvedValue({ id: 'm1' })
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useUpdateStaff(), { wrapper: wrapper(qc) })
+    await act(async () => {
+      await result.current.mutateAsync({ memberId: 'm1', body: { role: 'STAFF', allBranches: true } })
+    })
+    expect(api.updateStaff).toHaveBeenCalledWith('m1', { role: 'STAFF', allBranches: true })
+    expectStaffInvalidation(invalidate)
+  })
+
+  it('useDeactivateStaff invalidates [staff] on success', async () => {
+    api.deactivateStaff.mockResolvedValue({ id: 'm1' })
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useDeactivateStaff(), { wrapper: wrapper(qc) })
+    await act(async () => {
+      await result.current.mutateAsync('m1')
+    })
+    expect(api.deactivateStaff).toHaveBeenCalledWith('m1')
+    expectStaffInvalidation(invalidate)
+  })
+
+  it('useReactivateStaff invalidates [staff] on success', async () => {
+    api.reactivateStaff.mockResolvedValue({ id: 'm1' })
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useReactivateStaff(), { wrapper: wrapper(qc) })
+    await act(async () => {
+      await result.current.mutateAsync('m1')
+    })
+    expect(api.reactivateStaff).toHaveBeenCalledWith('m1')
+    expectStaffInvalidation(invalidate)
+  })
+
+  it('useRemoveStaff invalidates [staff] on success', async () => {
+    api.removeStaff.mockResolvedValue({ id: 'm1' })
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useRemoveStaff(), { wrapper: wrapper(qc) })
+    await act(async () => {
+      await result.current.mutateAsync('m1')
+    })
+    expect(api.removeStaff).toHaveBeenCalledWith('m1')
+    expectStaffInvalidation(invalidate)
+  })
+
+  it('useResendInvite invalidates [staff] on success', async () => {
+    api.resendInvite.mockResolvedValue({ memberId: 'm1', inviteDelivery: 'EMAIL_DARK' })
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useResendInvite(), { wrapper: wrapper(qc) })
+    await act(async () => {
+      await result.current.mutateAsync('m1')
+    })
+    expect(api.resendInvite).toHaveBeenCalledWith('m1')
+    expectStaffInvalidation(invalidate)
   })
 })
 
 describe('app-user mutations invalidate [branchAppUsers]', () => {
-  const cases: Array<[string, () => MutationLike, ApiKey]> = [
-    ['useResetAppUserPassword', () => useResetAppUserPassword(), 'resetAppUserPassword'],
-    ['useDeactivateAppUser', () => useDeactivateAppUser(), 'deactivateAppUser'],
-    ['useReactivateAppUser', () => useReactivateAppUser(), 'reactivateAppUser'],
-  ]
-
-  it.each(cases)('%s invalidates [branchAppUsers] on success', async (_name, useHook, apiKey) => {
-    api[apiKey].mockResolvedValue({ message: 'ok', temporaryPassword: 'x' })
+  it('useResetAppUserPassword invalidates [branchAppUsers] on success', async () => {
+    api.resetAppUserPassword.mockResolvedValue({ message: 'ok', temporaryPassword: 'x' })
     const qc = freshClient()
     const invalidate = jest.spyOn(qc, 'invalidateQueries')
-    const { result } = renderHook(() => useHook() as MutationLike, { wrapper: wrapper(qc) })
+    const { result } = renderHook(() => useResetAppUserPassword(), { wrapper: wrapper(qc) })
     await act(async () => {
       await result.current.mutateAsync('b1')
     })
-    expect(api[apiKey]).toHaveBeenCalledWith('b1')
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['branchAppUsers'] })
+    expect(api.resetAppUserPassword).toHaveBeenCalledWith('b1')
+    expectAppUsersInvalidation(invalidate)
+  })
+
+  it('useDeactivateAppUser invalidates [branchAppUsers] on success', async () => {
+    api.deactivateAppUser.mockResolvedValue({ message: 'ok' })
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useDeactivateAppUser(), { wrapper: wrapper(qc) })
+    await act(async () => {
+      await result.current.mutateAsync('b1')
+    })
+    expect(api.deactivateAppUser).toHaveBeenCalledWith('b1')
+    expectAppUsersInvalidation(invalidate)
+  })
+
+  it('useReactivateAppUser invalidates [branchAppUsers] on success', async () => {
+    api.reactivateAppUser.mockResolvedValue({ message: 'ok' })
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useReactivateAppUser(), { wrapper: wrapper(qc) })
+    await act(async () => {
+      await result.current.mutateAsync('b1')
+    })
+    expect(api.reactivateAppUser).toHaveBeenCalledWith('b1')
+    expectAppUsersInvalidation(invalidate)
   })
 })
