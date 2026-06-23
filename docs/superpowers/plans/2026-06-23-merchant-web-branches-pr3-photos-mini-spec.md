@@ -164,7 +164,7 @@ No customer-code change. (A latent note: any pre-existing PENDING/FLAGGED `Branc
 IN PR-3: instant photo-removal endpoint + service; applier photo-apply (close the throw); remove-by-ID validation in `createBranchPhotoEditRequest`; merchant-web photo gallery (approved + in-review render, Remove, Add wiring, per-photo moderationStatus); admin-web apply-success reflection; the customer gate stays as-is; tests; new error codes `BRANCH_PHOTO_NOT_FOUND` / `PHOTO_NOT_REMOVABLE`.
 
 OUT / DEFERRED:
-- Automated image moderation/scanning (the moderation worker stays unwired; admin approval is the moderation). 
+- Automated image moderation/scanning (the moderation worker stays unwired; admin approval is the moderation).
 - BM-scoped photo actions (owner-only v1; tied to the future FE `viewerCapabilities` signal).
 - Banner management via the photo-gallery lane (banner stays the F7 reviewed branch-details modal unless the prototype proves otherwise).
 - Photo reordering UX (append-on-add only; `sortOrder` drag-reorder is not in PR-3 unless the prototype requires it).
