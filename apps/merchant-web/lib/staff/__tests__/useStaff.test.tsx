@@ -91,41 +91,51 @@ describe('useBranchAppUsers', () => {
   })
 })
 
+type ApiKey = keyof typeof api
+// A minimal mutation shape covering the only method these tests drive.
+interface MutationLike {
+  mutateAsync: (vars: unknown) => Promise<unknown>
+}
+
 describe('member mutations invalidate [staff]', () => {
-  it.each([
-    ['useInviteStaff', () => useInviteStaff(), (m: any) => m.mutateAsync({ email: 'a@b.test' }), 'inviteStaff'],
-    ['useUpdateStaff', () => useUpdateStaff(), (m: any) => m.mutateAsync({ memberId: 'm1', body: {} }), 'updateStaff'],
-    ['useDeactivateStaff', () => useDeactivateStaff(), (m: any) => m.mutateAsync('m1'), 'deactivateStaff'],
-    ['useReactivateStaff', () => useReactivateStaff(), (m: any) => m.mutateAsync('m1'), 'reactivateStaff'],
-    ['useRemoveStaff', () => useRemoveStaff(), (m: any) => m.mutateAsync('m1'), 'removeStaff'],
-    ['useResendInvite', () => useResendInvite(), (m: any) => m.mutateAsync('m1'), 'resendInvite'],
-  ])('%s invalidates [staff] on success', async (_name, useHook, run, apiKey) => {
-    ;(api as any)[apiKey].mockResolvedValue({ ok: true })
+  const cases: Array<[string, () => MutationLike, (m: MutationLike) => Promise<unknown>, ApiKey]> = [
+    ['useInviteStaff', () => useInviteStaff(), (m) => m.mutateAsync({ email: 'a@b.test' }), 'inviteStaff'],
+    ['useUpdateStaff', () => useUpdateStaff(), (m) => m.mutateAsync({ memberId: 'm1', body: {} }), 'updateStaff'],
+    ['useDeactivateStaff', () => useDeactivateStaff(), (m) => m.mutateAsync('m1'), 'deactivateStaff'],
+    ['useReactivateStaff', () => useReactivateStaff(), (m) => m.mutateAsync('m1'), 'reactivateStaff'],
+    ['useRemoveStaff', () => useRemoveStaff(), (m) => m.mutateAsync('m1'), 'removeStaff'],
+    ['useResendInvite', () => useResendInvite(), (m) => m.mutateAsync('m1'), 'resendInvite'],
+  ]
+
+  it.each(cases)('%s invalidates [staff] on success', async (_name, useHook, run, apiKey) => {
+    api[apiKey].mockResolvedValue({ ok: true })
     const qc = freshClient()
     const invalidate = jest.spyOn(qc, 'invalidateQueries')
-    const { result } = renderHook(() => useHook(), { wrapper: wrapper(qc) })
+    const { result } = renderHook(() => useHook() as MutationLike, { wrapper: wrapper(qc) })
     await act(async () => {
       await run(result.current)
     })
-    expect((api as any)[apiKey]).toHaveBeenCalledTimes(1)
+    expect(api[apiKey]).toHaveBeenCalledTimes(1)
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['staff'] })
   })
 })
 
 describe('app-user mutations invalidate [branchAppUsers]', () => {
-  it.each([
+  const cases: Array<[string, () => MutationLike, ApiKey]> = [
     ['useResetAppUserPassword', () => useResetAppUserPassword(), 'resetAppUserPassword'],
     ['useDeactivateAppUser', () => useDeactivateAppUser(), 'deactivateAppUser'],
     ['useReactivateAppUser', () => useReactivateAppUser(), 'reactivateAppUser'],
-  ])('%s invalidates [branchAppUsers] on success', async (_name, useHook, apiKey) => {
-    ;(api as any)[apiKey].mockResolvedValue({ message: 'ok', temporaryPassword: 'x' })
+  ]
+
+  it.each(cases)('%s invalidates [branchAppUsers] on success', async (_name, useHook, apiKey) => {
+    api[apiKey].mockResolvedValue({ message: 'ok', temporaryPassword: 'x' })
     const qc = freshClient()
     const invalidate = jest.spyOn(qc, 'invalidateQueries')
-    const { result } = renderHook(() => useHook(), { wrapper: wrapper(qc) })
+    const { result } = renderHook(() => useHook() as MutationLike, { wrapper: wrapper(qc) })
     await act(async () => {
       await result.current.mutateAsync('b1')
     })
-    expect((api as any)[apiKey]).toHaveBeenCalledWith('b1')
+    expect(api[apiKey]).toHaveBeenCalledWith('b1')
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['branchAppUsers'] })
   })
 })
