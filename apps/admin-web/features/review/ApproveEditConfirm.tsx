@@ -1,11 +1,14 @@
 /**
- * ApproveEditConfirm (Option B B1): admin applies a merchant-requested identity
- * edit to the live listing.
+ * ApproveEditConfirm (Option B B1 + Branches PR-3): admin applies a
+ * merchant-requested identity OR photo edit to the live listing.
  *
- * The server applies ONLY the allow-listed fields and emails the merchant owner.
- * On error (APPROVAL_NOT_ACTIONABLE / PENDING_EDIT_NOT_ACTIONABLE /
- * EDIT_PHOTO_APPLY_NOT_SUPPORTED): NamedGateBanner inside. Never optimistically
- * marks applied.
+ * The server applies ONLY the allow-listed fields (identity) or the photo delta
+ * (PR-3: add URLs become APPROVED BranchPhoto rows, remove IDs deleted) and emails
+ * the merchant owner. On a state error (APPROVAL_NOT_ACTIONABLE /
+ * PENDING_EDIT_NOT_ACTIONABLE): NamedGateBanner inside. The legacy
+ * EDIT_PHOTO_APPLY_NOT_SUPPORTED code is no longer thrown for a photo approve
+ * (PR-3 closed it); its NamedGateBanner mapping stays defined for safety. Never
+ * optimistically marks applied.
  */
 'use client'
 

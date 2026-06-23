@@ -97,7 +97,7 @@ describe('EditReviewDiff capability gating', () => {
   })
 })
 
-describe('EditReviewDiff photo edits', () => {
+describe('EditReviewDiff photo edits (Branches PR-3)', () => {
   it('shows the proposed add / remove photos (not silently ignored)', () => {
     renderDiff(branchPhotoContext())
     expect(screen.getByTestId('edit-photo-changes')).toBeInTheDocument()
@@ -105,10 +105,23 @@ describe('EditReviewDiff photo edits', () => {
     expect(screen.getByTestId('edit-photo-remove-list')).toHaveTextContent('https://example.com/old.jpg')
   })
 
-  it('disables Approve-edit with a follow-up message but keeps Reject-edit enabled', () => {
+  it('ENABLES Approve-edit for a pending photo edit (no longer "not supported") and keeps Reject enabled', () => {
     renderDiff(branchPhotoContext())
-    expect(screen.getByTestId('edit-approve-btn')).toBeDisabled()
+    expect(screen.getByTestId('edit-approve-btn')).toBeEnabled()
     expect(screen.getByTestId('edit-reject-btn')).toBeEnabled()
-    expect(screen.getByTestId('edit-photo-apply-note')).toHaveTextContent('Photo edits will be actionable in a follow-up')
+    // The old photo-apply-not-supported note is gone (the apply succeeds now).
+    expect(screen.queryByTestId('edit-photo-apply-note')).not.toBeInTheDocument()
+  })
+
+  it('fires onApprove when the photo-edit Approve button is clicked', () => {
+    const { onApprove } = renderDiff(branchPhotoContext())
+    fireEvent.click(screen.getByTestId('edit-approve-btn'))
+    expect(onApprove).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables Approve for a photo edit that is no longer PENDING', () => {
+    renderDiff(branchPhotoContext({ status: 'APPROVED' }))
+    expect(screen.getByTestId('edit-approve-btn')).toBeDisabled()
+    expect(screen.getByTestId('edit-reject-btn')).toBeDisabled()
   })
 })
