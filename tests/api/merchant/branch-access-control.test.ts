@@ -235,6 +235,23 @@ describe('branch write-route authorization matrix — Staff & Access PR-2 (D3)',
     expect(made.prismaMock.branch.update).not.toHaveBeenCalled()
   })
 
+  it('BM -> isActive PATCH on ASSIGNED branch -> 403 (owner-only; close-adjacent, no branch write)', async () => {
+    // Setting isActive:false takes the branch offline (removed from all customer
+    // discovery feeds) — a close/lifecycle-adjacent action D3 reserves to OWNERS.
+    // A BM on its OWN assigned branch must still get 403 with NO DB write.
+    const made = await makeApp(bm()); app = made.app
+    const res = await inject(made.app, made.token, 'PATCH', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}`, { isActive: false })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+    expect(made.prismaMock.branch.update).not.toHaveBeenCalled()
+  })
+
+  it('OWNER -> isActive PATCH on any branch (200)', async () => {
+    const made = await makeApp(owner()); app = made.app
+    const res = await inject(made.app, made.token, 'PATCH', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}`, { isActive: false })
+    expect(res.statusCode).toBe(200)
+  })
+
   it('BM -> create branch -> 403 (owner-only resolveAdminMerchant denies non-owner)', async () => {
     const made = await makeApp(bm()); app = made.app
     const res = await inject(made.app, made.token, 'POST', '/api/v1/merchant/branches', { name: 'New', addressLine1: '1 St', city: 'London', postcode: 'EC1A 1BB' })
