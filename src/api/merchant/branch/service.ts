@@ -6,6 +6,7 @@ import {
   resolveAdminMerchant,
   resolveMerchantContext,
   assertBranchAllowed,
+  assertOwner,
   isDraftWindow,
   type EditActor,
 } from '../shared'
@@ -312,7 +313,20 @@ export async function updateBranch(
   data: Record<string, unknown>,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access PR-2 (D3, spec §3 PR-2): the PATCH route is split by
+  // authorization WITHIN the service.
+  //   - setting `isMainBranch` is an OWNER-ONLY action (assertOwner);
+  //   - the draft-window SENSITIVE-direct path is onboarding (REGISTERED /
+  //     NEEDS_CHANGES) and stays OWNER-ONLY (it is not a day-2 BM action);
+  //   - the live-merchant SENSITIVE → governed edit-request lane is BM-allowed
+  //     for an assigned branch (it routes through createBranchEditRequest, which
+  //     re-resolves its own scope);
+  //   - the simple DIRECT_FIELDS path (phone/email/websiteUrl/isActive) is
+  //     BM-allowed for an assigned branch (assertBranchAllowed).
+  // resolveMerchantContext keeps the SEC-M2 suspended-merchant guard.
+  const ctxMerchant = await resolveMerchantContext(prisma, adminId)
+  assertBranchAllowed(ctxMerchant, branchId)
+  const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
 
   // Build safe update object (only direct fields)
@@ -321,8 +335,9 @@ export async function updateBranch(
     if (key in data) safe[key] = data[key]
   }
 
-  // Handle isMainBranch promotion atomically
+  // Handle isMainBranch promotion atomically — OWNER-ONLY (a BM cannot set-main).
   if (data.isMainBranch === true) {
+    assertOwner(ctxMerchant)
     const updated = await prisma.$transaction(async (tx) => {
       await tx.branch.updateMany({
         where: { merchantId, isMainBranch: true },
@@ -361,7 +376,11 @@ export async function updateBranch(
 
     if (isDraftWindow(lifecycle)) {
       // Draft window: apply sensitive (+ any direct) fields directly, re-resolving
-      // location on a postcode change.
+      // location on a postcode change. This is the ONBOARDING path (status
+      // REGISTERED / onboardingStep NEEDS_CHANGES), not a day-2 action, so it
+      // stays OWNER-ONLY (PR-2 D3: a Branch Manager cannot direct-write sensitive
+      // identity fields).
+      assertOwner(ctxMerchant)
       return updateBranchSensitiveDirectCore(
         prisma,
         { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
@@ -372,8 +391,10 @@ export async function updateBranch(
     }
 
     // Live / governed: route the sensitive fields through the EXISTING
-    // edit-request lane (createBranchEditRequest does its own ownership re-check,
-    // PENDING_EDIT_EXISTS guard, and eager postcode resolution). Unchanged path.
+    // edit-request lane (createBranchEditRequest does its own scope re-check via
+    // resolveMerchantContext + assertBranchAllowed, PENDING_EDIT_EXISTS guard, and
+    // eager postcode resolution). BM-allowed for an assigned branch (D3 lists
+    // branch-details review requests as a BM action).
     return createBranchEditRequest(prisma, adminId, branchId, data, false, ctx)
   }
 
@@ -397,7 +418,12 @@ export async function createBranchEditRequest(
   includesPhotos: boolean,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access PR-2 (D3): submitting a branch-details review request is a
+  // BM-allowed action for an assigned branch. Scope-enforced via
+  // resolveMerchantContext + assertBranchAllowed (keeps the SEC-M2 suspended guard).
+  const ctxMerchant = await resolveMerchantContext(prisma, adminId)
+  assertBranchAllowed(ctxMerchant, branchId)
+  const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
 
   // Filter to only sensitive fields
@@ -513,7 +539,11 @@ export async function listBranchEditRequests(
   adminId: string,
   branchId: string
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access PR-2 (D3): viewing pending requests for an assigned branch is
+  // a BM-allowed read paired with the withdraw action below.
+  const ctxMerchant = await resolveMerchantContext(prisma, adminId)
+  assertBranchAllowed(ctxMerchant, branchId)
+  const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
   return prisma.branchPendingEdit.findMany({
     where: { branchId, merchantId },
@@ -528,7 +558,11 @@ export async function withdrawBranchEditRequest(
   editId: string,
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access PR-2 (D3): withdrawing a pending request for an assigned
+  // branch is a BM-allowed action.
+  const ctxMerchant = await resolveMerchantContext(prisma, adminId)
+  assertBranchAllowed(ctxMerchant, branchId)
+  const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
 
   const edit = await prisma.branchPendingEdit.findFirst({
@@ -585,7 +619,11 @@ export async function setAmenities(
   branchId: string,
   amenityIds: string[]
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access PR-2 (D3): editing amenities (an instant operational field)
+  // for an assigned branch is BM-allowed.
+  const ctxMerchant = await resolveMerchantContext(prisma, adminId)
+  assertBranchAllowed(ctxMerchant, branchId)
+  const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
 
   await prisma.branchAmenity.deleteMany({ where: { branchId } })
@@ -661,7 +699,11 @@ export async function getBranchPin(
   adminId: string,
   branchId: string
 ): Promise<{ pin: string | null }> {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access PR-2 (D3): revealing the PIN for an assigned branch is
+  // BM-allowed (PIN reveal/change/send are assigned-branch operational actions).
+  const ctxMerchant = await resolveMerchantContext(prisma, adminId)
+  assertBranchAllowed(ctxMerchant, branchId)
+  const { merchantId } = ctxMerchant
   const branch = await prisma.branch.findFirst({
     where: { id: branchId, merchantId, deletedAt: null },
     select: { redemptionPin: true },
@@ -679,7 +721,10 @@ export async function setBranchPin(
   ctx: { ipAddress: string; userAgent: string }
 ): Promise<{ message: string }> {
   if (!PIN_REGEX.test(pin)) throw new AppError('INVALID_PIN_FORMAT')
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access PR-2 (D3): changing the PIN for an assigned branch is BM-allowed.
+  const ctxMerchant = await resolveMerchantContext(prisma, adminId)
+  assertBranchAllowed(ctxMerchant, branchId)
+  const { merchantId } = ctxMerchant
   const branch = await prisma.branch.findFirst({
     where: { id: branchId, merchantId, deletedAt: null },
   })
@@ -704,7 +749,11 @@ export async function sendBranchPin(
   branchId: string,
   ctx: { ipAddress: string; userAgent: string }
 ): Promise<{ message: string }> {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Staff & Access PR-2 (D3): sending the PIN to staff for an assigned branch is
+  // BM-allowed.
+  const ctxMerchant = await resolveMerchantContext(prisma, adminId)
+  assertBranchAllowed(ctxMerchant, branchId)
+  const { merchantId } = ctxMerchant
   const branch = await prisma.branch.findFirst({
     where: { id: branchId, merchantId, deletedAt: null },
     select: { redemptionPin: true, name: true, phone: true, email: true },
