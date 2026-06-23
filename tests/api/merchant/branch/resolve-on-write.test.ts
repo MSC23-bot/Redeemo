@@ -68,9 +68,17 @@ function buildPrismaMock() {
     merchantAdmin: {
       findUnique: vi.fn().mockResolvedValue({ id: ADMIN_ID, merchantId: MERCHANT_ID, status: 'ACTIVE' }),
     },
-    // M1: resolveAdminMerchant resolves via MerchantMembership (OWNER).
+    // M1: resolveAdminMerchant (createBranch) resolves via MerchantMembership.findFirst (OWNER).
+    // Staff & Access PR-2: createBranchEditRequest now resolves via
+    // resolveMerchantContext -> getActiveMembership -> findMany; default to an OWNER
+    // allBranches row so the eager-resolve contract tests still exercise the apply path.
     merchantMembership: {
       findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: MERCHANT_ID, merchantAdminId: ADMIN_ID }),
+      findMany: vi.fn().mockResolvedValue([{
+        id: 'mm1', merchantId: MERCHANT_ID, merchantAdminId: ADMIN_ID, role: 'OWNER',
+        allBranches: true, canManageVouchers: false,
+        merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [],
+      }]),
     },
     branch: {
       count:     vi.fn().mockResolvedValue(0),

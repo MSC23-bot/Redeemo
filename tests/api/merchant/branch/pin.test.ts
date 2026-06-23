@@ -22,8 +22,18 @@ import { consumeSmsSend } from '../../../../src/api/shared/smsLimiter'
 
 const mockPrisma = () => ({
   merchantAdmin: { findUnique: vi.fn() },
-  // M1: resolveAdminMerchant resolves via MerchantMembership (default OWNER of m1).
-  merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
+  // M1: resolveAdminMerchant resolves via MerchantMembership.findFirst (default OWNER of m1).
+  // Staff & Access PR-2: the PIN get/set/send now resolve via
+  // resolveMerchantContext -> getActiveMembership -> findMany; default to an OWNER
+  // allBranches row so these existing PIN-behaviour tests stay green.
+  merchantMembership: {
+    findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }),
+    findMany: vi.fn().mockResolvedValue([{
+      id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER',
+      allBranches: true, canManageVouchers: false,
+      merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [],
+    }]),
+  },
   branch:        { findFirst: vi.fn(), update: vi.fn() },
   branchUser:    { findMany: vi.fn() },
   auditLog:      { create: vi.fn().mockResolvedValue({}) },
