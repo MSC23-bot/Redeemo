@@ -423,7 +423,17 @@ export async function issueMerchantClaim(
   data: { adminId: string; email: string; ip?: string | null }
 ): Promise<void> {
   const token = generateSecureToken(32)
+
+  // Supersession (PR-B review FIX A): a re-issue (resend / re-invite-after-remove)
+  // must mint a FRESH token AND invalidate the prior one. Claim tokens are stored
+  // by token-key only, so without a per-admin pointer the old token would stay
+  // valid for the full 7-day TTL alongside the new one. Read the current pointer,
+  // delete the prior token if present, then store the new token + re-point.
+  const priorToken = await redis.get(RedisKey.merchantClaimCurrent(data.adminId))
+  if (priorToken) await redis.del(RedisKey.merchantClaim(priorToken))
+
   await redis.set(RedisKey.merchantClaim(token), data.adminId, 'EX', CLAIM_TTL)
+  await redis.set(RedisKey.merchantClaimCurrent(data.adminId), token, 'EX', CLAIM_TTL)
 
   try {
     const { notify } = await import('../../shared/notify')
@@ -468,7 +478,11 @@ export async function claimMerchantAccount(
     // marks the owner email-verified (clears the new login emailVerified gate).
     data:  { passwordHash, mustChangePassword: false, otpVerifiedAt: new Date(), emailVerified: true },
   })
-  await redis.del(key)   // single-use — reuse hits CLAIM_TOKEN_EXPIRED
+  // Single-use — reuse hits CLAIM_TOKEN_EXPIRED. PR-B review FIX A: also clear the
+  // per-admin current-token pointer so a stale pointer can't keep a dead token's
+  // identity around (and a future re-issue starts clean with no prior to delete).
+  await redis.del(key)
+  await redis.del(RedisKey.merchantClaimCurrent(adminId))
 
   writeAuditLog(prisma, {
     entityId: adminId, entityType: 'merchant', event: 'MERCHANT_CLAIM_COMPLETED',

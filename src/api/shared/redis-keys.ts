@@ -30,6 +30,12 @@ export const RedisKey = {
   passwordReset:       (role: string, token: string) => `pwd-reset:${role}:${token}`,
   // Merchant draft-owner claim token (set-password). Value = merchantAdminId. 7-day TTL.
   merchantClaim:       (token: string)               => `merchant-claim:${token}`,
+  // Per-admin pointer to the CURRENT live claim token (set-password). Value = the
+  // token. Lets a re-issue (resend / re-invite-after-remove) SUPERSEDE the prior
+  // token: issueMerchantClaim reads this, deletes the prior merchantClaim(token),
+  // then re-points it at the fresh token. Without it a re-issue would leave BOTH
+  // tokens valid for the full 7-day TTL. 7-day TTL (mirrors the token).
+  merchantClaimCurrent: (adminId: string)            => `merchant-claim-current:${adminId}`,
   // M1 Slice R: merchant self-serve registration email-verify challenge. Value =
   // JSON {adminId, deviceId, deviceType, codeHmac, attempts}. Role-scoped (NOT the
   // customer `email-verify:` namespace) so a merchant token can never be consumed
