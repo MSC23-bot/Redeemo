@@ -35,7 +35,11 @@ export function BranchesOverview({
   const now = new Date()
 
   const locationsCount = branches.length
-  const openNowCount = branches.filter((b) => openNow((b.openingHours ?? []) as OpeningHoursRow[], now)).length
+  // Only ACTIVE branches can be "Open right now": an inactive branch shows as
+  // Closed in its row, so it must not be counted as open in the summary.
+  const openNowCount = branches.filter(
+    (b) => b.isActive !== false && openNow((b.openingHours ?? []) as OpeningHoursRow[], now),
+  ).length
   // The lifecycle gate lives here, not in withRedeemo.ts: when the merchant is not
   // Live, it is not on Redeemo at all, so the count is 0 regardless of any
   // per-branch MANUALLY_CONFIRMED flag.

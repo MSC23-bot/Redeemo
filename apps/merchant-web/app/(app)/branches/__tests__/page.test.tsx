@@ -143,6 +143,17 @@ describe('BranchesPage summary cards', () => {
     expect(within(card).getByText('1')).toBeInTheDocument()
   })
 
+  it('Open right now excludes an inactive branch even with current/all-day hours (matches its Closed row)', async () => {
+    listBranches.mockResolvedValue([
+      branch({ id: 'b1', name: 'Inactive open-hours', isActive: false, openingHours: allDayHours() }),
+    ])
+    renderPage()
+    const row = (await screen.findByText('Inactive open-hours')).closest('tr')!
+    expect(within(row).getByText(/closed/i)).toBeInTheDocument()
+    const card = screen.getByTestId('summary-open-now')
+    expect(within(card).getByText('0')).toBeInTheDocument()
+  })
+
   it('With Redeemo = active + MANUALLY_CONFIRMED count when the merchant is Live (ACTIVE)', async () => {
     profileStatus = 'ACTIVE'
     listBranches.mockResolvedValue([
