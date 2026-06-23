@@ -69,7 +69,7 @@ In `editApplier.approveEdit` (branch path), INSIDE the existing `prisma.$transac
 4. Flip `BranchPendingEdit.status = APPROVED` + `AdminApproval.status = APPROVED` (existing B1 step).
 5. Audit: ADMIN-actor before/after capturing the photo delta (added URLs + removed IDs). Same `writeAuditLogTx` pattern as the identity-edit path.
 6. **Reject path unchanged:** rejecting the edit writes NO photo rows; existing APPROVED photos are untouched (immutability preserved). Withdraw path unchanged.
-7. A branch edit that includes BOTH identity fields AND photos: apply the SENSITIVE identity fields via the existing `pickAllowed` path AND the photo delta, all in the one transaction. (Confirm the edit-request lane can carry both, or keep photo edits as their own `includesPhotos` edit — match how `createBranchPhotoEditRequest` vs `createBranchEditRequest` actually segregate; if they are always separate edits, apply each kind in its own approve. STOP AND REPORT if the two kinds can be mixed in one pending edit in a way the allow-list cannot cleanly handle.)
+7. A branch edit that includes BOTH identity fields AND photos: apply the SENSITIVE identity fields via the existing `pickAllowed` path AND the photo delta, all in the one transaction. (Confirm the edit-request lane can carry both, or keep photo edits as their own `includesPhotos` edit: match how `createBranchPhotoEditRequest` vs `createBranchEditRequest` actually segregate; if they are always separate edits, apply each kind in its own approve. STOP AND REPORT if the two kinds can be mixed in one pending edit in a way the allow-list cannot cleanly handle.)
 
 ---
 
@@ -96,7 +96,7 @@ In `editApplier.approveEdit` (branch path), INSIDE the existing `prisma.$transac
 ## 8. Tests
 
 - **Applier (vitest):** approve a photos-only edit -> added URLs become `APPROVED` `BranchPhoto` rows + removed IDs deleted (branch-scoped) + statuses APPROVED + ADMIN audit before/after; reject -> no rows written, existing APPROVED untouched; an add does NOT create a PENDING row; a `remove` ID not on the branch is NOT deleted (no cross-branch delete); allow-list: a poisoned `proposedChanges` key is never written.
-- **Instant-removal endpoint (vitest):** owner removes an APPROVED photo -> row deleted + (read-path) no longer in the APPROVED set; remove a non-existent / cross-branch id -> 404, nothing deleted; remove a non-APPROVED row -> 409 `PHOTO_NOT_REMOVABLE`; (when BM auth is added later) BM scoping — out of v1.
+- **Instant-removal endpoint (vitest):** owner removes an APPROVED photo -> row deleted + (read-path) no longer in the APPROVED set; remove a non-existent / cross-branch id -> 404, nothing deleted; remove a non-APPROVED row -> 409 `PHOTO_NOT_REMOVABLE`; (when BM auth is added later) BM scoping: out of v1.
 - **`createBranchPhotoEditRequest` (vitest):** `remove` validated as branch-owned `BranchPhoto` IDs (reject foreign/unknown IDs); `add` URLs stored.
 - **Customer read (vitest):** a pending add (URL-in-edit, no row) is invisible; an approved photo is visible; a removed photo is gone.
 - **merchant-web (jest):** Add opens the upload + submits the edit-request -> pending-in-review status shown; Remove on an approved photo calls the DELETE route + optimistically drops it; owner-only (no controls for non-owner).
@@ -106,7 +106,7 @@ In `editApplier.approveEdit` (branch path), INSIDE the existing `prisma.$transac
 
 ## 9. Rollback + stop-and-report triggers
 
-- STOP AND REPORT if: a schema field turns out to be needed (D-PR3-6); the applier cannot cleanly segregate identity-vs-photo deltas in a mixed edit (§5.7); remove-by-ID cannot be branch-scoped safely; the customer `moderationStatus` gate would be weakened; the photo-action auth needs to be BM-scoped in v1 (it should not — owner-only per D-PR3-4); or R2/storage handling forces a contract change.
+- STOP AND REPORT if: a schema field turns out to be needed (D-PR3-6); the applier cannot cleanly segregate identity-vs-photo deltas in a mixed edit (§5.7); remove-by-ID cannot be branch-scoped safely; the customer `moderationStatus` gate would be weakened; the photo-action auth needs to be BM-scoped in v1 (it should not: owner-only per D-PR3-4); or R2/storage handling forces a contract change.
 - Rollback: the applier change is additive within the existing transaction (revert restores the throw); the new DELETE route + error codes are additive (revert removes them); the merchant-web wiring reverts to the PR-1 disabled affordances. No data migration.
 
 ---
@@ -122,7 +122,7 @@ In `editApplier.approveEdit` (branch path), INSIDE the existing `prisma.$transac
 
 ## 11. PR shape
 
-PR-3 as ONE stacked PR on the PR-2 branch (backend applier + new endpoint + remove-by-ID validation + admin-web apply + merchant-web wiring), since the pieces are cohesive and the customer-visibility contract should land atomically. Fresh implementer + fresh adversarial (security) reviewer; open when green; SHA-bound merge gate; do not merge. If the backend and FE prove easier to review separately, split into PR-3a (backend: applier + endpoint + validation + tests) and PR-3b (admin-web + merchant-web wiring) — both stacked, both reviewed, neither merged.
+PR-3 as ONE stacked PR on the PR-2 branch (backend applier + new endpoint + remove-by-ID validation + admin-web apply + merchant-web wiring), since the pieces are cohesive and the customer-visibility contract should land atomically. Fresh implementer + fresh adversarial (security) reviewer; open when green; SHA-bound merge gate; do not merge. If the backend and FE prove easier to review separately, split into PR-3a (backend: applier + endpoint + validation + tests) and PR-3b (admin-web + merchant-web wiring): both stacked, both reviewed, neither merged.
 
 ---
 
