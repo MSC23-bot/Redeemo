@@ -87,8 +87,10 @@ export function BranchDetail({
       {/* F12: owner-only staff-at-branch card. Renders nothing for a non-owner. */}
       <StaffAtBranchCard branchId={branch.id} isOwner={isOwner} ready={ready} />
 
-      {/* F13: Close-branch section (visible warning card with a disabled, no-action close control; PR-5). */}
-      <CloseBranchSection isOwner={ready && isOwner} />
+      {/* PR-5: live owner-only close-branch section. Opens the reason-collecting close
+          modal; disabled with the "make another main first" copy on the main branch;
+          shows "Close request in review" when PENDING_CLOSE (the top banner owns Withdraw). */}
+      <CloseBranchSection branch={branch} isOwner={ready && isOwner} />
     </div>
   )
 }
