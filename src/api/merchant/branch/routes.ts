@@ -8,6 +8,9 @@ import {
   listBranches,
   getBranch,
   createBranch,
+  cancelPendingCreate,
+  requestBranchClose,
+  withdrawBranchClose,
   updateBranch,
   createBranchEditRequest,
   createBranchPhotoEditRequest,
@@ -66,6 +69,12 @@ const amenitiesBody = z.object({
   amenityIds: z.array(z.string()),
 })
 
+// Branches PR-5 (§4b): a close request carries a merchant-supplied reason (audit-only,
+// surfaced to the admin reviewer). Trimmed + non-empty.
+const closeRequestBody = z.object({
+  reason: z.string().trim().min(1),
+})
+
 const photoEditRequestBody = z.object({
   add:    z.array(z.string()).optional(),
   remove: z.array(z.string()).optional(),
@@ -81,12 +90,52 @@ export async function branchRoutes(app: FastifyInstance) {
   })
 
   // POST /api/v1/merchant/branches — create branch
+  // Branches PR-5 (D5): OWNER-only. The FIRST branch (onboarding main) is created
+  // INSTANT-LIVE; every SUBSEQUENT merchant-created branch stages PENDING_CREATE +
+  // a BRANCH_CREATE approval (customer-invisible until an admin approves).
   app.post(prefix, async (req: FastifyRequest, reply) => {
     const body = createBranchBody.parse(req.body)
     const branch = await createBranch(app.prisma, req.user.sub, body, {
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
     })
     return reply.status(201).send(branch)
+  })
+
+  // DELETE /api/v1/merchant/branches/:id/pending-create — cancel a pending-create
+  // branch (Branches PR-5 §4a). OWNER-only. Hard-deletes the never-live branch row +
+  // its BRANCH_CREATE approval. BRANCH_NOT_PENDING_CREATE (409) when the branch is not
+  // awaiting create approval.
+  app.delete(`${prefix}/:id/pending-create`, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const result = await cancelPendingCreate(app.prisma, req.user.sub, id, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send(result)
+  })
+
+  // POST /api/v1/merchant/branches/:id/close-request — request to close a branch
+  // (Branches PR-5 §4b). OWNER-only. Enforces BRANCH_IS_MAIN + BRANCH_LAST_ACTIVE at
+  // request time; sets lifecycleStatus PENDING_CLOSE + closeReason + a BRANCH_CLOSE
+  // approval. The branch STAYS live + customer-visible until an admin approves.
+  app.post(`${prefix}/:id/close-request`, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const { reason } = closeRequestBody.parse(req.body)
+    const result = await requestBranchClose(app.prisma, req.user.sub, id, reason, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.status(201).send(result)
+  })
+
+  // DELETE /api/v1/merchant/branches/:id/close-request — withdraw a pending close
+  // request (Branches PR-5 §4b). OWNER-only. Reverts lifecycleStatus -> LIVE + clears
+  // closeReason + removes the BRANCH_CLOSE approval. BRANCH_CLOSE_REQUEST_NOT_FOUND
+  // (404) when there is no open close request.
+  app.delete(`${prefix}/:id/close-request`, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const result = await withdrawBranchClose(app.prisma, req.user.sub, id, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send(result)
   })
 
   // GET /api/v1/merchant/branches/:id — get single branch

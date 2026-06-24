@@ -55,6 +55,17 @@ export type AuditEvent =
   // ADMIN-actor before-snapshot carries the removed photo id + url so the deletion
   // is attributable; the row itself is gone (instant, customer-invisible).
   | 'BRANCH_PHOTO_REMOVED'
+  // Branches PR-5 (D5): branch-lifecycle merchant actions. `event` is a String
+  // column, so these are union-only literals with NO migration.
+  //   BRANCH_CREATE_CANCELLED — merchant cancelled a pending-create branch (the
+  //     never-live branch row + its BRANCH_CREATE approval are removed).
+  //   BRANCH_CLOSE_REQUESTED — merchant requested to close a branch (lifecycleStatus
+  //     -> PENDING_CLOSE; the branch stays live until admin approval).
+  //   BRANCH_CLOSE_WITHDRAWN — merchant withdrew a pending close request (reverts to
+  //     LIVE; the branch was live throughout).
+  | 'BRANCH_CREATE_CANCELLED'
+  | 'BRANCH_CLOSE_REQUESTED'
+  | 'BRANCH_CLOSE_WITHDRAWN'
   | 'VOUCHER_CREATED'
   | 'VOUCHER_UPDATED'
   | 'VOUCHER_DELETED'
