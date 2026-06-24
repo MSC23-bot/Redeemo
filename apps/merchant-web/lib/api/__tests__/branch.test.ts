@@ -17,6 +17,9 @@ import {
   sendBranchPin,
   stageBranchHours,
   cancelPendingHours,
+  cancelPendingCreate,
+  requestBranchClose,
+  withdrawBranchClose,
   branchSchema,
   branchPendingEditSchema,
   branchPendingHoursSchema,
@@ -528,5 +531,71 @@ describe('lib/api/branch (PR-4 hours cool-off)', () => {
       auth: true,
     })
     expect(res).toEqual({ ok: true })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR-5: branch lifecycle (add + close): the lifecycle schema fields + the cancel
+// pending-create / close-request / withdraw-close clients.
+// ---------------------------------------------------------------------------
+
+describe('lib/api/branch (PR-5 lifecycle)', () => {
+  it('branchSchema parses lifecycleStatus + closeReason', () => {
+    const parsed = branchSchema.parse({
+      id: 'b1',
+      name: 'Mill Road',
+      lifecycleStatus: 'PENDING_CLOSE',
+      closeReason: 'Relocating to a new address',
+    })
+    expect(parsed.lifecycleStatus).toBe('PENDING_CLOSE')
+    expect(parsed.closeReason).toBe('Relocating to a new address')
+  })
+
+  it('branchSchema accepts each BranchLifecycleStatus enum value', () => {
+    for (const status of ['PENDING_CREATE', 'LIVE', 'PENDING_CLOSE', 'CLOSED'] as const) {
+      const parsed = branchSchema.parse({ id: 'b1', name: 'Main', lifecycleStatus: status })
+      expect(parsed.lifecycleStatus).toBe(status)
+    }
+  })
+
+  it('branchSchema tolerates an ABSENT / null lifecycleStatus (older backend / list rows)', () => {
+    expect(branchSchema.parse({ id: 'b1', name: 'Main' }).lifecycleStatus).toBeUndefined()
+    expect(branchSchema.parse({ id: 'b1', name: 'Main', lifecycleStatus: null }).lifecycleStatus).toBeNull()
+  })
+
+  it('branchSchema REJECTS an invalid lifecycleStatus', () => {
+    expect(() => branchSchema.parse({ id: 'b1', name: 'Main', lifecycleStatus: 'BOGUS' })).toThrow()
+  })
+
+  it('cancelPendingCreate DELETEs /pending-create with auth and returns { ok: true }', async () => {
+    apiFetch.mockResolvedValueOnce({ ok: true })
+    const res = await cancelPendingCreate('b1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/pending-create', {
+      method: 'DELETE',
+      auth: true,
+    })
+    expect(res).toEqual({ ok: true })
+  })
+
+  it('requestBranchClose POSTs { reason } to /close-request and returns the parsed (PENDING_CLOSE) branch', async () => {
+    apiFetch.mockResolvedValueOnce({ id: 'b1', name: 'Mill Road', lifecycleStatus: 'PENDING_CLOSE', closeReason: 'Permanently closed' })
+    const branch = await requestBranchClose('b1', 'Permanently closed')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/close-request', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ reason: 'Permanently closed' }),
+    })
+    expect(branch.lifecycleStatus).toBe('PENDING_CLOSE')
+    expect(branch.closeReason).toBe('Permanently closed')
+  })
+
+  it('withdrawBranchClose DELETEs /close-request with auth and returns the parsed (LIVE) branch', async () => {
+    apiFetch.mockResolvedValueOnce({ id: 'b1', name: 'Mill Road', lifecycleStatus: 'LIVE', closeReason: null })
+    const branch = await withdrawBranchClose('b1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/close-request', {
+      method: 'DELETE',
+      auth: true,
+    })
+    expect(branch.lifecycleStatus).toBe('LIVE')
   })
 })
