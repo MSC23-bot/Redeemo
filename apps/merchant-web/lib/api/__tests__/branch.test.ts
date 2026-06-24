@@ -444,7 +444,7 @@ describe('lib/api/branch (PR-3 photos)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// PR-4: opening-hours cool-off staging — pendingHours schema + stage / cancel.
+// PR-4: opening-hours cool-off staging: pendingHours schema + stage / cancel.
 // ---------------------------------------------------------------------------
 
 describe('lib/api/branch (PR-4 hours cool-off)', () => {
