@@ -18,12 +18,11 @@
 // Both read the durable row as the source of truth; the handler never trusts
 // job.data and skips any non-PENDING / cancelled record.
 //
-// THIS DISPATCH defines ONLY the stable job-name constant so setOpeningHours can
-// reference it and the next dispatch can wire the handler against a single source
-// of truth. The pure promotePendingHours(prisma, now) handler, the worker
-// dispatch branch (outboxReconciler.startReconcileWorker), and the repeatable
-// schedulePromotePendingHours() registration (src/worker.ts) LAND IN THE
-// PROMOTION DISPATCH (PR-4 §4c).
+// This module IS the promotion dispatch (PR-4 §4c): the stable job-name constant
+// (referenced by setOpeningHours), the pure promotePendingHours(prisma, now) sweep
+// handler, promoteOnePendingHours, and the schedulePromotePendingHours() scheduler
+// all live here; the worker dispatch branch is wired in
+// outboxReconciler.startReconcileWorker (both booted from src/worker.ts).
 
 import type { Prisma, PrismaClient } from '../../../../generated/prisma/client'
 import { MAINTENANCE_QUEUE, makeQueue } from '../index'
