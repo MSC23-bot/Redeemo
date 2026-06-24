@@ -55,12 +55,13 @@ export function BrandingPhotosCard({ branch, isOwner }: { branch: Branch; isOwne
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   const allPhotos = branch.photos ?? []
-  // LIVE gallery: only APPROVED rows are customer-visible + removable. Rows that
-  // arrive without an explicit moderationStatus are treated as approved (the live
-  // GET ships the column, but this keeps older/partial payloads from vanishing).
-  const approvedPhotos = allPhotos.filter(
-    (p) => p.moderationStatus === undefined || p.moderationStatus === 'APPROVED',
-  )
+  // LIVE gallery: ONLY APPROVED rows are customer-visible + removable. The backend
+  // GUARANTEES the field (Prisma BranchPhoto.moderationStatus is non-nullable with
+  // @default(PENDING), and GET /branches/:id ships the whole row via `photos: true`),
+  // so a strict equality gate is correct: PENDING / FLAGGED rows must NEVER render as
+  // live/approved. The client schema now requires moderationStatus too, so there is no
+  // "missing field" case to fall back on.
+  const approvedPhotos = allPhotos.filter((p) => p.moderationStatus === 'APPROVED')
 
   // IN-REVIEW thumbnails: the open PENDING photo edit's proposed add URLs. There is
   // at most one PENDING edit per branch (PENDING_EDIT_EXISTS), so take the first.

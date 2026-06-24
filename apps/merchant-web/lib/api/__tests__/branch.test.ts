@@ -393,13 +393,18 @@ describe('lib/api/branch (PR-3 photos)', () => {
     expect(parsed.photos?.map((p) => p.moderationStatus)).toEqual(['APPROVED', 'PENDING', 'FLAGGED'])
   })
 
-  it('branchSchema accepts a photo without moderationStatus (older payload)', () => {
-    const parsed = branchSchema.parse({
-      id: 'b1',
-      name: 'Main',
-      photos: [{ id: 'p1', url: 'https://cdn.test/p1.png' }],
-    })
-    expect(parsed.photos?.[0].moderationStatus).toBeUndefined()
+  it('branchSchema REJECTS a photo without moderationStatus (P3 hardening: the field is now REQUIRED)', () => {
+    // The backend GUARANTEES moderationStatus (Prisma non-nullable @default(PENDING),
+    // and GET /branches/:id ships the whole row via `photos: true`), so the client
+    // schema requires it. A photo object missing the field must fail the parse, which
+    // proves a PENDING/FLAGGED row can never slip through untyped.
+    expect(() =>
+      branchSchema.parse({
+        id: 'b1',
+        name: 'Main',
+        photos: [{ id: 'p1', url: 'https://cdn.test/p1.png' }],
+      }),
+    ).toThrow()
   })
 
   it('branchSchema REJECTS an invalid photo moderationStatus', () => {

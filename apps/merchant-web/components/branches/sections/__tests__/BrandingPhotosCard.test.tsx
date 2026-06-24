@@ -83,21 +83,48 @@ beforeEach(() => {
 })
 
 describe('BrandingPhotosCard approved gallery', () => {
-  it('renders only APPROVED photos in the live gallery with an Approved marker', () => {
+  it('renders only APPROVED photos in the live gallery with an Approved marker (PENDING + FLAGGED excluded)', () => {
     const b = branch({
       photos: [
         { id: 'p1', url: 'https://cdn/p1.png', moderationStatus: 'APPROVED' },
         { id: 'p2', url: 'https://cdn/p2.png', moderationStatus: 'APPROVED' },
-        // A non-approved row (PENDING / FLAGGED) must NOT show as a live approved photo.
-        { id: 'p3', url: 'https://cdn/p3.png', moderationStatus: 'FLAGGED' },
+        // P3 hardening: a PENDING row must NOT show as a live approved photo.
+        { id: 'p3', url: 'https://cdn/p3.png', moderationStatus: 'PENDING' },
+        // P3 hardening: a FLAGGED row must NOT show as a live approved photo.
+        { id: 'p4', url: 'https://cdn/p4.png', moderationStatus: 'FLAGGED' },
       ],
     })
     renderCard(b)
+    // Strict gate: ONLY the two APPROVED rows render; the approved count excludes
+    // the PENDING + FLAGGED rows.
     const photos = screen.getAllByTestId('branch-photo')
     expect(photos).toHaveLength(2)
     for (const fig of photos) {
       expect(within(fig).getByText(/approved/i)).toBeInTheDocument()
     }
+    // Belt-and-braces: the PENDING + FLAGGED image elements never render in the gallery
+    // (only the two APPROVED <img> srcs are present; p3/p4 are excluded by the strict gate).
+    const renderedSrcs = photos.map(
+      (fig) => fig.querySelector('img')?.getAttribute('src') ?? '',
+    )
+    expect(renderedSrcs.join('|')).not.toContain('p3.png')
+    expect(renderedSrcs.join('|')).not.toContain('p4.png')
+  })
+
+  it('renders an APPROVED photo and hides a lone PENDING photo (empty live gallery)', () => {
+    // A branch whose only photo is PENDING shows ZERO live photos (strict gate).
+    const pendingOnly = branch({
+      photos: [{ id: 'p1', url: 'https://cdn/p1.png', moderationStatus: 'PENDING' }],
+    })
+    renderCard(pendingOnly)
+    expect(screen.queryAllByTestId('branch-photo')).toHaveLength(0)
+
+    // An APPROVED photo IS rendered.
+    const approvedOnly = branch({
+      photos: [{ id: 'p1', url: 'https://cdn/p1.png', moderationStatus: 'APPROVED' }],
+    })
+    renderCard(approvedOnly)
+    expect(screen.getAllByTestId('branch-photo')).toHaveLength(1)
   })
 
   it('renders in-review thumbnails from the open pending edit add URLs with the correct counter', () => {

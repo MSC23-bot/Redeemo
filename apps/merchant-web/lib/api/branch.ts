@@ -35,10 +35,13 @@ const branchPhotoSchema = z
   .object({
     id: z.string(),
     url: z.string(),
-    // PR-3: drives the real per-photo render (was blanket-"Approved" in PR-1). The
-    // GET /branches/:id include ships `photos: true`, so every BranchPhoto column
-    // (incl. moderationStatus) is on the payload.
-    moderationStatus: photoModerationStatusSchema.optional(),
+    // PR-3: drives the real per-photo render (was blanket-"Approved" in PR-1). REQUIRED
+    // because the backend GUARANTEES it: BranchPhoto.moderationStatus is non-nullable
+    // (Prisma @default(PENDING)) and GET /branches/:id ships the whole row via
+    // `photos: true`, so every photo column (incl. moderationStatus) is always present.
+    // Requiring it tightens the merchant-web contract so a PENDING/FLAGGED row can never
+    // be mistaken for a live/approved one (P3 hardening).
+    moderationStatus: photoModerationStatusSchema,
   })
   .passthrough()
 
