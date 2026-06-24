@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Table, THead, TBody, TR, TH, TD, TableEmpty } from '@/components/ui/table'
 import { MapPin, Clock, CircleCheck, KeyRound, Plus, Grid3x3 } from '@/lib/icons'
 import { openNow, type OpeningHoursRow } from '@/lib/branches/openNow'
+import { formatDay } from '@/lib/branches/hoursFormat'
 import { isWithRedeemo } from '@/lib/branches/withRedeemo'
 import { AddBranchModal } from '@/components/branches/AddBranchModal'
 import type { Branch } from '@/lib/api/branch'
@@ -222,9 +223,10 @@ function AddBranchButton({ onClick }: { onClick: () => void }) {
 }
 
 // --- Today's-hours cell -----------------------------------------------------
-// Looks up TODAY's row (Europe/London weekday) and renders it as a friendly
-// "9am to 11pm" / "noon to 5pm" string, or "Closed". Reuses openNow's London
-// day-of-week derivation so the Today cell and the Open-now count agree.
+// Looks up TODAY's rows (Europe/London weekday) and renders ALL of that day's windows
+// as a friendly "9am to 2pm, 5pm to 11pm" string, or "Closed". Reuses openNow's London
+// day-of-week derivation so the Today cell and the Open-now count agree, and the shared
+// formatDay so the multi-window rendering matches the day-2 OpeningHoursCard table.
 
 const LONDON_WEEKDAY_MAP: Record<string, number> = {
   Sun: 0,
@@ -248,21 +250,6 @@ function londonDayOfWeek(now: Date): number {
 
 export function formatTodaysHours(openingHours: OpeningHoursRow[], now: Date): string {
   const dow = londonDayOfWeek(now)
-  const today = openingHours.find((h) => h.dayOfWeek === dow)
-  if (!today || today.isClosed || !today.openTime || !today.closeTime) return 'Closed'
-  return `${friendlyTime(today.openTime)} to ${friendlyTime(today.closeTime)}`
-}
-
-// "HH:MM" (24h) -> "9am" / "12:30pm" / "noon" / "midnight".
-function friendlyTime(hhmm: string): string {
-  const [hStr, mStr] = hhmm.split(':')
-  const h = Number(hStr)
-  const m = Number(mStr)
-  if (Number.isNaN(h)) return hhmm
-  if (m === 0 && h === 12) return 'noon'
-  if (m === 0 && (h === 0 || h === 24)) return 'midnight'
-  const period = h >= 12 && h < 24 ? 'pm' : 'am'
-  let hour12 = h % 12
-  if (hour12 === 0) hour12 = 12
-  return m === 0 ? `${hour12}${period}` : `${hour12}:${String(m).padStart(2, '0')}${period}`
+  if (dow < 0) return 'Closed'
+  return formatDay(openingHours, dow)
 }
