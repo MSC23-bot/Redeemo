@@ -613,7 +613,16 @@ model BranchOpeningHours {
 
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  @@unique([branchId, dayOfWeek])
+  // Branches PR-8 (umbrella D9): multi-window opening hours. The old
+  // @@unique([branchId, dayOfWeek]) enforced one window per day; it is dropped so a
+  // day can hold N windows (e.g. "9am-2pm, 5pm-11pm"). The non-unique replacement
+  // keeps the always-load-whole per-(branch, day) reads index-backed. Ordering is
+  // by (dayOfWeek asc, openTime asc) at read time — within a day the no-overlap
+  // rule makes openTime a unique, deterministic sort key, so no explicit
+  // sortOrder/windowIndex column is needed. Dropping the unique is effectively
+  // ONE-WAY once a branch has 2+ rows for a day (the down-migration cannot re-add
+  // the unique without collapsing windows).
+  @@index([branchId, dayOfWeek])
 }
 
 // Photo-moderation gate (Phase 0 PR-0.6). A branch photo is publicly visible

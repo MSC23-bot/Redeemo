@@ -1193,18 +1193,21 @@ async function seedDemoMerchantEnrichment(reviewerLocation: CustomerLocationSnap
         await prisma.branch.update({ where: { id: branchId }, data: updates })
       }
 
-      // Opening hours: idempotent via per-row upsert on the compound
-      // unique key. Matches the Covelum block pattern below (line ~1424)
-      // — no destructive mid-loop window. Schema has
-      // @@unique([branchId, dayOfWeek]) so split sessions are not
-      // expressible (deferred to §SE.1).
-      for (const oh of b.openingHours) {
-        await prisma.branchOpeningHours.upsert({
-          where:  { branchId_dayOfWeek: { branchId, dayOfWeek: oh.dayOfWeek } },
-          update: { openTime: oh.openTime, closeTime: oh.closeTime, isClosed: oh.isClosed },
-          create: { branchId, dayOfWeek: oh.dayOfWeek, openTime: oh.openTime, closeTime: oh.closeTime, isClosed: oh.isClosed },
-        })
-      }
+      // Opening hours (Branches PR-8 multi-window): the @@unique([branchId,
+      // dayOfWeek]) is gone, so the old per-day upsert keyed on the composite no
+      // longer applies. Idempotent via delete-all-for-branch + createMany (the same
+      // replace-the-week mechanism the PR-4 promotion worker now uses). Split
+      // sessions (N windows per day) are now expressible.
+      await prisma.branchOpeningHours.deleteMany({ where: { branchId } })
+      await prisma.branchOpeningHours.createMany({
+        data: b.openingHours.map((oh) => ({
+          branchId,
+          dayOfWeek: oh.dayOfWeek,
+          openTime: oh.openTime,
+          closeTime: oh.closeTime,
+          isClosed: oh.isClosed,
+        })),
+      })
     }
   }
   console.log(
@@ -1256,13 +1259,12 @@ async function seedDemoMerchantEnrichment(reviewerLocation: CustomerLocationSnap
     { dayOfWeek: 5, openTime: '12:00', closeTime: '22:30', isClosed: false }, // Fri
     { dayOfWeek: 6, openTime: '12:00', closeTime: '22:30', isClosed: false }, // Sat
   ]
-  for (const h of mainBranchHours) {
-    await prisma.branchOpeningHours.upsert({
-      where:  { branchId_dayOfWeek: { branchId: COVELUM_MAIN_BRANCH_ID, dayOfWeek: h.dayOfWeek } },
-      update: { openTime: h.openTime, closeTime: h.closeTime, isClosed: h.isClosed },
-      create: { branchId: COVELUM_MAIN_BRANCH_ID, ...h },
-    })
-  }
+  // Branches PR-8 multi-window: replace-the-week via delete-all-for-branch +
+  // createMany (the @@unique([branchId, dayOfWeek]) is dropped).
+  await prisma.branchOpeningHours.deleteMany({ where: { branchId: COVELUM_MAIN_BRANCH_ID } })
+  await prisma.branchOpeningHours.createMany({
+    data: mainBranchHours.map((h) => ({ branchId: COVELUM_MAIN_BRANCH_ID, ...h })),
+  })
 
   // ── 3. Photos for the main branch ──
   // BranchPhoto has no compound unique on (branchId, url), so re-runs
@@ -1316,13 +1318,12 @@ async function seedDemoMerchantEnrichment(reviewerLocation: CustomerLocationSnap
     { dayOfWeek: 5, openTime: '12:00', closeTime: '22:30', isClosed: false }, // Fri
     { dayOfWeek: 6, openTime: '12:00', closeTime: '22:30', isClosed: false }, // Sat
   ]
-  for (const h of secondBranchHours) {
-    await prisma.branchOpeningHours.upsert({
-      where:  { branchId_dayOfWeek: { branchId: COVELUM_2ND_BRANCH_ID, dayOfWeek: h.dayOfWeek } },
-      update: { openTime: h.openTime, closeTime: h.closeTime, isClosed: h.isClosed },
-      create: { branchId: COVELUM_2ND_BRANCH_ID, ...h },
-    })
-  }
+  // Branches PR-8 multi-window: replace-the-week via delete-all-for-branch +
+  // createMany (the @@unique([branchId, dayOfWeek]) is dropped).
+  await prisma.branchOpeningHours.deleteMany({ where: { branchId: COVELUM_2ND_BRANCH_ID } })
+  await prisma.branchOpeningHours.createMany({
+    data: secondBranchHours.map((h) => ({ branchId: COVELUM_2ND_BRANCH_ID, ...h })),
+  })
 
   // ── 5. Reviewer dev users + reviews ──
   // Review.@@unique([userId, branchId]) means each user can only review

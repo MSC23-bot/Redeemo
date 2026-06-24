@@ -742,26 +742,23 @@ async function seedDemo() {
         },
       })
 
-      // Opening hours (one row per dayOfWeek)
-      for (const h of b.hours) {
-        const [dayOfWeek, open, close] = h
-        const isClosed = open === 'closed'
-        await prisma.branchOpeningHours.upsert({
-          where: { branchId_dayOfWeek: { branchId, dayOfWeek: dayOfWeek as number } },
-          update: {
-            openTime: isClosed ? null : open,
-            closeTime: isClosed ? null : (close as string),
-            isClosed,
-          },
-          create: {
+      // Opening hours (Branches PR-8 multi-window): the @@unique([branchId,
+      // dayOfWeek]) is dropped, so the old per-day upsert keyed on the composite no
+      // longer applies. Replace-the-week via delete-all-for-branch + createMany.
+      await prisma.branchOpeningHours.deleteMany({ where: { branchId } })
+      await prisma.branchOpeningHours.createMany({
+        data: b.hours.map((h) => {
+          const [dayOfWeek, open, close] = h
+          const isClosed = open === 'closed'
+          return {
             branchId,
             dayOfWeek: dayOfWeek as number,
             openTime: isClosed ? null : open,
             closeTime: isClosed ? null : (close as string),
             isClosed,
-          },
-        })
-      }
+          }
+        }),
+      })
 
       // Amenities
       for (const name of b.amenityNames) {

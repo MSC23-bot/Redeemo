@@ -5,8 +5,9 @@
 // A merchant hours edit STAGES a durable BranchOpeningHoursPending row
 // (proposedHours + effectiveAt = stage time + 2h) instead of writing the live
 // BranchOpeningHours immediately (see src/api/merchant/branch/service.ts
-// setOpeningHours). The pending row is promoted into the live single-window
-// BranchOpeningHours at effectiveAt by TWO layers, both on MAINTENANCE_QUEUE:
+// setOpeningHours). The pending row is promoted into the live (Branches PR-8:
+// MULTI-WINDOW) BranchOpeningHours at effectiveAt by TWO layers, both on
+// MAINTENANCE_QUEUE:
 //
 //   1. a per-record DELAYED nudge enqueued at stage time
 //      (enqueue(MAINTENANCE_QUEUE, { pendingId }, { jobId, delay: 2h })) — the
@@ -86,9 +87,10 @@ export interface PromoteSweepResult {
  *   2. Promote ONLY if it is still `status='PENDING'` AND `effectiveAt <= now` —
  *      so a cancel that landed first wins (non-PENDING ⇒ no-op) and a not-yet-due
  *      delayed misfire is a no-op. Idempotent: a second run sees PROMOTED ⇒ no-op.
- *   3. UPSERT each day of `proposedHours` into the LIVE BranchOpeningHours (the
- *      exact per-day `branchOpeningHours.upsert` keyed on `branchId_dayOfWeek` that
- *      setOpeningHours did BEFORE PR-4) — the live hours change ONLY here.
+ *   3. REPLACE the LIVE BranchOpeningHours for the branch with `proposedHours`:
+ *      delete-all-for-branch + createMany (N rows per day under the PR-8 multi-window
+ *      model — the old per-day upsert keyed on `branchId_dayOfWeek` is GONE because
+ *      PR-8 dropped that unique). The live hours change ONLY here.
  *   4. Flip the pending row to `status='PROMOTED'`, `promotedAt=now`.
  *
  * Returns true if this call promoted the row, false if it was a no-op (already
@@ -110,20 +112,30 @@ export async function promoteOnePendingHours(
     if (pending.status !== 'PENDING') return false
     if (pending.effectiveAt.getTime() > now.getTime()) return false
 
-    // (3) UPSERT each day into the LIVE BranchOpeningHours — the SAME per-day upsert
-    // shape setOpeningHours used before PR-4 (create/update keyed on
-    // branchId_dayOfWeek). proposedHours was validated by validateOpeningHours at
-    // stage time, so it is a well-formed single-window weekly schedule.
+    // (3) REPLACE the LIVE BranchOpeningHours for the branch with the proposed week.
+    // Branches PR-8 (D9): the live model is now MULTI-WINDOW (the
+    // `@@unique([branchId, dayOfWeek])` was dropped), so the prior per-day upsert
+    // keyed on `branchId_dayOfWeek` no longer compiles/applies. The promotion now
+    // does delete-all-rows-for-this-branch + createMany (N rows/day) inside this same
+    // transaction so the swap is atomic. proposedHours was validated by
+    // validateOpeningHours at stage time; PR-4 staged a single-window-per-day JSON,
+    // which is a valid multi-row subset (one window per day), so the createMany is a
+    // straight pass-through.
     const proposed = (pending.proposedHours ?? []) as unknown as ProposedDay[]
-    for (const { dayOfWeek, openTime, closeTime, isClosed } of proposed) {
-      await tx.branchOpeningHours.upsert({
-        where: { branchId_dayOfWeek: { branchId: pending.branchId, dayOfWeek } },
-        create: { branchId: pending.branchId, dayOfWeek, openTime, closeTime, isClosed },
-        update: { openTime, closeTime, isClosed },
+    await tx.branchOpeningHours.deleteMany({ where: { branchId: pending.branchId } })
+    if (proposed.length > 0) {
+      await tx.branchOpeningHours.createMany({
+        data: proposed.map(({ dayOfWeek, openTime, closeTime, isClosed }) => ({
+          branchId: pending.branchId,
+          dayOfWeek,
+          openTime: openTime ?? null,
+          closeTime: closeTime ?? null,
+          isClosed,
+        })),
       })
     }
 
-    // (4) Flip the durable row PROMOTED in the SAME transaction as the live upsert.
+    // (4) Flip the durable row PROMOTED in the SAME transaction as the live replace.
     await tx.branchOpeningHoursPending.update({
       where: { id: pendingId },
       data: { status: 'PROMOTED', promotedAt: now },
