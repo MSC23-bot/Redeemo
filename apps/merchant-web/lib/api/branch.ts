@@ -88,6 +88,29 @@ export const branchPendingEditSchema = z
 
 export type BranchPendingEdit = z.infer<typeof branchPendingEditSchema>
 
+// --- Pending opening-hours (PR-4 cool-off staging) --------------------------
+// Branches PR-4 (§3 / §6-data): the durable BranchOpeningHoursPending row that
+// stages an hours change for the 2-hour customer cool-off. getBranch / listBranches
+// surface AT MOST ONE PENDING row per branch (the backend `take:1` over the partial
+// unique). proposedHours is the SAME single-window weekly payload the live hours use
+// (Array<{ dayOfWeek, openTime?, closeTime?, isClosed }>), and effectiveAt is the
+// go-live time (= stage time + 2h, serialized as an ISO string). status is always
+// PENDING on this payload (PROMOTED / CANCELLED rows are not exposed). The merchant
+// keeps seeing the LIVE openingHours table until promotion; this drives the
+// "goes live at" banner. .passthrough() so any future server key does not break parse.
+export const pendingHoursStatusSchema = z.enum(['PENDING', 'PROMOTED', 'CANCELLED'])
+
+export const branchPendingHoursSchema = z
+  .object({
+    id: z.string(),
+    proposedHours: z.array(branchOpeningHoursSchema),
+    effectiveAt: z.string(),
+    status: pendingHoursStatusSchema,
+  })
+  .passthrough()
+
+export type BranchPendingHours = z.infer<typeof branchPendingHoursSchema>
+
 export const branchSchema = z
   .object({
     id: z.string(),
@@ -113,6 +136,10 @@ export const branchSchema = z
     amenities: z.array(branchAmenityLinkSchema).optional(),
     photos: z.array(branchPhotoSchema).optional(),
     pendingEdits: z.array(branchPendingEditSchema).optional(), // PENDING-only on list + detail
+    // PR-4: the current staged opening-hours cool-off change. Backend `take:1` over
+    // the partial unique, so this is an array of 0..1 PENDING rows. Optional so a
+    // payload without it (older backend / list rows) still parses cleanly.
+    pendingHours: z.array(branchPendingHoursSchema).optional(),
   })
   .passthrough()
 
@@ -246,12 +273,49 @@ export async function withdrawBranchEditRequest(
 // --- Opening hours ----------------------------------------------------------
 // POST /api/v1/merchant/branches/:id/hours, body { hours }. Single-period-per-day;
 // closed rows OMIT openTime/closeTime. Server-validated by B4.
+//
+// PR-4: the POST is now STAGE-not-apply on the backend. It writes a durable
+// BranchOpeningHoursPending row (effectiveAt = now + 2h) and returns it; the live
+// hours stay unchanged until a worker promotes the row after the 2-hour customer
+// cool-off. setBranchHours is the untyped onboarding caller (the onboarding flow
+// fires it during the draft window and ignores the response). stageBranchHours is
+// the typed PR-4 day-2 caller that parses the staged pending record so the
+// merchant-web banner renders it immediately. Both hit the same route.
 export async function setBranchHours(branchId: string, hours: HoursPayloadRow[]): Promise<unknown> {
   return apiFetch(`/api/v1/merchant/branches/${branchId}/hours`, {
     method: 'POST',
     auth: true,
     body: JSON.stringify({ hours }),
   })
+}
+
+// STAGE a day-2 hours change (PR-4 §6). A second stage SUPERSEDES the prior PENDING
+// row (the backend cancels it and re-stages with a fresh effectiveAt). Server-enforced
+// auth: OWNER any branch / assigned BRANCH_MANAGER / STAFF denied. Returns the staged
+// pending record (proposed weekly hours + effectiveAt go-live time).
+export async function stageBranchHours(
+  branchId: string,
+  hours: HoursPayloadRow[],
+): Promise<BranchPendingHours> {
+  const res = await apiFetch(`/api/v1/merchant/branches/${branchId}/hours`, {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ hours }),
+  })
+  return branchPendingHoursSchema.parse(res)
+}
+
+// CANCEL the staged change: DELETE /api/v1/merchant/branches/:id/hours/pending.
+// Marks the branch's PENDING row CANCELLED before it promotes; the live hours are
+// untouched (they only ever change on promotion). 404 PENDING_HOURS_NOT_FOUND when
+// there is no PENDING row (e.g. it already promoted or was cancelled in another tab).
+// Returns { ok: true }. Same branch-management WRITE boundary as the stage write.
+export async function cancelPendingHours(branchId: string): Promise<{ ok: true }> {
+  await apiFetch(`/api/v1/merchant/branches/${branchId}/hours/pending`, {
+    method: 'DELETE',
+    auth: true,
+  })
+  return { ok: true }
 }
 
 // --- Amenities --------------------------------------------------------------
