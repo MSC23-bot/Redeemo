@@ -28,6 +28,8 @@ import {
   listFavouriteBranches,
 } from '../../../src/api/customer/favourites/service'
 import { resolveSelectedBranch } from '../../../src/api/customer/discovery/branch-resolver'
+import { createRedemption } from '../../../src/api/redemption/service'
+import { encrypt } from '../../../src/api/shared/encryption'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
@@ -35,11 +37,30 @@ const prisma = new PrismaClient({ adapter })
 const P = 'pr5-excl-'
 const USER_ID = `${P}user-1`
 const MERCHANT_ID = `${P}m-1`
+const VOUCHER_ID = `${P}v-1`
+const PIN = '1234'
 const ID = {
   live:          `${P}b-live`,
   pendingCreate: `${P}b-pendingcreate`,
   pendingClose:  `${P}b-pendingclose`,
 }
+
+// In-memory redis shim. createRedemption only touches redis on / after the
+// PIN-compare step, which is BELOW the branch-lifecycle gate (line ~131 of
+// service.ts). For the PENDING_CREATE rejection these are never called; for
+// the flipped-to-LIVE happy path they no-op the rate-limit counter cleanly.
+function inMemoryRedisShim(): any {
+  return {
+    get:    async () => null,
+    incr:   async () => 1,
+    expire: async () => 1,
+    del:    async () => 1,
+    ttl:    async () => 900,
+    set:    async () => 'OK',
+  }
+}
+
+const REDEEM_CTX = { ipAddress: '127.0.0.1', userAgent: 'test' }
 
 function branchData(suffix: string, isMain: boolean, lifecycleStatus: string, isActive = true) {
   return {
@@ -52,6 +73,9 @@ function branchData(suffix: string, isMain: boolean, lifecycleStatus: string, is
     country: 'GB',
     isActive,
     isTestData: false,
+    // Real ciphertext via the shared helper; decrypt() inside createRedemption
+    // round-trips it back to PIN when the happy path reaches the PIN compare.
+    redemptionPin: encrypt(PIN),
     lifecycleStatus: lifecycleStatus as any,
     locationConfidence: 'MANUALLY_CONFIRMED' as const,
     latitude: 53.6463,
@@ -64,8 +88,14 @@ function branchData(suffix: string, isMain: boolean, lifecycleStatus: string, is
 }
 
 async function cleanup() {
+  // FK-safe order: redemptions + cycle states + subscription depend on the
+  // user / voucher / branch rows, so they are deleted first.
+  await prisma.voucherRedemption.deleteMany({ where: { userId: USER_ID } })
+  await prisma.userVoucherCycleState.deleteMany({ where: { userId: USER_ID } })
   await prisma.favouriteBranch.deleteMany({ where: { userId: USER_ID } })
   await prisma.review.deleteMany({ where: { userId: USER_ID } })
+  await prisma.subscription.deleteMany({ where: { userId: USER_ID } })
+  await prisma.voucher.deleteMany({ where: { id: { startsWith: `${P}v-` } } })
   await prisma.branch.deleteMany({ where: { id: { startsWith: `${P}b-` } } })
   await prisma.merchant.deleteMany({ where: { id: { startsWith: `${P}m-` } } })
   await prisma.user.deleteMany({ where: { id: USER_ID } })
@@ -74,7 +104,16 @@ async function cleanup() {
 beforeAll(async () => {
   await cleanup()
   await prisma.user.create({
-    data: { id: USER_ID, email: `${P}reviewer@example.test`, passwordHash: 'x', status: 'ACTIVE', firstName: 'PR5' },
+    data: {
+      id: USER_ID,
+      email: `${P}reviewer@example.test`,
+      passwordHash: 'x',
+      status: 'ACTIVE',
+      firstName: 'PR5',
+      // phoneVerified so the redemption happy path clears the phone gate
+      // (gate 6, which sits BELOW the branch-lifecycle gate).
+      phoneVerified: true,
+    },
   })
   await prisma.merchant.create({
     data: {
@@ -91,6 +130,53 @@ beforeAll(async () => {
           branchData('pendingclose', false, 'PENDING_CLOSE'),
         ],
       },
+    },
+  })
+
+  // Redemption fixtures (for the createRedemption lifecycle-gate case below).
+  // An ACTIVE + APPROVED non-TIME_LIMITED voucher on the active merchant clears
+  // redemption gates 1 / 2 / 3 so the branch-lifecycle gate (gate 3b, line ~131
+  // of service.ts) is the next thing checked.
+  await prisma.voucher.create({
+    data: {
+      id: VOUCHER_ID,
+      merchantId: MERCHANT_ID,
+      code: `${P}voucher-code`,
+      title: 'PR5 Excl voucher',
+      description: 'Redemption lifecycle-gate fixture',
+      type: 'BOGO',
+      estimatedSaving: '5.00',
+      status: 'ACTIVE',
+      approvalStatus: 'APPROVED',
+      isTestData: false,
+    },
+  })
+
+  // Reuse a seeded SubscriptionPlan if one exists; otherwise create a throwaway.
+  let plan = await prisma.subscriptionPlan.findFirst({ select: { id: true } })
+  if (!plan) {
+    plan = await prisma.subscriptionPlan.create({
+      data: {
+        name: 'PR5 Excl test plan',
+        priceGbp: '0.00',
+        billingInterval: 'MONTHLY',
+        stripePriceId: `pr5-excl-price-${Date.now()}`,
+        isActive: true,
+      },
+      select: { id: true },
+    })
+  }
+  const now = new Date()
+  const periodEnd = new Date(now)
+  periodEnd.setFullYear(periodEnd.getFullYear() + 1)
+  await prisma.subscription.create({
+    data: {
+      userId: USER_ID,
+      planId: plan.id,
+      status: 'ACTIVE',
+      currentPeriodStart: now,
+      currentPeriodEnd: periodEnd,
+      cycleAnchorDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
     },
   })
 })
@@ -204,5 +290,48 @@ describe('Branches PR-5 §5 — PENDING_CREATE excluded / PENDING_CLOSE visible 
     expect(pendingCloseReviews.total).toBe(1)
 
     await prisma.review.deleteMany({ where: { userId: USER_ID } })
+  })
+
+  it('createRedemption (redemption hot-path) REJECTS a PENDING_CREATE branch with BRANCH_UNAVAILABLE; the SAME branch flipped to LIVE clears the lifecycle gate', async () => {
+    const redis = inMemoryRedisShim()
+
+    // The fixture voucher (ACTIVE + APPROVED, non-TIME_LIMITED) clears
+    // redemption gates 1 / 2 / 3; the user has an ACTIVE subscription, a
+    // verified phone, and every branch carries a valid PIN. So the ONLY thing
+    // that can make the PENDING_CREATE attempt fail with BRANCH_UNAVAILABLE is
+    // the branch-lifecycle gate itself (service.ts line ~131), NOT a missing
+    // precondition.
+    await expect(
+      createRedemption(
+        prisma,
+        redis,
+        USER_ID,
+        { voucherId: VOUCHER_ID, branchId: ID.pendingCreate, pin: PIN },
+        REDEEM_CTX,
+      ),
+    ).rejects.toThrow(expect.objectContaining({ code: 'BRANCH_UNAVAILABLE' }))
+
+    // Flip the SAME branch to LIVE (and isActive=true, as an approval would).
+    // The lifecycle gate must no longer reject it: a real redemption now
+    // succeeds end-to-end (it never throws BRANCH_UNAVAILABLE).
+    await prisma.branch.update({
+      where: { id: ID.pendingCreate },
+      data: { lifecycleStatus: 'LIVE' as any, isActive: true },
+    })
+
+    const result: any = await createRedemption(
+      prisma,
+      redis,
+      USER_ID,
+      { voucherId: VOUCHER_ID, branchId: ID.pendingCreate, pin: PIN },
+      REDEEM_CTX,
+    )
+    expect(result.redemptionCode).toBeTruthy()
+    expect(result.branchId).toBe(ID.pendingCreate)
+
+    // Local teardown of the rows this case created (afterAll repeats this for
+    // the shared dev DB; doing it here keeps the case self-contained).
+    await prisma.voucherRedemption.deleteMany({ where: { userId: USER_ID } })
+    await prisma.userVoucherCycleState.deleteMany({ where: { userId: USER_ID } })
   })
 })
