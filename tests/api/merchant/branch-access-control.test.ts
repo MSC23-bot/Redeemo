@@ -99,6 +99,9 @@ describe('branch write-route authorization matrix — Staff & Access PR-2 (D3)',
 
   const owner = () => membershipRow('OWNER', true, [])
   const bm = (status = 'ACTIVE') => membershipRow('BRANCH_MANAGER', false, [ASSIGNED_BRANCH], status)
+  // STAFF assigned to the branch: view/validate-only. Must be DENIED every
+  // branch-management WRITE even on its OWN assigned branch (the P1 boundary).
+  const staff = (status = 'ACTIVE') => membershipRow('STAFF', false, [ASSIGNED_BRANCH], status)
 
   function inject(a: FastifyInstance, token: string, method: any, url: string, payload?: unknown) {
     const opts: Record<string, unknown> = { method, url, headers: { authorization: `Bearer ${token}` } }
@@ -293,5 +296,47 @@ describe('branch write-route authorization matrix — Staff & Access PR-2 (D3)',
     const res = await inject(made.app, made.token, 'POST', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}/amenities`, { amenityIds: ['a1'] })
     expect(JSON.parse(res.body).error.code).toBe('MERCHANT_SUSPENDED')
     expect(made.prismaMock.branchAmenity.deleteMany).not.toHaveBeenCalled()
+  })
+
+  // ── STAFF (view/validate-only): DENIED every branch-management WRITE even on its
+  //    OWN ASSIGNED branch — the P1 boundary assertBranchAllowed did NOT enforce.
+  //    READ of an assigned branch (GET /branches/:id) stays allowed. ──────────────
+
+  it('STAFF -> contact PATCH on ASSIGNED branch -> 403 INSUFFICIENT_PERMISSIONS (no branch write)', async () => {
+    const made = await makeApp(staff()); app = made.app
+    const res = await inject(made.app, made.token, 'PATCH', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}`, { phone: '+44222' })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+    expect(made.prismaMock.branch.update).not.toHaveBeenCalled()
+  })
+
+  it('STAFF -> edit-request submit on ASSIGNED branch -> 403 INSUFFICIENT_PERMISSIONS (no pending-edit write)', async () => {
+    const made = await makeApp(staff()); app = made.app
+    const res = await inject(made.app, made.token, 'POST', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}/edit-request`, { name: 'Staff Rename' })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+    expect(made.prismaMock.branchPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('STAFF -> PIN PUT on ASSIGNED branch -> 403 INSUFFICIENT_PERMISSIONS (no branch write)', async () => {
+    const made = await makeApp(staff()); app = made.app
+    const res = await inject(made.app, made.token, 'PUT', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}/pin`, { pin: '1234' })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+    expect(made.prismaMock.branch.update).not.toHaveBeenCalled()
+  })
+
+  it('STAFF -> amenities POST on ASSIGNED branch -> 403 INSUFFICIENT_PERMISSIONS (no amenity write)', async () => {
+    const made = await makeApp(staff()); app = made.app
+    const res = await inject(made.app, made.token, 'POST', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}/amenities`, { amenityIds: ['a1'] })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+    expect(made.prismaMock.branchAmenity.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('STAFF -> READ GET /branches/:id on ASSIGNED branch still allowed (200) — read/write asymmetry locked', async () => {
+    const made = await makeApp(staff()); app = made.app
+    const res = await inject(made.app, made.token, 'GET', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}`)
+    expect(res.statusCode).toBe(200)
   })
 })
