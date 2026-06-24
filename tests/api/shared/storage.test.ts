@@ -241,6 +241,41 @@ describe('storage — publicUrl', () => {
   })
 })
 
+describe('storage — parsePublicUrl (P1 add-URL ownership inverse of publicUrl)', () => {
+  beforeEach(enableStorage) // sets R2_PUBLIC_BASE_URL = https://media.redeemo.co.uk
+
+  it('inverts publicUrl(key) back to { kind, ownerId } (round-trip)', () => {
+    const url = storage.publicUrl(`photo/${OWNER}/abcdef0123456789.png`)
+    expect(storage.parsePublicUrl(url)).toEqual({ kind: 'photo', ownerId: OWNER })
+  })
+
+  it('parses a valid owned URL for each public kind', () => {
+    expect(storage.parsePublicUrl('https://media.redeemo.co.uk/logo/o/x.png')).toEqual({ kind: 'logo', ownerId: 'o' })
+    expect(storage.parsePublicUrl('https://media.redeemo.co.uk/banner/o/x.jpg')).toEqual({ kind: 'banner', ownerId: 'o' })
+  })
+
+  it('returns null for an EXTERNAL origin', () => {
+    expect(storage.parsePublicUrl('https://evil.com/photo/o/x.png')).toBeNull()
+  })
+
+  it('returns null for a MALFORMED / extra-segment / traversal key', () => {
+    expect(storage.parsePublicUrl('https://media.redeemo.co.uk/photo/o/a/b.png')).toBeNull() // extra segment
+    expect(storage.parsePublicUrl('https://media.redeemo.co.uk/photo//x.png')).toBeNull()     // empty ownerId segment
+    expect(storage.parsePublicUrl('https://media.redeemo.co.uk/photo/o/x')).toBeNull()         // no extension
+    expect(storage.parsePublicUrl('https://media.redeemo.co.uk/photo/o/..%2f')).toBeNull()     // traversal
+  })
+
+  it('returns null for an empty string and a base-only URL', () => {
+    expect(storage.parsePublicUrl('')).toBeNull()
+    expect(storage.parsePublicUrl('https://media.redeemo.co.uk/')).toBeNull()
+  })
+
+  it('returns null when R2_PUBLIC_BASE_URL is unset (no origin to anchor against)', () => {
+    delete process.env.R2_PUBLIC_BASE_URL
+    expect(storage.parsePublicUrl('https://media.redeemo.co.uk/photo/o/x.png')).toBeNull()
+  })
+})
+
 describe('storage - putObject (B4 server-proxied upload)', () => {
   beforeEach(enableStorage)
 

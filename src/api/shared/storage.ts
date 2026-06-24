@@ -272,3 +272,30 @@ export function publicUrl(key: string): string {
   if (!base) throw new Error('[storage] R2_PUBLIC_BASE_URL is not set')
   return `${base}/${key}`
 }
+
+// A public URL we minted is EXACTLY `${R2_PUBLIC_BASE_URL}/<kind>/<ownerId>/<rand>.<ext>`
+// (the inverse of `publicUrl(putObject-key)`). This is the SAME `kind/ownerId/<segment>.<ext>`
+// shape `KEY_RE` enforces, restated here as a single capturing match against the
+// post-base key tail (ownerId reuses the OWNER_ID_RE charset). Matching the WHOLE
+// tail rejects extra `/` segments, `..`, leading/trailing slashes, and a missing
+// extension — so a caller-supplied URL can never claim to be one of our objects
+// unless it actually parses back to our origin + scheme.
+const PUBLIC_KEY_RE = /^([a-z]+)\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.[A-Za-z0-9]+)$/
+
+/**
+ * Parse a public object URL back to its `{ kind, ownerId }`. Returns null for
+ * anything that is NOT one of our minted public URLs: a different origin, a
+ * malformed key, extra path segments, traversal, or a missing extension. Pure +
+ * env-driven (reads R2_PUBLIC_BASE_URL at call time, mirroring `publicUrl`), so a
+ * caller can verify a URL is an OWNED upload of a given kind/owner WITHOUT a DB or
+ * storage round-trip.
+ */
+export function parsePublicUrl(url: string): { kind: string; ownerId: string } | null {
+  if (typeof url !== 'string' || url.length === 0) return null
+  const base = (process.env.R2_PUBLIC_BASE_URL ?? '').replace(/\/+$/, '')
+  if (!base || !url.startsWith(base + '/')) return null
+  const key = url.slice(base.length + 1)
+  const m = PUBLIC_KEY_RE.exec(key)
+  if (!m) return null
+  return { kind: m[1], ownerId: m[2] }
+}

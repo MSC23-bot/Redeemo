@@ -274,7 +274,22 @@ describe('Branches PR-3 §6c — branch-scoped photo upload role matrix', () => 
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Branches PR-3 §6a — photo edit-request (add-via-review) role matrix', () => {
   let app: FastifyInstance | null = null
-  afterEach(async () => { if (app) { await app.close(); app = null } })
+  let savedPublicBase: string | undefined
+
+  // P1 trust-boundary fix: `add` URLs are now validated against R2_PUBLIC_BASE_URL
+  // (parsePublicUrl). Set the SAME base the §6c upload uses so a `photo/m1/...` URL
+  // parses back to { kind:'photo', ownerId:'m1' } — keeping the existing allowed
+  // pins (which pass `https://cdn.example/photo/m1/x.png`) consistent with the gate.
+  beforeEach(() => {
+    savedPublicBase = process.env.R2_PUBLIC_BASE_URL
+    process.env.R2_PUBLIC_BASE_URL = 'https://cdn.example'
+  })
+
+  afterEach(async () => {
+    if (app) { await app.close(); app = null }
+    if (savedPublicBase === undefined) delete process.env.R2_PUBLIC_BASE_URL
+    else process.env.R2_PUBLIC_BASE_URL = savedPublicBase
+  })
 
   const editReqUrl = (b: string) => `/api/v1/merchant/branches/${b}/photos/edit-request`
 
@@ -345,6 +360,81 @@ describe('Branches PR-3 §6a — photo edit-request (add-via-review) role matrix
     const made = await makeApp(membershipRow('BRANCH_MANAGER', false, [ASSIGNED_BRANCH], { status: 'SUSPENDED' })); app = made.app
     const res = await inject(made.app, made.token, 'POST', editReqUrl(ASSIGNED_BRANCH), { add: ['https://cdn.example/photo/m1/x.png'] })
     expect(JSON.parse(res.body).error.code).toBe('MERCHANT_SUSPENDED')
+    expect(made.prismaMock.branchPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  // ── P1 trust-boundary: `add` URLs must be OWNED uploads (parsePublicUrl) ───────
+  // An OWNER/BM can skip the upload route and POST arbitrary `add` URLs directly.
+  // Each must invert to { kind:'photo', ownerId:<thisMerchant=m1> } or be rejected
+  // with 400 INVALID_PHOTO_URL — NO branchPendingEdit row created — so an admin-apply
+  // can never materialise an unvalidated external image as an APPROVED branch photo.
+
+  it('ADD: a valid OWNED photo URL is ACCEPTED -> 201 (edit created)', async () => {
+    const made = await makeApp(owner()); app = made.app
+    const res = await inject(made.app, made.token, 'POST', editReqUrl(ASSIGNED_BRANCH), {
+      add: ['https://cdn.example/photo/m1/abcdef0123456789.png'],
+    })
+    expect(res.statusCode).toBe(201)
+    expect(made.prismaMock.branchPendingEdit.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('ADD: an EXTERNAL origin URL is REJECTED -> 400 INVALID_PHOTO_URL (nothing created)', async () => {
+    const made = await makeApp(owner()); app = made.app
+    const res = await inject(made.app, made.token, 'POST', editReqUrl(ASSIGNED_BRANCH), {
+      add: ['https://evil.com/photo/m1/x.png'],
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('INVALID_PHOTO_URL')
+    expect(made.prismaMock.branchPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('ADD: an OTHER-MERCHANT ownerId is REJECTED -> 400 INVALID_PHOTO_URL (nothing created)', async () => {
+    const made = await makeApp(owner()); app = made.app
+    const res = await inject(made.app, made.token, 'POST', editReqUrl(ASSIGNED_BRANCH), {
+      add: ['https://cdn.example/photo/m2/x.png'],
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('INVALID_PHOTO_URL')
+    expect(made.prismaMock.branchPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('ADD: an OTHER-KIND (logo) upload URL is REJECTED -> 400 INVALID_PHOTO_URL (nothing created)', async () => {
+    const made = await makeApp(owner()); app = made.app
+    const res = await inject(made.app, made.token, 'POST', editReqUrl(ASSIGNED_BRANCH), {
+      add: ['https://cdn.example/logo/m1/x.png'],
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('INVALID_PHOTO_URL')
+    expect(made.prismaMock.branchPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('ADD: a TRAVERSAL / extra-segment key is REJECTED -> 400 INVALID_PHOTO_URL (nothing created)', async () => {
+    const made = await makeApp(owner()); app = made.app
+    const res = await inject(made.app, made.token, 'POST', editReqUrl(ASSIGNED_BRANCH), {
+      add: ['https://cdn.example/photo/m1/a/b.png'],
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('INVALID_PHOTO_URL')
+    expect(made.prismaMock.branchPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('ADD: a no-extension key is REJECTED -> 400 INVALID_PHOTO_URL (nothing created)', async () => {
+    const made = await makeApp(owner()); app = made.app
+    const res = await inject(made.app, made.token, 'POST', editReqUrl(ASSIGNED_BRANCH), {
+      add: ['https://cdn.example/photo/m1/x'],
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('INVALID_PHOTO_URL')
+    expect(made.prismaMock.branchPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('ADD: a MIXED payload (one valid + one external) is rejected WHOLE -> 400 (nothing created)', async () => {
+    const made = await makeApp(owner()); app = made.app
+    const res = await inject(made.app, made.token, 'POST', editReqUrl(ASSIGNED_BRANCH), {
+      add: ['https://cdn.example/photo/m1/abcdef0123456789.png', 'https://evil.com/photo/m1/x.png'],
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('INVALID_PHOTO_URL')
     expect(made.prismaMock.branchPendingEdit.create).not.toHaveBeenCalled()
   })
 })

@@ -12,6 +12,7 @@ import {
   type EditActor,
 } from '../shared'
 import { encrypt, decrypt } from '../../shared/encryption'
+import { parsePublicUrl } from '../../shared/storage'
 import { resolvePostcode } from '../../lib/postcodeResolver'
 import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
 import { validateOpeningHours } from './openingHours'
@@ -534,7 +535,9 @@ export async function createBranchPhotoEditRequest(
   const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
 
-  // Branches PR-3 (§3 + D-PR3-1): `add` is newly-uploaded image URLs; `remove` is
+  // Branches PR-3 (§3 + D-PR3-1): `add` is image URLs validated as OWNED uploads our
+  // storage produced for THIS merchant's `photo` kind (external / other-merchant /
+  // other-kind URLs are rejected with INVALID_PHOTO_URL — see below); `remove` is
   // BranchPhoto IDs (NEVER URLs). Validate every `remove` id belongs to THIS branch
   // before storing — a foreign / unknown id is rejected so an admin-apply can never
   // resolve a cross-branch delete. (remove-by-ID, branch-scoped, data-loss-safe.)
@@ -549,6 +552,34 @@ export async function createBranchPhotoEditRequest(
     const ownedSet = new Set(owned.map((p) => p.id))
     const foreign = removeIds.filter((id) => !ownedSet.has(id))
     if (foreign.length > 0) throw new AppError('BRANCH_PHOTO_NOT_FOUND')
+  }
+
+  // Branches PR-3 (P1 trust-boundary fix): an `add` URL is NOT trusted from the
+  // request — it MUST be an OWNED upload our storage minted, i.e. a public URL that
+  // parses back (via parsePublicUrl) to kind `photo` AND ownerId === THIS merchantId.
+  // Branch-photo uploads (uploadBranchPhotoAsset -> uploadMerchantImage(kind:'photo',
+  // merchantId)) mint exactly `${R2_PUBLIC_BASE_URL}/photo/<merchantId>/<rand>.<ext>`,
+  // so a valid add URL inverts to { kind:'photo', ownerId:merchantId }. This rejects:
+  //   - an EXTERNAL origin / malformed / traversal key (parsePublicUrl -> null),
+  //   - an OTHER-KIND upload (logo / banner / document / voucher),
+  //   - an OTHER-MERCHANT photo (ownerId !== merchantId).
+  // Closing this means an admin-apply (editApplier) can only ever turn a
+  // server-validated owned asset into an APPROVED BranchPhoto, never an unvalidated
+  // external image that skipped the upload route's type/size/dimension checks.
+  //
+  // NOTE: the key encodes the OWNER (merchantId), NOT the branchId — so reusing the
+  // merchant's OWN validated photo asset across the merchant's OWN branches is
+  // permitted BY DESIGN (it is still an owned, validated image of the right kind).
+  // The persisted `proposedChanges` shape is unchanged ({ add, remove }); this is a
+  // gate, not a rewrite, and the editApplier trusts this validated-at-submission data.
+  const addUrls = Array.isArray(photoChanges.add)
+    ? photoChanges.add.filter((url): url is string => typeof url === 'string' && url.length > 0)
+    : []
+  for (const url of addUrls) {
+    const parsed = parsePublicUrl(url)
+    if (!parsed || parsed.kind !== 'photo' || parsed.ownerId !== merchantId) {
+      throw new AppError('INVALID_PHOTO_URL')
+    }
   }
 
   // Check for existing PENDING edit
