@@ -4,12 +4,13 @@ import type { FastifyInstance } from 'fastify'
 
 // Branches PR-3 (mini-spec §6a/§6b/§6c + §11): backend merchant routes/auth for the
 // photos review lane.
-//   - §6c branch-scoped photo-asset upload: gated by BRANCH ASSIGNMENT
-//     (resolveMerchantContext + assertBranchAllowed), NOT by canManageVouchers; the
-//     existing voucher kind:'photo' upload (assertCanManageVouchers) stays UNCHANGED.
-//   - §6a createBranchPhotoEditRequest migrated to resolveMerchantContext +
-//     assertBranchAllowed (OWNER any / BM assigned) + remove-by-ID branch-scope
-//     validation.
+//   - §6c branch-scoped photo-asset upload: a branch-management WRITE gated by
+//     assertCanManageBranch (OWNER any branch / BM assigned branch; STAFF DENIED even
+//     when assigned), NOT by canManageVouchers; the existing voucher kind:'photo'
+//     upload (assertCanManageVouchers) stays UNCHANGED.
+//   - §6a createBranchPhotoEditRequest gated by resolveMerchantContext +
+//     assertCanManageBranch (OWNER any / BM assigned; STAFF DENIED) + remove-by-ID
+//     branch-scope validation.
 //   - §6b instant photo-removal DELETE: OWNER-ONLY in v1, APPROVED-only, remove-by-ID.
 //
 // Modelled on branch-access-control.test.ts (the PR-2 role matrix) and
@@ -181,7 +182,7 @@ describe('Branches PR-3 §6c — branch-scoped photo upload role matrix', () => 
     expect(putObjectMock).toHaveBeenCalledTimes(1)
   })
 
-  it('BRANCH_MANAGER for an UNASSIGNED branch -> 403 (assertBranchAllowed; no upload)', async () => {
+  it('BRANCH_MANAGER for an UNASSIGNED branch -> 403 (assertCanManageBranch; no upload)', async () => {
     const made = await makeApp(bmNoMV()); app = made.app
     const res = await uploadTo(made.app, made.token, UNASSIGNED_BRANCH)
     expect(res.statusCode).toBe(403)
@@ -189,10 +190,25 @@ describe('Branches PR-3 §6c — branch-scoped photo upload role matrix', () => 
     expect(putObjectMock).not.toHaveBeenCalled()
   })
 
+  it('STAFF assigned to the branch is DENIED -> 403 (branch WRITE requires OWNER or BM; no upload)', async () => {
+    // P1 fix parity with PR-2: branch-photo upload is a branch-management WRITE, so
+    // assertCanManageBranch DENIES a portal STAFF member even when scoped to the
+    // target branch. STAFF is view/validate-only. The early route assert fires the
+    // 403 BEFORE any bytes are buffered, so the body is never consumed (no
+    // branch.findFirst) and putObject is never called.
+    const made = await makeApp(membershipRow('STAFF', false, [ASSIGNED_BRANCH])); app = made.app
+    const res = await uploadTo(made.app, made.token, ASSIGNED_BRANCH)
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+    expect(made.prismaMock.branch.findFirst).not.toHaveBeenCalled()
+    expect(putObjectMock).not.toHaveBeenCalled()
+  })
+
   it('FAIL-FAST: an UNASSIGNED-BM upload is 403 BEFORE the body is consumed (auth precedes buffering)', async () => {
-    // The route now resolves the merchant context + asserts branch scope BEFORE the
-    // parts()/toBuffer() loop (mirrors the voucher /uploads/:kind handler), so an
-    // authenticated-but-unassigned member is rejected before any file bytes are read.
+    // The route now resolves the merchant context + asserts branch-management WRITE
+    // permission BEFORE the parts()/toBuffer() loop (mirrors the voucher
+    // /uploads/:kind handler), so an authenticated-but-unauthorised member is rejected
+    // before any file bytes are read.
     //
     // We prove "auth ran first / body never consumed" structurally: the only path
     // that consumes the multipart body is the parts() loop, which is followed by the
@@ -215,10 +231,10 @@ describe('Branches PR-3 §6c — branch-scoped photo upload role matrix', () => 
     expect(putObjectMock).not.toHaveBeenCalled()
   })
 
-  it('any role for an UNASSIGNED branch -> 403 (assertBranchAllowed is the locked gate)', async () => {
-    // assertBranchAllowed is a branch-SCOPE check (allBranches || allowedBranchIds),
-    // not a role check — the locked §6c contract. A member not scoped to the target
-    // branch is denied regardless of role (here a STAFF row scoped elsewhere).
+  it('a member not scoped to the target branch -> 403 (assertCanManageBranch is the locked gate)', async () => {
+    // assertCanManageBranch denies BOTH on role (STAFF always) AND on scope (a BM not
+    // scoped to the target branch). Here a STAFF row scoped elsewhere is denied on
+    // both counts when targeting ASSIGNED_BRANCH — the locked §6c WRITE contract.
     const made = await makeApp(membershipRow('STAFF', false, ['b-elsewhere'])); app = made.app
     const res = await uploadTo(made.app, made.token, ASSIGNED_BRANCH)
     expect(res.statusCode).toBe(403)
@@ -269,7 +285,7 @@ describe('Branches PR-3 §6a — photo edit-request (add-via-review) role matrix
     expect(made.prismaMock.branchPendingEdit.create).toHaveBeenCalledTimes(1)
   })
 
-  it('BRANCH_MANAGER submits for an ASSIGNED branch -> 201 (assertBranchAllowed passes; no canManageVouchers needed)', async () => {
+  it('BRANCH_MANAGER submits for an ASSIGNED branch -> 201 (assertCanManageBranch passes; no canManageVouchers needed)', async () => {
     const made = await makeApp(bmNoMV()); app = made.app
     const res = await inject(made.app, made.token, 'POST', editReqUrl(ASSIGNED_BRANCH), { add: ['https://cdn.example/photo/m1/x.png'] })
     expect(res.statusCode).toBe(201)
@@ -279,6 +295,17 @@ describe('Branches PR-3 §6a — photo edit-request (add-via-review) role matrix
   it('BRANCH_MANAGER for an UNASSIGNED branch -> 403 (no edit-request created)', async () => {
     const made = await makeApp(bmNoMV()); app = made.app
     const res = await inject(made.app, made.token, 'POST', editReqUrl(UNASSIGNED_BRANCH), { add: ['https://cdn.example/photo/m1/x.png'] })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+    expect(made.prismaMock.branchPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('STAFF assigned to the branch is DENIED -> 403 (photo edit-request is a branch WRITE; no row created)', async () => {
+    // P1 fix parity with PR-2: submitting a photo edit-request is a branch-management
+    // WRITE, so assertCanManageBranch DENIES a portal STAFF member even when scoped to
+    // the target branch. STAFF is view/validate-only; no branchPendingEdit is created.
+    const made = await makeApp(membershipRow('STAFF', false, [ASSIGNED_BRANCH])); app = made.app
+    const res = await inject(made.app, made.token, 'POST', editReqUrl(ASSIGNED_BRANCH), { add: ['https://cdn.example/photo/m1/x.png'] })
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
     expect(made.prismaMock.branchPendingEdit.create).not.toHaveBeenCalled()

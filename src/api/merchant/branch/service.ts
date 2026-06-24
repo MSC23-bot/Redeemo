@@ -523,13 +523,14 @@ export async function createBranchPhotoEditRequest(
   ctx: { ipAddress: string; userAgent: string }
 ) {
   // Branches PR-3 (§6a, D-PR3-4 add-via-review): submitting a photo review request
-  // is BM-scoped per umbrella D3 — OWNER (any branch) OR BRANCH_MANAGER (assigned
-  // branch), completable WITHOUT canManageVouchers. Migrated from the owner-only
-  // resolveAdminMerchant to the role-aware resolver + assertBranchAllowed (which
-  // runs BEFORE any write, so a BM can never act on an unassigned branch). Mirrors
-  // the PR-2 createBranchEditRequest migration; keeps the SEC-M2 suspended guard.
+  // is a branch-management WRITE per umbrella D3 — OWNER (any branch) OR
+  // BRANCH_MANAGER (assigned branch), completable WITHOUT canManageVouchers; a portal
+  // STAFF member is DENIED even when assigned. Uses the role-aware resolver +
+  // assertCanManageBranch (which runs BEFORE any write, so a BM can never act on an
+  // unassigned branch and STAFF can never submit a photo edit). Mirrors the PR-2
+  // createBranchEditRequest write guard; keeps the SEC-M2 suspended guard.
   const ctxMerchant = await resolveMerchantContext(prisma, adminId)
-  assertBranchAllowed(ctxMerchant, branchId)
+  assertCanManageBranch(ctxMerchant, branchId)
   const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
 
@@ -586,10 +587,13 @@ export async function createBranchPhotoEditRequest(
 
 /**
  * Branches PR-3 (§6c, D-PR3-4 add-via-review): branch-scoped photo-ASSET upload.
- * Gated by BRANCH ASSIGNMENT, not voucher delegation: OWNER may upload for ANY
- * branch; BRANCH_MANAGER may upload ONLY for ASSIGNED branches; NEITHER requires
- * canManageVouchers. assertBranchAllowed runs BEFORE any bytes are written, so a BM
- * can never upload against an unassigned branch.
+ * Gated by BRANCH MANAGEMENT, not voucher delegation: OWNER may upload for ANY
+ * branch; BRANCH_MANAGER may upload ONLY for ASSIGNED branches; a portal STAFF
+ * member is DENIED even when assigned; NEITHER allowed role requires
+ * canManageVouchers. assertCanManageBranch runs BEFORE any bytes are written, so a
+ * BM can never upload against an unassigned branch and STAFF can never upload at all
+ * (this is a branch-management WRITE — adding a photo via review is content authoring,
+ * not view/validate).
  *
  * Deliberately ISOLATED from the voucher `kind:'photo'` upload (which keeps its
  * assertCanManageVouchers gate UNCHANGED — see src/api/merchant/upload/routes.ts):
@@ -600,7 +604,7 @@ export async function createBranchPhotoEditRequest(
  * Returns { url } (same shape as the existing upload). The asset is NOT bound to the
  * branch by this call; the URL then feeds createBranchPhotoEditRequest({ add:[url] })
  * (also branch-scoped, §6a) -> admin approval makes it a live BranchPhoto row. The
- * branchId here is used ONLY for the assertBranchAllowed check.
+ * branchId here is used ONLY for the assertCanManageBranch check.
  */
 export async function uploadBranchPhotoAsset(
   prisma: PrismaClient,
@@ -609,10 +613,10 @@ export async function uploadBranchPhotoAsset(
   file: { contentType: string; body: Buffer }
 ): Promise<{ url: string }> {
   const ctxMerchant = await resolveMerchantContext(prisma, adminId)
-  assertBranchAllowed(ctxMerchant, branchId)
+  assertCanManageBranch(ctxMerchant, branchId)
   const { merchantId } = ctxMerchant
   // Confirm the branch is owned + live before spending the upload (also re-asserts
-  // the branch belongs to this merchant, defence-in-depth beyond assertBranchAllowed).
+  // the branch belongs to this merchant, defence-in-depth beyond assertCanManageBranch).
   await resolveBranch(prisma, branchId, merchantId)
 
   return uploadMerchantImage({

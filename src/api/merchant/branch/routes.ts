@@ -3,7 +3,7 @@ import { z } from 'zod'
 import '../types'
 import { AppError } from '../../shared/errors'
 import { isStorageEnabled } from '../../shared/storage'
-import { resolveMerchantContext, assertBranchAllowed } from '../shared'
+import { resolveMerchantContext, assertCanManageBranch } from '../shared'
 import {
   listBranches,
   getBranch,
@@ -163,8 +163,8 @@ export async function branchRoutes(app: FastifyInstance) {
 
   // POST /api/v1/merchant/branches/:id/photos/upload — branch-scoped photo-asset
   // upload (Branches PR-3 §6c). Server-proxied multipart, mirroring the merchant
-  // /uploads/:kind handler, but gated by BRANCH ASSIGNMENT (resolveMerchantContext
-  // + assertBranchAllowed inside uploadBranchPhotoAsset) instead of the voucher
+  // /uploads/:kind handler, but gated by BRANCH MANAGEMENT (resolveMerchantContext
+  // + assertCanManageBranch inside uploadBranchPhotoAsset) instead of the voucher
   // assertCanManageVouchers gate. The voucher /uploads/photo path is left UNCHANGED.
   // Returns { url }; the URL then feeds the photo edit-request lane (admin-reviewed).
   app.post(`${prefix}/:id/photos/upload`, async (req: FastifyRequest, reply) => {
@@ -174,18 +174,19 @@ export async function branchRoutes(app: FastifyInstance) {
     if (!isStorageEnabled()) throw new AppError('STORAGE_NOT_ENABLED')
     if (!req.isMultipart()) throw new AppError('FILE_REQUIRED')
 
-    // Fail FAST: resolve the caller's merchant + assert branch scope BEFORE
-    // consuming any multipart bytes (mirrors the voucher /uploads/:kind handler,
-    // which resolves + guards before its parts() loop). Without this, an
-    // authenticated-but-unassigned member would force the server to buffer up to
-    // the 5MB photo cap before getting the 403 from the service's own assert.
-    // resolveMerchantContext keeps the SEC-M2 suspended guard; assertBranchAllowed
-    // is the same branch-SCOPE gate (OWNER any branch || BM/STAFF assigned branch,
-    // NO canManageVouchers) that uploadBranchPhotoAsset asserts internally — that
+    // Fail FAST: resolve the caller's merchant + assert branch-management WRITE
+    // permission BEFORE consuming any multipart bytes (mirrors the voucher
+    // /uploads/:kind handler, which resolves + guards before its parts() loop).
+    // Without this, an authenticated-but-unauthorised member would force the server
+    // to buffer up to the 5MB photo cap before getting the 403 from the service's
+    // own assert. resolveMerchantContext keeps the SEC-M2 suspended guard;
+    // assertCanManageBranch is the same branch-management WRITE gate (OWNER any
+    // branch || BRANCH_MANAGER assigned branch; STAFF DENIED even when assigned; NO
+    // canManageVouchers) that uploadBranchPhotoAsset asserts internally — that
     // service assert is intentionally KEPT as defence-in-depth so a direct call
     // stays safe.
     const ctx = await resolveMerchantContext(app.prisma, req.user.sub)
-    assertBranchAllowed(ctx, id)
+    assertCanManageBranch(ctx, id)
 
     let fileBuffer: Buffer | undefined
     let mimetype: string | undefined
