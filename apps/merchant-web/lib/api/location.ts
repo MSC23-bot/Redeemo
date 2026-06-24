@@ -21,16 +21,17 @@ const addressPartsSchema = z.object({
   postcode: z.string().nullable(),
 })
 
-// The client-safe candidate DTO. .passthrough() tolerates a future additive display
-// key WITHOUT widening the typed shape to coords (the schema never declares them).
-export const locationCandidateSchema = z
-  .object({
-    candidateToken: z.string(),
-    name: z.string(),
-    formattedAddress: z.string(),
-    addressParts: addressPartsSchema,
-  })
-  .passthrough()
+// The client-safe candidate DTO. It uses zod's default strip behaviour (NOT
+// .passthrough()), so any unknown key on a parsed candidate is dropped: a future
+// backend regression that leaked latitude / longitude / placeId would be stripped
+// here rather than retained, making the never-expose comment above literally true.
+// A genuinely new display key is added by extending this schema explicitly.
+export const locationCandidateSchema = z.object({
+  candidateToken: z.string(),
+  name: z.string(),
+  formattedAddress: z.string(),
+  addressParts: addressPartsSchema,
+})
 
 export type LocationCandidate = z.infer<typeof locationCandidateSchema>
 export type LocationAddressParts = z.infer<typeof addressPartsSchema>
