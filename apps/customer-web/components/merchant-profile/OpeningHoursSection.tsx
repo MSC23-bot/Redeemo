@@ -1,17 +1,20 @@
 'use client'
 import { motion } from 'framer-motion'
-
-type OpeningHour = { dayOfWeek: number; openTime: string; closeTime: string; isClosed: boolean }
-
-// UK convention: Monday first
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const UK_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] // Mon→Sun
+import {
+  type OpeningHour,
+  DAY_NAMES,
+  UK_DAY_ORDER,
+  getLondonDayIndex,
+  groupHoursByDay,
+  formatDayLabel,
+  isDayClosed,
+} from '@/lib/openingHours'
 
 export function OpeningHoursSection({ hours }: { hours: OpeningHour[] }) {
   if (hours.length === 0) return null
 
-  const todayIndex = new Date().getDay()
-  const hoursByDay = new Map(hours.map(h => [h.dayOfWeek, h]))
+  const todayIndex = getLondonDayIndex()
+  const hoursByDay = groupHoursByDay(hours)
 
   return (
     <motion.section
@@ -31,15 +34,15 @@ export function OpeningHoursSection({ hours }: { hours: OpeningHour[] }) {
 
       <div className="max-w-sm rounded-2xl border border-[#EDE8E8] overflow-hidden bg-white shadow-sm">
         {UK_DAY_ORDER.map(dayIndex => {
-          const entry = hoursByDay.get(dayIndex)
+          const entries = hoursByDay.get(dayIndex)
           const isToday = dayIndex === todayIndex
-          const isClosed = entry ? entry.isClosed : true
-          const label = isClosed ? 'Closed' : `${entry!.openTime} – ${entry!.closeTime}`
+          const closed = isDayClosed(entries)
+          const label = formatDayLabel(entries)
 
           return (
             <div
               key={dayIndex}
-              className={`flex items-center justify-between px-5 py-3 text-[14px] border-b last:border-b-0 border-[#EDE8E8] ${
+              className={`flex items-center justify-between gap-4 px-5 py-3 text-[14px] border-b last:border-b-0 border-[#EDE8E8] ${
                 isToday ? 'bg-[#FEF6F5]' : 'bg-white'
               }`}
             >
@@ -52,10 +55,10 @@ export function OpeningHoursSection({ hours }: { hours: OpeningHour[] }) {
                 )}
               </span>
               <span
-                className={`tabular-nums text-[13.5px] ${
+                className={`tabular-nums text-[13.5px] text-right ${
                   isToday
                     ? 'font-semibold text-[#010C35]'
-                    : isClosed
+                    : closed
                     ? 'text-[#9CA3AF]'
                     : 'text-[#4B5563]'
                 }`}
