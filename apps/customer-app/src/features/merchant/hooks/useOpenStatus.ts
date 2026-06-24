@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer } from 'react'
 import type { OpeningHourEntry } from '@/lib/api/merchant'
 import { getLondonClock } from '../utils/londonNow'
+import { formatDayHours } from '../utils/branchHoursFormat'
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const
 const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
@@ -34,17 +35,20 @@ export function useOpenStatus(hours: OpeningHourEntry[]) {
   return useMemo(() => {
     const todayDow = getLondonClock(new Date()).dow
     const weekSchedule = DAY_NAMES.map((name, i) => {
-      const entry = hours.find(h => h.dayOfWeek === i)
       const isToday = i === todayDow
-      if (!entry || entry.isClosed || entry.openTime == null || entry.closeTime == null) {
-        return { day: name, shortDay: SHORT_DAYS[i]!, hours: 'Closed', isToday, isClosed: true }
-      }
+      // Branches PR-8 (D9): group ALL of this day's rows into N windows via
+      // the shared multi-window formatter. A closed day (one isClosed row,
+      // OR zero open windows) renders "Closed"; an open day renders its
+      // windows comma-joined and openTime-ascending; 24:00 close →
+      // "to midnight"; a full 00:00→24:00 day → "Open 24 hours"; an overnight
+      // window (close < open) renders honestly ("6:00 pm to 2:00 am").
+      const text = formatDayHours(hours, i)
       return {
         day: name,
         shortDay: SHORT_DAYS[i]!,
-        hours: `${entry.openTime} – ${entry.closeTime}`,
+        hours: text,
         isToday,
-        isClosed: false,
+        isClosed: text === 'Closed',
       }
     })
     return { weekSchedule }
