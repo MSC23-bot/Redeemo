@@ -124,10 +124,14 @@ describe('opening-hours STAGE-not-apply (PR-4 §4a)', () => {
     expect(eff).toBeGreaterThanOrEqual(before + PROMOTION_WINDOW_MS)
     expect(eff).toBeLessThanOrEqual(after + PROMOTION_WINDOW_MS)
 
-    // Delayed nudge enqueued with the branch-keyed jobId + 2h delay.
+    // Delayed nudge enqueued with the branch-keyed jobId + 2h delay (the FIRST
+    // delayed job in the repo). The shared enqueue() helper sets job.name to the
+    // QUEUE name, so the worker distinguishes this per-record nudge from the
+    // repeatable sweep via data.job === PROMOTE_PENDING_HOURS_JOB.
     expect(enqueueMock).toHaveBeenCalledTimes(1)
     const [queueName, data, opts] = enqueueMock.mock.calls[0]
     expect(queueName).toBe('maintenance')
+    expect(data.job).toBe('promote-pending-hours') // the worker-dispatch hint
     expect(data.pendingId).toBe('ph-new')
     expect(opts.jobId).toBe(`promote-hours:${ASSIGNED_BRANCH}`)
     expect(opts.delay).toBe(PROMOTION_WINDOW_MS)
