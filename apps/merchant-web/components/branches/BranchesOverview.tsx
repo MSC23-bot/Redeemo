@@ -12,11 +12,12 @@
 import * as React from 'react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Table, THead, TBody, TR, TH, TD, TableEmpty } from '@/components/ui/table'
 import { MapPin, Clock, CircleCheck, KeyRound, Plus, Grid3x3 } from '@/lib/icons'
 import { openNow, type OpeningHoursRow } from '@/lib/branches/openNow'
 import { isWithRedeemo } from '@/lib/branches/withRedeemo'
-import { LockedAffordance } from '@/components/branches/LockedAffordance'
+import { AddBranchModal } from '@/components/branches/AddBranchModal'
 import type { Branch } from '@/lib/api/branch'
 
 // A branch row carries the encrypted pin under `redemptionPin` (passthrough). We
@@ -26,13 +27,19 @@ type BranchRow = Branch & { redemptionPin?: string | null; localityName?: string
 export function BranchesOverview({
   branches,
   merchantLive,
+  isOwner,
   onOpen,
 }: {
   branches: Branch[]
   merchantLive: boolean
+  // PR-5 §6: gates the live "Add branch" CTA (create is OWNER-only per D3 + the
+  // backend). A non-owner sees no add control. The backend owner-only resolver is
+  // the real boundary; this only drives which control renders.
+  isOwner: boolean
   onOpen: (id: string) => void
 }) {
   const now = new Date()
+  const [addOpen, setAddOpen] = React.useState(false)
 
   const locationsCount = branches.length
   // Only ACTIVE branches can be "Open right now": an inactive branch shows as
@@ -63,17 +70,23 @@ export function BranchesOverview({
           <TableEmpty>
             <p className="font-display text-lg font-semibold text-foreground">No branches yet</p>
             <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-              Your branches will appear here. Adding a branch is coming in this Branches rollout.
+              {isOwner
+                ? 'Your branches will appear here. Add your first branch to get started.'
+                : 'Your branches will appear here.'}
             </p>
-            <div className="mt-4 flex justify-center">
-              <AddBranchButton />
-            </div>
+            {isOwner ? (
+              <div className="mt-4 flex justify-center">
+                <AddBranchButton onClick={() => setAddOpen(true)} />
+              </div>
+            ) : null}
           </TableEmpty>
         ) : (
           <>
-            <div className="flex items-center justify-end px-3 pt-4">
-              <AddBranchButton />
-            </div>
+            {isOwner ? (
+              <div className="flex items-center justify-end px-3 pt-4">
+                <AddBranchButton onClick={() => setAddOpen(true)} />
+              </div>
+            ) : null}
             {/* Responsive (F14): on a narrow viewport the 4-column table scrolls
                 horizontally instead of being clipped by the Card's overflow-hidden,
                 matching the established RedemptionsTable / StaffTable pattern. */}
@@ -97,6 +110,8 @@ export function BranchesOverview({
           </>
         )}
       </Card>
+
+      {addOpen ? <AddBranchModal onClose={() => setAddOpen(false)} /> : null}
     </div>
   )
 }
@@ -194,11 +209,16 @@ function BranchTableRow({
   )
 }
 
-// Branches PR-1 F13: the Add-branch control is the shared LockedAffordance (a disabled
-// gradient CTA + rollout subtext, performing NO network call). Consolidated from the
-// previous local button so every locked Branches affordance shares one component.
-function AddBranchButton() {
-  return <LockedAffordance label="Add branch" variant="gradient" icon={<Plus size={16} aria-hidden />} />
+// Branches PR-5 §6: the Add-branch CTA is now LIVE (was the PR-1 disabled
+// LockedAffordance). Owner-only (the caller renders it only when isOwner); the click
+// opens the AddBranchModal create form. The brand gradient + Plus glyph match prototype
+// 01's top-right "Add branch" button.
+function AddBranchButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button type="button" data-testid="add-branch-button" onClick={onClick}>
+      <Plus size={16} aria-hidden /> Add branch
+    </Button>
+  )
 }
 
 // --- Today's-hours cell -----------------------------------------------------

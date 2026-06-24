@@ -239,3 +239,85 @@ export function merchantLiveEmail(businessName: string): RenderedEmail {
       `<p>Sign in to your portal any time to manage your offers, branches, and team.</p>`,
   }
 }
+
+/**
+ * Branches PR-5 (D5): admin approved a merchant-requested NEW branch. The branch
+ * is now live and customer-visible. `branchName` is the merchant's own branch name
+ * shown back to them; HTML-escaped defensively. No admin free text is shown.
+ */
+export function branchCreateApprovedEmail(branchName: string): RenderedEmail {
+  const safeName = escapeHtml(branchName)
+  return {
+    subject: `Your new branch is live on ${BRAND}`,
+    text:
+      `Good news: your new branch ${branchName} has been reviewed and is now live on ${BRAND}.\n\n` +
+      `Members in the area can now find it and redeem your offers there. Sign in to your merchant portal to manage the branch.`,
+    html:
+      `<p>Good news: your new branch ${safeName} has been reviewed and is now live on ${BRAND}.</p>` +
+      `<p>Members in the area can now find it and redeem your offers there. Sign in to your merchant portal to manage the branch.</p>`,
+  }
+}
+
+/**
+ * Branches PR-5 (D5): admin declined a merchant-requested NEW branch. The branch
+ * is NOT live (it stays awaiting approval); the merchant can fix and resubmit, or
+ * cancel it. `reason` is admin-controlled free text shown to the merchant ⇒
+ * HTML-escaped. `branchName` is the merchant's own branch name.
+ */
+export function branchCreateRejectedEmail(branchName: string, reason: string): RenderedEmail {
+  const safeName = escapeHtml(branchName)
+  const safeReason = escapeHtml(reason)
+  return {
+    subject: `Update on your new branch on ${BRAND}`,
+    text:
+      `We reviewed your request to add the branch ${branchName} and need some changes before it can go live.\n\n` +
+      `What to change:\n${reason}\n\n` +
+      `Your branch is not live yet. Sign in to your merchant portal to update the details, or cancel the request.`,
+    html:
+      `<p>We reviewed your request to add the branch ${safeName} and need some changes before it can go live.</p>` +
+      `<p><strong>What to change:</strong></p>` +
+      `<blockquote>${safeReason}</blockquote>` +
+      `<p>Your branch is not live yet. Sign in to your merchant portal to update the details, or cancel the request.</p>`,
+  }
+}
+
+/**
+ * Branches PR-5 (D5): admin approved a merchant's branch-CLOSE request. The branch
+ * is now closed (removed from customer discovery). `branchName` is the merchant's
+ * own branch name shown back to them; HTML-escaped defensively. No admin free text.
+ */
+export function branchCloseApprovedEmail(branchName: string): RenderedEmail {
+  const safeName = escapeHtml(branchName)
+  return {
+    subject: `Your branch has been closed on ${BRAND}`,
+    text:
+      `Your request to close the branch ${branchName} has been approved. It is now closed and no longer visible to members.\n\n` +
+      `Historical redemption data for this branch is preserved. Sign in to your merchant portal any time to manage your other branches.`,
+    html:
+      `<p>Your request to close the branch ${safeName} has been approved. It is now closed and no longer visible to members.</p>` +
+      `<p>Historical redemption data for this branch is preserved. Sign in to your merchant portal any time to manage your other branches.</p>`,
+  }
+}
+
+/**
+ * Branches PR-5 (D5): admin declined a merchant's branch-CLOSE request. The branch
+ * stays live (it was live throughout the request). `reason` is admin-controlled
+ * free text shown to the merchant ⇒ HTML-escaped. `branchName` is the merchant's
+ * own branch name.
+ */
+export function branchCloseRejectedEmail(branchName: string, reason: string): RenderedEmail {
+  const safeName = escapeHtml(branchName)
+  const safeReason = escapeHtml(reason)
+  return {
+    subject: `Update on your branch close request on ${BRAND}`,
+    text:
+      `We reviewed your request to close the branch ${branchName} and were unable to approve it.\n\n` +
+      `Reason:\n${reason}\n\n` +
+      `Your branch is still live. You can review the note and submit a new request from your merchant portal.`,
+    html:
+      `<p>We reviewed your request to close the branch ${safeName} and were unable to approve it.</p>` +
+      `<p><strong>Reason:</strong></p>` +
+      `<blockquote>${safeReason}</blockquote>` +
+      `<p>Your branch is still live. You can review the note and submit a new request from your merchant portal.</p>`,
+  }
+}

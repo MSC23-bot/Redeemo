@@ -8,8 +8,9 @@
  * active + MANUALLY_CONFIRMED total only when the merchant is Live, otherwise 0.
  *
  * Owner vs Branch Manager: the list is scoped server-side, so it shows only the
- * branches the caller is allowed to see. The only write affordance here ("Add
- * branch") is a LOCKED disabled control in PR-1 (the add/close lifecycle is PR-5).
+ * branches the caller is allowed to see. The "Add branch" CTA is now LIVE and
+ * OWNER-only (PR-5 §6): it opens the create form. A Branch Manager sees no add
+ * control (create/close are owner-only per D3 + the backend resolver).
  *
  * Privacy: the list row ships the AES-encrypted redemptionPin; this surface only
  * derives a set / not-set indicator from its presence and NEVER renders the value.
@@ -18,6 +19,7 @@ import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useBranches } from '@/lib/branches/useBranches'
+import { useBranchCapability } from '@/lib/branches/useBranchCapability'
 import { useSession } from '@/lib/auth/session'
 import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
 import { deriveStatusPill, homeFor } from '@/lib/auth/lifecycle'
@@ -28,6 +30,10 @@ export default function BranchesPage() {
   const { isAuthenticated } = useSession()
   const branches = useBranches()
   const profile = useMerchantProfile(isAuthenticated)
+  // PR-5 §6: gate the live "Add branch" CTA on the owner signal (create is OWNER-only
+  // per D3). Only render the add control once the gate has SETTLED, so it does not flash
+  // for a Branch Manager before the capability probe resolves.
+  const { isOwner, ready } = useBranchCapability(isAuthenticated)
 
   // The single canonical merchant-lifecycle source (plan §1.1 naming trap, §3 F2):
   // the merchant is "Live" (on Redeemo) iff status === 'ACTIVE'. Anything else
@@ -66,6 +72,7 @@ export default function BranchesPage() {
         <BranchesOverview
           branches={branches.data ?? []}
           merchantLive={merchantLive}
+          isOwner={ready && isOwner}
           onOpen={(id) => router.push(`/branches/${id}`)}
         />
       )}

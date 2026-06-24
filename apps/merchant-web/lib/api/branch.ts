@@ -111,11 +111,34 @@ export const branchPendingHoursSchema = z
 
 export type BranchPendingHours = z.infer<typeof branchPendingHoursSchema>
 
+// Branches PR-5 (§3a): the branch lifecycle axis (status-on-Branch staging). It is
+// SEPARATE from isActive (the reversible suspend toggle) and deletedAt (permanent
+// soft-delete). PENDING_CREATE = a subsequent branch awaiting admin create approval
+// (customer-INVISIBLE, drives the awaiting-approval banner + Cancel); LIVE = a normal
+// branch; PENDING_CLOSE = a close-requested branch still live until approval (drives
+// the pending-close banner + Withdraw); CLOSED = close approved + soft-deleted
+// (terminal, excluded from the live list). The backend defaults LIVE so older rows /
+// list payloads without the field still parse, hence .nullish().
+export const branchLifecycleStatusSchema = z.enum([
+  'PENDING_CREATE',
+  'LIVE',
+  'PENDING_CLOSE',
+  'CLOSED',
+])
+
+export type BranchLifecycleStatus = z.infer<typeof branchLifecycleStatusSchema>
+
 export const branchSchema = z
   .object({
     id: z.string(),
     name: z.string(),
     isMainBranch: z.boolean().optional(),
+    // PR-5: the lifecycle axis (see branchLifecycleStatusSchema). getBranch /
+    // listBranches now ship it; .nullish() keeps an older payload parsing cleanly.
+    lifecycleStatus: branchLifecycleStatusSchema.nullish(),
+    // PR-5: the merchant-supplied close reason, set on a close REQUEST (audit-only,
+    // surfaced to the admin reviewer). Null/absent unless lifecycleStatus PENDING_CLOSE.
+    closeReason: z.string().nullish(),
     addressLine1: z.string().nullish(),
     addressLine2: z.string().nullish(),
     city: z.string().nullish(),
@@ -183,6 +206,49 @@ export async function createBranch(body: BranchCreateBody): Promise<Branch> {
     method: 'POST',
     auth: true,
     body: JSON.stringify(body),
+  })
+  return branchSchema.parse(branch)
+}
+
+// --- Lifecycle: cancel a pending create -------------------------------------
+// DELETE /api/v1/merchant/branches/:id/pending-create (Branches PR-5 §4a). OWNER-only
+// on the backend. Hard-deletes the never-live PENDING_CREATE branch row + withdraws
+// its BRANCH_CREATE approval (the branch never went live, so a hard cleanup is safe).
+// Returns { ok: true }. 404 BRANCH_NOT_FOUND / 409 BRANCH_NOT_PENDING_CREATE.
+export async function cancelPendingCreate(branchId: string): Promise<{ ok: true }> {
+  await apiFetch(`/api/v1/merchant/branches/${branchId}/pending-create`, {
+    method: 'DELETE',
+    auth: true,
+  })
+  return { ok: true }
+}
+
+// --- Lifecycle: request to close a branch -----------------------------------
+// POST /api/v1/merchant/branches/:id/close-request, body { reason } (Branches PR-5
+// §4b). OWNER-only. The backend enforces BRANCH_IS_MAIN (cannot close the main branch)
+// + BRANCH_LAST_ACTIVE (cannot close the last active branch) AT REQUEST TIME, sets
+// lifecycleStatus PENDING_CLOSE + closeReason, and creates a BRANCH_CLOSE approval. The
+// branch STAYS live + customer-visible until an admin approves. Returns the updated
+// branch (lifecycleStatus PENDING_CLOSE). 409 BRANCH_CLOSE_REQUEST_EXISTS when one is
+// already open.
+export async function requestBranchClose(branchId: string, reason: string): Promise<Branch> {
+  const branch = await apiFetch(`/api/v1/merchant/branches/${branchId}/close-request`, {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ reason }),
+  })
+  return branchSchema.parse(branch)
+}
+
+// --- Lifecycle: withdraw a pending close ------------------------------------
+// DELETE /api/v1/merchant/branches/:id/close-request (Branches PR-5 §4b). OWNER-only.
+// Reverts lifecycleStatus -> LIVE + clears closeReason + removes the BRANCH_CLOSE
+// approval. The branch was live throughout. Returns the updated branch (LIVE). 404
+// BRANCH_CLOSE_REQUEST_NOT_FOUND when there is no open close request.
+export async function withdrawBranchClose(branchId: string): Promise<Branch> {
+  const branch = await apiFetch(`/api/v1/merchant/branches/${branchId}/close-request`, {
+    method: 'DELETE',
+    auth: true,
   })
   return branchSchema.parse(branch)
 }

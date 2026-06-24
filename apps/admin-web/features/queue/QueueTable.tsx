@@ -29,6 +29,8 @@ function getTypeLabel(type: AdminApproval['type']): string {
     MERCHANT_PROFILE_EDIT: 'Profile edit',
     MERCHANT_IDENTITY_EDIT: 'Identity edit',
     BRANCH_IDENTITY_EDIT: 'Branch edit',
+    BRANCH_CREATE: 'Branch: add',
+    BRANCH_CLOSE: 'Branch: close',
   }
   return map[type] ?? type
 }

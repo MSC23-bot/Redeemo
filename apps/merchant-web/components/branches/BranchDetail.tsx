@@ -17,6 +17,7 @@ import Image from 'next/image'
 import type { Branch } from '@/lib/api/branch'
 import { openNow, type OpeningHoursRow } from '@/lib/branches/openNow'
 import { ReviewStateBanners } from '@/components/branches/ReviewStateBanners'
+import { BranchLifecycleBanner } from '@/components/branches/BranchLifecycleBanner'
 import { StaffAtBranchCard } from '@/components/branches/StaffAtBranchCard'
 import { ContactCard } from '@/components/branches/sections/ContactCard'
 import { AmenitiesCard } from '@/components/branches/sections/AmenitiesCard'
@@ -51,6 +52,11 @@ export function BranchDetail({
         now={now}
       />
 
+      {/* PR-5: the lifecycle banner. PENDING_CREATE shows "Awaiting Redeemo approval"
+          + an owner-only Cancel; PENDING_CLOSE shows the pending-close banner + an
+          owner-only Withdraw. LIVE / CLOSED render nothing here. */}
+      <BranchLifecycleBanner branch={branch} isOwner={ready && isOwner} />
+
       {/* F3: the review-state banners (photos in review + awaiting location check). */}
       <ReviewStateBanners branch={branch} />
 
@@ -81,8 +87,10 @@ export function BranchDetail({
       {/* F12: owner-only staff-at-branch card. Renders nothing for a non-owner. */}
       <StaffAtBranchCard branchId={branch.id} isOwner={isOwner} ready={ready} />
 
-      {/* F13: Close-branch section (visible warning card with a disabled, no-action close control; PR-5). */}
-      <CloseBranchSection isOwner={ready && isOwner} />
+      {/* PR-5: live owner-only close-branch section. Opens the reason-collecting close
+          modal; disabled with the "make another main first" copy on the main branch;
+          shows "Close request in review" when PENDING_CLOSE (the top banner owns Withdraw). */}
+      <CloseBranchSection branch={branch} isOwner={ready && isOwner} />
     </div>
   )
 }

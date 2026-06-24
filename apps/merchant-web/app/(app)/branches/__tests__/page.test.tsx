@@ -31,6 +31,12 @@ jest.mock('@/lib/auth/session', () => ({
   useSession: () => ({ isAuthenticated: true }),
 }))
 
+// --- owner capability (PR-5: gates the live Add-branch CTA) ------------------
+let isOwner = true
+jest.mock('@/lib/branches/useBranchCapability', () => ({
+  useBranchCapability: () => ({ isOwner, ready: true }),
+}))
+
 // --- router -----------------------------------------------------------------
 const push = jest.fn()
 jest.mock('next/navigation', () => ({
@@ -86,6 +92,7 @@ beforeEach(() => {
   jest.setSystemTime(FIXED_NOW)
   push.mockReset()
   profileStatus = 'ACTIVE'
+  isOwner = true
   listBranches.mockReset().mockResolvedValue([])
 })
 
@@ -248,17 +255,31 @@ describe('BranchesPage rows', () => {
   })
 })
 
-describe('BranchesPage Add branch (locked affordance)', () => {
-  it('renders Add branch as disabled and fires no network call', async () => {
+describe('BranchesPage Add branch (PR-5 live owner-only CTA)', () => {
+  it('renders a LIVE (enabled) Add branch CTA for the owner and opens the create modal', async () => {
     listBranches.mockResolvedValue([branch()])
     renderPage()
     await screen.findByText('High Street')
-    const add = screen.getByRole('button', { name: /add branch/i })
-    expect(add).toBeDisabled()
-    listBranches.mockClear()
+    const add = screen.getByTestId('add-branch-button')
+    expect(add).toBeEnabled()
     fireEvent.click(add)
-    expect(listBranches).not.toHaveBeenCalled()
-    expect(push).not.toHaveBeenCalled()
+    expect(await screen.findByTestId('add-branch-modal')).toBeInTheDocument()
+  })
+
+  it('does NOT render the Add branch CTA for a non-owner (create is owner-only)', async () => {
+    isOwner = false
+    listBranches.mockResolvedValue([branch()])
+    renderPage()
+    await screen.findByText('High Street')
+    expect(screen.queryByTestId('add-branch-button')).not.toBeInTheDocument()
+  })
+
+  it('does NOT render the Add branch CTA in the empty state for a non-owner', async () => {
+    isOwner = false
+    listBranches.mockResolvedValue([])
+    renderPage()
+    await screen.findByText(/no branches yet/i)
+    expect(screen.queryByTestId('add-branch-button')).not.toBeInTheDocument()
   })
 })
 

@@ -28,6 +28,11 @@ export const reviewApprovalSchema = z.object({
     'MERCHANT_PROFILE_EDIT',
     'MERCHANT_IDENTITY_EDIT',
     'BRANCH_IDENTITY_EDIT',
+    // Branches PR-5 (D5): the branch-lifecycle approval lane. The /review
+    // endpoint returns these types so the page can dispatch them to the
+    // BranchLifecyclePanel; the panel reads its detail from /branch-lifecycle-review.
+    'BRANCH_CREATE',
+    'BRANCH_CLOSE',
   ]),
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CHANGES_REQUESTED']),
   submittedAt: z.string(),

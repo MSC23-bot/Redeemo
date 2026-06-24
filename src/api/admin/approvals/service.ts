@@ -281,6 +281,15 @@ export async function claimApproval(prisma: PrismaClient, id: string, adminId: s
         entityId = edit.branchId
         entityType = 'branch'
       }
+    } else if (approval.type === 'BRANCH_CREATE' || approval.type === 'BRANCH_CLOSE') {
+      // Branches PR-5 (§6): a branch-lifecycle approval's referenceId IS the branch id
+      // directly (no PendingEdit indirection). Resolve the audit target to the branch
+      // — NOT the default entityType:'merchant' arm (which would mislabel a branch id
+      // as a merchant, the audit-entity mismatch Option B B1 fixed for edit rows). No
+      // merchant onboardingStep side-effect is applied (that is MERCHANT_ONBOARDING-only
+      // above).
+      entityId = approval.referenceId
+      entityType = 'branch'
     } else if (approval.type === 'VOUCHER') {
       // For a VOUCHER approval the referenceId is the Voucher id. The audit
       // target is the owning merchant (matching the voucherApprover DECISION
@@ -331,17 +340,24 @@ export async function releaseApproval(prisma: PrismaClient, id: string, adminId:
     // a VOUCHER approval the referenceId is the Voucher id, so resolve the
     // owning merchantId (matching the voucherApprover DECISION audits).
     let entityId = approval.referenceId
+    let entityType: 'merchant' | 'branch' = 'merchant'
     if (approval.type === 'VOUCHER') {
       const voucher = await tx.voucher.findUnique({
         where: { id: approval.referenceId },
         select: { merchantId: true },
       })
       if (voucher) entityId = voucher.merchantId
+    } else if (approval.type === 'BRANCH_CREATE' || approval.type === 'BRANCH_CLOSE') {
+      // Branches PR-5 (§6): the branch-lifecycle referenceId IS the branch id, so the
+      // audit target is the branch — NOT the default entityType:'merchant'. No merchant
+      // onboardingStep side-effect (MERCHANT_ONBOARDING-only above).
+      entityId = approval.referenceId
+      entityType = 'branch'
     }
 
     await writeAuditLogTx(tx, {
       entityId,
-      entityType: 'merchant',
+      entityType,
       event: 'MERCHANT_APPROVAL_RELEASED',
       actorId: adminId,
       actorType: 'ADMIN',

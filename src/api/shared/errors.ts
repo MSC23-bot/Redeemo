@@ -118,6 +118,17 @@ export const ERROR_DEFINITIONS = {
   PENDING_HOURS_NOT_FOUND:        { statusCode: 404, message: 'No pending opening-hours change to cancel.' },
   BRANCH_IS_MAIN:                 { statusCode: 409, message: 'Cannot delete the main branch. Promote another branch to main first.' },
   BRANCH_LAST_ACTIVE:             { statusCode: 409, message: 'Cannot delete the only active branch of a live merchant.' },
+  // Branches PR-5 (D5, branch lifecycle). Additive code-only.
+  // BRANCH_NOT_PENDING_CREATE: cancel-pending-create targeted a branch that is not
+  //   awaiting create approval (already LIVE / closed / mid-close), so there is
+  //   nothing to cancel.
+  // BRANCH_CLOSE_REQUEST_EXISTS: the branch already has an open close request
+  //   (lifecycleStatus PENDING_CLOSE) — withdraw it before requesting again.
+  // BRANCH_CLOSE_REQUEST_NOT_FOUND: withdraw-close found no open close request for
+  //   the branch.
+  BRANCH_NOT_PENDING_CREATE:      { statusCode: 409, message: 'This branch is not awaiting create approval.' },
+  BRANCH_CLOSE_REQUEST_EXISTS:    { statusCode: 409, message: 'A close request is already pending for this branch.' },
+  BRANCH_CLOSE_REQUEST_NOT_FOUND: { statusCode: 404, message: 'No pending close request to withdraw.' },
   VOUCHER_NOT_EDITABLE:           { statusCode: 409, message: 'This voucher cannot be edited in its current state.' },
   VOUCHER_NOT_DELETABLE:          { statusCode: 409, message: 'Only draft vouchers can be deleted.' },
   VOUCHER_NOT_SUBMITTABLE:        { statusCode: 409, message: 'This voucher is not in a state that can be submitted for review.' },

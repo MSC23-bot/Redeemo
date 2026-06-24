@@ -13,6 +13,11 @@ import {
 } from './service'
 import { approveEdit, rejectEdit, getEditReviewContext } from './editApplier'
 import {
+  approveBranchLifecycle,
+  rejectBranchLifecycle,
+  getBranchLifecycleReviewContext,
+} from './branchLifecycleApplier'
+import {
   getVoucherReviewContext,
   approveVoucher,
   rejectVoucher,
@@ -92,6 +97,31 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
 
   app.post(`${prefix}/:id/reject-edit`, { preHandler: [requireAdminCapability('approval:apply-edit')] }, async (req: any) => {
     return rejectEdit(app.prisma, app.redis, idParam(req), req.user.sub, reasonBody(req), auditCtx(req))
+  })
+
+  // Branches PR-5 (D5): the branch-lifecycle applier (BRANCH_CREATE /
+  // BRANCH_CLOSE). Gated on the SAME approval:apply-edit capability as the
+  // edit applier (the actioner capability the spec §7 names) so an edit-applier
+  // role can also action branch lifecycle without holding the onboarding go-live.
+  // CREATE-approve additionally requires the admin to have confirmed the branch
+  // location via the separate confirm-location flow (branch:confirm-location) —
+  // the gate is enforced server-side inside the applier (MAIN_BRANCH_LOCATION_UNCONFIRMED).
+  // A non-branch-lifecycle approval id surfaces APPROVAL_NOT_ACTIONABLE.
+  // The branch-lifecycle review read (mirrors GET /:id/review + /:id/edit-review +
+  // /:id/voucher-review). Returns the proposed/target branch + its merchant +
+  // closeReason so the actioner can render the BRANCH_CREATE / BRANCH_CLOSE review
+  // screen. Read-only; gated on approval:read. NEVER returns redemptionPin.
+  // A non-branch-lifecycle approval id surfaces APPROVAL_NOT_ACTIONABLE.
+  app.get(`${prefix}/:id/branch-lifecycle-review`, { preHandler: [requireAdminCapability('approval:read')] }, async (req: any) => {
+    return getBranchLifecycleReviewContext(app.prisma, idParam(req))
+  })
+
+  app.post(`${prefix}/:id/approve-branch-lifecycle`, { preHandler: [requireAdminCapability('approval:apply-edit')] }, async (req: any) => {
+    return approveBranchLifecycle(app.prisma, app.redis, idParam(req), req.user.sub, auditCtx(req))
+  })
+
+  app.post(`${prefix}/:id/reject-branch-lifecycle`, { preHandler: [requireAdminCapability('approval:apply-edit')] }, async (req: any) => {
+    return rejectBranchLifecycle(app.prisma, app.redis, idParam(req), req.user.sub, reasonBody(req), auditCtx(req))
   })
 
   // Day-2 Vouchers A8: the VOUCHER approval lane. Mirrors the editApplier route

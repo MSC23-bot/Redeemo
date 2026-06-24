@@ -50,6 +50,9 @@ export const approvalSchema = z.object({
     'MERCHANT_PROFILE_EDIT',
     'MERCHANT_IDENTITY_EDIT',
     'BRANCH_IDENTITY_EDIT',
+    // Branches PR-5 (D5): the branch-lifecycle approval lane.
+    'BRANCH_CREATE',
+    'BRANCH_CLOSE',
   ]),
   referenceId: z.string(),
   referenceType: z.string(),

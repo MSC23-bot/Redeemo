@@ -76,7 +76,7 @@ export async function listFavouriteMerchants(
               select: { estimatedSaving: true },
             },
             branches: {
-              where: { isActive: true, isTestData: false },
+              where: { isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' } }, // Branches PR-5 (§5)
               orderBy: { isMainBranch: 'desc' },
               take: 1,
               select: {
@@ -401,6 +401,15 @@ export async function listFavouriteVouchers(
 // ─────────────────────────────────────────────────────────────────────────
 
 export async function addFavouriteBranch(prisma: PrismaClient, userId: string, branchId: string) {
+  // Branches PR-5 (§5): refuse to favourite a customer-INVISIBLE pending-create
+  // branch (a leaked id must not be favouritable). A PENDING_CLOSE branch is still
+  // live and CAN be favourited; a CLOSED/soft-deleted branch is excluded by deletedAt.
+  const branch = await prisma.branch.findFirst({
+    where: { id: branchId, deletedAt: null, lifecycleStatus: { not: 'PENDING_CREATE' } },
+    select: { id: true },
+  })
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
+
   try {
     return await prisma.favouriteBranch.create({
       data: { userId, branchId },
@@ -450,7 +459,7 @@ export async function listFavouriteBranches(
     prisma.favouriteBranch.findMany({
       // SEC-C3 (Gate-PR-4b): drop favourites pointing at seed/demo branches (or
       // branches under a seed/demo merchant). List + count share the filter.
-      where: { userId, branch: { isTestData: false, merchant: { isTestData: false } } },
+      where: { userId, branch: { isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, merchant: { isTestData: false } } }, // Branches PR-5 (§5)
       select: {
         createdAt: true,
         branch: {
@@ -477,7 +486,7 @@ export async function listFavouriteBranches(
       },
       orderBy: { createdAt: 'desc' },
     }),
-    prisma.favouriteBranch.count({ where: { userId, branch: { isTestData: false, merchant: { isTestData: false } } } }),
+    prisma.favouriteBranch.count({ where: { userId, branch: { isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, merchant: { isTestData: false } } } }), // Branches PR-5 (§5): keep list+count consistent
   ])
 
   // Branch-keyed ratings (NOT a merchant rollup — Phase 3C.1g + the

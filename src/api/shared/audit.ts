@@ -55,6 +55,17 @@ export type AuditEvent =
   // ADMIN-actor before-snapshot carries the removed photo id + url so the deletion
   // is attributable; the row itself is gone (instant, customer-invisible).
   | 'BRANCH_PHOTO_REMOVED'
+  // Branches PR-5 (D5): branch-lifecycle merchant actions. `event` is a String
+  // column, so these are union-only literals with NO migration.
+  //   BRANCH_CREATE_CANCELLED — merchant cancelled a pending-create branch (the
+  //     never-live branch row + its BRANCH_CREATE approval are removed).
+  //   BRANCH_CLOSE_REQUESTED — merchant requested to close a branch (lifecycleStatus
+  //     -> PENDING_CLOSE; the branch stays live until admin approval).
+  //   BRANCH_CLOSE_WITHDRAWN — merchant withdrew a pending close request (reverts to
+  //     LIVE; the branch was live throughout).
+  | 'BRANCH_CREATE_CANCELLED'
+  | 'BRANCH_CLOSE_REQUESTED'
+  | 'BRANCH_CLOSE_WITHDRAWN'
   | 'VOUCHER_CREATED'
   | 'VOUCHER_UPDATED'
   | 'VOUCHER_DELETED'
@@ -109,6 +120,22 @@ export type AuditEvent =
   | 'MERCHANT_EDIT_REJECTED'
   | 'BRANCH_EDIT_APPROVED'
   | 'BRANCH_EDIT_REJECTED'
+  // Branches PR-5 (D5): admin branch-lifecycle applier decisions. `event` is a
+  // String column, so these are union-only literals with NO migration (mirroring
+  // the editApplier additions above).
+  //   BRANCH_CREATE_APPROVED — admin approved a pending-create branch -> LIVE +
+  //     isActive=true (carries before/after).
+  //   BRANCH_CREATE_CHANGES_REQUESTED — admin declined a pending-create branch;
+  //     it stays PENDING_CREATE (NOT deleted) for the merchant to fix/cancel
+  //     (carries the reason).
+  //   BRANCH_CLOSE_APPROVED — admin approved a close request -> CLOSED + soft-delete
+  //     (carries before/after).
+  //   BRANCH_CLOSE_REJECTED — admin declined a close request -> reverts LIVE +
+  //     clears closeReason (carries the reason + before/after).
+  | 'BRANCH_CREATE_APPROVED'
+  | 'BRANCH_CREATE_CHANGES_REQUESTED'
+  | 'BRANCH_CLOSE_APPROVED'
+  | 'BRANCH_CLOSE_REJECTED'
   // Option B B4: a SUPER_ADMIN uploaded / deleted a merchant verification document
   // on the merchant's behalf. `event` is a String column, so this is union-only
   // (no migration). The audit payload carries documentId + documentType only; the
