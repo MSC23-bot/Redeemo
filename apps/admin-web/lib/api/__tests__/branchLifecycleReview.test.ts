@@ -91,7 +91,7 @@ describe('branchLifecycleReviewContextSchema', () => {
 
   it('parses even when the payload carries an extra (unexpected) field, ignoring it', () => {
     // Defence: a stray field on the branch (e.g. a leaked redemptionPin) is NOT
-    // surfaced — the schema only picks the declared keys, so it never lands on the
+    // surfaced: the schema only picks the declared keys, so it never lands on the
     // parsed object the UI renders.
     const ctx = makeContext('create')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
