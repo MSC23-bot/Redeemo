@@ -199,6 +199,11 @@ export interface BranchCreateBody {
   websiteUrl?: string
   bannerUrl?: string
   about?: string
+  // Branches PR-6 (§4b): the OPTIONAL opaque token from a Google location pick. The
+  // backend resolves it server-side to the suggested coords + placeId (admin-review
+  // metadata only); it NEVER carries lat/lng. Omitted when the merchant typed the
+  // address manually, or when the token expired (the address still saves without it).
+  candidateToken?: string
 }
 
 export async function createBranch(body: BranchCreateBody): Promise<Branch> {
@@ -273,6 +278,10 @@ export interface BranchUpdateBody {
   about?: string
   /** PR-1 F8: set this branch as the merchant's main branch (atomic single-main). */
   isMainBranch?: boolean
+  // Branches PR-6 (§4b): the OPTIONAL Google-pick token (see BranchCreateBody). Used
+  // on the draft-window direct sensitive-edit path; resolved to admin-review metadata
+  // server-side. NEVER lat/lng.
+  candidateToken?: string
 }
 
 export async function updateBranch(branchId: string, body: BranchUpdateBody): Promise<Branch> {
@@ -297,6 +306,10 @@ export interface BranchEditRequestBody {
   postcode?: string
   logoUrl?: string
   bannerUrl?: string
+  // Branches PR-6 (§4b): the OPTIONAL Google-pick token (see BranchCreateBody). On a
+  // LIVE branch the address change rides the reviewed edit lane; the backend resolves
+  // the token to admin-review metadata staged in the BranchPendingEdit. NEVER lat/lng.
+  candidateToken?: string
 }
 
 // POST /api/v1/merchant/branches/:id/edit-request → BranchPendingEdit.

@@ -1,20 +1,28 @@
 'use client'
 
-// Branches PR-1 F9: the read-only Location card (prototype 03). It shows the formatted
-// address, a confidence badge (MANUALLY_CONFIRMED -> green "Location confirmed";
-// otherwise orange "Awaiting location check"), and a PURE HTML/CSS map placeholder: a
-// bordered/greyed card with a centred pin SVG. There is ZERO network: NO map library,
-// NO tiles, NO provider/key, NO Google call, and the raw lat/lng are NEVER rendered
-// (per plan §6 #6). The "Update location / find your business" control is a DISABLED
-// locked affordance (live map + business lookup ship in PR-6).
+// Branches PR-1 F9 + PR-6 (Layer 3): the Location card (prototype 03). It shows the
+// formatted address, a confidence badge (MANUALLY_CONFIRMED -> green "Location
+// confirmed"; otherwise orange "Awaiting location check"), and a PURE HTML/CSS map
+// PLACEHOLDER (a bordered/greyed card with a centred pin SVG). There is ZERO network
+// on the card itself: NO map library, NO tiles, NO provider/key, NO Google call, and
+// the raw lat/lng are NEVER rendered (per plan §6 #6). A live/static map is DEFERRED
+// (mini-spec §11) - the map stays a placeholder.
 //
-// Read-only for everyone (owner + BM). The locked lookup affordance shows (disabled)
-// for the owner.
+// PR-6: the "Update location" control is now ACTIVE (was a DISABLED LockedAffordance).
+// It opens the reviewed branch-details edit modal, which carries the PR-6 business /
+// address lookup (search-and-pick autofill). The address change rides the reviewed
+// edit lane on a LIVE branch; the precise pin stays admin-confirmed.
+//
+// Gate: `isOwner` (UX gate only - the backend denies STAFF on the search + apply
+// regardless). The merchant-web client has no per-branch BRANCH_MANAGER `canManage`
+// signal today, so an assigned Branch Manager does not see this entry point. Recorded
+// follow-up: "BM-sees-lookup needs the client role/branch signal" (Layer 3 issues log).
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
+import * as React from 'react'
 import { Card } from '@/components/ui/card'
 import { MapPin, CheckCircle2, Info } from '@/lib/icons'
-import { LockedAffordance } from '@/components/branches/LockedAffordance'
+import { BranchDetailsEditModal } from '@/components/branches/BranchDetailsEditModal'
 import type { Branch } from '@/lib/api/branch'
 
 function val(v: string | null | undefined): string {
@@ -22,7 +30,17 @@ function val(v: string | null | undefined): string {
 }
 
 export function LocationCard({ branch, isOwner }: { branch: Branch; isOwner: boolean }) {
+  const [editOpen, setEditOpen] = React.useState(false)
   const confirmed = branch.locationConfidence === 'MANUALLY_CONFIRMED'
+
+  // A pending identity edit already in review blocks a second concurrent reviewed
+  // submit (same constraint the Branch details card enforces), so we disable the
+  // entry point to keep the UX honest rather than surfacing the PENDING_EDIT_EXISTS
+  // error on submit.
+  const hasPendingIdentityEdit = (branch.pendingEdits ?? []).some(
+    (e) => e.status === 'PENDING' && !e.includesPhotos,
+  )
+
   const address = [
     val(branch.addressLine1),
     val(branch.addressLine2),
@@ -68,13 +86,33 @@ export function LocationCard({ branch, isOwner }: { branch: Branch; isOwner: boo
           Worked out from the address. You did not enter coordinates.
         </p>
 
-        {/* Locked PR-6 affordance: live map + business lookup. Disabled, no network. */}
+        {/* PR-6: ACTIVE "Update location" control (was a disabled locked affordance).
+            Opens the reviewed edit modal, which carries the business / address lookup.
+            Owner-gated UX; the backend is the real boundary. */}
         {isOwner ? (
           <div className="pt-1">
-            <LockedAffordance label="Update location" icon={<MapPin size={14} aria-hidden />} />
+            <button
+              type="button"
+              data-testid="location-update-button"
+              onClick={() => setEditOpen(true)}
+              disabled={hasPendingIdentityEdit}
+              className="inline-flex items-center gap-1.5 rounded-[10px] border px-3 py-2 text-sm font-semibold transition-colors hover:bg-[var(--tint)] disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ borderColor: 'var(--border-subtle)', color: 'var(--foreground)' }}
+            >
+              <MapPin size={14} aria-hidden style={{ color: 'var(--rose)' }} /> Update location
+            </button>
+            {hasPendingIdentityEdit ? (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                A details change is already in review. Withdraw it on the branch page first.
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
+
+      {editOpen ? (
+        <BranchDetailsEditModal branch={branch} onClose={() => setEditOpen(false)} />
+      ) : null}
     </Card>
   )
 }

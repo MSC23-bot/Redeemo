@@ -30,6 +30,7 @@ import { MapPin, Info, X } from '@/lib/icons'
 import { useCreateBranchEditRequest } from '@/lib/branches/useBranches'
 import { ApiError } from '@/lib/api/client'
 import type { Branch, BranchEditRequestBody } from '@/lib/api/branch'
+import { LocationLookupField, type LocationPick } from '@/components/branches/LocationLookupField'
 
 const ABOUT_MAX = 600
 
@@ -64,10 +65,31 @@ export function BranchDetailsEditModal({
   const [postcodeError, setPostcodeError] = React.useState<string | null>(null)
   const [modalError, setModalError] = React.useState<string | null>(null)
   const [pendingExists, setPendingExists] = React.useState(false)
+  // PR-6: the opaque token from a Google location pick (resolved server-side to
+  // admin-review metadata in the BranchPendingEdit; NEVER lat/lng). Cleared on any
+  // manual address edit so a stale token never rides with a hand-typed address.
+  const [candidateToken, setCandidateToken] = React.useState<string | null>(null)
 
   function field(key: keyof typeof draft) {
-    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      setDraft((d) => ({ ...d, [key]: e.target.value }))
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const value = e.target.value
+      setDraft((d) => ({ ...d, [key]: value }))
+      if (key === 'addressLine1' || key === 'addressLine2' || key === 'city' || key === 'postcode') {
+        setCandidateToken(null)
+      }
+    }
+  }
+
+  // PR-6: autofill the existing address fields from a Google pick + hold the token.
+  function applyPick(pick: LocationPick) {
+    setDraft((d) => ({
+      ...d,
+      addressLine1: pick.addressParts.addressLine1 ?? d.addressLine1,
+      city: pick.addressParts.city ?? d.city,
+      postcode: pick.addressParts.postcode ?? d.postcode,
+    }))
+    setCandidateToken(pick.candidateToken)
+    setPostcodeError(null)
   }
 
   // Build a body of ONLY the changed SENSITIVE text fields + any freshly uploaded
@@ -88,6 +110,17 @@ export function BranchDetailsEditModal({
     })
     if (logoUrl) body.logoUrl = logoUrl
     if (bannerUrl) body.bannerUrl = bannerUrl
+    // PR-6: attach the Google-pick token ONLY when an address field actually changed,
+    // so an unrelated identity edit never carries a stale suggestion. The reviewed
+    // lane resolves it to admin-review metadata (never lat/lng). The token is already
+    // cleared on any manual address edit, so it is only set when the autofilled values
+    // are still intact.
+    const addressChanged =
+      body.addressLine1 !== undefined ||
+      body.addressLine2 !== undefined ||
+      body.city !== undefined ||
+      body.postcode !== undefined
+    if (candidateToken && addressChanged) body.candidateToken = candidateToken
     return body
   }
 
@@ -192,6 +225,11 @@ export function BranchDetailsEditModal({
           value={draft.about}
           onChange={field('about')}
         />
+
+        {/* PR-6: business / address lookup. Picking a result autofills the address
+            fields below + holds the token for the reviewed submit. The merchant
+            reviews/edits before sending. No map, no pin, no coordinates. */}
+        <LocationLookupField id="edit-branch-location" onPick={applyPick} />
 
         <div className="space-y-1.5">
           <Label htmlFor="edit-branch-address1">Address line 1</Label>

@@ -5,6 +5,7 @@ import { FileUpload } from '@/components/ui/file-upload'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { LocationLookupField, type LocationPick } from '@/components/branches/LocationLookupField'
 import {
   DAY_LABELS,
   applyOpen24h,
@@ -41,6 +42,10 @@ export interface BranchFormValues {
   pin: string
   hours: DayHours[]
   amenityIds: string[]
+  // Branches PR-6: the opaque token from a Google location pick (resolved server-side
+  // to admin-review metadata on create; NEVER lat/lng). Empty when the address was
+  // typed by hand, or after a manual address edit clears a prior pick.
+  candidateToken: string
 }
 
 export interface HeadOfficeAddress {
@@ -90,6 +95,26 @@ export function BranchStepForm({
 
   function set<K extends keyof BranchFormValues>(key: K, value: BranchFormValues[K]) {
     setValues((prev) => ({ ...prev, [key]: value }))
+  }
+
+  // PR-6: a manual edit to an address field invalidates a prior Google-pick token, so
+  // a stale token never rides along with a hand-typed address.
+  function setAddressField(
+    key: 'addressLine1' | 'addressLine2' | 'city' | 'postcode',
+    value: string,
+  ) {
+    setValues((prev) => ({ ...prev, [key]: value, candidateToken: '' }))
+  }
+
+  // PR-6: autofill the existing address fields from a Google pick + hold the token.
+  function applyPick(pick: LocationPick) {
+    setValues((prev) => ({
+      ...prev,
+      addressLine1: pick.addressParts.addressLine1 ?? prev.addressLine1,
+      city: pick.addressParts.city ?? prev.city,
+      postcode: pick.addressParts.postcode ?? prev.postcode,
+      candidateToken: pick.candidateToken,
+    }))
   }
 
   function setDay(dayOfWeek: number, patch: Partial<DayHours>) {
@@ -229,6 +254,8 @@ export function BranchStepForm({
                     addressLine2: headOffice.addressLine2,
                     city: headOffice.city,
                     postcode: headOffice.postcode,
+                    // A manual prefill is not a Google pick: clear any held token.
+                    candidateToken: '',
                   }))
                 }
                 className="text-[12.5px] font-bold text-[#E20C04] hover:underline"
@@ -238,6 +265,13 @@ export function BranchStepForm({
             ) : null}
           </div>
 
+          {/* PR-6: business / address lookup. Picking a result autofills the address
+              fields below + holds the token for the create submit. The merchant
+              reviews/edits before saving. No map, no pin, no coordinates. */}
+          <div className="mt-5">
+            <LocationLookupField id={`${ids.addressLine1}-lookup`} onPick={applyPick} />
+          </div>
+
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <TextField
@@ -245,7 +279,7 @@ export function BranchStepForm({
                 label="Address line 1"
                 placeholder="12 Mill Lane"
                 value={values.addressLine1}
-                onChange={(e) => set('addressLine1', e.target.value)}
+                onChange={(e) => setAddressField('addressLine1', e.target.value)}
               />
               <FieldError message={errors.addressLine1} />
             </div>
@@ -256,7 +290,7 @@ export function BranchStepForm({
                 optional
                 placeholder="Unit, floor, or building"
                 value={values.addressLine2}
-                onChange={(e) => set('addressLine2', e.target.value)}
+                onChange={(e) => setAddressField('addressLine2', e.target.value)}
               />
             </div>
             <div>
@@ -265,7 +299,7 @@ export function BranchStepForm({
                 label="Town or city"
                 placeholder="Huddersfield"
                 value={values.city}
-                onChange={(e) => set('city', e.target.value)}
+                onChange={(e) => setAddressField('city', e.target.value)}
               />
               <FieldError message={errors.city} />
             </div>
@@ -275,7 +309,7 @@ export function BranchStepForm({
                 label="Postcode"
                 placeholder="HD1 1AA"
                 value={values.postcode}
-                onChange={(e) => set('postcode', e.target.value)}
+                onChange={(e) => setAddressField('postcode', e.target.value)}
               />
               <FieldError message={errors.postcode} />
             </div>
