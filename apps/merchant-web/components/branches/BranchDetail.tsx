@@ -75,8 +75,10 @@ export function BranchDetail({
       {/* F6: masked PIN with on-demand reveal + change + send. Owner-only (renders nothing for a non-owner). */}
       <PinCard branch={branch} isOwner={ready && isOwner} />
 
-      {/* F13: redemption-alerts card (whole card visible, all controls disabled; alerts ship in PR-7). */}
-      <RedemptionAlertsCard isOwner={ready && isOwner} />
+      {/* PR-7: redemption-alerts card. A LIVE single per-branch on/off switch (owner-gated
+          UX; server-enforced) that reads/writes branch.redemptionAlertsEnabled; when ON
+          an in-store validation surfaces an in-app bell to the team. */}
+      <RedemptionAlertsCard branch={branch} isOwner={ready && isOwner} />
 
       {/* F5: amenities catalogue toggle (full-replace). Owner-only edit; BM read-only. */}
       <AmenitiesCard branch={branch} isOwner={ready && isOwner} />

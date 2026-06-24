@@ -23,6 +23,7 @@ import {
   setOpeningHours,
   cancelPendingHours,
   setAmenities,
+  setRedemptionAlerts,
   softDeleteBranch,
   getBranchPin,
   setBranchPin,
@@ -78,6 +79,11 @@ const openingHoursBody = z.object({
 
 const amenitiesBody = z.object({
   amenityIds: z.array(z.string()),
+})
+
+// Branches PR-7 (§4 / §6): the per-branch redemption-alerts toggle body.
+const redemptionAlertsBody = z.object({
+  enabled: z.boolean(),
 })
 
 // Branches PR-5 (§4b): a close request carries a merchant-supplied reason (audit-only,
@@ -256,6 +262,19 @@ export async function branchRoutes(app: FastifyInstance) {
     const { id } = idParam.parse(req.params)
     const { amenityIds } = amenitiesBody.parse(req.body)
     const result = await setAmenities(app.prisma, req.user.sub, id, amenityIds)
+    return reply.send(result)
+  })
+
+  // PATCH /api/v1/merchant/branches/:id/redemption-alerts — set the per-branch
+  // redemption-alerts opt-in (Branches PR-7 §6). Same branch-management WRITE
+  // boundary as the hours / amenities writes (resolveMerchantContext +
+  // assertCanManageBranch — OWNER any || assigned BRANCH_MANAGER; STAFF denied;
+  // suspended -> MERCHANT_SUSPENDED). When ON, an in-store validation fans out an
+  // IN_APP VOUCHER_REDEEMED bell to the active owner(s) + scope-covering BMs.
+  app.patch(`${prefix}/:id/redemption-alerts`, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const { enabled } = redemptionAlertsBody.parse(req.body)
+    const result = await setRedemptionAlerts(app.prisma, req.user.sub, id, enabled)
     return reply.send(result)
   })
 

@@ -153,6 +153,12 @@ export const branchSchema = z
       .enum(['MANUALLY_CONFIRMED', 'ADDRESS_GEOCODED', 'POSTCODE_CENTROID', 'NEEDS_REVIEW'])
       .nullish(),
     isActive: z.boolean().optional(),
+    // Branches PR-7 (§3 / §6): the per-branch redemption-alerts opt-in (default false).
+    // When ON, an in-store validation fans out an IN_APP VOUCHER_REDEEMED bell to the
+    // merchant's active owner(s) + the branch's scope-covering Branch Managers (email
+    // dark). getBranch / listBranches ship the column via the BRANCH_INCLUDE; .nullish()
+    // keeps an older payload (pre-PR-7 backend) parsing cleanly.
+    redemptionAlertsEnabled: z.boolean().nullish(),
     latitude: z.number().nullish(),
     longitude: z.number().nullish(),
     openingHours: z.array(branchOpeningHoursSchema).optional(),
@@ -395,6 +401,23 @@ export async function cancelPendingHours(branchId: string): Promise<{ ok: true }
     auth: true,
   })
   return { ok: true }
+}
+
+// --- Redemption alerts (PR-7 per-branch opt-in) -----------------------------
+// PATCH /api/v1/merchant/branches/:id/redemption-alerts, body { enabled }. Sets the
+// per-branch redemption-alerts opt-in. When ON, an in-store validation fans out an
+// IN_APP VOUCHER_REDEEMED bell to the merchant's active owner(s) + the branch's
+// scope-covering Branch Managers; email stays dark. Same branch-management WRITE
+// boundary as the hours / amenities writes (server: resolveMerchantContext +
+// assertCanManageBranch; OWNER any branch / assigned BRANCH_MANAGER / STAFF denied;
+// suspended merchant -> MERCHANT_SUSPENDED). Returns the updated branch.
+export async function setRedemptionAlerts(branchId: string, enabled: boolean): Promise<Branch> {
+  const branch = await apiFetch(`/api/v1/merchant/branches/${branchId}/redemption-alerts`, {
+    method: 'PATCH',
+    auth: true,
+    body: JSON.stringify({ enabled }),
+  })
+  return branchSchema.parse(branch)
 }
 
 // --- Amenities --------------------------------------------------------------

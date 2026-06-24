@@ -24,6 +24,7 @@ import {
   removeBranchPhoto,
   stageBranchHours,
   cancelPendingHours,
+  setRedemptionAlerts,
   type Branch,
   type BranchCreateBody,
   type BranchUpdateBody,
@@ -227,5 +228,26 @@ export function useCancelPendingHours() {
   return useMutation({
     mutationFn: (id: string) => cancelPendingHours(id),
     onSuccess: (_data, id) => invalidate(id),
+  })
+}
+
+// PR-7 §6: set the per-branch redemption-alerts opt-in. Same branch-management WRITE
+// boundary as the hours toggle (server-enforced: OWNER any / assigned BRANCH_MANAGER /
+// STAFF denied; suspended -> MERCHANT_SUSPENDED). Invalidating ['branches'] + ['branch',
+// id] re-reads the branch so the toggle reflects the persisted redemptionAlertsEnabled.
+// The bound branchId is captured at hook-call time so the toggle mutates a single branch.
+export function useSetRedemptionAlerts(branchId: string) {
+  const qc = useQueryClient()
+  const invalidate = useInvalidateBranch()
+  return useMutation({
+    mutationFn: (enabled: boolean) => setRedemptionAlerts(branchId, enabled),
+    // Seed the detail cache with the returned branch BEFORE invalidating, so the
+    // card's persisted value is fresh the instant it clears its optimistic state.
+    // Without this, clearing the optimistic value falls back to the stale persisted
+    // branch until the invalidate -> refetch round-trip lands, flickering the switch.
+    onSuccess: (branch) => {
+      qc.setQueryData(branchKey(branch.id), branch)
+      invalidate(branch.id)
+    },
   })
 }

@@ -1110,6 +1110,37 @@ export async function setAmenities(
 }
 
 /**
+ * Branches PR-7 (§6 / §7): set the per-branch redemption-alerts opt-in. Same
+ * branch-management WRITE boundary as the PR-4 hours toggle + setAmenities
+ * (resolveMerchantContext + assertCanManageBranch — OWNER any branch || assigned
+ * BRANCH_MANAGER; STAFF denied even when assigned; suspended merchant -> the
+ * SEC-M2 MERCHANT_SUSPENDED guard inside resolveMerchantContext). When ON, an
+ * in-store validation fans out an IN_APP VOUCHER_REDEEMED bell to the merchant's
+ * active owner(s) + the branch's scope-covering Branch Managers (the producer in
+ * verifyRedemption); email stays dark.
+ */
+export async function setRedemptionAlerts(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+  enabled: boolean,
+) {
+  const ctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageBranch(ctx, branchId)
+  const { merchantId } = ctx
+  // BRANCH_NOT_FOUND for an unknown / other-merchant / deleted branch (defence in
+  // depth beyond assertCanManageBranch's scope check).
+  await resolveBranch(prisma, branchId, merchantId)
+
+  const updated = await prisma.branch.update({
+    where: { id: branchId },
+    data:  { redemptionAlertsEnabled: enabled },
+    include: BRANCH_INCLUDE,
+  })
+  return updated
+}
+
+/**
  * Option B B2.4: the shared branch-soft-delete core (D4 seam). BOTH the merchant
  * wrapper (actor MERCHANT_ADMIN) and the new admin route (actor ADMIN + reason)
  * call this. The guards (reads) stay BEFORE the transaction; the staff-user
