@@ -1,24 +1,30 @@
 'use client'
 
-// Branches PR-1 F10 + PR-4: the Opening hours card (prototype 03/08). It renders the
-// full Monday..Sunday day/time table showing the CURRENT LIVE hours read-only, with
+// Branches PR-1 F10 + PR-4 + PR-8: the Opening hours card (prototype 03/08). It renders
+// the full Monday..Sunday day/time table showing the CURRENT LIVE hours read-only, with
 // the Europe/London Today row highlighted.
 //
-// PR-4 (§6) makes the cool-off behaviour live:
-//   - The Edit control is now a LIVE editor (was a disabled LockedAffordance). It
-//     reuses the onboarding single-window model (hoursModel.ts): prefill from the live
-//     hours, validate + build the payload on save, copy-Monday + Open-24h helpers. On
-//     save it STAGES via useStageBranchHours (the change does NOT go live immediately).
-//   - The "2 hour customer cool off" chip is now rendered near the title (it was
-//     omitted entirely in PR-1 because the behaviour was not live).
+// PR-4 (§6) made the cool-off behaviour live:
+//   - The Edit control is a LIVE editor (was a disabled LockedAffordance). It reuses the
+//     onboarding hours model (hoursModel.ts): prefill from the live hours, validate +
+//     build the payload on save, copy-Monday + Open-24h helpers. On save it STAGES via
+//     useStageBranchHours (the change does NOT go live immediately).
+//   - The "2 hour customer cool off" chip is rendered near the title.
 //   - A pending-hours BANNER (mirroring PendingEditsList) shows the proposed change +
 //     a "Goes live at <time>" line + a Cancel control wired to useCancelPendingHours,
 //     whenever the branch carries a PENDING staged change.
 //   - The live table keeps showing the CURRENT live hours (NOT the pending), so the
 //     merchant always sees both "what customers see now" (table) and "what will go
 //     live and when" (banner). Customers keep seeing the live hours until promotion.
-//   - The "Add a second window" multi-window control STAYS a disabled affordance
-//     (multi-window ships in PR-8).
+//
+// PR-8 (§6) makes MULTI-WINDOW live:
+//   - The editor now edits N windows per day (add / remove window controls). The
+//     previously LOCKED "Add a second window" affordance is gone; the live control is
+//     inside the editor, per day.
+//   - The live table + the pending banner render N windows per day (e.g. "9am to 2pm,
+//     5pm to 11pm"), ordered by openTime, via the shared formatDay / formatDayWindows.
+//   - The edit still routes through the PR-4 cool-off STAGE-not-apply path + the same
+//     OWNER-only client gate; only the window UI + the payload cardinality changed.
 //
 // CLIENT GATING (PR-4 §6 #4): the Edit + Cancel controls render OWNER-only client-side
 // via the existing `isOwner` signal. The backend ALSO allows an assigned
@@ -35,20 +41,23 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/components/ui/toast'
 import { Dialog } from '@/components/ui/dialog'
-import { Clock, Pencil, X } from '@/lib/icons'
-import { LockedAffordance } from '@/components/branches/LockedAffordance'
+import { Clock, Pencil, Plus, X } from '@/lib/icons'
 import { useStageBranchHours, useCancelPendingHours } from '@/lib/branches/useBranches'
 import {
   DAY_LABELS,
+  addWindow,
   applyOpen24h,
   copyMondayToAllDays,
   copyMondayToWeekdays,
   hoursStateFromBranch,
+  removeWindow,
+  setWindow,
   toHoursPayload,
   validateHoursState,
   type DayHours,
   type BranchHoursRow,
 } from '@/components/onboarding/branch/lib/hoursModel'
+import { formatDay } from '@/lib/branches/hoursFormat'
 import type { OpeningHoursRow } from '@/lib/branches/openNow'
 import type { Branch } from '@/lib/api/branch'
 
@@ -78,25 +87,6 @@ function londonDayOfWeek(now: Date): number {
     .formatToParts(now)
     .find((p) => p.type === 'weekday')?.value
   return weekday ? LONDON_WEEKDAY_MAP[weekday] : -1
-}
-
-// "HH:MM" (24h) -> "9am" / "12:30pm" / "noon" / "midnight".
-function friendlyTime(hhmm: string): string {
-  const [hStr, mStr] = hhmm.split(':')
-  const h = Number(hStr)
-  const m = Number(mStr)
-  if (Number.isNaN(h)) return hhmm
-  if (m === 0 && h === 12) return 'noon'
-  if (m === 0 && (h === 0 || h === 24)) return 'midnight'
-  const period = h >= 12 && h < 24 ? 'pm' : 'am'
-  let hour12 = h % 12
-  if (hour12 === 0) hour12 = 12
-  return m === 0 ? `${hour12}${period}` : `${hour12}:${String(m).padStart(2, '0')}${period}`
-}
-
-function rowText(row: OpeningHoursRow | undefined): string {
-  if (!row || row.isClosed || !row.openTime || !row.closeTime) return 'Closed'
-  return `${friendlyTime(row.openTime)} to ${friendlyTime(row.closeTime)}`
 }
 
 // Europe/London friendly go-live time, matching the card's London framing. ISO -> e.g.
@@ -233,13 +223,11 @@ export function OpeningHoursCard({
               ) : null}
             </div>
 
-            {/* The proposed weekly schedule, so the merchant can verify the staged change. */}
+            {/* The proposed weekly schedule (N windows per day), so the merchant can
+                verify the staged change. */}
             <dl className="mt-3 divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
               {DAYS.map(({ dow, label }) => {
-                const row = pending.proposedHours.find((h) => h.dayOfWeek === dow) as
-                  | OpeningHoursRow
-                  | undefined
-                const text = rowText(row)
+                const text = formatDay(pending.proposedHours as OpeningHoursRow[], dow)
                 return (
                   <div
                     key={dow}
@@ -259,11 +247,10 @@ export function OpeningHoursCard({
       ) : null}
 
       <div className="px-6">
-        {/* The CURRENT LIVE hours (what customers see now). */}
+        {/* The CURRENT LIVE hours (what customers see now), N windows per day. */}
         <dl className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
           {DAYS.map(({ dow, label }) => {
-            const row = hours.find((h) => h.dayOfWeek === dow)
-            const text = rowText(row)
+            const text = formatDay(hours, dow)
             const isToday = dow === todayDow
             const closed = text === 'Closed'
             return (
@@ -288,13 +275,6 @@ export function OpeningHoursCard({
             )
           })}
         </dl>
-
-        {/* Locked PR-8 multi-window affordance. Disabled, no network. */}
-        {isOwner ? (
-          <div className="pt-3">
-            <LockedAffordance label="Add a second window" icon={<Clock size={14} aria-hidden />} />
-          </div>
-        ) : null}
       </div>
 
       {editorOpen ? (
@@ -315,10 +295,11 @@ export function OpeningHoursCard({
   )
 }
 
-// PR-4 editor: the single-window day editor reusing hoursModel.ts. Prefill from the
-// LIVE hours, validate + build the payload on save, copy-Monday + Open-24h helpers. On
-// save it STAGES (the change does not go live for 2 hours). Closing without saving is a
-// no-op. Mirrors the onboarding BranchStepForm hours section.
+// PR-4 + PR-8 editor: the MULTI-WINDOW day editor reusing hoursModel.ts. Prefill from
+// the LIVE hours (grouping rows into windows per day), validate + build the payload on
+// save, copy-Monday + Open-24h + per-day add/remove window. On save it STAGES (the
+// change does not go live for 2 hours). Closing without saving is a no-op. Mirrors the
+// onboarding BranchStepForm hours section.
 function HoursEditorModal({
   branch,
   stage,
@@ -336,8 +317,8 @@ function HoursEditorModal({
   const [errors, setErrors] = React.useState<Record<number, string>>({})
   const [formError, setFormError] = React.useState<string | null>(null)
 
-  function setDay(dayOfWeek: number, patch: Partial<DayHours>) {
-    setState((prev) => prev.map((d) => (d.dayOfWeek === dayOfWeek ? { ...d, ...patch } : d)))
+  function patchDay(dayOfWeek: number, fn: (d: DayHours) => DayHours) {
+    setState((prev) => prev.map((d) => (d.dayOfWeek === dayOfWeek ? fn(d) : d)))
   }
 
   async function onSave() {
@@ -422,7 +403,14 @@ function HoursEditorModal({
                   <Switch
                     label={`Open on ${label}`}
                     checked={!day.isClosed}
-                    onCheckedChange={(open) => setDay(dayOfWeek, open ? { isClosed: false } : { isClosed: true })}
+                    onCheckedChange={(open) =>
+                      patchDay(dayOfWeek, (d) =>
+                        open
+                          ? // Reopen: give it one default window if it had none.
+                            { ...d, isClosed: false, windows: d.windows.length > 0 ? d.windows : [{ openTime: '09:00', closeTime: '17:00' }] }
+                          : { ...d, isClosed: true, windows: [] },
+                      )
+                    }
                   />
                   <span className="text-[13px] font-semibold text-muted-foreground">
                     {day.isClosed ? 'Closed' : 'Open'}
@@ -430,28 +418,54 @@ function HoursEditorModal({
                 </div>
 
                 {!day.isClosed ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <TimeField
-                      id={`hours-edit-${dayOfWeek}-open`}
-                      label={`${label} opening time`}
-                      value={day.openTime}
-                      onChange={(v) => setDay(dayOfWeek, { openTime: v })}
-                    />
-                    <span aria-hidden="true" className="text-sm text-[#8089A4]">
-                      to
-                    </span>
-                    <TimeField
-                      id={`hours-edit-${dayOfWeek}-close`}
-                      label={`${label} closing time`}
-                      value={day.closeTime}
-                      onChange={(v) => setDay(dayOfWeek, { closeTime: v })}
-                    />
+                  <div className="flex flex-col gap-2">
+                    {day.windows.map((w, i) => (
+                      <div key={i} className="flex flex-wrap items-center gap-2">
+                        <TimeField
+                          id={`hours-edit-${dayOfWeek}-${i}-open`}
+                          label={`${label} opening time, window ${i + 1}`}
+                          value={w.openTime}
+                          onChange={(v) => patchDay(dayOfWeek, (d) => setWindow(d, i, { openTime: v }))}
+                        />
+                        <span aria-hidden="true" className="text-sm text-[#8089A4]">
+                          to
+                        </span>
+                        <TimeField
+                          id={`hours-edit-${dayOfWeek}-${i}-close`}
+                          label={`${label} closing time, window ${i + 1}`}
+                          value={w.closeTime}
+                          onChange={(v) => patchDay(dayOfWeek, (d) => setWindow(d, i, { closeTime: v }))}
+                        />
+                        {i === 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => patchDay(dayOfWeek, (d) => applyOpen24h(d))}
+                            className="rounded-[8px] border border-[#E3E7EE] bg-white px-2.5 py-1.5 text-[12px] font-bold text-[#455373] hover:border-[#E20C04] hover:text-[#E20C04]"
+                          >
+                            Open 24 hours
+                          </button>
+                        ) : null}
+                        {day.windows.length > 1 ? (
+                          <button
+                            type="button"
+                            data-testid={`editor-remove-window-${dayOfWeek}-${i}`}
+                            aria-label={`Remove ${label} window ${i + 1}`}
+                            onClick={() => patchDay(dayOfWeek, (d) => removeWindow(d, i))}
+                            className="inline-flex size-7 items-center justify-center rounded-[8px] border border-[#E3E7EE] bg-white text-[#8089A4] hover:border-[#E20C04] hover:text-[#E20C04]"
+                          >
+                            <X size={14} aria-hidden />
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
                     <button
                       type="button"
-                      onClick={() => setDay(dayOfWeek, applyOpen24h(day))}
-                      className="rounded-[8px] border border-[#E3E7EE] bg-white px-2.5 py-1.5 text-[12px] font-bold text-[#455373] hover:border-[#E20C04] hover:text-[#E20C04]"
+                      data-testid={`editor-add-window-${dayOfWeek}`}
+                      onClick={() => patchDay(dayOfWeek, (d) => addWindow(d))}
+                      className="inline-flex w-fit items-center gap-1 rounded-[8px] px-1.5 py-1 text-[12px] font-bold text-[#E20C04] hover:underline"
                     >
-                      Open 24 hours
+                      <Plus size={13} aria-hidden />
+                      Add a window
                     </button>
                   </div>
                 ) : null}
@@ -466,7 +480,8 @@ function HoursEditorModal({
         })}
       </div>
       <p className="mt-3 text-[12.5px] leading-relaxed text-[#8089A4]">
-        Use 24 hour times. A closing time earlier than the opening time means you stay open past midnight.
+        Use 24 hour times. Add a window for a split day (for example a lunch close). A closing time earlier
+        than the opening time means you stay open past midnight.
       </p>
 
       <div className="mt-5 flex items-center justify-end gap-2">

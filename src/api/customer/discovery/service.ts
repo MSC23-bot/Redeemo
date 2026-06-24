@@ -927,6 +927,15 @@ async function enrichMerchantTiles(
 //     serialization boundary so POSTCODE_CENTROID / NEEDS_REVIEW /
 //     ADDRESS_GEOCODED branches expose null lat/lng (Plan 4 M1 PR #81 lock).
 
+// Branches PR-8 multi-window: stable (dayOfWeek asc, openTime asc) ordering for the
+// N-windows-per-day reads. Typed as the mutable Prisma input array so it can live
+// inside the `as const` BRANCH_TILE_SELECT below without the array literal being
+// frozen to a readonly tuple (which BranchGetPayload rejects).
+const OPENING_HOURS_ORDER_BY: Prisma.BranchOpeningHoursOrderByWithRelationInput[] = [
+  { dayOfWeek: 'asc' },
+  { openTime: 'asc' },
+]
+
 export const BRANCH_TILE_SELECT = {
   id:                 true,
   name:               true,
@@ -940,6 +949,10 @@ export const BRANCH_TILE_SELECT = {
   isActive:           true,
   openingHours: {
     select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
+    // Branches PR-8 multi-window: stable (dayOfWeek asc, openTime asc) ordering so
+    // N windows per day arrive deterministically (the boolean still flows through
+    // the single isOpenNow producer).
+    orderBy: OPENING_HOURS_ORDER_BY,
   },
   merchant: {
     select: {
@@ -1975,7 +1988,9 @@ export async function getCustomerMerchant(
           createdAt: true,
           openingHours: {
             select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
-            orderBy: { dayOfWeek: 'asc' },
+            // Branches PR-8 multi-window: tie-break on openTime so N windows per day
+            // render in a stable order.
+            orderBy: [{ dayOfWeek: 'asc' }, { openTime: 'asc' }],
           },
           amenities: {
             select: { amenity: { select: { id: true, name: true, iconUrl: true } } },
@@ -2422,7 +2437,8 @@ export async function getCustomerMerchantBranches(prisma: PrismaClient, merchant
       phone: true, latitude: true, longitude: true, locationConfidence: true,
       openingHours: {
         select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
-        orderBy: { dayOfWeek: 'asc' },
+        // Branches PR-8 multi-window: tie-break on openTime for stable N-windows/day.
+        orderBy: [{ dayOfWeek: 'asc' }, { openTime: 'asc' }],
       },
     },
     orderBy: { isMainBranch: 'desc' },
@@ -2901,6 +2917,9 @@ export async function searchMerchants(
           select: {
             openingHours: {
               select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
+              // Branches PR-8 multi-window: stable (dayOfWeek asc, openTime asc) order
+              // for the openNow filter's per-branch windows.
+              orderBy: [{ dayOfWeek: 'asc' }, { openTime: 'asc' }],
             },
           },
         },

@@ -5,26 +5,40 @@ import {
   toHoursPayload,
   validateHoursState,
   applyOpen24h,
+  addWindow,
+  removeWindow,
+  setWindow,
   copyMondayToWeekdays,
   copyMondayToAllDays,
   type DayHours,
 } from '@/components/onboarding/branch/lib/hoursModel'
 
-// M2 F4 (B4): the SINGLE-period-per-day opening-hours model. These tests pin the
-// load-bearing backend contract:
-//   - one row per day Mon..Sun (dayOfWeek 1..6,0 -> a 7-row payload),
-//   - CLOSED days OMIT openTime/closeTime entirely (NOT null) so the route zod
-//     (z.string().optional()) accepts them,
-//   - overnight (close < open) is accepted,
-//   - Open 24h = 00:00 -> 24:00,
-//   - client validation MIRRORS B4 (open day needs both times, open !== close,
-//     24:00 only as closeTime, well-formed HH:MM).
+// Branches PR-8 (umbrella D9): the MULTI-WINDOW-per-day opening-hours model. These
+// tests pin the load-bearing backend contract:
+//   - N>=1 windows per open day (one row per window in the payload),
+//   - CLOSED days OMIT openTime/closeTime entirely (NOT null), one isClosed row,
+//   - hoursStateFromBranch GROUPS multi-row backend data by dayOfWeek into windows[]
+//     (no last-wins drop),
+//   - overnight (close < open) is accepted; WITHIN-day overlap + CROSS-day overnight
+//     spill overlap are rejected; abutting windows are accepted,
+//   - Open 24h = a single 00:00 -> 24:00 window,
+//   - client validation MIRRORS the backend validateOpeningHours.
 
-function open(dayOfWeek: number, openTime: string, closeTime: string): DayHours {
-  return { dayOfWeek, isClosed: false, openTime, closeTime }
+function open(dayOfWeek: number, ...windows: [string, string][]): DayHours {
+  return {
+    dayOfWeek,
+    isClosed: false,
+    windows: windows.map(([openTime, closeTime]) => ({ openTime, closeTime })),
+  }
 }
 function closed(dayOfWeek: number): DayHours {
-  return { dayOfWeek, isClosed: true, openTime: '', closeTime: '' }
+  return { dayOfWeek, isClosed: true, windows: [] }
+}
+// A full week that is closed everywhere except the supplied open days.
+function week(...openDays: DayHours[]): DayHours[] {
+  const byDay = new Map<number, DayHours>()
+  for (const d of openDays) byDay.set(d.dayOfWeek, d)
+  return [1, 2, 3, 4, 5, 6, 0].map((dow) => byDay.get(dow) ?? closed(dow))
 }
 
 describe('hoursModel: shape + defaults', () => {
@@ -34,15 +48,23 @@ describe('hoursModel: shape + defaults', () => {
     expect(DAY_LABELS[6].label).toMatch(/sunday/i)
   })
 
-  it('defaultHoursState seeds 7 open weekday-ish rows with a sensible default', () => {
+  it('defaultHoursState seeds 7 open rows, each with a single 09:00 -> 17:00 window', () => {
     const state = defaultHoursState()
     expect(state).toHaveLength(7)
-    expect(state.every((d) => d.openTime === '09:00' && d.closeTime === '17:00' && !d.isClosed)).toBe(true)
+    expect(
+      state.every(
+        (d) =>
+          !d.isClosed &&
+          d.windows.length === 1 &&
+          d.windows[0].openTime === '09:00' &&
+          d.windows[0].closeTime === '17:00',
+      ),
+    ).toBe(true)
     expect(state.map((d) => d.dayOfWeek)).toEqual([1, 2, 3, 4, 5, 6, 0])
   })
 })
 
-describe('hoursModel: hoursStateFromBranch (prefill)', () => {
+describe('hoursModel: hoursStateFromBranch (prefill + GROUP by day)', () => {
   it('maps a branch openingHours array into the 7-row display state, defaulting missing days to closed', () => {
     const state = hoursStateFromBranch([
       { dayOfWeek: 1, openTime: '08:30', closeTime: '22:00', isClosed: false },
@@ -50,12 +72,26 @@ describe('hoursModel: hoursStateFromBranch (prefill)', () => {
     ])
     expect(state).toHaveLength(7)
     const monday = state.find((d) => d.dayOfWeek === 1)!
-    expect(monday).toMatchObject({ openTime: '08:30', closeTime: '22:00', isClosed: false })
-    const sunday = state.find((d) => d.dayOfWeek === 0)!
-    expect(sunday.isClosed).toBe(true)
+    expect(monday.isClosed).toBe(false)
+    expect(monday.windows).toEqual([{ openTime: '08:30', closeTime: '22:00' }])
+    expect(state.find((d) => d.dayOfWeek === 0)!.isClosed).toBe(true)
     // A day absent from the source becomes closed (not a phantom open row).
-    const tuesday = state.find((d) => d.dayOfWeek === 2)!
-    expect(tuesday.isClosed).toBe(true)
+    expect(state.find((d) => d.dayOfWeek === 2)!.isClosed).toBe(true)
+  })
+
+  it('GROUPS multiple rows for the same dayOfWeek into windows[] (NO last-wins drop), ordered by openTime', () => {
+    const state = hoursStateFromBranch([
+      // Deliberately out of order to prove the sort.
+      { dayOfWeek: 1, openTime: '17:00', closeTime: '23:00', isClosed: false },
+      { dayOfWeek: 1, openTime: '09:00', closeTime: '14:00', isClosed: false },
+    ])
+    const monday = state.find((d) => d.dayOfWeek === 1)!
+    expect(monday.isClosed).toBe(false)
+    // Both windows preserved (the old single-window model would have dropped one).
+    expect(monday.windows).toEqual([
+      { openTime: '09:00', closeTime: '14:00' },
+      { openTime: '17:00', closeTime: '23:00' },
+    ])
   })
 
   it('returns the default state when given an empty/undefined source', () => {
@@ -65,22 +101,22 @@ describe('hoursModel: hoursStateFromBranch (prefill)', () => {
 })
 
 describe('hoursModel: toHoursPayload (the POST body)', () => {
-  it('emits one row per day and OMITS openTime/closeTime on closed days (never null)', () => {
-    const state: DayHours[] = [
-      open(1, '09:00', '17:00'),
-      open(2, '09:00', '17:00'),
-      open(3, '09:00', '17:00'),
-      open(4, '09:00', '17:00'),
-      open(5, '09:00', '17:00'),
-      open(6, '10:00', '16:00'),
-      closed(0),
-    ]
+  it('emits one row per WINDOW and OMITS openTime/closeTime on closed days (never null)', () => {
+    const state = week(
+      open(1, ['09:00', '14:00'], ['17:00', '23:00']),
+      open(6, ['10:00', '16:00']),
+    )
     const payload = toHoursPayload(state)
-    expect(payload).toHaveLength(7)
+
+    // Monday contributes TWO rows (one per window); the closed days contribute one each.
+    const monday = payload.filter((r) => r.dayOfWeek === 1)
+    expect(monday).toEqual([
+      { dayOfWeek: 1, isClosed: false, openTime: '09:00', closeTime: '14:00' },
+      { dayOfWeek: 1, isClosed: false, openTime: '17:00', closeTime: '23:00' },
+    ])
 
     const sunday = payload.find((r) => r.dayOfWeek === 0)!
     expect(sunday.isClosed).toBe(true)
-    // The critical contract: closed rows must NOT carry the keys at all.
     expect('openTime' in sunday).toBe(false)
     expect('closeTime' in sunday).toBe(false)
     // Defensive: no row anywhere carries a null time.
@@ -88,86 +124,149 @@ describe('hoursModel: toHoursPayload (the POST body)', () => {
       expect((row as Record<string, unknown>).openTime).not.toBeNull()
       expect((row as Record<string, unknown>).closeTime).not.toBeNull()
     }
-
-    const monday = payload.find((r) => r.dayOfWeek === 1)!
-    expect(monday).toEqual({ dayOfWeek: 1, isClosed: false, openTime: '09:00', closeTime: '17:00' })
   })
 
-  it('accepts an overnight period (close < open) without rejecting', () => {
-    const state = [open(5, '18:00', '02:00'), closed(0), closed(1), closed(2), closed(3), closed(4), closed(6)]
-    expect(() => validateHoursState(state)).not.toThrow()
-    const payload = toHoursPayload(state)
-    const friday = payload.find((r) => r.dayOfWeek === 5)!
-    expect(friday).toEqual({ dayOfWeek: 5, isClosed: false, openTime: '18:00', closeTime: '02:00' })
+  it('emits a closed row for a day left with zero windows', () => {
+    const state = week({ dayOfWeek: 1, isClosed: false, windows: [] })
+    const monday = toHoursPayload(state).filter((r) => r.dayOfWeek === 1)
+    expect(monday).toEqual([{ dayOfWeek: 1, isClosed: true }])
   })
 
-  it('emits Open 24h as openTime 00:00 -> closeTime 24:00', () => {
-    const state = [open(1, '00:00', '24:00'), closed(2), closed(3), closed(4), closed(5), closed(6), closed(0)]
-    expect(() => validateHoursState(state)).not.toThrow()
-    const monday = toHoursPayload(state).find((r) => r.dayOfWeek === 1)!
-    expect(monday).toEqual({ dayOfWeek: 1, isClosed: false, openTime: '00:00', closeTime: '24:00' })
+  it('accepts an overnight window (close < open) without rejecting', () => {
+    const state = week(open(5, ['18:00', '02:00']))
+    expect(validateHoursState(state)).toEqual({})
+    const friday = toHoursPayload(state).filter((r) => r.dayOfWeek === 5)
+    expect(friday).toEqual([{ dayOfWeek: 5, isClosed: false, openTime: '18:00', closeTime: '02:00' }])
+  })
+
+  it('emits Open 24h as a single 00:00 -> 24:00 window', () => {
+    const state = week(open(1, ['00:00', '24:00']))
+    expect(validateHoursState(state)).toEqual({})
+    const monday = toHoursPayload(state).filter((r) => r.dayOfWeek === 1)
+    expect(monday).toEqual([{ dayOfWeek: 1, isClosed: false, openTime: '00:00', closeTime: '24:00' }])
   })
 })
 
-describe('hoursModel: validateHoursState (client-side mirror of B4)', () => {
+describe('hoursModel: validateHoursState (client mirror of the multi-window validator)', () => {
   it('passes a fully valid week', () => {
-    const state = defaultHoursState()
-    expect(validateHoursState(state)).toEqual({})
+    expect(validateHoursState(defaultHoursState())).toEqual({})
   })
 
-  it('flags an open day missing one of the two times', () => {
-    const state = [{ dayOfWeek: 1, isClosed: false, openTime: '09:00', closeTime: '' } as DayHours, closed(2), closed(3), closed(4), closed(5), closed(6), closed(0)]
-    const errors = validateHoursState(state)
+  it('passes a valid split day (two non-overlapping windows)', () => {
+    expect(validateHoursState(week(open(1, ['09:00', '14:00'], ['17:00', '23:00'])))).toEqual({})
+  })
+
+  it('accepts ABUTTING windows on the same day (prev.close === next.open)', () => {
+    expect(validateHoursState(week(open(1, ['09:00', '14:00'], ['14:00', '23:00'])))).toEqual({})
+  })
+
+  it('rejects WITHIN-day overlapping windows', () => {
+    const errors = validateHoursState(week(open(1, ['09:00', '13:00'], ['12:00', '18:00'])))
+    expect(errors[1]).toMatch(/overlap/i)
+  })
+
+  it('rejects a CROSS-day overlap: Monday 18:00-02:00 spill vs Tuesday 01:00-03:00', () => {
+    const errors = validateHoursState(week(open(1, ['18:00', '02:00']), open(2, ['01:00', '03:00'])))
+    // The TUESDAY window is the one rejected (it overlaps the prior-day spill).
+    expect(errors[2]).toMatch(/overnight|carried over|day before/i)
+  })
+
+  it('accepts a CROSS-day ABUTTING boundary: Monday 18:00-02:00 spill then Tuesday 02:00-05:00', () => {
+    expect(validateHoursState(week(open(1, ['18:00', '02:00']), open(2, ['02:00', '05:00'])))).toEqual({})
+  })
+
+  it('wraps Sunday overnight spill into Monday (7-day wrap)', () => {
+    const errors = validateHoursState(week(open(0, ['22:00', '03:00']), open(1, ['01:00', '09:00'])))
+    expect(errors[1]).toMatch(/overnight|carried over|day before/i)
+  })
+
+  it('allows a CLOSED day to still receive a prior-day overnight spill (nothing originates that day)', () => {
+    // Monday overnight spills into a CLOSED Tuesday: no Tuesday window, nothing to reject.
+    expect(validateHoursState(week(open(1, ['18:00', '02:00']), closed(2)))).toEqual({})
+  })
+
+  it('flags a window missing one of the two times', () => {
+    const errors = validateHoursState(week({ dayOfWeek: 1, isClosed: false, windows: [{ openTime: '09:00', closeTime: '' }] }))
     expect(errors[1]).toMatch(/both an opening and a closing time/i)
   })
 
-  it('rejects open === close (zero-length period) inline', () => {
-    const state = [open(1, '09:00', '09:00'), closed(2), closed(3), closed(4), closed(5), closed(6), closed(0)]
-    const errors = validateHoursState(state)
+  it('rejects open === close (zero-length window) inline', () => {
+    const errors = validateHoursState(week(open(1, ['09:00', '09:00'])))
     expect(errors[1]).toMatch(/same|identical|cannot be the same/i)
   })
 
   it('rejects 24:00 used as an opening time', () => {
-    const state = [{ dayOfWeek: 1, isClosed: false, openTime: '24:00', closeTime: '06:00' } as DayHours, closed(2), closed(3), closed(4), closed(5), closed(6), closed(0)]
-    const errors = validateHoursState(state)
+    const errors = validateHoursState(week({ dayOfWeek: 1, isClosed: false, windows: [{ openTime: '24:00', closeTime: '06:00' }] }))
     expect(errors[1]).toMatch(/opening time/i)
   })
 
   it('rejects a malformed time', () => {
-    const state = [{ dayOfWeek: 1, isClosed: false, openTime: '9am', closeTime: '17:00' } as DayHours, closed(2), closed(3), closed(4), closed(5), closed(6), closed(0)]
-    const errors = validateHoursState(state)
+    const errors = validateHoursState(week({ dayOfWeek: 1, isClosed: false, windows: [{ openTime: '9am', closeTime: '17:00' }] }))
     expect(errors[1]).toBeTruthy()
   })
 
-  it('does not flag a closed day even with no times', () => {
-    const errors = validateHoursState([closed(1), closed(2), closed(3), closed(4), closed(5), closed(6), closed(0)])
-    expect(errors).toEqual({})
+  it('flags an open day left with zero windows', () => {
+    const errors = validateHoursState(week({ dayOfWeek: 1, isClosed: false, windows: [] }))
+    expect(errors[1]).toMatch(/at least one opening window|mark the day closed/i)
+  })
+
+  it('does not flag a closed day even with no windows', () => {
+    expect(validateHoursState(week())).toEqual({})
   })
 })
 
-describe('hoursModel: helpers', () => {
-  it('applyOpen24h sets 00:00 -> 24:00 and opens the day', () => {
+describe('hoursModel: window helpers', () => {
+  it('applyOpen24h sets a single 00:00 -> 24:00 window and opens the day', () => {
     const row = applyOpen24h(closed(1))
-    expect(row).toMatchObject({ dayOfWeek: 1, isClosed: false, openTime: '00:00', closeTime: '24:00' })
+    expect(row).toEqual({ dayOfWeek: 1, isClosed: false, windows: [{ openTime: '00:00', closeTime: '24:00' }] })
   })
 
-  it('copyMondayToWeekdays copies Monday open/close to Tue..Fri only', () => {
-    const state = [open(1, '08:00', '20:00'), closed(2), closed(3), closed(4), closed(5), open(6, '10:00', '14:00'), closed(0)]
+  it('addWindow appends a fresh window seeded from the prior close', () => {
+    const row = addWindow(open(1, ['09:00', '14:00']))
+    expect(row.windows).toHaveLength(2)
+    expect(row.windows[1]).toEqual({ openTime: '14:00', closeTime: '17:00' })
+  })
+
+  it('addWindow on an Open-24h day seeds the new window from the default (not 24:00)', () => {
+    const row = addWindow(open(1, ['00:00', '24:00']))
+    expect(row.windows[1].openTime).toBe('09:00')
+  })
+
+  it('removeWindow drops the window at the given index', () => {
+    const row = removeWindow(open(1, ['09:00', '14:00'], ['17:00', '23:00']), 0)
+    expect(row.windows).toEqual([{ openTime: '17:00', closeTime: '23:00' }])
+  })
+
+  it('setWindow patches a single window time by index', () => {
+    const row = setWindow(open(1, ['09:00', '14:00'], ['17:00', '23:00']), 1, { closeTime: '22:00' })
+    expect(row.windows[1]).toEqual({ openTime: '17:00', closeTime: '22:00' })
+    expect(row.windows[0]).toEqual({ openTime: '09:00', closeTime: '14:00' })
+  })
+
+  it('copyMondayToWeekdays copies Monday windows to Tue..Fri only', () => {
+    const state = week(open(1, ['08:00', '12:00'], ['13:00', '20:00']), open(6, ['10:00', '14:00']))
     const next = copyMondayToWeekdays(state)
     for (const dow of [2, 3, 4, 5]) {
       const row = next.find((d) => d.dayOfWeek === dow)!
-      expect(row).toMatchObject({ openTime: '08:00', closeTime: '20:00', isClosed: false })
+      expect(row.isClosed).toBe(false)
+      expect(row.windows).toEqual([
+        { openTime: '08:00', closeTime: '12:00' },
+        { openTime: '13:00', closeTime: '20:00' },
+      ])
     }
     // Saturday + Sunday untouched.
-    expect(next.find((d) => d.dayOfWeek === 6)).toMatchObject({ openTime: '10:00', closeTime: '14:00' })
+    expect(next.find((d) => d.dayOfWeek === 6)!.windows).toEqual([{ openTime: '10:00', closeTime: '14:00' }])
     expect(next.find((d) => d.dayOfWeek === 0)!.isClosed).toBe(true)
   })
 
-  it('copyMondayToAllDays copies Monday to every other day', () => {
-    const state = [open(1, '08:00', '20:00'), closed(2), closed(3), closed(4), closed(5), closed(6), closed(0)]
+  it('copyMondayToAllDays copies Monday windows to every other day (deep copy)', () => {
+    const state = week(open(1, ['08:00', '20:00']))
     const next = copyMondayToAllDays(state)
     for (const dow of [2, 3, 4, 5, 6, 0]) {
-      expect(next.find((d) => d.dayOfWeek === dow)).toMatchObject({ openTime: '08:00', closeTime: '20:00', isClosed: false })
+      expect(next.find((d) => d.dayOfWeek === dow)!.windows).toEqual([{ openTime: '08:00', closeTime: '20:00' }])
     }
+    // Deep copy: mutating a copied window must not bleed back into Monday.
+    next.find((d) => d.dayOfWeek === 2)!.windows[0].openTime = '06:00'
+    expect(next.find((d) => d.dayOfWeek === 1)!.windows[0].openTime).toBe('08:00')
   })
 })

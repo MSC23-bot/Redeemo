@@ -7,18 +7,37 @@ export type SmartStatus = {
   statusText: string
 }
 
-// Bug fix (2026-05-05 QA): smartStatus now reads day-of-week and
-// time-of-day from the shared `getLondonClock(now)` helper instead of
-// device-local `now.getDay()` / `now.getHours()` / `now.getMinutes()`.
+// Bug fix (2026-05-05 QA): smartStatus reads day-of-week and time-of-day from
+// the shared `getLondonClock(now)` helper instead of device-local
+// `now.getDay()` / `now.getHours()` / `now.getMinutes()`.
 //
 // Product rule: UK branch opening hours are calculated in Europe/London
 // regardless of the customer's device timezone. The shared helper uses
 // Intl numeric date parts (universally supported, no CLDR locale data
 // required) — see `londonNow.ts` for the full why.
+//
+// Branches PR-8 (umbrella D9): smartStatus is now MULTI-WINDOW + CROSS-MIDNIGHT
+// aware, in lockstep with the backend `src/api/shared/isOpenNow.ts` rewrite.
+// The prior version read ONLY today's single row on a half-open same-day
+// interval, so an overnight window (`close < open`) read perpetually CLOSED
+// and a post-midnight tail was never reported open, AND "Closes"/"Opens" text
+// only ever considered one window per day. Now:
+//  - the active-window scan considers ALL of today's windows (same-day +
+//    the pre-midnight portion of an overnight window) AND a yesterday-spillover
+//    pass (an overnight window's post-midnight tail);
+//  - "Closes at / Closes in N min" references the CURRENTLY-ACTIVE window's
+//    close (which may be tomorrow's clock time for an overnight window);
+//  - "Opens at / Opens tomorrow" finds the NEXT window across days, considering
+//    every window in a day (not just one).
 
-// Format "HH:MM" → "H:MMam/pm" (am/pm, friendly).
+const MINUTES_PER_DAY = 24 * 60 // 1440
+
+// Format "HH:MM" → "H:MMam/pm" (am/pm, friendly, NO space — the locked status-
+// text register used by "Closes at"/"Opens at").
 // "09:00" → "9:00am" · "10:30" → "10:30am" · "17:00" → "5:00pm" · "00:30" → "12:30am"
+// The "24:00" end-of-day close sentinel renders as "midnight".
 function formatAmPm(hhmm: string): string {
+  if (hhmm === '24:00') return 'midnight'
   const [hStr, mStr] = hhmm.split(':')
   let h = parseInt(hStr ?? '0', 10)
   const m = mStr ?? '00'
@@ -29,31 +48,93 @@ function formatAmPm(hhmm: string): string {
 }
 
 function parseHM(hhmm: string): number {
+  if (hhmm === '24:00') return MINUTES_PER_DAY
   const [h, m] = hhmm.split(':').map(Number)
   return (h ?? 0) * 60 + (m ?? 0)
 }
 
-// Find the next open interval starting at-or-after `now` on `today`, or on
-// any subsequent day. Returns { dayOffset, openTime } or null.
+type WindowRow = { openTime: string; closeTime: string }
+
+// Collect a day's non-closed, well-formed windows, sorted by openTime asc.
+function dayWindows(hours: OpeningHourEntry[], dow: number): WindowRow[] {
+  const rows: WindowRow[] = []
+  for (const h of hours) {
+    if (h.dayOfWeek !== dow || h.isClosed) continue
+    if (h.openTime == null || h.closeTime == null) continue
+    const open = parseHM(h.openTime)
+    const close = parseHM(h.closeTime)
+    if (open === close) continue // zero-length (validator-rejected); skip
+    rows.push({ openTime: h.openTime, closeTime: h.closeTime })
+  }
+  rows.sort((a, b) => parseHM(a.openTime) - parseHM(b.openTime))
+  return rows
+}
+
+// Find the window currently active at `nowMinutes` (Europe/London `today`),
+// considering today's same-day + overnight pre-midnight windows AND
+// yesterday's overnight post-midnight tail. Returns the active window's close
+// time as an absolute minutes-from-`now` countdown plus the close clock-string,
+// or null when nothing is active.
+function activeWindowClose(
+  hours: OpeningHourEntry[],
+  today: number,
+  nowMinutes: number,
+): { closeTime: string; minsUntilClose: number } | null {
+  // (1) Today's windows.
+  for (const w of dayWindows(hours, today)) {
+    const open = parseHM(w.openTime)
+    const close = parseHM(w.closeTime)
+    if (close > open) {
+      // Same-day window (incl. 24:00 = 1440 end-of-day close).
+      if (nowMinutes >= open && nowMinutes < close) {
+        return { closeTime: w.closeTime, minsUntilClose: close - nowMinutes }
+      }
+    } else if (close < open) {
+      // Overnight: today carries the pre-midnight portion [open, 24:00). The
+      // close lands at `close` minutes TOMORROW, so the countdown wraps past
+      // midnight: (1440 - now) + close.
+      if (nowMinutes >= open) {
+        return { closeTime: w.closeTime, minsUntilClose: MINUTES_PER_DAY - nowMinutes + close }
+      }
+    }
+  }
+
+  // (2) Yesterday-spillover: the post-midnight tail [0, close) of yesterday's
+  // overnight windows reaches into today.
+  const yesterday = (today + 6) % 7
+  for (const w of dayWindows(hours, yesterday)) {
+    const open = parseHM(w.openTime)
+    const close = parseHM(w.closeTime)
+    if (close < open && nowMinutes < close) {
+      return { closeTime: w.closeTime, minsUntilClose: close - nowMinutes }
+    }
+  }
+
+  return null
+}
+
+// Find the next open window starting at-or-after `now`, scanning today's later
+// windows first, then subsequent days. Returns { dayOffset, openTime } or null.
 //
-// Day 0 (today): only an open interval whose openTime is > nowMinutes counts.
-// Day 1+: any non-closed entry counts (even if openTime is null — caller
-//         decides how to render the missing time).
+// Day 0 (today): only a window whose openTime is > nowMinutes counts (an
+//                already-started window would have been caught as active).
+// Day 1+: the EARLIEST window of the first non-empty day.
 function findNextOpen(
   hours: OpeningHourEntry[],
   today: number,
   nowMinutes: number,
-): { dayOffset: number; openTime: string | null } | null {
+): { dayOffset: number; openTime: string } | null {
   for (let offset = 0; offset < 7; offset++) {
     const dow = (today + offset) % 7
-    const entry = hours.find(h => h.dayOfWeek === dow)
-    if (!entry || entry.isClosed) continue
+    const windows = dayWindows(hours, dow)
+    if (windows.length === 0) continue
     if (offset === 0) {
-      if (!entry.openTime) continue
-      if (parseHM(entry.openTime) <= nowMinutes) continue
-      return { dayOffset: 0, openTime: entry.openTime }
+      // Earliest window today that opens strictly after now.
+      const upcoming = windows.find(w => parseHM(w.openTime) > nowMinutes)
+      if (upcoming) return { dayOffset: 0, openTime: upcoming.openTime }
+      continue
     }
-    return { dayOffset: offset, openTime: entry.openTime ?? null }
+    return { dayOffset: offset, openTime: windows[0]!.openTime }
   }
   return null
 }
@@ -61,12 +142,9 @@ function findNextOpen(
 /**
  * Derive pill state + status text from `isOpenNow` + `openingHours`.
  *
- * Today (Pass 2): single-interval data. Backend `selectedBranch.statusText`
- * + `isClosingSoon` are deferred (§A). When that ships, this helper
- * becomes a thin pass-through.
- *
- * @param isOpenNow  Server-computed boolean (Europe/London).
- * @param hours      `selectedBranch.openingHours` array.
+ * @param isOpenNow  Server-computed boolean (Europe/London, multi-window +
+ *                   cross-midnight correct per backend `isOpenNow`).
+ * @param hours      `selectedBranch.openingHours` array (N rows per day).
  * @param now        Current Date (defaults to `new Date()`; test injectable).
  */
 export function smartStatus(
@@ -79,16 +157,13 @@ export function smartStatus(
   const { dow: today, minutes: nowMinutes } = getLondonClock(now)
 
   if (isOpenNow) {
-    const todayEntry = hours.find(h => h.dayOfWeek === today)
-    if (!todayEntry || !todayEntry.closeTime) {
+    const active = activeWindowClose(hours, today, nowMinutes)
+    if (!active) {
+      // Server says open but we can't resolve an active window (malformed /
+      // missing hours data) — fall back to the honest "Hours unavailable".
       return { pillState: 'open', pillLabel: 'Open', statusText: 'Hours unavailable' }
     }
-    // Single-interval limitation: minsUntilClose can be negative when a venue's
-    // closeTime crosses midnight (e.g. closes at 02:00). The `> 0` guard below
-    // prevents incorrect closing-soon under that case; the `Closes at H:MMam/pm`
-    // text is still textually correct. Full fix lands when backend
-    // selectedBranch.statusText + isClosingSoon ship (deferred §A).
-    const minsUntilClose = parseHM(todayEntry.closeTime) - nowMinutes
+    const { closeTime, minsUntilClose } = active
     if (minsUntilClose <= 60 && minsUntilClose > 0) {
       return {
         pillState: 'closing-soon',
@@ -96,7 +171,7 @@ export function smartStatus(
         statusText: `Closes in ${minsUntilClose} min`,
       }
     }
-    return { pillState: 'open', pillLabel: 'Open', statusText: `Closes at ${formatAmPm(todayEntry.closeTime)}` }
+    return { pillState: 'open', pillLabel: 'Open', statusText: `Closes at ${formatAmPm(closeTime)}` }
   }
 
   // Closed
@@ -105,14 +180,13 @@ export function smartStatus(
     return { pillState: 'closed', pillLabel: 'Closed', statusText: 'Hours unavailable' }
   }
   if (next.dayOffset === 0) {
-    if (!next.openTime) return { pillState: 'closed', pillLabel: 'Closed', statusText: 'Hours unavailable' }
     return { pillState: 'closed', pillLabel: 'Closed', statusText: `Opens at ${formatAmPm(next.openTime)}` }
   }
   if (next.dayOffset === 1) {
     return {
       pillState: 'closed',
       pillLabel: 'Closed',
-      statusText: next.openTime ? `Opens tomorrow at ${formatAmPm(next.openTime)}` : 'Opens tomorrow',
+      statusText: `Opens tomorrow at ${formatAmPm(next.openTime)}`,
     }
   }
   // After tomorrow: drop the day reference (avoids "Opens tomorrow" lie when
@@ -120,6 +194,6 @@ export function smartStatus(
   return {
     pillState: 'closed',
     pillLabel: 'Closed',
-    statusText: next.openTime ? `Opens at ${formatAmPm(next.openTime)}` : 'Hours unavailable',
+    statusText: `Opens at ${formatAmPm(next.openTime)}`,
   }
 }

@@ -97,6 +97,41 @@ async function createBranch(
   })
 }
 
+// Always-open opening hours: a full-day 00:00 -> 24:00 window for every day of
+// the week. `isOpenNow` reports this OPEN at ANY wall-clock time (close 1440 >
+// open 0, same-day window, open iff `now >= 0 && now < 1440`). Used instead of a
+// realistic overnight (e.g. 18:00 -> 02:00) window so the favourites ORDERING
+// pin below is deterministic: `isOpenNow` evaluates against the REAL current
+// Europe/London time, so an overnight window would only read OPEN during part of
+// the day and make the test clock-of-day-dependent. The overnight-specific
+// open/closed behaviour (the actual PR-8 fix) is already pinned by the
+// `isOpenNow` unit tests in tests/api/shared/isOpenNow.test.ts.
+async function createAlwaysOpenHours(branchId: string): Promise<void> {
+  await prisma.branchOpeningHours.createMany({
+    data: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+      branchId,
+      dayOfWeek,
+      openTime: '00:00',
+      closeTime: '24:00',
+      isClosed: false,
+    })),
+  })
+}
+
+// Always-closed opening hours: every day marked `isClosed`. `isOpenNow` skips
+// closed rows, so the branch reads CLOSED at any wall-clock time.
+async function createAlwaysClosedHours(branchId: string): Promise<void> {
+  await prisma.branchOpeningHours.createMany({
+    data: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+      branchId,
+      dayOfWeek,
+      openTime: null,
+      closeTime: null,
+      isClosed: true,
+    })),
+  })
+}
+
 describe('listFavouriteBranches', () => {
   it('returns empty when user has no favourites', async () => {
     const user = await createUser('empty')
@@ -212,5 +247,50 @@ describe('listFavouriteBranches', () => {
     expect(page2.items).toHaveLength(1)
     expect(page2.items[0]!.id).toBe(branchB.id)
     expect(page2.items[0]!.isUnavailable).toBe(true)
+  })
+
+  // Branches PR-8 (mini-spec §8) — pins the `isOpen` sort key as load-bearing.
+  // The PR-8 isOpenNow fix flips a previously-perpetually-CLOSED overnight branch
+  // to OPEN inside its window, so it now floats UP in this favourites ordering.
+  // Spec §8 mandates pinning that ordering shift so it is not flagged as a QA
+  // surprise. We assert the general invariant the shift produces: an OPEN branch
+  // sorts AHEAD of a CLOSED branch even when the CLOSED one was favourited more
+  // recently (so the sort is NOT just favouritedAt desc — the open-status key wins).
+  //
+  // Determinism: we use an always-open (00:00 -> 24:00 every day) vs always-closed
+  // (isClosed every day) pair so the assertion holds at ANY wall-clock time the
+  // suite runs. The specific overnight (close < open) open/closed behaviour is
+  // pinned separately by tests/api/shared/isOpenNow.test.ts (which controls `now`).
+  it('global sort: an OPEN branch floats ahead of a CLOSED branch (isOpen sort key is load-bearing)', { timeout: 15000 }, async () => {
+    const user = await createUser('open-sort')
+    const merchant = await createMerchant('open-sort-merchant')
+
+    // CLOSED branch favourited NEWEST; OPEN branch favourited OLDEST. If the sort
+    // were purely favouritedAt desc, CLOSED would come first. The isOpen key must
+    // override that and put OPEN first.
+    const openBranch = await createBranch(merchant.id, 'open-always')
+    await createAlwaysOpenHours(openBranch.id)
+    const closedBranch = await createBranch(merchant.id, 'closed-always')
+    await createAlwaysClosedHours(closedBranch.id)
+
+    await prisma.favouriteBranch.create({
+      data: { userId: user.id, branchId: openBranch.id, createdAt: new Date('2026-01-01T00:00:00Z') },
+    })
+    await prisma.favouriteBranch.create({
+      data: { userId: user.id, branchId: closedBranch.id, createdAt: new Date('2026-03-01T00:00:00Z') },
+    })
+
+    const result = await listFavouriteBranches(prisma, user.id, { page: 1, limit: 20 })
+    expect(result.total).toBe(2)
+    // OPEN (older favourite) ahead of CLOSED (newer favourite) — open-status wins.
+    expect(result.items.map(i => i.id)).toEqual([openBranch.id, closedBranch.id])
+
+    const openItem   = result.items.find(i => i.id === openBranch.id)!
+    const closedItem = result.items.find(i => i.id === closedBranch.id)!
+    expect(openItem.isOpen).toBe(true)
+    expect(closedItem.isOpen).toBe(false)
+    // Both available — only the open-status key separates them.
+    expect(openItem.isUnavailable).toBe(false)
+    expect(closedItem.isUnavailable).toBe(false)
   })
 })

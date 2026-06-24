@@ -1,12 +1,17 @@
 'use client'
 import Image from 'next/image'
 import { motion } from 'framer-motion'
+import {
+  type OpeningHour,
+  DAY_NAMES,
+  UK_DAY_ORDER,
+  getLondonDayIndex,
+  groupHoursByDay,
+  formatDayLabel,
+  isDayClosed,
+} from '@/lib/openingHours'
 
-type OpeningHour = { dayOfWeek: number; openTime: string; closeTime: string; isClosed: boolean }
 type Amenity = { id: string; name: string; iconUrl: string | null }
-
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const UK_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
 
 type Props = {
   hours: OpeningHour[]
@@ -17,12 +22,15 @@ type Props = {
 export function HoursAndAmenitiesSection({ hours, amenities, isOpenNow }: Props) {
   if (hours.length === 0 && amenities.length === 0) return null
 
-  const todayIndex = new Date().getDay()
-  const hoursByDay = new Map(hours.map(h => [h.dayOfWeek, h]))
-  const todayEntry = hoursByDay.get(todayIndex)
-  const todayLabel = todayEntry
-    ? todayEntry.isClosed ? 'Closed today' : `Open today ${todayEntry.openTime} – ${todayEntry.closeTime}`
-    : 'Hours unavailable'
+  const todayIndex = getLondonDayIndex()
+  const hoursByDay = groupHoursByDay(hours)
+  const todayEntries = hoursByDay.get(todayIndex)
+  const todayLabel =
+    hours.length === 0
+      ? 'Hours unavailable'
+      : isDayClosed(todayEntries)
+      ? 'Closed today'
+      : `Open today ${formatDayLabel(todayEntries)}`
 
   return (
     <motion.section
@@ -64,15 +72,15 @@ export function HoursAndAmenitiesSection({ hours, amenities, isOpenNow }: Props)
             {/* Hours table */}
             <div className="rounded-2xl border border-[#E5E3DF] overflow-hidden shadow-[0_1px_6px_rgba(1,12,53,0.06)]" style={{ background: '#F9F8F6' }}>
               {UK_DAY_ORDER.map(dayIndex => {
-                const entry = hoursByDay.get(dayIndex)
+                const entries = hoursByDay.get(dayIndex)
                 const isToday = dayIndex === todayIndex
-                const isClosed = entry ? entry.isClosed : true
-                const label = isClosed ? 'Closed' : `${entry!.openTime} – ${entry!.closeTime}`
+                const closed = isDayClosed(entries)
+                const label = formatDayLabel(entries)
 
                 return (
                   <div
                     key={dayIndex}
-                    className={`flex items-center justify-between px-5 py-3 text-[13.5px] border-b last:border-b-0 border-[#EDEAE6] ${
+                    className={`flex items-center justify-between gap-4 px-5 py-3 text-[13.5px] border-b last:border-b-0 border-[#EDEAE6] ${
                       isToday ? 'bg-white' : ''
                     }`}
                   >
@@ -82,7 +90,7 @@ export function HoursAndAmenitiesSection({ hours, amenities, isOpenNow }: Props)
                         <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-[#E20C04]">Today</span>
                       )}
                     </span>
-                    <span className={`tabular-nums text-[13px] ${isToday ? 'font-semibold text-[#010C35]' : isClosed ? 'text-[#9CA3AF]' : 'text-[#4B5563]'}`}>
+                    <span className={`tabular-nums text-[13px] text-right ${isToday ? 'font-semibold text-[#010C35]' : closed ? 'text-[#9CA3AF]' : 'text-[#4B5563]'}`}>
                       {label}
                     </span>
                   </div>

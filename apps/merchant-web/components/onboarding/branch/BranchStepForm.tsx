@@ -6,11 +6,15 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { LocationLookupField, type LocationPick } from '@/components/branches/LocationLookupField'
+import { Plus, X } from '@/lib/icons'
 import {
   DAY_LABELS,
+  addWindow,
   applyOpen24h,
   copyMondayToAllDays,
   copyMondayToWeekdays,
+  removeWindow,
+  setWindow,
   validateHoursState,
   type DayHours,
 } from '@/components/onboarding/branch/lib/hoursModel'
@@ -117,10 +121,10 @@ export function BranchStepForm({
     }))
   }
 
-  function setDay(dayOfWeek: number, patch: Partial<DayHours>) {
+  function patchDay(dayOfWeek: number, fn: (d: DayHours) => DayHours) {
     setValues((prev) => ({
       ...prev,
-      hours: prev.hours.map((d) => (d.dayOfWeek === dayOfWeek ? { ...d, ...patch } : d)),
+      hours: prev.hours.map((d) => (d.dayOfWeek === dayOfWeek ? fn(d) : d)),
     }))
   }
 
@@ -389,7 +393,15 @@ export function BranchStepForm({
                         label={`Open on ${label}`}
                         checked={!day.isClosed}
                         onCheckedChange={(open) =>
-                          setDay(dayOfWeek, open ? { isClosed: false } : { isClosed: true })
+                          patchDay(dayOfWeek, (d) =>
+                            open
+                              ? {
+                                  ...d,
+                                  isClosed: false,
+                                  windows: d.windows.length > 0 ? d.windows : [{ openTime: '09:00', closeTime: '17:00' }],
+                                }
+                              : { ...d, isClosed: true, windows: [] },
+                          )
                         }
                       />
                       <span className="text-[13px] font-semibold text-[#566079]">
@@ -398,28 +410,54 @@ export function BranchStepForm({
                     </div>
 
                     {!day.isClosed ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <TimeField
-                          id={`${ids.hoursPrefix}-${dayOfWeek}-open`}
-                          label={`${label} opening time`}
-                          value={day.openTime}
-                          onChange={(v) => setDay(dayOfWeek, { openTime: v })}
-                        />
-                        <span aria-hidden="true" className="text-sm text-[#8089A4]">
-                          to
-                        </span>
-                        <TimeField
-                          id={`${ids.hoursPrefix}-${dayOfWeek}-close`}
-                          label={`${label} closing time`}
-                          value={day.closeTime}
-                          onChange={(v) => setDay(dayOfWeek, { closeTime: v })}
-                        />
+                      <div className="flex flex-col gap-2">
+                        {day.windows.map((w, i) => (
+                          <div key={i} className="flex flex-wrap items-center gap-2">
+                            <TimeField
+                              id={`${ids.hoursPrefix}-${dayOfWeek}-${i}-open`}
+                              label={`${label} opening time, window ${i + 1}`}
+                              value={w.openTime}
+                              onChange={(v) => patchDay(dayOfWeek, (d) => setWindow(d, i, { openTime: v }))}
+                            />
+                            <span aria-hidden="true" className="text-sm text-[#8089A4]">
+                              to
+                            </span>
+                            <TimeField
+                              id={`${ids.hoursPrefix}-${dayOfWeek}-${i}-close`}
+                              label={`${label} closing time, window ${i + 1}`}
+                              value={w.closeTime}
+                              onChange={(v) => patchDay(dayOfWeek, (d) => setWindow(d, i, { closeTime: v }))}
+                            />
+                            {i === 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => patchDay(dayOfWeek, (d) => applyOpen24h(d))}
+                                className="rounded-[8px] border border-[#E3E7EE] bg-white px-2.5 py-1.5 text-[12px] font-bold text-[#455373] hover:border-[#E20C04] hover:text-[#E20C04]"
+                              >
+                                Open 24 hours
+                              </button>
+                            ) : null}
+                            {day.windows.length > 1 ? (
+                              <button
+                                type="button"
+                                data-testid={`remove-window-${dayOfWeek}-${i}`}
+                                aria-label={`Remove ${label} window ${i + 1}`}
+                                onClick={() => patchDay(dayOfWeek, (d) => removeWindow(d, i))}
+                                className="inline-flex size-7 items-center justify-center rounded-[8px] border border-[#E3E7EE] bg-white text-[#8089A4] hover:border-[#E20C04] hover:text-[#E20C04]"
+                              >
+                                <X size={14} aria-hidden />
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
                         <button
                           type="button"
-                          onClick={() => setDay(dayOfWeek, applyOpen24h(day))}
-                          className="rounded-[8px] border border-[#E3E7EE] bg-white px-2.5 py-1.5 text-[12px] font-bold text-[#455373] hover:border-[#E20C04] hover:text-[#E20C04]"
+                          data-testid={`add-window-${dayOfWeek}`}
+                          onClick={() => patchDay(dayOfWeek, (d) => addWindow(d))}
+                          className="inline-flex w-fit items-center gap-1 rounded-[8px] px-1.5 py-1 text-[12px] font-bold text-[#E20C04] hover:underline"
                         >
-                          Open 24 hours
+                          <Plus size={13} aria-hidden />
+                          Add a window
                         </button>
                       </div>
                     ) : null}
@@ -430,7 +468,8 @@ export function BranchStepForm({
             })}
           </div>
           <p className="mt-3 text-[12.5px] leading-relaxed text-[#8089A4]">
-            Use 24 hour times. A closing time earlier than the opening time means you stay open past midnight.
+            Use 24 hour times. Add a window for a split day (for example a lunch close). A closing time earlier
+            than the opening time means you stay open past midnight.
           </p>
         </section>
 

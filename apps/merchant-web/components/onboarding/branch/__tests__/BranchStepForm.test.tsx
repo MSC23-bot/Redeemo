@@ -2,12 +2,13 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { BranchStepForm } from '@/components/onboarding/branch/BranchStepForm'
 import type { BranchFormValues } from '@/components/onboarding/branch/BranchStepForm'
 
-// M2 F4: the "Add your main branch" step. These tests pin the form contract: the
-// field set, the create-minimum gate (name + address), the single-period hours UI
-// (per-day open/closed switch, Open 24h, inline client validation), the amenities
-// chips, the banner + photo uploads, the 4-digit PIN, and the dual-CTA payloads.
-// The B5 uploads + the API are mocked at the page level; the form takes the save
-// callbacks + the amenity catalog + initial values as props.
+// M2 F4 + Branches PR-8: the "Add your main branch" step. These tests pin the form
+// contract: the field set, the create-minimum gate (name + address), the MULTI-WINDOW
+// hours UI (per-day open/closed switch, per-day add/remove window, Open 24h, inline
+// client validation incl. within-day overlap), the amenities chips, the banner + photo
+// uploads, the 4-digit PIN, and the dual-CTA payloads. The B5 uploads + the API are
+// mocked at the page level; the form takes the save callbacks + the amenity catalog +
+// initial values as props.
 
 jest.mock('@/components/ui/file-upload', () => ({
   FileUpload: ({
@@ -39,13 +40,13 @@ const EMPTY_INITIAL: BranchFormValues = {
   photos: [],
   pin: '',
   hours: [
-    { dayOfWeek: 1, isClosed: false, openTime: '09:00', closeTime: '17:00' },
-    { dayOfWeek: 2, isClosed: false, openTime: '09:00', closeTime: '17:00' },
-    { dayOfWeek: 3, isClosed: false, openTime: '09:00', closeTime: '17:00' },
-    { dayOfWeek: 4, isClosed: false, openTime: '09:00', closeTime: '17:00' },
-    { dayOfWeek: 5, isClosed: false, openTime: '09:00', closeTime: '17:00' },
-    { dayOfWeek: 6, isClosed: false, openTime: '10:00', closeTime: '16:00' },
-    { dayOfWeek: 0, isClosed: true, openTime: '', closeTime: '' },
+    { dayOfWeek: 1, isClosed: false, windows: [{ openTime: '09:00', closeTime: '17:00' }] },
+    { dayOfWeek: 2, isClosed: false, windows: [{ openTime: '09:00', closeTime: '17:00' }] },
+    { dayOfWeek: 3, isClosed: false, windows: [{ openTime: '09:00', closeTime: '17:00' }] },
+    { dayOfWeek: 4, isClosed: false, windows: [{ openTime: '09:00', closeTime: '17:00' }] },
+    { dayOfWeek: 5, isClosed: false, windows: [{ openTime: '09:00', closeTime: '17:00' }] },
+    { dayOfWeek: 6, isClosed: false, windows: [{ openTime: '10:00', closeTime: '16:00' }] },
+    { dayOfWeek: 0, isClosed: true, windows: [] },
   ],
   amenityIds: [],
   candidateToken: '',
@@ -258,8 +259,63 @@ describe('BranchStepForm (M2 F4)', () => {
     const values = onSaveContinue.mock.calls[0][0] as BranchFormValues
     const monday = values.hours.find((d) => d.dayOfWeek === 1)!
     expect(monday.isClosed).toBe(false)
-    expect(monday.openTime).toBe('18:00')
-    expect(monday.closeTime).toBe('02:00')
+    expect(monday.windows).toEqual([{ openTime: '18:00', closeTime: '02:00' }])
+  })
+
+  it('adds and removes a second window on a day (multi-window UI)', async () => {
+    renderForm()
+    const monday = screen.getByTestId('hours-row-1')
+    // One window to start: window 1 close field present, window 2 not.
+    expect(screen.getByLabelText(/monday closing time, window 1/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/monday closing time, window 2/i)).not.toBeInTheDocument()
+
+    // Add a window.
+    fireEvent.click(within(monday).getByTestId('add-window-1'))
+    expect(screen.getByLabelText(/monday opening time, window 2/i)).toBeInTheDocument()
+
+    // Remove window 2 (the remove control only shows when 2+ windows exist).
+    fireEvent.click(within(monday).getByTestId('remove-window-1-1'))
+    expect(screen.queryByLabelText(/monday closing time, window 2/i)).not.toBeInTheDocument()
+  })
+
+  it('sends BOTH windows of a split day through to onSaveContinue', async () => {
+    const { onSaveContinue } = renderForm()
+    fireEvent.change(screen.getByLabelText(/branch name/i), { target: { value: 'Split Cafe' } })
+    fireEvent.change(screen.getByLabelText(/address line 1/i), { target: { value: '1 Cafe St' } })
+    fireEvent.change(screen.getByLabelText(/^town or city/i), { target: { value: 'Leeds' } })
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: 'LS1 1AA' } })
+    // Monday window 1 = 09:00-14:00, add a window 2 = 17:00-23:00.
+    fireEvent.change(screen.getByLabelText(/monday opening time, window 1/i), { target: { value: '09:00' } })
+    fireEvent.change(screen.getByLabelText(/monday closing time, window 1/i), { target: { value: '14:00' } })
+    fireEvent.click(within(screen.getByTestId('hours-row-1')).getByTestId('add-window-1'))
+    fireEvent.change(screen.getByLabelText(/monday opening time, window 2/i), { target: { value: '17:00' } })
+    fireEvent.change(screen.getByLabelText(/monday closing time, window 2/i), { target: { value: '23:00' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /save and continue/i }))
+    await waitFor(() => expect(onSaveContinue).toHaveBeenCalledTimes(1))
+    const values = onSaveContinue.mock.calls[0][0] as BranchFormValues
+    const monday = values.hours.find((d) => d.dayOfWeek === 1)!
+    expect(monday.windows).toEqual([
+      { openTime: '09:00', closeTime: '14:00' },
+      { openTime: '17:00', closeTime: '23:00' },
+    ])
+  })
+
+  it('flags WITHIN-day overlapping windows inline and blocks continue', async () => {
+    const { onSaveContinue } = renderForm()
+    fireEvent.change(screen.getByLabelText(/branch name/i), { target: { value: 'Overlap' } })
+    fireEvent.change(screen.getByLabelText(/address line 1/i), { target: { value: '1 St' } })
+    fireEvent.change(screen.getByLabelText(/^town or city/i), { target: { value: 'Leeds' } })
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: 'LS1 1AA' } })
+    // Monday window 1 = 09:00-13:00; add window 2 = 12:00-18:00 (overlaps window 1).
+    fireEvent.change(screen.getByLabelText(/monday closing time, window 1/i), { target: { value: '13:00' } })
+    fireEvent.click(within(screen.getByTestId('hours-row-1')).getByTestId('add-window-1'))
+    fireEvent.change(screen.getByLabelText(/monday opening time, window 2/i), { target: { value: '12:00' } })
+    fireEvent.change(screen.getByLabelText(/monday closing time, window 2/i), { target: { value: '18:00' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /save and continue/i }))
+    await waitFor(() => expect(screen.getByText(/cannot overlap/i)).toBeInTheDocument())
+    expect(onSaveContinue).not.toHaveBeenCalled()
   })
 
   it('surfaces a save error passed from the parent', () => {

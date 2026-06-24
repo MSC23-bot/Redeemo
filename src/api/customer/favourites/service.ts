@@ -84,6 +84,9 @@ export async function listFavouriteMerchants(
                 latitude: true, longitude: true, isMainBranch: true,
                 openingHours: {
                   select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
+                  // Branches PR-8 multi-window: stable (dayOfWeek asc, openTime asc)
+                  // ordering for N windows per day (isOpen still via isOpenNow).
+                  orderBy: [{ dayOfWeek: 'asc' }, { openTime: 'asc' }],
                 },
               },
             },
@@ -469,6 +472,9 @@ export async function listFavouriteBranches(
             latitude: true, longitude: true, locationConfidence: true,
             openingHours: {
               select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
+              // Branches PR-8 multi-window: stable (dayOfWeek asc, openTime asc)
+              // ordering for N windows per day (isOpen still via isOpenNow).
+              orderBy: [{ dayOfWeek: 'asc' }, { openTime: 'asc' }],
             },
             merchant: {
               select: {
