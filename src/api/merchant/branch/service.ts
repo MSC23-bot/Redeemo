@@ -6,6 +6,7 @@ import {
   resolveAdminMerchant,
   resolveMerchantContext,
   assertBranchAllowed,
+  assertCanManageBranch,
   assertOwner,
   isDraftWindow,
   type EditActor,
@@ -337,8 +338,10 @@ export async function updateBranch(
   //     re-resolves its own scope);
   //   - the BM-allowed simple-DIRECT subset is phone/email/websiteUrl only.
   // resolveMerchantContext keeps the SEC-M2 suspended-merchant guard.
+  // assertCanManageBranch requires OWNER (any branch) OR BRANCH_MANAGER (assigned
+  // branch only) — STAFF is view/validate-only and is denied even when assigned.
   const ctxMerchant = await resolveMerchantContext(prisma, adminId)
-  assertBranchAllowed(ctxMerchant, branchId)
+  assertCanManageBranch(ctxMerchant, branchId)
   const { merchantId } = ctxMerchant
 
   // OWNER-ONLY: changing the active flag is close/lifecycle-adjacent (D3 grants a
@@ -440,9 +443,10 @@ export async function createBranchEditRequest(
 ) {
   // Staff & Access PR-2 (D3): submitting a branch-details review request is a
   // BM-allowed action for an assigned branch. Scope-enforced via
-  // resolveMerchantContext + assertBranchAllowed (keeps the SEC-M2 suspended guard).
+  // resolveMerchantContext + assertCanManageBranch — OWNER (any) OR BRANCH_MANAGER
+  // (assigned), STAFF denied (keeps the SEC-M2 suspended guard).
   const ctxMerchant = await resolveMerchantContext(prisma, adminId)
-  assertBranchAllowed(ctxMerchant, branchId)
+  assertCanManageBranch(ctxMerchant, branchId)
   const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
 
@@ -579,9 +583,10 @@ export async function withdrawBranchEditRequest(
   ctx: { ipAddress: string; userAgent: string }
 ) {
   // Staff & Access PR-2 (D3): withdrawing a pending request for an assigned
-  // branch is a BM-allowed action.
+  // branch is a BM-allowed WRITE — OWNER (any) OR BRANCH_MANAGER (assigned),
+  // STAFF denied.
   const ctxMerchant = await resolveMerchantContext(prisma, adminId)
-  assertBranchAllowed(ctxMerchant, branchId)
+  assertCanManageBranch(ctxMerchant, branchId)
   const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
 
@@ -640,9 +645,10 @@ export async function setAmenities(
   amenityIds: string[]
 ) {
   // Staff & Access PR-2 (D3): editing amenities (an instant operational field)
-  // for an assigned branch is BM-allowed.
+  // for an assigned branch is a BM-allowed WRITE — OWNER (any) OR BRANCH_MANAGER
+  // (assigned), STAFF denied.
   const ctxMerchant = await resolveMerchantContext(prisma, adminId)
-  assertBranchAllowed(ctxMerchant, branchId)
+  assertCanManageBranch(ctxMerchant, branchId)
   const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
 
@@ -741,9 +747,10 @@ export async function setBranchPin(
   ctx: { ipAddress: string; userAgent: string }
 ): Promise<{ message: string }> {
   if (!PIN_REGEX.test(pin)) throw new AppError('INVALID_PIN_FORMAT')
-  // Staff & Access PR-2 (D3): changing the PIN for an assigned branch is BM-allowed.
+  // Staff & Access PR-2 (D3): changing the PIN for an assigned branch is a
+  // BM-allowed WRITE — OWNER (any) OR BRANCH_MANAGER (assigned), STAFF denied.
   const ctxMerchant = await resolveMerchantContext(prisma, adminId)
-  assertBranchAllowed(ctxMerchant, branchId)
+  assertCanManageBranch(ctxMerchant, branchId)
   const { merchantId } = ctxMerchant
   const branch = await prisma.branch.findFirst({
     where: { id: branchId, merchantId, deletedAt: null },
@@ -770,9 +777,9 @@ export async function sendBranchPin(
   ctx: { ipAddress: string; userAgent: string }
 ): Promise<{ message: string }> {
   // Staff & Access PR-2 (D3): sending the PIN to staff for an assigned branch is
-  // BM-allowed.
+  // a BM-allowed WRITE — OWNER (any) OR BRANCH_MANAGER (assigned), STAFF denied.
   const ctxMerchant = await resolveMerchantContext(prisma, adminId)
-  assertBranchAllowed(ctxMerchant, branchId)
+  assertCanManageBranch(ctxMerchant, branchId)
   const { merchantId } = ctxMerchant
   const branch = await prisma.branch.findFirst({
     where: { id: branchId, merchantId, deletedAt: null },

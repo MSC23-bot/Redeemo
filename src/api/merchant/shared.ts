@@ -150,3 +150,16 @@ export function assertCanManageVouchers(ctx: MerchantContext): void {
 export function assertBranchAllowed(ctx: MerchantContext, branchId: string): void {
   if (!(ctx.allBranches || ctx.allowedBranchIds.includes(branchId))) throw new AppError('INSUFFICIENT_PERMISSIONS')
 }
+
+/**
+ * Branches D3 + Staff & Access D3: branch-management WRITE guard. Distinct from
+ * assertBranchAllowed (the pure branch-scope check, which stays on READ surfaces
+ * where a STAFF member may VIEW an assigned branch). A branch-management WRITE
+ * requires OWNER (any branch) OR BRANCH_MANAGER (assigned branch only). STAFF is
+ * view/validate-only and is denied even when assigned to the branch.
+ */
+export function assertCanManageBranch(ctx: MerchantContext, branchId: string): void {
+  if (ctx.role === 'OWNER') return
+  if (ctx.role === 'BRANCH_MANAGER' && (ctx.allBranches || ctx.allowedBranchIds.includes(branchId))) return
+  throw new AppError('INSUFFICIENT_PERMISSIONS')
+}

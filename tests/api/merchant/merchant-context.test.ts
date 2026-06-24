@@ -4,6 +4,7 @@ import {
   assertOwner,
   assertCanManageVouchers,
   assertBranchAllowed,
+  assertCanManageBranch,
   type MerchantContext,
 } from '../../../src/api/merchant/shared'
 
@@ -100,6 +101,28 @@ describe('assertBranchAllowed', () => {
   })
   it('throws INSUFFICIENT_PERMISSIONS otherwise', () => {
     expect(() => assertBranchAllowed(ctx({ allBranches: false, allowedBranchIds: ['b1'] }), 'b9')).toThrow('INSUFFICIENT_PERMISSIONS')
+  })
+})
+
+// (e2) Branches PR-2 (D3): branch-management WRITE guard. OWNER (any branch) OR
+// BRANCH_MANAGER (assigned branch only). STAFF is view/validate-only and is denied
+// even when assigned to the branch — this is the P1 boundary assertBranchAllowed
+// (which admits any assigned member incl. STAFF) does NOT enforce.
+describe('assertCanManageBranch', () => {
+  it('allows an OWNER (allBranches) on any branch', () => {
+    expect(() => assertCanManageBranch(ctx({ role: 'OWNER', allBranches: true, allowedBranchIds: [] }), 'bX')).not.toThrow()
+  })
+  it('allows a BRANCH_MANAGER on an assigned branch', () => {
+    expect(() => assertCanManageBranch(ctx({ role: 'BRANCH_MANAGER', allBranches: false, allowedBranchIds: ['b1', 'b2'] }), 'b2')).not.toThrow()
+  })
+  it('throws INSUFFICIENT_PERMISSIONS for a BRANCH_MANAGER on an unassigned branch', () => {
+    expect(() => assertCanManageBranch(ctx({ role: 'BRANCH_MANAGER', allBranches: false, allowedBranchIds: ['b1'] }), 'b9')).toThrow('INSUFFICIENT_PERMISSIONS')
+  })
+  it('throws INSUFFICIENT_PERMISSIONS for STAFF even on an ASSIGNED branch (the P1 pin)', () => {
+    expect(() => assertCanManageBranch(ctx({ role: 'STAFF', allBranches: false, allowedBranchIds: ['b1'] }), 'b1')).toThrow('INSUFFICIENT_PERMISSIONS')
+  })
+  it('throws INSUFFICIENT_PERMISSIONS for STAFF on an unassigned branch', () => {
+    expect(() => assertCanManageBranch(ctx({ role: 'STAFF', allBranches: false, allowedBranchIds: ['b1'] }), 'b9')).toThrow('INSUFFICIENT_PERMISSIONS')
   })
 })
 
