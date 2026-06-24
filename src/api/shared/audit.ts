@@ -120,6 +120,22 @@ export type AuditEvent =
   | 'MERCHANT_EDIT_REJECTED'
   | 'BRANCH_EDIT_APPROVED'
   | 'BRANCH_EDIT_REJECTED'
+  // Branches PR-5 (D5): admin branch-lifecycle applier decisions. `event` is a
+  // String column, so these are union-only literals with NO migration (mirroring
+  // the editApplier additions above).
+  //   BRANCH_CREATE_APPROVED — admin approved a pending-create branch -> LIVE +
+  //     isActive=true (carries before/after).
+  //   BRANCH_CREATE_CHANGES_REQUESTED — admin declined a pending-create branch;
+  //     it stays PENDING_CREATE (NOT deleted) for the merchant to fix/cancel
+  //     (carries the reason).
+  //   BRANCH_CLOSE_APPROVED — admin approved a close request -> CLOSED + soft-delete
+  //     (carries before/after).
+  //   BRANCH_CLOSE_REJECTED — admin declined a close request -> reverts LIVE +
+  //     clears closeReason (carries the reason + before/after).
+  | 'BRANCH_CREATE_APPROVED'
+  | 'BRANCH_CREATE_CHANGES_REQUESTED'
+  | 'BRANCH_CLOSE_APPROVED'
+  | 'BRANCH_CLOSE_REJECTED'
   // Option B B4: a SUPER_ADMIN uploaded / deleted a merchant verification document
   // on the merchant's behalf. `event` is a String column, so this is union-only
   // (no migration). The audit payload carries documentId + documentType only; the
