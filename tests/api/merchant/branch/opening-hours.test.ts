@@ -11,14 +11,15 @@ import type { FastifyInstance } from 'fastify'
 import { validateOpeningHours } from '../../../../src/api/merchant/branch/openingHours'
 
 /**
- * M2 B4 (D8a): server-side opening-hours validation. The LIVE storage model is
- * SINGLE-period-per-day (`BranchOpeningHours @@unique([branchId, dayOfWeek])`),
- * so the validator guards exactly that model. The consumer
- * (apps/customer-app .../smartStatus.ts) supports an OVERNIGHT close where
- * closeTime crosses midnight (e.g. closes 02:00), so close < open is ACCEPTED;
- * the ONLY ordering reject is the degenerate open === close.
+ * Branches PR-8 (umbrella D9): server-side opening-hours validation for the
+ * MULTI-WINDOW storage model. The LIVE model dropped
+ * `BranchOpeningHours @@unique([branchId, dayOfWeek])`, so a day may hold N>=1 open
+ * windows. The validator now groups rows per day, enforces within-day AND cross-day
+ * no-overlap on HALF-OPEN intervals `[open, close)`, and keeps the per-row format /
+ * 24:00-close / zero-length / closed-day rules. `close < open` is the first-class
+ * OVERNIGHT (crosses-midnight) encoding and is ACCEPTED.
  */
-describe('validateOpeningHours (pure)', () => {
+describe('validateOpeningHours (pure, multi-window)', () => {
   const open = (dayOfWeek: number, openTime: string, closeTime: string) => ({
     dayOfWeek, openTime, closeTime, isClosed: false,
   })
@@ -28,9 +29,63 @@ describe('validateOpeningHours (pure)', () => {
     expect(() => validateOpeningHours([open(1, '09:00', '17:00')])).not.toThrow()
   })
 
+  it('accepts MULTIPLE windows on the same day (split shift)', () => {
+    expect(() => validateOpeningHours([
+      open(1, '09:00', '14:00'),
+      open(1, '17:00', '23:00'),
+    ])).not.toThrow()
+  })
+
+  it('accepts ABUTTING windows within a day (prev.close === next.open, half-open)', () => {
+    expect(() => validateOpeningHours([
+      open(1, '09:00', '14:00'),
+      open(1, '14:00', '23:00'),
+    ])).not.toThrow()
+  })
+
+  it('rejects OVERLAPPING windows within a day', () => {
+    expect(() => validateOpeningHours([
+      open(1, '09:00', '14:00'),
+      open(1, '13:00', '23:00'),
+    ])).toThrow('OPENING_HOURS_INVALID')
+  })
+
   it('accepts an OVERNIGHT period where closeTime crosses midnight (close < open)', () => {
-    // 18:00 -> 02:00 is a valid overnight close per the customer-app consumer.
+    // 18:00 -> 02:00 is the first-class overnight (crosses-midnight) encoding.
     expect(() => validateOpeningHours([open(5, '18:00', '02:00')])).not.toThrow()
+  })
+
+  it('rejects a CROSS-DAY overlap (Mon 18:00-02:00 spill vs Tue 01:00-03:00)', () => {
+    // Monday overnight 18:00->02:00 spills to Tuesday [00:00, 02:00); a Tuesday
+    // 01:00-03:00 window overlaps that spill and MUST be rejected.
+    expect(() => validateOpeningHours([
+      open(1, '18:00', '02:00'),
+      open(2, '01:00', '03:00'),
+    ])).toThrow('OPENING_HOURS_INVALID')
+  })
+
+  it('accepts a CROSS-DAY abutting window (spill ends exactly at the next window open)', () => {
+    // Monday spill ends at Tuesday 02:00; a Tuesday 02:00-05:00 window abuts (half-open).
+    expect(() => validateOpeningHours([
+      open(1, '18:00', '02:00'),
+      open(2, '02:00', '05:00'),
+    ])).not.toThrow()
+  })
+
+  it('accepts a closed day that STILL receives a prior-day overnight spill', () => {
+    // Monday overnight spills into a CLOSED Tuesday: Tuesday has no own windows, so
+    // there is nothing to reject; the branch is genuinely open during [00:00, 02:00).
+    expect(() => validateOpeningHours([
+      open(1, '18:00', '02:00'),
+      closed(2),
+    ])).not.toThrow()
+  })
+
+  it('wraps Sunday -> Monday (Sun 22:00-01:00 spill vs Mon 00:30-04:00 rejected)', () => {
+    expect(() => validateOpeningHours([
+      open(0, '22:00', '01:00'),
+      open(1, '00:30', '04:00'),
+    ])).toThrow('OPENING_HOURS_INVALID')
   })
 
   it('accepts Open 24h (00:00 -> 24:00 sentinel)', () => {
@@ -41,23 +96,24 @@ describe('validateOpeningHours (pure)', () => {
     expect(() => validateOpeningHours([closed(0)])).not.toThrow()
   })
 
-  it('accepts a full mixed week (open days, closed days, overnight, 24h)', () => {
+  it('rejects mixing an isClosed row with open windows on the same day', () => {
+    expect(() => validateOpeningHours([
+      closed(3),
+      open(3, '09:00', '17:00'),
+    ])).toThrow('OPENING_HOURS_INVALID')
+  })
+
+  it('accepts a full mixed week (multi-window, closed days, overnight, 24h)', () => {
     expect(() => validateOpeningHours([
       closed(0),
-      open(1, '09:00', '17:00'),
+      open(1, '09:00', '14:00'),
+      open(1, '17:00', '23:00'),
       open(2, '00:00', '24:00'),
       open(3, '09:00', '17:00'),
       open(4, '09:00', '17:00'),
       open(5, '18:00', '02:00'),
       open(6, '10:00', '14:00'),
     ])).not.toThrow()
-  })
-
-  it('rejects a duplicate dayOfWeek', () => {
-    expect(() => validateOpeningHours([
-      open(1, '09:00', '12:00'),
-      open(1, '13:00', '17:00'),
-    ])).toThrow('OPENING_HOURS_INVALID')
   })
 
   it('rejects a dayOfWeek out of range (defense-in-depth)', () => {
@@ -162,13 +218,15 @@ describe('POST /api/v1/merchant/branches/:id/hours validation + STAGE-not-apply 
 
   afterEach(async () => { await app.close() })
 
-  it('rejects a bad hours payload (duplicate day) with 400 and no staging write', async () => {
+  it('rejects an OVERLAPPING multi-window payload with 400 and no staging write (PR-8)', async () => {
+    // Branches PR-8: two windows on the SAME day is now VALID (multi-window); the
+    // reject is now for OVERLAPPING windows, not for a repeated dayOfWeek.
     const res = await app.inject({
       method: 'POST', url: '/api/v1/merchant/branches/b1/hours',
       headers: { authorization: `Bearer ${merchantToken}` },
       payload: {
         hours: [
-          { dayOfWeek: 1, openTime: '09:00', closeTime: '12:00', isClosed: false },
+          { dayOfWeek: 1, openTime: '09:00', closeTime: '14:00', isClosed: false },
           { dayOfWeek: 1, openTime: '13:00', closeTime: '17:00', isClosed: false },
         ],
       },
@@ -176,11 +234,30 @@ describe('POST /api/v1/merchant/branches/:id/hours validation + STAGE-not-apply 
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body).error.code).toBe('OPENING_HOURS_INVALID')
-    // Validation runs BEFORE any DB work: neither the live upsert nor the staging
-    // write nor the enqueue happens.
-    expect(app.prisma.branchOpeningHours.upsert).not.toHaveBeenCalled()
+    // Validation runs BEFORE any DB work: neither the staging write nor the enqueue
+    // happens.
     expect(app.prisma.branchOpeningHoursPending.create).not.toHaveBeenCalled()
     expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('STAGES a non-overlapping multi-window day (split shift) with no live write (PR-8)', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/merchant/branches/b1/hours',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: {
+        hours: [
+          { dayOfWeek: 1, openTime: '09:00', closeTime: '14:00', isClosed: false },
+          { dayOfWeek: 1, openTime: '17:00', closeTime: '23:00', isClosed: false },
+        ],
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(app.prisma.branchOpeningHoursPending.create).toHaveBeenCalledTimes(1)
+    const createArg = (app.prisma.branchOpeningHoursPending.create as any).mock.calls[0][0]
+    // Both windows for the day are carried into the staged proposedHours payload.
+    expect(createArg.data.proposedHours).toHaveLength(2)
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
   })
 
   it('rejects a closed-day-with-times payload with 400', async () => {
