@@ -16,6 +16,7 @@ import {
   listBranchEditRequests,
   withdrawBranchEditRequest,
   setOpeningHours,
+  cancelPendingHours,
   setAmenities,
   softDeleteBranch,
   getBranchPin,
@@ -133,11 +134,24 @@ export async function branchRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  // POST /api/v1/merchant/branches/:id/hours — set opening hours
+  // POST /api/v1/merchant/branches/:id/hours — STAGE an opening-hours change
+  // (Branches PR-4 §4a). The edit does NOT go live immediately; it writes a durable
+  // BranchOpeningHoursPending row with effectiveAt = now + 2h and a worker promotes
+  // it after the cool-off. Returns the staged pending record.
   app.post(`${prefix}/:id/hours`, async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
     const { hours } = openingHoursBody.parse(req.body)
     const result = await setOpeningHours(app.prisma, req.user.sub, id, hours)
+    return reply.send(result)
+  })
+
+  // DELETE /api/v1/merchant/branches/:id/hours/pending — cancel/withdraw a staged
+  // opening-hours change before it promotes (Branches PR-4 §4b). Same
+  // branch-management WRITE boundary as the stage write. PENDING_HOURS_NOT_FOUND
+  // (404) when there is no PENDING row. Live hours are unchanged by a cancel.
+  app.delete(`${prefix}/:id/hours/pending`, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const result = await cancelPendingHours(app.prisma, req.user.sub, id)
     return reply.send(result)
   })
 
