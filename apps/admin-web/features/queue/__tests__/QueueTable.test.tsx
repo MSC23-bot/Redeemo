@@ -223,6 +223,47 @@ describe('QueueTable navigation', () => {
   })
 })
 
+// ── Branches PR-5: type labels (incl. the two new branch-lifecycle types) ──────
+
+describe('QueueTable type label', () => {
+  it('labels a MERCHANT_ONBOARDING row "Onboarding"', () => {
+    render(<QueueTable items={[makeApproval({ type: 'MERCHANT_ONBOARDING' })]} currentAdminId={CURRENT_ADMIN} />)
+    expect(screen.getByText('Onboarding')).toBeInTheDocument()
+  })
+
+  it('labels a BRANCH_CREATE row "Branch: add"', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ type: 'BRANCH_CREATE', referenceId: 'branch-1', referenceType: 'branch' })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(screen.getByText('Branch: add')).toBeInTheDocument()
+  })
+
+  it('labels a BRANCH_CLOSE row "Branch: close"', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ type: 'BRANCH_CLOSE', referenceId: 'branch-1', referenceType: 'branch' })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(screen.getByText('Branch: close')).toBeInTheDocument()
+  })
+
+  it('renders the review link for the two new branch-lifecycle types', () => {
+    const items = [
+      makeApproval({ id: 'a-bc', type: 'BRANCH_CREATE', referenceId: 'branch-1', referenceType: 'branch' }),
+      makeApproval({ id: 'a-bx', type: 'BRANCH_CLOSE', referenceId: 'branch-2', referenceType: 'branch' }),
+    ]
+    render(<QueueTable items={items} currentAdminId={CURRENT_ADMIN} />)
+    const links = screen.getAllByRole('link')
+    expect(links).toHaveLength(2)
+    expect(links[0]).toHaveAttribute('href', '/queue/a-bc')
+    expect(links[1]).toHaveAttribute('href', '/queue/a-bx')
+  })
+})
+
 // ── Day-2 Vouchers PR-C: VOUCHER row enrichment ───────────────────────────────
 
 function makeVoucherApproval(overrides: Partial<AdminApproval> = {}): AdminApproval {

@@ -216,9 +216,11 @@ function BranchLifecycleCard({
             {merchant.businessName}
           </p>
         </div>
-        <Badge tone={isCreate ? 'info' : 'warn'} data-testid="branch-lifecycle-kind-badge">
-          {isCreate ? 'Add branch' : 'Close branch'}
-        </Badge>
+        <span data-testid="branch-lifecycle-kind-badge">
+          <Badge tone={isCreate ? 'info' : 'warn'}>
+            {isCreate ? 'Add branch' : 'Close branch'}
+          </Badge>
+        </span>
       </div>
 
       {/* Branch detail */}

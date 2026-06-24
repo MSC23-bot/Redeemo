@@ -137,6 +137,19 @@ jest.mock('@/lib/review/useVoucherReview', () => ({
   useRequestVoucherChanges: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
 }))
 
+// ── Branches PR-5: mock useBranchLifecycleReview (the BranchLifecyclePanel
+// mounted for BRANCH_CREATE / BRANCH_CLOSE approvals). The panel renders
+// unmocked; only the data hook + the action hooks are mocked so there is no
+// network call.
+
+const mockedUseBranchLifecycleReview = jest.fn()
+jest.mock('@/lib/review/useBranchLifecycleReview', () => ({
+  useBranchLifecycleReview: (...args: unknown[]) => mockedUseBranchLifecycleReview(...args),
+  useApproveBranchLifecycle: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+  useRejectBranchLifecycle: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+  useConfirmBranchLifecycleLocation: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false, error: null })),
+}))
+
 // ── Mock dialogs so we can check whether they mount ──────────────────────────
 
 jest.mock('@/features/review/RequestChangesDialog', () => ({
@@ -549,6 +562,103 @@ describe('ReviewPage edit-approval surface (B1)', () => {
     renderPage()
     fireEvent.click(screen.getByTestId('edit-approve-btn'))
     expect(screen.getByTestId('approve-edit-confirm-dialog')).toBeInTheDocument()
+  })
+})
+
+// ── Branches PR-5: BRANCH_CREATE / BRANCH_CLOSE route to the BranchLifecyclePanel
+
+describe('ReviewPage branch-lifecycle surface (PR-5)', () => {
+  function lifecycleApproval(type: 'BRANCH_CREATE' | 'BRANCH_CLOSE') {
+    return makeContext({
+      approval: {
+        id: 'apr-bl-1',
+        type,
+        status: 'PENDING',
+        submittedAt: '2026-06-10T09:00:00.000Z',
+        actionedAt: null,
+        claimedAt: null,
+        comment: null,
+        claimedBy: null,
+        actionedBy: null,
+      },
+    })
+  }
+
+  function mockLifecycleReview(kind: 'create' | 'close', locationConfidence = 'MANUALLY_CONFIRMED') {
+    mockedUseBranchLifecycleReview.mockReturnValue({
+      data: {
+        kind,
+        merchant: { id: 'm-1', businessName: 'Acme Coffee' },
+        branch: {
+          id: 'branch-1',
+          name: 'Acme Soho',
+          addressLine1: '1 Greek Street',
+          addressLine2: null,
+          city: 'London',
+          postcode: 'W1D 4DX',
+          localityName: 'Soho',
+          phone: null,
+          email: null,
+          websiteUrl: null,
+          isMainBranch: false,
+          isActive: kind === 'close',
+          lifecycleStatus: kind === 'create' ? 'PENDING_CREATE' : 'PENDING_CLOSE',
+          locationConfidence,
+          latitude: 51.5,
+          longitude: -0.13,
+        },
+        closeReason: kind === 'close' ? 'We are relocating.' : null,
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    })
+  }
+
+  it('renders the BranchLifecyclePanel (NOT the non-onboarding notice) for BRANCH_CREATE', () => {
+    mockSession()
+    mockLifecycleReview('create', 'POSTCODE_CENTROID')
+    mockReview({ data: lifecycleApproval('BRANCH_CREATE') })
+    renderPage()
+    expect(screen.getByTestId('branch-lifecycle-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('review-non-onboarding')).not.toBeInTheDocument()
+    expect(screen.getByTestId('branch-lifecycle-kind-badge')).toHaveTextContent('Add branch')
+  })
+
+  it('renders the BranchLifecyclePanel for BRANCH_CLOSE with the close reason', () => {
+    mockSession()
+    mockLifecycleReview('close')
+    mockReview({ data: lifecycleApproval('BRANCH_CLOSE') })
+    renderPage()
+    expect(screen.getByTestId('branch-lifecycle-card')).toBeInTheDocument()
+    expect(screen.getByTestId('branch-lifecycle-close-reason-text')).toHaveTextContent('We are relocating.')
+  })
+
+  it('passes the apply-edit + confirm-location capabilities through (actions shown when held)', () => {
+    mockSession({ can: () => true })
+    mockLifecycleReview('create', 'POSTCODE_CENTROID')
+    mockReview({ data: lifecycleApproval('BRANCH_CREATE') })
+    renderPage()
+    expect(screen.getByTestId('branch-lifecycle-approve-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('branch-lifecycle-reject-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('branch-lifecycle-confirm-location-btn')).toBeInTheDocument()
+  })
+
+  it('hides the actions when the admin lacks approval:apply-edit', () => {
+    mockSession({ can: (cap: string) => cap !== 'approval:apply-edit' })
+    mockLifecycleReview('create')
+    mockReview({ data: lifecycleApproval('BRANCH_CREATE') })
+    renderPage()
+    expect(screen.getByTestId('branch-lifecycle-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('branch-lifecycle-actions')).not.toBeInTheDocument()
+  })
+
+  it('does not render the merchant-onboarding action bar for a branch-lifecycle approval', () => {
+    mockSession()
+    mockLifecycleReview('create')
+    mockReview({ data: lifecycleApproval('BRANCH_CREATE') })
+    renderPage()
+    expect(screen.queryByTestId('action-bar-container')).not.toBeInTheDocument()
   })
 })
 

@@ -63,6 +63,8 @@ function approvalTypeLabel(type: ReviewApproval['type']): string {
     MERCHANT_PROFILE_EDIT: 'Profile edit review',
     MERCHANT_IDENTITY_EDIT: 'Identity edit review',
     BRANCH_IDENTITY_EDIT: 'Branch edit review',
+    BRANCH_CREATE: 'New branch review',
+    BRANCH_CLOSE: 'Branch close review',
   }
   return map[type] ?? type
 }
