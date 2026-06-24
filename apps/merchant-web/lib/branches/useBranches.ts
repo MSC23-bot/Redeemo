@@ -237,9 +237,17 @@ export function useCancelPendingHours() {
 // id] re-reads the branch so the toggle reflects the persisted redemptionAlertsEnabled.
 // The bound branchId is captured at hook-call time so the toggle mutates a single branch.
 export function useSetRedemptionAlerts(branchId: string) {
+  const qc = useQueryClient()
   const invalidate = useInvalidateBranch()
   return useMutation({
     mutationFn: (enabled: boolean) => setRedemptionAlerts(branchId, enabled),
-    onSuccess: () => invalidate(branchId),
+    // Seed the detail cache with the returned branch BEFORE invalidating, so the
+    // card's persisted value is fresh the instant it clears its optimistic state.
+    // Without this, clearing the optimistic value falls back to the stale persisted
+    // branch until the invalidate -> refetch round-trip lands, flickering the switch.
+    onSuccess: (branch) => {
+      qc.setQueryData(branchKey(branch.id), branch)
+      invalidate(branch.id)
+    },
   })
 }
