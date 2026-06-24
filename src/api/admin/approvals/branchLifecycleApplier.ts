@@ -389,3 +389,120 @@ export async function rejectBranchLifecycle(
   }
   return { rejected: true as const }
 }
+
+// ── Branch-lifecycle review context (the actioner review screen) ─────────────
+
+export interface BranchLifecycleReviewContext {
+  kind: LifecycleKind
+  merchant: { id: string; businessName: string }
+  branch: {
+    id: string
+    name: string
+    addressLine1: string
+    addressLine2: string | null
+    city: string
+    postcode: string
+    localityName: string | null
+    phone: string | null
+    email: string | null
+    websiteUrl: string | null
+    isMainBranch: boolean
+    isActive: boolean
+    lifecycleStatus: string
+    locationConfidence: string
+    latitude: number | null
+    longitude: number | null
+  }
+  closeReason: string | null
+}
+
+/**
+ * Build the admin actioner review context for a branch-lifecycle approval
+ * (gated approval:read). Mirrors getEditReviewContext / getVoucherReviewContext:
+ * dispatch on approval.type (NEVER referenceType), throw APPROVAL_NOT_ACTIONABLE
+ * for a non-BRANCH_CREATE / non-BRANCH_CLOSE type, and resolve the target via the
+ * approval.referenceId (which IS the branch id directly — no PendingEdit
+ * indirection). `kind` derives from the type.
+ *
+ * SECRET EXCLUSION (load-bearing): redemptionPin (and every encrypted/secret
+ * field) is NEVER selected — this is a CURATED select, not a blind branch spread,
+ * mirroring getReviewContext's branch select (service.ts §"Branches"). lat/lng are
+ * Prisma Decimals; normalised to Number (or null) for a JSON-safe payload.
+ */
+export async function getBranchLifecycleReviewContext(
+  prisma: PrismaClient,
+  approvalId: string,
+): Promise<BranchLifecycleReviewContext> {
+  const approval = await prisma.adminApproval.findUnique({
+    where: { id: approvalId },
+    select: { id: true, type: true, referenceId: true },
+  })
+  if (!approval) throw new AppError('APPROVAL_NOT_FOUND')
+
+  const kind = branchLifecycleKindOf(approval.type)
+  if (kind === null) throw new AppError('APPROVAL_NOT_ACTIONABLE')
+
+  // The referenceId IS the branch id. Curated select — redemptionPin and any
+  // other secret/encrypted field is NEVER selected. Resolve the merchant via the
+  // branch's merchant relation.
+  const branch = await prisma.branch.findUnique({
+    where: { id: approval.referenceId },
+    select: {
+      id: true,
+      name: true,
+      addressLine1: true,
+      addressLine2: true,
+      city: true,
+      postcode: true,
+      localityName: true,
+      phone: true,
+      email: true,
+      websiteUrl: true,
+      isMainBranch: true,
+      isActive: true,
+      lifecycleStatus: true,
+      locationConfidence: true,
+      latitude: true,
+      longitude: true,
+      closeReason: true,
+      // redemptionPin is intentionally omitted — NEVER expose it
+      merchant: { select: { id: true, businessName: true } },
+    },
+  })
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
+
+  return {
+    kind,
+    merchant: { id: branch.merchant.id, businessName: branch.merchant.businessName },
+    branch: {
+      id: branch.id,
+      name: branch.name,
+      addressLine1: branch.addressLine1,
+      addressLine2: branch.addressLine2,
+      city: branch.city,
+      postcode: branch.postcode,
+      localityName: branch.localityName,
+      phone: branch.phone,
+      email: branch.email,
+      websiteUrl: branch.websiteUrl,
+      isMainBranch: branch.isMainBranch,
+      isActive: branch.isActive,
+      lifecycleStatus: branch.lifecycleStatus as unknown as string,
+      locationConfidence: branch.locationConfidence as unknown as string,
+      latitude: normaliseDecimal(branch.latitude),
+      longitude: normaliseDecimal(branch.longitude),
+    },
+    closeReason: branch.closeReason,
+  }
+}
+
+/**
+ * Prisma Decimal (lat/lng) serialises as an object; coerce to a Number (or null).
+ * Mirrors editApplier.normaliseDecimal (re-declared here so the applier owns its
+ * own helper).
+ */
+function normaliseDecimal(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  const n = Number((value as { toString(): string }).toString())
+  return Number.isNaN(n) ? null : n
+}

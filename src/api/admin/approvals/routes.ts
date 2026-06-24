@@ -12,7 +12,11 @@ import {
   getReviewContext,
 } from './service'
 import { approveEdit, rejectEdit, getEditReviewContext } from './editApplier'
-import { approveBranchLifecycle, rejectBranchLifecycle } from './branchLifecycleApplier'
+import {
+  approveBranchLifecycle,
+  rejectBranchLifecycle,
+  getBranchLifecycleReviewContext,
+} from './branchLifecycleApplier'
 import {
   getVoucherReviewContext,
   approveVoucher,
@@ -103,6 +107,15 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
   // location via the separate confirm-location flow (branch:confirm-location) —
   // the gate is enforced server-side inside the applier (MAIN_BRANCH_LOCATION_UNCONFIRMED).
   // A non-branch-lifecycle approval id surfaces APPROVAL_NOT_ACTIONABLE.
+  // The branch-lifecycle review read (mirrors GET /:id/review + /:id/edit-review +
+  // /:id/voucher-review). Returns the proposed/target branch + its merchant +
+  // closeReason so the actioner can render the BRANCH_CREATE / BRANCH_CLOSE review
+  // screen. Read-only; gated on approval:read. NEVER returns redemptionPin.
+  // A non-branch-lifecycle approval id surfaces APPROVAL_NOT_ACTIONABLE.
+  app.get(`${prefix}/:id/branch-lifecycle-review`, { preHandler: [requireAdminCapability('approval:read')] }, async (req: any) => {
+    return getBranchLifecycleReviewContext(app.prisma, idParam(req))
+  })
+
   app.post(`${prefix}/:id/approve-branch-lifecycle`, { preHandler: [requireAdminCapability('approval:apply-edit')] }, async (req: any) => {
     return approveBranchLifecycle(app.prisma, app.redis, idParam(req), req.user.sub, auditCtx(req))
   })
