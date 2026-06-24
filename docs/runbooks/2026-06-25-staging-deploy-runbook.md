@@ -53,6 +53,31 @@ Plus a short **hardening/verify pass** on the existing staging (§5).
 
 ---
 
+## B.1 Superseded blank-slate assumptions (the original draft was wrong)
+
+The first draft of this runbook (2026-06-25, commit `58c6e871`) assumed a from-scratch setup. The 2026-06-25 infra audit **supersedes** the following — do **not** follow them:
+
+| Superseded assumption (original draft) | Corrected by the audit |
+|---|---|
+| "Create a separate Railway project `redeemo-staging`" (D-1) | **Reuse** the existing `redeemo / staging` project (one project / one env). |
+| "Create a Neon staging branch" | **Reuse** the existing branch (`br-ancient-water-…`). |
+| "Add Redis and set noeviction" | Redis is **already online** (noeviction = Railway default; just verify). |
+| "Provide the 13 boot secrets / generate 5 fresh" | All **already set** (24 vars). **Never regenerate `ENCRYPTION_KEY`** (breaks seeded branch PINs). |
+| "Run `prisma migrate deploy` for the 4 Branches migrations" | Already applied — the pre-deploy hook ran on the `fe10fb16` success deploy. |
+| "Set up email dark/sandbox" | Email is **already sandbox-live** from earlier work. |
+| "New service" for web + worker | Both **already online**, auto-deploying from `main`. |
+
+## B.2 Open checks (confirm during execution — none block reuse)
+
+- **Vercel Deployment Protection availability** — is the Vercel account on **Pro** (password protection)? If not → D-4's Basic-Auth middleware is a flagged code change needing approval. Settles D-4.
+- **`TRUST_PROXY=1`** is set on the Railway **web** service (owner-asserted; confirm — must be `1`, not `true`, behind Railway's single proxy; else per-client rate limits collapse to one bucket).
+- **`CORS_ORIGIN` current value** (asserted `https://redeemo.co.uk`) — confirm, then add the 3 Vercel origins.
+- **Worker logs** — the 3 BullMQ processors registered + the `promote-pending-hours` (Branches) + outbox-reconcile sweeps firing every 60s + **no eviction warnings**.
+- **Reset-URL envs** (`WEB_APP_URL` / `MERCHANT_PORTAL_URL` / `ADMIN_PANEL_URL`) — currently default (→ `localhost`); set to the Vercel URLs once they exist so sandbox email links resolve.
+- **§SEC.1 atomic email limiter record conflict** — ledger says OPEN (2026-06-08), DNS-email file says done PR #203 (2026-06-13). **Verify in `src/api/shared/pwdResetLimiter.ts` before any production email-on.** NOT a staging blocker (staging email is sandbox-only).
+
+---
+
 ## 1. Topology (current)
 
 ```
@@ -108,6 +133,22 @@ For **each** of `customer-web`, `admin-web`, `merchant-web`:
 ### 4.4 Access control + noindex (D-4)
 - Enable Vercel **Deployment Protection (Password)** on all 3 (or, if no Pro → pause for the flagged Basic-Auth middleware approval).
 - Ensure `X-Robots-Tag: noindex` + `robots.txt Disallow` (Vercel **preview** deploys are noindex by default; for a production Vercel deploy add the header). Keep `NEXT_PUBLIC_MARKETPLACE_LIVE=false` so customer-web's marketplace pages stay hidden.
+
+### 4.X Narrowed execution checklist — REMAINING WORK ONLY
+
+> Nothing on Railway/Neon/Redis/email is rebuilt. This is only the Vercel deploy + the API deltas + verification. 🧑 you click/configure · 🔑 you provide a non-secret value · 🤖 Claude verifies · 🛑 stop-and-report. Order matters (apps before CORS; CORS before login test).
+
+1. 🧑 Confirm **Vercel tier** (Pro?) → settles D-4 (password vs flagged Basic-Auth). 🤖 I confirm the live API is healthy first (`/health` 200).
+2. 🧑 **Deploy `customer-web`** to Vercel: Root Directory `apps/customer-web`; env `NEXT_PUBLIC_API_URL=https://web-staging-bf7c.up.railway.app`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_…`, `NEXT_PUBLIC_MARKETPLACE_LIVE=false`. 🔑 → capture its `*.vercel.app` URL.
+3. 🧑 **Deploy `admin-web`**: Root Directory `apps/admin-web`; env `NEXT_PUBLIC_API_URL=` the Railway URL. 🔑 → capture URL.
+4. 🧑 **Deploy `merchant-web`**: Root Directory `apps/merchant-web`; env `NEXT_PUBLIC_API_URL=` the Railway URL (+ keep the always-pass Turnstile test key). 🔑 → capture URL.
+   - 🛑 If a build fails on `outputFileTracingRoot` monorepo tracing, stop — don't isolate the subdir.
+5. 🧑 **Railway web env — update `CORS_ORIGIN`** to include the 3 Vercel origins (comma list, exact, no trailing slash); restart/redeploy web.
+6. 🧑 **Railway web env — set `WEB_APP_URL` / `MERCHANT_PORTAL_URL` / `ADMIN_PANEL_URL`** to the 3 Vercel URLs (so sandbox email links resolve).
+7. 🧑 **Access control + noindex** on all 3 Vercel apps (Deployment Protection/password if Pro; else 🛑 pause for the Basic-Auth code-change approval). Confirm `X-Robots-Tag: noindex`.
+8. 🤖 **Verify** (I run/inspect what's public): `/health` 200; CORS now succeeds from a Vercel origin and blocks a random origin; each Vercel URL prompts for the password; `x-robots-tag: noindex` present.
+9. 🧑+🤖 **Functional check:** admin/merchant email-OTP arrives in the `admin@redeemo.co.uk` sandbox inbox; a subscribe→redeem→validate loop works (Stripe test `4242…`); 🧑 read worker logs to confirm the `promote-pending-hours` sweep fires.
+10. **Customer-app EAS preview = separate follow-up** (§12), only after the above is stable.
 
 ---
 
