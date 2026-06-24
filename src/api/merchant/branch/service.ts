@@ -160,15 +160,33 @@ export function toAdminBranchShape(b: {
  * outage must reject before opening a tx); the branch.create + audit are inside
  * one transaction, actor-attributed, `entityType:'branch'`. Caller lat/lng are
  * dropped (pin-precise coords arrive via the separate confirm-location flow).
+ *
+ * Branches PR-5 (D5): `stageForApproval` defaults FALSE so the existing instant-live
+ * behaviour is preserved for the onboarding first/main branch AND the admin
+ * create-draft-on-behalf path (the admin is the approval authority). When TRUE
+ * (a merchant self-created SUBSEQUENT branch), the branch is staged
+ * `lifecycleStatus = PENDING_CREATE` + `isActive = false` (customer-INVISIBLE) and a
+ * `BRANCH_CREATE` AdminApproval is created in the SAME transaction; admin approval
+ * flips it LIVE (the next dispatch). The `existingCount`/auto-main count is scoped to
+ * non-deleted, non-PENDING_CREATE branches so a pending branch can NEVER become main.
  */
 export async function createBranchCore(
   prisma: PrismaClient,
   { merchantId, actor }: { merchantId: string; actor: EditActor },
   data: Record<string, unknown>,
-  ctx: { ipAddress: string; userAgent: string }
+  ctx: { ipAddress: string; userAgent: string },
+  stageForApproval = false,
 ) {
-  const existingCount = await prisma.branch.count({ where: { merchantId, deletedAt: null } })
-  const isMainBranch = existingCount === 0
+  // Auto-main counts only LIVE (non-pending), non-deleted branches: a PENDING_CREATE
+  // branch is never an eligible "first branch", so the first instant-live branch is
+  // the only one that can auto-promote to main. A staged branch is by definition not
+  // the first non-pending branch, so it can never be auto-main even if it were the
+  // only row (it stages with isMainBranch=false below).
+  const existingCount = await prisma.branch.count({
+    where: { merchantId, deletedAt: null, lifecycleStatus: { not: 'PENDING_CREATE' } },
+  })
+  // A staged (pending-create) branch is NEVER auto-main; only an instant first branch is.
+  const isMainBranch = !stageForApproval && existingCount === 0
 
   const postcode = data.postcode as string | undefined
   if (!postcode) throw new AppError('POSTCODE_REQUIRED')
@@ -179,6 +197,11 @@ export async function createBranchCore(
       data: {
         merchantId,
         isMainBranch,
+        // Branches PR-5: staged subsequent branch -> PENDING_CREATE + isActive=false
+        // (customer-INVISIBLE by STATUS; isActive=false is belt-and-braces so the
+        // isActive:true feeds + createReview/createRedemption are incidentally safe).
+        // The instant path keeps the LIVE default + isActive=true default.
+        ...(stageForApproval ? { lifecycleStatus: 'PENDING_CREATE' as const, isActive: false } : {}),
         name:         data.name as string,
         addressLine1: data.addressLine1 as string,
         addressLine2: data.addressLine2 as string | undefined,
@@ -201,9 +224,25 @@ export async function createBranchCore(
     await writeAuditLogTx(tx, {
       entityId: branch.id, entityType: 'branch', event: 'BRANCH_CREATED',
       actorId: actor.id, actorType: actor.type, reason: actor.reason,
-      metadata: { merchantId },
+      metadata: { merchantId, staged: stageForApproval },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     })
+    // Branches PR-5: a staged branch carries a BRANCH_CREATE approval (referenceId =
+    // the branch id directly; referenceType 'branch'). The admin actioner approves it
+    // (confirming the precise location via the reused confirm-location flow) to flip
+    // the branch LIVE. Created in the SAME transaction as the branch so a pending
+    // branch always has its approval.
+    if (stageForApproval) {
+      await tx.adminApproval.create({
+        data: {
+          type:          'BRANCH_CREATE',
+          status:        'PENDING',
+          referenceId:   branch.id,
+          referenceType: 'branch',
+          comment:       `Branch ${branch.id} created and awaiting approval`,
+        },
+      })
+    }
     return branch
   })
 }
@@ -214,8 +253,78 @@ export async function createBranch(
   data: Record<string, unknown>,
   ctx: { ipAddress: string; userAgent: string }
 ) {
+  // Branches PR-5 (D5): OWNER-only (resolveAdminMerchant denies a non-owner by
+  // construction with INVALID_CREDENTIALS; keeps the SEC-M2 suspended guard). Do NOT
+  // migrate to assertCanManageBranch — D3 reserves create to OWNERS.
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-  return createBranchCore(prisma, { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } }, data, ctx)
+
+  // The pending-vs-instant discriminator is BRANCH COUNT, NOT merchant.status: only
+  // the merchant's FIRST branch (the main branch, count===0 over non-deleted,
+  // non-PENDING_CREATE rows) is created INSTANT (it is reviewed as part of the
+  // merchant onboarding approval). EVERY subsequent merchant-created branch (count>=1,
+  // INCLUDING a second branch added pre-live during onboarding — the Codex case)
+  // stages for its own BRANCH_CREATE approval. Keying on merchant.status was too
+  // broad: a pre-live merchant could otherwise add an unreviewed second branch that
+  // would go live the moment onboarding was approved.
+  const existingNonDeletedBranchCount = await prisma.branch.count({
+    where: { merchantId, deletedAt: null, lifecycleStatus: { not: 'PENDING_CREATE' } },
+  })
+  const stageForApproval = existingNonDeletedBranchCount >= 1
+
+  return createBranchCore(
+    prisma,
+    { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
+    data,
+    ctx,
+    stageForApproval,
+  )
+}
+
+/**
+ * Branches PR-5 (D5): cancel a pending-create branch (merchant, OWNER-only). The
+ * branch never went live (it is PENDING_CREATE + isActive=false + customer-invisible
+ * + has no redemption/review/favourite data), so a hard cleanup is acceptable: delete
+ * the branch row + withdraw its BRANCH_CREATE approval. Mirrors
+ * withdrawBranchEditRequest. Guards BRANCH_NOT_FOUND (unknown/owned-else) +
+ * BRANCH_NOT_PENDING_CREATE (the branch is not awaiting create approval).
+ */
+export async function cancelPendingCreate(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  // OWNER-only (resolveAdminMerchant). Do NOT use assertCanManageBranch — D3 reserves
+  // branch create/cancel to OWNERS.
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+
+  const branch = await prisma.branch.findFirst({
+    where: { id: branchId, merchantId, deletedAt: null },
+    select: { id: true, lifecycleStatus: true },
+  })
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
+  if (branch.lifecycleStatus !== 'PENDING_CREATE') throw new AppError('BRANCH_NOT_PENDING_CREATE')
+
+  await prisma.$transaction(async (tx) => {
+    // DELETE the open BRANCH_CREATE approval (referenceId = branch id). The branch is
+    // being hard-deleted and never went live, so the never-actioned pending approval
+    // is removed outright (ApprovalStatus has no WITHDRAWN value; a dangling approval
+    // pointing at a deleted branch would be a junk queue row). deleteMany so a
+    // (defensive) missing approval is not fatal.
+    await tx.adminApproval.deleteMany({
+      where: { type: 'BRANCH_CREATE', referenceId: branchId, status: 'PENDING' },
+    })
+    await writeAuditLogTx(tx, {
+      entityId: branchId, entityType: 'branch', event: 'BRANCH_CREATE_CANCELLED',
+      actorId: adminId, actorType: 'MERCHANT_ADMIN',
+      metadata: { merchantId },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    // Hard-delete the never-live branch row LAST (the audit references its id above).
+    await tx.branch.delete({ where: { id: branchId } })
+  })
+
+  return { ok: true as const }
 }
 
 /**
@@ -957,6 +1066,126 @@ export async function softDeleteBranch(
 ) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
   return softDeleteBranchCore(prisma, { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } }, branchId, ctx)
+}
+
+/**
+ * Branches PR-5 (D5, §4b): close-REQUEST (merchant, OWNER-only). The branch is NOT
+ * deactivated here — it STAYS isActive + LIVE-visible to customers until an admin
+ * approves (the admin-approve deactivation is the NEXT dispatch). Enforces the SAME
+ * guards as the immediate delete, at REQUEST time (reusing the existing
+ * BRANCH_IS_MAIN + BRANCH_LAST_ACTIVE semantics/messages): you cannot close the main
+ * branch (promote another main first) or the last active branch of a live merchant.
+ * Sets lifecycleStatus = PENDING_CLOSE + closeReason and creates a BRANCH_CLOSE
+ * approval (referenceId = the branch id, referenceType 'branch'). A branch already
+ * mid-close (PENDING_CLOSE) is rejected with BRANCH_CLOSE_REQUEST_EXISTS; a
+ * pending-create branch is BRANCH_NOT_FOUND (it is not yet a live branch to close — it
+ * is cancelled via cancelPendingCreate).
+ */
+export async function requestBranchClose(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+  reason: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  // OWNER-only (resolveAdminMerchant). Do NOT use assertCanManageBranch — D3 reserves
+  // close/request-close to OWNERS.
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+
+  const branch = await prisma.branch.findFirst({
+    where: { id: branchId, merchantId, deletedAt: null },
+    select: { id: true, isMainBranch: true, isActive: true, lifecycleStatus: true },
+  })
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
+  // A pending-create branch is not yet live — there is nothing to close; it is
+  // cancelled via cancelPendingCreate. Treat as not-found for the close lane.
+  if (branch.lifecycleStatus === 'PENDING_CREATE') throw new AppError('BRANCH_NOT_FOUND')
+  // Idempotency: a branch already awaiting close cannot be re-requested.
+  if (branch.lifecycleStatus === 'PENDING_CLOSE') throw new AppError('BRANCH_CLOSE_REQUEST_EXISTS')
+
+  // Reuse the immediate-delete guards AT REQUEST TIME (CORRECTION 2): cannot close
+  // the main branch (promote another main first), nor the last active branch of a
+  // live merchant.
+  if (branch.isMainBranch) throw new AppError('BRANCH_IS_MAIN')
+  const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } })
+  if (merchant?.status === 'ACTIVE') {
+    const activeBranchCount = await prisma.branch.count({
+      where: { merchantId, isActive: true, deletedAt: null },
+    })
+    if (activeBranchCount <= 1) throw new AppError('BRANCH_LAST_ACTIVE')
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const b = await tx.branch.update({
+      where: { id: branchId },
+      data: { lifecycleStatus: 'PENDING_CLOSE', closeReason: reason },
+      include: BRANCH_INCLUDE,
+    })
+    await tx.adminApproval.create({
+      data: {
+        type:          'BRANCH_CLOSE',
+        status:        'PENDING',
+        referenceId:   branchId,
+        referenceType: 'branch',
+        comment:       `Branch ${branchId} close requested: ${reason}`,
+      },
+    })
+    await writeAuditLogTx(tx, {
+      entityId: branchId, entityType: 'branch', event: 'BRANCH_CLOSE_REQUESTED',
+      actorId: adminId, actorType: 'MERCHANT_ADMIN', reason,
+      metadata: { merchantId },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return b
+  })
+  return updated
+}
+
+/**
+ * Branches PR-5 (D5, §4b): withdraw a pending close request (merchant, OWNER-only).
+ * The branch was LIVE-visible throughout (close-request never deactivated it), so
+ * this simply reverts lifecycleStatus -> LIVE + clears closeReason and removes the
+ * open BRANCH_CLOSE approval. BRANCH_CLOSE_REQUEST_NOT_FOUND (404) when the branch is
+ * not awaiting close. Mirrors withdrawBranchEditRequest.
+ */
+export async function withdrawBranchClose(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  // OWNER-only (resolveAdminMerchant). Do NOT use assertCanManageBranch.
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+
+  const branch = await prisma.branch.findFirst({
+    where: { id: branchId, merchantId, deletedAt: null },
+    select: { id: true, lifecycleStatus: true },
+  })
+  if (!branch) throw new AppError('BRANCH_NOT_FOUND')
+  if (branch.lifecycleStatus !== 'PENDING_CLOSE') throw new AppError('BRANCH_CLOSE_REQUEST_NOT_FOUND')
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const b = await tx.branch.update({
+      where: { id: branchId },
+      data: { lifecycleStatus: 'LIVE', closeReason: null },
+      include: BRANCH_INCLUDE,
+    })
+    // DELETE the open BRANCH_CLOSE approval (referenceId = branch id). The close never
+    // happened (the branch stays live); the never-actioned pending approval is removed
+    // outright (ApprovalStatus has no WITHDRAWN value). deleteMany so a (defensive)
+    // missing approval is not fatal.
+    await tx.adminApproval.deleteMany({
+      where: { type: 'BRANCH_CLOSE', referenceId: branchId, status: 'PENDING' },
+    })
+    await writeAuditLogTx(tx, {
+      entityId: branchId, entityType: 'branch', event: 'BRANCH_CLOSE_WITHDRAWN',
+      actorId: adminId, actorType: 'MERCHANT_ADMIN',
+      metadata: { merchantId },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return b
+  })
+  return updated
 }
 
 export async function getBranchPin(
