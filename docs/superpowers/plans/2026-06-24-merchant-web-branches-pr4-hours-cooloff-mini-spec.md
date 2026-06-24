@@ -52,14 +52,18 @@ model BranchOpeningHoursPending {
   proposedHours Json
   effectiveAt   DateTime              // = stage time + 2h (the cool-off boundary)
   status        PendingHoursStatus    @default(PENDING)
-  createdBy     String                // adminUserId (MerchantMembership actor) who staged it
+  createdBy     String                // the merchant actor's MerchantAdmin id (req.user.sub / ctx.adminId), the SAME id used elsewhere for audit attribution; NOT a MerchantMembership id
   createdAt     DateTime              @default(now())
   promotedAt    DateTime?
   cancelledAt   DateTime?
   branch        Branch                @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@index([status, effectiveAt])      // cheap due-row scan for the promotion sweep
-  @@index([branchId, status])         // at-most-one-PENDING lookup + merchant-web read
+  @@index([branchId, status])         // merchant-web read + the at-most-one-PENDING lookup
+  // NOTE: the at-most-one-PENDING-per-branch INVARIANT is DB-ENFORCED by a PARTIAL UNIQUE
+  // index added in the migration (raw SQL, since Prisma cannot express a partial unique in
+  // the schema): CREATE UNIQUE INDEX ... ON "BranchOpeningHoursPending"("branchId") WHERE status = 'PENDING';
+  // The @@index above is for lookups/reads, NOT the uniqueness guarantee.
 }
 
 enum PendingHoursStatus {
@@ -75,7 +79,7 @@ Design notes (recorded defaults, no owner fork):
 - The new model name does not collide with any existing model (verified: `BranchOpeningHours`, `BranchPendingEdit`, `BranchPhoto`, `MerchantPendingEdit` are all distinct).
 - NO `ApprovalType` value for hours; NO `AdminApproval` row; NO `editApplier` path. Hours never enter the admin queue.
 
-Migration + deploy: one additive dated dir under `prisma/migrations` (a single `CREATE TABLE` + the enum, no drops). Per the established project convention (cf. the `canManageVouchers` migration), the implementing PR applies it to the LOCAL dev DB only via `prisma migrate dev`; staging/prod require an explicit `prisma migrate deploy` before the new code serves traffic (the Procfile has no `release:` line by design). The migration is purely additive and safe under the documented additive-rollback story.
+Migration + deploy: one additive dated dir under `prisma/migrations` (a `CREATE TABLE` + the enum + the PARTIAL UNIQUE index `CREATE UNIQUE INDEX ... ON "BranchOpeningHoursPending"("branchId") WHERE status = 'PENDING';` added via raw SQL in the migration body, since Prisma cannot express a partial unique in the schema; no drops). Per the established project convention (cf. the `canManageVouchers` migration), the implementing PR applies it to the LOCAL dev DB only via `prisma migrate dev`; staging/prod require an explicit `prisma migrate deploy` before the new code serves traffic (the Procfile has no `release:` line by design). The migration is purely additive and safe under the documented additive-rollback story.
 
 ---
 
@@ -91,7 +95,7 @@ New body, keeping the existing entry route `POST /branches/:id/hours`:
 5. Enqueue a delayed promotion nudge (see 4c): `enqueue(MAINTENANCE_QUEUE, { pendingId }, { jobId: 'promote-hours:<branchId>', delay: PROMOTION_WINDOW_MS })`. The stable `jobId` keyed on `branchId` makes a re-stage replace the prior delayed job cleanly (BullMQ same-jobId dedup).
 6. Return the staged pending record (so the merchant-web response shows the pending change + go-live time immediately).
 
-Re-staging semantics (recorded default, no owner fork): a NEW stage while a PENDING row already exists for the branch SUPERSEDES it (the prior PENDING is overwritten/marked CANCELLED and the new one takes a fresh `effectiveAt = now + 2h`). Rationale: a self-service cool-off should let a merchant correct a staged typo without first cancelling; each stage still carries its own full 2h cool-off, so supersede does not weaken the safety window. At-most-one PENDING per branch is enforced (`@@index([branchId, status])` + an upsert-or-replace in a transaction). Alternative considered and NOT chosen: reject a second stage with a `PENDING_HOURS_EXISTS` error (mirrors the identity lane's `PENDING_EDIT_EXISTS`); rejected because it forces a cancel-then-restage dance for a routine correction. If the owner prefers reject-semantics, this is a one-line flip at review.
+Re-staging semantics (recorded default, no owner fork): a NEW stage while a PENDING row already exists for the branch SUPERSEDES it (the prior PENDING is marked CANCELLED and the new one takes a fresh `effectiveAt = now + 2h`). Rationale: a self-service cool-off should let a merchant correct a staged typo without first cancelling; each stage still carries its own full 2h cool-off, so supersede does not weaken the safety window. CONCURRENCY (at-most-one PENDING per branch): this invariant is DB-ENFORCED by a PARTIAL UNIQUE index `("branchId") WHERE status = 'PENDING'` (added in the migration via raw SQL, since Prisma cannot express a partial unique in the schema), NOT merely by the `@@index([branchId, status])` (a non-unique index does not prevent a concurrent double-stage from creating two PENDING rows). The supersede MUST run in ONE transaction in the order CANCEL-the-existing-PENDING THEN CREATE-the-new-PENDING, so at no instant do two PENDING rows coexist and the partial unique is never violated; a racing second stage that tries to create a second PENDING fails the unique and retries cleanly. Alternative considered and NOT chosen: reject a second stage with a `PENDING_HOURS_EXISTS` error (mirrors the identity lane's `PENDING_EDIT_EXISTS`); rejected because it forces a cancel-then-restage dance for a routine correction. If the owner prefers reject-semantics, this is a one-line flip at review.
 
 ### 4b. Cancel/withdraw before promotion (new route)
 
@@ -150,7 +154,7 @@ This is server-enforced in the service (before any staging write), not UI-only, 
 Backend:
 - Staging: `setOpeningHours` writes a `BranchOpeningHoursPending` row with `effectiveAt = now + 2h` and does NOT upsert `BranchOpeningHours` (live rows unchanged at stage time). Validation still rejects an invalid schedule (`OPENING_HOURS_INVALID`) before any write.
 - Authz matrix on stage + cancel: OWNER any -> allowed; assigned BRANCH_MANAGER -> allowed; unassigned BRANCH_MANAGER -> `INSUFFICIENT_PERMISSIONS`; assigned STAFF -> `INSUFFICIENT_PERMISSIONS` (no staging row written). Suspended merchant -> `MERCHANT_SUSPENDED`.
-- Re-stage supersede: a second stage replaces the prior PENDING (at most one PENDING per branch) with a fresh `effectiveAt`.
+- Re-stage supersede: a second stage replaces the prior PENDING (cancel-then-create in one transaction) with a fresh `effectiveAt`; the partial unique `("branchId") WHERE status='PENDING'` is in place, so at-most-one PENDING per branch holds and a concurrent double-stage cannot create two PENDING rows (one fails the unique and retries). `createdBy` is stored as the merchant actor's `MerchantAdmin` id (audit attribution id), not a membership id.
 - Cancel: before `effectiveAt` marks `CANCELLED`; live rows untouched; a subsequent promotion sweep/job is a no-op on the cancelled row.
 - Promotion (pure `promotePendingHours(prisma, now)`, injectable `now`): a PENDING row with `effectiveAt <= now` promotes (live `BranchOpeningHours` upserted to the proposed schedule + row `PROMOTED`); a row with `effectiveAt > now` does NOT promote; a CANCELLED row does NOT promote; promotion is idempotent (running the sweep twice does not double-apply or error); a transaction re-check skips a row cancelled between scan and promote.
 - Delayed-job pin (first delayed job in the repo): `enqueue(... { delay, jobId })` schedules a delayed job; the handler re-reads the row and skips a withdrawn/promoted record (never trusts `job.data`).
