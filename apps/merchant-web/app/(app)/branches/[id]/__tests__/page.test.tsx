@@ -237,14 +237,19 @@ describe('BranchDetailPage locked affordances (F13 wiring)', () => {
     expect(screen.getByTestId('branch-branding-card')).toBeInTheDocument()
   })
 
-  it('renders the redemption-alerts card (visible) with disabled controls', async () => {
+  it('renders the redemption-alerts card (visible) with a LIVE owner toggle (PR-7)', async () => {
     capability = { isOwner: true, ready: true }
     getBranch.mockResolvedValue(branch())
     renderPage()
     await screen.findByRole('heading', { name: 'High Street' })
     const alerts = screen.getByTestId('branch-alerts-card')
     expect(alerts).toBeInTheDocument()
-    for (const b of within(alerts).getAllByRole('button')) expect(b).toBeDisabled()
+    // PR-7: the card is now a live per-branch on/off switch (no longer a disabled
+    // locked affordance). The owner sees an enabled switch control.
+    const toggle = within(alerts).getByRole('switch', {
+      name: /redemption alerts for this branch/i,
+    })
+    expect(toggle).toBeEnabled()
   })
 
   it('renders the close-branch section for an owner with a disabled close control', async () => {

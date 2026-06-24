@@ -21,6 +21,15 @@ describe('notificationTypeMeta', () => {
     expect(meta.Icon).toBe(Ticket)
   })
 
+  it('maps VOUCHER_REDEEMED to a label + the Ticket icon (PR-7 bell row, not the fallback)', () => {
+    const meta = notificationTypeMeta('VOUCHER_REDEEMED')
+    expect(meta.label).toBe('Voucher redeemed')
+    expect(meta.Icon).toBe(Ticket)
+    // explicitly NOT the generic fallback
+    expect(meta.label).not.toBe('Notification')
+    expect(meta.Icon).not.toBe(Bell)
+  })
+
   it('falls back to the generic Notification meta for an unknown type', () => {
     const meta = notificationTypeMeta('SOME_FUTURE_TYPE')
     expect(meta.label).toBe('Notification')
