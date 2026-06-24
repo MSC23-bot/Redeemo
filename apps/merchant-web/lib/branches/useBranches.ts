@@ -13,6 +13,10 @@ import {
   updateBranch,
   setBranchAmenities,
   setBranchPin,
+  createBranch,
+  cancelPendingCreate,
+  requestBranchClose,
+  withdrawBranchClose,
   createBranchEditRequest,
   withdrawBranchEditRequest,
   sendBranchPin,
@@ -21,6 +25,7 @@ import {
   stageBranchHours,
   cancelPendingHours,
   type Branch,
+  type BranchCreateBody,
   type BranchUpdateBody,
   type BranchEditRequestBody,
 } from '@/lib/api/branch'
@@ -60,6 +65,57 @@ function useInvalidateBranch() {
 }
 
 // --- Mutations (each invalidates ['branches'] + ['branch', id]) -------------
+
+// PR-5 §6: create a branch (OWNER-only on the backend). The FIRST/main branch is
+// created INSTANT-LIVE; every subsequent branch comes back lifecycleStatus
+// PENDING_CREATE (customer-invisible, awaiting admin approval). Invalidating
+// ['branches'] surfaces the new row; ['branch', id] primes the detail page so the
+// awaiting-approval banner renders immediately. The caller surfaces the backend
+// validation messages (e.g. POSTCODE_NOT_FOUND) calmly.
+export function useCreateBranch() {
+  const invalidate = useInvalidateBranch()
+  return useMutation({
+    mutationFn: (body: BranchCreateBody) => createBranch(body),
+    onSuccess: (data) => invalidate(data.id),
+  })
+}
+
+// PR-5 §4a: cancel a pending-create branch (OWNER-only). Hard-deletes the never-live
+// branch + withdraws its BRANCH_CREATE approval. Invalidating drops the row from the
+// list + the detail cache. A stale/missing pending (BRANCH_NOT_PENDING_CREATE /
+// BRANCH_NOT_FOUND) surfaces as a mutation error the caller handles calmly.
+export function useCancelPendingCreate() {
+  const invalidate = useInvalidateBranch()
+  return useMutation({
+    mutationFn: (id: string) => cancelPendingCreate(id),
+    onSuccess: (_data, id) => invalidate(id),
+  })
+}
+
+// PR-5 §4b: request to close a branch (OWNER-only). The branch STAYS live; the backend
+// sets lifecycleStatus PENDING_CLOSE + closeReason and creates a BRANCH_CLOSE approval.
+// Invalidating ['branch', id] re-reads getBranch (now PENDING_CLOSE) so the pending-close
+// banner appears. The backend BRANCH_IS_MAIN / BRANCH_LAST_ACTIVE / BRANCH_CLOSE_REQUEST_EXISTS
+// errors surface to the caller (the close modal explains them calmly).
+export function useRequestBranchClose() {
+  const invalidate = useInvalidateBranch()
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => requestBranchClose(id, reason),
+    onSuccess: (data) => invalidate(data.id),
+  })
+}
+
+// PR-5 §4b: withdraw a pending close request (OWNER-only). Reverts lifecycleStatus ->
+// LIVE + clears closeReason + removes the BRANCH_CLOSE approval. Invalidating re-reads
+// getBranch (now LIVE) so the pending-close banner disappears. A stale/missing request
+// (BRANCH_CLOSE_REQUEST_NOT_FOUND) surfaces as a mutation error the caller handles calmly.
+export function useWithdrawBranchClose() {
+  const invalidate = useInvalidateBranch()
+  return useMutation({
+    mutationFn: (id: string) => withdrawBranchClose(id),
+    onSuccess: (data) => invalidate(data.id),
+  })
+}
 
 // F4: instant-save of the DIRECT contact fields (phone / email / websiteUrl).
 export function useUpdateBranchContact() {
