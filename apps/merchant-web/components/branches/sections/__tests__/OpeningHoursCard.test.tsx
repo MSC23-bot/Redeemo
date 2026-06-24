@@ -2,9 +2,9 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { OpeningHoursCard } from '@/components/branches/sections/OpeningHoursCard'
 import type { Branch } from '@/lib/api/branch'
 
-// Branches PR-1 F10 + PR-4: the Opening hours card (prototype 03/08). It renders the
-// CURRENT LIVE day/time table read-only (including "Closed" days), with the Today row
-// highlighted.
+// Branches PR-1 F10 + PR-4 + PR-8: the Opening hours card (prototype 03/08). It renders
+// the CURRENT LIVE day/time table read-only (including "Closed" days), with the Today
+// row highlighted.
 //
 // PR-4 makes the cool-off behaviour live:
 //   - The Edit control is now a LIVE editor (was a disabled LockedAffordance). Save
@@ -13,7 +13,11 @@ import type { Branch } from '@/lib/api/branch'
 //   - A pending-hours banner shows the proposed change + "go live at <time>" + an
 //     owner Cancel wired to useCancelPendingHours.
 //   - Edit + Cancel are OWNER-only client-side; STAFF / non-owner see read-only.
-//   - "Add a second window" STAYS a disabled affordance (multi-window = PR-8).
+//
+// PR-8 makes MULTI-WINDOW live:
+//   - The live table + the pending banner render N windows per day (ordered by openTime).
+//   - The editor edits N windows per day (per-day add / remove window). The previously
+//     LOCKED "Add a second window" affordance is GONE; the live control is in the editor.
 
 // --- the PR-4 mutation hooks ------------------------------------------------
 const stageMutateAsync = jest.fn()
@@ -114,10 +118,69 @@ describe('OpeningHoursCard PR-4 cool-off chip + live Edit', () => {
     expect(screen.getByTestId('hours-editor-modal')).toBeInTheDocument()
   })
 
-  it('still shows the multi-window "Add a second window" affordance disabled (PR-8)', () => {
+  it('no longer shows the locked "Add a second window" affordance (multi-window is now live in the editor)', () => {
     render(<OpeningHoursCard branch={branch()} isOwner />)
-    const multi = screen.getByRole('button', { name: /second window/i })
-    expect(multi).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /second window/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('OpeningHoursCard multi-window (PR-8)', () => {
+  // A branch with a split Monday (two windows) + an overnight Friday.
+  const MULTI_HOURS = [
+    { dayOfWeek: 1, openTime: '09:00', closeTime: '14:00', isClosed: false },
+    { dayOfWeek: 1, openTime: '17:00', closeTime: '23:00', isClosed: false },
+    { dayOfWeek: 5, openTime: '18:00', closeTime: '02:00', isClosed: false },
+    { dayOfWeek: 0, openTime: null, closeTime: null, isClosed: true },
+  ]
+
+  it('renders BOTH windows of a split day, ordered by openTime', () => {
+    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} isOwner />)
+    const monday = screen.getByTestId('hours-row-1')
+    expect(within(monday).getByText(/9am to 2pm, 5pm to 11pm/i)).toBeInTheDocument()
+  })
+
+  it('renders an overnight window (close < open) verbatim (e.g. 6pm to 2am)', () => {
+    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} isOwner />)
+    const friday = screen.getByTestId('hours-row-5')
+    expect(within(friday).getByText(/6pm to 2am/i)).toBeInTheDocument()
+  })
+
+  it('the editor prefills the split day with both windows and supports add / remove', () => {
+    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} isOwner />)
+    fireEvent.click(screen.getByTestId('hours-edit'))
+    const editorRow = screen.getByTestId('editor-hours-row-1')
+    // Both windows prefilled.
+    expect(screen.getByLabelText(/monday opening time, window 1/i)).toHaveValue('09:00')
+    expect(screen.getByLabelText(/monday opening time, window 2/i)).toHaveValue('17:00')
+    // Add a third window.
+    fireEvent.click(within(editorRow).getByTestId('editor-add-window-1'))
+    expect(screen.getByLabelText(/monday opening time, window 3/i)).toBeInTheDocument()
+    // Remove it again.
+    fireEvent.click(within(editorRow).getByTestId('editor-remove-window-1-2'))
+    expect(screen.queryByLabelText(/monday opening time, window 3/i)).not.toBeInTheDocument()
+  })
+
+  it('stages the full multi-window payload (one row per window) on save', async () => {
+    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} isOwner />)
+    fireEvent.click(screen.getByTestId('hours-edit'))
+    fireEvent.click(screen.getByTestId('hours-editor-save'))
+    await waitFor(() => expect(stageMutateAsync).toHaveBeenCalledTimes(1))
+    const arg = stageMutateAsync.mock.calls[0][0] as { id: string; hours: Array<Record<string, unknown>> }
+    const mondayRows = arg.hours.filter((r) => r.dayOfWeek === 1)
+    expect(mondayRows).toEqual([
+      { dayOfWeek: 1, isClosed: false, openTime: '09:00', closeTime: '14:00' },
+      { dayOfWeek: 1, isClosed: false, openTime: '17:00', closeTime: '23:00' },
+    ])
+  })
+
+  it('shows an inline overlap error and does NOT stage when windows overlap', async () => {
+    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} isOwner />)
+    fireEvent.click(screen.getByTestId('hours-edit'))
+    // Push Monday window 2 to open at 12:00 so it overlaps window 1 (09:00-14:00).
+    fireEvent.change(screen.getByLabelText(/monday opening time, window 2/i), { target: { value: '12:00' } })
+    fireEvent.click(screen.getByTestId('hours-editor-save'))
+    await waitFor(() => expect(screen.getByText(/cannot overlap/i)).toBeInTheDocument())
+    expect(stageMutateAsync).not.toHaveBeenCalled()
   })
 })
 
