@@ -93,7 +93,7 @@ export async function listMerchantReviews(
     isHidden: false,
     // F5/SEC-C3: exclude seed/test supply via the related branch + merchant
     // (Review has no isTestData of its own). Mirrors the discovery posture.
-    branch: { merchantId, isActive: true, isTestData: false, merchant: { isTestData: false } },
+    branch: { merchantId, isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, merchant: { isTestData: false } }, // Branches PR-5 (§5)
     ...(params.branchId ? { branchId: params.branchId } : {}),
   }
 
@@ -139,7 +139,7 @@ export async function listBranchReviews(
   const where: Prisma.ReviewWhereInput = {
     isHidden: false,
     branchId,
-    branch: { isTestData: false, merchant: { isTestData: false } },
+    branch: { isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, merchant: { isTestData: false } }, // Branches PR-5 (§5)
   }
 
   const [reviews, total] = await Promise.all([
@@ -267,7 +267,9 @@ export async function upsertBranchReview(
   //     linkage.  Editing a verified review without re-supplying
   //     redemptionId must NOT silently strip the verified flag.
   const branch = await prisma.branch.findFirst({
-    where:  { id: branchId, isActive: true },
+    // Branches PR-5 (§5): a PENDING_CREATE branch must not accept reviews (defence
+    // against a leaked id). PENDING_CLOSE is still live and reviewable.
+    where:  { id: branchId, isActive: true, lifecycleStatus: { not: 'PENDING_CREATE' } },
     select: { id: true, merchantId: true },
   })
   if (!branch) throw new AppError('BRANCH_NOT_FOUND')

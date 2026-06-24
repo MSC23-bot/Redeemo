@@ -336,7 +336,10 @@ const MERCHANT_TILE_SELECT = {
     select: { id: true, estimatedSaving: true },
   },
   branches: {
-    where: { isActive: true, isTestData: false },
+    // Branches PR-5 (§5): exclude PENDING_CREATE branches from every customer read
+    // (the authoritative exclusion is the lifecycle STATUS, not isActive). A
+    // PENDING_CLOSE branch stays visible (still live); CLOSED is excluded by deletedAt.
+    where: { isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' } },
     // Branch fields used by:
     //   - exposeBranchPosition / hasExactPosition (PR #81 redaction)
     //   - legacy classifyTier (city match)
@@ -1351,7 +1354,11 @@ async function enrichBranchTiles(
     // SEC-C3 (Gate-PR-4b): defensive seed/demo exclusion at the universal
     // branch-tile choke point — every branch-first surface enriches here, so
     // even if an upstream candidate query forgot its filter, test rows drop.
-    where:  { id: { in: branchIds }, isTestData: false, merchant: { isTestData: false } },
+    // Branches PR-5 (§5): the same choke-point reasoning makes this the canonical
+    // place to drop PENDING_CREATE branches — even if an upstream candidate query
+    // forgot the status filter, a pending-create branch can never enrich to a tile.
+    // PENDING_CLOSE stays (still live); CLOSED is excluded by deletedAt upstream.
+    where:  { id: { in: branchIds }, isTestData: false, merchant: { isTestData: false }, lifecycleStatus: { not: 'PENDING_CREATE' } },
     select: BRANCH_TILE_SELECT,
   })
 
@@ -1596,6 +1603,7 @@ export async function getHomeFeed(
             some: {
               isActive: true,
               isTestData: false,
+              lifecycleStatus: { not: 'PENDING_CREATE' }, // Branches PR-5 (§5)
               ...(locationCtx.city ? { city: { equals: locationCtx.city, mode: 'insensitive' } } : {}),
             },
           },
@@ -1954,9 +1962,13 @@ export async function getCustomerMerchant(
         // No isActive filter — P2 branch picker needs suspended branches (greyed out).
         // Legacy distance/nearest/rating logic filters to activeBranches locally.
         // SEC-C3 (Gate-PR-4b): still exclude seed/demo branches from the picker.
-        where: { isTestData: false },
+        // Branches PR-5 (§5): this is the PRIMARY leak vector — the picker has no
+        // isActive filter, so the lifecycle STATUS is the authoritative exclusion for
+        // a PENDING_CREATE branch (it must be invisible regardless of isActive). A
+        // PENDING_CLOSE branch is still LIVE so it stays in the picker (visible).
+        where: { isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' } },
         select: {
-          id: true, name: true, isMainBranch: true, isActive: true,
+          id: true, name: true, isMainBranch: true, isActive: true, lifecycleStatus: true,
           addressLine1: true, addressLine2: true, city: true, postcode: true, country: true,
           phone: true, email: true, latitude: true, longitude: true, locationConfidence: true,
           websiteUrl: true, logoUrl: true, bannerUrl: true, about: true,
@@ -2102,6 +2114,7 @@ export async function getCustomerMerchant(
       id: b.id,
       isActive: b.isActive,
       isMainBranch: b.isMainBranch,
+      lifecycleStatus: b.lifecycleStatus, // Branches PR-5 (§5): resolver defence-in-depth
       latitude:  hasExactPosition(b) ? Number(b.latitude)  : null,
       longitude: hasExactPosition(b) ? Number(b.longitude) : null,
       createdAt: b.createdAt,
@@ -2401,7 +2414,8 @@ export async function getCustomerMerchantBranches(prisma: PrismaClient, merchant
   }
 
   const branches = await prisma.branch.findMany({
-    where: { merchantId, isActive: true, isTestData: false, merchant: { isTestData: false } },
+    // Branches PR-5 (§5): exclude PENDING_CREATE from the redemption branch selector.
+    where: { merchantId, isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, merchant: { isTestData: false } },
     select: {
       id: true, name: true, isMainBranch: true,
       addressLine1: true, addressLine2: true, city: true, postcode: true,
@@ -2795,7 +2809,7 @@ export async function searchMerchants(
     for (const amenityId of amenityIds) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
-        { branches: { some: { isActive: true, isTestData: false, amenities: { some: { amenityId } } } } },
+        { branches: { some: { isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, amenities: { some: { amenityId } } } } }, // Branches PR-5 (§5)
       ]
     }
   }
@@ -2834,6 +2848,7 @@ export async function searchMerchants(
       { branches: { some: {
         isActive: true,
         isTestData: false,
+        lifecycleStatus: { not: 'PENDING_CREATE' }, // Branches PR-5 (§5)
         locationConfidence: 'MANUALLY_CONFIRMED',
         latitude:  { gte: minLat, lte: maxLat },
         longitude: { gte: minLng, lte: maxLng },
@@ -2882,7 +2897,7 @@ export async function searchMerchants(
       select: {
         id: true,
         branches: {
-          where: { isActive: true, isTestData: false },
+          where: { isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' } }, // Branches PR-5 (§5)
           select: {
             openingHours: {
               select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
@@ -3365,6 +3380,7 @@ export async function searchBranches(
   const where: Prisma.BranchWhereInput = {
     isActive: true,
     isTestData: false,
+    lifecycleStatus: { not: 'PENDING_CREATE' }, // Branches PR-5 (§5): explicit status exclusion
     merchant: { status: MerchantStatus.ACTIVE, isTestData: false },
   }
 
@@ -4412,6 +4428,7 @@ export async function getInAreaBranches(
   const where: Prisma.BranchWhereInput = {
     isActive: true,
     isTestData: false,
+    lifecycleStatus: { not: 'PENDING_CREATE' }, // Branches PR-5 (§5): explicit (MANUALLY_CONFIRMED below already excludes a POSTCODE_CENTROID pending branch, but make it explicit)
     merchant: {
       status: MerchantStatus.ACTIVE,
       isTestData: false,
@@ -4770,7 +4787,7 @@ export async function getCampaignBranches(
         select: {
           id:       true,
           branches: {
-            where: { isActive: true, isTestData: false },
+            where: { isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' } }, // Branches PR-5 (§5)
             select: {
               id:                 true,
               latitude:           true,

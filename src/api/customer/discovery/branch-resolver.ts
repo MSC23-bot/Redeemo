@@ -6,6 +6,13 @@ export type ResolvableBranch = {
   id: string
   isActive: boolean
   isMainBranch: boolean
+  // Branches PR-5 (§5): the caller's branch query already excludes PENDING_CREATE
+  // (getCustomerMerchant), so a pending branch never reaches the resolver. This
+  // field + the filter below are defence-in-depth so a pending branch can NEVER be
+  // selected or cold-opened even if a future caller forgets the query-level gate.
+  // Optional so existing unit tests that build ResolvableBranch literals without it
+  // keep compiling (an absent status is treated as not-pending).
+  lifecycleStatus?: string
   latitude: number | null
   longitude: number | null
   createdAt: Date
@@ -21,8 +28,11 @@ export type ResolveResult = {
     | 'all-suspended'
 }
 
+// Branches PR-5 (§5): a PENDING_CREATE branch is never selectable/cold-openable.
+const isSelectable = (b: ResolvableBranch): boolean => b.lifecycleStatus !== 'PENDING_CREATE'
+
 function pickColdOpen(branches: ResolvableBranch[], lat?: number, lng?: number): string | null {
-  const active = branches.filter(b => b.isActive)
+  const active = branches.filter(b => b.isActive && isSelectable(b))
   if (active.length === 0) return null
 
   if (lat !== undefined && lng !== undefined) {
@@ -52,7 +62,9 @@ export function resolveSelectedBranch(
   // Candidate provided — validate it belongs to the merchant (the caller has
   // already filtered branches[] by merchantId) and is active.
   if (candidateBranchId) {
-    const found = branches.find(b => b.id === candidateBranchId)
+    // Branches PR-5 (§5): a PENDING_CREATE candidate is treated as not-found so it
+    // can never be the selected branch (it falls back like an unknown/foreign id).
+    const found = branches.find(b => b.id === candidateBranchId && isSelectable(b))
     if (!found) {
       const fallback = pickColdOpen(branches, lat, lng)
       return fallback === null

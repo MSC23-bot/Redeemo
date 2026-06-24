@@ -124,7 +124,11 @@ export async function createRedemption(
   //    deactivated" under BRANCH_UNAVAILABLE so neither state is
   //    distinguishable from the other.
   const branch = await prisma.branch.findUnique({ where: { id: data.branchId } })
-  if (!branch || !branch.isActive) {
+  // Branches PR-5 (§5): a PENDING_CREATE branch must not accept redemptions even if a
+  // branch id leaked. It is also isActive=false (so the existing guard catches it),
+  // but the explicit status check is the authoritative defence. PENDING_CLOSE is still
+  // live and redeemable; CLOSED is excluded by deletedAt / isActive=false on approval.
+  if (!branch || !branch.isActive || branch.lifecycleStatus === 'PENDING_CREATE') {
     throw new AppError('BRANCH_UNAVAILABLE')
   }
 

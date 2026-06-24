@@ -184,7 +184,7 @@ export async function buildFeaturedRail(
   // ── 2. Fetch active branches under the featured merchants with the
   //    extended select rankBranchesV3 needs.
   const allBranches = await prisma.branch.findMany({
-    where:  { merchantId: { in: merchantIds }, isActive: true, isTestData: false, merchant: { isTestData: false } },
+    where:  { merchantId: { in: merchantIds }, isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, merchant: { isTestData: false } }, // Branches PR-5 (§5)
     select: RANK_BRANCH_SELECT,
   }) as RankBranchRow[]
 
@@ -390,7 +390,7 @@ export async function buildTrendingRail(
 
   // ── 2. Fetch active branches under the top merchants.
   const allBranches = await prisma.branch.findMany({
-    where:  { merchantId: { in: topMerchantIds }, isActive: true, isTestData: false, merchant: { status: MerchantStatus.ACTIVE, isTestData: false } },
+    where:  { merchantId: { in: topMerchantIds }, isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, merchant: { status: MerchantStatus.ACTIVE, isTestData: false } }, // Branches PR-5 (§5)
     select: RANK_BRANCH_SELECT,
   }) as RankBranchRow[]
   if (allBranches.length === 0) return { branches: [], meta: null }
@@ -571,6 +571,7 @@ export async function buildPopularRail(
     where:  {
       isActive: true,
       isTestData: false,
+      lifecycleStatus: { not: 'PENDING_CREATE' }, // Branches PR-5 (§5)
       merchant: { status: MerchantStatus.ACTIVE, isTestData: false },
     },
     select: RANK_BRANCH_SELECT,
@@ -828,6 +829,7 @@ export async function buildNearbyByCategoryRails(
       some: {
         isActive:  true,
         isTestData: false,
+        lifecycleStatus: { not: 'PENDING_CREATE' as const }, // Branches PR-5 (§5)
         latitude:  { gte: effLoc.lat - BBOX_DEGREES, lte: effLoc.lat + BBOX_DEGREES },
         longitude: { gte: effLoc.lng - BBOX_DEGREES, lte: effLoc.lng + BBOX_DEGREES },
       },
@@ -883,7 +885,7 @@ export async function buildNearbyByCategoryRails(
   const allMerchantIds = groupedCategories.flatMap(([, merchants]) => merchants.map(m => m.id))
   const allBranches = allMerchantIds.length > 0
     ? await prisma.branch.findMany({
-        where: { merchantId: { in: allMerchantIds }, isActive: true, isTestData: false, merchant: { isTestData: false } },
+        where: { merchantId: { in: allMerchantIds }, isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, merchant: { isTestData: false } }, // Branches PR-5 (§5)
         select: RANK_BRANCH_SELECT,
       }) as RankBranchRow[]
     : []
@@ -1035,7 +1037,7 @@ export async function buildNearbyByCategoryRails(
       where: {
         status:   MerchantStatus.ACTIVE,
         isTestData: false,
-        branches: { some: { isActive: true, isTestData: false } },
+        branches: { some: { isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' } } }, // Branches PR-5 (§5)
         primaryCategory: {
           OR: [
             { id:       { in: topUpParentIds } },
@@ -1085,7 +1087,7 @@ export async function buildNearbyByCategoryRails(
       // Fetch branches for the eligible merchants.
       const eligibleMerchantIds = eligibleMerchants.map(m => m.id)
       const fillerBranches = await prisma.branch.findMany({
-        where:  { merchantId: { in: eligibleMerchantIds }, isActive: true, isTestData: false, merchant: { isTestData: false } },
+        where:  { merchantId: { in: eligibleMerchantIds }, isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, merchant: { isTestData: false } }, // Branches PR-5 (§5)
         select: RANK_BRANCH_SELECT,
       }) as RankBranchRow[]
 
@@ -1173,7 +1175,7 @@ export async function buildNearbyByCategoryRails(
       where: {
         status:   MerchantStatus.ACTIVE,
         isTestData: false,
-        branches: { some: { isActive: true, isTestData: false } },
+        branches: { some: { isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' } } }, // Branches PR-5 (§5)
       },
       select: {
         id:                true,
@@ -1206,7 +1208,7 @@ export async function buildNearbyByCategoryRails(
     if (cascadeCategories.length > 0) {
       const cascadeMerchantIds = cascadeCategories.flatMap(([, ms]) => ms.map(m => m.id))
       const cascadeBranches = await prisma.branch.findMany({
-        where:  { merchantId: { in: cascadeMerchantIds }, isActive: true, isTestData: false, merchant: { isTestData: false } },
+        where:  { merchantId: { in: cascadeMerchantIds }, isActive: true, isTestData: false, lifecycleStatus: { not: 'PENDING_CREATE' }, merchant: { isTestData: false } }, // Branches PR-5 (§5)
         select: RANK_BRANCH_SELECT,
       }) as RankBranchRow[]
 
