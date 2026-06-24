@@ -28,6 +28,49 @@ const branchAmenityLinkSchema = z
 
 const branchPhotoSchema = z.object({ id: z.string(), url: z.string() }).passthrough()
 
+// --- Pending edit (sensitive identity / photo review lane) -------------------
+// PR-1 F1: mirrors the backend BranchPendingEdit model + the PendingEditStatus
+// enum. The list + detail BRANCH_INCLUDE ships PENDING-only rows under
+// `pendingEdits`; the edit-request[s] routes return the full row(s).
+export const pendingEditStatusSchema = z.enum(['PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN'])
+
+// proposedChanges is a partial bag of the branch SENSITIVE_FIELDS, plus the
+// add/remove arrays used by includesPhotos (photo) edits. .passthrough() so any
+// future server key does not break the parse.
+const proposedChangesSchema = z
+  .object({
+    name: z.string().optional(),
+    about: z.string().optional(),
+    addressLine1: z.string().optional(),
+    addressLine2: z.string().optional(),
+    city: z.string().optional(),
+    postcode: z.string().optional(),
+    logoUrl: z.string().optional(),
+    bannerUrl: z.string().optional(),
+    latitude: z.number().optional(),
+    longitude: z.number().optional(),
+    add: z.array(z.string()).optional(),
+    remove: z.array(z.string()).optional(),
+  })
+  .passthrough()
+
+export const branchPendingEditSchema = z
+  .object({
+    id: z.string(),
+    branchId: z.string(),
+    merchantId: z.string(),
+    proposedChanges: proposedChangesSchema,
+    includesPhotos: z.boolean(),
+    status: pendingEditStatusSchema,
+    reviewedBy: z.string().nullish(),
+    reviewNote: z.string().nullish(),
+    createdAt: z.string(),
+    reviewedAt: z.string().nullish(),
+  })
+  .passthrough()
+
+export type BranchPendingEdit = z.infer<typeof branchPendingEditSchema>
+
 export const branchSchema = z
   .object({
     id: z.string(),
@@ -41,10 +84,18 @@ export const branchSchema = z
     email: z.string().nullish(),
     websiteUrl: z.string().nullish(),
     about: z.string().nullish(),
+    logoUrl: z.string().nullish(),
     bannerUrl: z.string().nullish(),
+    locationConfidence: z
+      .enum(['MANUALLY_CONFIRMED', 'ADDRESS_GEOCODED', 'POSTCODE_CENTROID', 'NEEDS_REVIEW'])
+      .nullish(),
+    isActive: z.boolean().optional(),
+    latitude: z.number().nullish(),
+    longitude: z.number().nullish(),
     openingHours: z.array(branchOpeningHoursSchema).optional(),
     amenities: z.array(branchAmenityLinkSchema).optional(),
     photos: z.array(branchPhotoSchema).optional(),
+    pendingEdits: z.array(branchPendingEditSchema).optional(), // PENDING-only on list + detail
   })
   .passthrough()
 
@@ -53,6 +104,17 @@ export type Branch = z.infer<typeof branchSchema>
 export async function listBranches(): Promise<Branch[]> {
   const rows = await apiFetch('/api/v1/merchant/branches', { method: 'GET', auth: true })
   return z.array(branchSchema).parse(rows)
+}
+
+// GET /api/v1/merchant/branches/:id (scoped via assertBranchAllowed): single
+// branch, same shape as the list rows. Used by the detail page so deep-links /
+// refresh resolve without depending on the list cache. 404 BRANCH_NOT_FOUND.
+export async function getBranch(branchId: string): Promise<Branch> {
+  const branch = await apiFetch(`/api/v1/merchant/branches/${branchId}`, {
+    method: 'GET',
+    auth: true,
+  })
+  return branchSchema.parse(branch)
 }
 
 // --- Create -----------------------------------------------------------------
@@ -99,6 +161,8 @@ export interface BranchUpdateBody {
   websiteUrl?: string
   bannerUrl?: string
   about?: string
+  /** PR-1 F8: set this branch as the merchant's main branch (atomic single-main). */
+  isMainBranch?: boolean
 }
 
 export async function updateBranch(branchId: string, body: BranchUpdateBody): Promise<Branch> {
@@ -108,6 +172,58 @@ export async function updateBranch(branchId: string, body: BranchUpdateBody): Pr
     body: JSON.stringify(body),
   })
   return branchSchema.parse(branch)
+}
+
+// --- Reviewed identity edits (sensitive fields) -----------------------------
+// For a LIVE merchant, sensitive identity fields route through the edit-request
+// lane (admin review) rather than a direct PATCH. The body is the SENSITIVE
+// subset; the backend resolves location from postcode (do NOT send lat/lng).
+export interface BranchEditRequestBody {
+  name?: string
+  about?: string
+  addressLine1?: string
+  addressLine2?: string
+  city?: string
+  postcode?: string
+  logoUrl?: string
+  bannerUrl?: string
+}
+
+// POST /api/v1/merchant/branches/:id/edit-request → BranchPendingEdit.
+// 409 PENDING_EDIT_EXISTS when one is already in review.
+export async function createBranchEditRequest(
+  branchId: string,
+  changes: BranchEditRequestBody,
+): Promise<BranchPendingEdit> {
+  const pendingEdit = await apiFetch(`/api/v1/merchant/branches/${branchId}/edit-request`, {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify(changes),
+  })
+  return branchPendingEditSchema.parse(pendingEdit)
+}
+
+// GET /api/v1/merchant/branches/:id/edit-requests → ALL statuses; the caller
+// filters status === 'PENDING'.
+export async function listBranchEditRequests(branchId: string): Promise<BranchPendingEdit[]> {
+  const list = await apiFetch(`/api/v1/merchant/branches/${branchId}/edit-requests`, {
+    method: 'GET',
+    auth: true,
+  })
+  return z.array(branchPendingEditSchema).parse(list)
+}
+
+// DELETE /api/v1/merchant/branches/:id/edit-requests/:editId → withdraws (status
+// WITHDRAWN). 404 PENDING_EDIT_NOT_FOUND.
+export async function withdrawBranchEditRequest(
+  branchId: string,
+  editId: string,
+): Promise<BranchPendingEdit> {
+  const result = await apiFetch(
+    `/api/v1/merchant/branches/${branchId}/edit-requests/${editId}`,
+    { method: 'DELETE', auth: true },
+  )
+  return branchPendingEditSchema.parse(result)
 }
 
 // --- Opening hours ----------------------------------------------------------
@@ -171,6 +287,16 @@ export async function setBranchPin(branchId: string, pin: string): Promise<unkno
     auth: true,
     body: JSON.stringify({ pin }),
   })
+}
+
+// POST /api/v1/merchant/branches/:id/pin/send → dispatch the PIN to branch staff
+// (SMS live, email dark). Errors: PIN_NOT_CONFIGURED, BRANCH_NOT_FOUND.
+export async function sendBranchPin(branchId: string): Promise<{ message: string }> {
+  const res = await apiFetch(`/api/v1/merchant/branches/${branchId}/pin/send`, {
+    method: 'POST',
+    auth: true,
+  })
+  return z.object({ message: z.string() }).passthrough().parse(res)
 }
 
 // --- Photos -----------------------------------------------------------------

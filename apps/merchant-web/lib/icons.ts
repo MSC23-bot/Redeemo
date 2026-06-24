@@ -39,4 +39,12 @@ export {
   Globe,
   CheckCircle2,
   Info,
+  ArrowRight,
+  Check,
+  Phone,
+  Mail,
+  Eye,
+  EyeOff,
+  Image,
+  AlertTriangle,
 } from 'lucide-react'

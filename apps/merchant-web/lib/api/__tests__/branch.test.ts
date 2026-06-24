@@ -8,6 +8,13 @@ import {
   getBranchPin,
   setBranchPin,
   requestBranchPhotoEdit,
+  getBranch,
+  createBranchEditRequest,
+  listBranchEditRequests,
+  withdrawBranchEditRequest,
+  sendBranchPin,
+  branchSchema,
+  branchPendingEditSchema,
 } from '@/lib/api/branch'
 import type { HoursPayloadRow } from '@/components/onboarding/branch/lib/hoursModel'
 
@@ -154,5 +161,213 @@ describe('lib/api/branch', () => {
       auth: true,
       body: JSON.stringify({ add: ['https://cdn.test/p1.png', 'https://cdn.test/p2.png'] }),
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR-1 F1: schema extensions + read / edit-request / pin-send functions.
+// ---------------------------------------------------------------------------
+
+describe('lib/api/branch (PR-1 F1)', () => {
+  it('branchSchema parses the new PR-1 fields (logoUrl / locationConfidence / isActive / latitude / longitude / pendingEdits)', () => {
+    const parsed = branchSchema.parse({
+      id: 'b1',
+      name: 'Main',
+      logoUrl: 'https://cdn.test/logo.png',
+      locationConfidence: 'MANUALLY_CONFIRMED',
+      isActive: true,
+      latitude: 53.645,
+      longitude: -1.785,
+      pendingEdits: [
+        {
+          id: 'pe1',
+          branchId: 'b1',
+          merchantId: 'm1',
+          proposedChanges: { name: 'New Name', postcode: 'HD1 2BB' },
+          includesPhotos: false,
+          status: 'PENDING',
+          createdAt: '2026-06-23T10:00:00.000Z',
+        },
+      ],
+    })
+    expect(parsed.logoUrl).toBe('https://cdn.test/logo.png')
+    expect(parsed.locationConfidence).toBe('MANUALLY_CONFIRMED')
+    expect(parsed.isActive).toBe(true)
+    expect(parsed.latitude).toBe(53.645)
+    expect(parsed.longitude).toBe(-1.785)
+    expect(parsed.pendingEdits?.[0].status).toBe('PENDING')
+  })
+
+  it('branchSchema accepts null/absent values for the nullish PR-1 fields', () => {
+    const parsed = branchSchema.parse({
+      id: 'b1',
+      name: 'Main',
+      logoUrl: null,
+      locationConfidence: null,
+      latitude: null,
+      longitude: null,
+    })
+    expect(parsed.logoUrl).toBeNull()
+    expect(parsed.locationConfidence).toBeNull()
+    // isActive / pendingEdits omitted entirely → undefined, no throw
+    expect(parsed.isActive).toBeUndefined()
+    expect(parsed.pendingEdits).toBeUndefined()
+  })
+
+  it('branchSchema REJECTS an invalid locationConfidence', () => {
+    const validBranch = { id: 'b1', name: 'Main', locationConfidence: 'MANUALLY_CONFIRMED' as const }
+    expect(() => branchSchema.parse({ ...validBranch, locationConfidence: 'BOGUS' })).toThrow()
+  })
+
+  it('branchPendingEditSchema accepts the four PendingEditStatus enum values', () => {
+    for (const status of ['PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN'] as const) {
+      const parsed = branchPendingEditSchema.parse({
+        id: 'pe1',
+        branchId: 'b1',
+        merchantId: 'm1',
+        proposedChanges: {},
+        includesPhotos: false,
+        status,
+        createdAt: '2026-06-23T10:00:00.000Z',
+      })
+      expect(parsed.status).toBe(status)
+    }
+  })
+
+  it('branchPendingEditSchema REJECTS an invalid status', () => {
+    expect(() =>
+      branchPendingEditSchema.parse({
+        id: 'pe1',
+        branchId: 'b1',
+        merchantId: 'm1',
+        proposedChanges: {},
+        includesPhotos: false,
+        status: 'BOGUS',
+        createdAt: '2026-06-23T10:00:00.000Z',
+      }),
+    ).toThrow()
+  })
+
+  it('getBranch GETs /branches/:id with auth and returns the parsed branch', async () => {
+    apiFetch.mockResolvedValueOnce({ id: 'b1', name: 'Main', isActive: true })
+    const branch = await getBranch('b1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1', {
+      method: 'GET',
+      auth: true,
+    })
+    expect(branch.id).toBe('b1')
+    expect(branch.isActive).toBe(true)
+  })
+
+  it('createBranchEditRequest POSTs the SENSITIVE subset to /edit-request and returns the parsed BranchPendingEdit', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      branchId: 'b1',
+      merchantId: 'm1',
+      proposedChanges: { name: 'New Name', city: 'Leeds' },
+      includesPhotos: false,
+      status: 'PENDING',
+      createdAt: '2026-06-23T10:00:00.000Z',
+    })
+    const edit = await createBranchEditRequest('b1', {
+      name: 'New Name',
+      about: 'A new about.',
+      addressLine1: '13 Mill Lane',
+      addressLine2: 'Unit 3',
+      city: 'Leeds',
+      postcode: 'LS1 1AA',
+      logoUrl: 'https://cdn.test/logo2.png',
+      bannerUrl: 'https://cdn.test/banner2.png',
+    })
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/edit-request', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({
+        name: 'New Name',
+        about: 'A new about.',
+        addressLine1: '13 Mill Lane',
+        addressLine2: 'Unit 3',
+        city: 'Leeds',
+        postcode: 'LS1 1AA',
+        logoUrl: 'https://cdn.test/logo2.png',
+        bannerUrl: 'https://cdn.test/banner2.png',
+      }),
+    })
+    // Returns the parsed shape (id/status/createdAt present).
+    expect(edit.id).toBe('pe1')
+    expect(edit.status).toBe('PENDING')
+    expect(edit.createdAt).toBe('2026-06-23T10:00:00.000Z')
+  })
+
+  it('listBranchEditRequests GETs /edit-requests with auth and returns the parsed array (all statuses)', async () => {
+    apiFetch.mockResolvedValueOnce([
+      {
+        id: 'pe1',
+        branchId: 'b1',
+        merchantId: 'm1',
+        proposedChanges: { name: 'A' },
+        includesPhotos: false,
+        status: 'PENDING',
+        createdAt: '2026-06-23T10:00:00.000Z',
+      },
+      {
+        id: 'pe2',
+        branchId: 'b1',
+        merchantId: 'm1',
+        proposedChanges: { name: 'B' },
+        includesPhotos: false,
+        status: 'WITHDRAWN',
+        createdAt: '2026-06-22T10:00:00.000Z',
+        reviewedAt: '2026-06-22T11:00:00.000Z',
+      },
+    ])
+    const list = await listBranchEditRequests('b1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/edit-requests', {
+      method: 'GET',
+      auth: true,
+    })
+    expect(list).toHaveLength(2)
+    expect(list[0].status).toBe('PENDING')
+    expect(list[1].status).toBe('WITHDRAWN')
+  })
+
+  it('withdrawBranchEditRequest DELETEs /edit-requests/:editId with auth and returns the parsed edit', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      branchId: 'b1',
+      merchantId: 'm1',
+      proposedChanges: { name: 'A' },
+      includesPhotos: false,
+      status: 'WITHDRAWN',
+      createdAt: '2026-06-23T10:00:00.000Z',
+      reviewedAt: '2026-06-23T11:00:00.000Z',
+    })
+    const edit = await withdrawBranchEditRequest('b1', 'pe1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/edit-requests/pe1', {
+      method: 'DELETE',
+      auth: true,
+    })
+    expect(edit.status).toBe('WITHDRAWN')
+  })
+
+  it('sendBranchPin POSTs /pin/send with auth and returns the parsed message', async () => {
+    apiFetch.mockResolvedValueOnce({ message: 'PIN dispatched.' })
+    const res = await sendBranchPin('b1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/pin/send', {
+      method: 'POST',
+      auth: true,
+    })
+    expect(res.message).toBe('PIN dispatched.')
+  })
+
+  it('updateBranch accepts isMainBranch in the body', async () => {
+    apiFetch.mockResolvedValueOnce({ id: 'b1', name: 'Main', isMainBranch: true })
+    const branch = await updateBranch('b1', { isMainBranch: true })
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1', {
+      method: 'PATCH',
+      auth: true,
+      body: JSON.stringify({ isMainBranch: true }),
+    })
+    expect(branch.isMainBranch).toBe(true)
   })
 })

@@ -19,7 +19,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Locations & team',
     items: [
-      { label: 'Branches', href: '#', icon: MapPin },
+      { label: 'Branches', href: '/branches', icon: MapPin },
       { label: 'Staff & access', href: '/staff', icon: Users },
     ],
   },

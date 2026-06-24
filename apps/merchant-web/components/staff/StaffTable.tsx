@@ -21,6 +21,10 @@ import { Badge } from '@/components/ui/badge'
 import { Star } from '@/lib/icons'
 import { formatRelativeTime } from '@/lib/notifications/relativeTime'
 import { ROLE_LABEL, branchCoverageLabel, lastSeenLabel, memberStatusLabel } from '@/lib/staff/display'
+// AccessPill + RoleChip were extracted to components/branches/StaffPills.tsx (F12)
+// so the branch-detail staff card can share them. The markup + styles are identical
+// to the prior inline definitions; StaffTable's output is unchanged.
+import { AccessPill, RoleChip } from '@/components/branches/StaffPills'
 import type { Person } from './types'
 
 function initials(name: string): string {
@@ -28,28 +32,6 @@ function initials(name: string): string {
   if (parts.length === 0) return '?'
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
-
-function AccessPill({ label }: { label: string }) {
-  return (
-    <span
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide"
-      style={{ background: 'var(--subtle)', color: 'var(--text-tertiary)' }}
-    >
-      {label}
-    </span>
-  )
-}
-
-function RoleChip({ label }: { label: string }) {
-  return (
-    <span
-      className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
-      style={{ background: 'var(--tint)', color: 'var(--navy)' }}
-    >
-      {label}
-    </span>
-  )
 }
 
 function PersonCell({ person }: { person: Person }) {
