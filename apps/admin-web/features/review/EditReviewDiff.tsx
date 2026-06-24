@@ -1,13 +1,21 @@
 'use client'
 
 /**
- * EditReviewDiff (Option B B1): the merchant-requested identity-edit review.
+ * EditReviewDiff (Option B B1 + Branches PR-3 §8): the merchant-requested
+ * identity / photo edit review.
  *
  * Renders the field-by-field diff (current vs proposed), a photo-change display
- * for photo edits, and the Approve-edit / Reject-edit actions. Approve is gated
- * on the approval:apply-edit capability (hidden without it); for a photo edit it
- * is DISABLED with a clear "applied in a follow-up" message. Reject stays
- * enabled (a photo edit can be rejected; rejecting touches no live data).
+ * for photo edits (added URLs as previews; removed BranchPhoto IDs listed), and
+ * the Approve-edit / Reject-edit actions. Approve is gated on the
+ * approval:apply-edit capability (hidden without it).
+ *
+ * Branches PR-3: the backend now APPLIES photo edits on approve (the old
+ * EDIT_PHOTO_APPLY_NOT_SUPPORTED throw is gone), so Approve is ENABLED for a
+ * photo edit; the disabled "applied in a follow-up" note is removed. Reject stays
+ * enabled (rejecting touches no live data). The remove list shows the
+ * BranchPhoto IDs from the edit (the backend does not resolve them to URLs;
+ * acceptable per PR-3 §8). The merchant add-via-review flow only ever populates
+ * `add`, so `remove` is empty in practice.
  */
 import { ImagePlus, ImageMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -95,9 +103,9 @@ interface EditReviewDiffProps {
 
 export function EditReviewDiff({ context, canApplyEdit, onApprove, onReject }: EditReviewDiffProps) {
   const isPending = context.status === 'PENDING'
-  // A photo edit cannot be applied by B1: apply is disabled with a clear note;
-  // reject stays enabled.
-  const approveDisabled = !isPending || context.includesPhotos
+  // Branches PR-3 §8: photo edits are now applied on approve, so Approve is only
+  // gated on the edit still being PENDING (same as an identity edit).
+  const approveDisabled = !isPending
 
   return (
     <div
@@ -137,21 +145,11 @@ export function EditReviewDiff({ context, canApplyEdit, onApprove, onReject }: E
         )
       )}
 
-      {/* Photo changes */}
+      {/* Photo changes (PR-3: applied on approve). */}
       {context.includesPhotos && context.photoChanges && (
         <div className="mt-5 border-t border-border pt-5">
           <PhotoChanges add={context.photoChanges.add} remove={context.photoChanges.remove} />
         </div>
-      )}
-
-      {/* Photo-apply-not-supported note */}
-      {context.includesPhotos && (
-        <p
-          className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
-          data-testid="edit-photo-apply-note"
-        >
-          Photo edits will be actionable in a follow-up. You can reject this request now.
-        </p>
       )}
 
       {/* Actions: gated on approval:apply-edit. Hidden entirely without the cap. */}

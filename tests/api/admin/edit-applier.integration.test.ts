@@ -61,6 +61,23 @@ async function makeMerchantEdit(merchantId: string, proposedChanges: Record<stri
   return { editId: edit.id, approvalId: approval.id }
 }
 
+/** A live BranchPhoto row (default APPROVED so it models a customer-visible photo). */
+async function makeBranchPhoto(
+  branchId: string,
+  url: string,
+  opts: { sortOrder?: number; moderationStatus?: 'PENDING' | 'APPROVED' | 'FLAGGED' } = {},
+) {
+  const p = await prisma.branchPhoto.create({
+    data: {
+      branchId,
+      url,
+      sortOrder: opts.sortOrder ?? 0,
+      moderationStatus: opts.moderationStatus ?? 'APPROVED',
+    },
+  })
+  return p.id
+}
+
 async function makeBranchEdit(
   branchId: string,
   merchantId: string,
@@ -106,6 +123,7 @@ afterAll(async () => {
     if (editIds.length) await prisma.adminApproval.deleteMany({ where: { referenceId: { in: editIds } } })
     await prisma.branchPendingEdit.deleteMany({ where: { merchantId: { in: merchantIds } } })
     await prisma.merchantPendingEdit.deleteMany({ where: { merchantId: { in: merchantIds } } })
+    if (branchIds.length) await prisma.branchPhoto.deleteMany({ where: { branchId: { in: branchIds } } })
     await prisma.branch.deleteMany({ where: { merchantId: { in: merchantIds } } })
     await prisma.merchantMembership.deleteMany({ where: { merchantId: { in: merchantIds } } })
     await prisma.merchant.deleteMany({ where: { id: { in: merchantIds } } })
@@ -194,27 +212,211 @@ describe('B1: approveEdit (branch identity, real DB)', () => {
   })
 })
 
-describe('B1: approveEdit photo block (real DB)', () => {
-  it('throws EDIT_PHOTO_APPLY_NOT_SUPPORTED and leaves the live branch + statuses unchanged', async () => {
-    const merchantId = await makeMerchant('Photo Block Co')
-    const branchId = await makeBranch(merchantId, 'Photo Branch')
+describe('PR-3: approveEdit applies a branch photo edit (real DB)', () => {
+  it('add URLs become APPROVED BranchPhoto rows with appended sortOrder; remove IDs deleted; statuses flipped; ADMIN before/after audit', async () => {
+    const merchantId = await makeMerchant('Photo Apply Co')
+    const branchId = await makeBranch(merchantId, 'Photo Apply Branch')
+    // Two existing live photos. The highest current sortOrder is 1, so an added
+    // photo must append at sortOrder 2 (after current max).
+    await makeBranchPhoto(branchId, 'https://example.com/keep-0.jpg', { sortOrder: 0 })
+    const removeId = await makeBranchPhoto(branchId, 'https://example.com/drop-1.jpg', { sortOrder: 1 })
+
     const { editId, approvalId } = await makeBranchEdit(
       branchId,
       merchantId,
-      { add: ['https://example.com/new.jpg'], remove: [] },
+      { add: ['https://example.com/added-a.jpg', 'https://example.com/added-b.jpg'], remove: [removeId] },
       true,
     )
-    const beforeName = (await prisma.branch.findUnique({ where: { id: branchId } }))?.name
 
-    await expect(approveEdit(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)).rejects.toThrow('EDIT_PHOTO_APPLY_NOT_SUPPORTED')
+    const res = await approveEdit(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)
+    expect(res).toEqual({ approved: true })
 
-    // Live branch unchanged, both rows still PENDING (no mutation occurred).
-    const branch = await prisma.branch.findUnique({ where: { id: branchId } })
-    expect(branch?.name).toBe(beforeName)
-    expect((await prisma.branchPendingEdit.findUnique({ where: { id: editId } }))?.status).toBe('PENDING')
-    expect((await prisma.adminApproval.findUnique({ where: { id: approvalId } }))?.status).toBe('PENDING')
+    const photos = await prisma.branchPhoto.findMany({ where: { branchId }, orderBy: { sortOrder: 'asc' } })
+    // kept-0 (unchanged) + 2 added; dropped-1 gone. 3 rows total.
+    expect(photos).toHaveLength(3)
+    const urls = photos.map((p) => p.url)
+    expect(urls).toContain('https://example.com/keep-0.jpg')
+    expect(urls).toContain('https://example.com/added-a.jpg')
+    expect(urls).toContain('https://example.com/added-b.jpg')
+    expect(urls).not.toContain('https://example.com/drop-1.jpg')
+
+    // The removed row is gone.
+    expect(await prisma.branchPhoto.findUnique({ where: { id: removeId } })).toBeNull()
+
+    // Every ADDED row is APPROVED (admin approval IS the moderation gate; never PENDING).
+    const added = photos.filter((p) => p.url.startsWith('https://example.com/added-'))
+    expect(added).toHaveLength(2)
+    for (const p of added) expect(p.moderationStatus).toBe('APPROVED')
+
+    // sortOrder appended AFTER the current max (was 1) -> the added rows are 2 and 3.
+    const addedSorts = added.map((p) => p.sortOrder).sort((a, b) => a - b)
+    expect(addedSorts).toEqual([2, 3])
+
+    // Both lifecycle statuses flipped to APPROVED.
+    const edit = await prisma.branchPendingEdit.findUnique({ where: { id: editId } })
+    expect(edit?.status).toBe('APPROVED')
+    expect(edit?.reviewedBy).toBe(ADMIN_ID)
+    const approval = await prisma.adminApproval.findUnique({ where: { id: approvalId } })
+    expect(approval?.status).toBe('APPROVED')
+    expect(approval?.adminUserId).toBe(ADMIN_ID)
+    expect(approval?.claimedById).toBeNull()
+
+    // ADMIN-actor audit captured the photo delta (added URLs + removed IDs).
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: branchId, event: 'BRANCH_EDIT_APPROVED' } })
+    expect(audit?.actorId).toBe(ADMIN_ID)
+    expect(audit?.actorType).toBe('ADMIN')
+    expect(audit?.metadata).toMatchObject({
+      photosAdded: ['https://example.com/added-a.jpg', 'https://example.com/added-b.jpg'],
+      photosRemoved: [removeId],
+    })
+
+    // Best-effort owner notify fired once.
+    expect(notifyMock).toHaveBeenCalledTimes(1)
   })
 
+  it('approve does NOT create any PENDING photo row (added rows are APPROVED)', async () => {
+    const merchantId = await makeMerchant('Photo No Pending Co')
+    const branchId = await makeBranch(merchantId, 'Photo No Pending Branch')
+    const { approvalId } = await makeBranchEdit(
+      branchId,
+      merchantId,
+      { add: ['https://example.com/np-a.jpg'], remove: [] },
+      true,
+    )
+
+    await approveEdit(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)
+
+    const pending = await prisma.branchPhoto.findMany({ where: { branchId, moderationStatus: 'PENDING' } })
+    expect(pending).toHaveLength(0)
+    const all = await prisma.branchPhoto.findMany({ where: { branchId } })
+    expect(all).toHaveLength(1)
+    expect(all[0]?.moderationStatus).toBe('APPROVED')
+  })
+
+  it('a remove ID NOT on the branch is NOT deleted (no cross-branch delete)', async () => {
+    const merchantId = await makeMerchant('Photo XBranch Co')
+    const branchA = await makeBranch(merchantId, 'XBranch A')
+    const branchB = await makeBranch(merchantId, 'XBranch B')
+    // A live photo on branch B that branch A's edit must NEVER be able to delete.
+    const foreignPhotoId = await makeBranchPhoto(branchB, 'https://example.com/branchB-photo.jpg', { sortOrder: 0 })
+
+    // Branch A's edit references branch B's photo id in `remove`.
+    const { approvalId } = await makeBranchEdit(
+      branchA,
+      merchantId,
+      { add: [], remove: [foreignPhotoId] },
+      true,
+    )
+
+    await approveEdit(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)
+
+    // Branch B's photo survives — the deleteMany was scoped to branch A.
+    const survivor = await prisma.branchPhoto.findUnique({ where: { id: foreignPhotoId } })
+    expect(survivor).not.toBeNull()
+    expect(survivor?.branchId).toBe(branchB)
+  })
+
+  it('reject a photo edit -> NO rows written; existing APPROVED rows untouched', async () => {
+    const merchantId = await makeMerchant('Photo Reject Untouched Co')
+    const branchId = await makeBranch(merchantId, 'Photo Reject Untouched Branch')
+    const liveId = await makeBranchPhoto(branchId, 'https://example.com/live-keep.jpg', { sortOrder: 0 })
+    const { approvalId } = await makeBranchEdit(
+      branchId,
+      merchantId,
+      { add: ['https://example.com/should-not-appear.jpg'], remove: [liveId] },
+      true,
+    )
+
+    await rejectEdit(prisma, dummyRedis, approvalId, ADMIN_ID, 'Photos rejected.', ctx)
+
+    const photos = await prisma.branchPhoto.findMany({ where: { branchId } })
+    // Only the original live row remains: no add applied, no remove applied.
+    expect(photos).toHaveLength(1)
+    expect(photos[0]?.id).toBe(liveId)
+    expect(photos[0]?.url).toBe('https://example.com/live-keep.jpg')
+    expect(photos[0]?.moderationStatus).toBe('APPROVED')
+  })
+
+  it('allow-list discipline: a poisoned/unexpected proposedChanges key is never written', async () => {
+    const merchantId = await makeMerchant('Photo Poison Co')
+    const branchId = await makeBranch(merchantId, 'Photo Poison Branch')
+    const { approvalId } = await makeBranchEdit(
+      branchId,
+      merchantId,
+      {
+        add: ['https://example.com/poison-ok.jpg'],
+        remove: [],
+        // Poison: keys that are NOT in ANY branch allow-list and NOT photo keys.
+        // The applier must NEVER write them to the live branch — proposedChanges
+        // is parsed by explicit allow-list, never blind-spread.
+        companyNumber: '99999999',
+        status: 'SUSPENDED',
+        // A smuggled moderationStatus override on the bag must NOT downgrade the
+        // added photo — every added row is forced APPROVED by the applier.
+        moderationStatus: 'FLAGGED',
+      },
+      true,
+    )
+    const beforeBranch = await prisma.branch.findUnique({ where: { id: branchId } })
+
+    await approveEdit(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)
+
+    // The live branch's non-allow-listed columns are untouched by the smuggled keys.
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } })
+    expect(branch?.isActive).toBe(beforeBranch?.isActive) // `status`/active was never written
+
+    // The added photo is APPROVED (the smuggled `moderationStatus:'FLAGGED'` was ignored).
+    const photos = await prisma.branchPhoto.findMany({ where: { branchId } })
+    expect(photos).toHaveLength(1)
+    expect(photos[0]?.url).toBe('https://example.com/poison-ok.jpg')
+    expect(photos[0]?.moderationStatus).toBe('APPROVED')
+
+    // The ADMIN audit `after` carried NO smuggled key (allow-list discipline).
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: branchId, event: 'BRANCH_EDIT_APPROVED' } })
+    expect(audit?.after).not.toHaveProperty('companyNumber')
+    expect(audit?.after).not.toHaveProperty('status')
+    expect(audit?.after).not.toHaveProperty('moderationStatus')
+  })
+
+  it('mixed identity+photo edit applies BOTH the allow-listed identity field AND the photo delta in one tx', async () => {
+    const merchantId = await makeMerchant('Mixed Edit Co')
+    const branchId = await makeBranch(merchantId, 'Mixed Edit Branch')
+    const removeId = await makeBranchPhoto(branchId, 'https://example.com/mixed-drop.jpg', { sortOrder: 0 })
+
+    // A (synthetic) mixed edit: an allow-listed identity field (city) PLUS photos.
+    // In practice the writers create identity-only OR photos-only edits, but the
+    // applier must handle a mixed edit safely (§5.6): both deltas apply together.
+    const { approvalId } = await makeBranchEdit(
+      branchId,
+      merchantId,
+      { city: 'Leeds', add: ['https://example.com/mixed-add.jpg'], remove: [removeId] },
+      true,
+    )
+
+    await approveEdit(prisma, dummyRedis, approvalId, ADMIN_ID, ctx)
+
+    // Identity field applied.
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } })
+    expect(branch?.city).toBe('Leeds')
+
+    // Photo delta applied: dropped removed, added present + APPROVED.
+    const photos = await prisma.branchPhoto.findMany({ where: { branchId } })
+    expect(photos).toHaveLength(1)
+    expect(photos[0]?.url).toBe('https://example.com/mixed-add.jpg')
+    expect(photos[0]?.moderationStatus).toBe('APPROVED')
+    expect(await prisma.branchPhoto.findUnique({ where: { id: removeId } })).toBeNull()
+
+    // Audit `after` carries the identity field AND metadata carries the photo delta.
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: branchId, event: 'BRANCH_EDIT_APPROVED' } })
+    expect(audit?.after).toMatchObject({ city: 'Leeds' })
+    expect(audit?.metadata).toMatchObject({
+      photosAdded: ['https://example.com/mixed-add.jpg'],
+      photosRemoved: [removeId],
+    })
+  })
+})
+
+describe('B1: rejectEdit on photo edits (real DB)', () => {
   it('rejectEdit works on a photo edit (no mutation needed)', async () => {
     const merchantId = await makeMerchant('Photo Reject Co')
     const branchId = await makeBranch(merchantId, 'Photo Reject Branch')

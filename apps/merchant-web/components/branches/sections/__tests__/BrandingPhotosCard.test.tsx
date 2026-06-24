@@ -1,15 +1,19 @@
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrandingPhotosCard } from '@/components/branches/sections/BrandingPhotosCard'
+import { ApiError } from '@/lib/api/client'
 import type { Branch } from '@/lib/api/branch'
 
-// Branches PR-1 F11: branding + photos display (prototype 05/06/09). It shows the logo
-// mark + banner hero + the photo gallery read-only with approved / in-review markers
-// and an in-review counter (driven by pendingEdits where includesPhotos). Logo/banner
-// EDIT opens the F7 BranchDetailsEditModal (owner-only); F11 does NOT build a separate
-// logo/banner editor. The photo "Add photo" / "Add a new banner" controls are DISABLED
-// locked affordances (PR-3); F11 must NEVER call requestBranchPhotoEdit.
+// Branches PR-3 §7: the photo GALLERY review lane. The card now renders REAL
+// per-photo state (replacing PR-1's blanket-"Approved"):
+//   - APPROVED rows (branch.photos moderationStatus APPROVED) = the live gallery,
+//     each with an OWNER-only Remove (X) that calls the instant-removal route.
+//   - IN-REVIEW thumbnails come from the open PENDING photo edit's add URLs (no
+//     remove). The "X in review" counter = that add-URL count.
+//   - OWNER "Add photo" uploads via the branch-scoped upload then opens an
+//     add-via-review request. Non-owner = read-only (no Add, no Remove).
 
-// --- the F7 edit modal: a stub so we can assert F11 opens it (not a separate editor) -
+// --- the F7 edit modal: a stub so we can assert the header Edit opens it ------
 const modalRendered = jest.fn()
 jest.mock('@/components/branches/BranchDetailsEditModal', () => ({
   BranchDetailsEditModal: ({ onClose }: { onClose: () => void }) => {
@@ -24,11 +28,25 @@ jest.mock('@/components/branches/BranchDetailsEditModal', () => ({
   },
 }))
 
-// --- the photo-edit client: must NEVER be called in PR-1 ---------------------
+// --- toast -------------------------------------------------------------------
+const toast = jest.fn()
+jest.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast }) }))
+
+// --- the photo API client: uploadBranchPhoto + requestBranchPhotoEdit (Add) and
+// removeBranchPhoto (Remove). We mock the client module so the card's mutations
+// resolve without a network call. The hooks (useRequestBranchPhotoEdit /
+// useRemoveBranchPhoto) call straight through to these.
+const uploadBranchPhoto = jest.fn()
 const requestBranchPhotoEdit = jest.fn()
+const removeBranchPhoto = jest.fn()
 jest.mock('@/lib/api/branch', () => {
   const actual = jest.requireActual('@/lib/api/branch')
-  return { ...actual, requestBranchPhotoEdit: (...args: unknown[]) => requestBranchPhotoEdit(...args) }
+  return {
+    ...actual,
+    uploadBranchPhoto: (...a: unknown[]) => uploadBranchPhoto(...a),
+    requestBranchPhotoEdit: (...a: unknown[]) => requestBranchPhotoEdit(...a),
+    removeBranchPhoto: (...a: unknown[]) => removeBranchPhoto(...a),
+  }
 })
 
 function branch(over: Record<string, unknown> = {}): Branch {
@@ -39,82 +57,207 @@ function branch(over: Record<string, unknown> = {}): Branch {
     bannerUrl: 'https://cdn/banner.png',
     isActive: true,
     photos: [
-      { id: 'p1', url: 'https://cdn/p1.png' },
-      { id: 'p2', url: 'https://cdn/p2.png' },
+      { id: 'p1', url: 'https://cdn/p1.png', moderationStatus: 'APPROVED' },
+      { id: 'p2', url: 'https://cdn/p2.png', moderationStatus: 'APPROVED' },
     ],
     pendingEdits: [],
     ...over,
   } as Branch
 }
 
+function renderCard(b: Branch, isOwner = true) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <BrandingPhotosCard branch={b} isOwner={isOwner} />
+    </QueryClientProvider>,
+  )
+}
+
 beforeEach(() => {
   modalRendered.mockReset()
+  toast.mockReset()
+  uploadBranchPhoto.mockReset()
   requestBranchPhotoEdit.mockReset()
+  removeBranchPhoto.mockReset()
 })
 
-describe('BrandingPhotosCard display', () => {
-  it('renders the photo grid read-only with one Approved marker per photo', () => {
-    render(<BrandingPhotosCard branch={branch()} isOwner />)
-    // Two photos in the fixture; each carries its own "Approved" figcaption marker.
+describe('BrandingPhotosCard approved gallery', () => {
+  it('renders only APPROVED photos in the live gallery with an Approved marker (PENDING + FLAGGED excluded)', () => {
+    const b = branch({
+      photos: [
+        { id: 'p1', url: 'https://cdn/p1.png', moderationStatus: 'APPROVED' },
+        { id: 'p2', url: 'https://cdn/p2.png', moderationStatus: 'APPROVED' },
+        // P3 hardening: a PENDING row must NOT show as a live approved photo.
+        { id: 'p3', url: 'https://cdn/p3.png', moderationStatus: 'PENDING' },
+        // P3 hardening: a FLAGGED row must NOT show as a live approved photo.
+        { id: 'p4', url: 'https://cdn/p4.png', moderationStatus: 'FLAGGED' },
+      ],
+    })
+    renderCard(b)
+    // Strict gate: ONLY the two APPROVED rows render; the approved count excludes
+    // the PENDING + FLAGGED rows.
     const photos = screen.getAllByTestId('branch-photo')
     expect(photos).toHaveLength(2)
     for (const fig of photos) {
       expect(within(fig).getByText(/approved/i)).toBeInTheDocument()
     }
+    // Belt-and-braces: the PENDING + FLAGGED image elements never render in the gallery
+    // (only the two APPROVED <img> srcs are present; p3/p4 are excluded by the strict gate).
+    const renderedSrcs = photos.map(
+      (fig) => fig.querySelector('img')?.getAttribute('src') ?? '',
+    )
+    expect(renderedSrcs.join('|')).not.toContain('p3.png')
+    expect(renderedSrcs.join('|')).not.toContain('p4.png')
   })
 
-  it('shows an in-review counter driven by pendingEdits with includesPhotos', () => {
+  it('renders an APPROVED photo and hides a lone PENDING photo (empty live gallery)', () => {
+    // A branch whose only photo is PENDING shows ZERO live photos (strict gate).
+    const pendingOnly = branch({
+      photos: [{ id: 'p1', url: 'https://cdn/p1.png', moderationStatus: 'PENDING' }],
+    })
+    renderCard(pendingOnly)
+    expect(screen.queryAllByTestId('branch-photo')).toHaveLength(0)
+
+    // An APPROVED photo IS rendered.
+    const approvedOnly = branch({
+      photos: [{ id: 'p1', url: 'https://cdn/p1.png', moderationStatus: 'APPROVED' }],
+    })
+    renderCard(approvedOnly)
+    expect(screen.getAllByTestId('branch-photo')).toHaveLength(1)
+  })
+
+  it('renders in-review thumbnails from the open pending edit add URLs with the correct counter', () => {
     const b = branch({
       pendingEdits: [
         {
           id: 'pe1',
           branchId: 'b1',
           merchantId: 'm1',
-          proposedChanges: { add: ['x'] },
+          proposedChanges: { add: ['https://cdn/new1.png', 'https://cdn/new2.png'] },
           includesPhotos: true,
           status: 'PENDING',
           createdAt: '2026-06-23T00:00:00.000Z',
         },
       ],
     })
-    render(<BrandingPhotosCard branch={b} isOwner />)
-    expect(screen.getByTestId('photos-in-review-counter')).toHaveTextContent(/1 in review/i)
+    renderCard(b)
+    expect(screen.getAllByTestId('branch-photo-in-review')).toHaveLength(2)
+    expect(screen.getByTestId('photos-in-review-counter')).toHaveTextContent(/2 in review/i)
+    // In-review thumbnails carry NO remove control.
+    const reviewTiles = screen.getAllByTestId('branch-photo-in-review')
+    for (const t of reviewTiles) {
+      expect(within(t).queryByTestId('branch-photo-remove')).not.toBeInTheDocument()
+    }
   })
 
-  it('shows no in-review counter when there are no photo edits in review', () => {
-    render(<BrandingPhotosCard branch={branch()} isOwner />)
+  it('shows no in-review counter when there is no pending photo edit', () => {
+    renderCard(branch())
     expect(screen.queryByTestId('photos-in-review-counter')).not.toBeInTheDocument()
   })
 })
 
-describe('BrandingPhotosCard logo/banner edit routes into the F7 modal (owner-only)', () => {
+describe('BrandingPhotosCard owner-only gating', () => {
+  it('owner sees the header Edit, per-photo Remove, and Add photo', () => {
+    renderCard(branch(), true)
+    expect(screen.getByRole('button', { name: /^edit/i })).toBeInTheDocument()
+    expect(screen.getAllByTestId('branch-photo-remove')).toHaveLength(2)
+    expect(screen.getByTestId('branch-photo-add')).toBeInTheDocument()
+  })
+
+  it('non-owner sees the gallery read-only (no Edit, no Remove, no Add)', () => {
+    renderCard(branch(), false)
+    expect(screen.queryByRole('button', { name: /^edit/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('branch-photo-remove')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('branch-photo-add')).not.toBeInTheDocument()
+    // The photos still render for everyone.
+    expect(screen.getAllByTestId('branch-photo')).toHaveLength(2)
+  })
+
   it('owner Edit opens the F7 BranchDetailsEditModal', () => {
-    render(<BrandingPhotosCard branch={branch()} isOwner />)
+    renderCard(branch())
     fireEvent.click(screen.getByRole('button', { name: /^edit/i }))
     expect(screen.getByTestId('f7-edit-modal')).toBeInTheDocument()
     expect(modalRendered).toHaveBeenCalled()
   })
+})
 
-  it('does not show the logo/banner Edit control for a non-owner', () => {
-    render(<BrandingPhotosCard branch={branch()} isOwner={false} />)
-    expect(screen.queryByRole('button', { name: /^edit/i })).not.toBeInTheDocument()
+describe('BrandingPhotosCard remove (instant)', () => {
+  it('owner Remove calls the DELETE client and toasts on success', async () => {
+    removeBranchPhoto.mockResolvedValue(undefined)
+    renderCard(branch())
+    fireEvent.click(screen.getAllByTestId('branch-photo-remove')[0])
+    await waitFor(() => expect(removeBranchPhoto).toHaveBeenCalledWith('b1', 'p1'))
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' })),
+    )
+  })
+
+  it('handles a 409 PHOTO_NOT_REMOVABLE calmly with an error toast (no crash)', async () => {
+    removeBranchPhoto.mockRejectedValue(new ApiError(409, { error: { code: 'PHOTO_NOT_REMOVABLE' } }))
+    renderCard(branch())
+    fireEvent.click(screen.getAllByTestId('branch-photo-remove')[0])
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'error' })),
+    )
+    // The gallery is still intact (no crash).
+    expect(screen.getAllByTestId('branch-photo')).toHaveLength(2)
   })
 })
 
-describe('BrandingPhotosCard locked photo controls', () => {
-  it('renders "Add photo" disabled and never calls requestBranchPhotoEdit', () => {
-    render(<BrandingPhotosCard branch={branch()} isOwner />)
-    const addPhoto = screen.getByRole('button', { name: /add photo/i })
-    expect(addPhoto).toBeDisabled()
-    fireEvent.click(addPhoto)
-    expect(requestBranchPhotoEdit).not.toHaveBeenCalled()
+describe('BrandingPhotosCard add (upload then review request)', () => {
+  function pickFile() {
+    const input = screen.getByLabelText(/add branch photo/i) as HTMLInputElement
+    const file = new File(['x'], 'photo.png', { type: 'image/png' })
+    fireEvent.change(input, { target: { files: [file] } })
+    return file
+  }
+
+  it('uploads then submits the edit-request and confirms submission', async () => {
+    uploadBranchPhoto.mockResolvedValue({ url: 'https://cdn/uploaded.png' })
+    requestBranchPhotoEdit.mockResolvedValue(undefined)
+    renderCard(branch())
+
+    pickFile()
+
+    await waitFor(() => expect(uploadBranchPhoto).toHaveBeenCalledWith('b1', expect.any(File)))
+    await waitFor(() =>
+      expect(requestBranchPhotoEdit).toHaveBeenCalledWith('b1', ['https://cdn/uploaded.png']),
+    )
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' })),
+    )
   })
 
-  it('renders a locked banner-add affordance when no banner is set, and calls nothing', () => {
-    render(<BrandingPhotosCard branch={branch({ bannerUrl: null })} isOwner />)
-    const addBanner = screen.getByRole('button', { name: /banner/i })
-    expect(addBanner).toBeDisabled()
-    fireEvent.click(addBanner)
-    expect(requestBranchPhotoEdit).not.toHaveBeenCalled()
+  it('surfaces PENDING_EDIT_EXISTS calmly when a change is already in review', async () => {
+    uploadBranchPhoto.mockResolvedValue({ url: 'https://cdn/uploaded.png' })
+    requestBranchPhotoEdit.mockRejectedValue(
+      new ApiError(409, { error: { code: 'PENDING_EDIT_EXISTS' } }),
+    )
+    renderCard(branch())
+
+    pickFile()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('branch-photo-add-error')).toHaveTextContent(/already in review/i),
+    )
+  })
+
+  it('disables Add while a photo change is already in review', () => {
+    const b = branch({
+      pendingEdits: [
+        {
+          id: 'pe1',
+          branchId: 'b1',
+          merchantId: 'm1',
+          proposedChanges: { add: ['https://cdn/new1.png'] },
+          includesPhotos: true,
+          status: 'PENDING',
+          createdAt: '2026-06-23T00:00:00.000Z',
+        },
+      ],
+    })
+    renderCard(b)
+    expect(screen.getByTestId('branch-photo-add')).toBeDisabled()
   })
 })

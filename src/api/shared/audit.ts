@@ -50,6 +50,11 @@ export type AuditEvent =
   | 'BRANCH_EDIT_REQUEST_CREATED'
   | 'BRANCH_EDIT_REQUEST_WITHDRAWN'
   | 'BRANCH_MAIN_CHANGED'
+  // Branches PR-3: a merchant OWNER instantly removed a live (APPROVED) branch
+  // photo. `event` is a String column, so this is union-only (no migration). The
+  // ADMIN-actor before-snapshot carries the removed photo id + url so the deletion
+  // is attributable; the row itself is gone (instant, customer-invisible).
+  | 'BRANCH_PHOTO_REMOVED'
   | 'VOUCHER_CREATED'
   | 'VOUCHER_UPDATED'
   | 'VOUCHER_DELETED'

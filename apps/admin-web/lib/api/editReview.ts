@@ -59,8 +59,10 @@ export const editReviewApi = {
 
   /**
    * Apply the merchant-requested edit. The server applies ONLY the allow-listed
-   * fields and throws ApiError on invalid state (APPROVAL_NOT_ACTIONABLE,
-   * PENDING_EDIT_NOT_ACTIONABLE, EDIT_PHOTO_APPLY_NOT_SUPPORTED, APPROVAL_NOT_FOUND).
+   * identity fields, OR (Branches PR-3) the photo delta for a photo edit, and
+   * throws ApiError on invalid state (APPROVAL_NOT_ACTIONABLE,
+   * PENDING_EDIT_NOT_ACTIONABLE, APPROVAL_NOT_FOUND). The legacy
+   * EDIT_PHOTO_APPLY_NOT_SUPPORTED is no longer thrown for photo edits.
    */
   approve: async (approvalId: string): Promise<ApproveEditResponse> => {
     const raw = await apiFetch<unknown>(

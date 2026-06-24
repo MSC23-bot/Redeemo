@@ -12,9 +12,11 @@ import {
   type EditActor,
 } from '../shared'
 import { encrypt, decrypt } from '../../shared/encryption'
+import { parsePublicUrl } from '../../shared/storage'
 import { resolvePostcode } from '../../lib/postcodeResolver'
 import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
 import { validateOpeningHours } from './openingHours'
+import { uploadMerchantImage } from '../upload/service'
 
 /**
  * Plan 4 M1.21 — resolve a postcode via postcodes.io + find-or-create the
@@ -521,8 +523,64 @@ export async function createBranchPhotoEditRequest(
   photoChanges: { add?: string[]; remove?: string[] },
   ctx: { ipAddress: string; userAgent: string }
 ) {
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Branches PR-3 (§6a, D-PR3-4 add-via-review): submitting a photo review request
+  // is a branch-management WRITE per umbrella D3 — OWNER (any branch) OR
+  // BRANCH_MANAGER (assigned branch), completable WITHOUT canManageVouchers; a portal
+  // STAFF member is DENIED even when assigned. Uses the role-aware resolver +
+  // assertCanManageBranch (which runs BEFORE any write, so a BM can never act on an
+  // unassigned branch and STAFF can never submit a photo edit). Mirrors the PR-2
+  // createBranchEditRequest write guard; keeps the SEC-M2 suspended guard.
+  const ctxMerchant = await resolveMerchantContext(prisma, adminId)
+  assertCanManageBranch(ctxMerchant, branchId)
+  const { merchantId } = ctxMerchant
   await resolveBranch(prisma, branchId, merchantId)
+
+  // Branches PR-3 (§3 + D-PR3-1): `add` is image URLs validated as OWNED uploads our
+  // storage produced for THIS merchant's `photo` kind (external / other-merchant /
+  // other-kind URLs are rejected with INVALID_PHOTO_URL — see below); `remove` is
+  // BranchPhoto IDs (NEVER URLs). Validate every `remove` id belongs to THIS branch
+  // before storing — a foreign / unknown id is rejected so an admin-apply can never
+  // resolve a cross-branch delete. (remove-by-ID, branch-scoped, data-loss-safe.)
+  const removeIds = Array.isArray(photoChanges.remove)
+    ? photoChanges.remove.filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : []
+  if (removeIds.length > 0) {
+    const owned = await prisma.branchPhoto.findMany({
+      where: { id: { in: removeIds }, branchId },
+      select: { id: true },
+    })
+    const ownedSet = new Set(owned.map((p) => p.id))
+    const foreign = removeIds.filter((id) => !ownedSet.has(id))
+    if (foreign.length > 0) throw new AppError('BRANCH_PHOTO_NOT_FOUND')
+  }
+
+  // Branches PR-3 (P1 trust-boundary fix): an `add` URL is NOT trusted from the
+  // request — it MUST be an OWNED upload our storage minted, i.e. a public URL that
+  // parses back (via parsePublicUrl) to kind `photo` AND ownerId === THIS merchantId.
+  // Branch-photo uploads (uploadBranchPhotoAsset -> uploadMerchantImage(kind:'photo',
+  // merchantId)) mint exactly `${R2_PUBLIC_BASE_URL}/photo/<merchantId>/<rand>.<ext>`,
+  // so a valid add URL inverts to { kind:'photo', ownerId:merchantId }. This rejects:
+  //   - an EXTERNAL origin / malformed / traversal key (parsePublicUrl -> null),
+  //   - an OTHER-KIND upload (logo / banner / document / voucher),
+  //   - an OTHER-MERCHANT photo (ownerId !== merchantId).
+  // Closing this means an admin-apply (editApplier) can only ever turn a
+  // server-validated owned asset into an APPROVED BranchPhoto, never an unvalidated
+  // external image that skipped the upload route's type/size/dimension checks.
+  //
+  // NOTE: the key encodes the OWNER (merchantId), NOT the branchId — so reusing the
+  // merchant's OWN validated photo asset across the merchant's OWN branches is
+  // permitted BY DESIGN (it is still an owned, validated image of the right kind).
+  // The persisted `proposedChanges` shape is unchanged ({ add, remove }); this is a
+  // gate, not a rewrite, and the editApplier trusts this validated-at-submission data.
+  const addUrls = Array.isArray(photoChanges.add)
+    ? photoChanges.add.filter((url): url is string => typeof url === 'string' && url.length > 0)
+    : []
+  for (const url of addUrls) {
+    const parsed = parsePublicUrl(url)
+    if (!parsed || parsed.kind !== 'photo' || parsed.ownerId !== merchantId) {
+      throw new AppError('INVALID_PHOTO_URL')
+    }
+  }
 
   // Check for existing PENDING edit
   const existingEdit = await prisma.branchPendingEdit.findFirst({
@@ -556,6 +614,106 @@ export async function createBranchPhotoEditRequest(
     metadata: { branchId, pendingEditId: pendingEdit.id, includesPhotos: true },
   })
   return pendingEdit
+}
+
+/**
+ * Branches PR-3 (§6c, D-PR3-4 add-via-review): branch-scoped photo-ASSET upload.
+ * Gated by BRANCH MANAGEMENT, not voucher delegation: OWNER may upload for ANY
+ * branch; BRANCH_MANAGER may upload ONLY for ASSIGNED branches; a portal STAFF
+ * member is DENIED even when assigned; NEITHER allowed role requires
+ * canManageVouchers. assertCanManageBranch runs BEFORE any bytes are written, so a
+ * BM can never upload against an unassigned branch and STAFF can never upload at all
+ * (this is a branch-management WRITE — adding a photo via review is content authoring,
+ * not view/validate).
+ *
+ * Deliberately ISOLATED from the voucher `kind:'photo'` upload (which keeps its
+ * assertCanManageVouchers gate UNCHANGED — see src/api/merchant/upload/routes.ts):
+ * canManageVouchers must NOT silently become the branch-photo key. This path reuses
+ * the SAME image validation (type/size caps + dimensions) + R2 storage via
+ * uploadMerchantImage(kind:'photo'), only the AUTH differs.
+ *
+ * Returns { url } (same shape as the existing upload). The asset is NOT bound to the
+ * branch by this call; the URL then feeds createBranchPhotoEditRequest({ add:[url] })
+ * (also branch-scoped, §6a) -> admin approval makes it a live BranchPhoto row. The
+ * branchId here is used ONLY for the assertCanManageBranch check.
+ */
+export async function uploadBranchPhotoAsset(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+  file: { contentType: string; body: Buffer }
+): Promise<{ url: string }> {
+  const ctxMerchant = await resolveMerchantContext(prisma, adminId)
+  assertCanManageBranch(ctxMerchant, branchId)
+  const { merchantId } = ctxMerchant
+  // Confirm the branch is owned + live before spending the upload (also re-asserts
+  // the branch belongs to this merchant, defence-in-depth beyond assertCanManageBranch).
+  await resolveBranch(prisma, branchId, merchantId)
+
+  return uploadMerchantImage({
+    merchantId,
+    kind: 'photo',
+    contentType: file.contentType,
+    body: file.body,
+  })
+}
+
+/**
+ * Branches PR-3 (§6b, D-PR3-2 + D-PR3-4 EXPLICIT EXCEPTION): instant removal of a
+ * LIVE branch photo. OWNER-ONLY in v1 (resolveAdminMerchant) — removal is immediate,
+ * UNREVIEWED (no admin gate, unlike add-via-review), customer-visible, and a
+ * permanent delete with no undo, so a non-owner instant destructive action is not
+ * granted in v1. (A BM-assigned removal is the documented owner-decision alternative;
+ * if chosen, switch to resolveMerchantContext + assertBranchAllowed.)
+ *
+ * Data-loss-safe: the photo is found by `id` AND `branchId` (remove-by-ID, never by
+ * URL; never cross-branch). Only an APPROVED (live) row is removable — a PENDING /
+ * FLAGGED row is guarded out (pending adds are not rows, so they never reach here).
+ * The delete + the MERCHANT_ADMIN-actor before-snapshot audit run in ONE transaction.
+ * Customer effect: row gone -> immediately out of the APPROVED read set -> invisible.
+ */
+export async function removeBranchPhoto(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+  photoId: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  // OWNER-ONLY (D-PR3-4 exception). resolveAdminMerchant denies a non-owner by
+  // construction (getOwnerMembership -> null -> INVALID_CREDENTIALS) and keeps the
+  // SEC-M2 suspended-merchant guard.
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Confirm the branch is owned + live (deletedAt: null) before touching photos.
+  await resolveBranch(prisma, branchId, merchantId)
+
+  // Find the photo by id AND branchId (branch-scoped; an id not on this branch ->
+  // 404, never a cross-branch read or delete).
+  const photo = await prisma.branchPhoto.findFirst({
+    where: { id: photoId, branchId },
+    select: { id: true, url: true, moderationStatus: true },
+  })
+  if (!photo) throw new AppError('BRANCH_PHOTO_NOT_FOUND')
+
+  // Instant-removal is for LIVE photos only. A non-APPROVED row (PENDING / FLAGGED)
+  // is not customer-visible and is not part of this lane -> 409.
+  if (photo.moderationStatus !== 'APPROVED') throw new AppError('PHOTO_NOT_REMOVABLE')
+
+  await prisma.$transaction(async (tx) => {
+    await tx.branchPhoto.delete({ where: { id: photo.id } })
+    await writeAuditLogTx(tx, {
+      entityId: branchId,
+      entityType: 'branch',
+      event: 'BRANCH_PHOTO_REMOVED',
+      actorId: adminId,
+      actorType: 'MERCHANT_ADMIN',
+      before: { id: photo.id, url: photo.url, moderationStatus: photo.moderationStatus },
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      metadata: { merchantId, branchId, photoId: photo.id },
+    })
+  })
+
+  return { ok: true as const }
 }
 
 export async function listBranchEditRequests(

@@ -16,6 +16,8 @@ import {
   createBranchEditRequest,
   withdrawBranchEditRequest,
   sendBranchPin,
+  requestBranchPhotoEdit,
+  removeBranchPhoto,
   type Branch,
   type BranchUpdateBody,
   type BranchEditRequestBody,
@@ -119,5 +121,27 @@ export function useSendBranchPin() {
   return useMutation({
     mutationFn: (id: string) => sendBranchPin(id),
     onSuccess: (_data, id) => invalidate(id),
+  })
+}
+
+// PR-3 §7: submit a branch-photo add-via-review request (after the asset upload).
+// Invalidates so the new "In review" thumbnail + counter appear immediately.
+export function useRequestBranchPhotoEdit() {
+  const invalidate = useInvalidateBranch()
+  return useMutation({
+    mutationFn: ({ id, addUrls }: { id: string; addUrls: string[] }) =>
+      requestBranchPhotoEdit(id, addUrls),
+    onSuccess: (_data, { id }) => invalidate(id),
+  })
+}
+
+// PR-3 §7 / §6b: instant-remove an APPROVED branch photo by its row ID (owner-only
+// on the backend). Invalidates so the live gallery drops the photo.
+export function useRemoveBranchPhoto() {
+  const invalidate = useInvalidateBranch()
+  return useMutation({
+    mutationFn: ({ id, photoId }: { id: string; photoId: string }) =>
+      removeBranchPhoto(id, photoId),
+    onSuccess: (_data, { id }) => invalidate(id),
   })
 }

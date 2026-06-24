@@ -84,14 +84,42 @@ function pickAllowed(proposed: Record<string, unknown>, allow: readonly string[]
 }
 
 /**
+ * Branches PR-3 (§5, D-PR3-3): defensively parse a branch photo edit's
+ * proposedChanges into an EXPLICIT allow-list — NEVER blind-spread. Mirrors the
+ * createBranchPhotoEditRequest writer (branch/service.ts §6a):
+ *   - `add`    = newly-uploaded image URLs (non-empty strings),
+ *   - `remove` = BranchPhoto IDs (non-empty strings), branch-scoped on delete.
+ * Any other key (a smuggled identity field, a moderationStatus override, etc.)
+ * is ignored here; the photo apply only ever creates rows from `add` URLs and
+ * deletes rows from `remove` IDs.
+ */
+function parsePhotoChanges(proposed: Record<string, unknown>): { addUrls: string[]; removeIds: string[] } {
+  const addUrls = Array.isArray(proposed.add)
+    ? (proposed.add as unknown[]).filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+    : []
+  const removeIds = Array.isArray(proposed.remove)
+    ? (proposed.remove as unknown[]).filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : []
+  return { addUrls, removeIds }
+}
+
+/**
  * Apply a merchant-requested identity edit (Option B B1). One transaction:
  *   - resolve + validate the approval (edit type, actionable status) and its
  *     PendingEdit (must still be PENDING),
- *   - PHOTO BLOCK: a BranchPendingEdit with includesPhotos throws BEFORE any
- *     mutation (B1 does not apply photo edits),
+ *   - PHOTO APPLY (Branches PR-3, §5): a BranchPendingEdit with includesPhotos
+ *     creates the proposed `add` URLs as APPROVED BranchPhoto rows (admin approval
+ *     IS the moderation gate — never PENDING) appended after the current max
+ *     sortOrder, and deletes the proposed `remove` IDs branch-scoped (an ID not on
+ *     this branch is silently skipped, NEVER a cross-branch delete). Both `add` and
+ *     `remove` are an explicit allow-list — proposedChanges is never blind-spread.
+ *     A mixed identity+photo edit applies BOTH the pickAllowed identity fields AND
+ *     the photo delta in this one transaction (in practice an edit is either
+ *     identity-only or photos-only, but the apply is alongside, not instead of).
  *   - apply ONLY the entity's allow-listed fields (never blind-spread),
  *   - flip both statuses (PendingEdit → APPROVED, AdminApproval → APPROVED),
- *   - write a transactional ADMIN audit with before/after.
+ *   - write a transactional ADMIN audit with before/after (+ the photo delta in
+ *     metadata for a photo edit).
  * After commit: best-effort notify the merchant owner.
  */
 export async function approveEdit(
@@ -159,13 +187,12 @@ export async function approveEdit(
     if (!edit) throw new AppError('PENDING_EDIT_NOT_FOUND')
     if (edit.status !== 'PENDING') throw new AppError('PENDING_EDIT_NOT_ACTIONABLE')
 
-    // PHOTO BLOCK: BEFORE any mutation. B1 does not apply photo edits.
-    if (edit.includesPhotos === true) throw new AppError('EDIT_PHOTO_APPLY_NOT_SUPPORTED')
-
     const proposed = (edit.proposedChanges ?? {}) as Record<string, unknown>
     // Apply the customer-visible fields PLUS the eagerly-resolved location
     // snapshot (verbatim: already resolved at request time). Both are explicit
-    // allow-lists; proposedChanges is never blind-spread.
+    // allow-lists; proposedChanges is never blind-spread. For a photos-only edit
+    // both pickAllowed calls return {} (the photo keys are add/remove), so the
+    // identity update below is skipped and only the photo delta applies.
     const applied = {
       ...pickAllowed(proposed, BRANCH_SENSITIVE_FIELDS),
       ...pickAllowed(proposed, BRANCH_LOCATION_SNAPSHOT_FIELDS),
@@ -179,6 +206,44 @@ export async function approveEdit(
     if (Object.keys(applied).length > 0) {
       await tx.branch.update({ where: { id: edit.branchId }, data: applied })
     }
+
+    // Branches PR-3 (§5, D-PR3-3): a photo edit applies its photo delta ALONGSIDE
+    // (not instead of) the identity apply, in this same transaction. Parsed via an
+    // explicit allow-list (add URLs / remove IDs) — proposedChanges is never
+    // blind-spread, so a smuggled identity field or moderationStatus override is
+    // ignored here.
+    let photosAdded: string[] = []
+    let photosRemoved: string[] = []
+    if (edit.includesPhotos === true) {
+      const { addUrls, removeIds } = parsePhotoChanges(proposed)
+
+      // ADD: append each new URL after the branch's current max sortOrder, as an
+      // APPROVED row — admin approval IS the moderation gate; NEVER write PENDING.
+      if (addUrls.length > 0) {
+        const max = await tx.branchPhoto.aggregate({
+          where: { branchId: edit.branchId },
+          _max: { sortOrder: true },
+        })
+        let nextSort = (max._max.sortOrder ?? -1) + 1
+        for (const url of addUrls) {
+          await tx.branchPhoto.create({
+            data: { branchId: edit.branchId, url, moderationStatus: 'APPROVED', sortOrder: nextSort },
+          })
+          nextSort += 1
+        }
+        photosAdded = addUrls
+      }
+
+      // REMOVE: branch-scoped deleteMany. An ID not on THIS branch is silently
+      // skipped (never a cross-branch delete). The createBranchPhotoEditRequest
+      // writer already validates `remove` IDs belong to the branch; this scope is
+      // the in-applier defence-in-depth.
+      if (removeIds.length > 0) {
+        await tx.branchPhoto.deleteMany({ where: { id: { in: removeIds }, branchId: edit.branchId } })
+        photosRemoved = removeIds
+      }
+    }
+
     await tx.branchPendingEdit.update({
       where: { id: edit.id },
       data: { status: 'APPROVED', reviewedBy: adminId, reviewedAt: now },
@@ -195,6 +260,9 @@ export async function approveEdit(
       actorType: 'ADMIN',
       before,
       after: applied,
+      // Capture the photo delta (added URLs + removed IDs) so the audit trail
+      // records exactly what the apply created/deleted, not just identity fields.
+      ...(edit.includesPhotos === true ? { metadata: { photosAdded, photosRemoved } } : {}),
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
     })

@@ -8,6 +8,8 @@ import {
   getBranchPin,
   setBranchPin,
   requestBranchPhotoEdit,
+  uploadBranchPhoto,
+  removeBranchPhoto,
   getBranch,
   createBranchEditRequest,
   listBranchEditRequests,
@@ -369,5 +371,71 @@ describe('lib/api/branch (PR-1 F1)', () => {
       body: JSON.stringify({ isMainBranch: true }),
     })
     expect(branch.isMainBranch).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR-3 §7: photo moderationStatus on the read schema + the new upload / remove
+// clients.
+// ---------------------------------------------------------------------------
+
+describe('lib/api/branch (PR-3 photos)', () => {
+  it('branchSchema parses photos[].moderationStatus', () => {
+    const parsed = branchSchema.parse({
+      id: 'b1',
+      name: 'Main',
+      photos: [
+        { id: 'p1', url: 'https://cdn.test/p1.png', moderationStatus: 'APPROVED' },
+        { id: 'p2', url: 'https://cdn.test/p2.png', moderationStatus: 'PENDING' },
+        { id: 'p3', url: 'https://cdn.test/p3.png', moderationStatus: 'FLAGGED' },
+      ],
+    })
+    expect(parsed.photos?.map((p) => p.moderationStatus)).toEqual(['APPROVED', 'PENDING', 'FLAGGED'])
+  })
+
+  it('branchSchema REJECTS a photo without moderationStatus (P3 hardening: the field is now REQUIRED)', () => {
+    // The backend GUARANTEES moderationStatus (Prisma non-nullable @default(PENDING),
+    // and GET /branches/:id ships the whole row via `photos: true`), so the client
+    // schema requires it. A photo object missing the field must fail the parse, which
+    // proves a PENDING/FLAGGED row can never slip through untyped.
+    expect(() =>
+      branchSchema.parse({
+        id: 'b1',
+        name: 'Main',
+        photos: [{ id: 'p1', url: 'https://cdn.test/p1.png' }],
+      }),
+    ).toThrow()
+  })
+
+  it('branchSchema REJECTS an invalid photo moderationStatus', () => {
+    expect(() =>
+      branchSchema.parse({
+        id: 'b1',
+        name: 'Main',
+        photos: [{ id: 'p1', url: 'https://cdn.test/p1.png', moderationStatus: 'BOGUS' }],
+      }),
+    ).toThrow()
+  })
+
+  it('uploadBranchPhoto POSTs a multipart FormData (file) to the branch-scoped upload and returns { url }', async () => {
+    apiFetch.mockResolvedValueOnce({ url: 'https://cdn.test/uploaded.png' })
+    const file = new File(['x'], 'photo.png', { type: 'image/png' })
+    const res = await uploadBranchPhoto('b1', file)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    const [path, opts] = apiFetch.mock.calls[0]
+    expect(path).toBe('/api/v1/merchant/branches/b1/photos/upload')
+    expect(opts.method).toBe('POST')
+    expect(opts.auth).toBe(true)
+    expect(opts.body).toBeInstanceOf(FormData)
+    expect((opts.body as FormData).get('file')).toBe(file)
+    expect(res.url).toBe('https://cdn.test/uploaded.png')
+  })
+
+  it('removeBranchPhoto DELETEs /branches/:id/photos/:photoId with auth', async () => {
+    await removeBranchPhoto('b1', 'p1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/photos/p1', {
+      method: 'DELETE',
+      auth: true,
+    })
   })
 })

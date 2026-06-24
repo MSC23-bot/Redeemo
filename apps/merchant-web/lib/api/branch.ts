@@ -26,7 +26,24 @@ const branchAmenityLinkSchema = z
   })
   .passthrough()
 
-const branchPhotoSchema = z.object({ id: z.string(), url: z.string() }).passthrough()
+// Branches PR-3 §7 / D-PR3-7: the photo moderation state. APPROVED is the SOLE
+// customer-visible state (and the only one the merchant can instant-remove);
+// PENDING / FLAGGED rows are not public. .passthrough() preserves any future key.
+export const photoModerationStatusSchema = z.enum(['PENDING', 'APPROVED', 'FLAGGED'])
+
+const branchPhotoSchema = z
+  .object({
+    id: z.string(),
+    url: z.string(),
+    // PR-3: drives the real per-photo render (was blanket-"Approved" in PR-1). REQUIRED
+    // because the backend GUARANTEES it: BranchPhoto.moderationStatus is non-nullable
+    // (Prisma @default(PENDING)) and GET /branches/:id ships the whole row via
+    // `photos: true`, so every photo column (incl. moderationStatus) is always present.
+    // Requiring it tightens the merchant-web contract so a PENDING/FLAGGED row can never
+    // be mistaken for a live/approved one (P3 hardening).
+    moderationStatus: photoModerationStatusSchema,
+  })
+  .passthrough()
 
 // --- Pending edit (sensitive identity / photo review lane) -------------------
 // PR-1 F1: mirrors the backend BranchPendingEdit model + the PendingEditStatus
@@ -300,14 +317,47 @@ export async function sendBranchPin(branchId: string): Promise<{ message: string
 }
 
 // --- Photos -----------------------------------------------------------------
-// The ONLY backend branch-photo write is the governed edit-request lane:
+// Branch photos have two write lanes:
+//   1. Add-via-review (governed): upload the asset (PR-3 §6c branch-scoped upload),
+//      then submit the URL through the edit-request lane (PR-3 §6a). The admin
+//      approves -> the URL becomes a live APPROVED BranchPhoto row.
+//   2. Instant removal (PR-3 §6b): an APPROVED photo is deleted by its row ID,
+//      immediately out of the customer APPROVED set. OWNER-only on the backend.
+
+// POST /api/v1/merchant/branches/:id/photos/upload : branch-scoped photo-asset
+// upload (PR-3 §6c). Multipart FormData; the API client leaves Content-Type unset
+// so the browser sets the multipart boundary, and attaches the bearer token. The
+// backend gates by branch assignment (assertBranchAllowed), NOT the voucher
+// canManageVouchers gate. Returns the stored public URL. The asset is not bound to
+// the branch until the edit-request is submitted + admin-approved.
+export async function uploadBranchPhoto(branchId: string, file: File): Promise<{ url: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await apiFetch<{ url: string }>(
+    `/api/v1/merchant/branches/${branchId}/photos/upload`,
+    { method: 'POST', auth: true, body: form },
+  )
+  return z.object({ url: z.string() }).passthrough().parse(res)
+}
+
 // POST /api/v1/merchant/branches/:id/photos/edit-request, body { add?, remove? }.
-// There is no direct branch-photo write, so onboarding photos go through this lane
-// and surface to admin as a PENDING edit. The F4 UI labels them "pending review".
+// The governed add-via-review lane: each add URL surfaces to admin as a PENDING
+// edit (includesPhotos:true), and becomes a live APPROVED photo only on approval.
+// 409 PENDING_EDIT_EXISTS when one is already in review.
 export async function requestBranchPhotoEdit(branchId: string, addUrls: string[]): Promise<unknown> {
   return apiFetch(`/api/v1/merchant/branches/${branchId}/photos/edit-request`, {
     method: 'POST',
     auth: true,
     body: JSON.stringify({ add: addUrls }),
+  })
+}
+
+// DELETE /api/v1/merchant/branches/:id/photos/:photoId : instant removal of a LIVE
+// (APPROVED) photo by its BranchPhoto ID (PR-3 §6b, remove-by-ID never by URL).
+// OWNER-only on the backend. 404 BRANCH_PHOTO_NOT_FOUND, 409 PHOTO_NOT_REMOVABLE.
+export async function removeBranchPhoto(branchId: string, photoId: string): Promise<unknown> {
+  return apiFetch(`/api/v1/merchant/branches/${branchId}/photos/${photoId}`, {
+    method: 'DELETE',
+    auth: true,
   })
 }
