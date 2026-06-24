@@ -565,6 +565,7 @@ model Branch {
   redemptions        VoucherRedemption[]
   reviews            Review[]
   pendingEdits       BranchPendingEdit[]
+  pendingHours       BranchOpeningHoursPending[]
   favouritedBy       FavouriteBranch[]
   membershipBranches MerchantMembershipBranch[]
 
@@ -639,6 +640,56 @@ model BranchPendingEdit {
 
   @@index([branchId, status])
   @@index([merchantId, status])
+}
+
+// ─────────────────────────────────────────
+// BRANCH OPENING HOURS PENDING (PR-4: 2-hour customer cool-off)
+// ─────────────────────────────────────────
+
+// Branches PR-4 (umbrella D4): a self-promoting, durable staging record for an
+// opening-hours change. A merchant edit does NOT go live immediately — it writes
+// ONE BranchOpeningHoursPending row holding the proposed weekly schedule plus
+// `effectiveAt = stage time + 2h`. The live `BranchOpeningHours` (and therefore
+// every customer read via isOpenNow) is UNCHANGED until a worker promotes the row
+// at effectiveAt. Self-service delayed activation — NO admin review, NO
+// AdminApproval, NO ApprovalType value, NO editApplier path.
+model BranchOpeningHoursPending {
+  id String @id @default(uuid())
+
+  branchId   String
+  merchantId String
+
+  // The full proposed weekly schedule as a single-window-per-day JSON payload,
+  // shaped EXACTLY like the setOpeningHours OpeningHoursInput
+  // (Array<{ dayOfWeek, openTime?, closeTime?, isClosed }>). Validated by
+  // validateOpeningHours BEFORE persistence. Single-window only (multi-window = PR-8).
+  proposedHours Json
+  // = stage time + 2h (the cool-off boundary). Promotion upserts proposedHours into
+  // the live BranchOpeningHours once effectiveAt has passed.
+  effectiveAt   DateTime
+  status        PendingHoursStatus @default(PENDING)
+  // The merchant actor's MerchantAdmin id (req.user.sub / ctx.adminId), the SAME id
+  // used elsewhere for audit attribution; NOT a MerchantMembership id.
+  createdBy     String
+  createdAt     DateTime           @default(now())
+  promotedAt    DateTime?
+  cancelledAt   DateTime?
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([status, effectiveAt]) // cheap due-row scan for the promotion sweep
+  @@index([branchId, status]) // merchant-web read + the at-most-one-PENDING lookup
+  // NOTE: the at-most-one-PENDING-per-branch INVARIANT is DB-ENFORCED by a PARTIAL
+  // UNIQUE index added in the migration (raw SQL, since Prisma cannot express a
+  // partial unique in the schema):
+  //   CREATE UNIQUE INDEX ... ON "BranchOpeningHoursPending"("branchId") WHERE status = 'PENDING';
+  // The @@index above is for lookups/reads, NOT the uniqueness guarantee.
+}
+
+enum PendingHoursStatus {
+  PENDING
+  PROMOTED
+  CANCELLED
 }
 
 // ─────────────────────────────────────────
