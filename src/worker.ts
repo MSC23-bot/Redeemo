@@ -23,6 +23,7 @@ import { closeQueues, makeQueueConnection } from './api/queues'
 import { startEmailWorker } from './api/queues/processors/email'
 import { startReconcileWorker, scheduleReconcile } from './api/queues/processors/outboxReconciler'
 import { scheduleClaimStaleSweep } from './api/queues/processors/claimStaleSweep'
+import { schedulePromotePendingHours } from './api/queues/processors/promotePendingHours'
 import { startModerationWorker } from './api/queues/processors/moderation'
 
 async function main(): Promise<void> {
@@ -42,13 +43,16 @@ async function main(): Promise<void> {
   const emailWorker = startEmailWorker(prisma, workerConnections[0])
   const reconcileWorker = startReconcileWorker(prisma, workerConnections[1])
   const moderationWorker = startModerationWorker(prisma, workerConnections[2])
-  // Idempotent: each stable jobId means exactly one repeatable exists. Both
+  // Idempotent: each stable jobId means exactly one repeatable exists. All three
   // repeatables live on MAINTENANCE_QUEUE and are dispatched by the reconcile
-  // worker (one worker per queue, branching on job name).
+  // worker (one worker per queue, branching on job name): outbox reconcile (60s),
+  // claim-stale (hourly), and the PR-4 opening-hours promotion sweep (60s, tighter
+  // than claim-stale so the 2h cool-off target is not overshot).
   await scheduleReconcile()
   await scheduleClaimStaleSweep()
+  await schedulePromotePendingHours()
   const workers: Worker[] = [emailWorker, reconcileWorker, moderationWorker]
-  console.info(`[worker] started: ${workers.length} processor(s) registered (email + maintenance[outbox-reconciler + claim-stale] + photo-moderation)`)
+  console.info(`[worker] started: ${workers.length} processor(s) registered (email + maintenance[outbox-reconciler + claim-stale + promote-pending-hours] + photo-moderation)`)
 
   let shuttingDown = false
   const shutdown = async (signal: string, exitCode: number): Promise<void> => {
