@@ -1000,12 +1000,13 @@ export async function setOpeningHours(
   branchId: string,
   hours: Array<{ dayOfWeek: number; openTime?: string; closeTime?: string; isClosed: boolean }>
 ) {
-  // M2 B4 (D8a): validate the single-period-per-day model BEFORE any DB work, so a
-  // bad payload (duplicate day / closed-day-with-times / malformed time / bad
-  // 24:00 / zero-length period) rejects with OPENING_HOURS_INVALID before the
-  // staging write runs. Overnight close (close < open) is accepted (the
-  // customer-app consumer treats it as crossing midnight). Reused VERBATIM — the
-  // staged payload is the same single-window shape (multi-window = PR-8).
+  // M2 B4 (D8a): validate BEFORE any DB work, so a bad payload (closed-day-with-times
+  // / malformed time / bad 24:00 / zero-length period / overlapping windows) rejects
+  // with OPENING_HOURS_INVALID before the staging write runs. Overnight close
+  // (close < open) is accepted (the customer-app consumer treats it as crossing
+  // midnight). Under PR-8 the staged payload is now MULTI-WINDOW: N rows per day
+  // (the single-window-per-day model is gone), validated by the multi-window
+  // validateOpeningHours (per-day no-overlap rule).
   validateOpeningHours(hours)
 
   // Branches PR-4 (§4a step 2 / §7): branch-management WRITE — OWNER (any branch) OR
