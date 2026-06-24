@@ -66,6 +66,14 @@ function buildPrismaMock(opts: { status: string; onboardingStep: string }) {
         // dedicated merchant.findUnique (below), NOT this joined value.
         merchant: { status: opts.status, businessName: 'Test Co' },
       }),
+      // Staff & Access PR-2: updateBranch now resolves via resolveMerchantContext
+      // -> getActiveMembership -> findMany. These draft-window tests act as the
+      // OWNER (allBranches), which clears assertBranchAllowed + assertOwner.
+      findMany: vi.fn().mockResolvedValue([{
+        id: 'mm1', merchantId: MERCHANT_ID, merchantAdminId: ADMIN_ID, role: 'OWNER',
+        allBranches: true, canManageVouchers: false,
+        merchant: { status: opts.status, businessName: 'Test Co' }, branches: [],
+      }]),
     },
     merchant: {
       // Predicate read (status + onboardingStep) + the direct-core before-snapshot.
