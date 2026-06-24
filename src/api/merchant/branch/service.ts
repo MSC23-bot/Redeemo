@@ -725,10 +725,12 @@ export async function getBranchPin(
   adminId: string,
   branchId: string
 ): Promise<{ pin: string | null }> {
-  // Staff & Access PR-2 (D3): revealing the PIN for an assigned branch is
-  // BM-allowed (PIN reveal/change/send are assigned-branch operational actions).
+  // Staff & Access PR-2 (D3): revealing the DECRYPTED branch PIN uses the same
+  // management boundary as PIN change/send (setBranchPin / sendBranchPin) —
+  // OWNER (any branch) OR assigned BRANCH_MANAGER; STAFF is denied even when
+  // assigned (the decrypted PIN is a secret, not a non-secret branch-detail read).
   const ctxMerchant = await resolveMerchantContext(prisma, adminId)
-  assertBranchAllowed(ctxMerchant, branchId)
+  assertCanManageBranch(ctxMerchant, branchId)
   const { merchantId } = ctxMerchant
   const branch = await prisma.branch.findFirst({
     where: { id: branchId, merchantId, deletedAt: null },

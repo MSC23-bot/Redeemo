@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { buildApp } from '../../../src/api/app'
+import { encrypt } from '../../../src/api/shared/encryption'
 import type { FastifyInstance } from 'fastify'
 
 // Staff & Access PR-2 (spec §3 "PR-2" + decision D3): branch WRITE-route
@@ -335,6 +336,76 @@ describe('branch write-route authorization matrix — Staff & Access PR-2 (D3)',
   })
 
   it('STAFF -> READ GET /branches/:id on ASSIGNED branch still allowed (200) — read/write asymmetry locked', async () => {
+    const made = await makeApp(staff()); app = made.app
+    const res = await inject(made.app, made.token, 'GET', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}`)
+    expect(res.statusCode).toBe(200)
+  })
+})
+
+// Staff & Access PR-2 (D3): branch PIN REVEAL/READ authorization matrix
+// (getBranchPin, GET /branches/:id/pin). Owner direction locks the decrypted PIN
+// reveal to the SAME management boundary as PIN change/send — OWNER (any branch)
+// OR assigned BRANCH_MANAGER; STAFF is DENIED even when assigned (the decrypted
+// PIN is a secret, not a non-secret branch-detail read). The secret-vs-detail
+// read asymmetry is locked by the STAFF-can-read-detail pin at the end.
+describe('branch PIN reveal/read authorization matrix — Staff & Access PR-2 (D3)', () => {
+  let app: FastifyInstance | null = null
+  afterEach(async () => { if (app) { await app.close(); app = null } })
+
+  const owner = () => membershipRow('OWNER', true, [])
+  const bm = () => membershipRow('BRANCH_MANAGER', false, [ASSIGNED_BRANCH])
+  const staff = () => membershipRow('STAFF', false, [ASSIGNED_BRANCH])
+
+  // A real AES-encrypted PIN so the route's decrypt() returns the plaintext for
+  // the allowed (revealed) cases. Keyed off the test ENCRYPTION_KEY (tests/setup.ts).
+  const PLAIN_PIN = '4271'
+  const ENC_PIN = encrypt(PLAIN_PIN)
+
+  function inject(a: FastifyInstance, token: string, method: any, url: string, payload?: unknown) {
+    const opts: Record<string, unknown> = { method, url, headers: { authorization: `Bearer ${token}` } }
+    if (payload !== undefined) opts.payload = payload
+    return a.inject(opts as any)
+  }
+
+  it('OWNER -> PIN reveal on any branch (200, PIN revealed)', async () => {
+    const made = await makeApp(owner()); app = made.app
+    made.prismaMock.branch.findFirst = vi.fn().mockResolvedValue(mockBranch(UNASSIGNED_BRANCH, { redemptionPin: ENC_PIN }))
+    const res = await inject(made.app, made.token, 'GET', `/api/v1/merchant/branches/${UNASSIGNED_BRANCH}/pin`)
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).pin).toBe(PLAIN_PIN)
+  })
+
+  it('assigned BRANCH_MANAGER -> PIN reveal on ASSIGNED branch (200, PIN revealed)', async () => {
+    const made = await makeApp(bm()); app = made.app
+    made.prismaMock.branch.findFirst = vi.fn().mockResolvedValue(mockBranch(ASSIGNED_BRANCH, { redemptionPin: ENC_PIN }))
+    const res = await inject(made.app, made.token, 'GET', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}/pin`)
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).pin).toBe(PLAIN_PIN)
+  })
+
+  it('unassigned BRANCH_MANAGER -> PIN reveal on UNASSIGNED branch -> 403 INSUFFICIENT_PERMISSIONS (decrypt not reached)', async () => {
+    const made = await makeApp(bm()); app = made.app
+    made.prismaMock.branch.findFirst = vi.fn().mockResolvedValue(mockBranch(UNASSIGNED_BRANCH, { redemptionPin: ENC_PIN }))
+    const res = await inject(made.app, made.token, 'GET', `/api/v1/merchant/branches/${UNASSIGNED_BRANCH}/pin`)
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+    expect(JSON.parse(res.body).pin).toBeUndefined()
+    // Guard runs before the secret read — the encrypted PIN is never fetched/decrypted.
+    expect(made.prismaMock.branch.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('assigned STAFF -> PIN reveal on ASSIGNED branch -> 403 INSUFFICIENT_PERMISSIONS (the new pin: no decrypted PIN to a STAFF member)', async () => {
+    const made = await makeApp(staff()); app = made.app
+    made.prismaMock.branch.findFirst = vi.fn().mockResolvedValue(mockBranch(ASSIGNED_BRANCH, { redemptionPin: ENC_PIN }))
+    const res = await inject(made.app, made.token, 'GET', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}/pin`)
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+    expect(JSON.parse(res.body).pin).toBeUndefined()
+    // STAFF is denied at the management boundary — the secret is never read/decrypted.
+    expect(made.prismaMock.branch.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('assigned STAFF -> non-secret branch detail READ (GET /branches/:id) still allowed (200) — secret-vs-detail read asymmetry locked', async () => {
     const made = await makeApp(staff()); app = made.app
     const res = await inject(made.app, made.token, 'GET', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}`)
     expect(res.statusCode).toBe(200)
