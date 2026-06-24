@@ -528,6 +528,16 @@ model Branch {
   // SEC-C3: seed/demo data flag (see Merchant.isTestData).
   isTestData    Boolean  @default(false)
 
+  // Branches PR-7 (§3): per-branch redemption-alerts opt-in. When true, an
+  // in-store validation (verifyRedemption -> isValidated:true) fans out an
+  // IN_APP VOUCHER_REDEEMED bell notification to the merchant's active owner(s)
+  // + the branch's scope-covering Branch Managers (M4 merchant bell). Default
+  // OFF (opt-in): defaulting ON would, the moment PR-7 ships, alert every owner
+  // on every validation for existing live merchants who never asked for it.
+  // Email stays dark (in-app now, email later); the producer commits NO email
+  // outbox row for this high-frequency event.
+  redemptionAlertsEnabled Boolean @default(false)
+
   // Plan 4a location snapshot — see spec §3.5.
   // NOTE: `locationCountry` is the resolved NATION (England/Scotland/Wales/NI).
   // It is INTENTIONALLY distinct from the existing `country` column above

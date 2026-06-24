@@ -14,6 +14,7 @@ import {
 import { effectiveCooldownSeconds } from './reusable'
 import { formatCustomerName } from '../shared/customerName'
 import { type MerchantContext } from '../merchant/shared'
+import { merchantNotify, resolveRedemptionAlertRecipients } from '../shared/merchantNotify'
 
 // Redemption code alphabet (locked 2026-05-07 from device QA).
 //
@@ -534,8 +535,11 @@ export async function verifyRedemption(
   const redemption = await prisma.voucherRedemption.findUnique({
     where: { redemptionCode: code },
     include: {
-      voucher: { select: { merchantId: true, merchant: { select: { status: true } } } },
-      branch:  { select: { isActive: true } },
+      voucher: { select: { merchantId: true, title: true, merchant: { select: { status: true } } } },
+      // Branches PR-7 (§4b GATE): also fetch the per-branch redemption-alert
+      // toggle + merchantId + name. The toggle gates the post-commit alert
+      // producer; merchantId + name feed the recipient fan-out + the copy.
+      branch:  { select: { isActive: true, redemptionAlertsEnabled: true, merchantId: true, name: true } },
       user:    { select: { firstName: true, lastName: true } },
     },
   })
@@ -604,6 +608,54 @@ export async function verifyRedemption(
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     metadata: { redemptionCode: code, method, actorId: actor.actorId },
   })
+
+  // Branches PR-7 (§4b): the redemption-alert producer. This is the ONE correct
+  // trigger site — AFTER the isValidated:true flip commits (the in-store
+  // staff-verified event), NEVER at createRedemption / the isValidated:false
+  // VOUCHER_REDEEMED audit (customer code generation, which must NOT alert).
+  //
+  // BEST-EFFORT: wrapped in try/catch so any notification failure is swallowed
+  // and NEVER fails the validation — the redemption is already validated by the
+  // update above; the alert is a post-commit side-effect (mirrors adminNotify /
+  // safeNotify). GATED on the per-branch redemptionAlertsEnabled opt-in (OFF =>
+  // emit nothing). In-app ONLY via merchantNotify (NO email outbox row, the
+  // email-dark lock for a high-frequency event).
+  if (redemption.branch.redemptionAlertsEnabled) {
+    try {
+      const recipients = await resolveRedemptionAlertRecipients(prisma, {
+        merchantId: redemption.branch.merchantId,
+        branchId:   redemption.branchId,
+        // SELF-ACTION SILENCE: a merchant-portal validation should not alert the
+        // validating MerchantAdmin. A branch-actor (BranchUser) is never a
+        // recipient, so no exclusion is needed on that path.
+        excludeMerchantAdminId: actor.role === 'merchant' ? actor.actorId : null,
+      })
+      // Copy (§4d): voucher + branch + validation time only — NEVER the customer's
+      // personal details and NOT the redemption code (moot post-validation). One
+      // Notification row per recipient so each person's M4 bell shows it.
+      const branchName = redemption.branch.name
+      const validatedAt = updated.validatedAt ?? new Date()
+      const title = `Voucher redeemed at ${branchName}`
+      const body =
+        `${redemption.voucher.title} was redeemed and verified at ${branchName} ` +
+        `on ${validatedAt.toISOString()}.`
+      for (const merchantAdminId of recipients) {
+        await merchantNotify(prisma, {
+          merchantAdminId,
+          type:          'VOUCHER_REDEEMED',
+          title,
+          body,
+          referenceType: 'redemption',
+          referenceId:   redemption.id,
+        })
+      }
+    } catch (err) {
+      console.warn(
+        `[redemption-alert] best-effort VOUCHER_REDEEMED alert for redemption ${redemption.id} failed — validation committed, NOT rolled back:`,
+        err,
+      )
+    }
+  }
 
   // OD4: a merchant-admin portal validation crosses the merchant-portal API
   // boundary, so the customer identity is first name + last initial only
