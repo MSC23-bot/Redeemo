@@ -78,6 +78,25 @@ export const RedisKey = {
   // account recovery must not be denied by a complaint / transient bounce.
   emailSuppression:        (emailHash: string)        => `email:suppress:${emailHash}`,
 
+  // Branches PR-6 (§4e, blueprint §11.3): merchant Google location-search limiter.
+  // The LOCKED pre-live multi-instance-safe cap that moves the merchant Google flow
+  // off the single-process file counter (which stays for the admin CLI). Per-user +
+  // per-merchant are VICTIM keys (counted on allowed only); per-IP is an ABUSER key
+  // (every attempt counts); the global daily ceiling is a GATE key (cost breaker).
+  rateLimitMerchantLocSearchUserDay:     (userId: string)     => `rl:merchloc:user:day:${userId}`,     // per-user daily
+  rateLimitMerchantLocSearchMerchantDay: (merchantId: string) => `rl:merchloc:merchant:day:${merchantId}`, // per-merchant daily
+  rateLimitMerchantLocSearchIpHour:      (ip: string)         => `rl:merchloc:ip:hour:${ip}`,          // per-IP hourly (abuser)
+  rateLimitMerchantLocSearchIpDay:       (ip: string)         => `rl:merchloc:ip:day:${ip}`,           // per-IP daily (abuser)
+  rateLimitMerchantLocSearchGlobalDay:   ()                   => `rl:merchloc:global:day`,             // global daily cost ceiling
+
+  // Branches PR-6 (§4a): server-issued opaque candidate token -> server-held
+  // { placeId, latitude, longitude } stash. The client NEVER sees the coords; it
+  // holds only the token and resolves it server-side at the apply step (Layer 2)
+  // via this Redis lookup, NEVER a fresh billable Google call. 15-minute TTL.
+  // Scoped by merchantId so a token minted for one merchant can never be replayed
+  // against another merchant's apply.
+  merchantLocationCandidate: (merchantId: string, token: string) => `merchant:${merchantId}:loccand:${token}`,
+
   // PIN brute-force counter — keyed per (userId, branchId) so failures at one branch
   // don't block the user at a different branch
   pinFailCount:        (userId: string, branchId: string) => `pin:fail:${userId}:${branchId}`,

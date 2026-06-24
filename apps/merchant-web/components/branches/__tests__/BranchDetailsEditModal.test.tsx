@@ -38,6 +38,19 @@ jest.mock('@/lib/api/client', () => {
   return { ...actual, apiFetch: (...args: unknown[]) => apiFetch(...args) }
 })
 
+// --- PR-6: the location lookup search (mounted inside the modal) ------------
+const searchLocation = jest.fn()
+jest.mock('@/lib/api/location', () => ({
+  searchLocation: (...args: unknown[]) => searchLocation(...args),
+}))
+
+const PICK_CANDIDATE = {
+  candidateToken: 'tok_editmodal',
+  name: 'Old Foundry Kitchen',
+  formattedAddress: '12 Mill Lane, Huddersfield, HD1 1AA, UK',
+  addressParts: { addressLine1: '12 Mill Lane', city: 'Huddersfield', postcode: 'HD1 1AA' },
+}
+
 function branch(over: Record<string, unknown> = {}): Branch {
   return {
     id: 'b1',
@@ -58,6 +71,7 @@ const onClose = jest.fn()
 beforeEach(() => {
   createMutateAsync.mockReset().mockResolvedValue({ id: 'edit1', status: 'PENDING' })
   apiFetch.mockReset()
+  searchLocation.mockReset()
   onClose.mockReset()
   createPending = false
 })
@@ -172,5 +186,61 @@ describe('BranchDetailsEditModal cancel', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }))
     expect(createMutateAsync).not.toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe('BranchDetailsEditModal PR-6 location lookup (reviewed lane)', () => {
+  it('renders the lookup field and no map/pin/coordinate input', () => {
+    render(<BranchDetailsEditModal branch={branch()} onClose={onClose} />)
+    expect(screen.getByTestId('location-lookup')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/latitude|longitude/i)).not.toBeInTheDocument()
+    expect(document.querySelector('iframe')).toBeNull()
+  })
+
+  it('autofills the address fields from a Google pick', async () => {
+    searchLocation.mockResolvedValue([PICK_CANDIDATE])
+    render(<BranchDetailsEditModal branch={branch()} onClose={onClose} />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'old foundry' } })
+    fireEvent.click(await screen.findByTestId('location-lookup-result'))
+
+    expect((screen.getByLabelText(/address line 1/i) as HTMLInputElement).value).toBe('12 Mill Lane')
+    expect((screen.getByLabelText(/town or city/i) as HTMLInputElement).value).toBe('Huddersfield')
+    expect((screen.getByLabelText(/postcode/i) as HTMLInputElement).value).toBe('HD1 1AA')
+  })
+
+  it('routes through the reviewed edit-request lane carrying the candidateToken (never lat/lng) on a LIVE branch', async () => {
+    searchLocation.mockResolvedValue([PICK_CANDIDATE])
+    render(<BranchDetailsEditModal branch={branch()} onClose={onClose} />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'old foundry' } })
+    fireEvent.click(await screen.findByTestId('location-lookup-result'))
+    fireEvent.click(screen.getByRole('button', { name: /send for review/i }))
+
+    // The submit goes through createBranchEditRequest (the reviewed lane), NOT a direct PATCH.
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalled())
+    const { id, changes } = createMutateAsync.mock.calls[0][0]
+    expect(id).toBe('b1')
+    expect(changes.candidateToken).toBe('tok_editmodal')
+    // The autofilled address fields ride the reviewed lane.
+    expect(changes.addressLine1).toBe('12 Mill Lane')
+    expect(changes.postcode).toBe('HD1 1AA')
+    // Never lat/lng/placeId.
+    expect(changes).not.toHaveProperty('latitude')
+    expect(changes).not.toHaveProperty('longitude')
+    expect(changes).not.toHaveProperty('placeId')
+  })
+
+  it('drops the candidateToken when the merchant hand-edits an address field after a pick', async () => {
+    searchLocation.mockResolvedValue([PICK_CANDIDATE])
+    render(<BranchDetailsEditModal branch={branch()} onClose={onClose} />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'old foundry' } })
+    fireEvent.click(await screen.findByTestId('location-lookup-result'))
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: 'HD2 2BB' } })
+    fireEvent.click(screen.getByRole('button', { name: /send for review/i }))
+
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalled())
+    const { changes } = createMutateAsync.mock.calls[0][0]
+    expect(changes).not.toHaveProperty('candidateToken')
+    // The hand-typed value still saves through the reviewed lane.
+    expect(changes.postcode).toBe('HD2 2BB')
   })
 })

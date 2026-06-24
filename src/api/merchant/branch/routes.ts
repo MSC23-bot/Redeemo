@@ -4,6 +4,8 @@ import '../types'
 import { AppError } from '../../shared/errors'
 import { isStorageEnabled } from '../../shared/storage'
 import { resolveMerchantContext, assertCanManageBranch } from '../shared'
+import { resolveLocationCandidate } from '../location/service'
+import type { BranchLocationSuggestion } from './service'
 import {
   listBranches,
   getBranch,
@@ -46,6 +48,11 @@ const createBranchBody = z.object({
   logoUrl:      z.string().optional(),
   bannerUrl:    z.string().optional(),
   about:        z.string().optional(),
+  // Branches PR-6 (§4b): an OPTIONAL Layer 1 candidate token. The client submits
+  // ONLY the token (NOT lat/lng, NOT placeId); the route resolves it server-side
+  // to admin-review metadata. Absent/expired -> the address still saves, no
+  // suggestion staged.
+  candidateToken: z.string().optional(),
 })
 
 const updateBranchBody = z.object({
@@ -54,6 +61,10 @@ const updateBranchBody = z.object({
   websiteUrl:   z.string().optional(),
   isActive:     z.boolean().optional(),
   isMainBranch: z.boolean().optional(),
+  // Branches PR-6 (§4b): an OPTIONAL Layer 1 candidate token on an address edit
+  // (declared explicitly though .passthrough() already admits it). Resolved at the
+  // route boundary; never reaches a Branch column or proposedChanges as a field.
+  candidateToken: z.string().optional(),
 }).passthrough() // allow extra keys — service ignores them
 
 const openingHoursBody = z.object({
@@ -83,6 +94,26 @@ const photoEditRequestBody = z.object({
 export async function branchRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/merchant/branches'
 
+  // Branches PR-6 (§4b): resolve an OPTIONAL candidateToken to its server-held
+  // suggestion at the ROUTE boundary (keeps Redis out of the service core). The
+  // token is Redis-keyed by merchantId, so we resolve the caller's scoped merchant
+  // context first (cheap; only when a token is present). The resolver is a Redis
+  // lookup ONLY — NEVER a fresh billable Google call. A missing / expired /
+  // foreign-merchant token resolves to null and is treated as "no suggestion": the
+  // address apply still proceeds (the merchant re-searches only if they want the
+  // admin to receive a suggested pin). `updateBranch` / `createBranch` still run
+  // their OWN authoritative auth (resolveAdminMerchant / resolveMerchantContext +
+  // assertCanManageBranch); this lookup is purely to scope the Redis key.
+  async function resolveTokenSuggestion(
+    req: FastifyRequest,
+    candidateToken: string | undefined,
+  ): Promise<BranchLocationSuggestion | undefined> {
+    if (!candidateToken) return undefined
+    const ctx = await resolveMerchantContext(app.prisma, req.user.sub)
+    const resolved = await resolveLocationCandidate(app.redis, ctx.merchantId, candidateToken)
+    return resolved ?? undefined
+  }
+
   // GET /api/v1/merchant/branches — list branches
   app.get(prefix, async (req: FastifyRequest, reply) => {
     const branches = await listBranches(app.prisma, req.user.sub)
@@ -94,10 +125,14 @@ export async function branchRoutes(app: FastifyInstance) {
   // INSTANT-LIVE; every SUBSEQUENT merchant-created branch stages PENDING_CREATE +
   // a BRANCH_CREATE approval (customer-invisible until an admin approves).
   app.post(prefix, async (req: FastifyRequest, reply) => {
-    const body = createBranchBody.parse(req.body)
+    const { candidateToken, ...body } = createBranchBody.parse(req.body)
+    // Branches PR-6 (§4b): resolve the token (if any) to admin-review metadata. The
+    // address fields in `body` apply as today; the suggestion is staged in the
+    // BRANCH_CREATED audit only. NO confidence write.
+    const locationSuggestion = await resolveTokenSuggestion(req, candidateToken)
     const branch = await createBranch(app.prisma, req.user.sub, body, {
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
-    })
+    }, locationSuggestion)
     return reply.status(201).send(branch)
   })
 
@@ -145,24 +180,36 @@ export async function branchRoutes(app: FastifyInstance) {
     return reply.send(branch)
   })
 
-  // PATCH /api/v1/merchant/branches/:id — update non-sensitive fields
+  // PATCH /api/v1/merchant/branches/:id — update non-sensitive fields (and, in the
+  // draft window / via the governed edit lane, sensitive address fields).
   app.patch(`${prefix}/:id`, async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
-    const body = updateBranchBody.parse(req.body)
+    // Branches PR-6 (§4b): pop candidateToken OUT of the body so it never reaches
+    // the service's data (and thus never the BranchPendingEdit.proposedChanges via
+    // the passthrough). The resolved suggestion is threaded separately.
+    const { candidateToken, ...body } = updateBranchBody.parse(req.body)
+    const locationSuggestion = await resolveTokenSuggestion(req, candidateToken)
     const branch = await updateBranch(app.prisma, req.user.sub, id, body, {
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
-    })
+    }, locationSuggestion)
     return reply.send(branch)
   })
 
   // POST /api/v1/merchant/branches/:id/edit-request — create sensitive edit request
   app.post(`${prefix}/:id/edit-request`, async (req: FastifyRequest, reply) => {
     const { id } = idParam.parse(req.params)
-    const body = z.record(z.string(), z.unknown()).parse(req.body)
+    const parsed = z.record(z.string(), z.unknown()).parse(req.body)
+    // Branches PR-6 (§4b): pop candidateToken OUT of the proposedChanges record so
+    // it is never persisted as a field; the resolved suggestion is threaded as a
+    // metadata sub-key by createBranchEditRequest.
+    const candidateToken = typeof parsed.candidateToken === 'string' ? parsed.candidateToken : undefined
+    const { candidateToken: _drop, ...body } = parsed
+    void _drop
+    const locationSuggestion = await resolveTokenSuggestion(req, candidateToken)
     const pendingEdit = await createBranchEditRequest(
       app.prisma, req.user.sub, id, body, false, {
         ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
-      }
+      }, locationSuggestion
     )
     return reply.status(201).send(pendingEdit)
   })

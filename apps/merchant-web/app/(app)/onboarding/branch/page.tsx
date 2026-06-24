@@ -78,6 +78,9 @@ function buildCreateBody(v: BranchFormValues): BranchCreateBody {
   if (v.websiteUrl.trim()) body.websiteUrl = v.websiteUrl.trim()
   if (v.bannerUrl) body.bannerUrl = v.bannerUrl
   if (v.about.trim()) body.about = v.about.trim()
+  // PR-6: the Google-pick token rides along on create (server resolves it to
+  // admin-review metadata; never lat/lng). Omitted on a hand-typed address.
+  if (v.candidateToken.trim()) body.candidateToken = v.candidateToken.trim()
   return body
 }
 
@@ -97,6 +100,10 @@ function buildUpdateBody(v: BranchFormValues): BranchUpdateBody {
   if (v.websiteUrl.trim()) body.websiteUrl = v.websiteUrl.trim()
   if (v.bannerUrl) body.bannerUrl = v.bannerUrl
   if (v.about.trim()) body.about = v.about.trim()
+  // PR-6: a Google-pick token on a draft-window reuse PATCH carries to the
+  // direct sensitive-edit path (server resolves it to admin-review metadata; never
+  // lat/lng). Omitted on a hand-typed address.
+  if (v.candidateToken.trim()) body.candidateToken = v.candidateToken.trim()
   return body
 }
 
@@ -229,6 +236,8 @@ export default function BranchPage() {
       ? hoursStateFromBranch(existingBranch.openingHours)
       : defaultHoursState(),
     amenityIds: existingBranch?.amenities?.map((a) => a.amenity.id) ?? [],
+    // PR-6: starts empty; set only when the merchant picks a Google location result.
+    candidateToken: '',
   }
 
   async function persist(values: BranchFormValues, partial: boolean) {

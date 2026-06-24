@@ -48,6 +48,7 @@ const EMPTY_INITIAL: BranchFormValues = {
     { dayOfWeek: 0, isClosed: true, openTime: '', closeTime: '' },
   ],
   amenityIds: [],
+  candidateToken: '',
 }
 
 const AMENITIES = [

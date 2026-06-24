@@ -3,6 +3,7 @@ import { FastifyInstance } from 'fastify'
 import { profileRoutes } from './profile/routes'
 import { onboardingRoutes } from './onboarding/routes'
 import { branchRoutes } from './branch/routes'
+import { locationRoutes } from './location/routes'
 import { voucherRoutes } from './voucher/routes'
 import { uploadRoutes } from './upload/routes'
 import { merchantRedemptionRoutes } from './redemptions/routes'
@@ -18,6 +19,7 @@ async function merchantManagementPlugin(app: FastifyInstance) {
     await scoped.register(profileRoutes)
     await scoped.register(onboardingRoutes)
     await scoped.register(branchRoutes)
+    await scoped.register(locationRoutes)
     await scoped.register(voucherRoutes)
     await scoped.register(uploadRoutes)
     await scoped.register(merchantRedemptionRoutes)

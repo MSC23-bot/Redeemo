@@ -30,6 +30,7 @@ import { Info, X } from '@/lib/icons'
 import { useCreateBranch } from '@/lib/branches/useBranches'
 import { ApiError } from '@/lib/api/client'
 import type { BranchCreateBody } from '@/lib/api/branch'
+import { LocationLookupField, type LocationPick } from '@/components/branches/LocationLookupField'
 
 const ABOUT_MAX = 600
 
@@ -58,10 +59,33 @@ export function AddBranchModal({ onClose }: { onClose: () => void }) {
   const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({})
   const [postcodeError, setPostcodeError] = React.useState<string | null>(null)
   const [modalError, setModalError] = React.useState<string | null>(null)
+  // PR-6: the opaque token from a Google location pick (resolved server-side to
+  // admin-review metadata; NEVER lat/lng). Cleared on any manual address edit so a
+  // stale token never rides along with a hand-typed address.
+  const [candidateToken, setCandidateToken] = React.useState<string | null>(null)
 
   function field(key: keyof typeof draft) {
-    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      setDraft((d) => ({ ...d, [key]: e.target.value }))
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const value = e.target.value
+      setDraft((d) => ({ ...d, [key]: value }))
+      // A manual edit to an address field invalidates the picked token.
+      if (key === 'addressLine1' || key === 'addressLine2' || key === 'city' || key === 'postcode') {
+        setCandidateToken(null)
+      }
+    }
+  }
+
+  // PR-6: autofill the existing address fields from a Google pick + hold the token.
+  function applyPick(pick: LocationPick) {
+    setDraft((d) => ({
+      ...d,
+      addressLine1: pick.addressParts.addressLine1 ?? d.addressLine1,
+      city: pick.addressParts.city ?? d.city,
+      postcode: pick.addressParts.postcode ?? d.postcode,
+    }))
+    setCandidateToken(pick.candidateToken)
+    setFieldErrors({})
+    setPostcodeError(null)
   }
 
   // The backend requires name + address; mirror the BranchStepForm create-minimum.
@@ -88,6 +112,9 @@ export function AddBranchModal({ onClose }: { onClose: () => void }) {
     if (draft.email.trim()) b.email = draft.email.trim()
     if (draft.websiteUrl.trim()) b.websiteUrl = draft.websiteUrl.trim()
     if (draft.about.trim()) b.about = draft.about.trim()
+    // PR-6: the Google-pick token rides along (server resolves it to admin-review
+    // metadata; never lat/lng). Omitted on a hand-typed address.
+    if (candidateToken) b.candidateToken = candidateToken
     return b
   }
 
@@ -183,6 +210,11 @@ export function AddBranchModal({ onClose }: { onClose: () => void }) {
           onChange={field('about')}
           placeholder="Anything specific to this location, like parking, accessibility, or what makes it special."
         />
+
+        {/* PR-6: business / address lookup. Picking a result autofills the address
+            fields below + holds the token for submit. The merchant reviews/edits
+            before saving. No map, no pin, no coordinates. */}
+        <LocationLookupField id="add-branch-location" onPick={applyPick} />
 
         <div className="space-y-1.5">
           <Label htmlFor="add-branch-address1">Address line 1</Label>

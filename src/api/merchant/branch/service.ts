@@ -58,6 +58,47 @@ async function resolveBranchLocationFields(prisma: PrismaClient, postcode: strin
 
 const PIN_REGEX = /^\d{4}$/
 
+/**
+ * Branches PR-6 (§4b) — Layer 2: the resolved Google location SUGGESTION that
+ * rides along an address-apply as ADMIN-REVIEW METADATA ONLY.
+ *
+ * SECURITY INVARIANT (mini-spec §4b CRITICAL + the load-bearing lock): this is
+ * NEVER applied to a Branch column and NEVER sets a CONFIRMED_LOCATION_SET
+ * confidence. It is staged purely so the admin can confirm at the merchant's
+ * suggested pin via the unchanged `confirmBranchLocation` -> MANUALLY_CONFIRMED
+ * authority. The address change itself flows through the EXISTING lanes
+ * unchanged (the postcode resolver stamps POSTCODE_CENTROID = non-confirmed =
+ * non-discovery-visible). lat/lng + placeId are resolved server-side from the
+ * candidate token (Layer 1's `resolveLocationCandidate`); they never cross the
+ * wire from the client.
+ */
+export interface BranchLocationSuggestion {
+  placeId: string
+  latitude: number
+  longitude: number
+}
+
+/**
+ * The audit/metadata block staged from a Google suggestion. `source` marks the
+ * provenance so an admin reviewer can tell a merchant-portal Google pick apart
+ * from any future suggestion origin. Shape is intentionally flat + JSON-safe.
+ */
+function locationSuggestionMetadata(suggestion: BranchLocationSuggestion) {
+  return {
+    placeId: suggestion.placeId,
+    latitude: suggestion.latitude,
+    longitude: suggestion.longitude,
+    source: 'merchant_portal_google' as const,
+  }
+}
+
+// The proposedChanges sub-key under which the suggestion is stashed in the
+// reviewed edit lane. It is DELIBERATELY NOT a Branch field name — the
+// editApplier's allow-lists (BRANCH_SENSITIVE_FIELDS + BRANCH_LOCATION_SNAPSHOT_FIELDS)
+// will NEVER pick it up at apply time, and getEditReviewContext's diff never
+// surfaces it. Verified against editApplier.ts.
+const LOCATION_SUGGESTION_KEY = '__locationSuggestion' as const
+
 // Sensitive fields require admin approval via edit-request
 const SENSITIVE_FIELDS = [
   'name', 'about', 'addressLine1', 'addressLine2', 'city', 'postcode',
@@ -176,6 +217,12 @@ export async function createBranchCore(
   data: Record<string, unknown>,
   ctx: { ipAddress: string; userAgent: string },
   stageForApproval = false,
+  // Branches PR-6 (§4b): an OPTIONAL resolved Google suggestion (server-held
+  // coords + placeId from the candidate token). Recorded in the BRANCH_CREATED
+  // audit metadata as ADMIN-REVIEW METADATA ONLY — NEVER applied to a Branch
+  // column, NEVER a confidence write. The address itself still lands at
+  // POSTCODE_CENTROID via resolveBranchLocationFields below.
+  locationSuggestion?: BranchLocationSuggestion,
 ) {
   // Auto-main counts only LIVE (non-pending), non-deleted branches: a PENDING_CREATE
   // branch is never an eligible "first branch", so the first instant-live branch is
@@ -224,7 +271,15 @@ export async function createBranchCore(
     await writeAuditLogTx(tx, {
       entityId: branch.id, entityType: 'branch', event: 'BRANCH_CREATED',
       actorId: actor.id, actorType: actor.type, reason: actor.reason,
-      metadata: { merchantId, staged: stageForApproval },
+      // Branches PR-6 (§4b): fold the Google suggestion into the existing
+      // BRANCH_CREATED audit metadata as admin-review metadata. No new audit row;
+      // no Branch column; no confidence write (locationConfidence is set ONLY by
+      // resolveBranchLocationFields above = POSTCODE_CENTROID).
+      metadata: {
+        merchantId,
+        staged: stageForApproval,
+        ...(locationSuggestion ? { locationSuggestion: locationSuggestionMetadata(locationSuggestion) } : {}),
+      },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     })
     // Branches PR-5: a staged branch carries a BRANCH_CREATE approval (referenceId =
@@ -251,7 +306,10 @@ export async function createBranch(
   prisma: PrismaClient,
   adminId: string,
   data: Record<string, unknown>,
-  ctx: { ipAddress: string; userAgent: string }
+  ctx: { ipAddress: string; userAgent: string },
+  // Branches PR-6 (§4b): resolved at the route boundary from the candidateToken
+  // (NEVER a fresh Google call). Threaded straight into the core's audit metadata.
+  locationSuggestion?: BranchLocationSuggestion,
 ) {
   // Branches PR-5 (D5): OWNER-only (resolveAdminMerchant denies a non-owner by
   // construction with INVALID_CREDENTIALS; keeps the SEC-M2 suspended guard). Do NOT
@@ -277,6 +335,7 @@ export async function createBranch(
     data,
     ctx,
     stageForApproval,
+    locationSuggestion,
   )
 }
 
@@ -396,7 +455,11 @@ async function updateBranchSensitiveDirectCore(
   { merchantId, actor }: { merchantId: string; actor: EditActor },
   branchId: string,
   data: Record<string, unknown>,
-  ctx: { ipAddress: string; userAgent: string }
+  ctx: { ipAddress: string; userAgent: string },
+  // Branches PR-6 (§4b): the draft-window direct edit is a direct-write path like
+  // create — the Google suggestion is recorded in the BRANCH_UPDATED audit
+  // metadata only (no Branch column, no confidence write).
+  locationSuggestion?: BranchLocationSuggestion,
 ) {
   const branch = await resolveBranch(prisma, branchId, merchantId)
 
@@ -434,7 +497,12 @@ async function updateBranchSensitiveDirectCore(
       reason: actor.reason,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
-      metadata: { merchantId },
+      // Branches PR-6 (§4b): fold the Google suggestion into the existing
+      // BRANCH_UPDATED audit metadata (admin-review metadata only).
+      metadata: {
+        merchantId,
+        ...(locationSuggestion ? { locationSuggestion: locationSuggestionMetadata(locationSuggestion) } : {}),
+      },
     })
     return updated
   })
@@ -445,7 +513,13 @@ export async function updateBranch(
   adminId: string,
   branchId: string,
   data: Record<string, unknown>,
-  ctx: { ipAddress: string; userAgent: string }
+  ctx: { ipAddress: string; userAgent: string },
+  // Branches PR-6 (§4b): resolved at the route boundary from the candidateToken.
+  // Forwarded to whichever apply path the PATCH fans out to — the draft-window
+  // SENSITIVE-direct core OR the governed createBranchEditRequest lane. The
+  // simple-DIRECT path (phone/email/websiteUrl/isActive) is not an address edit,
+  // so it ignores the suggestion.
+  locationSuggestion?: BranchLocationSuggestion,
 ) {
   // Staff & Access PR-2 (D3, spec §3 PR-2): the PATCH route is split by
   // authorization WITHIN the service.
@@ -531,7 +605,8 @@ export async function updateBranch(
         { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
         branchId,
         data,
-        ctx
+        ctx,
+        locationSuggestion,
       )
     }
 
@@ -539,8 +614,9 @@ export async function updateBranch(
     // edit-request lane (createBranchEditRequest does its own scope re-check via
     // resolveMerchantContext + assertBranchAllowed, PENDING_EDIT_EXISTS guard, and
     // eager postcode resolution). BM-allowed for an assigned branch (D3 lists
-    // branch-details review requests as a BM action).
-    return createBranchEditRequest(prisma, adminId, branchId, data, false, ctx)
+    // branch-details review requests as a BM action). The Google suggestion (if
+    // any) rides into proposedChanges + audit as admin-review metadata.
+    return createBranchEditRequest(prisma, adminId, branchId, data, false, ctx, locationSuggestion)
   }
 
   // Simple-DIRECT path: delegate to the shared core so the merchant path and
@@ -561,7 +637,13 @@ export async function createBranchEditRequest(
   branchId: string,
   proposedChanges: Record<string, unknown>,
   includesPhotos: boolean,
-  ctx: { ipAddress: string; userAgent: string }
+  ctx: { ipAddress: string; userAgent: string },
+  // Branches PR-6 (§4b): an OPTIONAL resolved Google suggestion staged as a
+  // metadata sub-key in proposedChanges (NOT an applicable Branch field — the
+  // editApplier's allow-lists never pick it up at apply time) PLUS the audit
+  // metadata. The address fields apply through this lane as normal; the postcode
+  // resolver still stamps POSTCODE_CENTROID. NEVER a confidence write.
+  locationSuggestion?: BranchLocationSuggestion,
 ) {
   // Staff & Access PR-2 (D3): submitting a branch-details review request is a
   // BM-allowed action for an assigned branch. Scope-enforced via
@@ -602,6 +684,18 @@ export async function createBranchEditRequest(
     Object.assign(filtered, locationFields)
   }
 
+  // Branches PR-6 (§4b): stash the resolved Google suggestion as a metadata
+  // sub-key AFTER the SENSITIVE_FIELDS filter so it survives into proposedChanges
+  // (it is NOT a sensitive field, so the filter above would otherwise drop it).
+  // The key is deliberately not a Branch field name — editApplier.approveEdit
+  // applies ONLY BRANCH_SENSITIVE_FIELDS + BRANCH_LOCATION_SNAPSHOT_FIELDS via
+  // pickAllowed, so __locationSuggestion is NEVER written to a Branch column, and
+  // getEditReviewContext's diff (which iterates BRANCH_SENSITIVE_FIELDS) never
+  // surfaces it. Admin-review metadata only; NO confidence write.
+  if (locationSuggestion) {
+    filtered[LOCATION_SUGGESTION_KEY] = locationSuggestionMetadata(locationSuggestion)
+  }
+
   // Check for existing PENDING edit
   const existingEdit = await prisma.branchPendingEdit.findFirst({
     where: { branchId, status: 'PENDING' },
@@ -631,7 +725,12 @@ export async function createBranchEditRequest(
   writeAuditLog(prisma, {
     entityId: merchantId, entityType: 'merchant',
     event: 'BRANCH_EDIT_REQUEST_CREATED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    metadata: { branchId, pendingEditId: pendingEdit.id },
+    metadata: {
+      branchId,
+      pendingEditId: pendingEdit.id,
+      // Branches PR-6 (§4b): admin-review metadata; no Branch column, no confidence write.
+      ...(locationSuggestion ? { locationSuggestion: locationSuggestionMetadata(locationSuggestion) } : {}),
+    },
   })
   return pendingEdit
 }

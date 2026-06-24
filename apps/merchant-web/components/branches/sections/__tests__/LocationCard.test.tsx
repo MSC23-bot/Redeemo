@@ -1,15 +1,29 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { LocationCard } from '@/components/branches/sections/LocationCard'
 import type { Branch } from '@/lib/api/branch'
 
-// Branches PR-1 F9: the read-only Location card (prototype 03). It shows the formatted
-// address, a confidence badge (MANUALLY_CONFIRMED -> green "Location confirmed";
-// otherwise orange "Awaiting location check"), a PURE HTML/CSS map placeholder with a
-// centred pin SVG (ZERO network, NO map library, NO lat/lng shown), the prototype copy
-// "Worked out from the address. You did not enter coordinates.", and a DISABLED locked
-// "Update location" affordance (PR-6). Read-only for everyone.
+// Branches PR-1 F9 + PR-6 (Layer 3): the Location card (prototype 03). It shows the
+// formatted address, a confidence badge (MANUALLY_CONFIRMED -> green "Location
+// confirmed"; otherwise orange "Awaiting location check"), a PURE HTML/CSS map
+// placeholder with a centred pin SVG (ZERO network, NO map library, NO lat/lng shown),
+// the prototype copy "Worked out from the address. You did not enter coordinates.",
+// and (PR-6) an ACTIVE owner-gated "Update location" control that opens the reviewed
+// edit modal carrying the business / address lookup. The card itself makes no network.
 
-// Spy: any network at all (fetch / the transport) is a failure for this card.
+// The reviewed-edit modal is mounted by the active control. Stub it so opening it does
+// not pull in the real edit-request hook / file-upload network; we only assert it
+// mounts on click.
+jest.mock('@/components/branches/BranchDetailsEditModal', () => ({
+  BranchDetailsEditModal: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="branch-details-edit-modal">
+      <button type="button" onClick={onClose}>
+        close
+      </button>
+    </div>
+  ),
+}))
+
+// Spy: the card itself makes no network at all (fetch / the transport).
 const apiFetch = jest.fn()
 jest.mock('@/lib/api/client', () => {
   const actual = jest.requireActual('@/lib/api/client')
@@ -80,12 +94,33 @@ describe('LocationCard privacy + no-network', () => {
   })
 })
 
-describe('LocationCard locked update-location affordance', () => {
-  it('shows the locked "Update location" affordance disabled and fires no network', () => {
+describe('LocationCard active update-location affordance (PR-6)', () => {
+  it('shows an ACTIVE (enabled) "Update location" control for the owner', () => {
     render(<LocationCard branch={branch()} isOwner />)
-    const btn = screen.getByRole('button', { name: /update location/i })
-    expect(btn).toBeDisabled()
+    const btn = screen.getByTestId('location-update-button')
+    expect(btn).toBeEnabled()
+    // The card itself fires no network on render.
     expect(apiFetch).not.toHaveBeenCalled()
     expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('opens the reviewed edit modal (which carries the lookup) on click', () => {
+    render(<LocationCard branch={branch()} isOwner />)
+    expect(screen.queryByTestId('branch-details-edit-modal')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('location-update-button'))
+    expect(screen.getByTestId('branch-details-edit-modal')).toBeInTheDocument()
+  })
+
+  it('does NOT show the control for a non-owner (UX gate; the backend is the boundary)', () => {
+    render(<LocationCard branch={branch()} isOwner={false} />)
+    expect(screen.queryByTestId('location-update-button')).not.toBeInTheDocument()
+  })
+
+  it('disables the control when an identity edit is already in review', () => {
+    const b = branch({
+      pendingEdits: [{ id: 'e1', status: 'PENDING', includesPhotos: false }],
+    })
+    render(<LocationCard branch={b} isOwner />)
+    expect(screen.getByTestId('location-update-button')).toBeDisabled()
   })
 })

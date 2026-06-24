@@ -301,6 +301,14 @@ export const ERROR_DEFINITIONS = {
   // merchantFields bag (no Zod cap). Rejected when the bag exceeds 16KB of JSON
   // or more than 50 top-level keys, before it can reach Prisma.
   MERCHANT_FIELDS_TOO_LARGE:       { statusCode: 400, message: 'The voucher details are too large. Please simplify and try again.' },
+  // Branches PR-6 (§4a/§4e): merchant Google location-search. Provider internals
+  // are NEVER leaked — every searchPlaces ok:false union member maps to one of
+  // these client-safe codes. details.retryAfter (seconds) accompanies the rate
+  // limit. LOCATION_SEARCH_RATE_LIMITED is the multi-instance-safe limiter block
+  // (per-user / per-IP / per-merchant / global daily cost ceiling).
+  LOCATION_SEARCH_NO_RESULTS:       { statusCode: 404, message: 'No matching places were found. Try a different search.' },
+  LOCATION_SEARCH_UNAVAILABLE:      { statusCode: 503, message: 'Location lookup is unavailable right now. Please try again in a moment, or enter the address manually.' },
+  LOCATION_SEARCH_RATE_LIMITED:     { statusCode: 429, message: 'Too many location searches. Please try again later.' },
   // Staff & Access (v1) PR-B (review FIX 5): dedicated portal-member error codes,
   // replacing the previously-reused ALREADY_VERIFIED (resend-invite on an
   // already-claimed member) and USER_NOT_FOUND (target membership not found /
