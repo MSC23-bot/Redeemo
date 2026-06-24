@@ -114,6 +114,8 @@ export const ERROR_DEFINITIONS = {
   USER_NOT_FOUND:                 { statusCode: 404, message: 'User not found.' },
   PENDING_EDIT_EXISTS:            { statusCode: 409, message: 'A pending edit already exists. Withdraw it before submitting a new one.' },
   PENDING_EDIT_NOT_FOUND:         { statusCode: 404, message: 'Pending edit not found.' },
+  // Branches PR-4 (§4b): no PENDING opening-hours change to cancel for this branch.
+  PENDING_HOURS_NOT_FOUND:        { statusCode: 404, message: 'No pending opening-hours change to cancel.' },
   BRANCH_IS_MAIN:                 { statusCode: 409, message: 'Cannot delete the main branch. Promote another branch to main first.' },
   BRANCH_LAST_ACTIVE:             { statusCode: 409, message: 'Cannot delete the only active branch of a live merchant.' },
   VOUCHER_NOT_EDITABLE:           { statusCode: 409, message: 'This voucher cannot be edited in its current state.' },

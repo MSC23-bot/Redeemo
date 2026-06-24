@@ -22,6 +22,11 @@ import { EMAIL_QUEUE, MAINTENANCE_QUEUE, BULLMQ_PREFIX, enqueue, makeQueue } fro
 import { makeQueueConnection } from '../connection'
 import { shouldLog } from '../logThrottle'
 import { CLAIM_STALE_JOB, sweepStaleClaims } from './claimStaleSweep'
+import {
+  PROMOTE_PENDING_HOURS_JOB,
+  promotePendingHours,
+  promoteOnePendingHours,
+} from './promotePendingHours'
 
 /** Only RE-ENQUEUE rows older than this — ≥ the worker's max retry-backoff window. */
 export const RECONCILE_GRACE_MS = 120_000 // 2 min
@@ -107,10 +112,12 @@ export async function reconcileOutbox(prisma: PrismaClient, now: Date = new Date
 /**
  * Start the MAINTENANCE_QUEUE Worker on its OWN Redis connection. One Worker
  * serves the whole queue, dispatching by job name: the outbox reconciler
- * (RECONCILE_JOB) and the WP4 stale-claim sweep (CLAIM_STALE_JOB). A single
- * worker is deliberate, since two Workers on one queue round-robin jobs, so a
- * reconcile tick could land on a claim-stale-only worker and be silently
- * no-op'd. Wired from src/worker.ts alongside the email worker.
+ * (RECONCILE_JOB), the WP4 stale-claim sweep (CLAIM_STALE_JOB), and the PR-4
+ * opening-hours promotion (PROMOTE_PENDING_HOURS_JOB — repeatable sweep + a
+ * per-record delayed nudge). A single worker is deliberate, since two Workers on
+ * one queue round-robin jobs, so a reconcile tick could land on a claim-stale-only
+ * worker and be silently no-op'd. Wired from src/worker.ts alongside the email
+ * worker.
  */
 export function startReconcileWorker(prisma: PrismaClient, connection?: IORedis): Worker {
   const worker = new Worker(
@@ -118,6 +125,18 @@ export function startReconcileWorker(prisma: PrismaClient, connection?: IORedis)
     async (job: Job) => {
       if (job.name === RECONCILE_JOB) await reconcileOutbox(prisma)
       else if (job.name === CLAIM_STALE_JOB) await sweepStaleClaims(prisma)
+      // PR-4 §4c: the repeatable promotion SWEEP arrives as its own job.name and
+      // runs the full bounded sweep (the durable correctness guarantee).
+      else if (job.name === PROMOTE_PENDING_HOURS_JOB) await promotePendingHours(prisma)
+      // PR-4 §4c: the per-record delayed NUDGE is enqueued through the shared
+      // `enqueue` helper, which sets job.name to the QUEUE name (MAINTENANCE_QUEUE),
+      // so it is distinguished by job.data.job and promotes that one record by id.
+      // The handler re-reads the durable row (never trusts job.data beyond the id)
+      // and skips a withdrawn / already-promoted / not-yet-due record.
+      else if (job.name === MAINTENANCE_QUEUE && (job.data as { job?: string } | undefined)?.job === PROMOTE_PENDING_HOURS_JOB) {
+        const pendingId = (job.data as { pendingId?: string }).pendingId
+        if (pendingId) await promoteOnePendingHours(prisma, pendingId)
+      }
     },
     {
       connection: (connection ?? makeQueueConnection()) as unknown as ConnectionOptions,

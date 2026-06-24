@@ -1,4 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+// Branches PR-4 (§4a): setOpeningHours STAGES (enqueues a delayed promotion nudge
+// via enqueue(MAINTENANCE_QUEUE, ...)) instead of upserting live hours. Mock enqueue
+// so this route suite never touches Redis/BullMQ; keep MAINTENANCE_QUEUE real.
+const { enqueueMock } = vi.hoisted(() => ({ enqueueMock: vi.fn().mockResolvedValue({ id: 'job-1' }) }))
+vi.mock('../../../src/api/queues', () => ({ MAINTENANCE_QUEUE: 'maintenance', enqueue: enqueueMock }))
+
 import { buildApp } from '../../../src/api/app'
 import type { FastifyInstance } from 'fastify'
 
@@ -10,7 +17,7 @@ describe('merchant branch routes', () => {
     id: 'b1', merchantId: 'm1', name: 'Main Branch', isMainBranch: true,
     addressLine1: '1 Test St', city: 'London', postcode: 'EC1A 1BB',
     country: 'GB', isActive: true, deletedAt: null,
-    openingHours: [], amenities: [], photos: [], pendingEdits: [],
+    openingHours: [], amenities: [], photos: [], pendingEdits: [], pendingHours: [],
   }
 
   beforeEach(async () => {
@@ -29,6 +36,12 @@ describe('merchant branch routes', () => {
         update: vi.fn(), updateMany: vi.fn(), count: vi.fn(),
       },
       branchOpeningHours: { upsert: vi.fn() },
+      // Branches PR-4 (§4a): hours STAGE writes a BranchOpeningHoursPending row.
+      branchOpeningHoursPending: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        create: vi.fn().mockImplementation(({ data }: any) =>
+          Promise.resolve({ id: 'ph1', status: 'PENDING', ...data })),
+      },
       branchAmenity: { deleteMany: vi.fn(), createMany: vi.fn() },
       branchPendingEdit: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
       adminApproval: { create: vi.fn().mockResolvedValue({}) },
@@ -194,9 +207,8 @@ describe('merchant branch routes', () => {
     )
   })
 
-  it('POST /api/v1/merchant/branches/:id/hours upserts full week', async () => {
+  it('POST /api/v1/merchant/branches/:id/hours STAGES a pending change (no live upsert)', async () => {
     app.prisma.branch.findFirst = vi.fn().mockResolvedValue(mockBranch)
-    app.prisma.branchOpeningHours.upsert = vi.fn().mockResolvedValue({})
 
     const res = await app.inject({
       method: 'POST', url: '/api/v1/merchant/branches/b1/hours',
@@ -209,6 +221,9 @@ describe('merchant branch routes', () => {
       },
     })
     expect(res.statusCode).toBe(200)
-    expect(app.prisma.branchOpeningHours.upsert).toHaveBeenCalledTimes(2)
+    // Branches PR-4 (§4a): STAGE-not-apply — live hours are NOT upserted at write time.
+    expect(app.prisma.branchOpeningHours.upsert).not.toHaveBeenCalled()
+    expect(app.prisma.branchOpeningHoursPending.create).toHaveBeenCalledTimes(1)
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
   })
 })

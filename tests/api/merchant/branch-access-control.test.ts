@@ -52,7 +52,8 @@ async function makeApp(row: ReturnType<typeof membershipRow>, lifecycle = { stat
       // resolveMerchantContext -> getActiveMembership -> findMany (single active row)
       findMany: vi.fn().mockResolvedValue([row]),
       // resolveAdminMerchant -> getOwnerMembership -> findFirst (OWNER only); the
-      // owner-only routes (create/close/hours) still use this resolver.
+      // owner-only routes (create/close/set-main) still use this resolver. (Hours
+      // moved to resolveMerchantContext + assertCanManageBranch in PR-4 cool-off.)
       findFirst: vi.fn().mockResolvedValue(
         row.role === 'OWNER' ? { id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', merchant: { status: row.merchant.status, businessName: 'Acme' } } : null
       ),

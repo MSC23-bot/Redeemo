@@ -18,10 +18,13 @@ import {
   sendBranchPin,
   requestBranchPhotoEdit,
   removeBranchPhoto,
+  stageBranchHours,
+  cancelPendingHours,
   type Branch,
   type BranchUpdateBody,
   type BranchEditRequestBody,
 } from '@/lib/api/branch'
+import type { HoursPayloadRow } from '@/components/onboarding/branch/lib/hoursModel'
 
 export const BRANCHES_KEY = ['branches'] as const
 
@@ -143,5 +146,30 @@ export function useRemoveBranchPhoto() {
     mutationFn: ({ id, photoId }: { id: string; photoId: string }) =>
       removeBranchPhoto(id, photoId),
     onSuccess: (_data, { id }) => invalidate(id),
+  })
+}
+
+// PR-4 §6: STAGE an opening-hours change for the 2-hour customer cool-off. The edit
+// does NOT go live immediately; the backend stages a durable pending row and a worker
+// promotes it after the window. Invalidating ['branch', id] re-reads getBranch, whose
+// payload now carries the pendingHours row, so the "goes live at" banner appears.
+export function useStageBranchHours() {
+  const invalidate = useInvalidateBranch()
+  return useMutation({
+    mutationFn: ({ id, hours }: { id: string; hours: HoursPayloadRow[] }) =>
+      stageBranchHours(id, hours),
+    onSuccess: (_data, { id }) => invalidate(id),
+  })
+}
+
+// PR-4 §6: cancel/withdraw a staged opening-hours change before it promotes.
+// Invalidating ['branch', id] re-reads getBranch (now with no pendingHours row) so the
+// banner disappears. A stale/missing pending (PENDING_HOURS_NOT_FOUND, e.g. it already
+// promoted) surfaces as a mutation error the caller handles calmly.
+export function useCancelPendingHours() {
+  const invalidate = useInvalidateBranch()
+  return useMutation({
+    mutationFn: (id: string) => cancelPendingHours(id),
+    onSuccess: (_data, id) => invalidate(id),
   })
 }

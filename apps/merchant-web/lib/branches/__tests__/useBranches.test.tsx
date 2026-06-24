@@ -20,6 +20,8 @@ import {
   useCreateBranchEditRequest,
   useWithdrawBranchEditRequest,
   useSendBranchPin,
+  useStageBranchHours,
+  useCancelPendingHours,
 } from '../useBranches'
 
 const api = {
@@ -31,6 +33,8 @@ const api = {
   createBranchEditRequest: jest.fn(),
   withdrawBranchEditRequest: jest.fn(),
   sendBranchPin: jest.fn(),
+  stageBranchHours: jest.fn(),
+  cancelPendingHours: jest.fn(),
 }
 jest.mock('@/lib/api/branch', () => ({
   listBranches: (...a: unknown[]) => api.listBranches(...a),
@@ -41,6 +45,8 @@ jest.mock('@/lib/api/branch', () => ({
   createBranchEditRequest: (...a: unknown[]) => api.createBranchEditRequest(...a),
   withdrawBranchEditRequest: (...a: unknown[]) => api.withdrawBranchEditRequest(...a),
   sendBranchPin: (...a: unknown[]) => api.sendBranchPin(...a),
+  stageBranchHours: (...a: unknown[]) => api.stageBranchHours(...a),
+  cancelPendingHours: (...a: unknown[]) => api.cancelPendingHours(...a),
 }))
 
 function wrapper(qc: QueryClient) {
@@ -171,6 +177,31 @@ describe('branch mutations invalidate [branches] + [branch, id]', () => {
       await result.current.mutateAsync('b1')
     })
     expect(api.sendBranchPin).toHaveBeenCalledWith('b1')
+    expectBothInvalidations(invalidate, 'b1')
+  })
+
+  it('useStageBranchHours STAGES and invalidates [branches] + [branch, id]', async () => {
+    api.stageBranchHours.mockResolvedValue({ id: 'ph1', status: 'PENDING' })
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useStageBranchHours(), { wrapper: wrapper(qc) })
+    const hours = [{ dayOfWeek: 1, isClosed: false, openTime: '10:00', closeTime: '18:00' }]
+    await act(async () => {
+      await result.current.mutateAsync({ id: 'b1', hours })
+    })
+    expect(api.stageBranchHours).toHaveBeenCalledWith('b1', hours)
+    expectBothInvalidations(invalidate, 'b1')
+  })
+
+  it('useCancelPendingHours DELETEs and invalidates [branches] + [branch, id]', async () => {
+    api.cancelPendingHours.mockResolvedValue({ ok: true })
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useCancelPendingHours(), { wrapper: wrapper(qc) })
+    await act(async () => {
+      await result.current.mutateAsync('b1')
+    })
+    expect(api.cancelPendingHours).toHaveBeenCalledWith('b1')
     expectBothInvalidations(invalidate, 'b1')
   })
 })

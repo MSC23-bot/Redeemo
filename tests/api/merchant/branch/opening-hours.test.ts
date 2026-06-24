@@ -1,4 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+// Branches PR-4 (§4a): setOpeningHours is now STAGE-not-apply — it enqueues a
+// delayed promotion nudge via enqueue(MAINTENANCE_QUEUE, ...). Mock enqueue so the
+// route-level tests never touch Redis/BullMQ; keep MAINTENANCE_QUEUE real.
+const { enqueueMock } = vi.hoisted(() => ({ enqueueMock: vi.fn().mockResolvedValue({ id: 'job-1' }) }))
+vi.mock('../../../../src/api/queues', () => ({ MAINTENANCE_QUEUE: 'maintenance', enqueue: enqueueMock }))
+
 import { buildApp } from '../../../../src/api/app'
 import type { FastifyInstance } from 'fastify'
 import { validateOpeningHours } from '../../../../src/api/merchant/branch/openingHours'
@@ -107,7 +114,7 @@ describe('validateOpeningHours (pure)', () => {
   })
 })
 
-describe('POST /api/v1/merchant/branches/:id/hours validation (route-level, M2 B4)', () => {
+describe('POST /api/v1/merchant/branches/:id/hours validation + STAGE-not-apply (route-level, PR-4 §4a)', () => {
   let app: FastifyInstance
   let merchantToken: string
 
@@ -115,19 +122,36 @@ describe('POST /api/v1/merchant/branches/:id/hours validation (route-level, M2 B
     id: 'b1', merchantId: 'm1', name: 'Main Branch', isMainBranch: true,
     addressLine1: '1 Test St', city: 'London', postcode: 'EC1A 1BB',
     country: 'GB', isActive: true, deletedAt: null,
-    openingHours: [], amenities: [], photos: [], pendingEdits: [],
+    openingHours: [], amenities: [], photos: [], pendingEdits: [], pendingHours: [],
+  }
+
+  // OWNER membership row resolved by resolveMerchantContext -> getActiveMembership
+  // (merchantMembership.findMany). The single row drives role + branch scope.
+  const ownerRow = {
+    id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER',
+    allBranches: true, canManageVouchers: false,
+    merchant: { status: 'ACTIVE', businessName: 'Acme' },
+    branches: [],
   }
 
   beforeEach(async () => {
+    enqueueMock.mockClear()
     app = await buildApp()
-    app.decorate('prisma', {
+    const prismaMock: any = {
       merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
-      merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
+      merchantMembership: { findMany: vi.fn().mockResolvedValue([ownerRow]) },
       merchant: { findUnique: vi.fn() },
       branch: { findFirst: vi.fn().mockResolvedValue(mockBranch) },
       branchOpeningHours: { upsert: vi.fn().mockResolvedValue({}) },
+      branchOpeningHoursPending: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        create: vi.fn().mockImplementation(({ data }: any) =>
+          Promise.resolve({ id: 'ph1', status: 'PENDING', ...data })),
+      },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
-    } as any)
+    }
+    prismaMock.$transaction = vi.fn().mockImplementation(async (fn: any) => fn(prismaMock))
+    app.decorate('prisma', prismaMock as any)
     app.decorate('redis', { get: vi.fn().mockResolvedValue(null), exists: vi.fn().mockResolvedValue(1) } as any)
     await app.ready()
     merchantToken = (app.jwt as any).merchant.sign(
@@ -138,7 +162,7 @@ describe('POST /api/v1/merchant/branches/:id/hours validation (route-level, M2 B
 
   afterEach(async () => { await app.close() })
 
-  it('rejects a bad hours payload (duplicate day) with 400 and no upsert', async () => {
+  it('rejects a bad hours payload (duplicate day) with 400 and no staging write', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/v1/merchant/branches/b1/hours',
       headers: { authorization: `Bearer ${merchantToken}` },
@@ -152,7 +176,11 @@ describe('POST /api/v1/merchant/branches/:id/hours validation (route-level, M2 B
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body).error.code).toBe('OPENING_HOURS_INVALID')
+    // Validation runs BEFORE any DB work: neither the live upsert nor the staging
+    // write nor the enqueue happens.
     expect(app.prisma.branchOpeningHours.upsert).not.toHaveBeenCalled()
+    expect(app.prisma.branchOpeningHoursPending.create).not.toHaveBeenCalled()
+    expect(enqueueMock).not.toHaveBeenCalled()
   })
 
   it('rejects a closed-day-with-times payload with 400', async () => {
@@ -164,10 +192,11 @@ describe('POST /api/v1/merchant/branches/:id/hours validation (route-level, M2 B
 
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body).error.code).toBe('OPENING_HOURS_INVALID')
-    expect(app.prisma.branchOpeningHours.upsert).not.toHaveBeenCalled()
+    expect(app.prisma.branchOpeningHoursPending.create).not.toHaveBeenCalled()
+    expect(enqueueMock).not.toHaveBeenCalled()
   })
 
-  it('accepts a well-formed week (incl. overnight + 24h) and upserts each day', async () => {
+  it('accepts a well-formed week (incl. overnight + 24h) and STAGES one pending row (no live upsert)', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/v1/merchant/branches/b1/hours',
       headers: { authorization: `Bearer ${merchantToken}` },
@@ -182,6 +211,24 @@ describe('POST /api/v1/merchant/branches/:id/hours validation (route-level, M2 B
     })
 
     expect(res.statusCode).toBe(200)
-    expect(app.prisma.branchOpeningHours.upsert).toHaveBeenCalledTimes(4)
+    // STAGE-not-apply: the live hours are NOT upserted at write time.
+    expect(app.prisma.branchOpeningHours.upsert).not.toHaveBeenCalled()
+    // Exactly one PENDING row created, holding the full proposed week.
+    expect(app.prisma.branchOpeningHoursPending.create).toHaveBeenCalledTimes(1)
+    const createArg = (app.prisma.branchOpeningHoursPending.create as any).mock.calls[0][0]
+    expect(createArg.data.status).toBe('PENDING')
+    expect(createArg.data.branchId).toBe('b1')
+    expect(createArg.data.merchantId).toBe('m1')
+    expect(createArg.data.proposedHours).toHaveLength(4)
+    expect(createArg.data.effectiveAt).toBeInstanceOf(Date)
+    // The delayed promotion nudge is enqueued with a branch-keyed jobId + 2h delay.
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    const [queueName, data, opts] = enqueueMock.mock.calls[0]
+    expect(queueName).toBe('maintenance')
+    expect(data.pendingId).toBe('ph1')
+    expect(opts.jobId).toBe('promote-hours:b1')
+    expect(opts.delay).toBe(2 * 60 * 60 * 1000)
+    // Response is the staged pending record.
+    expect(JSON.parse(res.body).status).toBe('PENDING')
   })
 })

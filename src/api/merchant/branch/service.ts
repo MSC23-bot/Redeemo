@@ -17,6 +17,8 @@ import { resolvePostcode } from '../../lib/postcodeResolver'
 import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
 import { validateOpeningHours } from './openingHours'
 import { uploadMerchantImage } from '../upload/service'
+import { enqueue, MAINTENANCE_QUEUE } from '../../queues'
+import { PROMOTE_PENDING_HOURS_JOB } from '../../queues/processors/promotePendingHours'
 
 /**
  * Plan 4 M1.21 — resolve a postcode via postcodes.io + find-or-create the
@@ -81,6 +83,15 @@ const BRANCH_INCLUDE = {
   amenities: { include: { amenity: true } },
   photos: true,
   pendingEdits: { where: { status: 'PENDING' as const }, take: 1 },
+  // Branches PR-4 (§6-data): the current PENDING opening-hours cool-off change, so
+  // getBranch / listBranches expose the proposed hours + go-live time + status on
+  // the merchant-web payload. At-most-one PENDING per branch is DB-enforced (the
+  // partial unique), so take:1 is exact. PROMOTED / CANCELLED rows are NOT exposed.
+  pendingHours: {
+    where: { status: 'PENDING' as const },
+    take: 1,
+    select: { id: true, proposedHours: true, effectiveAt: true, status: true },
+  },
 } as const
 
 async function resolveBranch(
@@ -767,6 +778,14 @@ export async function withdrawBranchEditRequest(
   return updated
 }
 
+// Branches PR-4 (umbrella D4): the opening-hours customer cool-off window. A merchant
+// hours edit does NOT go live immediately — it stages a durable
+// BranchOpeningHoursPending row with effectiveAt = now + PROMOTION_WINDOW_MS and a
+// worker promotes it (upserts the live BranchOpeningHours) after the window. 2 hours
+// is a constant, NOT configurable (matches D4). Customers keep seeing the current
+// live hours until promotion.
+export const PROMOTION_WINDOW_MS = 2 * 60 * 60 * 1000 // 2 h
+
 export async function setOpeningHours(
   prisma: PrismaClient,
   adminId: string,
@@ -776,24 +795,86 @@ export async function setOpeningHours(
   // M2 B4 (D8a): validate the single-period-per-day model BEFORE any DB work, so a
   // bad payload (duplicate day / closed-day-with-times / malformed time / bad
   // 24:00 / zero-length period) rejects with OPENING_HOURS_INVALID before the
-  // upserts run. Overnight close (close < open) is accepted (the customer-app
-  // consumer treats it as crossing midnight).
+  // staging write runs. Overnight close (close < open) is accepted (the
+  // customer-app consumer treats it as crossing midnight). Reused VERBATIM — the
+  // staged payload is the same single-window shape (multi-window = PR-8).
   validateOpeningHours(hours)
 
-  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  // Branches PR-4 (§4a step 2 / §7): branch-management WRITE — OWNER (any branch) OR
+  // assigned BRANCH_MANAGER; STAFF denied even when assigned. A deliberate widening
+  // from today's OWNER-only resolveAdminMerchant (locked by D3), mirroring
+  // setAmenities. resolveMerchantContext keeps the SEC-M2 suspended-merchant guard.
+  const ctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageBranch(ctx, branchId)
+  const { merchantId } = ctx
   await resolveBranch(prisma, branchId, merchantId)
 
-  await Promise.all(
-    hours.map(({ dayOfWeek, openTime, closeTime, isClosed }) =>
-      prisma.branchOpeningHours.upsert({
-        where: { branchId_dayOfWeek: { branchId, dayOfWeek } },
-        create: { branchId, dayOfWeek, openTime, closeTime, isClosed },
-        update: { openTime, closeTime, isClosed },
-      })
-    )
+  // STAGE, do NOT upsert the live BranchOpeningHours. Supersede semantics (§4a):
+  // a new stage SUPERSEDES any existing PENDING row for the branch (the prior
+  // PENDING is CANCELLED; the new one takes a fresh effectiveAt = now + 2h). The
+  // cancel-then-create runs in ONE transaction in that order, so at no instant do
+  // two PENDING rows coexist and the partial unique ("branchId") WHERE
+  // status='PENDING' is never violated; a racing second stage that tries to create
+  // a second PENDING fails the unique and retries cleanly.
+  const effectiveAt = new Date(Date.now() + PROMOTION_WINDOW_MS)
+  const pending = await prisma.$transaction(async (tx) => {
+    await tx.branchOpeningHoursPending.updateMany({
+      where: { branchId, status: 'PENDING' },
+      data: { status: 'CANCELLED', cancelledAt: new Date() },
+    })
+    return tx.branchOpeningHoursPending.create({
+      data: {
+        branchId,
+        merchantId,
+        proposedHours: hours,
+        effectiveAt,
+        status: 'PENDING',
+        createdBy: ctx.adminId,
+      },
+    })
+  })
+
+  // Enqueue the delayed promotion NUDGE (§4a step 5 / §4c). The stable jobId keyed
+  // on branchId lets a re-stage replace the prior delayed job (BullMQ same-jobId
+  // dedup). The handler (PROMOTE_PENDING_HOURS_JOB) + the durable repeatable sweep
+  // that GUARANTEES promotion both land in the promotion dispatch (PR-4 §4c); they
+  // re-read the durable row and skip any non-PENDING / cancelled record.
+  await enqueue(
+    MAINTENANCE_QUEUE,
+    { job: PROMOTE_PENDING_HOURS_JOB, pendingId: pending.id },
+    { jobId: `promote-hours:${branchId}`, delay: PROMOTION_WINDOW_MS },
   )
 
-  return { ok: true }
+  return pending
+}
+
+/**
+ * Branches PR-4 (§4b): cancel/withdraw a staged opening-hours change BEFORE it
+ * promotes. Same branch-management WRITE boundary as the stage write
+ * (resolveMerchantContext + assertCanManageBranch — OWNER any / assigned
+ * BRANCH_MANAGER / STAFF denied). Marks the branch's PENDING row CANCELLED +
+ * cancelledAt; the outstanding delayed job becomes a no-op because the promotion
+ * handler re-reads the row and skips a non-PENDING record (never trusts job.data).
+ * Does NOT touch the live BranchOpeningHours — the live hours only ever change on
+ * promotion. Throws PENDING_HOURS_NOT_FOUND (404) when there is no PENDING row.
+ */
+export async function cancelPendingHours(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+) {
+  const ctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageBranch(ctx, branchId)
+  const { merchantId } = ctx
+  await resolveBranch(prisma, branchId, merchantId)
+
+  const res = await prisma.branchOpeningHoursPending.updateMany({
+    where: { branchId, status: 'PENDING' },
+    data: { status: 'CANCELLED', cancelledAt: new Date() },
+  })
+  if (res.count === 0) throw new AppError('PENDING_HOURS_NOT_FOUND')
+
+  return { ok: true as const }
 }
 
 export async function setAmenities(

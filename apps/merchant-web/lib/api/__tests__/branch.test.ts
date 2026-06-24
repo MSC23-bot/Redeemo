@@ -15,8 +15,11 @@ import {
   listBranchEditRequests,
   withdrawBranchEditRequest,
   sendBranchPin,
+  stageBranchHours,
+  cancelPendingHours,
   branchSchema,
   branchPendingEditSchema,
+  branchPendingHoursSchema,
 } from '@/lib/api/branch'
 import type { HoursPayloadRow } from '@/components/onboarding/branch/lib/hoursModel'
 
@@ -437,5 +440,93 @@ describe('lib/api/branch (PR-3 photos)', () => {
       method: 'DELETE',
       auth: true,
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR-4: opening-hours cool-off staging: pendingHours schema + stage / cancel.
+// ---------------------------------------------------------------------------
+
+describe('lib/api/branch (PR-4 hours cool-off)', () => {
+  it('branchSchema parses the new pendingHours field (proposed rows + effectiveAt + status)', () => {
+    const parsed = branchSchema.parse({
+      id: 'b1',
+      name: 'Main',
+      openingHours: [{ dayOfWeek: 1, openTime: '09:00', closeTime: '17:00', isClosed: false }],
+      pendingHours: [
+        {
+          id: 'ph1',
+          proposedHours: [
+            { dayOfWeek: 1, openTime: '10:00', closeTime: '18:00', isClosed: false },
+            { dayOfWeek: 0, openTime: null, closeTime: null, isClosed: true },
+          ],
+          effectiveAt: '2026-06-24T16:30:00.000Z',
+          status: 'PENDING',
+        },
+      ],
+    })
+    expect(parsed.pendingHours?.[0].id).toBe('ph1')
+    expect(parsed.pendingHours?.[0].effectiveAt).toBe('2026-06-24T16:30:00.000Z')
+    expect(parsed.pendingHours?.[0].status).toBe('PENDING')
+    expect(parsed.pendingHours?.[0].proposedHours).toHaveLength(2)
+  })
+
+  it('branchSchema tolerates an ABSENT pendingHours field (older backend / list rows)', () => {
+    const parsed = branchSchema.parse({ id: 'b1', name: 'Main' })
+    expect(parsed.pendingHours).toBeUndefined()
+  })
+
+  it('branchPendingHoursSchema accepts the three PendingHoursStatus enum values', () => {
+    for (const status of ['PENDING', 'PROMOTED', 'CANCELLED'] as const) {
+      const parsed = branchPendingHoursSchema.parse({
+        id: 'ph1',
+        proposedHours: [],
+        effectiveAt: '2026-06-24T16:30:00.000Z',
+        status,
+      })
+      expect(parsed.status).toBe(status)
+    }
+  })
+
+  it('branchPendingHoursSchema REJECTS an invalid status', () => {
+    expect(() =>
+      branchPendingHoursSchema.parse({
+        id: 'ph1',
+        proposedHours: [],
+        effectiveAt: '2026-06-24T16:30:00.000Z',
+        status: 'BOGUS',
+      }),
+    ).toThrow()
+  })
+
+  it('stageBranchHours POSTs { hours } and returns the parsed pending record', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'ph1',
+      proposedHours: [{ dayOfWeek: 1, openTime: '10:00', closeTime: '18:00', isClosed: false }],
+      effectiveAt: '2026-06-24T16:30:00.000Z',
+      status: 'PENDING',
+    })
+    const hours: HoursPayloadRow[] = [
+      { dayOfWeek: 1, isClosed: false, openTime: '10:00', closeTime: '18:00' },
+      { dayOfWeek: 0, isClosed: true },
+    ]
+    const pending = await stageBranchHours('b1', hours)
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/hours', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ hours }),
+    })
+    expect(pending.id).toBe('ph1')
+    expect(pending.status).toBe('PENDING')
+  })
+
+  it('cancelPendingHours DELETEs the pending hours route and returns { ok: true }', async () => {
+    apiFetch.mockResolvedValueOnce({ ok: true })
+    const res = await cancelPendingHours('b1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/hours/pending', {
+      method: 'DELETE',
+      auth: true,
+    })
+    expect(res).toEqual({ ok: true })
   })
 })
