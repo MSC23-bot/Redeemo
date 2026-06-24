@@ -552,6 +552,21 @@ model Branch {
   locationResolvedAt DateTime?
   locationConfidence LocationConfidence @default(POSTCODE_CENTROID)
 
+  // Branches PR-5 (D5): branch lifecycle staging axis. SEPARATE from `isActive`
+  // (the merchant's reversible open/closed suspend toggle) and `deletedAt` (the
+  // permanent soft-delete marker) — the three never collapse onto one flag.
+  //   PENDING_CREATE — merchant-created subsequent branch awaiting admin approval;
+  //     customer-INVISIBLE (gated by STATUS, since the picker has NO isActive filter).
+  //     Also written isActive=false (belt-and-braces).
+  //   LIVE — normal live branch (default; preserves every existing row + the instant
+  //     onboarding-first-branch / admin-create-draft path). isActive is the merchant's
+  //     normal open/closed toggle.
+  //   PENDING_CLOSE — close-requested; STAYS LIVE/visible until admin approval.
+  //   CLOSED — close approved; set alongside the soft-delete (deletedAt + isActive=false).
+  //     Terminal; deletedAt remains the operative customer-read exclusion.
+  lifecycleStatus BranchLifecycleStatus @default(LIVE)
+  closeReason     String? // set on a close-REQUEST, audit-only
+
   locality Locality? @relation("BranchLocality", fields: [localityId], references: [id])
 
   // Opposite relation for Plan 4b Campaign.branchAnchor — see Step 8 below
@@ -574,6 +589,8 @@ model Branch {
   @@index([isActive])
   @@index([localityId])
   @@index([isTestData])
+  // Branches PR-5: cheap pending lookups + the customer-read status filter.
+  @@index([merchantId, lifecycleStatus])
 }
 
 model BranchOpeningHours {
@@ -1547,6 +1564,12 @@ enum ApprovalType {
   MERCHANT_PROFILE_EDIT
   MERCHANT_IDENTITY_EDIT
   BRANCH_IDENTITY_EDIT
+  // Branches PR-5 (D5): two single-purpose branch-lifecycle approval types, NOT a
+  // single combined BRANCH_LIFECYCLE. The actioner dispatches purely on
+  // approval.type, so two values keep the dispatch off a second discriminator and
+  // give CREATE / CLOSE independently-testable apply arms.
+  BRANCH_CREATE
+  BRANCH_CLOSE
 }
 
 enum NotificationRecipientType {
@@ -1759,6 +1782,17 @@ enum LocationConfidence {
   ADDRESS_GEOCODED
   POSTCODE_CENTROID
   NEEDS_REVIEW
+}
+
+// Branches PR-5 (D5): the branch lifecycle staging axis (status-on-Branch).
+// Orthogonal to Branch.isActive (reversible suspend) and Branch.deletedAt
+// (permanent soft-delete). Default LIVE makes the column a no-op for all existing
+// rows + the instant onboarding-first-branch / admin-create-draft path.
+enum BranchLifecycleStatus {
+  PENDING_CREATE
+  LIVE
+  PENDING_CLOSE
+  CLOSED
 }
 
 enum LadderProfile {
