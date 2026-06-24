@@ -17,6 +17,7 @@ import Image from 'next/image'
 import type { Branch } from '@/lib/api/branch'
 import { openNow, type OpeningHoursRow } from '@/lib/branches/openNow'
 import { ReviewStateBanners } from '@/components/branches/ReviewStateBanners'
+import { BranchLifecycleBanner } from '@/components/branches/BranchLifecycleBanner'
 import { StaffAtBranchCard } from '@/components/branches/StaffAtBranchCard'
 import { ContactCard } from '@/components/branches/sections/ContactCard'
 import { AmenitiesCard } from '@/components/branches/sections/AmenitiesCard'
@@ -50,6 +51,11 @@ export function BranchDetail({
         isOwner={ready && isOwner}
         now={now}
       />
+
+      {/* PR-5: the lifecycle banner. PENDING_CREATE shows "Awaiting Redeemo approval"
+          + an owner-only Cancel; PENDING_CLOSE shows the pending-close banner + an
+          owner-only Withdraw. LIVE / CLOSED render nothing here. */}
+      <BranchLifecycleBanner branch={branch} isOwner={ready && isOwner} />
 
       {/* F3: the review-state banners (photos in review + awaiting location check). */}
       <ReviewStateBanners branch={branch} />
