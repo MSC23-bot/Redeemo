@@ -42,12 +42,17 @@ import { ReactivateConfirm } from '@/features/merchants/ReactivateConfirm'
 import { ConfirmLocationDialog } from '@/features/merchants/ConfirmLocationDialog'
 import { EditReviewPanel } from '@/features/review/EditReviewPanel'
 import { VoucherReviewPanel } from '@/features/review/VoucherReviewPanel'
+import { BranchLifecyclePanel } from '@/features/review/BranchLifecyclePanel'
 import { Button } from '@/components/ui/button'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'
 
 // Option B B1: the two merchant-requested identity-edit types route to the
 // edit-review surface instead of the generic non-onboarding notice.
 const EDIT_APPROVAL_TYPES = ['MERCHANT_IDENTITY_EDIT', 'BRANCH_IDENTITY_EDIT']
+
+// Branches PR-5 (D5): the two branch-lifecycle types route to the
+// branch-lifecycle review surface (CREATE go-live / CLOSE deactivate).
+const BRANCH_LIFECYCLE_APPROVAL_TYPES = ['BRANCH_CREATE', 'BRANCH_CLOSE']
 
 // ── Shared loading / error / forbidden ───────────────────────────────────────
 
@@ -288,6 +293,19 @@ export default function ReviewPage({ params }: ReviewPageProps) {
           approvalId={id}
           canRead={canRead}
           canAction={can('approval:action')}
+        />
+      ) : BRANCH_LIFECYCLE_APPROVAL_TYPES.includes(data.approval.type) ? (
+        // Branches PR-5 (D5): a branch CREATE / CLOSE request (its own review
+        // surface). CREATE shows the proposed branch + a location-confirm step;
+        // CLOSE shows the branch + the close reason. The review read uses
+        // approval:read (already checked); Approve/Reject are gated on
+        // approval:apply-edit; the CREATE confirm-location step is gated on
+        // branch:confirm-location (the backend is the real authority for all).
+        <BranchLifecyclePanel
+          approvalId={id}
+          canRead={canRead}
+          canApplyEdit={can('approval:apply-edit')}
+          canConfirmLocation={can('branch:confirm-location')}
         />
       ) : data.approval.type !== 'MERCHANT_ONBOARDING' ? (
         <NonOnboardingNotice type={data.approval.type} />
