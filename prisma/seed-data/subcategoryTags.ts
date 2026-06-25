@@ -1,97 +1,116 @@
-// Maps SPECIALTY tag label → parent top-level category name.
-// Built by walking the §3.3 groups in tags.ts in declaration order
-// and tagging each tag with its parent group as we go.
+// Per-subcategory SPECIALTY tag mapping (Phase 1 re-curation, 2026-06-25).
 //
-// Aesthetics Clinic cross-listing note: Aesthetics Clinic exists as a
-// subcategory under both Beauty & Wellness and Health & Medical (see
-// categories.ts). With this map, each cross-listing inherits ONLY its own
-// parent's specialty world:
-//   - Beauty & Wellness → Aesthetics Clinic gets Botox, Dermal Fillers,
-//     IV Drip, etc. (Beauty specialties)
-//   - Health & Medical  → Aesthetics Clinic gets Cosmetic Dentistry,
-//     Sports Physio, Pre/Post-Natal, etc. (Medical specialties)
-// This asymmetry is intentional per spec §2.8 — cross-listing exists for
-// findability (which tab Maya browses to), and each tab carries its own
-// tag world. A merchant picks ONE primary listing; the secondary listing
-// is just a discoverability surface, not a tag-merge.
-export const SPECIALTY_PARENT: Record<string, string> = {
-  // Food & Drink
-  'Pizza':'Food & Drink','Burgers':'Food & Drink','Sushi':'Food & Drink','Ramen':'Food & Drink','Dim Sum':'Food & Drink',
-  'Tapas':'Food & Drink','Steakhouse':'Food & Drink','Seafood':'Food & Drink','BBQ':'Food & Drink','Brunch':'Food & Drink',
-  'Sunday Roast':'Food & Drink','Afternoon Tea':'Food & Drink',
-  'Specialty Coffee':'Food & Drink','Matcha':'Food & Drink','Bubble Tea':'Food & Drink',
-  'Cocktails':'Food & Drink','Craft Beer':'Food & Drink','Wine Bar':'Food & Drink','Natural Wine':'Food & Drink',
-  'Sports Bar':'Food & Drink','Karaoke':'Food & Drink',
-  'Patisserie':'Food & Drink','Gelato':'Food & Drink',
-  'Vegan':'Food & Drink','Plant-Based':'Food & Drink','Vegetarian':'Food & Drink',
-
-  // Beauty & Wellness
-  'Manicure':'Beauty & Wellness','Pedicure':'Beauty & Wellness','Gel Nails':'Beauty & Wellness','Acrylics':'Beauty & Wellness','BIAB':'Beauty & Wellness',
-  'Lash Extensions':'Beauty & Wellness','Lash Lift':'Beauty & Wellness','Brow Lamination':'Beauty & Wellness','HD Brows':'Beauty & Wellness',
-  'Threading':'Beauty & Wellness','Waxing':'Beauty & Wellness',
-  'Hair Colour':'Beauty & Wellness','Balayage':'Beauty & Wellness','Highlights':'Beauty & Wellness','Keratin':'Beauty & Wellness','Blow Dry':'Beauty & Wellness',
-  'Curly Hair Specialist':'Beauty & Wellness',"Men's Grooming":'Beauty & Wellness','Hot Towel Shave':'Beauty & Wellness',
-  'Facial':'Beauty & Wellness','Deep Tissue':'Beauty & Wellness','Sports Massage':'Beauty & Wellness','Hot Stone':'Beauty & Wellness','Lymphatic':'Beauty & Wellness','Reflexology':'Beauty & Wellness',
-  'Botox':'Beauty & Wellness','Dermal Fillers':'Beauty & Wellness','Lip Filler':'Beauty & Wellness','Skin Booster':'Beauty & Wellness','Microneedling':'Beauty & Wellness',
-  'Sauna':'Beauty & Wellness','Steam Room':'Beauty & Wellness','Float Tank':'Beauty & Wellness','IV Drip':'Beauty & Wellness',
-  'Hammam':'Beauty & Wellness','Korean Spa':'Beauty & Wellness',
-
-  // Health & Fitness
-  'Yoga':'Health & Fitness','Hot Yoga':'Health & Fitness','Pilates':'Health & Fitness','Reformer Pilates':'Health & Fitness','Barre':'Health & Fitness',
-  'HIIT':'Health & Fitness','Spin':'Health & Fitness','Cycling':'Health & Fitness','Strength':'Health & Fitness',
-  'CrossFit':'Health & Fitness','F45':'Health & Fitness','Functional':'Health & Fitness','Bootcamp':'Health & Fitness',
-  'Boxing':'Health & Fitness','Kickboxing':'Health & Fitness','Muay Thai':'Health & Fitness','MMA':'Health & Fitness','BJJ':'Health & Fitness',
-  'Karate':'Health & Fitness','Judo':'Health & Fitness','Taekwondo':'Health & Fitness',
-  'Bouldering':'Health & Fitness','Indoor Climbing':'Health & Fitness',
-  'Swimming':'Health & Fitness','Personal Training':'Health & Fitness',
-  'Ballet':'Health & Fitness','Hip-Hop':'Health & Fitness','Latin':'Health & Fitness',
-
-  // Out & About
-  'IMAX':'Out & About','Boutique Cinema':'Out & About',
-  'Stand-Up Comedy':'Out & About','Live Music':'Out & About','Gig':'Out & About','Theatre':'Out & About','Musical':'Out & About',
-  'Cookery Class':'Out & About','Pottery Class':'Out & About','Life Drawing':'Out & About','Wine Tasting':'Out & About',
-  'Cocktail Class':'Out & About','Candle-Making':'Out & About','Floristry Class':'Out & About',
-  'Walking Tour':'Out & About','Boat Trip':'Out & About','Ghost Tour':'Out & About','Food Tour':'Out & About',
-  'Helicopter Tour':'Out & About','Hot Air Balloon':'Out & About',
-  'Theme Park':'Out & About','Water Park':'Out & About','Adventure Park':'Out & About',
-  'Wildlife Safari':'Out & About','Aquarium':'Out & About',
-  'VR Experience':'Out & About','Themed Experience':'Out & About',
-
-  // Shopping
-  'Womenswear':'Shopping','Menswear':'Shopping','Kidswear':'Shopping','Streetwear':'Shopping',
-  'Designer':'Shopping','Vintage':'Shopping','Sustainable':'Shopping','Independent':'Shopping',
-  'Homeware':'Shopping','Books':'Shopping',
-  'Records':'Shopping','Board Games':'Shopping','Comics':'Shopping','Art Supplies':'Shopping',
-  'Crafts':'Shopping','Models & Hobbies':'Shopping','Music Instruments':'Shopping',
-
-  // Home & Local Services
-  'End of Tenancy':'Home & Local Services','Deep Clean':'Home & Local Services','Carpet Cleaning':'Home & Local Services','Office Cleaning':'Home & Local Services',
-  'Phone Repair':'Home & Local Services','Laptop Repair':'Home & Local Services','Tablet Repair':'Home & Local Services','Console Repair':'Home & Local Services',
-  'Wedding Alterations':'Home & Local Services','Bridal':'Home & Local Services','Suit Tailoring':'Home & Local Services',
-
-  // Travel & Hotels
-  'Boutique':'Travel & Hotels','Spa':'Travel & Hotels','Resort':'Travel & Hotels','Country House':'Travel & Hotels',
-  'Adults-Only':'Travel & Hotels','Romantic':'Travel & Hotels',
-
-  // Health & Medical
-  'Cosmetic Dentistry':'Health & Medical','Invisalign':'Health & Medical','Orthodontics':'Health & Medical',
-  'Eye Test':'Health & Medical','Contact Lenses':'Health & Medical','Designer Frames':'Health & Medical',
-  'Sports Physio':'Health & Medical','Pre/Post-Natal':'Health & Medical',
-
-  // Family & Kids
-  'Toddler':'Family & Kids','All-Ages':'Family & Kids','Adventure':'Family & Kids',
-  'Gymnastics':'Family & Kids','Swimming Lessons':'Family & Kids','Football':'Family & Kids',
-  'Drama':'Family & Kids','Music Lessons':'Family & Kids','Art':'Family & Kids','Coding':'Family & Kids',
-  'Birthday Party':'Family & Kids','Themed Party':'Family & Kids','Laser Tag':'Family & Kids',
-
-  // Auto & Garage
-  'Mercedes Specialist':'Auto & Garage','BMW Specialist':'Auto & Garage','Classic Car':'Auto & Garage',
-  'Performance':'Auto & Garage','EV Specialist':'Auto & Garage',
-
-  // Pet Services
-  'Cat Grooming':'Pet Services','Mobile Grooming':'Pet Services','Hand-Stripping':'Pet Services',
-  'Puppy Training':'Pet Services','Behavioural':'Pet Services',
+// Keyed parent -> subcategory -> specialty labels. REPLACES the old top-category
+// fan-out (the previous `SPECIALTY_PARENT` keyed each specialty to a parent and
+// the seeder linked it to EVERY subcategory under that parent, so e.g. a Dessert
+// Shop showed "Pizza" and a Hearing Centre showed "Cosmetic Dentistry"). Now each
+// subcategory carries only the specialties that genuinely fit it.
+//
+// Phase 1 uses EXISTING tag labels only (no new tags). Subcategories with no
+// genuinely-relevant existing specialty are OMITTED here; the onboarding
+// "What you're known for" step hides itself when a subcategory has no specialties.
+// Phase 2 (deferred, owner-approved) may add new tag labels for the omitted
+// service subcategories. See docs/superpowers/plans/2026-06-25-merchant-onboarding-specialty-recuration.md.
+//
+// Aesthetics Clinic cross-listing: it exists as a subcategory under BOTH
+// Beauty & Wellness and Health & Medical (categories.ts). Keying by
+// parent -> subcategory keeps each cross-listing in its own world:
+//   - Beauty & Wellness -> Aesthetics Clinic: Botox, Dermal Fillers, etc.
+//   - Health & Medical  -> Aesthetics Clinic: omitted (Phase 2 gap).
+export const SPECIALTY_BY_SUBCATEGORY: Record<string, Record<string, string[]>> = {
+  'Food & Drink': {
+    "Restaurant": ['Pizza', 'Burgers', 'Sushi', 'Ramen', 'Dim Sum', 'Tapas', 'Steakhouse', 'Seafood', 'BBQ', 'Brunch', 'Sunday Roast', 'Vegan', 'Plant-Based', 'Vegetarian'],
+    "Cafe & Coffee": ['Specialty Coffee', 'Matcha', 'Bubble Tea', 'Brunch', 'Afternoon Tea', 'Vegan', 'Plant-Based', 'Vegetarian'],
+    "Bakery": ['Patisserie', 'Vegan', 'Vegetarian'],
+    "Dessert Shop": ['Patisserie', 'Gelato', 'Matcha', 'Bubble Tea', 'Vegan'],
+    "Takeaway": ['Pizza', 'Burgers', 'Sushi', 'Ramen', 'Dim Sum', 'BBQ', 'Vegan', 'Vegetarian'],
+    "Bar": ['Cocktails', 'Craft Beer', 'Wine Bar', 'Natural Wine', 'Sports Bar', 'Karaoke', 'Tapas'],
+    "Pub & Gastropub": ['Sunday Roast', 'Craft Beer', 'Cocktails', 'Wine Bar', 'Sports Bar', 'Burgers', 'Steakhouse', 'Seafood', 'Brunch', 'Vegetarian', 'Vegan'],
+    "Food Hall": ['Pizza', 'Burgers', 'Sushi', 'Ramen', 'Dim Sum', 'Tapas', 'BBQ', 'Seafood', 'Cocktails', 'Craft Beer', 'Specialty Coffee', 'Vegan', 'Plant-Based', 'Vegetarian'],
+  },
+  'Beauty & Wellness': {
+    "Hair Salon": ['Hair Colour', 'Balayage', 'Highlights', 'Keratin', 'Blow Dry', 'Curly Hair Specialist'],
+    "Barber": ['Men\'s Grooming', 'Hot Towel Shave'],
+    "Nail Salon": ['Manicure', 'Pedicure', 'Gel Nails', 'Acrylics', 'BIAB'],
+    "Beauty Salon": ['Lash Extensions', 'Lash Lift', 'Brow Lamination', 'HD Brows', 'Threading', 'Waxing', 'Facial', 'Manicure', 'Pedicure', 'Gel Nails'],
+    "Day Spa": ['Facial', 'Deep Tissue', 'Hot Stone', 'Lymphatic', 'Reflexology', 'Sauna', 'Steam Room', 'Hammam', 'Korean Spa', 'Float Tank'],
+    "Massage Studio": ['Deep Tissue', 'Sports Massage', 'Hot Stone', 'Lymphatic', 'Reflexology'],
+    "Aesthetics Clinic": ['Botox', 'Dermal Fillers', 'Lip Filler', 'Skin Booster', 'Microneedling', 'Facial'],
+    "Wellness Studio": ['IV Drip', 'Float Tank', 'Sauna', 'Steam Room', 'Reflexology', 'Lymphatic'],
+  },
+  'Health & Fitness': {
+    "Gym": ['Strength', 'Functional', 'HIIT', 'CrossFit', 'Spin', 'Cycling', 'Bootcamp', 'F45', 'Personal Training'],
+    "Boutique Studio": ['Yoga', 'Hot Yoga', 'Pilates', 'Reformer Pilates', 'Barre', 'HIIT', 'Spin', 'Cycling', 'Bootcamp', 'F45', 'Functional'],
+    "Boxing & Martial Arts Studio": ['Boxing', 'Kickboxing', 'Muay Thai', 'MMA', 'BJJ', 'Karate', 'Judo', 'Taekwondo', 'HIIT'],
+    "Climbing Gym": ['Bouldering', 'Indoor Climbing'],
+    "Dance Studio": ['Ballet', 'Hip-Hop', 'Latin', 'Barre'],
+    "Swimming Pool": ['Swimming'],
+    "Sports Club": ['Swimming', 'Functional', 'Personal Training'],
+    "Personal Trainer": ['Personal Training', 'Strength', 'Functional', 'HIIT', 'Bootcamp', 'Boxing'],
+  },
+  'Out & About': {
+    "Cinema": ['IMAX', 'Boutique Cinema'],
+    "Live Venue": ['Stand-Up Comedy', 'Live Music', 'Gig', 'Theatre', 'Musical'],
+    "Bowling & Games": ['VR Experience'],
+    "Escape Room": ['VR Experience', 'Themed Experience'],
+    "Immersive Experience": ['VR Experience', 'Themed Experience'],
+    "Class & Workshop": ['Cookery Class', 'Pottery Class', 'Life Drawing', 'Wine Tasting', 'Cocktail Class', 'Candle-Making', 'Floristry Class'],
+    "Theme & Adventure Park": ['Theme Park', 'Water Park', 'Adventure Park'],
+    "Zoo & Wildlife Park": ['Wildlife Safari', 'Aquarium'],
+    "Tour & Day Trip": ['Walking Tour', 'Boat Trip', 'Ghost Tour', 'Food Tour', 'Helicopter Tour', 'Hot Air Balloon'],
+  },
+  'Shopping': {
+    "Fashion Boutique": ['Womenswear', 'Menswear', 'Kidswear', 'Streetwear', 'Designer', 'Vintage', 'Sustainable', 'Independent'],
+    "Homeware & Lifestyle": ['Homeware', 'Crafts', 'Sustainable', 'Independent'],
+    "Gift Shop": ['Crafts', 'Books', 'Board Games', 'Independent', 'Sustainable'],
+    "Jewellery Store": ['Designer', 'Vintage', 'Sustainable', 'Independent'],
+    "Florist": ['Sustainable', 'Independent'],
+    "Bookshop": ['Books', 'Comics', 'Vintage', 'Independent'],
+    "Independent Grocer & Deli": ['Independent', 'Sustainable'],
+    "Vintage & Pre-Loved": ['Vintage', 'Womenswear', 'Menswear', 'Designer', 'Sustainable', 'Independent', 'Records', 'Books'],
+    "Specialist Retailer": ['Records', 'Board Games', 'Comics', 'Art Supplies', 'Crafts', 'Models & Hobbies', 'Music Instruments', 'Books', 'Independent'],
+  },
+  'Home & Local Services': {
+    "Cleaner": ['End of Tenancy', 'Deep Clean', 'Carpet Cleaning', 'Office Cleaning'],
+    "Tailor & Alterations": ['Wedding Alterations', 'Bridal', 'Suit Tailoring'],
+    "Tech Repair": ['Phone Repair', 'Laptop Repair', 'Tablet Repair', 'Console Repair'],
+  },
+  'Travel & Hotels': {
+    "Hotel": ['Spa', 'Resort', 'Romantic', 'Country House'],
+    "Boutique Hotel": ['Boutique', 'Romantic', 'Adults-Only', 'Spa'],
+    "Spa Hotel": ['Spa', 'Romantic', 'Adults-Only', 'Resort', 'Country House'],
+    "B&B & Inn": ['Romantic', 'Country House', 'Adults-Only', 'Boutique'],
+    "Self-Catering": ['Country House', 'Romantic'],
+    "Holiday Park": ['Resort'],
+    "Glamping & Camping": ['Romantic', 'Adults-Only'],
+  },
+  'Health & Medical': {
+    "Dental Clinic": ['Cosmetic Dentistry', 'Invisalign', 'Orthodontics'],
+    "Optician": ['Eye Test', 'Contact Lenses', 'Designer Frames'],
+    "Physio & Chiropractic Clinic": ['Sports Physio', 'Pre/Post-Natal'],
+  },
+  'Family & Kids': {
+    "Soft Play": ['Toddler', 'All-Ages', 'Adventure', 'Birthday Party'],
+    "Kids' Class & Activity": ['Toddler', 'All-Ages', 'Gymnastics', 'Swimming Lessons', 'Football', 'Drama', 'Music Lessons', 'Art', 'Coding'],
+    "Party Venue": ['All-Ages', 'Birthday Party', 'Themed Party', 'Laser Tag', 'Adventure'],
+    "Children's Hairdresser": ['Toddler', 'All-Ages'],
+    "Tutoring": ['All-Ages', 'Coding'],
+    "Toy & Kids' Boutique": ['Toddler', 'All-Ages'],
+  },
+  'Auto & Garage': {
+    "Garage & MOT": ['Mercedes Specialist', 'BMW Specialist', 'Classic Car', 'Performance', 'EV Specialist'],
+    "Tyre Centre": ['Performance', 'EV Specialist'],
+    "Body Shop": ['Mercedes Specialist', 'BMW Specialist', 'Classic Car', 'Performance'],
+    "Mobile Mechanic": ['Mercedes Specialist', 'BMW Specialist', 'EV Specialist'],
+    "Car Wash & Detailing": ['Classic Car', 'Performance'],
+    "EV Charging": ['EV Specialist'],
+  },
+  'Pet Services': {
+    "Pet Groomer": ['Cat Grooming', 'Mobile Grooming', 'Hand-Stripping'],
+    "Pet Training": ['Puppy Training', 'Behavioural'],
+  },
 }
+
 
 // Subcategories (by name) where Cuisine tags are eligible AS PRIMARY descriptor.
 // Per §3.8: Restaurant, Pub & Gastropub, Takeaway = primary-eligible cuisines.

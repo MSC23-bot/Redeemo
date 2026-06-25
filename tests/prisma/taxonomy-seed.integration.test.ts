@@ -106,6 +106,52 @@ describe('Taxonomy seed integrity', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 1 specialty re-curation (2026-06-25). SPECIALTY links are now wired
+// per-subcategory (SPECIALTY_BY_SUBCATEGORY) rather than fanned across every
+// subcategory of a top-level. Re-seed the DB (npx tsx prisma/reseed-subcategory-tags.ts
+// or npx prisma db seed) before running these.
+// See docs/superpowers/plans/2026-06-25-merchant-onboarding-specialty-recuration.md.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Specialty re-curation — per-subcategory SPECIALTY links', () => {
+  async function specialtyLabels(subName: string, parentName: string): Promise<string[]> {
+    const parent = await prisma.category.findFirst({
+      where: { name: parentName, parentId: null },
+      select: { id: true },
+    })
+    if (!parent) throw new Error(`top-level '${parentName}' not seeded`)
+    const sub = await prisma.category.findFirst({
+      where: { name: subName, parentId: parent.id },
+      select: { id: true },
+    })
+    if (!sub) throw new Error(`subcategory '${subName}' under '${parentName}' not seeded`)
+    const links = await prisma.subcategoryTag.findMany({
+      where: { subcategoryId: sub.id, tag: { type: 'SPECIALTY' } },
+      select: { tag: { select: { label: true } } },
+    })
+    return links.map((l) => l.tag.label)
+  }
+
+  it('Restaurant has Pizza; Dessert Shop has Gelato but NOT Pizza', async () => {
+    const restaurant = await specialtyLabels('Restaurant', 'Food & Drink')
+    const dessert = await specialtyLabels('Dessert Shop', 'Food & Drink')
+    expect(restaurant).toContain('Pizza')
+    expect(dessert).toContain('Gelato')
+    expect(dessert).not.toContain('Pizza')
+  })
+
+  it('Dental Clinic has Cosmetic Dentistry; Hearing Centre has zero SPECIALTY links (UI hides the step)', async () => {
+    expect(await specialtyLabels('Dental Clinic', 'Health & Medical')).toContain('Cosmetic Dentistry')
+    expect(await specialtyLabels('Hearing Centre', 'Health & Medical')).toEqual([])
+  })
+
+  it('Aesthetics Clinic: Beauty cross-listing has Botox; Medical cross-listing has zero (Phase-2 gap)', async () => {
+    expect(await specialtyLabels('Aesthetics Clinic', 'Beauty & Wellness')).toContain('Botox')
+    expect(await specialtyLabels('Aesthetics Clinic', 'Health & Medical')).toEqual([])
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Plan 1.5 — Category.intentType: 8 LOCAL + 2 MIXED + 1 DESTINATION on
 // top-levels; subcategories left NULL so resolveCategoryIntent inherits from
 // the parent at runtime (single source of truth lives on the top-level).
