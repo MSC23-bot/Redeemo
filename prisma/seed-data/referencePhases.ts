@@ -17,11 +17,11 @@
 // encryption-key requirement).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { PrismaClient, TagType, TagCreatedBy } from '../../generated/prisma/client'
+import { PrismaClient, Prisma, TagType, TagCreatedBy } from '../../generated/prisma/client'
 import { TOP_LEVEL_CATEGORIES, SUBCATEGORIES } from './categories'
 import { ALL_TAGS, CUISINE_TAGS } from './tags'
 import {
-  SPECIALTY_PARENT,
+  SPECIALTY_BY_SUBCATEGORY,
   FOOD_DRINK_SUBCATS_FOR_CUISINE,
   PRIMARY_CUISINE_SUBCATEGORIES,
 } from './subcategoryTags'
@@ -182,7 +182,9 @@ export async function seedTags(prisma: PrismaClient): Promise<void> {
   console.log(`✓ Seeded ${ALL_TAGS.length} tags`)
 }
 
-export async function seedSubcategoryTags(prisma: PrismaClient): Promise<void> {
+export async function seedSubcategoryTags(
+  prisma: PrismaClient | Prisma.TransactionClient,
+): Promise<void> {
   type Link = { subcategoryId: string; tagId: string; isPrimaryEligible: boolean }
   const links: Link[] = []
   // Some pairs may collide (e.g. specialty + universal both target the same
@@ -224,23 +226,33 @@ export async function seedSubcategoryTags(prisma: PrismaClient): Promise<void> {
     }
   }
 
-  // Specialty → every subcategory whose parent matches the specialty's parent
-  // (per SPECIALTY_PARENT). isPrimaryEligible follows the tag's
-  // descriptorEligible flag.
-  for (const [specialtyLabel, parentName] of Object.entries(SPECIALTY_PARENT)) {
-    const tagId = tagIdByLabelAndType.get(`${specialtyLabel}:SPECIALTY`)
-    if (!tagId) {
-      throw new Error(`seedSubcategoryTags: missing tag id for specialty '${specialtyLabel}'`)
+  // Specialty → only the subcategories explicitly mapped in
+  // SPECIALTY_BY_SUBCATEGORY (parent -> subcategory -> specialty labels).
+  // Subcategories with no mapped specialty get NO specialty links, so the
+  // onboarding "What you're known for" step hides itself for them. Phase 1
+  // re-curation (2026-06-25) replaced the previous broad top-category fan-out.
+  // isPrimaryEligible follows the tag's descriptorEligible flag.
+  for (const [parentName, bySubcategory] of Object.entries(SPECIALTY_BY_SUBCATEGORY)) {
+    const parentId = topLevelIdByName.get(parentName)
+    if (!parentId) {
+      throw new Error(`seedSubcategoryTags: missing parent category '${parentName}' for specialty wiring`)
     }
-    const tag = ALL_TAGS.find((t) => t.label === specialtyLabel && t.type === 'SPECIALTY')
-    const isPrimaryEligible = tag?.descriptorEligible ?? false
-    const subcatsUnderParent = SUBCATEGORIES.filter((s) => s.parent === parentName)
-    for (const sub of subcatsUnderParent) {
-      const parentId = topLevelIdByName.get(sub.parent)
-      if (!parentId) continue
-      const subId = subcategoryIdByNameAndParent.get(`${sub.name}::${parentId}`)
-      if (!subId) continue
-      push({ subcategoryId: subId, tagId, isPrimaryEligible })
+    for (const [subName, specialtyLabels] of Object.entries(bySubcategory)) {
+      const subId = subcategoryIdByNameAndParent.get(`${subName}::${parentId}`)
+      if (!subId) {
+        throw new Error(
+          `seedSubcategoryTags: missing subcategory '${subName}' under '${parentName}' for specialty wiring`,
+        )
+      }
+      for (const specialtyLabel of specialtyLabels) {
+        const tagId = tagIdByLabelAndType.get(`${specialtyLabel}:SPECIALTY`)
+        if (!tagId) {
+          throw new Error(`seedSubcategoryTags: missing tag id for specialty '${specialtyLabel}'`)
+        }
+        const tag = ALL_TAGS.find((t) => t.label === specialtyLabel && t.type === 'SPECIALTY')
+        const isPrimaryEligible = tag?.descriptorEligible ?? false
+        push({ subcategoryId: subId, tagId, isPrimaryEligible })
+      }
     }
   }
 
@@ -267,8 +279,13 @@ export async function seedSubcategoryTags(prisma: PrismaClient): Promise<void> {
     links.push(link)
   }
 
-  // Idempotent: createMany skipDuplicates relies on the
-  // (subcategoryId, tagId) compound unique. Re-running seed is safe.
+  // ADDITIVE: createMany + skipDuplicates relies on the (subcategoryId, tagId)
+  // compound unique, so re-running on a FRESH DB is safe and idempotent. It does
+  // NOT delete rows, so on a POPULATED DB it cannot remove links left by a
+  // previous (e.g. broad fan-out) wiring. A clean rebuild is therefore the
+  // caller's responsibility: prisma/reseed-subcategory-tags.ts clears
+  // SubcategoryTag first inside a transaction. The full `prisma db seed` assumes
+  // a fresh / idempotently-seeded DB.
   const result = await prisma.subcategoryTag.createMany({
     data: links,
     skipDuplicates: true,
