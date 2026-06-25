@@ -78,6 +78,12 @@ function renderForm(overrides: Partial<React.ComponentProps<typeof BranchStepFor
   return { onSaveContinue, onSaveLater, onBack }
 }
 
+// jsdom does not implement scrollIntoView; the failed-continue scroll-to-first-error
+// behaviour calls it, so stub it so the form code does not throw.
+beforeEach(() => {
+  Element.prototype.scrollIntoView = jest.fn()
+})
+
 describe('BranchStepForm (M2 F4)', () => {
   it('renders the setup step pill and the branch detail fields', () => {
     renderForm()
@@ -143,6 +149,29 @@ describe('BranchStepForm (M2 F4)', () => {
       expect(screen.getByText(/branch name is required/i)).toBeInTheDocument()
     })
     expect(onSaveContinue).not.toHaveBeenCalled()
+  })
+
+  it('requires the branch phone on Save and continue', async () => {
+    const { onSaveContinue } = renderForm()
+    fireEvent.change(screen.getByLabelText(/branch name/i), { target: { value: 'Main' } })
+    fireEvent.change(screen.getByLabelText(/address line 1/i), { target: { value: '1 St' } })
+    fireEvent.change(screen.getByLabelText(/^town or city/i), { target: { value: 'Leeds' } })
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: 'LS1 1AA' } })
+    // Phone left empty.
+    fireEvent.click(screen.getByRole('button', { name: /save and continue/i }))
+    await waitFor(() => {
+      expect(screen.getByText(/branch phone is required/i)).toBeInTheDocument()
+    })
+    expect(onSaveContinue).not.toHaveBeenCalled()
+  })
+
+  it('marks an empty required field aria-invalid after a failed Save and continue', async () => {
+    renderForm()
+    fireEvent.click(screen.getByRole('button', { name: /save and continue/i }))
+    await waitFor(() => {
+      expect(screen.getByText(/branch name is required/i)).toBeInTheDocument()
+    })
+    expect(screen.getByLabelText(/branch name/i)).toHaveAttribute('aria-invalid', 'true')
   })
 
   it('flags invalid opening hours inline and blocks continue (open === close)', async () => {
@@ -246,6 +275,7 @@ describe('BranchStepForm (M2 F4)', () => {
     fireEvent.change(screen.getByLabelText(/address line 1/i), { target: { value: '1 Late St' } })
     fireEvent.change(screen.getByLabelText(/^town or city/i), { target: { value: 'Leeds' } })
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: 'LS1 1AA' } })
+    fireEvent.change(screen.getByLabelText(/branch phone/i), { target: { value: '+441484000000' } })
     // Monday opens 18:00 and closes 02:00 (past midnight). This is valid.
     fireEvent.change(screen.getByLabelText(/monday opening time/i), { target: { value: '18:00' } })
     fireEvent.change(screen.getByLabelText(/monday closing time/i), { target: { value: '02:00' } })
@@ -284,6 +314,7 @@ describe('BranchStepForm (M2 F4)', () => {
     fireEvent.change(screen.getByLabelText(/address line 1/i), { target: { value: '1 Cafe St' } })
     fireEvent.change(screen.getByLabelText(/^town or city/i), { target: { value: 'Leeds' } })
     fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: 'LS1 1AA' } })
+    fireEvent.change(screen.getByLabelText(/branch phone/i), { target: { value: '+441484000000' } })
     // Monday window 1 = 09:00-14:00, add a window 2 = 17:00-23:00.
     fireEvent.change(screen.getByLabelText(/monday opening time, window 1/i), { target: { value: '09:00' } })
     fireEvent.change(screen.getByLabelText(/monday closing time, window 1/i), { target: { value: '14:00' } })
