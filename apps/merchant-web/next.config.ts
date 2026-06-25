@@ -3,9 +3,12 @@ import path from 'path'
 import { buildSecurityHeaders } from './lib/securityHeaders'
 
 const nextConfig: NextConfig = {
-  // Prevent Next.js from scanning above the workspace root.
-  // Without this it walks up to /Users/shebinchaliyath and indexes the entire home folder.
-  outputFileTracingRoot: path.join(__dirname, '../../../'),
+  // Pin Next's file-tracing root to the MONOREPO ROOT (the folder holding apps/ +
+  // package-lock.json) so Next does not walk up and index the home folder.
+  // Must be '../../' (the repo root), NOT '../../../': one level too high resolves
+  // ABOVE the repo and breaks Vercel's monorepo packaging (doubled path ->
+  // ENOENT .next/routes-manifest.json). Vercel expects the repo root here.
+  outputFileTracingRoot: path.join(__dirname, '../../'),
   images: {
     remotePatterns: [
       {
