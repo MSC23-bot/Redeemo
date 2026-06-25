@@ -1,5 +1,5 @@
-# Merchant Onboarding — Per-Subcategory "What You're Known For" Specialty Mapping (DRAFT for review)
-> Status: DRAFT proposal for owner review. Planning only — NO seed/data/code change made yet.
+# Merchant Onboarding — Per-Subcategory "What You're Known For" Specialty Mapping
+> Status: **Phase 1 IMPLEMENTED in PR #323** (existing tags only). The per-sub-category tables below are the delivered mapping; the "Gaps / proposed NEW tags" items remain **Phase 2, owner-approval-only**. See "As shipped (Phase 1)" at the end for the delivered state. (Originally drafted as a proposal for owner review; the tables were approved before implementation.)
 > Fixes the bug where every sub-category under a top category showed the same specialty tags. The screen/API/schema are already sub-category-scoped; only the seed CONTENT needs re-curation (`prisma/seed-data/subcategoryTags.ts` `SPECIALTY_PARENT` is keyed by top category → re-key by sub-category).
 > **How to review:** check each sub-category's proposed tags. Edit anything (add/remove/move). Items under "Gaps / proposed NEW tags" are *suggestions only* — they would add brand-new tags to the taxonomy and need your explicit OK before we add any.
 
@@ -240,7 +240,7 @@
 
 ---
 
-## Implementation plan (after you approve the mapping)
+## Implementation notes (as planned)
 1. Rewrite `prisma/seed-data/subcategoryTags.ts`: replace the top-category-keyed `SPECIALTY_PARENT` with a **sub-category-keyed** map matching the approved table above; update the fan-out in `prisma/seed-data/referencePhases.ts` `seedSubcategoryTags` so each specialty links only to its assigned sub-categories.
 2. (Optional, only if you approve specific ones) add approved NEW tags to `prisma/seed-data/tags.ts` + map them.
 3. Re-seed the staging taxonomy (sub-category-tag links) so onboarding reflects the new mapping; you re-check on the merchant portal.
@@ -262,7 +262,7 @@ Implemented in PR #323 (`feat/onboarding-specialty-recuration`). Existing tags o
 - Independent adversarial review: no blocker/major; map matches this doc exactly; 0 specialties dropped from the taxonomy overall.
 
 ### Production migration note (when this reaches a POPULATED environment)
-Tag eligibility is validated **live** against current `SubcategoryTag` rows at identity-edit time (`TAG_NOT_ELIGIBLE`, `src/api/merchant/profile/service.ts`). A merchant who, under the old fan-out, had selected a specialty that this re-curation removes from their sub-category keeps the stored `MerchantTag`/`MerchantHighlight` row, but will hit `TAG_NOT_ELIGIBLE` on their **next** identity edit. Irrelevant on staging (no real merchants); on the radar for production — the re-seed script's "prod caveat" only covers the delete window, not stale merchant selections. A populated-env rollout should either (a) leave stale selections to clear naturally on next edit, or (b) run a one-off reconciliation of `MerchantTag`/`MerchantHighlight` against the new eligibility before launch.
+This Phase 1 re-curates **SPECIALTY** wiring only (CUISINE + HIGHLIGHT/DETAIL are unchanged), so the only affected merchant selection table is **`MerchantTag`** — `MerchantHighlight` is untouched. Tag eligibility is validated **live** against current `SubcategoryTag` rows at identity-edit time (`TAG_NOT_ELIGIBLE`, `src/api/merchant/profile/service.ts`). A merchant who, under the old fan-out, had selected a specialty that this re-curation removes from their sub-category keeps the stored `MerchantTag` row, but will hit `TAG_NOT_ELIGIBLE` on their **next** identity edit. Irrelevant on staging (no real merchants); on the radar for production. A populated-env rollout should either (a) leave stale selections to clear naturally on next edit, or (b) run a one-off reconciliation of `MerchantTag` against the new eligibility before launch.
 
 ### Three legitimately-identical sibling pairs (existing-labels-only ties)
 Under the existing pool these pairs share the same set (Phase 2 new tags would differentiate them); allow-listed in the unit test so a NEW identical pair trips the guard:

@@ -17,7 +17,7 @@
 // encryption-key requirement).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { PrismaClient, TagType, TagCreatedBy } from '../../generated/prisma/client'
+import { PrismaClient, Prisma, TagType, TagCreatedBy } from '../../generated/prisma/client'
 import { TOP_LEVEL_CATEGORIES, SUBCATEGORIES } from './categories'
 import { ALL_TAGS, CUISINE_TAGS } from './tags'
 import {
@@ -182,7 +182,9 @@ export async function seedTags(prisma: PrismaClient): Promise<void> {
   console.log(`✓ Seeded ${ALL_TAGS.length} tags`)
 }
 
-export async function seedSubcategoryTags(prisma: PrismaClient): Promise<void> {
+export async function seedSubcategoryTags(
+  prisma: PrismaClient | Prisma.TransactionClient,
+): Promise<void> {
   type Link = { subcategoryId: string; tagId: string; isPrimaryEligible: boolean }
   const links: Link[] = []
   // Some pairs may collide (e.g. specialty + universal both target the same
@@ -277,8 +279,13 @@ export async function seedSubcategoryTags(prisma: PrismaClient): Promise<void> {
     links.push(link)
   }
 
-  // Idempotent: createMany skipDuplicates relies on the
-  // (subcategoryId, tagId) compound unique. Re-running seed is safe.
+  // ADDITIVE: createMany + skipDuplicates relies on the (subcategoryId, tagId)
+  // compound unique, so re-running on a FRESH DB is safe and idempotent. It does
+  // NOT delete rows, so on a POPULATED DB it cannot remove links left by a
+  // previous (e.g. broad fan-out) wiring. A clean rebuild is therefore the
+  // caller's responsibility: prisma/reseed-subcategory-tags.ts clears
+  // SubcategoryTag first inside a transaction. The full `prisma db seed` assumes
+  // a fresh / idempotently-seeded DB.
   const result = await prisma.subcategoryTag.createMany({
     data: links,
     skipDuplicates: true,

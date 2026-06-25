@@ -18,11 +18,14 @@
  *   3. seedSubcategoryTags() — re-wires Cuisine + the new per-subcategory
  *      Specialty + Highlight/Detail links.
  *
- * STAGING-ONLY note: steps 2→3 leave a sub-second window with no taxonomy links.
- * Acceptable on private staging (no real traffic). Do NOT run against production
- * without wrapping the swap in a transaction / maintenance window.
+ * SAFETY:
+ *   - Requires an explicit opt-in env var (REDEEMO_CONFIRM_RESEED=1) on top of
+ *     DATABASE_URL, because it CLEARS the whole SubcategoryTag table. Mirrors the
+ *     repo's REDEEMO_CONFIRM_* destructive-op gates.
+ *   - The clear + rebuild (steps 2-3 above) run inside a SINGLE transaction, so a
+ *     failure mid-run can never leave the taxonomy links empty — it rolls back.
  *
- * Run:  npx tsx prisma/reseed-subcategory-tags.ts
+ * Run:  REDEEMO_CONFIRM_RESEED=1 npx tsx prisma/reseed-subcategory-tags.ts
  *       (DATABASE_URL must point at the target DB)
  */
 import 'dotenv/config'
@@ -35,20 +38,31 @@ async function main(): Promise<void> {
   if (!connectionString) {
     throw new Error('DATABASE_URL is not set — refusing to run.')
   }
+  // Explicit opt-in: this script CLEARS the entire SubcategoryTag table before
+  // rebuilding it. DATABASE_URL alone is too weak a guard against an accidental
+  // run, so require a conscious confirmation env var.
+  if (process.env.REDEEMO_CONFIRM_RESEED !== '1') {
+    throw new Error(
+      'Refusing to run: set REDEEMO_CONFIRM_RESEED=1 to confirm a full SubcategoryTag rebuild against this DATABASE_URL.',
+    )
+  }
   const adapter = new PrismaPg({ connectionString })
   const prisma = new PrismaClient({ adapter })
 
   try {
-    console.log('1/3  Rebuilding taxonomy id maps (idempotent — no user/merchant data touched)…')
+    console.log('1/2  Rebuilding taxonomy id maps (idempotent — no user/merchant data touched)…')
     await seedCategories(prisma)
     await seedTags(prisma)
 
-    console.log('2/3  Clearing existing SubcategoryTag links…')
-    const cleared = await prisma.subcategoryTag.deleteMany({})
-    console.log(`     removed ${cleared.count} stale link rows`)
-
-    console.log('3/3  Re-wiring subcategory→tag links from the current seed data…')
-    await seedSubcategoryTags(prisma)
+    console.log('2/2  Atomically clearing + re-wiring SubcategoryTag links…')
+    await prisma.$transaction(
+      async (tx) => {
+        const cleared = await tx.subcategoryTag.deleteMany({})
+        console.log(`     removed ${cleared.count} stale link rows`)
+        await seedSubcategoryTags(tx)
+      },
+      { timeout: 30_000 },
+    )
 
     console.log('✓ SubcategoryTag re-seed complete.')
   } finally {
