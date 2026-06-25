@@ -48,19 +48,40 @@ describe('SPECIALTY_BY_SUBCATEGORY — integrity', () => {
     expect(bad).toEqual([])
   })
 
-  it('sibling subcategories under a parent are differentiated (the old identical-set bug is gone)', () => {
+  // Sibling pairs that legitimately share an identical specialty set under the
+  // Phase-1 "existing labels only" constraint (per the approved proposal doc).
+  // Each key is `${parent} :: ${subA} | ${subB}` with the two sub names sorted.
+  // These collapse only because the existing tag pool has nothing to tell them
+  // apart yet; Phase 2 (new tags) would differentiate them. Adding a NEW identical
+  // sibling pair must be a conscious decision recorded here — the test below treats
+  // any OTHER identical non-empty pair as a recurrence of the owner-reported bug.
+  const KNOWN_IDENTICAL_SIBLING_PAIRS = new Set([
+    'Out & About :: Escape Room | Immersive Experience',
+    'Shopping :: Florist | Independent Grocer & Deli',
+    "Family & Kids :: Children's Hairdresser | Toy & Kids' Boutique",
+  ])
+
+  it('no two sibling subcategories share an identical "known for" list (the owner-reported bug), except documented pairs', () => {
     // The old bug attached the SAME full specialty pool to every subcategory of a
-    // top-level, so siblings showed identical "known for" lists. Assert that any
-    // parent with 2+ mapped subcategories has at least two DISTINCT specialty sets.
-    // (A single broadly-relevant label like 'Independent' may still span all subs —
-    // that is a valid curation choice, not the structural fan-out.)
+    // top-level, so siblings showed identical "known for" lists. Guard every
+    // sibling PAIR (not just "the parent has some variety"), allow-listing the
+    // few pairs that genuinely tie under the existing-labels-only constraint.
+    const offenders: string[] = []
     for (const [parent, bySub] of Object.entries(SPECIALTY_BY_SUBCATEGORY)) {
-      const sets = Object.values(bySub).map((labels) => [...labels].sort().join('|'))
-      if (sets.length > 1) {
-        const distinct = new Set(sets)
-        expect(distinct.size, `all mapped subs of ${parent} share an identical specialty set`).toBeGreaterThan(1)
+      const entries = Object.entries(bySub).map(
+        ([sub, labels]) => [sub, [...labels].sort().join('|')] as const,
+      )
+      for (let i = 0; i < entries.length; i++) {
+        for (let j = i + 1; j < entries.length; j++) {
+          const [subA, setA] = entries[i]
+          const [subB, setB] = entries[j]
+          if (setA === '' || setA !== setB) continue
+          const pair = `${parent} :: ${[subA, subB].sort().join(' | ')}`
+          if (!KNOWN_IDENTICAL_SIBLING_PAIRS.has(pair)) offenders.push(pair)
+        }
       }
     }
+    expect(offenders).toEqual([])
   })
 })
 

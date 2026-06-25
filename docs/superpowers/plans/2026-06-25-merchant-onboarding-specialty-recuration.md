@@ -247,3 +247,23 @@
 4. No schema change, no app-code change. Same change carries to production when that env is built.
 
 **Decisions for you:** (a) review/adjust the per-sub-category tags; (b) which (if any) proposed NEW tags to add now vs leave for later; (c) whether sub-categories with zero relevant tags should simply show no "known for" step (the screen already hides the section when empty).
+
+---
+
+## As shipped (Phase 1) — 2026-06-25
+
+Implemented in PR #323 (`feat/onboarding-specialty-recuration`). Existing tags only; no new tags, no schema, no merchant-web app-code change.
+
+- `prisma/seed-data/subcategoryTags.ts`: `SPECIALTY_PARENT` → `SPECIALTY_BY_SUBCATEGORY` (parent → subcategory → labels). **69 sub-categories mapped; 20 omitted** (the form hides the step when empty).
+- `prisma/seed-data/referencePhases.ts`: specialty wiring iterates the new map; cuisine + highlight/detail wiring unchanged; `isPrimaryEligible` semantics preserved.
+- `prisma/reseed-subcategory-tags.ts`: staging-safe targeted re-seed (rewires only `SubcategoryTag`).
+- Tests: `tests/prisma/subcategory-specialty-mapping.test.ts` (CI unit) + integration assertions in `tests/prisma/taxonomy-seed.integration.test.ts`.
+- Local re-seed dropped **1,248 spurious specialty links (6104 → 4856)**.
+- Independent adversarial review: no blocker/major; map matches this doc exactly; 0 specialties dropped from the taxonomy overall.
+
+### Production migration note (when this reaches a POPULATED environment)
+Tag eligibility is validated **live** against current `SubcategoryTag` rows at identity-edit time (`TAG_NOT_ELIGIBLE`, `src/api/merchant/profile/service.ts`). A merchant who, under the old fan-out, had selected a specialty that this re-curation removes from their sub-category keeps the stored `MerchantTag`/`MerchantHighlight` row, but will hit `TAG_NOT_ELIGIBLE` on their **next** identity edit. Irrelevant on staging (no real merchants); on the radar for production — the re-seed script's "prod caveat" only covers the delete window, not stale merchant selections. A populated-env rollout should either (a) leave stale selections to clear naturally on next edit, or (b) run a one-off reconciliation of `MerchantTag`/`MerchantHighlight` against the new eligibility before launch.
+
+### Three legitimately-identical sibling pairs (existing-labels-only ties)
+Under the existing pool these pairs share the same set (Phase 2 new tags would differentiate them); allow-listed in the unit test so a NEW identical pair trips the guard:
+Out & About: Escape Room == Immersive Experience · Shopping: Florist == Independent Grocer & Deli · Family & Kids: Children's Hairdresser == Toy & Kids' Boutique.
