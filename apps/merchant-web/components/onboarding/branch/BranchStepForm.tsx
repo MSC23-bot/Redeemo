@@ -347,7 +347,7 @@ export function BranchStepForm({
 
         {/* Section 3: customer contact */}
         <section className="mt-6 rounded-[20px] border border-[#EFE7E2] bg-white p-7 shadow-[0_30px_70px_-50px_rgba(1,12,53,0.35),0_2px_6px_rgba(1,12,53,0.04)]">
-          <SectionHeading n={3} title="Customer contact for this branch" badge="Optional" />
+          <SectionHeading n={3} title="Customer contact for this branch" />
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <div>
               <TextField
