@@ -29,7 +29,7 @@ Sources: repo docs + `.env`/config files (secrets redacted) + project memory + *
 | **Vercel — customer-web** | create project | **NOT deployed** | `gh`/memory: no Vercel deploy; only CI build-gate exists | the whole deployment | **Deploy to Vercel** (§4). The genuine gap. | owner action + config |
 | **Vercel — admin-web** | create project | **NOT deployed** | same | the whole deployment | **Deploy to Vercel** (§4). | owner action + config |
 | **Vercel — merchant-web** | create project | **NOT deployed** | same | the whole deployment | **Deploy to Vercel** (§4). | owner action + config |
-| **Access control + noindex** | password/allowlist + noindex on web | **Not applied** (no Vercel apps yet). API has **no `X-Robots-Tag`** and its public discovery endpoints are reachable. | live `curl -I /health` (no robots header) | Vercel protection (needs Pro?) | Apply Vercel Deployment Protection + noindex when the apps deploy; decide D-4. | owner action (+ code if no Pro) |
+| **Access control + noindex** | password/allowlist + noindex on web | **Not applied** (no Vercel apps yet). API has **no `X-Robots-Tag`** and its public discovery endpoints are reachable. | live `curl -I /health` (no robots header) | n/a — D-4 resolved (Vercel Pro) | Apply **Vercel Deployment Protection (password)** + noindex when the apps deploy. | owner action (Vercel config) |
 | **Reset-link base URLs** | set `WEB_APP_URL` etc. | `WEB_APP_URL`/`MERCHANT_PORTAL_URL`/`ADMIN_PANEL_URL` **not in the 24** → default (WEB_APP_URL→`localhost:3001`) | Memory (24-var list) | so staging email reset links currently point at localhost | Once the Vercel URLs exist, set these on staging so links resolve. | owner action (config) |
 | **Customer-app (EAS)** | EAS preview, follow-up | Not built. `eas.json` preview profile sets **no env** → would bake `localhost`. | repo `eas.json` | a preview build pointing at staging | Follow-up after web/API (one `eas.json` env edit + a build). | owner action + 1 code edit |
 | **Production environment** | out of scope | **Does NOT exist** (no GitHub `production` env, no prod deploys) | `gh api environments`/deployments | n/a | Out of scope; build deliberately later behind the launch gate. | no action |
@@ -69,7 +69,7 @@ The first draft of this runbook (2026-06-25, commit `58c6e871`) assumed a from-s
 
 ## B.2 Open checks (confirm during execution — none block reuse)
 
-- **Vercel Deployment Protection availability** — is the Vercel account on **Pro** (password protection)? If not → D-4's Basic-Auth middleware is a flagged code change needing approval. Settles D-4.
+- **Vercel Deployment Protection** — ✅ RESOLVED (2026-06-25): owner has **Vercel Pro**, so Deployment Protection (password) is the locked D-4 path for all 3 apps and the Basic-Auth middleware is superseded. (No longer an open check.)
 - **`TRUST_PROXY=1`** is set on the Railway **web** service (owner-asserted; confirm — must be `1`, not `true`, behind Railway's single proxy; else per-client rate limits collapse to one bucket).
 - **`CORS_ORIGIN` current value** (asserted `https://redeemo.co.uk`) — confirm, then add the 3 Vercel origins.
 - **Worker logs** — the 3 BullMQ processors registered + the `promote-pending-hours` (Branches) + outbox-reconcile sweeps firing every 60s + **no eviction warnings**.
@@ -104,7 +104,7 @@ The first draft of this runbook (2026-06-25, commit `58c6e871`) assumed a from-s
 | D-1 | Railway shape | **ALREADY = one project `redeemo`, one `staging` env** (the earlier "separate project" draft was wrong; production env added later). |
 | D-2 | Staging DB | **ALREADY = Neon branch** (`br-ancient-water-…`). |
 | D-3 | Neon endpoint | **ALREADY = direct (non-pooled)**. |
-| D-4 | Vercel access control | **OPEN — to apply when the apps deploy.** Prefer Vercel Deployment Protection (Password) if Pro is available; if not, the Basic-Auth middleware is a **flagged code change needing explicit approval — not silent**. |
+| D-4 | Vercel access control | **LOCKED (2026-06-25): Vercel Deployment Protection** — owner has **Vercel Pro**. Apply to all 3 apps when they deploy. The Basic-Auth middleware is **SUPERSEDED / not needed** — only a last resort if Deployment Protection unexpectedly cannot be used. |
 | D-5 | Staging email | **ALREADY = sandbox** (worker on, redirected to `admin@redeemo.co.uk`). |
 | D-6 | Staging URLs | **Raw platform URLs** (Railway URL live; Vercel `*.vercel.app` for the apps). Custom domains deferred. |
 | App | Customer-app EAS | Follow-up after web/API (§12). |
@@ -130,22 +130,22 @@ For **each** of `customer-web`, `admin-web`, `merchant-web`:
 ### 4.3 Reset-link base URLs (Railway `web` env, optional but recommended)
 - Set `WEB_APP_URL` = the customer-web Vercel URL, `MERCHANT_PORTAL_URL` = merchant-web URL, `ADMIN_PANEL_URL` = admin-web URL — so the sandbox password-reset / claim emails point at staging instead of `localhost`.
 
-### 4.4 Access control + noindex (D-4)
-- Enable Vercel **Deployment Protection (Password)** on all 3 (or, if no Pro → pause for the flagged Basic-Auth middleware approval).
+### 4.4 Access control + noindex (D-4 = Vercel Deployment Protection; Pro available)
+- Enable Vercel **Deployment Protection** on all 3 apps (owner has Pro): per project → **Settings → Deployment Protection → Protection for: All Deployments → Password Protection** (a shared staging password) or **Vercel Authentication** (Vercel-team logins). Do **not** add Basic-Auth middleware (superseded).
 - Ensure `X-Robots-Tag: noindex` + `robots.txt Disallow` (Vercel **preview** deploys are noindex by default; for a production Vercel deploy add the header). Keep `NEXT_PUBLIC_MARKETPLACE_LIVE=false` so customer-web's marketplace pages stay hidden.
 
 ### 4.X Narrowed execution checklist — REMAINING WORK ONLY
 
 > Nothing on Railway/Neon/Redis/email is rebuilt. This is only the Vercel deploy + the API deltas + verification. 🧑 you click/configure · 🔑 you provide a non-secret value · 🤖 Claude verifies · 🛑 stop-and-report. Order matters (apps before CORS; CORS before login test).
 
-1. 🧑 Confirm **Vercel tier** (Pro?) → settles D-4 (password vs flagged Basic-Auth). 🤖 I confirm the live API is healthy first (`/health` 200).
+1. ✅ D-4 resolved — Vercel **Pro** confirmed; **Deployment Protection** is the access-control path (Basic-Auth not used). 🤖 I confirm the live API is healthy first (`/health` 200).
 2. 🧑 **Deploy `customer-web`** to Vercel: Root Directory `apps/customer-web`; env `NEXT_PUBLIC_API_URL=https://web-staging-bf7c.up.railway.app`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_…`, `NEXT_PUBLIC_MARKETPLACE_LIVE=false`. 🔑 → capture its `*.vercel.app` URL.
 3. 🧑 **Deploy `admin-web`**: Root Directory `apps/admin-web`; env `NEXT_PUBLIC_API_URL=` the Railway URL. 🔑 → capture URL.
 4. 🧑 **Deploy `merchant-web`**: Root Directory `apps/merchant-web`; env `NEXT_PUBLIC_API_URL=` the Railway URL (+ keep the always-pass Turnstile test key). 🔑 → capture URL.
    - 🛑 If a build fails on `outputFileTracingRoot` monorepo tracing, stop — don't isolate the subdir.
 5. 🧑 **Railway web env — update `CORS_ORIGIN`** to include the 3 Vercel origins (comma list, exact, no trailing slash); restart/redeploy web.
 6. 🧑 **Railway web env — set `WEB_APP_URL` / `MERCHANT_PORTAL_URL` / `ADMIN_PANEL_URL`** to the 3 Vercel URLs (so sandbox email links resolve).
-7. 🧑 **Access control + noindex** on all 3 Vercel apps (Deployment Protection/password if Pro; else 🛑 pause for the Basic-Auth code-change approval). Confirm `X-Robots-Tag: noindex`.
+7. 🧑 **Enable Vercel Deployment Protection** on all 3 apps (Settings → Deployment Protection → **Protection for: All Deployments** → **Password Protection**, set one shared staging password — or Vercel Authentication). Confirm `X-Robots-Tag: noindex`. (No Basic-Auth.)
 8. 🤖 **Verify** (I run/inspect what's public): `/health` 200; CORS now succeeds from a Vercel origin and blocks a random origin; each Vercel URL prompts for the password; `x-robots-tag: noindex` present.
 9. 🧑+🤖 **Functional check:** admin/merchant email-OTP arrives in the `admin@redeemo.co.uk` sandbox inbox; a subscribe→redeem→validate loop works (Stripe test `4242…`); 🧑 read worker logs to confirm the `promote-pending-hours` sweep fires.
 10. **Customer-app EAS preview = separate follow-up** (§12), only after the above is stable.
@@ -210,7 +210,21 @@ Staging email is **already working in sandbox**: the worker sends via Resend wit
 
 ## 9. Access control + noindex
 
-Applies to the **Vercel apps** (the API is already hardened — HSTS, strict CSP, rate-limited). Options per D-4: Vercel Deployment Protection (Password, needs Pro) **or** a flagged Basic-Auth middleware (code change, explicit approval — not silent). Noindex via Vercel preview default or an added `X-Robots-Tag` + `robots.txt`. `NEXT_PUBLIC_MARKETPLACE_LIVE=false` keeps customer-web's marketplace pages hidden regardless.
+Applies to the **Vercel apps** (the API is already hardened — HSTS, strict CSP, rate-limited).
+
+**D-4 LOCKED = Vercel Deployment Protection** (owner has Vercel Pro). Per app, in the Vercel dashboard:
+1. Project → **Settings → Deployment Protection**.
+2. **Protection for: All Deployments** — not just Preview. The staging URL is a production-type deploy on Vercel, so it must be covered, not only preview branches.
+3. Choose a method:
+   - **Password Protection** — one shared staging password (best for letting non-Vercel testers in with a single password); or
+   - **Vercel Authentication** — only your Vercel team members (each viewer needs a Vercel login; no shared password).
+4. (Optional) **Protection Bypass for Automation** — only if a CI/automated check must reach the app; not needed for staging.
+
+Deployment Protection is an edge gate in front of the whole app: once a viewer passes it, a cookie lets all subsequent requests through (pages **and** merchant-web's BFF API routes), and it does **not** interfere with the browser↔Railway-API CORS (a separate origin pair). It applies per Vercel project, so do it on all three.
+
+**Do NOT add the Basic-Auth middleware** — superseded by Deployment Protection; only a last resort if Deployment Protection unexpectedly cannot be used.
+
+**Noindex:** Vercel preview deploys are noindex by default; for a production-type deploy add `X-Robots-Tag: noindex` + a `robots.txt Disallow`. `NEXT_PUBLIC_MARKETPLACE_LIVE=false` additionally keeps customer-web's marketplace pages hidden.
 
 ---
 
@@ -238,4 +252,4 @@ Unchanged from the original plan and **non-blocking**. The app is React Native/E
 
 ## 13. What this does NOT change
 
-No public launch; legal-content sign-off gate unchanged. No custom domains / DNS changes (DNS migration to Cloudflare is already done; `redeemo.co.uk` still serves the old AWS site; Zoho MX untouched). No live email/Stripe/Twilio. No marketplace exposure. **No AWS changes.** The only code touches that could arise are the optional §9 Basic-Auth middleware and the §12 `eas.json` env block — both flagged, both only on your go-ahead.
+No public launch; legal-content sign-off gate unchanged. No custom domains / DNS changes (DNS migration to Cloudflare is already done; `redeemo.co.uk` still serves the old AWS site; Zoho MX untouched). No live email/Stripe/Twilio. No marketplace exposure. **No AWS changes.** Access control is **Vercel Deployment Protection** (a dashboard setting, no code) — the previously-floated Basic-Auth middleware is **superseded**, so the only code touch that could arise is the §12 `eas.json` env block (customer-app follow-up), flagged and only on your go-ahead.
