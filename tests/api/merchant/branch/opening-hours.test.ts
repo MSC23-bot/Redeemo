@@ -303,7 +303,11 @@ describe('POST /api/v1/merchant/branches/:id/hours validation + STAGE-not-apply 
     const [queueName, data, opts] = enqueueMock.mock.calls[0]
     expect(queueName).toBe('maintenance')
     expect(data.pendingId).toBe('ph1')
-    expect(opts.jobId).toBe('promote-hours:b1')
+    // '-' not ':' — BullMQ forbids a colon in a custom jobId (it threw a 500 on
+    // every branch hours save; enqueue was mocked so this assertion had locked the
+    // bug in rather than catching it).
+    expect(opts.jobId).toBe('promote-hours-b1')
+    expect(opts.jobId).not.toContain(':')
     expect(opts.delay).toBe(2 * 60 * 60 * 1000)
     // Response is the staged pending record.
     expect(JSON.parse(res.body).status).toBe('PENDING')

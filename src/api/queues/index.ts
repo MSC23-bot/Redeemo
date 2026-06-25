@@ -73,6 +73,14 @@ export function makeQueue(name: string): Queue {
  * no-op (the §4.1 outbox-reconciler precondition). Returns the job.
  */
 export function enqueue(name: string, data: unknown, opts?: JobsOptions): Promise<Job> {
+  // BullMQ rejects a custom jobId containing ':' ("Custom Id cannot contain :") and
+  // throws inside add(). Guard here so a bad jobId fails loudly with a clear message
+  // at the call site instead of as an opaque 500 deep in a request handler (this was
+  // the branch opening-hours save crash). Tests that mock enqueue never hit BullMQ's
+  // own validation, so this guard is the safety net that survives the mocks.
+  if (typeof opts?.jobId === 'string' && opts.jobId.includes(':')) {
+    throw new Error(`enqueue: jobId must not contain ':' (BullMQ forbids it): "${opts.jobId}"`)
+  }
   return makeQueue(name).add(name, data, opts)
 }
 

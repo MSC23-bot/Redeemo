@@ -1048,10 +1048,16 @@ export async function setOpeningHours(
   // dedup). The handler (PROMOTE_PENDING_HOURS_JOB) + the durable repeatable sweep
   // that GUARANTEES promotion both land in the promotion dispatch (PR-4 §4c); they
   // re-read the durable row and skip any non-PENDING / cancelled record.
+  //
+  // The separator is '-' NOT ':' because BullMQ FORBIDS a colon in a custom jobId
+  // ("Custom Id cannot contain :") and throws at add() time. A colon here surfaced
+  // as an opaque 500 on every branch hours save (createBranch succeeds, then this
+  // sub-step crashes -> "We could not save your branch"). enqueue() now also guards
+  // this class centrally.
   await enqueue(
     MAINTENANCE_QUEUE,
     { job: PROMOTE_PENDING_HOURS_JOB, pendingId: pending.id },
-    { jobId: `promote-hours:${branchId}`, delay: PROMOTION_WINDOW_MS },
+    { jobId: `promote-hours-${branchId}`, delay: PROMOTION_WINDOW_MS },
   )
 
   return pending

@@ -133,7 +133,12 @@ describe('opening-hours STAGE-not-apply (PR-4 §4a)', () => {
     expect(queueName).toBe('maintenance')
     expect(data.job).toBe('promote-pending-hours') // the worker-dispatch hint
     expect(data.pendingId).toBe('ph-new')
-    expect(opts.jobId).toBe(`promote-hours:${ASSIGNED_BRANCH}`)
+    // Separator is '-' NOT ':' — BullMQ forbids a colon in a custom jobId and
+    // throws at add() time. The colon previously here shipped a 500 on every branch
+    // hours save (enqueue was mocked, so this assertion locked the bug in instead of
+    // catching it). The enqueue() helper now also guards this centrally.
+    expect(opts.jobId).toBe(`promote-hours-${ASSIGNED_BRANCH}`)
+    expect(opts.jobId).not.toContain(':')
     expect(opts.delay).toBe(PROMOTION_WINDOW_MS)
   })
 
