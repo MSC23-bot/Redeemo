@@ -114,6 +114,13 @@ describe('queues — BullMQ foundation', () => {
     expect(total).toBe(1) // the second add deduped on jobId — no duplicate
   })
 
+  it('enqueue() rejects a jobId containing ":" before touching BullMQ (guards the branch-hours 500 class)', () => {
+    // BullMQ throws "Custom Id cannot contain :" inside add(); the guard fails fast
+    // at the call site with a clear message. No Redis needed — it throws before
+    // makeQueue(). This is the safety net that survives enqueue-mocking tests.
+    expect(() => enqueue('guard-queue', { x: 1 }, { jobId: 'promote-hours:abc' })).toThrow(/must not contain/)
+  })
+
   it('enqueue() carries the default job options (bounded retries + cleanup)', async (ctx) => {
     requireRedis(ctx)
     const name = qname()
