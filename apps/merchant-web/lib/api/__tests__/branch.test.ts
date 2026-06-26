@@ -599,3 +599,75 @@ describe('lib/api/branch (PR-5 lifecycle)', () => {
     expect(branch.lifecycleStatus).toBe('LIVE')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Decimal-on-the-wire coordinates. latitude/longitude are Prisma Decimal, which
+// serialize to JSON STRINGS (e.g. "53.646307"). A plain z.number() REJECTS the
+// string, so once a postcode resolves to coordinates (every real UK address) the
+// parse throws — breaking createBranch (POST 201 -> "We could not save your branch"
+// + a fresh orphan branch on every retry, no hours/amenities/pin sub-steps),
+// listBranches ("We could not load your branches"), and the onboarding prefill.
+// Regression for the real-browser reproduction (2026-06-26). The earlier PR-1
+// tests above pass NUMBER coords, which never exercised the on-the-wire shape.
+// ---------------------------------------------------------------------------
+
+describe('lib/api/branch (Decimal coordinate coercion)', () => {
+  // The exact shape POST /branches returns once a postcode resolves to coords.
+  const backendBranchWithStringCoords = {
+    id: 'b1',
+    name: 'Karaara',
+    isMainBranch: false,
+    addressLine1: '11 Cross Church Street',
+    city: 'Huddersfield',
+    postcode: 'HD1 2PY',
+    latitude: '53.646307',
+    longitude: '-1.780861',
+    lifecycleStatus: 'PENDING_CREATE',
+    locationConfidence: 'POSTCODE_CENTROID',
+    isActive: false,
+    openingHours: [],
+    amenities: [],
+    photos: [],
+    pendingEdits: [],
+    pendingHours: [],
+  }
+
+  it('branchSchema coerces STRING latitude/longitude (Prisma Decimal) to numbers', () => {
+    const parsed = branchSchema.parse(backendBranchWithStringCoords)
+    expect(parsed.latitude).toBe(53.646307)
+    expect(parsed.longitude).toBe(-1.780861)
+    expect(typeof parsed.latitude).toBe('number')
+    expect(typeof parsed.longitude).toBe('number')
+  })
+
+  it('branchSchema preserves NULL coordinates (does not coerce null to 0)', () => {
+    const parsed = branchSchema.parse({ id: 'b1', name: 'Main', latitude: null, longitude: null })
+    expect(parsed.latitude).toBeNull()
+    expect(parsed.longitude).toBeNull()
+  })
+
+  it('createBranch does NOT throw on a 201 carrying string coordinates and returns numeric coords', async () => {
+    // The "We could not save your branch just now" bug: the backend saved it (201)
+    // but the client parse threw on the string coords, so persistedBranchRef was
+    // never set and each retry POSTed a brand-new (orphan) branch.
+    apiFetch.mockResolvedValueOnce(backendBranchWithStringCoords)
+    const branch = await createBranch({
+      name: 'Karaara',
+      addressLine1: '11 Cross Church Street',
+      city: 'Huddersfield',
+      postcode: 'HD1 2PY',
+    })
+    expect(branch.id).toBe('b1')
+    expect(branch.latitude).toBe(53.646307)
+    expect(branch.longitude).toBe(-1.780861)
+  })
+
+  it('listBranches parses an array of branches with string coordinates', async () => {
+    // The "We could not load your branches" bug: the same schema parses the list.
+    apiFetch.mockResolvedValueOnce([backendBranchWithStringCoords])
+    const res = await listBranches()
+    expect(res).toHaveLength(1)
+    expect(res[0].latitude).toBe(53.646307)
+    expect(res[0].longitude).toBe(-1.780861)
+  })
+})
