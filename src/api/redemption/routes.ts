@@ -152,17 +152,20 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
       try {
         await (req as any).merchantVerify()
         const actorId = req.user.sub
-        const raw = await app.redis.get(RedisKey.authMerchant(actorId))
-        if (!raw) throw new AppError('BRANCH_ACCESS_DENIED')
-
-        const merchantSession = JSON.parse(raw) as { merchantId: string; isSuspended: boolean; approvalStatus: string }
-        if (merchantSession.isSuspended) throw new AppError('MERCHANT_SUSPENDED')
-        actor = { role: 'merchant', branchId: null, merchantId: merchantSession.merchantId, actorId }
-        // Staff & Access B6: resolve role + branch scope for the merchant actor. The
-        // service enforces assertBranchAllowed(ctx, redemption.branchId) before
-        // validating, so a scoped non-owner cannot validate at a branch they do not
-        // own. resolveMerchantContext also keeps the live SEC-M2 suspended guard.
+        // Authorize the merchant actor from the JWT + the LIVE DB context, NOT a
+        // short-lived cached login session. resolveMerchantContext reads the active
+        // membership (role + branch scope) and keeps the live SEC-M2 suspended guard,
+        // so it throws for a missing membership or a suspended merchant; the verify
+        // SERVICE additionally re-checks merchant.status / branch.isActive live, and
+        // enforces assertBranchAllowed(ctx, redemption.branchId) so a scoped non-owner
+        // cannot validate at a branch they do not own.
+        //
+        // Previously this read a cached `auth:merchant:<id>` Redis session and 403'd
+        // (BRANCH_ACCESS_DENIED) once that session had expired — even though the JWT
+        // was still valid via refresh — so a merchant admin logged in past the session
+        // TTL could not validate codes from the web portal.
         merchantCtx = await resolveMerchantContext(app.prisma, actorId)
+        actor = { role: 'merchant', branchId: null, merchantId: merchantCtx.merchantId, actorId }
       } catch (merchantErr) {
         if (merchantErr instanceof AppError) throw merchantErr
         throw new AppError('BRANCH_ACCESS_DENIED')
@@ -213,29 +216,27 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
       try {
         await (req as any).merchantVerify()
         const actorId = req.user.sub
-        const merchantRaw = await app.redis.get(RedisKey.authMerchant(actorId))
-        if (!merchantRaw) throw new AppError('BRANCH_ACCESS_DENIED')
+        // Authorize from the JWT + LIVE DB context, NOT a cached login session (same
+        // fix as POST /redemption/verify above — a cached `auth:merchant:<id>` session
+        // that expired while the JWT kept refreshing would 403 a still-logged-in
+        // merchant admin). resolveMerchantContext reads the active membership and keeps
+        // the live SEC-M2 suspended guard.
+        const ctx = await resolveMerchantContext(app.prisma, actorId)
 
-        const merchantSession = JSON.parse(merchantRaw) as { merchantId: string; isSuspended: boolean; approvalStatus: string }
-        if (merchantSession.isSuspended) throw new AppError('MERCHANT_SUSPENDED')
-
-        // Verify branch belongs to this merchant + re-check the merchant's LIVE
-        // status. H1/G2: the cached `merchantSession.isSuspended` above is from
-        // login; reading the status live here blocks a suspended merchant even if
-        // its session snapshot is stale (e.g. a best-effort suspend-revoke failed).
+        // Verify the branch belongs to this merchant + re-check the merchant's LIVE
+        // status (defence in depth alongside resolveMerchantContext's own suspended
+        // guard — blocks a merchant suspended after the membership was read).
         const branch = await app.prisma.branch.findUnique({
           where:  { id: branchId },
           select: { merchantId: true, merchant: { select: { status: true } } },
         })
-        if (!branch || branch.merchantId !== merchantSession.merchantId) throw new AppError('BRANCH_ACCESS_DENIED')
+        if (!branch || branch.merchantId !== ctx.merchantId) throw new AppError('BRANCH_ACCESS_DENIED')
         if (branch.merchant.status === 'SUSPENDED') throw new AppError('MERCHANT_SUSPENDED')
 
         // Staff & Access B6 (§4.3 † SCOPED-READ): a scoped non-owner member can only
-        // list redemptions for branches in their allowed set. resolveMerchantContext
-        // surfaces role + branch scope; assertBranchAllowed denies an out-of-scope
-        // branch with INSUFFICIENT_PERMISSIONS (owner / allBranches pass by
-        // construction). Layered on top of the merchant-ownership check above.
-        const ctx = await resolveMerchantContext(app.prisma, actorId)
+        // list redemptions for branches in their allowed set. assertBranchAllowed denies
+        // an out-of-scope branch with INSUFFICIENT_PERMISSIONS (owner / allBranches pass
+        // by construction). Layered on top of the merchant-ownership check above.
         assertBranchAllowed(ctx, branchId)
 
         resolved = true

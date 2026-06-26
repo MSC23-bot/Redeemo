@@ -265,6 +265,33 @@ describe('redemption routes', () => {
     )
   })
 
+  it('POST /api/v1/redemption/verify still works for a merchant admin when the cached login session has EXPIRED (regression: authorize from JWT + DB, not the Redis session)', async () => {
+    // The bug: the route hard-required a cached `auth:merchant:<id>` Redis session and
+    // 403'd (BRANCH_ACCESS_DENIED) once it expired, even though the JWT was still valid
+    // via refresh — so a merchant admin logged in past the session TTL could not
+    // validate codes. Here Redis has NO session for anyone; the route must authorize
+    // from the JWT + resolveMerchantContext (the active membership) and succeed.
+    vi.mocked(app.redis.get as any).mockResolvedValue(null)
+    vi.mocked(verifyRedemption).mockResolvedValue({ id: 'r1', isValidated: true, validationMethod: 'MANUAL' } as any)
+
+    const res = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { code: 'XYZ123', method: 'MANUAL' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(verifyRedemption).toHaveBeenCalledWith(
+      expect.anything(),
+      'XYZ123',
+      'MANUAL',
+      expect.objectContaining({ role: 'merchant', branchId: null, merchantId: MERCHANT_ID }),
+      expect.any(Object),
+      expect.objectContaining({ merchantId: MERCHANT_ID, role: 'OWNER', allBranches: true }),
+    )
+  })
+
   it('POST /api/v1/redemption/verify returns 403 for customer role (customer token rejected)', async () => {
     const res = await app.inject({
       method:  'POST',
@@ -285,6 +312,25 @@ describe('redemption routes', () => {
     })
 
     expect(res.statusCode).toBe(403)
+  })
+
+  it('POST /api/v1/redemption/verify returns 401 for a merchant token whose membership was revoked', async () => {
+    // Valid JWT but NO active membership (deactivated / removed admin): resolveMerchantContext
+    // throws INVALID_CREDENTIALS (401) — the SAME outcome every /merchant/* route gives, so the
+    // verify route is now consistent with the rest of the portal. (Pre-fix this returned 403 via
+    // the now-removed cached-session gate.) The web BFF's single refresh-then-retry (no loop)
+    // surfaces this as a logout, which is correct for an admin whose access was revoked.
+    vi.mocked(app.prisma.merchantMembership.findMany as any).mockResolvedValue([])
+
+    const res = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { code: 'XYZ123', method: 'MANUAL' },
+    })
+
+    expect(res.statusCode).toBe(401)
+    expect(JSON.parse(res.body).error.code).toBe('INVALID_CREDENTIALS')
   })
 
   // ------------------------------------------------------------------ //
@@ -331,6 +377,23 @@ describe('redemption routes', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body).total).toBe(2)
+  })
+
+  it('GET /api/v1/branch/:branchId/redemptions still works for a merchant admin when the cached login session has EXPIRED (regression)', async () => {
+    // Same fix as the verify route: authorize from the JWT + resolveMerchantContext,
+    // not the cached Redis session (which is absent here).
+    vi.mocked(app.redis.get as any).mockResolvedValue(null)
+    vi.mocked(listBranchRedemptions).mockResolvedValue({ total: 1, items: [] } as any)
+    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: MERCHANT_ID, merchant: { status: 'ACTIVE' } })
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/branch/${BRANCH_ID}/redemptions`,
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).total).toBe(1)
   })
 
   it('GET /api/v1/branch/:branchId/redemptions returns 403 MERCHANT_SUSPENDED for a suspended merchant (H1/G2 live-status backstop)', async () => {
