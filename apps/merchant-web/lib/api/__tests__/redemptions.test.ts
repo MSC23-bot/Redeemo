@@ -49,6 +49,21 @@ describe('listRedemptions', () => {
     expect(res.items[0].customerName).toBe('Sarah K.')
   })
 
+  it('coerces a STRING estimatedSaving (Prisma Decimal on the wire) to a number', async () => {
+    // estimatedSaving is a Prisma Decimal, so the real backend serializes it as a
+    // STRING (e.g. "5.00"). A plain z.number() would throw on it, breaking the whole
+    // Redemptions list parse (same class of bug as branch latitude/longitude).
+    apiFetch.mockResolvedValueOnce({
+      items: [{ ...ROW, estimatedSaving: '5.00' }],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    })
+    const res = await listRedemptions()
+    expect(res.items[0].estimatedSaving).toBe(5)
+    expect(typeof res.items[0].estimatedSaving).toBe('number')
+  })
+
   it('builds a querystring from the provided filters (skips empty/undefined)', async () => {
     apiFetch.mockResolvedValueOnce({ items: [], total: 0, limit: 25, offset: 0 })
     await listRedemptions({

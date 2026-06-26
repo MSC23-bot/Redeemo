@@ -64,8 +64,10 @@ const proposedChangesSchema = z
     postcode: z.string().optional(),
     logoUrl: z.string().optional(),
     bannerUrl: z.string().optional(),
-    latitude: z.number().optional(),
-    longitude: z.number().optional(),
+    // Same Decimal-as-string coercion as branchSchema (a pending edit can carry
+    // resolved coordinates serialized as strings).
+    latitude: z.coerce.number().optional(),
+    longitude: z.coerce.number().optional(),
     add: z.array(z.string()).optional(),
     remove: z.array(z.string()).optional(),
   })
@@ -159,8 +161,14 @@ export const branchSchema = z
     // dark). getBranch / listBranches ship the column via the BRANCH_INCLUDE; .nullish()
     // keeps an older payload (pre-PR-7 backend) parsing cleanly.
     redemptionAlertsEnabled: z.boolean().nullish(),
-    latitude: z.number().nullish(),
-    longitude: z.number().nullish(),
+    // latitude/longitude arrive as Prisma Decimal => JSON STRINGS on the wire
+    // (e.g. "53.646307"). A plain z.number() REJECTS the string, so the moment a
+    // postcode resolves to coordinates (every real UK address) the parse throws and
+    // breaks createBranch (POST 201 -> "could not save" + orphan branch on retry),
+    // listBranches ("could not load your branches"), and the onboarding prefill.
+    // z.coerce.number() accepts the string; .nullish() still short-circuits null.
+    latitude: z.coerce.number().nullish(),
+    longitude: z.coerce.number().nullish(),
     openingHours: z.array(branchOpeningHoursSchema).optional(),
     amenities: z.array(branchAmenityLinkSchema).optional(),
     photos: z.array(branchPhotoSchema).optional(),

@@ -36,7 +36,10 @@ export const redemptionRowSchema = z
     validatedAt: z.string().nullable(),
     validationMethod: z.enum(['MANUAL', 'QR_SCAN']).nullable(),
     validatedByLabel: z.string().nullable(),
-    estimatedSaving: z.number(),
+    // estimatedSaving is a Prisma Decimal => JSON STRING on the wire; coerce so a
+    // real saving value (e.g. "5.00") parses instead of throwing (same class of bug
+    // as branch latitude/longitude).
+    estimatedSaving: z.coerce.number(),
   })
   .passthrough()
 
