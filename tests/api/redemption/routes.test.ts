@@ -71,6 +71,13 @@ describe('redemption routes', () => {
         }
         return Promise.resolve(null)
       }),
+      // The merchant-actor redemption routes now assert the per-session refresh token is
+      // live (session-revocation), via redis.exists(refresh:merchant:<id>:<sessionId>).
+      // Default: the merchant session (sessionId 's3') is live; tests override to 0 to
+      // simulate logout/revoke.
+      exists: vi.fn().mockImplementation((key: string) =>
+        Promise.resolve(key === `refresh:merchant:${MERCHANT_ADMIN_ID}:s3` ? 1 : 0)
+      ),
       set:  vi.fn().mockResolvedValue('OK'),
       del:  vi.fn().mockResolvedValue(1),
       incr: vi.fn().mockResolvedValue(1),
@@ -265,6 +272,34 @@ describe('redemption routes', () => {
     )
   })
 
+  it('POST /api/v1/redemption/verify still works when the auth:merchant CACHE is gone but the session is LIVE (regression: do not depend on the expiring cache)', async () => {
+    // The bug: the route hard-required the cached `auth:merchant:<id>` permission cache
+    // (EX 3600, never renewed by token refresh) and 403'd once it expired, even though the
+    // JWT was still valid AND the session (refresh token) was still live — so a merchant
+    // admin logged in past 1h could not validate codes. Here the auth:merchant GET returns
+    // null (cache gone) while the session refresh-key stays live (exists default = 1); the
+    // route must authorize from the JWT + the live session + resolveMerchantContext.
+    vi.mocked(app.redis.get as any).mockResolvedValue(null)
+    vi.mocked(verifyRedemption).mockResolvedValue({ id: 'r1', isValidated: true, validationMethod: 'MANUAL' } as any)
+
+    const res = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { code: 'XYZ123', method: 'MANUAL' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(verifyRedemption).toHaveBeenCalledWith(
+      expect.anything(),
+      'XYZ123',
+      'MANUAL',
+      expect.objectContaining({ role: 'merchant', branchId: null, merchantId: MERCHANT_ID }),
+      expect.any(Object),
+      expect.objectContaining({ merchantId: MERCHANT_ID, role: 'OWNER', allBranches: true }),
+    )
+  })
+
   it('POST /api/v1/redemption/verify returns 403 for customer role (customer token rejected)', async () => {
     const res = await app.inject({
       method:  'POST',
@@ -285,6 +320,45 @@ describe('redemption routes', () => {
     })
 
     expect(res.statusCode).toBe(403)
+  })
+
+  it('POST /api/v1/redemption/verify returns 401 for a merchant token whose membership was revoked', async () => {
+    // Valid JWT but NO active membership (deactivated / removed admin): resolveMerchantContext
+    // throws INVALID_CREDENTIALS (401) — the SAME outcome every /merchant/* route gives, so the
+    // verify route is now consistent with the rest of the portal. (Pre-fix this returned 403 via
+    // the now-removed cached-session gate.) The web BFF's single refresh-then-retry (no loop)
+    // surfaces this as a logout, which is correct for an admin whose access was revoked.
+    vi.mocked(app.prisma.merchantMembership.findMany as any).mockResolvedValue([])
+
+    const res = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { code: 'XYZ123', method: 'MANUAL' },
+    })
+
+    expect(res.statusCode).toBe(401)
+    expect(JSON.parse(res.body).error.code).toBe('INVALID_CREDENTIALS')
+  })
+
+  it('POST /api/v1/redemption/verify returns 401 SESSION_REVOKED when the per-session refresh token is gone (logout / password-reset / suspension)', async () => {
+    // Session-revocation guard: a still-valid access token whose session was revoked
+    // (the refresh key was deleted) must NOT validate — it short-circuits before the
+    // service is ever called. Mirrors authenticateMerchant for these raw-merchantVerify
+    // routes, keyed on the durable refresh token, not the expiring auth:merchant cache.
+    vi.mocked(app.redis.exists as any).mockResolvedValue(0)
+    vi.mocked(verifyRedemption).mockClear() // module mock is not auto-cleared between tests
+
+    const res = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { code: 'XYZ123', method: 'MANUAL' },
+    })
+
+    expect(res.statusCode).toBe(401)
+    expect(JSON.parse(res.body).error.code).toBe('SESSION_REVOKED')
+    expect(verifyRedemption).not.toHaveBeenCalled()
   })
 
   // ------------------------------------------------------------------ //
@@ -333,6 +407,24 @@ describe('redemption routes', () => {
     expect(JSON.parse(res.body).total).toBe(2)
   })
 
+  it('GET /api/v1/branch/:branchId/redemptions still works when the auth:merchant CACHE is gone but the session is LIVE (regression)', async () => {
+    // Same fix as the verify route: authorize from the JWT + the live session +
+    // resolveMerchantContext, not the expiring auth:merchant cache (null here; refresh-key
+    // session live via exists default = 1).
+    vi.mocked(app.redis.get as any).mockResolvedValue(null)
+    vi.mocked(listBranchRedemptions).mockResolvedValue({ total: 1, items: [] } as any)
+    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: MERCHANT_ID, merchant: { status: 'ACTIVE' } })
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/branch/${BRANCH_ID}/redemptions`,
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).total).toBe(1)
+  })
+
   it('GET /api/v1/branch/:branchId/redemptions returns 403 MERCHANT_SUSPENDED for a suspended merchant (H1/G2 live-status backstop)', async () => {
     // The cached merchant-session snapshot says isSuspended:false (set at login),
     // but the merchant is SUSPENDED now. The live `branch.merchant.status` read
@@ -350,7 +442,12 @@ describe('redemption routes', () => {
   })
 
   it('GET /api/v1/branch/:branchId/redemptions returns 403 for merchant admin accessing branch owned by different merchant', async () => {
-    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: 'other-merchant-id' })
+    // The branch belongs to another merchant but is ACTIVE — so the ONLY thing that can
+    // produce the 403 is the ownership guard (`branch.merchantId !== ctx.merchantId`),
+    // not an accidental crash on a missing `merchant` relation. The mock mirrors the real
+    // Prisma `select` shape ({ merchantId, merchant: { status } }) used by the route.
+    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: 'other-merchant-id', merchant: { status: 'ACTIVE' } })
+    vi.mocked(listBranchRedemptions).mockClear() // module mock is not auto-cleared between tests
 
     const res = await app.inject({
       method:  'GET',
@@ -360,6 +457,8 @@ describe('redemption routes', () => {
 
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body).error.code).toBe('BRANCH_ACCESS_DENIED')
+    // Tenant isolation: an out-of-tenant request must never reach the data layer.
+    expect(listBranchRedemptions).not.toHaveBeenCalled()
   })
 
   it('GET /api/v1/branch/:branchId/redemptions returns 403 without token', async () => {
@@ -369,5 +468,22 @@ describe('redemption routes', () => {
     })
 
     expect(res.statusCode).toBe(403)
+  })
+
+  it('GET /api/v1/branch/:branchId/redemptions returns 401 SESSION_REVOKED when the per-session refresh token is gone', async () => {
+    // Same session-revocation guard as the verify route: a revoked session short-circuits
+    // before resolveMerchantContext / the service is reached.
+    vi.mocked(app.redis.exists as any).mockResolvedValue(0)
+    vi.mocked(listBranchRedemptions).mockClear() // module mock is not auto-cleared between tests
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/branch/${BRANCH_ID}/redemptions`,
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(401)
+    expect(JSON.parse(res.body).error.code).toBe('SESSION_REVOKED')
+    expect(listBranchRedemptions).not.toHaveBeenCalled()
   })
 })
