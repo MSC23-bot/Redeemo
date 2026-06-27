@@ -426,7 +426,7 @@ A new `src/api/merchant/insights` module exposes a small set of read endpoints u
 - `GET …/insights/vouchers` → top vouchers + by-type share (7 types) with logged/confirmed per row.
 - `GET …/insights/branches` → branch ranking (scoped) with logged/confirmed per row.
 - `GET …/insights/customers` → new-vs-returning split + repeat-rate + new-customers (behavioural; **no demographics in release 1**).
-- `GET …/insights/busy-times` → 7×6 daypart matrix of logged counts.
+- `GET …/insights/busy-times` → **privacy-mode-aware** 7×6 daypart matrix: **intensity bands by default** (no exact cell counts or raw peak values in the payload), exact counts **only** under an approved PR-0a D6 policy, or an explicit **unavailable** state; the client never derives suppression from raw counts (§1.7). Concrete mode-tagged shape (`mode:'intensity'` / `mode:'exact'` / `{available:false}`) in the plan §2.7.
 - `GET …/insights/validation` → logged/confirmed/awaiting + completion rate + adaptive method breakdown.
 - `GET …/insights/export.csv` → the §10.1 CSV.
 - `GET …/insights/report` (HTML) **or** a client-rendered print view fed by the above → §10.2. If server-rendered, it is a §15.3-governed endpoint (live authz re-resolution + **active-merchant `ACTIVE` gate (§7.2)** + Staff deny + branch scope §7.2 + §4.1 cleanliness + HTML-injection-safe escaping).
@@ -616,3 +616,6 @@ A subsequent six-lens self-review of the amended plan + spec drove three further
 3. **Active-merchant gate in the chain-enumeration sites:** §15.3's `[LOCKED]` contract-rules first bullet and §15.2's server-rendered `/report` guard list now both list the `Merchant.status==='ACTIVE'` gate (typed `MERCHANT_NOT_ACTIVE`), so an implementer building strictly to those lists cannot leave it as a UI-only block. §15.2, §15.3.
 4. **Per-KPI comparison sketch:** §15.2's `/overview` sketch no longer reads as a single shared `comparison`; it now states each KPI (and savings) carries its OWN nullable comparison, with repeat-rate's value AND comparison gated, finalised in plan §2.7. §15.2.
 5. **Style:** the §7.1 role-matrix glyphs were replaced with text (`Yes`/`No`) per the no-emoji rule. §7.1.
+
+A fourth review (Codex) of the implementation plan found one residual contract inconsistency, corrected here:
+6. **Busy-times privacy-mode-aware contract:** the plan's `/busy-times` response still exposed an exact per-cell `logged` count, contradicting the §1.7 intensity-only fallback. The endpoint is now **privacy-mode-aware**: intensity bands by default (no exact counts or raw peak values in the payload), exact counts only under an approved PR-0a D6 policy, or an explicit `{available:false}`; the client never derives suppression from raw counts. §15.2 (sketch); the mode-tagged contract + negative tests live in the plan (§2.7/A4/A7/B1/B6).
