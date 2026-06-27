@@ -278,14 +278,23 @@ export async function getOverview(
     savingsCmp = buildComparison(estLogged, num(prev.est_logged), filters.period)
   }
 
-  // Earliest eligible redemption (over the full scope, IGNORING the period window):   // drives the All-time disclosure (spec 1.10).
+  // Earliest eligible redemption (over the full scope + the active voucher-type
+  // filter, but IGNORING the period window): drives the All-time disclosure (spec
+  // 1.10). Open-ended all-history: NO period window so the earliest is over ALL
+  // history, additionally narrowed by the selected voucher type + scope +
+  // cleanliness so it reconciles with the rest of the overview block (it is the
+  // earliest of the SAME dataset the figures count, not a wider one). The Voucher
+  // join (v) + voucherTypeSql mirror eligibleFrom; the QA/DELETED/test exclusions
+  // + the branch-scope intersection come from buildEligibilityWhereSql.
   const earliestRows = await prisma.$queryRaw<Array<{ earliest: Date | null }>>(Prisma.sql`
     SELECT MIN(r."redeemedAt") AS earliest
     FROM "VoucherRedemption" r
     JOIN "Branch"   b ON r."branchId"  = b.id
     JOIN "Merchant" m ON b."merchantId" = m.id
     JOIN "User"     u ON r."userId"    = u.id
+    JOIN "Voucher"  v ON r."voucherId" = v.id
     WHERE ${buildEligibilityWhereSql({ merchantId: ctx.merchantId, branchScope: scope })}
+      ${voucherTypeSql(filters.voucherType)}
   `)
   const earliest = earliestRows[0]?.earliest ?? null
 
@@ -313,16 +322,34 @@ export async function getOverview(
 }
 
 /**
- * A coarse, NON-leaking scope label (spec 1.9). Never enumerates sibling branch
- * names here; the route layer resolves a human branch name when a single branch
- * is in view. This default is the machine-friendly fallback.
+ * A coarse, NON-leaking, ROLE-AWARE scope label (spec 1.9 / 7; plan 2.4). Never
+ * enumerates sibling branch names here; the route layer resolves a human branch
+ * name when a single branch is in view. This default is the machine-friendly
+ * fallback.
+ *
+ * The label keys on `ctx.role`, NOT the scope SHAPE, so the owner-only
+ * "All branches" label is never shown to a BRANCH_MANAGER (an all-branches
+ * manager legitimately sees every branch but keeps the manager "All my branches"
+ * label - spec §2.4 + line 276/285). The data scope is unchanged; this is a UI
+ * label distinction only.
+ *
+ * Resolution:
+ *   - a selected `branchId` (a single in-scope branch in view) -> "Viewing: selected branch"
+ *   - a scoped BM with EXACTLY ONE allowed branch (and no explicit branchId) -> the same single-branch label
+ *   - OWNER over all branches -> "All branches"
+ *   - BRANCH_MANAGER over all/multiple branches -> "All my branches"
  */
-function scopeLabel(ctx: MerchantContext, branchId?: string): string {
+export function scopeLabel(ctx: MerchantContext, branchId?: string): string {
+  // A single branch is in view (explicit filter, or a scoped BM whose entire
+  // authorised set is exactly one branch).
   if (branchId) return 'Viewing: selected branch'
-  if (ctx.allBranches || insightsScope(ctx) === null) return 'All branches'
   const scope = insightsScope(ctx)
   if (scope && scope.length === 1) return 'Viewing: selected branch'
-  return 'All my branches'
+
+  // Multiple / all branches: the label is decided by ROLE, never the scope shape.
+  // Only an OWNER ever sees the merchant-wide "All branches" label; a
+  // BRANCH_MANAGER (even all-branches) keeps "All my branches".
+  return ctx.role === 'OWNER' ? 'All branches' : 'All my branches'
 }
 
 // --- Trend -------------------------------------------------------------------

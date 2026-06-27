@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { insightsScope, assertInsightsAccess, assertMerchantActive } from '../../../../src/api/merchant/insights/scope'
+import { scopeLabel } from '../../../../src/api/merchant/insights/service'
 import { AppError } from '../../../../src/api/shared/errors'
 import type { MerchantContext } from '../../../../src/api/merchant/shared'
 import { MerchantStatus } from '../../../../generated/prisma/enums'
@@ -59,6 +60,44 @@ describe('assertInsightsAccess', () => {
 
   it('BRANCH_MANAGER passes (does not throw)', () => {
     expect(() => assertInsightsAccess(ctx({ role: 'BRANCH_MANAGER' }))).not.toThrow()
+  })
+})
+
+describe('scopeLabel (role-aware, Finding #3)', () => {
+  // The owner-only "All branches" label must NEVER be shown to a BRANCH_MANAGER,
+  // even an all-branches one (its data scope is identical to an owner's, but the
+  // label keys on ROLE, not scope shape - spec 2.4 + lines 276/285). The label
+  // decision matrix:
+  it('OWNER all-branches -> "All branches"', () => {
+    expect(scopeLabel(ctx({ role: 'OWNER', allBranches: true, allowedBranchIds: [] }))).toBe('All branches')
+  })
+
+  it('all-branches BRANCH_MANAGER -> "All my branches" (manager label, NOT the owner "All branches")', () => {
+    expect(scopeLabel(ctx({ role: 'BRANCH_MANAGER', allBranches: true, allowedBranchIds: [] }))).toBe(
+      'All my branches',
+    )
+  })
+
+  it('one-branch scoped BM (single allowed branch, no explicit branchId) -> "Viewing: selected branch"', () => {
+    expect(scopeLabel(ctx({ role: 'BRANCH_MANAGER', allBranches: false, allowedBranchIds: ['b1'] }))).toBe(
+      'Viewing: selected branch',
+    )
+  })
+
+  it('multi-branch scoped BM -> "All my branches"', () => {
+    expect(
+      scopeLabel(ctx({ role: 'BRANCH_MANAGER', allBranches: false, allowedBranchIds: ['b1', 'b2'] })),
+    ).toBe('All my branches')
+  })
+
+  it('selected authorized branch (explicit branchId) -> "Viewing: selected branch"', () => {
+    // An OWNER (or BM) viewing a single selected branch via the branchId filter.
+    expect(scopeLabel(ctx({ role: 'OWNER', allBranches: true, allowedBranchIds: [] }), 'b1')).toBe(
+      'Viewing: selected branch',
+    )
+    expect(
+      scopeLabel(ctx({ role: 'BRANCH_MANAGER', allBranches: false, allowedBranchIds: ['b1', 'b2'] }), 'b1'),
+    ).toBe('Viewing: selected branch')
   })
 })
 

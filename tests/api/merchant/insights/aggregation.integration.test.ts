@@ -215,6 +215,36 @@ describe('Insights aggregation/cleanliness/scope (real local DB)', () => {
     expect(o.meta.filtersEcho.period).toBe('all')
   })
 
+  it('META: earliestDate reflects the ACTIVE voucher-type filter (Finding #5)', async () => {
+    // Unfiltered: the overall earliest eligible row is the 2 March 2026 BOGO.
+    const unfiltered = await getOverview(prisma, ownerCtx(merchantId), allTime())
+    expect(unfiltered.meta.earliestDate).toBe('2026-03-02T10:00:00.000Z')
+
+    // BOGO-only: the earliest BOGO row is still 2 March 2026 (the same earliest).
+    const bogo = await getOverview(prisma, ownerCtx(merchantId), { period: 'all', now: NOW, voucherType: 'BOGO' })
+    expect(bogo.meta.earliestDate).toBe('2026-03-02T10:00:00.000Z')
+
+    // DISCOUNT-only: BOGO rows are excluded; the earliest DISCOUNT row is the
+    // 5 March 2026 DiscFixed (before the 6/7 March DiscPercent rows). This proves
+    // the earliest query honours the voucher-type filter rather than returning the
+    // wider 2 March BOGO date.
+    const discount = await getOverview(prisma, ownerCtx(merchantId), {
+      period: 'all',
+      now: NOW,
+      voucherType: 'DISCOUNT',
+    })
+    expect(discount.meta.earliestDate).toBe('2026-03-05T10:00:00.000Z')
+
+    // FREEBIE-only: no eligible FREEBIE rows in the fixture -> earliest is null
+    // (the filtered dataset is empty, not a fallback to the unfiltered earliest).
+    const freebie = await getOverview(prisma, ownerCtx(merchantId), {
+      period: 'all',
+      now: NOW,
+      voucherType: 'FREEBIE',
+    })
+    expect(freebie.meta.earliestDate).toBeNull()
+  })
+
   it('COMPARISON: incomplete period (all) -> all comparisons null', async () => {
     const o = await getOverview(prisma, ownerCtx(merchantId), allTime())
     expect(o.redemptionActivity.comparison).toBeNull()
