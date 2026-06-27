@@ -34,6 +34,7 @@ import {
   type InsightsBranchScope,
 } from './eligibility'
 import { insightsScope } from './scope'
+import { behaviouralGateOpen } from './gate'
 import {
   periodWindow,
   resolveComparisonWindow,
@@ -682,4 +683,188 @@ export async function getValidation(
     // Adaptive: a single-method breakdown is uninformative: emit nothing.
     methods: nonZeroMethods.length <= 1 ? [] : methods,
   }
+}
+
+// --- Behavioural (GATED): repeat-rate + new-vs-returning ---------------------
+//
+// Task A5 (spec 1.3/1.5/13.5, plan 2.5/2.7). These two functions read PRIOR-PERIOD
+// customer history (cross-period profiling over userId), so they are the BEHAVIOURAL
+// boundary and are HARD-GATED by behaviouralGateOpen():
+//   - GATE CLOSED -> return { available:false } and execute NO query (defense in
+//     depth alongside the route gate; the gate is checked BEFORE any $queryRaw, so
+//     a closed gate never touches real customer history).
+//   - GATE OPEN   -> compute over the eligible logged dataset.
+//
+// COHORT (spec 1.5): the distinct customers with an eligible logged redemption in
+// the period, under the active filters (period window + branchId intersection +
+// voucher-type). This is the SAME voucher-type-filtered distinct cohort as
+// distinctCustomers, so it is the denominator for both KPIs.
+//
+// RETURNING (spec 1.5): a cohort customer with >=1 PRIOR eligible logged redemption
+// STRICTLY BEFORE the window start, within the SAME effective branch scope but
+// ACROSS ALL voucher types (the prior-history check never applies the voucher-type
+// filter, so "New to you" means new to the merchant/branch, not new to a type).
+// NEW = the cohort complement (first eligible logged redemption inside the period).
+//
+// DELETED users + QA accounts + test data are excluded from BOTH the cohort and the
+// lookback by buildEligibilityWhereSql (the canonical eligible rule), so a deleted
+// customer cannot inflate total nor returningCount.
+//
+// 'all' period: startUtc is null (open-ended earliest), so there is no "before the
+// window" - every cohort customer is necessarily New (returningCount = 0). We model
+// this as priorStartUtc = null -> the lookback EXISTS clause is a constant FALSE.
+
+/** The distinct in-period eligible cohort (the shared denominator). Internal. */
+async function distinctCohortCount(
+  prisma: PrismaClient,
+  ctx: MerchantContext,
+  scope: InsightsBranchScope,
+  startUtc: Date | null,
+  endUtc: Date,
+  voucherType: MerchantVoucherType | undefined,
+): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
+    SELECT COUNT(DISTINCT r."userId")::bigint AS total
+    ${eligibleFrom(ctx.merchantId, scope, startUtc, endUtc, voucherType)}
+  `)
+  return num(rows[0]?.total)
+}
+
+/**
+ * Count the cohort customers who are RETURNING: distinct in-period (voucher-type-
+ * filtered) customers who ALSO have a prior eligible logged redemption strictly
+ * before `startUtc`, in the same effective branch scope, ACROSS ALL voucher types.
+ *
+ * Implemented as: the in-period cohort (the `cohort` subquery, voucher-type-filtered)
+ * INTERSECTED with the distinct set of customers who have an eligible row strictly
+ * before `startUtc` (the `prior` subquery, NO voucher-type filter, same scope). When
+ * `startUtc` is null ('all'), there is no "before" - returningCount is 0 with no
+ * prior query (every cohort customer is New).
+ */
+async function returningCohortCount(
+  prisma: PrismaClient,
+  ctx: MerchantContext,
+  scope: InsightsBranchScope,
+  startUtc: Date | null,
+  endUtc: Date,
+  voucherType: MerchantVoucherType | undefined,
+): Promise<number> {
+  if (startUtc === null) return 0 // 'all' period: no prior window, everyone is New.
+
+  // The in-period cohort: distinct userIds with an eligible row in [startUtc, endUtc),
+  // under the voucher-type filter. The window SQL is composed by eligibleFrom.
+  const cohortFrom = eligibleFrom(ctx.merchantId, scope, startUtc, endUtc, voucherType)
+
+  // The prior set: distinct userIds with an eligible row STRICTLY BEFORE startUtc,
+  // in the same effective branch scope, across ALL voucher types (voucherType
+  // undefined -> no type filter). The "before" window is modelled as the half-open
+  // [null, startUtc) range via eligibleFrom's open-lower-bound branch (startUtc=null
+  // omits the lower bound, endUtc=startUtc is the exclusive upper bound).
+  const priorFrom = eligibleFrom(ctx.merchantId, scope, null, startUtc, undefined)
+
+  const rows = await prisma.$queryRaw<Array<{ returning: bigint }>>(Prisma.sql`
+    SELECT COUNT(*)::bigint AS returning
+    FROM (
+      SELECT DISTINCT r."userId" AS uid
+      ${cohortFrom}
+    ) AS cohort
+    WHERE cohort.uid IN (
+      SELECT DISTINCT r."userId"
+      ${priorFrom}
+    )
+  `)
+  return num(rows[0]?.returning)
+}
+
+export type NewVsReturningResult =
+  | { newCount: number; returningCount: number; total: number }
+  | { available: false }
+
+/**
+ * New-vs-returning split (spec 1.5). GATED. `returning` = cohort customers with a
+ * prior eligible logged redemption before the window start (same branch scope, all
+ * voucher types); `new` = the complement. newCount + returningCount === total ===
+ * the distinct in-period cohort. DELETED / QA / test data are excluded from both the
+ * cohort and the lookback by the eligible rule.
+ */
+export async function getNewVsReturning(
+  prisma: PrismaClient,
+  ctx: MerchantContext,
+  filters: InsightsFilters,
+): Promise<NewVsReturningResult> {
+  // GATE: checked BEFORE any query. Closed -> { available:false }, no real-data read.
+  if (!behaviouralGateOpen()) return { available: false }
+
+  const now = filters.now ?? new Date()
+  const win = periodWindow(filters.period, now, filters.custom)
+  const scope = effectiveScope(ctx, filters.branchId)
+
+  const total = await distinctCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType)
+  const returningCount = await returningCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType)
+  // New is the complement; clamp at 0 defensively (returning is a subset of the
+  // cohort by construction, so this is never negative in practice).
+  const newCount = Math.max(0, total - returningCount)
+
+  return { newCount, returningCount, total }
+}
+
+export type RepeatRateResult =
+  | { value: number | null; insufficient: boolean; comparison: Comparison }
+  | { available: false }
+
+// Below this in-period distinct-cohort size, the repeat-rate is unreliable / could
+// expose a near-individual figure, so we surface the "Building your repeat-customer
+// picture" insufficient state instead of a misleading percentage (spec 1.3). An
+// empty cohort (0 in-period customers) is ALWAYS insufficient (no denominator).
+const REPEAT_RATE_MIN_COHORT = 1
+
+/**
+ * Repeat-customer rate (spec 1.3/1.5). GATED. The percentage = returning / total
+ * over the SAME voucher-type-filtered distinct cohort as getNewVsReturning, rounded
+ * to 1dp. `insufficient` is true (and `value` null) when the cohort is empty / below
+ * the minimum reliable size - never a misleading 0%. The comparison is the
+ * completed-period repeat-rate over the comparison window (null on an incomplete
+ * period); its value AND comparison are gated together with the metric (spec 2.7).
+ */
+export async function getRepeatRate(
+  prisma: PrismaClient,
+  ctx: MerchantContext,
+  filters: InsightsFilters,
+): Promise<RepeatRateResult> {
+  // GATE: checked BEFORE any query. Closed -> { available:false }, no real-data read.
+  if (!behaviouralGateOpen()) return { available: false }
+
+  const now = filters.now ?? new Date()
+  const win = periodWindow(filters.period, now, filters.custom)
+  const scope = effectiveScope(ctx, filters.branchId)
+
+  const total = await distinctCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType)
+
+  // Empty / sub-threshold cohort -> insufficient (no misleading 0%).
+  if (total < REPEAT_RATE_MIN_COHORT) {
+    return { value: null, insufficient: true, comparison: null }
+  }
+
+  const returningCount = await returningCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType)
+  const value = Math.round((returningCount / total) * 1000) / 10
+
+  // Comparison: the repeat-rate over the completed-period comparison window (null
+  // when the period is incomplete). The comparison value is itself a repeat-rate
+  // percentage; cur = this period's value, prev = the comparison window's value.
+  const cmpWin = resolveComparisonWindow(filters.period, now, filters.custom)
+  let comparison: Comparison = null
+  if (cmpWin) {
+    const cmpTotal = await distinctCohortCount(prisma, ctx, scope, cmpWin.startUtc, cmpWin.endUtc, filters.voucherType)
+    if (cmpTotal >= REPEAT_RATE_MIN_COHORT) {
+      const cmpReturning = await returningCohortCount(prisma, ctx, scope, cmpWin.startUtc, cmpWin.endUtc, filters.voucherType)
+      const prevValue = Math.round((cmpReturning / cmpTotal) * 1000) / 10
+      comparison = buildComparison(value, prevValue, filters.period)
+    } else {
+      // The comparison window has no reliable cohort: keep the comparison object
+      // present (the period IS complete) but with a null prev / null pct.
+      comparison = { cur: value, prev: 0, pct: null, label: filters.period }
+    }
+  }
+
+  return { value, insufficient: false, comparison }
 }
