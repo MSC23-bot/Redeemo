@@ -146,9 +146,11 @@ function voucherTypeSql(voucherType: MerchantVoucherType | undefined): Prisma.Sq
  * `includeTestDataForMerchantId` is the server-owned demo carve-out (Task A10):
  * resolved by demoIncludeMerchantId(ctx.merchantId) at each entry point and threaded
  * through here so the dedicated demo merchant surfaces its isTestData=true demo
- * dataset. It is undefined in production (demoIncludeMerchantId's hard NODE_ENV gate)
- * and undefined for every non-allowlisted merchant, so the cleanliness rule is
- * unchanged on every real read path.
+ * dataset. It is undefined in production and on every non-staging deploy
+ * (demoIncludeMerchantId's hard staging-identity gate: REDEEMO_DEPLOY_ENV must equal
+ * 'staging' exactly; NODE_ENV is NOT consulted because Railway staging runs
+ * NODE_ENV=production), and undefined for every non-allowlisted merchant, so the
+ * cleanliness rule is unchanged on every real read path.
  */
 function eligibleFrom(
   merchantId: string,
