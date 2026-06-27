@@ -442,7 +442,12 @@ describe('redemption routes', () => {
   })
 
   it('GET /api/v1/branch/:branchId/redemptions returns 403 for merchant admin accessing branch owned by different merchant', async () => {
-    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: 'other-merchant-id' })
+    // The branch belongs to another merchant but is ACTIVE — so the ONLY thing that can
+    // produce the 403 is the ownership guard (`branch.merchantId !== ctx.merchantId`),
+    // not an accidental crash on a missing `merchant` relation. The mock mirrors the real
+    // Prisma `select` shape ({ merchantId, merchant: { status } }) used by the route.
+    vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: 'other-merchant-id', merchant: { status: 'ACTIVE' } })
+    vi.mocked(listBranchRedemptions).mockClear() // module mock is not auto-cleared between tests
 
     const res = await app.inject({
       method:  'GET',
@@ -452,6 +457,8 @@ describe('redemption routes', () => {
 
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body).error.code).toBe('BRANCH_ACCESS_DENIED')
+    // Tenant isolation: an out-of-tenant request must never reach the data layer.
+    expect(listBranchRedemptions).not.toHaveBeenCalled()
   })
 
   it('GET /api/v1/branch/:branchId/redemptions returns 403 without token', async () => {
