@@ -223,7 +223,7 @@ All metrics derive from the §4 canonical dataset, are branch-scoped (§7), appl
 | **Confirmed / Awaiting / completion rate** | per §4.2 | Both |
 | **Voucher rankings / by-type share** | rank by logged `COUNT(*)`; type share uses the logged denominator; 7 merchant-facing types (§1.16) | Logged + confirmed secondary |
 | **Branch rankings** | rank by logged `COUNT(*)`, scoped (§7) | Logged + confirmed secondary |
-| **Busy-times heatmap** | logged `COUNT(*)` by (London day-of-week × six dayparts) on `redeemedAt` | Logged |
+| **Busy-times heatmap** | internal aggregation basis = logged `COUNT(*)` by (London day-of-week × six dayparts) on `redeemedAt`, mapped to **privacy-mode-aware intensity bands before serialisation** (exact counts reach the payload only under an approved PR-0a D6 policy; §1.7, §15.2) | Logged (intensity bands in the payload) |
 
 ### 5.6 One shared aggregation - [LOCKED, ENG]
 Overview KPIs, every tab, the reports, and the **later Home dashboard** must reconcile to **one shared backend aggregation** so figures never drift (Home total = sum across vouchers = redemption log). The aggregation is the single source of the dual-layer figures and is the only place the §4.1 cleanliness rule lives.
