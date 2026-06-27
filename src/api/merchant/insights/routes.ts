@@ -65,19 +65,33 @@ const VOUCHER_TYPE_VALUES = [
   'REUSABLE',
 ] as const
 
+// A genuine calendar YYYY-MM: a 4-digit year and a 01..12 month. The bounded
+// month group rejects 00 / 13 / 99 at the route boundary, so a malformed month
+// is a clean 400 (ZodError -> the global VALIDATION_ERROR handler) rather than a
+// 500 from london.ts parseYearMonth throwing a generic Error downstream.
+const YEAR_MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
+
 // Server-side zod validation of the query filters. `period` defaults to
 // 'this_month' (the prototype's default view). `from`/`to` are YYYY-MM and are
 // only consumed for period='custom'. `branchId` / `voucherType` are optional.
 const filterSchema = z
   .object({
     period: z.enum(['this_month', 'last_month', 'last_3m', 'last_6m', 'all', 'custom']).default('this_month'),
-    from: z.string().regex(/^\d{4}-\d{2}$/).optional(),
-    to: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    from: z.string().regex(YEAR_MONTH_RE).optional(),
+    to: z.string().regex(YEAR_MONTH_RE).optional(),
     branchId: z.string().optional(),
     voucherType: z.enum(VOUCHER_TYPE_VALUES).optional(),
   })
   .refine((q) => q.period !== 'custom' || (q.from !== undefined && q.to !== undefined), {
     message: 'A custom period requires both a from and a to month (YYYY-MM).',
+  })
+  // A custom range must be ordered from <= to. Both are fixed-width YYYY-MM, so a
+  // lexicographic string compare is a correct chronological compare (no Date math
+  // needed). A `to` of the current incomplete month stays valid: we only require
+  // from <= to, never a comparison against `now`. This guards the london.ts
+  // periodWindow 'custom' branch from building a reversed (negative-length) window.
+  .refine((q) => q.period !== 'custom' || q.from === undefined || q.to === undefined || q.from <= q.to, {
+    message: 'A custom period requires the from month to be on or before the to month.',
   })
 
 type ParsedFilters = z.infer<typeof filterSchema>

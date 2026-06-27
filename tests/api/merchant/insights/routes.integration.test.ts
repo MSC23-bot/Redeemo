@@ -361,4 +361,64 @@ describe('Insights routes : section 2.7 contract (real local DB + HTTP)', () => 
     const res = await get(rt, ownerAdmin, '/overview', '?period=custom')
     expect(res.statusCode).toBe(400)
   })
+
+  // ── Custom-range validation (Codex finding #1: malformed period is a clean
+  // 400 VALIDATION_ERROR at the route boundary, NEVER a 500 from london.ts) ──
+  describe('custom-range validation -> 400 VALIDATION_ERROR (never 500)', () => {
+    // The current London-month YYYY-MM string, derived from the same NOW the
+    // route uses. A range whose `to` is the current incomplete month MUST be
+    // valid (we only require from <= to, never a compare against now).
+    const CURRENT_YM = (() => {
+      const start = periodWindow('this_month', NOW).startUtc! // first instant of the London month
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/London',
+        year: 'numeric',
+        month: '2-digit',
+      }).formatToParts(start)
+      const y = parts.find((p) => p.type === 'year')!.value
+      const m = parts.find((p) => p.type === 'month')!.value
+      return `${y}-${m}`
+    })()
+
+    it('month 00 -> 400 (not 500)', async () => {
+      const res = await get(rt, ownerAdmin, '/overview', '?period=custom&from=2026-00&to=2026-03')
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('month 13 -> 400 (not 500)', async () => {
+      const res = await get(rt, ownerAdmin, '/overview', '?period=custom&from=2026-01&to=2026-13')
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('month 99 -> 400 (not 500)', async () => {
+      const res = await get(rt, ownerAdmin, '/overview', '?period=custom&from=2026-99&to=2026-99')
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('reversed range (from=2026-06 & to=2026-01) -> 400 (not 500)', async () => {
+      const res = await get(rt, ownerAdmin, '/overview', '?period=custom&from=2026-06&to=2026-01')
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('custom with from missing -> 400', async () => {
+      const res = await get(rt, ownerAdmin, '/overview', '?period=custom&to=2026-03')
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('custom with to missing -> 400', async () => {
+      const res = await get(rt, ownerAdmin, '/overview', '?period=custom&from=2026-01')
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('an allowed current-month range (from <= to, to is the current incomplete month) -> 200', async () => {
+      const res = await get(rt, ownerAdmin, '/overview', `?period=custom&from=${CURRENT_YM}&to=${CURRENT_YM}`)
+      expect(res.statusCode).toBe(200)
+    })
+  })
 })
