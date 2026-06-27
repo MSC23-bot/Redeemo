@@ -346,6 +346,77 @@ export async function seedScenario(
   return { merchantId, branchId, userId, voucherId }
 }
 
+// --- Membership helpers for ROUTE tests (Task A7) ---------------------------
+//
+// The route-level integration tests authenticate as a merchant-admin and let
+// resolveMerchantContext resolve the membership against the REAL DB. These
+// helpers seed the membership rows the resolver reads (getActiveMembership reads
+// MerchantMembership + its MerchantMembershipBranch scoped-branch join), keyed to
+// a given merchant-admin id so the test can sign a JWT with `sub = adminId`.
+
+type MerchantRole = 'OWNER' | 'BRANCH_MANAGER' | 'STAFF'
+
+/** Seed a MerchantAdmin (the person who logs in). Tracks the id. Returns the id. */
+export async function seedMerchantAdmin(prisma: PrismaClient, ids: FixtureIds): Promise<string> {
+  const admin = await prisma.merchantAdmin.create({
+    data: {
+      email: `insights-test-admin-${uniq()}@example.com`,
+      passwordHash: 'x',
+      firstName: 'Test',
+      lastName: 'Member',
+    },
+    select: { id: true },
+  })
+  ids.merchantAdmins.push(admin.id)
+  return admin.id
+}
+
+/**
+ * Seed a MerchantMembership for an existing merchant-admin under a merchant, with
+ * an explicit role + branch scope. When `allBranches` is false, the passed
+ * `allowedBranchIds` are linked via MerchantMembershipBranch (the join
+ * getActiveMembership reads). Tracks the membership id. Returns it.
+ *
+ * Use seedMerchantAdmin first to get an adminId, then this to attach a membership,
+ * so the route test can sign a JWT with `sub = adminId` and the resolver finds the
+ * exact role/scope under test (OWNER all-branches, all-branches BM, scoped BM,
+ * empty-scope BM, STAFF).
+ */
+export async function seedMembership(
+  prisma: PrismaClient,
+  ids: FixtureIds,
+  args: {
+    merchantId: string
+    merchantAdminId: string
+    role: MerchantRole
+    allBranches?: boolean
+    allowedBranchIds?: string[]
+    status?: UserStatus
+    canManageVouchers?: boolean
+  },
+): Promise<string> {
+  const mm = await prisma.merchantMembership.create({
+    data: {
+      merchantId: args.merchantId,
+      merchantAdminId: args.merchantAdminId,
+      role: args.role,
+      allBranches: args.allBranches ?? false,
+      canManageVouchers: args.canManageVouchers ?? false,
+      status: args.status ?? 'ACTIVE',
+    },
+    select: { id: true },
+  })
+  ids.memberships.push(mm.id)
+
+  const allowed = args.allowedBranchIds ?? []
+  if (!(args.allBranches ?? false) && allowed.length > 0) {
+    await prisma.merchantMembershipBranch.createMany({
+      data: allowed.map((branchId) => ({ membershipId: mm.id, branchId })),
+    })
+  }
+  return mm.id
+}
+
 // --- Cleanup ----------------------------------------------------------------
 
 /**
