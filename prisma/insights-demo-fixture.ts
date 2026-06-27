@@ -303,12 +303,15 @@ export async function seedInsightsDemoFixture(prisma: PrismaClient): Promise<{
   //    twice yields the SAME row count, not double.
   //
   //    The demo branches only ever carry demo redemptions (they are dedicated
-  //    isTestData=true branches on the dedicated demo merchant), so deleting every
-  //    redemption on these branch ids is a safe, scoped reconcile - it cannot touch
-  //    any real merchant's rows. We further constrain to the sentinel code prefix as
-  //    defence in depth.
+  //    isTestData=true branches on the dedicated demo merchant; a real customer can
+  //    never redeem at them - the demo merchant/vouchers are isTestData=true and
+  //    excluded from discovery), so deleting EVERY redemption on these branch ids is
+  //    a safe, scoped reconcile that cannot touch any real merchant's rows. We scope
+  //    by branch id only (NOT by code prefix) so a fixture-version change to the
+  //    redemptionCode scheme still fully reconciles prior demo rows (no stale
+  //    leftovers) and re-running stays deterministic.
   await prisma.voucherRedemption.deleteMany({
-    where: { branchId: { in: branchIds }, redemptionCode: { startsWith: 'IDEMO-' } },
+    where: { branchId: { in: branchIds } },
   })
 
   // A realistic spread across branches x voucher types x dates x the six London
