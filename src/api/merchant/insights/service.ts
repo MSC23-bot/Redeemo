@@ -34,6 +34,7 @@ import {
   type InsightsBranchScope,
 } from './eligibility'
 import { insightsScope } from './scope'
+import { demoIncludeMerchantId } from './demo'
 import { behaviouralGateOpen, busyPeakMinCount, repeatRateMinCohort } from './gate'
 import {
   periodWindow,
@@ -141,6 +142,13 @@ function voucherTypeSql(voucherType: MerchantVoucherType | undefined): Prisma.Sq
  * The Voucher join (`v`) is ALWAYS present so every query can filter/aggregate
  * on voucher type uniformly. The eligibility WHERE references r/b/m/u; the window
  * + type clauses reference r and v.
+ *
+ * `includeTestDataForMerchantId` is the server-owned demo carve-out (Task A10):
+ * resolved by demoIncludeMerchantId(ctx.merchantId) at each entry point and threaded
+ * through here so the dedicated demo merchant surfaces its isTestData=true demo
+ * dataset. It is undefined in production (demoIncludeMerchantId's hard NODE_ENV gate)
+ * and undefined for every non-allowlisted merchant, so the cleanliness rule is
+ * unchanged on every real read path.
  */
 function eligibleFrom(
   merchantId: string,
@@ -148,8 +156,9 @@ function eligibleFrom(
   startUtc: Date | null,
   endUtc: Date,
   voucherType: MerchantVoucherType | undefined,
+  includeTestDataForMerchantId?: string,
 ): Prisma.Sql {
-  const eligibility = buildEligibilityWhereSql({ merchantId, branchScope: scope })
+  const eligibility = buildEligibilityWhereSql({ merchantId, branchScope: scope, includeTestDataForMerchantId })
   return Prisma.sql`
     FROM "VoucherRedemption" r
     JOIN "Branch"   b ON r."branchId"  = b.id
@@ -237,6 +246,8 @@ export async function getOverview(
   const now = filters.now ?? new Date()
   const win = periodWindow(filters.period, now, filters.custom)
   const scope = effectiveScope(ctx, filters.branchId)
+  // Server-owned demo carve-out (undefined in production + for non-allowlisted merchants).
+  const demoId = demoIncludeMerchantId(ctx.merchantId)
 
   const mainRows = await prisma.$queryRaw<
     Array<{ logged: bigint; confirmed: bigint; distinct: bigint; est_logged: Prisma.Decimal | null; est_confirmed: Prisma.Decimal | null }>
@@ -247,7 +258,7 @@ export async function getOverview(
       COUNT(DISTINCT r."userId")::bigint AS distinct,
       COALESCE(SUM(r."estimatedSaving"), 0) AS est_logged,
       COALESCE(SUM(r."estimatedSaving") FILTER (WHERE r."isValidated" = true), 0) AS est_confirmed
-    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)}
   `)
 
   const main = mainRows[0] ?? { logged: 0n, confirmed: 0n, distinct: 0n, est_logged: null, est_confirmed: null }
@@ -270,7 +281,7 @@ export async function getOverview(
         COUNT(*)::bigint AS logged,
         COUNT(DISTINCT r."userId")::bigint AS distinct,
         COALESCE(SUM(r."estimatedSaving"), 0) AS est_logged
-      ${eligibleFrom(ctx.merchantId, scope, cmpWin.startUtc, cmpWin.endUtc, filters.voucherType)}
+      ${eligibleFrom(ctx.merchantId, scope, cmpWin.startUtc, cmpWin.endUtc, filters.voucherType, demoId)}
     `)
     const prev = prevRows[0] ?? { logged: 0n, distinct: 0n, est_logged: null }
     activityCmp = buildComparison(logged, num(prev.logged), filters.period)
@@ -293,7 +304,7 @@ export async function getOverview(
     JOIN "Merchant" m ON b."merchantId" = m.id
     JOIN "User"     u ON r."userId"    = u.id
     JOIN "Voucher"  v ON r."voucherId" = v.id
-    WHERE ${buildEligibilityWhereSql({ merchantId: ctx.merchantId, branchScope: scope })}
+    WHERE ${buildEligibilityWhereSql({ merchantId: ctx.merchantId, branchScope: scope, includeTestDataForMerchantId: demoId })}
       ${voucherTypeSql(filters.voucherType)}
   `)
   const earliest = earliestRows[0]?.earliest ?? null
@@ -372,6 +383,7 @@ export async function getTrend(
   const now = filters.now ?? new Date()
   const win = periodWindow(filters.period, now, filters.custom)
   const scope = effectiveScope(ctx, filters.branchId)
+  const demoId = demoIncludeMerchantId(ctx.merchantId)
 
   const rows = await prisma.$queryRaw<
     Array<{ bucket: Date; logged: bigint; confirmed: bigint }>
@@ -380,7 +392,7 @@ export async function getTrend(
       DATE_TRUNC('month', ${londonTs()}) AS bucket,
       COUNT(*)::bigint AS logged,
       COUNT(*) FILTER (WHERE r."isValidated" = true)::bigint AS confirmed
-    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)}
     GROUP BY bucket
     ORDER BY bucket ASC
   `)
@@ -434,6 +446,7 @@ export async function getVouchers(
   const now = filters.now ?? new Date()
   const win = periodWindow(filters.period, now, filters.custom)
   const scope = effectiveScope(ctx, filters.branchId)
+  const demoId = demoIncludeMerchantId(ctx.merchantId)
 
   const topRows = await prisma.$queryRaw<
     Array<{ voucher_id: string; title: string; db_type: string; logged: bigint; confirmed: bigint; est_logged: Prisma.Decimal | null; est_confirmed: Prisma.Decimal | null }>
@@ -446,7 +459,7 @@ export async function getVouchers(
       COUNT(*) FILTER (WHERE r."isValidated" = true)::bigint AS confirmed,
       COALESCE(SUM(r."estimatedSaving"), 0) AS est_logged,
       COALESCE(SUM(r."estimatedSaving") FILTER (WHERE r."isValidated" = true), 0) AS est_confirmed
-    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)}
     GROUP BY v.id, v.title, v."type"
     ORDER BY logged DESC, v.id ASC
     LIMIT ${VOUCHERS_TOP_TAKE}
@@ -465,7 +478,7 @@ export async function getVouchers(
   // By-type share: group the DB type, collapse to type7, share over total logged.
   const typeRows = await prisma.$queryRaw<Array<{ db_type: string; logged: bigint }>>(Prisma.sql`
     SELECT v."type" AS db_type, COUNT(*)::bigint AS logged
-    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)}
     GROUP BY v."type"
   `)
 
@@ -515,6 +528,7 @@ export async function getBranches(
   const now = filters.now ?? new Date()
   const win = periodWindow(filters.period, now, filters.custom)
   const scope = effectiveScope(ctx, filters.branchId)
+  const demoId = demoIncludeMerchantId(ctx.merchantId)
 
   const rows = await prisma.$queryRaw<
     Array<{ branch_id: string; name: string; logged: bigint; confirmed: bigint; est_logged: Prisma.Decimal | null; est_confirmed: Prisma.Decimal | null }>
@@ -526,7 +540,7 @@ export async function getBranches(
       COUNT(*) FILTER (WHERE r."isValidated" = true)::bigint AS confirmed,
       COALESCE(SUM(r."estimatedSaving"), 0) AS est_logged,
       COALESCE(SUM(r."estimatedSaving") FILTER (WHERE r."isValidated" = true), 0) AS est_confirmed
-    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)}
     GROUP BY b.id, b.name
     ORDER BY logged DESC, b.id ASC
   `)
@@ -621,6 +635,7 @@ export async function getBusyTimes(
   const now = filters.now ?? new Date()
   const win = periodWindow(filters.period, now, filters.custom)
   const scope = effectiveScope(ctx, filters.branchId)
+  const demoId = demoIncludeMerchantId(ctx.merchantId)
 
   // London ISODOW (Mon=1..Sun=7) -> day (Mon=0..Sun=6); London hour-of-day -> daypart.
   // The daypart CASE is DERIVED from DAYPARTS (london.ts) via daypartCaseSql so the
@@ -636,7 +651,7 @@ export async function getBusyTimes(
       (EXTRACT(ISODOW FROM ${londonTs()})::int - 1) AS day,
       ${daypartCaseSql(Prisma.sql`EXTRACT(HOUR FROM ${londonTs()})::int`)} AS daypart,
       COUNT(*)::bigint AS cnt
-    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)}
     GROUP BY day, daypart
   `)
 
@@ -702,12 +717,13 @@ export async function getValidation(
   const now = filters.now ?? new Date()
   const win = periodWindow(filters.period, now, filters.custom)
   const scope = effectiveScope(ctx, filters.branchId)
+  const demoId = demoIncludeMerchantId(ctx.merchantId)
 
   const totalsRows = await prisma.$queryRaw<Array<{ logged: bigint; confirmed: bigint }>>(Prisma.sql`
     SELECT
       COUNT(*)::bigint AS logged,
       COUNT(*) FILTER (WHERE r."isValidated" = true)::bigint AS confirmed
-    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)}
   `)
   const totals = totalsRows[0] ?? { logged: 0n, confirmed: 0n }
   const logged = num(totals.logged)
@@ -715,7 +731,7 @@ export async function getValidation(
 
   const methodRows = await prisma.$queryRaw<Array<{ method: string; count: bigint }>>(Prisma.sql`
     SELECT r."validationMethod" AS method, COUNT(*)::bigint AS count
-    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)}
       AND r."isValidated" = true
       AND r."validationMethod" IS NOT NULL
     GROUP BY r."validationMethod"
@@ -805,6 +821,7 @@ export async function getInsightsExport(
   const now = filters.now ?? new Date()
   const win = periodWindow(filters.period, now, filters.custom)
   const scope = effectiveScope(ctx, filters.branchId)
+  const demoId = demoIncludeMerchantId(ctx.merchantId)
 
   // Fetch CAP+1 to detect truncation (mirror the redemptions export). The date +
   // time columns are formatted IN SQL from londonTs() (double conversion), so the
@@ -831,7 +848,7 @@ export async function getInsightsExport(
       r."estimatedSaving" AS est,
       r."isValidated" AS is_validated,
       r."validationMethod" AS validation_method
-    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)}
     ORDER BY r."redeemedAt" DESC, r.id ASC
     LIMIT ${cap + 1}
   `)
@@ -893,10 +910,11 @@ async function distinctCohortCount(
   startUtc: Date | null,
   endUtc: Date,
   voucherType: MerchantVoucherType | undefined,
+  demoId?: string,
 ): Promise<number> {
   const rows = await prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
     SELECT COUNT(DISTINCT r."userId")::bigint AS total
-    ${eligibleFrom(ctx.merchantId, scope, startUtc, endUtc, voucherType)}
+    ${eligibleFrom(ctx.merchantId, scope, startUtc, endUtc, voucherType, demoId)}
   `)
   return num(rows[0]?.total)
 }
@@ -919,19 +937,21 @@ async function returningCohortCount(
   startUtc: Date | null,
   endUtc: Date,
   voucherType: MerchantVoucherType | undefined,
+  demoId?: string,
 ): Promise<number> {
   if (startUtc === null) return 0 // 'all' period: no prior window, everyone is New.
 
   // The in-period cohort: distinct userIds with an eligible row in [startUtc, endUtc),
   // under the voucher-type filter. The window SQL is composed by eligibleFrom.
-  const cohortFrom = eligibleFrom(ctx.merchantId, scope, startUtc, endUtc, voucherType)
+  const cohortFrom = eligibleFrom(ctx.merchantId, scope, startUtc, endUtc, voucherType, demoId)
 
   // The prior set: distinct userIds with an eligible row STRICTLY BEFORE startUtc,
   // in the same effective branch scope, across ALL voucher types (voucherType
   // undefined -> no type filter). The "before" window is modelled as the half-open
   // [null, startUtc) range via eligibleFrom's open-lower-bound branch (startUtc=null
-  // omits the lower bound, endUtc=startUtc is the exclusive upper bound).
-  const priorFrom = eligibleFrom(ctx.merchantId, scope, null, startUtc, undefined)
+  // omits the lower bound, endUtc=startUtc is the exclusive upper bound). The demo
+  // carve-out applies to the prior lookback too so a coherent demo cohort surfaces.
+  const priorFrom = eligibleFrom(ctx.merchantId, scope, null, startUtc, undefined, demoId)
 
   const rows = await prisma.$queryRaw<Array<{ returning: bigint }>>(Prisma.sql`
     SELECT COUNT(*)::bigint AS returning
@@ -969,9 +989,10 @@ export async function getNewVsReturning(
   const now = filters.now ?? new Date()
   const win = periodWindow(filters.period, now, filters.custom)
   const scope = effectiveScope(ctx, filters.branchId)
+  const demoId = demoIncludeMerchantId(ctx.merchantId)
 
-  const total = await distinctCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType)
-  const returningCount = await returningCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType)
+  const total = await distinctCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)
+  const returningCount = await returningCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)
   // New is the complement; clamp at 0 defensively (returning is a subset of the
   // cohort by construction, so this is never negative in practice).
   const newCount = Math.max(0, total - returningCount)
@@ -1011,11 +1032,12 @@ export async function getRepeatRate(
   const now = filters.now ?? new Date()
   const win = periodWindow(filters.period, now, filters.custom)
   const scope = effectiveScope(ctx, filters.branchId)
+  const demoId = demoIncludeMerchantId(ctx.merchantId)
 
   // The minimum reliable cohort is an UNDECIDED PR-0a D6 value (server-owned,
   // fail-closed). null => NO approved minimum => repeat-rate is ALWAYS insufficient.
   const minCohort = repeatRateMinCohort()
-  const total = await distinctCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType)
+  const total = await distinctCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)
 
   // No approved minimum, or empty / sub-threshold cohort -> insufficient (fail-
   // closed; never a misleading one-person 0%/100%).
@@ -1023,7 +1045,7 @@ export async function getRepeatRate(
     return { value: null, insufficient: true, comparison: null }
   }
 
-  const returningCount = await returningCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType)
+  const returningCount = await returningCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType, demoId)
   const value = Math.round((returningCount / total) * 1000) / 10
 
   // Comparison: the repeat-rate over the completed-period comparison window (null
@@ -1032,9 +1054,9 @@ export async function getRepeatRate(
   const cmpWin = resolveComparisonWindow(filters.period, now, filters.custom)
   let comparison: Comparison = null
   if (cmpWin) {
-    const cmpTotal = await distinctCohortCount(prisma, ctx, scope, cmpWin.startUtc, cmpWin.endUtc, filters.voucherType)
+    const cmpTotal = await distinctCohortCount(prisma, ctx, scope, cmpWin.startUtc, cmpWin.endUtc, filters.voucherType, demoId)
     if (cmpTotal >= minCohort) {
-      const cmpReturning = await returningCohortCount(prisma, ctx, scope, cmpWin.startUtc, cmpWin.endUtc, filters.voucherType)
+      const cmpReturning = await returningCohortCount(prisma, ctx, scope, cmpWin.startUtc, cmpWin.endUtc, filters.voucherType, demoId)
       const prevValue = Math.round((cmpReturning / cmpTotal) * 1000) / 10
       comparison = buildComparison(value, prevValue, filters.period)
     } else {

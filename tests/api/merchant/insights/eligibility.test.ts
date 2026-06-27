@@ -225,3 +225,85 @@ describe('buildEligibilityWhereSql', () => {
     expect(text).toContain(`usr."status" <> 'DELETED'`)
   })
 })
+
+describe('buildEligibilityWhereSql - demo carve-out (Task A10, spec 2.6)', () => {
+  it('DEFAULT (no includeTestDataForMerchantId): all three isTestData=false predicates present', () => {
+    const { text } = render(buildEligibilityWhereSql({ merchantId: 'merchant-1', branchScope: null }))
+    expect(text).toContain('r."isTestData" = false')
+    expect(text).toContain('b."isTestData" = false')
+    expect(text).toContain('m."isTestData" = false')
+  })
+
+  it('omitting the param is identical to never passing it (default cleanliness preserved)', () => {
+    const withUndefined = render(
+      buildEligibilityWhereSql({ merchantId: 'merchant-1', branchScope: null, includeTestDataForMerchantId: undefined }),
+    )
+    expect(withUndefined.text).toContain('r."isTestData" = false')
+    expect(withUndefined.text).toContain('b."isTestData" = false')
+    expect(withUndefined.text).toContain('m."isTestData" = false')
+  })
+
+  it('param MATCHING merchantId: the three isTestData predicates are RELAXED (gone) but branch.merchantId still parameterised + present', () => {
+    const { text, values } = render(
+      buildEligibilityWhereSql({
+        merchantId: 'demo-merchant',
+        branchScope: null,
+        includeTestDataForMerchantId: 'demo-merchant',
+      }),
+    )
+    // The three cleanliness predicates are relaxed for this same-merchant demo path.
+    expect(text).not.toContain('isTestData')
+    // The tenant boundary is UNCHANGED: still present and still a parameter (never inlined).
+    expect(text).toContain('b."merchantId" =')
+    expect(values).toContain('demo-merchant')
+    expect(text).not.toContain('demo-merchant')
+    // The other eligible-rule predicates remain (deleted-customer + QA exclusion).
+    expect(text).toContain(`u."status" <> 'DELETED'`)
+    expect(text).toContain('LOWER(u.email) NOT IN')
+  })
+
+  it('param NOT matching merchantId: NO relaxation - the three isTestData=false predicates remain', () => {
+    const { text, values } = render(
+      buildEligibilityWhereSql({
+        merchantId: 'real-merchant',
+        branchScope: null,
+        includeTestDataForMerchantId: 'a-DIFFERENT-demo-merchant',
+      }),
+    )
+    // A non-matching demo id can NEVER relax cleanliness for this merchant.
+    expect(text).toContain('r."isTestData" = false')
+    expect(text).toContain('b."isTestData" = false')
+    expect(text).toContain('m."isTestData" = false')
+    // Tenant boundary still scoped to the REAL merchant (the demo id is never used as a tenant param).
+    expect(text).toContain('b."merchantId" =')
+    expect(values).toContain('real-merchant')
+    expect(values).not.toContain('a-DIFFERENT-demo-merchant')
+  })
+
+  it('relaxation never widens the tenant boundary: the demo id is NOT added as a second merchant parameter', () => {
+    const { values } = render(
+      buildEligibilityWhereSql({
+        merchantId: 'demo-merchant',
+        branchScope: null,
+        includeTestDataForMerchantId: 'demo-merchant',
+      }),
+    )
+    // The merchant id appears exactly once as a parameter (the single tenant clause),
+    // never duplicated or joined with an OR for the demo path.
+    const occurrences = values.filter((v) => v === 'demo-merchant').length
+    expect(occurrences).toBe(1)
+  })
+
+  it('demo carve-out keeps the branch-scope intersection (an empty scope still fails closed)', () => {
+    const { text } = render(
+      buildEligibilityWhereSql({
+        merchantId: 'demo-merchant',
+        branchScope: [],
+        includeTestDataForMerchantId: 'demo-merchant',
+      }),
+    )
+    // Even on the demo path, an empty branch scope fails closed.
+    expect(text).toContain('FALSE')
+    expect(text).toContain('b."merchantId" =')
+  })
+})

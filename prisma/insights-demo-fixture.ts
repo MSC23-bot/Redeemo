@@ -39,6 +39,7 @@
 
 import type { PrismaClient, VoucherType, ValidationMethod } from '../generated/prisma/client'
 import { DAYPARTS } from '../src/api/merchant/insights/london'
+import { hashPassword } from '../src/api/shared/password'
 
 // --- The dedicated demo-merchant allowlist key ------------------------------
 //
@@ -47,6 +48,21 @@ import { DAYPARTS } from '../src/api/merchant/insights/london'
 // idempotent and never spawns a second demo merchant. Production never creates a
 // merchant with this name; even if it did, isTestData=true would exclude it.
 export const INSIGHTS_DEMO_MERCHANT_NAME = 'INSIGHTS DEMO (test-data only)'
+
+// --- The demo login (so QA can authenticate via the normal merchant login) ---
+//
+// The demo dataset is only useful if QA can reach the authz'd Insights routes as
+// the demo merchant. The fixture upserts a MerchantAdmin (the person who logs in)
+// + an OWNER MerchantMembership (allBranches=true) for the dedicated demo
+// merchant, so the FULL resolveMerchantContext / lifecycle / role / scope chain
+// applies unchanged. The email lives in a clearly-demo .invalid space (cannot
+// collide with a real user) and the password is hashed with the SAME bcrypt path
+// the merchant auth uses (src/api/shared/password.ts -> hashPassword), so the
+// normal merchant login verifies it. emailVerified is set true so the M1 login
+// email-verified gate passes. These rows are tooling-only and never created in
+// production (the call-time guard refuses production).
+export const INSIGHTS_DEMO_LOGIN_EMAIL = 'insights-demo-owner@redeemo-insights-demo.invalid'
+export const INSIGHTS_DEMO_LOGIN_PASSWORD = 'InsightsDemo1!'
 
 // The env flag that, together with a non-production NODE_ENV, opens the
 // include-path. Server-owned only (a process env var; never request-derived).
@@ -132,19 +148,26 @@ const DAYPART_MID_HOURS: readonly number[] = DAYPARTS.map((d) =>
  * Seed the isolated Insights demo fixture. Throws at call time unless the
  * server-owned guard allows it (non-production NODE_ENV + the explicit flag).
  *
- * Idempotent: it upserts the dedicated demo merchant by its sentinel name and
- * its branches/vouchers by their fixed names/codes, then seeds a fresh batch of
- * demo redemptions. Re-running adds another redemption batch (acceptable for a
- * demo dataset); the merchant/branches/vouchers are not duplicated.
+ * FULLY IDEMPOTENT / DETERMINISTIC RECONCILE: it upserts the dedicated demo
+ * merchant by its sentinel name, its branches/vouchers by their fixed
+ * names/codes, and an OWNER MerchantAdmin + membership (so QA can log in), then
+ * DELETES the demo merchant's existing demo redemptions and recreates a FIXED set
+ * with STABLE redemptionCodes (no Date.now() salt). Running the fixture twice
+ * yields the SAME row count, not double - a true reconcile, not an append.
  *
  * Every row written carries isTestData=true, so the canonical eligible rule
- * excludes them from production analytics regardless of any guard state.
+ * excludes them from production analytics regardless of any guard state (the demo
+ * include-path - demoIncludeMerchantId + buildEligibilityWhereSql's same-merchant
+ * carve-out - is the only way QA surfaces them, and it is dead in production).
  *
  * @param prisma a PrismaClient (server-owned; the ONLY argument - no opener).
  * @returns a summary of the ids/counts seeded (for the seeding script's log).
  */
 export async function seedInsightsDemoFixture(prisma: PrismaClient): Promise<{
   merchantId: string
+  merchantAdminId: string
+  membershipId: string
+  loginEmail: string
   branchIds: string[]
   voucherIds: string[]
   redemptionsCreated: number
@@ -168,6 +191,48 @@ export async function seedInsightsDemoFixture(prisma: PrismaClient): Promise<{
       select: { id: true },
     }))
   const merchantId = merchant.id
+
+  // 1b. The demo OWNER login (MerchantAdmin + OWNER MerchantMembership). Idempotent
+  //     by the unique demo email. The password is hashed with the SAME bcrypt path
+  //     the merchant auth uses so the normal merchant login verifies it;
+  //     emailVerified=true so the M1 login email-verified gate passes. The full
+  //     resolveMerchantContext / lifecycle / role / scope chain therefore applies
+  //     unchanged when QA logs in as this owner.
+  const passwordHash = await hashPassword(INSIGHTS_DEMO_LOGIN_PASSWORD)
+  const admin = await prisma.merchantAdmin.upsert({
+    where: { email: INSIGHTS_DEMO_LOGIN_EMAIL },
+    update: { passwordHash, emailVerified: true, status: 'ACTIVE' },
+    create: {
+      email: INSIGHTS_DEMO_LOGIN_EMAIL,
+      passwordHash,
+      firstName: 'Insights',
+      lastName: 'Demo',
+      status: 'ACTIVE',
+      emailVerified: true,
+    },
+    select: { id: true },
+  })
+  const merchantAdminId = admin.id
+
+  // OWNER membership, allBranches=true. Idempotent by the (merchantId, merchantAdminId)
+  // unique pair so re-running never creates a duplicate membership.
+  const existingMembership = await prisma.merchantMembership.findUnique({
+    where: { merchantId_merchantAdminId: { merchantId, merchantAdminId } },
+    select: { id: true },
+  })
+  const membership =
+    existingMembership ??
+    (await prisma.merchantMembership.create({
+      data: {
+        merchantId,
+        merchantAdminId,
+        role: 'OWNER',
+        allBranches: true,
+        status: 'ACTIVE',
+      },
+      select: { id: true },
+    }))
+  const membershipId = membership.id
 
   // 2. Branches (idempotent by name within the demo merchant).
   const branchIds: string[] = []
@@ -232,9 +297,25 @@ export async function seedInsightsDemoFixture(prisma: PrismaClient): Promise<{
     userIds.push(user.id)
   }
 
-  // 5. Redemptions: a realistic spread across branches x voucher types x dates x
-  //    the six London dayparts, half validated (confirmed) and half awaiting.
-  //    Unique redemptionCode per row (sentinel-prefixed). All isTestData=true.
+  // 5. Redemptions: a DETERMINISTIC RECONCILE. First DELETE the demo merchant's
+  //    existing demo redemptions, then recreate a FIXED set with STABLE
+  //    redemptionCodes (seq-derived, NO Date.now() salt) so running the fixture
+  //    twice yields the SAME row count, not double.
+  //
+  //    The demo branches only ever carry demo redemptions (they are dedicated
+  //    isTestData=true branches on the dedicated demo merchant), so deleting every
+  //    redemption on these branch ids is a safe, scoped reconcile - it cannot touch
+  //    any real merchant's rows. We further constrain to the sentinel code prefix as
+  //    defence in depth.
+  await prisma.voucherRedemption.deleteMany({
+    where: { branchId: { in: branchIds }, redemptionCode: { startsWith: 'IDEMO-' } },
+  })
+
+  // A realistic spread across branches x voucher types x dates x the six London
+  // dayparts, half validated (confirmed) and half awaiting. Each row carries a
+  // STABLE, unique, sentinel-prefixed redemptionCode derived ONLY from its
+  // sequence index (no time salt), so the reconcile is reproducible. All
+  // isTestData=true.
   let redemptionsCreated = 0
   let seq = 0
   for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
@@ -251,10 +332,11 @@ export async function seedInsightsDemoFixture(prisma: PrismaClient): Promise<{
       const validationMethod = isValidated ? VALIDATION_METHODS[seq % VALIDATION_METHODS.length] : null
       const validatedAt = isValidated ? new Date(redeemedAt.getTime() + 5 * 60 * 1000) : null
 
-      // A unique, sentinel-prefixed redemption code (<= 24 chars upper). Include
-      // a per-call salt so a re-run never collides on the @unique code.
-      const salt = Date.now().toString(36).slice(-4).toUpperCase()
-      const redemptionCode = `IDEMO${salt}${seq.toString(36).toUpperCase()}`.slice(0, 24)
+      // A STABLE, unique, sentinel-prefixed redemption code (<= 24 chars upper),
+      // derived ONLY from the sequence index so a re-run produces the EXACT same
+      // codes (the prior batch having been deleted above). seq is zero-padded so
+      // ordering + uniqueness hold across the whole batch.
+      const redemptionCode = `IDEMO-${String(seq).padStart(5, '0')}`
 
       await prisma.voucherRedemption.create({
         data: {
@@ -276,5 +358,5 @@ export async function seedInsightsDemoFixture(prisma: PrismaClient): Promise<{
     }
   }
 
-  return { merchantId, branchIds, voucherIds, redemptionsCreated }
+  return { merchantId, merchantAdminId, membershipId, loginEmail: INSIGHTS_DEMO_LOGIN_EMAIL, branchIds, voucherIds, redemptionsCreated }
 }

@@ -123,11 +123,33 @@ export function buildBranchScopeSql(branchAlias: string, scope: InsightsBranchSc
  * The full eligible-row WHERE fragment (spec 4.1 / 4.4), AND-joined and ready for
  * Task A4 to compose into a `$queryRaw`. Returns a `Prisma.Sql` so client-
  * influenced values (merchantId, branch id list) stay parameterised.
+ *
+ * DEMO CARVE-OUT (Task A10, spec 2.6, plan 6/A10). `includeTestDataForMerchantId`
+ * is the OPTIONAL, server-owned demo include-path. When ABSENT (the default), the
+ * canonical eligible rule applies unchanged: the three isTestData=false predicates
+ * are present, so production analytics never see isTestData=true rows. When PRESENT
+ * AND it EQUALS this query's `merchantId`, the THREE isTestData=false predicates
+ * are relaxed FOR THAT MERCHANT ONLY so the dedicated, allowlisted demo merchant
+ * surfaces its own isTestData=true demo dataset through the normal authz'd Insights
+ * read paths. CRITICAL: the tenant boundary `branch.merchantId = <merchantId>` is
+ * UNCHANGED on this path, so the relaxation can NEVER widen to another merchant's
+ * test rows - it only ever lifts the cleanliness filter for the SAME merchant the
+ * query is already scoped to. When PRESENT but NOT equal to `merchantId` (a value
+ * for a DIFFERENT merchant), NO relaxation happens and the normal rule applies
+ * (defence in depth: the resolver only ever returns the allowlisted demo id, but
+ * even a stray non-matching value cannot relax anything here).
+ *
+ * The argument is NEVER request-derived: it is resolved server-side from a hard
+ * NODE_ENV+env+merchant-allowlist gate (see demoIncludeMerchantId in service.ts).
+ * In production that resolver always returns undefined, so this path is dead in
+ * production even if a caller tried to pass it.
  */
 export function buildEligibilityWhereSql(args: {
   merchantId: string
   branchScope: InsightsBranchScope
   aliases?: EligibilityAliases
+  /** Server-owned demo include-path. Relaxes isTestData ONLY when === merchantId. */
+  includeTestDataForMerchantId?: string
 }): Prisma.Sql {
   const a = args.aliases ?? ELIGIBILITY_ALIASES
 
@@ -138,18 +160,38 @@ export function buildEligibilityWhereSql(args: {
   const userStatusCol = Prisma.raw(`${a.user}."status"`)
   const emailExpr = `${a.user}.email`
 
+  // The demo carve-out fires ONLY when the server-owned demo id is supplied AND it
+  // is exactly the merchant this query is already tenant-scoped to. The tenant
+  // clause below is identical on both paths, so relaxing isTestData can never reach
+  // another merchant's rows.
+  const relaxTestData =
+    args.includeTestDataForMerchantId !== undefined &&
+    args.includeTestDataForMerchantId === args.merchantId
+
   const clauses: Prisma.Sql[] = [
     // Tenant boundary: the merchant id is a PARAMETER (client-influenced).
+    // UNCHANGED by the demo carve-out - this is what makes the carve-out incapable
+    // of widening to another merchant.
     Prisma.sql`${merchantIdCol} = ${args.merchantId}`,
-    // Cleanliness: three isTestData=false predicates (literal false).
-    Prisma.sql`${redemptionTestCol} = false`,
-    Prisma.sql`${branchTestCol} = false`,
-    Prisma.sql`${merchantTestCol} = false`,
+  ]
+
+  // Cleanliness: three isTestData=false predicates (literal false). Omitted ONLY on
+  // the demo carve-out (same-merchant) so the dedicated demo merchant surfaces its
+  // isTestData=true demo dataset; always present on every other path.
+  if (!relaxTestData) {
+    clauses.push(
+      Prisma.sql`${redemptionTestCol} = false`,
+      Prisma.sql`${branchTestCol} = false`,
+      Prisma.sql`${merchantTestCol} = false`,
+    )
+  }
+
+  clauses.push(
     // Deleted-customer exclusion (spec 4.4). 'DELETED' is a compile-time literal.
     Prisma.sql`${userStatusCol} <> ${Prisma.raw(`'DELETED'`)}`,
     // QA-account exclusion (spec 4.1) over the email column.
     buildQaEmailExclusionSql(emailExpr),
-  ]
+  )
 
   // Branch-scope intersection (null -> no extra filter; [] -> fail-closed FALSE).
   const scopeClause = buildBranchScopeSql(a.branch, args.branchScope)
