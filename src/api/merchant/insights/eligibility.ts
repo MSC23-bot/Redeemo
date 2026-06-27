@@ -124,25 +124,33 @@ export function buildBranchScopeSql(branchAlias: string, scope: InsightsBranchSc
  * Task A4 to compose into a `$queryRaw`. Returns a `Prisma.Sql` so client-
  * influenced values (merchantId, branch id list) stay parameterised.
  *
- * DEMO CARVE-OUT (Task A10, spec 2.6, plan 6/A10). `includeTestDataForMerchantId`
- * is the OPTIONAL, server-owned demo include-path. When ABSENT (the default), the
- * canonical eligible rule applies unchanged: the three isTestData=false predicates
- * are present, so production analytics never see isTestData=true rows. When PRESENT
- * AND it EQUALS this query's `merchantId`, the THREE isTestData=false predicates
- * are relaxed FOR THAT MERCHANT ONLY so the dedicated, allowlisted demo merchant
- * surfaces its own isTestData=true demo dataset through the normal authz'd Insights
- * read paths. CRITICAL: the tenant boundary `branch.merchantId = <merchantId>` is
- * UNCHANGED on this path, so the relaxation can NEVER widen to another merchant's
- * test rows - it only ever lifts the cleanliness filter for the SAME merchant the
- * query is already scoped to. When PRESENT but NOT equal to `merchantId` (a value
- * for a DIFFERENT merchant), NO relaxation happens and the normal rule applies
- * (defence in depth: the resolver only ever returns the allowlisted demo id, but
- * even a stray non-matching value cannot relax anything here).
+ * DEMO CARVE-OUT (Task A10, spec 2.6, plan 6/A10; finding #9 INVERT). The optional,
+ * server-owned demo include-path `includeTestDataForMerchantId`:
+ *   - ABSENT (the default): the canonical eligible rule applies unchanged - the three
+ *     isTestData=FALSE predicates are present, so production analytics never see
+ *     isTestData=true rows.
+ *   - PRESENT AND EQUAL to this query's `merchantId`: the three predicates are
+ *     INVERTED to isTestData=TRUE (NOT omitted) FOR THAT MERCHANT ONLY, so the
+ *     dedicated, allowlisted demo merchant surfaces its own isTestData=true demo
+ *     dataset through the normal authz'd Insights read paths - AND, critically, a
+ *     stray NON-test (isTestData=false) row that somehow exists under the demo
+ *     merchant is EXCLUDED (finding #9: the demo view is test rows ONLY, never a
+ *     mix of test + real). The predicates are NEVER simply dropped.
+ *   - PRESENT but NOT equal to `merchantId` (a value for a DIFFERENT merchant): NO
+ *     inversion happens and the normal isTestData=FALSE rule applies (defence in
+ *     depth: the resolver only ever returns the allowlisted demo id, but even a
+ *     stray non-matching value cannot relax anything here).
+ *
+ * CRITICAL: the tenant boundary `branch.merchantId = <merchantId>` is UNCHANGED on
+ * both paths, so the carve-out can NEVER widen to another merchant's rows - it only
+ * ever flips the cleanliness filter (false -> true) for the SAME merchant the query
+ * is already scoped to.
  *
  * The argument is NEVER request-derived: it is resolved server-side from a hard
- * NODE_ENV+env+merchant-allowlist gate (see demoIncludeMerchantId in service.ts).
- * In production that resolver always returns undefined, so this path is dead in
- * production even if a caller tried to pass it.
+ * staging-identity (REDEEMO_DEPLOY_ENV==='staging') + env-flag + merchant-allowlist
+ * gate (see demoIncludeMerchantId in demo.ts). In production that resolver always
+ * returns undefined, so this path is dead in production even if a caller tried to
+ * pass it.
  */
 export function buildEligibilityWhereSql(args: {
   merchantId: string
@@ -162,9 +170,9 @@ export function buildEligibilityWhereSql(args: {
 
   // The demo carve-out fires ONLY when the server-owned demo id is supplied AND it
   // is exactly the merchant this query is already tenant-scoped to. The tenant
-  // clause below is identical on both paths, so relaxing isTestData can never reach
+  // clause below is identical on both paths, so flipping isTestData can never reach
   // another merchant's rows.
-  const relaxTestData =
+  const demoPath =
     args.includeTestDataForMerchantId !== undefined &&
     args.includeTestDataForMerchantId === args.merchantId
 
@@ -175,16 +183,17 @@ export function buildEligibilityWhereSql(args: {
     Prisma.sql`${merchantIdCol} = ${args.merchantId}`,
   ]
 
-  // Cleanliness: three isTestData=false predicates (literal false). Omitted ONLY on
-  // the demo carve-out (same-merchant) so the dedicated demo merchant surfaces its
-  // isTestData=true demo dataset; always present on every other path.
-  if (!relaxTestData) {
-    clauses.push(
-      Prisma.sql`${redemptionTestCol} = false`,
-      Prisma.sql`${branchTestCol} = false`,
-      Prisma.sql`${merchantTestCol} = false`,
-    )
-  }
+  // Cleanliness (finding #9): the three isTestData predicates are ALWAYS present -
+  // they are NEVER omitted. On the normal path they require isTestData=FALSE (no
+  // test rows). On the demo carve-out (same-merchant) they INVERT to isTestData=TRUE
+  // so the dedicated demo merchant surfaces its isTestData=true demo dataset AND a
+  // stray non-test row under the demo merchant is EXCLUDED (test rows ONLY).
+  const testDataValue = demoPath ? Prisma.sql`true` : Prisma.sql`false`
+  clauses.push(
+    Prisma.sql`${redemptionTestCol} = ${testDataValue}`,
+    Prisma.sql`${branchTestCol} = ${testDataValue}`,
+    Prisma.sql`${merchantTestCol} = ${testDataValue}`,
+  )
 
   clauses.push(
     // Deleted-customer exclusion (spec 4.4). 'DELETED' is a compile-time literal.

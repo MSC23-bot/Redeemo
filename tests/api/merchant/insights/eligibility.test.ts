@@ -243,7 +243,7 @@ describe('buildEligibilityWhereSql - demo carve-out (Task A10, spec 2.6)', () =>
     expect(withUndefined.text).toContain('m."isTestData" = false')
   })
 
-  it('param MATCHING merchantId: the three isTestData predicates are RELAXED (gone) but branch.merchantId still parameterised + present', () => {
+  it('param MATCHING merchantId (finding #9 INVERT): the three isTestData predicates flip to = true (test rows ONLY), never omitted; branch.merchantId still parameterised + present', () => {
     const { text, values } = render(
       buildEligibilityWhereSql({
         merchantId: 'demo-merchant',
@@ -251,8 +251,16 @@ describe('buildEligibilityWhereSql - demo carve-out (Task A10, spec 2.6)', () =>
         includeTestDataForMerchantId: 'demo-merchant',
       }),
     )
-    // The three cleanliness predicates are relaxed for this same-merchant demo path.
-    expect(text).not.toContain('isTestData')
+    // FINDING #9: the demo path INVERTS (never omits) the three isTestData
+    // predicates - test rows ONLY, so a non-test row under the demo merchant is
+    // EXCLUDED. All three predicates remain present, now = true.
+    expect(text).toContain('r."isTestData" = true')
+    expect(text).toContain('b."isTestData" = true')
+    expect(text).toContain('m."isTestData" = true')
+    // The predicates must NOT be omitted: 'isTestData' still appears.
+    expect(text).toContain('isTestData')
+    // And the normal-path = false form must NOT survive on the demo path.
+    expect(text).not.toContain('isTestData" = false')
     // The tenant boundary is UNCHANGED: still present and still a parameter (never inlined).
     expect(text).toContain('b."merchantId" =')
     expect(values).toContain('demo-merchant')
@@ -305,5 +313,22 @@ describe('buildEligibilityWhereSql - demo carve-out (Task A10, spec 2.6)', () =>
     // Even on the demo path, an empty branch scope fails closed.
     expect(text).toContain('FALSE')
     expect(text).toContain('b."merchantId" =')
+  })
+
+  it('finding #9: WITHOUT the carve-out param the SQL is byte-for-byte unchanged (normal path untouched)', () => {
+    // The normal path must be exactly what it was before the carve-out existed:
+    // the three isTestData=false predicates, no isTestData=true, identical params.
+    const noParam = render(buildEligibilityWhereSql({ merchantId: 'm', branchScope: ['b1', 'b2'] }))
+    const undefinedParam = render(
+      buildEligibilityWhereSql({ merchantId: 'm', branchScope: ['b1', 'b2'], includeTestDataForMerchantId: undefined }),
+    )
+    // Omitting the param and passing undefined are byte-for-byte identical.
+    expect(undefinedParam.text).toBe(noParam.text)
+    expect(undefinedParam.values).toEqual(noParam.values)
+    // And the normal path is = false x3 with no = true leakage.
+    expect(noParam.text).toContain('r."isTestData" = false')
+    expect(noParam.text).toContain('b."isTestData" = false')
+    expect(noParam.text).toContain('m."isTestData" = false')
+    expect(noParam.text).not.toContain('isTestData" = true')
   })
 })

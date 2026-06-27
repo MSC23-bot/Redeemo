@@ -24,7 +24,8 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "insights:demo:seed": "tsx prisma/insights-demo-seed.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
