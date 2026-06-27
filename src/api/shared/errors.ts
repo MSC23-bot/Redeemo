@@ -36,6 +36,12 @@ export const ERROR_DEFINITIONS = {
   // Generic by design — never reveals whether the email belongs to a real account.
   PWD_RESET_RATE_LIMITED:         { statusCode: 429, message: 'Too many password reset requests. Please try again later.' },
   MERCHANT_SUSPENDED:             { statusCode: 403, message: 'This merchant account is suspended.' },
+  // Insights PR-A (lifecycle decision A / SEC-M2 preserved). Insights requires
+  // Merchant.status === 'ACTIVE' server-side before any query. resolveMerchantContext
+  // already hard-blocks SUSPENDED (MERCHANT_SUSPENDED); this single typed code
+  // additionally blocks REGISTERED / PENDING_APPROVAL / INACTIVE / DELETED (and a
+  // missing merchant), so pre-live merchants are server-blocked, not just UI-hidden.
+  MERCHANT_NOT_ACTIVE:            { statusCode: 403, message: 'This merchant account is not active.' },
   MERCHANT_NOT_APPROVED:          { statusCode: 403, message: 'This merchant account is not yet approved.' },
   MERCHANT_DEACTIVATED:           { statusCode: 403, message: 'This merchant account is deactivated.' },
   MERCHANT_REACTIVATION_EXPIRED:  { statusCode: 403, message: 'The reactivation window has expired.' },
