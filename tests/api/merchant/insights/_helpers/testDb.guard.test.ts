@@ -19,7 +19,7 @@ afterEach(() => {
   else process.env.TEST_DATABASE_URL = ORIGINAL
 })
 
-describe('makeTestPrisma — loopback safety guard', () => {
+describe('makeTestPrisma - loopback safety guard', () => {
   it('throws when TEST_DATABASE_URL is unset', () => {
     delete process.env.TEST_DATABASE_URL
     expect(() => makeTestPrisma()).toThrow(/TEST_DATABASE_URL/)

@@ -38,6 +38,7 @@ import { behaviouralGateOpen } from './gate'
 import {
   periodWindow,
   resolveComparisonWindow,
+  DAYPARTS,
   DAYPART_LABELS,
   type PeriodPreset,
   type CustomRange,
@@ -553,6 +554,21 @@ function intensityBand(count: number, peak: number): number {
 }
 
 /**
+ * Build the daypart-bucketing SQL CASE from DAYPARTS (london.ts) so the six
+ * half-open [start, end) hour bounds have ONE source of truth and the SQL cannot
+ * drift from daypartIndexForLondonHour. `hourExpr` is a London hour-of-day (0..23)
+ * SQL expression. End-hour bounds + indices are compile-time numbers from DAYPARTS
+ * embedded as literals (never user input). Produces, for the locked dayparts:
+ * CASE WHEN h < 7 THEN 0 WHEN h < 12 THEN 1 ... WHEN h < 22 THEN 4 ELSE 5 END.
+ */
+function daypartCaseSql(hourExpr: Prisma.Sql): Prisma.Sql {
+  const whens = DAYPARTS.slice(0, -1).map(
+    (d, i) => Prisma.sql`WHEN ${hourExpr} < ${Prisma.raw(String(d.endHour))} THEN ${Prisma.raw(String(i))}`,
+  )
+  return Prisma.sql`CASE ${Prisma.join(whens, ' ')} ELSE ${Prisma.raw(String(DAYPARTS.length - 1))} END`
+}
+
+/**
  * Busy-times grid (spec 1.7/2.7). Internally COUNT(*) per (London day-of-week,
  * daypart) cell on `redeemedAt`, then map each cell to an ordinal intensity band
  * and surface ONLY the band (no raw count, no raw peak). `busiest` is the peak
@@ -572,21 +588,14 @@ export async function getBusyTimes(
   const scope = effectiveScope(ctx, filters.branchId)
 
   // London ISODOW (Mon=1..Sun=7) -> day (Mon=0..Sun=6); London hour-of-day -> daypart.
-  // The daypart CASE encodes the six half-open [start,end) hour bounds from
-  // DAYPARTS (london.ts): [0,7) [7,12) [12,15) [15,18) [18,22) [22,24).
+  // The daypart CASE is DERIVED from DAYPARTS (london.ts) via daypartCaseSql so the
+  // six half-open [start,end) hour bounds have one source of truth and cannot drift.
   let rows: Array<{ day: number; daypart: number; cnt: bigint }>
   try {
     rows = await prisma.$queryRaw<Array<{ day: number; daypart: number; cnt: bigint }>>(Prisma.sql`
       SELECT
         (EXTRACT(ISODOW FROM ${londonTs()})::int - 1) AS day,
-        CASE
-          WHEN EXTRACT(HOUR FROM ${londonTs()})::int < 7  THEN 0
-          WHEN EXTRACT(HOUR FROM ${londonTs()})::int < 12 THEN 1
-          WHEN EXTRACT(HOUR FROM ${londonTs()})::int < 15 THEN 2
-          WHEN EXTRACT(HOUR FROM ${londonTs()})::int < 18 THEN 3
-          WHEN EXTRACT(HOUR FROM ${londonTs()})::int < 22 THEN 4
-          ELSE 5
-        END AS daypart,
+        ${daypartCaseSql(Prisma.sql`EXTRACT(HOUR FROM ${londonTs()})::int`)} AS daypart,
         COUNT(*)::bigint AS cnt
       ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
       GROUP BY day, daypart
