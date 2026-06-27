@@ -107,8 +107,10 @@ describe('Insights routes : section 2.7 contract (real local DB + HTTP)', () => 
   })
 
   afterEach(() => {
-    // Gate is server-owned via env; ensure no test leaves it open.
+    // Gate + the undecided PR-0a D6 thresholds are server-owned via env; ensure no
+    // test leaves any of them set (default = closed / fail-closed).
     delete process.env.INSIGHTS_BEHAVIOURAL_GATE
+    delete process.env.INSIGHTS_REPEAT_RATE_MIN_COHORT
     vi.restoreAllMocks()
   })
 
@@ -271,14 +273,41 @@ describe('Insights routes : section 2.7 contract (real local DB + HTTP)', () => 
     expect(body.repeatRate).toEqual({ available: false })
   })
 
-  it('GET /customers + /overview.repeatRate compute when the gate is OPEN', async () => {
+  it('GET /customers + /overview.repeatRate: gate OPEN but NO recorded cohort minimum -> repeat-rate insufficient (fail-closed), new-vs-returning still computes', async () => {
+    // The behavioural gate is open, but the undecided PR-0a D6 repeat-rate minimum
+    // is NOT recorded. new-vs-returning (no min-cohort gate) computes, while
+    // repeat-rate fails closed to insufficient: value null, comparison null - never
+    // a near-individual 0%/100% from a one-person cohort.
     process.env.INSIGHTS_BEHAVIOURAL_GATE = '1'
+    delete process.env.INSIGHTS_REPEAT_RATE_MIN_COHORT
+
+    const cust = JSON.parse((await get(rt, ownerAdmin, '/customers', '?period=last_month')).body)
+    expect(cust.newVsReturning.total).toBe(2)
+    expect(cust.newVsReturning.returningCount).toBe(1)
+    expect(cust.newVsReturning.newCount).toBe(1)
+    // repeat-rate is gate-open (no { available:false }) but fail-closed insufficient.
+    expect(cust.repeatRate.available).toBeUndefined()
+    expect(cust.repeatRate.insufficient).toBe(true)
+    expect(cust.repeatRate.value).toBeNull()
+    expect(cust.repeatRate.comparison).toBeNull()
+
+    const ov = JSON.parse((await get(rt, ownerAdmin, '/overview', '?period=last_month')).body)
+    expect(ov.repeatRate.available).toBeUndefined()
+    expect(ov.repeatRate.insufficient).toBe(true)
+    expect(ov.repeatRate.value).toBeNull()
+    expect(ov.repeatRate.comparison).toBeNull()
+  })
+
+  it('GET /customers + /overview.repeatRate compute when the gate is OPEN AND a cohort minimum (K=1) is recorded', async () => {
+    process.env.INSIGHTS_BEHAVIOURAL_GATE = '1'
+    process.env.INSIGHTS_REPEAT_RATE_MIN_COHORT = '1'
     const cust = JSON.parse((await get(rt, ownerAdmin, '/customers', '?period=last_month')).body)
     // u1 + u2 are the Feb cohort; u1 had a Jan eligible row (returning), u2 is new.
     expect(cust.newVsReturning.total).toBe(2)
     expect(cust.newVsReturning.returningCount).toBe(1)
     expect(cust.newVsReturning.newCount).toBe(1)
     expect(cust.repeatRate.available).toBeUndefined()
+    expect(cust.repeatRate.insufficient).toBe(false)
     expect(cust.repeatRate.value).toBeCloseTo(50, 1)
 
     const ov = JSON.parse((await get(rt, ownerAdmin, '/overview', '?period=last_month')).body)

@@ -34,7 +34,7 @@ import {
   type InsightsBranchScope,
 } from './eligibility'
 import { insightsScope } from './scope'
-import { behaviouralGateOpen } from './gate'
+import { behaviouralGateOpen, busyPeakMinCount, repeatRateMinCohort } from './gate'
 import {
   periodWindow,
   resolveComparisonWindow,
@@ -561,11 +561,12 @@ export type BusyTimesResult = BusyTimesIntensity | BusyTimesUnavailable
 const DOW_COUNT = 7
 const DAYPART_COUNT = DAYPART_LABELS.length // 6
 
-// Conservative near-empty peak threshold: a peak cell with a raw count at or
-// below this MAY be near-empty, so `busiest` is omitted. Until PR-0a D6's
-// recorded policy, we never name a near-empty peak. (Raw counts NEVER leave the
-// service: this threshold is applied internally before serialisation.)
-const NEAR_EMPTY_PEAK_MAX = 3
+// The near-empty-peak minimum count is an UNDECIDED PR-0a D6 governance value
+// (spec §1.7; plan §3 D6), read from the server-owned, fail-closed config
+// `busyPeakMinCount()` (gate.ts). UNSET / non-positive => null => we NEVER name a
+// peak (busiest stays null, the pre-D6 safe fallback). A recorded positive integer
+// N => busiest is surfaced only when the peak count is >= N. The threshold is
+// applied internally before serialisation; raw counts NEVER leave the service.
 
 /**
  * Map a raw cell count to an ordinal intensity band 0..3 RELATIVE to the busiest
@@ -599,11 +600,18 @@ function daypartCaseSql(hourExpr: Prisma.Sql): Prisma.Sql {
  * Busy-times grid (spec 1.7/2.7). Internally COUNT(*) per (London day-of-week,
  * daypart) cell on `redeemedAt`, then map each cell to an ordinal intensity band
  * and surface ONLY the band (no raw count, no raw peak). `busiest` is the peak
- * cell LOCATION (never a count) and is null when the peak could be near-empty.
+ * cell LOCATION (never a count) and is null when no PR-0a D6 threshold is recorded
+ * or the peak is below it.
  *
  * `day` is Mon=0..Sun=6 (the busy-times grid row order, spec 1.7): computed in
  * SQL as `(EXTRACT(ISODOW ...) - 1)` (ISODOW: Mon=1..Sun=7 -> 0..6). `daypart` is
  * 0..5 derived from the London hour-of-day via the six half-open daypart bounds.
+ *
+ * The happy flow ALWAYS returns the `mode:'intensity'` payload (an all-zero grid is
+ * a valid intensity payload). It does NOT swallow unexpected query errors into
+ * `{available:false}` - an unexpected failure propagates to the framework error
+ * handler (Codex finding #7). The `BusyTimesUnavailable` arm stays in the wire
+ * contract (spec §2.7) for forward-compat but is not produced here.
  */
 export async function getBusyTimes(
   prisma: PrismaClient,
@@ -617,20 +625,20 @@ export async function getBusyTimes(
   // London ISODOW (Mon=1..Sun=7) -> day (Mon=0..Sun=6); London hour-of-day -> daypart.
   // The daypart CASE is DERIVED from DAYPARTS (london.ts) via daypartCaseSql so the
   // six half-open [start,end) hour bounds have one source of truth and cannot drift.
-  let rows: Array<{ day: number; daypart: number; cnt: bigint }>
-  try {
-    rows = await prisma.$queryRaw<Array<{ day: number; daypart: number; cnt: bigint }>>(Prisma.sql`
-      SELECT
-        (EXTRACT(ISODOW FROM ${londonTs()})::int - 1) AS day,
-        ${daypartCaseSql(Prisma.sql`EXTRACT(HOUR FROM ${londonTs()})::int`)} AS daypart,
-        COUNT(*)::bigint AS cnt
-      ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
-      GROUP BY day, daypart
-    `)
-  } catch {
-    // A safe intensity output could not be produced.
-    return { available: false }
-  }
+  //
+  // NO try/catch swallow here. There is no legitimate "a safe intensity output is
+  // impossible" path in the happy flow: an all-zero grid is itself a valid intensity
+  // payload (every cell maps to the zero band). An UNEXPECTED query/programming error
+  // MUST stay observable - it propagates to the framework error handler (logged +
+  // surfaced), never silently collapsed into { available:false } (Codex finding #7).
+  const rows = await prisma.$queryRaw<Array<{ day: number; daypart: number; cnt: bigint }>>(Prisma.sql`
+    SELECT
+      (EXTRACT(ISODOW FROM ${londonTs()})::int - 1) AS day,
+      ${daypartCaseSql(Prisma.sql`EXTRACT(HOUR FROM ${londonTs()})::int`)} AS daypart,
+      COUNT(*)::bigint AS cnt
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    GROUP BY day, daypart
+  `)
 
   // Build the dense count grid (raw counts stay INTERNAL).
   const counts: number[][] = Array.from({ length: DOW_COUNT }, () => new Array<number>(DAYPART_COUNT).fill(0))
@@ -657,8 +665,13 @@ export async function getBusyTimes(
     }
   }
 
-  // Busiest is the peak LOCATION only, omitted when the peak could be near-empty.
-  const busiest = peakCell !== null && peakCount > NEAR_EMPTY_PEAK_MAX ? peakCell : null
+  // Busiest is the peak LOCATION only. The near-empty-peak minimum is an UNDECIDED
+  // PR-0a D6 value from the server-owned, fail-closed config. With NO approved
+  // threshold (minPeak === null) we NEVER name a peak (busiest null, pre-D6 safe
+  // fallback). With a recorded positive integer N, busiest surfaces only when the
+  // peak count is at or above N (peakCount >= minPeak).
+  const minPeak = busyPeakMinCount()
+  const busiest = minPeak !== null && peakCell !== null && peakCount >= minPeak ? peakCell : null
 
   return { mode: 'intensity', grid, busiest }
 }
@@ -970,11 +983,14 @@ export type RepeatRateResult =
   | { value: number | null; insufficient: boolean; comparison: Comparison }
   | { available: false }
 
-// Below this in-period distinct-cohort size, the repeat-rate is unreliable / could
-// expose a near-individual figure, so we surface the "Building your repeat-customer
-// picture" insufficient state instead of a misleading percentage (spec 1.3). An
-// empty cohort (0 in-period customers) is ALWAYS insufficient (no denominator).
-const REPEAT_RATE_MIN_COHORT = 1
+// The minimum reliable cohort size is an UNDECIDED PR-0a D6 governance value (spec
+// §1.3; plan §3 D6), read from the server-owned, fail-closed config
+// `repeatRateMinCohort()` (gate.ts). UNSET / non-positive => null => NO approved
+// minimum => repeat-rate is ALWAYS insufficient (value null, insufficient true) -
+// fail-closed, never a one-person 0%/100%. A recorded positive integer K => the
+// rate is computed only when the in-period distinct cohort is >= K; the SAME
+// fail-closed treatment applies to the comparison window (a sub-threshold or
+// no-approved-minimum comparison cohort yields comparison: null, never { prev:0 }).
 
 /**
  * Repeat-customer rate (spec 1.3/1.5). GATED. The percentage = returning / total
@@ -996,10 +1012,14 @@ export async function getRepeatRate(
   const win = periodWindow(filters.period, now, filters.custom)
   const scope = effectiveScope(ctx, filters.branchId)
 
+  // The minimum reliable cohort is an UNDECIDED PR-0a D6 value (server-owned,
+  // fail-closed). null => NO approved minimum => repeat-rate is ALWAYS insufficient.
+  const minCohort = repeatRateMinCohort()
   const total = await distinctCohortCount(prisma, ctx, scope, win.startUtc, win.endUtc, filters.voucherType)
 
-  // Empty / sub-threshold cohort -> insufficient (no misleading 0%).
-  if (total < REPEAT_RATE_MIN_COHORT) {
+  // No approved minimum, or empty / sub-threshold cohort -> insufficient (fail-
+  // closed; never a misleading one-person 0%/100%).
+  if (minCohort === null || total < minCohort) {
     return { value: null, insufficient: true, comparison: null }
   }
 
@@ -1013,14 +1033,17 @@ export async function getRepeatRate(
   let comparison: Comparison = null
   if (cmpWin) {
     const cmpTotal = await distinctCohortCount(prisma, ctx, scope, cmpWin.startUtc, cmpWin.endUtc, filters.voucherType)
-    if (cmpTotal >= REPEAT_RATE_MIN_COHORT) {
+    if (cmpTotal >= minCohort) {
       const cmpReturning = await returningCohortCount(prisma, ctx, scope, cmpWin.startUtc, cmpWin.endUtc, filters.voucherType)
       const prevValue = Math.round((cmpReturning / cmpTotal) * 1000) / 10
       comparison = buildComparison(value, prevValue, filters.period)
     } else {
-      // The comparison window has no reliable cohort: keep the comparison object
-      // present (the period IS complete) but with a null prev / null pct.
-      comparison = { cur: value, prev: 0, pct: null, label: filters.period }
+      // The comparison window has no reliable cohort (sub-threshold). Missing
+      // evidence is NEVER a measured zero: return comparison: null, NOT { prev:0 }
+      // (Codex finding #6). `minCohort` is non-null on this branch (we returned
+      // insufficient above when it was null), so the only reason to be here is a
+      // genuinely sub-threshold comparison cohort.
+      comparison = null
     }
   }
 

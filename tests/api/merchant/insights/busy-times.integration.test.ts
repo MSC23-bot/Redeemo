@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import {
   makeTestPrisma,
   newFixtureIds,
@@ -17,6 +17,30 @@ import {
   type BusyTimesIntensity,
   type InsightsFilters,
 } from '../../../../src/api/merchant/insights/service'
+
+// The busy-times "Busiest" peak threshold is an UNDECIDED PR-0a D6 governance value
+// read from a server-owned, fail-closed env var. With it UNSET, busiest is ALWAYS
+// null (we never name a peak pre-D6). Tests that assert a SURFACED busiest must set
+// a recorded minimum via withBusyPeak; the fail-closed default is tested explicitly.
+const BUSY_PEAK_VAR = 'INSIGHTS_BUSY_PEAK_MIN_COUNT'
+async function withBusyPeak<T>(minCount: number, fn: () => Promise<T>): Promise<T> {
+  const prev = process.env[BUSY_PEAK_VAR]
+  process.env[BUSY_PEAK_VAR] = String(minCount)
+  try {
+    return await fn()
+  } finally {
+    if (prev === undefined) delete process.env[BUSY_PEAK_VAR]
+    else process.env[BUSY_PEAK_VAR] = prev
+  }
+}
+
+// Belt-and-braces: no test leaves the peak threshold set (the default is unset =>
+// fail-closed => busiest null). Save/restore around every test.
+const SAVED_BUSY_PEAK = process.env[BUSY_PEAK_VAR]
+afterEach(() => {
+  if (SAVED_BUSY_PEAK === undefined) delete process.env[BUSY_PEAK_VAR]
+  else process.env[BUSY_PEAK_VAR] = SAVED_BUSY_PEAK
+})
 
 // Insights PR-A Task A4 BUSY-TIMES + LONDON/DST + PRIVACY (real local DB).
 //
@@ -158,29 +182,16 @@ describe('Insights busy-times / London-DST / privacy (real local DB)', () => {
     expect(march?.logged).toBe(9)
   })
 
-  it('PRIVACY: payload carries NO logged/raw-count field anywhere; busiest is location-only', async () => {
-    const r = await getBusyTimes(prisma, ownerCtx(merchantId), allTime())
-    const intensity = asIntensity(r)
-    // Mode is intensity (the default privacy-safe mode).
-    expect(intensity.mode).toBe('intensity')
-    // No cell exposes a raw count under any key name.
-    for (const c of intensity.grid) {
-      expect('logged' in c).toBe(false)
-      expect('count' in c).toBe(false)
-      expect('cnt' in c).toBe(false)
-      expect('peak' in c).toBe(false)
-      expect(Object.keys(c).sort()).toEqual(['daypart', 'day', 'intensity'].sort())
-    }
-    // busiest is the peak LOCATION only (day+daypart), never a count.
-    expect(intensity.busiest).not.toBeNull()
-    expect(Object.keys(intensity.busiest!).sort()).toEqual(['daypart', 'day'].sort())
-    expect('logged' in intensity.busiest!).toBe(false)
-    expect('count' in intensity.busiest!).toBe(false)
-    expect('intensity' in intensity.busiest!).toBe(false)
-    // The Monday Morning peak (5 rows) is the busiest cell.
-    expect(intensity.busiest).toEqual({ day: 0, daypart: DAYPART.MORNING })
-
-    // Whole-payload deep scan: no key anywhere named like a raw count.
+  it('FAIL-CLOSED (Codex #4): with NO recorded peak threshold (env unset), busiest is null even with a clear peak; intensity still renders', async () => {
+    // The Monday Morning cell has 5 rows: a clear, unambiguous peak. But the
+    // undecided PR-0a D6 threshold is NOT recorded (env unset). Pre-D6 we must NEVER
+    // name a peak: busiest is null. The intensity grid still renders (bands only).
+    delete process.env.INSIGHTS_BUSY_PEAK_MIN_COUNT
+    const r = asIntensity(await getBusyTimes(prisma, ownerCtx(merchantId), allTime()))
+    expect(r.busiest).toBeNull()
+    // The peak cell still carries the top intensity band (the client renders bands).
+    expect(cell(r.grid, 0, DAYPART.MORNING)?.intensity).toBeGreaterThan(0)
+    // Still no raw count anywhere even in the fail-closed state.
     const json = JSON.stringify(r)
     expect(json).not.toContain('"logged"')
     expect(json).not.toContain('"count"')
@@ -188,22 +199,92 @@ describe('Insights busy-times / London-DST / privacy (real local DB)', () => {
     expect(json).not.toContain('"peak"')
   })
 
-  it('PRIVACY: busiest is null when the peak could be near-empty (conservative omission)', async () => {
-    // A fresh merchant with ONLY 2 redemptions in one cell: at/below the
-    // near-empty threshold: so busiest is omitted (null) but intensity still
-    // renders.
-    const scratch = newFixtureIds()
-    const s = await seedScenario(prisma, scratch)
-    const u = await seedUser(prisma, scratch)
-    await seedRedemption(prisma, scratch, { userId: u, voucherId: s.voucherId, branchId: s.branchId, redeemedAt: new Date('2026-03-02T08:00:00Z'), isValidated: true, validatedAt: new Date('2026-03-02T08:00:00Z'), validationMethod: 'PIN', estimatedSaving: 5 })
-    await seedRedemption(prisma, scratch, { userId: u, voucherId: s.voucherId, branchId: s.branchId, redeemedAt: new Date('2026-03-02T08:00:00Z'), isValidated: true, validatedAt: new Date('2026-03-02T08:00:00Z'), validationMethod: 'PIN', estimatedSaving: 5 })
-    try {
-      const r = asIntensity(await getBusyTimes(prisma, ownerCtx(s.merchantId), allTime()))
-      expect(r.busiest).toBeNull() // 2 rows <= near-empty threshold (3)
-      // The cell still has a non-zero intensity band (the client renders bands).
+  it('PRIVACY (threshold set N=4): payload carries NO logged/raw-count field anywhere; busiest is location-only and surfaces above N', async () => {
+    await withBusyPeak(4, async () => {
+      // The Monday Morning peak = 5 rows, which is >= the recorded minimum (4), so
+      // busiest IS surfaced (location only, never a count).
+      const r = await getBusyTimes(prisma, ownerCtx(merchantId), allTime())
+      const intensity = asIntensity(r)
+      // Mode is intensity (the default privacy-safe mode).
+      expect(intensity.mode).toBe('intensity')
+      // No cell exposes a raw count under any key name.
+      for (const c of intensity.grid) {
+        expect('logged' in c).toBe(false)
+        expect('count' in c).toBe(false)
+        expect('cnt' in c).toBe(false)
+        expect('peak' in c).toBe(false)
+        expect(Object.keys(c).sort()).toEqual(['daypart', 'day', 'intensity'].sort())
+      }
+      // busiest is the peak LOCATION only (day+daypart), never a count.
+      expect(intensity.busiest).not.toBeNull()
+      expect(Object.keys(intensity.busiest!).sort()).toEqual(['daypart', 'day'].sort())
+      expect('logged' in intensity.busiest!).toBe(false)
+      expect('count' in intensity.busiest!).toBe(false)
+      expect('intensity' in intensity.busiest!).toBe(false)
+      // The Monday Morning peak (5 rows >= 4) is the busiest cell.
+      expect(intensity.busiest).toEqual({ day: 0, daypart: DAYPART.MORNING })
+
+      // Whole-payload deep scan: no key anywhere named like a raw count.
+      const json = JSON.stringify(r)
+      expect(json).not.toContain('"logged"')
+      expect(json).not.toContain('"count"')
+      expect(json).not.toContain('"cnt"')
+      expect(json).not.toContain('"peak"')
+    })
+  })
+
+  it('PRIVACY (threshold set N=6): a 5-row peak is BELOW N -> busiest null (sub-threshold), intensity still renders', async () => {
+    await withBusyPeak(6, async () => {
+      // The recorded minimum (6) is higher than the Monday Morning peak (5), so the
+      // peak is sub-threshold and busiest is omitted (null) - never naming a peak we
+      // were not authorised to name.
+      const r = asIntensity(await getBusyTimes(prisma, ownerCtx(merchantId), allTime()))
+      expect(r.busiest).toBeNull()
       expect(cell(r.grid, 0, DAYPART.MORNING)?.intensity).toBeGreaterThan(0)
+    })
+  })
+
+  it('PRIVACY (threshold set N=3): busiest is null when the peak is below N (conservative omission)', async () => {
+    // A fresh merchant with ONLY 2 redemptions in one cell: below the recorded
+    // minimum (3): so busiest is omitted (null) but intensity still renders.
+    await withBusyPeak(3, async () => {
+      const scratch = newFixtureIds()
+      const s = await seedScenario(prisma, scratch)
+      const u = await seedUser(prisma, scratch)
+      await seedRedemption(prisma, scratch, { userId: u, voucherId: s.voucherId, branchId: s.branchId, redeemedAt: new Date('2026-03-02T08:00:00Z'), isValidated: true, validatedAt: new Date('2026-03-02T08:00:00Z'), validationMethod: 'PIN', estimatedSaving: 5 })
+      await seedRedemption(prisma, scratch, { userId: u, voucherId: s.voucherId, branchId: s.branchId, redeemedAt: new Date('2026-03-02T08:00:00Z'), isValidated: true, validatedAt: new Date('2026-03-02T08:00:00Z'), validationMethod: 'PIN', estimatedSaving: 5 })
+      try {
+        const r = asIntensity(await getBusyTimes(prisma, ownerCtx(s.merchantId), allTime()))
+        expect(r.busiest).toBeNull() // 2 rows < recorded minimum (3)
+        // The cell still has a non-zero intensity band (the client renders bands).
+        expect(cell(r.grid, 0, DAYPART.MORNING)?.intensity).toBeGreaterThan(0)
+      } finally {
+        await cleanup(prisma, scratch)
+      }
+    })
+  })
+
+  it('NO-SWALLOW (Codex #7): an UNEXPECTED busy-times query failure THROWS - it is NOT silently turned into { available:false }', async () => {
+    // The old code wrapped the query in a blanket try/catch and turned ANY error
+    // into { available:false }, hiding programming/query failures. With that removed,
+    // an unexpected $queryRaw rejection MUST propagate (so the framework error handler
+    // logs + surfaces it), never collapse into a privacy-safe "unavailable" payload.
+    const boom = new Error('deliberate busy-times query failure')
+    const spy = vi.spyOn(prisma, '$queryRaw').mockRejectedValueOnce(boom as never)
+    try {
+      // The failure surfaces as a rejected promise (observable), NOT a resolved
+      // { available:false } payload. Capture the settled outcome and assert on it.
+      const outcome = await getBusyTimes(prisma, ownerCtx(merchantId), allTime()).then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      )
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) throw new Error('unreachable: expected getBusyTimes to throw')
+      expect((outcome.error as Error).message).toBe('deliberate busy-times query failure')
+      // And it did NOT silently degrade to the privacy-safe unavailable payload.
+      expect(outcome).not.toMatchObject({ ok: true, value: { available: false } })
     } finally {
-      await cleanup(prisma, scratch)
+      spy.mockRestore()
     }
   })
 })

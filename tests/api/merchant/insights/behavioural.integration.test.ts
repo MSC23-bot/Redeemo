@@ -66,16 +66,28 @@ const febFilters = (extra: Partial<InsightsFilters> = {}): InsightsFilters => ({
 })
 
 const GATE_VAR = 'INSIGHTS_BEHAVIOURAL_GATE'
+const COHORT_VAR = 'INSIGHTS_REPEAT_RATE_MIN_COHORT'
 
-/** Run a block with the behavioural gate OPEN, restoring the prior value after. */
-async function withGateOpen<T>(fn: () => Promise<T>): Promise<T> {
-  const prev = process.env[GATE_VAR]
+/**
+ * Run a block with the behavioural gate OPEN, restoring the prior value after.
+ * Optionally also set the (undecided PR-0a D6) repeat-rate minimum cohort. The
+ * cohort env is FAIL-CLOSED: unset => repeat-rate is ALWAYS insufficient. Tests
+ * that exercise a COMPUTED repeat-rate must pass an explicit recorded minimum;
+ * tests that exercise the fail-closed default leave it unset.
+ */
+async function withGateOpen<T>(fn: () => Promise<T>, opts: { minCohort?: number } = {}): Promise<T> {
+  const prevGate = process.env[GATE_VAR]
+  const prevCohort = process.env[COHORT_VAR]
   process.env[GATE_VAR] = '1'
+  if (opts.minCohort !== undefined) process.env[COHORT_VAR] = String(opts.minCohort)
+  else delete process.env[COHORT_VAR]
   try {
     return await fn()
   } finally {
-    if (prev === undefined) delete process.env[GATE_VAR]
-    else process.env[GATE_VAR] = prev
+    if (prevGate === undefined) delete process.env[GATE_VAR]
+    else process.env[GATE_VAR] = prevGate
+    if (prevCohort === undefined) delete process.env[COHORT_VAR]
+    else process.env[COHORT_VAR] = prevCohort
   }
 }
 
@@ -241,51 +253,109 @@ describe('Insights behavioural service (gated, real local DB)', () => {
     })
   })
 
-  // --- GATE-OPEN: repeat-rate ------------------------------------------------
+  // --- GATE-OPEN: repeat-rate min-cohort is UNDECIDED PR-0a D6, fail-closed ----
 
-  it('GATE OPEN: repeat-rate denominator is the voucher-type-filtered distinct cohort', async () => {
-    await withGateOpen(async () => {
-      const rate = await getRepeatRate(prisma, ownerCtx(merchantId), febFilters({ voucherType: 'BOGO' }))
-      if ('available' in rate) throw new Error('unreachable')
-      const split = await getNewVsReturning(prisma, ownerCtx(merchantId), febFilters({ voucherType: 'BOGO' }))
-      if ('available' in split) throw new Error('unreachable')
-      // value = returning / total as a percentage. The denominator equals the split
-      // total (the voucher-type-filtered distinct cohort).
-      expect(rate.insufficient).toBe(false)
-      const expectedPct = Math.round((split.returningCount / split.total) * 1000) / 10
-      expect(rate.value).toBe(expectedPct) // 3/4 = 75
-      expect(rate.value).toBe(75)
-    })
-  })
-
-  it('GATE OPEN: repeat-rate matches the all-types split', async () => {
+  it('GATE OPEN + NO recorded minimum (cohort env unset): repeat-rate is ALWAYS insufficient even for a multi-person cohort (fail-closed)', async () => {
+    // The behavioural gate is open, but the undecided PR-0a D6 repeat-rate minimum
+    // is NOT recorded (cohort env unset). The 4-person Feb cohort is plenty of
+    // people, yet WITHOUT an approved minimum we must NOT compute a percentage:
+    // fail-closed to insufficient (never a near-individual figure). minCohort omitted.
     await withGateOpen(async () => {
       const rate = await getRepeatRate(prisma, ownerCtx(merchantId), febFilters())
       if ('available' in rate) throw new Error('unreachable')
-      // returning 3 / total 4 = 75%.
-      expect(rate.value).toBe(75)
-      expect(rate.insufficient).toBe(false)
-      // last_month is a COMPLETE period -> comparison object present (non-null).
-      expect(rate.comparison).not.toBeNull()
+      expect(rate.insufficient).toBe(true)
+      expect(rate.value).toBeNull()
+      expect(rate.comparison).toBeNull()
     })
   })
 
-  it('GATE OPEN: repeat-rate insufficient when the cohort is empty (no in-period customers)', async () => {
-    await withGateOpen(async () => {
-      // last_3m for NOW=2026-03-15 = [2025-12-01, 2026-03-01). The fixture has Jan+Feb
-      // rows; restrict instead to a window with NO eligible cohort: a fresh merchant.
-      const freshIds = newFixtureIds()
-      try {
-        const freshMerchant = await seedMerchant(prisma, freshIds)
-        await seedBranch(prisma, freshIds, freshMerchant, { name: 'Empty Branch' })
-        const rate = await getRepeatRate(prisma, ownerCtx(freshMerchant), febFilters())
+  it('GATE OPEN + recorded minimum K=1: repeat-rate denominator is the voucher-type-filtered distinct cohort', async () => {
+    await withGateOpen(
+      async () => {
+        const rate = await getRepeatRate(prisma, ownerCtx(merchantId), febFilters({ voucherType: 'BOGO' }))
+        if ('available' in rate) throw new Error('unreachable')
+        const split = await getNewVsReturning(prisma, ownerCtx(merchantId), febFilters({ voucherType: 'BOGO' }))
+        if ('available' in split) throw new Error('unreachable')
+        // value = returning / total as a percentage. The denominator equals the split
+        // total (the voucher-type-filtered distinct cohort).
+        expect(rate.insufficient).toBe(false)
+        const expectedPct = Math.round((split.returningCount / split.total) * 1000) / 10
+        expect(rate.value).toBe(expectedPct) // 3/4 = 75
+        expect(rate.value).toBe(75)
+      },
+      { minCohort: 1 },
+    )
+  })
+
+  it('GATE OPEN + recorded minimum K=1: repeat-rate matches the all-types split', async () => {
+    await withGateOpen(
+      async () => {
+        const rate = await getRepeatRate(prisma, ownerCtx(merchantId), febFilters())
+        if ('available' in rate) throw new Error('unreachable')
+        // returning 3 / total 4 = 75%.
+        expect(rate.value).toBe(75)
+        expect(rate.insufficient).toBe(false)
+        // last_month is a COMPLETE period -> comparison object present (non-null).
+        expect(rate.comparison).not.toBeNull()
+      },
+      { minCohort: 1 },
+    )
+  })
+
+  it('GATE OPEN + recorded minimum K=10: a 4-person cohort is sub-threshold -> insufficient (not 0/100%)', async () => {
+    // The recorded minimum is HIGHER than the actual cohort (4). Sub-threshold ->
+    // insufficient + null value, never a misleading computed percentage.
+    await withGateOpen(
+      async () => {
+        const rate = await getRepeatRate(prisma, ownerCtx(merchantId), febFilters())
         if ('available' in rate) throw new Error('unreachable')
         expect(rate.insufficient).toBe(true)
         expect(rate.value).toBeNull()
-      } finally {
-        await cleanup(prisma, freshIds)
-      }
-    })
+        expect(rate.comparison).toBeNull()
+      },
+      { minCohort: 10 },
+    )
+  })
+
+  it('GATE OPEN + recorded minimum K=4: in-period sufficient (4) but comparison cohort sub-threshold (3) -> comparison null, NEVER { prev:0 } (Codex #6)', async () => {
+    // Feb in-period cohort = 4 (>= K=4 -> value computed). The January comparison
+    // window cohort = 3 (returningUser, crossTypeReturningUser, priorOtherBranchUser;
+    // DELETED + QA excluded), which is < K=4. Missing evidence in the comparison
+    // window MUST surface as comparison: null, not a measured zero ({ prev:0 }).
+    await withGateOpen(
+      async () => {
+        const rate = await getRepeatRate(prisma, ownerCtx(merchantId), febFilters())
+        if ('available' in rate) throw new Error('unreachable')
+        // The in-period value is computed (cohort 4 >= 4).
+        expect(rate.insufficient).toBe(false)
+        expect(rate.value).not.toBeNull()
+        // The comparison window cohort (Jan = 3) is sub-threshold -> comparison null.
+        // This is the regression pin: the OLD code returned { cur, prev:0, pct:null }.
+        expect(rate.comparison).toBeNull()
+      },
+      { minCohort: 4 },
+    )
+  })
+
+  it('GATE OPEN + recorded minimum K=1: repeat-rate insufficient when the cohort is empty (no in-period customers)', async () => {
+    await withGateOpen(
+      async () => {
+        // last_3m for NOW=2026-03-15 = [2025-12-01, 2026-03-01). The fixture has Jan+Feb
+        // rows; restrict instead to a window with NO eligible cohort: a fresh merchant.
+        const freshIds = newFixtureIds()
+        try {
+          const freshMerchant = await seedMerchant(prisma, freshIds)
+          await seedBranch(prisma, freshIds, freshMerchant, { name: 'Empty Branch' })
+          const rate = await getRepeatRate(prisma, ownerCtx(freshMerchant), febFilters())
+          if ('available' in rate) throw new Error('unreachable')
+          expect(rate.insufficient).toBe(true)
+          expect(rate.value).toBeNull()
+        } finally {
+          await cleanup(prisma, freshIds)
+        }
+      },
+      { minCohort: 1 },
+    )
   })
 
   it('GATE OPEN: DELETED users are excluded from cohort + lookback', async () => {
