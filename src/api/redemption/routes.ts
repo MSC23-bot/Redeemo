@@ -17,6 +17,25 @@ import { resolveMerchantContext, assertBranchAllowed, type MerchantContext } fro
 
 const prefix = '/api/v1'
 
+// Session-revocation check for the MERCHANT-actor path of the dual-auth redemption
+// routes below. Those routes verify with raw `merchantVerify()` (JWT signature + expiry
+// only) rather than the `authenticateMerchant` hook, so they must enforce the SAME
+// session revocation here: a merchant access token stays valid for its ~15-minute TTL,
+// but logout / password-reset / suspension revoke the session's refresh token
+// immediately (shared/session.ts). This mirrors authenticateMerchant
+// (auth/merchant/plugin.ts:24-42) and keys off the DURABLE per-session refresh token
+// (90-day TTL, deleted only on revoke) — NOT the expiring `auth:merchant` permission
+// cache (1h TTL) whose premature expiry caused the original "Something went wrong" 403.
+// Throws AppError so each route's existing merchant-catch maps it to a 401.
+async function assertMerchantSessionLive(
+  redis: { exists: (key: string) => Promise<number> },
+  claims: { sub?: string; sessionId?: string },
+): Promise<void> {
+  if (!claims?.sub || !claims?.sessionId) throw new AppError('REFRESH_TOKEN_INVALID')
+  const sessionLive = await redis.exists(RedisKey.refreshToken('merchant', claims.sub, claims.sessionId))
+  if (!sessionLive) throw new AppError('SESSION_REVOKED')
+}
+
 export async function customerRedemptionRoutes(app: FastifyInstance) {
   // POST /api/v1/redemption — initiate redemption (customer)
   app.post(`${prefix}/redemption`, async (req: FastifyRequest, reply) => {
@@ -151,6 +170,10 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
       // Attempt merchant token verification
       try {
         await (req as any).merchantVerify()
+        // Enforce session revocation (logout / password-reset / suspension) FIRST — this
+        // route uses raw merchantVerify(), not the authenticateMerchant hook, so the
+        // refresh-token session check runs here (throws SESSION_REVOKED / 401).
+        await assertMerchantSessionLive(app.redis, req.user as { sub?: string; sessionId?: string })
         const actorId = req.user.sub
         // Authorize the merchant actor from the JWT + the LIVE DB context, NOT a
         // short-lived cached login session. resolveMerchantContext reads the active
@@ -215,6 +238,10 @@ export async function staffRedemptionRoutes(app: FastifyInstance) {
       // Attempt merchant token verification — merchant admin can only access branches they own
       try {
         await (req as any).merchantVerify()
+        // Enforce session revocation (logout / password-reset / suspension) FIRST — raw
+        // merchantVerify() here, not the authenticateMerchant hook, so the refresh-token
+        // session check runs here (throws SESSION_REVOKED / 401).
+        await assertMerchantSessionLive(app.redis, req.user as { sub?: string; sessionId?: string })
         const actorId = req.user.sub
         // Authorize from the JWT + LIVE DB context, NOT a cached login session (same
         // fix as POST /redemption/verify above — a cached `auth:merchant:<id>` session

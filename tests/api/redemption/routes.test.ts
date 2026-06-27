@@ -71,6 +71,13 @@ describe('redemption routes', () => {
         }
         return Promise.resolve(null)
       }),
+      // The merchant-actor redemption routes now assert the per-session refresh token is
+      // live (session-revocation), via redis.exists(refresh:merchant:<id>:<sessionId>).
+      // Default: the merchant session (sessionId 's3') is live; tests override to 0 to
+      // simulate logout/revoke.
+      exists: vi.fn().mockImplementation((key: string) =>
+        Promise.resolve(key === `refresh:merchant:${MERCHANT_ADMIN_ID}:s3` ? 1 : 0)
+      ),
       set:  vi.fn().mockResolvedValue('OK'),
       del:  vi.fn().mockResolvedValue(1),
       incr: vi.fn().mockResolvedValue(1),
@@ -265,12 +272,13 @@ describe('redemption routes', () => {
     )
   })
 
-  it('POST /api/v1/redemption/verify still works for a merchant admin when the cached login session has EXPIRED (regression: authorize from JWT + DB, not the Redis session)', async () => {
-    // The bug: the route hard-required a cached `auth:merchant:<id>` Redis session and
-    // 403'd (BRANCH_ACCESS_DENIED) once it expired, even though the JWT was still valid
-    // via refresh — so a merchant admin logged in past the session TTL could not
-    // validate codes. Here Redis has NO session for anyone; the route must authorize
-    // from the JWT + resolveMerchantContext (the active membership) and succeed.
+  it('POST /api/v1/redemption/verify still works when the auth:merchant CACHE is gone but the session is LIVE (regression: do not depend on the expiring cache)', async () => {
+    // The bug: the route hard-required the cached `auth:merchant:<id>` permission cache
+    // (EX 3600, never renewed by token refresh) and 403'd once it expired, even though the
+    // JWT was still valid AND the session (refresh token) was still live — so a merchant
+    // admin logged in past 1h could not validate codes. Here the auth:merchant GET returns
+    // null (cache gone) while the session refresh-key stays live (exists default = 1); the
+    // route must authorize from the JWT + the live session + resolveMerchantContext.
     vi.mocked(app.redis.get as any).mockResolvedValue(null)
     vi.mocked(verifyRedemption).mockResolvedValue({ id: 'r1', isValidated: true, validationMethod: 'MANUAL' } as any)
 
@@ -333,6 +341,26 @@ describe('redemption routes', () => {
     expect(JSON.parse(res.body).error.code).toBe('INVALID_CREDENTIALS')
   })
 
+  it('POST /api/v1/redemption/verify returns 401 SESSION_REVOKED when the per-session refresh token is gone (logout / password-reset / suspension)', async () => {
+    // Session-revocation guard: a still-valid access token whose session was revoked
+    // (the refresh key was deleted) must NOT validate — it short-circuits before the
+    // service is ever called. Mirrors authenticateMerchant for these raw-merchantVerify
+    // routes, keyed on the durable refresh token, not the expiring auth:merchant cache.
+    vi.mocked(app.redis.exists as any).mockResolvedValue(0)
+    vi.mocked(verifyRedemption).mockClear() // module mock is not auto-cleared between tests
+
+    const res = await app.inject({
+      method:  'POST',
+      url:     '/api/v1/redemption/verify',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { code: 'XYZ123', method: 'MANUAL' },
+    })
+
+    expect(res.statusCode).toBe(401)
+    expect(JSON.parse(res.body).error.code).toBe('SESSION_REVOKED')
+    expect(verifyRedemption).not.toHaveBeenCalled()
+  })
+
   // ------------------------------------------------------------------ //
   // GET /api/v1/branch/:branchId/redemptions
   // ------------------------------------------------------------------ //
@@ -379,9 +407,10 @@ describe('redemption routes', () => {
     expect(JSON.parse(res.body).total).toBe(2)
   })
 
-  it('GET /api/v1/branch/:branchId/redemptions still works for a merchant admin when the cached login session has EXPIRED (regression)', async () => {
-    // Same fix as the verify route: authorize from the JWT + resolveMerchantContext,
-    // not the cached Redis session (which is absent here).
+  it('GET /api/v1/branch/:branchId/redemptions still works when the auth:merchant CACHE is gone but the session is LIVE (regression)', async () => {
+    // Same fix as the verify route: authorize from the JWT + the live session +
+    // resolveMerchantContext, not the expiring auth:merchant cache (null here; refresh-key
+    // session live via exists default = 1).
     vi.mocked(app.redis.get as any).mockResolvedValue(null)
     vi.mocked(listBranchRedemptions).mockResolvedValue({ total: 1, items: [] } as any)
     vi.mocked(app.prisma.branch.findUnique as any).mockResolvedValue({ merchantId: MERCHANT_ID, merchant: { status: 'ACTIVE' } })
@@ -432,5 +461,22 @@ describe('redemption routes', () => {
     })
 
     expect(res.statusCode).toBe(403)
+  })
+
+  it('GET /api/v1/branch/:branchId/redemptions returns 401 SESSION_REVOKED when the per-session refresh token is gone', async () => {
+    // Same session-revocation guard as the verify route: a revoked session short-circuits
+    // before resolveMerchantContext / the service is reached.
+    vi.mocked(app.redis.exists as any).mockResolvedValue(0)
+    vi.mocked(listBranchRedemptions).mockClear() // module mock is not auto-cleared between tests
+
+    const res = await app.inject({
+      method:  'GET',
+      url:     `/api/v1/branch/${BRANCH_ID}/redemptions`,
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(401)
+    expect(JSON.parse(res.body).error.code).toBe('SESSION_REVOKED')
+    expect(listBranchRedemptions).not.toHaveBeenCalled()
   })
 })
