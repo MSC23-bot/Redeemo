@@ -14,6 +14,7 @@ import {
   getValidation,
   getRepeatRate,
   getNewVsReturning,
+  getInsightsExport,
 } from './service'
 import {
   toOverviewResponse,
@@ -24,6 +25,7 @@ import {
   toValidationResponse,
   toCustomersResponse,
   exportNotAvailableResponse,
+  insightsRowsToCsv,
 } from './format'
 
 // Insights PR-A Task A7: the read-only aggregation routes (plan section 2.7).
@@ -184,33 +186,41 @@ export async function merchantInsightsRoutes(app: FastifyInstance) {
     return reply.send(toCustomersResponse(newVsReturning, repeatRate))
   })
 
-  // GET /export.csv - EVENT-LEVEL + GATED. This task (A7) wires the gate boundary
-  // + the authz chain; Task A8 implements the OPEN path (getInsightsExport +
-  // insightsRowsToCsv + a text/csv response). The authz chain runs FIRST (a
+  // GET /export.csv - EVENT-LEVEL + GATED (Task A8). The authz chain runs FIRST (a
   // STAFF / non-active / suspended caller is rejected before the gate check), so
   // the gate is never an authz bypass.
   //
-  // GATE CLOSED (the default, and the only reachable path until A8): a typed
-  // not-available JSON payload `{ available:false }` and NO behavioural / event-
-  // level query runs.
+  // GATE CLOSED (the default): a typed not-available JSON payload `{ available:false }`
+  // and NO event-level query runs (getInsightsExport short-circuits before any DB
+  // read). The event-level CSV is inside the bounded privacy/legal review (spec 13.6).
   //
-  // TODO(A8): replace the gate-OPEN branch below with:
-  //   const filters = toFilters(filterSchema.parse(req.query))
-  //   const { rows, truncated } = await getInsightsExport(app.prisma, ctx, filters)
-  //   const csv = insightsRowsToCsv(rows, truncated)
-  //   reply.header('Content-Type', 'text/csv; charset=utf-8')
-  //   reply.header('Content-Disposition', 'attachment; filename="insights-redemptions.csv"')
-  //   return reply.send(csv)
+  // GATE OPEN: the eligible event-level rows (London-rendered date/time, voucher
+  // title, branch name, 7-type label, estimated value, status, method-where-confirmed)
+  // are emitted as text/csv with NO direct identifiers (no Customer column). The CAP
+  // is explicit (INSIGHTS_EXPORT_CAP); an over-cap export appends a single
+  // truncation-notice row (no silent truncation, spec 1.10).
   app.get(`${prefix}/export.csv`, async (req: FastifyRequest, reply) => {
-    await authorize(req)
-    // Validate the filters even on the gated path so a malformed request is a 400
-    // (and the open path A8 adds inherits the same validated shape).
-    filterSchema.parse(req.query)
+    const ctx = await authorize(req)
+    // Validate the filters on both paths so a malformed request is a 400 (and the
+    // gate-closed path never leaks that the filters were valid/invalid separately).
+    const parsed = filterSchema.parse(req.query)
+
+    // Gate check at the route boundary too (defense-in-depth alongside the service's
+    // own gate short-circuit): a closed gate returns the JSON not-available payload
+    // and never reaches the event-level query.
     if (!behaviouralGateOpen()) {
       return reply.send(exportNotAvailableResponse())
     }
-    // A8 wires the open path. Until then, the open path is also not-available so
-    // the route never returns an unguarded event-level body.
-    return reply.send(exportNotAvailableResponse())
+
+    const result = await getInsightsExport(app.prisma, ctx, toFilters(parsed))
+    // The service self-gates; if it ever returns not-available, mirror the JSON
+    // contract rather than an empty CSV body.
+    if ('available' in result) {
+      return reply.send(exportNotAvailableResponse())
+    }
+    const csv = insightsRowsToCsv(result.rows, result.truncated)
+    reply.header('Content-Type', 'text/csv; charset=utf-8')
+    reply.header('Content-Disposition', 'attachment; filename="insights-redemptions.csv"')
+    return reply.send(csv)
   })
 }

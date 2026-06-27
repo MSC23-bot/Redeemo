@@ -694,6 +694,128 @@ export async function getValidation(
   }
 }
 
+// --- Event-level export (GATED) ----------------------------------------------
+//
+// Task A8 (spec 10.1 / 13.5 / 13.6, plan 2.7). The event-level Redemption-activity
+// CSV is INSIDE the bounded privacy/legal review, so it is HARD-GATED by
+// behaviouralGateOpen() exactly like the behavioural endpoints:
+//   - GATE CLOSED -> return { available:false } and execute NO query (the gate is
+//     checked BEFORE any $queryRaw, so a closed gate never reads event rows).
+//   - GATE OPEN   -> emit the eligible event-level rows over the active filters +
+//     branch scope.
+//
+// COLUMNS (spec 10.1): redeemed date + time (Europe/London-rendered), voucher title,
+// branch name, 7-type label, estimated value, status (Confirmed/Awaiting), and the
+// validation method WHERE Confirmed. There is DELIBERATELY NO direct identifier:
+// no customer name / email / phone / userId / postcode / demographics, and NO
+// Customer column (unlike the operational redemptions/export.csv). The QA/DELETED/
+// isTestData exclusions are inherited from buildEligibilityWhereSql (the canonical
+// eligible rule), composed via eligibleFrom.
+//
+// CAP (spec 1.10): an explicit row cap (default INSIGHTS_EXPORT_CAP=50000, mirroring
+// the redemptions export). We fetch CAP+1 to DETECT truncation, then slice to CAP and
+// flag `truncated`. The CSV formatter appends a SINGLE truncation-notice row when
+// truncated (no silent truncation). The cap is overridable for tests so CAP+1
+// detection can be exercised without seeding 50k rows.
+//
+// LONDON RENDERING: the date + time columns are formatted IN SQL from the
+// session-TZ-independent double conversion (londonTs) via to_char, so the CSV
+// carries human-readable Europe/London-rendered values regardless of the DB session
+// time zone (a single AT TIME ZONE would mis-bucket under a non-UTC session TZ).
+
+/** The explicit event-level CSV row cap (spec 1.10), mirroring the redemptions export. */
+export const INSIGHTS_EXPORT_CAP = 50000
+
+export type InsightsExportRow = {
+  /** Europe/London-rendered redemption date (YYYY-MM-DD). */
+  redeemedDate: string
+  /** Europe/London-rendered redemption time (HH:MM:SS, 24h). */
+  redeemedTime: string
+  voucherTitle: string
+  branchName: string
+  type7: MerchantVoucherType
+  /** Estimated value (Decimal coerced to Number). */
+  estimatedSaving: number
+  /** Confirmed (isValidated=true) or Awaiting. Every exported row is, by definition, logged. */
+  status: 'Confirmed' | 'Awaiting'
+  /** The validation method WHERE Confirmed; null for an awaiting row (no method recorded). */
+  validationMethod: string | null
+}
+
+export type InsightsExportResult =
+  | { rows: InsightsExportRow[]; truncated: boolean }
+  | { available: false }
+
+/**
+ * The event-level Redemption-activity export (GATED). Returns the eligible event
+ * rows over the active filters + branch scope, London-rendered, with NO direct
+ * identifiers. GATE CLOSED -> { available:false } with NO query. `opts.cap` overrides
+ * the default cap for tests (CAP+1 truncation detection).
+ */
+export async function getInsightsExport(
+  prisma: PrismaClient,
+  ctx: MerchantContext,
+  filters: InsightsFilters,
+  opts: { cap?: number } = {},
+): Promise<InsightsExportResult> {
+  // GATE: checked BEFORE any query. Closed -> { available:false }, no event-row read.
+  if (!behaviouralGateOpen()) return { available: false }
+
+  const cap = opts.cap ?? INSIGHTS_EXPORT_CAP
+  const now = filters.now ?? new Date()
+  const win = periodWindow(filters.period, now, filters.custom)
+  const scope = effectiveScope(ctx, filters.branchId)
+
+  // Fetch CAP+1 to detect truncation (mirror the redemptions export). The date +
+  // time columns are formatted IN SQL from londonTs() (double conversion), so the
+  // values are Europe/London-rendered + session-TZ-independent. Voucher title +
+  // branch name are joined columns; the 7-type collapse happens in the mapper.
+  const rows = await prisma.$queryRaw<
+    Array<{
+      redeemed_date: string
+      redeemed_time: string
+      voucher_title: string
+      branch_name: string
+      db_type: string
+      est: Prisma.Decimal | null
+      is_validated: boolean
+      validation_method: string | null
+    }>
+  >(Prisma.sql`
+    SELECT
+      to_char(${londonTs()}, 'YYYY-MM-DD') AS redeemed_date,
+      to_char(${londonTs()}, 'HH24:MI:SS') AS redeemed_time,
+      v.title AS voucher_title,
+      b.name AS branch_name,
+      v."type" AS db_type,
+      r."estimatedSaving" AS est,
+      r."isValidated" AS is_validated,
+      r."validationMethod" AS validation_method
+    ${eligibleFrom(ctx.merchantId, scope, win.startUtc, win.endUtc, filters.voucherType)}
+    ORDER BY r."redeemedAt" DESC, r.id ASC
+    LIMIT ${cap + 1}
+  `)
+
+  const truncated = rows.length > cap
+  const capped = truncated ? rows.slice(0, cap) : rows
+
+  return {
+    rows: capped.map((row) => ({
+      redeemedDate: row.redeemed_date,
+      redeemedTime: row.redeemed_time,
+      voucherTitle: row.voucher_title,
+      branchName: row.branch_name,
+      type7: dbTypeToType7(row.db_type),
+      estimatedSaving: num(row.est),
+      status: row.is_validated ? 'Confirmed' : 'Awaiting',
+      // A row that is not confirmed has no recorded method; null it defensively even
+      // if a stray method value exists (only Confirmed rows surface a method, spec 10.1).
+      validationMethod: row.is_validated ? row.validation_method ?? null : null,
+    })),
+    truncated,
+  }
+}
+
 // --- Behavioural (GATED): repeat-rate + new-vs-returning ---------------------
 //
 // Task A5 (spec 1.3/1.5/13.5, plan 2.5/2.7). These two functions read PRIOR-PERIOD

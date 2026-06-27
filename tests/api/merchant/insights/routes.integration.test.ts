@@ -295,6 +295,44 @@ describe('Insights routes : section 2.7 contract (real local DB + HTTP)', () => 
     expect(JSON.parse(res.body)).toEqual({ available: false })
   })
 
+  it('GET /export.csv returns text/csv event rows with the gate OPEN and NO direct identifiers', async () => {
+    process.env.INSIGHTS_BEHAVIOURAL_GATE = '1'
+    const res = await get(rt, ownerAdmin, '/export.csv', '?period=last_month')
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/csv')
+    expect(res.headers['content-disposition']).toContain('insights-redemptions.csv')
+
+    const csv = res.body
+    const headerLine = csv.split('\r\n')[0]
+    // The expected event-level columns; DELIBERATELY no Customer column.
+    expect(headerLine).toContain('Redeemed date')
+    expect(headerLine).toContain('Voucher')
+    expect(headerLine).toContain('Branch')
+    expect(headerLine).toContain('Type')
+    expect(headerLine).toContain('Status')
+    expect(headerLine).toContain('Method')
+    const lower = csv.toLowerCase()
+    expect(lower).not.toContain('customer')
+    expect(lower).not.toContain('email')
+    expect(lower).not.toContain('userid')
+    expect(lower).not.toContain('postcode')
+    // The suite's last-month fixtures (3 logged rows) surface as 3 body lines.
+    const bodyLines = csv.split('\r\n').slice(1).filter((l: string) => l.length > 0)
+    expect(bodyLines.length).toBe(3)
+    expect(lower).not.toContain('truncated')
+  })
+
+  it('GET /export.csv is rejected for a STAFF caller even with the gate OPEN (authz before gate)', async () => {
+    process.env.INSIGHTS_BEHAVIOURAL_GATE = '1'
+    const staffAdmin = await seedMerchantAdmin(rt.prisma, ids)
+    await seedMembership(rt.prisma, ids, {
+      merchantId, merchantAdminId: staffAdmin, role: 'STAFF', allBranches: true,
+    })
+    const res = await get(rt, staffAdmin, '/export.csv', '?period=last_month')
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+  })
+
   // ── Fresh authz per request ──────────────────────────────────────────────
 
   it('a membership status change between two requests takes effect immediately (fresh authz)', async () => {

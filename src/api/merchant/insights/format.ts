@@ -39,7 +39,9 @@ import type {
   ValidationResult,
   RepeatRateResult,
   NewVsReturningResult,
+  InsightsExportRow,
 } from './service'
+import { INSIGHTS_EXPORT_CAP } from './service'
 
 // --- Overview ---------------------------------------------------------------
 
@@ -130,4 +132,73 @@ export function toCustomersResponse(newVsReturning: NewVsReturningResult, repeat
  */
 export function exportNotAvailableResponse() {
   return { available: false as const }
+}
+
+// --- Event-level CSV (gate-OPEN path; Task A8) ------------------------------
+//
+// The event-level Redemption-activity CSV (spec 10.1). DELIBERATELY a SEPARATE,
+// STRICTER artefact from the operational redemptions/export.csv: there is NO
+// Customer column and no direct identifier (no name / email / phone / userId /
+// postcode / demographics) - only redeemed date + time (London-rendered), voucher
+// title, branch name, the 7-type label, the estimated value, the status
+// (Confirmed/Awaiting), and the validation method WHERE Confirmed.
+//
+// This formatter is reached ONLY on the gate-OPEN path (getInsightsExport returns
+// rows only when behaviouralGateOpen()); the route serves a JSON `{ available:false }`
+// otherwise. The rows it receives are already eligible-filtered, scoped, and capped.
+
+// OWASP CSV-injection mitigation (identical to the redemptions export): a cell value
+// beginning with = + - @ tab or CR can execute as a spreadsheet formula in
+// Excel/Sheets. Prepend a single apostrophe to neutralise it BEFORE the quote-escaping
+// so the value renders as literal text (e.g. `=SUM(A1:A2)` -> cell `"'=SUM(A1:A2)"`).
+function csvCell(v: unknown): string {
+  let s = v == null ? '' : String(v)
+  if (s.length > 0 && /^[=+\-@\t\r]/.test(s)) s = "'" + s
+  return '"' + s.replace(/"/g, '""') + '"'
+}
+
+/**
+ * Project event-level export rows into the no-direct-identifier CSV (spec 10.1).
+ * Columns: Redeemed date, Redeemed time, Voucher, Branch, Type, Estimated value (GBP),
+ * Status, Method. When `truncated`, a SINGLE truncation-notice row is appended (no
+ * silent truncation, spec 1.10) referencing the production cap.
+ */
+export function insightsRowsToCsv(rows: InsightsExportRow[], truncated: boolean): string {
+  const header = [
+    'Redeemed date',
+    'Redeemed time',
+    'Voucher',
+    'Branch',
+    'Type',
+    'Estimated value (GBP)',
+    'Status',
+    'Method',
+  ]
+  const lines = [header.map(csvCell).join(',')]
+  for (const r of rows) {
+    lines.push(
+      [
+        r.redeemedDate,
+        r.redeemedTime,
+        r.voucherTitle,
+        r.branchName,
+        r.type7,
+        r.estimatedSaving.toFixed(2),
+        r.status,
+        r.validationMethod ?? '',
+      ]
+        .map(csvCell)
+        .join(','),
+    )
+  }
+  if (truncated) {
+    lines.push(
+      csvCell(
+        'Export truncated at ' +
+          INSIGHTS_EXPORT_CAP +
+          ' rows. Narrow the filters for a complete export.',
+      ),
+    )
+  }
+  return lines.join('\r\n')
 }
