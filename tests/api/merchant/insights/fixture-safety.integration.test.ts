@@ -480,17 +480,14 @@ describe('Insights demo fixture isolation + include-path (real local DB)', () =>
 describe('Insights demo fixture - finding #10 collision + credential + atomicity (real local DB)', () => {
   let prisma: PrismaClient
 
-  beforeAll(() => {
-    prisma = makeTestPrisma()
-  })
-
-  afterEach(() => {
-    restoreDemoEnv()
-  })
-
-  afterAll(async () => {
-    // Defensive teardown: remove anything any case might have created with the demo
-    // sentinels (so a thrown case cannot leave residue for the shared suite).
+  // Remove ANY demo-sentinel residue (committed by a successful seed OR left by a
+  // thrown case) in FK-safe order. Cases in this describe seed real demo entities
+  // AND deliberately corrupt pre-existing state, so each case must start AND end on
+  // a clean slate to stay order-independent (unique email / voucher-code collisions
+  // otherwise leak across cases). The demo-coded voucher delete is scoped to
+  // demo-OWNED vouchers so a case's deliberately-planted NON-demo squatter (owned by
+  // an unrelated merchant) is never touched here - those cases clean their own.
+  async function purgeDemoResidue(): Promise<void> {
     const demoMerchants = await prisma.merchant.findMany({
       where: { businessName: INSIGHTS_DEMO_MERCHANT_NAME },
       select: { id: true },
@@ -506,9 +503,35 @@ describe('Insights demo fixture - finding #10 collision + credential + atomicity
       await prisma.branch.deleteMany({ where: { merchantId: { in: ids } } })
       await prisma.merchant.deleteMany({ where: { id: { in: ids } } })
     }
-    await prisma.merchantAdmin.deleteMany({ where: { email: INSIGHTS_DEMO_LOGIN_EMAIL } })
-    await prisma.voucher.deleteMany({ where: { code: DEMO_VOUCHER_CODE } })
+    // The demo admin email is in the .invalid sentinel space no real user holds, so
+    // deleting by it only ever removes demo/squat-test rows (memberships first, FK).
+    const demoAdmins = await prisma.merchantAdmin.findMany({
+      where: { email: INSIGHTS_DEMO_LOGIN_EMAIL },
+      select: { id: true },
+    })
+    if (demoAdmins.length) {
+      await prisma.merchantMembership.deleteMany({
+        where: { merchantAdminId: { in: demoAdmins.map((a) => a.id) } },
+      })
+      await prisma.merchantAdmin.deleteMany({ where: { id: { in: demoAdmins.map((a) => a.id) } } })
+    }
     await prisma.user.deleteMany({ where: { email: { endsWith: '@redeemo-insights-demo.invalid' } } })
+  }
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma()
+    await purgeDemoResidue()
+  })
+
+  afterEach(async () => {
+    restoreDemoEnv()
+    // Clear any demo entity a (possibly successful) case committed so the next case
+    // starts clean regardless of ordering.
+    await purgeDemoResidue()
+  })
+
+  afterAll(async () => {
+    await purgeDemoResidue()
     await prisma.$disconnect()
   })
 
@@ -624,5 +647,202 @@ describe('Insights demo fixture - finding #10 collision + credential + atomicity
       where: { branchId: { in: first.branchIds }, isTestData: true },
     })
     expect(count).toBe(first.redemptionsCreated)
+  })
+
+  // --- P1 ADMIN-COLLISION IDENTITY VERIFICATION -----------------------------
+  //
+  // A MerchantAdmin already exists at the sentinel demo email but with an
+  // UNRELATED (non-demo) merchant membership. The fixture MUST fail closed:
+  // throw, and NEVER reset its credentials / activate / verify / enrol it.
+  it('P1 ADMIN COLLISION: sentinel-email admin with an UNRELATED membership -> THROWS, admin + unrelated merchant UNCHANGED', async () => {
+    // An unrelated, real (non-demo) merchant the squatting admin belongs to.
+    const unrelatedMerchant = await prisma.merchant.create({
+      data: { businessName: `Unrelated real merchant ${Date.now()}`, status: 'ACTIVE', isTestData: false },
+      select: { id: true },
+    })
+    // A pre-existing admin holding the sentinel email but tied to the unrelated
+    // merchant (NOT the demo identity). Distinct, recognisable credential state.
+    const squatHash = 'pre-existing-unrelated-hash'
+    const squatAdmin = await prisma.merchantAdmin.create({
+      data: {
+        email: INSIGHTS_DEMO_LOGIN_EMAIL,
+        passwordHash: squatHash,
+        firstName: 'Squat',
+        lastName: 'User',
+        status: 'INACTIVE',
+        emailVerified: false,
+      },
+      select: { id: true },
+    })
+    const squatMembership = await prisma.merchantMembership.create({
+      data: {
+        merchantId: unrelatedMerchant.id,
+        merchantAdminId: squatAdmin.id,
+        role: 'OWNER',
+        allBranches: true,
+        status: 'ACTIVE',
+      },
+      select: { id: true },
+    })
+
+    try {
+      await expect(
+        withSeedGuardsOpen(() => seedInsightsDemoFixture(prisma)),
+      ).rejects.toThrow()
+
+      // The pre-existing admin is UNTOUCHED: password not reset, not activated,
+      // not verified.
+      const adminAfter = await prisma.merchantAdmin.findUnique({
+        where: { id: squatAdmin.id },
+        select: { passwordHash: true, status: true, emailVerified: true },
+      })
+      expect(adminAfter?.passwordHash).toBe(squatHash)
+      expect(adminAfter?.status).toBe('INACTIVE')
+      expect(adminAfter?.emailVerified).toBe(false)
+
+      // Its membership set is UNCHANGED: still exactly the unrelated one, no new
+      // OWNER membership on any demo merchant was granted.
+      const memberships = await prisma.merchantMembership.findMany({
+        where: { merchantAdminId: squatAdmin.id },
+        select: { id: true, merchantId: true, role: true },
+      })
+      expect(memberships.length).toBe(1)
+      expect(memberships[0].id).toBe(squatMembership.id)
+      expect(memberships[0].merchantId).toBe(unrelatedMerchant.id)
+
+      // The unrelated merchant is untouched (still real, still ACTIVE).
+      const merchantAfter = await prisma.merchant.findUnique({
+        where: { id: unrelatedMerchant.id },
+        select: { isTestData: true, status: true },
+      })
+      expect(merchantAfter?.isTestData).toBe(false)
+      expect(merchantAfter?.status).toBe('ACTIVE')
+
+      // And NOTHING demo was persisted (full rollback of the attempted seed).
+      const demoMerchant = await prisma.merchant.findFirst({
+        where: { businessName: INSIGHTS_DEMO_MERCHANT_NAME },
+        select: { id: true },
+      })
+      expect(demoMerchant).toBeNull()
+    } finally {
+      // FK-safe: drop ALL memberships referencing the squat admin (its own
+      // unrelated one and any the fixture might have created before the fix landed),
+      // then the admin, then the unrelated merchant.
+      await prisma.merchantMembership.deleteMany({ where: { merchantAdminId: squatAdmin.id } })
+      await prisma.merchantMembership.deleteMany({ where: { merchantId: unrelatedMerchant.id } })
+      await prisma.merchantAdmin.deleteMany({ where: { id: squatAdmin.id } })
+      await prisma.merchant.deleteMany({ where: { id: unrelatedMerchant.id } })
+    }
+  })
+
+  // POSITIVE RERUN: after a clean successful seed, re-running with the VERIFIED
+  // expected demo admin succeeds and is deterministic (same demo merchant id,
+  // same row counts) - the identity verification accepts the known demo account.
+  it('P1 POSITIVE RERUN: a verified expected demo admin re-applies cleanly (deterministic, same ids + counts)', async () => {
+    const first = await withSeedGuardsOpen(() => seedInsightsDemoFixture(prisma))
+    expect(first.redemptionsCreated).toBeGreaterThan(0)
+
+    const second = await withSeedGuardsOpen(() => seedInsightsDemoFixture(prisma))
+    expect(second.merchantId).toBe(first.merchantId)
+    expect(second.merchantAdminId).toBe(first.merchantAdminId)
+    expect(second.membershipId).toBe(first.membershipId)
+    expect(second.branchIds.slice().sort()).toEqual(first.branchIds.slice().sort())
+    expect(second.voucherIds.slice().sort()).toEqual(first.voucherIds.slice().sort())
+    expect(second.redemptionsCreated).toBe(first.redemptionsCreated)
+
+    // The verified demo admin keeps exactly ONE OWNER membership on the demo merchant.
+    const memberships = await prisma.merchantMembership.findMany({
+      where: { merchantAdminId: first.merchantAdminId },
+      select: { merchantId: true, role: true, allBranches: true, status: true },
+    })
+    expect(memberships.length).toBe(1)
+    expect(memberships[0].merchantId).toBe(first.merchantId)
+    expect(memberships[0].role).toBe('OWNER')
+    expect(memberships[0].allBranches).toBe(true)
+    expect(memberships[0].status).toBe('ACTIVE')
+  })
+
+  // --- P1 FULL-TRANSACTION ATOMICITY: a LATE failure rolls back EVERYTHING ----
+  //
+  // Force a failure that occurs AFTER the merchant / admin / branches would
+  // otherwise be created: a NON-demo voucher already owns a demo voucher code, so
+  // the in-transaction voucher-code collision check throws late. Snapshot the
+  // FULL relevant DB state before, run the fixture (it throws), then assert the
+  // COMPLETE state is unchanged - proving the whole operation rolled back. No
+  // manual cleanup of demo entities should be needed (nothing committed).
+  it('P1 ATOMIC ROLLBACK: a LATE in-tx voucher-code collision rolls back the ENTIRE fixture (no partial demo state)', async () => {
+    const otherMerchant = await prisma.merchant.create({
+      data: { businessName: `Unrelated real merchant ${Date.now()}`, status: 'ACTIVE', isTestData: false },
+      select: { id: true },
+    })
+    const realVoucher = await prisma.voucher.create({
+      data: {
+        merchantId: otherMerchant.id,
+        code: DEMO_VOUCHER_CODE, // a demo code, owned by a NON-demo voucher
+        type: 'BOGO',
+        title: 'Real voucher squatting a demo code',
+        estimatedSaving: 9,
+        status: 'ACTIVE',
+        approvalStatus: 'APPROVED',
+        isTestData: false,
+      },
+      select: { id: true },
+    })
+
+    // FULL pre-state snapshot of the relevant tables.
+    const snapshot = async () => ({
+      demoMerchants: await prisma.merchant.count({ where: { businessName: INSIGHTS_DEMO_MERCHANT_NAME } }),
+      demoAdmins: await prisma.merchantAdmin.count({ where: { email: INSIGHTS_DEMO_LOGIN_EMAIL } }),
+      demoBranches: await prisma.branch.count({
+        where: { name: { startsWith: 'INSIGHTS DEMO - ' } },
+      }),
+      demoVouchers: await prisma.voucher.count({
+        where: { code: { startsWith: 'INSIGHTS-DEMO-' } },
+      }),
+      demoUsers: await prisma.user.count({
+        where: { email: { endsWith: '@redeemo-insights-demo.invalid' } },
+      }),
+      demoRedemptions: await prisma.voucherRedemption.count({
+        where: { redemptionCode: { startsWith: 'IDEMO-' } },
+      }),
+      // The squatting voucher must survive untouched.
+      realVoucher: await prisma.voucher.findUnique({
+        where: { id: realVoucher.id },
+        select: { merchantId: true, isTestData: true, title: true },
+      }),
+    })
+
+    const before = await snapshot()
+    // No demo entities exist yet.
+    expect(before.demoMerchants).toBe(0)
+    expect(before.demoAdmins).toBe(0)
+    expect(before.demoBranches).toBe(0)
+    // The only demo-coded voucher is the squatter (isTestData=false on another merchant).
+    expect(before.demoVouchers).toBe(1)
+    expect(before.demoRedemptions).toBe(0)
+
+    try {
+      await expect(
+        withSeedGuardsOpen(() => seedInsightsDemoFixture(prisma)),
+      ).rejects.toThrow(new RegExp(`${DEMO_VOUCHER_CODE}|hijack|upsert`, 'i'))
+
+      const after = await snapshot()
+      // COMPLETE DB state UNCHANGED: no demo merchant/admin/branch/user/redemption
+      // was persisted, and the demo-voucher count is still just the squatter.
+      expect(after.demoMerchants).toBe(before.demoMerchants)
+      expect(after.demoAdmins).toBe(before.demoAdmins)
+      expect(after.demoBranches).toBe(before.demoBranches)
+      expect(after.demoVouchers).toBe(before.demoVouchers)
+      expect(after.demoUsers).toBe(before.demoUsers)
+      expect(after.demoRedemptions).toBe(before.demoRedemptions)
+      // The squatting voucher is byte-for-byte untouched.
+      expect(after.realVoucher?.merchantId).toBe(otherMerchant.id)
+      expect(after.realVoucher?.isTestData).toBe(false)
+      expect(after.realVoucher?.title).toBe('Real voucher squatting a demo code')
+    } finally {
+      // Only the squatter + its merchant need cleanup; nothing demo was committed.
+      await prisma.voucher.deleteMany({ where: { id: realVoucher.id } })
+      await prisma.merchant.deleteMany({ where: { id: otherMerchant.id } })
+    }
   })
 })

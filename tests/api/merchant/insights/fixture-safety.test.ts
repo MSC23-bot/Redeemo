@@ -108,9 +108,10 @@ describe('requireInsightsDemoAdminPassword (finding #10 - credential fail-closed
     expect(() => requireInsightsDemoAdminPassword()).toThrow(/INSIGHTS_DEMO_ADMIN_PASSWORD/)
   })
 
-  it('returns the operator-supplied secret when set (and never logs it)', () => {
-    process.env.INSIGHTS_DEMO_ADMIN_PASSWORD = 'operator-chosen-secret'
-    expect(requireInsightsDemoAdminPassword()).toBe('operator-chosen-secret')
+  it('returns the operator-supplied secret when set (policy-compliant, and never logs it)', () => {
+    // The operator secret must satisfy the shared password policy (finding: P2).
+    process.env.INSIGHTS_DEMO_ADMIN_PASSWORD = 'OperatorChosen1!'
+    expect(requireInsightsDemoAdminPassword()).toBe('OperatorChosen1!')
   })
 
   it('the error message does NOT include any committed password literal', () => {
@@ -121,6 +122,48 @@ describe('requireInsightsDemoAdminPassword (finding #10 - credential fail-closed
     } catch (e) {
       // The old committed literal must never appear in code/messages again.
       expect((e as Error).message).not.toContain('InsightsDemo1!')
+    }
+  })
+
+  // --- P2 PASSWORD POLICY: the demo secret must satisfy the shared policy ----
+  //
+  // A weak INSIGHTS_DEMO_ADMIN_PASSWORD must fail closed (throw) just like an
+  // unset one. The policy is the shared one (min 8 + upper + lower + number +
+  // special). The thrown error must NOT echo the value (or any part of it) and
+  // must NOT leak any credential.
+  it('P2 THROWS when INSIGHTS_DEMO_ADMIN_PASSWORD fails the shared password policy', () => {
+    process.env.INSIGHTS_DEMO_ADMIN_PASSWORD = 'weak'
+    expect(() => requireInsightsDemoAdminPassword()).toThrow(/policy/i)
+  })
+
+  it('P2 the policy-failure error references the env var but NEVER echoes the weak value', () => {
+    const weak = 'weak'
+    process.env.INSIGHTS_DEMO_ADMIN_PASSWORD = weak
+    try {
+      requireInsightsDemoAdminPassword()
+      throw new Error('expected requireInsightsDemoAdminPassword to throw on a weak value')
+    } catch (e) {
+      const msg = (e as Error).message
+      // It names the server-owned env var so the operator can fix it...
+      expect(msg).toMatch(/INSIGHTS_DEMO_ADMIN_PASSWORD/)
+      // ...but it must NEVER include the value (or any substring of it).
+      expect(msg).not.toContain(weak)
+    }
+  })
+
+  it('P2 a variety of weak values all fail closed (missing class -> throw)', () => {
+    // Each is missing at least one required class; none should be accepted.
+    for (const bad of [
+      'short1!', // < 8 chars
+      'alllowercase1!', // no uppercase
+      'ALLUPPERCASE1!', // no lowercase
+      'NoNumber!!', // no digit
+      'NoSpecial11', // no special char
+    ]) {
+      process.env.INSIGHTS_DEMO_ADMIN_PASSWORD = bad
+      expect(() => requireInsightsDemoAdminPassword(), `value ${JSON.stringify(bad)}`).toThrow(
+        /policy/i,
+      )
     }
   })
 })

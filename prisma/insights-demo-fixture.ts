@@ -55,7 +55,7 @@
 
 import type { PrismaClient, VoucherType, ValidationMethod } from '../generated/prisma/client'
 import { DAYPARTS } from '../src/api/merchant/insights/london'
-import { hashPassword } from '../src/api/shared/password'
+import { hashPassword, validatePasswordPolicy } from '../src/api/shared/password'
 import { isStagingDeploy } from '../src/api/merchant/insights/demo'
 
 // --- The dedicated demo-merchant allowlist key ------------------------------
@@ -133,6 +133,20 @@ export function requireInsightsDemoAdminPassword(): string {
         'The demo login password must be supplied by the operator via this ' +
         'server-owned env var (no password is committed). Set it to an ' +
         'operator-chosen secret per docs/runbooks/insights-demo-fixture.md.',
+    )
+  }
+  // P2 PASSWORD POLICY: the operator-supplied secret must satisfy the SAME
+  // shared password policy the merchant auth enforces (min 8 + uppercase +
+  // lowercase + number + special). A weak demo credential fails closed - it
+  // throws BEFORE any DB access, exactly like an unset one. The thrown error
+  // NEVER includes the value (or any part of it), so no credential can leak.
+  if (!validatePasswordPolicy(value)) {
+    throw new Error(
+      `seedInsightsDemoFixture refused: ${DEMO_ADMIN_PASSWORD_ENV_VAR} does not satisfy ` +
+        'the password policy (minimum 8 characters with an uppercase letter, a ' +
+        'lowercase letter, a number, and a special character). Choose a stronger ' +
+        'operator secret per docs/runbooks/insights-demo-fixture.md. The value is ' +
+        'never logged or echoed.',
     )
   }
   return value
@@ -214,10 +228,15 @@ type PlannedRedemption = {
  * with STABLE redemptionCodes (no Date.now() salt). Running the fixture twice yields
  * the SAME row count, not double - a true reconcile, not an append.
  *
- * COLLISION FAIL-CLOSED (finding #10): every find-by-sentinel match is VERIFIED to be
- * the expected test-owned entity. If a real (non-test) merchant/branch/voucher/admin
- * already owns a sentinel name / code / email, the fixture THROWS - it never hijacks a
- * real row. A voucher-code collision with a non-demo voucher fails, never upserts.
+ * COLLISION FAIL-CLOSED (finding #10 + P1): every find-by-sentinel match is VERIFIED to
+ * be the expected test-owned entity. If a real (non-test) merchant/branch/voucher
+ * already owns a sentinel name / code, the fixture THROWS - it never hijacks a real row.
+ * A voucher-code collision with a non-demo voucher fails, never upserts. ADMIN IDENTITY
+ * (P1): a pre-existing MerchantAdmin at the sentinel email is ACCEPTED only when it is
+ * demonstrably the expected demo identity - EXACTLY one membership, OWNER + allBranches +
+ * ACTIVE, on the test-owned demo merchant, and no unrelated membership. Any other state
+ * (no expected membership, an unrelated membership, unexpected scope) THROWS; the
+ * fixture NEVER resets the password / activates / verifies / enrols an ambiguous admin.
  *
  * SCOPED DELETE (finding #10): the reseed deletes ONLY isTestData=true redemptions on
  * the demo branches, so a stray non-test row under a demo branch is preserved.
@@ -227,8 +246,12 @@ type PlannedRedemption = {
  * function throws BEFORE any DB access (nothing is seeded). The password is NEVER
  * logged or returned.
  *
- * ATOMIC (finding #10): the redemption delete + recreate runs inside a single
- * prisma.$transaction, so an interruption cannot leave partial redemption data.
+ * ATOMIC (finding #10 + P1): the ENTIRE fixture - every collision check AND every
+ * write (merchant, admin, membership, branches, vouchers, users, and the redemption
+ * delete + recreate) - runs inside ONE interactive prisma.$transaction. Any collision
+ * or thrown error rolls back the WHOLE fixture (Prisma auto-rolls-back on throw), so a
+ * late failure can NEVER leave partial demo entities. The guards + the credential
+ * read/hash run BEFORE the transaction (no DB access).
  *
  * Every row written carries isTestData=true, so the canonical eligible rule excludes
  * them from production analytics regardless of any guard state (the demo include-path
@@ -250,240 +273,293 @@ export async function seedInsightsDemoFixture(prisma: PrismaClient): Promise<{
   // GUARD FIRST: no DB access happens before this passes.
   assertInsightsDemoFixtureAllowed()
 
-  // CREDENTIAL FAIL-CLOSED (finding #10): read + hash the operator-supplied secret
-  // BEFORE any DB access. If the env var is unset/empty this throws and nothing is
-  // seeded. The plaintext is never logged or returned.
+  // CREDENTIAL FAIL-CLOSED (finding #10) + PASSWORD POLICY (P2): read + validate +
+  // hash the operator-supplied secret BEFORE any DB access. If the env var is
+  // unset/empty/weak this throws and nothing is seeded. The plaintext is never
+  // logged or returned.
   const passwordHash = await hashPassword(requireInsightsDemoAdminPassword())
 
-  // 1. The dedicated demo merchant (allowlisted by its sentinel name). COLLISION
-  //    FAIL-CLOSED: a pre-existing match MUST be the test-owned demo merchant; a
-  //    real (isTestData=false) merchant that happens to carry the sentinel name is
-  //    NEVER hijacked - we throw instead.
-  const existingMerchant = await prisma.merchant.findFirst({
-    where: { businessName: INSIGHTS_DEMO_MERCHANT_NAME },
-    select: { id: true, isTestData: true },
-  })
-  if (existingMerchant && existingMerchant.isTestData !== true) {
-    throw new Error(
-      'seedInsightsDemoFixture refused: a NON-test merchant already owns the demo ' +
-        `sentinel businessName "${INSIGHTS_DEMO_MERCHANT_NAME}". Refusing to mutate or ` +
-        'hijack a real merchant.',
-    )
-  }
-  const merchant =
-    existingMerchant ??
-    (await prisma.merchant.create({
-      data: {
-        businessName: INSIGHTS_DEMO_MERCHANT_NAME,
-        status: 'ACTIVE',
-        isTestData: true,
-      },
-      select: { id: true, isTestData: true },
-    }))
-  const merchantId = merchant.id
-
-  // 1b. The demo OWNER login (MerchantAdmin + OWNER MerchantMembership). The unique
-  //     key IS the sentinel demo email, so any match by that exact email is, by
-  //     construction, the demo admin (the email lives in a clearly-demo .invalid
-  //     space no real user can hold). We VERIFY the matched email equals the sentinel
-  //     (defence in depth) before updating its credentials. The password is hashed
-  //     with the SAME bcrypt path the merchant auth uses so the normal merchant login
-  //     verifies it; emailVerified=true so the M1 login email-verified gate passes.
-  const existingAdmin = await prisma.merchantAdmin.findUnique({
-    where: { email: INSIGHTS_DEMO_LOGIN_EMAIL },
-    select: { id: true, email: true },
-  })
-  if (existingAdmin && existingAdmin.email !== INSIGHTS_DEMO_LOGIN_EMAIL) {
-    // Defence in depth: a unique-by-email lookup can only return the sentinel email,
-    // but never trust a non-sentinel match.
-    throw new Error(
-      'seedInsightsDemoFixture refused: the MerchantAdmin matched by the demo ' +
-        'sentinel email is not the expected demo owner. Refusing to mutate it.',
-    )
-  }
-  const admin = await prisma.merchantAdmin.upsert({
-    where: { email: INSIGHTS_DEMO_LOGIN_EMAIL },
-    update: { passwordHash, emailVerified: true, status: 'ACTIVE' },
-    create: {
-      email: INSIGHTS_DEMO_LOGIN_EMAIL,
-      passwordHash,
-      firstName: 'Insights',
-      lastName: 'Demo',
-      status: 'ACTIVE',
-      emailVerified: true,
-    },
-    select: { id: true },
-  })
-  const merchantAdminId = admin.id
-
-  // OWNER membership, allBranches=true. Idempotent by the (merchantId, merchantAdminId)
-  // unique pair so re-running never creates a duplicate membership.
-  const existingMembership = await prisma.merchantMembership.findUnique({
-    where: { merchantId_merchantAdminId: { merchantId, merchantAdminId } },
-    select: { id: true },
-  })
-  const membership =
-    existingMembership ??
-    (await prisma.merchantMembership.create({
-      data: {
-        merchantId,
-        merchantAdminId,
-        role: 'OWNER',
-        allBranches: true,
-        status: 'ACTIVE',
-      },
-      select: { id: true },
-    }))
-  const membershipId = membership.id
-
-  // 2. Branches (idempotent by name within the demo merchant). COLLISION FAIL-CLOSED:
-  //    a pre-existing branch with the sentinel name under the demo merchant MUST be
-  //    test-owned; a real (isTestData=false) branch is never reused.
-  const branchIds: string[] = []
-  for (const b of DEMO_BRANCHES) {
-    const existing = await prisma.branch.findFirst({
-      where: { merchantId, name: b.name },
-      select: { id: true, isTestData: true },
-    })
-    if (existing && existing.isTestData !== true) {
-      throw new Error(
-        'seedInsightsDemoFixture refused: a NON-test branch already exists under the ' +
-          `demo merchant with the sentinel name "${b.name}". Refusing to mutate it.`,
-      )
-    }
-    const branch =
-      existing ??
-      (await prisma.branch.create({
-        data: {
-          merchantId,
-          name: b.name,
-          isMainBranch: b.isMainBranch,
-          addressLine1: '1 Demo Street',
-          city: b.city,
-          postcode: b.postcode,
-          isActive: true,
-          isTestData: true,
-        },
+  // FULL-TRANSACTION ATOMICITY (P1): every collision check AND every write below runs
+  // inside ONE interactive transaction via tx.*. Any thrown error (a collision, an
+  // ambiguous admin identity) rolls back the ENTIRE fixture - Prisma auto-rolls-back an
+  // interactive transaction on throw - so a late failure can never leave partial demo
+  // entities. The guards + the credential read/hash already ran above (no DB access).
+  return prisma.$transaction(
+    async (tx) => {
+      // 1. The dedicated demo merchant (allowlisted by its sentinel name). COLLISION
+      //    FAIL-CLOSED: a pre-existing match MUST be the test-owned demo merchant; a
+      //    real (isTestData=false) merchant that happens to carry the sentinel name is
+      //    NEVER hijacked - we throw instead.
+      const existingMerchant = await tx.merchant.findFirst({
+        where: { businessName: INSIGHTS_DEMO_MERCHANT_NAME },
         select: { id: true, isTestData: true },
-      }))
-    branchIds.push(branch.id)
-  }
-
-  // 3. Vouchers (idempotent by unique code). COLLISION FAIL-CLOSED: a pre-existing
-  //    voucher with the demo code MUST be test-owned AND on the demo merchant. A
-  //    real voucher (or another merchant's voucher) that already owns a demo code
-  //    THROWS - we never upsert/hijack it. We find-then-create rather than blind
-  //    upsert so a non-demo owner of the code fails instead of being overwritten.
-  const voucherIds: string[] = []
-  for (const v of DEMO_VOUCHERS) {
-    const existing = await prisma.voucher.findUnique({
-      where: { code: v.code },
-      select: { id: true, isTestData: true, merchantId: true },
-    })
-    if (existing) {
-      if (existing.isTestData !== true || existing.merchantId !== merchantId) {
+      })
+      if (existingMerchant && existingMerchant.isTestData !== true) {
         throw new Error(
-          'seedInsightsDemoFixture refused: the voucher code ' +
-            `"${v.code}" is already owned by a non-demo voucher (test=${existing.isTestData}, ` +
-            `merchantMatch=${existing.merchantId === merchantId}). Refusing to upsert/hijack it.`,
+          'seedInsightsDemoFixture refused: a NON-test merchant already owns the demo ' +
+            `sentinel businessName "${INSIGHTS_DEMO_MERCHANT_NAME}". Refusing to mutate or ` +
+            'hijack a real merchant.',
         )
       }
-      voucherIds.push(existing.id) // an existing demo voucher: never mutate its shape
-      continue
-    }
-    const created = await prisma.voucher.create({
-      data: {
-        merchantId,
-        code: v.code,
-        type: v.type,
-        title: v.title,
-        estimatedSaving: v.estimatedSaving,
-        status: 'ACTIVE',
-        approvalStatus: 'APPROVED',
-        isTestData: true,
-      },
-      select: { id: true },
-    })
-    voucherIds.push(created.id)
-  }
+      const merchant =
+        existingMerchant ??
+        (await tx.merchant.create({
+          data: {
+            businessName: INSIGHTS_DEMO_MERCHANT_NAME,
+            status: 'ACTIVE',
+            isTestData: true,
+          },
+          select: { id: true, isTestData: true },
+        }))
+      const merchantId = merchant.id
 
-  // 4. A pool of demo customers (real Users have no isTestData column; the demo
-  //    rows are excluded from production analytics via the redemption/branch/
-  //    merchant isTestData=true predicate, NOT via the user). Emails use the
-  //    sentinel demo address space so they cannot collide with real users.
-  const customerCount = 6
-  const userIds: string[] = []
-  for (let i = 0; i < customerCount; i++) {
-    const email = `insights-demo-customer-${i}@redeemo-insights-demo.invalid`
-    const user = await prisma.user.upsert({
-      where: { email },
-      update: {},
-      create: { email, status: 'ACTIVE' },
-      select: { id: true },
-    })
-    userIds.push(user.id)
-  }
-
-  // 5. Redemptions: a DETERMINISTIC, ATOMIC, SCOPED RECONCILE. Plan a FIXED set with
-  //    STABLE redemptionCodes (seq-derived, NO Date.now() salt) so running the fixture
-  //    twice yields the SAME row count, not double.
-  //
-  //    The demo branches are dedicated isTestData=true branches on the dedicated demo
-  //    merchant; the demo merchant/vouchers are isTestData=true and excluded from
-  //    discovery, so a real customer can never redeem at them. The reseed therefore
-  //    deletes ONLY the FIXTURE-OWNED rows (branchId IN demo-branch-ids AND
-  //    isTestData=true) - a stray non-test redemption that somehow exists under a demo
-  //    branch is PRESERVED (finding #10). We scope by branch id (NOT code prefix) so a
-  //    fixture-version change to the redemptionCode scheme still fully reconciles prior
-  //    demo rows. All planned rows carry isTestData=true.
-  const planned: PlannedRedemption[] = []
-  let seq = 0
-  for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
-    for (let dpIndex = 0; dpIndex < DAYPARTS.length; dpIndex++) {
-      // Vary which branch / voucher / customer each cell uses so rankings differ.
-      const branchId = branchIds[(dayOffset + dpIndex) % branchIds.length]
-      const voucherId = voucherIds[(dayOffset * DAYPARTS.length + dpIndex) % voucherIds.length]
-      const userId = userIds[(dayOffset + dpIndex * 2) % userIds.length]
-      const voucher = DEMO_VOUCHERS[(dayOffset * DAYPARTS.length + dpIndex) % DEMO_VOUCHERS.length]
-      const redeemedAt = demoRedeemedAt(dayOffset, DAYPART_MID_HOURS[dpIndex])
-
-      // Alternate confirmed / awaiting so the dual-layer demo has both.
-      const isValidated = seq % 2 === 0
-      const validationMethod = isValidated ? VALIDATION_METHODS[seq % VALIDATION_METHODS.length] : null
-      const validatedAt = isValidated ? new Date(redeemedAt.getTime() + 5 * 60 * 1000) : null
-
-      // A STABLE, unique, sentinel-prefixed redemption code (<= 24 chars upper),
-      // derived ONLY from the sequence index so a re-run produces the EXACT same
-      // codes (the prior batch having been deleted above). seq is zero-padded so
-      // ordering + uniqueness hold across the whole batch.
-      const redemptionCode = `IDEMO-${String(seq).padStart(5, '0')}`
-
-      planned.push({
-        userId,
-        voucherId,
-        branchId,
-        redemptionCode,
-        redeemedAt,
-        isValidated,
-        validatedAt,
-        validationMethod,
-        estimatedSaving: voucher.estimatedSaving,
+      // 1b. The demo OWNER login (MerchantAdmin + OWNER MerchantMembership). ADMIN
+      //     IDENTITY VERIFICATION (P1): look up the sentinel-email admin WITH its
+      //     memberships and ACCEPT a pre-existing one ONLY when it is demonstrably the
+      //     expected demo identity - EXACTLY one membership, OWNER + allBranches +
+      //     ACTIVE, on THIS test-owned demo merchant (merchantId, already verified
+      //     isTestData=true). Any other state (no expected membership, an unrelated
+      //     membership, unexpected scope) THROWS: we NEVER reset the password / activate
+      //     / verify / enrol an ambiguous account. Only the verified expected demo
+      //     identity (or a fresh create) re-applies the demo credentials. The password
+      //     is hashed with the SAME bcrypt path the merchant auth uses so the normal
+      //     merchant login verifies it; emailVerified=true so the M1 login gate passes.
+      const existingAdmin = await tx.merchantAdmin.findUnique({
+        where: { email: INSIGHTS_DEMO_LOGIN_EMAIL },
+        select: {
+          id: true,
+          memberships: {
+            select: { merchantId: true, role: true, allBranches: true, status: true },
+          },
+        },
       })
-      seq += 1
-    }
-  }
 
-  // ATOMIC reconcile (finding #10): delete the fixture-owned rows and recreate the
-  // planned set in ONE transaction so an interruption cannot leave partial data.
-  const redemptionsCreated = await prisma.$transaction(async (tx) => {
-    await tx.voucherRedemption.deleteMany({
-      where: { branchId: { in: branchIds }, isTestData: true },
-    })
-    const result = await tx.voucherRedemption.createMany({
-      data: planned.map((p) => ({ ...p, isTestData: true })),
-    })
-    return result.count
-  })
+      let merchantAdminId: string
+      if (existingAdmin) {
+        // The matched admin MUST be the expected demo identity: exactly one membership,
+        // OWNER + allBranches + ACTIVE, on the test-owned demo merchant. Anything else
+        // (no expected membership, any unrelated membership, unexpected scope) fails
+        // closed - we refuse to reset / activate / verify / enrol it.
+        const memberships = existingAdmin.memberships
+        const isExpectedDemoIdentity =
+          memberships.length === 1 &&
+          memberships[0].merchantId === merchantId &&
+          memberships[0].role === 'OWNER' &&
+          memberships[0].allBranches === true &&
+          memberships[0].status === 'ACTIVE'
+        if (!isExpectedDemoIdentity) {
+          throw new Error(
+            'seedInsightsDemoFixture refused: a MerchantAdmin already exists at the demo ' +
+              'sentinel email but is NOT the expected demo identity (it must have exactly ' +
+              'one OWNER + allBranches + ACTIVE membership on the demo merchant, and no ' +
+              'unrelated membership). Refusing to reset/activate/enrol an ambiguous account.',
+          )
+        }
+        // VERIFIED expected demo identity: a deterministic rerun re-applies the demo
+        // credentials/flags (it is the known demo account).
+        await tx.merchantAdmin.update({
+          where: { id: existingAdmin.id },
+          data: { passwordHash, emailVerified: true, status: 'ACTIVE' },
+        })
+        merchantAdminId = existingAdmin.id
+      } else {
+        const created = await tx.merchantAdmin.create({
+          data: {
+            email: INSIGHTS_DEMO_LOGIN_EMAIL,
+            passwordHash,
+            firstName: 'Insights',
+            lastName: 'Demo',
+            status: 'ACTIVE',
+            emailVerified: true,
+          },
+          select: { id: true },
+        })
+        merchantAdminId = created.id
+      }
 
-  return { merchantId, merchantAdminId, membershipId, loginEmail: INSIGHTS_DEMO_LOGIN_EMAIL, branchIds, voucherIds, redemptionsCreated }
+      // OWNER membership, allBranches=true. Idempotent by the (merchantId,
+      // merchantAdminId) unique pair so re-running never creates a duplicate. For a
+      // fresh admin this creates the OWNER membership; for the verified demo identity it
+      // already exists (we asserted it above) so this is a no-op find.
+      const existingMembership = await tx.merchantMembership.findUnique({
+        where: { merchantId_merchantAdminId: { merchantId, merchantAdminId } },
+        select: { id: true },
+      })
+      const membership =
+        existingMembership ??
+        (await tx.merchantMembership.create({
+          data: {
+            merchantId,
+            merchantAdminId,
+            role: 'OWNER',
+            allBranches: true,
+            status: 'ACTIVE',
+          },
+          select: { id: true },
+        }))
+      const membershipId = membership.id
+
+      // 2. Branches (idempotent by name within the demo merchant). COLLISION
+      //    FAIL-CLOSED: a pre-existing branch with the sentinel name under the demo
+      //    merchant MUST be test-owned; a real (isTestData=false) branch is never reused.
+      const branchIds: string[] = []
+      for (const b of DEMO_BRANCHES) {
+        const existing = await tx.branch.findFirst({
+          where: { merchantId, name: b.name },
+          select: { id: true, isTestData: true },
+        })
+        if (existing && existing.isTestData !== true) {
+          throw new Error(
+            'seedInsightsDemoFixture refused: a NON-test branch already exists under the ' +
+              `demo merchant with the sentinel name "${b.name}". Refusing to mutate it.`,
+          )
+        }
+        const branch =
+          existing ??
+          (await tx.branch.create({
+            data: {
+              merchantId,
+              name: b.name,
+              isMainBranch: b.isMainBranch,
+              addressLine1: '1 Demo Street',
+              city: b.city,
+              postcode: b.postcode,
+              isActive: true,
+              isTestData: true,
+            },
+            select: { id: true, isTestData: true },
+          }))
+        branchIds.push(branch.id)
+      }
+
+      // 3. Vouchers (idempotent by unique code). COLLISION FAIL-CLOSED: a pre-existing
+      //    voucher with the demo code MUST be test-owned AND on the demo merchant. A
+      //    real voucher (or another merchant's voucher) that already owns a demo code
+      //    THROWS - we never upsert/hijack it. We find-then-create rather than blind
+      //    upsert so a non-demo owner of the code fails instead of being overwritten.
+      //    Because this runs inside the transaction, such a (late) throw rolls back the
+      //    merchant/admin/branches written above (no partial demo state).
+      const voucherIds: string[] = []
+      for (const v of DEMO_VOUCHERS) {
+        const existing = await tx.voucher.findUnique({
+          where: { code: v.code },
+          select: { id: true, isTestData: true, merchantId: true },
+        })
+        if (existing) {
+          if (existing.isTestData !== true || existing.merchantId !== merchantId) {
+            throw new Error(
+              'seedInsightsDemoFixture refused: the voucher code ' +
+                `"${v.code}" is already owned by a non-demo voucher (test=${existing.isTestData}, ` +
+                `merchantMatch=${existing.merchantId === merchantId}). Refusing to upsert/hijack it.`,
+            )
+          }
+          voucherIds.push(existing.id) // an existing demo voucher: never mutate its shape
+          continue
+        }
+        const created = await tx.voucher.create({
+          data: {
+            merchantId,
+            code: v.code,
+            type: v.type,
+            title: v.title,
+            estimatedSaving: v.estimatedSaving,
+            status: 'ACTIVE',
+            approvalStatus: 'APPROVED',
+            isTestData: true,
+          },
+          select: { id: true },
+        })
+        voucherIds.push(created.id)
+      }
+
+      // 4. A pool of demo customers (real Users have no isTestData column; the demo
+      //    rows are excluded from production analytics via the redemption/branch/
+      //    merchant isTestData=true predicate, NOT via the user). Emails use the
+      //    sentinel demo address space so they cannot collide with real users.
+      const customerCount = 6
+      const userIds: string[] = []
+      for (let i = 0; i < customerCount; i++) {
+        const email = `insights-demo-customer-${i}@redeemo-insights-demo.invalid`
+        const user = await tx.user.upsert({
+          where: { email },
+          update: {},
+          create: { email, status: 'ACTIVE' },
+          select: { id: true },
+        })
+        userIds.push(user.id)
+      }
+
+      // 5. Redemptions: a DETERMINISTIC, SCOPED RECONCILE. Plan a FIXED set with STABLE
+      //    redemptionCodes (seq-derived, NO Date.now() salt) so running the fixture
+      //    twice yields the SAME row count, not double.
+      //
+      //    The demo branches are dedicated isTestData=true branches on the dedicated
+      //    demo merchant; the demo merchant/vouchers are isTestData=true and excluded
+      //    from discovery, so a real customer can never redeem at them. The reseed
+      //    deletes ONLY the FIXTURE-OWNED rows (branchId IN demo-branch-ids AND
+      //    isTestData=true) - a stray non-test redemption that somehow exists under a
+      //    demo branch is PRESERVED (finding #10). We scope by branch id (NOT code
+      //    prefix) so a fixture-version change to the redemptionCode scheme still fully
+      //    reconciles prior demo rows. All planned rows carry isTestData=true.
+      const planned: PlannedRedemption[] = []
+      let seq = 0
+      for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
+        for (let dpIndex = 0; dpIndex < DAYPARTS.length; dpIndex++) {
+          // Vary which branch / voucher / customer each cell uses so rankings differ.
+          const branchId = branchIds[(dayOffset + dpIndex) % branchIds.length]
+          const voucherId = voucherIds[(dayOffset * DAYPARTS.length + dpIndex) % voucherIds.length]
+          const userId = userIds[(dayOffset + dpIndex * 2) % userIds.length]
+          const voucher = DEMO_VOUCHERS[(dayOffset * DAYPARTS.length + dpIndex) % DEMO_VOUCHERS.length]
+          const redeemedAt = demoRedeemedAt(dayOffset, DAYPART_MID_HOURS[dpIndex])
+
+          // Alternate confirmed / awaiting so the dual-layer demo has both.
+          const isValidated = seq % 2 === 0
+          const validationMethod = isValidated ? VALIDATION_METHODS[seq % VALIDATION_METHODS.length] : null
+          const validatedAt = isValidated ? new Date(redeemedAt.getTime() + 5 * 60 * 1000) : null
+
+          // A STABLE, unique, sentinel-prefixed redemption code (<= 24 chars upper),
+          // derived ONLY from the sequence index so a re-run produces the EXACT same
+          // codes (the prior batch having been deleted above). seq is zero-padded so
+          // ordering + uniqueness hold across the whole batch.
+          const redemptionCode = `IDEMO-${String(seq).padStart(5, '0')}`
+
+          planned.push({
+            userId,
+            voucherId,
+            branchId,
+            redemptionCode,
+            redeemedAt,
+            isValidated,
+            validatedAt,
+            validationMethod,
+            estimatedSaving: voucher.estimatedSaving,
+          })
+          seq += 1
+        }
+      }
+
+      // SCOPED RECONCILE inside the same transaction: delete the fixture-owned rows
+      // (isTestData=true on the demo branches) and recreate the planned set.
+      await tx.voucherRedemption.deleteMany({
+        where: { branchId: { in: branchIds }, isTestData: true },
+      })
+      const result = await tx.voucherRedemption.createMany({
+        data: planned.map((p) => ({ ...p, isTestData: true })),
+      })
+      const redemptionsCreated = result.count
+
+      return {
+        merchantId,
+        merchantAdminId,
+        membershipId,
+        loginEmail: INSIGHTS_DEMO_LOGIN_EMAIL,
+        branchIds,
+        voucherIds,
+        redemptionsCreated,
+      }
+    },
+    // Generous bounds: the fixture writes ~80+ redemptions + several entities; a slow
+    // local box must not trip the default 5s interactive-transaction timeout.
+    { timeout: 60000, maxWait: 10000 },
+  )
 }
