@@ -155,8 +155,9 @@ jobs:
     # Dummy non-secret env. The `unit` suites mock prisma/redis (no live
     # services); boot-time env validation + `prisma generate` only need the
     # vars PRESENT, not reachable. The real-DB `integration` project is NOT run
-    # here yet — PR2 adds a local Postgres service + fresh seed, then promotes
-    # it from advisory to required. (Test secrets come from tests/setup.ts.)
+    # in THIS job; G1a1 runs it as a separate ADVISORY Postgres-16 Insights pilot
+    # job (non-blocking), and G1a2 is the later owner-gated promotion to a required
+    # lane plus expansion. (Test secrets come from tests/setup.ts.)
     env:
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_dummy
       REDIS_URL: redis://localhost:6379
@@ -182,3 +183,88 @@ jobs:
       # `unit` project = mock / no-DB suites only (deterministic, no services).
       - name: Unit tests (backend)
         run: npm run test:unit
+
+  # PR-G1a1: ADVISORY pilot of the 11 loopback-guarded Insights real-DB integration
+  # suites against an EPHEMERAL Postgres-16 service. The job concludes GREEN even when
+  # the suites fail (continue-on-error on the test step) so it never blocks the
+  # SHA-bound merge during G1a1; failures are still surfaced (a failed-but-continued
+  # step + an explicit FAIL job summary). NOT path-filtered and NOT in branch
+  # protection (the PR-G1a2 path-trigger + skip-report machinery is a later,
+  # owner-approved slice that promotes this to a required FAILING gate).
+  backend-integration-pilot:
+    name: backend integration pilot (advisory)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: redeemo_integration_test
+        # Bind the host side to loopback only.
+        ports:
+          - 127.0.0.1:5432:5432
+        # Container health-check IS the startup-retry mechanism (GitHub waits for
+        # health before running steps). 10 retries x 5s.
+        options: >-
+          --health-cmd "pg_isready -U ci -d redeemo_integration_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # BOTH point at the disposable loopback service; the project-global guard
+      # (tests/integration.setup.ts) validates each INDEPENDENTLY before connecting.
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/redeemo_integration_test
+      TEST_DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/redeemo_integration_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install (root install — hoists workspaces)
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      # Fail BEFORE any connection if DATABASE_URL is not strict-loopback. Host-only
+      # check; never prints credentials or the full connection string. Mirrors the
+      # integration setupFile guard's loopback set.
+      - name: Assert loopback DB before connect (host-only; no credentials)
+        run: >-
+          node -e 'const u=new URL(process.env.DATABASE_URL);const ok=["127.0.0.1","localhost","::1","[::1]"].includes(u.hostname);if(!ok){console.error("ABORT: DATABASE_URL host "+u.hostname+" is not loopback");process.exit(1)}console.log("DATABASE_URL host is loopback: "+u.hostname)'
+
+      # ONE visible retry for an unmistakable container startup/health failure ONLY
+      # (a SELECT 1 via pg). NOT a retry of migrations or tests. Never prints the URL.
+      - name: Wait for Postgres (one infra retry)
+        run: >-
+          node -e 'const{Client}=require("pg");const t=async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();await c.query("SELECT 1");await c.end()};(async()=>{try{await t();console.log("Postgres reachable")}catch(e1){console.warn("::warning::Postgres not reachable on first attempt (infra); one retry after 5s");await new Promise(r=>setTimeout(r,5000));try{await t();console.log("Postgres reachable after one infra retry")}catch(e2){console.error("Postgres still unreachable after one infra retry:",e2&&e2.code||"ERR");process.exit(1)}}})()'
+
+      # Migrations are NEVER retried.
+      - name: Migrate disposable DB (no retry)
+        run: npx prisma migrate deploy
+
+      # Advisory: continue-on-error keeps the JOB green even if suites fail; the step
+      # is still visibly marked failed-but-continued. Assertion / security / tenant /
+      # legal-gate / test failures are NEVER retried (runs exactly once).
+      - name: Run Insights integration pilot (advisory)
+        id: pilot
+        continue-on-error: true
+        run: npm run test:integration:insights
+
+      # Surface PASS/FAIL explicitly (never swallowed): a FAIL is written to the job
+      # summary AND the step above shows failed-but-continued, while the job stays green.
+      - name: Report pilot result (job summary)
+        if: ${{ always() }}
+        run: |
+          if [ "${{ steps.pilot.outcome }}" = "success" ]; then
+            echo "Advisory Insights pilot: PASS" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Advisory Insights pilot: FAIL (non-blocking in G1a1)" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "The 11 Insights real-DB suites did not all pass. See the 'Run Insights integration pilot (advisory)' step logs above. This is surfaced but does NOT block the SHA-bound merge during G1a1; PR-G1a2 (owner-approved) promotes this to a required FAILING check." >> "$GITHUB_STEP_SUMMARY"
+          fi

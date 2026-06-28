@@ -6,8 +6,9 @@ import { defineConfig, configDefaults } from 'vitest/config'
 //  - `integration` : `*.integration.test.ts` real-DB suites — run SERIALLY
 //                    (fileParallelism: false) so concurrent suites can't contend
 //                    on one shared DB (removes the concurrency-flake class).
-// PR2 will move `integration` onto a dedicated fresh-seeded local Postgres and
-// add it to CI; PR1 keeps it local + serial.
+// G1a1 now runs the `integration` Insights suites as an ADVISORY Postgres-16 pilot in
+// CI (non-blocking; the project-global loopback guard is loaded below). G1a2 is the
+// later owner-gated promotion to a required lane plus expansion to more integration suites.
 export default defineConfig({
   test: {
     globals: true,
@@ -38,8 +39,16 @@ export default defineConfig({
           name: 'integration',
           include: ['tests/**/*.integration.test.ts'],
           // Serial — one real-DB suite at a time → no cross-suite contention on
-          // the shared DB. PR2 points these at a dedicated local Postgres.
+          // the shared DB. PR-G1a1 points the Insights pilot at a disposable
+          // loopback Postgres (CI service / local), guarded below.
           fileParallelism: false,
+          // PR-G1a1: the integration project additionally loads the PROJECT-GLOBAL
+          // strict-loopback guard, which throws BEFORE any Prisma client or
+          // migration connects unless DATABASE_URL (required) and TEST_DATABASE_URL
+          // (if set) are strict-loopback. Listed explicitly (a project `setupFiles`
+          // overrides the inherited root value) so the root `./tests/setup.ts` is
+          // preserved. The `unit` project does NOT load the guard (no DB).
+          setupFiles: ['./tests/setup.ts', './tests/integration.setup.ts'],
         },
       },
     ],
