@@ -89,7 +89,8 @@ function ExactCounts({
   for (const cell of grid) byKey.set(`${cell.day}-${cell.daypart}`, cell.logged)
   // The exact-mode payload is a DENSE 7x6 grid (enforced by busyTimesSchema), so
   // every cell is present. We never fabricate 0 for a missing cell - a missing cell
-  // is unknown data, not a measured zero - so the defensive fallback is an em dash.
+  // is unknown data, not a measured zero - so the defensive fallback is plain text
+  // ("Not available"), which stays unreachable for a valid (dense) response.
   const countAt = (day: number, daypart: number): number | undefined =>
     byKey.get(`${day}-${daypart}`)
   return (
@@ -131,7 +132,7 @@ function ExactCounts({
                   className="px-2 py-1 text-right tabular-nums"
                   style={{ color: 'var(--navy)' }}
                 >
-                  {countAt(r, c) ?? '—'}
+                  {countAt(r, c) ?? 'Not available'}
                 </td>
               ))}
             </tr>

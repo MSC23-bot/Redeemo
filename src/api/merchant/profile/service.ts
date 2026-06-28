@@ -26,12 +26,14 @@ export async function getMerchantProfile(prisma: PrismaClient, adminId: string) 
   if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
   // Insights & Reports: expose a minimal viewer-capability set so merchant-web can hide
   // the Insights navigation for STAFF. Derived server-side from the freshly resolved
-  // membership role (OWNER + BRANCH_MANAGER can view Insights; STAFF cannot) and mirrors
-  // the assertInsightsAccess deny (which remains the REAL security boundary). This is a
-  // UX hint only - no extra role information is exposed.
+  // membership role and mirrors the assertInsightsAccess deny (which remains the REAL
+  // security boundary). This is a UX hint only - no extra role information is exposed.
+  // Use an explicit ALLOWLIST (not `!== 'STAFF'`) so a future newly-added role FAILS
+  // CLOSED - it must be added here deliberately to gain Insights, never by default.
+  const canViewInsights = role === 'OWNER' || role === 'BRANCH_MANAGER'
   return {
     ...merchant,
-    viewerCapabilities: { canViewInsights: role !== 'STAFF' },
+    viewerCapabilities: { canViewInsights },
   }
 }
 
