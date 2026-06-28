@@ -253,6 +253,20 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
 
 function InsightsTabs({ filters }: { filters: InsightsFilters }) {
   const [active, setActive] = React.useState<TabId>('vouchers')
+  const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([])
+
+  // WAI-ARIA roving tabindex: Left/Right move between tabs (wrapping), Home/End jump to the ends.
+  const onTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let next = index
+    if (e.key === 'ArrowRight') next = (index + 1) % TABS.length
+    else if (e.key === 'ArrowLeft') next = (index - 1 + TABS.length) % TABS.length
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = TABS.length - 1
+    else return
+    e.preventDefault()
+    setActive(TABS[next].id)
+    tabRefs.current[next]?.focus()
+  }
 
   return (
     <section className="flex flex-col gap-4" aria-label="Insights sections">
@@ -262,7 +276,7 @@ function InsightsTabs({ filters }: { filters: InsightsFilters }) {
         className="flex flex-wrap gap-1 rounded-2xl border bg-card p-1.5"
         style={{ borderColor: 'var(--border)' }}
       >
-        {TABS.map((t) => {
+        {TABS.map((t, index) => {
           const selected = t.id === active
           return (
             <button
@@ -270,9 +284,14 @@ function InsightsTabs({ filters }: { filters: InsightsFilters }) {
               type="button"
               role="tab"
               id={`insights-tab-${t.id}`}
+              ref={(el) => {
+                tabRefs.current[index] = el
+              }}
               aria-selected={selected}
               aria-controls={`insights-panel-${t.id}`}
+              tabIndex={selected ? 0 : -1}
               onClick={() => setActive(t.id)}
+              onKeyDown={(e) => onTabKeyDown(e, index)}
               className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors"
               style={
                 selected
@@ -457,7 +476,9 @@ export default function InsightsPage() {
 
   // Any non-live lifecycle (setup / changes / submitted / in_review / rejected) ->
   // the calm "unlocks when you go live" lock. The server blocks these too.
-  if (state !== 'live' && state !== 'live_new') {
+  // deriveStatusPill collapses live_new into 'live' (no backend signal), so 'live'
+  // is the only live value to gate on.
+  if (state !== 'live') {
     return <InsightsLocked />
   }
 

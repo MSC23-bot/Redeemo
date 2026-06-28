@@ -89,11 +89,11 @@ export function CustomersTab({ filters }: CustomersTabProps) {
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
               <h2 className="text-base font-semibold" style={{ color: 'var(--navy)' }}>
-                New and returning
+                New and existing customers
               </h2>
               <MetricInfo
-                label="About new and returning"
-                ariaLabel="How new and returning are counted"
+                label="About new and existing customers"
+                ariaLabel="How new and existing customers are counted"
               >
                 New to you means a customer redeeming with you for the first time in this
                 selection. Already a customer means someone who has redeemed with you
