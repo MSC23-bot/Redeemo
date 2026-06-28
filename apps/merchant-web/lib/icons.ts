@@ -49,4 +49,9 @@ export {
   AlertTriangle,
   Calendar,
   Filter,
+  Repeat,
+  PoundSterling,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from 'lucide-react'
