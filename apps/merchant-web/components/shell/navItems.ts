@@ -13,7 +13,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Vouchers', href: '/vouchers', icon: Ticket },
       { label: 'Redemptions', href: '/redemptions', icon: ScanLine },
-      { label: 'Insights & reports', href: '#', icon: BarChart3 },
+      { label: 'Insights & reports', href: '/insights', icon: BarChart3 },
     ],
   },
   {
