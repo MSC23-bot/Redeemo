@@ -36,9 +36,17 @@ import {
 } from '../insights'
 
 const apiFetch = jest.fn()
-jest.mock('../client', () => ({
-  apiFetch: (path: string, opts: unknown) => apiFetch(path, opts),
-}))
+// apiFetch is stubbed (the JSON fetchers assert call args + return fixtures); but
+// apiFetchRaw + ApiError are the REAL implementations so downloadInsightsExport
+// exercises the genuine refresh-once / typed-error lifecycle against a mocked fetch.
+jest.mock('../client', () => {
+  const actual = jest.requireActual('../client')
+  return {
+    apiFetch: (path: string, opts: unknown) => apiFetch(path, opts),
+    apiFetchRaw: actual.apiFetchRaw,
+    ApiError: actual.ApiError,
+  }
+})
 
 // ---- representative fixtures (mirror the PR-A wire contract) ----------------
 
@@ -322,6 +330,15 @@ describe('getInsightsValidation', () => {
     const parsed = validationSchema.parse({ logged: 4, confirmed: 1, awaiting: 3, completionRate: '0.25', methods: [] })
     expect(parsed.completionRate).toBe(0.25)
   })
+
+  it('REJECTS an out-of-range completionRate (a percentage leak or contract drift)', () => {
+    expect(() =>
+      validationSchema.parse({ logged: 4, confirmed: 5, awaiting: 0, completionRate: 1.5, methods: [] }),
+    ).toThrow() // >1 (e.g. a 0..100 percentage leaking in)
+    expect(() =>
+      validationSchema.parse({ logged: 4, confirmed: 1, awaiting: 3, completionRate: -0.1, methods: [] }),
+    ).toThrow() // <0
+  })
 })
 
 // ---- busy-times ------------------------------------------------------------
@@ -348,15 +365,54 @@ describe('getInsightsBusyTimes', () => {
     expect('grid' in parsed).toBe(true)
   })
 
-  it('tolerates a STRAY field on an intensity grid cell (forward-compat, does not break)', () => {
-    // A stray field must NOT throw (the contract may add fields later); the client
-    // only renders day/daypart/intensity. It must never threshold on a raw count.
+  it('REJECTS a stray logged/exact-count field on an intensity grid cell (.strict privacy contract)', () => {
+    // The intensity payload must carry ONLY day/daypart/intensity. An unexpected
+    // `logged`/exact-count field is a privacy-regressing contract drift and MUST fail
+    // the parse (.strict()) rather than passing silently. The client must never
+    // receive a raw count in intensity mode.
+    expect(() =>
+      busyTimesSchema.parse({
+        mode: 'intensity',
+        grid: [{ day: 1, daypart: 2, intensity: 1, logged: 999 }],
+        busiest: null,
+      }),
+    ).toThrow()
+    // Any unknown field is rejected too (no silent passthrough).
+    expect(() =>
+      busyTimesSchema.parse({
+        mode: 'intensity',
+        grid: [{ day: 1, daypart: 2, intensity: 1, somethingNew: 1 }],
+        busiest: null,
+      }),
+    ).toThrow()
+  })
+
+  it('parses the D6-gated exact-mode payload ({ day, daypart, logged, intensity })', () => {
     const parsed = busyTimesSchema.parse({
-      mode: 'intensity',
-      grid: [{ day: 1, daypart: 2, intensity: 1, somethingNew: 999 }],
-      busiest: null,
+      mode: 'exact',
+      grid: [
+        { day: 0, daypart: 0, logged: 0, intensity: 0 },
+        { day: 6, daypart: 5, logged: 12, intensity: 3 },
+      ],
+      busiest: { day: 6, daypart: 5 },
     })
-    expect('grid' in parsed).toBe(true)
+    expect('mode' in parsed && parsed.mode).toBe('exact')
+    if ('grid' in parsed) {
+      // The exact arm carries the logged count alongside the band.
+      expect((parsed.grid[1] as { logged: number }).logged).toBe(12)
+    }
+  })
+
+  it('REJECTS an out-of-range day/daypart/intensity on a grid cell (bounds)', () => {
+    expect(() =>
+      busyTimesSchema.parse({ mode: 'intensity', grid: [{ day: 7, daypart: 2, intensity: 1 }], busiest: null }),
+    ).toThrow() // day Mon=0..Sun=6
+    expect(() =>
+      busyTimesSchema.parse({ mode: 'intensity', grid: [{ day: 1, daypart: 6, intensity: 1 }], busiest: null }),
+    ).toThrow() // daypart 0..5
+    expect(() =>
+      busyTimesSchema.parse({ mode: 'intensity', grid: [{ day: 1, daypart: 2, intensity: 4 }], busiest: null }),
+    ).toThrow() // intensity 0..3
   })
 
   it('parses a null busiest (near-empty peak / no approved threshold)', () => {
@@ -479,5 +535,38 @@ describe('downloadInsightsExport', () => {
     global.fetch = jest.fn(async () => csvRes) as unknown as typeof fetch
     const res = await downloadInsightsExport({})
     expect(res).toEqual({ csv, filename: 'insights-redemptions.csv' })
+  })
+
+  it('retries ONCE after a token refresh and returns the csv (shares apiFetch refresh)', async () => {
+    // An expired access token yields a 401; apiFetchRaw refreshes once via the BFF
+    // and retries, so the export succeeds rather than failing as the old raw fetch did.
+    const csv = 'Redeemed date\r\n"2026-01-01"'
+    let exportCalls = 0
+    global.fetch = jest.fn(async (url: unknown) => {
+      const u = String(url)
+      if (u.endsWith('/api/merchant-auth/refresh')) {
+        return { ok: true, status: 200, json: async () => ({ accessToken: 'fresh' }) }
+      }
+      exportCalls += 1
+      if (exportCalls === 1) return { ok: false, status: 401, json: async () => ({}) }
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (h: string) => (h.toLowerCase() === 'content-type' ? 'text/csv; charset=utf-8' : null) },
+        text: async () => csv,
+      }
+    }) as unknown as typeof fetch
+    const res = await downloadInsightsExport({})
+    expect(res).toEqual({ csv, filename: 'insights-redemptions.csv' })
+    expect(exportCalls).toBe(2) // original 401 + the post-refresh retry
+  })
+
+  it('throws when the refresh fails (an expired session cannot silently export nothing)', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({}),
+    })) as unknown as typeof fetch
+    await expect(downloadInsightsExport({})).rejects.toThrow()
   })
 })

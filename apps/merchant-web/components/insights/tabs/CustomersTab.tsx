@@ -98,8 +98,8 @@ export function CustomersTab({ filters }: CustomersTabProps) {
               >
                 New to you means a customer redeeming with you for the first time in this
                 selection. Already a customer means someone who has redeemed with you
-                before. A loyalty signal, counted at the group level only. Excludes test,
-                deleted, and removed records.
+                before. A loyalty signal, counted at the group level only. Excludes test
+                accounts, QA accounts, and deleted customers.
               </MetricInfo>
             </div>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>

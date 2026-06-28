@@ -74,6 +74,70 @@ function HeatmapLegend() {
   )
 }
 
+/**
+ * Exact-mode supplement: the logged COUNT per cell. Rendered ONLY when the server
+ * returns `mode:'exact'` (an approved PR-0a D6 exact-count policy). Intensity mode
+ * (the default, and the only mode the AS-BUILT service emits) NEVER reaches here,
+ * so exact counts can only ever appear under that policy.
+ */
+function ExactCounts({
+  grid,
+}: {
+  grid: ReadonlyArray<{ day: number; daypart: number; logged: number }>
+}) {
+  const byKey = new Map<string, number>()
+  for (const cell of grid) byKey.set(`${cell.day}-${cell.daypart}`, cell.logged)
+  const countAt = (day: number, daypart: number) => byKey.get(`${day}-${daypart}`) ?? 0
+  return (
+    <div data-testid="busy-times-exact-counts" className="overflow-x-auto">
+      <p className="mb-2 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+        Exact counts: logged redemptions per slot, in UK time.
+      </p>
+      <table className="w-full border-collapse text-xs">
+        <thead>
+          <tr>
+            <th scope="col" className="px-2 py-1 text-left" style={{ color: 'var(--text-muted)' }}>
+              Day
+            </th>
+            {DAYPART_LABELS.map((label) => (
+              <th
+                key={`ec-h-${label}`}
+                scope="col"
+                className="px-2 py-1 text-right"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {DAY_LABELS.map((dayLabel, r) => (
+            <tr key={`ec-tr-${dayLabel}`}>
+              <th
+                scope="row"
+                className="px-2 py-1 text-left font-medium"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {dayLabel}
+              </th>
+              {DAYPART_LABELS.map((_, c) => (
+                <td
+                  key={`ec-td-${r}-${c}`}
+                  className="px-2 py-1 text-right tabular-nums"
+                  style={{ color: 'var(--navy)' }}
+                >
+                  {countAt(r, c)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function BusyTimesTab({ filters }: BusyTimesTabProps) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['insights', 'busy-times', filters],
@@ -124,8 +188,8 @@ export function BusyTimesTab({ filters }: BusyTimesTabProps) {
               counts. The six columns cover the whole day: Overnight, Morning, Lunch,
               Afternoon, Evening, and Late, in UK time, with after-midnight activity
               shown as Overnight. We show bands rather than exact numbers so quiet slots
-              cannot be traced back to individual customers. Excludes test, deleted, and
-              removed records.
+              cannot be traced back to individual customers. Excludes test accounts,
+              QA accounts, and deleted customers.
             </MetricInfo>
           </div>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -161,6 +225,7 @@ export function BusyTimesTab({ filters }: BusyTimesTabProps) {
         <div className="flex flex-col gap-3">
           <Heatmap grid={data.grid} busiest={data.busiest} />
           <HeatmapLegend />
+          {data.mode === 'exact' ? <ExactCounts grid={data.grid} /> : null}
         </div>
       ) : (
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>

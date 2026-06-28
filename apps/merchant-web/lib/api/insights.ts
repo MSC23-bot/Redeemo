@@ -28,10 +28,7 @@
  * mirroring lib/api/redemptions.ts. No BFF route is needed (no token issuance).
  */
 import { z } from 'zod'
-import { apiFetch } from './client'
-import { getAccessToken } from '@/lib/auth/tokenStore'
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
+import { apiFetch, apiFetchRaw } from './client'
 
 // --- shared enums (mirror src/api/merchant/insights/routes.ts + service.ts) ---
 
@@ -179,8 +176,10 @@ export const validationSchema = z.object({
   confirmed: z.coerce.number(),
   awaiting: z.coerce.number(),
   // completionRate stays a FRACTION in [0,1] (format.ts decision (b)). The client
-  // formats the percentage; the schema NEVER multiplies by 100.
-  completionRate: z.coerce.number(),
+  // formats the percentage; the schema NEVER multiplies by 100. Bounded to [0,1]
+  // so an out-of-range value (a percentage leaking through, or a contract drift)
+  // fails the parse here rather than rendering a nonsensical >100% completion.
+  completionRate: z.coerce.number().min(0).max(1),
   // methods may be empty (adaptive: emptied when <=1 method has data).
   methods: z.array(
     z.object({
@@ -194,32 +193,63 @@ export type InsightsValidation = z.infer<typeof validationSchema>
 // --- busy-times (service.ts BusyTimesResult; privacy-mode-aware) -------------
 
 /**
- * The intensity grid cell. PASSTHROUGH (forward-compat): a future additive field
- * must not break the parse. It requires ONLY day/daypart/intensity - there is NO
- * `logged`/raw-count field in the AS-BUILT intensity payload, and the client never
- * thresholds on a raw count (it is sent none).
+ * The intensity-mode grid cell. STRICT (plan B1, the privacy contract): the
+ * AS-BUILT intensity payload carries ONLY day/daypart/intensity - there is NO
+ * `logged`/raw-count field, and the client never thresholds on a raw count (it is
+ * sent none). `.strict()` makes an unexpected `logged`/exact-count field FAIL the
+ * parse so a privacy-regressing contract drift surfaces here rather than leaking
+ * downstream. Bounds: day Mon=0..Sun=6, daypart 0..5 (the six dayparts),
+ * intensity ordinal band 0..3.
  */
-const busyTimesGridCellSchema = z
+const busyTimesIntensityCellSchema = z
   .object({
-    day: z.coerce.number(), // Mon=0..Sun=6 (grid row order)
-    daypart: z.coerce.number(), // 0..5
-    intensity: z.coerce.number(), // ordinal band 0..3
+    day: z.coerce.number().int().min(0).max(6), // Mon=0..Sun=6 (grid row order)
+    daypart: z.coerce.number().int().min(0).max(5), // 0..5 (Overnight..Late)
+    intensity: z.coerce.number().int().min(0).max(3), // ordinal band 0..3
   })
-  .passthrough()
+  .strict()
 
 /**
- * busy-times is a `mode`-discriminated union of the AS-BUILT intensity payload and
- * the defensive `{ available:false }`. The AS-BUILT service only ever emits
- * `mode:'intensity'`; the unavailable arm stays for forward-compat (service §2.7).
- * `busiest` is a peak LOCATION only (day+daypart, never a count) or null.
+ * The exact-mode grid cell. Returned ONLY under an approved PR-0a D6 exact-count
+ * policy (default off -> the AS-BUILT service NEVER emits `mode:'exact'`). It adds
+ * the exact `logged` count alongside the ordinal `intensity`. STRICT + bounded for
+ * the same reason as the intensity cell; `logged` is a non-negative integer.
+ */
+const busyTimesExactCellSchema = z
+  .object({
+    day: z.coerce.number().int().min(0).max(6),
+    daypart: z.coerce.number().int().min(0).max(5),
+    logged: z.coerce.number().int().min(0),
+    intensity: z.coerce.number().int().min(0).max(3),
+  })
+  .strict()
+
+/** Peak LOCATION only (day+daypart, never a count) or null, bounded to the grid. */
+const busyTimesPeakSchema = z
+  .object({
+    day: z.coerce.number().int().min(0).max(6),
+    daypart: z.coerce.number().int().min(0).max(5),
+  })
+  .nullable()
+
+/**
+ * busy-times is a `mode`-discriminated union of the AS-BUILT intensity payload, the
+ * D6-gated exact payload, and the defensive `{ available:false }`. The AS-BUILT
+ * service only ever emits `mode:'intensity'` (or `{available:false}`); the exact
+ * arm is forward-compat for an approved D6 policy and is the ONLY arm that carries
+ * exact `logged` counts. The client renders intensity bands and shows exact counts
+ * ONLY when `mode:'exact'`; it never thresholds on a raw count.
  */
 export const busyTimesSchema = z.union([
   z.object({
     mode: z.literal('intensity'),
-    grid: z.array(busyTimesGridCellSchema),
-    busiest: z
-      .object({ day: z.coerce.number(), daypart: z.coerce.number() })
-      .nullable(),
+    grid: z.array(busyTimesIntensityCellSchema),
+    busiest: busyTimesPeakSchema,
+  }),
+  z.object({
+    mode: z.literal('exact'),
+    grid: z.array(busyTimesExactCellSchema),
+    busiest: busyTimesPeakSchema,
   }),
   z.object({ available: z.literal(false) }),
 ])
@@ -356,12 +386,12 @@ export async function downloadInsightsExport(
   f: InsightsFilters = {},
 ): Promise<InsightsExportResult> {
   const path = insightsExportUrl(f)
-  const token = getAccessToken()
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'GET',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
-  if (!res.ok) throw new Error(`Insights export failed (${res.status})`)
+  // Route through apiFetchRaw so the authed download shares apiFetch's full
+  // lifecycle (bearer attach + refresh-once-on-401 + session-lost teardown +
+  // typed ApiError) instead of a hand-rolled fetch that cannot refresh an expired
+  // token. A non-ok status throws an ApiError from the helper before we inspect
+  // the body, so we only reach the Content-Type branch on a 2xx response.
+  const res = await apiFetchRaw(path, { method: 'GET', auth: true })
   const contentType = res.headers.get('content-type') ?? ''
   if (contentType.includes('application/json')) {
     const body = (await res.json().catch(() => null)) as { available?: unknown } | null

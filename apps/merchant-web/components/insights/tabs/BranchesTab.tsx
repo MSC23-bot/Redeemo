@@ -77,8 +77,8 @@ export function BranchesTab({ filters }: BranchesTabProps) {
             >
               Redemptions and estimated savings by location, for the branches you can
               see. Confirmed is the subset later validated by staff. Estimated savings
-              are an estimate of the potential customer saving. Excludes test, deleted,
-              and removed records.
+              are an estimate of the potential customer saving. Excludes test accounts,
+              QA accounts, and deleted customers.
             </MetricInfo>
           </div>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>

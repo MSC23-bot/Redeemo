@@ -12,7 +12,7 @@
  *   - "Busiest: <day> <daypart>" badge from the server busiest LOCATION; omitted when
  *     busiest is null.
  */
-import { render, screen, within, cleanup } from '@testing-library/react'
+import { render, screen, within, cleanup, fireEvent } from '@testing-library/react'
 import { BusyTimesTab } from '../BusyTimesTab'
 import type { InsightsBusyTimes, InsightsFilters } from '@/lib/api/insights'
 
@@ -35,6 +35,17 @@ function fullGrid(): InsightsBusyTimes {
     }
   }
   return { mode: 'intensity', grid, busiest: { day: 5, daypart: 4 } } // Sat Evening
+}
+
+/** The D6-gated exact-mode payload: each cell adds a logged COUNT. */
+function fullExactGrid(): InsightsBusyTimes {
+  const grid: { day: number; daypart: number; logged: number; intensity: number }[] = []
+  for (let day = 0; day < 7; day += 1) {
+    for (let daypart = 0; daypart < 6; daypart += 1) {
+      grid.push({ day, daypart, logged: day * 6 + daypart, intensity: (day + daypart) % 4 })
+    }
+  }
+  return { mode: 'exact', grid, busiest: { day: 6, daypart: 5 } }
 }
 
 function renderTab(filters: InsightsFilters = { period: 'this_month' }) {
@@ -146,5 +157,32 @@ describe('BusyTimesTab', () => {
     mockGet.mockReturnValue(new Promise(() => {}))
     renderTab()
     expect(screen.getByText(/Loading/i)).toBeInTheDocument()
+  })
+
+  it('does NOT render exact counts in intensity mode (default; bands only)', async () => {
+    renderTab()
+    await screen.findByTestId('busy-times-card')
+    expect(screen.queryByTestId('busy-times-exact-counts')).not.toBeInTheDocument()
+  })
+
+  it('renders exact counts ONLY in exact mode (the D6-gated payload)', async () => {
+    mockGet.mockResolvedValue(fullExactGrid())
+    renderTab()
+    const exact = await screen.findByTestId('busy-times-exact-counts')
+    // The Sat (day 6) Late (daypart 5) cell logged = 6*6 + 5 = 41.
+    expect(within(exact).getByText('41')).toBeInTheDocument()
+  })
+
+  it('uses accurate exclusion copy in the explainer (no "removed records")', async () => {
+    renderTab()
+    const card = await screen.findByTestId('busy-times-card')
+    const trigger = within(card)
+      .getAllByRole('button')
+      .find((b) => /about|how|what/i.test(b.getAttribute('aria-label') ?? ''))
+    expect(trigger).toBeDefined()
+    fireEvent.click(trigger as HTMLElement)
+    const tip = await screen.findByRole('tooltip')
+    expect(tip.textContent ?? '').toMatch(/deleted customers/i)
+    expect(tip.textContent ?? '').not.toMatch(/removed records/i)
   })
 })

@@ -278,7 +278,18 @@ function InsightsDashboard() {
 
           <InsightsTabs filters={filters} />
 
-          <ReportsCard filters={filters} scopeLabel={resolvedScopeLabel} gateOpen={false} />
+          {/*
+            The event-level CSV export shares the SERVER behavioural gate with the
+            repeat-rate block: when the gate is closed the /overview repeatRate comes
+            back as { available:false } and /export.csv returns { available:false }
+            too. Deriving gateOpen from the live response (rather than a hardcoded
+            flag) means the export becomes available the moment the server gate opens.
+          */}
+          <ReportsCard
+            filters={filters}
+            scopeLabel={resolvedScopeLabel}
+            gateOpen={!('available' in data.repeatRate)}
+          />
         </>
       )}
     </div>

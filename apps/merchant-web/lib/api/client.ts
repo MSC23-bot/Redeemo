@@ -85,7 +85,15 @@ export function refreshSession(): Promise<boolean> {
   return tryRefresh()
 }
 
-export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+/**
+ * The shared BFF-lite authed-fetch CORE: bearer attach + refresh-once-on-401
+ * (single-flight via tryRefresh) + session-lost teardown + a typed ApiError on a
+ * non-ok response. Resolves to the RAW Response on success. apiFetch() parses JSON
+ * on top of this; apiFetchRaw() exposes it for non-JSON downloads (the gated CSV
+ * export) so those downloads get the IDENTICAL auth lifecycle rather than a
+ * hand-rolled weaker fetch that cannot refresh an expired token.
+ */
+async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Promise<Response> {
   const { auth = false, _isRetry = false, ...init } = options
   const headers = new Headers(init.headers)
   if (!headers.has('Content-Type') && init.body && !(init.body instanceof FormData)) {
@@ -100,7 +108,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
 
   if (res.status === 401 && auth && !_isRetry) {
     const refreshed = await tryRefresh()
-    if (refreshed) return apiFetch<T>(path, { ...options, _isRetry: true })
+    if (refreshed) return apiFetchResponse(path, { ...options, _isRetry: true })
     setAccessToken(null)
     triggerSessionLost()
     const body = await res.json().catch(() => null)
@@ -111,6 +119,22 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     const body = await res.json().catch(() => null)
     throw new ApiError(res.status, body)
   }
+  return res
+}
+
+export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+  const res = await apiFetchResponse(path, options)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
+}
+
+/**
+ * Like apiFetch but resolves to the RAW Response on success (no JSON parse), for
+ * non-JSON downloads such as the gated event-level CSV export. Reuses the full
+ * apiFetch auth lifecycle: bearer attach, refresh-once-on-401 (single-flight),
+ * session-lost teardown, and typed ApiError. Do NOT hand-roll a weaker fetch for
+ * authed downloads - an expired token must still refresh once and retry.
+ */
+export async function apiFetchRaw(path: string, options: ApiFetchOptions = {}): Promise<Response> {
+  return apiFetchResponse(path, options)
 }

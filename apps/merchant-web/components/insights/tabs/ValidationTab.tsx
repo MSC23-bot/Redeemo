@@ -90,7 +90,7 @@ export function ValidationTab({ filters }: ValidationTabProps) {
                 Confirmed = validated by staff; Awaiting = logged, not yet confirmed.
                 The completion rate is the share of logged redemptions that staff have
                 confirmed. Awaiting is an operational queue, not a headline figure.
-                Excludes test, deleted, and removed records.
+                Excludes test accounts, QA accounts, and deleted customers.
               </MetricInfo>
             </div>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -197,7 +197,8 @@ export function ValidationTab({ filters }: ValidationTabProps) {
                 >
                   The split between QR scans in the staff app and manual code entry,
                   across confirmed redemptions in this selection. Shown only when more
-                  than one method is in use. Excludes test, deleted, and removed records.
+                  than one method is in use. Excludes test accounts, QA accounts, and
+                  deleted customers.
                 </MetricInfo>
               </div>
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>

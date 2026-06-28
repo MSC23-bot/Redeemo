@@ -127,8 +127,8 @@ export function ReportsCard({ filters, scopeLabel, gateOpen }: ReportsCardProps)
           <MetricInfo label="About reports" ariaLabel="What the reports cover">
             Reports cover the active selection: the period, the branches you can see, and
             any voucher-type filter. Figures separate redemptions customers logged from
-            the subset later confirmed by staff. Excludes test, deleted, and removed
-            records.
+            the subset later confirmed by staff. Excludes test accounts, QA accounts,
+            and deleted customers.
           </MetricInfo>
         </div>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>

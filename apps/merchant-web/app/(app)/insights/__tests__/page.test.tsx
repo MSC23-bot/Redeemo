@@ -125,6 +125,13 @@ const OVERVIEW_WITH_DATA: InsightsOverview = {
   },
 }
 
+// Behavioural gate CLOSED: the repeat-rate block comes back gated; the event-level
+// CSV export shares the SAME server gate, so the dashboard must mark it Not-available.
+const OVERVIEW_GATE_CLOSED: InsightsOverview = {
+  ...OVERVIEW_WITH_DATA,
+  repeatRate: { available: false },
+}
+
 // Live, no eligible activity: zero logged AND no earliest date -> warming up.
 const OVERVIEW_WARMING_UP: InsightsOverview = {
   redemptionActivity: { logged: 0, confirmed: 0, awaiting: 0, comparison: null },
@@ -209,6 +216,31 @@ describe('InsightsPage (B8 assembly + states + lifecycle)', () => {
     expect(await screen.findByTestId('top-vouchers-list')).toBeInTheDocument()
     // The reports card.
     expect(screen.getByTestId('insights-reports')).toBeInTheDocument()
+  })
+
+  it('exposes the CSV export when the server behavioural gate is OPEN (repeatRate present)', async () => {
+    mockOverview.mockResolvedValue(OVERVIEW_WITH_DATA)
+    renderPage()
+    await screen.findByTestId('insights-reports')
+    // gateOpen is DERIVED from the live overview (not hardcoded): the export is usable.
+    expect(
+      screen.getByRole('button', {
+        name: /redemption activity csv excluding direct customer identifiers/i,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('csv-not-available')).not.toBeInTheDocument()
+  })
+
+  it('marks the CSV export Not-available when the server behavioural gate is CLOSED', async () => {
+    mockOverview.mockResolvedValue(OVERVIEW_GATE_CLOSED)
+    renderPage()
+    await screen.findByTestId('insights-reports')
+    expect(screen.getByTestId('csv-not-available')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', {
+        name: /redemption activity csv excluding direct customer identifiers/i,
+      }),
+    ).not.toBeInTheDocument()
   })
 
   it('switches tabs (Validation tab renders its summary on selection)', async () => {

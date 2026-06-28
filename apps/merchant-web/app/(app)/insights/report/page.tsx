@@ -272,7 +272,7 @@ function InsightsReportBody() {
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
         Figures are aggregate totals for the selection above. Estimated savings are an
         estimate of the potential customer saving, based on each voucher value. Excludes
-        test, deleted, and removed records.
+        test accounts, QA accounts, and deleted customers.
       </p>
     </div>
   )

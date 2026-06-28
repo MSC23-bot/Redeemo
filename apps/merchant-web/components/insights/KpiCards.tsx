@@ -151,7 +151,7 @@ export function KpiCards({ overview, className }: KpiCardsProps) {
               Redemption activity counts every voucher a customer logged in this
               selection. Confirmed is the subset later validated by staff; Awaiting is
               logged but not yet confirmed. Confirmed plus Awaiting equals the logged
-              total. Excludes test, deleted, and removed records.
+              total. Excludes test accounts, QA accounts, and deleted customers.
             </MetricInfo>
           }
         />
@@ -202,7 +202,7 @@ export function KpiCards({ overview, className }: KpiCardsProps) {
             >
               The number of different customers who logged at least one redemption in
               this selection. A customer who redeemed more than once is counted once.
-              Excludes test, deleted, and removed records.
+              Excludes test accounts, QA accounts, and deleted customers.
             </MetricInfo>
           }
         />

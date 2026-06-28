@@ -151,7 +151,7 @@ export function VouchersTab({ filters }: VouchersTabProps) {
             Vouchers are ranked by how many redemptions customers logged in this
             selection. Confirmed is the subset later validated by staff. Estimated
             savings are an estimate of the potential customer saving, based on each
-            voucher value. Excludes test, deleted, and removed records.
+            voucher value. Excludes test accounts, QA accounts, and deleted customers.
           </MetricInfo>
         }
       >
@@ -229,7 +229,7 @@ export function VouchersTab({ filters }: VouchersTabProps) {
           >
             Each share is that type as a proportion of all redemptions customers logged
             in this selection. Shares are over the logged total, so they add up to 100
-            percent. Excludes test, deleted, and removed records.
+            percent. Excludes test accounts, QA accounts, and deleted customers.
           </MetricInfo>
         }
       >

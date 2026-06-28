@@ -6,7 +6,7 @@
  * swaps the backend "Viewing: selected branch" placeholder for the real branch name when
  * a branchId filter is active.
  */
-import { insightsVoucherTypeLabel, resolveScopeLabel } from '../display'
+import { insightsVoucherTypeLabel, resolveScopeLabel, REPEAT_RATE_EXPLAINER } from '../display'
 import type { VoucherType7 } from '@/lib/api/insights'
 
 describe('insightsVoucherTypeLabel (spec 1.16 locked labels)', () => {
@@ -64,5 +64,21 @@ describe('resolveScopeLabel (Reports/printable scope label)', () => {
     expect(resolveScopeLabel('Viewing: selected branch', 'unknown', branches)).toBe(
       'Viewing: selected branch',
     )
+  })
+})
+
+describe('REPEAT_RATE_EXPLAINER (accurate eligibility exclusion copy)', () => {
+  it('names the real excluded cohorts (test, QA, deleted), in plain English', () => {
+    expect(REPEAT_RATE_EXPLAINER).toMatch(/test accounts/i)
+    expect(REPEAT_RATE_EXPLAINER).toMatch(/QA accounts/i)
+    expect(REPEAT_RATE_EXPLAINER).toMatch(/deleted customers/i)
+  })
+
+  it('does NOT claim a removal/reversal rule that does not exist', () => {
+    // The eligibility predicate excludes test data, QA accounts, and DELETED-status
+    // customers - there is no redemption-removal/reversal exclusion. The copy must
+    // not imply one.
+    expect(REPEAT_RATE_EXPLAINER).not.toMatch(/removed records/i)
+    expect(REPEAT_RATE_EXPLAINER).not.toMatch(/reversed|reversal/i)
   })
 })

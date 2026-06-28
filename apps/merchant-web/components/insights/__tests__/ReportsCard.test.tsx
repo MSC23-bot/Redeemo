@@ -111,6 +111,26 @@ describe('ReportsCard', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('renders the calm Not-available state UP FRONT when gateOpen is false (no download button)', () => {
+    renderCard({ gateOpen: false })
+    expect(screen.getByTestId('csv-not-available')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', {
+        name: /redemption activity csv excluding direct customer identifiers/i,
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('exposes the CSV download button when gateOpen is true (no up-front Not-available)', () => {
+    renderCard({ gateOpen: true })
+    expect(
+      screen.getByRole('button', {
+        name: /redemption activity csv excluding direct customer identifiers/i,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('csv-not-available')).not.toBeInTheDocument()
+  })
+
   it('renders a link to the printable performance summary', () => {
     renderCard({ filters: { period: 'last_month', branchId: 'b1' } })
     const link = screen.getByRole('link', { name: /print or save report|printable|performance summary/i })

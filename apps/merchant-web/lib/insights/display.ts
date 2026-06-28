@@ -48,7 +48,8 @@ export function insightsVoucherTypeLabel(type: VoucherType7 | string): string {
 export const REPEAT_RATE_EXPLAINER =
   'The share of customers in this selection who had already redeemed with you before ' +
   'this period began. It is only shown once enough customers are in view to be ' +
-  'reliable; until then it reads as building. Excludes test, deleted, and removed records.'
+  'reliable; until then it reads as building. Excludes test accounts, QA accounts, and ' +
+  'deleted customers.'
 
 export interface ScopeBranchOption {
   id: string
