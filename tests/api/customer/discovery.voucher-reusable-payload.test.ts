@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Backend payload-contract tests for getCustomerVoucher REUSABLE deltas.
 //
@@ -33,7 +33,10 @@ vi.mock('@prisma/adapter-pg', () => ({
 
 vi.mock('../../../generated/prisma/client', () => {
   class PrismaClient {
-    voucher                 = { findUnique: vi.fn() }
+    // SEC-C3 (Gate-PR-4b): getCustomerVoucher resolves the voucher via
+    // `voucher.findFirst` (NOT findUnique) so the non-unique isTestData
+    // security filter can gate the query. Mock must expose findFirst.
+    voucher                 = { findFirst: vi.fn() }
     subscription            = { findUnique: vi.fn() }
     userVoucherCycleState   = { findUnique: vi.fn() }
     favouriteVoucher        = { findUnique: vi.fn() }
@@ -197,11 +200,17 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     vi.setSystemTime(TEST_NOW)
   })
 
+  // Restore real timers after each test so the fake clock cannot leak into
+  // sibling suites now that this file runs in the parallel `unit` project.
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   // ── effectiveCooldownSeconds — D19 clamp + null exposure ────────────
 
   it('effectiveCooldownSeconds = 14400 when Voucher.cooldownSeconds is null (platform default)', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: null }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: null }))
     mockActiveSubscription(prisma)
     prisma.voucherRedemption.findFirst.mockResolvedValue(null)
 
@@ -212,7 +221,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('effectiveCooldownSeconds = merchant value when set above the floor', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 3600 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 3600 }))
     mockActiveSubscription(prisma)
     prisma.voucherRedemption.findFirst.mockResolvedValue(null)
 
@@ -225,7 +234,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     // Should never get here via Zod/DB-CHECK, but Math.max in
     // effectiveCooldownSeconds() must still clamp at runtime.
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 60 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 60 }))
     mockActiveSubscription(prisma)
     prisma.voucherRedemption.findFirst.mockResolvedValue(null)
 
@@ -236,7 +245,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('effectiveCooldownSeconds = null for non-REUSABLE voucher (BOGO)', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeNonReusableVoucher())
+    prisma.voucher.findFirst.mockResolvedValue(makeNonReusableVoucher())
     mockActiveSubscription(prisma)
 
     const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
@@ -246,7 +255,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('D19 — raw voucher.cooldownSeconds is NEVER exposed on the customer payload', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 3600 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 3600 }))
     mockActiveSubscription(prisma)
     prisma.voucherRedemption.findFirst.mockResolvedValue(null)
 
@@ -263,7 +272,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('D13 — isRedeemedThisCycle is ALWAYS false for REUSABLE (no recent redemption)', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher())
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher())
     mockActiveSubscription(prisma)
     prisma.voucherRedemption.findFirst.mockResolvedValue(null)
 
@@ -274,7 +283,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('D13 — isRedeemedThisCycle is ALWAYS false for REUSABLE (even with a redemption 1h ago)', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
     // Last redemption 1h ago — still inside cooldown. Sourced via
     // groupBy (PR #72 review polish — lastRedemptionMap), not findFirst.
@@ -291,7 +300,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('D13 — isRedeemedThisCycle is ALWAYS false for REUSABLE (cycle-state row present from another voucher would not flip it)', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher())
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher())
     prisma.subscription.findUnique.mockResolvedValue({
       status: 'ACTIVE',
       cycleAnchorDate: new Date('2026-05-05T00:00:00.000Z'),
@@ -314,7 +323,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('availableAgainAt = null when no prior redemption', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
     prisma.voucherRedemption.findFirst.mockResolvedValue(null)
 
@@ -325,7 +334,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('availableAgainAt = ISO of lastRedeemedAt + effectiveCooldownMs when in cooldown', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
     // Redemption 1h ago, 4h cooldown → availableAgainAt 3h from now.
     // Sourced via groupBy (PR #72 review polish — lastRedemptionMap),
@@ -347,7 +356,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     // Convention: surface only future instants; <= now → null so the
     // customer-app can use truthiness checks without time math.
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
     // Redemption 5h ago, 4h cooldown → cooldown expired 1h ago. Sourced
     // via groupBy (PR #72 review polish — lastRedemptionMap), not
@@ -380,7 +389,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('§6.3 state 2 — presentation alive AND cooldown active: lastRedemption populated + availableAgainAt set', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
     // Redemption 30min ago, 4h cooldown → presentation alive (<2h) +
     // cooldown active. lastRedemption populates (M3 §AE window),
@@ -409,7 +418,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('§6.3 state 3 — presentation EXPIRED AND cooldown active: lastRedemption null, availableAgainAt still set', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
     // Redemption 3h ago, 4h cooldown → presentation expired (>2h) +
     // cooldown still active. lastRedemption null (2h window closed);
@@ -435,7 +444,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     // the in-memory mutation response, since this state is reachable
     // on cold-open without a fresh redemption mutation).
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 1800 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 1800 }))
     mockActiveSubscription(prisma)
     const lastRedeemedAt = new Date(TEST_NOW.getTime() - 35 * 60 * 1000)
     mockReusableRedemption(prisma, lastRedeemedAt, {
@@ -462,7 +471,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     // presentation window expired 2h ago. Payload returns both null —
     // this is the steady-state "fully reset" REUSABLE configuration.
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 1800 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 1800 }))
     mockActiveSubscription(prisma)
     const lastRedeemedAt = new Date(TEST_NOW.getTime() - 4 * 60 * 60 * 1000)
     mockReusableRedemption(prisma, lastRedeemedAt)
@@ -490,7 +499,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     // Setup the "in cooldown" scenario via groupBy (the new source).
     // Redemption 1h ago, 4h cooldown → availableAgainAt 3h from now.
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 14400 }))
     mockActiveSubscription(prisma)
     const lastRedeemedAt = new Date(TEST_NOW.getTime() - 60 * 60 * 1000)
     prisma.voucherRedemption.groupBy.mockResolvedValue([
@@ -535,7 +544,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('no subscription — REUSABLE payload still surfaces effectiveCooldownSeconds (data-only)', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 3600 }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: 3600 }))
     prisma.subscription.findUnique.mockResolvedValue(null)
     prisma.userVoucherCycleState.findUnique.mockResolvedValue(null)
 
@@ -550,7 +559,7 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
 
   it('guest (userId = null) — REUSABLE payload still surfaces effectiveCooldownSeconds', async () => {
     const prisma = makePrisma()
-    prisma.voucher.findUnique.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: null }))
+    prisma.voucher.findFirst.mockResolvedValue(makeReusableVoucher({ cooldownSeconds: null }))
 
     const result = await getCustomerVoucher(prisma, VOUCHER_ID, null)
 
