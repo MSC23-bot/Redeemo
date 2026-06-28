@@ -66,7 +66,7 @@ const VOUCHER_TYPE_OPTIONS: VoucherType7[] = [
   'REUSABLE',
 ]
 
-const ALL_BRANCHES = '__all__'
+const ALL_SENTINEL = '__all__'
 
 // --- a small accessible dropdown (button + role=menu + menuitemradio) ---------
 // Hand-rolled (no portal) so the menu roles + aria-checked are deterministic in
@@ -123,12 +123,12 @@ function FilterDropdown({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="flex min-w-[180px] items-center gap-2.5 rounded-xl border bg-card px-3.5 py-2.5 text-left transition-colors hover:bg-[var(--surface-tint)]"
+        className="flex min-w-[180px] items-center gap-2.5 rounded-xl border bg-card px-3.5 py-2.5 text-left transition-colors hover:bg-[var(--tint)]"
         style={{ borderColor: 'var(--border)' }}
       >
         <span
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-          style={{ background: 'var(--surface-tint)', color: 'var(--coral)' }}
+          style={{ background: 'var(--tint)', color: 'var(--coral)' }}
           aria-hidden
         >
           {icon}
@@ -161,7 +161,7 @@ function FilterDropdown({
                   onSelect(opt.value)
                   setOpen(false)
                 }}
-                className="flex w-full items-center justify-between gap-6 px-4 py-2.5 text-left text-sm font-medium text-foreground hover:bg-[var(--surface-tint)]"
+                className="flex w-full items-center justify-between gap-6 px-4 py-2.5 text-left text-sm font-medium text-foreground hover:bg-[var(--tint)]"
               >
                 <span className="whitespace-nowrap">{opt.label}</span>
                 {selected ? (
@@ -211,13 +211,13 @@ export function InsightsFilters({
   }
 
   function selectBranch(value: string) {
-    onChange({ ...state, branchId: value === ALL_BRANCHES ? undefined : value })
+    onChange({ ...state, branchId: value === ALL_SENTINEL ? undefined : value })
   }
 
   function selectVoucherType(value: string) {
     onChange({
       ...state,
-      voucherType: value === ALL_BRANCHES ? undefined : (value as VoucherType7),
+      voucherType: value === ALL_SENTINEL ? undefined : (value as VoucherType7),
     })
   }
 
@@ -247,7 +247,7 @@ export function InsightsFilters({
 
   // Branch menu options. A single-branch BM gets no dropdown (the scope is fixed).
   const branchOptions: DropdownOption[] = [
-    { value: ALL_BRANCHES, label: allBranchesLabel },
+    { value: ALL_SENTINEL, label: allBranchesLabel },
     ...branches.map((b) => ({ value: b.id, label: b.name })),
   ]
 
@@ -255,7 +255,7 @@ export function InsightsFilters({
     ? voucherTypeLabel(state.voucherType)
     : 'All voucher types'
   const voucherOptions: DropdownOption[] = [
-    { value: ALL_BRANCHES, label: 'All voucher types' },
+    { value: ALL_SENTINEL, label: 'All voucher types' },
     ...VOUCHER_TYPE_OPTIONS.map((t) => ({ value: t, label: voucherTypeLabel(t) })),
   ]
 
@@ -310,7 +310,7 @@ export function InsightsFilters({
         >
           <span
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-            style={{ background: 'var(--surface-tint)', color: 'var(--coral)' }}
+            style={{ background: 'var(--tint)', color: 'var(--coral)' }}
             aria-hidden
           >
             <MapPin size={16} />
@@ -324,7 +324,7 @@ export function InsightsFilters({
           menuLabel="Branch"
           triggerLabel={branchTriggerLabel}
           icon={<MapPin size={16} />}
-          value={state.branchId ?? ALL_BRANCHES}
+          value={state.branchId ?? ALL_SENTINEL}
           options={branchOptions}
           onSelect={selectBranch}
         />
@@ -334,7 +334,7 @@ export function InsightsFilters({
         menuLabel="Voucher type"
         triggerLabel={voucherTriggerLabel}
         icon={<Filter size={16} />}
-        value={state.voucherType ?? ALL_BRANCHES}
+        value={state.voucherType ?? ALL_SENTINEL}
         options={voucherOptions}
         onSelect={selectVoucherType}
       />
