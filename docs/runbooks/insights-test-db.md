@@ -79,6 +79,24 @@ DATABASE_URL="$TEST_DATABASE_URL" fnm exec --using=24 -- \
 A vitest setup file for the insights integration tests asserts `DATABASE_URL` is loopback
 and refuses to run otherwise - so these tests can never reach Neon/Railway.
 
+### PR-G1a1 project-global guard (whole `integration` project)
+
+The `integration` vitest project now loads a **project-global strict-loopback guard**
+(`tests/integration.setup.ts` -> pure helper `tests/_shared/loopbackGuard.ts`) that runs
+**before any integration suite or migration connects**. Contract:
+
+- `DATABASE_URL` is **required** and must be strict-loopback (`127.0.0.1` / `localhost` /
+  `::1` / `[::1]`).
+- `TEST_DATABASE_URL`, if set, must **independently** be strict-loopback (a safe localhost
+  `TEST_DATABASE_URL` can never mask a Neon-backed `DATABASE_URL`).
+- An unset/empty `DATABASE_URL`, a malformed URL, or a non-loopback host **fails fast**
+  (no Prisma client / no `prisma migrate deploy` connects); errors print the hostname only,
+  never credentials.
+
+So the `DATABASE_URL="$TEST_DATABASE_URL"` prefix above is now **mandatory** for any local
+`npm run test:integration` run - the guard aborts otherwise. CI runs the Insights suites as
+an advisory pilot against an ephemeral loopback Postgres-16 service that sets both variables.
+
 ## Teardown
 
 ```bash

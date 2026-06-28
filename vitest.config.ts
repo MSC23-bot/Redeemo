@@ -38,8 +38,16 @@ export default defineConfig({
           name: 'integration',
           include: ['tests/**/*.integration.test.ts'],
           // Serial — one real-DB suite at a time → no cross-suite contention on
-          // the shared DB. PR2 points these at a dedicated local Postgres.
+          // the shared DB. PR-G1a1 points the Insights pilot at a disposable
+          // loopback Postgres (CI service / local), guarded below.
           fileParallelism: false,
+          // PR-G1a1: the integration project additionally loads the PROJECT-GLOBAL
+          // strict-loopback guard, which throws BEFORE any Prisma client or
+          // migration connects unless DATABASE_URL (required) and TEST_DATABASE_URL
+          // (if set) are strict-loopback. Listed explicitly (a project `setupFiles`
+          // overrides the inherited root value) so the root `./tests/setup.ts` is
+          // preserved. The `unit` project does NOT load the guard (no DB).
+          setupFiles: ['./tests/setup.ts', './tests/integration.setup.ts'],
         },
       },
     ],
