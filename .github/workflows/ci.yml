@@ -155,8 +155,9 @@ jobs:
     # Dummy non-secret env. The `unit` suites mock prisma/redis (no live
     # services); boot-time env validation + `prisma generate` only need the
     # vars PRESENT, not reachable. The real-DB `integration` project is NOT run
-    # here yet — PR2 adds a local Postgres service + fresh seed, then promotes
-    # it from advisory to required. (Test secrets come from tests/setup.ts.)
+    # in THIS job; G1a1 runs it as a separate ADVISORY Postgres-16 Insights pilot
+    # job (non-blocking), and G1a2 is the later owner-gated promotion to a required
+    # lane plus expansion. (Test secrets come from tests/setup.ts.)
     env:
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_dummy
       REDIS_URL: redis://localhost:6379

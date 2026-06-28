@@ -6,8 +6,9 @@ import { defineConfig, configDefaults } from 'vitest/config'
 //  - `integration` : `*.integration.test.ts` real-DB suites — run SERIALLY
 //                    (fileParallelism: false) so concurrent suites can't contend
 //                    on one shared DB (removes the concurrency-flake class).
-// PR2 will move `integration` onto a dedicated fresh-seeded local Postgres and
-// add it to CI; PR1 keeps it local + serial.
+// G1a1 now runs the `integration` Insights suites as an ADVISORY Postgres-16 pilot in
+// CI (non-blocking; the project-global loopback guard is loaded below). G1a2 is the
+// later owner-gated promotion to a required lane plus expansion to more integration suites.
 export default defineConfig({
   test: {
     globals: true,

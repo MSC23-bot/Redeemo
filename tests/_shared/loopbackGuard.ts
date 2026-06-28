@@ -5,7 +5,11 @@
 // `DATABASE_URL` (via `new PrismaPg({ connectionString: process.env.DATABASE_URL })`);
 // the Insights suites read `TEST_DATABASE_URL` (via `makeTestPrisma`). The repo's
 // persistent `.env` `DATABASE_URL` points at shared Neon, so an integration run must
-// be PROVEN to target a disposable loopback DB BEFORE any client/migration connects.
+// be PROVEN to target a disposable loopback DB before any integration test file (or its
+// Prisma client) connects. This guard runs in the vitest setup phase, which is AFTER
+// `prisma migrate deploy`; the migration step is protected SEPARATELY by the CI/local
+// pre-migrate loopback assertion (see .github/workflows/ci.yml and the runbook), not by
+// this guard.
 //
 // Contract (validated for EVERY integration-project run):
 //   - DATABASE_URL is REQUIRED and must be strict-loopback.
@@ -45,8 +49,10 @@ function hostnameOf(label: string, raw: string): string {
 }
 
 /**
- * Assert the integration-project database target(s) are strict-loopback. Throws BEFORE
- * any Prisma client or migration connects. Validates DATABASE_URL and TEST_DATABASE_URL
+ * Assert the integration-project database target(s) are strict-loopback. Throws in the
+ * vitest setup phase, before any integration test file or its Prisma client connects
+ * (NOT before `prisma migrate deploy`, which runs earlier and is guarded separately by
+ * the pre-migrate loopback assertion). Validates DATABASE_URL and TEST_DATABASE_URL
  * INDEPENDENTLY. Never logs/throws the full connection string or credentials.
  */
 export function assertIntegrationDbLoopback(env: IntegrationDbEnv): void {

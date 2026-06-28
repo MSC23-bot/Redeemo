@@ -12,10 +12,16 @@ process against a **gitignored** repo-local data dir on a **non-default port**.
 
 ## Invariants (do not weaken)
 
-- The integration suite uses **`TEST_DATABASE_URL`** only. The persistent `.env`
-  `DATABASE_URL` (Neon) is **never** modified or reused as a test target.
+- `DATABASE_URL` is **mandatory and loopback** for the entire `integration` vitest
+  project AND for Prisma migrations. The Insights suites **additionally** use
+  `TEST_DATABASE_URL` (via `makeTestPrisma`); when running Insights locally, point
+  **both** at the same disposable loopback database. Both variables are **independently
+  validated** before any integration test file runs. The persistent `.env` `DATABASE_URL`
+  (Neon) is **never** modified or reused as a test target.
 - Before any migrate or fixture insert, the target host is **proven loopback**
-  (`127.0.0.1`) and the db name `redeemo_insights_test`; a remote host aborts.
+  (`127.0.0.1`) and the db name `redeemo_insights_test`; a remote host aborts. Migrations
+  are protected by their **own** pre-migrate loopback assertion, separate from the
+  in-test setup guard, so `prisma migrate deploy` cannot reach a remote host either.
 - `isTestData=false` fixtures are allowed **only inside this disposable DB**.
 - The integration tests do **not** replace raw-SQL verification with mocked Prisma.
 - Connection strings / credentials stay out of code, commits, PR bodies, logs.
@@ -82,19 +88,21 @@ and refuses to run otherwise - so these tests can never reach Neon/Railway.
 ### PR-G1a1 project-global guard (whole `integration` project)
 
 The `integration` vitest project now loads a **project-global strict-loopback guard**
-(`tests/integration.setup.ts` -> pure helper `tests/_shared/loopbackGuard.ts`) that runs
-**before any integration suite or migration connects**. Contract:
+(`tests/integration.setup.ts` -> pure helper `tests/_shared/loopbackGuard.ts`) that runs in
+the vitest setup phase, **before any integration test file or its Prisma client connects**.
+It runs AFTER `prisma migrate deploy`, so it does **not** protect the migration step; the
+migration is guarded separately by the pre-migrate loopback assertion above. Contract:
 
 - `DATABASE_URL` is **required** and must be strict-loopback (`127.0.0.1` / `localhost` /
   `::1` / `[::1]`).
 - `TEST_DATABASE_URL`, if set, must **independently** be strict-loopback (a safe localhost
   `TEST_DATABASE_URL` can never mask a Neon-backed `DATABASE_URL`).
 - An unset/empty `DATABASE_URL`, a malformed URL, or a non-loopback host **fails fast**
-  (no Prisma client / no `prisma migrate deploy` connects); errors print the hostname only,
+  (no integration test file or its Prisma client connects); errors print the hostname only,
   never credentials.
 
 So the `DATABASE_URL="$TEST_DATABASE_URL"` prefix above is now **mandatory** for any local
-`npm run test:integration` run - the guard aborts otherwise. CI runs the Insights suites as
+`npm run test:integration` run; the guard aborts otherwise. CI runs the Insights suites as
 an advisory pilot against an ephemeral loopback Postgres-16 service that sets both variables.
 
 ## Teardown
@@ -107,9 +115,13 @@ rm -rf .pgtest .env.test
 # the postgresql@16 keg may remain installed for repeatable future runs
 ```
 
-## CI (future)
+## CI
 
-CI currently runs `test:unit` only. When integration tests move to CI, provision a
-Postgres **service container** (GitHub Actions `services: postgres:16`) and set
-`TEST_DATABASE_URL` to it - never a shared/staging DB. Tracked with the repo's existing
-"PR2 dedicated local Postgres" note in `vitest.config.ts`.
+G1a1 now adds an **advisory** Postgres-16 Insights pilot job (`backend integration pilot
+(advisory)` in `.github/workflows/ci.yml`): a `services: postgres:16` container with BOTH
+`DATABASE_URL` and `TEST_DATABASE_URL` pointed at it, the project-global loopback guard
+active, and the 11 Insights suites run. It is **visible but intentionally non-blocking**
+(the job concludes green even if the suites fail; the outcome is surfaced as a
+failed-but-continued step plus an explicit job-summary PASS/FAIL). **PR-G1a2** is the
+later owner-gated promotion to a **required** security lane / path-trigger model and the
+expansion to further integration suites.
