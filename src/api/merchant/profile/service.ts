@@ -18,13 +18,21 @@ const DIRECT_SIMPLE_FIELDS = ['websiteUrl', 'vatNumber', 'companyNumber'] as con
 export async function getMerchantProfile(prisma: PrismaClient, adminId: string) {
   // Staff & Access B5 (§4.3 MEMBER-READ): any active member can read business info
   // (not branch-specific). resolveMerchantContext keeps the SEC-M2 suspended guard.
-  const { merchantId } = await resolveMerchantContext(prisma, adminId)
+  const { merchantId, role } = await resolveMerchantContext(prisma, adminId)
   const merchant = await prisma.merchant.findUnique({
     where: { id: merchantId },
     include: { pendingEdits: { where: { status: 'PENDING' }, take: 1 } },
   })
   if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
-  return merchant
+  // Insights & Reports: expose a minimal viewer-capability set so merchant-web can hide
+  // the Insights navigation for STAFF. Derived server-side from the freshly resolved
+  // membership role (OWNER + BRANCH_MANAGER can view Insights; STAFF cannot) and mirrors
+  // the assertInsightsAccess deny (which remains the REAL security boundary). This is a
+  // UX hint only - no extra role information is exposed.
+  return {
+    ...merchant,
+    viewerCapabilities: { canViewInsights: role !== 'STAFF' },
+  }
 }
 
 /**

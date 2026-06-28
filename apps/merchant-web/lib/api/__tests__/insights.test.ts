@@ -387,20 +387,46 @@ describe('getInsightsBusyTimes', () => {
     ).toThrow()
   })
 
-  it('parses the D6-gated exact-mode payload ({ day, daypart, logged, intensity })', () => {
+  // A DENSE 7x6 = 42-cell exact grid; logged = day*6 + daypart so each cell is unique.
+  function denseExactGrid() {
+    const grid: { day: number; daypart: number; logged: number; intensity: number }[] = []
+    for (let day = 0; day < 7; day += 1)
+      for (let daypart = 0; daypart < 6; daypart += 1)
+        grid.push({ day, daypart, logged: day * 6 + daypart, intensity: (day + daypart) % 4 })
+    return grid
+  }
+
+  it('parses the D6-gated DENSE exact-mode payload ({ day, daypart, logged, intensity })', () => {
     const parsed = busyTimesSchema.parse({
       mode: 'exact',
-      grid: [
-        { day: 0, daypart: 0, logged: 0, intensity: 0 },
-        { day: 6, daypart: 5, logged: 12, intensity: 3 },
-      ],
+      grid: denseExactGrid(),
       busiest: { day: 6, daypart: 5 },
     })
     expect('mode' in parsed && parsed.mode).toBe('exact')
     if ('grid' in parsed) {
-      // The exact arm carries the logged count alongside the band.
-      expect((parsed.grid[1] as { logged: number }).logged).toBe(12)
+      expect(parsed.grid).toHaveLength(42)
+      // The Sat (day 6) Late (daypart 5) cell carries the exact logged count 6*6+5=41.
+      const sat = parsed.grid.find((c) => c.day === 6 && c.daypart === 5)
+      expect(sat).toBeDefined()
+      // 'logged' in sat narrows to the exact-cell shape (the intensity cell has none).
+      if (sat && 'logged' in sat) expect(sat.logged).toBe(41)
     }
+  })
+
+  it('REJECTS an exact-mode grid that is NOT a dense 7x6 matrix (a missing cell)', () => {
+    // 41 cells (one short) -> a missing cell must fail the parse, never be silently
+    // treated as a measured zero.
+    const grid = denseExactGrid()
+    grid.pop() // 41 cells
+    expect(() => busyTimesSchema.parse({ mode: 'exact', grid, busiest: null })).toThrow()
+  })
+
+  it('REJECTS an exact-mode grid with a DUPLICATE day/daypart coordinate', () => {
+    // Still 42 entries, but the last cell duplicates (0,0): that drops the unique
+    // coordinate count to 41 (one coordinate is now missing), so it is not dense.
+    const grid = denseExactGrid()
+    grid[grid.length - 1] = { day: 0, daypart: 0, logged: 9, intensity: 2 }
+    expect(() => busyTimesSchema.parse({ mode: 'exact', grid, busiest: null })).toThrow()
   })
 
   it('REJECTS an out-of-range day/daypart/intensity on a grid cell (bounds)', () => {

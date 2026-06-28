@@ -77,6 +77,41 @@ describe('merchant profile routes', () => {
     expect(res.statusCode).toBe(401)
   })
 
+  // Insights & Reports: viewerCapabilities.canViewInsights is derived from the
+  // membership role (OWNER + BRANCH_MANAGER true; STAFF false). It mirrors the
+  // assertInsightsAccess deny (the real boundary) and lets merchant-web hide the
+  // Insights nav for STAFF.
+  function membershipRow(role: 'OWNER' | 'BRANCH_MANAGER' | 'STAFF') {
+    return [{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role, allBranches: role !== 'STAFF', canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]
+  }
+  function profileRow() {
+    return { id: 'm1', businessName: 'Acme', status: 'ACTIVE', onboardingStep: 'LIVE' }
+  }
+
+  it('GET profile exposes viewerCapabilities.canViewInsights=true for OWNER', async () => {
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue(membershipRow('OWNER'))
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue(profileRow())
+    const res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).viewerCapabilities).toEqual({ canViewInsights: true })
+  })
+
+  it('GET profile exposes viewerCapabilities.canViewInsights=true for BRANCH_MANAGER', async () => {
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue(membershipRow('BRANCH_MANAGER'))
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue(profileRow())
+    const res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).viewerCapabilities.canViewInsights).toBe(true)
+  })
+
+  it('GET profile exposes viewerCapabilities.canViewInsights=false for STAFF', async () => {
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue(membershipRow('STAFF'))
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue(profileRow())
+    const res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.body).viewerCapabilities.canViewInsights).toBe(false)
+  })
+
   it('PATCH /api/v1/merchant/profile returns 400 when sensitive fields are included on a live (non-draft-window) merchant', async () => {
     // M2 B1 (D1): sensitive fields are rejected outside the draft window. A live
     // (ACTIVE / LIVE) merchant keeps routing through the governed edit-request

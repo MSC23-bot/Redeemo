@@ -233,6 +233,22 @@ const busyTimesPeakSchema = z
   .nullable()
 
 /**
+ * The busy-times grid is a DENSE 7x6 matrix in the backend contract: one cell for
+ * every (day 0-6, daypart 0-5). For EXACT mode we ENFORCE that density at parse so
+ * the client never has to invent a missing cell as a measured zero (a missing cell
+ * is unknown data, not zero). Each cell's day/daypart are already bounded to
+ * 0-6/0-5, so 42 cells with no duplicate coordinate guarantees full, gap-free
+ * coverage (a missing coordinate would force a duplicate, dropping the unique count
+ * below 42).
+ */
+function isDenseBusyGrid(grid: ReadonlyArray<{ day: number; daypart: number }>): boolean {
+  if (grid.length !== 42) return false
+  const seen = new Set<string>()
+  for (const c of grid) seen.add(`${c.day}-${c.daypart}`)
+  return seen.size === 42
+}
+
+/**
  * busy-times is a `mode`-discriminated union of the AS-BUILT intensity payload, the
  * D6-gated exact payload, and the defensive `{ available:false }`. The AS-BUILT
  * service only ever emits `mode:'intensity'` (or `{available:false}`); the exact
@@ -248,7 +264,10 @@ export const busyTimesSchema = z.union([
   }),
   z.object({
     mode: z.literal('exact'),
-    grid: z.array(busyTimesExactCellSchema),
+    grid: z.array(busyTimesExactCellSchema).refine(isDenseBusyGrid, {
+      message:
+        'exact busy-times grid must be a dense 7x6 matrix (42 unique day/daypart cells; no missing or duplicate coordinate)',
+    }),
     busiest: busyTimesPeakSchema,
   }),
   z.object({ available: z.literal(false) }),

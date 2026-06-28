@@ -87,7 +87,11 @@ function ExactCounts({
 }) {
   const byKey = new Map<string, number>()
   for (const cell of grid) byKey.set(`${cell.day}-${cell.daypart}`, cell.logged)
-  const countAt = (day: number, daypart: number) => byKey.get(`${day}-${daypart}`) ?? 0
+  // The exact-mode payload is a DENSE 7x6 grid (enforced by busyTimesSchema), so
+  // every cell is present. We never fabricate 0 for a missing cell - a missing cell
+  // is unknown data, not a measured zero - so the defensive fallback is an em dash.
+  const countAt = (day: number, daypart: number): number | undefined =>
+    byKey.get(`${day}-${daypart}`)
   return (
     <div data-testid="busy-times-exact-counts" className="overflow-x-auto">
       <p className="mb-2 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
@@ -127,7 +131,7 @@ function ExactCounts({
                   className="px-2 py-1 text-right tabular-nums"
                   style={{ color: 'var(--navy)' }}
                 >
-                  {countAt(r, c)}
+                  {countAt(r, c) ?? '—'}
                 </td>
               ))}
             </tr>
@@ -162,6 +166,7 @@ export function BusyTimesTab({ filters }: BusyTimesTabProps) {
   }
 
   const available = 'mode' in data
+  const exact = available && data.mode === 'exact'
   const busiest = available ? data.busiest : null
   const busiestLabel =
     busiest != null
@@ -184,12 +189,24 @@ export function BusyTimesTab({ filters }: BusyTimesTabProps) {
               label="About busiest days and times"
               ariaLabel="How busiest days and times are shown"
             >
-              Darker cells are busier. These are relative intensity bands, not exact
-              counts. The six columns cover the whole day: Overnight, Morning, Lunch,
-              Afternoon, Evening, and Late, in UK time, with after-midnight activity
-              shown as Overnight. We show bands rather than exact numbers so quiet slots
-              cannot be traced back to individual customers. Excludes test accounts,
-              QA accounts, and deleted customers.
+              {exact ? (
+                <>
+                  Darker cells are busier. In this view each slot shows the exact
+                  number of logged redemptions, not just a band. The six columns cover
+                  the whole day: Overnight, Morning, Lunch, Afternoon, Evening, and
+                  Late, in UK time, with after-midnight activity shown as Overnight.
+                  Excludes test accounts, QA accounts, and deleted customers.
+                </>
+              ) : (
+                <>
+                  Darker cells are busier. These are relative intensity bands, not exact
+                  counts. The six columns cover the whole day: Overnight, Morning,
+                  Lunch, Afternoon, Evening, and Late, in UK time, with after-midnight
+                  activity shown as Overnight. We show bands rather than exact numbers so
+                  quiet slots cannot be traced back to individual customers. Excludes
+                  test accounts, QA accounts, and deleted customers.
+                </>
+              )}
             </MetricInfo>
           </div>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>

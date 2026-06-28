@@ -185,4 +185,32 @@ describe('BusyTimesTab', () => {
     expect(tip.textContent ?? '').toMatch(/deleted customers/i)
     expect(tip.textContent ?? '').not.toMatch(/removed records/i)
   })
+
+  it('tooltip (intensity mode) shows the bands / no-exact-count explanation', async () => {
+    renderTab() // default fixture is intensity mode
+    const card = await screen.findByTestId('busy-times-card')
+    const trigger = within(card)
+      .getAllByRole('button')
+      .find((b) => /about|how|what/i.test(b.getAttribute('aria-label') ?? ''))
+    fireEvent.click(trigger as HTMLElement)
+    const tip = await screen.findByRole('tooltip')
+    expect(tip.textContent ?? '').toMatch(/not exact\s+counts/i)
+    expect(tip.textContent ?? '').toMatch(/rather than exact numbers/i)
+  })
+
+  it('tooltip (exact mode) NEVER shows the intensity-only claim', async () => {
+    mockGet.mockResolvedValue(fullExactGrid())
+    renderTab()
+    const card = await screen.findByTestId('busy-times-card')
+    const trigger = within(card)
+      .getAllByRole('button')
+      .find((b) => /about|how|what/i.test(b.getAttribute('aria-label') ?? ''))
+    fireEvent.click(trigger as HTMLElement)
+    const tip = await screen.findByRole('tooltip')
+    // Exact mode explains exact counts ARE shown...
+    expect(tip.textContent ?? '').toMatch(/exact number of logged redemptions/i)
+    // ...and never repeats the intensity-only (bands, not exact) claim.
+    expect(tip.textContent ?? '').not.toMatch(/not exact\s+counts/i)
+    expect(tip.textContent ?? '').not.toMatch(/rather than exact/i)
+  })
 })

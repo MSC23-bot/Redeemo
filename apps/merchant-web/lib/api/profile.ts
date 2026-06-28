@@ -31,6 +31,12 @@ export const merchantProfileSchema = z
     websiteUrl: z.string().nullish(),
     vatNumber: z.string().nullish(),
     companyNumber: z.string().nullish(),
+    // Insights & Reports: the viewer's coarse capability set, derived server-side
+    // from the membership role (OWNER/BRANCH_MANAGER can view Insights; STAFF cannot).
+    // The whole object is OPTIONAL so a backend that has not deployed the field yet, or
+    // a loading state, still parses cleanly; consumers FAIL CLOSED (absent -> treated as
+    // cannot view, so the Insights nav stays hidden until we positively know otherwise).
+    viewerCapabilities: z.object({ canViewInsights: z.boolean() }).nullish(),
   })
   .passthrough()
 

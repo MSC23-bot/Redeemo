@@ -30,4 +30,31 @@ describe('Sidebar', () => {
     const link = screen.getByText('Branches').closest('a')
     expect(link).toHaveAttribute('href', '/branches')
   })
+
+  // Insights nav visibility (Staff & Access): only Owner + Branch Manager see Insights.
+  it('shows Insights & reports when canViewInsights is true (Owner / Branch Manager)', () => {
+    render(<Sidebar canViewInsights={true} />)
+    const link = screen.getByText('Insights & reports').closest('a')
+    expect(link).toHaveAttribute('href', '/insights')
+    // The rest of the nav is unchanged.
+    expect(screen.getByText('Vouchers')).toBeInTheDocument()
+    expect(screen.getByText('Redemptions')).toBeInTheDocument()
+    expect(screen.getByText('Branches')).toBeInTheDocument()
+    expect(screen.getByText('Staff & access')).toBeInTheDocument()
+  })
+
+  it('hides ONLY Insights & reports when canViewInsights is false (Staff)', () => {
+    render(<Sidebar canViewInsights={false} />)
+    expect(screen.queryByText('Insights & reports')).not.toBeInTheDocument()
+    // Sibling items in the same group, and all other nav, remain.
+    expect(screen.getByText('Vouchers')).toBeInTheDocument()
+    expect(screen.getByText('Redemptions')).toBeInTheDocument()
+    expect(screen.getByText('Branches')).toBeInTheDocument()
+    expect(screen.getByText('Staff & access')).toBeInTheDocument()
+  })
+
+  it('defaults to hiding Insights (fail closed) when no capability is passed', () => {
+    render(<Sidebar />)
+    expect(screen.queryByText('Insights & reports')).not.toBeInTheDocument()
+  })
 })
