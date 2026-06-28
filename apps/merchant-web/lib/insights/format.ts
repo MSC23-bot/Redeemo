@@ -8,7 +8,7 @@
  * Numbers come off the wire as already-coerced numbers (lib/api/insights coerces the
  * Prisma Decimal strings), so these helpers only do en-GB presentation.
  */
-import type { Comparison } from '@/lib/api/insights'
+import type { Comparison, PeriodPreset } from '@/lib/api/insights'
 
 const gbpFmt = new Intl.NumberFormat('en-GB', {
   style: 'currency',
@@ -48,6 +48,30 @@ export function formatRatePercentValue(value: number): string {
 export function formatRateAsPercent(fraction: number): string {
   if (!Number.isFinite(fraction)) return ''
   return `${Math.round(fraction * 100)}%`
+}
+
+/**
+ * The human-readable label for a period preset (for the filter echo on the Reports
+ * card + the printable summary). For a custom range the caller passes the from/to so
+ * the label reads as a month span; a bare custom call falls back to "Custom range".
+ */
+const PERIOD_LABEL: Record<PeriodPreset, string> = {
+  this_month: 'This month',
+  last_month: 'Last month',
+  last_3m: 'Last 3 months',
+  last_6m: 'Last 6 months',
+  all: 'All time',
+  custom: 'Custom range',
+}
+
+export function periodLabel(period: PeriodPreset, from?: string, to?: string): string {
+  if (period === 'custom') {
+    if (from && to) return `${from} to ${to}`
+    if (from) return `From ${from}`
+    if (to) return `Up to ${to}`
+    return 'Custom range'
+  }
+  return PERIOD_LABEL[period] ?? 'This month'
 }
 
 /** The direction of a per-KPI comparison, for an up/down/flat chip treatment. */
