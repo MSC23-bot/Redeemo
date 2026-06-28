@@ -16,6 +16,15 @@
  * printable to the same selection. The summary is driven by the SAME /overview contract
  * the dashboard uses, so figures are consistent with the live surface.
  *
+ * LIFECYCLE (mirrors the dashboard page; the SERVER is the real boundary):
+ *   - The profile lifecycle (deriveStatusPill) gates the surface UP FRONT so a
+ *     SUSPENDED merchant sees the suspension screen and a pre-live / non-ACTIVE merchant
+ *     sees the lock, never a half-rendered report.
+ *   - The /overview query maps the backend codes as defence-in-depth: MERCHANT_SUSPENDED
+ *     and MERCHANT_NOT_ACTIVE map to the same lifecycle states; INSUFFICIENT_PERMISSIONS
+ *     (a STAFF caller) maps to a server-denied notice; any other ApiError is a calm
+ *     friendly-error with retry. These reuse the SAME components as the dashboard page.
+ *
  * House style: no em dashes; no emojis; icons via @/lib/icons; colour via CSS var()
  * tokens. No new dependency.
  */
@@ -23,9 +32,21 @@ import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { getInsightsOverview, type InsightsFilters } from '@/lib/api/insights'
+import { listBranches } from '@/lib/api/branch'
+import { ApiError } from '@/lib/api/client'
+import { useSession } from '@/lib/auth/session'
+import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
+import { deriveStatusPill } from '@/lib/auth/lifecycle'
+import { LifecycleHome } from '@/components/onboarding/LifecycleHome'
+import {
+  InsightsLocked,
+  InsightsAccessDenied,
+  InsightsLoading,
+  InsightsError,
+} from '@/components/insights/InsightsLifecycleStates'
 import { parseFilters, serialiseFilters } from '@/lib/insights/filters'
 import { formatCount, formatGbp, periodLabel } from '@/lib/insights/format'
-import { voucherTypeLabel } from '@/lib/redemptions/display'
+import { insightsVoucherTypeLabel, resolveScopeLabel } from '@/lib/insights/display'
 
 /** Format the generation date in en-GB (London-rendered, day month year). */
 function generatedOn(now: Date = new Date()): string {
@@ -67,7 +88,10 @@ function AggregateTile({
   )
 }
 
-export default function InsightsReportPage() {
+// --- the report body (only mounted for an ACTIVE merchant) -------------------
+
+function InsightsReportBody() {
+  const session = useSession()
   const searchParams = useSearchParams()
 
   // Parse the active filters from the URL (forward-safe: unknown values are dropped).
@@ -80,11 +104,24 @@ export default function InsightsReportPage() {
     [filterState],
   )
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['insights', 'overview', filters],
     queryFn: () => getInsightsOverview(filters),
     staleTime: 60_000,
   })
+
+  // The authorised branch list lets us resolve the human branch NAME for the scope label
+  // (the backend emits a "Viewing: selected branch" placeholder for a single-branch view).
+  const branchesQuery = useQuery({
+    queryKey: ['merchantBranches'],
+    queryFn: listBranches,
+    staleTime: 60_000,
+    enabled: session.isAuthenticated,
+  })
+  const branchOptions = React.useMemo(
+    () => (branchesQuery.data ?? []).map((b) => ({ id: b.id, name: b.name })),
+    [branchesQuery.data],
+  )
 
   // The generation date is computed once on mount (stable across re-renders).
   const generated = React.useMemo(() => generatedOn(), [])
@@ -97,18 +134,36 @@ export default function InsightsReportPage() {
     )
   }
 
-  if (isError || !data) {
-    return (
-      <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        We could not prepare your report just now. Please try again.
-      </div>
-    )
+  // Defence-in-depth: map the backend lifecycle codes to the SAME lifecycle treatment
+  // the dashboard page uses, never a generic error.
+  if (isError) {
+    const code = error instanceof ApiError ? error.code : undefined
+    if (code === 'MERCHANT_SUSPENDED') {
+      return (
+        <LifecycleHome
+          state="suspended"
+          businessName={session.businessName ?? ''}
+          status={null}
+        />
+      )
+    }
+    if (code === 'MERCHANT_NOT_ACTIVE') return <InsightsLocked />
+    if (code === 'INSUFFICIENT_PERMISSIONS') return <InsightsAccessDenied />
+    return <InsightsError onRetry={() => refetch()} />
   }
 
+  if (!data) return <InsightsError onRetry={() => refetch()} />
+
   const ra = data.redemptionActivity
-  const scopeLabel = data.meta.scopeLabel
+  const scopeLabel = resolveScopeLabel(
+    data.meta.scopeLabel,
+    filterState.branchId,
+    branchOptions,
+  )
   const period = periodLabel(filters.period ?? 'this_month', filters.from, filters.to)
-  const voucherFilter = filters.voucherType ? voucherTypeLabel(filters.voucherType) : 'All voucher types'
+  const voucherFilter = filters.voucherType
+    ? insightsVoucherTypeLabel(filters.voucherType)
+    : 'All voucher types'
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 print:max-w-none">
@@ -116,7 +171,7 @@ export default function InsightsReportPage() {
       <style>{`
         @media print {
           .insights-report-noprint { display: none !important; }
-          body { background: #fff; }
+          body { background: var(--page); }
         }
       `}</style>
 
@@ -221,4 +276,42 @@ export default function InsightsReportPage() {
       </p>
     </div>
   )
+}
+
+// --- the page (lifecycle gate -> report body) -------------------------------
+
+export default function InsightsReportPage() {
+  const session = useSession()
+  const profile = useMerchantProfile(session.isAuthenticated)
+
+  // Hold until the profile (the lifecycle source) resolves so the surface never flashes
+  // the wrong state.
+  if (profile.isLoading || !profile.data) {
+    if (profile.isError) {
+      return <InsightsError onRetry={() => profile.refetch?.()} />
+    }
+    return <InsightsLoading />
+  }
+
+  const state = deriveStatusPill(profile.data)
+
+  // SUSPENDED -> the existing suspension screen (no Insights data; never a half-rendered
+  // report). The report query is never mounted.
+  if (state === 'suspended') {
+    return (
+      <LifecycleHome
+        state="suspended"
+        businessName={profile.data.businessName}
+        status={null}
+      />
+    )
+  }
+
+  // Any non-live lifecycle (setup / changes / submitted / in_review / rejected) -> the
+  // calm "unlocks when you go live" lock. The server blocks these too.
+  if (state !== 'live') {
+    return <InsightsLocked />
+  }
+
+  return <InsightsReportBody />
 }

@@ -170,7 +170,7 @@ export function MetricInfo({
             width: 260,
             maxWidth: 'calc(100vw - 32px)',
             padding: '10px 12px',
-            background: '#fff',
+            background: 'var(--popover)',
             color: 'var(--text-secondary)',
             border: '1px solid var(--border-subtle)',
             borderRadius: 'var(--radius-sm)',

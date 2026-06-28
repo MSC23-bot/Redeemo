@@ -23,7 +23,7 @@
  */
 import * as React from 'react'
 import { Calendar, MapPin, Filter, ChevronDown, Check } from '@/lib/icons'
-import { voucherTypeLabel } from '@/lib/redemptions/display'
+import { insightsVoucherTypeLabel } from '@/lib/insights/display'
 import {
   comparisonState,
   currentLondonMonth,
@@ -252,11 +252,11 @@ export function InsightsFilters({
   ]
 
   const voucherTriggerLabel = state.voucherType
-    ? voucherTypeLabel(state.voucherType)
+    ? insightsVoucherTypeLabel(state.voucherType)
     : 'All voucher types'
   const voucherOptions: DropdownOption[] = [
     { value: ALL_SENTINEL, label: 'All voucher types' },
-    ...VOUCHER_TYPE_OPTIONS.map((t) => ({ value: t, label: voucherTypeLabel(t) })),
+    ...VOUCHER_TYPE_OPTIONS.map((t) => ({ value: t, label: insightsVoucherTypeLabel(t) })),
   ]
 
   return (

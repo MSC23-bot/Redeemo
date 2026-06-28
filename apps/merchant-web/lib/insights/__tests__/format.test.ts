@@ -56,23 +56,25 @@ describe('comparisonChip', () => {
     label: 'last_month',
   }
 
-  it('reads up with magnitude + period phrase', () => {
+  // The phrase names the BASELINE window, NOT the viewed period: viewing "last month"
+  // compares against the month before it, so the chip reads "...on the previous month".
+  it('reads up with magnitude + the baseline phrase (the previous month)', () => {
     const chip = comparisonChip(base)
     expect(chip.direction).toBe('up')
     expect(chip.magnitude).toBe(13)
-    expect(chip.text).toBe('13% up on last month')
+    expect(chip.text).toBe('13% up on the previous month')
   })
 
   it('reads down when cur < prev', () => {
     const chip = comparisonChip({ cur: 40, prev: 54, pct: 26, label: 'last_month' })
     expect(chip.direction).toBe('down')
-    expect(chip.text).toBe('26% down on last month')
+    expect(chip.text).toBe('26% down on the previous month')
   })
 
   it('reads flat (no change) when cur === prev', () => {
     const chip = comparisonChip({ cur: 54, prev: 54, pct: 0, label: 'last_month' })
     expect(chip.direction).toBe('flat')
-    expect(chip.text).toBe('No change on last month')
+    expect(chip.text).toBe('No change on the previous month')
   })
 
   it('describes direction without a percentage when pct is null (prev was 0)', () => {
@@ -80,5 +82,17 @@ describe('comparisonChip', () => {
     expect(chip.direction).toBe('up')
     expect(chip.magnitude).toBeNull()
     expect(chip.text).toBe('Up on the previous 3 months')
+  })
+
+  it('uses the baseline phrase for the longer presets and all/custom', () => {
+    expect(comparisonChip({ cur: 10, prev: 8, pct: 25, label: 'last_6m' }).text).toBe(
+      '25% up on the previous 6 months',
+    )
+    expect(comparisonChip({ cur: 10, prev: 8, pct: 25, label: 'custom' }).text).toBe(
+      '25% up on the previous period',
+    )
+    expect(comparisonChip({ cur: 10, prev: 8, pct: 25, label: 'all' }).text).toBe(
+      '25% up on the previous period',
+    )
   })
 })

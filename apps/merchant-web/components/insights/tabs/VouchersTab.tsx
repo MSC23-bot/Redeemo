@@ -26,7 +26,7 @@ import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Ticket, BarChart3 } from '@/lib/icons'
 import { getInsightsVouchers, type InsightsFilters } from '@/lib/api/insights'
-import { voucherTypeLabel } from '@/lib/redemptions/display'
+import { insightsVoucherTypeLabel } from '@/lib/insights/display'
 import { formatCount, formatGbp } from '@/lib/insights/format'
 import { MetricInfo } from '../MetricInfo'
 import { ShareBar, type ShareSegment } from '../charts/ShareBar'
@@ -123,7 +123,7 @@ export function VouchersTab({ filters }: VouchersTabProps) {
   // The ShareBar segments are derived from the LOGGED values directly so the share is
   // always over the logged denominator (the bar and the legend cannot disagree).
   const segments: ShareSegment[] = data.byType.map((t) => ({
-    label: voucherTypeLabel(t.type7),
+    label: insightsVoucherTypeLabel(t.type7),
     value: t.logged,
     color: VT_TOKEN[t.type7],
   }))

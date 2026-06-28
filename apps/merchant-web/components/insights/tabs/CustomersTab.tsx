@@ -29,6 +29,7 @@ import { useQuery } from '@tanstack/react-query'
 import { UserPlus, Repeat } from '@/lib/icons'
 import { getInsightsCustomers, type InsightsFilters } from '@/lib/api/insights'
 import { formatCount, formatRatePercentValue, comparisonChip } from '@/lib/insights/format'
+import { REPEAT_RATE_EXPLAINER } from '@/lib/insights/display'
 import { MetricInfo } from '../MetricInfo'
 
 export interface CustomersTabProps {
@@ -201,10 +202,7 @@ export function CustomersTab({ filters }: CustomersTabProps) {
                 label="About the repeat-customer rate"
                 ariaLabel="How the repeat-customer rate is counted"
               >
-                The share of customers in this selection who have redeemed with you more
-                than once. A loyalty signal counted at the group level. We hold off on a
-                figure until there is enough activity to be meaningful. Excludes test,
-                deleted, and removed records.
+                {REPEAT_RATE_EXPLAINER}
               </MetricInfo>
             </div>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>

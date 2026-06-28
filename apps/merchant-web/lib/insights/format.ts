@@ -85,9 +85,17 @@ export interface ComparisonChip {
   text: string
 }
 
+/**
+ * The phrase describing the BASELINE (comparison) window, keyed by the VIEWED period
+ * preset. It must name the window being compared AGAINST, never the period in view: when
+ * the user views "last month" the baseline is the month BEFORE it, so the chip must read
+ * "X% up on the previous month" (not "...on last month", which would name the viewed
+ * period). The completed-month-only rule (spec 1.4) means this_month never renders a chip;
+ * its entry is kept neutral for safety.
+ */
 const PERIOD_PHRASE: Record<string, string> = {
-  this_month: 'this month',
-  last_month: 'last month',
+  this_month: 'the previous period',
+  last_month: 'the previous month',
   last_3m: 'the previous 3 months',
   last_6m: 'the previous 6 months',
   all: 'the previous period',

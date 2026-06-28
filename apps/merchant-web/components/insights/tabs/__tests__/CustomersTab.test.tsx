@@ -20,8 +20,9 @@
  *   - The prototype's anonymity / suppression banner (screenshot 07) is BANNED.
  *   - "Delivered" / "Value delivered" must not appear.
  */
-import { render, screen, within, cleanup } from '@testing-library/react'
+import { render, screen, within, cleanup, fireEvent } from '@testing-library/react'
 import { CustomersTab } from '../CustomersTab'
+import { REPEAT_RATE_EXPLAINER } from '@/lib/insights/display'
 import type { InsightsCustomers, InsightsFilters } from '@/lib/api/insights'
 
 jest.mock('@/lib/api/insights', () => ({
@@ -76,6 +77,25 @@ describe('CustomersTab', () => {
     renderTab()
     const card = await screen.findByTestId('customers-repeat-rate')
     expect(within(card).getByText('39%')).toBeInTheDocument()
+  })
+
+  it('uses the LOCKED repeat-rate explainer (before-this-period, not "more than once")', async () => {
+    renderTab()
+    const card = await screen.findByTestId('customers-repeat-rate')
+    // Open the explainer (MetricInfo reveals on focus) and assert the locked definition.
+    const trigger = within(card).getByRole('button', {
+      name: /how the repeat-customer rate is counted/i,
+    })
+    fireEvent.focus(trigger)
+    expect(
+      within(card).getByText(
+        /already redeemed with you before this period began/i,
+      ),
+    ).toBeInTheDocument()
+    // It must NOT use the WRONG frequency-based wording.
+    expect(within(card).queryByText(/more than once/i)).not.toBeInTheDocument()
+    // It is the exact shared constant (KpiCards uses the identical string).
+    expect(within(card).getByText(REPEAT_RATE_EXPLAINER)).toBeInTheDocument()
   })
 
   it('shows the insufficient copy when the repeat rate is insufficient', async () => {

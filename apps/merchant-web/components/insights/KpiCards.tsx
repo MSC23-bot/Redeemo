@@ -36,6 +36,7 @@ import {
   formatRatePercentValue,
   comparisonChip,
 } from '@/lib/insights/format'
+import { REPEAT_RATE_EXPLAINER } from '@/lib/insights/display'
 import type { InsightsOverview, Comparison } from '@/lib/api/insights'
 
 export interface KpiCardsProps {
@@ -102,7 +103,9 @@ function ComparisonChip({ comparison }: { comparison: Comparison }) {
   const chip = comparisonChip(comparison)
   const tone =
     chip.direction === 'up'
-      ? { color: 'var(--success)', bg: 'rgba(15,122,62,0.10)' }
+      ? // Success-tinted background derived from the token (no --success-bg token exists);
+        // mirrors the codebase color-mix convention rather than a hardcoded rgba.
+        { color: 'var(--success)', bg: 'color-mix(in srgb, var(--success) 10%, transparent)' }
       : chip.direction === 'down'
         ? { color: 'var(--warning)', bg: 'var(--warning-bg)' }
         : { color: 'var(--text-secondary)', bg: 'var(--tint)' }
@@ -224,10 +227,7 @@ export function KpiCards({ overview, className }: KpiCardsProps) {
               label="About the repeat-customer rate"
               ariaLabel="How the repeat-customer rate is measured"
             >
-              The share of the customers in this selection who had also redeemed with
-              you before. It is only shown once enough customers are in view to be
-              reliable; until then it reads as building. Excludes test, deleted, and
-              removed records.
+              {REPEAT_RATE_EXPLAINER}
             </MetricInfo>
           }
         />

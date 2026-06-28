@@ -90,6 +90,25 @@ describe('BusyTimesTab', () => {
     expect(screen.queryByTestId('busy-times-busiest')).not.toBeInTheDocument()
   })
 
+  it('renders an ALWAYS-VISIBLE legend of the four intensity bands (not colour-only)', async () => {
+    renderTab()
+    const legend = await screen.findByTestId('busy-times-legend')
+    // The four band labels render as visible swatch + text pairs.
+    for (const label of ['No redemptions', 'Quiet', 'Steady', 'Busy']) {
+      expect(within(legend).getByText(label)).toBeInTheDocument()
+    }
+    // The legend is NOT inside the sr-only equivalent table (it is sighted-visible).
+    expect(legend.closest('table')).toBeNull()
+    expect(legend.closest('.sr-only')).toBeNull()
+  })
+
+  it('omits the legend when busy-times is gated (no grid to read)', async () => {
+    mockGet.mockResolvedValue({ available: false })
+    renderTab()
+    await screen.findByTestId('busy-times-card')
+    expect(screen.queryByTestId('busy-times-legend')).not.toBeInTheDocument()
+  })
+
   it('exposes NO raw count (bands only; counts never rendered)', async () => {
     const { container } = renderTab()
     await screen.findByTestId('busy-times-card')

@@ -5,11 +5,19 @@
  * period / branch scope / voucher filter, and the generation date, with a "Print or save
  * report" affordance that calls window.print(). It carries NO event-level / per-customer
  * rows and uses the Decision-11 savings terminology (never "delivered").
+ *
+ * LIFECYCLE (mirrors the dashboard page; final-review finding 1): the profile lifecycle
+ * gates the surface up front (SUSPENDED -> suspension screen; pre-live -> lock) and the
+ * /overview query maps the backend codes (MERCHANT_NOT_ACTIVE / MERCHANT_SUSPENDED /
+ * INSUFFICIENT_PERMISSIONS) to the SAME proper states the dashboard shows, never a
+ * generic error.
  */
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ReportPage from '@/app/(app)/insights/report/page'
+import { ApiError } from '@/lib/api/client'
 import type { InsightsOverview } from '@/lib/api/insights'
+import type { Branch } from '@/lib/api/branch'
 
 // Keep the real schemas/types (lib/insights/filters depends on the zod enums) and
 // override only the fetcher. requireActual preserves periodPresetSchema etc.
@@ -23,11 +31,43 @@ import { getInsightsOverview } from '@/lib/api/insights'
 
 const mockOverview = getInsightsOverview as jest.MockedFunction<typeof getInsightsOverview>
 
+// The authorised branch list (used to resolve the scope-label branch name).
+jest.mock('@/lib/api/branch', () => ({
+  __esModule: true,
+  listBranches: jest.fn(),
+}))
+import { listBranches } from '@/lib/api/branch'
+const mockListBranches = listBranches as jest.MockedFunction<typeof listBranches>
+
+// The lifecycle source (profile) + the session (businessName / auth).
+interface ProfileData {
+  status: string
+  onboardingStep: string
+  businessName: string
+}
+interface ProfileQuery {
+  data?: ProfileData
+  isLoading: boolean
+  isError?: boolean
+  refetch?: () => void
+}
+let mockProfile: ProfileQuery
+jest.mock('@/lib/auth/session', () => ({
+  useSession: () => ({ isAuthenticated: true, businessName: 'Roe Cafe' }),
+}))
+jest.mock('@/lib/auth/useMerchantProfile', () => ({ useMerchantProfile: () => mockProfile }))
+
 // The printable reads the active filters from the URL.
 let searchParams = new URLSearchParams()
 jest.mock('next/navigation', () => ({
   useSearchParams: () => searchParams,
 }))
+
+const ACTIVE_PROFILE: ProfileData = {
+  status: 'ACTIVE',
+  onboardingStep: 'LIVE',
+  businessName: 'Roe Cafe',
+}
 
 const OVERVIEW: InsightsOverview = {
   redemptionActivity: { logged: 61, confirmed: 49, awaiting: 12, comparison: null },
@@ -52,6 +92,8 @@ const OVERVIEW: InsightsOverview = {
   },
 }
 
+const BRANCH_LIST: Branch[] = [{ id: 'b1', name: 'Roe Cafe Soho' } as Branch]
+
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -62,8 +104,11 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  mockProfile = { data: ACTIVE_PROFILE, isLoading: false }
   mockOverview.mockReset()
   mockOverview.mockResolvedValue(OVERVIEW)
+  mockListBranches.mockReset()
+  mockListBranches.mockResolvedValue(BRANCH_LIST)
   searchParams = new URLSearchParams('period=this_month')
 })
 afterEach(cleanup)
@@ -82,13 +127,28 @@ describe('Insights printable report page', () => {
   })
 
   it('states the period / branch scope / voucher filter for the selection', async () => {
-    searchParams = new URLSearchParams('period=last_month&branchId=b1&voucherType=BOGO')
+    searchParams = new URLSearchParams('period=last_month&voucherType=BOGO')
     renderPage()
     await screen.findByText('61')
     expect(screen.getByText(/last month/i)).toBeInTheDocument()
-    // The scope label is sourced from the overview meta.
+    // The scope label is sourced from the overview meta (no branch filter -> raw label).
     expect(screen.getAllByText(/All branches/i).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText(/BOGO|Buy one, get one free/i)).toBeInTheDocument()
+    // The voucher filter uses the LOCKED Insights label (spec 1.16).
+    expect(screen.getByText('Buy one, get one free')).toBeInTheDocument()
+  })
+
+  it('resolves the human branch NAME for the scope label when a branchId filter is active', async () => {
+    // The backend emits the "Viewing: selected branch" placeholder for a single branch.
+    mockOverview.mockResolvedValue({
+      ...OVERVIEW,
+      meta: { ...OVERVIEW.meta, scopeLabel: 'Viewing: selected branch' },
+    })
+    searchParams = new URLSearchParams('period=last_month&branchId=b1')
+    renderPage()
+    await screen.findByText('61')
+    // The placeholder is replaced with the real branch name from the authorised list.
+    expect(screen.getByText('Viewing: Roe Cafe Soho')).toBeInTheDocument()
+    expect(screen.queryByText('Viewing: selected branch')).not.toBeInTheDocument()
   })
 
   it('states a generation date', async () => {
@@ -132,5 +192,59 @@ describe('Insights printable report page', () => {
     renderPage()
     expect(screen.getByText(/preparing your report|loading/i)).toBeInTheDocument()
     await screen.findByText('61')
+  })
+
+  // --- LIFECYCLE / ROLE GATE (finding 1) -------------------------------------
+
+  it('renders the suspension screen up front for a SUSPENDED profile (no Insights fetch)', () => {
+    mockProfile = { data: { ...ACTIVE_PROFILE, status: 'SUSPENDED' }, isLoading: false }
+    renderPage()
+    expect(screen.getByText(/your account is suspended/i)).toBeInTheDocument()
+    // The report data fetch is never fired for a suspended merchant.
+    expect(mockOverview).not.toHaveBeenCalled()
+  })
+
+  it('renders a lifecycle lock up front for a pre-live (setup) profile (no Insights fetch)', () => {
+    mockProfile = {
+      data: { ...ACTIVE_PROFILE, status: 'REGISTERED', onboardingStep: 'REGISTERED' },
+      isLoading: false,
+    }
+    renderPage()
+    expect(screen.getByText(/insights unlock when your business is live/i)).toBeInTheDocument()
+    expect(mockOverview).not.toHaveBeenCalled()
+  })
+
+  it('maps a 403 MERCHANT_NOT_ACTIVE to the lifecycle lock, not a generic error', async () => {
+    mockOverview.mockRejectedValue(
+      new ApiError(403, { error: { code: 'MERCHANT_NOT_ACTIVE', message: 'not active' } }),
+    )
+    renderPage()
+    expect(await screen.findByText(/insights unlock when your business is live/i)).toBeInTheDocument()
+    // NOT the generic report error copy.
+    expect(screen.queryByText(/we could not prepare your report/i)).not.toBeInTheDocument()
+  })
+
+  it('maps a 403 MERCHANT_SUSPENDED to the suspension screen, not a generic error', async () => {
+    mockOverview.mockRejectedValue(
+      new ApiError(403, { error: { code: 'MERCHANT_SUSPENDED', message: 'suspended' } }),
+    )
+    renderPage()
+    expect(await screen.findByText(/your account is suspended/i)).toBeInTheDocument()
+  })
+
+  it('maps a 403 INSUFFICIENT_PERMISSIONS to a server-denied notice (Staff)', async () => {
+    mockOverview.mockRejectedValue(
+      new ApiError(403, { error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'denied' } }),
+    )
+    renderPage()
+    expect(await screen.findByText(/do not have access to insights/i)).toBeInTheDocument()
+  })
+
+  it('shows the friendly retry error for a non-lifecycle ApiError', async () => {
+    mockOverview.mockRejectedValue(
+      new ApiError(500, { error: { code: 'INTERNAL', message: 'boom' } }),
+    )
+    renderPage()
+    expect(await screen.findByText(/we could not load your insights/i)).toBeInTheDocument()
   })
 })

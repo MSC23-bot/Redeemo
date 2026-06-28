@@ -36,6 +36,44 @@ const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 /** The six locked owner-facing dayparts (NOT the prototype's four columns). */
 const DAYPART_LABELS = ['Overnight', 'Morning', 'Lunch', 'Afternoon', 'Evening', 'Late'] as const
 
+/**
+ * The four ordinal intensity bands, paired with the matching ramp token. The heatmap
+ * conveys intensity by colour only, which fails the spec MUST for a clear, sighted
+ * legend (the band words otherwise live solely in the sr-only table + the hover/focus
+ * popover). This always-visible legend gives every cell colour a text meaning. Order +
+ * tokens mirror the Heatmap's --chart-intensity-0..3 ramp exactly.
+ */
+const BAND_LEGEND: ReadonlyArray<{ label: string; token: string }> = [
+  { label: 'No redemptions', token: 'var(--chart-intensity-0)' },
+  { label: 'Quiet', token: 'var(--chart-intensity-1)' },
+  { label: 'Steady', token: 'var(--chart-intensity-2)' },
+  { label: 'Busy', token: 'var(--chart-intensity-3)' },
+]
+
+/** The always-visible colour-swatch + text-label legend for the intensity ramp. */
+function HeatmapLegend() {
+  return (
+    <ul
+      data-testid="busy-times-legend"
+      aria-label="Intensity bands"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2"
+    >
+      {BAND_LEGEND.map((band) => (
+        <li key={band.label} className="flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className="inline-block h-3 w-3 shrink-0 rounded"
+            style={{ background: band.token, border: '1px solid var(--border)' }}
+          />
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            {band.label}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function BusyTimesTab({ filters }: BusyTimesTabProps) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['insights', 'busy-times', filters],
@@ -120,7 +158,10 @@ export function BusyTimesTab({ filters }: BusyTimesTabProps) {
       </header>
 
       {available ? (
-        <Heatmap grid={data.grid} busiest={data.busiest} />
+        <div className="flex flex-col gap-3">
+          <Heatmap grid={data.grid} busiest={data.busiest} />
+          <HeatmapLegend />
+        </div>
       ) : (
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
           Not available for this selection.

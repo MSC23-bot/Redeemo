@@ -193,9 +193,11 @@ describe('voucher type filter (7 types incl. DISCOUNT)', () => {
     renderFilters()
     fireEvent.click(screen.getByRole('button', { name: /all voucher types/i }))
     const menu = screen.getByRole('menu', { name: /voucher type/i })
+    // The LOCKED merchant-facing labels (spec 1.16): "Buy one, get one free",
+    // "Spend & save" etc. NOT the sentence-cased shared-display labels.
     expect(within(menu).getByRole('menuitemradio', { name: 'All voucher types' })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitemradio', { name: 'BOGO' })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitemradio', { name: 'Spend and save' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitemradio', { name: 'Buy one, get one free' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitemradio', { name: 'Spend & save' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitemradio', { name: 'Discount' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitemradio', { name: 'Freebie' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitemradio', { name: 'Package deal' })).toBeInTheDocument()
@@ -212,7 +214,8 @@ describe('voucher type filter (7 types incl. DISCOUNT)', () => {
 
   it('selecting "All voucher types" clears the voucherType from the state', () => {
     const { onChange } = renderFilters({ state: { period: 'this_month', voucherType: 'BOGO' } })
-    fireEvent.click(screen.getByRole('button', { name: /bogo/i }))
+    // The trigger reads the locked BOGO label "Buy one, get one free".
+    fireEvent.click(screen.getByRole('button', { name: /buy one, get one free/i }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'All voucher types' }))
     const arg = onChange.mock.calls.at(-1)?.[0] as InsightsFilterState
     expect(arg.voucherType).toBeUndefined()

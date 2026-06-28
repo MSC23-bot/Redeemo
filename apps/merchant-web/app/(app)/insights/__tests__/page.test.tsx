@@ -89,8 +89,11 @@ jest.mock('@/lib/branches/useBranchCapability', () => ({
   useBranchCapability: () => mockCapability,
 }))
 
+// Mutable so a test can seed the initial filter state (e.g. an active voucherType
+// filter) from the URL the page reads once on mount.
+let mockSearchParams = new URLSearchParams()
 jest.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mockSearchParams,
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
 }))
 
@@ -172,6 +175,7 @@ function renderPage() {
 beforeEach(() => {
   mockProfile = { data: ACTIVE_PROFILE, isLoading: false }
   mockCapability = { isOwner: true, ready: true }
+  mockSearchParams = new URLSearchParams()
   mockOverview.mockReset().mockResolvedValue(OVERVIEW_WITH_DATA)
   mockTrend.mockReset().mockResolvedValue(TREND)
   mockVouchers.mockReset().mockResolvedValue(VOUCHERS)
@@ -222,6 +226,23 @@ describe('InsightsPage (B8 assembly + states + lifecycle)', () => {
     expect(screen.getByRole('link', { name: /manage your vouchers/i })).toBeInTheDocument()
     // It must NOT render the dashboard KPIs.
     expect(screen.queryByTestId('kpi-redemption-activity')).not.toBeInTheDocument()
+  })
+
+  it('does NOT trap the user in warming-up when an empty result is due to a filter (finding 7)', async () => {
+    // An active voucherType filter that returns nothing (logged 0 + earliestDate null
+    // UNDER that filter) must NOT trigger the module-wide warming-up takeover, because
+    // the takeover hides the filter bar and the user could not clear the filter.
+    mockSearchParams = new URLSearchParams('voucherType=BOGO')
+    mockOverview.mockResolvedValue(OVERVIEW_WARMING_UP)
+    renderPage()
+    // The per-content filtered-empty state shows instead.
+    expect(await screen.findByTestId('insights-filtered-empty')).toBeInTheDocument()
+    expect(screen.getByText(/no data for this filter/i)).toBeInTheDocument()
+    // The module-wide warming-up takeover must NOT appear.
+    expect(screen.queryByTestId('insights-warming-up')).not.toBeInTheDocument()
+    expect(screen.queryByText(/your insights are warming up/i)).not.toBeInTheDocument()
+    // CRITICAL: the filter bar stays visible so the user can clear the filter.
+    expect(screen.getByRole('button', { name: /buy one, get one free/i })).toBeInTheDocument()
   })
 
   it('shows a distinct page-level loading state', () => {

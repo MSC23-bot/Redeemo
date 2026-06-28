@@ -35,10 +35,9 @@
  * tokens (never hardcoded hex).
  */
 import * as React from 'react'
-import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { Ticket, MapPin, Users, Clock, CircleCheck, ArrowRight, Lock } from '@/lib/icons'
+import { Ticket, MapPin, Users, Clock, CircleCheck, Filter } from '@/lib/icons'
 import {
   getInsightsOverview,
   getInsightsTrend,
@@ -57,187 +56,24 @@ import {
   serialiseFilters,
   type InsightsFilterState,
 } from '@/lib/insights/filters'
+import { resolveScopeLabel } from '@/lib/insights/display'
 import { InsightsFilters as FilterBar, type BranchOption } from '@/components/insights/InsightsFilters'
 import { KpiCards } from '@/components/insights/KpiCards'
 import { TrendChart } from '@/components/insights/TrendChart'
 import { ReportsCard } from '@/components/insights/ReportsCard'
+import {
+  PageHeader,
+  InsightsLocked,
+  InsightsAccessDenied,
+  InsightsWarmingUp,
+  InsightsLoading,
+  InsightsError,
+} from '@/components/insights/InsightsLifecycleStates'
 import { VouchersTab } from '@/components/insights/tabs/VouchersTab'
 import { BranchesTab } from '@/components/insights/tabs/BranchesTab'
 import { CustomersTab } from '@/components/insights/tabs/CustomersTab'
 import { BusyTimesTab } from '@/components/insights/tabs/BusyTimesTab'
 import { ValidationTab } from '@/components/insights/tabs/ValidationTab'
-
-// --- the page header (logged-primary sub-headline; never "honoured") ----------
-
-function PageHeader() {
-  return (
-    <header className="flex flex-col gap-1">
-      <h1 className="font-display text-2xl font-semibold" style={{ color: 'var(--navy)' }}>
-        Insights and reports
-      </h1>
-      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-        How your vouchers are performing. Figures count the redemptions your customers
-        logged, with the subset later confirmed by staff shown alongside.
-      </p>
-    </header>
-  )
-}
-
-// --- the lifecycle "unlocks when you go live" lock ---------------------------
-
-function InsightsLocked() {
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader />
-      <section
-        data-testid="insights-locked"
-        role="status"
-        className="flex flex-col items-start gap-3 rounded-2xl border bg-card p-6 shadow-sm"
-        style={{ borderColor: 'var(--border)' }}
-      >
-        <span
-          className="flex h-11 w-11 items-center justify-center rounded-xl"
-          style={{ background: 'var(--tint)', color: 'var(--coral)' }}
-          aria-hidden
-        >
-          <Lock size={22} />
-        </span>
-        <h2 className="text-lg font-semibold" style={{ color: 'var(--navy)' }}>
-          Insights unlock when your business is live
-        </h2>
-        <p className="max-w-[60ch] text-sm" style={{ color: 'var(--text-secondary)' }}>
-          Once your business is approved and live, this is where you will see how your
-          vouchers are performing: redemptions, your busiest times, your top vouchers,
-          and downloadable reports. Finish setting up your business to get there.
-        </p>
-        <Link
-          href="/"
-          className="mt-1 inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-          style={{ background: 'var(--navy)' }}
-        >
-          Go to your business setup
-        </Link>
-      </section>
-    </div>
-  )
-}
-
-// --- the STAFF server-denied notice (nav is hidden too) ----------------------
-
-function InsightsAccessDenied() {
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader />
-      <section
-        data-testid="insights-denied"
-        role="status"
-        className="flex flex-col items-start gap-3 rounded-2xl border bg-card p-6 shadow-sm"
-        style={{ borderColor: 'var(--border)' }}
-      >
-        <span
-          className="flex h-11 w-11 items-center justify-center rounded-xl"
-          style={{ background: 'var(--tint)', color: 'var(--coral)' }}
-          aria-hidden
-        >
-          <Lock size={22} />
-        </span>
-        <h2 className="text-lg font-semibold" style={{ color: 'var(--navy)' }}>
-          You do not have access to Insights
-        </h2>
-        <p className="max-w-[60ch] text-sm" style={{ color: 'var(--text-secondary)' }}>
-          Insights and reports are available to business owners and branch managers. If
-          you need access, ask the account owner.
-        </p>
-      </section>
-    </div>
-  )
-}
-
-// --- the early-life "warming up" empty state (screenshot 01) ------------------
-
-function InsightsWarmingUp() {
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader />
-      <section
-        data-testid="insights-warming-up"
-        role="status"
-        className="flex flex-col items-start gap-3 rounded-2xl border bg-card p-6 shadow-sm"
-        style={{ borderColor: 'var(--border)' }}
-      >
-        <span
-          className="flex h-11 w-11 items-center justify-center rounded-xl"
-          style={{ background: 'var(--tint)', color: 'var(--coral)' }}
-          aria-hidden
-        >
-          <Clock size={22} />
-        </span>
-        <h2 className="text-lg font-semibold" style={{ color: 'var(--navy)' }}>
-          Your insights are warming up
-        </h2>
-        <p className="max-w-[60ch] text-sm" style={{ color: 'var(--text-secondary)' }}>
-          We will start showing your figures here as soon as customers begin redeeming
-          your vouchers. Make sure your vouchers are live and ready, and check back once
-          you have your first redemptions.
-        </p>
-        <Link
-          href="/vouchers"
-          className="mt-1 inline-flex h-11 items-center gap-2 rounded-xl px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-          style={{ background: 'var(--navy)' }}
-        >
-          Manage your vouchers
-          <ArrowRight size={16} aria-hidden />
-        </Link>
-      </section>
-    </div>
-  )
-}
-
-// --- the page-level loading + friendly-error states --------------------------
-
-function InsightsLoading() {
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader />
-      <div
-        role="status"
-        aria-live="polite"
-        className="text-sm"
-        style={{ color: 'var(--text-muted)' }}
-      >
-        Loading your insights...
-      </div>
-    </div>
-  )
-}
-
-function InsightsError({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader />
-      <section
-        role="alert"
-        className="flex flex-col items-start gap-3 rounded-2xl border bg-card p-6 shadow-sm"
-        style={{ borderColor: 'var(--border)' }}
-      >
-        <h2 className="text-base font-semibold" style={{ color: 'var(--navy)' }}>
-          We could not load your insights
-        </h2>
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          There was a problem reaching Redeemo. Please try again.
-        </p>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-          style={{ background: 'var(--navy)' }}
-        >
-          Try again
-        </button>
-      </section>
-    </div>
-  )
-}
 
 // --- the tabbed section -------------------------------------------------------
 
@@ -295,11 +131,11 @@ function InsightsTabs({ filters }: { filters: InsightsFilters }) {
               className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors"
               style={
                 selected
-                  ? { background: 'var(--navy)', color: '#fff' }
+                  ? { background: 'var(--navy)', color: 'var(--page)' }
                   : { background: 'transparent', color: 'var(--text-secondary)' }
               }
             >
-              <span aria-hidden style={{ color: selected ? '#fff' : 'var(--coral)' }}>
+              <span aria-hidden style={{ color: selected ? 'var(--page)' : 'var(--coral)' }}>
                 {t.icon}
               </span>
               {t.label}
@@ -383,12 +219,39 @@ function InsightsDashboard() {
   const data = overview.data
   if (!data) return <InsightsError onRetry={() => overview.refetch()} />
 
-  // Early-life module-wide warming-up: NO eligible activity at all. The truthful
-  // signal is zero logged AND no earliest included date (a narrow-filter zero, where
-  // history exists, stays a dashboard truthful-zero rather than this module state).
+  // A branch and/or voucher-type filter narrows the dataset (earliestDate is itself
+  // branch + voucher-type filtered, but NOT period filtered). So a filter is "active"
+  // for trap purposes when EITHER of those is set.
+  const filterActive = Boolean(filterState.branchId || filterState.voucherType)
+
+  // Early-life MODULE-WIDE warming-up: genuinely NO eligible activity ever for the WHOLE
+  // merchant. earliestDate ignores the period window but IS branch + voucher-type
+  // filtered, so it is only a trustworthy "never any activity" signal when NO branch /
+  // voucher-type filter is active. Reserving the module takeover for that case means a
+  // narrow filter that returns nothing can never strand the user without the filter bar.
   const warmingUp =
-    data.redemptionActivity.logged === 0 && data.meta.earliestDate === null
+    !filterActive &&
+    data.redemptionActivity.logged === 0 &&
+    data.meta.earliestDate === null
   if (warmingUp) return <InsightsWarmingUp />
+
+  // FILTERED-EMPTY (the trap fix): a branch / voucher-type filter that returns no eligible
+  // activity at all (earliestDate null under that filter). Keep the filter bar visible so
+  // the user can clear the filter; show a per-content "No data for this filter" empty
+  // state in place of the data body rather than the module-wide warming-up takeover.
+  const filteredEmpty =
+    filterActive &&
+    data.redemptionActivity.logged === 0 &&
+    data.meta.earliestDate === null
+
+  // The backend emits a "Viewing: selected branch" PLACEHOLDER for a single-branch view
+  // (it never enumerates branch names server-side). Resolve the human branch NAME from
+  // the authorised branch options we already hold for the reports / printable selection.
+  const resolvedScopeLabel = resolveScopeLabel(
+    data.meta.scopeLabel,
+    filterState.branchId,
+    branchOptions,
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -401,14 +264,64 @@ function InsightsDashboard() {
         isOwner={capability.isOwner}
       />
 
-      <KpiCards overview={data} />
+      {filteredEmpty ? (
+        <FilteredEmpty
+          onClear={() =>
+            setFilterState({ period: filterState.period })
+          }
+        />
+      ) : (
+        <>
+          <KpiCards overview={data} />
 
-      <TrendChartCard filters={filters} />
+          <TrendChartCard filters={filters} />
 
-      <InsightsTabs filters={filters} />
+          <InsightsTabs filters={filters} />
 
-      <ReportsCard filters={filters} scopeLabel={data.meta.scopeLabel} gateOpen={false} />
+          <ReportsCard filters={filters} scopeLabel={resolvedScopeLabel} gateOpen={false} />
+        </>
+      )}
     </div>
+  )
+}
+
+// --- the filtered-empty per-content state (filter bar stays visible) ----------
+// Distinct from the module-wide warming-up takeover: history exists for the merchant,
+// but the active branch / voucher-type filter matched nothing. The filter bar above
+// stays rendered so the user is never stranded; this offers a one-tap clear.
+
+function FilteredEmpty({ onClear }: { onClear: () => void }) {
+  return (
+    <section
+      data-testid="insights-filtered-empty"
+      role="status"
+      className="flex flex-col items-start gap-3 rounded-2xl border bg-card p-6 shadow-sm"
+      style={{ borderColor: 'var(--border)' }}
+    >
+      <span
+        className="flex h-11 w-11 items-center justify-center rounded-xl"
+        style={{ background: 'var(--tint)', color: 'var(--coral)' }}
+        aria-hidden
+      >
+        <Filter size={22} />
+      </span>
+      <h2 className="text-lg font-semibold" style={{ color: 'var(--navy)' }}>
+        No data for this filter
+      </h2>
+      <p className="max-w-[60ch] text-sm" style={{ color: 'var(--text-secondary)' }}>
+        There is no redemption activity for the branch and voucher type you have selected.
+        Try a different branch or voucher type, or clear the filters to see all your
+        activity.
+      </p>
+      <button
+        type="button"
+        onClick={onClear}
+        className="mt-1 inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+        style={{ background: 'var(--navy)' }}
+      >
+        Clear filters
+      </button>
+    </section>
   )
 }
 

@@ -14,8 +14,9 @@
  * Each KPI shows its OWN comparison chip only when comparison != null (completed-
  * period-only); the repeat-rate chip is gated together with the metric.
  */
-import { render, screen, within, cleanup } from '@testing-library/react'
+import { render, screen, within, cleanup, fireEvent } from '@testing-library/react'
 import { KpiCards } from '../KpiCards'
+import { REPEAT_RATE_EXPLAINER } from '@/lib/insights/display'
 import type { InsightsOverview, Comparison } from '@/lib/api/insights'
 
 const COMPLETED: NonNullable<Comparison> = {
@@ -111,12 +112,13 @@ describe('KpiCards (the four overview KPIs)', () => {
 
   it('shows the per-KPI comparison chip on a completed period', () => {
     render(<KpiCards overview={makeOverview()} />)
-    // Redemption-activity chip present.
+    // Redemption-activity chip present. The baseline phrase names the comparison window
+    // (the month before "last month"), so it reads "...on the previous month".
     const activity = screen.getByTestId('kpi-redemption-activity')
-    expect(within(activity).getByText(/13% up on last month/i)).toBeInTheDocument()
+    expect(within(activity).getByText(/13% up on the previous month/i)).toBeInTheDocument()
     // Repeat-rate chip present (gated with the metric, but here the metric is present).
     const repeat = screen.getByTestId('kpi-repeat-rate')
-    expect(within(repeat).getByText(/13% up on last month/i)).toBeInTheDocument()
+    expect(within(repeat).getByText(/13% up on the previous month/i)).toBeInTheDocument()
   })
 
   it('shows NO comparison chip on this_month (comparison null on every KPI)', () => {
@@ -146,8 +148,8 @@ describe('KpiCards (the four overview KPIs)', () => {
         })}
       />,
     )
-    expect(screen.queryByText(/up on last month/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/down on last month/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/up on the previous/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/down on the previous/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/no change on/i)).not.toBeInTheDocument()
   })
 
@@ -156,7 +158,7 @@ describe('KpiCards (the four overview KPIs)', () => {
       <KpiCards overview={makeOverview({ repeatRate: { available: false } })} />,
     )
     const repeat = screen.getByTestId('kpi-repeat-rate')
-    expect(within(repeat).queryByText(/up on last month/i)).not.toBeInTheDocument()
+    expect(within(repeat).queryByText(/up on the previous/i)).not.toBeInTheDocument()
   })
 
   it('renders NO "Value delivered" / "Delivered" text anywhere (visual-fidelity guard)', () => {
@@ -168,6 +170,22 @@ describe('KpiCards (the four overview KPIs)', () => {
     render(<KpiCards overview={makeOverview()} />)
     expect(screen.getByText(/repeat-customer rate/i)).toBeInTheDocument()
     expect(screen.queryByText(/value delivered/i)).not.toBeInTheDocument()
+  })
+
+  it('uses the LOCKED repeat-rate explainer, identical to the Customers tab', () => {
+    render(<KpiCards overview={makeOverview()} />)
+    const repeat = screen.getByTestId('kpi-repeat-rate')
+    const trigger = within(repeat).getByRole('button', {
+      name: /how the repeat-customer rate is measured/i,
+    })
+    fireEvent.focus(trigger)
+    // The exact shared constant (CustomersTab renders the identical string).
+    expect(within(repeat).getByText(REPEAT_RATE_EXPLAINER)).toBeInTheDocument()
+    expect(
+      within(repeat).getByText(/already redeemed with you before this period began/i),
+    ).toBeInTheDocument()
+    // NOT the previous wrong "had also redeemed with you before" loose wording.
+    expect(within(repeat).queryByText(/had also redeemed/i)).not.toBeInTheDocument()
   })
 
   it('wires a MetricInfo explainer on each metric', () => {
