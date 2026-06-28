@@ -53,6 +53,26 @@
   --trending: #DB2777;
   --featured: #C7891B;
 
+  /* Insights chart palette (functional, NOT brand-rose; PR-B Task B2).
+   * logged = the headline total (warm coral, neutral-but-alive); confirmed =
+   * the validated subset overlay (deeper navy-ink so it reads as "settled");
+   * awaiting = the neutral remainder (logged minus confirmed). These are chart
+   * fills, kept distinct from the brand-rose CTA spine so a bar can never be
+   * mistaken for an action surface. */
+  --chart-logged: #E84A00;
+  --chart-confirmed: #010C35;
+  --chart-awaiting: #E5D7CE;
+  --chart-grid: #ECE5DF;
+  --chart-axis: #8089A4;
+
+  /* Busy-times intensity ramp (ordinal bands 0..3 only; the heatmap is fed
+   * server-computed bands, never raw counts). 0 = none (near-empty warm
+   * neutral) up to 3 = high (saturated coral). */
+  --chart-intensity-0: #FBEEE7;
+  --chart-intensity-1: #F6C9B4;
+  --chart-intensity-2: #EE9670;
+  --chart-intensity-3: #E25018;
+
   /* Neutral text */
   --text-primary: #010C35;
   --text-secondary: #455373;
