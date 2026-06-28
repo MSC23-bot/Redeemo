@@ -578,6 +578,85 @@ describe('Insights demo fixture - finding #10 collision + credential + atomicity
     }
   })
 
+  it('COLLISION (P2): TWO merchants share the demo sentinel name -> THROWS (no DB-ordering pick), changes nothing', async () => {
+    // The expected test-owned demo merchant PLUS another merchant carrying the same
+    // (non-unique) sentinel businessName. findMany sees >1 -> the fixture must throw
+    // rather than silently pick one by database ordering, and (wrapped in one
+    // transaction) must change nothing.
+    const expected = await prisma.merchant.create({
+      data: { businessName: INSIGHTS_DEMO_MERCHANT_NAME, status: 'ACTIVE', isTestData: true },
+      select: { id: true },
+    })
+    const other = await prisma.merchant.create({
+      data: { businessName: INSIGHTS_DEMO_MERCHANT_NAME, status: 'ACTIVE', isTestData: true },
+      select: { id: true },
+    })
+    try {
+      await expect(
+        withSeedGuardsOpen(() => seedInsightsDemoFixture(prisma)),
+      ).rejects.toThrow(/more than one merchant|database ordering|duplicates/i)
+      // Nothing changed: still exactly the two planted merchants; no admin/branches seeded.
+      expect(
+        await prisma.merchant.count({ where: { businessName: INSIGHTS_DEMO_MERCHANT_NAME } }),
+      ).toBe(2)
+      expect(
+        await prisma.merchantAdmin.findUnique({ where: { email: INSIGHTS_DEMO_LOGIN_EMAIL }, select: { id: true } }),
+      ).toBeNull()
+      expect(
+        await prisma.branch.count({ where: { merchantId: { in: [expected.id, other.id] } } }),
+      ).toBe(0)
+    } finally {
+      await prisma.merchant.deleteMany({ where: { id: { in: [expected.id, other.id] } } })
+    }
+  })
+
+  it('COLLISION (P2): duplicate branch sentinel names under the demo merchant -> THROWS, changes nothing', async () => {
+    // The expected test-owned demo merchant (single, valid) with TWO branches sharing
+    // a demo branch sentinel name (kept in sync with insights-demo-fixture.ts
+    // DEMO_BRANCHES[0]). findMany sees >1 for that name -> throw; the whole transaction
+    // rolls back (no admin / membership / vouchers / redemptions persisted).
+    const DUP_BRANCH_NAME = 'INSIGHTS DEMO - Central'
+    const merchant = await prisma.merchant.create({
+      data: { businessName: INSIGHTS_DEMO_MERCHANT_NAME, status: 'ACTIVE', isTestData: true },
+      select: { id: true },
+    })
+    const mkBranch = () =>
+      prisma.branch.create({
+        data: {
+          merchantId: merchant.id,
+          name: DUP_BRANCH_NAME,
+          addressLine1: '1 Demo Street',
+          city: 'London',
+          postcode: 'EC1A 1AA',
+          isActive: true,
+          isTestData: true,
+        },
+        select: { id: true },
+      })
+    const b1 = await mkBranch()
+    const b2 = await mkBranch()
+    try {
+      await expect(
+        withSeedGuardsOpen(() => seedInsightsDemoFixture(prisma)),
+      ).rejects.toThrow(/more than one branch|database ordering/i)
+      // Nothing changed: still exactly the two planted branches; no admin/vouchers/redemptions.
+      expect(
+        await prisma.branch.count({ where: { merchantId: merchant.id, name: DUP_BRANCH_NAME } }),
+      ).toBe(2)
+      expect(
+        await prisma.merchantAdmin.findUnique({ where: { email: INSIGHTS_DEMO_LOGIN_EMAIL }, select: { id: true } }),
+      ).toBeNull()
+      expect(await prisma.voucher.count({ where: { merchantId: merchant.id } })).toBe(0)
+      expect(
+        await prisma.voucherRedemption.count({ where: { branchId: { in: [b1.id, b2.id] } } }),
+      ).toBe(0)
+    } finally {
+      await prisma.voucherRedemption.deleteMany({ where: { branchId: { in: [b1.id, b2.id] } } })
+      await prisma.branch.deleteMany({ where: { id: { in: [b1.id, b2.id] } } })
+      await prisma.merchant.deleteMany({ where: { id: merchant.id } })
+    }
+  })
+
   it('COLLISION: a pre-existing NON-demo voucher already owning a demo code -> THROWS (never upserted)', async () => {
     // A real merchant + a real (isTestData=false) voucher that already owns one of the
     // demo voucher codes. The fixture must THROW rather than upsert/hijack it.

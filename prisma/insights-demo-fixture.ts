@@ -287,13 +287,22 @@ export async function seedInsightsDemoFixture(prisma: PrismaClient): Promise<{
   return prisma.$transaction(
     async (tx) => {
       // 1. The dedicated demo merchant (allowlisted by its sentinel name). COLLISION
-      //    FAIL-CLOSED: a pre-existing match MUST be the test-owned demo merchant; a
-      //    real (isTestData=false) merchant that happens to carry the sentinel name is
-      //    NEVER hijacked - we throw instead.
-      const existingMerchant = await tx.merchant.findFirst({
+      //    FAIL-CLOSED + DETERMINISTIC: businessName is NOT unique, so we findMany and
+      //    require ZERO matches (then create) OR EXACTLY ONE match that is test-owned.
+      //    More than one match -> throw (never pick a row by DB ordering); a single
+      //    match that is real (isTestData=false) -> throw (never hijack a real merchant).
+      const merchantMatches = await tx.merchant.findMany({
         where: { businessName: INSIGHTS_DEMO_MERCHANT_NAME },
         select: { id: true, isTestData: true },
       })
+      if (merchantMatches.length > 1) {
+        throw new Error(
+          'seedInsightsDemoFixture refused: more than one merchant owns the demo sentinel ' +
+            `businessName "${INSIGHTS_DEMO_MERCHANT_NAME}". Refusing to choose one by database ` +
+            'ordering; resolve the duplicates first.',
+        )
+      }
+      const existingMerchant = merchantMatches[0]
       if (existingMerchant && existingMerchant.isTestData !== true) {
         throw new Error(
           'seedInsightsDemoFixture refused: a NON-test merchant already owns the demo ' +
@@ -404,10 +413,20 @@ export async function seedInsightsDemoFixture(prisma: PrismaClient): Promise<{
       //    merchant MUST be test-owned; a real (isTestData=false) branch is never reused.
       const branchIds: string[] = []
       for (const b of DEMO_BRANCHES) {
-        const existing = await tx.branch.findFirst({
+        // Branch names are NOT unique within a merchant, so findMany + require ZERO
+        // matches (then create) OR EXACTLY ONE test-owned match. More than one match
+        // -> throw (never pick by DB ordering); a single real match -> throw.
+        const branchMatches = await tx.branch.findMany({
           where: { merchantId, name: b.name },
           select: { id: true, isTestData: true },
         })
+        if (branchMatches.length > 1) {
+          throw new Error(
+            'seedInsightsDemoFixture refused: more than one branch under the demo merchant ' +
+              `carries the sentinel name "${b.name}". Refusing to choose one by database ordering.`,
+          )
+        }
+        const existing = branchMatches[0]
         if (existing && existing.isTestData !== true) {
           throw new Error(
             'seedInsightsDemoFixture refused: a NON-test branch already exists under the ' +
