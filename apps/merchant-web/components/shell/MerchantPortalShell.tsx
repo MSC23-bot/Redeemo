@@ -32,6 +32,10 @@ export function MerchantPortalShell({ children }: { children: React.ReactNode })
 
   const profile = useMerchantProfile(session.isAuthenticated)
   const status = profile.data ? deriveStatusPill(profile.data) : 'setup'
+  // Insights nav visibility. FAIL CLOSED: only show it when the profile positively
+  // reports canViewInsights (absent during loading / pre-deploy -> hidden). The
+  // backend assertInsightsAccess remains the real boundary.
+  const canViewInsights = profile.data?.viewerCapabilities?.canViewInsights === true
 
   // No-flash gate: hold until the session is known, and don't paint the portal for an
   // unauthenticated visitor (the effect above is redirecting them).
@@ -55,7 +59,7 @@ export function MerchantPortalShell({ children }: { children: React.ReactNode })
             : { width: 262, flexShrink: 0, borderRight: '1px solid #EEF1F4', background: '#fff' }
         }
       >
-        <Sidebar status={status} />
+        <Sidebar status={status} canViewInsights={canViewInsights} />
       </aside>
 
       {showDrawer && (

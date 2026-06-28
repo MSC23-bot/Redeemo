@@ -53,6 +53,26 @@
   --trending: #DB2777;
   --featured: #C7891B;
 
+  /* Insights chart palette (functional, NOT brand-rose; PR-B Task B2).
+   * logged = the headline total (warm coral, neutral-but-alive); confirmed =
+   * the validated subset overlay (deeper navy-ink so it reads as "settled");
+   * awaiting = the neutral remainder (logged minus confirmed). These are chart
+   * fills, kept distinct from the brand-rose CTA spine so a bar can never be
+   * mistaken for an action surface. */
+  --chart-logged: #E84A00;
+  --chart-confirmed: #010C35;
+  --chart-awaiting: #E5D7CE;
+  --chart-grid: #ECE5DF;
+  --chart-axis: #8089A4;
+
+  /* Busy-times intensity ramp (ordinal bands 0..3 only; the heatmap is fed
+   * server-computed bands, never raw counts). 0 = none (near-empty warm
+   * neutral) up to 3 = high (saturated coral). */
+  --chart-intensity-0: #FBEEE7;
+  --chart-intensity-1: #F6C9B4;
+  --chart-intensity-2: #EE9670;
+  --chart-intensity-3: #E25018;
+
   /* Neutral text */
   --text-primary: #010C35;
   --text-secondary: #455373;
@@ -170,4 +190,17 @@
   0%   { box-shadow: 0 0 0 0 rgba(15, 122, 62, 0.45); }
   70%  { box-shadow: 0 0 0 6px rgba(15, 122, 62, 0); }
   100% { box-shadow: 0 0 0 0 rgba(15, 122, 62, 0); }
+}
+
+/* Insights MetricInfo popover intro (PR-B Task B9). The component only applies
+ * this class when prefers-reduced-motion is NOT set; the media query below is a
+ * second belt-and-braces guard so the transform never runs under reduced motion. */
+@keyframes rdmoInfoEnter {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.metric-info-enter { animation: rdmoInfoEnter 140ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .metric-info-enter { animation: none; }
 }
