@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Backend payload-contract tests for getCustomerMerchant per-card
 // REUSABLE state.
@@ -157,6 +157,12 @@ describe('getCustomerMerchant — per-card reusableState (spec §6.4, D13/D16/D1
     vi.clearAllMocks()
     vi.useFakeTimers()
     vi.setSystemTime(TEST_NOW)
+  })
+
+  // Restore real timers after each test so the fake clock cannot leak into
+  // sibling suites now that this file runs in the parallel `unit` project.
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('REUSABLE voucher: reusableState.availableAgainAt is set to ISO of (lastRedeemedAt + 4h) when in cooldown', async () => {

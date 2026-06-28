@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Backend payload-contract tests for getCustomerVoucher REUSABLE deltas.
 //
@@ -198,6 +198,12 @@ describe('getCustomerVoucher — REUSABLE deltas (spec §6.1, §6.3, D13-D16, D1
     vi.clearAllMocks()
     vi.useFakeTimers()
     vi.setSystemTime(TEST_NOW)
+  })
+
+  // Restore real timers after each test so the fake clock cannot leak into
+  // sibling suites now that this file runs in the parallel `unit` project.
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   // ── effectiveCooldownSeconds — D19 clamp + null exposure ────────────
