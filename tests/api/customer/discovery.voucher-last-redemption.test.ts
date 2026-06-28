@@ -26,7 +26,10 @@ vi.mock('@prisma/adapter-pg', () => ({
 
 vi.mock('../../../generated/prisma/client', () => {
   class PrismaClient {
-    voucher                 = { findUnique: vi.fn() }
+    // SEC-C3 (Gate-PR-4b): getCustomerVoucher resolves the voucher via
+    // `voucher.findFirst` (NOT findUnique) so the non-unique isTestData
+    // security filter can gate the query. Mock must expose findFirst.
+    voucher                 = { findFirst: vi.fn() }
     subscription            = { findUnique: vi.fn() }
     userVoucherCycleState   = { findUnique: vi.fn() }
     favouriteVoucher        = { findUnique: vi.fn() }
@@ -81,7 +84,7 @@ const baseVoucherRow = {
 
 function makePrisma() {
   const prisma = new PrismaClient({} as any) as any
-  prisma.voucher.findUnique.mockResolvedValue(baseVoucherRow)
+  prisma.voucher.findFirst.mockResolvedValue(baseVoucherRow)
   prisma.favouriteVoucher.findUnique.mockResolvedValue(null)
   return prisma
 }

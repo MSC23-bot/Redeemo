@@ -27,7 +27,10 @@ vi.mock('@prisma/adapter-pg', () => ({
 
 vi.mock('../../../generated/prisma/client', () => {
   class PrismaClient {
-    voucher                 = { findUnique: vi.fn() }
+    // SEC-C3 (Gate-PR-4b): getCustomerVoucher resolves the voucher via
+    // `voucher.findFirst` (NOT findUnique) so the non-unique isTestData
+    // security filter can gate the query. Mock must expose findFirst.
+    voucher                 = { findFirst: vi.fn() }
     subscription            = { findUnique: vi.fn() }
     userVoucherCycleState   = { findUnique: vi.fn() }
     favouriteVoucher        = { findUnique: vi.fn() }
@@ -86,7 +89,7 @@ const baseVoucherRow = {
 
 function makePrisma() {
   const prisma = new PrismaClient({} as any) as any
-  prisma.voucher.findUnique.mockResolvedValue(baseVoucherRow)
+  prisma.voucher.findFirst.mockResolvedValue(baseVoucherRow)
   prisma.favouriteVoucher.findUnique.mockResolvedValue(null)
   return prisma
 }
@@ -424,6 +427,22 @@ describe('getCustomerVoucher — availableAgainAt', () => {
 
     const result = await getCustomerVoucher(prisma, VOUCHER_ID, USER_ID)
     expect(result.availableAgainAt).toBeNull()
+  })
+
+  it('SEC-C3 — voucher.findFirst carries the isTestData security filter (excludes seed/demo vouchers + demo-merchant vouchers)', async () => {
+    // Gate-PR-4b locked the switch from findUnique to findFirst precisely
+    // so a non-unique isTestData filter can gate the lookup. This pins
+    // the exact where-clause so a future refactor cannot silently drop
+    // the security filter (which would re-expose seed/demo data to
+    // customers). objectContaining keeps the brittle `select` block out
+    // of the assertion while asserting the full where-clause exactly.
+    const prisma = makePrisma()
+    await getCustomerVoucher(prisma, VOUCHER_ID, null)
+    expect(prisma.voucher.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: VOUCHER_ID, isTestData: false, merchant: { isTestData: false } },
+      }),
+    )
   })
 
   it('day-clamp behaviour preserved: anchor day 31 in February returns 28-Feb cycleEnd', async () => {

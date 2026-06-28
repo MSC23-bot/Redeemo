@@ -37,9 +37,21 @@ vi.mock('@prisma/adapter-pg', () => ({
 
 vi.mock('../../../generated/prisma/client', () => {
   class PrismaClient {
-    merchant                = { findUnique: vi.fn() }
+    // SEC-C3 (Gate-PR-4b): getCustomerMerchant resolves the merchant via
+    // `merchant.findFirst` (NOT findUnique) so the non-unique isTestData
+    // security filter can gate the query. Mock must expose findFirst.
+    merchant                = { findFirst: vi.fn() }
     review                  = { groupBy: vi.fn(), findFirst: vi.fn() }
     favouriteMerchant       = { findUnique: vi.fn() }
+    // Phase 3C.1g (PR #137): getCustomerMerchant bulk-loads branch-level
+    // and voucher-level favourites. favouriteVoucher.findMany IS reached
+    // here (fixtures set userId + non-empty vouchers); favouriteBranch
+    // .findMany is gated out by the empty `branches: []` fixture but is
+    // part of the same enrichment contract — both default to [] (no
+    // favourites) so isFavourited resolves false without affecting the
+    // reusableState / cooldown assertions below.
+    favouriteBranch         = { findMany: vi.fn().mockResolvedValue([]) }
+    favouriteVoucher        = { findMany: vi.fn().mockResolvedValue([]) }
     redundantHighlight      = { findMany: vi.fn() }
     subscription            = { findUnique: vi.fn() }
     userVoucherCycleState   = { findMany: vi.fn() }
@@ -151,7 +163,7 @@ describe('getCustomerMerchant — per-card reusableState (spec §6.4, D13/D16/D1
     // Last redemption 1h ago, 4h cooldown → availableAgainAt = lastRedeemedAt + 4h.
     const prisma = makePrisma()
     const voucher = makeReusableVoucherRow({ id: 'v-reusable-1', cooldownSeconds: 14400 })
-    prisma.merchant.findUnique.mockResolvedValue(makeMerchantRow({ vouchers: [voucher] }))
+    prisma.merchant.findFirst.mockResolvedValue(makeMerchantRow({ vouchers: [voucher] }))
     const lastRedeemedAt = new Date(TEST_NOW.getTime() - 60 * 60 * 1000) // 1h ago
     prisma.voucherRedemption.groupBy.mockResolvedValue([
       { voucherId: voucher.id, _max: { redeemedAt: lastRedeemedAt } },
@@ -176,7 +188,7 @@ describe('getCustomerMerchant — per-card reusableState (spec §6.4, D13/D16/D1
     // No redemption history → cooldown clock not started → availableAgainAt null.
     const prisma = makePrisma()
     const voucher = makeReusableVoucherRow({ id: 'v-reusable-2', cooldownSeconds: 14400 })
-    prisma.merchant.findUnique.mockResolvedValue(makeMerchantRow({ vouchers: [voucher] }))
+    prisma.merchant.findFirst.mockResolvedValue(makeMerchantRow({ vouchers: [voucher] }))
     // Default groupBy = [] — no rows for this user/voucher.
 
     const result = await getCustomerMerchant(prisma, MERCHANT_ID, USER_ID, {})
@@ -193,7 +205,7 @@ describe('getCustomerMerchant — per-card reusableState (spec §6.4, D13/D16/D1
     // can use truthiness checks without time math.
     const prisma = makePrisma()
     const voucher = makeReusableVoucherRow({ id: 'v-reusable-3', cooldownSeconds: 14400 })
-    prisma.merchant.findUnique.mockResolvedValue(makeMerchantRow({ vouchers: [voucher] }))
+    prisma.merchant.findFirst.mockResolvedValue(makeMerchantRow({ vouchers: [voucher] }))
     const lastRedeemedAt = new Date(TEST_NOW.getTime() - 5 * 60 * 60 * 1000) // 5h ago
     prisma.voucherRedemption.groupBy.mockResolvedValue([
       { voucherId: voucher.id, _max: { redeemedAt: lastRedeemedAt } },
@@ -212,7 +224,7 @@ describe('getCustomerMerchant — per-card reusableState (spec §6.4, D13/D16/D1
     // pattern as currentWindow for non-TIME_LIMITED rows (spec §6.4).
     const prisma = makePrisma()
     const voucher = makeBogoVoucherRow({ id: 'v-bogo-1' })
-    prisma.merchant.findUnique.mockResolvedValue(makeMerchantRow({ vouchers: [voucher] }))
+    prisma.merchant.findFirst.mockResolvedValue(makeMerchantRow({ vouchers: [voucher] }))
 
     const result = await getCustomerMerchant(prisma, MERCHANT_ID, USER_ID, {})
 
@@ -228,13 +240,32 @@ describe('getCustomerMerchant — per-card reusableState (spec §6.4, D13/D16/D1
     // row, the public merchant-card response must NOT leak it.
     const prisma = makePrisma()
     const voucher = makeReusableVoucherRow({ id: 'v-reusable-4', cooldownSeconds: 3600 })
-    prisma.merchant.findUnique.mockResolvedValue(makeMerchantRow({ vouchers: [voucher] }))
+    prisma.merchant.findFirst.mockResolvedValue(makeMerchantRow({ vouchers: [voucher] }))
 
     const result = await getCustomerMerchant(prisma, MERCHANT_ID, USER_ID, {})
 
     const row = result.vouchers.find((v: any) => v.id === voucher.id)
     expect(row).toBeDefined()
     expect((row as any).cooldownSeconds).toBeUndefined()
+  })
+
+  it('SEC-C3 — merchant.findFirst carries the isTestData security filter (excludes seed/demo merchants)', async () => {
+    // Gate-PR-4b locked the switch from findUnique to findFirst precisely
+    // so a non-unique isTestData filter can gate the lookup (a seed/demo
+    // merchant resolves to null → MERCHANT_UNAVAILABLE). Pins the exact
+    // where-clause so the security filter cannot be silently dropped.
+    // Empty voucher list keeps the favouriteVoucher.findMany branch out
+    // of scope for this focused query-shape assertion.
+    const prisma = makePrisma()
+    prisma.merchant.findFirst.mockResolvedValue(makeMerchantRow({ vouchers: [] }))
+
+    await getCustomerMerchant(prisma, MERCHANT_ID, USER_ID, {})
+
+    expect(prisma.merchant.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: MERCHANT_ID, isTestData: false },
+      }),
+    )
   })
 
   it('mixed list — REUSABLE + BOGO + (regular) — only the REUSABLE row carries reusableState; batched groupBy fires ONCE', async () => {
@@ -244,7 +275,7 @@ describe('getCustomerMerchant — per-card reusableState (spec §6.4, D13/D16/D1
     const prisma = makePrisma()
     const reusable = makeReusableVoucherRow({ id: 'v-mix-reusable', cooldownSeconds: 14400 })
     const bogo     = makeBogoVoucherRow({ id: 'v-mix-bogo' })
-    prisma.merchant.findUnique.mockResolvedValue(makeMerchantRow({
+    prisma.merchant.findFirst.mockResolvedValue(makeMerchantRow({
       vouchers: [reusable, bogo],
     }))
     const lastRedeemedAt = new Date(TEST_NOW.getTime() - 30 * 60 * 1000) // 30min ago
