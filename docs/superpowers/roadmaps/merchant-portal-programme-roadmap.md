@@ -3,7 +3,9 @@
 > **Depth document for the Merchant Portal programme.** For global authority, the fact-type
 > authority model, the read-only Codex reconciliation protocol, cross-product invariants, and
 > the consolidated owner-decision register, see **`docs/PROJECT-STATE.md`** (that document governs;
-> this one provides Merchant-Portal detail and sequencing).
+> this one provides Merchant-Portal detail and sequencing). These two documents are a **coordinated,
+> cross-linked pair** (each links the other): kept as separate PRs only for reviewability, but review,
+> approval, and merge are coordinated - they are not independent artefacts to evolve separately.
 >
 > **Freshness:** verified against `origin/main` @ `434ca4eb` on **2026-06-28** (the merged Insights PR-B).
 > Grounded in this session's first-hand programme audit + corrections + the G1a discovery. A modification
@@ -37,7 +39,7 @@ Authority for "merged" = `origin/main`/Git/PR; for "deployed" = provider SHA + l
 | **Home - submitted / in-review / suspended / rejected** | read-only status homes | `LifecycleHome` | `deriveStatusPill` | MERGED / NOT-ACCEPTED | - | suspended read-only | unit | screen DoD |
 | **Home - live-early vs live-established** | distinct live homes | `live_new` collapsed → `live` (no backend signal) | - | SUPERSEDED? / PARTIAL | live-early distinction | - | unit | owner confirm |
 | **Home - Live dashboard** | charts / stat cards / attention / recent-redemptions / live-vouchers | `LifecycleHome` live = "dashboard coming soon" placeholder | rich data diverted to Insights | PLACEHOLDER / OWNER-GATED / CONFLICT | the entire live dashboard | - | unit | owner decision + module DoD |
-| **Home - Staff view** | lean validate-first staff home | not built (staff auth exists; lean home unbuilt) | - | NOT-STARTED / OWNER-GATED / CONFLICT | whole screen | staff = portal-auth OR app user | none | owner decision |
+| **Home - Staff view** | lean validate-first staff home | not built (portal STAFF auth exists; lean home unbuilt) | - | NOT-STARTED / OWNER-GATED / CONFLICT | whole screen | staged identity: portal STAFF = `MerchantAdmin` + `MerchantMembership` role STAFF; mobile branch staff = `BranchUser` (distinct identities, not interchangeable) | none | owner decision |
 | **Vouchers (list + 7-type builder)** | list, builder | `(app)/vouchers/page.tsx`, `lib/voucher/*` | `src/api/merchant/voucher/*` | MERGED / NOT-ACCEPTED; FIDELITY | - | concierge `merchantFields` trust boundary | unit | module DoD |
 | **Voucher (custom-voucher detail screen)** | per-voucher detail + actions (request change/end/run-again/withdraw) | `(app)/vouchers/[id]/page.tsx` | `/merchant/voucher` | MERGED / NOT-ACCEPTED | (flagship read-only detail is the separate deferred row below) | concierge trust boundary | unit | screen DoD |
 | **Vouchers - flagship "Always live" semantics** | flagship status truthful | all `isRmv` rows labelled "Always live" | `/voucher` flagship query | CONFLICT (known bug) | draft/inactive flagship mislabelled | misleading status | flagged | small fix (owner-gated) |
@@ -74,7 +76,7 @@ Authority for "merged" = `origin/main`/Git/PR; for "deployed" = provider SHA + l
 | Staff Home | lean staff home | no portal staff home (staff can auth) | **owner** (staged-identity model may make it superseded) |
 | View-as role lens | present | absent | **owner** (build or drop) |
 | Redemption reversal | reverse modal | deferred | **owner** (audit/data implications) |
-| Full notifications view | centred overlay modal | in-shell page (comment frames intentional) | **source/spec governs** (accepted divergence) pending owner confirm |
+| Full notifications view | centred overlay modal | in-shell page (a code comment frames it intentional) | **UNRESOLVED prototype/source divergence - owner decision required** (not an accepted divergence until the owner confirms the page-vs-overlay choice) |
 | Account dropdown depth + logout confirm | rich menu + logout confirm | name + instant sign-out | **blueprint §13.4 governs** (build the confirm) |
 | live-early vs established | distinct homes | collapsed | **owner confirm** (no backend signal) |
 
@@ -83,7 +85,7 @@ Authority for "merged" = `origin/main`/Git/PR; for "deployed" = provider SHA + l
 - **Authz spine** underlies Branches/Staff/Redemptions/Insights/Vouchers; any change → security test lane (§8).
 - **Quality net** (CI integration gate + deterministic browser smoke) precedes trustworthy **staging acceptance** + remediation.
 - **Global-shell shared files** (`Sidebar`, `Topbar`, `MerchantPortalShell`, `navItems`, `resolveDestination`) → consolidate shell work into one wave to avoid repeatedly reopening them.
-- **Account-dropdown items** → prerequisite for **Business-profile settings + My Account + Help** routes.
+- **Destination-before-link:** a real route (or an explicitly approved honest placeholder) for Business-profile settings, My Account, and Help must exist **before** the account-dropdown / nav destination is made clickable. The global shell may establish IA + styling first, but destinations must not pretend to work - do **not** add new dead links.
 - **Insights gate-open** (D5←D1); demographics (D2-D4) → independent **legal track**, parallel.
 - **Home Live dashboard** → owner decision + possible backend Home-analytics contract.
 - **Promote/Payments** → provider/billing decision (+ PCI) → last.
@@ -96,7 +98,8 @@ Authority for "merged" = `origin/main`/Git/PR; for "deployed" = provider SHA + l
 **Track 2 (parallel, owner/legal):** Insights D1-D6 legal track; Promote/Payments provider decisions.
 **Then:** thin per-surface "fidelity + acceptance + tests" slices over the merged v1 modules (Vouchers, Redemptions, Branches, Staff, operational Insights) - small, reviewable, riding the net + consolidated shell.
 **Then:** build the not-started surfaces, each gated on its decision - Business-profile settings, My Account, Home Live dashboard, Staff Home.
-**Last:** commercial modules (Help & Support, Promote, Payments & Billing), provider-gated.
+**Help & Support:** gated on a **support-operating-model decision** (how support is staffed/triaged), NOT on billing/PCI/provider; sequence it once that decision lands (it is not coupled to the commercial track).
+**Last (commercial / provider-gated):** Promote and Payments & Billing (provider + billing/PCI decision).
 
 Parallel: Track 1 ∥ Track 2 ∥ provider decisions. Sequential: quality net → trustworthy acceptance → remediation; owner decisions → their builds. This minimizes shared-file churn (shell once), keeps PRs small (thin slices), and prevents drift (DoD + acceptance + decision gates).
 
@@ -113,14 +116,14 @@ Sequencing is in §6 (Option-C waves/tracks); the quality foundation (G1a findin
 **Measured (disposable loopback DB, once each):** cold PG bring-up 1.43 s; full migrate-deploy of all **52 migrations** 2.21 s; vitest floor 0.39 s; single suite 0.50 s; 3-suite security subset (behavioural+export+cross-tenant, 24 tests) 2.52 s; **all 11 Insights suites (119 tests) 12.51 s**. Disposable DB torn down + verified not listening; keg retained; `.env` untouched.
 
 **Planned quality slices (PR order; refine only on source evidence):**
-- **PR-G1a1** - CI Postgres service container + a **project-global strict-loopback guard** (generalize the harness `LOOPBACK_HOSTS`; fail before Prisma connects; never fall back to repo `DATABASE_URL`/Neon) + move the 8 mocked suites to `unit` + pilot the 11 harness suites as a required lane.
+- **PR-G1a1** - CI Postgres service container + a **project-global strict-loopback guard** (generalize the harness `LOOPBACK_HOSTS`; fail before Prisma connects; never fall back to repo `DATABASE_URL`/Neon) + move the 8 mocked suites to `unit` + run the 11 harness suites as a **pilot ADVISORY lane (not required yet)**. The CI Postgres service, the global loopback guard, and any promotion to a required check are **owner-approved AFTER evidence + review** - this PR does not pre-authorize infrastructure or branch-protection changes.
 - **PR-G1a2** - path-trigger map (below) + migrate proven-safe self-seeding security suites (`suspend-sec-m2`, `membership`, admin authz, redemption) onto the guard + override; promote the security lane to required.
 - **PR-G1b** - deterministic **local** Playwright smoke (adds `@playwright/test` - owner approval) against a locally-built merchant-web with a controlled API/session mock boundary; the smallest journeys that would have caught #324 (real `(app)` layout mounts → toast-using route, no uncaught exception) and #327 (mock API returns wire-accurate `Decimal`-as-string → page renders parsed, not error). **Not** external Vercel/Railway.
 - **PR-G1c** - authenticated staging acceptance docs/tooling (manual/scheduled against the existing Vercel/Railway staging; needs safe accounts). Never a required per-PR gate.
 
-**Path-trigger map (security lane, runs regardless of FE/docs-only):** `src/api/auth/**`, `src/api/merchant/shared.ts`, `src/api/merchant/insights/{gate,scope,eligibility}.ts`, `src/api/shared/{encryption,audit,errors,merchantMembership}.ts`, `prisma/schema.prisma` + `prisma/migrations/**` + `prisma.config.ts`, `src/api/redemption/**` + `src/api/merchant/redemptions/**`, `tests/setup.ts` + `vitest.config.ts` + the loopback-guard setup. Skip-but-report under a stable check name (success "skipped - no security-relevant paths"), never GitHub native `paths:` (which leaves a required check pending). Periodic full run (nightly + pre-release) ignores the path map to detect path-map mistakes.
+**Path-trigger map (security lane triggered ONLY by these mapped backend/shared/Prisma/auth/gate paths; unrelated frontend-only and docs-only PRs get the SAME stable check name with a successful "skipped, no relevant paths" result):** `src/api/auth/**`, `src/api/merchant/shared.ts`, `src/api/merchant/insights/{gate,scope,eligibility}.ts`, `src/api/shared/{encryption,audit,errors,merchantMembership}.ts`, `prisma/schema.prisma` + `prisma/migrations/**` + `prisma.config.ts`, `src/api/redemption/**` + `src/api/merchant/redemptions/**`, `tests/setup.ts` + `vitest.config.ts` + the loopback-guard setup. Skip-but-report under a stable check name (success "skipped - no security-relevant paths"), never GitHub native `paths:` (which leaves a required check pending). Periodic full run (nightly + pre-release) ignores the path map to detect path-map mistakes.
 
-**CI tiers:** T0 fast per-app (path-filtered) + backend tsc/`test:unit` (~3-6 min, required); **T0-SEC** security integration (path-triggered; pilot→required; CI Postgres + global guard; <1 min); T1 changed-module integration; **T2 deterministic browser smoke** (~2-5 min; pilot→required); **T3 nightly/full integration** (advisory now → **required for release**, amendment 4); **release-readiness gate** (clean full integration + smoke + builds).
+**CI tiers:** T0 fast per-app (path-filtered) + backend tsc/`test:unit` (~3-6 min, required); **T0-SEC** security integration (path-triggered; **pilot/advisory first, owner-approved promotion to required**; CI Postgres + global guard; <1 min); T1 changed-module integration; **T2 deterministic browser smoke** (~2-5 min; **pilot/advisory first, owner-approved promotion to required**); **T3 nightly/full integration** (advisory now → **required for release**, amendment 4); **release-readiness gate** (clean full integration + smoke + builds).
 
 **Retry rule:** assertion / authorization / tenant-isolation / privacy-legal-gate / deterministic-app failures are **never** auto-retried; **one** retry only for a clearly-identified Postgres/container startup or health-check infra failure; the original infra failure stays visible in job output.
 
@@ -133,7 +136,7 @@ Sequencing is in §6 (Option-C waves/tracks); the quality foundation (G1a findin
 
 ## 10. Owner decisions (Merchant-specific)
 
-See `PROJECT-STATE.md` §6 for the consolidated register. Merchant-specific: Home Live dashboard (Home vs Insights); Staff Home (build/drop); View-as lens (build/drop); Redemption reversal (build/defer); Quick-Actions launcher + PIN placement; flagship "Always live" fix; Business-profile-settings + My-Account next-build confirmation; Promote/Payments provider+billing; confirm accepted divergences (notifications page, `live_new` collapse). Plus the G1 platform decisions (CI Postgres + guard; `@playwright/test`; seed strategy) and the Insights legal gates (D1-D6).
+See `PROJECT-STATE.md` §6 for the consolidated register. Merchant-specific: Home Live dashboard (Home vs Insights); Staff Home (build/drop); View-as lens (build/drop); Redemption reversal (build/defer); Quick-Actions launcher + PIN placement; flagship "Always live" fix; Business-profile-settings + My-Account next-build confirmation; Promote/Payments provider+billing; resolve the open divergences (notifications page-vs-overlay; `live_new` collapse). Plus the G1 platform decisions (CI Postgres + guard; `@playwright/test`; seed strategy) and the Insights legal gates (D1-D6).
 
 ## 11. Legal / provider gates
 
