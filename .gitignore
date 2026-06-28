@@ -45,3 +45,8 @@ prisma/scripts/.local/
 # e.g. `admin_cli`, future `merchant_portal`) so the wrapper can refuse
 # fetch once either cap is reached. Owner-machine state, never repo state.
 .cache/
+
+# Insights (PR-A) isolated local Postgres test DB — never commit the disposable
+# cluster data dir or the local TEST_DATABASE_URL env file.
+.pgtest/
+.env.test
