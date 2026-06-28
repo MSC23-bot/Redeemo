@@ -3,7 +3,9 @@
 > **Read this first when resuming any Redeemo work.** This is the compact, claim-verified
 > current-state index. It summarizes material facts and **links** to the detailed evidence
 > (specs, plans, audits, governance, runbooks, the Merchant Portal roadmap). It deliberately
-> does **not** copy per-PR histories or the large deferred archive.
+> does **not** copy per-PR histories or the large deferred archive. This document and the Merchant
+> Portal roadmap are a **coordinated, cross-linked pair**: kept as separate PRs only for reviewability,
+> but reviewed, approved, and merged together.
 >
 > **Freshness:** verified against `origin/main` @ `434ca4eb` on **2026-06-28**. Lines without
 > a fresh citation this pass are marked **[UNVERIFIED]** and must be re-checked before reliance.
@@ -77,7 +79,7 @@ Status keys: **MERGED** (on `origin/main`) · **NOT-ACCEPTED** (merged, no authe
 **Detail/links:** the admin memories; Admin/Merchant Codex checklists (§2); merged admin PRs.
 
 ### 4.4 Cross-product / platform
-Backend (Node 24), Prisma 7 + Neon, Stripe/Twilio/FCM/Resend (Resend SDK present but **unwired**), Redis, R2. Pre-launch SECURITY/LEGAL/DOMAIN gate code-complete (`2a221522`, PR #170). See §5 for invariants, §6 for open decisions.
+Backend (Node 24), Prisma 7 + Neon, Stripe/Twilio/FCM; **Resend is WIRED in code** (`src/api/shared/email.ts` imports + wraps the SDK) but **dark by default** (EMAIL_ENABLED off = no client construction, no send; EMAIL_SANDBOX rewrites recipients to an allowlist; production sender/domain/channel NOT enabled per runbook §6 - live production email UNVERIFIED); Redis; **storage (R2) is a feature-flagged capability** (`src/api/shared/storage.ts`; STORAGE_ENABLED off by default so presigning throws STORAGE_NOT_ENABLED; R2 secrets only required when enabled - configured/enabled state UNVERIFIED, not inferable from source). Pre-launch SECURITY/LEGAL/DOMAIN gate code-complete (`2a221522`, PR #170). See §5 for invariants, §6 for open decisions.
 
 ---
 
@@ -115,14 +117,14 @@ Backend (Node 24), Prisma 7 + Neon, Stripe/Twilio/FCM/Resend (Resend SDK present
 
 - **89 of 108 backend integration suites would mutate shared Neon if run locally without a `DATABASE_URL` override** (only the 11 insights harness + 8 mocked are guarded). Evidence: `vitest.config.ts` + grep; `.env DATABASE_URL` = Neon; `tests/setup.ts` does not guard it.
 - **Backend integration project (incl. all Insights legal-gate, tenant-isolation, SEC-M2 suspend proofs) is NOT run in CI** (`ci.yml` backend job runs `test:unit` only). **No e2e/browser tests exist repo-wide** - the class behind #324 (ToastProvider crash) and #327 (Decimal-as-string).
-- **Stale legacy docs:** root `CLAUDE.md` (145 KB, Jun 20) still marks Merchant "Phase 4 queued" / Admin "Phase 5 queued"; `MEMORY.md` (~100 KB) exceeds its ~24.4 KB load cap (partially loaded); `project_deferred_followups_index.md` is 705 KB; `project_current_state.md` (Jun 20) trails reality. **These remain authoritative for nothing - use this document.**
+- **Stale legacy docs:** root `CLAUDE.md` (145 KB, Jun 20) still marks Merchant "Phase 4 queued" / Admin "Phase 5 queued"; `MEMORY.md` (~100 KB) exceeds its ~24.4 KB load cap (partially loaded); `project_deferred_followups_index.md` is 705 KB; `project_current_state.md` (Jun 20) trails reality. **For CURRENT programme status, prefer this document over those** (they are not authoritative for current status). They may still be valid HISTORICAL evidence, or governing CONTRACT evidence, when a specific claim is claim-verified; and the detailed approved specs/plans may still govern INTENDED behaviour (per the §1 authority model).
 - **Insights gates are closed and must stay closed** until owner/legal records D1/D5 (behavioural/CSV) and D2-D4 (demographics).
-- **Staging-ops (from Codex Vol-2, read-only):** the staging-admin mailbox is not owner-receivable; the current OTP workaround reads the code from the staging DB and **must be replaced** with a receivable/admin-controlled inbox. Other open staging-ops items (PR #327 merge-confirm, Karaara data cleanup, deployed `favicon.ico` 404 cosmetic) live in the Codex Vol-2 "Immediate Next Checks" / "Active State" sections (§2) - read-only; not yet closed.
+- **Staging admin-login OTP delivery is UNVERIFIED (from Codex Vol-2, read-only):** an earlier record describes the staging-admin mailbox as not owner-receivable (OTP read from the staging DB as a workaround); a later record describes sandbox email delivery to an owner-controlled inbox. The current flow cannot be established without a live/provider check (not performed) - do not treat the DB-read workaround as current. If the workaround is current it must be replaced with a receivable/admin-controlled inbox. Deployed `favicon.ico` 404 is a known cosmetic item. (PR #327 is MERGED at `9a687393`; the Karaara QA cleanup is COMPLETED per Codex Vol-1 - both removed from open checks; see §8/§10.)
 - **Merged ≠ deployed ≠ staging-accepted:** every Merchant module is merged but **not authenticated-staging-accepted**.
 
 ## 8. Open deferrals register (compact; history NOT copied here)
 
-The full historical detail lives in `project_deferred_followups_index.md` (705 KB archive - **frozen/read-only reference**, do not copy here). Open, currently-relevant deferrals with owner + trigger:
+The full historical detail lives in `project_deferred_followups_index.md` (705 KB, an oversized/stale historical reference; **proposed for later freeze/reconciliation but currently UNTOUCHED** - no private-memory change has occurred; do not copy it here). Open, currently-relevant deferrals with owner + trigger:
 
 | ID / area | Owner | Trigger to pick up |
 |---|---|---|
@@ -133,7 +135,7 @@ The full historical detail lives in `project_deferred_followups_index.md` (705 K
 | Merchant: logout confirmation, active-route highlight, responsive collapse | eng | shell wave |
 | G1: CI integration gate, security lane, browser smoke, staging acceptance | owner/eng | G1a1→G1c |
 | Platform: §SEC.1 atomic limiter (pre-Resend), §SEC.6 SEO, SEC-H6/M1-M5 | owner | pre-email / pre-launch |
-| Staging-ops open checks (admin-OTP inbox, PR #327 confirm, Karaara cleanup, favicon 404) | owner/eng | Codex Vol-2 "Immediate Next Checks" (read-only) |
+| Staging admin-login OTP delivery (UNVERIFIED - needs a receivable/admin-controlled inbox if the DB-read workaround is current) + deployed favicon 404 (cosmetic) | owner/eng | Codex Vol-2 "Active State" (read-only); a live/provider check |
 | Customer App / Admin deferrals | owner | per their checklists + the deferred archive |
 
 ## 9. Change / update protocol
@@ -147,7 +149,7 @@ The full historical detail lives in `project_deferred_followups_index.md` (705 K
 
 | Date | Checklists read (read-only) | Deltas vs this doc |
 |---|---|---|
-| 2026-06-28 | all three (§2) | merged-state: no deltas (Insights/G1/PR#328 corroborated). Open Codex-Vol-2 staging-ops items NOT yet closed: admin-OTP-inbox workaround, PR #327 merge-confirm, Karaara cleanup, favicon 404 (surfaced in §7/§8). Customer App checklist itself trails (Jun 13). Checklists not modified by Claude. |
+| 2026-06-28 | all three (§2) | merged-state: no deltas (Insights/G1 corroborated). **PR #327 MERGED** (`9a687393`) and **Karaara QA cleanup COMPLETED per Vol-1** (deleted: Claude QA-orphan merchants + the duplicate PENDING_CREATE Karaara branch + Karaara QA orphan branches/vouchers; retained: Karaara's 2 submitted vouchers + owner-intended data) - both removed from open checks. **Staging admin-login OTP flow UNVERIFIED** (earlier = DB-read workaround / not-receivable mailbox; later = sandbox email to owner inbox; current flow needs a live/provider check, not performed). Customer App checklist itself trails (Jun 13). Checklists not modified by Claude. |
 
 ## 11. Governing-document links
 
