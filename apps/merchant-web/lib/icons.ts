@@ -47,4 +47,6 @@ export {
   EyeOff,
   Image,
   AlertTriangle,
+  Calendar,
+  Filter,
 } from 'lucide-react'
