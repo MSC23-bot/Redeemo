@@ -27,6 +27,11 @@ function isPlaceholder(value: string): boolean {
   return PLACEHOLDER_SUBSTRINGS.some((marker) => v.includes(marker))
 }
 
+// Encryption key-rotation R1: the keyring boot validation. keyring.ts only imports
+// `crypto` (no edge back into env.ts), so a static import here introduces no cycle.
+// validateRequiredEnv() appends keyring problems to the same aggregated error.
+import { validateKeyringEnv } from './keyring'
+
 /**
  * Returns the required environment secret `name`, or throws if it is missing,
  * empty, or a placeholder. Call at the point a secret is consumed so the
@@ -135,6 +140,13 @@ export function validateRequiredEnv(): void {
         )
       }
     }
+  }
+  // Encryption key-rotation R1: keyring config (both boot modes, namespace
+  // containment, denylist). Optional vars — the single-var bridge keeps current
+  // envs valid — but a malformed explicit ring fail-closes here, in the SAME
+  // aggregated error list (spec §3.4).
+  for (const problem of validateKeyringEnv(process.env)) {
+    problems.push('  - ' + problem)
   }
   if (problems.length > 0) {
     throw new Error(

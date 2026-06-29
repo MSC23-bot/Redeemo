@@ -56,6 +56,9 @@ describe('validateRequiredEnv', () => {
 
   it('passes when every required secret is set to a real value', () => {
     for (const k of REQUIRED_SECRETS) process.env[k] = `real-${k}-value`
+    // ENCRYPTION_KEY must be a valid 64-hex value: the keyring boot validation
+    // (R1) is now part of validateRequiredEnv() and fail-closes on a non-hex key.
+    process.env.ENCRYPTION_KEY = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
     expect(() => validateRequiredEnv()).not.toThrow()
   })
 
@@ -107,6 +110,7 @@ describe('validateRequiredEnv — EMAIL_ENABLED gate', () => {
     for (const k of [...REQUIRED_SECRETS, 'EMAIL_ENABLED', 'RESEND_API_KEY']) saved[k] = process.env[k]
     // satisfy the hard required set so only the email gate is under test
     for (const k of REQUIRED_SECRETS) process.env[k] = `real-${k}-value`
+    process.env.ENCRYPTION_KEY = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
   })
   afterEach(() => {
     for (const k of [...REQUIRED_SECRETS, 'EMAIL_ENABLED', 'RESEND_API_KEY']) {
@@ -149,6 +153,7 @@ describe('validateRequiredEnv — STORAGE_ENABLED gate (PR-0.5)', () => {
     saved = {}
     for (const k of [...REQUIRED_SECRETS, 'STORAGE_ENABLED', ...R2_SECRETS]) saved[k] = process.env[k]
     for (const k of REQUIRED_SECRETS) process.env[k] = `real-${k}-value`
+    process.env.ENCRYPTION_KEY = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
     for (const k of R2_SECRETS) delete process.env[k]
   })
   afterEach(() => {
@@ -182,5 +187,62 @@ describe('validateRequiredEnv — STORAGE_ENABLED gate (PR-0.5)', () => {
     process.env.STORAGE_ENABLED = 'true'
     for (const k of R2_SECRETS) process.env[k] = `real-${k}`
     expect(() => validateRequiredEnv()).not.toThrow()
+  })
+})
+
+describe('validateRequiredEnv — keyring boot validation (R1)', () => {
+  const VALID = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
+  const PIN_KEY = '1111111111111111111111111111111111111111111111111111111111111111'
+  const KEYRING_VARS = [
+    'ENCRYPTION_KEYS',
+    'ENCRYPTION_KEY_ACTIVE',
+    'ENCRYPTION_LEGACY_KID',
+    'DECOMMISSIONED_KIDS',
+    'OTP_HMAC_KEYS',
+    'OTP_HMAC_KEY_ACTIVE',
+  ]
+  let saved: Record<string, string | undefined>
+  beforeEach(() => {
+    saved = {}
+    for (const k of [...REQUIRED_SECRETS, ...KEYRING_VARS]) saved[k] = process.env[k]
+    for (const k of REQUIRED_SECRETS) process.env[k] = `real-${k}-value`
+    process.env.ENCRYPTION_KEY = VALID
+    for (const k of KEYRING_VARS) delete process.env[k]
+  })
+  afterEach(() => {
+    for (const k of [...REQUIRED_SECRETS, ...KEYRING_VARS]) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k]
+    }
+  })
+
+  it('passes for the current single-var bridge env (legacy-only ring)', () => {
+    expect(() => validateRequiredEnv()).not.toThrow()
+  })
+
+  it('passes for a valid explicit PIN ring', () => {
+    process.env.ENCRYPTION_KEYS = JSON.stringify({ legacy: VALID, 'pin-2026-06': PIN_KEY })
+    process.env.ENCRYPTION_KEY_ACTIVE = 'pin-2026-06'
+    expect(() => validateRequiredEnv()).not.toThrow()
+  })
+
+  it('fail-closes on malformed ENCRYPTION_KEYS JSON (problem appended to the aggregated error)', () => {
+    process.env.ENCRYPTION_KEYS = '{not json'
+    process.env.ENCRYPTION_KEY_ACTIVE = 'pin-2026-06'
+    let message = ''
+    try {
+      validateRequiredEnv()
+    } catch (err) {
+      message = (err as Error).message
+    }
+    expect(message).toMatch(/Refusing to start/)
+    expect(message).toMatch(/ENCRYPTION_KEYS/)
+  })
+
+  it('fail-closes when ACTIVE is in DECOMMISSIONED_KIDS', () => {
+    process.env.ENCRYPTION_KEYS = JSON.stringify({ legacy: VALID, 'pin-2026-06': PIN_KEY })
+    process.env.ENCRYPTION_KEY_ACTIVE = 'pin-2026-06'
+    process.env.DECOMMISSIONED_KIDS = 'pin-2026-06'
+    expect(() => validateRequiredEnv()).toThrow(/Refusing to start/)
   })
 })
