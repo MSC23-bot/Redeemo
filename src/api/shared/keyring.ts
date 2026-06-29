@@ -96,6 +96,16 @@ function isPlaceholder(value: string): boolean {
   return PLACEHOLDER_SUBSTRINGS.some((marker) => v.includes(marker))
 }
 
+/**
+ * SEC-REDACT-1: a safe label for echoing an operator-supplied kid into a boot
+ * error. A real kid is short + charset-restricted, so it passes through; but if
+ * an operator fat-fingers a 64-hex KEY into an *_ACTIVE var, this clamps it so
+ * the raw key material is never reflected into the (stderr) boot log.
+ */
+function safeKidLabel(s: string): string {
+  return /^[a-z0-9-]{1,40}$/.test(s) ? s : s.slice(0, 8) + '…[redacted]'
+}
+
 // ── Parsed ring shape ────────────────────────────────────────────────────────
 
 interface ParsedRing {
@@ -151,6 +161,17 @@ function validateRing(
     if (denylist.has(bridgedKid)) {
       problems.push(`The bridged ${ns} active kid "${bridgedKid}" is in DECOMMISSIONED_KIDS, so it cannot be the active key.`)
     }
+    // BV-2: a set *_ACTIVE without its map var is an operator trap — the ring
+    // silently runs in legacy-bridge mode and the ACTIVE value is ignored. Fail
+    // closed: the operator almost certainly meant explicit-keyring mode but
+    // forgot/typo'd the map var. (safeKidLabel: never echo a fat-fingered key.)
+    const explicitActive = env[activeVar]
+    if (explicitActive !== undefined && explicitActive.trim() !== '' && explicitActive !== bridgedKid) {
+      problems.push(
+        `${activeVar} is set ("${safeKidLabel(explicitActive)}") but ${mapVar} is unset, so the ${ns} ring would run in legacy-bridge mode under "${bridgedKid}" and ${activeVar} would be IGNORED. Set ${mapVar} (explicit-keyring mode) or unset ${activeVar}.`,
+      )
+    }
+    if (problems.length > 0) return { problems, ring: null }
     return { problems, ring: { keys, activeKid: bridgedKid, bridged: true } }
   }
 
@@ -172,23 +193,22 @@ function validateRing(
     return { problems, ring: null }
   }
 
+  // BV-3: there is no in-loop duplicate-kid check — `JSON.parse` already collapses
+  // duplicate object keys (last-wins, deterministic), so `Object.entries(parsed)`
+  // can never surface a duplicate. Duplicate kids are therefore not a separable
+  // failure here (a pre-parse raw-text scanner would be the only way to detect
+  // them; deferred as a low-value nit since last-wins is deterministic + safe).
   const keys = new Map<string, string>()
-  const seen = new Set<string>()
   for (const [kid, value] of entries) {
-    if (seen.has(kid)) {
-      problems.push(`${mapVar} contains a duplicate kid "${kid}".`)
-      continue
-    }
-    seen.add(kid)
     if (!containment.test(kid) || !kidPattern.test(kid)) {
-      problems.push(`${mapVar} kid "${kid}" is not in the ${ns} namespace (expected ${ns === 'pin' ? 'pin-* or legacy' : 'otp-*'}, charset a-z0-9- only).`)
+      problems.push(`${mapVar} kid "${safeKidLabel(kid)}" is not in the ${ns} namespace (expected ${ns === 'pin' ? 'pin-* or legacy' : 'otp-*'}, charset a-z0-9- only).`)
     }
     if (typeof value !== 'string' || !HEX64.test(value)) {
-      problems.push(`${mapVar} kid "${kid}" must map to a 64-character hex key (32 bytes).`)
+      problems.push(`${mapVar} kid "${safeKidLabel(kid)}" must map to a 64-character hex key (32 bytes).`)
       continue
     }
     if (isPlaceholder(value)) {
-      problems.push(`${mapVar} kid "${kid}" is set to a placeholder value. Provide a real key.`)
+      problems.push(`${mapVar} kid "${safeKidLabel(kid)}" is set to a placeholder value. Provide a real key.`)
       continue
     }
     keys.set(kid, value)
@@ -199,20 +219,20 @@ function validateRing(
     problems.push(`${activeVar} is not set. It must name the active ${ns} kid present in ${mapVar}.`)
   } else {
     if (!kidPattern.test(activeKid)) {
-      problems.push(`${activeVar} "${activeKid}" is not a valid ${ns} kid (expected ${ns === 'pin' ? 'pin-*' : 'otp-*'}).`)
+      problems.push(`${activeVar} "${safeKidLabel(activeKid)}" is not a valid ${ns} kid (expected ${ns === 'pin' ? 'pin-*' : 'otp-*'}).`)
     }
     // `keys` only holds kids that passed every per-key check. If the active kid
     // failed a check (bad hex / placeholder) it was already reported above; only
     // flag "not present" when the kid is genuinely absent from the parsed object.
     const presentInRaw = Object.prototype.hasOwnProperty.call(parsed as object, activeKid)
     if (!keys.has(activeKid) && !presentInRaw) {
-      problems.push(`${activeVar} "${activeKid}" is not present in ${mapVar}.`)
+      problems.push(`${activeVar} "${safeKidLabel(activeKid)}" is not present in ${mapVar}.`)
     }
     if (denylist.has(activeKid)) {
-      problems.push(`${activeVar} "${activeKid}" is in DECOMMISSIONED_KIDS and can never be the active key.`)
+      problems.push(`${activeVar} "${safeKidLabel(activeKid)}" is in DECOMMISSIONED_KIDS and can never be the active key.`)
     }
     if (ns === 'pin' && activeKid === legacyKid) {
-      problems.push(`${activeVar} "${activeKid}" must not equal the legacy kid "${legacyKid}" in explicit-keyring mode.`)
+      problems.push(`${activeVar} "${safeKidLabel(activeKid)}" must not equal the legacy kid "${legacyKid}" in explicit-keyring mode.`)
     }
   }
 

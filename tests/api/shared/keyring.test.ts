@@ -306,3 +306,55 @@ describe('publishKeyringFingerprint — best-effort upsert', () => {
     errorSpy.mockRestore()
   })
 })
+
+// ── Adversarial-review regression pins (R1 round-2) ───────────────────────────
+
+describe('keyring — custom ENCRYPTION_LEGACY_KID in bridge mode (BV-1 keyring leg)', () => {
+  it('a non-default legacy kid keys the bridge ring under THAT kid (not "legacy")', () => {
+    const p = buildKeyProviderFromEnv({ ENCRYPTION_KEY: LEGACY_KEY, ENCRYPTION_LEGACY_KID: 'pin-old' } as NodeJS.ProcessEnv)
+    expect(p.getLegacyKid()).toBe('pin-old')
+    expect(p.getActiveKid('pin')).toBe('pin-old')
+    expect(p.listKids('pin')).toEqual(['pin-old'])
+    expect(p.getKey('pin', 'pin-old')).toEqual(Buffer.from(LEGACY_KEY, 'hex'))
+    // The hardcoded 'legacy' kid is NOT in the ring when the legacy kid is custom.
+    expect(() => p.getKey('pin', 'legacy')).toThrow(KeyNotAvailableError)
+  })
+})
+
+describe('keyring — *_ACTIVE without its map var is a fail-closed operator trap (BV-2)', () => {
+  it('ENCRYPTION_KEY_ACTIVE set without ENCRYPTION_KEYS is rejected (not silently ignored)', () => {
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-99',
+    } as NodeJS.ProcessEnv)
+    expect(problems.some((p) => /ENCRYPTION_KEY_ACTIVE/.test(p) && /ENCRYPTION_KEYS/.test(p))).toBe(true)
+    expect(() =>
+      buildKeyProviderFromEnv({ ENCRYPTION_KEY: LEGACY_KEY, ENCRYPTION_KEY_ACTIVE: 'pin-2026-99' } as NodeJS.ProcessEnv),
+    ).toThrow(/keyring/i)
+  })
+
+  it('OTP_HMAC_KEY_ACTIVE set without OTP_HMAC_KEYS is rejected too', () => {
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      OTP_HMAC_KEY_ACTIVE: 'otp-2026-99',
+    } as NodeJS.ProcessEnv)
+    expect(problems.some((p) => /OTP_HMAC_KEY_ACTIVE/.test(p) && /OTP_HMAC_KEYS/.test(p))).toBe(true)
+  })
+})
+
+describe('keyring — fingerprint leaks no key bytes across a multi-key PIN + OTP ring (SEC-REDACT-2)', () => {
+  it('digest contains NONE of the raw keys (incl. the utf8 OTP-bridge byte path)', () => {
+    const p = buildKeyProviderFromEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': PIN_KEY_A, 'pin-2026-07': PIN_KEY_B }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+      OTP_HMAC_KEYS: JSON.stringify({ 'otp-2026-06': OTP_KEY_A }),
+      OTP_HMAC_KEY_ACTIVE: 'otp-2026-06',
+    } as NodeJS.ProcessEnv)
+    const fp = keyringFingerprint(p)
+    expect(fp).toMatch(/^[0-9a-f]{64}$/)
+    for (const key of [LEGACY_KEY, PIN_KEY_A, PIN_KEY_B, OTP_KEY_A]) {
+      expect(fp).not.toContain(key)
+    }
+  })
+})

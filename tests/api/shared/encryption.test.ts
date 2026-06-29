@@ -281,3 +281,58 @@ describe('seed/helper compatibility — single-var bridge byte-format identity',
     expect(decrypt(stored)).toBe('1234')
   })
 })
+
+// ── Adversarial-review regression pins (R1 round-2) ───────────────────────────
+
+describe('parseEnvelope byte-length validation (CRYPTO-1 — wrong-length must be LOUD)', () => {
+  // Even-hex but wrong BYTE length must throw EnvelopeParseError from parseEnvelope
+  // (→ Guard-10 loud bucket b), NOT fall through to gcmDecrypt's plain-Error asserts
+  // (→ silent wrong-PIN bucket c). Pre-fix these passed parseEnvelope.
+  const tag32 = '00'.repeat(16) // 16-byte tag (valid)
+  const iv24 = '00'.repeat(12) // 12-byte iv (valid)
+
+  it('rejects an even-hex but 4-byte IV (legacy 3-part)', () => {
+    expect(() => parseEnvelope(`aabbccdd:${tag32}:deadbeef`)).toThrow(EnvelopeParseError)
+  })
+  it('rejects an even-hex but 4-byte authTag (legacy 3-part)', () => {
+    expect(() => parseEnvelope(`${iv24}:deadbeef:cafebabe`)).toThrow(EnvelopeParseError)
+  })
+  it('rejects an even-hex but wrong-byte-length IV in a v2 value', () => {
+    expect(() => parseEnvelope(`v2:pin-2026-06:aabbccdd:${tag32}:deadbeef`)).toThrow(EnvelopeParseError)
+  })
+  it('a wrong-byte-length value is NOT a plain Error (so Guard-10 classifies it loud)', () => {
+    let thrown: unknown
+    try {
+      parseEnvelope(`aabbccdd:${tag32}:deadbeef`)
+    } catch (e) {
+      thrown = e
+    }
+    expect(thrown).toBeInstanceOf(EnvelopeParseError)
+  })
+})
+
+describe('custom ENCRYPTION_LEGACY_KID round-trip (BV-1 — must not brick reads)', () => {
+  it('bridge mode: a non-default ENCRYPTION_LEGACY_KID still encrypts + decrypts 3-part', () => {
+    process.env.ENCRYPTION_LEGACY_KID = 'pin-old'
+    process.env.ENCRYPTION_KEY = LEGACY_KEY
+    delete process.env.ENCRYPTION_KEYS
+    delete process.env.ENCRYPTION_KEY_ACTIVE
+    __resetKeyProviderForTests()
+    const stored = encrypt('1234')
+    expect(stored.split(':').length).toBe(3)
+    // Pre-fix this threw KeyNotAvailableError('pin', 'legacy') — the reader
+    // hardcoded 'legacy' instead of resolving the configured legacy kid.
+    expect(decrypt(stored)).toBe('1234')
+  })
+
+  it('explicit mode: legacy key under a non-default legacy kid still round-trips', () => {
+    process.env.ENCRYPTION_KEYS = JSON.stringify({ 'pin-old': LEGACY_KEY, 'pin-2026-06': PIN_KEY_A })
+    process.env.ENCRYPTION_KEY_ACTIVE = 'pin-2026-06'
+    process.env.ENCRYPTION_LEGACY_KID = 'pin-old'
+    process.env.ENCRYPTION_KEY = LEGACY_KEY
+    __resetKeyProviderForTests()
+    const stored = encrypt('1234')
+    expect(stored.split(':').length).toBe(3) // R1 always emits 3-part (encode lock)
+    expect(decrypt(stored)).toBe('1234') // resolves via getLegacyKid()='pin-old'
+  })
+})

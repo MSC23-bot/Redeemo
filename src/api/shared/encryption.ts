@@ -60,6 +60,10 @@ export interface ParsedEnvelope {
   ivHex: string
   tagHex: string
   ctHex: string
+  /** true when the value was a 3-part (no-prefix) legacy value. The legacy kid is
+   *  resolved by the CONSUMER via keyring.getLegacyKid() (NOT the DEFAULT_LEGACY_KID
+   *  placeholder in `kid`), so a customized ENCRYPTION_LEGACY_KID still reads (BV-1). */
+  isLegacy3Part: boolean
 }
 
 // kid charset — NO underscore (SQL LIKE single-char wildcard hazard, spec §3.1).
@@ -79,8 +83,10 @@ export function parseEnvelope(stored: string): ParsedEnvelope {
   let ivHex: string
   let tagHex: string
   let ctHex: string
+  let isLegacy3Part = false
   if (parts.length === 3) {
     kid = DEFAULT_LEGACY_KID
+    isLegacy3Part = true
     ;[ivHex, tagHex, ctHex] = parts
   } else if (parts.length === 5 && parts[0] === 'v2') {
     kid = parts[1]
@@ -95,7 +101,13 @@ export function parseEnvelope(stored: string): ParsedEnvelope {
     if (!HEX_EVEN(h)) throw new EnvelopeParseError()
   }
   if (ctHex.length === 0) throw new EnvelopeParseError()
-  return { kid, ivHex, tagHex, ctHex }
+  // Byte-length is part of the PARSE contract (spec §3.1), classified LOUD as a
+  // format fault (CRYPTO-1): a wrong-byte-length-but-even-hex iv/tag must throw
+  // EnvelopeParseError here (→ Guard-10 bucket (b), alerted), NOT fall through to
+  // gcmDecrypt's plain-Error asserts (→ silent wrong-PIN bucket (c)).
+  if (Buffer.from(ivHex, 'hex').length !== 12) throw new EnvelopeParseError()
+  if (Buffer.from(tagHex, 'hex').length !== 16) throw new EnvelopeParseError()
+  return { kid, ivHex, tagHex, ctHex, isLegacy3Part }
 }
 
 // Internal 3-part split for the explicit-key primitive (no kid resolution).
@@ -124,7 +136,13 @@ function gcmDecrypt(key: Buffer, ivHex: string, tagHex: string, ctHex: string): 
  */
 export function decryptEnvelope(stored: string): string {
   const env = parseEnvelope(stored)
-  const keyBytes = getKeyProvider().getKey('pin', env.kid) // throws KeyNotAvailableError if absent
+  const provider = getKeyProvider()
+  // BV-1: a 3-part legacy value resolves to the CONFIGURED legacy kid
+  // (ENCRYPTION_LEGACY_KID, via getLegacyKid()), never the hardcoded
+  // DEFAULT_LEGACY_KID placeholder — so a customized legacy kid still decrypts.
+  // A v2 value uses its embedded kid verbatim.
+  const kid = env.isLegacy3Part ? provider.getLegacyKid() : env.kid
+  const keyBytes = provider.getKey('pin', kid) // throws KeyNotAvailableError if absent
   return gcmDecrypt(keyBytes, env.ivHex, env.tagHex, env.ctHex)
 }
 
