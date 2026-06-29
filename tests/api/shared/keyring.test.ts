@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   buildKeyProviderFromEnv,
   validateKeyringEnv,
   keyringFingerprint,
+  publishKeyringFingerprint,
   KeyNotAvailableError,
   EnvKeyProvider,
 } from '../../../src/api/shared/keyring'
@@ -261,5 +262,47 @@ describe('keyring — canonical fingerprint (§3.9)', () => {
     // assert the provider exposes the capability constant the publisher uses.
     const p = buildKeyProviderFromEnv(singleVarEnv())
     expect(p.codeCapability).toBe('v2-reader-v1')
+  })
+})
+
+describe('publishKeyringFingerprint — best-effort upsert', () => {
+  function fakePrisma() {
+    const upsert = vi.fn().mockResolvedValue({})
+    return { prisma: { keyringFingerprint: { upsert } } as any, upsert }
+  }
+
+  it('upserts a row keyed by service with the canonical fingerprint + codeCapability (no key bytes)', async () => {
+    const { prisma, upsert } = fakePrisma()
+    const ok = await publishKeyringFingerprint(prisma, 'web', singleVarEnv())
+    expect(ok).toBe(true)
+    expect(upsert).toHaveBeenCalledTimes(1)
+    const arg = upsert.mock.calls[0][0]
+    expect(arg.where).toEqual({ service: 'web' })
+    expect(arg.create.service).toBe('web')
+    expect(arg.create.codeCapability).toBe('v2-reader-v1')
+    expect(arg.create.fingerprint).toMatch(/^[0-9a-f]{64}$/)
+    // No raw key bytes anywhere in the upsert payload.
+    expect(JSON.stringify(arg)).not.toContain(LEGACY_KEY)
+  })
+
+  it('is best-effort — a DB failure returns false and does NOT throw (boot must not be blocked)', async () => {
+    const upsert = vi.fn().mockRejectedValue(new Error('relation does not exist'))
+    const prisma = { keyringFingerprint: { upsert } } as any
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const ok = await publishKeyringFingerprint(prisma, 'worker', singleVarEnv())
+    expect(ok).toBe(false)
+    errorSpy.mockRestore()
+  })
+
+  it('a failed publish logs no key bytes', async () => {
+    const upsert = vi.fn().mockRejectedValue(new Error('boom'))
+    const prisma = { keyringFingerprint: { upsert } } as any
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await publishKeyringFingerprint(prisma, 'worker', singleVarEnv())
+    const logged = (errorSpy.mock.calls.flat() as unknown[])
+      .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+      .join(' | ')
+    expect(logged).not.toContain(LEGACY_KEY)
+    errorSpy.mockRestore()
   })
 })

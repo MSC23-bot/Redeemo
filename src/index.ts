@@ -14,6 +14,16 @@ bootstrap()
         app.log.error(err)
         process.exit(1)
       }
+      // Encryption key-rotation R1 (spec §3.9 / Amendment R3-#2): publish this
+      // service's keyring fingerprint AFTER the server is up (so app.prisma is
+      // ready). BEST-EFFORT and fire-and-forget — a publish failure logs + is
+      // swallowed inside publishKeyringFingerprint and must NEVER block startup
+      // or take the process down. (It only blocks later rotation, via the
+      // migrator's parity gate.) The import is DYNAMIC to preserve the
+      // app-module-free static graph in this file (see bootstrap.ts).
+      void import('./api/shared/keyring')
+        .then(({ publishKeyringFingerprint }) => publishKeyringFingerprint(app.prisma, 'web'))
+        .catch(() => undefined)
     })
 
     // Graceful shutdown. PR-0.4 makes the API a queue PRODUCER (notify() enqueues

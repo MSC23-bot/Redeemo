@@ -30,10 +30,33 @@ async function main(): Promise<void> {
   // Fail-closed: same aggregated env check the API runs (REDIS_URL is required).
   validateRequiredEnv()
 
+  // Encryption key-rotation R1 (spec §3.9 / Amendment #13 — Neon cost
+  // containment). `--verify-keyring-and-exit` publishes the WORKER service's
+  // keyring fingerprint row (so the migrator can read worker parity directly
+  // from the table) and exits WITHOUT registering any BullMQ Worker / queue /
+  // repeatable — the worker daemon (its 60s/hourly sweeps are the Neon CU burn)
+  // stays offline. MUST run after validateRequiredEnv() and BEFORE any BullMQ.
+  if (process.argv.includes('--verify-keyring-and-exit')) {
+    const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
+    const prisma = new PrismaClient({ adapter })
+    await prisma.$connect()
+    const { publishKeyringFingerprint } = await import('./api/shared/keyring')
+    const ok = await publishKeyringFingerprint(prisma, 'worker')
+    await prisma.$disconnect()
+    console.info(`[worker] --verify-keyring-and-exit: fingerprint published=${ok}; exiting without starting BullMQ.`)
+    process.exit(0)
+  }
+
   // ONE Prisma client for every processor (mirrors the API's prisma plugin).
   const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
   const prisma = new PrismaClient({ adapter })
   await prisma.$connect()
+
+  // Encryption key-rotation R1: a normally-running worker also publishes its
+  // keyring fingerprint at boot (best-effort, never blocks). The offline
+  // cost-contained path uses --verify-keyring-and-exit above instead.
+  const { publishKeyringFingerprint } = await import('./api/shared/keyring')
+  await publishKeyringFingerprint(prisma, 'worker').catch(() => undefined)
 
   // Each Worker gets its OWN Redis connection for its blocking reads — created +
   // OWNED here so shutdown can quit them. (Passing an ioredis INSTANCE makes

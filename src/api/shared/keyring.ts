@@ -359,3 +359,53 @@ export function keyringFingerprint(provider: EnvKeyProvider): string {
   })
   return crypto.createHash('sha256').update(canonical).digest('hex')
 }
+
+// ── Fingerprint publication (spec §3.9 / Amendment #9 / R3-#2) ────────────────
+
+export type KeyringService = 'web' | 'worker' | 'migrator'
+
+/** Narrow structural type — avoids importing the heavy generated PrismaClient here. */
+export interface KeyringFingerprintWriter {
+  keyringFingerprint: {
+    upsert(args: {
+      where: { service: string }
+      create: { service: string; fingerprint: string; codeCapability: string }
+      update: { fingerprint: string; codeCapability: string }
+    }): Promise<unknown>
+  }
+}
+
+/**
+ * Publish (upsert) the running service's keyring fingerprint row.
+ *
+ * BEST-EFFORT (Amendment R3-#2): a write failure logs + returns false and does
+ * NOT throw — boot must never be blocked by a transient fingerprint write. (A
+ * missing/stale row instead blocks LATER rotation: the migrator's parity gate
+ * refuses to start on it.) Logs only the service + error message — never key
+ * bytes (the canonical fingerprint itself contains no key bytes).
+ */
+export async function publishKeyringFingerprint(
+  prisma: KeyringFingerprintWriter,
+  service: KeyringService,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<boolean> {
+  try {
+    const provider = buildKeyProviderFromEnv(env)
+    const fingerprint = keyringFingerprint(provider)
+    const codeCapability = provider.codeCapability
+    await prisma.keyringFingerprint.upsert({
+      where: { service },
+      create: { service, fingerprint, codeCapability },
+      update: { fingerprint, codeCapability },
+    })
+    return true
+  } catch (err) {
+    // No key bytes are present in `err` (build/upsert errors carry only config
+    // labels). Surface for observability; never block boot.
+    console.error('[keyring] fingerprint publish failed (best-effort, boot continues)', {
+      service,
+      reason: err instanceof Error ? err.message : String(err),
+    })
+    return false
+  }
+}
