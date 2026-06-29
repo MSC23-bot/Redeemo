@@ -148,10 +148,17 @@ describe('Guard-10 request-path redaction — no plaintext/ciphertext/key in log
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx),
     ).rejects.toThrow('KEY_NOT_AVAILABLE')
 
-    // Flatten every logged argument to a single inspectable string.
-    const logged = (errorSpy.mock.calls.flat() as unknown[])
-      .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
-      .join(' | ')
+    // Flatten every logged argument to a single inspectable string. CodeRabbit
+    // (Minor, test rigor): JSON.stringify(new Error('secret')) === '{}' (Error
+    // props are non-enumerable), so a leak via console.error(err) would have
+    // false-greened these "not.toContain" guards. Render Error args via
+    // message + stack so the redaction guard inspects what an operator would see.
+    const stringifyArg = (a: unknown): string => {
+      if (typeof a === 'string') return a
+      if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack ?? ''}`
+      return JSON.stringify(a)
+    }
+    const logged = (errorSpy.mock.calls.flat() as unknown[]).map(stringifyArg).join(' | ')
 
     // Allowed identifiers may appear:
     expect(logged).toContain('b1')

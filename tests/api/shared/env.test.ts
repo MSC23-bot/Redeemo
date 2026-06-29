@@ -6,6 +6,21 @@ import {
   REQUIRED_SECRETS,
 } from '../../../src/api/shared/env'
 
+// CodeRabbit (Minor, test hermeticity): validateRequiredEnv() now also runs the
+// R1 keyring boot validation. The suites below that are NOT about the keyring
+// must clear any ambient keyring map/active/legacy-kid vars first — otherwise a
+// stray ENCRYPTION_KEY_ACTIVE / ENCRYPTION_KEYS leaked into the worker (another
+// suite, or a developer's shell) would flip those tests into explicit-keyring
+// mode and fail spuriously. The dedicated keyring suite manages these itself.
+const KEYRING_PERTURB_VARS = [
+  'ENCRYPTION_KEYS',
+  'ENCRYPTION_KEY_ACTIVE',
+  'ENCRYPTION_LEGACY_KID',
+  'DECOMMISSIONED_KIDS',
+  'OTP_HMAC_KEYS',
+  'OTP_HMAC_KEY_ACTIVE',
+] as const
+
 describe('requireSecret', () => {
   const KEY = 'TEST_ONLY_SECRET_FOR_ENV_SPEC'
   afterEach(() => {
@@ -45,10 +60,12 @@ describe('validateRequiredEnv', () => {
   let saved: Record<string, string | undefined>
   beforeEach(() => {
     saved = {}
-    for (const k of REQUIRED_SECRETS) saved[k] = process.env[k]
+    for (const k of [...REQUIRED_SECRETS, ...KEYRING_PERTURB_VARS]) saved[k] = process.env[k]
+    // bridge path only: drop any ambient keyring map/active vars
+    for (const k of KEYRING_PERTURB_VARS) delete process.env[k]
   })
   afterEach(() => {
-    for (const k of REQUIRED_SECRETS) {
+    for (const k of [...REQUIRED_SECRETS, ...KEYRING_PERTURB_VARS]) {
       if (saved[k] === undefined) delete process.env[k]
       else process.env[k] = saved[k]
     }
@@ -107,13 +124,14 @@ describe('validateRequiredEnv — EMAIL_ENABLED gate', () => {
   let saved: Record<string, string | undefined>
   beforeEach(() => {
     saved = {}
-    for (const k of [...REQUIRED_SECRETS, 'EMAIL_ENABLED', 'RESEND_API_KEY']) saved[k] = process.env[k]
+    for (const k of [...REQUIRED_SECRETS, 'EMAIL_ENABLED', 'RESEND_API_KEY', ...KEYRING_PERTURB_VARS]) saved[k] = process.env[k]
     // satisfy the hard required set so only the email gate is under test
     for (const k of REQUIRED_SECRETS) process.env[k] = `real-${k}-value`
     process.env.ENCRYPTION_KEY = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
+    for (const k of KEYRING_PERTURB_VARS) delete process.env[k] // bridge path only
   })
   afterEach(() => {
-    for (const k of [...REQUIRED_SECRETS, 'EMAIL_ENABLED', 'RESEND_API_KEY']) {
+    for (const k of [...REQUIRED_SECRETS, 'EMAIL_ENABLED', 'RESEND_API_KEY', ...KEYRING_PERTURB_VARS]) {
       if (saved[k] === undefined) delete process.env[k]
       else process.env[k] = saved[k]
     }
@@ -151,13 +169,14 @@ describe('validateRequiredEnv — STORAGE_ENABLED gate (PR-0.5)', () => {
   let saved: Record<string, string | undefined>
   beforeEach(() => {
     saved = {}
-    for (const k of [...REQUIRED_SECRETS, 'STORAGE_ENABLED', ...R2_SECRETS]) saved[k] = process.env[k]
+    for (const k of [...REQUIRED_SECRETS, 'STORAGE_ENABLED', ...R2_SECRETS, ...KEYRING_PERTURB_VARS]) saved[k] = process.env[k]
     for (const k of REQUIRED_SECRETS) process.env[k] = `real-${k}-value`
     process.env.ENCRYPTION_KEY = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
     for (const k of R2_SECRETS) delete process.env[k]
+    for (const k of KEYRING_PERTURB_VARS) delete process.env[k] // bridge path only
   })
   afterEach(() => {
-    for (const k of [...REQUIRED_SECRETS, 'STORAGE_ENABLED', ...R2_SECRETS]) {
+    for (const k of [...REQUIRED_SECRETS, 'STORAGE_ENABLED', ...R2_SECRETS, ...KEYRING_PERTURB_VARS]) {
       if (saved[k] === undefined) delete process.env[k]
       else process.env[k] = saved[k]
     }

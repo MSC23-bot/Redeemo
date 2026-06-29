@@ -143,6 +143,20 @@ function validateRing(
   const containment = ns === 'pin' ? /^(pin-|legacy$)/ : /^otp-/
   const rawMap = env[mapVar]
 
+  // CodeRabbit (Major, security): ENCRYPTION_LEGACY_KID is operator-supplied and
+  // becomes the bridged kid + is keyed into the ring + echoed in errors. Validate
+  // its charset fail-closed (pin-* or 'legacy', no underscore/colon) BEFORE use, so
+  // an invalid/long value (e.g. a fat-fingered 64-hex key) cannot become a kid. The
+  // value is redacted via safeKidLabel if it must be echoed.
+  if (ns === 'pin' && env.ENCRYPTION_LEGACY_KID !== undefined && env.ENCRYPTION_LEGACY_KID.trim() !== '') {
+    if (!PIN_KID.test(env.ENCRYPTION_LEGACY_KID)) {
+      problems.push(
+        `ENCRYPTION_LEGACY_KID "${safeKidLabel(env.ENCRYPTION_LEGACY_KID)}" is not a valid pin kid (expected pin-* or "legacy", charset a-z0-9- only).`,
+      )
+      return { problems, ring: null }
+    }
+  }
+
   // ── Bridge mode: the ring's map var is unset → synthesise from ENCRYPTION_KEY.
   if (rawMap === undefined || rawMap.trim() === '') {
     if (!legacyKey) {
@@ -202,6 +216,14 @@ function validateRing(
   for (const [kid, value] of entries) {
     if (!containment.test(kid) || !kidPattern.test(kid)) {
       problems.push(`${mapVar} kid "${safeKidLabel(kid)}" is not in the ${ns} namespace (expected ${ns === 'pin' ? 'pin-* or legacy' : 'otp-*'}, charset a-z0-9- only).`)
+    }
+    // CodeRabbit (Major, security): a decommissioned kid must not be present in the
+    // ring AT ALL — not merely barred from being ACTIVE. Retirement removes the kid
+    // from the ring AND adds it to DECOMMISSIONED_KIDS (mutually exclusive states), so
+    // a denylisted kid appearing as any ring key is a misconfig that would keep a
+    // retired/compromised key loaded + usable for decrypt. Fail closed.
+    if (denylist.has(kid)) {
+      problems.push(`${mapVar} contains kid "${safeKidLabel(kid)}" which is in DECOMMISSIONED_KIDS; a retired/compromised kid must be removed from the ring entirely, not kept as a key.`)
     }
     if (typeof value !== 'string' || !HEX64.test(value)) {
       problems.push(`${mapVar} kid "${safeKidLabel(kid)}" must map to a 64-character hex key (32 bytes).`)

@@ -62,11 +62,22 @@ afterEach(() => {
   __resetKeyProviderForTests()
 })
 
+// Flatten every logged argument to an inspectable string. CodeRabbit (Minor,
+// test rigor): JSON.stringify(new Error('secret')) === '{}' because Error props
+// are non-enumerable — so a leak via console.error(err) would have false-greened
+// these "not.toContain" assertions. Render Error args via message + stack so the
+// redaction guard actually inspects what an operator would see in the logs.
+function stringifyArg(a: unknown): string {
+  if (typeof a === 'string') return a
+  if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack ?? ''}`
+  return JSON.stringify(a)
+}
+
 function loggedString(): string {
   return [errorSpy, warnSpy, logSpy]
     .flatMap((s) => s.mock.calls)
     .flat()
-    .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+    .map(stringifyArg)
     .join(' | ')
 }
 

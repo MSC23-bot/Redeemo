@@ -111,8 +111,12 @@ export function parseEnvelope(stored: string): ParsedEnvelope {
 }
 
 // Internal 3-part split for the explicit-key primitive (no kid resolution).
+// CodeRabbit (Minor, correctness): decryptWith() takes an EXPLICIT key and ignores
+// any embedded kid, so it must only accept a 3-part legacy value — a v2 value would
+// be decrypted under the caller's key regardless of its kid. Reject v2 here.
 function parse3Part(stored: string): { ivHex: string; tagHex: string; ctHex: string } {
   const env = parseEnvelope(stored)
+  if (!env.isLegacy3Part) throw new EnvelopeParseError()
   return { ivHex: env.ivHex, tagHex: env.tagHex, ctHex: env.ctHex }
 }
 

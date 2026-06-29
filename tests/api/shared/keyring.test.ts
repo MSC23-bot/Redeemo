@@ -358,3 +358,80 @@ describe('keyring — fingerprint leaks no key bytes across a multi-key PIN + OT
     }
   })
 })
+
+// CodeRabbit (Major #1): ENCRYPTION_LEGACY_KID is operator-supplied, becomes the
+// bridged kid + is keyed into the ring + echoed in errors. Its charset must be
+// validated fail-closed BEFORE use, and any echoed value must be redacted so a
+// fat-fingered key can never be reflected into the (stderr) boot log.
+describe('keyring — ENCRYPTION_LEGACY_KID charset is validated fail-closed (CodeRabbit Major #1)', () => {
+  it('rejects an out-of-charset legacy kid (underscore) and names the var', () => {
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_LEGACY_KID: 'pin_2026_06', // underscore is not a legal kid char
+    } as NodeJS.ProcessEnv)
+    expect(problems.length).toBeGreaterThan(0)
+    expect(problems.join('\n')).toMatch(/ENCRYPTION_LEGACY_KID/)
+  })
+
+  it('rejects an otp-* value in the PIN legacy kid (wrong namespace)', () => {
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_LEGACY_KID: 'otp-2026-06',
+    } as NodeJS.ProcessEnv)
+    expect(problems.length).toBeGreaterThan(0)
+    expect(problems.join('\n')).toMatch(/ENCRYPTION_LEGACY_KID/)
+  })
+
+  it('REDACTS a fat-fingered 64-hex key placed in ENCRYPTION_LEGACY_KID (never reflects the raw key)', () => {
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_LEGACY_KID: PIN_KEY_A, // 64-hex — too long to be a kid
+    } as NodeJS.ProcessEnv)
+    expect(problems.length).toBeGreaterThan(0)
+    const joined = problems.join('\n')
+    expect(joined).toMatch(/ENCRYPTION_LEGACY_KID/)
+    // The raw key must NOT appear; only the clamped safe-label prefix may.
+    expect(joined).not.toContain(PIN_KEY_A)
+    expect(joined).toContain('…[redacted]')
+  })
+
+  it('buildKeyProviderFromEnv throws (fail-closed) on an invalid legacy kid', () => {
+    expect(() =>
+      buildKeyProviderFromEnv({
+        ENCRYPTION_KEY: LEGACY_KEY,
+        ENCRYPTION_LEGACY_KID: 'pin_bad',
+      } as NodeJS.ProcessEnv),
+    ).toThrow()
+  })
+})
+
+// CodeRabbit (Major #2): a decommissioned kid must not be present in the ring AT
+// ALL — not merely barred from being ACTIVE. Retirement removes the kid from the
+// ring AND adds it to DECOMMISSIONED_KIDS (mutually exclusive states), so a
+// denylisted kid appearing as ANY ring key (even a non-active one) is a misconfig
+// that would keep a retired/compromised key loaded + usable for decrypt.
+describe('keyring — a decommissioned kid present anywhere in the ring is rejected (CodeRabbit Major #2)', () => {
+  it('rejects a NON-active ring key that is in DECOMMISSIONED_KIDS', () => {
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': PIN_KEY_A, 'pin-old': PIN_KEY_B }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06', // active is fine + not denylisted
+      DECOMMISSIONED_KIDS: 'pin-old', // a retired kid still left in the ring
+    } as NodeJS.ProcessEnv)
+    expect(problems.length).toBeGreaterThan(0)
+    const joined = problems.join('\n')
+    expect(joined).toMatch(/DECOMMISSIONED_KIDS/)
+    expect(joined).toMatch(/pin-old/)
+  })
+
+  it('buildKeyProviderFromEnv throws (fail-closed) when a retired kid is left in the ring', () => {
+    expect(() =>
+      buildKeyProviderFromEnv({
+        ENCRYPTION_KEY: LEGACY_KEY,
+        ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': PIN_KEY_A, 'pin-old': PIN_KEY_B }),
+        ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+        DECOMMISSIONED_KIDS: 'pin-old',
+      } as NodeJS.ProcessEnv),
+    ).toThrow()
+  })
+})

@@ -23,7 +23,12 @@ bootstrap()
       // app-module-free static graph in this file (see bootstrap.ts).
       void import('./api/shared/keyring')
         .then(({ publishKeyringFingerprint }) => publishKeyringFingerprint(app.prisma, 'web'))
-        .catch(() => undefined)
+        // CodeRabbit (Minor, stability): log (don't silently swallow) a dynamic-import
+        // failure too — still best-effort + non-blocking, but observable. No key bytes
+        // are present in an import/publish error.
+        .catch((err: unknown) => {
+          app.log.error({ reason: err instanceof Error ? err.message : String(err) }, '[api] keyring fingerprint publish skipped (best-effort)')
+        })
     })
 
     // Graceful shutdown. PR-0.4 makes the API a queue PRODUCER (notify() enqueues

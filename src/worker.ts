@@ -44,7 +44,10 @@ async function main(): Promise<void> {
     const ok = await publishKeyringFingerprint(prisma, 'worker')
     await prisma.$disconnect()
     console.info(`[worker] --verify-keyring-and-exit: fingerprint published=${ok}; exiting without starting BullMQ.`)
-    process.exit(0)
+    // CodeRabbit (Major, functional): this mode IS the parity-verification step, so a
+    // failed publish must exit NON-ZERO — else an operator/CI relying on it gets a
+    // false green and proceeds to a flip/migration with unverified worker parity.
+    process.exit(ok ? 0 : 1)
   }
 
   // ONE Prisma client for every processor (mirrors the API's prisma plugin).
@@ -55,8 +58,17 @@ async function main(): Promise<void> {
   // Encryption key-rotation R1: a normally-running worker also publishes its
   // keyring fingerprint at boot (best-effort, never blocks). The offline
   // cost-contained path uses --verify-keyring-and-exit above instead.
-  const { publishKeyringFingerprint } = await import('./api/shared/keyring')
-  await publishKeyringFingerprint(prisma, 'worker').catch(() => undefined)
+  // CodeRabbit (Major, stability): wrap the dynamic IMPORT too — if the import
+  // itself rejects, an un-wrapped `await import()` would crash worker boot. The
+  // whole best-effort publish (import + call) is swallowed so boot never blocks.
+  try {
+    const { publishKeyringFingerprint } = await import('./api/shared/keyring')
+    await publishKeyringFingerprint(prisma, 'worker')
+  } catch (err) {
+    console.error('[worker] keyring fingerprint publish skipped (best-effort)', {
+      reason: err instanceof Error ? err.message : String(err),
+    })
+  }
 
   // Each Worker gets its OWN Redis connection for its blocking reads — created +
   // OWNED here so shutdown can quit them. (Passing an ioredis INSTANCE makes

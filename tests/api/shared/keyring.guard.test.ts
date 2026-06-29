@@ -16,6 +16,7 @@ const read = (rel: string) => readFileSync(join(root, rel), 'utf8')
 
 const ENCRYPTION = 'src/api/shared/encryption.ts'
 const KEYRING = 'src/api/shared/keyring.ts'
+const WORKER = 'src/worker.ts'
 
 describe('R1 static guard — encode lock (no v2 write capability)', () => {
   it('encryption.ts does NOT reference the ENCRYPTION_V2_WRITES_ENABLED flag at all (foundation build)', () => {
@@ -66,5 +67,29 @@ describe('R1 static guard — no plaintext/ciphertext/key logging in the crypto 
     // feeding key material into the digest.
     expect(src.includes('function keyHash')).toBe(true)
     expect(src.includes("'redeemo-keyring-v1:'")).toBe(true)
+  })
+})
+
+describe('R1 static guard — worker verify-and-exit + best-effort boot publish (CodeRabbit Majors #3/#4)', () => {
+  it('the --verify-keyring-and-exit path exits NON-ZERO on a failed publish (process.exit(ok ? 0 : 1))', () => {
+    const src = read(WORKER)
+    // Major #3: this mode IS the parity-verification step — a failed publish must
+    // exit non-zero so an operator/CI relying on it cannot get a false green and
+    // proceed to a flip/migration with unverified worker parity.
+    expect(src.includes('process.exit(ok ? 0 : 1)')).toBe(true)
+    // And the verify path must NOT regress to an unconditional success exit.
+    expect(/--verify-keyring-and-exit[\s\S]{0,600}process\.exit\(0\)/.test(src)).toBe(false)
+  })
+
+  it('the normal-boot keyring publish is wrapped so a publish/import failure never crashes boot', () => {
+    const src = read(WORKER)
+    // Major #4: the whole best-effort publish (dynamic import + call) is in a
+    // try/catch — an import rejection or upsert throw is logged + swallowed, never
+    // takes the worker process down. The catch log is the unique evidence string.
+    expect(src.includes('[worker] keyring fingerprint publish skipped (best-effort)')).toBe(true)
+    // Structural: a try-block encloses the normal-boot dynamic import + publish call.
+    expect(
+      /try\s*\{[\s\S]*?await import\('\.\/api\/shared\/keyring'\)[\s\S]*?await publishKeyringFingerprint\(prisma, 'worker'\)[\s\S]*?\}\s*catch/.test(src),
+    ).toBe(true)
   })
 })
