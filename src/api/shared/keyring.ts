@@ -46,7 +46,13 @@ export class KeyNotAvailableError extends Error {
   public readonly code = 'KEY_NOT_AVAILABLE'
   constructor(ns: Namespace, kid: string) {
     // NEVER include key bytes — only the namespace + kid (a safe index label).
-    super(`No key available for ${ns} kid "${kid}"`)
+    // Defence-in-depth (adversarial-review parity): route the kid through
+    // safeKidLabel so that even if a future caller passes an UN-validated kid (a
+    // fat-fingered 64-hex key), the propagated app.log.error(error) cannot reflect
+    // raw key material. Today every kid reaching here is already charset-validated
+    // (parseEnvelope KID_RE / getLegacyKid boot validation), so this is a no-op for
+    // legitimate kids — but it closes the leak window unconditionally.
+    super(`No key available for ${ns} kid "${safeKidLabel(kid)}"`)
     this.name = 'KeyNotAvailableError'
   }
 }

@@ -81,6 +81,28 @@ function loggedString(): string {
     .join(' | ')
 }
 
+// Spec §3.10 line 236 requires the redaction test to "assert the captured
+// app.log.error payload contains no ciphertext/key/plaintext". getBranchPin /
+// sendBranchPin call decrypt() OUTSIDE any try/catch, so the typed error
+// propagates VERBATIM to Fastify's global handler (src/api/app.ts:86 →
+// app.log.error(error)), which serializes it via pino's std err serializer.
+// This helper is a STRICTLY-MORE-INCLUSIVE approximation of that serialization
+// (name + message + stack + EVERY own enumerable prop, e.g. `code`), so a clean
+// assertion here proves the real logged payload cannot leak a secret either.
+function serializeErrorLikePino(err: unknown): string {
+  if (!(err instanceof Error)) return JSON.stringify(err)
+  const ownProps: Record<string, unknown> = {}
+  const bag = err as unknown as Record<string, unknown>
+  for (const k of Object.keys(err)) ownProps[k] = bag[k]
+  return [
+    err.name,
+    err.message,
+    err.stack ?? '',
+    JSON.stringify(ownProps),
+    ...Object.values(ownProps).map((v) => String(v)),
+  ].join(' | ')
+}
+
 describe('getBranchPin — unknown-kid value redaction', () => {
   it('throws KeyNotAvailableError whose message leaks no ciphertext/key, and logs nothing sensitive', async () => {
     const prisma = mockPrisma()
@@ -102,6 +124,12 @@ describe('getBranchPin — unknown-kid value redaction', () => {
     const logged = loggedString()
     expect(logged).not.toContain('deadbeef')
     expect(logged).not.toContain(LEGACY_KEY)
+
+    // The propagated app.log.error(error) payload (pino-serialized) leaks nothing.
+    const payload = serializeErrorLikePino(thrown)
+    expect(payload).not.toContain('deadbeef')
+    expect(payload).not.toContain(LEGACY_KEY)
+    expect(payload).not.toContain(UNKNOWN_KID_VALUE)
   })
 })
 
@@ -119,6 +147,11 @@ describe('getBranchPin — corrupt value redaction', () => {
     expect(thrown).toBeInstanceOf(EnvelopeParseError)
     expect((thrown as Error).message).not.toContain(CORRUPT_VALUE)
     expect((thrown as Error).message).not.toContain('aabb')
+
+    // app.log.error(error) payload (pino-serialized) contains no stored value.
+    const payload = serializeErrorLikePino(thrown)
+    expect(payload).not.toContain(CORRUPT_VALUE)
+    expect(payload).not.toContain('aabb')
   })
 })
 
@@ -143,5 +176,11 @@ describe('sendBranchPin — unknown-kid value redaction', () => {
     const logged = loggedString()
     expect(logged).not.toContain('deadbeef')
     expect(logged).not.toContain(LEGACY_KEY)
+
+    // The propagated app.log.error(error) payload (pino-serialized) leaks nothing.
+    const payload = serializeErrorLikePino(thrown)
+    expect(payload).not.toContain('deadbeef')
+    expect(payload).not.toContain(LEGACY_KEY)
+    expect(payload).not.toContain(UNKNOWN_KID_VALUE)
   })
 })

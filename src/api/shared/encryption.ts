@@ -157,6 +157,13 @@ export function decryptEnvelope(stored: string): string {
  * incapable of emitting v2). Fails closed if the legacy key is absent from the
  * ring (never silently picks a non-legacy key, which would be undecryptable by a
  * legacy-kid reader → a silently bricked PIN).
+ *
+ * R4 MARKER: the writer-flip flag check lands HERE in R4 — when the flag is ON
+ * AND ACTIVE != legacy, emit a five-part versioned envelope (the version prefix,
+ * then the active kid, iv, tag, ciphertext) under getKey('pin', activeKid) per
+ * spec §3.1 R4-#1. R4 must add its OWN flag-ON test (the R1 ENCODE-LOCK suite
+ * only pins the flag-OFF case by construction). The flag is read by NOTHING in
+ * R1 (enforced by keyring.guard.test.ts).
  */
 export function encrypt(plaintext: string): string {
   const provider = getKeyProvider()

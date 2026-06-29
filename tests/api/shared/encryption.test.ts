@@ -90,8 +90,25 @@ describe('encryptWith / decryptWith primitives', () => {
   })
 
   it('takes no IV parameter — IV is generated internally (RISK-4 structural guard)', () => {
-    // encryptWith(plaintext, keyHex) has arity 2; an IV cannot be injected.
+    // Signature arity is 2 (documentation only — NOT load-bearing: Function.length
+    // ignores optional/rest params, so this alone would false-green if a maintainer
+    // added `iv?: Buffer`). The RUNTIME guard below is the real pin.
     expect(encryptWith.length).toBe(2)
+
+    // RISK-4 runtime guard (adversarial-review hardening): force an external "iv"
+    // through a deliberately-wrong arity and prove it is IGNORED — i.e. the IV is
+    // ALWAYS internally fresh-random, never caller-injectable (which would break GCM
+    // nonce-uniqueness + the migrator's ciphertext-as-CAS-token invariant). If a
+    // future `const iv = injectedIv ?? randomBytes(12)` regression honoured the
+    // passed IV, these two calls (same plaintext, key, AND injected iv) would be
+    // IDENTICAL and this assertion would fail.
+    const inject = encryptWith as unknown as (p: string, k: string, iv?: Buffer) => string
+    const fixedIv = Buffer.alloc(12, 0x07)
+    const a = inject('1234', LEGACY_KEY, fixedIv)
+    const b = inject('1234', LEGACY_KEY, fixedIv)
+    expect(a).not.toBe(b) // injected IV ignored ⇒ fresh random each call
+    expect(decryptWith(a, LEGACY_KEY)).toBe('1234')
+    expect(decryptWith(b, LEGACY_KEY)).toBe('1234')
   })
 
   it('never reproduces an identical ciphertext for the same plaintext+key (IV uniqueness)', () => {
@@ -226,6 +243,14 @@ describe('encrypt() ENCODE LOCK (R4-#1, foundation build has NO v2 flag)', () =>
   })
 
   it('(b) the R1 build can NEVER emit a v2 value even with a non-legacy ACTIVE + the flag set', () => {
+    // SCOPE (adversarial-review note): this pins ONLY the flag-OFF/encode-lock case —
+    // R1's encrypt() never READS ENCRYPTION_V2_WRITES_ENABLED (the flag appears only in
+    // a comment; the static guard keyring.guard.test.ts forbids an env read of it). So
+    // setting the env var here proves the lock holds REGARDLESS of ambient flag state;
+    // it does NOT exercise a flag-ON writer (there is none in R1). R4 — which adds the
+    // actual flag check + v2 writer — MUST add its own flag-ON test (flag ON + ACTIVE !=
+    // legacy ⇒ v2:<active>:… under the ACTIVE key) per spec §3.1 R4-#1; the R1 suite
+    // cannot catch an R4 flag-check bug by construction.
     setExplicitRing('pin-2026-06')
     process.env.ENCRYPTION_V2_WRITES_ENABLED = 'true'
     __resetKeyProviderForTests()

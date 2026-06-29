@@ -434,4 +434,34 @@ describe('keyring — a decommissioned kid present anywhere in the ring is rejec
       } as NodeJS.ProcessEnv),
     ).toThrow()
   })
+
+  // CodeRabbit (re-review nit): validateKeyringEnv aggregates BOTH namespaces, and the
+  // denylist check lives in the shared validateRing per-key loop — so the OTP ring must
+  // reject a decommissioned kid too. Pin it so a regression that drops the OTP path can't
+  // pass while the suite still claims "anywhere in the ring".
+  it('rejects a NON-active OTP ring key that is in DECOMMISSIONED_KIDS (both namespaces covered)', () => {
+    const OTP_KEY_OLD = '4444444444444444444444444444444444444444444444444444444444444444'
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY, // bridges the PIN ring so only the OTP ring is under test
+      OTP_HMAC_KEYS: JSON.stringify({ 'otp-2026-06': OTP_KEY_A, 'otp-old': OTP_KEY_OLD }),
+      OTP_HMAC_KEY_ACTIVE: 'otp-2026-06', // active is fine + not denylisted
+      DECOMMISSIONED_KIDS: 'otp-old', // a retired OTP kid still left in the ring
+    } as NodeJS.ProcessEnv)
+    expect(problems.length).toBeGreaterThan(0)
+    const joined = problems.join('\n')
+    expect(joined).toMatch(/DECOMMISSIONED_KIDS/)
+    expect(joined).toMatch(/otp-old/)
+  })
+
+  it('buildKeyProviderFromEnv throws (fail-closed) on a retired OTP kid left in OTP_HMAC_KEYS', () => {
+    const OTP_KEY_OLD = '4444444444444444444444444444444444444444444444444444444444444444'
+    expect(() =>
+      buildKeyProviderFromEnv({
+        ENCRYPTION_KEY: LEGACY_KEY,
+        OTP_HMAC_KEYS: JSON.stringify({ 'otp-2026-06': OTP_KEY_A, 'otp-old': OTP_KEY_OLD }),
+        OTP_HMAC_KEY_ACTIVE: 'otp-2026-06',
+        DECOMMISSIONED_KIDS: 'otp-old',
+      } as NodeJS.ProcessEnv),
+    ).toThrow()
+  })
 })

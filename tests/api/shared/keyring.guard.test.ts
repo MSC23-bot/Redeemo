@@ -77,8 +77,16 @@ describe('R1 static guard — worker verify-and-exit + best-effort boot publish 
     // exit non-zero so an operator/CI relying on it cannot get a false green and
     // proceed to a flip/migration with unverified worker parity.
     expect(src.includes('process.exit(ok ? 0 : 1)')).toBe(true)
-    // And the verify path must NOT regress to an unconditional success exit.
-    expect(/--verify-keyring-and-exit[\s\S]{0,600}process\.exit\(0\)/.test(src)).toBe(false)
+    // The verify path must NOT regress to an unconditional success exit. Capture the
+    // WHOLE verify block, then assert on its exit calls (CodeRabbit re-review nit — a
+    // fixed-width window could miss a later exit if the block grows). NOTE: the block's
+    // closing brace is 2-space-indented (`\n  }`), so we anchor on that — and assert the
+    // match is non-null so the guard can never pass vacuously on a failed capture.
+    const verifyMatch = src.match(/if \(process\.argv\.includes\('--verify-keyring-and-exit'\)\) \{[\s\S]*?\n  \}/)
+    expect(verifyMatch).not.toBeNull()
+    const verifyBlock = verifyMatch?.[0] ?? ''
+    expect(verifyBlock).toContain('process.exit(ok ? 0 : 1)')
+    expect(verifyBlock.includes('process.exit(0)')).toBe(false)
   })
 
   it('the normal-boot keyring publish is wrapped so a publish/import failure never crashes boot', () => {
