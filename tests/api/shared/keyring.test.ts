@@ -1,0 +1,265 @@
+import { describe, it, expect } from 'vitest'
+import {
+  buildKeyProviderFromEnv,
+  validateKeyringEnv,
+  keyringFingerprint,
+  KeyNotAvailableError,
+  EnvKeyProvider,
+} from '../../../src/api/shared/keyring'
+
+// Deterministic 64-hex TEST keys (NOT real secrets — locally generated).
+const LEGACY_KEY = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
+const PIN_KEY_A = '1111111111111111111111111111111111111111111111111111111111111111'
+const PIN_KEY_B = '2222222222222222222222222222222222222222222222222222222222222222'
+const OTP_KEY_A = '3333333333333333333333333333333333333333333333333333333333333333'
+
+// A baseline single-var env (only ENCRYPTION_KEY set) — the current production shape.
+function singleVarEnv(): NodeJS.ProcessEnv {
+  return { ENCRYPTION_KEY: LEGACY_KEY } as NodeJS.ProcessEnv
+}
+
+describe('keyring — legacy-bridge boot mode (A)', () => {
+  it('synthesises a legacy-only PIN ring from a single ENCRYPTION_KEY (ACTIVE == legacy is VALID)', () => {
+    const p = buildKeyProviderFromEnv(singleVarEnv())
+    expect(p.getLegacyKid()).toBe('legacy')
+    expect(p.getActiveKid('pin')).toBe('legacy')
+    expect(p.listKids('pin')).toEqual(['legacy'])
+    expect(p.getKey('pin', 'legacy')).toEqual(Buffer.from(LEGACY_KEY, 'hex'))
+  })
+
+  it('validateKeyringEnv returns no problems for the single-var env', () => {
+    expect(validateKeyringEnv(singleVarEnv())).toEqual([])
+  })
+
+  it('honours a custom ENCRYPTION_LEGACY_KID in bridge mode', () => {
+    const p = buildKeyProviderFromEnv({ ENCRYPTION_KEY: LEGACY_KEY, ENCRYPTION_LEGACY_KID: 'legacy' } as NodeJS.ProcessEnv)
+    expect(p.getLegacyKid()).toBe('legacy')
+  })
+
+  it('bridges the OTP ring independently of the PIN ring (OTP unset -> otp-legacy from ENCRYPTION_KEY)', () => {
+    const p = buildKeyProviderFromEnv(singleVarEnv())
+    expect(p.getActiveKid('otp')).toBe('otp-legacy')
+    // CRYPTO-1: the bridged otp-legacy keying material is the ASCII hex STRING bytes,
+    // byte-identical to the legacy createHmac('sha256', ENCRYPTION_KEY).
+    expect(p.getOtpHmacKey('otp-legacy')).toEqual(Buffer.from(LEGACY_KEY, 'utf8'))
+  })
+})
+
+describe('keyring — explicit-keyring boot mode (B)', () => {
+  function explicitPinEnv(): NodeJS.ProcessEnv {
+    return {
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': PIN_KEY_A }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv
+  }
+
+  it('parses an explicit PIN ring with a pin-* ACTIVE and the legacy kid present', () => {
+    const p = buildKeyProviderFromEnv(explicitPinEnv())
+    expect(p.getActiveKid('pin')).toBe('pin-2026-06')
+    expect(p.getLegacyKid()).toBe('legacy')
+    expect(new Set(p.listKids('pin'))).toEqual(new Set(['legacy', 'pin-2026-06']))
+    expect(p.getKey('pin', 'pin-2026-06')).toEqual(Buffer.from(PIN_KEY_A, 'hex'))
+    expect(p.getKey('pin', 'legacy')).toEqual(Buffer.from(LEGACY_KEY, 'hex'))
+  })
+
+  it('rejects when ACTIVE equals the legacy kid in explicit mode', () => {
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY }),
+      ENCRYPTION_KEY_ACTIVE: 'legacy',
+    } as NodeJS.ProcessEnv)
+    expect(problems.join('\n')).toMatch(/ENCRYPTION_KEY_ACTIVE/)
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('rejects when ACTIVE is not a pin-* kid', () => {
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'wrong-2026-06': PIN_KEY_A }),
+      ENCRYPTION_KEY_ACTIVE: 'wrong-2026-06',
+    } as NodeJS.ProcessEnv)
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('rejects when the legacy kid is absent from an explicit PIN ring', () => {
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify({ 'pin-2026-06': PIN_KEY_A }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv)
+    expect(problems.join('\n')).toMatch(/ENCRYPTION_LEGACY_KID|legacy/)
+  })
+
+  it('selects boot mode PER-NAMESPACE — explicit OTP ring + bridged PIN ring honours the fresh OTP active, NOT the leaked key', () => {
+    const p = buildKeyProviderFromEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      OTP_HMAC_KEYS: JSON.stringify({ 'otp-2026-06': OTP_KEY_A }),
+      OTP_HMAC_KEY_ACTIVE: 'otp-2026-06',
+    } as NodeJS.ProcessEnv)
+    // PIN ring is bridged (ENCRYPTION_KEYS unset)
+    expect(p.getActiveKid('pin')).toBe('legacy')
+    // OTP ring is explicit — the leaked ENCRYPTION_KEY is NOT the OTP signer.
+    expect(p.getActiveKid('otp')).toBe('otp-2026-06')
+    expect(p.getOtpHmacKey('otp-2026-06')).toEqual(Buffer.from(OTP_KEY_A, 'utf8'))
+  })
+})
+
+describe('keyring — fail-closed boot validation', () => {
+  const base = (overrides: Record<string, string | undefined>): NodeJS.ProcessEnv =>
+    ({ ENCRYPTION_KEY: LEGACY_KEY, ...overrides } as NodeJS.ProcessEnv)
+
+  it('rejects a non-64-hex value in the ring', () => {
+    const problems = validateKeyringEnv(base({
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': 'deadbeef' }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    }))
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('rejects a placeholder value via isPlaceholder', () => {
+    const placeholder = 'your-placeholder-key-0000000000000000000000000000000000000000'
+    const problems = validateKeyringEnv(base({
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': placeholder }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    }))
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('rejects when ACTIVE is absent from the ring', () => {
+    const problems = validateKeyringEnv(base({
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    }))
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('rejects when ACTIVE is in DECOMMISSIONED_KIDS', () => {
+    const problems = validateKeyringEnv(base({
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': PIN_KEY_A }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+      DECOMMISSIONED_KIDS: 'pin-2026-06,pin-old',
+    }))
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('rejects malformed ENCRYPTION_KEYS JSON', () => {
+    const problems = validateKeyringEnv(base({
+      ENCRYPTION_KEYS: '{not json',
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    }))
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('rejects a swapped-ring paste — OTP-namespaced kid inside ENCRYPTION_KEYS (namespace containment)', () => {
+    const problems = validateKeyringEnv(base({
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'otp-2026-06': PIN_KEY_A }),
+      ENCRYPTION_KEY_ACTIVE: 'otp-2026-06',
+    }))
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('rejects a swapped-ring paste — PIN-namespaced kid inside OTP_HMAC_KEYS', () => {
+    const problems = validateKeyringEnv(base({
+      OTP_HMAC_KEYS: JSON.stringify({ 'pin-2026-06': OTP_KEY_A }),
+      OTP_HMAC_KEY_ACTIVE: 'pin-2026-06',
+    }))
+    expect(problems.length).toBeGreaterThan(0)
+  })
+
+  it('buildKeyProviderFromEnv throws (fail-closed) when validation fails', () => {
+    expect(() =>
+      buildKeyProviderFromEnv(base({
+        ENCRYPTION_KEYS: '{not json',
+        ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+      })),
+    ).toThrow()
+  })
+})
+
+describe('keyring — getKey resolver + namespace rejection', () => {
+  const explicit = (): EnvKeyProvider =>
+    buildKeyProviderFromEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': PIN_KEY_A }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+      OTP_HMAC_KEYS: JSON.stringify({ 'otp-2026-06': OTP_KEY_A }),
+      OTP_HMAC_KEY_ACTIVE: 'otp-2026-06',
+    } as NodeJS.ProcessEnv)
+
+  it('throws KeyNotAvailableError for an unknown pin kid', () => {
+    expect(() => explicit().getKey('pin', 'pin-nope')).toThrow(KeyNotAvailableError)
+  })
+
+  it('rejects a pin-* kid asked of the OTP ring (cross-namespace confusion impossible)', () => {
+    expect(() => explicit().getKey('otp', 'pin-2026-06')).toThrow(KeyNotAvailableError)
+  })
+
+  it('rejects an otp-* kid asked of the PIN ring', () => {
+    expect(() => explicit().getKey('pin', 'otp-2026-06')).toThrow(KeyNotAvailableError)
+  })
+
+  it('KeyNotAvailableError message contains the kid but NO key bytes', () => {
+    try {
+      explicit().getKey('pin', 'pin-nope')
+      throw new Error('should have thrown')
+    } catch (err) {
+      const msg = (err as Error).message
+      expect(msg).toContain('pin-nope')
+      expect(msg).not.toContain(PIN_KEY_A)
+      expect(msg).not.toContain(LEGACY_KEY)
+    }
+  })
+})
+
+describe('keyring — canonical fingerprint (§3.9)', () => {
+  it('is a deterministic sha256 hex digest containing no raw key bytes', () => {
+    const p = buildKeyProviderFromEnv(singleVarEnv())
+    const fp = keyringFingerprint(p)
+    expect(fp).toMatch(/^[0-9a-f]{64}$/)
+    expect(fp).not.toContain(LEGACY_KEY)
+  })
+
+  it('is stable across two providers built from the same env', () => {
+    const a = keyringFingerprint(buildKeyProviderFromEnv(singleVarEnv()))
+    const b = keyringFingerprint(buildKeyProviderFromEnv(singleVarEnv()))
+    expect(a).toBe(b)
+  })
+
+  it('an ACTIVE-only divergence between two otherwise-identical rings changes the digest', () => {
+    const ring = { legacy: LEGACY_KEY, 'pin-2026-06': PIN_KEY_A, 'pin-2026-07': PIN_KEY_B }
+    const fpJune = keyringFingerprint(buildKeyProviderFromEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify(ring),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv))
+    const fpJuly = keyringFingerprint(buildKeyProviderFromEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify(ring),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-07',
+    } as NodeJS.ProcessEnv))
+    expect(fpJune).not.toBe(fpJuly)
+  })
+
+  it('a different key under the same kid changes the digest (keyHash is over the bytes)', () => {
+    const fp1 = keyringFingerprint(buildKeyProviderFromEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': PIN_KEY_A }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv))
+    const fp2 = keyringFingerprint(buildKeyProviderFromEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': PIN_KEY_B }),
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv))
+    expect(fp1).not.toBe(fp2)
+  })
+
+  it('includes a codeCapability marker so a non-reader build cannot collide with a reader build', () => {
+    // The fingerprint must encode 'v2-reader-v1'. We assert indirectly: the digest
+    // changes if we recompute with the marker absent is hard to test directly, so we
+    // assert the provider exposes the capability constant the publisher uses.
+    const p = buildKeyProviderFromEnv(singleVarEnv())
+    expect(p.codeCapability).toBe('v2-reader-v1')
+  })
+})

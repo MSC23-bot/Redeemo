@@ -322,6 +322,20 @@ export const ERROR_DEFINITIONS = {
   // member rather than a generic account/user.
   MEMBER_ALREADY_CLAIMED:          { statusCode: 409, message: 'This team member has already set up their account.' },
   MEMBER_NOT_FOUND:                { statusCode: 404, message: 'Team member not found.' },
+  // Encryption key-rotation R1 (spec §3.10 Guard-10 three-bucket hardening).
+  // KEY_NOT_AVAILABLE: a decrypt resolved a kid that is absent/retired from the
+  // keyring (KeyNotAvailableError). On the redemption hot path Guard-10 now fails
+  // CLOSED LOUDLY with this code instead of silently mapping every throw to a
+  // wrong-PIN result — a missing key must not look like (and is far rarer than) a
+  // wrong PIN. Mapped to a controlled 500 envelope (never a raw 500) so no
+  // ciphertext/key/plaintext can leak through the global error handler.
+  KEY_NOT_AVAILABLE:               { statusCode: 500, message: 'A configuration error prevented this action. Please try again later or contact support.' },
+  // REDEMPTION_PIN_UNREADABLE: the stored branch PIN value failed envelope parsing
+  // (EnvelopeParseError — malformed format / non-hex iv-or-tag / bad kid charset),
+  // a data-integrity fault distinct from a genuine wrong PIN. Guard-10 fails closed
+  // LOUDLY (alert) instead of swallowing it as a silent wrong-PIN. The error message
+  // is built from branch id + counts only — never the stored value.
+  REDEMPTION_PIN_UNREADABLE:       { statusCode: 500, message: "We couldn't process this redemption. Please contact the merchant or support." },
 } as const
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS
