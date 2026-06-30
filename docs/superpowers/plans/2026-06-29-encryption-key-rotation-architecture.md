@@ -249,6 +249,32 @@ Every `gh pr merge` uses `REDEEMO_PR_SCOPE_VERIFIED=$(gh pr view N --json headRe
 
 ---
 
+## Pre-R1 staging recovery (Amendment #16 — provider-grounded; release ordering)
+
+> Inserted after the staging P1001 diagnosis (pre-deploy `prisma migrate deploy` connection failure; cause not isolated). Design rationale in spec §20; operator detail + decision ledger + failure boundaries in runbook §13. **Docs-only; no implementation, provider action, or recovery branch is created here.** R1 activation must not begin until this recovery completes (P1a/P1b verified, P8 established, P9 fixture proven).
+
+**Release ordering (each step owner-approved + Codex-reviewed; nothing executed by this plan):**
+
+1. **A1 — compute headroom:** wait for the **Free monthly allowance reset** (default; **no paid Neon upgrade**).
+2. **A2 — control-plane resume:** owner-approved unarchive/resume of the staging compute (or the §13.3 read-only preflight is that controlled resume).
+3. **P1a — runtime-recovery preflight** (spec §20.1 / runbook §13.1): minimum **read-only** verify of the **pooled runtime** endpoint + database + reachability — enough to serve the pre-R1 baseline. No migration/mutation.
+4. **Short-term recovery** (auto-deploy disabled · worker Offline): protected recovery branch at the **verified pre-R1 SHA `53bafac4716e8819b3a77ffb5a129bd6b25d59ef`** → point Railway at it (approved provider op) → temporarily disable auto-migrate (reversible) → deploy → record **P8 evidence** (`/health` + read-only `GET /api/v1/customer/categories` smoke + deployment ID/SHA/timestamp + redeploy/rollback action + durable rebuild path; runbook §13.5). ⇒ **P8 established.**
+5. **P1b — migration-readiness preflight** (spec §20.1 / runbook §13.2): minimum **read-only** verify of the **direct** endpoint + migration database + injected role + grants (catalog inspection). Required **before** any schema mutation.
+6. **Restore Railway source branch to `main`/R1** (approved provider op); **apply the R1 migration `20260629000000` on the DIRECT endpoint** (operator-run, R1 §3 / OD8) — only **after** P8 + P1b.
+7. **R1 activation** (R1 §4–§7): deploy R1 image → worker `--verify-keyring-and-exit` → fingerprint parity → acceptance (P9 fixture first).
+8. **Separate / later (own approval):** adopt **`MIGRATION_DATABASE_URL`** (below); the permanent worker persistent-activity reduction → **worker restart** (not required for R1).
+
+**Deferred long-term migration-URL workstream (`MIGRATION_DATABASE_URL`) — NOT in this docs amendment; owner-gated, plan-first when approved:**
+- `prisma.config.ts` reads `MIGRATION_DATABASE_URL ?? DATABASE_URL` (CLI/migrate only); runtime `PrismaPg` keeps the pooled `DATABASE_URL` (`src/worker.ts`, `src/api/plugins/prisma.ts` unchanged).
+- **Fail-closed validation:** a set `MIGRATION_DATABASE_URL` must be a **direct, non-`-pooler`** URL or the migrate path fails closed; unset ⇒ documented fallback to `DATABASE_URL`.
+- Tasks (future): config/unit test (migrate prefers the migration URL; runtime unaffected); loopback integration test; secret handling (new injected direct URL, never printed); Railway provider rollout; rollback (unset → fallback); spec/plan/runbook amendment. **Separate owner approval required.** Permanent removal of the auto pre-deploy migrate is a **separate deployment-policy decision**, not bundled here.
+
+**Worker boundary (Amendment #16):** the repeatable sweeps (`RECONCILE_EVERY_MS=60000`, claim-stale hourly, `PROMOTE_PENDING_HOURS_EVERY_MS=60000`) are the **leading identified persistent-activity mechanism, not a telemetry-proven sole cause** of the Neon compute usage; **permanent worker remediation gates the worker restart only** (the bounded Web/R1 recovery runs with the worker Offline).
+
+**Stop-and-report (recovery):** no *mutating* DB op before the relevant gate (P1a serve / P1b migrate); read-only preflight only; no paid upgrade; worker stays Offline until the permanent reduction + approval; R1 migration not applied before P8 + P1b; Railway branch-change + auto-migrate-disable are separately-approved provider ops with auto-deploy disabled; do not rely on a retention-limited image rollback as the sole P8 basis; do not repoint runtime `DATABASE_URL`→direct; if P1001 persists after headroom + the direct path, STOP and re-diagnose.
+
+---
+
 ## Self-review (against the spec)
 
 - **Reorder (Amendment #1) applied:** Guard-10 + telemetry + runbook are in R1/R3, BEFORE the R4 migrator/writer-flip. Releases are named to avoid round-1 numbering collisions.
