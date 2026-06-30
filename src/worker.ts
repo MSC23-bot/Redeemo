@@ -37,17 +37,23 @@ async function main(): Promise<void> {
   // repeatable — the worker daemon (its 60s/hourly sweeps are the Neon CU burn)
   // stays offline. MUST run after validateRequiredEnv() and BEFORE any BullMQ.
   if (process.argv.includes('--verify-keyring-and-exit')) {
-    const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
-    const prisma = new PrismaClient({ adapter })
-    await prisma.$connect()
-    const { publishKeyringFingerprint } = await import('./api/shared/keyring')
-    const ok = await publishKeyringFingerprint(prisma, 'worker')
-    await prisma.$disconnect()
-    console.info(`[worker] --verify-keyring-and-exit: fingerprint published=${ok}; exiting without starting BullMQ.`)
-    // CodeRabbit (Major, functional): this mode IS the parity-verification step, so a
-    // failed publish must exit NON-ZERO — else an operator/CI relying on it gets a
-    // false green and proceeds to a flip/migration with unverified worker parity.
-    process.exit(ok ? 0 : 1)
+    // Codex review finding 5: the body is EXTRACTED into verifyKeyringAndExit so it is
+    // unit-testable + guarantees prisma.$disconnect() via finally on success / false /
+    // thrown. This mode IS the parity-verification step, so a failed publish exits
+    // NON-ZERO (else an operator/CI relying on it gets a false green and proceeds to a
+    // flip/migration with unverified worker parity). No BullMQ is registered.
+    const { verifyKeyringAndExit } = await import('./api/shared/keyringVerify')
+    const code = await verifyKeyringAndExit({
+      makePrisma: () => {
+        const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
+        return new PrismaClient({ adapter })
+      },
+      publish: async (prisma) => {
+        const { publishKeyringFingerprint } = await import('./api/shared/keyring')
+        return publishKeyringFingerprint(prisma, 'worker')
+      },
+    })
+    process.exit(code)
   }
 
   // ONE Prisma client for every processor (mirrors the API's prisma plugin).

@@ -1,23 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { KeyNotAvailableError, EnvelopeParseError, __resetKeyProviderForTests } from '../../../../src/api/shared/keyring'
+import type { FastifyInstance } from 'fastify'
+import { AppError } from '../../../../src/api/shared/errors'
+import { __resetKeyProviderForTests } from '../../../../src/api/shared/keyring'
 
-// Request-path logging redaction (encryption key-rotation R1, spec §3.10 / §3.11).
-//
-// getBranchPin / sendBranchPin call decrypt() OUTSIDE any try/catch, so a keyring /
-// envelope throw propagates to the global Fastify handler (app.log.error(error)).
-// This test uses the REAL decrypt() (NOT the usual encryption mock) against an
-// unknown-kid value + a corrupt value, and asserts:
-//   (1) the thrown error is the correct typed class, and
-//   (2) its message contains NO stored ciphertext, NO key bytes, NO plaintext —
-//       so the propagated app.log.error(error) cannot leak a secret.
-// It also spies on console.* to prove the readers themselves log nothing sensitive.
+// Request-path controlled-envelope + redaction (encryption key-rotation R1, spec §3.10
+// / §3.11; Codex review finding 3). getBranchPin / sendBranchPin now wrap decrypt() so a
+// keyring / envelope / auth-mismatch throw is MAPPED to a controlled AppError
+// (KEY_NOT_AVAILABLE / REDEMPTION_PIN_UNREADABLE) via the shared classifyPinDecryptError —
+// instead of propagating a raw typed error to the global handler (which would have
+// returned a generic INTERNAL_ERROR 500). This suite proves, at BOTH the service level
+// and the actual Fastify route level, that:
+//   (1) the response is the CONTROLLED envelope (not a raw 500), and
+//   (2) no stored ciphertext / key bytes / plaintext PIN appears in the response OR logs.
 
 vi.mock('twilio', () => ({ default: vi.fn(() => ({ messages: { create: vi.fn() } })) }))
 vi.mock('../../../../src/api/shared/smsLimiter', () => ({
   consumeSmsSend: vi.fn().mockResolvedValue(undefined),
+  // buildApp() reads this at registration — stub it so the real app builds. (decrypt
+  // throws before any SMS path in these tests, and the mock branch has phone:null.)
+  smsCountryCodeConfigWarning: vi.fn(() => null),
 }))
 
 import { getBranchPin, sendBranchPin } from '../../../../src/api/merchant/branch/service'
+import { buildApp } from '../../../../src/api/app'
 
 // LEGACY_KEY matches tests/setup.ts (the bridge env).
 const LEGACY_KEY = '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
@@ -26,8 +31,8 @@ const UNKNOWN_KID_VALUE = 'v2:pin-retired-kid:001122334455667788990011:001122334
 // A structurally-broken value → EnvelopeParseError (4 parts).
 const CORRUPT_VALUE = 'aabb:ccdd:eeff:gggg'
 
-const mockPrisma = () => ({
-  merchantAdmin: { findUnique: vi.fn() },
+const mockPrisma = (redemptionPin: string) => ({
+  merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
   merchantMembership: {
     findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }),
     findMany: vi.fn().mockResolvedValue([{
@@ -36,7 +41,11 @@ const mockPrisma = () => ({
       merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [],
     }]),
   },
-  branch:     { findFirst: vi.fn(), update: vi.fn() },
+  merchant: { findUnique: vi.fn().mockResolvedValue({ id: 'm1', status: 'ACTIVE' }) },
+  branch: {
+    findFirst: vi.fn().mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin, name: 'Main', email: null, phone: null }),
+    update: vi.fn(),
+  },
   branchUser: { findMany: vi.fn() },
   auditLog:   { create: vi.fn().mockResolvedValue({}) },
 } as any)
@@ -62,17 +71,14 @@ afterEach(() => {
   __resetKeyProviderForTests()
 })
 
-// Flatten every logged argument to an inspectable string. CodeRabbit (Minor,
-// test rigor): JSON.stringify(new Error('secret')) === '{}' because Error props
-// are non-enumerable — so a leak via console.error(err) would have false-greened
-// these "not.toContain" assertions. Render Error args via message + stack so the
-// redaction guard actually inspects what an operator would see in the logs.
 function stringifyArg(a: unknown): string {
   if (typeof a === 'string') return a
   if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack ?? ''}`
   return JSON.stringify(a)
 }
 
+// Flatten every logged argument (across all console.* spies) into one inspectable
+// string. Error args are rendered via message + stack (JSON.stringify(Error) === '{}').
 function loggedString(): string {
   return [errorSpy, warnSpy, logSpy]
     .flatMap((s) => s.mock.calls)
@@ -81,106 +87,148 @@ function loggedString(): string {
     .join(' | ')
 }
 
-// Spec §3.10 line 236 requires the redaction test to "assert the captured
-// app.log.error payload contains no ciphertext/key/plaintext". getBranchPin /
-// sendBranchPin call decrypt() OUTSIDE any try/catch, so the typed error
-// propagates VERBATIM to Fastify's global handler (src/api/app.ts:86 →
-// app.log.error(error)), which serializes it via pino's std err serializer.
-// This helper is a STRICTLY-MORE-INCLUSIVE approximation of that serialization
-// (name + message + stack + EVERY own enumerable prop, e.g. `code`), so a clean
-// assertion here proves the real logged payload cannot leak a secret either.
+// A STRICTLY-MORE-INCLUSIVE approximation of pino's std err serializer (name + message
+// + stack + every own enumerable prop), so a clean assertion here proves the real
+// logged/serialized error payload cannot leak a secret either.
 function serializeErrorLikePino(err: unknown): string {
   if (!(err instanceof Error)) return JSON.stringify(err)
   const ownProps: Record<string, unknown> = {}
   const bag = err as unknown as Record<string, unknown>
   for (const k of Object.keys(err)) ownProps[k] = bag[k]
-  return [
-    err.name,
-    err.message,
-    err.stack ?? '',
-    JSON.stringify(ownProps),
-    ...Object.values(ownProps).map((v) => String(v)),
-  ].join(' | ')
+  return [err.name, err.message, err.stack ?? '', JSON.stringify(ownProps), ...Object.values(ownProps).map((v) => String(v))].join(' | ')
 }
 
-describe('getBranchPin — unknown-kid value redaction', () => {
-  it('throws KeyNotAvailableError whose message leaks no ciphertext/key, and logs nothing sensitive', async () => {
-    const prisma = mockPrisma()
-    prisma.branch.findFirst.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: UNKNOWN_KID_VALUE })
+// Asserts the thrown AppError + every log channel + the pino-style serialization carry
+// none of the supplied secret fragments.
+function assertNoSecret(thrown: unknown, fragments: string[]) {
+  const surfaces = [serializeErrorLikePino(thrown), loggedString()]
+  for (const surface of surfaces) {
+    for (const frag of fragments) expect(surface).not.toContain(frag)
+  }
+}
 
+describe('getBranchPin — controlled error + redaction (service level)', () => {
+  it('unknown-kid value ⇒ throws AppError(KEY_NOT_AVAILABLE), leaks no ciphertext/key', async () => {
+    const prisma = mockPrisma(UNKNOWN_KID_VALUE)
     let thrown: unknown
     try {
       await getBranchPin(prisma, 'ma1', 'b1')
     } catch (err) {
       thrown = err
     }
-    expect(thrown).toBeInstanceOf(KeyNotAvailableError)
-    const msg = (thrown as Error).message
-    expect(msg).toContain('pin-retired-kid') // safe index label is allowed
-    expect(msg).not.toContain('deadbeef') // ciphertext fragment must NOT appear
-    expect(msg).not.toContain(LEGACY_KEY)
-    expect(msg).not.toContain(UNKNOWN_KID_VALUE)
-
-    const logged = loggedString()
-    expect(logged).not.toContain('deadbeef')
-    expect(logged).not.toContain(LEGACY_KEY)
-
-    // The propagated app.log.error(error) payload (pino-serialized) leaks nothing.
-    const payload = serializeErrorLikePino(thrown)
-    expect(payload).not.toContain('deadbeef')
-    expect(payload).not.toContain(LEGACY_KEY)
-    expect(payload).not.toContain(UNKNOWN_KID_VALUE)
+    expect(thrown).toBeInstanceOf(AppError)
+    expect((thrown as AppError).code).toBe('KEY_NOT_AVAILABLE')
+    // The CONTROLLED client message must not contain the ciphertext/key/value.
+    assertNoSecret(thrown, ['deadbeef', LEGACY_KEY, UNKNOWN_KID_VALUE])
+    // The redacted alert may carry the safe kid label, never key bytes.
+    expect(errorSpy).toHaveBeenCalled()
   })
-})
 
-describe('getBranchPin — corrupt value redaction', () => {
-  it('throws EnvelopeParseError whose message contains no stored value', async () => {
-    const prisma = mockPrisma()
-    prisma.branch.findFirst.mockResolvedValue({ id: 'b1', merchantId: 'm1', redemptionPin: CORRUPT_VALUE })
-
+  it('corrupt value ⇒ throws AppError(REDEMPTION_PIN_UNREADABLE), leaks no stored value', async () => {
+    const prisma = mockPrisma(CORRUPT_VALUE)
     let thrown: unknown
     try {
       await getBranchPin(prisma, 'ma1', 'b1')
     } catch (err) {
       thrown = err
     }
-    expect(thrown).toBeInstanceOf(EnvelopeParseError)
-    expect((thrown as Error).message).not.toContain(CORRUPT_VALUE)
-    expect((thrown as Error).message).not.toContain('aabb')
-
-    // app.log.error(error) payload (pino-serialized) contains no stored value.
-    const payload = serializeErrorLikePino(thrown)
-    expect(payload).not.toContain(CORRUPT_VALUE)
-    expect(payload).not.toContain('aabb')
+    expect(thrown).toBeInstanceOf(AppError)
+    expect((thrown as AppError).code).toBe('REDEMPTION_PIN_UNREADABLE')
+    assertNoSecret(thrown, [CORRUPT_VALUE, 'aabb'])
   })
 })
 
-describe('sendBranchPin — unknown-kid value redaction', () => {
-  it('throws KeyNotAvailableError whose message leaks no ciphertext/key', async () => {
-    const prisma = mockPrisma()
-    prisma.branch.findFirst.mockResolvedValue({
-      id: 'b1', merchantId: 'm1', redemptionPin: UNKNOWN_KID_VALUE, name: 'Main', email: null, phone: null,
-    })
-
+describe('sendBranchPin — controlled error + redaction (service level)', () => {
+  it('unknown-kid value ⇒ throws AppError(KEY_NOT_AVAILABLE), leaks no ciphertext/key', async () => {
+    const prisma = mockPrisma(UNKNOWN_KID_VALUE)
     let thrown: unknown
     try {
       await sendBranchPin(prisma, {} as any, 'ma1', 'b1', { ipAddress: '1.2.3.4', userAgent: 'test' })
     } catch (err) {
       thrown = err
     }
-    expect(thrown).toBeInstanceOf(KeyNotAvailableError)
-    const msg = (thrown as Error).message
-    expect(msg).not.toContain('deadbeef')
-    expect(msg).not.toContain(LEGACY_KEY)
-
-    const logged = loggedString()
-    expect(logged).not.toContain('deadbeef')
-    expect(logged).not.toContain(LEGACY_KEY)
-
-    // The propagated app.log.error(error) payload (pino-serialized) leaks nothing.
-    const payload = serializeErrorLikePino(thrown)
-    expect(payload).not.toContain('deadbeef')
-    expect(payload).not.toContain(LEGACY_KEY)
-    expect(payload).not.toContain(UNKNOWN_KID_VALUE)
+    expect(thrown).toBeInstanceOf(AppError)
+    expect((thrown as AppError).code).toBe('KEY_NOT_AVAILABLE')
+    assertNoSecret(thrown, ['deadbeef', LEGACY_KEY, UNKNOWN_KID_VALUE])
   })
+
+  it('corrupt value ⇒ throws AppError(REDEMPTION_PIN_UNREADABLE), leaks no stored value', async () => {
+    const prisma = mockPrisma(CORRUPT_VALUE)
+    let thrown: unknown
+    try {
+      await sendBranchPin(prisma, {} as any, 'ma1', 'b1', { ipAddress: '1.2.3.4', userAgent: 'test' })
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeInstanceOf(AppError)
+    expect((thrown as AppError).code).toBe('REDEMPTION_PIN_UNREADABLE')
+    assertNoSecret(thrown, [CORRUPT_VALUE, 'aabb'])
+  })
+})
+
+// ── Codex review finding 3: ACTUAL Fastify request tests for both routes × both
+// typed failures. Proves the route returns the CONTROLLED envelope (not a generic
+// INTERNAL_ERROR 500) and that no secret appears in the response body or logs.
+describe('merchant PIN routes — controlled envelope via real Fastify requests', () => {
+  async function makeApp(redemptionPin: string) {
+    const app = await buildApp()
+    app.decorate('prisma', mockPrisma(redemptionPin) as any)
+    app.decorate('redis', {
+      get: vi.fn().mockResolvedValue(null), set: vi.fn(), incr: vi.fn().mockResolvedValue(1),
+      expire: vi.fn().mockResolvedValue(1), exists: vi.fn().mockResolvedValue(1), ttl: vi.fn().mockResolvedValue(900),
+    } as any)
+    await app.ready()
+    const token = (app.jwt as any).merchant.sign({ sub: 'ma1', role: 'merchant', deviceId: 'd1', sessionId: 's1' }, { expiresIn: '1h' })
+    return { app, token }
+  }
+
+  const cases: Array<{ name: string; pin: string; code: string }> = [
+    { name: 'unknown-kid', pin: UNKNOWN_KID_VALUE, code: 'KEY_NOT_AVAILABLE' },
+    { name: 'corrupt value', pin: CORRUPT_VALUE, code: 'REDEMPTION_PIN_UNREADABLE' },
+  ]
+
+  for (const c of cases) {
+    it(`GET /pin (${c.name}) ⇒ ${c.code} envelope, no secret in response/logs`, async () => {
+      const { app, token } = await makeApp(c.pin)
+      try {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/v1/merchant/branches/b1/pin',
+          headers: { authorization: `Bearer ${token}` },
+        })
+        const body = JSON.parse(res.body)
+        expect(body.error?.code).toBe(c.code)
+        expect(body.error?.code).not.toBe('INTERNAL_ERROR')
+        for (const frag of ['deadbeef', LEGACY_KEY, UNKNOWN_KID_VALUE, CORRUPT_VALUE, 'aabb']) {
+          expect(res.body).not.toContain(frag)
+        }
+        expect(loggedString()).not.toContain('deadbeef')
+        expect(loggedString()).not.toContain(LEGACY_KEY)
+      } finally {
+        await app.close()
+      }
+    })
+
+    it(`POST /pin/send (${c.name}) ⇒ ${c.code} envelope, no secret in response/logs`, async () => {
+      const { app, token } = await makeApp(c.pin)
+      try {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/api/v1/merchant/branches/b1/pin/send',
+          headers: { authorization: `Bearer ${token}` },
+          payload: {},
+        })
+        const body = JSON.parse(res.body)
+        expect(body.error?.code).toBe(c.code)
+        expect(body.error?.code).not.toBe('INTERNAL_ERROR')
+        for (const frag of ['deadbeef', LEGACY_KEY, UNKNOWN_KID_VALUE, CORRUPT_VALUE, 'aabb']) {
+          expect(res.body).not.toContain(frag)
+        }
+        expect(loggedString()).not.toContain('deadbeef')
+        expect(loggedString()).not.toContain(LEGACY_KEY)
+      } finally {
+        await app.close()
+      }
+    })
+  }
 })

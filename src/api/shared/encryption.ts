@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import {
   getKeyProvider,
   EnvelopeParseError,
+  GcmAuthError,
   DEFAULT_LEGACY_KID,
 } from './keyring'
 
@@ -128,9 +129,26 @@ function gcmDecrypt(key: Buffer, ivHex: string, tagHex: string, ctHex: string): 
   if (authTag.length !== 16) throw new Error('Invalid encrypted value: auth tag must be 16 bytes')
   const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
   decipher.setAuthTag(authTag)
-  // A GCM auth-tag mismatch throws here as a crypto error — NOT an EnvelopeParseError
-  // / KeyNotAvailableError. Guard-10 relies on this distinction (spec §3.10).
-  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
+  // A GCM auth-tag mismatch surfaces from decipher.final() as a Node crypto error.
+  // Re-throw it as the TYPED GcmAuthError (Codex review finding 2) so the redemption
+  // Guard-10 can treat ONLY this as a silent wrong-PIN, while EVERY other failure
+  // (key-unavailable / envelope-parse / unexpected) fails LOUDLY.
+  //
+  // SCOPE (adversarial LENS A(a) hardening): the GcmAuthError catch wraps EXACTLY
+  // decipher.final() — the one site where GCM verifies the auth tag. update() (which
+  // for a Buffer input does not throw and does NOT verify the tag) and every config
+  // step (Buffer.from, byte-length asserts, createDecipheriv, setAuthTag) run OUTSIDE
+  // the try, so a config/programming fault propagates RAW (→ classified "unknown" →
+  // LOUD), and can never be masked as an auth mismatch + silently swallowed into a
+  // wrong-PIN. NO key/ciphertext/plaintext is carried into GcmAuthError.
+  const head = decipher.update(ciphertext)
+  let tail: Buffer
+  try {
+    tail = decipher.final()
+  } catch {
+    throw new GcmAuthError()
+  }
+  return Buffer.concat([head, tail]).toString('utf8')
 }
 
 /**

@@ -11,6 +11,7 @@ import {
   __resetKeyProviderForTests,
   KeyNotAvailableError,
   EnvelopeParseError,
+  GcmAuthError,
 } from '../../../src/api/shared/keyring'
 
 // Deterministic 64-hex TEST keys (NOT real secrets — locally generated).
@@ -124,11 +125,20 @@ describe('encryptWith / decryptWith primitives', () => {
     expect(() => decryptWith('a:b:c', 'deadbeef')).toThrow()
   })
 
-  it('a tampered GCM tag throws (not a parse/key error)', () => {
+  it('a tampered GCM tag throws the typed GcmAuthError (Codex finding 2 — not a parse/key error, not a plain Error)', () => {
     const stored = encryptWith('1234', LEGACY_KEY)
     const [iv, , ct] = stored.split(':')
     const badTag = '0'.repeat(32)
-    expect(() => decryptWith(`${iv}:${badTag}:${ct}`, LEGACY_KEY)).toThrow()
+    // Must be the TYPED GcmAuthError so Guard-10 silences ONLY a genuine auth mismatch.
+    expect(() => decryptWith(`${iv}:${badTag}:${ct}`, LEGACY_KEY)).toThrow(GcmAuthError)
+    // And NOT a key/parse error.
+    expect(() => decryptWith(`${iv}:${badTag}:${ct}`, LEGACY_KEY)).not.toThrow(EnvelopeParseError)
+    expect(() => decryptWith(`${iv}:${badTag}:${ct}`, LEGACY_KEY)).not.toThrow(KeyNotAvailableError)
+  })
+
+  it('a wrong-but-valid key surfaces as GcmAuthError (authentication mismatch, not silent garbage)', () => {
+    const stored = encryptWith('1234', LEGACY_KEY)
+    expect(() => decryptWith(stored, PIN_KEY_A)).toThrow(GcmAuthError)
   })
 })
 
@@ -291,8 +301,8 @@ describe('encrypt()/decrypt() wrapper — round-trips + forward-compat reader', 
   })
 })
 
-describe('seed/helper compatibility — single-var bridge byte-format identity', () => {
-  it('encrypt() under the single-var env yields a 3-part value the legacy key decrypts (seeds keep working)', () => {
+describe('seed/helper compatibility — BOTH boot modes write 3-part-under-legacy (Codex finding 6)', () => {
+  it('BRIDGE mode: encrypt() yields a 3-part value the legacy key decrypts (seeds keep working)', () => {
     // No ENCRYPTION_KEYS set → bridge mode → 3-part under legacy, exactly as the
     // pre-keyring encrypt() behaved. Proves seed.ts / seed-demo.ts /
     // reset-covelum-pins.ts / get-branch-pin.ts need NO modification.
@@ -304,6 +314,25 @@ describe('seed/helper compatibility — single-var bridge byte-format identity',
     expect(stored.split(':').length).toBe(3)
     expect(decryptWith(stored, LEGACY_KEY)).toBe('1234')
     expect(decrypt(stored)).toBe('1234')
+  })
+
+  it('EXPLICIT-KEYRING mode: encrypt() STILL yields 3-part-under-legacy (NOT under the non-legacy ACTIVE)', () => {
+    // Codex finding 6: the seed/helper compat proof must cover explicit-keyring mode,
+    // not only bridge mode. With an explicit ring + a fresh non-legacy ACTIVE, the
+    // encode lock still forces a 3-part write encrypted under the LEGACY key — so a
+    // seed/helper that calls encrypt() (and a reader that calls decrypt()) keep working
+    // identically across the rotation deploy.
+    process.env.ENCRYPTION_KEYS = JSON.stringify({ legacy: LEGACY_KEY, 'pin-2026-06': PIN_KEY_A })
+    process.env.ENCRYPTION_KEY_ACTIVE = 'pin-2026-06'
+    process.env.ENCRYPTION_KEY = LEGACY_KEY
+    delete process.env.ENCRYPTION_LEGACY_KID
+    __resetKeyProviderForTests()
+    const stored = encrypt('1234')
+    expect(stored.split(':').length).toBe(3) // 3-part, never v2 (encode lock)
+    expect(stored.startsWith('v2:')).toBe(false)
+    expect(decryptWith(stored, LEGACY_KEY)).toBe('1234') // under the LEGACY key
+    expect(() => decryptWith(stored, PIN_KEY_A)).toThrow(GcmAuthError) // NOT the ACTIVE key
+    expect(decrypt(stored)).toBe('1234') // dual-format reader round-trips
   })
 })
 

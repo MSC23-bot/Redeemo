@@ -3,7 +3,7 @@ import type Redis from 'ioredis'
 import crypto from 'crypto'
 import { AppError } from '../shared/errors'
 import { decrypt } from '../shared/encryption'
-import { KeyNotAvailableError, EnvelopeParseError } from '../shared/keyring'
+import { classifyPinDecryptError } from '../shared/pinDecrypt'
 import { writeAuditLog } from '../shared/audit'
 import { RedisKey } from '../shared/redis-keys'
 import { getCurrentCycleWindow } from '../subscription/cycle'
@@ -282,21 +282,19 @@ export async function createRedemption(
 
   // 10. Timing-safe PIN comparison.
   //
-  // Guard-10 three-bucket hardening (encryption key-rotation R1, spec §3.10).
-  // The pre-rotation code mapped EVERY decrypt throw to a silent wrong-PIN
-  // (pinMatches=false), which would turn a missing/retired key OR a corrupt
-  // stored value into a silent all-redemptions-fail at that branch with no
-  // operational signal. Now the catch classifies:
-  //   (a) KeyNotAvailableError → ALERT (log.error) + fail closed LOUDLY (500)
-  //   (b) EnvelopeParseError   → ALERT (log.error, distinct severity) + fail closed LOUDLY (500)
-  //   (c) any other throw (a genuine AES-GCM auth-tag mismatch = a real wrong PIN)
-  //       → silent pinMatches=false, exactly as before.
+  // Guard-10 hardening (encryption key-rotation R1, spec §3.10) via the shared
+  // classifyPinDecryptError (Codex review finding 2). The pre-rotation code mapped
+  // EVERY decrypt throw to a silent wrong-PIN (pinMatches=false), which would turn a
+  // missing/retired key OR a corrupt value into a silent all-redemptions-fail at a
+  // branch. Now ONLY a genuine AES-GCM auth-tag mismatch (the typed GcmAuthError) is
+  // a silent wrong-PIN; key-unavailable / envelope-parse / unexpected all fail LOUDLY
+  // (controlled AppError + redacted alert). silenceGcmMismatch:true is the redemption
+  // PIN-compare contract — here a non-authenticating value genuinely is a wrong PIN.
   //
-  // OC1: the "alert" is the structured console.error below (the existing
-  // service-layer observability path; ADMIN_OPS_ALERT_EMAIL is intentionally
-  // NOT wired in R1). The log payload carries ONLY branch id + kid + code —
-  // never the stored ciphertext, the submitted plaintext PIN, or key bytes
-  // (request-path logging redaction, spec §3.10 / §3.11).
+  // OC1: the "alert" is the helper's structured console.error (the existing service
+  // observability path; ADMIN_OPS_ALERT_EMAIL is intentionally NOT wired in R1). The
+  // payload carries ONLY branch id + kid + code — never ciphertext / plaintext / key
+  // bytes (request-path logging redaction, spec §3.10 / §3.11).
   let pinMatches = false
   try {
     const decrypted = decrypt(branch.redemptionPin)
@@ -308,25 +306,14 @@ export async function createRedemption(
       pinMatches = crypto.timingSafeEqual(pinBuffer, decBuffer)
     }
   } catch (err) {
-    if (err instanceof KeyNotAvailableError) {
-      // err.message is "No key available for pin kid \"<kid>\"" — kid is a safe
-      // index label, never key bytes. Pass it through as a structured field.
-      console.error('[redemption] decrypt: key unavailable', {
-        code: 'KEY_NOT_AVAILABLE',
-        branchId: branch.id,
-        reason: err.message,
-      })
-      throw new AppError('KEY_NOT_AVAILABLE')
-    }
-    if (err instanceof EnvelopeParseError) {
-      console.error('[redemption] decrypt: corrupt stored PIN value', {
-        code: 'REDEMPTION_PIN_UNREADABLE',
-        branchId: branch.id,
-      })
-      throw new AppError('REDEMPTION_PIN_UNREADABLE')
-    }
-    // Bucket (c): a genuine GCM auth-tag mismatch (real wrong PIN). Silent fail,
-    // routed through the INVALID_PIN counter below — as before.
+    const outcome = classifyPinDecryptError(err, {
+      branchId: branch.id,
+      source: 'redemption',
+      silenceGcmMismatch: true,
+    })
+    if (!outcome.silent) throw outcome.appError
+    // GcmAuthError only: a genuine wrong PIN. Routed through the INVALID_PIN counter
+    // below, exactly as before.
     pinMatches = false
   }
 

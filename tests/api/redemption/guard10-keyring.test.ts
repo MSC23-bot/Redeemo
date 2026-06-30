@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { KeyNotAvailableError, EnvelopeParseError } from '../../../src/api/shared/keyring'
+import { KeyNotAvailableError, EnvelopeParseError, GcmAuthError } from '../../../src/api/shared/keyring'
 
 // Guard-10 three-bucket hardening (spec §3.10). The encryption module is mocked so
 // decrypt() can throw each bucket's error class on demand. The redemption hot path
@@ -101,12 +101,14 @@ describe('Guard-10 three-bucket hardening', () => {
     expect(redis.incr).not.toHaveBeenCalled()
   })
 
-  it('(c) genuine GCM mismatch (plain crypto Error) → silent INVALID_PIN as today (no alert)', async () => {
+  it('(c) genuine GCM mismatch (typed GcmAuthError) → silent INVALID_PIN as today (no alert)', async () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     setupReachingPinCompare(prisma, redis)
+    // Codex finding 2: ONLY the typed GcmAuthError (a real auth-tag mismatch) may be
+    // silenced into INVALID_PIN.
     decryptImpl.fn = () => {
-      throw new Error('Unsupported state or unable to authenticate data')
+      throw new GcmAuthError()
     }
 
     await expect(
@@ -117,6 +119,25 @@ describe('Guard-10 three-bucket hardening', () => {
     expect(errorSpy).not.toHaveBeenCalled()
     // It IS counted as a wrong-PIN attempt (rate-limit increments).
     expect(redis.incr).toHaveBeenCalled()
+  })
+
+  it('(d) an UNRELATED error (e.g. a programming TypeError) is NOT silently converted to INVALID_PIN — fails LOUDLY (Codex finding 2, mutation-resistant)', async () => {
+    const prisma = mockPrisma()
+    const redis = mockRedis()
+    setupReachingPinCompare(prisma, redis)
+    // A runtime/programming fault must NEVER be swallowed into a silent wrong-PIN.
+    decryptImpl.fn = () => {
+      throw new TypeError('Cannot read properties of undefined (reading something)')
+    }
+
+    // Loud + controlled: surfaces as REDEMPTION_PIN_UNREADABLE, NOT INVALID_PIN.
+    await expect(
+      createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx),
+    ).rejects.toThrow('REDEMPTION_PIN_UNREADABLE')
+
+    // Observable (an alert was logged) and NOT counted as a wrong-PIN attempt.
+    expect(errorSpy).toHaveBeenCalled()
+    expect(redis.incr).not.toHaveBeenCalled()
   })
 
   it('a correct decrypt that does not match the submitted PIN stays a silent INVALID_PIN', async () => {

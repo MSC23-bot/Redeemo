@@ -382,17 +382,26 @@ describe('keyring — ENCRYPTION_LEGACY_KID charset is validated fail-closed (Co
     expect(problems.join('\n')).toMatch(/ENCRYPTION_LEGACY_KID/)
   })
 
-  it('REDACTS a fat-fingered 64-hex key placed in ENCRYPTION_LEGACY_KID (never reflects the raw key)', () => {
+  it('FULLY REDACTS a fat-fingered 64-hex key placed in ENCRYPTION_LEGACY_KID (no source chars retained — Codex finding 1)', () => {
+    // A distinctive 64-hex value so substring assertions are meaningful.
+    const KEY_SHAPED = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
     const problems = validateKeyringEnv({
       ENCRYPTION_KEY: LEGACY_KEY,
-      ENCRYPTION_LEGACY_KID: PIN_KEY_A, // 64-hex — too long to be a kid
+      ENCRYPTION_LEGACY_KID: KEY_SHAPED, // 64-hex — never a kid
     } as NodeJS.ProcessEnv)
     expect(problems.length).toBeGreaterThan(0)
     const joined = problems.join('\n')
     expect(joined).toMatch(/ENCRYPTION_LEGACY_KID/)
-    // The raw key must NOT appear; only the clamped safe-label prefix may.
-    expect(joined).not.toContain(PIN_KEY_A)
-    expect(joined).toContain('…[redacted]')
+    // The raw key + EVERY meaningful-length substring must be ABSENT — the previous
+    // implementation leaked the first 8 chars via `s.slice(0, 8)`.
+    expect(joined).not.toContain(KEY_SHAPED)
+    expect(joined).not.toContain(KEY_SHAPED.slice(0, 8)) // the old leak window
+    expect(joined).not.toContain(KEY_SHAPED.slice(0, 16))
+    expect(joined).not.toContain(KEY_SHAPED.slice(24, 40)) // a middle chunk
+    expect(joined).not.toContain(KEY_SHAPED.slice(-16)) // the suffix
+    // Fully redacted to a constant that carries no source characters.
+    expect(joined).toContain('[redacted]')
+    expect(joined).not.toContain('…[redacted]') // the old prefix-leaking marker is gone
   })
 
   it('buildKeyProviderFromEnv throws (fail-closed) on an invalid legacy kid', () => {
@@ -463,5 +472,84 @@ describe('keyring — a decommissioned kid present anywhere in the ring is rejec
         DECOMMISSIONED_KIDS: 'otp-old',
       } as NodeJS.ProcessEnv),
     ).toThrow()
+  })
+})
+
+// Codex review finding 4: duplicate top-level kids must FAIL CLOSED. JSON.parse keeps
+// only the LAST value (last-wins), which would silently shadow a retired/old key — so a
+// raw-text scan rejects repeats BEFORE the parsed object is trusted. Covered for both
+// namespaces, with different values, identical values, and whitespace variations.
+describe('keyring — duplicate kid rejection (CodeRabbit/Codex finding 4)', () => {
+  it('rejects duplicate PIN kids with DIFFERENT values (last-wins shadowing)', () => {
+    const raw = `{"legacy":"${LEGACY_KEY}","pin-2026-06":"${PIN_KEY_A}","pin-2026-06":"${PIN_KEY_B}"}`
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: raw,
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv)
+    expect(problems.length).toBeGreaterThan(0)
+    expect(problems.join('\n')).toMatch(/duplicate kid/i)
+    expect(problems.join('\n')).toMatch(/pin-2026-06/)
+  })
+
+  it('rejects duplicate PIN kids with IDENTICAL values', () => {
+    const raw = `{"legacy":"${LEGACY_KEY}","pin-2026-06":"${PIN_KEY_A}","pin-2026-06":"${PIN_KEY_A}"}`
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: raw,
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv)
+    expect(problems.join('\n')).toMatch(/duplicate kid/i)
+  })
+
+  it('rejects duplicate kids despite whitespace variations around the key/colon', () => {
+    const raw = `{ "legacy" : "${LEGACY_KEY}" ,\n  "pin-2026-06":"${PIN_KEY_A}",\n  "pin-2026-06" :  "${PIN_KEY_B}" }`
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: raw,
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv)
+    expect(problems.join('\n')).toMatch(/duplicate kid/i)
+  })
+
+  it('rejects a duplicate LEGACY kid (the shadow-the-legacy-key attack)', () => {
+    const raw = `{"legacy":"${LEGACY_KEY}","legacy":"${PIN_KEY_A}","pin-2026-06":"${PIN_KEY_B}"}`
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: raw,
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv)
+    expect(problems.join('\n')).toMatch(/duplicate kid/i)
+  })
+
+  it('rejects duplicate OTP kids in OTP_HMAC_KEYS (both namespaces covered)', () => {
+    const raw = `{"otp-2026-06":"${OTP_KEY_A}","otp-2026-06":"${PIN_KEY_B}"}`
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      OTP_HMAC_KEYS: raw,
+      OTP_HMAC_KEY_ACTIVE: 'otp-2026-06',
+    } as NodeJS.ProcessEnv)
+    expect(problems.join('\n')).toMatch(/duplicate kid/i)
+    expect(problems.join('\n')).toMatch(/otp-2026-06/)
+  })
+
+  it('buildKeyProviderFromEnv THROWS (fail-closed) on a duplicate kid', () => {
+    const raw = `{"legacy":"${LEGACY_KEY}","pin-2026-06":"${PIN_KEY_A}","pin-2026-06":"${PIN_KEY_B}"}`
+    expect(() =>
+      buildKeyProviderFromEnv({
+        ENCRYPTION_KEY: LEGACY_KEY,
+        ENCRYPTION_KEYS: raw,
+        ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+      } as NodeJS.ProcessEnv),
+    ).toThrow()
+  })
+
+  it('a single-occurrence (non-duplicate) explicit ring still passes', () => {
+    const raw = `{"legacy":"${LEGACY_KEY}","pin-2026-06":"${PIN_KEY_A}"}`
+    expect(validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: raw,
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv)).toEqual([])
   })
 })

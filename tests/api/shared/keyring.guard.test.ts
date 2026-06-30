@@ -70,23 +70,28 @@ describe('R1 static guard — no plaintext/ciphertext/key logging in the crypto 
   })
 })
 
-describe('R1 static guard — worker verify-and-exit + best-effort boot publish (CodeRabbit Majors #3/#4)', () => {
-  it('the --verify-keyring-and-exit path exits NON-ZERO on a failed publish (process.exit(ok ? 0 : 1))', () => {
+const KEYRING_VERIFY = 'src/api/shared/keyringVerify.ts'
+
+describe('R1 static guard — worker verify-and-exit + best-effort boot publish (CodeRabbit Majors #3/#4 + Codex finding 5)', () => {
+  it('the --verify-keyring-and-exit path delegates to verifyKeyringAndExit and exits with its code (no unconditional success exit)', () => {
     const src = read(WORKER)
-    // Major #3: this mode IS the parity-verification step — a failed publish must
-    // exit non-zero so an operator/CI relying on it cannot get a false green and
-    // proceed to a flip/migration with unverified worker parity.
-    expect(src.includes('process.exit(ok ? 0 : 1)')).toBe(true)
-    // The verify path must NOT regress to an unconditional success exit. Capture the
-    // WHOLE verify block, then assert on its exit calls (CodeRabbit re-review nit — a
-    // fixed-width window could miss a later exit if the block grows). NOTE: the block's
-    // closing brace is 2-space-indented (`\n  }`), so we anchor on that — and assert the
-    // match is non-null so the guard can never pass vacuously on a failed capture.
+    // Codex finding 5: the exit-code + guaranteed-disconnect logic now lives in the
+    // EXTRACTED, behaviourally-tested verifyKeyringAndExit (keyringVerify.test.ts owns
+    // the success/false/throw/disconnect semantics — NOT this static string match).
+    // Here we only assert the worker still delegates + exits with the helper's code,
+    // and never regresses to an unconditional success exit in the verify block.
     const verifyMatch = src.match(/if \(process\.argv\.includes\('--verify-keyring-and-exit'\)\) \{[\s\S]*?\n  \}/)
     expect(verifyMatch).not.toBeNull()
     const verifyBlock = verifyMatch?.[0] ?? ''
-    expect(verifyBlock).toContain('process.exit(ok ? 0 : 1)')
+    expect(verifyBlock).toContain('verifyKeyringAndExit')
+    expect(verifyBlock).toContain('process.exit(code)')
     expect(verifyBlock.includes('process.exit(0)')).toBe(false)
+
+    // The helper carries the non-zero-on-failed-publish mapping + a guaranteed-disconnect
+    // finally (the substance is pinned behaviourally; these are defence-in-depth markers).
+    const helper = read(KEYRING_VERIFY)
+    expect(helper).toContain('return ok ? 0 : 1')
+    expect(/finally\s*\{[\s\S]*?\$disconnect\(\)/.test(helper)).toBe(true)
   })
 
   it('the normal-boot keyring publish is wrapped so a publish/import failure never crashes boot', () => {

@@ -67,6 +67,23 @@ export class EnvelopeParseError extends Error {
   }
 }
 
+/**
+ * An AES-256-GCM authentication-tag mismatch — the resolved key + iv could not
+ * authenticate the ciphertext (a genuine wrong-PIN at redemption, OR a tampered /
+ * corrupt stored value, OR a value written under a different key). This is the
+ * ONLY decrypt failure the redemption Guard-10 may treat as a SILENT wrong-PIN
+ * (Codex review finding 2): every OTHER throw (key-unavailable, envelope-parse,
+ * unexpected/runtime) must fail LOUDLY so it is never silently swallowed into
+ * INVALID_PIN. Carries NO key bytes / ciphertext / plaintext (a fixed message).
+ */
+export class GcmAuthError extends Error {
+  public readonly code = 'GCM_AUTH_MISMATCH'
+  constructor() {
+    super('Decryption authentication failed')
+    this.name = 'GcmAuthError'
+  }
+}
+
 // ── Provider interface ───────────────────────────────────────────────────────
 
 export interface KeyProvider {
@@ -102,14 +119,22 @@ function isPlaceholder(value: string): boolean {
   return PLACEHOLDER_SUBSTRINGS.some((marker) => v.includes(marker))
 }
 
+// A genuine kid: the bare legacy kid, or a namespaced pin- / otp- kid. Anything
+// echoed into a boot/runtime error that is NOT this shape is treated as a misconfig
+// (most dangerously a 64-hex KEY fat-fingered into an *_ACTIVE / *_KID / map var).
+const VALID_KID_LABEL = /^(legacy|(pin|otp)-[a-z0-9-]{1,28})$/
+
 /**
- * SEC-REDACT-1: a safe label for echoing an operator-supplied kid into a boot
- * error. A real kid is short + charset-restricted, so it passes through; but if
- * an operator fat-fingers a 64-hex KEY into an *_ACTIVE var, this clamps it so
- * the raw key material is never reflected into the (stderr) boot log.
+ * SEC-REDACT-1: a safe label for echoing an operator-supplied kid into a boot /
+ * runtime error. A real kid (legacy / pin-* / otp-*) passes through verbatim — it
+ * is a safe index label that aids operator triage. ANYTHING else is FULLY redacted
+ * to a constant that retains NO source characters (Codex review finding 1): the
+ * previous `s.slice(0, 8) + '…[redacted]'` still leaked the first eight characters
+ * of a pasted key. A real 64-hex key (or any non-kid value) now reflects as
+ * "[redacted]" — never a prefix, never a substring of the raw value.
  */
 function safeKidLabel(s: string): string {
-  return /^[a-z0-9-]{1,40}$/.test(s) ? s : s.slice(0, 8) + '…[redacted]'
+  return VALID_KID_LABEL.test(s) ? s : '[redacted]'
 }
 
 // ── Parsed ring shape ────────────────────────────────────────────────────────
@@ -129,6 +154,63 @@ function csv(value: string | undefined): Set<string> {
       .map((s) => s.trim())
       .filter((s) => s.length > 0),
   )
+}
+
+/**
+ * Detect DUPLICATE top-level object keys in a raw JSON map string (Codex review
+ * finding 4). `JSON.parse` silently keeps only the LAST value for a duplicated key
+ * (last-wins), which would let a retired/shadowed kid hide behind a duplicate — so
+ * we scan the RAW text BEFORE trusting the parsed object. Pure dependency-free char
+ * scan: tracks string + escape state and object/array nesting depth, collecting
+ * strings that sit at object depth 1 in KEY position (the next non-space char is
+ * `:`). Returns the set of kids that appear more than once. Operates on text that
+ * `JSON.parse` already accepted as an object, so it only ever reports genuine
+ * textual duplicates that parsing collapsed.
+ */
+function duplicateTopLevelKeys(raw: string): Set<string> {
+  const seen = new Set<string>()
+  const dups = new Set<string>()
+  const n = raw.length
+  let depth = 0
+  let i = 0
+  // Advance to the outer object's opening brace.
+  while (i < n && raw[i] !== '{') i++
+  for (; i < n; i++) {
+    const c = raw[i]
+    if (c === '{' || c === '[') {
+      depth++
+      continue
+    }
+    if (c === '}' || c === ']') {
+      depth--
+      continue
+    }
+    if (c === '"') {
+      // Read the full string literal (honouring escapes) so any structural chars
+      // inside it (`:`, `{`, `,`) are never mistaken for tokens.
+      let s = ''
+      i++
+      for (; i < n; i++) {
+        const ch = raw[i]
+        if (ch === '\\') {
+          s += ch + (raw[i + 1] ?? '')
+          i++
+          continue
+        }
+        if (ch === '"') break
+        s += ch
+      }
+      // A KEY is a depth-1 string immediately followed (after whitespace) by ':'.
+      let j = i + 1
+      while (j < n && (raw[j] === ' ' || raw[j] === '\t' || raw[j] === '\n' || raw[j] === '\r')) j++
+      if (depth === 1 && raw[j] === ':') {
+        if (seen.has(s)) dups.add(s)
+        else seen.add(s)
+      }
+      continue
+    }
+  }
+  return dups
 }
 
 /**
@@ -213,11 +295,19 @@ function validateRing(
     return { problems, ring: null }
   }
 
-  // BV-3: there is no in-loop duplicate-kid check — `JSON.parse` already collapses
-  // duplicate object keys (last-wins, deterministic), so `Object.entries(parsed)`
-  // can never surface a duplicate. Duplicate kids are therefore not a separable
-  // failure here (a pre-parse raw-text scanner would be the only way to detect
-  // them; deferred as a low-value nit since last-wins is deterministic + safe).
+  // Duplicate-kid rejection (Codex review finding 4): `Object.entries(parsed)` can
+  // NEVER surface a duplicate because `JSON.parse` already collapsed it last-wins —
+  // which would silently SHADOW a retired/old key behind a re-declared kid. The merged
+  // spec/plan require duplicate kids to FAIL CLOSED, so we scan the RAW map text (which
+  // JSON.parse already accepted as an object) for repeated depth-1 keys and reject.
+  const dupKids = duplicateTopLevelKeys(rawMap)
+  if (dupKids.size > 0) {
+    problems.push(
+      `${mapVar} declares duplicate kid(s) [${[...dupKids].map(safeKidLabel).join(', ')}]. JSON parsing silently keeps only the LAST value for a repeated key, which could shadow a retired/old key — provide each kid exactly once.`,
+    )
+    return { problems, ring: null }
+  }
+
   const keys = new Map<string, string>()
   for (const [kid, value] of entries) {
     if (!containment.test(kid) || !kidPattern.test(kid)) {
