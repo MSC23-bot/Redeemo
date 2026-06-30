@@ -102,10 +102,11 @@ export function parseEnvelope(stored: string): ParsedEnvelope {
     if (!HEX_EVEN(h)) throw new EnvelopeParseError()
   }
   if (ctHex.length === 0) throw new EnvelopeParseError()
-  // Byte-length is part of the PARSE contract (spec §3.1), classified LOUD as a
-  // format fault (CRYPTO-1): a wrong-byte-length-but-even-hex iv/tag must throw
-  // EnvelopeParseError here (→ Guard-10 bucket (b), alerted), NOT fall through to
-  // gcmDecrypt's plain-Error asserts (→ silent wrong-PIN bucket (c)).
+  // Byte-length is part of the PARSE contract (spec §3.1), classified as a format
+  // fault (CRYPTO-1): a wrong-byte-length-but-even-hex iv/tag must throw EnvelopeParseError
+  // here (→ a controlled REDEMPTION_PIN_UNREADABLE) so it is attributed precisely as a
+  // malformed envelope, rather than falling through to gcmDecrypt's plain-Error asserts.
+  // (All decrypt faults now fail loudly, so this is about correct ATTRIBUTION, not silence.)
   if (Buffer.from(ivHex, 'hex').length !== 12) throw new EnvelopeParseError()
   if (Buffer.from(tagHex, 'hex').length !== 16) throw new EnvelopeParseError()
   return { kid, ivHex, tagHex, ctHex, isLegacy3Part }
@@ -130,17 +131,19 @@ function gcmDecrypt(key: Buffer, ivHex: string, tagHex: string, ctHex: string): 
   const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
   decipher.setAuthTag(authTag)
   // A GCM auth-tag mismatch surfaces from decipher.final() as a Node crypto error.
-  // Re-throw it as the TYPED GcmAuthError (Codex review finding 2) so the redemption
-  // Guard-10 can treat ONLY this as a silent wrong-PIN, while EVERY other failure
-  // (key-unavailable / envelope-parse / unexpected) fails LOUDLY.
+  // Re-throw it as the TYPED GcmAuthError (Codex review finding 2) so Guard-10 can classify
+  // it precisely: a GcmAuthError means the STORED ciphertext failed authentication (wrong
+  // key / tampering / corruption) — a server/data fault that fails LOUDLY (controlled
+  // REDEMPTION_PIN_UNREADABLE), NOT a user wrong-PIN (Codex re-review). It is NEVER silenced.
   //
   // SCOPE (adversarial LENS A(a) hardening): the GcmAuthError catch wraps EXACTLY
   // decipher.final() — the one site where GCM verifies the auth tag. update() (which
   // for a Buffer input does not throw and does NOT verify the tag) and every config
   // step (Buffer.from, byte-length asserts, createDecipheriv, setAuthTag) run OUTSIDE
-  // the try, so a config/programming fault propagates RAW (→ classified "unknown" →
-  // LOUD), and can never be masked as an auth mismatch + silently swallowed into a
-  // wrong-PIN. NO key/ciphertext/plaintext is carried into GcmAuthError.
+  // the try, so a config/programming fault propagates RAW and is classified "unknown"
+  // (its own loud bucket) rather than being mislabelled as a GCM-auth mismatch. (All
+  // decrypt faults fail loudly now; this keeps the ATTRIBUTION precise.) NO
+  // key/ciphertext/plaintext is carried into GcmAuthError.
   const head = decipher.update(ciphertext)
   let tail: Buffer
   try {

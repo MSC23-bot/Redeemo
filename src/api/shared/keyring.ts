@@ -69,12 +69,14 @@ export class EnvelopeParseError extends Error {
 
 /**
  * An AES-256-GCM authentication-tag mismatch — the resolved key + iv could not
- * authenticate the ciphertext (a genuine wrong-PIN at redemption, OR a tampered /
- * corrupt stored value, OR a value written under a different key). This is the
- * ONLY decrypt failure the redemption Guard-10 may treat as a SILENT wrong-PIN
- * (Codex review finding 2): every OTHER throw (key-unavailable, envelope-parse,
- * unexpected/runtime) must fail LOUDLY so it is never silently swallowed into
- * INVALID_PIN. Carries NO key bytes / ciphertext / plaintext (a fixed message).
+ * authenticate the STORED ciphertext (wrong key bytes, tampering, or corrupt data, OR a
+ * value written under a different key). This is a SERVER/DATA fault, NOT a user entering
+ * the wrong PIN: the submitted PIN is compared to the decrypted plaintext AFTER decryption
+ * succeeds, so it is never a decryption input (Codex re-review). A GcmAuthError therefore
+ * fails LOUDLY (controlled REDEMPTION_PIN_UNREADABLE + redacted alert) like every other
+ * decrypt fault and NEVER increments the wrong-PIN counter — the genuine wrong-PIN is a
+ * SUCCESSFUL decrypt whose plaintext differs from the submitted PIN. Carries NO key bytes /
+ * ciphertext / plaintext (a fixed message).
  */
 export class GcmAuthError extends Error {
   public readonly code = 'GCM_AUTH_MISMATCH'

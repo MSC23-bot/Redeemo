@@ -1344,16 +1344,15 @@ export async function getBranchPin(
   })
   if (!branch) throw new AppError('BRANCH_NOT_FOUND')
   if (!branch.redemptionPin) return { pin: null }
-  // Codex review finding 3: map a typed decrypt throw to the CONTROLLED client
-  // envelope (KEY_NOT_AVAILABLE / REDEMPTION_PIN_UNREADABLE) via the shared classifier
-  // — without it the raw typed error reaches the global handler as a generic 500.
-  // A reader never silences a GCM mismatch (silenceGcmMismatch:false): a stored value
-  // that won't authenticate is an unreadable PIN, not a wrong-PIN.
+  // Codex review finding 3: map a typed decrypt throw to the CONTROLLED client envelope
+  // (KEY_NOT_AVAILABLE / REDEMPTION_PIN_UNREADABLE) via the shared classifier — without it
+  // the raw typed error reaches the global handler as a generic 500. EVERY decrypt failure
+  // here is loud + controlled (a reader has no PIN to compare, so there is no wrong-PIN
+  // path); a GCM-auth mismatch is an unreadable stored value, not a user error.
   try {
     return { pin: decrypt(branch.redemptionPin) }
   } catch (err) {
-    const outcome = classifyPinDecryptError(err, { branchId, source: 'branch-pin-read', silenceGcmMismatch: false })
-    throw outcome.silent ? new AppError('REDEMPTION_PIN_UNREADABLE') : outcome.appError
+    throw classifyPinDecryptError(err, { branchId, source: 'branch-pin-read' })
   }
 }
 
@@ -1406,13 +1405,13 @@ export async function sendBranchPin(
   if (!branch) throw new AppError('BRANCH_NOT_FOUND')
   if (!branch.redemptionPin) throw new AppError('PIN_NOT_CONFIGURED')
 
-  // Codex review finding 3: controlled-envelope mapping (see getBranchPin).
+  // Codex review finding 3: controlled-envelope mapping (see getBranchPin). EVERY decrypt
+  // failure is loud + controlled (no wrong-PIN path at a reader).
   let pin: string
   try {
     pin = decrypt(branch.redemptionPin)
   } catch (err) {
-    const outcome = classifyPinDecryptError(err, { branchId, source: 'branch-pin-send', silenceGcmMismatch: false })
-    throw outcome.silent ? new AppError('REDEMPTION_PIN_UNREADABLE') : outcome.appError
+    throw classifyPinDecryptError(err, { branchId, source: 'branch-pin-send' })
   }
 
   // SMS via Twilio — SEC-H3 (Gate-PR-7) + §SEC.1: toll-fraud controls (E.164

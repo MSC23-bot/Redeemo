@@ -1,12 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { KeyNotAvailableError, EnvelopeParseError, GcmAuthError } from '../../../src/api/shared/keyring'
 
-// Guard-10 three-bucket hardening (spec §3.10). The encryption module is mocked so
-// decrypt() can throw each bucket's error class on demand. The redemption hot path
-// must classify:
-//   (a) KeyNotAvailableError  → alert (log.error) + AppError('KEY_NOT_AVAILABLE')   — fail closed LOUDLY
-//   (b) EnvelopeParseError    → alert (log.error) + AppError('REDEMPTION_PIN_UNREADABLE') — fail closed LOUDLY
-//   (c) genuine GCM mismatch  → silent pinMatches=false (→ INVALID_PIN), as today
+// Guard-10 hardening (spec §3.10, corrected per Codex re-review). The encryption module is
+// mocked so decrypt() can throw each error class on demand. The submitted PIN is compared
+// to the decrypted plaintext AFTER decryption, so a decrypt() throw is ALWAYS a server/data
+// fault — NEVER a user wrong-PIN. The redemption hot path must classify:
+//   (a) KeyNotAvailableError  → alert + AppError('KEY_NOT_AVAILABLE')        — fail closed LOUDLY
+//   (b) EnvelopeParseError    → alert + AppError('REDEMPTION_PIN_UNREADABLE') — fail closed LOUDLY
+//   (c) GcmAuthError          → alert + AppError('REDEMPTION_PIN_UNREADABLE') — fail closed LOUDLY
+//                               (stored ciphertext failed authentication — NOT a wrong PIN;
+//                                NEVER silenced, NEVER increments the wrong-PIN counter)
+//   (d) any other throw       → alert + AppError('REDEMPTION_PIN_UNREADABLE') — fail closed LOUDLY
+// The ONLY silent INVALID_PIN path is a SUCCESSFUL decrypt whose plaintext != submitted PIN.
 //
 // The mock factory must not reference outer-scope mutable state (vi.mock is hoisted).
 const decryptImpl = { fn: (v: string) => v.replace('enc:', '') }
@@ -101,24 +106,28 @@ describe('Guard-10 three-bucket hardening', () => {
     expect(redis.incr).not.toHaveBeenCalled()
   })
 
-  it('(c) genuine GCM mismatch (typed GcmAuthError) → silent INVALID_PIN as today (no alert)', async () => {
+  it('(c) GcmAuthError (stored ciphertext failed authentication) → LOUD REDEMPTION_PIN_UNREADABLE, alert, NO counter (Codex re-review)', async () => {
     const prisma = mockPrisma()
     const redis = mockRedis()
     setupReachingPinCompare(prisma, redis)
-    // Codex finding 2: ONLY the typed GcmAuthError (a real auth-tag mismatch) may be
-    // silenced into INVALID_PIN.
+    // A GcmAuthError is a SERVER/DATA fault (wrong key / tampering / corruption), NOT a
+    // user wrong-PIN — the submitted PIN is compared AFTER a successful decrypt, so it is
+    // never a decryption input. It must fail loudly + alert + NOT touch the lockout counter
+    // (silencing it would convert a branch data fault into a user lockout — the silent
+    // branch outage R1 prevents).
     decryptImpl.fn = () => {
       throw new GcmAuthError()
     }
 
     await expect(
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx),
-    ).rejects.toThrow('INVALID_PIN')
+    ).rejects.toThrow('REDEMPTION_PIN_UNREADABLE')
 
-    // Silent: a genuine wrong PIN is NOT a key/data-integrity alert.
-    expect(errorSpy).not.toHaveBeenCalled()
-    // It IS counted as a wrong-PIN attempt (rate-limit increments).
-    expect(redis.incr).toHaveBeenCalled()
+    // Loud: a data-integrity fault IS alerted.
+    expect(errorSpy).toHaveBeenCalled()
+    // And it is NEVER counted as a wrong-PIN attempt (no lockout from a server fault).
+    expect(redis.incr).not.toHaveBeenCalled()
+    expect(redis.expire).not.toHaveBeenCalled()
   })
 
   it('(d) an UNRELATED error (e.g. a programming TypeError) is NOT silently converted to INVALID_PIN — fails LOUDLY (Codex finding 2, mutation-resistant)', async () => {

@@ -283,13 +283,17 @@ export async function createRedemption(
   // 10. Timing-safe PIN comparison.
   //
   // Guard-10 hardening (encryption key-rotation R1, spec §3.10) via the shared
-  // classifyPinDecryptError (Codex review finding 2). The pre-rotation code mapped
-  // EVERY decrypt throw to a silent wrong-PIN (pinMatches=false), which would turn a
-  // missing/retired key OR a corrupt value into a silent all-redemptions-fail at a
-  // branch. Now ONLY a genuine AES-GCM auth-tag mismatch (the typed GcmAuthError) is
-  // a silent wrong-PIN; key-unavailable / envelope-parse / unexpected all fail LOUDLY
-  // (controlled AppError + redacted alert). silenceGcmMismatch:true is the redemption
-  // PIN-compare contract — here a non-authenticating value genuinely is a wrong PIN.
+  // classifyPinDecryptError. We decrypt the STORED PIN ciphertext, then compare its
+  // plaintext to the SUBMITTED data.pin. The submitted PIN is therefore NEVER a
+  // decryption input — so a decrypt() throw can ONLY be a server/data fault, never a
+  // user entering the wrong PIN (Codex re-review). The corrected Guard-10 model:
+  //   - key-unavailable / envelope-parse / GCM-auth-mismatch / unexpected → ALL fail
+  //     LOUDLY (controlled AppError + redacted alert) and do NOT touch the wrong-PIN
+  //     counter. A GcmAuthError means the stored ciphertext failed authentication (wrong
+  //     key / tampering / corruption) — silencing it would convert a branch data fault
+  //     into a user lockout and recreate the silent branch outage R1 prevents.
+  //   - the GENUINE wrong-PIN is a SUCCESSFUL decrypt whose plaintext != data.pin
+  //     (pinMatches=false below) → silent INVALID_PIN + the failure counter, as before.
   //
   // OC1: the "alert" is the helper's structured console.error (the existing service
   // observability path; ADMIN_OPS_ALERT_EMAIL is intentionally NOT wired in R1). The
@@ -306,15 +310,13 @@ export async function createRedemption(
       pinMatches = crypto.timingSafeEqual(pinBuffer, decBuffer)
     }
   } catch (err) {
-    const outcome = classifyPinDecryptError(err, {
-      branchId: branch.id,
-      source: 'redemption',
-      silenceGcmMismatch: true,
-    })
-    if (!outcome.silent) throw outcome.appError
-    // GcmAuthError only: a genuine wrong PIN. Routed through the INVALID_PIN counter
-    // below, exactly as before.
-    pinMatches = false
+    // ANY throw inside the compare block — a decrypt failure (key-unavailable / parse /
+    // GCM-auth) OR an unexpected fault in the length-check / Buffer.from / timingSafeEqual —
+    // is a loud, controlled server/data fault: classifyPinDecryptError maps it to a
+    // controlled AppError and it throws BEFORE the wrong-PIN counter below, so it NEVER
+    // increments the lockout. (The genuine wrong PIN never reaches here: it is a successful
+    // decrypt whose plaintext is simply unequal → pinMatches=false → the counter path.)
+    throw classifyPinDecryptError(err, { branchId: branch.id, source: 'redemption' })
   }
 
   if (!pinMatches) {
