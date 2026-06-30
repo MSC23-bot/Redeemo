@@ -137,6 +137,20 @@ function safeKidLabel(s: string): string {
   return VALID_KID_LABEL.test(s) ? s : '[redacted]'
 }
 
+/**
+ * Resolve the PIN legacy kid from ENCRYPTION_LEGACY_KID consistently (CodeRabbit
+ * re-review). A whitespace-only (or unset) value is treated as UNSET → DEFAULT_LEGACY_KID;
+ * any other value is TRIMMED. Both validateRing AND buildKeyProviderFromEnv route through
+ * this so the bridged ring kid and the EnvKeyProvider.getLegacyKid() can never diverge
+ * (a divergence would brick 3-part legacy reads: getKey('pin', legacyKid) would miss).
+ * NOTE: a value with SURROUNDING whitespace is additionally REJECTED by validateRing's
+ * charset check before any ring is built; this normalizer only governs the unset case.
+ */
+function resolveLegacyKid(raw: string | undefined): string {
+  const trimmed = raw?.trim()
+  return trimmed ? trimmed : DEFAULT_LEGACY_KID
+}
+
 // ── Parsed ring shape ────────────────────────────────────────────────────────
 
 interface ParsedRing {
@@ -234,7 +248,11 @@ function validateRing(
   const denylist = csv(env.DECOMMISSIONED_KIDS)
   const mapVar = ns === 'pin' ? 'ENCRYPTION_KEYS' : 'OTP_HMAC_KEYS'
   const activeVar = ns === 'pin' ? 'ENCRYPTION_KEY_ACTIVE' : 'OTP_HMAC_KEY_ACTIVE'
-  const legacyKid = ns === 'pin' ? (env.ENCRYPTION_LEGACY_KID || DEFAULT_LEGACY_KID) : OTP_LEGACY_KID
+  // ENCRYPTION_LEGACY_KID is normalized via resolveLegacyKid so the SAME value drives
+  // both validation and ring construction (CodeRabbit re-review): a whitespace-only
+  // value is treated as UNSET (→ DEFAULT_LEGACY_KID), never kept as a truthy whitespace
+  // kid.
+  const legacyKid = ns === 'pin' ? resolveLegacyKid(env.ENCRYPTION_LEGACY_KID) : OTP_LEGACY_KID
   const kidPattern = ns === 'pin' ? PIN_KID : OTP_KID
   const containment = ns === 'pin' ? /^(pin-|legacy$)/ : /^otp-/
   const rawMap = env[mapVar]
@@ -243,11 +261,15 @@ function validateRing(
   // becomes the bridged kid + is keyed into the ring + echoed in errors. Validate
   // its charset fail-closed (pin-* or 'legacy', no underscore/colon) BEFORE use, so
   // an invalid/long value (e.g. a fat-fingered 64-hex key) cannot become a kid. The
-  // value is redacted via safeKidLabel if it must be echoed.
-  if (ns === 'pin' && env.ENCRYPTION_LEGACY_KID !== undefined && env.ENCRYPTION_LEGACY_KID.trim() !== '') {
-    if (!PIN_KID.test(env.ENCRYPTION_LEGACY_KID)) {
+  // value is redacted via safeKidLabel if it must be echoed. A whitespace-only value
+  // is normalized to "unset" (handled by resolveLegacyKid → DEFAULT); a value with
+  // SURROUNDING whitespace fails closed (rawLegacyKid !== trimmed) since the derivation
+  // uses the trimmed form and a kid cannot contain whitespace (CodeRabbit re-review).
+  const rawLegacyKid = env.ENCRYPTION_LEGACY_KID
+  if (ns === 'pin' && rawLegacyKid !== undefined && rawLegacyKid.trim() !== '') {
+    if (rawLegacyKid !== rawLegacyKid.trim() || !PIN_KID.test(rawLegacyKid.trim())) {
       problems.push(
-        `ENCRYPTION_LEGACY_KID "${safeKidLabel(env.ENCRYPTION_LEGACY_KID)}" is not a valid pin kid (expected pin-* or "legacy", charset a-z0-9- only).`,
+        `ENCRYPTION_LEGACY_KID "${safeKidLabel(rawLegacyKid)}" is not a valid pin kid (expected pin-* or "legacy", charset a-z0-9- only, no surrounding whitespace).`,
       )
       return { problems, ring: null }
     }
@@ -454,7 +476,10 @@ export function buildKeyProviderFromEnv(env: NodeJS.ProcessEnv = process.env): E
         problems.map((p) => '  - ' + p).join('\n'),
     )
   }
-  const legacyKid = env.ENCRYPTION_LEGACY_KID || DEFAULT_LEGACY_KID
+  // Same normalization as validateRing (CodeRabbit re-review): a whitespace-only value
+  // must resolve to DEFAULT_LEGACY_KID here too, else the provider's getLegacyKid() would
+  // diverge from the bridged ring kid and brick 3-part legacy reads.
+  const legacyKid = resolveLegacyKid(env.ENCRYPTION_LEGACY_KID)
   return new EnvKeyProvider(pin.ring, otp.ring, legacyKid)
 }
 

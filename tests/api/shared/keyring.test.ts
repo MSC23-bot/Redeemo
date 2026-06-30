@@ -412,6 +412,32 @@ describe('keyring — ENCRYPTION_LEGACY_KID charset is validated fail-closed (Co
       } as NodeJS.ProcessEnv),
     ).toThrow()
   })
+
+  it('a WHITESPACE-ONLY ENCRYPTION_LEGACY_KID is treated as UNSET → DEFAULT "legacy" (CodeRabbit re-review)', () => {
+    // Whitespace-only skips the validator (trim==='') but is truthy: the old
+    // `|| DEFAULT` kept it as a whitespace kid, diverging from getLegacyKid(). Now
+    // resolveLegacyKid normalizes it to the default in BOTH validateRing + the provider.
+    const env = { ENCRYPTION_KEY: LEGACY_KEY, ENCRYPTION_LEGACY_KID: '   ' } as NodeJS.ProcessEnv
+    expect(validateKeyringEnv(env)).toEqual([]) // no problems — treated as unset
+    const provider = buildKeyProviderFromEnv(env)
+    expect(provider.getLegacyKid()).toBe('legacy') // NOT '   '
+    expect(provider.listKids('pin')).toEqual(['legacy']) // bridged under the default kid
+  })
+
+  it('a SURROUNDING-whitespace ENCRYPTION_LEGACY_KID fails closed (a kid cannot contain whitespace)', () => {
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_LEGACY_KID: ' pin-old ',
+    } as NodeJS.ProcessEnv)
+    expect(problems.length).toBeGreaterThan(0)
+    expect(problems.join('\n')).toMatch(/ENCRYPTION_LEGACY_KID/)
+    expect(() =>
+      buildKeyProviderFromEnv({
+        ENCRYPTION_KEY: LEGACY_KEY,
+        ENCRYPTION_LEGACY_KID: ' pin-old ',
+      } as NodeJS.ProcessEnv),
+    ).toThrow()
+  })
 })
 
 // CodeRabbit (Major #2): a decommissioned kid must not be present in the ring AT
