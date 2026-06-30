@@ -33,21 +33,26 @@ export interface VerifyKeyringDeps {
 export async function verifyKeyringAndExit(deps: VerifyKeyringDeps): Promise<number> {
   const info = deps.log ?? ((m: string) => console.info(m))
   const errorLog = deps.errorLog ?? ((m: string, meta?: unknown) => console.error(m, meta))
-  const prisma = deps.makePrisma()
+  // makePrisma() is INSIDE the try (CodeRabbit re-review): an adapter/client construction
+  // failure must follow the same controlled verify-only path (exit code 1), not reject.
+  let prisma: VerifyPrisma | undefined
   try {
+    prisma = deps.makePrisma()
     await prisma.$connect()
     const ok = await deps.publish(prisma)
     info(`[worker] --verify-keyring-and-exit: fingerprint published=${ok}; exiting without starting BullMQ.`)
     return ok ? 0 : 1
   } catch (err) {
-    // Redacted: only the error message (build/connect/publish errors carry config
-    // labels, never key bytes — the fingerprint itself contains no key material).
+    // BOUNDED redaction (CodeRabbit re-review): log only the error NAME — a $connect /
+    // adapter / publish failure message can carry connection or config details (e.g. the
+    // DB host), so it is NOT logged verbatim. The fingerprint itself has no key bytes.
     errorLog('[worker] --verify-keyring-and-exit failed (best-effort verify path)', {
-      reason: err instanceof Error ? err.message : String(err),
+      name: err instanceof Error ? err.name : 'unknown',
     })
     return 1
   } finally {
-    // GUARANTEED on every path — success, false publication, or a thrown error.
-    await prisma.$disconnect().catch(() => undefined)
+    // GUARANTEED on every path that constructed a client — success, false publication,
+    // or a thrown error. Guarded because makePrisma() itself may have thrown.
+    if (prisma) await prisma.$disconnect().catch(() => undefined)
   }
 }

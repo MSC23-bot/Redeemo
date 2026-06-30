@@ -74,6 +74,23 @@ describe('verifyKeyringAndExit — exit code + guaranteed disconnect (Codex find
     expect(prisma.$disconnect).toHaveBeenCalledTimes(1) // finally still ran
   })
 
+  it('makePrisma() THROWS → exit 1 (does NOT reject); no disconnect attempted (CodeRabbit re-review)', async () => {
+    const errorLog = vi.fn()
+    let code: number | undefined
+    await expect(
+      (async () => {
+        code = await verifyKeyringAndExit({
+          makePrisma: () => { throw new Error('boom-adapter-construct') },
+          publish: vi.fn(),
+          log: vi.fn(),
+          errorLog,
+        })
+      })(),
+    ).resolves.toBeUndefined() // resolves (no rejection) — the contract is "any error ⇒ exit 1"
+    expect(code).toBe(1)
+    expect(errorLog).toHaveBeenCalled()
+  })
+
   it('a thrown $disconnect does not mask the exit code (best-effort cleanup)', async () => {
     const prisma = fakePrisma({ $disconnect: vi.fn().mockRejectedValue(new Error('boom-disconnect')) as any })
     const code = await verifyKeyringAndExit({

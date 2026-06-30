@@ -163,13 +163,20 @@ function csv(value: string | undefined): Set<string> {
  * we scan the RAW text BEFORE trusting the parsed object. Pure dependency-free char
  * scan: tracks string + escape state and object/array nesting depth, collecting
  * strings that sit at object depth 1 in KEY position (the next non-space char is
- * `:`). Returns the set of kids that appear more than once. Operates on text that
- * `JSON.parse` already accepted as an object, so it only ever reports genuine
- * textual duplicates that parsing collapsed.
+ * `:`). Returns the set of kids that appear more than once (by RAW token) AND the
+ * total count of depth-1 key tokens (`rawKeyCount`). Operates on text that
+ * `JSON.parse` already accepted as an object.
+ *
+ * CodeRabbit re-review: a raw-token comparison alone MISSES escape-variant
+ * duplicates — `{"pin-a":…,"pin-a":…}` are different raw tokens but JSON.parse
+ * collapses both to "pin-a" (last-wins). The CALLER therefore also compares
+ * `rawKeyCount` against `Object.keys(parsed).length`: any mismatch means a collapse
+ * happened (plain OR escaped duplicate), so it fails closed even when `dups` is empty.
  */
-function duplicateTopLevelKeys(raw: string): Set<string> {
+function duplicateTopLevelKeys(raw: string): { dups: Set<string>; rawKeyCount: number } {
   const seen = new Set<string>()
   const dups = new Set<string>()
+  let rawKeyCount = 0
   const n = raw.length
   let depth = 0
   let i = 0
@@ -204,13 +211,14 @@ function duplicateTopLevelKeys(raw: string): Set<string> {
       let j = i + 1
       while (j < n && (raw[j] === ' ' || raw[j] === '\t' || raw[j] === '\n' || raw[j] === '\r')) j++
       if (depth === 1 && raw[j] === ':') {
+        rawKeyCount++
         if (seen.has(s)) dups.add(s)
         else seen.add(s)
       }
       continue
     }
   }
-  return dups
+  return { dups, rawKeyCount }
 }
 
 /**
@@ -298,12 +306,16 @@ function validateRing(
   // Duplicate-kid rejection (Codex review finding 4): `Object.entries(parsed)` can
   // NEVER surface a duplicate because `JSON.parse` already collapsed it last-wins —
   // which would silently SHADOW a retired/old key behind a re-declared kid. The merged
-  // spec/plan require duplicate kids to FAIL CLOSED, so we scan the RAW map text (which
-  // JSON.parse already accepted as an object) for repeated depth-1 keys and reject.
-  const dupKids = duplicateTopLevelKeys(rawMap)
-  if (dupKids.size > 0) {
+  // spec/plan require duplicate kids to FAIL CLOSED, so we scan the RAW map text for
+  // repeated depth-1 keys. Two checks: (a) raw-token duplicates (the common case, with
+  // named kids in the error); (b) rawKeyCount vs the parsed key count — a mismatch means
+  // JSON.parse collapsed an ESCAPE-VARIANT duplicate (e.g. "pin-a" vs "pin-a") that
+  // the raw-token compare cannot see (CodeRabbit re-review). Either ⇒ fail closed.
+  const { dups: dupKids, rawKeyCount } = duplicateTopLevelKeys(rawMap)
+  if (dupKids.size > 0 || rawKeyCount !== entries.length) {
+    const named = dupKids.size > 0 ? [...dupKids].map(safeKidLabel).join(', ') : '(escape-variant duplicate)'
     problems.push(
-      `${mapVar} declares duplicate kid(s) [${[...dupKids].map(safeKidLabel).join(', ')}]. JSON parsing silently keeps only the LAST value for a repeated key, which could shadow a retired/old key — provide each kid exactly once.`,
+      `${mapVar} declares duplicate kid(s) [${named}]. JSON parsing silently keeps only the LAST value for a repeated key (including \\uXXXX escape-variant re-declarations), which could shadow a retired/old key — provide each kid exactly once.`,
     )
     return { problems, ring: null }
   }

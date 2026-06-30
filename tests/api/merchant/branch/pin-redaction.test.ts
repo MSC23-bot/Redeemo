@@ -30,6 +30,8 @@ const LEGACY_KEY = '00112233445566778899aabbccddeeff00112233445566778899aabbccdd
 const UNKNOWN_KID_VALUE = 'v2:pin-retired-kid:001122334455667788990011:00112233445566778899aabbccddeeff:deadbeef'
 // A structurally-broken value → EnvelopeParseError (4 parts).
 const CORRUPT_VALUE = 'aabb:ccdd:eeff:gggg'
+// Every secret/value fragment that must NEVER appear in a response body OR the logs.
+const SECRET_FRAGMENTS = ['deadbeef', LEGACY_KEY, UNKNOWN_KID_VALUE, CORRUPT_VALUE, 'aabb']
 
 const mockPrisma = (redemptionPin: string) => ({
   merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: 'm1' }) },
@@ -199,11 +201,11 @@ describe('merchant PIN routes — controlled envelope via real Fastify requests'
         const body = JSON.parse(res.body)
         expect(body.error?.code).toBe(c.code)
         expect(body.error?.code).not.toBe('INTERNAL_ERROR')
-        for (const frag of ['deadbeef', LEGACY_KEY, UNKNOWN_KID_VALUE, CORRUPT_VALUE, 'aabb']) {
-          expect(res.body).not.toContain(frag)
+        const logs = loggedString()
+        for (const frag of SECRET_FRAGMENTS) {
+          expect(res.body).not.toContain(frag) // response body
+          expect(logs).not.toContain(frag) // AND logs (full list — CodeRabbit re-review)
         }
-        expect(loggedString()).not.toContain('deadbeef')
-        expect(loggedString()).not.toContain(LEGACY_KEY)
       } finally {
         await app.close()
       }
@@ -221,11 +223,11 @@ describe('merchant PIN routes — controlled envelope via real Fastify requests'
         const body = JSON.parse(res.body)
         expect(body.error?.code).toBe(c.code)
         expect(body.error?.code).not.toBe('INTERNAL_ERROR')
-        for (const frag of ['deadbeef', LEGACY_KEY, UNKNOWN_KID_VALUE, CORRUPT_VALUE, 'aabb']) {
+        const logs = loggedString()
+        for (const frag of SECRET_FRAGMENTS) {
           expect(res.body).not.toContain(frag)
+          expect(logs).not.toContain(frag)
         }
-        expect(loggedString()).not.toContain('deadbeef')
-        expect(loggedString()).not.toContain(LEGACY_KEY)
       } finally {
         await app.close()
       }

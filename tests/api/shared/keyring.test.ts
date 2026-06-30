@@ -512,6 +512,20 @@ describe('keyring — duplicate kid rejection (CodeRabbit/Codex finding 4)', () 
     expect(problems.join('\n')).toMatch(/duplicate kid/i)
   })
 
+  it('rejects an ESCAPE-VARIANT duplicate kid (\\uXXXX re-declaration collapses last-wins) — CodeRabbit re-review', () => {
+    // "pin-2026-06" and "pin-2026-06" both decode to "pin-2026-06"; JSON.parse keeps
+    // last-wins. Raw-token compare sees two DIFFERENT tokens, so the rawKeyCount-vs-parsed
+    // backstop is what catches this (dups set is empty here).
+    const raw = `{"legacy":"${LEGACY_KEY}","pin-2026-06":"${PIN_KEY_A}","pin-2026-0\\u0036":"${PIN_KEY_B}"}`
+    const problems = validateKeyringEnv({
+      ENCRYPTION_KEY: LEGACY_KEY,
+      ENCRYPTION_KEYS: raw,
+      ENCRYPTION_KEY_ACTIVE: 'pin-2026-06',
+    } as NodeJS.ProcessEnv)
+    expect(problems.length).toBeGreaterThan(0)
+    expect(problems.join('\n')).toMatch(/duplicate kid/i)
+  })
+
   it('rejects a duplicate LEGACY kid (the shadow-the-legacy-key attack)', () => {
     const raw = `{"legacy":"${LEGACY_KEY}","legacy":"${PIN_KEY_A}","pin-2026-06":"${PIN_KEY_B}"}`
     const problems = validateKeyringEnv({
