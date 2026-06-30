@@ -124,17 +124,24 @@ R4  Checkpoint schema + resumable CAS migrator + GATED v2 writer    ── flips
 - **SHA-bound owner approval.**
 - **R2 acceptance is performed POST-MERGE on a deliberately-deployed MERGED image (Gate B) — the workflow does NOT deploy an unmerged commit for acceptance.** (R1 staging acceptance in Gate A follows the same model: R1 is already merged + deployed.)
 
-**Gate B — POST-R2-DEPLOY, PRE-ROTATION operational gate (after R2 merges; before ANY OTP rotation op):**
-- keep Railway auto-deploy **disabled**;
-- confirm the R1 baseline is intact FIRST — both services still publish `codeCapability = v2-reader-v1` (if any rollback occurred since Gate A, restore R1 + re-verify R1 parity before proceeding);
-- **deliberately deploy the R2 image** via the separately-approved rollout procedure;
-- apply **identical R2 OTP-ring configuration** to Web and worker;
-- publish Web's R2 fingerprint;
-- run worker **`--verify-keyring-and-exit`** (no BullMQ sweeps started);
-- confirm BOTH report `codeCapability = v2-reader-otp-verify-v2`;
-- confirm their **complete fingerprints match, including the ordered `otpVerify`** list;
-- confirm **R2 staging acceptance** passes.
-- **HARD INVARIANT:** no OTP `OTP_HMAC_KEY_ACTIVE` flip, no `OTP_HMAC_KEY_PREVIOUS` designation, no challenge invalidation, no key removal, and no other rotation operation may occur until Gate B passes.
+**Gate B — POST-R2-DEPLOY, PRE-ROTATION operational gate (after R2 merges; before ANY OTP rotation op).** BOOT-ORDER FACT (verified in `src/api/shared/keyring.ts`): the `KeyProvider` is parsed **ONCE at boot** (`getKeyProvider()` is a process-wide cache; "hot-swap removed", §3.3) and Web publishes its fingerprint **after** startup — so an env change applied to a RUNNING process can NOT update its provider or its published fingerprint; only a deliberate redeploy / fresh process can. The initial R2 staging acceptance therefore changes **NO key and NO OTP-ring variable** — it proves the R2 CODE is live on the EXISTING legacy-bridge config, via this safe sequence:
+- keep the existing **legacy-bridge OTP configuration UNCHANGED** for this acceptance (`OTP_HMAC_KEYS` stays unset ⇒ bridge mode; `getOtpVerifyKids()` = `[otp-legacy]`);
+- do **NOT** set a fresh `OTP_HMAC_KEY_ACTIVE` or `OTP_HMAC_KEY_PREVIOUS` during this step;
+- keep Railway GitHub auto-deploy **disabled**;
+- (optional safety) confirm the pre-deploy R1 baseline — both services publish `codeCapability = v2-reader-v1` — before the rollout; restore R1 if a rollback occurred since Gate A;
+- **deliberately deploy the merged R2 Web image** via the separately-approved rollout procedure (boot reads the unchanged bridge env);
+- run the **merged R2 worker image with `--verify-keyring-and-exit`** (do **NOT** start BullMQ sweeps);
+- confirm BOTH fingerprints report: `codeCapability = v2-reader-otp-verify-v2`; **matching complete fingerprints**; ordered **`otpVerify = [otp-legacy]`** (bridge mode);
+- complete **R2 staging acceptance**;
+- **keep ALL OTP rotation operations blocked.**
+
+**Explicit boot-order boundary (prevents the unexecutable deploy-then-configure ordering from re-appearing):**
+- Any later OTP-ring environment change (a fresh `OTP_HMAC_KEY_ACTIVE`, an `OTP_HMAC_KEY_PREVIOUS`, etc.) is a **separate owner-approved provider operation** — NOT part of this acceptance step.
+- Because the provider is **boot-cached**, every such config change requires a **deliberate Web redeploy AND a fresh worker `--verify-keyring-and-exit` probe** to take effect and to publish the new fingerprint.
+- **Full R2 fingerprint parity must be RE-ESTABLISHED** (both services at `v2-reader-otp-verify-v2` with matching complete fingerprints incl. the ordered `otpVerify` for the new ring) **after** that config change and **before** any ACTIVE flip, PREVIOUS designation, challenge invalidation, key removal, or other rotation action.
+- Disabling GitHub auto-deploy does **NOT** make Railway environment-variable changes inert — a provider-variable change may itself trigger a deployment; it must be handled via the approved provider runbook.
+- **Operation A** remains the place where the incident-rotation configuration and fresh keys are introduced (with its own redeploy + `--verify-keyring-and-exit` + parity re-establishment).
+- **HARD INVARIANT:** no OTP `OTP_HMAC_KEY_ACTIVE` flip, no `OTP_HMAC_KEY_PREVIOUS` designation, no challenge invalidation, no key removal, and no other rotation operation may occur until (a) Gate B's bridge-config acceptance has passed AND (b) full R2 fingerprint parity has been RE-ESTABLISHED at the rotation configuration after its deliberate redeploy.
 
 ---
 
