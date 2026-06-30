@@ -1913,3 +1913,23 @@ model Market {
 
   @@index([status])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Encryption key-rotation R1 (spec §3.9 / §5; Amendment R3-#1).
+//
+// Each running service (web + worker) publishes its canonical keyring fingerprint
+// here at boot (and refreshes lastSeenAt). R1 BOTH publishes these rows AND its
+// deploy gate reads them, so the table is created + applied in R1. A future
+// migrator reads parity DIRECTLY from this table — no HTTP endpoint, no admin
+// credential. The fingerprint is the §3.9 domain-separated digest (codeCapability
+// + active kids + sorted per-key keyHash); it NEVER contains raw key bytes.
+// `service` is the unique key (one row per service) so a boot re-publish upserts.
+// ─────────────────────────────────────────────────────────────────────────────
+model KeyringFingerprint {
+  id             String   @id @default(uuid())
+  service        String   @unique
+  fingerprint    String
+  codeCapability String
+  bootedAt       DateTime @default(now())
+  lastSeenAt     DateTime @updatedAt
+}

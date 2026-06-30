@@ -14,6 +14,21 @@ bootstrap()
         app.log.error(err)
         process.exit(1)
       }
+      // Encryption key-rotation R1 (spec §3.9 / Amendment R3-#2): publish this
+      // service's keyring fingerprint AFTER the server is up (so app.prisma is
+      // ready). BEST-EFFORT and fire-and-forget — a publish failure logs + is
+      // swallowed inside publishKeyringFingerprint and must NEVER block startup
+      // or take the process down. (It only blocks later rotation, via the
+      // migrator's parity gate.) The import is DYNAMIC to preserve the
+      // app-module-free static graph in this file (see bootstrap.ts).
+      void import('./api/shared/keyring')
+        .then(({ publishKeyringFingerprint }) => publishKeyringFingerprint(app.prisma, 'web'))
+        // CodeRabbit (Minor, stability): log (don't silently swallow) a dynamic-import
+        // failure too — still best-effort + non-blocking, but observable. No key bytes
+        // are present in an import/publish error.
+        .catch((err: unknown) => {
+          app.log.error({ reason: err instanceof Error ? err.message : String(err) }, '[api] keyring fingerprint publish skipped (best-effort)')
+        })
     })
 
     // Graceful shutdown. PR-0.4 makes the API a queue PRODUCER (notify() enqueues

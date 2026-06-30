@@ -30,10 +30,51 @@ async function main(): Promise<void> {
   // Fail-closed: same aggregated env check the API runs (REDIS_URL is required).
   validateRequiredEnv()
 
+  // Encryption key-rotation R1 (spec §3.9 / Amendment #13 — Neon cost
+  // containment). `--verify-keyring-and-exit` publishes the WORKER service's
+  // keyring fingerprint row (so the migrator can read worker parity directly
+  // from the table) and exits WITHOUT registering any BullMQ Worker / queue /
+  // repeatable — the worker daemon (its 60s/hourly sweeps are the Neon CU burn)
+  // stays offline. MUST run after validateRequiredEnv() and BEFORE any BullMQ.
+  if (process.argv.includes('--verify-keyring-and-exit')) {
+    // Codex review finding 5: the body is EXTRACTED into verifyKeyringAndExit so it is
+    // unit-testable + guarantees prisma.$disconnect() via finally on success / false /
+    // thrown. This mode IS the parity-verification step, so a failed publish exits
+    // NON-ZERO (else an operator/CI relying on it gets a false green and proceeds to a
+    // flip/migration with unverified worker parity). No BullMQ is registered.
+    const { verifyKeyringAndExit } = await import('./api/shared/keyringVerify')
+    const code = await verifyKeyringAndExit({
+      makePrisma: () => {
+        const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
+        return new PrismaClient({ adapter })
+      },
+      publish: async (prisma) => {
+        const { publishKeyringFingerprint } = await import('./api/shared/keyring')
+        return publishKeyringFingerprint(prisma, 'worker')
+      },
+    })
+    process.exit(code)
+  }
+
   // ONE Prisma client for every processor (mirrors the API's prisma plugin).
   const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
   const prisma = new PrismaClient({ adapter })
   await prisma.$connect()
+
+  // Encryption key-rotation R1: a normally-running worker also publishes its
+  // keyring fingerprint at boot (best-effort, never blocks). The offline
+  // cost-contained path uses --verify-keyring-and-exit above instead.
+  // CodeRabbit (Major, stability): wrap the dynamic IMPORT too — if the import
+  // itself rejects, an un-wrapped `await import()` would crash worker boot. The
+  // whole best-effort publish (import + call) is swallowed so boot never blocks.
+  try {
+    const { publishKeyringFingerprint } = await import('./api/shared/keyring')
+    await publishKeyringFingerprint(prisma, 'worker')
+  } catch (err) {
+    console.error('[worker] keyring fingerprint publish skipped (best-effort)', {
+      reason: err instanceof Error ? err.message : String(err),
+    })
+  }
 
   // Each Worker gets its OWN Redis connection for its blocking reads — created +
   // OWNED here so shutdown can quit them. (Passing an ioredis INSTANCE makes

@@ -3,6 +3,7 @@ import type Redis from 'ioredis'
 import crypto from 'crypto'
 import { AppError } from '../shared/errors'
 import { decrypt } from '../shared/encryption'
+import { classifyPinDecryptError } from '../shared/pinDecrypt'
 import { writeAuditLog } from '../shared/audit'
 import { RedisKey } from '../shared/redis-keys'
 import { getCurrentCycleWindow } from '../subscription/cycle'
@@ -279,7 +280,25 @@ export async function createRedemption(
     throw new AppError('PIN_RATE_LIMIT_EXCEEDED', { retryAfter })
   }
 
-  // 10. Timing-safe PIN comparison
+  // 10. Timing-safe PIN comparison.
+  //
+  // Guard-10 hardening (encryption key-rotation R1, spec §3.10) via the shared
+  // classifyPinDecryptError. We decrypt the STORED PIN ciphertext, then compare its
+  // plaintext to the SUBMITTED data.pin. The submitted PIN is therefore NEVER a
+  // decryption input — so a decrypt() throw can ONLY be a server/data fault, never a
+  // user entering the wrong PIN (Codex re-review). The corrected Guard-10 model:
+  //   - key-unavailable / envelope-parse / GCM-auth-mismatch / unexpected → ALL fail
+  //     LOUDLY (controlled AppError + redacted alert) and do NOT touch the wrong-PIN
+  //     counter. A GcmAuthError means the stored ciphertext failed authentication (wrong
+  //     key / tampering / corruption) — silencing it would convert a branch data fault
+  //     into a user lockout and recreate the silent branch outage R1 prevents.
+  //   - the GENUINE wrong-PIN is a SUCCESSFUL decrypt whose plaintext != data.pin
+  //     (pinMatches=false below) → silent INVALID_PIN + the failure counter, as before.
+  //
+  // OC1: the "alert" is the helper's structured console.error (the existing service
+  // observability path; ADMIN_OPS_ALERT_EMAIL is intentionally NOT wired in R1). The
+  // payload carries ONLY branch id + kid + code — never ciphertext / plaintext / key
+  // bytes (request-path logging redaction, spec §3.10 / §3.11).
   let pinMatches = false
   try {
     const decrypted = decrypt(branch.redemptionPin)
@@ -290,8 +309,14 @@ export async function createRedemption(
       const decBuffer = Buffer.from(decrypted, 'utf8')
       pinMatches = crypto.timingSafeEqual(pinBuffer, decBuffer)
     }
-  } catch {
-    pinMatches = false
+  } catch (err) {
+    // ANY throw inside the compare block — a decrypt failure (key-unavailable / parse /
+    // GCM-auth) OR an unexpected fault in the length-check / Buffer.from / timingSafeEqual —
+    // is a loud, controlled server/data fault: classifyPinDecryptError maps it to a
+    // controlled AppError and it throws BEFORE the wrong-PIN counter below, so it NEVER
+    // increments the lockout. (The genuine wrong PIN never reaches here: it is a successful
+    // decrypt whose plaintext is simply unequal → pinMatches=false → the counter path.)
+    throw classifyPinDecryptError(err, { branchId: branch.id, source: 'redemption' })
   }
 
   if (!pinMatches) {
