@@ -404,7 +404,7 @@ _(Risk IDs are `RISK-n` to avoid collision with the release names R1–R4.)_
   - boot fails closed when `OTP_HMAC_KEY_PREVIOUS` is: not in `OTP_HMAC_KEYS` / `== OTP_HMAC_KEY_ACTIVE` / in `DECOMMISSIONED_KIDS` / not `otp-*` / set while in legacy-bridge mode (`OTP_HMAC_KEYS` unset).
   - `otpHmacSign` keys under **ACTIVE only** (PREVIOUS is never a signing key — a code signed under ACTIVE must NOT verify under a ring where PREVIOUS≠ACTIVE-then-active-removed; and a PREVIOUS-only signature must fail once PREVIOUS is unset).
   - `otpHmacVerify` accepts a code signed under the outgoing kid **only while** PREVIOUS is configured, and **rejects it** once PREVIOUS is unset (overlap-window expiry / incident immediate-invalidation).
-  - incident path: with `OTP_HMAC_KEY_PREVIOUS` unset and `otp-legacy` in `DECOMMISSIONED_KIDS`, a code signed under the leaked `otp-legacy` **fails verification** (no fallback).
+  - incident path: with `OTP_HMAC_KEY_PREVIOUS` unset, `getOtpVerifyKids()` = `[ACTIVE]`, so a code signed under the leaked `otp-legacy` **fails verification even if `otp-legacy` is still present in `OTP_HMAC_KEYS`** — the verify-fail is tied ONLY to the missing PREVIOUS (verification never widens to the full ring), NOT to the denylist. (Separately: `otp-legacy` in `DECOMMISSIONED_KIDS` is the re-activation guard — it can never become ACTIVE/PREVIOUS — a distinct property pinned by its own test.)
   - CRYPTO-1 byte-equality preserved (bridged `otp-legacy`).
   - dev/test bypass UNCHANGED: the `code === '000000'` bypass still works **only** in the allowlisted dev/test envs and is independent of `otpHmacVerify` (a separate guarded branch).
   - request-path redaction: no test/log/error exposes the OTP code, `challenge:code`, the raw HMAC, or key bytes.
