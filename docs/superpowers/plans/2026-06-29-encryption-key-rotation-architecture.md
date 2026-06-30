@@ -112,7 +112,29 @@ R4  Checkpoint schema + resumable CAS migrator + GATED v2 writer    ── flips
 - [ ] **Run → pass; allowlist guard passes; `tsc` clean.**
 - [ ] **Commit** (`feat(auth): separate OTP-HMAC key ring from ENCRYPTION_KEY`).
 
-**Merge gate:** allowlist guard proves all 7 sites swapped (4 sign / 3 verify); `getOtpVerifyKids()` ordered-list + PREVIOUS boot-validation pins green; **R2 fingerprint pins green (otpVerify in the canonical + distinct `codeCapability`; PREVIOUS-divergence and R1-vs-R2 both fail parity; no key bytes)**; malformed-stored-HMAC safe-fail pin green; both services parity-verified (published fingerprint, R2 capability); CI green; R1 already merged + live. **R2 release gating (hard): do NOT merge/deploy R2 until — R1 migration applied to Neon + R1 image deliberately deployed + Web/worker `KeyringFingerprint` parity verified + R1 staging acceptance complete.**
+**Two explicit gates (Codex blocking — the merge gate must NOT require evidence that only exists after R2 is deployed; the deployed-service R2 fingerprint cannot be published until R2 code runs):**
+
+**Gate A — R2 CODE MERGE gate (pre-merge; every item is obtainable WITHOUT R2 being deployed):**
+- R1 `KeyringFingerprint` migration applied (Neon);
+- R1 image **deliberately deployed**;
+- R1 Web/worker fingerprint **parity verified at the R1 capability `v2-reader-v1`** (the only fingerprint that can exist before R2 deploys);
+- R1 **staging acceptance** complete;
+- R2 focused tests + full required suite green — incl. `getOtpVerifyKids()` ordered-list + PREVIOUS boot-validation pins, the **R2 fingerprint FORMULA pins (SYNTHETIC, IN-PROCESS — NOT a deployed service):** computed by calling `keyringFingerprint()` on synthetic providers — the canonical object contains the ordered `otpVerify`; two synthetic inputs differing ONLY in PREVIOUS-designation (`otpVerify`) ⇒ different digests; two differing ONLY in `codeCapability` (`'v2-reader-v1'` vs `'v2-reader-otp-verify-v2'`) ⇒ different digests; no raw key bytes — all in-process, requiring **NO deployed R2 image**; plus the malformed-stored-HMAC safe-fail pin, the allowlist guard, and redaction. **(The ACTUAL DEPLOYED Web+worker R2 fingerprint parity — both publishing `v2-reader-otp-verify-v2` with matching ordered `otpVerify` — is Gate B, NOT here; it cannot exist until R2 runs.)**;
+- `tsc` clean; CI green; fresh adversarial auth/security review; scope review;
+- **SHA-bound owner approval.**
+- **R2 acceptance is performed POST-MERGE on a deliberately-deployed MERGED image (Gate B) — the workflow does NOT deploy an unmerged commit for acceptance.** (R1 staging acceptance in Gate A follows the same model: R1 is already merged + deployed.)
+
+**Gate B — POST-R2-DEPLOY, PRE-ROTATION operational gate (after R2 merges; before ANY OTP rotation op):**
+- keep Railway auto-deploy **disabled**;
+- confirm the R1 baseline is intact FIRST — both services still publish `codeCapability = v2-reader-v1` (if any rollback occurred since Gate A, restore R1 + re-verify R1 parity before proceeding);
+- **deliberately deploy the R2 image** via the separately-approved rollout procedure;
+- apply **identical R2 OTP-ring configuration** to Web and worker;
+- publish Web's R2 fingerprint;
+- run worker **`--verify-keyring-and-exit`** (no BullMQ sweeps started);
+- confirm BOTH report `codeCapability = v2-reader-otp-verify-v2`;
+- confirm their **complete fingerprints match, including the ordered `otpVerify`** list;
+- confirm **R2 staging acceptance** passes.
+- **HARD INVARIANT:** no OTP `OTP_HMAC_KEY_ACTIVE` flip, no `OTP_HMAC_KEY_PREVIOUS` designation, no challenge invalidation, no key removal, and no other rotation operation may occur until Gate B passes.
 
 ---
 
