@@ -212,7 +212,7 @@ Works because both keys stay in the ring **and** the envelope is self-describing
 
 - All key env vars set identically on BOTH services; a change takes effect on a service only on **that** service's redeploy.
 - **Parity fingerprint — ONE canonical formula (MF/should-fix; it was described three inconsistent ways in the draft).** The formula evolves by release via an explicit `codeCapability` bump (so an old image and a new image can never publish an identical fingerprint):
-  ```
+  ```text
   keyHash(ns,kid,keyBytes) = sha256('redeemo-keyring-v1:' + ns + ':' + kid + ':' + keyBytes)   // domain-separated, delimited
 
   // R1 (as shipped on main @ b66b0f95) — codeCapability 'v2-reader-v1', NO otpVerify field:
