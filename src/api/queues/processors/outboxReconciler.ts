@@ -37,7 +37,12 @@ import type { PrismaClient } from '../../../../generated/prisma/client'
 import { EMAIL_QUEUE, MAINTENANCE_QUEUE, BULLMQ_PREFIX, enqueue } from '../index'
 import { makeQueueConnection } from '../connection'
 import { shouldLog } from '../logThrottle'
-import { runBudgetedRows, type BoundedSweepSpec, type PhaseBBudget } from '../maintenanceSweep'
+import {
+  runBudgetedRows,
+  type BoundedSweepSpec,
+  type PhaseBBudget,
+  type PhaseBOutcome,
+} from '../maintenanceSweep'
 import type { MaintenanceConfig } from '../../shared/env'
 import { CLAIM_STALE_JOB, sweepStaleClaims } from './claimStaleSweep'
 import {
@@ -116,8 +121,11 @@ export async function outboxDbPhase(
  * Phase B (unlocked, idempotent, cooperatively budgeted): re-enqueue each id
  * with jobId = id. Runs WITHOUT the lock — safe because BullMQ dedups by jobId
  * and the email worker skips terminal rows (CAS), so a duplicate is a no-op.
+ * A failed enqueue (e.g. Redis down) is reported via failedRows → the sweep is
+ * classified FAILURE and backs off on its OWN degraded cadence; the row stays
+ * QUEUED and replays by the same jobId after recovery (no duplicate delivery).
  */
-export function outboxSideEffects(ids: string[], budget: PhaseBBudget): Promise<{ full: boolean }> {
+export function outboxSideEffects(ids: string[], budget: PhaseBBudget): Promise<PhaseBOutcome> {
   return runBudgetedRows(ids, budget, (id) =>
     enqueue(EMAIL_QUEUE, { communicationLogId: id }, { jobId: id }),
   )

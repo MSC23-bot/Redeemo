@@ -93,12 +93,43 @@ export function makeSweepRuntime<TSide>(spec: BoundedSweepSpec<TSide>, enabled =
   }
 }
 
-const defaultRecordSweepFailure = (name: string, state: SweepState, error: unknown): void => {
-  // Redacted structured log — counts/labels only, never payload/PII.
+/**
+ * Bounded, allow-listed error classification for maintenance logs. NEVER emits
+ * arbitrary message text: a driver/provider error message can embed the
+ * connection string (credentials), hostnames, or SQL fragments. Only shapes on
+ * this allow-list pass through, as short codes:
+ *   - Prisma known-error codes (P####)         → PRISMA_P####
+ *   - Postgres SQLSTATEs via meta.code (5 chr) → PG_#####
+ *   - Node network errno codes (E…)            → NET_E…
+ *   - a plain constructor name (letters only)  → ERR_<Name>
+ *   - anything else                            → UNCLASSIFIED
+ */
+export function classifySweepError(error: unknown): string {
+  if (!error || typeof error !== 'object') return 'UNCLASSIFIED'
+  const e = error as { code?: unknown; name?: unknown; meta?: unknown }
+  // The inner Postgres SQLSTATE is MORE specific than Prisma's generic
+  // raw-query wrapper (P2010), so it takes precedence when present.
+  const metaCode =
+    e.meta && typeof e.meta === 'object' ? (e.meta as { code?: unknown }).code : undefined
+  if (typeof metaCode === 'string' && /^[0-9A-Z]{5}$/.test(metaCode)) return `PG_${metaCode}`
+  if (typeof e.code === 'string') {
+    if (/^P\d{4}$/.test(e.code)) return `PRISMA_${e.code}`
+    if (/^E[A-Z]{2,30}$/.test(e.code)) return `NET_${e.code}`
+  }
+  if (typeof e.name === 'string' && /^[A-Za-z]{1,40}$/.test(e.name) && e.name !== 'Error') {
+    return `ERR_${e.name}`
+  }
+  return 'UNCLASSIFIED'
+}
+
+/** Exported for the planted-secret redaction test. */
+export const defaultRecordSweepFailure = (name: string, state: SweepState, error: unknown): void => {
+  // Redacted structured log — sweep label + state + an ALLOW-LISTED error class
+  // only. Never the raw error message (it can carry credentials/SQL).
   console.error('[maintenance] sweep failure', {
     sweep: name,
     state,
-    reason: error instanceof Error ? error.message : String(error),
+    errorClass: classifySweepError(error),
   })
 }
 

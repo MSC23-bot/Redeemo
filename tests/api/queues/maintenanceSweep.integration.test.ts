@@ -42,7 +42,7 @@ function spec(overrides: Partial<BoundedSweepSpec<null>> & { lockKey: bigint }):
     phaseBMaxItems: 10,
     phaseBBudgetMs: 5_000,
     dbPhase: async () => ({ full: false, sideEffects: null }),
-    runSideEffects: async () => ({ full: false }),
+    runSideEffects: async () => ({ full: false, failedRows: 0 }),
     ...overrides,
   }
 }

@@ -32,7 +32,9 @@ export type SweepState = 'SUCCESS' | 'LOCK_SKIPPED' | 'TIMEOUT' | 'FAILURE'
 
 export interface SweepResult {
   state: SweepState
-  /** needsRescan: a full Phase-A batch, a hit budget/stop, or a per-row failure — stay on F_active. */
+  /** needsRescan (stay on F_active): a full Phase-A batch OR a hit budget/cooperative stop.
+   *  A per-row Phase-B FAILURE also sets full=true (rows remain durable) but the run is
+   *  classified FAILURE → the sweep's OWN degraded backoff, NEVER the active cadence. */
   full: boolean
   error?: unknown
 }
@@ -64,8 +66,10 @@ export interface BoundedSweepSpec<TSide> {
   phaseBMaxItems: number
   phaseBBudgetMs: number
   dbPhase: SweepPhaseA<TSide>
-  /** Phase B: idempotent, unlocked, per-row-isolated, budgeted via runBudgetedRows. */
-  runSideEffects: (side: TSide, budget: PhaseBBudget) => Promise<{ full: boolean }>
+  /** Phase B: idempotent, unlocked, per-row-isolated, budgeted via runBudgetedRows.
+   *  `failedRows > 0` makes the whole sweep FAILURE (degraded backoff), while
+   *  `full` alone is the benign backlog signal (active cadence). */
+  runSideEffects: (side: TSide, budget: PhaseBBudget) => Promise<PhaseBOutcome>
 }
 
 /**
@@ -86,35 +90,45 @@ export function isTimeout(err: unknown): boolean {
   return msg.includes('57014') || /statement timeout/i.test(msg)
 }
 
+/** Phase-B outcome: `full` = BACKLOG signal (rows remaining for benign reasons —
+ *  a full batch, a hit budget/cap, or cooperative stop) → stay on F_active.
+ *  `failedRows` = SIDE-EFFECT FAILURES → the sweep is classified FAILURE and
+ *  enters its own degraded backoff (NEVER the active cadence — a Redis outage
+ *  plus one stale row must not re-create the 5-second CU-burn loop). */
+export interface PhaseBOutcome {
+  full: boolean
+  failedRows: number
+}
+
 /**
  * The shared Phase-B row loop: cooperative soft budget checked BETWEEN rows.
  * Bounds how many rows are STARTED — item cap, monotonic time budget, and the
  * terminal `isStopping()` shutdown predicate (checked before EVERY row, so once
  * stop is requested no new row or side-effect begins). Each row runs in its own
- * try/catch: a per-row failure does NOT stop later rows. Returns full=true
- * (needsRescan) if any bound fired with rows remaining OR any row failed — the
- * unprocessed durable rows are re-selected next scan.
+ * try/catch: a per-row failure does NOT stop later rows, and is reported via
+ * `failedRows` (→ sweep FAILURE + degraded backoff), NOT folded into the
+ * backlog signal. Unprocessed/failed durable rows are re-selected next scan.
  */
 export async function runBudgetedRows<T>(
   items: readonly T[],
   budget: PhaseBBudget,
   row: (item: T) => Promise<unknown>,
-): Promise<{ full: boolean }> {
+): Promise<PhaseBOutcome> {
   const startedAt = budget.monotonicNowMs()
   let started = 0
-  let anyRowFailed = false
+  let failedRows = 0
   for (const item of items) {
-    if (budget.isStopping()) return { full: true } // cooperative shutdown: no NEW row starts
-    if (started >= budget.maxItems) return { full: true } // item cap with rows remaining
-    if (budget.monotonicNowMs() - startedAt > budget.budgetMs) return { full: true } // time budget
+    if (budget.isStopping()) return { full: true, failedRows } // cooperative shutdown: no NEW row starts
+    if (started >= budget.maxItems) return { full: true, failedRows } // item cap with rows remaining
+    if (budget.monotonicNowMs() - startedAt > budget.budgetMs) return { full: true, failedRows } // time budget
     started++
     try {
       await row(item)
     } catch {
-      anyRowFailed = true // per-row isolation: later rows still run; needsRescan below
+      failedRows++ // per-row isolation: later rows still run; classified FAILURE by the wrapper
     }
   }
-  return { full: anyRowFailed }
+  return { full: false, failedRows }
 }
 
 /**
@@ -171,7 +185,18 @@ export async function runBoundedSweep<TSide>(
             monotonicNowMs,
             isStopping,
           })
-        : { full }
+        : { full, failedRows: 0 }
+    if (b.failedRows > 0) {
+      // A side-effect failure (e.g. Redis down) is a FAILURE, never a
+      // SUCCESS/active outcome: the scheduler applies this sweep's OWN degraded
+      // backoff instead of re-querying the DB on the tight active cadence.
+      // Count-only error — no provider/driver message text (redaction).
+      return {
+        state: 'FAILURE',
+        full: true,
+        error: new Error(`phase-b: ${b.failedRows} side-effect row(s) failed`),
+      }
+    }
     return { state: 'SUCCESS', full: full || b.full }
   } catch (err) {
     return { state: 'FAILURE', full: false, error: err }

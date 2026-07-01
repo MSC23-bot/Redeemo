@@ -101,16 +101,24 @@ describe('outboxDbPhase — Phase A (locked, DB-only, DB clock)', () => {
 describe('outboxSideEffects — Phase B (unlocked, idempotent, cooperatively budgeted)', () => {
   it('re-enqueues each id with jobId = id (the §4.1 dedup mechanism; replay-safe by construction)', async () => {
     const res = await outboxSideEffects(['a', 'b'], budget())
-    expect(res.full).toBe(false)
+    expect(res).toEqual({ full: false, failedRows: 0 })
     expect(enqueueMock).toHaveBeenCalledWith('email', { communicationLogId: 'a' }, { jobId: 'a' })
     expect(enqueueMock).toHaveBeenCalledWith('email', { communicationLogId: 'b' }, { jobId: 'b' })
   })
 
-  it('a failed re-enqueue is skipped, the rest still go through, and the sweep reports needsRescan', async () => {
+  it('a failed re-enqueue does not stop later rows and is reported as failedRows (→ sweep FAILURE, degraded backoff)', async () => {
     enqueueMock.mockRejectedValueOnce(new Error('redis blip')) // 'a' fails
     const res = await outboxSideEffects(['a', 'b'], budget())
     expect(enqueueMock).toHaveBeenCalledTimes(2) // per-row isolation: 'b' still ran
-    expect(res.full).toBe(true) // the failed durable row is re-selected next scan
+    expect(res.failedRows).toBe(1) // classified FAILURE by runBoundedSweep — never SUCCESS/active
+    expect(res.full).toBe(false) // the failure is NOT disguised as benign backlog
+  })
+
+  it('Redis fully down: every re-enqueue fails, later rows still attempted, ALL reported as failures (no silent hot loop)', async () => {
+    enqueueMock.mockRejectedValue(new Error('connect ECONNREFUSED'))
+    const res = await outboxSideEffects(['a', 'b', 'c'], budget())
+    expect(enqueueMock).toHaveBeenCalledTimes(3)
+    expect(res.failedRows).toBe(3)
   })
 
   it('cooperative shutdown: isStopping() flips mid-batch ⇒ NO later re-enqueue starts', async () => {
@@ -127,10 +135,10 @@ describe('outboxSideEffects — Phase B (unlocked, idempotent, cooperatively bud
     expect(res.full).toBe(true)
   })
 
-  it('item cap bounds how many rows are STARTED', async () => {
+  it('item cap bounds how many rows are STARTED (benign backlog: full=true, no failures)', async () => {
     const res = await outboxSideEffects(['a', 'b', 'c'], budget({ maxItems: 1 }))
     expect(enqueueMock).toHaveBeenCalledTimes(1)
-    expect(res.full).toBe(true)
+    expect(res).toEqual({ full: true, failedRows: 0 })
   })
 })
 

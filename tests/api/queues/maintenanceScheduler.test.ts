@@ -166,6 +166,41 @@ describe('maintenanceScheduler — per-sweep isolation + cadence', () => {
     expect(callsFor('c')).toBe(1) // idle sibling did NOT run at the active wake
   })
 
+  it('F1 pin: a FAILURE result (e.g. Phase-B side-effect failures, full=true) goes to DEGRADED BACKOFF — never the active cadence (Redis-down hot-loop prevention)', async () => {
+    const a = sweep('a')
+    const conf = cfg()
+    route({
+      a: () =>
+        Promise.resolve({ state: 'FAILURE', full: true, error: new Error('phase-b: 1 side-effect row(s) failed') }),
+    })
+    scheduler = startMaintenanceScheduler(prisma, conf, [a])
+    await bootTick()
+    expect(a.degradedStreak).toBe(1) // degraded, not reset
+    expect(a.nextEligibleAt).toBeGreaterThanOrEqual(Date.now() + DEGRADED_BASE) // full=true must NOT buy activeMs
+    await vi.advanceTimersByTimeAsync(ACTIVE * 4) // well past the 5s active cadence…
+    expect(callsFor('a')).toBe(1) // …and the sweep did NOT re-query the DB (no CU-burn loop)
+    await vi.advanceTimersByTimeAsync(DEGRADED_BASE)
+    expect(callsFor('a')).toBe(2) // exponential backoff advances
+    // Anchor on the sweep's OWN failure timestamp (the wall clock also advanced
+    // through the active-cadence probe above): streak 2 ⇒ backoff ≥ 2×base.
+    expect(a.degradedStreak).toBe(2)
+    expect(a.nextEligibleAt - a.lastFailureAt!).toBeGreaterThanOrEqual(2 * DEGRADED_BASE)
+  })
+
+  it('F1 pin: Redis recovery — a SUCCESS(full) run after failures resets the streak and resumes ACTIVE backlog draining', async () => {
+    const a = sweep('a')
+    route({ a: () => Promise.resolve({ state: 'FAILURE', full: true, error: new Error('down') }) })
+    scheduler = startMaintenanceScheduler(prisma, cfg(), [a])
+    await bootTick()
+    expect(a.degradedStreak).toBe(1)
+    route({ a: full }) // Redis recovered; backlog remains
+    await vi.advanceTimersByTimeAsync(DEGRADED_BASE)
+    expect(a.degradedStreak).toBe(0) // recovered
+    expect(callsFor('a')).toBe(2)
+    await vi.advanceTimersByTimeAsync(ACTIVE)
+    expect(callsFor('a')).toBe(3) // normal backlog draining on the active cadence again
+  })
+
   it('SUCCESS resets the degraded streak; LOCK_SKIPPED reschedules at idle without degrading', async () => {
     const a = sweep('a')
     a.degradedStreak = 4

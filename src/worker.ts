@@ -31,6 +31,7 @@ import { startReconcileWorker, buildOutboxSweep } from './api/queues/processors/
 import { scheduleClaimStaleSweep } from './api/queues/processors/claimStaleSweep'
 import { schedulePromotePendingHours } from './api/queues/processors/promotePendingHours'
 import { startModerationWorker } from './api/queues/processors/moderation'
+import { runWorkerShutdown } from './workerShutdown'
 
 // Neon CU-burn PR-A: maintenance-scheduler candidate values. The MECHANISM is
 // locked by the frozen spec; these NUMBERS remain benchmark/owner-gated
@@ -43,25 +44,11 @@ const MAINTENANCE_STOP_DRAIN_MS = 10_000
 const MAINTENANCE_FORCE_JOIN_MS = 5_000
 /** Bounds the BullMQ worker-close + connection-quit phase of shutdown so a stuck
  *  in-flight job can never stall SIGTERM indefinitely (spec §4.6: shutdown never
- *  waits indefinitely). Candidate value — numerics are owner-gated (§15). */
+ *  waits indefinitely). On expiry the owned sockets are force-disconnected. */
 const WORKER_CLOSE_TIMEOUT_MS = 10_000
-
-/** Await `work` for at most `ms`; on expiry log and proceed (the process.exit
- *  fallback + supervisor SIGKILL are the outer backstops). Never throws. */
-async function boundedPhase(work: Promise<unknown>, ms: number, label: string): Promise<void> {
-  let timer: NodeJS.Timeout | undefined
-  const timedOut = await Promise.race([
-    work.then(
-      () => false,
-      () => false, // phase errors are already handled/logged inside the phase
-    ),
-    new Promise<boolean>((res) => {
-      timer = setTimeout(() => res(true), ms)
-    }),
-  ])
-  if (timer) clearTimeout(timer)
-  if (timedOut) console.warn(`[worker] ${label} did not settle within ${ms}ms — proceeding with shutdown`)
-}
+/** Bounds prisma.$disconnect so a hanging pool teardown cannot prevent the
+ *  scheduler forceJoin or the final process.exit. */
+const PRISMA_DISCONNECT_TIMEOUT_MS = 5_000
 
 async function main(): Promise<void> {
   // Fail-closed: same aggregated env check the API runs (REDIS_URL is required).
@@ -189,43 +176,23 @@ async function main(): Promise<void> {
     shuttingDown = true
     console.info(`[worker] ${signal} received — shutting down`)
     try {
-      // Neon CU-burn PR-A Task A6 — ordered shutdown (spec §4.6): the scheduler
-      // tick COOPERATIVELY stops and DRAINS before any resource is closed.
-      // (1) `await scheduler.stop()` FIRST: sets the terminal stop signal (no
-      //     new tick/sweep/row/alert), clears the timer, and bounded-drains the
-      //     active tick. drained:false ⇒ the force-close below terminates the
-      //     resources; the timeout does NOT cancel the tick.
-      if (scheduler) {
-        const { drained } = await scheduler.stop()
-        if (!drained) {
-          console.warn('[worker] maintenance tick did not drain within bound — proceeding to force-close')
-        }
-      }
-      // (2) Stop accepting/finishing BullMQ jobs; quit the OWNED worker
-      //     connections — BOUNDED, so a stuck in-flight job cannot stall
-      //     SIGTERM and block the force-close path below; then bounded-close
-      //     the producer queues (closeQueues force-destroys the producer socket
-      //     on expiry — REAL force-close); then disconnect the DB.
-      await boundedPhase(
-        Promise.all(workers.map((w) => w.close())).then(() =>
-          Promise.all(workerConnections.map((c) => c.quit().catch(() => undefined))),
-        ),
-        WORKER_CLOSE_TIMEOUT_MS,
-        'BullMQ worker close/quit',
-      )
-      await closeQueues()
-      await prisma.$disconnect().catch(() => undefined)
-      // (3) Bounded post-force join: the now-unwinding tick (whose in-flight op
-      //     rejects on its destroyed connection) is awaited with every rejection
-      //     swallowed. joined:false ⇒ the process.exit below is the equally-safe
-      //     termination fallback — the terminal stop signal guarantees no new
-      //     DB/Redis/alert op regardless, and exit destroys remaining handles.
-      if (scheduler) {
-        const { joined } = await scheduler.forceJoin(MAINTENANCE_FORCE_JOIN_MS)
-        if (!joined) {
-          console.error('[worker] maintenance tick still unsettled after force-close — process exit terminates it')
-        }
-      }
+      // Neon CU-burn PR-A Task A6 — the ORDERED, END-TO-END BOUNDED shutdown
+      // (spec §4.6), extracted to a testable coordinator: terminal cooperative
+      // scheduler stop (bounded drain) → BullMQ workers close + owned
+      // connection quit (bounded; force-disconnect on timeout) → producer
+      // closeQueues (bounded + real force-close) → Prisma disconnect (bounded)
+      // → scheduler forceJoin — so the process.exit below is ALWAYS reached.
+      const summary = await runWorkerShutdown({
+        scheduler,
+        workers,
+        workerConnections,
+        closeQueues,
+        disconnectPrisma: () => prisma.$disconnect(),
+        workerCloseTimeoutMs: WORKER_CLOSE_TIMEOUT_MS,
+        prismaDisconnectTimeoutMs: PRISMA_DISCONNECT_TIMEOUT_MS,
+        forceJoinTimeoutMs: MAINTENANCE_FORCE_JOIN_MS,
+      })
+      console.info('[worker] shutdown summary', summary)
     } catch (err) {
       console.error('[worker] shutdown error:', err instanceof Error ? err.message : String(err))
     } finally {

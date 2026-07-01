@@ -57,7 +57,7 @@ function spec<TSide>(overrides: Partial<BoundedSweepSpec<TSide>> = {}): BoundedS
     phaseBMaxItems: 50,
     phaseBBudgetMs: 10_000,
     dbPhase: vi.fn(async () => ({ full: false, sideEffects: [] as unknown as TSide })),
-    runSideEffects: vi.fn(async () => ({ full: false })),
+    runSideEffects: vi.fn(async () => ({ full: false, failedRows: 0 })),
     ...overrides,
   }
 }
@@ -81,18 +81,18 @@ describe('isTimeout — recognises the two DB-enforced cancellation shapes', () 
 })
 
 describe('runBudgetedRows — cooperative Phase-B budget (between rows, per-row isolated)', () => {
-  it('processes every row and reports full=false when nothing binds', async () => {
+  it('processes every row and reports { full:false, failedRows:0 } when nothing binds', async () => {
     const seen: number[] = []
     const res = await runBudgetedRows([1, 2, 3], budget(), async (n) => void seen.push(n))
     expect(seen).toEqual([1, 2, 3])
-    expect(res.full).toBe(false)
+    expect(res).toEqual({ full: false, failedRows: 0 })
   })
 
   it('item cap: stops STARTING rows at maxItems and reports full=true (rows remaining)', async () => {
     const seen: number[] = []
     const res = await runBudgetedRows([1, 2, 3, 4], budget({ maxItems: 2 }), async (n) => void seen.push(n))
     expect(seen).toEqual([1, 2])
-    expect(res.full).toBe(true)
+    expect(res).toEqual({ full: true, failedRows: 0 })
   })
 
   it('time budget: checked BETWEEN rows on the monotonic clock; rows remaining ⇒ full=true', async () => {
@@ -120,14 +120,15 @@ describe('runBudgetedRows — cooperative Phase-B budget (between rows, per-row 
     expect(res.full).toBe(true)
   })
 
-  it('per-row isolation: a failing row does NOT stop later rows, but yields full=true (needsRescan)', async () => {
+  it('per-row isolation: a failing row does NOT stop later rows, and is reported as failedRows — NOT folded into the backlog signal', async () => {
     const seen: number[] = []
     const res = await runBudgetedRows([1, 2, 3], budget(), async (n) => {
       if (n === 2) throw new Error('row 2 exploded')
       seen.push(n)
     })
-    expect(seen).toEqual([1, 3])
-    expect(res.full).toBe(true)
+    expect(seen).toEqual([1, 3]) // later rows still ran
+    expect(res.failedRows).toBe(1) // the failure is DISTINGUISHED from backlog…
+    expect(res.full).toBe(false) // …so it cannot masquerade as benign needsRescan
   })
 })
 
@@ -159,20 +160,33 @@ describe('runBoundedSweep — explicit state contract', () => {
     expect(sawDbNow).toEqual(now)
   })
 
-  it('Phase B receives the budget (maxItems/budgetMs/monotonic/isStopping) and its full=true propagates', async () => {
+  it('Phase B receives the budget (maxItems/budgetMs/monotonic/isStopping) and its BACKLOG full=true propagates as SUCCESS', async () => {
     const { prisma } = mockPrisma()
     let sawBudget: PhaseBBudget | null = null
     const s = spec({
       dbPhase: vi.fn(async () => ({ full: false, sideEffects: ['x'] })),
       runSideEffects: vi.fn(async (_side, b: PhaseBBudget) => {
         sawBudget = b
-        return { full: true }
+        return { full: true, failedRows: 0 } // benign backlog — budget hit with rows remaining
       }),
     })
     const res = await runBoundedSweep(prisma, s, MONO, NEVER_STOPPING)
     expect(res).toMatchObject({ state: 'SUCCESS', full: true })
     expect(sawBudget).toMatchObject({ maxItems: 50, budgetMs: 10_000 })
     expect(typeof sawBudget!.isStopping).toBe('function')
+  })
+
+  it('Phase-B side-effect FAILURES classify the sweep FAILURE (never SUCCESS/active) with a count-only redacted error', async () => {
+    const { prisma } = mockPrisma()
+    const s = spec({
+      dbPhase: vi.fn(async () => ({ full: false, sideEffects: ['x', 'y'] })),
+      runSideEffects: vi.fn(async () => ({ full: false, failedRows: 2 })),
+    })
+    const res = await runBoundedSweep(prisma, s, MONO, NEVER_STOPPING)
+    expect(res.state).toBe('FAILURE') // NOT SUCCESS — the scheduler applies degraded backoff
+    expect(res.full).toBe(true) // the durable rows still need a rescan after recovery
+    expect((res.error as Error).message).toMatch(/phase-b: 2 side-effect row\(s\) failed/)
+    expect((res.error as Error).message).not.toMatch(/redis|postgres|:\/\//i) // count-only, no provider detail
   })
 
   it('a full Phase-A batch propagates full=true even when Phase B is clean', async () => {
