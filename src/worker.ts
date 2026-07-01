@@ -14,17 +14,33 @@
 // Workers themselves keep the process alive.
 
 import 'dotenv/config'
+import { performance } from 'node:perf_hooks'
 import type { Worker } from 'bullmq'
 import type IORedis from 'ioredis'
 import { PrismaClient } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { validateRequiredEnv } from './api/shared/env'
+import { validateRequiredEnv, resolveMaintenanceConfig } from './api/shared/env'
 import { closeQueues, makeQueueConnection } from './api/queues'
+import {
+  startMaintenanceScheduler,
+  makeSweepRuntime,
+  type MaintenanceScheduler,
+} from './api/queues/maintenanceScheduler'
 import { startEmailWorker } from './api/queues/processors/email'
-import { startReconcileWorker, scheduleReconcile } from './api/queues/processors/outboxReconciler'
+import { startReconcileWorker, buildOutboxSweep } from './api/queues/processors/outboxReconciler'
 import { scheduleClaimStaleSweep } from './api/queues/processors/claimStaleSweep'
 import { schedulePromotePendingHours } from './api/queues/processors/promotePendingHours'
 import { startModerationWorker } from './api/queues/processors/moderation'
+
+// Neon CU-burn PR-A: maintenance-scheduler candidate values. The MECHANISM is
+// locked by the frozen spec; these NUMBERS remain benchmark/owner-gated
+// (spec §15) and are revisited at the staging-activation gate.
+const MAINTENANCE_EMPTY_SCANS_TO_IDLE = 2
+const MAINTENANCE_DEGRADED_BASE_MS = 60_000
+const MAINTENANCE_DEGRADED_MAX_MS = 3_600_000
+const MAINTENANCE_ALERT_AFTER_FAILURES = 3
+const MAINTENANCE_STOP_DRAIN_MS = 10_000
+const MAINTENANCE_FORCE_JOIN_MS = 5_000
 
 async function main(): Promise<void> {
   // Fail-closed: same aggregated env check the API runs (REDIS_URL is required).
@@ -56,6 +72,15 @@ async function main(): Promise<void> {
     process.exit(code)
   }
 
+  // Neon CU-burn PR-A Task A4 (spec §14): resolve the maintenance startup policy
+  // BEFORE any worker resource (Prisma/Redis/BullMQ) is created — but AFTER the
+  // --verify-keyring-and-exit early path above, which is a self-contained R1
+  // operational mode that never runs maintenance. MAINTENANCE_MODE=disabled is
+  // the ONLY intentional off-path; enabled/defaulted with missing or invalid
+  // values THROWS here → main().catch → exit(1), supervisor-visible. A
+  // validation failure never silently becomes disabled mode.
+  const maintenance = resolveMaintenanceConfig(process.env)
+
   // ONE Prisma client for every processor (mirrors the API's prisma plugin).
   const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
   const prisma = new PrismaClient({ adapter })
@@ -84,16 +109,46 @@ async function main(): Promise<void> {
   const emailWorker = startEmailWorker(prisma, workerConnections[0])
   const reconcileWorker = startReconcileWorker(prisma, workerConnections[1])
   const moderationWorker = startModerationWorker(prisma, workerConnections[2])
-  // Idempotent: each stable jobId means exactly one repeatable exists. All three
-  // repeatables live on MAINTENANCE_QUEUE and are dispatched by the reconcile
-  // worker (one worker per queue, branching on job name): outbox reconcile (60s),
-  // claim-stale (hourly), and the PR-4 opening-hours promotion sweep (60s, tighter
-  // than claim-stale so the 2h cool-off target is not overshot).
-  await scheduleReconcile()
+  // Idempotent: each stable jobId means exactly one repeatable exists. The
+  // outbox-reconcile 60s repeatable is GONE (Neon CU-burn PR-A Task A3 — it
+  // runs on the process-local maintenance scheduler below; deleted, not
+  // flag-restored). claim-stale (hourly) + the PR-4 opening-hours promotion
+  // sweep (60s) remain BullMQ repeatables until PR-B moves them onto the floor.
   await scheduleClaimStaleSweep()
   await schedulePromotePendingHours()
   const workers: Worker[] = [emailWorker, reconcileWorker, moderationWorker]
-  console.info(`[worker] started: ${workers.length} processor(s) registered (email + maintenance[outbox-reconciler + claim-stale + promote-pending-hours] + photo-moderation)`)
+  console.info(`[worker] started: ${workers.length} processor(s) registered (email + maintenance[claim-stale + promote-pending-hours + pending-hours-nudge] + photo-moderation)`)
+
+  // Neon CU-burn PR-A Tasks A2/A3: the process-local maintenance scheduler —
+  // the durable floor for the outbox reconcile sweep (PR-B adds the others).
+  // Redis-independent (survives a Redis outage) but NOT durable: the DB rows +
+  // the immediate BOOT scan are the durable guarantee.
+  let scheduler: MaintenanceScheduler | null = null
+  if (maintenance.mode === 'disabled') {
+    // Loud structured log — the explicit owner-approved off-path (spec §14).
+    console.warn(
+      '[worker] MAINTENANCE_MODE=disabled — maintenance scheduler NOT started; the durable outbox floor is OFF (explicit opt-out; expiry/re-enqueue reconciliation will not run)',
+    )
+  } else {
+    scheduler = startMaintenanceScheduler(
+      prisma,
+      {
+        idleMs: maintenance.floorIdleMs,
+        activeMs: maintenance.floorActiveMs,
+        emptyScansToIdle: MAINTENANCE_EMPTY_SCANS_TO_IDLE,
+        degradedBaseMs: MAINTENANCE_DEGRADED_BASE_MS,
+        degradedMaxMs: MAINTENANCE_DEGRADED_MAX_MS,
+        alertAfterFailures: MAINTENANCE_ALERT_AFTER_FAILURES,
+        stopDrainMs: MAINTENANCE_STOP_DRAIN_MS,
+        nowMs: () => Date.now(),
+        monotonicNowMs: () => performance.now(),
+      },
+      [makeSweepRuntime(buildOutboxSweep(maintenance), maintenance.sweepOutboxEnabled)],
+    )
+    console.info(
+      `[worker] maintenance scheduler started (outbox sweep ${maintenance.sweepOutboxEnabled ? 'ENABLED' : 'disabled'}; F_idle=${maintenance.floorIdleMs}ms, F_active=${maintenance.floorActiveMs}ms)`,
+    )
+  }
 
   let shuttingDown = false
   const shutdown = async (signal: string, exitCode: number): Promise<void> => {
@@ -101,13 +156,37 @@ async function main(): Promise<void> {
     shuttingDown = true
     console.info(`[worker] ${signal} received — shutting down`)
     try {
-      // Stop accepting/finishing jobs first; then quit the OWNED worker
-      // connections, close the producer queues (the reconcile scheduler), and
-      // disconnect the DB.
+      // Neon CU-burn PR-A Task A6 — ordered shutdown (spec §4.6): the scheduler
+      // tick COOPERATIVELY stops and DRAINS before any resource is closed.
+      // (1) `await scheduler.stop()` FIRST: sets the terminal stop signal (no
+      //     new tick/sweep/row/alert), clears the timer, and bounded-drains the
+      //     active tick. drained:false ⇒ the force-close below terminates the
+      //     resources; the timeout does NOT cancel the tick.
+      if (scheduler) {
+        const { drained } = await scheduler.stop()
+        if (!drained) {
+          console.warn('[worker] maintenance tick did not drain within bound — proceeding to force-close')
+        }
+      }
+      // (2) Stop accepting/finishing BullMQ jobs; quit the OWNED worker
+      //     connections; bounded-close the producer queues (closeQueues
+      //     force-destroys the producer socket on expiry — REAL force-close);
+      //     then disconnect the DB.
       await Promise.all(workers.map((w) => w.close()))
       await Promise.all(workerConnections.map((c) => c.quit().catch(() => undefined)))
       await closeQueues()
-      await prisma.$disconnect()
+      await prisma.$disconnect().catch(() => undefined)
+      // (3) Bounded post-force join: the now-unwinding tick (whose in-flight op
+      //     rejects on its destroyed connection) is awaited with every rejection
+      //     swallowed. joined:false ⇒ the process.exit below is the equally-safe
+      //     termination fallback — the terminal stop signal guarantees no new
+      //     DB/Redis/alert op regardless, and exit destroys remaining handles.
+      if (scheduler) {
+        const { joined } = await scheduler.forceJoin(MAINTENANCE_FORCE_JOIN_MS)
+        if (!joined) {
+          console.error('[worker] maintenance tick still unsettled after force-close — process exit terminates it')
+        }
+      }
     } catch (err) {
       console.error('[worker] shutdown error:', err instanceof Error ? err.message : String(err))
     } finally {

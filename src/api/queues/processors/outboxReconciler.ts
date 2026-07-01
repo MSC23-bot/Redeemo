@@ -1,26 +1,44 @@
 // src/api/queues/processors/outboxReconciler.ts
 //
-// Phase 0 PR-0.4 (§4.1 rule 4): the outbox SAFETY NET. notify() commits a QUEUED
-// CommunicationLog row then enqueues the delivery job AFTER the transaction — if
-// that enqueue is lost (Redis blip, or the process dies between commit and
-// enqueue) the row is QUEUED with no job: a silently undelivered message.
+// The outbox SAFETY NET. notify() commits a QUEUED CommunicationLog row then
+// enqueues the delivery job AFTER the transaction — if that enqueue is lost
+// (Redis blip, or the process dies between commit and enqueue) the row is
+// QUEUED with no job: a silently undelivered message.
 //
-// This sweep finds those rows — QUEUED and older than GRACE (≥ the max
-// retry-backoff window, so a row that's merely mid-retry isn't disturbed) — and
-// re-enqueues each by jobId = id. BullMQ dedups by jobId, so a row that still
-// has a live job is a no-op; a row whose enqueue was lost gets a fresh job. The
-// @@index([status, sentAt]) keeps the scan cheap and the LIMIT bounds each run.
+// Neon CU-burn PR-A Task A3: the sweep no longer runs as a 60-second BullMQ
+// repeatable (the repeatable — the leading identified Neon CU-burn mechanism —
+// is DELETED, not flag-restored). It now runs on the process-local maintenance
+// scheduler as a bounded advisory-locked sweep, split into the two phases the
+// spec locks (§4.2):
 //
-// Scheduling lives in src/worker.ts (a repeatable job every 60 s). This module
-// is the pure sweep, exported so it is unit-testable without BullMQ scheduling.
+//   Phase A (locked, DB-only, on `tx` with the DB clock):
+//     1. EXPIRE rows older than MAX_AGE — one bulk `updateMany` flips them
+//        QUEUED→FAILED and NULLs `payload` (the 24h terminal policy, preserved
+//        exactly: a reset link / branch PIN can never sit in QUEUED forever).
+//     2. SELECT the ids of stale-but-deliverable rows (sentAt ∈ [maxAge, grace))
+//        as the Phase-B side-effect payload. jobId = id ⇒ dedup-safe.
+//
+//   Phase B (unlocked, idempotent, cooperatively budgeted): re-enqueue each id
+//     via enqueue(EMAIL_QUEUE, …, { jobId: id }). BullMQ dedups by jobId, so a
+//     row that still has a live job is a no-op; a row whose enqueue was lost
+//     gets a fresh job. Item cap + monotonic time budget + the terminal
+//     isStopping() shutdown predicate are checked BETWEEN rows; a per-row
+//     failure never stops the rest. Anything unprocessed stays QUEUED and is
+//     re-selected next scan (durable rescheduling).
+//
+// The MAINTENANCE_QUEUE Worker below still serves the WP4 stale-claim sweep,
+// the PR-4 opening-hours promotion sweep (both still BullMQ repeatables until
+// PR-B moves them onto the floor) and the per-record pending-hours nudge.
 
 import { Worker, type Job, type ConnectionOptions } from 'bullmq'
 import type IORedis from 'ioredis'
 import { Prisma } from '../../../../generated/prisma/client'
 import type { PrismaClient } from '../../../../generated/prisma/client'
-import { EMAIL_QUEUE, MAINTENANCE_QUEUE, BULLMQ_PREFIX, enqueue, makeQueue } from '../index'
+import { EMAIL_QUEUE, MAINTENANCE_QUEUE, BULLMQ_PREFIX, enqueue } from '../index'
 import { makeQueueConnection } from '../connection'
 import { shouldLog } from '../logThrottle'
+import { runBudgetedRows, type BoundedSweepSpec, type PhaseBBudget } from '../maintenanceSweep'
+import type { MaintenanceConfig } from '../../shared/env'
 import { CLAIM_STALE_JOB, sweepStaleClaims } from './claimStaleSweep'
 import {
   PROMOTE_PENDING_HOURS_JOB,
@@ -35,96 +53,100 @@ export const RECONCILE_GRACE_MS = 120_000 // 2 min
  * EXPIRED — force-FAILED + its `payload` NULLED — so (a) delivery-sensitive
  * content (a reset link / branch PIN, which unlike a reset token never expires)
  * can never sit in the outbox indefinitely, and (b) a row that never reaches a
- * terminal state stops being re-enqueued forever. By this age the message is
- * undeliverable-stale anyway (a reset token's Redis record has long expired), so
- * giving up is correct. Chosen to sit at Resend's idempotency-key retention
- * horizon so every in-window re-enqueue stays a provider-side no-op.
+ * terminal state stops being re-enqueued forever. Chosen to sit at Resend's
+ * idempotency-key retention horizon so every in-window re-enqueue stays a
+ * provider-side no-op.
  */
 export const RECONCILE_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24 h
-/** Bound per run so a backlog can't thundering-herd the queue. */
+/** Bound per Phase-A scan so a backlog can't thundering-herd the queue. */
 export const RECONCILE_BATCH = 200
-/** Repeatable sweep cadence + its stable job name. */
-export const RECONCILE_JOB = 'reconcile-outbox'
-export const RECONCILE_EVERY_MS = 60_000 // every 60 s
 
-export interface ReconcileResult {
-  /** rows re-enqueued for delivery (stale but still within the deliverable window). */
-  reEnqueued: number
-  /** rows force-FAILED + payload-cleared because they exceeded MAX_AGE. */
-  expired: number
+/** The outbox sweep's advisory-lock identity — distinct per sweep (spec §4.1). */
+export const OUTBOX_SWEEP_LOCK_KEY = 731_001n
+export const OUTBOX_SWEEP_NAME = 'outbox-reconcile'
+
+export interface OutboxPhaseAResult {
+  full: boolean
+  sideEffects: string[]
 }
 
 /**
- * The outbox janitor. Two tiers, both keyed off `sentAt` (the queued-at anchor):
- *
- *  1. EXPIRE rows older than MAX_AGE — one bulk `updateMany` flips them QUEUED→
- *     FAILED and NULLs `payload`. This is the hard backstop that makes the
- *     §4.1 retry BOUNDED: a row that never terminalised stops being re-enqueued,
- *     and a reset link / branch PIN can never sit in QUEUED forever.
- *  2. RE-ENQUEUE rows that are stale (lost enqueue) but still within the
- *     deliverable window [MAX_AGE, GRACE). jobId = id ⇒ dedup-safe, so running
- *     twice (or against rows that still have live jobs) never double-sends.
- *
- * Idempotent. `now` is injectable for tests. Returns both counts.
+ * Phase A (locked, light, DB-only) — runs on `tx`, the connection holding the
+ * advisory lock, with the DB-authoritative clock. Two tiers, both keyed off
+ * `sentAt` (the queued-at anchor); expiry runs FIRST so expired rows are
+ * excluded from the re-enqueue scan.
  */
-export async function reconcileOutbox(prisma: PrismaClient, now: Date = new Date()): Promise<ReconcileResult> {
-  const graceCutoff = new Date(now.getTime() - RECONCILE_GRACE_MS)
-  const maxAgeCutoff = new Date(now.getTime() - RECONCILE_MAX_AGE_MS)
+export async function outboxDbPhase(
+  tx: Prisma.TransactionClient,
+  dbNow: Date,
+): Promise<OutboxPhaseAResult> {
+  const graceCutoff = new Date(dbNow.getTime() - RECONCILE_GRACE_MS)
+  const maxAgeCutoff = new Date(dbNow.getTime() - RECONCILE_MAX_AGE_MS)
 
-  // (1) Expire the too-old rows FIRST (so they are excluded from re-enqueue below).
-  const expiredRes = await prisma.communicationLog.updateMany({
+  // (1) Expire the too-old rows FIRST (24h terminal policy — preserved exactly).
+  const expiredRes = await tx.communicationLog.updateMany({
     where: { status: 'QUEUED', sentAt: { lt: maxAgeCutoff } },
     data: { status: 'FAILED', payload: Prisma.DbNull },
   })
   if (expiredRes.count > 0) {
+    // PR-C replaces this bare warn with the AlertSink (structured log +
+    // getAlertableAdmins/adminNotify fan-out). Counts + labels only, never payload.
     console.warn(
       `[reconcile] expired ${expiredRes.count} QUEUED row(s) older than ${RECONCILE_MAX_AGE_MS}ms ` +
         `→ FAILED + payload cleared (undeliverable-stale; secrets removed)`,
     )
   }
 
-  // (2) Re-enqueue rows that are stale but still deliverable: sentAt in [maxAge, grace).
-  const stale = await prisma.communicationLog.findMany({
+  // (2) Select the stale-but-deliverable ids: sentAt in [maxAge, grace), oldest first.
+  const stale = await tx.communicationLog.findMany({
     where: { status: 'QUEUED', sentAt: { gte: maxAgeCutoff, lt: graceCutoff } },
     orderBy: { sentAt: 'asc' },
     take: RECONCILE_BATCH,
     select: { id: true },
   })
 
-  let reEnqueued = 0
-  for (const row of stale) {
-    try {
-      await enqueue(EMAIL_QUEUE, { communicationLogId: row.id }, { jobId: row.id })
-      reEnqueued++
-    } catch (err) {
-      console.warn(
-        `[reconcile] re-enqueue failed for CommunicationLog ${row.id}: ` +
-          (err instanceof Error ? err.message : String(err)),
-      )
-    }
+  // A full batch ⇒ needsRescan: the sweep stays on F_active until the backlog drains.
+  return { full: stale.length >= RECONCILE_BATCH, sideEffects: stale.map((r) => r.id) }
+}
+
+/**
+ * Phase B (unlocked, idempotent, cooperatively budgeted): re-enqueue each id
+ * with jobId = id. Runs WITHOUT the lock — safe because BullMQ dedups by jobId
+ * and the email worker skips terminal rows (CAS), so a duplicate is a no-op.
+ */
+export function outboxSideEffects(ids: string[], budget: PhaseBBudget): Promise<{ full: boolean }> {
+  return runBudgetedRows(ids, budget, (id) =>
+    enqueue(EMAIL_QUEUE, { communicationLogId: id }, { jobId: id }),
+  )
+}
+
+/** Build the outbox BoundedSweepSpec from the validated maintenance config (A4). */
+export function buildOutboxSweep(cfg: MaintenanceConfig & { mode: 'enabled' }): BoundedSweepSpec<string[]> {
+  return {
+    name: OUTBOX_SWEEP_NAME,
+    lockKey: OUTBOX_SWEEP_LOCK_KEY,
+    statementTimeoutMs: cfg.statementTimeoutMs,
+    txTimeoutMs: cfg.txTimeoutMs,
+    phaseBMaxItems: cfg.phaseBMaxItems,
+    phaseBBudgetMs: cfg.phaseBBudgetMs,
+    dbPhase: outboxDbPhase,
+    runSideEffects: outboxSideEffects,
   }
-  if (reEnqueued > 0) {
-    console.info(`[reconcile] re-enqueued ${reEnqueued} stale QUEUED row(s) (scanned ${stale.length})`)
-  }
-  return { reEnqueued, expired: expiredRes.count }
 }
 
 /**
  * Start the MAINTENANCE_QUEUE Worker on its OWN Redis connection. One Worker
- * serves the whole queue, dispatching by job name: the outbox reconciler
- * (RECONCILE_JOB), the WP4 stale-claim sweep (CLAIM_STALE_JOB), and the PR-4
- * opening-hours promotion (PROMOTE_PENDING_HOURS_JOB — repeatable sweep + a
- * per-record delayed nudge). A single worker is deliberate, since two Workers on
- * one queue round-robin jobs, so a reconcile tick could land on a claim-stale-only
- * worker and be silently no-op'd. Wired from src/worker.ts alongside the email
- * worker.
+ * serves the whole queue, dispatching by job name: the WP4 stale-claim sweep
+ * (CLAIM_STALE_JOB) and the PR-4 opening-hours promotion
+ * (PROMOTE_PENDING_HOURS_JOB — repeatable sweep + a per-record delayed nudge).
+ * The outbox reconcile job is GONE — it runs on the process-local maintenance
+ * scheduler now (Task A3); PR-B moves the other two sweeps the same way.
  */
 export function startReconcileWorker(prisma: PrismaClient, connection?: IORedis): Worker {
   const worker = new Worker(
     MAINTENANCE_QUEUE,
     async (job: Job) => {
-      if (job.name === RECONCILE_JOB) await reconcileOutbox(prisma)
-      else if (job.name === CLAIM_STALE_JOB) await sweepStaleClaims(prisma)
+      if (job.name === CLAIM_STALE_JOB) await sweepStaleClaims(prisma)
       // PR-4 §4c: the repeatable promotion SWEEP arrives as its own job.name and
       // runs the full bounded sweep (the durable correctness guarantee).
       else if (job.name === PROMOTE_PENDING_HOURS_JOB) await promotePendingHours(prisma)
@@ -133,7 +155,10 @@ export function startReconcileWorker(prisma: PrismaClient, connection?: IORedis)
       // so it is distinguished by job.data.job and promotes that one record by id.
       // The handler re-reads the durable row (never trusts job.data beyond the id)
       // and skips a withdrawn / already-promoted / not-yet-due record.
-      else if (job.name === MAINTENANCE_QUEUE && (job.data as { job?: string } | undefined)?.job === PROMOTE_PENDING_HOURS_JOB) {
+      else if (
+        job.name === MAINTENANCE_QUEUE &&
+        (job.data as { job?: string } | undefined)?.job === PROMOTE_PENDING_HOURS_JOB
+      ) {
         const pendingId = (job.data as { pendingId?: string }).pendingId
         if (pendingId) await promoteOnePendingHours(prisma, pendingId)
       }
@@ -149,21 +174,4 @@ export function startReconcileWorker(prisma: PrismaClient, connection?: IORedis)
     }
   })
   return worker
-}
-
-/**
- * Register the repeatable reconcile job (idempotent: the stable jobId means only
- * ONE repeatable ever exists, even across worker restarts). Call once at boot.
- */
-export async function scheduleReconcile(): Promise<void> {
-  await makeQueue(MAINTENANCE_QUEUE).add(
-    RECONCILE_JOB,
-    {},
-    {
-      repeat: { every: RECONCILE_EVERY_MS },
-      jobId: RECONCILE_JOB,
-      removeOnComplete: true,
-      removeOnFail: 100,
-    },
-  )
 }
