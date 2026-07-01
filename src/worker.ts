@@ -41,6 +41,27 @@ const MAINTENANCE_DEGRADED_MAX_MS = 3_600_000
 const MAINTENANCE_ALERT_AFTER_FAILURES = 3
 const MAINTENANCE_STOP_DRAIN_MS = 10_000
 const MAINTENANCE_FORCE_JOIN_MS = 5_000
+/** Bounds the BullMQ worker-close + connection-quit phase of shutdown so a stuck
+ *  in-flight job can never stall SIGTERM indefinitely (spec §4.6: shutdown never
+ *  waits indefinitely). Candidate value — numerics are owner-gated (§15). */
+const WORKER_CLOSE_TIMEOUT_MS = 10_000
+
+/** Await `work` for at most `ms`; on expiry log and proceed (the process.exit
+ *  fallback + supervisor SIGKILL are the outer backstops). Never throws. */
+async function boundedPhase(work: Promise<unknown>, ms: number, label: string): Promise<void> {
+  let timer: NodeJS.Timeout | undefined
+  const timedOut = await Promise.race([
+    work.then(
+      () => false,
+      () => false, // phase errors are already handled/logged inside the phase
+    ),
+    new Promise<boolean>((res) => {
+      timer = setTimeout(() => res(true), ms)
+    }),
+  ])
+  if (timer) clearTimeout(timer)
+  if (timedOut) console.warn(`[worker] ${label} did not settle within ${ms}ms — proceeding with shutdown`)
+}
 
 async function main(): Promise<void> {
   // Fail-closed: same aggregated env check the API runs (REDIS_URL is required).
@@ -114,8 +135,20 @@ async function main(): Promise<void> {
   // runs on the process-local maintenance scheduler below; deleted, not
   // flag-restored). claim-stale (hourly) + the PR-4 opening-hours promotion
   // sweep (60s) remain BullMQ repeatables until PR-B moves them onto the floor.
-  await scheduleClaimStaleSweep()
-  await schedulePromotePendingHours()
+  // BEST-EFFORT (spec §4.4: Redis-degraded is a modifier, never a floor-killer):
+  // with the A5 finite producer lifecycle these registrations fail FAST when
+  // Redis is down at boot — they must not abort the worker, or the
+  // Redis-independent maintenance floor below would never start. The
+  // registrations are idempotent and re-attempted on the next boot.
+  try {
+    await scheduleClaimStaleSweep()
+    await schedulePromotePendingHours()
+  } catch (err) {
+    console.error(
+      '[worker] BullMQ repeatable registration failed (Redis unavailable?) — continuing so the maintenance floor still runs; repeatables re-register on next boot:',
+      err instanceof Error ? err.message : String(err),
+    )
+  }
   const workers: Worker[] = [emailWorker, reconcileWorker, moderationWorker]
   console.info(`[worker] started: ${workers.length} processor(s) registered (email + maintenance[claim-stale + promote-pending-hours + pending-hours-nudge] + photo-moderation)`)
 
@@ -169,11 +202,17 @@ async function main(): Promise<void> {
         }
       }
       // (2) Stop accepting/finishing BullMQ jobs; quit the OWNED worker
-      //     connections; bounded-close the producer queues (closeQueues
-      //     force-destroys the producer socket on expiry — REAL force-close);
-      //     then disconnect the DB.
-      await Promise.all(workers.map((w) => w.close()))
-      await Promise.all(workerConnections.map((c) => c.quit().catch(() => undefined)))
+      //     connections — BOUNDED, so a stuck in-flight job cannot stall
+      //     SIGTERM and block the force-close path below; then bounded-close
+      //     the producer queues (closeQueues force-destroys the producer socket
+      //     on expiry — REAL force-close); then disconnect the DB.
+      await boundedPhase(
+        Promise.all(workers.map((w) => w.close())).then(() =>
+          Promise.all(workerConnections.map((c) => c.quit().catch(() => undefined))),
+        ),
+        WORKER_CLOSE_TIMEOUT_MS,
+        'BullMQ worker close/quit',
+      )
       await closeQueues()
       await prisma.$disconnect().catch(() => undefined)
       // (3) Bounded post-force join: the now-unwinding tick (whose in-flight op

@@ -312,4 +312,32 @@ describe('A5/A6 — bounded closeQueues (graceful, then REAL force-close)', () =
     release()
     await pending.catch(() => undefined)
   })
+
+  it('a creation superseded by closeQueues NEVER becomes the live producer (epoch guard), even if its connect later resolves ready', async () => {
+    const { FakeRedis, FakeQueue } = await fakes()
+    let release!: () => void
+    FakeRedis.connectBehavior = (self: any) =>
+      new Promise<void>((res) => {
+        release = () => {
+          self.status = 'ready' // the pathological case: connect resolves READY after shutdown
+          res()
+        }
+      })
+    const queues = await freshQueues()
+    const pending = queues.makeQueue('m') // connect in flight
+    vi.useFakeTimers()
+    const closing = queues.closeQueues()
+    await vi.advanceTimersByTimeAsync(queues.QUEUE_CLOSE_TIMEOUT_MS)
+    await closing
+    vi.useRealTimers()
+    release() // connect resolves AFTER shutdown completed
+    await expect(pending).rejects.toThrow(/superseded/) // the cancelled creation self-destructs
+    expect(FakeQueue.instances).toHaveLength(0) // no Queue was ever built on it
+    // …and a later use recreates cleanly on a FRESH connection.
+    FakeRedis.connectBehavior = async (self: any) => {
+      self.status = 'ready'
+    }
+    await queues.makeQueue('m')
+    expect(FakeRedis.instances).toHaveLength(2)
+  })
 })

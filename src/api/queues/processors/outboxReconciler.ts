@@ -90,10 +90,13 @@ export async function outboxDbPhase(
   })
   if (expiredRes.count > 0) {
     // PR-C replaces this bare warn with the AlertSink (structured log +
-    // getAlertableAdmins/adminNotify fan-out). Counts + labels only, never payload.
+    // getAlertableAdmins/adminNotify fan-out), emitted AFTER the sweep settles.
+    // This interim log fires INSIDE the locked transaction, so it is worded as
+    // in-progress: if the tx later times out and rolls back, no row actually
+    // expired. Counts + labels only, never payload.
     console.warn(
-      `[reconcile] expired ${expiredRes.count} QUEUED row(s) older than ${RECONCILE_MAX_AGE_MS}ms ` +
-        `→ FAILED + payload cleared (undeliverable-stale; secrets removed)`,
+      `[reconcile] expiring ${expiredRes.count} QUEUED row(s) older than ${RECONCILE_MAX_AGE_MS}ms ` +
+        `→ FAILED + payload cleared (commits with this sweep's transaction; undeliverable-stale; secrets removed)`,
     )
   }
 

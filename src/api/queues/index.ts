@@ -69,6 +69,11 @@ let liveProducer: IORedis | null = null
  *  from creation time so closeQueues can force-close it too (spec §4.6 step 3
  *  covers "shutdown while the producer is still in initial connect/readiness"). */
 let pendingProducer: IORedis | null = null
+/** Bumped by invalidation AND closeQueues: a creation that resumes after either
+ *  event sees a newer epoch and self-destructs instead of becoming live — a
+ *  cancelled in-flight producer can never outlive shutdown (structural, not
+ *  dependent on ioredis disconnect semantics). */
+let producerEpoch = 0
 const queueCreations = new Map<string, Promise<Queue>>()
 
 /**
@@ -87,6 +92,7 @@ export function isProducerInvalidatingError(err: unknown): boolean {
 
 function invalidateProducer(conn: IORedis): void {
   if (liveProducer !== conn) return // a stale error from an already-replaced producer
+  producerEpoch++
   liveProducer = null
   producerCreation = null
   queueCreations.clear() // the Queues are bound to the dead connection — recreate them
@@ -97,6 +103,7 @@ function invalidateProducer(conn: IORedis): void {
 function getProducerConnection(): Promise<IORedis> {
   if (producerCreation) return producerCreation
   const creation = (async () => {
+    const epoch = producerEpoch
     const conn = makeProducerConnection()
     pendingProducer = conn // reachable by closeQueues WHILE connect is in flight
     conn.on('error', () => {
@@ -107,6 +114,11 @@ function getProducerConnection(): Promise<IORedis> {
       await conn.connect() // bounded: connectTimeout + finite retryStrategy
       if (conn.status !== 'ready') {
         throw new Error(`producer connection did not reach ready (status: ${conn.status})`)
+      }
+      if (epoch !== producerEpoch) {
+        // closeQueues/invalidation ran while connect was in flight — a cancelled
+        // creation must NEVER become the live producer post-shutdown.
+        throw new Error('producer creation superseded by shutdown/invalidation')
       }
     } catch (err) {
       conn.removeAllListeners()
@@ -204,6 +216,7 @@ export async function enqueue(name: string, data: unknown, opts: EnqueueOptions)
  * outlive shutdown. Never throws; never waits indefinitely.
  */
 export async function closeQueues(): Promise<void> {
+  producerEpoch++ // any creation still in flight is now superseded — it self-destructs
   const creations = [...queueCreations.values()]
   queueCreations.clear()
   const conn = liveProducer

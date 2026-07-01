@@ -194,10 +194,9 @@ describe('runBoundedSweep — explicit state contract', () => {
   it('tx rejection with a non-timeout shape ⇒ FAILURE with the error attached', async () => {
     const boom = new Error('connection reset')
     const { prisma } = mockPrisma({ txError: boom })
-    const res = await runBoundedSweep(mockPrisma({ txError: boom }).prisma, spec(), MONO, NEVER_STOPPING)
+    const res = await runBoundedSweep(prisma, spec(), MONO, NEVER_STOPPING)
     expect(res.state).toBe('FAILURE')
     expect(res.error).toBe(boom)
-    void prisma
   })
 
   it('Phase B rejection ⇒ FAILURE (Phase A already committed; durable rows rescanned later)', async () => {
