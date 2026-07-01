@@ -106,7 +106,8 @@ export async function sweepStaleClaims(prisma: PrismaClient, now: Date = new Dat
  * CLAIM_STALE_JOB to sweepStaleClaims. Call once at boot from src/worker.ts.
  */
 export async function scheduleClaimStaleSweep(): Promise<void> {
-  await makeQueue(MAINTENANCE_QUEUE).add(
+  // makeQueue is async since PR-A Task A5 (explicit connect-before-Queue).
+  await (await makeQueue(MAINTENANCE_QUEUE)).add(
     CLAIM_STALE_JOB,
     {},
     {

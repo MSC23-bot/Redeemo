@@ -88,14 +88,17 @@ describe('queues — BullMQ foundation', () => {
 
   it('makeQueue() namespaces the queue under BULLMQ_PREFIX', async (ctx) => {
     requireRedis(ctx)
-    const q = makeQueue(qname())
+    const q = await makeQueue(qname())
     expect(q.opts.prefix).toBe(BULLMQ_PREFIX)
   })
 
-  it('makeQueue() is memoised (same name ⇒ same Queue instance)', async (ctx) => {
+  it('makeQueue() is memoised (same name ⇒ the same in-flight creation ⇒ same Queue instance)', async (ctx) => {
     requireRedis(ctx)
     const name = qname()
+    // PR-A A5: concurrent callers share ONE creation promise — a burst during
+    // (re)creation yields exactly one Queue.
     expect(makeQueue(name)).toBe(makeQueue(name))
+    expect(await makeQueue(name)).toBe(await makeQueue(name))
   })
 
   it('enqueue() is idempotent by jobId — the same jobId ⇒ exactly one job', async (ctx) => {
@@ -109,16 +112,25 @@ describe('queues — BullMQ foundation', () => {
     // completed/failed/prioritized/paused/waiting-children) so the "exactly one
     // job" invariant is total — it can't false-pass if a default job option
     // (e.g. priority/delay) later routes the job to an uncounted state.
-    const counts = await makeQueue(name).getJobCounts()
+    const counts = await (await makeQueue(name)).getJobCounts()
     const total = Object.values(counts).reduce((a, b) => a + b, 0)
     expect(total).toBe(1) // the second add deduped on jobId — no duplicate
   })
 
-  it('enqueue() rejects a jobId containing ":" before touching BullMQ (guards the branch-hours 500 class)', () => {
+  it('enqueue() rejects a jobId containing ":" before touching BullMQ (guards the branch-hours 500 class)', async () => {
     // BullMQ throws "Custom Id cannot contain :" inside add(); the guard fails fast
-    // at the call site with a clear message. No Redis needed — it throws before
+    // at the call site with a clear message. No Redis needed — it rejects before
     // makeQueue(). This is the safety net that survives enqueue-mocking tests.
-    expect(() => enqueue('guard-queue', { x: 1 }, { jobId: 'promote-hours:abc' })).toThrow(/must not contain/)
+    await expect(enqueue('guard-queue', { x: 1 }, { jobId: 'promote-hours:abc' })).rejects.toThrow(
+      /must not contain/,
+    )
+  })
+
+  it('enqueue() REQUIRES a deterministic jobId at runtime (PR-A A5 idempotent-replay contract)', async () => {
+    // Type level: jobId is mandatory on EnqueueOptions — verified by tsc.
+    // @ts-expect-error — jobId is required
+    await expect(enqueue('guard-queue', { x: 1 }, {})).rejects.toThrow(/jobId is REQUIRED/)
+    await expect(enqueue('guard-queue', { x: 1 }, { jobId: '  ' })).rejects.toThrow(/jobId is REQUIRED/)
   })
 
   it('enqueue() carries the default job options (bounded retries + cleanup)', async (ctx) => {

@@ -30,11 +30,12 @@ import { MAINTENANCE_QUEUE, makeQueue } from '../index'
 
 /**
  * Stable job name for the opening-hours promotion sweep + the per-record delayed
- * nudge's dispatch key. Aligns with the RECONCILE_JOB / CLAIM_STALE_JOB naming
- * pattern on MAINTENANCE_QUEUE.
+ * nudge's dispatch key. Aligns with the CLAIM_STALE_JOB naming pattern on
+ * MAINTENANCE_QUEUE (the outbox RECONCILE_JOB is gone — PR-A moved that sweep
+ * onto the process-local maintenance scheduler).
  *
- * Two layers use this name to distinguish their jobs (mirroring how
- * RECONCILE_JOB / CLAIM_STALE_JOB are distinguished by `job.name`):
+ * Two layers use this name to distinguish their jobs (distinguished by
+ * `job.name`, like CLAIM_STALE_JOB):
  *   - the repeatable durable SWEEP is registered with this name AS its `job.name`
  *     (`makeQueue(MAINTENANCE_QUEUE).add(PROMOTE_PENDING_HOURS_JOB, {}, …)`), so
  *     the worker dispatches it by `job.name === PROMOTE_PENDING_HOURS_JOB` and runs
@@ -193,10 +194,11 @@ export async function promotePendingHours(
  * (idempotent: the stable jobId means exactly ONE repeatable exists, even across
  * restarts). The MAINTENANCE_QUEUE worker (outboxReconciler.startReconcileWorker)
  * dispatches PROMOTE_PENDING_HOURS_JOB to promotePendingHours. Call once at boot
- * from src/worker.ts (mirrors scheduleClaimStaleSweep / scheduleReconcile).
+ * from src/worker.ts (mirrors scheduleClaimStaleSweep).
  */
 export async function schedulePromotePendingHours(): Promise<void> {
-  await makeQueue(MAINTENANCE_QUEUE).add(
+  // makeQueue is async since PR-A Task A5 (explicit connect-before-Queue).
+  await (await makeQueue(MAINTENANCE_QUEUE)).add(
     PROMOTE_PENDING_HOURS_JOB,
     {},
     {
