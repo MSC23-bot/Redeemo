@@ -45,12 +45,12 @@ Keep the wave.section prefix so a screenshot ties to a blueprint module and a fu
 
 ## 6. What to AVOID sharing (hard rules)
 - No real customer/merchant PII (use only the synthetic sample data; all customer figures aggregate + anonymous; no plottable address).
-- No secrets: never paste/upload `.env`, API keys (Stripe/Twilio/Resend/Google/R2), JWT secrets, `DATABASE_URL`, the Redis URL, the encryption key, or any branch redemption PIN.
+- No secrets: never paste/upload any provider credential or secret (including, but not limited to, Stripe, Twilio, Resend, Google Places, Cloudflare R2 and Turnstile keys or webhook secrets), any `.env` value, the database or Redis connection string, any JWT or encryption key, any branch redemption PIN, or any environment variable containing sensitive data.
 - Do not connect the prototype to the real backend or real data. Be cautious connecting the repo (ensure it cannot read `.env`/secrets); the brand values are enough.
 - Do not let it design write-impersonation, an admin-signs-contract path, a customer-home map, exact-count demographics, or an unbounded mass-mutate.
 
 ## 7. Notes to capture (to refine the packs)
-Per screen and overall: Missing (any screen/state/flow not produced); Wrong (off-model states, a wrong voucher/redemption behaviour, customer PII leaking into a row, a merchant PIN implying auto-go-live); Brand drift (rose over-used, wrong fonts, colour-only status, too spacious/merchant-like); Authority/safety drift (an on-behalf action without reason/audit, a "four-eyes" label on the single-actor approval, a gated item shown as built); Confusing interactions; Prompt tuning.
+Per screen and overall: Missing (any screen/state/flow not produced); Wrong (off-model states, a wrong voucher/redemption behaviour, customer PII leaking into a row, a merchant PIN implying auto-go-live); Brand drift (rose over-used, wrong fonts, colour-only status, too spacious/merchant-like); Authority/safety drift (an on-behalf action without reason/audit, a "four-eyes" label on the single-actor approval, a gated item shown as built); Provider/Control-Room drift (a wired provider shown operationally live, a boot-required secret treated as activation, a transient incident snapshot or live credential embedded in a prompt, a selected security mechanism where an outcome was intended, a deferred/proposed decision D20/D19/D21/D22 rendered as a built screen); Confusing interactions; Prompt tuning.
 
 ## 8. Review checklist (use while clicking through)
 - Feels like a dense operator control centre, not an enlarged Merchant Portal? Same brand, diverged density?
@@ -60,6 +60,10 @@ Per screen and overall: Missing (any screen/state/flow not produced); Wrong (off
 - Customer PII gated + reveal-on-demand + audited; no customer-home map; PIN never shown; no individual identity in redemption/aggregate rows?
 - Behavioural/demographic analytics show "not available" until the gate; operational aggregates fine; export purpose-scoped?
 - All non-happy-path states present? Responsive on the key screens?
+- Operational Status is a bounded control room (not an embedded Railway/Neon/Vercel/GitHub/Stripe/Resend/APM replacement), with dynamic healthy/degraded/down/unverified/external/gated states? `/health` shown as liveness-only; dependency-health/worker-heartbeat/deployed-SHA shown net-new or external, never fabricated; no transient one-day incident snapshot; no secret/credential/connection-string rendered?
+- Provider state honest (source wiring is not operationally live; boot-required config is not activation; Google Places is owner-CLI-only; runtime/provider bindings UNVERIFIED, not inferred)?
+- Deferred/proposed owner decisions respected: NO NHS/key-worker/community screen (D20 owner-deferred); no university/student, referral/ambassador/creator or waitlist screen without approval (D19/D21/D22 proposed)?
+- Security shown as OUTCOMES (unattended-session protection, renewed assurance, contextual access restriction), with idle-timeout/step-up/IP-allow as candidates only (no mechanism selected)?
 - Did anything silently cross a stop-and-review line (real PII, a customer-home map, demographics presented as shipping, admin-signs, write-impersonation, gated presented as built)?
 
 ## 9. After the pass

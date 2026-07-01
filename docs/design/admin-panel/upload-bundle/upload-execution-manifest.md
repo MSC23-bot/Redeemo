@@ -98,9 +98,10 @@ Sequencing rationale: Wave 1 is the most ENGINEERED (design it faithful, it sets
 
 ## 7. Safety gates at upload (hard rules)
 - Synthetic sample data ONLY (master-context Section F). No real customer/merchant PII.
-- No secrets: never upload `.env`, API keys (Stripe/Twilio/Resend/Google/R2), JWT secrets, `DATABASE_URL`, the Redis URL, the encryption key, or any branch redemption PIN.
+- No secrets: never upload any provider credential or secret (including, but not limited to, Stripe, Twilio, Resend, Google Places, Cloudflare R2 and Turnstile keys or webhook secrets), any `.env` value, the database or Redis connection string, any JWT or encryption key, any branch redemption PIN, or any environment variable containing sensitive data.
+- No current provider credentials, incident details, or transient deployment/provider values (for example a specific Web-down or worker-Offline snapshot) in the pasted prompts or uploaded assets. The prototype demonstrates DYNAMIC status states (healthy/degraded/down/unverified/external/gated), NOT a point-in-time incident snapshot; a wired provider is never shown operationally live.
 - Do not connect the prototype to the real backend or real data. Be cautious connecting the repo (ensure it cannot read `.env`/secrets); the brand values are sufficient.
 - Nothing gated/future is presented as approved or built; anything crossing a stop-and-review line is flagged, not silently designed.
 
 ## 8. What is NOT authorised by this manifest
-No Claude Design upload or execution during D14 drafting; no implementation; no D3-D18 product/security decisions; no PR yet. This manifest is a plan for the owner to approve, then run.
+No Claude Design upload or execution during D14 drafting; no implementation; no promotion of any PROPOSED or gated owner decision (per the amended blueprint §16: D1, D2 and D14 are approved process decisions; D20 is owner-decided FUTURE/DEFERRED; every remaining decision, D3-D13, D15-D19 and D21-D26, stays PROPOSED and separately gated); no PR yet. This manifest is a plan for the owner to approve, then run.
