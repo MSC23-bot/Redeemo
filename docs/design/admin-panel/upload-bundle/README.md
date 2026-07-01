@@ -15,6 +15,7 @@ This folder gathers the documents needed to run the Redeemo **Admin Panel** prot
 | `wave-1-foundation-spine-governance-pack.md` | Wave 1: foundation, operational spine and governance (shell + Ops Home, approvals/actioner, merchant directory + Merchant 360, admin-created onboarding, oversight: Global Audit + Admin Users). |
 | `wave-2-relationships-crm-onboarding-support-trust-pack.md` | Wave 2: relationships and CRM, representative-assisted onboarding, support and cases, DSAR, view-as, trust and safety (reviews / fraud-reversals / media / suggested-tags), Customer 360. |
 | `wave-3-commercial-content-insights-pack.md` | Wave 3: commercial operations, content and taxonomy, Insights and reporting. |
+| `merchant-reference-summary.md` | The **tracked, text-only, uploadable** Merchant Portal reference: nav + modules, onboarding/approval journey, terminology, lifecycle/status vocabulary, voucher-card + status-pill language, shared shell patterns, and what the Admin Panel must NOT copy. The PRIMARY merchant context (works in a clean clone with none of the raw merchant artifacts present). |
 | `merchant-prototype-linkage-strategy.md` | How to give the Admin session the Merchant Portal prototype context safely (the mechanism, what to reuse, what must differ, token efficiency). Grounded in the actual Claude Design / DesignSync capabilities. |
 | `upload-execution-manifest.md` | The exact artifact order, which project/session each item belongs to, expected outputs, review checkpoints, and how later waves inherit approved earlier context without one enormous repeated prompt. |
 | `traceability-crosscheck.md` | Cross-check tables tying each Admin module to its source capability, Merchant prototype counterpart, cross-product dependency, target screen, authority/safety boundary, maturity status, open decision/gate, and its prompt pack + wave. |
@@ -34,13 +35,19 @@ Use ONLY the synthetic sample data in the master context. Never upload real cust
 
 ## Provenance
 
-| Item | Source |
-|---|---|
-| Admin Panel blueprint (source of truth) | `docs/superpowers/specs/2026-07-01-admin-panel-platform-blueprint.md`, `main` @ `5ff06d8` (PR #345 squash `5ff06d87`) |
-| Shared brand + design-system foundations | `docs/design/merchant-portal/design-system/{tokens.css, fonts/, 0*.html}` + `docs/design/merchant-portal/upload-bundle/2026-06-10-brand-design-system-foundations-design.md` (reuse verbatim: same platform brand) |
-| Merchant prototype reference (assets) | `docs/design/merchant-portal/prototype-handoff/Redeemo-for-Business-Merchant-Portal-handoff.zip` + `docs/superpowers/prototype-references/merchant-web-*` (git-tracked screenshots) |
-| Process template mirrored | `docs/design/merchant-portal/upload-bundle/{CLAUDE-DESIGN-RUNBOOK.md, 2026-06-17-merchant-portal-claude-design-prompt-pack.md, README.md}` |
-| Source-capability evidence | `src/api/admin/**`, `src/api/merchant/**`, `prisma/schema.prisma` @ `5ff06d8` (unchanged since the blueprint audit at `37cc0f69`) |
+**Availability of every source is classified in `upload-execution-manifest.md` §2A** (the exact asset manifest + a pre-upload existence check). Key point for a clean-clone reviewer: `docs/design/` is NOT tracked (0 tracked files), so everything under `docs/design/merchant-portal/**` is **owner-local/untracked** and will be ABSENT from a fresh clone and from the D14 worktree; the `docs/superpowers/prototype-references/*.png` (22) and this bundle ARE tracked. The tracked, text-only `merchant-reference-summary.md` deliberately carries the essential merchant context so the reference does not depend on those untracked artifacts.
+
+| Item | Source | Availability |
+|---|---|---|
+| Admin Panel blueprint (source of truth) | `docs/superpowers/specs/2026-07-01-admin-panel-platform-blueprint.md`, `main` @ `5ff06d8` (PR #345 squash `5ff06d87`) | TRACKED |
+| Merchant reference (primary, text-only) | `merchant-reference-summary.md` (this bundle) | TRACKED |
+| Merchant screenshots (visual anchors) | `docs/superpowers/prototype-references/merchant-web-*` (22 PNGs) | TRACKED |
+| Shared brand + design-system foundations | `docs/design/merchant-portal/design-system/{tokens.css, fonts/, 0*.html}` + `.../upload-bundle/2026-06-10-brand-design-system-foundations-design.md` | OWNER-LOCAL/untracked (essentials duplicated in master §B) |
+| Merchant handoff (shell/dashboard screens) | `docs/design/merchant-portal/prototype-handoff/Redeemo-for-Business-Merchant-Portal-handoff.zip` (contains the `.dc.html`) | OWNER-LOCAL/untracked; capture-on-demand; NOT uploaded/committed |
+| Process template mirrored | `docs/design/merchant-portal/upload-bundle/{CLAUDE-DESIGN-RUNBOOK.md, 2026-06-17-merchant-portal-claude-design-prompt-pack.md, README.md}` | OWNER-LOCAL/untracked; lookup only |
+| Source-capability evidence | `src/api/admin/**`, `src/api/merchant/**`, `prisma/schema.prisma` @ `5ff06d8` (unchanged since the blueprint audit at `37cc0f69`) | TRACKED |
+
+Any decision to bring the owner-local merchant design files (or the handoff) into the repo is a SEPARATE, explicit preservation/commit decision, not part of this bundle. Do not silently commit the handoff, fonts, prototype HTML, or unrelated untracked merchant artifacts.
 
 Note: like the merchant brand spec, internal design specs in this bundle may use long dashes / arrow glyphs in prose; the brand no-em-dash rule applies to customer-facing and operator UI text and seed copy, not to these internal specs.
 

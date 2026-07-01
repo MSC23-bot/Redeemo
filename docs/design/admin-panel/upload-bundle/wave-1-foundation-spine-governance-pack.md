@@ -2,11 +2,11 @@
 
 Inherits the shared master context (`00-admin-master-context.md`) and design direction. Do not re-paste them; open the Admin session that already has them, then paste the wave intro below and work screen by screen.
 
-**Wave 1 goal:** the dense operator shell + the proven, already-built operational spine (approvals, merchant lifecycle, edit-on-behalf) re-homed into the platform-level IA, plus the governance surfaces (Global Audit, Admin Users) that must exist early because they oversee everything else. This is the wave with the most ENGINEERED backend behind it: design it faithful to how it actually works.
+**Wave 1 goal:** the dense operator shell + the proven, already-built operational spine (approvals, merchant lifecycle, edit-on-behalf) re-homed into the platform-level IA, plus the governance surfaces (Global Audit, Admin Users) that must exist early because they oversee everything else. This wave has the most ENGINEERED backend behind it, but it MIXES engineered workflows with PARTIAL/FUTURE surfaces (Ops Home KPIs, Global Audit's global query, Admin Users CRUD + per-person grants, parts of Operational Status): design the engineered parts faithful to how they actually work, and the partial/future parts as clearly-labelled concepts.
 
 ## Wave 1 intro (paste into the Admin session)
 
-Design Wave 1 of the Admin Panel: the operator shell and the operational + governance spine. Keep the complete grouped nav visible (later-wave groups shown but their items marked coming/gated). Establish the shared design system and the dense shell FIRST, then the screens below with their full state sets. Everything here maps to real backend behaviour; do not invent states it does not have.
+Design Wave 1 of the Admin Panel: the operator shell and the operational + governance spine. Keep the complete grouped nav visible (later-wave groups shown but their items marked coming/gated). Establish the shared design system and the dense shell FIRST, then the screens below with their full state sets. Follow each screen's individual maturity classification: engineered workflows (the approval queue, the review/actioner, edit-on-behalf, the merchant directory, the bell) are designed source-faithfully to how the backend actually behaves; the PARTIAL/FUTURE surfaces in this wave (Ops Home KPIs, Global Audit's global query, Admin Users CRUD + grants, parts of Operational Status) are clearly-labelled concepts. Either way, do not invent states the backend does not have.
 
 ## Screens (design each with its states)
 
