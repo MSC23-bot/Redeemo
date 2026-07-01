@@ -1,14 +1,21 @@
-// Real-DB tests for the WP4 stale-claim sweep. Proves end-to-end against Neon:
-// the alert reaches the CLAIMER, lastStaleAlertAt is stamped, a re-run dedups,
-// a later claim re-arms, and the window/claimed/status gates exclude the rest.
-// Each scenario uses its own claimer so its alert count is isolated; all seeded
-// rows are bulk-removed in afterAll (prefix-scoped, mirrors the m5-golive- discipline).
+// Real-DB tests for the WP4 stale-claim sweep — re-pointed at the Neon CU-burn
+// PR-B maintenance-floor split. Runs against the strict-loopback integration
+// database (tests/integration.setup.ts fail-closes on any non-loopback target).
+// Proves end-to-end: the alert reaches the CLAIMER, lastStaleAlertAt is stamped
+// with dbNow, a re-run dedups, a later claim re-arms, and the
+// window/claimed/status gates exclude the rest. Each scenario uses its own
+// claimer so its alert count is isolated; all seeded rows are bulk-removed in
+// afterAll (prefix-scoped, mirrors the m5-golive- discipline).
 
 import 'dotenv/config'
 import { describe, it, expect, afterAll } from 'vitest'
 import { PrismaClient } from '../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { sweepStaleClaims } from '../../../src/api/queues/processors/claimStaleSweep'
+import {
+  claimStaleDbPhase,
+  makeClaimStaleSideEffects,
+} from '../../../src/api/queues/processors/claimStaleSweep'
+import type { PhaseBBudget } from '../../../src/api/queues/maintenanceSweep'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prisma = new PrismaClient({ adapter })
@@ -16,6 +23,20 @@ const prisma = new PrismaClient({ adapter })
 const NOW = new Date('2026-06-15T12:00:00.000Z')
 const hoursAgo = (h: number): Date => new Date(NOW.getTime() - h * 60 * 60 * 1000)
 const PREFIX = `claim-stale-it-${Date.now()}`
+
+const PERMISSIVE_BUDGET: PhaseBBudget = {
+  maxItems: 500,
+  budgetMs: 60_000,
+  monotonicNowMs: () => 0,
+  isStopping: () => false,
+}
+
+/** One floor run: Phase A inside a real transaction (as runBoundedSweep does),
+ *  then the unlocked Phase B — the same composition the scheduler drives. */
+async function runClaimStaleFloorOnce(now: Date): Promise<void> {
+  const phaseA = await prisma.$transaction((tx) => claimStaleDbPhase(tx, now))
+  await makeClaimStaleSideEffects(prisma)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+}
 
 const createdAdminIds: string[] = []
 const createdApprovalIds: string[] = []
@@ -64,15 +85,15 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
-describe('sweepStaleClaims (real DB)', () => {
-  it('alerts the claimer once, stamps lastStaleAlertAt, and dedups on re-run', async () => {
+describe('claim-stale floor sweep (real DB)', () => {
+  it('alerts the claimer once, stamps lastStaleAlertAt with dbNow, and dedups on re-run', async () => {
     const { claimerId, approvalId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null })
-    await sweepStaleClaims(prisma, NOW)
+    await runClaimStaleFloorOnce(NOW)
     expect(await countAlerts(claimerId)).toBe(1)
     const row = await prisma.adminApproval.findUnique({ where: { id: approvalId }, select: { lastStaleAlertAt: true } })
-    expect(row?.lastStaleAlertAt).not.toBeNull()
+    expect(row?.lastStaleAlertAt).toEqual(NOW) // stamped with the SAME clock the scan ran against
     // dedup: a second run over the same claim must not add a second alert.
-    await sweepStaleClaims(prisma, NOW)
+    await runClaimStaleFloorOnce(NOW)
     expect(await countAlerts(claimerId)).toBe(1)
   })
 
@@ -80,25 +101,25 @@ describe('sweepStaleClaims (real DB)', () => {
     // claimed 25h ago (in window) but the last alert was 48h ago (an older claim
     // cycle), so claimedAt > lastStaleAlertAt and the nudge re-arms.
     const { claimerId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: hoursAgo(48) })
-    await sweepStaleClaims(prisma, NOW)
+    await runClaimStaleFloorOnce(NOW)
     expect(await countAlerts(claimerId)).toBe(1)
   })
 
   it('does NOT alert claims still within the 24h window', async () => {
     const { claimerId } = await seed({ claimedAt: hoursAgo(1), lastStaleAlertAt: null })
-    await sweepStaleClaims(prisma, NOW)
+    await runClaimStaleFloorOnce(NOW)
     expect(await countAlerts(claimerId)).toBe(0)
   })
 
   it('does NOT alert unclaimed approvals', async () => {
     const { claimerId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null, claimedNull: true })
-    await sweepStaleClaims(prisma, NOW)
+    await runClaimStaleFloorOnce(NOW)
     expect(await countAlerts(claimerId)).toBe(0)
   })
 
   it('does NOT alert non-PENDING approvals (status gate)', async () => {
     const { claimerId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null, status: 'APPROVED' })
-    await sweepStaleClaims(prisma, NOW)
+    await runClaimStaleFloorOnce(NOW)
     expect(await countAlerts(claimerId)).toBe(0)
   })
 })
