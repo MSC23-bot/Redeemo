@@ -21,7 +21,7 @@
 - Per-sweep independent state/error-boundary/backoff/timeout/metrics/enable-flag/last-success/last-failure. Sequential-within-tick, each bounded.
 - DB-authoritative `dbNow` per scan.
 - Alert sink = `adminNotify()` in-app `ADMIN_DELIVERY_FAILED` + structured logs; never email; never PII/secret payload.
-- Config fail-safe: missing/invalid → maintenance DISABLED + loud alert, never a silent burn path.
+- Config startup policy (canonical, §14): `MAINTENANCE_MODE=disabled` is the ONLY intentional maintenance-off path (boots WITHOUT the scheduler + a loud structured log); when enabled or defaulted, missing/invalid scheduler config FAILS STARTUP non-zero; an unsupported `MAINTENANCE_MODE` value FAILS STARTUP; a validation failure NEVER silently becomes disabled — never a silent burn path.
 - Worker stays Offline through the whole stack; one owner-approved staging activation.
 - `F_idle` > 5 min always.
 
@@ -34,14 +34,14 @@
 | `src/api/queues/maintenanceSweep.ts` (create) | `runBoundedSweep(prisma, spec)` — one interactive tx holding the per-sweep xact advisory lock; parameterized `set_config('statement_timeout',...)`; `SELECT now()`; run the DB phase on `tx`; return an explicit `SweepResult{state,full}`; run bounded (monotonic soft-budget, per-row-isolated) Phase-B side-effects after the tx settles | A |
 | `src/api/queues/maintenanceScheduler.ts` (create) | Process-local timer; per-sweep state (`nextEligibleAt`, `degradedStreak`, `lastSuccessAt/FailureAt`); sequential per-tick; aligned healthy cadence + per-sweep degraded backoff; BOOT/IDLE/ACTIVE/DEGRADED; start/stop | A |
 | `src/api/queues/maintenanceMetrics.ts` (create) | Per-sweep counters + structured-log emit + the `adminNotify`-based expiry/degraded alert seam with dedup window + redaction | C |
-| `src/worker.ts` (modify) | Replace the 3 repeatables with `startMaintenanceScheduler`; keep email/moderation workers + the MAINTENANCE worker for the per-record pending-hours nudge; `scheduler.stop()` in shutdown | A, B |
+| `src/worker.ts` (modify) | Replace the 3 repeatables with `startMaintenanceScheduler`; keep email/moderation workers + the MAINTENANCE worker for the per-record pending-hours nudge; **`await scheduler.stop()` first in shutdown** (bounded active-tick drain before resource close) | A, B |
 | `src/api/queues/processors/outboxReconciler.ts` (modify) | Delete `scheduleReconcile`; split `reconcileOutbox` into a `tx`-parameterised DB phase (expiry + candidate id selection using `dbNow`) returning ids, + keep the MAINTENANCE worker's per-record nudge dispatch | A |
 | `src/api/queues/processors/promotePendingHours.ts` (modify) | Delete `schedulePromotePendingHours`; re-parameterise `promotePendingHours`/`promoteOnePendingHours` to run on a passed `tx` + `dbNow` (no own transaction) | B |
 | `src/api/queues/processors/claimStaleSweep.ts` (modify) | Delete `scheduleClaimStaleSweep`; re-parameterise `sweepStaleClaims` on `tx` + `dbNow` | B |
 | `src/api/shared/env.ts` (modify) | Fail-safe maintenance config validation (§14) | A, B |
 | `tests/api/queues/maintenanceSweep.integration.test.ts` (create) | **Loopback Postgres**: lock held for the whole tx; timeout rolls back + releases + cancels; two concurrent holders of one key → one runs; per-sweep keys don't block each other; `dbNow` used not app clock | A |
 | `tests/api/queues/maintenanceScheduler.test.ts` (create) | Per-sweep isolation + unexpected-rejection handling, per-sweep backoff, sequential bounds, single-flight, ACTIVE-on-needsRescan, config fail-closed (non-zero startup) | A |
-| `tests/api/queues/maintenanceMetrics.test.ts` (create) | expiry → deduped adminNotify + log; degraded → external log then recovery notice; redaction; no email | C |
+| `tests/api/queues/maintenanceMetrics.test.ts` (create) | expiry → deduped adminNotify + log; degraded → external log then a distinct-phase recovery notice (recovery NOT suppressed by a recent degraded); redaction; no email | C |
 | `tests/api/queues/maintenance-contract-guard.test.ts` (create) | Registration-contract guard (primary) + static scan (secondary) | D |
 
 Preserved suites (must stay green): existing outbox/promotion/stale/email tests (idempotency, window, 24h expiry, promotion idempotency).
@@ -152,7 +152,7 @@ export async function runBoundedSweep<TSide>(
 
 **Files:** create `src/api/queues/maintenanceScheduler.ts`; test `tests/api/queues/maintenanceScheduler.test.ts`.
 
-Config: `F_idle` **[GATED]** default 30 min prod / 60 min staging (validated > 5 min); `F_active` 5s; `EMPTY_SCANS_TO_IDLE` 2; per-sweep `statementTimeoutMs`/`txTimeoutMs`; `degradedBaseMs`/`degradedMaxMs`/`alertAfterFailures`.
+Config: `F_idle` **[GATED]** default 30 min prod / 60 min staging (validated > 5 min); `F_active` 5s; `EMPTY_SCANS_TO_IDLE` 2; per-sweep `statementTimeoutMs`/`txTimeoutMs`; `degradedBaseMs`/`degradedMaxMs`/`alertAfterFailures`; `stopDrainMs` (bounded active-tick drain window on shutdown) **[GATED]**.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -168,7 +168,14 @@ Config: `F_idle` **[GATED]** default 30 min prod / 60 min staging (validated > 5
 //    Phase-A batch) keeps that sweep at F_active until empty — WITHOUT dragging siblings to F_active.
 // 6. single-flight: a timer firing while a tick is in flight is a no-op (tickInFlight); arm() runs exactly once after the tick.
 // 7. config (matches A4, Codex #5): missing/invalid required config → NON-ZERO startup failure; maintenance is disabled
-//    ONLY when MAINTENANCE_MODE=disabled is explicitly set (never a silent disable).
+//    ONLY when MAINTENANCE_MODE=disabled is explicitly set (never a silent disable); an unsupported MAINTENANCE_MODE value fails startup.
+// 8. stop() with NO active tick: resolves { drained:true } immediately; the armed timer is cleared; no re-arm.
+// 9. stop() DURING a tick (Phase A or Phase B in flight): awaits the tracked activeTick Promise and resolves
+//    { drained:true } once it settles within stopDrainMs.
+// 10. no re-arm after stop(): a timer firing (or a tick finishing) after stop() does NOT re-arm; `stopped` is terminal.
+// 11. concurrent stop(): two stop() calls return the SAME drain Promise (one drain, not two).
+// 12. drain timeout: an active tick outlasting stopDrainMs → stop() resolves { drained:false } (reported to A6 for
+//     real force-close); the timeout does NOT cancel the tick (no cancellation claim) and produces no unhandled rejection.
 ```
 
 - [ ] **Step 2: Run to verify they fail.**
@@ -182,11 +189,15 @@ import { runBoundedSweep, type BoundedSweepSpec } from './maintenanceSweep'
 interface SweepRuntime { spec: BoundedSweepSpec<unknown>; enabled: boolean
   nextEligibleAt: number; degradedStreak: number; lastSuccessAt?: number; lastFailureAt?: number }
 export interface SchedulerConfig { idleMs: number; activeMs: number; emptyScansToIdle: number
-  degradedBaseMs: number; degradedMaxMs: number; alertAfterFailures: number
+  degradedBaseMs: number; degradedMaxMs: number; alertAfterFailures: number; stopDrainMs: number
   nowMs: () => number; monotonicNowMs: () => number }
+/** stop() result — drained=true if the active tick settled within stopDrainMs; false → the drain timed out and A6 force-closes. */
+export interface StopResult { drained: boolean }
 
 export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerConfig, sweeps: SweepRuntime[]) {
   let stopped = false, tickInFlight = false, timer: NodeJS.Timeout | null = null   // single-flight (Codex #3)
+  let activeTick: Promise<void> | null = null                                       // the in-flight tick Promise — enables the shutdown DRAIN (Codex)
+  let stopping: Promise<StopResult> | null = null                                   // idempotent stop: concurrent callers share ONE drain (Codex)
   const emptyRun = new Map<string, number>()
 
   function setNext(s: SweepRuntime, delay: number) { s.nextEligibleAt = cfg.nowMs() + delay } // NO arm() here (Codex #4)
@@ -220,13 +231,15 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
     }
   }
 
-  async function tick() {
-    if (stopped || tickInFlight) return                                    // process-local single-flight invariant (Codex #3)
+  function tick() {
+    if (stopped || tickInFlight) return                                    // single-flight + NO new tick once stopped (Codex #3)
     tickInFlight = true
-    try {
-      const now = cfg.nowMs()
-      for (const s of sweeps) if (s.enabled && s.nextEligibleAt <= now) await runOne(s)  // SEQUENTIAL; runOne never rejects
-    } finally { tickInFlight = false; arm() }                              // arm ONCE, after the tick completes (Codex #4)
+    activeTick = (async () => {                                            // publish the in-flight tick Promise so stop() can DRAIN it (Codex)
+      try {
+        const now = cfg.nowMs()
+        for (const s of sweeps) if (s.enabled && s.nextEligibleAt <= now) await runOne(s)  // SEQUENTIAL; runOne never rejects
+      } finally { tickInFlight = false; activeTick = null; if (!stopped) arm() }  // arm ONCE after the tick, and ONLY if not stopping (Codex #4 + shutdown)
+    })()
   }
   function arm() {
     if (stopped || tickInFlight) return
@@ -239,7 +252,26 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
 
   for (const s of sweeps) s.nextEligibleAt = cfg.nowMs()                    // BOOT: immediate
   arm()
-  return { stop() { stopped = true; if (timer) clearTimeout(timer) } }
+  return {
+    // ASYNC + IDEMPOTENT bounded active-tick DRAIN (Codex shutdown). Worker shutdown AWAITS this before closing Queue/Redis/Prisma (A6).
+    stop(): Promise<StopResult> {
+      if (stopping) return stopping                                        // concurrent stop() callers share ONE drain Promise
+      stopped = true                                                       // (1) set stopped FIRST — no new tick, no re-arm
+      if (timer) { clearTimeout(timer); timer = null }                     // (2) clear the armed timer
+      stopping = (async () => {
+        const inFlight = activeTick                                        // (3) track the ACTIVE TICK Promise, not just tickInFlight
+        if (!inFlight) return { drained: true }                           // nothing in flight → teardown proceeds normally
+        let bound: NodeJS.Timeout | undefined                             // (4) await the tick within stopDrainMs; the timeout does NOT cancel it
+        const deadline = new Promise<'timeout'>((res) => { bound = setTimeout(() => res('timeout'), cfg.stopDrainMs) })
+        try {
+          const outcome = await Promise.race([inFlight.then(() => 'drained' as const), deadline])
+          return { drained: outcome === 'drained' }                       // 'timeout' → { drained:false } reported to A6 for REAL force-close
+        } catch { return { drained: false } }                             // (5) every rejection caught (runOne never rejects; defensive)
+        finally { if (bound) clearTimeout(bound) }                        // never leak the drain timer
+      })()
+      return stopping
+    },
+  }
 }
 ```
 
@@ -253,7 +285,7 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
 **Files:** modify `src/worker.ts`, `src/api/queues/processors/outboxReconciler.ts`.
 
 - [ ] Split `reconcileOutbox` into `outboxDbPhase(tx, dbNow) → { full, sideEffects: ids[] }` (expiry `updateMany` + candidate `findMany` of ids, using `dbNow`) + `outboxSideEffects(ids)` (the Redis re-enqueues). Build the outbox `BoundedSweepSpec`. **Delete `scheduleReconcile`** (the 60s repeatable). Keep `startReconcileWorker` only for the per-record pending-hours nudge dispatch.
-- [ ] `worker.ts`: replace `await scheduleReconcile()` with `const scheduler = startMaintenanceScheduler(prisma, cfg, [outboxSweep])`; add `scheduler.stop()` first in `shutdown()`.
+- [ ] `worker.ts`: replace `await scheduleReconcile()` with `const scheduler = startMaintenanceScheduler(prisma, cfg, [outboxSweep])`; in `shutdown()` **`await scheduler.stop()` FIRST** (the bounded active-tick drain) and let it resolve BEFORE closing Queue/Redis/Prisma (full ordered sequence in A6).
 - [ ] Tests: worker boot registers no `RECONCILE_JOB` repeatable; the existing `reconcileOutbox` window/expiry/idempotency behaviours are preserved by `outboxDbPhase` (re-point those tests at the phase function).
 - [ ] **Rollback for A3 (Codex #4): NO legacy-restore flag exists.** The new image has no 60s repeatable. Rollback = pause the worker (Offline) and/or redeploy the previously-verified image. Documented in PR-F.
 - [ ] Commit — `feat(worker): run outbox reconcile on the durable floor; delete the 60s repeatable`
@@ -262,8 +294,8 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
 
 **Files:** modify `src/api/shared/env.ts`; extend boot-mode tests.
 
-- [ ] Validate `MAINTENANCE_FLOOR_IDLE_MS` (`> 300_000`), `MAINTENANCE_FLOOR_ACTIVE_MS`, `MAINTENANCE_PHASE_B_MAX_ITEMS`/`MAINTENANCE_PHASE_B_BUDGET_MS`, per-sweep `STATEMENT_TIMEOUT_MS`/`TX_TIMEOUT_MS` (assert `STATEMENT < TX`), per-sweep enable flags. **Fail-closed (Codex #7): on a staging/production worker, missing or invalid maintenance config causes the worker to FAIL STARTUP with a non-zero exit (the validator throws; the process exits non-zero for supervisor visibility), UNLESS an explicit owner-approved `MAINTENANCE_MODE=disabled` env is set — in which case the worker boots with maintenance intentionally disabled plus a loud structured log. There is NO silent half-running-with-maintenance-off default and NO 60s path.** Local/test may pass explicit test config.
-- [ ] Tests: `IDLE_MS=300000` rejected; `STATEMENT >= TX` rejected; **missing config (no `MAINTENANCE_MODE=disabled`) → validator throws → non-zero exit**; missing config **with** `MAINTENANCE_MODE=disabled` → boots, scheduler not started, loud log emitted.
+- [ ] **Resolve `MAINTENANCE_MODE` FIRST, then the scheduler values (canonical order, §14):** (1) **`MAINTENANCE_MODE=disabled`** → boot WITHOUT the scheduler + a loud structured log (the scheduler values are NOT required in this mode); (2) **`MAINTENANCE_MODE` unset or `=enabled`** → maintenance ON (default enabled) → validate `MAINTENANCE_FLOOR_IDLE_MS` (`> 300_000`), `MAINTENANCE_FLOOR_ACTIVE_MS`, `MAINTENANCE_PHASE_B_MAX_ITEMS`/`MAINTENANCE_PHASE_B_BUDGET_MS`, per-sweep `STATEMENT_TIMEOUT_MS`/`TX_TIMEOUT_MS` (assert `STATEMENT < TX`), per-sweep enable flags; (3) any other/unsupported `MAINTENANCE_MODE` value → FAIL STARTUP non-zero (never coerced to disabled or enabled). **Fail-closed (Codex #7): when enabled or defaulted, missing or invalid config makes the validator THROW and the worker exit non-zero (supervisor-visible). A validation failure NEVER silently becomes disabled — only an explicit `MAINTENANCE_MODE=disabled` turns maintenance off. There is NO silent half-running-with-maintenance-off default and NO 60s path.** Local/test may pass explicit test config.
+- [ ] Tests: `IDLE_MS=300000` rejected; `STATEMENT >= TX` rejected; **missing/invalid config (mode unset or `=enabled`) → validator throws → non-zero exit**; **`MAINTENANCE_MODE=disabled` → boots, scheduler not started, loud log emitted (scheduler values not required)**; **unsupported `MAINTENANCE_MODE` value (e.g. `off`) → validator throws → non-zero exit (never coerced to disabled)**; **an invalid config never resolves to disabled** (the test asserts a throw, not a disabled-boot).
 - [ ] Commit — `feat(env): fail-safe maintenance config (F_idle>5min, statement<tx, disable-on-missing)`
 
 ---
@@ -296,8 +328,8 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
 
 **Files:** modify `src/worker.ts` (shutdown sequence) + `src/api/queues/index.ts` (`closeQueues` bounded close + force-disconnect); wire `AlertSink.stop()`; test `tests/api/queues/shutdown.integration.test.ts`.
 
-- [ ] Shutdown contract: (1) `scheduler.stop()` (stop timers) + `AlertSink.stop()` (no new producer/alert work); (2) bounded graceful `Queue.close()` + producer connection `quit()` within a bound; (3) on expiry, explicitly `disconnect()`/destroy the producer connection (**REAL force-close** — socket destroyed — NOT a cosmetic `Promise.race`); (4) no lingering producer socket/timer/event-loop handle; (5) `AlertSink` bounded drain of in-flight writes, then controlled Prisma `$disconnect()`, all rejections caught; shutdown never waits indefinitely. `recoveryPending` stays best-effort across restart.
-- [ ] Tests: Redis-unavailable / half-open shutdown completes within the bound, **including while the producer is in initial connect/readiness (Redis down at cold start)**; force-`disconnect()` destroys the producer connection; **no lingering handles** after shutdown (process exits / `why-is-node-running`-style assert / all owned connections destroyed); an in-flight AlertSink write racing `$disconnect()` rejects and is caught (no unhandled rejection); no new alert launched after `stop()`.
+- [ ] Shutdown contract (ORDERED — the scheduler tick DRAINS before any resource is closed): (1) **`await scheduler.stop()`** — the async, idempotent, bounded active-tick drain (sets `stopped`, clears the timer, prevents any new tick/re-arm, tracks the ACTIVE TICK Promise, awaits it within `stopDrainMs`); it resolves `{ drained:true }` if the tick settled or `{ drained:false }` if the bound expired (the timeout does NOT cancel the tick — the force-close below terminates the resources instead). Worker shutdown AWAITS this before touching Queue/Redis/Prisma, so no sweep DB/Redis op is still starting when resources close; (2) **`AlertSink.stop()`** (no new producer/alert work); (3) bounded graceful `Queue.close()` + producer connection `quit()` within a bound; (4) on expiry, explicitly `disconnect()`/destroy the producer connection (**REAL force-close** — socket destroyed — NOT a cosmetic `Promise.race`); (5) no lingering producer socket/timer/event-loop handle; (6) `AlertSink` bounded drain of in-flight writes, then controlled Prisma `$disconnect()`, all rejections caught; shutdown never waits indefinitely. `recoveryPending` stays best-effort across restart. **Ordering invariant: `await scheduler.stop()` → `AlertSink.stop()` → bounded `Queue.close()`/`quit()` → force-`disconnect()` → Prisma `$disconnect()`.**
+- [ ] Tests: **drain success before teardown** — a tick in flight at shutdown is awaited to settle and NO Queue/Redis/Prisma close begins until `scheduler.stop()` resolves; **drain timeout then A6 force-close** — a tick outlasting `stopDrainMs` yields `{ drained:false }` and the sequence proceeds to the REAL force-close (the tick is NOT claimed cancelled), every rejection caught; **no DB/Redis operation starts after resources are closed** — once `$disconnect()`/force-`disconnect()` have run, no sweep issues a further DB/Redis call; Redis-unavailable / half-open shutdown completes within the bound, **including while the producer is in initial connect/readiness (Redis down at cold start)**; force-`disconnect()` destroys the producer connection; **no lingering handles** after shutdown (process exits / `why-is-node-running`-style assert / all owned connections destroyed); an in-flight AlertSink write racing `$disconnect()` rejects and is caught (no unhandled rejection); no new alert launched after `stop()`; **concurrent `stop()` calls share one drain Promise**.
 - [ ] **Release gate:** v1 not shipped until merged + verified.
 - [ ] Commit — `feat(worker): bounded shutdown with real force-close (no lingering handles) + AlertSink drain`
 
@@ -321,12 +353,12 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
 **Files:** create `src/api/queues/maintenanceMetrics.ts`; add the additive `NotificationType` enum migration (if the new degraded type is chosen); wire seams in scheduler + outbox phase; test `tests/api/queues/maintenanceMetrics.test.ts`.
 
 - [ ] Per-sweep counters (`scanned/re_enqueued/expired/promoted/failed{sweep}`, `degraded_db{sweep}`, last-run duration) surfaced as **structured logs** (no external metrics backend — none exists).
-- [ ] **Alert execution contract `AlertSink` (Codex async-seam):** the scheduler calls the seam SYNCHRONOUSLY, never awaited. `sweepFailure(name,state,error)` = SYNC structured log. `degraded(alertKey, detail)` = SYNC void that (i) logs the redacted stderr IMMEDIATELY; (ii) if not already in-flight for `alertKey`, launches the async `getAlertableAdmins` + per-recipient `adminNotify` **fire-and-forget with `.catch`** (single-flight per key; clears the in-flight marker in `finally`); (iii) **skips the in-app DB write while the DB is known-degraded** (log-only) and sets a process-local `recoveryPending`; (iv) on a later successful scan (DB-recovery signal) fires the recovery notice fire-and-forget. `stop()` launches no new alert, **tracks in-flight attempts and drains them within a bound**, then proceeds to the controlled Prisma `$disconnect()` (any still-in-flight write rejects, `.catch`'d) — shutdown never waits indefinitely and cannot race `$disconnect()` into an unhandled rejection (Task A6). **Durability honesty:** `recoveryPending` is process-local → **best-effort across restart** (a restart mid-outage loses it, no notice); a guaranteed recovery notice would need a durable incident table (separately-gated follow-up).
+- [ ] **Alert execution contract `AlertSink` (Codex async-seam):** the scheduler calls the seam SYNCHRONOUSLY, never awaited. `sweepFailure(name,state,error)` = SYNC structured log. `degraded(alertKey, detail)` = SYNC void that (i) logs the redacted stderr IMMEDIATELY; (ii) if not already in-flight for `alertKey`, launches the async `getAlertableAdmins` + per-recipient `adminNotify` **fire-and-forget with `.catch`** (single-flight per key — the key includes the sweep + alert-type + PHASE, so `DEGRADED` and `RECOVERED` are separate keys; clears the in-flight marker in `finally`); (iii) **skips the in-app DB write while the DB is known-degraded** (log-only) and sets a process-local `recoveryPending`; (iv) on a later successful scan (DB-recovery signal) fires the `RECOVERED`-phase recovery notice fire-and-forget (distinct identity — never suppressed by the earlier `DEGRADED`). `stop()` launches no new alert, **tracks in-flight attempts and drains them within a bound**, then proceeds to the controlled Prisma `$disconnect()` (any still-in-flight write rejects, `.catch`'d) — shutdown never waits indefinitely and cannot race `$disconnect()` into an unhandled rejection (Task A6). **Durability honesty:** `recoveryPending` is process-local → **best-effort across restart** (a restart mid-outage loses it, no notice); a guaranteed recovery notice would need a durable incident table (separately-gated follow-up).
 - [ ] **Expired communication alert (Codex #3/#8/#9):** structured external log (counts + types) PLUS explicit in-app fan-out done by US — **`getAlertableAdmins(prisma)`** (active OPS + SUPER_ADMIN, the M8 / PR #237 pattern) then **one `adminNotify(prisma, { adminUserId, type, title, body, referenceId?, referenceType? })` call per recipient**. `adminNotify()` writes a SINGLE in-app `Notification` per call and does **NOT** itself fan out; it sends **no email / no CommunicationLog** (no recursion through the failing outbox). **Coalescing:** one notification per (recipient, alert-type) per window — never one-per-row. `type='ADMIN_DELIVERY_FAILED'`. **Redaction:** counts + type labels only, never payload/PIN/reset-link/PII (payload is already NULLed). Replace `outboxReconciler.ts:79-84`'s bare `console.warn`. The `adminNotify(prisma, { adminUserId, type, title, body, referenceId?, referenceType? })` contract + `getAlertableAdmins(prisma)` (active OPERATIONS + SUPER_ADMIN) are **verified** — a routine source-drift recheck is standard, not deferred.
-- [ ] **Dedup (Codex #3/#10) — on `Notification.sentAt` (the model has NO `createdAt`):** before emitting, check the most-recent maintenance `ADMIN_DELIVERY_FAILED` notification's `sentAt` per (recipient/type) and suppress if within the window **[GATED: window, candidate 15 min]**. **Race honesty:** even at ONE replica, overlapping async emitters would race a plain query-then-create, so emission is **serialized in-process by the per-alert-key single-flight** (the `AlertSink` contract above) — no double-write within a replica. Dedup is otherwise **best-effort**: a restart mid-window or a future second replica can still duplicate. The atomic upgrade (advisory lock around check-then-insert, OR a unique persisted `(type, time-bucket)` key) is the multi-emitter path. The **concurrent-emitter test asserts the SELECTED contract** (in-process single-flight; best-effort across restart/replicas), not merely alternatives.
-- [ ] **Additive migration + ordering (Codex #4):** if the degraded/recovery type is the new `ADMIN_MAINTENANCE_DEGRADED` (recommended), PR-C **includes the additive Prisma `NotificationType` enum migration** and follows **migrate-before-image** ordering (apply the additive enum migration on the Neon **direct** endpoint BEFORE the PR-C image deploys, per the approved direct-migration procedure). **No migration is authorized now**; any staging application remains gated by the existing **P1/P8/P9/R1 recovery sequence** and the approved direct-migration procedure. If an existing type is reused, no migration is needed.
-- [ ] **DB-unavailable alert:** structured external log/error WHILE the DB is unavailable (no in-app write during a DB outage). AFTER recovery: `getAlertableAdmins(prisma)` + one `adminNotify(prisma, { adminUserId, type: <ADMIN_MAINTENANCE_DEGRADED | existing>, ... })` per recipient. No email anywhere.
-- [ ] Tests: expiry → `getAlertableAdmins` called + one `adminNotify` per recipient with `adminUserId` (NOT once total) + structured log; **dedup on `sentAt`**: a second expiry within the window emits NO new `adminNotify`; **concurrent-emitter test** (documents best-effort at replicas=1 / the atomic mechanism if chosen); degraded → external log during + per-recipient recovery notice using the explicit type after; a **per-row Phase-B failure does not stop later rows and yields needsRescan/full**; redaction pin (no payload/PII); no email path invoked; **async rejection**: a rejecting `adminNotify` is `.catch`'d (NO unhandled rejection; scheduler rescheduling unaffected); **repeated degraded scans** → at most one in-flight per `alertKey` (single-flight/coalesced); **DB-degraded** → in-app write suppressed (log only); **recovery** → exactly one recovery notice after a DB-recovery signal, and a simulated restart mid-outage loses `recoveryPending` → NO notice (best-effort pinned).
+- [ ] **Dedup (Codex #3/#10) — on `Notification.sentAt` (the model has NO `createdAt`):** before emitting, check the most-recent maintenance `ADMIN_DELIVERY_FAILED` notification's `sentAt` per (recipient/type) — and, for the degraded/recovery family, per (recipient/type/**PHASE**, so a `RECOVERED` notice is never suppressed by a recent `DEGRADED`) — and suppress if within the window **[GATED: window, candidate 15 min]**. **Race honesty:** even at ONE replica, overlapping async emitters would race a plain query-then-create, so emission is **serialized in-process by the per-alert-key single-flight** (the `AlertSink` contract above) — no double-write within a replica. Dedup is otherwise **best-effort**: a restart mid-window or a future second replica can still duplicate. The atomic upgrade (advisory lock around check-then-insert, OR a unique persisted `(type, time-bucket)` key) is the multi-emitter path. The **concurrent-emitter test asserts the SELECTED contract** (in-process single-flight; best-effort across restart/replicas), not merely alternatives.
+- [ ] **Degraded vs recovery = distinct alert identities + additive migration + ordering (Codex #4 + CodeRabbit):** the alert **phase** (`DEGRADED`/`RECOVERED`) is part of BOTH the process-local single-flight key AND the persisted dedup identity, so **a `RECOVERED` notice is never suppressed by a recent `DEGRADED`** (a duplicate `DEGRADED` coalesces only with `DEGRADED`, a duplicate `RECOVERED` only with `RECOVERED`). **Minimal representation (recommended, smallest source-compatible):** ONE additive maintenance-status `NotificationType` (candidate `ADMIN_MAINTENANCE_DEGRADED`) PLUS a persisted phase discriminator (e.g. `referenceType='DEGRADED'|'RECOVERED'`) folded into the dedup key; the alternative is two distinct types (`…_DEGRADED`/`…_RECOVERED`). If the new `ADMIN_MAINTENANCE_DEGRADED` type is chosen, PR-C **includes the additive Prisma `NotificationType` enum migration** and follows **migrate-before-image** ordering (apply the additive enum migration on the Neon **direct** endpoint BEFORE the PR-C image deploys, per the approved direct-migration procedure). **No migration is authorized now**; any staging application remains gated by the existing **P1/P8/P9/R1 recovery sequence** and the approved direct-migration procedure. If an existing type is reused (with the phase discriminator), no migration is needed.
+- [ ] **DB-unavailable alert:** structured external log/error WHILE the DB is unavailable (no in-app write during a DB outage). AFTER recovery: `getAlertableAdmins(prisma)` + one `adminNotify(prisma, { adminUserId, type: <ADMIN_MAINTENANCE_DEGRADED | existing>, ... })` per recipient carrying the **`RECOVERED` phase** (distinct identity — never suppressed by the earlier `DEGRADED`). **Non-DB degradation (DB still reachable):** the `DEGRADED` in-app notice MAY be written immediately, and a later successful scan emits the distinct `RECOVERED` notice. No email anywhere.
+- [ ] Tests: expiry → `getAlertableAdmins` called + one `adminNotify` per recipient with `adminUserId` (NOT once total) + structured log; **dedup on `sentAt`**: a second expiry within the window emits NO new `adminNotify`; **concurrent-emitter test** (documents best-effort at replicas=1 / the atomic mechanism if chosen); degraded → external log during + per-recipient recovery notice using the explicit type after; **degraded→recovered within the SAME dedup window still emits the `RECOVERED` notice** (distinct phase identity) while a **duplicate same-phase notice inside the window is suppressed**; a **per-row Phase-B failure does not stop later rows and yields needsRescan/full**; redaction pin (no payload/PII); no email path invoked; **async rejection**: a rejecting `adminNotify` is `.catch`'d (NO unhandled rejection; scheduler rescheduling unaffected); **repeated degraded scans** → at most one in-flight per `alertKey` (single-flight/coalesced); **DB-degraded** → in-app write suppressed (log only); **recovery** → exactly one recovery notice after a DB-recovery signal, and a simulated restart mid-outage loses `recoveryPending` → NO notice (best-effort pinned).
 - [ ] **Rollback:** the additive enum value is forward-compatible (no data change; rolling back the image leaves an unused enum value — harmless; no down-migration). Metrics/alerts are observational.
 - [ ] Commit — `feat(queues): maintenance metrics + adminNotify expiry/degraded alerting (+ additive NotificationType migration)`
 
@@ -385,9 +417,9 @@ Docs only. Adds to `docs/runbooks/deploy-security-runbook.md` (or a new maintena
 
 **Spec coverage:** §4.1 per-sweep isolation → A2; §4.2 lock/timeout/tx + phased side-effects → A1; §4.3 ownership + replicas=1 verification → PR-E; §4.4 state machine → A2; §5 delivery semantics → preserved email/idempotency tests; §6 nudge → A2 ACTIVE-on-backlog + kept pending-hours nudge (B); §7 alerting contract → PR-C; §8.3 DB clock → A1/A3/B `dbNow`; §9 cost/rollout → gates + PR-F; §10 O5 out → excluded; §11 alternatives → spec; §12 failure model → adversarial list; §13 cross-check → spec; §14 fail-safe config → A4; §15 owner decisions/rollback → PR-F + [GATED]; §16 holds → unchanged.
 
-**Placeholder scan:** cadence/timeout/window numbers are **[GATED]** on benchmarks/owner decisions (documented decision points). The alert sink is a VERIFIED contract: `getAlertableAdmins()` (active OPS + SUPER_ADMIN) + one `adminNotify(prisma,{adminUserId,type,title,body,referenceId?,referenceType?})` per recipient writing `ADMIN_DELIVERY_FAILED` (expiry) / an explicit degraded `NotificationType`. A routine source-drift recheck is standard; the contract is not deferred.
+**Placeholder scan:** cadence/timeout/window numbers are **[GATED]** on benchmarks/owner decisions (documented decision points). The alert sink is a VERIFIED contract: `getAlertableAdmins()` (active OPS + SUPER_ADMIN) + one `adminNotify(prisma,{adminUserId,type,title,body,referenceId?,referenceType?})` per recipient writing `ADMIN_DELIVERY_FAILED` (expiry) / a **phase-discriminated** degraded/recovery identity (`DEGRADED`/`RECOVERED` in both the single-flight key and the persisted dedup key — a `RECOVERED` notice is never suppressed by a recent `DEGRADED`). A routine source-drift recheck is standard; the contract is not deferred.
 
-**Type consistency:** `SweepState = 'SUCCESS'|'LOCK_SKIPPED'|'TIMEOUT'|'FAILURE'`; `SweepResult{state,full,error?}`; `PhaseBBudget{maxItems,budgetMs,monotonicNowMs}`; `runBoundedSweep(prisma, spec, monotonicNowMs) → SweepResult`; `BoundedSweepSpec{name,lockKey,statementTimeoutMs,txTimeoutMs,phaseBMaxItems,phaseBBudgetMs,dbPhase,runSideEffects}`; `SweepPhaseA(tx,dbNow) → {full,sideEffects}`; `runSideEffects(side,PhaseBBudget) → {full}`; `startMaintenanceScheduler(prisma,cfg,sweeps) → {stop()}`; `SchedulerConfig{idleMs,activeMs,emptyScansToIdle,degradedBaseMs,degradedMaxMs,alertAfterFailures,nowMs,monotonicNowMs}`; `SweepRuntime{spec,enabled,nextEligibleAt,degradedStreak,lastSuccessAt,lastFailureAt}` — consistent across A1-A4, B, C, D.
+**Type consistency:** `SweepState = 'SUCCESS'|'LOCK_SKIPPED'|'TIMEOUT'|'FAILURE'`; `SweepResult{state,full,error?}`; `PhaseBBudget{maxItems,budgetMs,monotonicNowMs}`; `runBoundedSweep(prisma, spec, monotonicNowMs) → SweepResult`; `BoundedSweepSpec{name,lockKey,statementTimeoutMs,txTimeoutMs,phaseBMaxItems,phaseBBudgetMs,dbPhase,runSideEffects}`; `SweepPhaseA(tx,dbNow) → {full,sideEffects}`; `runSideEffects(side,PhaseBBudget) → {full}`; `startMaintenanceScheduler(prisma,cfg,sweeps) → { stop(): Promise<StopResult> }`; `StopResult{drained}`; `SchedulerConfig{idleMs,activeMs,emptyScansToIdle,degradedBaseMs,degradedMaxMs,alertAfterFailures,stopDrainMs,nowMs,monotonicNowMs}`; `SweepRuntime{spec,enabled,nextEligibleAt,degradedStreak,lastSuccessAt,lastFailureAt}` — consistent across A1-A4, B, C, D.
 
 ---
 
