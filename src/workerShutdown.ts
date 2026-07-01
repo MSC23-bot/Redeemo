@@ -68,11 +68,18 @@ export async function runWorkerShutdown(deps: WorkerShutdownDeps): Promise<Worke
   const log = deps.log ?? ((m: string) => console.warn(m))
 
   // (1) Terminal cooperative stop + bounded active-tick drain FIRST — no new
-  //     sweep/row/alert starts from here on.
+  //     sweep/row/alert starts from here on. stop() never rejects by contract,
+  //     but the coordinator must not TRUST that: a rejection (or a synchronous
+  //     throw) here is normalized to the conservative drained:false so every
+  //     later cleanup phase still runs.
   let drained = true
   if (deps.scheduler) {
-    drained = (await deps.scheduler.stop()).drained
-    if (!drained) log('[worker] maintenance tick did not drain within bound — proceeding to force-close')
+    try {
+      drained = (await deps.scheduler.stop()).drained
+    } catch {
+      drained = false // conservative: treat an errored drain as not-drained
+    }
+    if (!drained) log('[worker] maintenance stop/drain did not complete cleanly — proceeding to force-close')
   }
 
   // (2) BullMQ workers close + owned connection quit — BOUNDED. A stuck
@@ -83,9 +90,27 @@ export async function runWorkerShutdown(deps: WorkerShutdownDeps): Promise<Worke
   //     the no-new-operation-after-stop boundary holds even for late settlers.
   let workerPhaseTimedOut = false
   const workerClosePhase = await boundedPhase(
-    Promise.all(deps.workers.map((w) => w.close().catch(() => undefined))).then(() => {
+    // Promise.resolve().then(...) converts a SYNCHRONOUS throw from close()/
+    // quit() into an observed rejection — otherwise it would escape before
+    // boundedPhase ever received a promise and skip the later cleanup phases.
+    Promise.all(
+      deps.workers.map((w) =>
+        Promise.resolve()
+          .then(() => w.close())
+          .catch(() => undefined),
+      ),
+    ).then(() => {
       if (workerPhaseTimedOut) return undefined // late settlement: sockets already force-closed
-      return Promise.all(deps.workerConnections.map((c) => c.quit().then(() => undefined, () => undefined)))
+      return Promise.all(
+        deps.workerConnections.map((c) =>
+          Promise.resolve()
+            .then(() => c.quit())
+            .then(
+              () => undefined,
+              () => undefined,
+            ),
+        ),
+      )
     }),
     deps.workerCloseTimeoutMs,
   )
@@ -120,9 +145,16 @@ export async function runWorkerShutdown(deps: WorkerShutdownDeps): Promise<Worke
 
   // (5) Bounded post-force join: the now-unwinding tick (its in-flight op
   //     rejects on the destroyed connections) is awaited, rejections swallowed.
+  //     A rejection FROM forceJoin itself (contract-violating) is normalized to
+  //     joined:false — the coordinator still returns its summary so the
+  //     caller's process.exit fallback terminates whatever is left.
   let joined = true
   if (deps.scheduler) {
-    joined = (await deps.scheduler.forceJoin(deps.forceJoinTimeoutMs)).joined
+    try {
+      joined = (await deps.scheduler.forceJoin(deps.forceJoinTimeoutMs)).joined
+    } catch {
+      joined = false
+    }
     if (!joined) log('[worker] maintenance tick still unsettled after force-close — process exit terminates it')
   }
 

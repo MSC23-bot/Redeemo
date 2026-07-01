@@ -168,6 +168,44 @@ describe('runWorkerShutdown — ordered, end-to-end bounded', () => {
     expect(summary.workerClosePhase).toBe('ok')
   })
 
+  it('a REJECTED scheduler.stop() is normalized to drained:false and does NOT prevent worker/queue/prisma/force-join cleanup', async () => {
+    const { deps, order, scheduler } = harness()
+    ;(scheduler.stop as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('stop exploded'))
+    const summary = await runWorkerShutdown(deps) // resolves — the coordinator never rejects
+    expect(summary.drained).toBe(false) // conservative normalization
+    expect(order).toEqual(['worker.close', 'conn.quit', 'closeQueues', 'prisma.$disconnect', 'forceJoin']) // EVERY later phase ran, in order
+  })
+
+  it('a REJECTED scheduler.forceJoin() is normalized to joined:false and the coordinator still returns its summary', async () => {
+    const { deps, order, scheduler } = harness()
+    ;(scheduler.forceJoin as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('join exploded'))
+    const summary = await runWorkerShutdown(deps) // resolves — process.exit stays reachable
+    expect(summary.joined).toBe(false)
+    expect(order).toContain('prisma.$disconnect') // every prior phase completed first
+  })
+
+  it('a SYNCHRONOUSLY throwing worker.close() is tolerated — converted to an observed rejection; quits and all later phases still run', async () => {
+    const { deps, order, conn } = harness()
+    ;(deps.workers[0].close as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('sync throw from close()') // NOT a rejected promise — a plain throw
+    })
+    const summary = await runWorkerShutdown(deps)
+    expect(summary.workerClosePhase).toBe('ok') // the throw settled the phase, observed
+    expect(conn.quit).toHaveBeenCalled() // a broken close does not skip the quit chain
+    expect(order).toContain('closeQueues')
+    expect(order).toContain('prisma.$disconnect')
+    expect(order[order.length - 1]).toBe('forceJoin')
+  })
+
+  it('a SYNCHRONOUSLY throwing quit() is likewise tolerated without failing the phase', async () => {
+    const { deps } = harness()
+    ;(deps.workerConnections[0].quit as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('sync throw from quit()')
+    })
+    const summary = await runWorkerShutdown(deps)
+    expect(summary.workerClosePhase).toBe('ok')
+  })
+
   it('scheduler=null (MAINTENANCE_MODE=disabled): maintenance phases are skipped, resources still close in order', async () => {
     const { deps, order } = harness({ scheduler: null })
     const summary = await runWorkerShutdown(deps)
