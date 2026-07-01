@@ -20,7 +20,6 @@ import {
   CLAIM_STALE_AGE_MS,
   CLAIM_STALE_BATCH,
   CLAIM_STALE_SWEEP_LOCK_KEY,
-  type ClaimStaleSide,
 } from '../../../src/api/queues/processors/claimStaleSweep'
 import * as claimStaleModule from '../../../src/api/queues/processors/claimStaleSweep'
 import { adminNotify } from '../../../src/api/shared/adminNotify'
