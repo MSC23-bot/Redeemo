@@ -78,13 +78,19 @@ export async function runWorkerShutdown(deps: WorkerShutdownDeps): Promise<Worke
   // (2) BullMQ workers close + owned connection quit — BOUNDED. A stuck
   //     in-flight job can no longer stall SIGTERM; on timeout the owned
   //     sockets are force-destroyed so no blocking read outlives shutdown.
+  //     `workerPhaseTimedOut` gates the chained quit: if a hung close settles
+  //     LATE (after the timeout + force-disconnect), no NEW quit op may start —
+  //     the no-new-operation-after-stop boundary holds even for late settlers.
+  let workerPhaseTimedOut = false
   const workerClosePhase = await boundedPhase(
-    Promise.all(deps.workers.map((w) => w.close().catch(() => undefined))).then(() =>
-      Promise.all(deps.workerConnections.map((c) => c.quit().then(() => undefined, () => undefined))),
-    ),
+    Promise.all(deps.workers.map((w) => w.close().catch(() => undefined))).then(() => {
+      if (workerPhaseTimedOut) return undefined // late settlement: sockets already force-closed
+      return Promise.all(deps.workerConnections.map((c) => c.quit().then(() => undefined, () => undefined)))
+    }),
     deps.workerCloseTimeoutMs,
   )
   if (workerClosePhase === 'timeout') {
+    workerPhaseTimedOut = true
     log('[worker] BullMQ worker close/quit timed out — force-disconnecting owned connections')
     for (const c of deps.workerConnections) {
       try {

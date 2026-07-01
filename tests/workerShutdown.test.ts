@@ -140,6 +140,25 @@ describe('runWorkerShutdown — ordered, end-to-end bounded', () => {
     // vitest fails the suite on any unhandled rejection — reaching here proves observation.
   })
 
+  it('a hung close that settles LATE (fulfilled) starts NO quit after the force-disconnect — no new op after stop', async () => {
+    let resolveClose!: () => void
+    const { deps, conn } = harness()
+    ;(deps.workers[0].close as ReturnType<typeof vi.fn>).mockImplementation(
+      () =>
+        new Promise<void>((res) => {
+          resolveClose = res
+        }),
+    )
+    const run = runWorkerShutdown(deps)
+    await vi.advanceTimersByTimeAsync(WORKER_MS)
+    const summary = await run
+    expect(summary.workerClosePhase).toBe('timeout')
+    expect(conn.disconnect).toHaveBeenCalled()
+    resolveClose() // the hung close settles AFTER shutdown force-closed the sockets
+    await vi.advanceTimersByTimeAsync(0)
+    expect(conn.quit).not.toHaveBeenCalled() // the late settler may not start a NEW Redis op
+  })
+
   it('quit rejections are tolerated (already-dead connection) without failing the phase', async () => {
     const { deps } = harness()
     ;(deps.workerConnections[0].quit as ReturnType<typeof vi.fn>).mockRejectedValue(
