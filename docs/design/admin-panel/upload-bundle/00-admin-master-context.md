@@ -107,7 +107,7 @@ Wave 1 delivers the Operations spine + Platform governance (Admin Users, Global 
 
 The blueprint's ENGINEERED / PARTIAL / GATED / FUTURE / EXTERNAL tags are review annotations, not mandatory UI badges. In the prototype, distinguish three things:
 - **Feature availability / configuration** (operator-facing where useful): a disabled action with a reason ("requires a signed contract"; "email delivery is not enabled in this environment").
-- **Live operational status** (first-class UI): healthy / degraded / failed / pending / approved for real entities and jobs.
+- **Live operational status** (first-class UI, a bounded control room, NOT an embedded Railway/Neon/Vercel/GitHub/Stripe/Resend/APM replacement): dynamic healthy / degraded / down / unverified / external / gated / unavailable-not-built for real entities and jobs. Separate five layers per signal: source capability, configured capability, deployed-runtime state, provider/account state, observability maturity. A wired provider is NOT operationally live, and runtime/provider bindings are UNVERIFIED (owner-reported where applicable), never inferred; `/health` proves process liveness ONLY; DB/Redis dependency health, worker heartbeat, deployed-SHA/version and APM are net-new or external; raw logs, environment values, secrets and provider telemetry stay external; never embed live credentials, incident details or transient provider values.
 - **Maturity** (mostly design-review only): show a GATED or FUTURE module as a labelled "coming/where-it-is-going" panel with what unlocks it and who decides; do NOT fake a working surface. EXTERNAL surfaces (host metrics, legal pages) link out; never fabricate them in-app.
 
 ---

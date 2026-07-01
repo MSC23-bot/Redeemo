@@ -2,7 +2,7 @@
 
 This folder gathers the documents needed to run the Redeemo **Admin Panel** prototype in Claude Design. It is docs-only design preparation. It authorises no upload and no implementation.
 
-**Governing source of truth:** the merged Admin Panel blueprint at `docs/superpowers/specs/2026-07-01-admin-panel-platform-blueprint.md` (on `main` @ `5ff06d8`). Everything here is derived from and traceable to that blueprint. Where this bundle and the blueprint disagree, the blueprint wins.
+**Governing source of truth:** the merged Admin Panel blueprint at `docs/superpowers/specs/2026-07-01-admin-panel-platform-blueprint.md` (on `main` @ `a97326e1`, reconciliation-amended). Everything here is derived from and traceable to that blueprint. Where this bundle and the blueprint disagree, the blueprint wins. This bundle has been re-derived to reflect the reconciliation amendment (Control Room five-layer + dynamic states, provider-state honesty, D20 owner-deferred, security mechanism-neutrality).
 
 **Status:** DRAFT for owner + Codex review. **Do not upload anything to Claude Design until the owner approves the upload/execution manifest.**
 
@@ -39,13 +39,13 @@ Use ONLY the synthetic sample data in the master context. Never upload real cust
 
 | Item | Source | Availability |
 |---|---|---|
-| Admin Panel blueprint (source of truth) | `docs/superpowers/specs/2026-07-01-admin-panel-platform-blueprint.md`, `main` @ `5ff06d8` (PR #345 squash `5ff06d87`) | TRACKED |
+| Admin Panel blueprint (source of truth) | `docs/superpowers/specs/2026-07-01-admin-panel-platform-blueprint.md`, `main` @ `a97326e1` (PR #345 blueprint squash `5ff06d87` + PR #348 reconciliation amendment squash `a97326e1`) | TRACKED |
 | Merchant reference (primary, text-only) | `merchant-reference-summary.md` (this bundle) | TRACKED |
 | Merchant screenshots (visual anchors) | `docs/superpowers/prototype-references/merchant-web-*` (22 PNGs) | TRACKED |
 | Shared brand + design-system foundations | `docs/design/merchant-portal/design-system/{tokens.css, fonts/, 0*.html}` + `.../upload-bundle/2026-06-10-brand-design-system-foundations-design.md` | OWNER-LOCAL/untracked (essentials duplicated in master §B) |
 | Merchant handoff (shell/dashboard screens) | `docs/design/merchant-portal/prototype-handoff/Redeemo-for-Business-Merchant-Portal-handoff.zip` (contains the `.dc.html`) | OWNER-LOCAL/untracked; capture-on-demand; NOT uploaded/committed |
 | Process template mirrored | `docs/design/merchant-portal/upload-bundle/{CLAUDE-DESIGN-RUNBOOK.md, 2026-06-17-merchant-portal-claude-design-prompt-pack.md, README.md}` | OWNER-LOCAL/untracked; lookup only |
-| Source-capability evidence | `src/api/admin/**`, `src/api/merchant/**`, `prisma/schema.prisma` @ `5ff06d8` (unchanged since the blueprint audit at `37cc0f69`) | TRACKED |
+| Source-capability evidence | `src/api/admin/**`, `src/api/merchant/**`, `prisma/schema.prisma` @ `a97326e1` (source tree unchanged since the blueprint audit at `37cc0f69`; PR #345/#348 were docs-only) | TRACKED |
 
 Any decision to bring the owner-local merchant design files (or the handoff) into the repo is a SEPARATE, explicit preservation/commit decision, not part of this bundle. Do not silently commit the handoff, fonts, prototype HTML, or unrelated untracked merchant artifacts.
 
