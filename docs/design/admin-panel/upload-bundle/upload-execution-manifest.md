@@ -50,7 +50,10 @@ Keep the reference set small and purposeful: the tracked summary + a few tracked
 # TRACKED (must be present in any clone):
 git ls-files docs/superpowers/specs/2026-07-01-admin-panel-platform-blueprint.md
 git ls-files docs/superpowers/prototype-references/ | wc -l          # expect 22
-# OWNER-LOCAL (present only if the owner has the merchant design bundle locally):
+# OWNER-LOCAL fonts (REQUIRED for exact type fidelity; a name is not the font):
+ls docs/design/merchant-portal/design-system/fonts/MusticaPro-SemiBold.otf 2>/dev/null || echo "  MISSING (owner-local, REQUIRED): MusticaPro-SemiBold.otf -> STOP and report per the font rule"
+ls docs/design/merchant-portal/design-system/fonts/Lato-*.ttf 2>/dev/null || echo "  MISSING (owner-local, REQUIRED): Lato .ttf files -> STOP and report per the font rule"
+# OWNER-LOCAL enrichment (optional; not blockers):
 ls docs/design/merchant-portal/design-system/tokens.css 2>/dev/null || echo "  MISSING (owner-local): tokens.css"
 ls docs/design/merchant-portal/design-system/0*.html    2>/dev/null || echo "  MISSING (owner-local): design-system pages"
 ls docs/design/merchant-portal/prototype-handoff/*.zip  2>/dev/null || echo "  MISSING (owner-local): handoff zip"

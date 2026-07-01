@@ -13,7 +13,7 @@ This folder gathers the documents needed to run the Redeemo **Admin Panel** prot
 | `README.md` | This index + provenance. |
 | `00-admin-master-context.md` | The **shared master context** for the whole Admin prototype: platform, brand, relationships, personas + authority, complete information architecture, shell, design direction, status semantics, safety/privacy/legal boundaries, cross-product terminology, responsive/a11y/complete-state rules, and the guardrails that stop Claude Design silently inventing approved product/security decisions. Paste FIRST; every wave inherits it. |
 | `wave-1-foundation-spine-governance-pack.md` | Wave 1: foundation, operational spine and governance (shell + Ops Home, approvals/actioner, merchant directory + Merchant 360, admin-created onboarding, oversight: Global Audit + Admin Users). |
-| `wave-2-relationships-crm-onboarding-support-trust-pack.md` | Wave 2: relationships and CRM, representative-assisted onboarding, support and cases, DSAR, view-as, trust and safety (reviews / fraud-reversals / media / suggested-tags), Customer 360. |
+| `wave-2-relationships-crm-onboarding-support-trust-pack.md` | Wave 2: relationships and CRM, representative-assisted onboarding, support and cases, DSAR, view-as, trust and safety (reviews / fraud-reversals / suggested-tags; media/photo review is designed in Wave 1's Review/Actioner lane), Customer 360. |
 | `wave-3-commercial-content-insights-pack.md` | Wave 3: commercial operations, content and taxonomy, Insights and reporting. |
 | `merchant-reference-summary.md` | The **tracked, text-only, uploadable** Merchant Portal reference: nav + modules, onboarding/approval journey, terminology, lifecycle/status vocabulary, voucher-card + status-pill language, shared shell patterns, and what the Admin Panel must NOT copy. The PRIMARY merchant context (works in a clean clone with none of the raw merchant artifacts present). |
 | `merchant-prototype-linkage-strategy.md` | How to give the Admin session the Merchant Portal prototype context safely (the mechanism, what to reuse, what must differ, token efficiency). Grounded in the actual Claude Design / DesignSync capabilities. |
@@ -26,7 +26,7 @@ This folder gathers the documents needed to run the Redeemo **Admin Panel** prot
 ## Recommended use (summary; full detail in the manifest and runbook)
 
 1. Read the merged blueprint first (it is the source of truth).
-2. Upload the blueprint + `00-admin-master-context.md` + the shared brand/design-system foundations as Claude Design context; paste the master context, then the design direction.
+2. Upload the blueprint + `00-admin-master-context.md` + `merchant-reference-summary.md` + the shared brand/design-system foundations as Claude Design context; paste the master context, then the design direction.
 3. Establish the shared design system + dense operator shell FIRST (before any screen).
 4. Run **Wave 1**, review at its checkpoint, then **Wave 2**, then **Wave 3** (each inherits the approved foundation from the prior wave; you do not re-paste the whole context).
 5. Preserve outputs (screenshots, code, tokens, handoff) under `docs/design/admin-panel/` per the runbook.

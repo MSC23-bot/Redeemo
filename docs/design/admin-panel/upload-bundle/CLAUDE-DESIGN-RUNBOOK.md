@@ -32,7 +32,7 @@ Follow each wave pack's screen list. Across the whole panel the recommended glob
 Stay prompt-only (browser) for the entire design pass. Use DesignSync afterwards (with Claude Code) to round-trip the finalized component library into the repo, incrementally, one component at a time, never wholesale, after you authorize design access. Prompt-only to DESIGN; DesignSync to PRESERVE.
 
 ## 5. File and folder naming under docs/design/admin-panel/
-```
+```text
 docs/design/admin-panel/
   upload-bundle/                (this bundle)
   screenshots/                  <wave>.<n>-<screen>-<device>[-<state>].png  (e.g. 1.4-review-onboarding-desktop-changes-requested.png)
