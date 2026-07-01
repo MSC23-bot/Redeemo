@@ -6,7 +6,7 @@
 >
 > **Companion docs (anchors):** `docs/runbooks/deploy-security-runbook.md` (build/migration/two-process/Neon/rollback), `docs/runbooks/2026-06-25-staging-deploy-runbook.md` (current staging infra state + the 🛑 "do not recreate the Neon branch" warning), `docs/runbooks/railway-backend-hosting-plan.md` (Railway shape, D-3 direct endpoint), `docs/PROJECT-STATE.md` (canonical state — Karaara staging cleanup UNVERIFIED; owner-intended branch/draft-voucher/data to preserve), and the architecture docs `docs/superpowers/specs/2026-06-29-encryption-key-rotation-architecture-design.md` + `docs/superpowers/plans/2026-06-29-encryption-key-rotation-architecture.md`.
 >
-> **Source of truth for the code behaviour cited below:** `src/api/shared/keyring.ts`, `src/api/shared/keyringVerify.ts`, `src/worker.ts`, `src/index.ts`, `prisma/migrations/20260629000000_keyring_fingerprint/migration.sql`, `prisma.config.ts`, `package.json` (all on `main` @ the current tip — R1 code is identical to the R1 merge `b66b0f95`; the only commit since is the docs-only PR #341).
+> **Source of truth for the code behaviour cited below:** `src/api/shared/keyring.ts`, `src/api/shared/keyringVerify.ts`, `src/worker.ts`, `src/index.ts`, `prisma/migrations/20260629000000_keyring_fingerprint/migration.sql`, `prisma.config.ts`, `package.json` (all on `main` @ the recorded current tip — **all commits since the R1 merge `b66b0f95` through the recorded tip are docs-only; `src/` equivalence to `b66b0f95` must be re-verified** — see P3).
 
 ---
 
@@ -120,14 +120,18 @@ Expected: a non-null `keyring_table`. The table is **empty** until Web boots (§
 
 - **The normal worker stays OFFLINE.** Do **not** start `node dist/src/worker.js` (its normal `main()` registers the email + outbox-reconciler (60s) + claim-stale (hourly) + promote-pending-hours (60s) + moderation workers — these sweeps are the Neon compute-burn; `src/worker.ts` lines 59-96).
 - **Obtain worker parity via the ephemeral verify-only run.** `--verify-keyring-and-exit` is parsed **before** any BullMQ is registered (`src/worker.ts` lines 39-57): it constructs Prisma, `$connect`s, publishes the **`worker`** `KeyringFingerprint` row, prints `published=…`, and **exits** — registering **no** Worker / queue / repeatable, with `$disconnect()` guaranteed in `finally` (`src/api/shared/keyringVerify.ts`). It exits **0** only on a successful publish, **1** on any failure (a failed publish must not read as green).
-- **Run it from a controlled operator host with the worker's KEYRING env + a direct-endpoint `DATABASE_URL` injected into the OPERATOR process** (OD8). The worker's **keyring** config (incl. `ENCRYPTION_KEY`, matching the Railway worker service so the published fingerprint is correct) + the **operator-process `DATABASE_URL`** (= the staging **direct** endpoint, injected by the secret store first — **NOT** the worker Railway service's **pooled** runtime `DATABASE_URL`) are never typed inline. Build the R1 image (`npm ci && npm run build`), then:
+- **Run it from a controlled operator host with the worker's KEYRING env + a direct-endpoint `DATABASE_URL` injected into the OPERATOR process** (OD8). The worker's **keyring** config (incl. `ENCRYPTION_KEY`, matching the Railway worker service so the published fingerprint is correct) + the **operator-process `DATABASE_URL`** (= the staging **direct** endpoint, injected by the secret store first — **NOT** the worker Railway service's **pooled** runtime `DATABASE_URL`) are never typed inline.
+- **Do NOT use `railway run --service worker -- …`** (or any command that injects the worker service's **unmodified** environment) for this probe — it supplies the worker service's **pooled** runtime `DATABASE_URL` and would send the fingerprint probe through the **prohibited pooled path**. The operator process must carry the worker's **keyring** config (so the published fingerprint matches the Railway worker service) **while** `DATABASE_URL` stays the **separately-injected DIRECT** operator credential (`P1b` + §3.0 verified **before** the probe; no secret inline/printed). **No single existing verified command guarantees BOTH** the worker keyring env AND a direct `DATABASE_URL` without an unsafe override/precedence, so the exact provider/operator injection mechanism is **OWNER-GATED**: the owner supplies the two env sets without an inline secret and **confirms via §3.0 that the probe's `DATABASE_URL` resolves to the DIRECT endpoint** before running.
+- Build the R1 image (`npm ci && npm run build`), then run the built worker entrypoint with the operator env prepared as above:
 ```bash
-# Worker service env injected (e.g. via `railway run --service worker -- …`); built R1 worker entrypoint:
+# Operator process env prepared per the bullets above: the worker KEYRING config (matching the Railway
+# worker service, so the fingerprint is correct) AND DATABASE_URL = the separately-injected DIRECT
+# operator credential (NOT the worker service's pooled runtime var; nothing inline/printed; §3.0-verified).
 node dist/src/worker.js --verify-keyring-and-exit
 ```
 Expected stdout: `[worker] --verify-keyring-and-exit: fingerprint published=true; exiting without starting BullMQ.` and **exit code 0**.
 - **Do NOT leave anything running, and do NOT restore the normal worker start command** (§11). This probe is the only worker action.
-- If the platform path is a Railway one-off/exec rather than an operator machine: it must run the verify command (not the daemon), exit cleanly, and must **not** flip the service into a normally-running (sweeping) state.
+- If the platform path is a Railway one-off/exec rather than an operator machine: it must run the verify command (not the daemon), exit cleanly, must **not** flip the service into a normally-running (sweeping) state, **and must still ensure `DATABASE_URL` is the separately-injected DIRECT operator credential — NOT the service's pooled runtime var** (a Railway one-off/exec inherits the worker service's **pooled** env, so the same **OWNER-GATED** direct-`DATABASE_URL` requirement above applies, §3.0-verified before the probe).
 
 ---
 
