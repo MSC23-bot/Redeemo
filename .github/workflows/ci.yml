@@ -256,6 +256,14 @@ jobs:
         continue-on-error: true
         run: npm run test:integration:insights
 
+      # Neon CU-burn PR-A Task A1: the maintenance-sweep real-DB suite (advisory,
+      # same disposable loopback service). Verifies the advisory-lock /
+      # statement-timeout / rollback semantics that unit mocks cannot prove.
+      - name: Run maintenance-sweep integration pilot (advisory)
+        id: maintenance_pilot
+        continue-on-error: true
+        run: npm run test:integration:maintenance
+
       # Surface PASS/FAIL explicitly (never swallowed): a FAIL is written to the job
       # summary AND the step above shows failed-but-continued, while the job stays green.
       - name: Report pilot result (job summary)
@@ -267,4 +275,9 @@ jobs:
             echo "Advisory Insights pilot: FAIL (non-blocking in G1a1)" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "The 11 Insights real-DB suites did not all pass. See the 'Run Insights integration pilot (advisory)' step logs above. This is surfaced but does NOT block the SHA-bound merge during G1a1; PR-G1a2 (owner-approved) promotes this to a required FAILING check." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${{ steps.maintenance_pilot.outcome }}" = "success" ]; then
+            echo "Advisory maintenance-sweep pilot: PASS" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Advisory maintenance-sweep pilot: FAIL (non-blocking)" >> "$GITHUB_STEP_SUMMARY"
           fi
