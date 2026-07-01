@@ -116,6 +116,124 @@ export function requireSecretWhenEnabled(
  * app) so a misconfigured deploy fails fast with the complete list. Also checks
  * the feature-gated secrets whose flags are currently ON.
  */
+// ---------------------------------------------------------------------------
+// Neon CU-burn PR-A Task A4: fail-safe maintenance-scheduler configuration.
+// Governing docs: spec §14 (canonical startup policy) + plan Task A4.
+//
+// Canonical order — MAINTENANCE_MODE is resolved FIRST, then the scheduler
+// values: (1) `MAINTENANCE_MODE=disabled` is the ONLY intentional
+// maintenance-off path (the worker boots WITHOUT the scheduler + a loud
+// structured log; scheduler values are NOT required); (2) unset or `enabled`
+// ⇒ maintenance ON ⇒ every required value must be present AND valid, else the
+// validator THROWS and the worker exits non-zero; (3) any other value ⇒ THROW
+// (an unsupported mode is never coerced to disabled or enabled). A validation
+// failure NEVER silently becomes disabled mode — there is no silent
+// half-running default, no defaulted cadence, and no legacy-60s path.
+// ---------------------------------------------------------------------------
+
+/** The Neon free-tier scale-to-zero window: the idle floor must exceed it. */
+export const MAINTENANCE_IDLE_FLOOR_MIN_MS = 300_000
+
+export type MaintenanceConfig =
+  | { mode: 'disabled' }
+  | {
+      mode: 'enabled'
+      floorIdleMs: number
+      floorActiveMs: number
+      phaseBMaxItems: number
+      phaseBBudgetMs: number
+      statementTimeoutMs: number
+      txTimeoutMs: number
+      sweepOutboxEnabled: boolean
+    }
+
+function parseIntVar(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  problems: string[],
+  opts: { exclusiveMin: number; label?: string },
+): number | undefined {
+  const raw = env[name]
+  if (raw === undefined || raw.trim() === '') {
+    problems.push(`${name} is not set (required when maintenance is enabled)`)
+    return undefined
+  }
+  const n = Number(raw)
+  if (!Number.isInteger(n)) {
+    problems.push(`${name} must be an integer, got "${raw}"`)
+    return undefined
+  }
+  if (n <= opts.exclusiveMin) {
+    problems.push(`${name} must be > ${opts.exclusiveMin}${opts.label ? ` (${opts.label})` : ''}, got ${n}`)
+    return undefined
+  }
+  return n
+}
+
+function parseBoolVar(env: NodeJS.ProcessEnv, name: string, problems: string[]): boolean | undefined {
+  const raw = env[name]
+  if (raw !== 'true' && raw !== 'false') {
+    problems.push(`${name} must be exactly "true" or "false" (required when maintenance is enabled), got "${raw ?? ''}"`)
+    return undefined
+  }
+  return raw === 'true'
+}
+
+/**
+ * Resolve the maintenance-scheduler configuration, fail-closed. Pure (takes the
+ * env record) so tests exercise every branch directly. Throws ONE aggregated
+ * error on any invalid/missing value; an invalid config FAILS the process, it
+ * does not disable it.
+ */
+export function resolveMaintenanceConfig(env: NodeJS.ProcessEnv): MaintenanceConfig {
+  // (1) Resolve MAINTENANCE_MODE before any scheduler-value validation.
+  const rawMode = env.MAINTENANCE_MODE
+  if (rawMode === 'disabled') return { mode: 'disabled' }
+  if (rawMode !== undefined && rawMode.trim() !== '' && rawMode !== 'enabled') {
+    throw new Error(
+      `[env] Refusing to start — unsupported MAINTENANCE_MODE "${rawMode}". ` +
+        `Use "disabled" (explicit maintenance-off) or "enabled"/unset (default enabled); ` +
+        `an unrecognised mode is never coerced.`,
+    )
+  }
+  // (2) Enabled (explicit or defaulted): every required value present AND valid.
+  const problems: string[] = []
+  const floorIdleMs = parseIntVar(env, 'MAINTENANCE_FLOOR_IDLE_MS', problems, {
+    exclusiveMin: MAINTENANCE_IDLE_FLOOR_MIN_MS,
+    label: 'must exceed the Neon 5-minute scale-to-zero window',
+  })
+  const floorActiveMs = parseIntVar(env, 'MAINTENANCE_FLOOR_ACTIVE_MS', problems, { exclusiveMin: 0 })
+  const phaseBMaxItems = parseIntVar(env, 'MAINTENANCE_PHASE_B_MAX_ITEMS', problems, { exclusiveMin: 0 })
+  const phaseBBudgetMs = parseIntVar(env, 'MAINTENANCE_PHASE_B_BUDGET_MS', problems, { exclusiveMin: 0 })
+  const statementTimeoutMs = parseIntVar(env, 'MAINTENANCE_STATEMENT_TIMEOUT_MS', problems, { exclusiveMin: 0 })
+  const txTimeoutMs = parseIntVar(env, 'MAINTENANCE_TX_TIMEOUT_MS', problems, { exclusiveMin: 0 })
+  const sweepOutboxEnabled = parseBoolVar(env, 'MAINTENANCE_SWEEP_OUTBOX_ENABLED', problems)
+  if (statementTimeoutMs !== undefined && txTimeoutMs !== undefined && statementTimeoutMs >= txTimeoutMs) {
+    problems.push(
+      `MAINTENANCE_STATEMENT_TIMEOUT_MS (${statementTimeoutMs}) must be < MAINTENANCE_TX_TIMEOUT_MS (${txTimeoutMs})`,
+    )
+  }
+  // (3) A validation failure NEVER silently becomes disabled mode.
+  if (problems.length > 0) {
+    throw new Error(
+      `[env] Refusing to start — maintenance is enabled (MAINTENANCE_MODE=${rawMode ?? 'unset ⇒ enabled'}) ` +
+        `but its configuration is missing or invalid:\n` +
+        problems.map((p) => `  - ${p}`).join('\n') +
+        `\nSet the values, or set MAINTENANCE_MODE=disabled to boot intentionally without the scheduler.`,
+    )
+  }
+  return {
+    mode: 'enabled',
+    floorIdleMs: floorIdleMs!,
+    floorActiveMs: floorActiveMs!,
+    phaseBMaxItems: phaseBMaxItems!,
+    phaseBBudgetMs: phaseBBudgetMs!,
+    statementTimeoutMs: statementTimeoutMs!,
+    txTimeoutMs: txTimeoutMs!,
+    sweepOutboxEnabled: sweepOutboxEnabled!,
+  }
+}
+
 export function validateRequiredEnv(): void {
   const problems: string[] = []
   for (const name of REQUIRED_SECRETS) {
