@@ -40,10 +40,10 @@ Acknowledge this context, then wait for the design direction (Section B) before 
 
 ## B. DESIGN DIRECTION PROMPT (paste second)
 
-Brand is non-negotiable and identical to the Merchant Portal you built.
+Brand is non-negotiable and identical to the previously-created Redeemo Merchant Portal prototype (represented by the attached reference pack; do not assume any cross-project memory of it).
 
 - **Colour (exact):** Rose (brand red) `#E20C04`, coral `#E84A00`, navy `#010C35`, cream `#FFF9F5`. This is the Merchant Portal's palette; "Rose" is that portal's name for the brand red, used here for continuity. The Rose/coral gradient is reserved for the single primary action per view. Navy is the typographic ink, never a status colour. Cream is the calm canvas. Status colour lives in labelled pills, never colour-alone.
-- **Type (exact, two families only):** Mustica Pro SemiBold for display/headings; Lato (Regular/Medium/Semibold/Bold) for body and labels. No third font.
+- **Type (exact, two families only):** Mustica Pro SemiBold for display/headings; Lato (Regular/Medium/Semibold/Bold) for body and labels. No third font. Exact type fidelity requires the actual Mustica Pro SemiBold + Lato font FILES supplied at CP-0 (a font name is not the font asset); if they cannot be supplied or Claude Design cannot ingest them, STOP and report the limitation, and any fallback typeface needs explicit owner approval.
 - **60-30-10:** cream/white 60-30, brand accent under ~10 per cent per screen.
 - **No emojis. No em-dashes** in any UI text (use colon, semicolon, parentheses, hyphen). British English.
 - **Density and register (this is where Admin DIVERGES from the Merchant Portal):** the Merchant Portal is warm and generous for a cafe owner. The Admin Panel is a dense operations console for a trained operator. Prefer multi-column data tables and split-panes over big rounded marketing cards. Use Mustica for the single dominant element per screen (page title, or the merchant name on a review screen); keep operational content in Lato at table density. Tighter spacing, hairline dividers, calm restraint. One glow primary action per view; most actions are secondary/ghost so the queue does not shout.

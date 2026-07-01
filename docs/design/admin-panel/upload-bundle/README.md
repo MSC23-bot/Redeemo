@@ -35,7 +35,7 @@ Use ONLY the synthetic sample data in the master context. Never upload real cust
 
 ## Provenance
 
-**Availability of every source is classified in `upload-execution-manifest.md` §2A** (the exact asset manifest + a pre-upload existence check). Key point for a clean-clone reviewer: `docs/design/` is NOT tracked (0 tracked files), so everything under `docs/design/merchant-portal/**` is **owner-local/untracked** and will be ABSENT from a fresh clone and from the D14 worktree; the `docs/superpowers/prototype-references/*.png` (22) and this bundle ARE tracked. The tracked, text-only `merchant-reference-summary.md` deliberately carries the essential merchant context so the reference does not depend on those untracked artifacts.
+**Availability of every source is classified in `upload-execution-manifest.md` §2A** (the exact asset manifest + a pre-upload existence check). Key point for a clean-clone reviewer: `docs/design/merchant-portal/**` currently has **zero tracked files** (this Admin bundle under `docs/design/admin-panel/` IS tracked), so everything under `docs/design/merchant-portal/**` is **owner-local/untracked** and will be ABSENT from a fresh clone and from the D14 worktree; the `docs/superpowers/prototype-references/*.png` (22), the merchant product blueprint under `docs/superpowers/specs/`, and this bundle ARE tracked. The tracked, text-only `merchant-reference-summary.md` deliberately carries the essential merchant context so the reference does not depend on those untracked artifacts.
 
 | Item | Source | Availability |
 |---|---|---|

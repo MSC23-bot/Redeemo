@@ -4,7 +4,7 @@ A concise, self-contained summary of the "Redeemo for Business" Merchant Portal 
 
 **Anchors, not an exhaustive limit.** These are the merchant patterns the Admin Panel should recognise and stay continuous with. The Admin Panel is the OPERATOR side of the same platform; it reuses the brand and vocabulary but is a dense operations console, not a copy (see the last section, "What the Admin Panel must deliberately NOT copy").
 
-Source of truth for these facts: the merged Merchant Portal blueprint (`docs/superpowers/specs/2026-06-16-merchant-portal-product-blueprint.md`) and its Claude Design prompt pack (`docs/design/merchant-portal/upload-bundle/2026-06-17-merchant-portal-claude-design-prompt-pack.md`) in the owner's checkout. Both are owner-local/untracked; this summary distils them.
+Source of truth for these facts: the merged Merchant Portal blueprint (`docs/superpowers/specs/2026-06-16-merchant-portal-product-blueprint.md`, which is TRACKED in the repo) and its Claude Design prompt pack (`docs/design/merchant-portal/upload-bundle/2026-06-17-merchant-portal-claude-design-prompt-pack.md`, which is owner-local/untracked). This summary distils both.
 
 ## 1. Merchant Portal navigation and modules
 A grouped left sidebar with a **live-status pill at the very top** (Setting up / Submitted / In review / Changes needed / Live / Suspended), then:
@@ -31,7 +31,7 @@ Submission states the merchant sees: Submitted, In review, Changes requested (a 
 - **Redemption:** customer opens a voucher in the app, gets a short code (+ QR); staff validate in store ("Validate a code" in the portal, QR on the staff app later). A record carries voucher, branch, date/time, method (manual/QR), status (validated/pending), validating staff, and the saving amount, but **never an individual customer's identity** in a row. Cycles: once per monthly cycle across all branches; reusable cooldown (>= 30 min); time-limited windows.
 
 ## 4. Lifecycle / status vocabulary (two distinct signals, never colour-alone)
-- **Voucher lifecycle:** Draft, Pending approval, Active/Live, Inactive/Paused, Expired, Archived.
+- **Voucher lifecycle (persisted states):** Draft (DRAFT), Pending approval (PENDING_APPROVAL), Active/Live (ACTIVE), Inactive/Paused (INACTIVE), Expired (EXPIRED). (Archive is an ACTION available on inactive/expired vouchers, not a persisted lifecycle state; treat any "Archived" surface as a prototype action, not a backend enum.)
 - **Voucher approval:** Pending, Approved, Changes requested, Rejected.
 - **Merchant lifecycle:** Setting up (registered), Submitted, In review, Changes needed, Live (active), Suspended (immediate takedown, vouchers instantly hidden), Inactive, Deleted.
 - Lifecycle status and approval status are always paired with a label or icon, shown as two visually distinct pills.
@@ -52,4 +52,4 @@ Submission states the merchant sees: Submitted, In review, Changes requested (a 
 - **Privacy scope:** the merchant only ever sees its own aggregate customer data. The Admin Panel handles cross-merchant customer PII, so it needs PII gating + reveal-on-demand + audit, no customer-home mapping, DPIA-gated analytics, and the redemption PIN never shown.
 - **Voucher builder:** the merchant portal's teaching offer-builder is a merchant surface. The Admin equivalent is a review/approve + allow-listed concierge-edit surface, not a full builder.
 
-*Reference summary only. Distilled from the merchant blueprint + prompt pack; where a specific merchant behaviour must be confirmed, consult those owner-local source docs. No Admin Panel code, schema, or build is authorised.*
+*Reference summary only. Distilled from the merchant blueprint (tracked) + prompt pack (owner-local); where a specific merchant behaviour must be confirmed, consult those source docs. No Admin Panel code, schema, or build is authorised.*
