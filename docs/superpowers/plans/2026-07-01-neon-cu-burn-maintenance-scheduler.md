@@ -40,7 +40,7 @@
 | `src/api/queues/processors/claimStaleSweep.ts` (modify) | Delete `scheduleClaimStaleSweep`; re-parameterise `sweepStaleClaims` on `tx` + `dbNow` | B |
 | `src/api/shared/env.ts` (modify) | Fail-safe maintenance config validation (§14) | A, B |
 | `tests/api/queues/maintenanceSweep.integration.test.ts` (create) | **Loopback Postgres**: lock held for the whole tx; timeout rolls back + releases + cancels; two concurrent holders of one key → one runs; per-sweep keys don't block each other; `dbNow` used not app clock | A |
-| `tests/api/queues/maintenanceScheduler.test.ts` (create) | Per-sweep isolation + unexpected-rejection handling, per-sweep backoff, sequential bounds, single-flight, ACTIVE-on-needsRescan, config fail-closed (non-zero startup) | A |
+| `tests/api/queues/maintenanceScheduler.test.ts` (create) | Per-sweep isolation + unexpected-rejection handling, per-sweep backoff, sequential bounds, single-flight, ACTIVE-on-needsRescan, config fail-closed (non-zero startup), cooperative-stop drain (before/after each sweep + Phase-B predicate) + `forceJoin` | A |
 | `tests/api/queues/maintenanceMetrics.test.ts` (create) | expiry → deduped adminNotify + log; degraded → external log then a distinct-phase recovery notice (recovery NOT suppressed by a recent degraded); redaction; no email | C |
 | `tests/api/queues/maintenance-contract-guard.test.ts` (create) | Registration-contract guard (primary) + static scan (secondary) | D |
 
@@ -90,7 +90,7 @@ export interface SweepPhaseA<TSide> {
   /** Light, DB-only work on `tx` (the connection holding the lock), using `dbNow`. Returns Phase-B side-effects. */
   (tx: Prisma.TransactionClient, dbNow: Date): Promise<{ full: boolean; sideEffects: TSide }>
 }
-export interface PhaseBBudget { maxItems: number; budgetMs: number; monotonicNowMs: () => number }
+export interface PhaseBBudget { maxItems: number; budgetMs: number; monotonicNowMs: () => number; isStopping: () => boolean }
 export interface BoundedSweepSpec<TSide> {
   name: string
   lockKey: bigint             // distinct per sweep
@@ -104,14 +104,17 @@ export interface BoundedSweepSpec<TSide> {
    *  in-flight `Queue.add`, which can block on a Redis outage because the shared connection uses
    *  maxRetriesPerRequest:null. The full finite producer LIFECYCLE is locked by §4.2 / Task A5; only its
    *  numeric values are benchmark/owner-gated. Each row runs in its OWN try/catch: a per-row failure does
-   *  NOT stop later rows. Returns full=true (needsRescan) if the item cap or time budget was hit with rows
+   *  NOT stop later rows. COOPERATIVE SHUTDOWN (Codex): it ALSO checks `budget.isStopping()` BEFORE starting each
+   *  row/side-effect and returns full=true immediately when stopping — so once stop() is requested NO new row starts
+   *  (the unprocessed durable rows stay QUEUED/PENDING and are re-selected next scan). It does NOT cancel a row
+   *  already awaiting Redis/DB. Returns full=true (needsRescan) if the item cap or time budget was hit with rows
    *  remaining, OR any row failed, OR Phase A returned a full batch — so the scheduler stays on ACTIVE cadence
    *  and the durable rows are re-selected next scan. */
   runSideEffects: (side: TSide, budget: PhaseBBudget) => Promise<{ full: boolean }>
 }
 
 export async function runBoundedSweep<TSide>(
-  prisma: PrismaClient, spec: BoundedSweepSpec<TSide>, monotonicNowMs: () => number,
+  prisma: PrismaClient, spec: BoundedSweepSpec<TSide>, monotonicNowMs: () => number, isStopping: () => boolean,
 ): Promise<SweepResult> {
   let acquired = false, full = false, side: TSide | undefined
   try {
@@ -131,10 +134,11 @@ export async function runBoundedSweep<TSide>(
     return { state: isTimeout(err) ? 'TIMEOUT' : 'FAILURE', full: false, error: err }
   }
   if (!acquired) return { state: 'LOCK_SKIPPED', full: false }
-  // (5) Phase B: item-capped + monotonic-soft-time-budgeted, per-row-isolated, durably reschedulable
+  if (isStopping()) return { state: 'SUCCESS', full: true }               // stop requested after Phase A → skip Phase B; durable rows deferred (needsRescan)
+  // (5) Phase B: item-capped + monotonic-soft-time-budgeted, per-row-isolated, durably reschedulable, cooperative-stop-aware
   try {
     const b = side !== undefined
-      ? await spec.runSideEffects(side, { maxItems: spec.phaseBMaxItems, budgetMs: spec.phaseBBudgetMs, monotonicNowMs })
+      ? await spec.runSideEffects(side, { maxItems: spec.phaseBMaxItems, budgetMs: spec.phaseBBudgetMs, monotonicNowMs, isStopping })
       : { full }
     return { state: 'SUCCESS', full: full || b.full }
   } catch (err) {
@@ -176,6 +180,12 @@ Config: `F_idle` **[GATED]** default 30 min prod / 60 min staging (validated > 5
 // 11. concurrent stop(): two stop() calls return the SAME drain Promise (one drain, not two).
 // 12. drain timeout: an active tick outlasting stopDrainMs → stop() resolves { drained:false } (reported to A6 for
 //     real force-close); the timeout does NOT cancel the tick (no cancellation claim) and produces no unhandled rejection.
+// 13. cooperative stop mid-tick (mutation-resistant): sweeps [A,B,C]; stop() during A → the loop's post-await
+//     `stopped` check BREAKS; runBoundedSweep is NEVER invoked for B or C (assert the spy call-count, not just timing).
+// 14. Phase-B cooperative stop (mutation-resistant): runSideEffects sees isStopping() true before row k → returns
+//     full=true and rows k..n are never STARTED (assert no side-effect fired for k..n; the durable rows are needsRescan).
+// 15. forceJoin: after a drain timeout + simulated force-close (the in-flight op rejects), forceJoin(boundMs) awaits
+//     the unwinding tick and resolves { joined:true } with NO unhandled rejection; a still-hung tick → { joined:false }.
 ```
 
 - [ ] **Step 2: Run to verify they fail.**
@@ -198,6 +208,7 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
   let stopped = false, tickInFlight = false, timer: NodeJS.Timeout | null = null   // single-flight (Codex #3)
   let activeTick: Promise<void> | null = null                                       // the in-flight tick Promise — enables the shutdown DRAIN (Codex)
   let stopping: Promise<StopResult> | null = null                                   // idempotent stop: concurrent callers share ONE drain (Codex)
+  const isStopping = () => stopped                                                   // TERMINAL cooperative stop predicate — threaded into the tick loop + Phase B (Codex)
   const emptyRun = new Map<string, number>()
 
   function setNext(s: SweepRuntime, delay: number) { s.nextEligibleAt = cfg.nowMs() + delay } // NO arm() here (Codex #4)
@@ -206,7 +217,7 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
   async function runOne(s: SweepRuntime) {
     try {
       let res: SweepResult
-      try { res = await runBoundedSweep(prisma, s.spec, cfg.monotonicNowMs) }   // explicit state; own lock/tx/budget
+      try { res = await runBoundedSweep(prisma, s.spec, cfg.monotonicNowMs, isStopping) }   // explicit state; own lock/tx/budget; cooperative stop threaded into Phase B
       catch (err) { res = { state: 'FAILURE', full: false, error: err } }       // UNEXPECTED rejection → FAILURE for THIS sweep (Codex #1)
       switch (res.state) {
         case 'SUCCESS': {
@@ -237,7 +248,11 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
     activeTick = (async () => {                                            // publish the in-flight tick Promise so stop() can DRAIN it (Codex)
       try {
         const now = cfg.nowMs()
-        for (const s of sweeps) if (s.enabled && s.nextEligibleAt <= now) await runOne(s)  // SEQUENTIAL; runOne never rejects
+        for (const s of sweeps) {                                          // COOPERATIVE STOP (Codex): check `stopped` BEFORE each sweep AND after its awaited work
+          if (stopped) break                                               // before: no new sweep starts once stop was requested
+          if (s.enabled && s.nextEligibleAt <= now) await runOne(s)        // SEQUENTIAL; runOne never rejects
+          if (stopped) break                                               // after the await: the settled/rejected op does NOT fall through into a sibling sweep
+        }
       } finally { tickInFlight = false; activeTick = null; if (!stopped) arm() }  // arm ONCE after the tick, and ONLY if not stopping (Codex #4 + shutdown)
     })()
   }
@@ -270,6 +285,21 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
         finally { if (bound) clearTimeout(bound) }                        // never leak the drain timer
       })()
       return stopping
+    },
+    // BOUNDED POST-FORCE JOIN (Codex): A6 calls this AFTER force-closing Queue/Redis/Prisma. The still-unwinding
+    // tick rejects on its destroyed connection, is caught at every layer (runOne never rejects), then BREAKS on
+    // `stopped` — so it starts NO new work and settles. This awaits it within `boundMs`, swallowing any rejection.
+    // joined=false → even this bound elapsed → the equally-safe process-termination fallback (worker.ts
+    // `finally { process.exit() }`, worker.ts:114) applies; `stopped` being TERMINAL guarantees no new DB/Redis op.
+    async forceJoin(boundMs: number): Promise<{ joined: boolean }> {
+      const inFlight = activeTick
+      if (!inFlight) return { joined: true }                              // tick already settled during the drain
+      let bound: NodeJS.Timeout | undefined
+      const deadline = new Promise<'timeout'>((res) => { bound = setTimeout(() => res('timeout'), boundMs) })
+      try {
+        const outcome = await Promise.race([inFlight.then(() => 'joined' as const).catch(() => 'joined' as const), deadline])
+        return { joined: outcome === 'joined' }
+      } finally { if (bound) clearTimeout(bound) }
     },
   }
 }
@@ -328,8 +358,19 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
 
 **Files:** modify `src/worker.ts` (shutdown sequence) + `src/api/queues/index.ts` (`closeQueues` bounded close + force-disconnect); wire `AlertSink.stop()`; test `tests/api/queues/shutdown.integration.test.ts`.
 
-- [ ] Shutdown contract (ORDERED — the scheduler tick DRAINS before any resource is closed): (1) **`await scheduler.stop()`** — the async, idempotent, bounded active-tick drain (sets `stopped`, clears the timer, prevents any new tick/re-arm, tracks the ACTIVE TICK Promise, awaits it within `stopDrainMs`); it resolves `{ drained:true }` if the tick settled or `{ drained:false }` if the bound expired (the timeout does NOT cancel the tick — the force-close below terminates the resources instead). Worker shutdown AWAITS this before touching Queue/Redis/Prisma, so no sweep DB/Redis op is still starting when resources close; (2) **`AlertSink.stop()`** (no new producer/alert work); (3) bounded graceful `Queue.close()` + producer connection `quit()` within a bound; (4) on expiry, explicitly `disconnect()`/destroy the producer connection (**REAL force-close** — socket destroyed — NOT a cosmetic `Promise.race`); (5) no lingering producer socket/timer/event-loop handle; (6) `AlertSink` bounded drain of in-flight writes, then controlled Prisma `$disconnect()`, all rejections caught; shutdown never waits indefinitely. `recoveryPending` stays best-effort across restart. **Ordering invariant: `await scheduler.stop()` → `AlertSink.stop()` → bounded `Queue.close()`/`quit()` → force-`disconnect()` → Prisma `$disconnect()`.**
-- [ ] Tests: **drain success before teardown** — a tick in flight at shutdown is awaited to settle and NO Queue/Redis/Prisma close begins until `scheduler.stop()` resolves; **drain timeout then A6 force-close** — a tick outlasting `stopDrainMs` yields `{ drained:false }` and the sequence proceeds to the REAL force-close (the tick is NOT claimed cancelled), every rejection caught; **no DB/Redis operation starts after resources are closed** — once `$disconnect()`/force-`disconnect()` have run, no sweep issues a further DB/Redis call; Redis-unavailable / half-open shutdown completes within the bound, **including while the producer is in initial connect/readiness (Redis down at cold start)**; force-`disconnect()` destroys the producer connection; **no lingering handles** after shutdown (process exits / `why-is-node-running`-style assert / all owned connections destroyed); an in-flight AlertSink write racing `$disconnect()` rejects and is caught (no unhandled rejection); no new alert launched after `stop()`; **concurrent `stop()` calls share one drain Promise**.
+- [ ] Shutdown contract (ORDERED — the tick COOPERATIVELY stops, drains, then resources close; grounded in the real `worker.ts` shutdown, `worker.ts:99-116`): (0) **terminal cooperative signal** — `stop()` sets `stopped=true` BEFORE draining; the tick loop checks it **before every sweep AND after each awaited sweep**, and Phase B checks `isStopping()` **before each row**, so once stop is requested NO new sweep and NO new Phase-B row starts. It does NOT cancel an already-running Prisma/Redis op — a force-close makes that op REJECT; the cooperative signal only prevents NEW work; (1) **`await scheduler.stop()`** — async, idempotent, bounded drain within `stopDrainMs`; resolves `{ drained:true }` (tick settled) or `{ drained:false }` (bound expired). Worker shutdown AWAITS this before touching Queue/Redis/Prisma; (2) **`AlertSink.stop()`** (no new producer/alert work); (3) bounded graceful `Queue.close()` (`closeQueues()`, `worker.ts:109`) + owned worker/producer connection `quit()` (`worker.ts:108`) within a bound; (4) on drain/close-bound expiry, **REAL force-close** — `disconnect()`/destroy the producer + Redis sockets and `prisma.$disconnect()` (`worker.ts:110`) so the tick's in-flight awaited op REJECTS promptly (not a cosmetic `Promise.race`); (5) **bounded post-force join** — `await scheduler.forceJoin(joinBoundMs)` awaits the now-unwinding tick (which rejects, is caught at every layer, then BREAKS on `stopped`), swallowing every rejection; (6) **equally-safe process-termination fallback** — if `forceJoin` also times out, `shutdown()`'s `finally { process.exit(exitCode) }` (`worker.ts:114`) terminates the process; `stopped` being TERMINAL + checked before every sweep/row guarantees NO new DB/Redis op regardless, `process.exit` destroys all remaining handles, and a late rejection is caught per-row or by the process-level `unhandledRejection` LOG backstop (`worker.ts:128`). `recoveryPending` stays best-effort across restart. **Ordering invariant: `stop()` (cooperative drain) → `AlertSink.stop()` → bounded `Queue.close()`/`quit()` → force-`disconnect()`/`$disconnect()` → `forceJoin()` → (fallback) `process.exit()`.**
+- [ ] Tests (mutation-resistant): **stop during sweep 1 of several → later sweeps never start** (spy: `runBoundedSweep` NOT invoked for the later sweeps once `stopped`); **stop during Phase B → no later row starts** (spy: no side-effect for rows after the stop; remaining rows stay durable/needsRescan); **drain timeout → force-close → the current op settles/rejects safely** (`forceJoin` resolves, every rejection caught, no unhandled rejection); **no DB/Redis operation begins after closure** — once `$disconnect()`/force-`disconnect()` have run, no sweep issues a further DB/Redis call; **concurrent `stop()` calls share one result**; **no timer re-arm after stop, no unhandled rejection, no lingering handle** (`why-is-node-running`-style assert / all owned connections destroyed); **drain success before teardown** — a tick in flight at shutdown is awaited to settle and NO Queue/Redis/Prisma close begins until `scheduler.stop()` resolves; Redis-unavailable / half-open shutdown completes within the bound, **including while the producer is in initial connect/readiness (Redis down at cold start)**; force-`disconnect()` destroys the producer connection; an in-flight AlertSink write racing `$disconnect()` rejects and is caught; no new alert launched after `stop()`.
+- [ ] **Shutdown cooperative-stop source cross-check (verified against the real source):**
+
+  | Real source (verified) | Loop shape | Cooperative-stop guarantee in this design |
+  |---|---|---|
+  | `worker.ts:99-116` shutdown | idempotent (`shuttingDown`); `workers.close()` → `connections.quit()` → `closeQueues()` → `prisma.$disconnect()` → `finally process.exit()` | `await scheduler.stop()` inserted FIRST; then force-close + `forceJoin`; the existing `finally { process.exit(exitCode) }` (`:114`) IS the bounded process-termination fallback |
+  | `outboxReconciler.ts:95-105` | `for (const row of stale) { try { await enqueue(...) } catch {} }` | `runSideEffects` checks `budget.isStopping()` before each `enqueue`; stop → break, rows stay QUEUED (needsRescan) |
+  | `promotePendingHours.ts:174-187` | `for (const row of due) { try { await promoteOnePendingHours(...) } catch {} }` (each opens its OWN `$transaction`) | same predicate before each promote; a promote already inside its tx is not cancelled — force-close/`$disconnect()` rejects it, caught per-row |
+  | `claimStaleSweep.ts:72-98` | `for (const a of candidates) { await adminNotify(...); await prisma...update(...) }` | same predicate before each candidate; no new `adminNotify`/update starts after stop |
+  | `worker.ts:128-134` crash policy | `unhandledRejection` → LOG + continue; `uncaughtException` → exit 1 | late post-force rejections are caught per-row / by `forceJoin`; the LOG backstop guarantees no unhandled crash |
+
+  **Under the new model the maintenance sweeps run on the process-local scheduler, NOT inside a BullMQ Worker job**, so `worker.close()` (which drains an active BullMQ job) no longer covers them — `scheduler.stop()`'s cooperative drain + `forceJoin` is what bounds the in-flight tick.
 - [ ] **Release gate:** v1 not shipped until merged + verified.
 - [ ] Commit — `feat(worker): bounded shutdown with real force-close (no lingering handles) + AlertSink drain`
 
@@ -339,7 +380,7 @@ export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerCo
 
 **Files:** modify `promotePendingHours.ts`, `claimStaleSweep.ts`, `worker.ts`, `env.ts`; extend scheduler tests.
 
-- [ ] Wrap pending-hours and stale-claim as `BoundedSweepSpec`s, each with its OWN `lockKey` + timeouts, following the outbox split: **Phase A (locked, light)** = `dbPhase(tx, dbNow)` SELECTs the due pending-hours ids (`status='PENDING' AND effectiveAt <= dbNow`, LIMIT 200) / the eligible stale-claim ids using `dbNow`, returned as `sideEffects`; **Phase B (unlocked, idempotent)** = `runSideEffects` promotes each pending-hours id via the existing **re-read-and-recheck** `promoteOnePendingHours` in its own short statement-timeout-bounded transaction, and applies each stale-claim update+notify idempotently (`lastStaleAlertAt` dedup). Each row runs in its **own try/catch** (a per-row failure does NOT stop later rows), respects the `PhaseBBudget` (`maxItems`/`budgetMs` via `monotonicNowMs`), and returns `full=true` (needsRescan) if the budget is hit with rows remaining OR any row failed OR Phase A returned a full batch — so the sweep stays on `F_active` and the durable rows are re-selected next scan. Keep `promoteOnePendingHours` idempotent (re-read only-if-still-PENDING + the partial-unique index) — load-bearing because Phase B is unlocked. **Delete `schedulePromotePendingHours` + `scheduleClaimStaleSweep`.**
+- [ ] Wrap pending-hours and stale-claim as `BoundedSweepSpec`s, each with its OWN `lockKey` + timeouts, following the outbox split: **Phase A (locked, light)** = `dbPhase(tx, dbNow)` SELECTs the due pending-hours ids (`status='PENDING' AND effectiveAt <= dbNow`, LIMIT 200) / the eligible stale-claim ids using `dbNow`, returned as `sideEffects`; **Phase B (unlocked, idempotent)** = `runSideEffects` promotes each pending-hours id via the existing **re-read-and-recheck** `promoteOnePendingHours` in its own short statement-timeout-bounded transaction, and applies each stale-claim update+notify idempotently (`lastStaleAlertAt` dedup). Each row runs in its **own try/catch** (a per-row failure does NOT stop later rows), respects the `PhaseBBudget` (`maxItems`/`budgetMs` via `monotonicNowMs`, **and `isStopping()` checked before each row for cooperative shutdown**), and returns `full=true` (needsRescan) if the budget/stop signal is hit with rows remaining OR any row failed OR Phase A returned a full batch — so the sweep stays on `F_active` and the durable rows are re-selected next scan. Keep `promoteOnePendingHours` idempotent (re-read only-if-still-PENDING + the partial-unique index) — load-bearing because Phase B is unlocked. **Delete `schedulePromotePendingHours` + `scheduleClaimStaleSweep`.**
 - [ ] Add both to the scheduler's `sweeps` with their own enable flags (`MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED`, `MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED`).
 - [ ] Keep the per-record pending-hours delayed nudge on BullMQ (unchanged accelerator).
 - [ ] Tests: (1) disabling the pending-hours sweep leaves outbox + stale running (independent) **and does not enable any 60s polling**; (2) a due pending-hours row is promoted by the floor within one `F_idle` when the nudge is absent, using `dbNow`; (3) promotion idempotency preserved on `tx`; (4) stale-claim capped LIMIT-200; (5) a pending-hours DB error degrades only the pending-hours sweep.
@@ -419,7 +460,7 @@ Docs only. Adds to `docs/runbooks/deploy-security-runbook.md` (or a new maintena
 
 **Placeholder scan:** cadence/timeout/window numbers are **[GATED]** on benchmarks/owner decisions (documented decision points). The alert sink is a VERIFIED contract: `getAlertableAdmins()` (active OPS + SUPER_ADMIN) + one `adminNotify(prisma,{adminUserId,type,title,body,referenceId?,referenceType?})` per recipient writing `ADMIN_DELIVERY_FAILED` (expiry) / a **phase-discriminated** degraded/recovery identity (`DEGRADED`/`RECOVERED` in both the single-flight key and the persisted dedup key — a `RECOVERED` notice is never suppressed by a recent `DEGRADED`). A routine source-drift recheck is standard; the contract is not deferred.
 
-**Type consistency:** `SweepState = 'SUCCESS'|'LOCK_SKIPPED'|'TIMEOUT'|'FAILURE'`; `SweepResult{state,full,error?}`; `PhaseBBudget{maxItems,budgetMs,monotonicNowMs}`; `runBoundedSweep(prisma, spec, monotonicNowMs) → SweepResult`; `BoundedSweepSpec{name,lockKey,statementTimeoutMs,txTimeoutMs,phaseBMaxItems,phaseBBudgetMs,dbPhase,runSideEffects}`; `SweepPhaseA(tx,dbNow) → {full,sideEffects}`; `runSideEffects(side,PhaseBBudget) → {full}`; `startMaintenanceScheduler(prisma,cfg,sweeps) → { stop(): Promise<StopResult> }`; `StopResult{drained}`; `SchedulerConfig{idleMs,activeMs,emptyScansToIdle,degradedBaseMs,degradedMaxMs,alertAfterFailures,stopDrainMs,nowMs,monotonicNowMs}`; `SweepRuntime{spec,enabled,nextEligibleAt,degradedStreak,lastSuccessAt,lastFailureAt}` — consistent across A1-A4, B, C, D.
+**Type consistency:** `SweepState = 'SUCCESS'|'LOCK_SKIPPED'|'TIMEOUT'|'FAILURE'`; `SweepResult{state,full,error?}`; `PhaseBBudget{maxItems,budgetMs,monotonicNowMs,isStopping}`; `runBoundedSweep(prisma, spec, monotonicNowMs, isStopping) → SweepResult`; `BoundedSweepSpec{name,lockKey,statementTimeoutMs,txTimeoutMs,phaseBMaxItems,phaseBBudgetMs,dbPhase,runSideEffects}`; `SweepPhaseA(tx,dbNow) → {full,sideEffects}`; `runSideEffects(side,PhaseBBudget) → {full}`; `startMaintenanceScheduler(prisma,cfg,sweeps) → { stop(): Promise<StopResult>; forceJoin(boundMs): Promise<{joined}> }`; `StopResult{drained}`; `SchedulerConfig{idleMs,activeMs,emptyScansToIdle,degradedBaseMs,degradedMaxMs,alertAfterFailures,stopDrainMs,nowMs,monotonicNowMs}`; `SweepRuntime{spec,enabled,nextEligibleAt,degradedStreak,lastSuccessAt,lastFailureAt}` — consistent across A1-A4, B, C, D.
 
 ---
 
