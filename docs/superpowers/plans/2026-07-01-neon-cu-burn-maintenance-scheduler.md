@@ -1,0 +1,396 @@
+# Neon CU-Burn Fix: Durable Maintenance Scheduler — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Status: DRAFT for Codex + owner review (revision 2, post-concurrency review). Docs-only. Implementation NOT authorised.** Values gated on §15 owner decisions / §9 benchmark gates of the spec (`docs/superpowers/specs/2026-07-01-neon-cu-burn-maintenance-scheduler-design.md`) are marked **[GATED: …]** and MUST be resolved before the corresponding task runs. Do not implement, push, open a PR, access providers, deploy, or change any hold until Codex + owner approve.
+
+**Goal:** Replace the three always-on 60s/hourly BullMQ maintenance repeatables with one process-local-timer maintenance floor of independent, bounded, advisory-locked sweeps, so Neon can scale to zero when idle, without weakening delivery/promotion durability.
+
+**Architecture:** DB rows stay authoritative (durable guarantee); the process-local timer is Redis-independent but not durable; each sweep runs its DB work inside the same interactive transaction that holds its per-sweep `pg_try_advisory_xact_lock` (lock lifetime == work lifetime), bounded by `statement_timeout` + the Prisma interactive-tx `timeout`, then performs idempotent Redis side-effects after the lock releases; per-sweep independent state/backoff/metrics/flags; DB-authoritative clock; adminNotify-based alerting.
+
+**Tech Stack:** Node 24 + TypeScript, Prisma 7 (`@prisma/adapter-pg`, interactive `$transaction` with explicit `timeout`, `SET LOCAL statement_timeout`), BullMQ + IORedis (fast paths only), Postgres xact advisory locks (mirrors `redemption/service.ts:410-426`), `adminNotify()` in-app alerts, vitest + loopback-Postgres integration tests.
+
+---
+
+## Accepted invariants (must hold at every step)
+
+- DB records authoritative; boot re-derivation reconstructs all state; the timer is not durable.
+- Redis accelerates; the floor is process-local-timer-driven (Redis-independent).
+- 24h `CommunicationLog` expiry (→ FAILED + `payload` NULL) preserved exactly.
+- Lock lifetime == sweep DB-work lifetime; leadership never released while DB work is in-flight; timeouts actually cancel (statement_timeout + tx rollback), no `Promise.race`.
+- Per-sweep independent state/error-boundary/backoff/timeout/metrics/enable-flag/last-success/last-failure. Sequential-within-tick, each bounded.
+- DB-authoritative `dbNow` per scan.
+- Alert sink = `adminNotify()` in-app `ADMIN_DELIVERY_FAILED` + structured logs; never email; never PII/secret payload.
+- Config fail-safe: missing/invalid → maintenance DISABLED + loud alert, never a silent burn path.
+- Worker stays Offline through the whole stack; one owner-approved staging activation.
+- `F_idle` > 5 min always.
+
+---
+
+## File structure
+
+| File | Responsibility | PR |
+|---|---|---|
+| `src/api/queues/maintenanceSweep.ts` (create) | `runBoundedSweep(prisma, spec)` — one interactive tx holding the per-sweep xact advisory lock; parameterized `set_config('statement_timeout',...)`; `SELECT now()`; run the DB phase on `tx`; return an explicit `SweepResult{state,full}`; run bounded (monotonic soft-budget, per-row-isolated) Phase-B side-effects after the tx settles | A |
+| `src/api/queues/maintenanceScheduler.ts` (create) | Process-local timer; per-sweep state (`nextEligibleAt`, `degradedStreak`, `lastSuccessAt/FailureAt`); sequential per-tick; aligned healthy cadence + per-sweep degraded backoff; BOOT/IDLE/ACTIVE/DEGRADED; start/stop | A |
+| `src/api/queues/maintenanceMetrics.ts` (create) | Per-sweep counters + structured-log emit + the `adminNotify`-based expiry/degraded alert seam with dedup window + redaction | C |
+| `src/worker.ts` (modify) | Replace the 3 repeatables with `startMaintenanceScheduler`; keep email/moderation workers + the MAINTENANCE worker for the per-record pending-hours nudge; `scheduler.stop()` in shutdown | A, B |
+| `src/api/queues/processors/outboxReconciler.ts` (modify) | Delete `scheduleReconcile`; split `reconcileOutbox` into a `tx`-parameterised DB phase (expiry + candidate id selection using `dbNow`) returning ids, + keep the MAINTENANCE worker's per-record nudge dispatch | A |
+| `src/api/queues/processors/promotePendingHours.ts` (modify) | Delete `schedulePromotePendingHours`; re-parameterise `promotePendingHours`/`promoteOnePendingHours` to run on a passed `tx` + `dbNow` (no own transaction) | B |
+| `src/api/queues/processors/claimStaleSweep.ts` (modify) | Delete `scheduleClaimStaleSweep`; re-parameterise `sweepStaleClaims` on `tx` + `dbNow` | B |
+| `src/api/shared/env.ts` (modify) | Fail-safe maintenance config validation (§14) | A, B |
+| `tests/api/queues/maintenanceSweep.integration.test.ts` (create) | **Loopback Postgres**: lock held for the whole tx; timeout rolls back + releases + cancels; two concurrent holders of one key → one runs; per-sweep keys don't block each other; `dbNow` used not app clock | A |
+| `tests/api/queues/maintenanceScheduler.test.ts` (create) | Per-sweep isolation + unexpected-rejection handling, per-sweep backoff, sequential bounds, single-flight, ACTIVE-on-needsRescan, config fail-closed (non-zero startup) | A |
+| `tests/api/queues/maintenanceMetrics.test.ts` (create) | expiry → deduped adminNotify + log; degraded → external log then recovery notice; redaction; no email | C |
+| `tests/api/queues/maintenance-contract-guard.test.ts` (create) | Registration-contract guard (primary) + static scan (secondary) | D |
+
+Preserved suites (must stay green): existing outbox/promotion/stale/email tests (idempotency, window, 24h expiry, promotion idempotency).
+
+---
+
+## PR stack + merge order
+
+`PR-A` → `PR-B` → `PR-C` → `PR-D`, all merged + verified **with the worker Offline**. `PR-E` (Railway/provider runbook) + `PR-F` (runbook + cost-monitoring) are docs/config after `PR-C`. **O5 is a separate future release.** Each behavioral PR (A, B, C) carries source + tests + rollback together.
+
+---
+
+## PR-A: Bounded locked sweep + scheduler + outbox onto it
+
+**[GATED: §15 D1]** ownership = enforced replicas=1 + per-sweep advisory lock. **[GATED: §9]** `F_idle`/timeout numbers below are candidates pending benchmarks; the mechanism is not gated.
+
+### Task A1: Bounded locked-sweep wrapper (lock lifetime == work lifetime)
+
+**Files:** create `src/api/queues/maintenanceSweep.ts`; test `tests/api/queues/maintenanceSweep.integration.test.ts` (loopback Postgres).
+
+- [ ] **Step 1: Write failing loopback-Postgres tests** (mocks alone are insufficient — Codex #2)
+
+```ts
+// Against the loopback test Prisma (tests/prisma/*.integration.test.ts pattern):
+// T1 lock-held-for-whole-tx: while holder A is mid-Phase-A, a second call on connection B
+//    with the SAME key gets acquired:false (pg_try_advisory_xact_lock returns false).
+// T2 per-sweep-keys-independent: A holding KEY_OUTBOX does not block B acquiring KEY_PENDING.
+// T3 timeout-cancels-and-releases: a Phase-A body that sleeps past the tx timeout causes a
+//    rollback; afterwards the lock is free (a fresh acquire succeeds) AND no partial write persisted.
+// T4 statement_timeout: a single statement exceeding STATEMENT_TIMEOUT_MS is cancelled server-side.
+// T5 dbNow: the body receives a dbNow from SELECT now(); a skewed app Date() is NOT used.
+```
+
+- [ ] **Step 2: Run to verify they fail** — `npx vitest run tests/api/queues/maintenanceSweep.integration.test.ts` → FAIL (module not found).
+
+- [ ] **Step 3: Implement**
+
+```ts
+import type { PrismaClient, Prisma } from '../../generated/prisma/client'
+
+/** Explicit sweep-result STATE contract (Codex #1) — every run resolves to exactly one state. */
+export type SweepState = 'SUCCESS' | 'LOCK_SKIPPED' | 'TIMEOUT' | 'FAILURE'
+export interface SweepResult { state: SweepState; full: boolean; error?: unknown }
+
+export interface SweepPhaseA<TSide> {
+  /** Light, DB-only work on `tx` (the connection holding the lock), using `dbNow`. Returns Phase-B side-effects. */
+  (tx: Prisma.TransactionClient, dbNow: Date): Promise<{ full: boolean; sideEffects: TSide }>
+}
+export interface PhaseBBudget { maxItems: number; budgetMs: number; monotonicNowMs: () => number }
+export interface BoundedSweepSpec<TSide> {
+  name: string
+  lockKey: bigint             // distinct per sweep
+  statementTimeoutMs: number  // < txTimeoutMs (validated in env, A4)
+  txTimeoutMs: number         // explicit Prisma interactive-tx timeout (NOT the 5s default)
+  phaseBMaxItems: number      // Phase-B item cap
+  phaseBBudgetMs: number      // Phase-B COOPERATIVE SOFT time budget (monotonic; NOT a hard cancel — see below)
+  dbPhase: SweepPhaseA<TSide>
+  /** Phase B: idempotent, unlocked, per-item. COOPERATIVE SOFT budget checked BETWEEN rows via a MONOTONIC
+   *  clock (`monotonicNowMs`, e.g. performance.now) — Codex #2. It bounds how many rows are STARTED, NOT an
+   *  in-flight `Queue.add`, which can block on a Redis outage because the shared connection uses
+   *  maxRetriesPerRequest:null. The full finite producer LIFECYCLE is locked by §4.2 / Task A5; only its
+   *  numeric values are benchmark/owner-gated. Each row runs in its OWN try/catch: a per-row failure does
+   *  NOT stop later rows. Returns full=true (needsRescan) if the item cap or time budget was hit with rows
+   *  remaining, OR any row failed, OR Phase A returned a full batch — so the scheduler stays on ACTIVE cadence
+   *  and the durable rows are re-selected next scan. */
+  runSideEffects: (side: TSide, budget: PhaseBBudget) => Promise<{ full: boolean }>
+}
+
+export async function runBoundedSweep<TSide>(
+  prisma: PrismaClient, spec: BoundedSweepSpec<TSide>, monotonicNowMs: () => number,
+): Promise<SweepResult> {
+  let acquired = false, full = false, side: TSide | undefined
+  try {
+    await prisma.$transaction(async (tx) => {
+      // (1) bound each statement server-side, PARAMETERIZED (no interpolation) — Codex #6
+      await tx.$queryRaw`SELECT set_config('statement_timeout', ${String(spec.statementTimeoutMs)}, true)`
+      // (2) leadership: xact-scoped, released only when THIS tx settles
+      const lock = await tx.$queryRaw<{ locked: boolean }[]>`SELECT pg_try_advisory_xact_lock(${spec.lockKey}) AS locked`
+      if (!lock[0]?.locked) return                                          // LOCK_SKIPPED (acquired stays false)
+      acquired = true
+      const nowRows = await tx.$queryRaw<{ now: Date }[]>`SELECT now() AS now`   // (3) DB-authoritative clock
+      const r = await spec.dbPhase(tx, nowRows[0].now)                           // (4) light DB-only Phase A
+      full = r.full; side = r.sideEffects
+    }, { timeout: spec.txTimeoutMs, maxWait: spec.txTimeoutMs })
+  } catch (err) {
+    // tx rollback released the lock + cancelled the statement (statement_timeout / tx timeout)
+    return { state: isTimeout(err) ? 'TIMEOUT' : 'FAILURE', full: false, error: err }
+  }
+  if (!acquired) return { state: 'LOCK_SKIPPED', full: false }
+  // (5) Phase B: item-capped + monotonic-soft-time-budgeted, per-row-isolated, durably reschedulable
+  try {
+    const b = side !== undefined
+      ? await spec.runSideEffects(side, { maxItems: spec.phaseBMaxItems, budgetMs: spec.phaseBBudgetMs, monotonicNowMs })
+      : { full }
+    return { state: 'SUCCESS', full: full || b.full }
+  } catch (err) {
+    return { state: 'FAILURE', full: false, error: err }
+  }
+}
+```
+
+`isTimeout(err)` recognises the Prisma tx-timeout + Postgres `57014` statement-timeout codes.
+
+- [ ] **Step 4: Run → PASS** (loopback Postgres).
+- [ ] **Step 5: Commit** — `feat(queues): bounded advisory-locked sweep (lock lifetime == work lifetime, statement+tx timeouts)`
+
+### Task A2: Scheduler (per-sweep isolation, sequential-bounded, aligned + degraded)
+
+**Files:** create `src/api/queues/maintenanceScheduler.ts`; test `tests/api/queues/maintenanceScheduler.test.ts`.
+
+Config: `F_idle` **[GATED]** default 30 min prod / 60 min staging (validated > 5 min); `F_active` 5s; `EMPTY_SCANS_TO_IDLE` 2; per-sweep `statementTimeoutMs`/`txTimeoutMs`; `degradedBaseMs`/`degradedMaxMs`/`alertAfterFailures`.
+
+- [ ] **Step 1: Write failing tests**
+
+```ts
+// 1. per-sweep isolation: sweep B FAILURE increments ONLY B's degradedStreak + backoff; A and C keep their own state.
+// 2. unexpected rejection (Codex #1, mutation-resistant): runBoundedSweep REJECTS for sweep B → runOne classifies it
+//    FAILURE for B (degradedStreak++, nextEligibleAt advanced by >= degradedBaseMs), runOne RESOLVES (never rejects),
+//    and sibling C STILL runs in the same tick.
+// 3. retry timing: after a FAILURE/rejection, that sweep's next run is >= degradedBaseMs away (assert no immediate
+//    re-tick, i.e. nextEligibleAt is never left in the past → no tight loop).
+// 4. aligned cadence: healthy sweeps share F_idle; a degraded sweep diverges onto its own backoff; timer wakes at min(nextEligibleAt).
+// 5. ACTIVE on needsRescan: full=true (item cap, time budget with rows remaining, a per-row Phase-B failure, or a full
+//    Phase-A batch) keeps that sweep at F_active until empty — WITHOUT dragging siblings to F_active.
+// 6. single-flight: a timer firing while a tick is in flight is a no-op (tickInFlight); arm() runs exactly once after the tick.
+// 7. config (matches A4, Codex #5): missing/invalid required config → NON-ZERO startup failure; maintenance is disabled
+//    ONLY when MAINTENANCE_MODE=disabled is explicitly set (never a silent disable).
+```
+
+- [ ] **Step 2: Run to verify they fail.**
+
+- [ ] **Step 3: Implement** (per-sweep state; no global `dbError`/`degradedStreak`/`delay`)
+
+```ts
+import type { PrismaClient } from '../../generated/prisma/client'
+import { runBoundedSweep, type BoundedSweepSpec } from './maintenanceSweep'
+
+interface SweepRuntime { spec: BoundedSweepSpec<unknown>; enabled: boolean
+  nextEligibleAt: number; degradedStreak: number; lastSuccessAt?: number; lastFailureAt?: number }
+export interface SchedulerConfig { idleMs: number; activeMs: number; emptyScansToIdle: number
+  degradedBaseMs: number; degradedMaxMs: number; alertAfterFailures: number
+  nowMs: () => number; monotonicNowMs: () => number }
+
+export function startMaintenanceScheduler(prisma: PrismaClient, cfg: SchedulerConfig, sweeps: SweepRuntime[]) {
+  let stopped = false, tickInFlight = false, timer: NodeJS.Timeout | null = null   // single-flight (Codex #3)
+  const emptyRun = new Map<string, number>()
+
+  function setNext(s: SweepRuntime, delay: number) { s.nextEligibleAt = cfg.nowMs() + delay } // NO arm() here (Codex #4)
+  function backoff(s: SweepRuntime) { return Math.min(cfg.degradedBaseMs * 2 ** (s.degradedStreak - 1), cfg.degradedMaxMs) }
+
+  async function runOne(s: SweepRuntime) {
+    try {
+      let res: SweepResult
+      try { res = await runBoundedSweep(prisma, s.spec, cfg.monotonicNowMs) }   // explicit state; own lock/tx/budget
+      catch (err) { res = { state: 'FAILURE', full: false, error: err } }       // UNEXPECTED rejection → FAILURE for THIS sweep (Codex #1)
+      switch (res.state) {
+        case 'SUCCESS': {
+          s.degradedStreak = 0; s.lastSuccessAt = cfg.nowMs()
+          const empties = res.full ? 0 : (emptyRun.get(s.spec.name) ?? 0) + 1
+          emptyRun.set(s.spec.name, empties)
+          return setNext(s, res.full || empties < cfg.emptyScansToIdle ? cfg.activeMs : cfg.idleMs)
+        }
+        case 'LOCK_SKIPPED': return setNext(s, cfg.idleMs)                       // no degrade, no tight-retry-wake
+        case 'TIMEOUT':
+        case 'FAILURE': {                                                        // increment ONLY this sweep (Codex #2/#3)
+          s.degradedStreak++; s.lastFailureAt = cfg.nowMs()
+          recordSweepFailure(s.spec.name, res.state, res.error)                  // PR-C seam: SYNC structured log; never returns a Promise
+          if (s.degradedStreak >= cfg.alertAfterFailures)                        // PR-C seam: SYNC void; fire-and-forget + single-flight-per-key + self-.catch
+            alertDegraded(s.spec.name, s.degradedStreak)                         //   (never awaited; a rejected async in-app write cannot reach the scheduler)
+          return setNext(s, backoff(s))                                          // OWN backoff — always ADVANCES nextEligibleAt
+        }
+      }
+    } catch {                                                                    // last resort: runOne NEVER rejects, ALWAYS advances (no tight loop, Codex #1)
+      s.degradedStreak++; s.lastFailureAt = cfg.nowMs()
+      setNext(s, backoff(s))
+    }
+  }
+
+  async function tick() {
+    if (stopped || tickInFlight) return                                    // process-local single-flight invariant (Codex #3)
+    tickInFlight = true
+    try {
+      const now = cfg.nowMs()
+      for (const s of sweeps) if (s.enabled && s.nextEligibleAt <= now) await runOne(s)  // SEQUENTIAL; runOne never rejects
+    } finally { tickInFlight = false; arm() }                              // arm ONCE, after the tick completes (Codex #4)
+  }
+  function arm() {
+    if (stopped || tickInFlight) return
+    const due = sweeps.filter(s => s.enabled)
+    if (!due.length) return
+    const next = Math.max(0, Math.min(...due.map(s => s.nextEligibleAt)) - cfg.nowMs())
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => { void tick() }, next)
+  }
+
+  for (const s of sweeps) s.nextEligibleAt = cfg.nowMs()                    // BOOT: immediate
+  arm()
+  return { stop() { stopped = true; if (timer) clearTimeout(timer) } }
+}
+```
+
+`recordSweepFailure`/`alertDegraded` are PR-C seams; PR-A pins them as log stubs.
+
+- [ ] **Step 4: Run → PASS.**
+- [ ] **Step 5: Commit** — `feat(queues): maintenance scheduler with genuinely independent per-sweep state + aligned cadence`
+
+### Task A3: Wire the scheduler; retire the outbox repeatable (deleted, not flag-restored)
+
+**Files:** modify `src/worker.ts`, `src/api/queues/processors/outboxReconciler.ts`.
+
+- [ ] Split `reconcileOutbox` into `outboxDbPhase(tx, dbNow) → { full, sideEffects: ids[] }` (expiry `updateMany` + candidate `findMany` of ids, using `dbNow`) + `outboxSideEffects(ids)` (the Redis re-enqueues). Build the outbox `BoundedSweepSpec`. **Delete `scheduleReconcile`** (the 60s repeatable). Keep `startReconcileWorker` only for the per-record pending-hours nudge dispatch.
+- [ ] `worker.ts`: replace `await scheduleReconcile()` with `const scheduler = startMaintenanceScheduler(prisma, cfg, [outboxSweep])`; add `scheduler.stop()` first in `shutdown()`.
+- [ ] Tests: worker boot registers no `RECONCILE_JOB` repeatable; the existing `reconcileOutbox` window/expiry/idempotency behaviours are preserved by `outboxDbPhase` (re-point those tests at the phase function).
+- [ ] **Rollback for A3 (Codex #4): NO legacy-restore flag exists.** The new image has no 60s repeatable. Rollback = pause the worker (Offline) and/or redeploy the previously-verified image. Documented in PR-F.
+- [ ] Commit — `feat(worker): run outbox reconcile on the durable floor; delete the 60s repeatable`
+
+### Task A4: Fail-safe config (Codex #9)
+
+**Files:** modify `src/api/shared/env.ts`; extend boot-mode tests.
+
+- [ ] Validate `MAINTENANCE_FLOOR_IDLE_MS` (`> 300_000`), `MAINTENANCE_FLOOR_ACTIVE_MS`, `MAINTENANCE_PHASE_B_MAX_ITEMS`/`MAINTENANCE_PHASE_B_BUDGET_MS`, per-sweep `STATEMENT_TIMEOUT_MS`/`TX_TIMEOUT_MS` (assert `STATEMENT < TX`), per-sweep enable flags. **Fail-closed (Codex #7): on a staging/production worker, missing or invalid maintenance config causes the worker to FAIL STARTUP with a non-zero exit (the validator throws; the process exits non-zero for supervisor visibility), UNLESS an explicit owner-approved `MAINTENANCE_MODE=disabled` env is set — in which case the worker boots with maintenance intentionally disabled plus a loud structured log. There is NO silent half-running-with-maintenance-off default and NO 60s path.** Local/test may pass explicit test config.
+- [ ] Tests: `IDLE_MS=300000` rejected; `STATEMENT >= TX` rejected; **missing config (no `MAINTENANCE_MODE=disabled`) → validator throws → non-zero exit**; missing config **with** `MAINTENANCE_MODE=disabled` → boots, scheduler not started, loud log emitted.
+- [ ] Commit — `feat(env): fail-safe maintenance config (F_idle>5min, statement<tx, disable-on-missing)`
+
+---
+
+### Task A5: Locked finite producer LIFECYCLE (readiness+command+recovery) + deterministic-jobId contract (MANDATORY pre-release gate, Codex boundedness/jobId/readiness)
+
+**Files:** modify `src/api/queues/connection.ts` (dedicated NON-BLOCKING producer connection — lazy, finite `connectTimeout` + finite `retryStrategy`); `src/api/queues/index.ts` (producer `Queue`s use it with `skipWaitingForReady`; memoised-Queue eviction + force-disconnect; `enqueue()` requires a deterministic `jobId`); test `tests/api/queues/producerLifecycle.integration.test.ts`.
+
+- [ ] **Locked FULL-LIFECYCLE mechanism (verify exact BullMQ/IORedis lifecycle vs installed versions; only NUMBERS gated):** a **dedicated non-blocking producer created LAZILY** (IORedis `lazyConnect:true` + BullMQ `skipWaitingForReady:true` so Queue creation does not block on 'ready'); **finite connection establishment** = `connectTimeout` + a **finite `retryStrategy`** (null after a bounded attempt/time budget so reconnection TERMINATES rather than looping); **`enableOfflineQueue:false`**; **finite `commandTimeout` + finite `maxRetriesPerRequest`**. The **blocking Worker connections stay separate at `maxRetriesPerRequest:null`** (UNCHANGED; BullMQ blocking reads require it). `commandTimeout` alone is NOT the complete bound (it starts only after a command is issued) — cold-start readiness must be bounded too. Not an open fork. **[GATED: numeric `connectTimeout` / `retryStrategy` budget / `commandTimeout` / `maxRetriesPerRequest`, benchmark]**
+- [ ] **Locked creation sequence (connect-before-Queue, Codex #1):** (1) memoise one in-flight creation Promise; (2) instantiate the dedicated IORedis producer (`lazyConnect:true` + finite readiness/command options); (3) **explicitly `await redis.connect()`** inside the finite readiness policy (`connectTimeout` + finite `retryStrategy` govern this — NOT `commandTimeout`); (4) verify `'ready'`; (5) only THEN construct + memoise the BullMQ Queue; (6) `skipWaitingForReady` may remain only after the explicit ready step, or be omitted if BullMQ's ready check is then immediately satisfied; (7) on connect/readiness/BullMQ-init/version-check failure → force-`disconnect()`, remove listeners, atomically evict the creation entry, permit recreation. Without the explicit connect+ready, `lazyConnect` + `skipWaitingForReady` + `enableOfflineQueue:false` would let the FIRST Queue op reject during connection establishment even when Redis is HEALTHY. `redis.connect()` is bounded by `connectTimeout` + `retryStrategy`, NOT `commandTimeout`.
+- [ ] **`commandTimeout` semantics (Codex #1):** it only rejects the caller's Promise; it does NOT prove the queued/transmitted command was cancelled or cannot run later. A timed-out `Queue.add` outcome is **UNKNOWN** — classify the row **UNKNOWN/needsRescan** (NOT definitively failed) so it is reprocessed with the SAME `jobId`, a BullMQ no-op if the first attempt actually landed. NOT a `Promise.race` fake cancel.
+- [ ] **Deterministic-jobId contract (Codex #2):** `enqueue()` REQUIRES a deterministic `jobId` at the **type level** (required param, not optional) and asserts it at runtime; **no unkeyed direct `queue.add`** may bypass `enqueue`. Producer-site audit (verified anchors; the audit + PR-D guard must cover any missed site):
+
+  | Producer site | Queue | jobId | Deterministic? |
+  |---|---|---|---|
+  | CommunicationLog email enqueue (`notify.ts:215`) | EMAIL | `communicationLogId` | Yes |
+  | Outbox re-enqueue (`outboxReconciler.ts:97`) | EMAIL | CommunicationLog `id` | Yes |
+  | Moderation enqueue | MODERATION | `branchPhotoId` | Yes |
+  | Pending-hours nudge (`branch/service.ts:1058`) | MAINTENANCE | `promote-hours-${branchId}` | Yes |
+  | Maintenance repeatables (reconcile/claim/promote) | MAINTENANCE | stable | DELETED by this programme (moved to the process-local floor) |
+
+- [ ] **Memoised producer recovery (Codex #3):** producers are memoised (`makeQueue`). Invalidating errors = connection 'end'/'error' after the finite retry policy, BullMQ init/version-check rejection, `commandTimeout`, and the `enableOfflineQueue:false` immediate-reject. On such an error: **atomically evict** the Queue + connection from the maps, **force-`disconnect()`**, remove listeners (no leaked socket/listener/timer). Concurrent callers memoise the **in-flight CREATION Promise** (not just the resolved Queue) → exactly ONE replacement producer during recreation; on creation failure the entry is evicted so the next call recreates; a later enqueue after Redis recovery builds a fresh healthy producer. Deterministic `jobId` keeps the retry safe when the prior outcome was UNKNOWN.
+- [ ] Tests (installed-version, simulated Redis): **Redis HEALTHY cold-start** → the first enqueue explicitly connects, reaches ready, and succeeds (one connect, one Queue); **no command is issued before 'ready'** when `enableOfflineQueue:false`; **Redis unavailable BEFORE first producer/Queue use** → bounded failure within the READINESS bound (`connectTimeout`+`retryStrategy`, not a hang); **shutdown while `connect()` is pending** remains bounded; **Redis half-open after readiness** → command await rejects within `commandTimeout`; a stalled/failed producer is **discarded** leaving no socket/listener/timer; the timed-out enqueue is classified UNKNOWN/needsRescan (not failed) and does NOT HOL-block a following sweep; **Redis recovery** → the next same-`jobId` enqueue creates a FRESH producer and succeeds **without duplication**; **concurrent callers during recreation use ONE replacement producer**; `scheduler.stop()` + shutdown (including during initial connect/readiness) are bounded and leave no handles; the deterministic-`jobId` type/runtime requirement holds; **blocking Worker connection behaviour is unchanged**.
+- [ ] **Release gate:** do not declare the producer lifecycle or sweep end-to-end bounded, and do not ship v1, until the FULL lifecycle (readiness + command-await + force-close + recreation) is merged + verified.
+- [ ] Commit — `feat(queues): locked finite producer lifecycle (readiness+command+recovery) + deterministic-jobId contract`
+
+---
+
+### Task A6: Bounded shutdown / real force-close (MANDATORY pre-release gate, Codex #4/#5)
+
+**Files:** modify `src/worker.ts` (shutdown sequence) + `src/api/queues/index.ts` (`closeQueues` bounded close + force-disconnect); wire `AlertSink.stop()`; test `tests/api/queues/shutdown.integration.test.ts`.
+
+- [ ] Shutdown contract: (1) `scheduler.stop()` (stop timers) + `AlertSink.stop()` (no new producer/alert work); (2) bounded graceful `Queue.close()` + producer connection `quit()` within a bound; (3) on expiry, explicitly `disconnect()`/destroy the producer connection (**REAL force-close** — socket destroyed — NOT a cosmetic `Promise.race`); (4) no lingering producer socket/timer/event-loop handle; (5) `AlertSink` bounded drain of in-flight writes, then controlled Prisma `$disconnect()`, all rejections caught; shutdown never waits indefinitely. `recoveryPending` stays best-effort across restart.
+- [ ] Tests: Redis-unavailable / half-open shutdown completes within the bound, **including while the producer is in initial connect/readiness (Redis down at cold start)**; force-`disconnect()` destroys the producer connection; **no lingering handles** after shutdown (process exits / `why-is-node-running`-style assert / all owned connections destroyed); an in-flight AlertSink write racing `$disconnect()` rejects and is caught (no unhandled rejection); no new alert launched after `stop()`.
+- [ ] **Release gate:** v1 not shipped until merged + verified.
+- [ ] Commit — `feat(worker): bounded shutdown with real force-close (no lingering handles) + AlertSink drain`
+
+---
+
+## PR-B: Pending-hours + stale-claim onto the floor (isolated)
+
+**Files:** modify `promotePendingHours.ts`, `claimStaleSweep.ts`, `worker.ts`, `env.ts`; extend scheduler tests.
+
+- [ ] Wrap pending-hours and stale-claim as `BoundedSweepSpec`s, each with its OWN `lockKey` + timeouts, following the outbox split: **Phase A (locked, light)** = `dbPhase(tx, dbNow)` SELECTs the due pending-hours ids (`status='PENDING' AND effectiveAt <= dbNow`, LIMIT 200) / the eligible stale-claim ids using `dbNow`, returned as `sideEffects`; **Phase B (unlocked, idempotent)** = `runSideEffects` promotes each pending-hours id via the existing **re-read-and-recheck** `promoteOnePendingHours` in its own short statement-timeout-bounded transaction, and applies each stale-claim update+notify idempotently (`lastStaleAlertAt` dedup). Each row runs in its **own try/catch** (a per-row failure does NOT stop later rows), respects the `PhaseBBudget` (`maxItems`/`budgetMs` via `monotonicNowMs`), and returns `full=true` (needsRescan) if the budget is hit with rows remaining OR any row failed OR Phase A returned a full batch — so the sweep stays on `F_active` and the durable rows are re-selected next scan. Keep `promoteOnePendingHours` idempotent (re-read only-if-still-PENDING + the partial-unique index) — load-bearing because Phase B is unlocked. **Delete `schedulePromotePendingHours` + `scheduleClaimStaleSweep`.**
+- [ ] Add both to the scheduler's `sweeps` with their own enable flags (`MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED`, `MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED`).
+- [ ] Keep the per-record pending-hours delayed nudge on BullMQ (unchanged accelerator).
+- [ ] Tests: (1) disabling the pending-hours sweep leaves outbox + stale running (independent) **and does not enable any 60s polling**; (2) a due pending-hours row is promoted by the floor within one `F_idle` when the nudge is absent, using `dbNow`; (3) promotion idempotency preserved on `tx`; (4) stale-claim capped LIMIT-200; (5) a pending-hours DB error degrades only the pending-hours sweep.
+- [ ] **Rollback:** per-sweep enable flags disable one sweep without touching the others and without enabling 60s polling; full rollback = pause worker + redeploy prior image.
+- [ ] Commit per sweep — `feat(worker): pending-hours promotion on the durable floor (isolated)` / `… stale-claim …`
+
+---
+
+## PR-C: Observability — metrics + alerting + additive NotificationType migration (Codex #3/#4/#5)
+
+**Files:** create `src/api/queues/maintenanceMetrics.ts`; add the additive `NotificationType` enum migration (if the new degraded type is chosen); wire seams in scheduler + outbox phase; test `tests/api/queues/maintenanceMetrics.test.ts`.
+
+- [ ] Per-sweep counters (`scanned/re_enqueued/expired/promoted/failed{sweep}`, `degraded_db{sweep}`, last-run duration) surfaced as **structured logs** (no external metrics backend — none exists).
+- [ ] **Alert execution contract `AlertSink` (Codex async-seam):** the scheduler calls the seam SYNCHRONOUSLY, never awaited. `sweepFailure(name,state,error)` = SYNC structured log. `degraded(alertKey, detail)` = SYNC void that (i) logs the redacted stderr IMMEDIATELY; (ii) if not already in-flight for `alertKey`, launches the async `getAlertableAdmins` + per-recipient `adminNotify` **fire-and-forget with `.catch`** (single-flight per key; clears the in-flight marker in `finally`); (iii) **skips the in-app DB write while the DB is known-degraded** (log-only) and sets a process-local `recoveryPending`; (iv) on a later successful scan (DB-recovery signal) fires the recovery notice fire-and-forget. `stop()` launches no new alert, **tracks in-flight attempts and drains them within a bound**, then proceeds to the controlled Prisma `$disconnect()` (any still-in-flight write rejects, `.catch`'d) — shutdown never waits indefinitely and cannot race `$disconnect()` into an unhandled rejection (Task A6). **Durability honesty:** `recoveryPending` is process-local → **best-effort across restart** (a restart mid-outage loses it, no notice); a guaranteed recovery notice would need a durable incident table (separately-gated follow-up).
+- [ ] **Expired communication alert (Codex #3/#8/#9):** structured external log (counts + types) PLUS explicit in-app fan-out done by US — **`getAlertableAdmins(prisma)`** (active OPS + SUPER_ADMIN, the M8 / PR #237 pattern) then **one `adminNotify(prisma, { adminUserId, type, title, body, referenceId?, referenceType? })` call per recipient**. `adminNotify()` writes a SINGLE in-app `Notification` per call and does **NOT** itself fan out; it sends **no email / no CommunicationLog** (no recursion through the failing outbox). **Coalescing:** one notification per (recipient, alert-type) per window — never one-per-row. `type='ADMIN_DELIVERY_FAILED'`. **Redaction:** counts + type labels only, never payload/PIN/reset-link/PII (payload is already NULLed). Replace `outboxReconciler.ts:79-84`'s bare `console.warn`. The `adminNotify(prisma, { adminUserId, type, title, body, referenceId?, referenceType? })` contract + `getAlertableAdmins(prisma)` (active OPERATIONS + SUPER_ADMIN) are **verified** — a routine source-drift recheck is standard, not deferred.
+- [ ] **Dedup (Codex #3/#10) — on `Notification.sentAt` (the model has NO `createdAt`):** before emitting, check the most-recent maintenance `ADMIN_DELIVERY_FAILED` notification's `sentAt` per (recipient/type) and suppress if within the window **[GATED: window, candidate 15 min]**. **Race honesty:** even at ONE replica, overlapping async emitters would race a plain query-then-create, so emission is **serialized in-process by the per-alert-key single-flight** (the `AlertSink` contract above) — no double-write within a replica. Dedup is otherwise **best-effort**: a restart mid-window or a future second replica can still duplicate. The atomic upgrade (advisory lock around check-then-insert, OR a unique persisted `(type, time-bucket)` key) is the multi-emitter path. The **concurrent-emitter test asserts the SELECTED contract** (in-process single-flight; best-effort across restart/replicas), not merely alternatives.
+- [ ] **Additive migration + ordering (Codex #4):** if the degraded/recovery type is the new `ADMIN_MAINTENANCE_DEGRADED` (recommended), PR-C **includes the additive Prisma `NotificationType` enum migration** and follows **migrate-before-image** ordering (apply the additive enum migration on the Neon **direct** endpoint BEFORE the PR-C image deploys, per the approved direct-migration procedure). **No migration is authorized now**; any staging application remains gated by the existing **P1/P8/P9/R1 recovery sequence** and the approved direct-migration procedure. If an existing type is reused, no migration is needed.
+- [ ] **DB-unavailable alert:** structured external log/error WHILE the DB is unavailable (no in-app write during a DB outage). AFTER recovery: `getAlertableAdmins(prisma)` + one `adminNotify(prisma, { adminUserId, type: <ADMIN_MAINTENANCE_DEGRADED | existing>, ... })` per recipient. No email anywhere.
+- [ ] Tests: expiry → `getAlertableAdmins` called + one `adminNotify` per recipient with `adminUserId` (NOT once total) + structured log; **dedup on `sentAt`**: a second expiry within the window emits NO new `adminNotify`; **concurrent-emitter test** (documents best-effort at replicas=1 / the atomic mechanism if chosen); degraded → external log during + per-recipient recovery notice using the explicit type after; a **per-row Phase-B failure does not stop later rows and yields needsRescan/full**; redaction pin (no payload/PII); no email path invoked; **async rejection**: a rejecting `adminNotify` is `.catch`'d (NO unhandled rejection; scheduler rescheduling unaffected); **repeated degraded scans** → at most one in-flight per `alertKey` (single-flight/coalesced); **DB-degraded** → in-app write suppressed (log only); **recovery** → exactly one recovery notice after a DB-recovery signal, and a simulated restart mid-outage loses `recoveryPending` → NO notice (best-effort pinned).
+- [ ] **Rollback:** the additive enum value is forward-compatible (no data change; rolling back the image leaves an unused enum value — harmless; no down-migration). Metrics/alerts are observational.
+- [ ] Commit — `feat(queues): maintenance metrics + adminNotify expiry/degraded alerting (+ additive NotificationType migration)`
+
+---
+
+## PR-D: Contract guard (Codex #7)
+
+**Files:** create `tests/api/queues/maintenance-contract-guard.test.ts`.
+
+- [ ] **Primary (registration/config contract):** construct the scheduler from the real registration and assert (a) every sweep's effective idle cadence ≥ the approved floor (`> 300_000`); (b) no BullMQ repeatable is registered for the maintenance sweeps (assert the deleted `schedule*` are absent / not called at boot); (c) the env validation rejects `F_idle <= 5min` and `STATEMENT >= TX`.
+- [ ] **Deterministic-jobId producer guard (Codex #2):** a test that fails if any `Queue.add`/`enqueue` producer site omits a deterministic `jobId`, or if a direct unkeyed `queue.add` bypasses `enqueue` (which requires `jobId` at type + runtime). Catches a future producer that forgets the key.
+- [ ] **Secondary (static scan):** a source scan flags any `setInterval`/`setTimeout`/`repeat.every` under a threshold that touches the DB, outside an allow-list — explicitly documented as a secondary defence, not the sole proof (it cannot catch variable-derived cadences or other scheduler APIs).
+- [ ] Commit — `test(ci): maintenance registration-contract guard (+ secondary static scan)`
+
+---
+
+## PR-E: Railway / provider configuration runbook (owner-run; no repo code)
+
+Docs only. **[GATED: owner + provider]**
+- **Enforce AND verify worker replicas = 1 in Railway** (not just a policy line) — the advisory lock is overlap protection, not permission for N replicas; N replicas each wake the DB.
+- Staging autoscaling fixed/low CU + scale-to-zero on (candidate 0.25) **[GATED: §9 idle-CU measurement]**.
+- Keep the worker Offline until the whole stack (A-D) is verified + cost-accepted (§9 rollout).
+- Production autoscaling sizing (min/max, not 0.25-8) **[GATED: owner]**; `F_idle` per environment **[GATED: benchmark]**.
+- Record the owner-set `$20` limit as owner-set; hard-stop enforcement UNVERIFIED.
+
+## PR-F: Runbook + cost-monitoring + deployment/rollback/observation (output 7)
+
+Docs only. Adds to `docs/runbooks/deploy-security-runbook.md` (or a new maintenance-scheduler runbook):
+- **Rollout (Codex #8):** worker Offline through PR-A..PR-D; merge + verify the whole stack first; benchmark on disposable loopback Postgres unless separately approved; complete PR-E provider/runbook gates; **one owner-approved staging activation**; observe 48-72h; stop/pause on any failed cost/latency/correctness gate. No incremental "deploy PR-A while the other 60s sweep still runs."
+- **Rollback (Codex #4, executable):** primary = **pause the worker (Offline) + redeploy the previously-verified image** (the prior image carries the old 60s repeatables; redeploy is a deliberate, cost-accepted emergency, normally with the worker paused). The new image contains **no** flag that re-enables 60s polling. Per-sweep enable flags disable one sweep on the floor without enabling 60s polling. **Schema/rollback model (Codex #4):** PR-C MAY apply an additive `NotificationType` enum migration (if the new degraded type is chosen); an **image rollback does NOT remove the enum value** — the unused additive value remains harmless; **no destructive down-migration** is performed; code rollback and the retained additive schema are separate concerns.
+- **Observation:** 48-72h burn-rate (idle-CU, per-sweep latency, expired/FAILED/degraded counts) before declaring acceptance and before the separate worker-restart decision.
+- **Records** the completed persistent-activity reduction as satisfying the worker-restart precondition (r1 §11 / §13.7 / D-R9), keeping the encryption R2/R3/R4 + Operations A/B and Phase 2B credential rotation as distinct programmes.
+
+---
+
+## Benchmark + acceptance gates (spec §9)
+
+- [ ] **MANDATORY pre-release correctness gate:** verified locked finite producer LIFECYCLE (Task A5) — bounded readiness/connection establishment (lazy + `connectTimeout` + finite `retryStrategy` + `skipWaitingForReady`) AND bounded command-await + force-close + recreation (`commandTimeout` alone is NOT the complete bound); a Redis-down cold start or a stalled `Queue.add` is bounded (outcome UNKNOWN/needsRescan; jobId replay preserves correctness). Not shipped without it.
+- [ ] **MANDATORY pre-release gate:** deterministic-jobId producer contract + guard (Task A5 / PR-D) — no unkeyed `Queue.add`.
+- [ ] **MANDATORY pre-release gate:** bounded shutdown / real force-close (Task A6) verified with a no-lingering-handles test (incl. Redis-unavailable/half-open) + the AlertSink/`$disconnect()` race.
+- [ ] `EXPLAIN (ANALYZE, BUFFERS)` on both reconciler tiers + pending-hours + stale-claim; index-covered at production-scale counts.
+- [ ] Backlog benchmark: 10k+ rows drain via LIMIT-200 without lock contention.
+- [ ] Idle-CU measurement per candidate `F_idle` on staging (read-only).
+- [ ] Worker + DB load test; explicit worker Prisma pool `max`; no connection-budget exhaustion (account for the per-sweep locked connection + Phase-B enqueues, sequential).
+- [ ] 48-72h post-activation burn-rate window.
+- [ ] Stop conditions armed.
+
+## Adversarial-review + stop-and-report
+
+- Each behavioral PR (A, B, C) gets two-stage review + a focused adversarial review on: lock-lifetime-==-work-lifetime (no leadership release with DB work in-flight); timeout actually cancels + rolls back; per-sweep isolation (one sweep failing/timing-out does not change siblings); DB-authoritative `dbNow`; expiry preserved + alerted (`getAlertableAdmins()` + per-recipient `adminNotify`, dedup on `sentAt`, redacted, no email); config fail-closed (non-zero startup unless `MAINTENANCE_MODE=disabled`), never a silent disable or burn path; no 60s-restore flag; an unexpected sweep rejection is classified FAILURE and cannot tight-loop; Phase-B is a monotonic cooperative soft budget (Redis-blocking documented) with per-row isolation + needsRescan.
+- **Stop-and-report** if: any sweep can query the DB more frequently than its `F_idle` while idle (invariant is "no more frequently than the floor," not "no query"); leadership can be released while a sweep's DB work is still in-flight; a sweep failure/timeout alters a sibling's state; the config can silently default into a cadence or 60s polling; an alert path sends email through the outbox or leaks payload/PII; the floor stops firing when Redis is down; a blocked Phase-B `Queue.add` can HOL-block later sweeps or delay shutdown (no finite producer timeout, Task A5); the async alert seam can produce an unhandled rejection or repeatedly write in-app during a DB outage; or dedup is claimed race-free within a replica without the single-flight serialization.
+
+---
+
+## Self-review (skill checklist)
+
+**Spec coverage:** §4.1 per-sweep isolation → A2; §4.2 lock/timeout/tx + phased side-effects → A1; §4.3 ownership + replicas=1 verification → PR-E; §4.4 state machine → A2; §5 delivery semantics → preserved email/idempotency tests; §6 nudge → A2 ACTIVE-on-backlog + kept pending-hours nudge (B); §7 alerting contract → PR-C; §8.3 DB clock → A1/A3/B `dbNow`; §9 cost/rollout → gates + PR-F; §10 O5 out → excluded; §11 alternatives → spec; §12 failure model → adversarial list; §13 cross-check → spec; §14 fail-safe config → A4; §15 owner decisions/rollback → PR-F + [GATED]; §16 holds → unchanged.
+
+**Placeholder scan:** cadence/timeout/window numbers are **[GATED]** on benchmarks/owner decisions (documented decision points). The alert sink is a VERIFIED contract: `getAlertableAdmins()` (active OPS + SUPER_ADMIN) + one `adminNotify(prisma,{adminUserId,type,title,body,referenceId?,referenceType?})` per recipient writing `ADMIN_DELIVERY_FAILED` (expiry) / an explicit degraded `NotificationType`. A routine source-drift recheck is standard; the contract is not deferred.
+
+**Type consistency:** `SweepState = 'SUCCESS'|'LOCK_SKIPPED'|'TIMEOUT'|'FAILURE'`; `SweepResult{state,full,error?}`; `PhaseBBudget{maxItems,budgetMs,monotonicNowMs}`; `runBoundedSweep(prisma, spec, monotonicNowMs) → SweepResult`; `BoundedSweepSpec{name,lockKey,statementTimeoutMs,txTimeoutMs,phaseBMaxItems,phaseBBudgetMs,dbPhase,runSideEffects}`; `SweepPhaseA(tx,dbNow) → {full,sideEffects}`; `runSideEffects(side,PhaseBBudget) → {full}`; `startMaintenanceScheduler(prisma,cfg,sweeps) → {stop()}`; `SchedulerConfig{idleMs,activeMs,emptyScansToIdle,degradedBaseMs,degradedMaxMs,alertAfterFailures,nowMs,monotonicNowMs}`; `SweepRuntime{spec,enabled,nextEligibleAt,degradedStreak,lastSuccessAt,lastFailureAt}` — consistent across A1-A4, B, C, D.
+
+---
+
+## Holds (unchanged)
+
+All operational holds remain: `neon-observer` no-use hold; P1/P8/P9 blocked; no R1; no R2/R3/R4 or Operations A/B; no Phase 2B credential rotation; no Neon/Railway/Redis access, migration, deployment, restart, resume/unarchive, autoscaling change, key action; PR #338 untouched. Docs-only; implementation not authorised.
