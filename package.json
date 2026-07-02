@@ -24,7 +24,7 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:integration:insights": "vitest run --project integration tests/api/merchant/insights",
-    "test:integration:maintenance": "vitest run --project integration tests/api/queues/maintenanceSweep.integration.test.ts tests/api/admin/claim-stale-sweep.integration.test.ts",
+    "test:integration:maintenance": "vitest run --project integration tests/api/queues/maintenanceSweep.integration.test.ts tests/api/admin/claim-stale-sweep.integration.test.ts tests/api/queues/processors/promotePendingHours.integration.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "insights:demo:seed": "tsx prisma/insights-demo-seed.ts"

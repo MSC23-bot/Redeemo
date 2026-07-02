@@ -76,15 +76,21 @@ export interface PromoteTxBounds {
  * promotion has a single source of truth (PR-4 §4c).
  *
  * Everything runs inside ONE `prisma.$transaction` so a crash mid-promotion can
- * never half-apply (status flipped without the live upsert, or vice versa):
- *   1. RE-READ the pending row by id (NEVER trust job.data beyond the id).
- *   2. Promote ONLY if it is still `status='PENDING'` AND `effectiveAt <= now` —
- *      so a cancel that landed first wins (non-PENDING ⇒ no-op) and a not-yet-due
- *      delayed misfire is a no-op. Idempotent: a second run sees PROMOTED ⇒ no-op.
- *   3. REPLACE the LIVE BranchOpeningHours for the branch with `proposedHours`:
+ * never half-apply (status flipped without the live replace, or vice versa):
+ *   1. RE-READ the pending row by id (NEVER trust job.data beyond the id) and
+ *      gate the clean no-ops: missing / CANCELLED / already-PROMOTED / not-due.
+ *   2. CLAIM the row with a CONDITIONAL `updateMany` (id + status='PENDING' +
+ *      effectiveAt <= now → status='PROMOTED', promotedAt=now). This is the
+ *      exclusive-ownership step: concurrent promoters (floor sweep + delayed
+ *      nudge) serialize on the row lock and exactly ONE matches; losers get
+ *      count=0 and return false WITHOUT touching live hours. A cancel that
+ *      landed first also wins here (count=0).
+ *   3. RE-READ the claimed row (authoritative post-claim payload, locked by our
+ *      own update until commit).
+ *   4. REPLACE the LIVE BranchOpeningHours for the branch with `proposedHours`:
  *      delete-all-for-branch + createMany (N rows per day under the PR-8
- *      multi-window model). The live hours change ONLY here.
- *   4. Flip the pending row to `status='PROMOTED'`, `promotedAt=now`.
+ *      multi-window model). Only the claim winner performs this; a failure here
+ *      rolls the claim back with it (same transaction).
  *
  * When `bounds` is passed (the floor's Phase B), the transaction is SHORT and
  * statement-timeout-bounded: a parameterized `set_config('statement_timeout',…)`
@@ -106,28 +112,48 @@ export async function promoteOnePendingHours(
         // Floor path: bound each statement server-side, PARAMETERIZED (spec §4.2).
         await tx.$queryRaw`SELECT set_config('statement_timeout', ${String(bounds.statementTimeoutMs)}, true)`
       }
-      // (1) RE-READ from the DB — the durable row is the source of truth, never job.data.
+      // (1) RE-READ from the DB — the durable row is the source of truth, never
+      // job.data. Validates existence + the clean no-op gates (missing /
+      // CANCELLED / already-PROMOTED / not-yet-due) without any write.
       const pending = await tx.branchOpeningHoursPending.findUnique({ where: { id: pendingId } })
       if (!pending) return false
-
-      // (2) Promote only if still PENDING and due. A cancel that landed first wins;
-      // a not-yet-due delayed misfire is a clean no-op; a re-run on a PROMOTED row
-      // is a no-op (idempotent).
       if (pending.status !== 'PENDING') return false
       if (pending.effectiveAt.getTime() > now.getTime()) return false
 
-      // (3) REPLACE the LIVE BranchOpeningHours for the branch with the proposed week.
+      // (2) TRANSACTIONAL CLAIM — exclusive promotion ownership BEFORE any live
+      // write. The floor sweep and the delayed nudge can promote the same row
+      // CONCURRENTLY; a plain read-then-write lets both pass the PENDING check
+      // and interleave their delete/create pairs (duplicated live rows, or a
+      // concurrent cancel silently overwritten). The conditional updateMany
+      // serializes on the row lock: exactly ONE transaction matches
+      // status='PENDING' and flips it PROMOTED; every loser matches 0 rows and
+      // returns false WITHOUT touching live hours. Same transaction as the live
+      // replace below, so a later failure rolls the claim back too.
+      const claimed = await tx.branchOpeningHoursPending.updateMany({
+        where: { id: pendingId, status: 'PENDING', effectiveAt: { lte: now } },
+        data: { status: 'PROMOTED', promotedAt: now },
+      })
+      if (claimed.count !== 1) return false
+
+      // (3) RE-READ the claimed row for the payload. Our updateMany holds the
+      // row lock until commit, so this snapshot of proposedHours/branchId is
+      // the authoritative post-claim state (a concurrent edit can no longer
+      // slip between the validation read and the live write).
+      const claimedRow = await tx.branchOpeningHoursPending.findUnique({ where: { id: pendingId } })
+      if (!claimedRow) return false // defensive: cannot happen inside our own tx
+
+      // (4) REPLACE the LIVE BranchOpeningHours for the branch with the proposed week.
       // Branches PR-8 (D9): the live model is MULTI-WINDOW (the
       // `@@unique([branchId, dayOfWeek])` was dropped), so the promotion does
       // delete-all-rows-for-this-branch + createMany (N rows/day) inside this same
       // transaction so the swap is atomic. proposedHours was validated by
-      // validateOpeningHours at stage time.
-      const proposed = (pending.proposedHours ?? []) as unknown as ProposedDay[]
-      await tx.branchOpeningHours.deleteMany({ where: { branchId: pending.branchId } })
+      // validateOpeningHours at stage time. ONLY the claim winner reaches here.
+      const proposed = (claimedRow.proposedHours ?? []) as unknown as ProposedDay[]
+      await tx.branchOpeningHours.deleteMany({ where: { branchId: claimedRow.branchId } })
       if (proposed.length > 0) {
         await tx.branchOpeningHours.createMany({
           data: proposed.map(({ dayOfWeek, openTime, closeTime, isClosed }) => ({
-            branchId: pending.branchId,
+            branchId: claimedRow.branchId,
             dayOfWeek,
             openTime: openTime ?? null,
             closeTime: closeTime ?? null,
@@ -135,12 +161,6 @@ export async function promoteOnePendingHours(
           })),
         })
       }
-
-      // (4) Flip the durable row PROMOTED in the SAME transaction as the live replace.
-      await tx.branchOpeningHoursPending.update({
-        where: { id: pendingId },
-        data: { status: 'PROMOTED', promotedAt: now },
-      })
       return true
     },
     bounds ? { timeout: bounds.txTimeoutMs, maxWait: bounds.txTimeoutMs } : undefined,
