@@ -137,10 +137,16 @@ type ExpiryAlertSink = Pick<import('../maintenanceMetrics').AlertSink, 'expiredC
 /**
  * Phase B (unlocked, idempotent, cooperatively budgeted). FIRST — before any
  * row work, so a budget/cooperative stop between rows cannot drop it — the
- * committed expiry breakdown is emitted through the AlertSink. Phase B only
- * runs after the Phase-A transaction COMMITTED (runBoundedSweep contract), so
- * a rolled-back expiry can never alert; a terminal stop between phases skips
- * Phase B entirely, so no alert launches after shutdown.
+ * committed expiry is recorded SYNCHRONOUSLY (counts + internal type labels
+ * only, never payload/recipient data), then the asynchronous admin-alert
+ * launch is attempted through the AlertSink. Phase B only runs after the
+ * Phase-A transaction COMMITTED (runBoundedSweep contract), so a rolled-back
+ * expiry can never alert. TERMINAL-STOP RACE (PR-C correction round): the
+ * scheduler's between-phases isStopping() check and this function are not
+ * atomic — stop can land in between — so the launch is guarded by
+ * budget.isStopping() IMMEDIATELY adjacent to the sink call, with no await
+ * between the check and the call. When stopping, only the synchronous
+ * redacted record happens; no new asynchronous DB/alert operation begins.
  *
  * Then: re-enqueue each id with jobId = id. Runs WITHOUT the lock — safe
  * because BullMQ dedups by jobId and the email worker skips terminal rows
@@ -156,12 +162,17 @@ export function outboxSideEffects(
 ): Promise<PhaseBOutcome> {
   if (side.expired.length > 0) {
     const total = side.expired.reduce((sum, t) => sum + t.count, 0)
-    if (alertSink) {
+    // Launch the async admin alert ONLY while not stopping — the isStopping()
+    // check sits immediately adjacent to the launch seam (no await between).
+    // The sink's own terminal flag cannot close this window: AlertSink.stop()
+    // runs only after the scheduler drain, so this guard is load-bearing.
+    if (alertSink && !budget.isStopping()) {
       // Sync entry, fire-and-forget internally, never throws (AlertSink contract).
       alertSink.expiredCommunications({ sweep: OUTBOX_SWEEP_NAME, total, byType: side.expired })
     } else {
-      // No sink wired (e.g. tests): the committed expiry is still observable.
-      // Counts + internal type labels only, never payload/recipient data.
+      // No sink wired (tests) OR terminal stop active: the committed expiry is
+      // still recorded synchronously — counts + internal type labels only,
+      // never payload/recipient data. No asynchronous operation starts.
       console.warn(
         `[reconcile] expired ${total} QUEUED row(s) older than ${RECONCILE_MAX_AGE_MS}ms ` +
           `→ FAILED + payload cleared (${side.expired.map((t) => `${t.type} x${t.count}`).join(', ')})`,
@@ -183,6 +194,10 @@ export function buildOutboxSweep(
   return {
     name: OUTBOX_SWEEP_NAME,
     lockKey: OUTBOX_SWEEP_LOCK_KEY,
+    // Phase B here is REDIS work (BullMQ re-enqueue) — Phase A committed, the
+    // database is reachable, so a Phase-B failure alerts normally (never
+    // misclassified as a database outage).
+    sideEffectDomain: 'REDIS',
     statementTimeoutMs: cfg.statementTimeoutMs,
     txTimeoutMs: cfg.txTimeoutMs,
     phaseBMaxItems: cfg.phaseBMaxItems,

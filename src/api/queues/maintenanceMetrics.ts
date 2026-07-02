@@ -93,12 +93,16 @@ export interface AlertSink {
 
 /** DB-unavailable classification: the bounded, source-compatible classes that
  *  mean the DATABASE itself failed. A TIMEOUT state is the DB bounds firing;
- *  PRISMA_ and PG_ prefixed classes are driver/Postgres errors. NET_, ERR_,
- *  and UNCLASSIFIED (which includes the count-only "phase-b: N side-effect
- *  row(s) failed" error from a Redis outage) are NOT database outages: on
- *  those paths Phase A committed, so the database is reachable. */
+ *  PRISMA_ and PG_ prefixed classes are driver/Postgres errors;
+ *  ERR_PhaseBDatabaseFailure is the count-only Phase-B failure from a sweep
+ *  whose declared side-effect domain is DATABASE (pending-hours promotion,
+ *  stale-claim — their Phase-B row work IS database work, so N failed rows
+ *  most plausibly means the DB is down). ERR_PhaseBRedisFailure (the outbox
+ *  re-enqueue domain), NET_*, other ERR_*, and UNCLASSIFIED are NOT database
+ *  outages: on those paths Phase A committed, so the database is reachable. */
 export function isDbUnavailableFailure(state: SweepState, errorClass: string): boolean {
   if (state === 'TIMEOUT') return true
+  if (errorClass === 'ERR_PhaseBDatabaseFailure') return true
   return errorClass.startsWith('PRISMA_') || errorClass.startsWith('PG_')
 }
 

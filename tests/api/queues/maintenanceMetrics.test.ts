@@ -7,6 +7,7 @@ import {
   ALERT_SINK_STOP_DRAIN_MS,
   MAINTENANCE_ALERT_REFERENCE_TYPE,
 } from '../../../src/api/queues/maintenanceMetrics'
+import { PHASE_B_FAILURE_NAME } from '../../../src/api/queues/maintenanceSweep'
 
 // Neon CU-burn PR-C: the AlertSink. Pins the owner-approved alerting model —
 // per-recipient in-app fan-out via adminNotify (NO CommunicationLog, NO email),
@@ -98,10 +99,107 @@ describe('isDbUnavailableFailure — the Redis-vs-DB classification boundary', (
     expect(isDbUnavailableFailure('FAILURE', 'PRISMA_P2028')).toBe(true)
     expect(isDbUnavailableFailure('FAILURE', 'PG_57014')).toBe(true)
   })
-  it('a Redis-only Phase-B failure (NET_* or the count-only UNCLASSIFIED phase-b error) is NOT a database outage', () => {
+  it('PR-C correction: a DATABASE-domain Phase-B failure class IS a database outage; the REDIS-domain class is NOT', () => {
+    expect(isDbUnavailableFailure('FAILURE', 'ERR_PhaseBDatabaseFailure')).toBe(true)
+    expect(isDbUnavailableFailure('FAILURE', 'ERR_PhaseBRedisFailure')).toBe(false)
+  })
+  it('a Redis/network failure (NET_* or an UNCLASSIFIED error) is NOT a database outage', () => {
     expect(isDbUnavailableFailure('FAILURE', 'NET_ECONNREFUSED')).toBe(false)
     expect(isDbUnavailableFailure('FAILURE', 'UNCLASSIFIED')).toBe(false)
     expect(isDbUnavailableFailure('FAILURE', 'ERR_TypeError')).toBe(false)
+  })
+})
+
+/** Build the count-only phase-b failure exactly as runBoundedSweep does — the
+ *  name comes from the SAME exported PHASE_B_FAILURE_NAME map runBoundedSweep
+ *  uses (pinned there), so mutating either side breaks a pin. */
+function phaseBError(domain: 'DATABASE' | 'REDIS', failedRows: number, message?: string): Error {
+  const err = new Error(message ?? `phase-b: ${failedRows} side-effect row(s) failed`)
+  err.name = PHASE_B_FAILURE_NAME[domain]
+  return err
+}
+
+describe('AlertSink — PR-C correction: Phase-B failure domains', () => {
+  it('pending-hours Phase-B DATABASE failure: ZERO admin lookup / Notification write; degraded is log-only with recovery pending', async () => {
+    let now = 1_000_000
+    const { prisma, created, findMany, findFirst, create } = fakePrisma(() => now)
+    const sink = createAlertSink(prisma, { nowMs: () => now })
+    sink.sweepFailure('pending-hours-promote', 'FAILURE', phaseBError('DATABASE', 5))
+    sink.sweepDegraded('pending-hours-promote', 3)
+    await flush()
+    expect(findMany).not.toHaveBeenCalled() // getAlertableAdmins never called
+    expect(findFirst).not.toHaveBeenCalled() // no dedup lookup against the down DB
+    expect(create).not.toHaveBeenCalled() // adminNotify never called
+    expect(created).toHaveLength(0)
+    const logged = JSON.stringify(errSpy.mock.calls)
+    expect(logged).toContain('suppressed')
+    expect(logged).toContain('recoveryPending')
+    expect(logged).toContain('ERR_PhaseBDatabaseFailure') // the redacted failure class is the whole story
+  })
+
+  it('stale-claim Phase-B DATABASE failure: same log-only suppression, zero admin lookup/notification', async () => {
+    let now = 1_000_000
+    const { prisma, created, findMany, create } = fakePrisma(() => now)
+    const sink = createAlertSink(prisma, { nowMs: () => now })
+    sink.sweepFailure('claim-stale', 'FAILURE', phaseBError('DATABASE', 2))
+    sink.sweepDegraded('claim-stale', 4)
+    await flush()
+    expect(findMany).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(created).toHaveLength(0)
+  })
+
+  it('later success after a DATABASE-domain suppression: the RECOVERED notification is emitted', async () => {
+    let now = 1_000_000
+    const { prisma, created } = fakePrisma(() => now)
+    const sink = createAlertSink(prisma, { nowMs: () => now })
+    sink.sweepFailure('pending-hours-promote', 'FAILURE', phaseBError('DATABASE', 5))
+    sink.sweepDegraded('pending-hours-promote', 3) // suppressed, recoveryPending
+    await flush()
+    expect(created).toHaveLength(0)
+    sink.sweepRecovered('pending-hours-promote') // the scheduler's SUCCESS-transition seam
+    await flush()
+    expect(created).toHaveLength(2) // one per alertable admin
+    expect(created.every((r) => r.type === 'ADMIN_MAINTENANCE_RECOVERED')).toBe(true)
+    expect(created.every((r) => r.referenceId === 'pending-hours-promote')).toBe(true)
+  })
+
+  it('outbox Phase-B REDIS failure: the degraded notification is STILL emitted immediately (subject to dedup)', async () => {
+    let now = 1_000_000
+    const { prisma, created } = fakePrisma(() => now)
+    const sink = createAlertSink(prisma, { nowMs: () => now })
+    sink.sweepFailure('outbox-reconcile', 'FAILURE', phaseBError('REDIS', 3))
+    sink.sweepDegraded('outbox-reconcile', 3)
+    await flush()
+    expect(created).toHaveLength(2)
+    expect(created.every((r) => r.type === 'ADMIN_MAINTENANCE_DEGRADED')).toBe(true)
+    // dedup policy still applies to the domain path
+    sink.sweepDegraded('outbox-reconcile', 4)
+    await flush()
+    expect(created).toHaveLength(2)
+  })
+
+  it('planted secret-bearing text on a domain-named error NEVER escapes to logs or alert bodies', async () => {
+    let now = 1_000_000
+    const { prisma, created } = fakePrisma(() => now)
+    const sink = createAlertSink(prisma, { nowMs: () => now })
+    const hostile = phaseBError(
+      'REDIS',
+      1,
+      'redis://:hunter2SECRET@redis-host:6379 failed while enqueueing payload {"to":"victim@example.test"}',
+    )
+    sink.sweepFailure('outbox-reconcile', 'FAILURE', hostile)
+    sink.sweepDegraded('outbox-reconcile', 3)
+    await flush()
+    const logged = JSON.stringify(errSpy.mock.calls)
+    expect(logged).not.toContain('hunter2SECRET')
+    expect(logged).not.toContain('redis://')
+    expect(logged).not.toContain('victim@example.test')
+    expect(logged).toContain('ERR_PhaseBRedisFailure') // only the allow-listed class
+    for (const row of created) {
+      expect(row.body).not.toContain('hunter2SECRET') // alert bodies carry the fixed copy only
+      expect(row.body).not.toContain('victim@example.test')
+    }
   })
 })
 
@@ -265,11 +363,11 @@ describe('AlertSink — DB-outage suppression + recoveryPending', () => {
     expect(created.every((r) => r.type === 'ADMIN_MAINTENANCE_RECOVERED')).toBe(true)
   })
 
-  it('a Redis-only Phase-B failure does NOT suppress the DEGRADED alert (DB is available)', async () => {
+  it('an UNCLASSIFIED failure (plain Error) does NOT suppress the DEGRADED alert — only explicit DB signals suppress', async () => {
     let now = 1_000_000
     const { prisma, created } = fakePrisma(() => now)
     const sink = createAlertSink(prisma, { nowMs: () => now })
-    sink.sweepFailure('outbox-reconcile', 'FAILURE', new Error('phase-b: 3 side-effect row(s) failed'))
+    sink.sweepFailure('outbox-reconcile', 'FAILURE', new Error('some unrecognised failure'))
     sink.sweepDegraded('outbox-reconcile', 3)
     await flush()
     expect(created).toHaveLength(2)

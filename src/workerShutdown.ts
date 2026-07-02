@@ -41,9 +41,11 @@ export interface WorkerShutdownDeps {
 export interface WorkerShutdownSummary {
   /** true: the active maintenance tick settled inside the drain bound. */
   drained: boolean
-  /** PR-C: present when an AlertSink was provided; 'timeout' only if the sink
-   *  violated its own bounded-drain contract. */
-  alertSinkPhase?: 'ok' | 'timeout'
+  /** PR-C: present when an AlertSink was provided. 'ok' = clean bounded stop;
+   *  'timeout' = the sink violated its bounded-drain contract (hang);
+   *  'error' = stop() rejected or threw (also a contract violation) — visibly
+   *  non-OK, never masked as ok. Cleanup continues in the locked order either way. */
+  alertSinkPhase?: 'ok' | 'timeout' | 'error'
   workerClosePhase: 'ok' | 'timeout'
   prismaPhase: 'ok' | 'timeout'
   /** true: the (possibly force-closed) tick was joined; false → process.exit terminates it. */
@@ -98,17 +100,27 @@ export async function runWorkerShutdown(deps: WorkerShutdownDeps): Promise<Worke
   //     can launch a new alert into a stopping sink) and BEFORE the resource
   //     force-closes below (so in-flight Notification writes get their bounded
   //     drain while the DB connection still lives). stop() never throws or
-  //     hangs by contract; the coordinator bounds it anyway and normalizes a
-  //     contract-violating rejection/hang to 'timeout' — later phases always run.
-  let alertSinkPhase: 'ok' | 'timeout' | undefined
+  //     hangs by contract; the coordinator bounds it anyway. A contract
+  //     violation stays VISIBLE in the summary: a hang reports 'timeout', a
+  //     rejection/throw reports 'error' — never masked as ok. Either way every
+  //     later cleanup phase still runs in the locked order.
+  let alertSinkPhase: 'ok' | 'timeout' | 'error' | undefined
   if (deps.alertSink) {
     const sink = deps.alertSink
-    alertSinkPhase = await boundedPhase(
-      Promise.resolve().then(() => sink.stop()),
+    let sinkRejected = false
+    const bounded = await boundedPhase(
+      Promise.resolve()
+        .then(() => sink.stop())
+        .catch(() => {
+          sinkRejected = true // observed here; surfaced as 'error' below
+        }),
       ALERT_SINK_PHASE_TIMEOUT_MS,
     )
-    if (alertSinkPhase === 'timeout') {
-      log('[worker] alert-sink stop did not settle within bound — proceeding (late writes stay observed)')
+    alertSinkPhase = bounded === 'ok' && sinkRejected ? 'error' : bounded
+    if (alertSinkPhase !== 'ok') {
+      log(
+        `[worker] alert-sink stop did not complete cleanly (${alertSinkPhase}) — proceeding (late settlements stay observed)`,
+      )
     }
   }
 

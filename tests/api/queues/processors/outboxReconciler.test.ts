@@ -222,6 +222,7 @@ describe('buildOutboxSweep — the BoundedSweepSpec wiring', () => {
     const spec = buildOutboxSweep(CFG)
     expect(spec.name).toBe('outbox-reconcile')
     expect(spec.lockKey).toBe(OUTBOX_SWEEP_LOCK_KEY)
+    expect(spec.sideEffectDomain).toBe('REDIS') // PR-C correction: Phase B here is BullMQ work — never a DB-outage signal
     expect(spec.statementTimeoutMs).toBe(4000)
     expect(spec.txTimeoutMs).toBe(8000)
     expect(spec.phaseBMaxItems).toBe(200)
@@ -238,5 +239,108 @@ describe('buildOutboxSweep — the BoundedSweepSpec wiring', () => {
       total: 1,
       byType: [{ type: 'login_otp', count: 1 }],
     })
+  })
+})
+
+describe('outboxSideEffects — PR-C correction: terminal-stop expiry-alert race', () => {
+  const CFG = {
+    mode: 'enabled' as const,
+    floorIdleMs: 1_800_000,
+    floorActiveMs: 5000,
+    phaseBMaxItems: 200,
+    phaseBBudgetMs: 10_000,
+    statementTimeoutMs: 4000,
+    txTimeoutMs: 8000,
+    sweepOutboxEnabled: true,
+    sweepPendingHoursEnabled: true,
+    sweepClaimStaleEnabled: true,
+  }
+
+  it('stop active when Phase B starts: the async alert launch NEVER begins; the synchronous redacted record still happens; no row starts', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const sink = { expiredCommunications: vi.fn() }
+      const res = await outboxSideEffects(
+        side(['row-1', 'row-2'], [{ type: 'login_otp', count: 4 }]),
+        budget({ isStopping: () => true }),
+        sink,
+      )
+      expect(sink.expiredCommunications).not.toHaveBeenCalled() // no new async op after stop
+      expect(enqueueMock).not.toHaveBeenCalled() // no Redis row either
+      expect(res).toEqual({ full: true, failedRows: 0, startedRows: 0 })
+      const logged = JSON.stringify(warn.mock.calls)
+      expect(logged).toContain('expired 4 QUEUED row(s)') // the committed expiry stays recorded…
+      expect(logged).toContain('login_otp x4') // …with counts + internal labels only
+      expect(logged).not.toMatch(/@|http/)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('EXACT interleaving: stop lands AFTER the scheduler between-phases check but BEFORE emission — a REAL AlertSink starts no admin lookup or Notification write', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const { createAlertSink } = await import('../../../../src/api/queues/maintenanceMetrics')
+      const { runBoundedSweep } = await import('../../../../src/api/queues/maintenanceSweep')
+      const findMany = vi.fn(async () => [{ id: 'a1', email: 'x', firstName: 'x', lastName: 'x' }])
+      const create = vi.fn(async () => ({}))
+      const notifFindFirst = vi.fn(async () => null)
+      // A prisma fake covering BOTH runBoundedSweep's tx surface AND the sink's
+      // alert surface, so the whole path is the REAL code.
+      const tx = {
+        $queryRaw: vi.fn((strings: TemplateStringsArray, ..._values: unknown[]) => {
+          const sql = strings.join('?')
+          if (sql.includes('set_config')) return Promise.resolve([])
+          if (sql.includes('pg_try_advisory_xact_lock')) return Promise.resolve([{ locked: true }])
+          if (sql.includes('now()')) return Promise.resolve([{ now: NOW }])
+          if (sql.includes('WITH expired AS')) return Promise.resolve([{ type: 'login_otp', count: 2 }])
+          return Promise.resolve([])
+        }),
+        communicationLog: { findMany: vi.fn(async () => []) },
+      }
+      const prisma = {
+        $transaction: vi.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(tx)),
+        adminUser: { findMany },
+        notification: { findFirst: notifFindFirst, create },
+      } as never
+      const sink = createAlertSink(prisma)
+      // isStopping: FALSE on runBoundedSweep's between-phases check (call 1),
+      // TRUE from then on — the exact race window under correction.
+      let calls = 0
+      const isStopping = () => ++calls > 1
+      const res = await runBoundedSweep(
+        prisma,
+        buildOutboxSweep(CFG, sink),
+        () => 0,
+        isStopping,
+      )
+      await sink.stop() // drains anything that (wrongly) launched
+      expect(res.state).toBe('SUCCESS') // Phase A committed; rows deferred to next scan
+      expect(findMany).not.toHaveBeenCalled() // getAlertableAdmins never started
+      expect(notifFindFirst).not.toHaveBeenCalled() // no dedup lookup either
+      expect(create).not.toHaveBeenCalled() // NO admin Notification began
+      const logged = JSON.stringify(warn.mock.calls)
+      expect(logged).toContain('expired 2 QUEUED row(s)') // …while the committed-expiry redacted record remains
+      expect(logged).toContain('login_otp x2')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('positive control: the same path with stop NEVER active launches the alert (guard is the only difference)', async () => {
+    const sink = { expiredCommunications: vi.fn() }
+    await outboxSideEffects(side([], [{ type: 'login_otp', count: 4 }]), budget(), sink)
+    expect(sink.expiredCommunications).toHaveBeenCalledTimes(1)
+  })
+
+  it('structural pin: the launch happens SYNCHRONOUSLY from Phase-B entry — no await sits between the stop check and the sink call', () => {
+    // Assert BEFORE awaiting anything: the guard + launch run in the same
+    // synchronous frame as entry. Any future refactor inserting an await
+    // between the isStopping() check and the sink call breaks this pin —
+    // the race window the correction closes would otherwise reopen silently.
+    const sink = { expiredCommunications: vi.fn() }
+    const pending = outboxSideEffects(side([], [{ type: 'login_otp', count: 1 }]), budget(), sink)
+    expect(sink.expiredCommunications).toHaveBeenCalledTimes(1) // already launched, synchronously
+    return pending
   })
 })

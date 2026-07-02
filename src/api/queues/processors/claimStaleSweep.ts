@@ -151,6 +151,10 @@ export function buildClaimStaleSweep(
   return {
     name: CLAIM_STALE_SWEEP_NAME,
     lockKey: CLAIM_STALE_SWEEP_LOCK_KEY,
+    // Phase B here is DATABASE work (adminNotify bell write + lastStaleAlertAt
+    // stamp), so N failed rows classify as a database-domain failure and the
+    // alert layer stays log-only (writing a Notification would hit the down DB).
+    sideEffectDomain: 'DATABASE',
     statementTimeoutMs: cfg.statementTimeoutMs,
     txTimeoutMs: cfg.txTimeoutMs,
     phaseBMaxItems: cfg.phaseBMaxItems,

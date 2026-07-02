@@ -127,6 +127,18 @@ describe('three-sweep floor — distinct identities', () => {
       expect(s.phaseBBudgetMs).toBe(CFG.phaseBBudgetMs)
     }
   })
+
+  // PR-C correction round: each REAL builder declares the system its Phase B
+  // touches, so a Phase-B failure carries a safe explicit failure domain —
+  // outbox re-enqueue is REDIS work (alerts normally on failure); pending-hours
+  // promotion and the stale-claim alert+stamp are DATABASE work (their Phase-B
+  // failure means the DB is down ⇒ the alert layer must stay log-only).
+  it('the three REAL sweeps declare the correct Phase-B side-effect domains', () => {
+    const byName = new Map(threeSweeps().map((s) => [s.spec.name, s.spec.sideEffectDomain]))
+    expect(byName.get(OUTBOX)).toBe('REDIS')
+    expect(byName.get(PENDING)).toBe('DATABASE')
+    expect(byName.get(STALE)).toBe('DATABASE')
+  })
 })
 
 describe('three-sweep floor — per-sweep enable flags are the rollback switches', () => {

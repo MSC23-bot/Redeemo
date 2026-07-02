@@ -259,13 +259,29 @@ describe('runWorkerShutdown — PR-C AlertSink phase', () => {
     expect(order[order.length - 1]).toBe('forceJoin')
   })
 
-  it('a REJECTED sink stop is observed and the phase still settles — no unhandled rejection, later phases run', async () => {
+  it('PR-C correction: a REJECTED sink stop is observed, reported as a VISIBLY non-OK phase, and never masked as ok — the coordinator neither rejects nor hangs and every later phase runs in the locked order', async () => {
     const { deps, order } = sinkHarness(async () => {
       throw new Error('sink stop exploded')
     })
+    const summary = await runWorkerShutdown(deps) // resolves — the coordinator never rejects
+    expect(summary.alertSinkPhase).toBe('error') // rejection is VISIBLE, not normalized to ok
+    expect(summary).toMatchObject({ drained: true, workerClosePhase: 'ok', prismaPhase: 'ok', joined: true })
+    expect(order).toEqual([
+      'scheduler.stop',
+      'worker.close', // the rejected sink stop pushed no order entry, cleanup continues…
+      'conn.quit',
+      'closeQueues',
+      'prisma.$disconnect',
+      'forceJoin', // …through to the end, in the locked order
+    ])
+  })
+
+  it('PR-C correction: a SYNCHRONOUSLY throwing sink stop is likewise surfaced as error without skipping later phases', async () => {
+    const { deps, order } = sinkHarness(() => {
+      throw new Error('sync throw from sink.stop()')
+    })
     const summary = await runWorkerShutdown(deps)
-    expect(summary.alertSinkPhase).toBe('ok') // settled-by-rejection ends the phase, observed
-    expect(order).toContain('worker.close')
+    expect(summary.alertSinkPhase).toBe('error')
     expect(order[order.length - 1]).toBe('forceJoin')
   })
 
