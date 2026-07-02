@@ -89,9 +89,11 @@ The backend is now **two processes off the same codebase + the same env**:
 | Process | Procfile entry | Command | Role |
 |---|---|---|---|
 | **web** | `web` | `node dist/src/index.js` | the Fastify API (HTTP) |
-| **worker** | `worker` | `node dist/src/worker.js` | BullMQ workers: email delivery, outbox reconciler (repeatable 60 s), photo moderation |
+| **worker** | `worker` | `node dist/src/worker.js` | BullMQ workers: email delivery, photo moderation, per-record pending-hours nudge; PLUS the process-local maintenance scheduler (outbox-reconcile / pending-hours / stale-claim sweeps — the former 60 s/hourly BullMQ repeatables are deleted from the code) |
 
 A root **`Procfile`** declares both. On Railway (assumed host, D2) point the service at this repo; it builds once and runs the two process types. The **worker needs the SAME env as the API** (DB, Redis, the feature flags) — set the env at the service/project level so both processes inherit it. The worker can **scale to zero** without affecting the API (jobs queue in Redis until it returns).
+
+> **Worker activation boundary (Neon CU-burn programme):** the staging worker is currently **Offline** and its restart is gated by the separately-approved staging activation in `docs/runbooks/neon-cu-burn-maintenance-rollout-runbook.md` (provider preparation, migration ordering, legacy-repeatable cleanup, one deliberate start, 48-72 h observation). The worker additionally **fail-closes without `WORKER_DATABASE_POOL_MAX`** (required for EVERY worker start, including `--verify-keyring-and-exit`) and, unless `MAINTENANCE_MODE=disabled`, without the full `MAINTENANCE_*` variable set — see `.env.example` and that runbook §3.3. Do not start the worker daemon outside that runbook.
 
 ### Build + release (IMPORTANT — the build is not bare `tsc`)
 - **`npm run build`** = `prisma generate && tsc -p tsconfig.build.json`. It MUST run `prisma generate` first because `generated/prisma` is **gitignored** (absent on a fresh checkout), and it uses **`tsconfig.build.json`** (compiles only `src/` + `generated/`, excludes `tests/`) so the build does not fail on test-only type errors and `dist/` stays lean. Output: `dist/src/index.js` + `dist/src/worker.js` (the Procfile targets). The default `tsc --noEmit` (type-check, all files incl. tests) is unchanged.
