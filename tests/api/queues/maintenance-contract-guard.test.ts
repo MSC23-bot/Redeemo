@@ -196,21 +196,85 @@ describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRe
     expect(new Set(reg.sweeps.map((s) => s.spec.lockKey)).size).toBe(3)
   })
 
-  it('threads each REAL per-sweep enable flag (distinct values, so a hardcoded flag fails)', () => {
-    const reg = buildMaintenanceRegistration(
-      untouchablePrisma(),
-      enabledConfig({
+  // PR-D correction round: each sweep's enable flag is tested INDEPENDENTLY in
+  // BOTH states, with the varied sweep always differing from the two held
+  // sweeps. Mutation coverage: hardcoding ANY flag to true fails that flag's
+  // false-vector; hardcoding to false fails its true-vector; and every
+  // pairwise field SWAP is caught because in each vector the varied flag
+  // differs from both others (a swap involving the varied sweep flips its
+  // observed value). Expectations read from the VALIDATED config field itself,
+  // so the field-to-sweep mapping is explicit, not restated literals.
+  const ENABLE_FLAG_MATRIX: Array<{
+    label: string
+    env: Record<string, string>
+  }> = [
+    {
+      label: 'outbox=true, others=false',
+      env: {
+        MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'true',
+        MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'false',
+        MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'false',
+      },
+    },
+    {
+      label: 'outbox=false, others=true',
+      env: {
+        MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'false',
+        MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'true',
+        MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
+      },
+    },
+    {
+      label: 'pending-hours=true, others=false',
+      env: {
+        MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'false',
+        MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'true',
+        MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'false',
+      },
+    },
+    {
+      label: 'pending-hours=false, others=true',
+      env: {
         MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'true',
         MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'false',
         MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
-      }),
-      stubSink(),
-    )
-    const enabled = new Map(reg.sweeps.map((s) => [s.spec.name, s.enabled]))
-    expect(enabled.get('outbox-reconcile')).toBe(true)
-    expect(enabled.get('pending-hours-promote')).toBe(false)
-    expect(enabled.get('claim-stale')).toBe(true)
-  })
+      },
+    },
+    {
+      label: 'claim-stale=true, others=false',
+      env: {
+        MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'false',
+        MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'false',
+        MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
+      },
+    },
+    {
+      label: 'claim-stale=false, others=true',
+      env: {
+        MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'true',
+        MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'true',
+        MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'false',
+      },
+    },
+  ]
+
+  it.each(ENABLE_FLAG_MATRIX)(
+    'threads each REAL per-sweep enable flag independently in both states ($label)',
+    ({ env }) => {
+      const maintenance = enabledConfig(env)
+      const reg = buildMaintenanceRegistration(untouchablePrisma(), maintenance, stubSink())
+      const enabled = new Map(reg.sweeps.map((s) => [s.spec.name, s.enabled]))
+      // The explicit field-to-sweep mapping, asserted from the VALIDATED config:
+      expect(enabled.get('outbox-reconcile')).toBe(maintenance.sweepOutboxEnabled)
+      expect(enabled.get('pending-hours-promote')).toBe(maintenance.sweepPendingHoursEnabled)
+      expect(enabled.get('claim-stale')).toBe(maintenance.sweepClaimStaleEnabled)
+      // Sanity: the validated fields really carry this vector's raw values
+      // (guards against the fixture and the resolver drifting together).
+      expect(maintenance.sweepOutboxEnabled).toBe(env.MAINTENANCE_SWEEP_OUTBOX_ENABLED === 'true')
+      expect(maintenance.sweepPendingHoursEnabled).toBe(env.MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED === 'true')
+      expect(maintenance.sweepClaimStaleEnabled).toBe(env.MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED === 'true')
+    },
+  )
 
   it('every sweep shares the VALIDATED idle cadence: cfg.idleMs === floorIdleMs (> 300000 by validation)', () => {
     const maintenance = enabledConfig({ MAINTENANCE_FLOOR_IDLE_MS: '1800000' })
