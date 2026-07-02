@@ -19,7 +19,12 @@ import type { Worker } from 'bullmq'
 import type IORedis from 'ioredis'
 import { PrismaClient } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { validateRequiredEnv, resolveMaintenanceConfig, type MaintenanceConfig } from './api/shared/env'
+import {
+  validateRequiredEnv,
+  resolveMaintenanceConfig,
+  resolveWorkerDatabasePoolMax,
+  type MaintenanceConfig,
+} from './api/shared/env'
 import { closeQueues, makeQueueConnection } from './api/queues'
 import {
   startMaintenanceScheduler,
@@ -52,6 +57,19 @@ const WORKER_CLOSE_TIMEOUT_MS = 10_000
 /** Bounds prisma.$disconnect so a hanging pool teardown cannot prevent the
  *  scheduler forceJoin or the final process.exit. */
 const PRISMA_DISCONNECT_TIMEOUT_MS = 5_000
+
+/**
+ * THE single worker Prisma construction path. Both entrypoints — the normal
+ * boot AND --verify-keyring-and-exit — build their client here, so the
+ * explicit validated pool max can never drift between them and no worker
+ * PrismaPg is ever constructed on the implicit node-postgres default.
+ * Constructing the client does not connect (Prisma connects lazily /
+ * on $connect), so this stays safe for the early-exit keyring path.
+ */
+export function createWorkerPrisma(connectionString: string, poolMax: number): PrismaClient {
+  const adapter = new PrismaPg({ connectionString, max: poolMax })
+  return new PrismaClient({ adapter })
+}
 
 /** The maintenance registration, built pure — see buildMaintenanceRegistration. */
 export interface MaintenanceRegistration {
@@ -105,6 +123,14 @@ async function main(): Promise<void> {
   // Fail-closed: same aggregated env check the API runs (REDIS_URL is required).
   validateRequiredEnv()
 
+  // Worker Prisma pool max — resolved BEFORE any Prisma/Redis/BullMQ/provider
+  // resource is created, and BEFORE the --verify-keyring-and-exit early path
+  // (that mode constructs a Prisma client too, so it needs the validated value
+  // just like a normal boot; MAINTENANCE_MODE=disabled likewise). Pure sync
+  // validation only — an invalid value THROWS here → main().catch → exit(1)
+  // with zero resources opened.
+  const workerDbPoolMax = resolveWorkerDatabasePoolMax(process.env)
+
   // Encryption key-rotation R1 (spec §3.9 / Amendment #13 — Neon cost
   // containment). `--verify-keyring-and-exit` publishes the WORKER service's
   // keyring fingerprint row (so the migrator can read worker parity directly
@@ -119,10 +145,7 @@ async function main(): Promise<void> {
     // flip/migration with unverified worker parity). No BullMQ is registered.
     const { verifyKeyringAndExit } = await import('./api/shared/keyringVerify')
     const code = await verifyKeyringAndExit({
-      makePrisma: () => {
-        const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
-        return new PrismaClient({ adapter })
-      },
+      makePrisma: () => createWorkerPrisma(process.env.DATABASE_URL!, workerDbPoolMax),
       publish: async (prisma) => {
         const { publishKeyringFingerprint } = await import('./api/shared/keyring')
         return publishKeyringFingerprint(prisma, 'worker')
@@ -140,10 +163,11 @@ async function main(): Promise<void> {
   // validation failure never silently becomes disabled mode.
   const maintenance = resolveMaintenanceConfig(process.env)
 
-  // ONE Prisma client for every processor (mirrors the API's prisma plugin).
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
-  const prisma = new PrismaClient({ adapter })
+  // ONE Prisma client for every processor (mirrors the API's prisma plugin),
+  // built through the shared factory with the explicit validated pool max.
+  const prisma = createWorkerPrisma(process.env.DATABASE_URL!, workerDbPoolMax)
   await prisma.$connect()
+  console.info(`[worker] prisma pool max=${workerDbPoolMax} (explicit WORKER_DATABASE_POOL_MAX; no implicit pg default)`)
 
   // Encryption key-rotation R1: a normally-running worker also publishes its
   // keyring fingerprint at boot (best-effort, never blocks). The offline

@@ -243,6 +243,55 @@ export function resolveMaintenanceConfig(env: NodeJS.ProcessEnv): MaintenanceCon
   }
 }
 
+// ---------------------------------------------------------------------------
+// Neon CU-burn worker-pool follow-up: explicit worker Prisma pool sizing.
+//
+// The worker previously inherited node-postgres's implicit default pool max
+// (10) at BOTH of its PrismaPg construction sites. That default is now
+// forbidden: the worker requires an explicit, validated
+// WORKER_DATABASE_POOL_MAX whenever it starts — normal boot,
+// MAINTENANCE_MODE=disabled, AND --verify-keyring-and-exit — with no silent
+// default and no NODE_ENV-dependent behaviour. The API service's Prisma
+// configuration is intentionally untouched.
+// ---------------------------------------------------------------------------
+
+/**
+ * Hard safety ceiling for the worker pool max. 10 preserves the previously
+ * inherited node-postgres default maximum, so no env value can ever allow the
+ * worker MORE connections than it could already open. Raising this ceiling is
+ * a reviewed code decision, never an env bump.
+ */
+export const WORKER_DATABASE_POOL_MAX_CEILING = 10
+
+/**
+ * Resolve the worker's explicit Prisma pool max, fail-closed. Pure (takes the
+ * env record) so tests exercise every branch directly. Accepts an integer in
+ * [1, WORKER_DATABASE_POOL_MAX_CEILING]; rejects missing, blank, non-integer,
+ * float, zero, negative, and above-ceiling values with one formatted error.
+ */
+export function resolveWorkerDatabasePoolMax(env: NodeJS.ProcessEnv): number {
+  const fail = (detail: string): never => {
+    throw new Error(
+      `[env] Refusing to start worker — WORKER_DATABASE_POOL_MAX ${detail}. ` +
+        `Set it to an integer between 1 and ${WORKER_DATABASE_POOL_MAX_CEILING} inclusive. ` +
+        `It is required whenever the worker starts (normal boot, MAINTENANCE_MODE=disabled, ` +
+        `and --verify-keyring-and-exit); there is no silent default pool size.`,
+    )
+  }
+  const raw = env.WORKER_DATABASE_POOL_MAX
+  if (raw === undefined || raw.trim() === '') {
+    return fail('is not set')
+  }
+  const value = Number(raw)
+  if (!Number.isInteger(value)) {
+    return fail(`must be an integer, got "${raw}"`)
+  }
+  if (value < 1 || value > WORKER_DATABASE_POOL_MAX_CEILING) {
+    return fail(`must be between 1 and ${WORKER_DATABASE_POOL_MAX_CEILING} inclusive, got ${value}`)
+  }
+  return value
+}
+
 export function validateRequiredEnv(): void {
   const problems: string[] = []
   for (const name of REQUIRED_SECRETS) {
