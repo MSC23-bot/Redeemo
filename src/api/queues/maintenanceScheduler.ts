@@ -29,7 +29,24 @@
 //     scan are the durable guarantee (spec §3).
 
 import type { PrismaClient } from '../../../generated/prisma/client'
-import { runBoundedSweep, type BoundedSweepSpec, type SweepState } from './maintenanceSweep'
+import {
+  runBoundedSweep,
+  type BoundedSweepSpec,
+  type PhaseBOutcome,
+  type SweepResult,
+  type SweepState,
+} from './maintenanceSweep'
+
+/** PR-C metrics seam: one observation per completed sweep run (any state). */
+export interface SweepRunInfo {
+  name: string
+  state: SweepState
+  /** Monotonic duration of the whole run (Phase A + Phase B). */
+  durationMs: number
+  full: boolean
+  /** Present only when Phase B actually ran (honest counts — never invented). */
+  phaseB?: PhaseBOutcome
+}
 
 export interface SweepRuntime {
   spec: BoundedSweepSpec<unknown>
@@ -60,6 +77,13 @@ export interface SchedulerConfig {
   recordSweepFailure?: (name: string, state: SweepState, error: unknown) => void
   /** PR-C seam — SYNC void, fire-and-forget internally; PR-A default is a log stub. NEVER launched once stopping. */
   alertDegraded?: (name: string, degradedStreak: number) => void
+  /** PR-C seam — SYNC void. Fired on the degraded→healthy TRANSITION only
+   *  (degradedStreak > 0 followed by SUCCESS), guarded by !isStopping() at the
+   *  launch seam — never on a routine success, never once stop is requested. */
+  sweepRecovered?: (name: string) => void
+  /** PR-C seam — SYNC void observation of every completed sweep run (metrics/
+   *  structured log). Runs even while stopping (it is a log, not an alert). */
+  onSweepRun?: (info: SweepRunInfo) => void
 }
 
 export interface StopResult {
@@ -163,15 +187,28 @@ export function startMaintenanceScheduler(
 
   async function runOne(s: SweepRuntime): Promise<void> {
     try {
-      let res
+      const runStartedMono = cfg.monotonicNowMs()
+      let res: SweepResult
       try {
         res = await runBoundedSweep(prisma, s.spec, cfg.monotonicNowMs, isStopping)
       } catch (err) {
         // UNEXPECTED rejection → FAILURE for THIS sweep only; siblings unaffected
         res = { state: 'FAILURE' as const, full: false, error: err }
       }
+      // PR-C: per-run observation (metrics/log) — every state, honest counts only.
+      cfg.onSweepRun?.({
+        name: s.spec.name,
+        state: res.state,
+        durationMs: cfg.monotonicNowMs() - runStartedMono,
+        full: res.full,
+        phaseB: res.phaseB,
+      })
       switch (res.state) {
         case 'SUCCESS': {
+          // PR-C: degraded→healthy TRANSITION seam — fires BEFORE the streak
+          // resets, only when this sweep was degraded, and NEVER once stop is
+          // requested (the !isStopping() guard sits at the launch seam).
+          if (s.degradedStreak > 0 && !isStopping()) cfg.sweepRecovered?.(s.spec.name)
           s.degradedStreak = 0
           s.lastSuccessAt = cfg.nowMs()
           const empties = res.full ? 0 : (emptyRun.get(s.spec.name) ?? 0) + 1

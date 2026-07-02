@@ -40,6 +40,8 @@ function cfg(overrides: Partial<SchedulerConfig> = {}): SchedulerConfig {
     monotonicNowMs: () => Date.now(),
     recordSweepFailure: vi.fn(),
     alertDegraded: vi.fn(),
+    sweepRecovered: vi.fn(),
+    onSweepRun: vi.fn(),
     ...overrides,
   }
 }
@@ -385,5 +387,86 @@ describe('maintenanceScheduler — cooperative stop + bounded drain (shutdown co
     scheduler = startMaintenanceScheduler(prisma, conf, [a])
     await bootTick()
     expect(conf.alertDegraded).toHaveBeenCalledWith('a', 1)
+  })
+})
+
+describe('maintenanceScheduler — PR-C recovery + run-observation seams', () => {
+  it('17. sweepRecovered fires EXACTLY ONCE on the degraded→SUCCESS transition, not on later routine successes', async () => {
+    const a = sweep('a')
+    const conf = cfg()
+    let calls = 0
+    route({
+      a: () => {
+        calls++
+        return calls === 1 ? fail() : ok()
+      },
+    })
+    scheduler = startMaintenanceScheduler(prisma, conf, [a])
+    await bootTick() // run 1: FAILURE → streak 1
+    expect(conf.sweepRecovered).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(DEGRADED_BASE) // run 2: SUCCESS while degraded → transition
+    expect(conf.sweepRecovered).toHaveBeenCalledTimes(1)
+    expect(conf.sweepRecovered).toHaveBeenCalledWith('a')
+    expect(a.degradedStreak).toBe(0) // the streak still resets after the seam fires
+    await vi.advanceTimersByTimeAsync(ACTIVE) // run 3: routine SUCCESS
+    expect(conf.sweepRecovered).toHaveBeenCalledTimes(1) // no second recovery notice
+  })
+
+  it('18. sweepRecovered NEVER fires on a routine success (streak was already 0)', async () => {
+    const a = sweep('a')
+    const conf = cfg()
+    route({ a: ok })
+    scheduler = startMaintenanceScheduler(prisma, conf, [a])
+    await bootTick()
+    await vi.advanceTimersByTimeAsync(ACTIVE)
+    expect(conf.sweepRecovered).not.toHaveBeenCalled()
+  })
+
+  it('19. recovery launch is TERMINAL under stop: a degraded sweep whose SUCCESS settles after stop() does NOT fire sweepRecovered', async () => {
+    const a = sweep('a')
+    a.degradedStreak = 2 // sweep already degraded when the run starts
+    const conf = cfg()
+    const gate = deferred<SweepResult>()
+    route({ a: () => gate.promise })
+    scheduler = startMaintenanceScheduler(prisma, conf, [a])
+    await vi.advanceTimersByTimeAsync(0) // sweep a in flight
+    const stopP = scheduler.stop() // stop BEFORE the recovering sweep settles
+    gate.resolve({ state: 'SUCCESS', full: false })
+    await stopP
+    expect(conf.sweepRecovered).not.toHaveBeenCalled() // NO alert launch after stop
+    expect(a.degradedStreak).toBe(0) // …but state still updates honestly
+    scheduler = null
+  })
+
+  it('20. onSweepRun observes every run with honest state/full/phaseB threading (SUCCESS with counts, then FAILURE without)', async () => {
+    const a = sweep('a')
+    const conf = cfg()
+    let calls = 0
+    route({
+      a: () => {
+        calls++
+        return calls === 1
+          ? Promise.resolve<SweepResult>({
+              state: 'SUCCESS',
+              full: true,
+              phaseB: { full: true, failedRows: 0, startedRows: 7 },
+            })
+          : fail()
+      },
+    })
+    scheduler = startMaintenanceScheduler(prisma, conf, [a])
+    await bootTick()
+    await vi.advanceTimersByTimeAsync(ACTIVE)
+    const seen = vi.mocked(conf.onSweepRun!).mock.calls.map((c) => c[0])
+    expect(seen).toHaveLength(2)
+    expect(seen[0]).toMatchObject({
+      name: 'a',
+      state: 'SUCCESS',
+      full: true,
+      phaseB: { full: true, failedRows: 0, startedRows: 7 },
+    })
+    expect(typeof seen[0].durationMs).toBe('number')
+    expect(seen[1]).toMatchObject({ name: 'a', state: 'FAILURE', full: false })
+    expect(seen[1].phaseB).toBeUndefined() // no invented counts on a run whose Phase B never ran
   })
 })
