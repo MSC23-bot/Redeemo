@@ -122,4 +122,62 @@ describe('claim-stale floor sweep (real DB)', () => {
     await runClaimStaleFloorOnce(NOW)
     expect(await countAlerts(claimerId)).toBe(0)
   })
+
+  it('FALSE-BACKLOG / STARVATION (Codex correction 1): 200 stale-but-already-alerted claims produce NO backlog and do NOT starve the eligible claim beyond them', async () => {
+    // 200 INELIGIBLE rows: stale (claimed 30h ago) but already alerted AFTER the
+    // claim (lastStaleAlertAt > claimedAt) — with a JS-side filter these alone
+    // filled the 200-candidate cap, faking full=true every scan (F_active hot
+    // loop) and starving anything beyond them.
+    const blocker = await prisma.adminUser.create({
+      data: {
+        email: `${PREFIX}-blocker@example.com`,
+        passwordHash: 'x',
+        firstName: 'Blocker',
+        lastName: 'Claimer',
+        role: 'OPERATIONS',
+      },
+    })
+    createdAdminIds.push(blocker.id)
+    const ineligible = await Promise.all(
+      Array.from({ length: 200 }, (_, i) =>
+        prisma.adminApproval.create({
+          data: {
+            type: 'MERCHANT_ONBOARDING',
+            status: 'PENDING',
+            referenceId: `${PREFIX}-blk-${i}`,
+            referenceType: 'merchant',
+            claimedById: blocker.id,
+            // Deterministically OLDER than the eligible claim below, so a raw
+            // candidate scan ordered by claimedAt would return ONLY these 200.
+            claimedAt: new Date(NOW.getTime() - 30 * 60 * 60 * 1000 - i * 1000),
+            lastStaleAlertAt: new Date(NOW.getTime() - 60 * 60 * 1000), // alerted AFTER claim ⇒ ineligible
+          },
+          select: { id: true },
+        }),
+      ),
+    )
+    createdApprovalIds.push(...ineligible.map((r) => r.id))
+    // ONE genuinely eligible claim, NEWER than all 200 blockers (it sits beyond
+    // them in any claimedAt-ordered candidate scan).
+    const { claimerId: eligibleClaimer } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null })
+
+    // Phase A directly: the eligible claim is selected; the 200 ineligible rows
+    // produce NO false full/backlog signal.
+    const phaseA = await prisma.$transaction((tx) => claimStaleDbPhase(tx, NOW))
+    const eligibleIds = phaseA.sideEffects.rows.map((r) => r.claimedById)
+    expect(eligibleIds).toContain(eligibleClaimer) // no starvation behind the cap
+    expect(eligibleIds).not.toContain(blocker.id) // ineligible rows excluded IN SQL
+    expect(phaseA.full).toBe(false) // eligible count << 200 ⇒ the sweep CANNOT stay on the active cadence
+
+    // End-to-end: the eligible claimer is alerted; the blocker gets nothing new.
+    await makeClaimStaleSideEffects(prisma)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+    expect(await countAlerts(eligibleClaimer)).toBe(1)
+    expect(await countAlerts(blocker.id)).toBe(0)
+
+    // And the NEXT scan is empty for these rows (the alerted eligible claim is
+    // now ineligible too) — full stays false; no residual backlog.
+    const phaseA2 = await prisma.$transaction((tx) => claimStaleDbPhase(tx, NOW))
+    expect(phaseA2.sideEffects.rows.map((r) => r.claimedById)).not.toContain(eligibleClaimer)
+    expect(phaseA2.full).toBe(false)
+  }, 60_000)
 })

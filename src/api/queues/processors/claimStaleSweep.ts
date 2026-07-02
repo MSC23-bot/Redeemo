@@ -17,10 +17,12 @@
 // Neon CU-burn PR-B: the hourly BullMQ repeatable is GONE — the sweep now runs
 // on the process-local maintenance scheduler as an independent, advisory-locked,
 // bounded sweep (spec §4.2), split into:
-//   Phase A (locked, light, DB-only, DB clock): the bounded candidate scan
-//     (@@index([status, claimedAt]); LIMIT 200) + the JS eligibility/dedup
-//     filter over that bounded set (lastStaleAlertAt vs claimedAt is a
-//     two-column comparison Prisma cannot express in one `where`).
+//   Phase A (locked, light, DB-only, DB clock): the bounded ELIGIBLE scan
+//     (@@index([status, claimedAt]); LIMIT 200) — eligibility (lastStaleAlertAt
+//     vs claimedAt, a cross-column comparison Prisma cannot express in one
+//     `where`) is pushed into a parameterized raw query so ineligible rows can
+//     neither fake a backlog (false full=true → F_active hot loop) nor starve
+//     eligible claims beyond the cap.
 //   Phase B (unlocked, idempotent, cooperatively budgeted): per row —
 //     adminNotify, then a SEPARATE isStopping() check, then the
 //     lastStaleAlertAt stamp. The between-ops check means no stamp update ever
@@ -66,10 +68,20 @@ export interface ClaimStaleSide {
 
 /**
  * Phase A (locked, light, DB-only) — runs on `tx` with the DB-authoritative
- * clock (spec §8.3): the bounded candidate scan, then the eligibility filter
- * (never alerted, OR a LATER claim than the last alert — release + reclaim
- * stamps a newer claimedAt, which re-arms the nudge). Light JS over a bounded
- * set; no per-row DB work happens here.
+ * clock (spec §8.3): select ONLY genuinely ELIGIBLE stale claims at the
+ * DATABASE level. Eligibility = never alerted, OR a LATER claim than the last
+ * alert (release + reclaim stamps a newer claimedAt, which re-arms the nudge).
+ *
+ * The cross-column comparison (`lastStaleAlertAt < claimedAt`) is inexpressible
+ * in a single Prisma `where`, so this is a PARAMETERIZED raw query (tagged
+ * template — bound values, never interpolation) on the SAME locked `tx`.
+ * Pushing eligibility into SQL is load-bearing for the CU-burn goal: with a
+ * JS-side filter, 200 stale-but-already-alerted candidates would (a) produce a
+ * FALSE full=true every scan — pinning the sweep to the F_active cadence with
+ * zero eligible work (re-creating the compute-wake pattern this programme
+ * removes) — and (b) STARVE eligible claims sitting beyond the 200-candidate
+ * cap. `full` derives from the ELIGIBLE count only; ordering is deterministic
+ * (claimedAt, then id) so the oldest eligible claims always drain first.
  */
 export async function claimStaleDbPhase(
   tx: Prisma.TransactionClient,
@@ -77,42 +89,22 @@ export async function claimStaleDbPhase(
 ): Promise<{ full: boolean; sideEffects: ClaimStaleSide }> {
   const cutoff = new Date(dbNow.getTime() - CLAIM_STALE_AGE_MS)
 
-  // Candidate scan (index-backed on [status, claimedAt]): PENDING, claimed, and
-  // claimed more than 24 h ago.
-  const candidates = await tx.adminApproval.findMany({
-    where: {
-      status: 'PENDING',
-      claimedById: { not: null },
-      claimedAt: { lt: cutoff },
-    },
-    take: CLAIM_STALE_BATCH,
-    select: {
-      id: true,
-      claimedById: true,
-      claimedAt: true,
-      referenceId: true,
-      referenceType: true,
-      lastStaleAlertAt: true,
-    },
-  })
+  // Eligible scan (index-backed on [status, claimedAt]): PENDING, claimed,
+  // claimed more than 24 h ago, AND not yet alerted for THIS claim.
+  const rows = await tx.$queryRaw<StaleClaimRow[]>`
+    SELECT "id", "claimedById", "referenceId", "referenceType"
+    FROM "AdminApproval"
+    WHERE "status" = 'PENDING'
+      AND "claimedById" IS NOT NULL
+      AND "claimedAt" < ${cutoff}
+      AND ("lastStaleAlertAt" IS NULL OR "lastStaleAlertAt" < "claimedAt")
+    ORDER BY "claimedAt" ASC, "id" ASC
+    LIMIT ${CLAIM_STALE_BATCH}
+  `
 
-  const rows: StaleClaimRow[] = []
-  for (const a of candidates) {
-    // Eligible if never alerted, OR a LATER claim than the last alert.
-    const eligible =
-      a.lastStaleAlertAt === null || (a.claimedAt !== null && a.lastStaleAlertAt < a.claimedAt)
-    if (!eligible) continue
-    if (!a.claimedById) continue // defensive: the where already excludes null
-    rows.push({
-      id: a.id,
-      claimedById: a.claimedById,
-      referenceId: a.referenceId,
-      referenceType: a.referenceType,
-    })
-  }
-
-  // A full CANDIDATE batch ⇒ needsRescan: more stale claims may sit past the cap.
-  return { full: candidates.length >= CLAIM_STALE_BATCH, sideEffects: { rows, dbNow } }
+  // A full ELIGIBLE batch ⇒ needsRescan: more eligible claims may sit past the
+  // cap. Ineligible rows can never produce backlog.
+  return { full: rows.length >= CLAIM_STALE_BATCH, sideEffects: { rows, dbNow } }
 }
 
 /**
