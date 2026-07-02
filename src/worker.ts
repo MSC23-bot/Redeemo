@@ -19,12 +19,14 @@ import type { Worker } from 'bullmq'
 import type IORedis from 'ioredis'
 import { PrismaClient } from '../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { validateRequiredEnv, resolveMaintenanceConfig } from './api/shared/env'
+import { validateRequiredEnv, resolveMaintenanceConfig, type MaintenanceConfig } from './api/shared/env'
 import { closeQueues, makeQueueConnection } from './api/queues'
 import {
   startMaintenanceScheduler,
   makeSweepRuntime,
   type MaintenanceScheduler,
+  type SchedulerConfig,
+  type SweepRuntime,
 } from './api/queues/maintenanceScheduler'
 import { createAlertSink, type AlertSink } from './api/queues/maintenanceMetrics'
 import { startEmailWorker } from './api/queues/processors/email'
@@ -50,6 +52,54 @@ const WORKER_CLOSE_TIMEOUT_MS = 10_000
 /** Bounds prisma.$disconnect so a hanging pool teardown cannot prevent the
  *  scheduler forceJoin or the final process.exit. */
 const PRISMA_DISCONNECT_TIMEOUT_MS = 5_000
+
+/** The maintenance registration, built pure — see buildMaintenanceRegistration. */
+export interface MaintenanceRegistration {
+  cfg: SchedulerConfig
+  sweeps: SweepRuntime[]
+}
+
+/**
+ * Neon CU-burn PR-D: the maintenance registration as a PURE, exported factory —
+ * the seam the registration/configuration contract guard tests against the
+ * REAL wiring instead of a duplicated test-only copy. It constructs the
+ * scheduler config (validated floor cadences + the benchmark-gated candidate
+ * constants above + the four PR-C AlertSink seams) and the three sweep
+ * runtimes from the REAL builders with their per-sweep enable flags.
+ *
+ * PURITY CONTRACT: no Prisma/Redis/queue/provider connection is created here —
+ * the builders only capture the passed references inside spec closures, and
+ * nothing is started (main() passes the result to startMaintenanceScheduler).
+ * Behavior-preserving extraction of the previous inline construction.
+ */
+export function buildMaintenanceRegistration(
+  prisma: PrismaClient,
+  maintenance: MaintenanceConfig & { mode: 'enabled' },
+  sink: AlertSink,
+): MaintenanceRegistration {
+  return {
+    cfg: {
+      idleMs: maintenance.floorIdleMs,
+      activeMs: maintenance.floorActiveMs,
+      emptyScansToIdle: MAINTENANCE_EMPTY_SCANS_TO_IDLE,
+      degradedBaseMs: MAINTENANCE_DEGRADED_BASE_MS,
+      degradedMaxMs: MAINTENANCE_DEGRADED_MAX_MS,
+      alertAfterFailures: MAINTENANCE_ALERT_AFTER_FAILURES,
+      stopDrainMs: MAINTENANCE_STOP_DRAIN_MS,
+      nowMs: () => Date.now(),
+      monotonicNowMs: () => performance.now(),
+      recordSweepFailure: (name, state, error) => sink.sweepFailure(name, state, error),
+      alertDegraded: (name, streak) => sink.sweepDegraded(name, streak),
+      sweepRecovered: (name) => sink.sweepRecovered(name),
+      onSweepRun: (info) => sink.sweepRun(info),
+    },
+    sweeps: [
+      makeSweepRuntime(buildOutboxSweep(maintenance, sink), maintenance.sweepOutboxEnabled),
+      makeSweepRuntime(buildPendingHoursSweep(prisma, maintenance), maintenance.sweepPendingHoursEnabled),
+      makeSweepRuntime(buildClaimStaleSweep(prisma, maintenance), maintenance.sweepClaimStaleEnabled),
+    ],
+  }
+}
 
 async function main(): Promise<void> {
   // Fail-closed: same aggregated env check the API runs (REDIS_URL is required).
@@ -144,30 +194,10 @@ async function main(): Promise<void> {
     // Wired into the four PR-C scheduler seams and the outbox sweep's
     // post-commit expiry emission; stopped in ordered shutdown below.
     alertSink = createAlertSink(prisma)
-    const sink = alertSink
-    scheduler = startMaintenanceScheduler(
-      prisma,
-      {
-        idleMs: maintenance.floorIdleMs,
-        activeMs: maintenance.floorActiveMs,
-        emptyScansToIdle: MAINTENANCE_EMPTY_SCANS_TO_IDLE,
-        degradedBaseMs: MAINTENANCE_DEGRADED_BASE_MS,
-        degradedMaxMs: MAINTENANCE_DEGRADED_MAX_MS,
-        alertAfterFailures: MAINTENANCE_ALERT_AFTER_FAILURES,
-        stopDrainMs: MAINTENANCE_STOP_DRAIN_MS,
-        nowMs: () => Date.now(),
-        monotonicNowMs: () => performance.now(),
-        recordSweepFailure: (name, state, error) => sink.sweepFailure(name, state, error),
-        alertDegraded: (name, streak) => sink.sweepDegraded(name, streak),
-        sweepRecovered: (name) => sink.sweepRecovered(name),
-        onSweepRun: (info) => sink.sweepRun(info),
-      },
-      [
-        makeSweepRuntime(buildOutboxSweep(maintenance, sink), maintenance.sweepOutboxEnabled),
-        makeSweepRuntime(buildPendingHoursSweep(prisma, maintenance), maintenance.sweepPendingHoursEnabled),
-        makeSweepRuntime(buildClaimStaleSweep(prisma, maintenance), maintenance.sweepClaimStaleEnabled),
-      ],
-    )
+    // PR-D: the ONE registration path — main() consumes the same pure factory
+    // the contract guard tests (no parallel duplicated wiring).
+    const registration = buildMaintenanceRegistration(prisma, maintenance, alertSink)
+    scheduler = startMaintenanceScheduler(prisma, registration.cfg, registration.sweeps)
     console.info(
       `[worker] maintenance scheduler started (outbox ${maintenance.sweepOutboxEnabled ? 'ENABLED' : 'disabled'}, pending-hours ${maintenance.sweepPendingHoursEnabled ? 'ENABLED' : 'disabled'}, claim-stale ${maintenance.sweepClaimStaleEnabled ? 'ENABLED' : 'disabled'}; F_idle=${maintenance.floorIdleMs}ms, F_active=${maintenance.floorActiveMs}ms)`,
     )
@@ -223,7 +253,13 @@ async function main(): Promise<void> {
   })
 }
 
-main().catch((err: unknown) => {
-  console.error('[worker] failed to start:', err instanceof Error ? err.message : String(err))
-  process.exit(1)
-})
+// PR-D: boot only when executed as the entrypoint (`tsx src/worker.ts` /
+// `node dist/src/worker.js`). The guard lets the contract-guard test import
+// buildMaintenanceRegistration without starting the worker; both production
+// run modes are direct runs, so runtime behavior is unchanged.
+if (typeof require !== 'undefined' && require.main === module) {
+  main().catch((err: unknown) => {
+    console.error('[worker] failed to start:', err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  })
+}
