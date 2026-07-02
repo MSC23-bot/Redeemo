@@ -4,6 +4,7 @@ import {
   runBoundedSweep,
   runBudgetedRows,
   isTimeout,
+  PHASE_B_FAILURE_NAME,
   type BoundedSweepSpec,
   type PhaseBBudget,
 } from '../../../src/api/queues/maintenanceSweep'
@@ -52,12 +53,13 @@ function spec<TSide>(overrides: Partial<BoundedSweepSpec<TSide>> = {}): BoundedS
   return {
     name: 'test-sweep',
     lockKey: 730001n,
+    sideEffectDomain: 'REDIS',
     statementTimeoutMs: 4000,
     txTimeoutMs: 8000,
     phaseBMaxItems: 50,
     phaseBBudgetMs: 10_000,
     dbPhase: vi.fn(async () => ({ full: false, sideEffects: [] as unknown as TSide })),
-    runSideEffects: vi.fn(async () => ({ full: false, failedRows: 0 })),
+    runSideEffects: vi.fn(async () => ({ full: false, failedRows: 0, startedRows: 0 })),
     ...overrides,
   }
 }
@@ -85,14 +87,14 @@ describe('runBudgetedRows — cooperative Phase-B budget (between rows, per-row 
     const seen: number[] = []
     const res = await runBudgetedRows([1, 2, 3], budget(), async (n) => void seen.push(n))
     expect(seen).toEqual([1, 2, 3])
-    expect(res).toEqual({ full: false, failedRows: 0 })
+    expect(res).toEqual({ full: false, failedRows: 0, startedRows: 3 })
   })
 
   it('item cap: stops STARTING rows at maxItems and reports full=true (rows remaining)', async () => {
     const seen: number[] = []
     const res = await runBudgetedRows([1, 2, 3, 4], budget({ maxItems: 2 }), async (n) => void seen.push(n))
     expect(seen).toEqual([1, 2])
-    expect(res).toEqual({ full: true, failedRows: 0 })
+    expect(res).toEqual({ full: true, failedRows: 0, startedRows: 2 })
   })
 
   it('time budget: checked BETWEEN rows on the monotonic clock; rows remaining ⇒ full=true', async () => {
@@ -167,7 +169,7 @@ describe('runBoundedSweep — explicit state contract', () => {
       dbPhase: vi.fn(async () => ({ full: false, sideEffects: ['x'] })),
       runSideEffects: vi.fn(async (_side, b: PhaseBBudget) => {
         sawBudget = b
-        return { full: true, failedRows: 0 } // benign backlog — budget hit with rows remaining
+        return { full: true, failedRows: 0, startedRows: 1 } // benign backlog — budget hit with rows remaining
       }),
     })
     const res = await runBoundedSweep(prisma, s, MONO, NEVER_STOPPING)
@@ -180,7 +182,7 @@ describe('runBoundedSweep — explicit state contract', () => {
     const { prisma } = mockPrisma()
     const s = spec({
       dbPhase: vi.fn(async () => ({ full: false, sideEffects: ['x', 'y'] })),
-      runSideEffects: vi.fn(async () => ({ full: false, failedRows: 2 })),
+      runSideEffects: vi.fn(async () => ({ full: false, failedRows: 2, startedRows: 2 })),
     })
     const res = await runBoundedSweep(prisma, s, MONO, NEVER_STOPPING)
     expect(res.state).toBe('FAILURE') // NOT SUCCESS — the scheduler applies degraded backoff
@@ -231,5 +233,83 @@ describe('runBoundedSweep — explicit state contract', () => {
     const res = await runBoundedSweep(prisma, s, MONO, () => true)
     expect(res).toEqual({ state: 'SUCCESS', full: true })
     expect(s.runSideEffects).not.toHaveBeenCalled()
+    expect(res.phaseB).toBeUndefined() // PR-C: no invented counts — Phase B never ran
+  })
+
+  // PR-C metrics seam: the Phase-B outcome rides on the SweepResult so the
+  // AlertSink/metrics layer can log HONEST per-run counts — attached only when
+  // Phase B actually ran, never fabricated for skipped/errored paths.
+  it('PR-C: SweepResult.phaseB carries the real Phase-B outcome on SUCCESS', async () => {
+    const { prisma } = mockPrisma()
+    const s = spec({
+      dbPhase: vi.fn(async () => ({ full: false, sideEffects: ['x', 'y'] })),
+      runSideEffects: vi.fn(async () => ({ full: false, failedRows: 0, startedRows: 2 })),
+    })
+    const res = await runBoundedSweep(prisma, s, MONO, NEVER_STOPPING)
+    expect(res.state).toBe('SUCCESS')
+    expect(res.phaseB).toEqual({ full: false, failedRows: 0, startedRows: 2 })
+  })
+
+  it('PR-C: SweepResult.phaseB carries the outcome on a phase-b FAILURE (failed-row accounting survives classification)', async () => {
+    const { prisma } = mockPrisma()
+    const s = spec({
+      dbPhase: vi.fn(async () => ({ full: false, sideEffects: ['x', 'y', 'z'] })),
+      runSideEffects: vi.fn(async () => ({ full: false, failedRows: 2, startedRows: 3 })),
+    })
+    const res = await runBoundedSweep(prisma, s, MONO, NEVER_STOPPING)
+    expect(res.state).toBe('FAILURE')
+    expect(res.phaseB).toEqual({ full: false, failedRows: 2, startedRows: 3 })
+  })
+
+  it('PR-C: phaseB is absent on LOCK_SKIPPED and on tx-level TIMEOUT/FAILURE (Phase B never started)', async () => {
+    const skipped = await runBoundedSweep(mockPrisma({ locked: false }).prisma, spec(), MONO, NEVER_STOPPING)
+    expect(skipped.phaseB).toBeUndefined()
+    const timedOut = await runBoundedSweep(
+      mockPrisma({ txError: { code: 'P2028', message: 'tx timeout' } }).prisma,
+      spec(),
+      MONO,
+      NEVER_STOPPING,
+    )
+    expect(timedOut.phaseB).toBeUndefined()
+  })
+
+  // PR-C correction round: the count-only phase-b failure error carries the
+  // sweep's DECLARED side-effect domain in its NAME (letters-only, so it flows
+  // through classifySweepError's ERR_ allow-list) — the safe explicit channel
+  // that lets the alert layer distinguish a DATABASE-domain Phase-B failure
+  // (log-only) from a REDIS-domain one (alerts normally). Chained to the sink
+  // via the exported PHASE_B_FAILURE_NAME map.
+  it('PR-C: a DATABASE-domain sweep names its phase-b failure PhaseBDatabaseFailure (count-only message preserved)', async () => {
+    const { prisma } = mockPrisma()
+    const s = spec({
+      sideEffectDomain: 'DATABASE',
+      dbPhase: vi.fn(async () => ({ full: false, sideEffects: ['x'] })),
+      runSideEffects: vi.fn(async () => ({ full: false, failedRows: 3, startedRows: 3 })),
+    })
+    const res = await runBoundedSweep(prisma, s, MONO, NEVER_STOPPING)
+    expect(res.state).toBe('FAILURE')
+    expect((res.error as Error).name).toBe(PHASE_B_FAILURE_NAME.DATABASE)
+    expect((res.error as Error).name).toBe('PhaseBDatabaseFailure')
+    expect((res.error as Error).message).toBe('phase-b: 3 side-effect row(s) failed') // still count-only
+  })
+
+  it('PR-C: a REDIS-domain sweep names its phase-b failure PhaseBRedisFailure', async () => {
+    const { prisma } = mockPrisma()
+    const s = spec({
+      sideEffectDomain: 'REDIS',
+      dbPhase: vi.fn(async () => ({ full: false, sideEffects: ['x'] })),
+      runSideEffects: vi.fn(async () => ({ full: false, failedRows: 1, startedRows: 1 })),
+    })
+    const res = await runBoundedSweep(prisma, s, MONO, NEVER_STOPPING)
+    expect(res.state).toBe('FAILURE')
+    expect((res.error as Error).name).toBe(PHASE_B_FAILURE_NAME.REDIS)
+    expect((res.error as Error).name).toBe('PhaseBRedisFailure')
+  })
+
+  it('PR-C: runBudgetedRows counts startedRows honestly under the item cap and per-row failures', async () => {
+    const res = await runBudgetedRows([1, 2, 3, 4, 5], budget({ maxItems: 3 }), async (n) => {
+      if (n === 2) throw new Error('row 2 exploded')
+    })
+    expect(res).toEqual({ full: true, failedRows: 1, startedRows: 3 }) // successes = started − failed = 2
   })
 })

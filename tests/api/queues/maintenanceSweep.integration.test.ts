@@ -37,12 +37,13 @@ const MONO = () => performance.now()
 function spec(overrides: Partial<BoundedSweepSpec<null>> & { lockKey: bigint }): BoundedSweepSpec<null> {
   return {
     name: 'itest-sweep',
+    sideEffectDomain: 'REDIS',
     statementTimeoutMs: 4_000,
     txTimeoutMs: 8_000,
     phaseBMaxItems: 10,
     phaseBBudgetMs: 5_000,
     dbPhase: async () => ({ full: false, sideEffects: null }),
-    runSideEffects: async () => ({ full: false, failedRows: 0 }),
+    runSideEffects: async () => ({ full: false, failedRows: 0, startedRows: 0 }),
     ...overrides,
   }
 }

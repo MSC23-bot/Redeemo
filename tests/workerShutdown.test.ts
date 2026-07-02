@@ -213,3 +213,81 @@ describe('runWorkerShutdown — ordered, end-to-end bounded', () => {
     expect(order).toEqual(['worker.close', 'conn.quit', 'closeQueues', 'prisma.$disconnect'])
   })
 })
+
+describe('runWorkerShutdown — PR-C AlertSink phase', () => {
+  function sinkHarness(stopImpl?: () => Promise<unknown>) {
+    const base = harness()
+    const stop = vi.fn(async (): Promise<unknown> => {
+      base.order.push('alertSink.stop')
+      return { drained: true }
+    })
+    if (stopImpl) stop.mockImplementation(stopImpl)
+    base.deps.alertSink = { stop }
+    return { ...base, sinkStop: stop }
+  }
+
+  it('the sink stops AFTER scheduler.stop and BEFORE workers close (locked PR-C ordering)', async () => {
+    const { deps, order } = sinkHarness()
+    const summary = await runWorkerShutdown(deps)
+    expect(summary).toEqual({
+      drained: true,
+      alertSinkPhase: 'ok',
+      workerClosePhase: 'ok',
+      prismaPhase: 'ok',
+      joined: true,
+    })
+    expect(order).toEqual([
+      'scheduler.stop',
+      'alertSink.stop', // terminal + drained while the DB connection still lives
+      'worker.close',
+      'conn.quit',
+      'closeQueues',
+      'prisma.$disconnect',
+      'forceJoin',
+    ])
+  })
+
+  it('a HUNG sink stop (contract violation) is bounded to alertSinkPhase:timeout — every later phase still runs', async () => {
+    const { deps, order } = sinkHarness(() => never())
+    const run = runWorkerShutdown(deps)
+    await vi.advanceTimersByTimeAsync(6_000) // ALERT_SINK_PHASE_TIMEOUT_MS
+    const summary = await run
+    expect(summary.alertSinkPhase).toBe('timeout')
+    expect(order).toContain('worker.close')
+    expect(order).toContain('closeQueues')
+    expect(order).toContain('prisma.$disconnect')
+    expect(order[order.length - 1]).toBe('forceJoin')
+  })
+
+  it('PR-C correction: a REJECTED sink stop is observed, reported as a VISIBLY non-OK phase, and never masked as ok — the coordinator neither rejects nor hangs and every later phase runs in the locked order', async () => {
+    const { deps, order } = sinkHarness(async () => {
+      throw new Error('sink stop exploded')
+    })
+    const summary = await runWorkerShutdown(deps) // resolves — the coordinator never rejects
+    expect(summary.alertSinkPhase).toBe('error') // rejection is VISIBLE, not normalized to ok
+    expect(summary).toMatchObject({ drained: true, workerClosePhase: 'ok', prismaPhase: 'ok', joined: true })
+    expect(order).toEqual([
+      'scheduler.stop',
+      'worker.close', // the rejected sink stop pushed no order entry, cleanup continues…
+      'conn.quit',
+      'closeQueues',
+      'prisma.$disconnect',
+      'forceJoin', // …through to the end, in the locked order
+    ])
+  })
+
+  it('PR-C correction: a SYNCHRONOUSLY throwing sink stop is likewise surfaced as error without skipping later phases', async () => {
+    const { deps, order } = sinkHarness(() => {
+      throw new Error('sync throw from sink.stop()')
+    })
+    const summary = await runWorkerShutdown(deps)
+    expect(summary.alertSinkPhase).toBe('error')
+    expect(order[order.length - 1]).toBe('forceJoin')
+  })
+
+  it('alertSink omitted (disabled mode): no sink phase in the summary, legacy ordering intact', async () => {
+    const { deps } = harness()
+    const summary = await runWorkerShutdown(deps)
+    expect('alertSinkPhase' in summary).toBe(false)
+  })
+})

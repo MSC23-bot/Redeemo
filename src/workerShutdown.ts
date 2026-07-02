@@ -6,18 +6,27 @@
 // observed, and the caller's `finally { process.exit() }` stays reachable no
 // matter which phase hangs.
 //
-// Locked ordering: scheduler cooperative stop (bounded drain) → BullMQ workers
-// close + owned connection quit (bounded; force-disconnect on timeout) →
-// producer closeQueues (internally bounded + real force-close) → Prisma
-// disconnect (bounded) → scheduler forceJoin (bounded post-force join) →
-// [caller] process.exit fallback. No new DB/Redis/alert operation begins after
-// the terminal stop signal (enforced inside the scheduler).
+// Locked ordering (PR-C adds the AlertSink phase): scheduler cooperative stop
+// (bounded drain) → AlertSink stop (terminal: no new alert launch; bounded
+// drain of in-flight Notification writes) → BullMQ workers close + owned
+// connection quit (bounded; force-disconnect on timeout) → producer
+// closeQueues (internally bounded + real force-close) → Prisma disconnect
+// (bounded) → scheduler forceJoin (bounded post-force join) → [caller]
+// process.exit fallback. No new DB/Redis/alert operation begins after the
+// terminal stop signal (enforced inside the scheduler AND the AlertSink).
 
 import type { MaintenanceScheduler } from './api/queues/maintenanceScheduler'
+
+/** Defensive coordinator bound around AlertSink.stop() — the sink's own drain
+ *  is internally bounded (ALERT_SINK_STOP_DRAIN_MS = 5s), so this only fires
+ *  if the sink violates its never-hangs contract. */
+const ALERT_SINK_PHASE_TIMEOUT_MS = 6_000
 
 export interface WorkerShutdownDeps {
   /** null when MAINTENANCE_MODE=disabled — the maintenance phases are skipped. */
   scheduler: MaintenanceScheduler | null
+  /** PR-C: the maintenance AlertSink; null/omitted when maintenance is disabled. */
+  alertSink?: { stop(): Promise<unknown> } | null
   workers: ReadonlyArray<{ close(): Promise<unknown> }>
   /** The OWNED per-worker Redis connections — force-disconnected on timeout. */
   workerConnections: ReadonlyArray<{ quit(): Promise<unknown>; disconnect(): void }>
@@ -32,6 +41,11 @@ export interface WorkerShutdownDeps {
 export interface WorkerShutdownSummary {
   /** true: the active maintenance tick settled inside the drain bound. */
   drained: boolean
+  /** PR-C: present when an AlertSink was provided. 'ok' = clean bounded stop;
+   *  'timeout' = the sink violated its bounded-drain contract (hang);
+   *  'error' = stop() rejected or threw (also a contract violation) — visibly
+   *  non-OK, never masked as ok. Cleanup continues in the locked order either way. */
+  alertSinkPhase?: 'ok' | 'timeout' | 'error'
   workerClosePhase: 'ok' | 'timeout'
   prismaPhase: 'ok' | 'timeout'
   /** true: the (possibly force-closed) tick was joined; false → process.exit terminates it. */
@@ -80,6 +94,34 @@ export async function runWorkerShutdown(deps: WorkerShutdownDeps): Promise<Worke
       drained = false // conservative: treat an errored drain as not-drained
     }
     if (!drained) log('[worker] maintenance stop/drain did not complete cleanly — proceeding to force-close')
+  }
+
+  // (1b — PR-C) AlertSink terminal stop AFTER the scheduler stop (so no seam
+  //     can launch a new alert into a stopping sink) and BEFORE the resource
+  //     force-closes below (so in-flight Notification writes get their bounded
+  //     drain while the DB connection still lives). stop() never throws or
+  //     hangs by contract; the coordinator bounds it anyway. A contract
+  //     violation stays VISIBLE in the summary: a hang reports 'timeout', a
+  //     rejection/throw reports 'error' — never masked as ok. Either way every
+  //     later cleanup phase still runs in the locked order.
+  let alertSinkPhase: 'ok' | 'timeout' | 'error' | undefined
+  if (deps.alertSink) {
+    const sink = deps.alertSink
+    let sinkRejected = false
+    const bounded = await boundedPhase(
+      Promise.resolve()
+        .then(() => sink.stop())
+        .catch(() => {
+          sinkRejected = true // observed here; surfaced as 'error' below
+        }),
+      ALERT_SINK_PHASE_TIMEOUT_MS,
+    )
+    alertSinkPhase = bounded === 'ok' && sinkRejected ? 'error' : bounded
+    if (alertSinkPhase !== 'ok') {
+      log(
+        `[worker] alert-sink stop did not complete cleanly (${alertSinkPhase}) — proceeding (late settlements stay observed)`,
+      )
+    }
   }
 
   // (2) BullMQ workers close + owned connection quit — BOUNDED. A stuck
@@ -158,5 +200,11 @@ export async function runWorkerShutdown(deps: WorkerShutdownDeps): Promise<Worke
     if (!joined) log('[worker] maintenance tick still unsettled after force-close — process exit terminates it')
   }
 
-  return { drained, workerClosePhase, prismaPhase, joined }
+  return {
+    drained,
+    ...(alertSinkPhase !== undefined ? { alertSinkPhase } : {}),
+    workerClosePhase,
+    prismaPhase,
+    joined,
+  }
 }

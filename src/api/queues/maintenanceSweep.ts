@@ -37,6 +37,10 @@ export interface SweepResult {
    *  classified FAILURE → the sweep's OWN degraded backoff, NEVER the active cadence. */
   full: boolean
   error?: unknown
+  /** PR-C metrics seam: the Phase-B outcome when Phase B ran (started/failed row
+   *  counts, honestly measured — absent on LOCK_SKIPPED/TIMEOUT/Phase-A-FAILURE
+   *  and the between-phases cooperative-stop path where Phase B never started). */
+  phaseB?: PhaseBOutcome
 }
 
 /** Light, DB-only Phase-A work on `tx` (the connection holding the lock), using the DB clock. */
@@ -55,10 +59,27 @@ export interface PhaseBBudget {
   isStopping: () => boolean
 }
 
+/** The system a sweep's Phase-B side-effects touch. Declared per sweep so a
+ *  Phase-B failure carries a SAFE explicit failure domain (never raw error
+ *  text): DATABASE-domain failures must stay log-only in the alert layer (the
+ *  DB is the thing that failed — writing a Notification would hit it), while
+ *  REDIS-domain failures alert normally (Phase A committed; the DB is fine). */
+export type PhaseBDomain = 'DATABASE' | 'REDIS'
+
+/** The redacted, allow-list-classifiable Error names carrying the Phase-B
+ *  failure domain (classify as ERR_PhaseBDatabaseFailure / ERR_PhaseBRedisFailure). */
+export const PHASE_B_FAILURE_NAME: Record<PhaseBDomain, string> = {
+  DATABASE: 'PhaseBDatabaseFailure',
+  REDIS: 'PhaseBRedisFailure',
+}
+
 export interface BoundedSweepSpec<TSide> {
   name: string
   /** Distinct per sweep — advisory-lock identity. */
   lockKey: bigint
+  /** PR-C correction round: which system this sweep's Phase B touches.
+   *  Drives the domain-named count-only failure error below. */
+  sideEffectDomain: PhaseBDomain
   /** Server-side per-statement bound. MUST be < txTimeoutMs (validated in env, A4). */
   statementTimeoutMs: number
   /** Explicit Prisma interactive-tx timeout (NOT the 5s default). */
@@ -98,6 +119,9 @@ export function isTimeout(err: unknown): boolean {
 export interface PhaseBOutcome {
   full: boolean
   failedRows: number
+  /** PR-C metrics seam: rows Phase B actually STARTED this run (successes =
+   *  startedRows − failedRows). Honest count — measured by the loop itself. */
+  startedRows: number
 }
 
 /**
@@ -118,9 +142,10 @@ export async function runBudgetedRows<T>(
   let started = 0
   let failedRows = 0
   for (const item of items) {
-    if (budget.isStopping()) return { full: true, failedRows } // cooperative shutdown: no NEW row starts
-    if (started >= budget.maxItems) return { full: true, failedRows } // item cap with rows remaining
-    if (budget.monotonicNowMs() - startedAt > budget.budgetMs) return { full: true, failedRows } // time budget
+    if (budget.isStopping()) return { full: true, failedRows, startedRows: started } // cooperative shutdown: no NEW row starts
+    if (started >= budget.maxItems) return { full: true, failedRows, startedRows: started } // item cap with rows remaining
+    if (budget.monotonicNowMs() - startedAt > budget.budgetMs)
+      return { full: true, failedRows, startedRows: started } // time budget
     started++
     try {
       await row(item)
@@ -128,7 +153,7 @@ export async function runBudgetedRows<T>(
       failedRows++ // per-row isolation: later rows still run; classified FAILURE by the wrapper
     }
   }
-  return { full: false, failedRows }
+  return { full: false, failedRows, startedRows: started }
 }
 
 /**
@@ -185,19 +210,22 @@ export async function runBoundedSweep<TSide>(
             monotonicNowMs,
             isStopping,
           })
-        : { full, failedRows: 0 }
+        : { full, failedRows: 0, startedRows: 0 }
     if (b.failedRows > 0) {
-      // A side-effect failure (e.g. Redis down) is a FAILURE, never a
-      // SUCCESS/active outcome: the scheduler applies this sweep's OWN degraded
-      // backoff instead of re-querying the DB on the tight active cadence.
-      // Count-only error — no provider/driver message text (redaction).
-      return {
-        state: 'FAILURE',
-        full: true,
-        error: new Error(`phase-b: ${b.failedRows} side-effect row(s) failed`),
-      }
+      // A side-effect failure is a FAILURE, never a SUCCESS/active outcome:
+      // the scheduler applies this sweep's OWN degraded backoff instead of
+      // re-querying the DB on the tight active cadence. Count-only error — no
+      // provider/driver message text (redaction). The error NAME carries the
+      // sweep's declared Phase-B failure domain (letters-only, so it passes
+      // classifySweepError's ERR_ allow-list): DATABASE-domain sweeps
+      // (pending-hours, claim-stale — their Phase B is DB work) classify as
+      // ERR_PhaseBDatabaseFailure and stay log-only in the alert layer;
+      // REDIS-domain sweeps (outbox re-enqueue) alert normally.
+      const error = new Error(`phase-b: ${b.failedRows} side-effect row(s) failed`)
+      error.name = PHASE_B_FAILURE_NAME[spec.sideEffectDomain]
+      return { state: 'FAILURE', full: true, error, phaseB: b }
     }
-    return { state: 'SUCCESS', full: full || b.full }
+    return { state: 'SUCCESS', full: full || b.full, phaseB: b }
   } catch (err) {
     return { state: 'FAILURE', full: false, error: err }
   }

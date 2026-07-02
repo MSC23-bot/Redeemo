@@ -130,7 +130,7 @@ describe('claim-stale Phase B: alert + stamp (recipient behaviour preserved)', (
       where: { id: 'a1' },
       data: { lastStaleAlertAt: NOW }, // stamped with the SAME dbNow the scan ran against
     })
-    expect(res.outcome).toEqual({ full: false, failedRows: 0 })
+    expect(res.outcome).toEqual({ full: false, failedRows: 0, startedRows: 1 })
   })
 })
 

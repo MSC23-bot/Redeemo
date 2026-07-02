@@ -12,11 +12,17 @@
 // spec locks (§4.2):
 //
 //   Phase A (locked, DB-only, on `tx` with the DB clock):
-//     1. EXPIRE rows older than MAX_AGE — one bulk `updateMany` flips them
-//        QUEUED→FAILED and NULLs `payload` (the 24h terminal policy, preserved
-//        exactly: a reset link / branch PIN can never sit in QUEUED forever).
+//     1. EXPIRE rows older than MAX_AGE — ONE atomic `UPDATE … RETURNING "type"`
+//        CTE flips them QUEUED→FAILED, NULLs `payload` (the 24h terminal policy,
+//        preserved exactly: a reset link / branch PIN can never sit in QUEUED
+//        forever) and aggregates the per-type counts FROM THE SAME ROWS the
+//        update transitioned (PR-C load-bearing atomicity: never a separate
+//        pre-update groupBy that another actor could race).
 //     2. SELECT the ids of stale-but-deliverable rows (sentAt ∈ [maxAge, grace))
 //        as the Phase-B side-effect payload. jobId = id ⇒ dedup-safe.
+//     The expiry breakdown rides in the side-effects and is emitted through the
+//     AlertSink at the TOP of Phase B — i.e. only AFTER the transaction
+//     committed. A rollback/timeout means no Phase B and therefore no alert.
 //
 //   Phase B (unlocked, idempotent, cooperatively budgeted): re-enqueue each id
 //     via enqueue(EMAIL_QUEUE, …, { jobId: id }). BullMQ dedups by jobId, so a
@@ -33,8 +39,7 @@
 
 import { Worker, type Job, type ConnectionOptions } from 'bullmq'
 import type IORedis from 'ioredis'
-import { Prisma } from '../../../../generated/prisma/client'
-import type { PrismaClient } from '../../../../generated/prisma/client'
+import type { Prisma, PrismaClient } from '../../../../generated/prisma/client'
 import { EMAIL_QUEUE, MAINTENANCE_QUEUE, BULLMQ_PREFIX, enqueue } from '../index'
 import { makeQueueConnection } from '../connection'
 import { shouldLog } from '../logThrottle'
@@ -66,9 +71,21 @@ export const RECONCILE_BATCH = 200
 export const OUTBOX_SWEEP_LOCK_KEY = 731_001n
 export const OUTBOX_SWEEP_NAME = 'outbox-reconcile'
 
+/** Per-CommunicationLog-type count of rows the expiry UPDATE transitioned. */
+export interface ExpiredTypeCount {
+  type: string
+  count: number
+}
+
+/** The outbox sweep's Phase-B payload: re-enqueue ids + the committed expiry breakdown. */
+export interface OutboxSide {
+  ids: string[]
+  expired: ExpiredTypeCount[]
+}
+
 export interface OutboxPhaseAResult {
   full: boolean
-  sideEffects: string[]
+  sideEffects: OutboxSide
 }
 
 /**
@@ -85,21 +102,19 @@ export async function outboxDbPhase(
   const maxAgeCutoff = new Date(dbNow.getTime() - RECONCILE_MAX_AGE_MS)
 
   // (1) Expire the too-old rows FIRST (24h terminal policy — preserved exactly).
-  const expiredRes = await tx.communicationLog.updateMany({
-    where: { status: 'QUEUED', sentAt: { lt: maxAgeCutoff } },
-    data: { status: 'FAILED', payload: Prisma.DbNull },
-  })
-  if (expiredRes.count > 0) {
-    // PR-C replaces this bare warn with the AlertSink (structured log +
-    // getAlertableAdmins/adminNotify fan-out), emitted AFTER the sweep settles.
-    // This interim log fires INSIDE the locked transaction, so it is worded as
-    // in-progress: if the tx later times out and rolls back, no row actually
-    // expired. Counts + labels only, never payload.
-    console.warn(
-      `[reconcile] expiring ${expiredRes.count} QUEUED row(s) older than ${RECONCILE_MAX_AGE_MS}ms ` +
-        `→ FAILED + payload cleared (commits with this sweep's transaction; undeliverable-stale; secrets removed)`,
+  // ONE atomic UPDATE … RETURNING CTE: the per-type breakdown is aggregated from
+  // the EXACT rows this statement transitioned — never a separate pre-update
+  // groupBy that a concurrent insert/worker could race (PR-C load-bearing
+  // atomicity requirement). Parameterized cutoff; no interpolated values.
+  const expired = await tx.$queryRaw<ExpiredTypeCount[]>`
+    WITH expired AS (
+      UPDATE "CommunicationLog"
+      SET "status" = 'FAILED', "payload" = NULL
+      WHERE "status" = 'QUEUED' AND "sentAt" < ${maxAgeCutoff}
+      RETURNING "type"
     )
-  }
+    SELECT "type", COUNT(*)::int AS count FROM expired GROUP BY "type"
+  `
 
   // (2) Select the stale-but-deliverable ids: sentAt in [maxAge, grace), oldest first.
   const stale = await tx.communicationLog.findMany({
@@ -110,34 +125,85 @@ export async function outboxDbPhase(
   })
 
   // A full batch ⇒ needsRescan: the sweep stays on F_active until the backlog drains.
-  return { full: stale.length >= RECONCILE_BATCH, sideEffects: stale.map((r) => r.id) }
+  return {
+    full: stale.length >= RECONCILE_BATCH,
+    sideEffects: { ids: stale.map((r) => r.id), expired },
+  }
 }
 
+/** The one AlertSink capability this processor needs (type-only, no runtime import). */
+type ExpiryAlertSink = Pick<import('../maintenanceMetrics').AlertSink, 'expiredCommunications'>
+
 /**
- * Phase B (unlocked, idempotent, cooperatively budgeted): re-enqueue each id
- * with jobId = id. Runs WITHOUT the lock — safe because BullMQ dedups by jobId
- * and the email worker skips terminal rows (CAS), so a duplicate is a no-op.
- * A failed enqueue (e.g. Redis down) is reported via failedRows → the sweep is
- * classified FAILURE and backs off on its OWN degraded cadence; the row stays
- * QUEUED and replays by the same jobId after recovery (no duplicate delivery).
+ * Phase B (unlocked, idempotent, cooperatively budgeted). FIRST — before any
+ * row work, so a budget/cooperative stop between rows cannot drop it — the
+ * committed expiry is recorded SYNCHRONOUSLY (counts + internal type labels
+ * only, never payload/recipient data), then the asynchronous admin-alert
+ * launch is attempted through the AlertSink. Phase B only runs after the
+ * Phase-A transaction COMMITTED (runBoundedSweep contract), so a rolled-back
+ * expiry can never alert. TERMINAL-STOP RACE (PR-C correction round): the
+ * scheduler's between-phases isStopping() check and this function are not
+ * atomic — stop can land in between — so the launch is guarded by
+ * budget.isStopping() IMMEDIATELY adjacent to the sink call, with no await
+ * between the check and the call. When stopping, only the synchronous
+ * redacted record happens; no new asynchronous DB/alert operation begins.
+ *
+ * Then: re-enqueue each id with jobId = id. Runs WITHOUT the lock — safe
+ * because BullMQ dedups by jobId and the email worker skips terminal rows
+ * (CAS), so a duplicate is a no-op. A failed enqueue (e.g. Redis down) is
+ * reported via failedRows → the sweep is classified FAILURE and backs off on
+ * its OWN degraded cadence; the row stays QUEUED and replays by the same jobId
+ * after recovery (no duplicate delivery).
  */
-export function outboxSideEffects(ids: string[], budget: PhaseBBudget): Promise<PhaseBOutcome> {
-  return runBudgetedRows(ids, budget, (id) =>
+export function outboxSideEffects(
+  side: OutboxSide,
+  budget: PhaseBBudget,
+  alertSink?: ExpiryAlertSink,
+): Promise<PhaseBOutcome> {
+  if (side.expired.length > 0) {
+    const total = side.expired.reduce((sum, t) => sum + t.count, 0)
+    // Launch the async admin alert ONLY while not stopping — the isStopping()
+    // check sits immediately adjacent to the launch seam (no await between).
+    // The sink's own terminal flag cannot close this window: AlertSink.stop()
+    // runs only after the scheduler drain, so this guard is load-bearing.
+    if (alertSink && !budget.isStopping()) {
+      // Sync entry, fire-and-forget internally, never throws (AlertSink contract).
+      alertSink.expiredCommunications({ sweep: OUTBOX_SWEEP_NAME, total, byType: side.expired })
+    } else {
+      // No sink wired (tests) OR terminal stop active: the committed expiry is
+      // still recorded synchronously — counts + internal type labels only,
+      // never payload/recipient data. No asynchronous operation starts.
+      console.warn(
+        `[reconcile] expired ${total} QUEUED row(s) older than ${RECONCILE_MAX_AGE_MS}ms ` +
+          `→ FAILED + payload cleared (${side.expired.map((t) => `${t.type} x${t.count}`).join(', ')})`,
+      )
+    }
+  }
+  return runBudgetedRows(side.ids, budget, (id) =>
     enqueue(EMAIL_QUEUE, { communicationLogId: id }, { jobId: id }),
   )
 }
 
-/** Build the outbox BoundedSweepSpec from the validated maintenance config (A4). */
-export function buildOutboxSweep(cfg: MaintenanceConfig & { mode: 'enabled' }): BoundedSweepSpec<string[]> {
+/** Build the outbox BoundedSweepSpec from the validated maintenance config (A4).
+ *  `alertSink` (PR-C) receives the post-commit expiry emission; optional so the
+ *  spec stays constructible without the alerting layer. */
+export function buildOutboxSweep(
+  cfg: MaintenanceConfig & { mode: 'enabled' },
+  alertSink?: ExpiryAlertSink,
+): BoundedSweepSpec<OutboxSide> {
   return {
     name: OUTBOX_SWEEP_NAME,
     lockKey: OUTBOX_SWEEP_LOCK_KEY,
+    // Phase B here is REDIS work (BullMQ re-enqueue) — Phase A committed, the
+    // database is reachable, so a Phase-B failure alerts normally (never
+    // misclassified as a database outage).
+    sideEffectDomain: 'REDIS',
     statementTimeoutMs: cfg.statementTimeoutMs,
     txTimeoutMs: cfg.txTimeoutMs,
     phaseBMaxItems: cfg.phaseBMaxItems,
     phaseBBudgetMs: cfg.phaseBBudgetMs,
     dbPhase: outboxDbPhase,
-    runSideEffects: outboxSideEffects,
+    runSideEffects: (side, budget) => outboxSideEffects(side, budget, alertSink),
   }
 }
 

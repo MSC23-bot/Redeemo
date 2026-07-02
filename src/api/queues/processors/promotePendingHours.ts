@@ -223,6 +223,10 @@ export function buildPendingHoursSweep(
   return {
     name: PENDING_HOURS_SWEEP_NAME,
     lockKey: PENDING_HOURS_SWEEP_LOCK_KEY,
+    // Phase B here is DATABASE work (promoteOnePendingHours runs its own bounded
+    // transaction per row), so N failed rows classify as a database-domain
+    // failure and the alert layer stays log-only until the recovery signal.
+    sideEffectDomain: 'DATABASE',
     statementTimeoutMs: cfg.statementTimeoutMs,
     txTimeoutMs: cfg.txTimeoutMs,
     phaseBMaxItems: cfg.phaseBMaxItems,
