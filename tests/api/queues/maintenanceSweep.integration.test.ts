@@ -20,6 +20,20 @@ import {
 //   T5 dbNow is the DATABASE clock read inside the transaction.
 //
 // Raw SQL + one scratch table only — no Prisma-model/schema dependency.
+//
+// CI-truthfulness correction (evidence-verified on disposable loopback PG16):
+// `SELECT pg_sleep(n)` returns a column of Postgres type `void`, which Prisma
+// `$queryRaw` CANNOT deserialize — the query fails CLIENT-SIDE with P2010 (no
+// SQLSTATE) whenever the sleep COMPLETES. That single test-construction bug
+// made T1/T2 holders resolve FAILURE (the 0.8s sleep finished, then the void
+// row failed to deserialize — nothing to do with the 4000/8000ms bounds) and
+// made T3b fail at ~300ms (the FIRST bare sleep completed and threw BEFORE the
+// 400ms tx budget could fire). T3/T4 only ever passed because its sleep is
+// CANCELLED server-side (57014) before a row is returned. Every sleep below is
+// therefore cast `::text` (void→text yields '') so the result is
+// deserializable; with that, the REAL Prisma interactive-tx timeout was
+// captured as code P2028 (recognised by isTimeout — the production classifier
+// needed no change). Assertions are untouched.
 
 const adapterA = new PrismaPg({ connectionString: process.env.DATABASE_URL! })
 const prismaA = new PrismaClient({ adapter: adapterA })
@@ -71,7 +85,7 @@ describe('runBoundedSweep — real advisory-lock + timeout semantics (loopback P
         lockKey: KEY_1,
         dbPhase: async (tx) => {
           enteredPhaseA() // the lock is held from before dbPhase runs
-          await tx.$queryRaw`SELECT pg_sleep(0.8)` // stay inside the LOCKED transaction
+          await tx.$queryRaw`SELECT pg_sleep(0.8)::text AS slept` // stay inside the LOCKED transaction (::text — see header note)
           return { full: false, sideEffects: null }
         },
       }),
@@ -95,7 +109,7 @@ describe('runBoundedSweep — real advisory-lock + timeout semantics (loopback P
         lockKey: KEY_1,
         dbPhase: async (tx) => {
           entered()
-          await tx.$queryRaw`SELECT pg_sleep(0.8)`
+          await tx.$queryRaw`SELECT pg_sleep(0.8)::text AS slept`
           return { full: false, sideEffects: null }
         },
       }),
@@ -117,7 +131,7 @@ describe('runBoundedSweep — real advisory-lock + timeout semantics (loopback P
         txTimeoutMs: 8_000, // the STATEMENT bound fires first — the server cancels
         dbPhase: async (tx) => {
           await tx.$executeRaw`INSERT INTO _pr_a_sweep_probe (id) VALUES ('t3-partial')`
-          await tx.$queryRaw`SELECT pg_sleep(2)` // exceeds statement_timeout ⇒ 57014
+          await tx.$queryRaw`SELECT pg_sleep(2)::text AS slept` // exceeds statement_timeout ⇒ 57014 (::text for shape-robustness; the cancel fires first)
           return { full: false, sideEffects: null }
         },
       }),
@@ -145,8 +159,8 @@ describe('runBoundedSweep — real advisory-lock + timeout semantics (loopback P
         statementTimeoutMs: 5_000,
         txTimeoutMs: 400, // the TX bound fires first (P2028)
         dbPhase: async (tx) => {
-          await tx.$queryRaw`SELECT pg_sleep(0.3)`
-          await tx.$queryRaw`SELECT pg_sleep(0.3)` // crosses the 400ms tx budget between statements
+          await tx.$queryRaw`SELECT pg_sleep(0.3)::text AS s1`
+          await tx.$queryRaw`SELECT pg_sleep(0.3)::text AS s2` // crosses the 400ms tx budget between statements
           return { full: false, sideEffects: null }
         },
       }),

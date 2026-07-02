@@ -65,8 +65,17 @@ function spec<TSide>(overrides: Partial<BoundedSweepSpec<TSide>> = {}): BoundedS
 }
 
 describe('isTimeout — recognises the two DB-enforced cancellation shapes', () => {
-  it('Prisma interactive-tx timeout (P2028) is a timeout', () => {
-    expect(isTimeout({ code: 'P2028', message: 'Transaction API error' })).toBe(true)
+  it('Prisma interactive-tx timeout (P2028) is a timeout — EVIDENCE-DERIVED shape', () => {
+    // CI-truthfulness correction: captured from a REAL Prisma 7.8 + adapter-pg
+    // interactive-tx timeout on disposable loopback PG16 — the error is a
+    // PrismaClientKnownRequestError with code P2028 and NO meta SQLSTATE. The
+    // fixture mirrors that real shape (previously a synthetic guess; T3b in
+    // maintenanceSweep.integration.test.ts now proves it end-to-end on CI).
+    const real = Object.assign(new Error('Transaction API error'), {
+      name: 'PrismaClientKnownRequestError',
+      code: 'P2028',
+    })
+    expect(isTimeout(real)).toBe(true)
   })
   it('Postgres statement_timeout (57014) via meta.code is a timeout', () => {
     expect(isTimeout({ code: 'P2010', meta: { code: '57014' }, message: 'raw query failed' })).toBe(true)
