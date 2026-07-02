@@ -145,6 +145,11 @@ export type MaintenanceConfig =
       statementTimeoutMs: number
       txTimeoutMs: number
       sweepOutboxEnabled: boolean
+      /** PR-B per-sweep enable flags — each doubles as that sweep's rollback
+       *  switch: disabling one leaves the siblings running and never enables
+       *  any 60-second polling (spec §8.2). */
+      sweepPendingHoursEnabled: boolean
+      sweepClaimStaleEnabled: boolean
     }
 
 function parseIntVar(
@@ -208,6 +213,8 @@ export function resolveMaintenanceConfig(env: NodeJS.ProcessEnv): MaintenanceCon
   const statementTimeoutMs = parseIntVar(env, 'MAINTENANCE_STATEMENT_TIMEOUT_MS', problems, { exclusiveMin: 0 })
   const txTimeoutMs = parseIntVar(env, 'MAINTENANCE_TX_TIMEOUT_MS', problems, { exclusiveMin: 0 })
   const sweepOutboxEnabled = parseBoolVar(env, 'MAINTENANCE_SWEEP_OUTBOX_ENABLED', problems)
+  const sweepPendingHoursEnabled = parseBoolVar(env, 'MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED', problems)
+  const sweepClaimStaleEnabled = parseBoolVar(env, 'MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED', problems)
   if (statementTimeoutMs !== undefined && txTimeoutMs !== undefined && statementTimeoutMs >= txTimeoutMs) {
     problems.push(
       `MAINTENANCE_STATEMENT_TIMEOUT_MS (${statementTimeoutMs}) must be < MAINTENANCE_TX_TIMEOUT_MS (${txTimeoutMs})`,
@@ -231,6 +238,8 @@ export function resolveMaintenanceConfig(env: NodeJS.ProcessEnv): MaintenanceCon
     statementTimeoutMs: statementTimeoutMs!,
     txTimeoutMs: txTimeoutMs!,
     sweepOutboxEnabled: sweepOutboxEnabled!,
+    sweepPendingHoursEnabled: sweepPendingHoursEnabled!,
+    sweepClaimStaleEnabled: sweepClaimStaleEnabled!,
   }
 }
 

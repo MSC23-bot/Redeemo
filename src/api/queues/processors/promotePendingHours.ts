@@ -6,61 +6,53 @@
 // (proposedHours + effectiveAt = stage time + 2h) instead of writing the live
 // BranchOpeningHours immediately (see src/api/merchant/branch/service.ts
 // setOpeningHours). The pending row is promoted into the live (Branches PR-8:
-// MULTI-WINDOW) BranchOpeningHours at effectiveAt by TWO layers, both on
-// MAINTENANCE_QUEUE:
+// MULTI-WINDOW) BranchOpeningHours at effectiveAt by TWO layers:
 //
 //   1. a per-record DELAYED nudge enqueued at stage time
 //      (enqueue(MAINTENANCE_QUEUE, { pendingId }, { jobId, delay: 2h })) — the
-//      prompt-latency layer; and
-//   2. a repeatable durable SWEEP (PROMOTE_PENDING_HOURS_JOB, ~60s, modelled on
-//      claimStaleSweep.sweepStaleClaims) — the correctness guarantee, since a
-//      delayed Redis job can be lost on a restart/eviction.
+//      prompt-latency accelerator, UNCHANGED; and
+//   2. the durable maintenance-floor SWEEP (Neon CU-burn PR-B): the ~60s BullMQ
+//      repeatable is GONE — the correctness guarantee now runs on the
+//      process-local maintenance scheduler as an independent, advisory-locked,
+//      bounded sweep (spec §4.2), split into:
+//        Phase A (locked, light, DB-only, DB clock): SELECT the due ids
+//          (status='PENDING' AND effectiveAt <= dbNow, LIMIT 200) on `tx`.
+//        Phase B (unlocked, idempotent, cooperatively budgeted): promote each
+//          id via the existing re-read-and-recheck promoteOnePendingHours in
+//          its OWN short, statement-timeout-bounded transaction. Safe without
+//          the sweep lock because the in-tx re-check (only-if-still-PENDING)
+//          plus the partial-unique index are load-bearing idempotency.
 //
-// Both read the durable row as the source of truth; the handler never trusts
-// job.data and skips any non-PENDING / cancelled record.
-//
-// This module IS the promotion dispatch (PR-4 §4c): the stable job-name constant
-// (referenced by setOpeningHours), the pure promotePendingHours(prisma, now) sweep
-// handler, promoteOnePendingHours, and the schedulePromotePendingHours() scheduler
-// all live here; the worker dispatch branch is wired in
-// outboxReconciler.startReconcileWorker (both booted from src/worker.ts).
+// Both layers read the durable row as the source of truth; neither trusts
+// job.data beyond the id, and both skip any non-PENDING / cancelled record.
 
 import type { Prisma, PrismaClient } from '../../../../generated/prisma/client'
-import { MAINTENANCE_QUEUE, makeQueue } from '../index'
+import {
+  runBudgetedRows,
+  type BoundedSweepSpec,
+  type PhaseBBudget,
+  type PhaseBOutcome,
+} from '../maintenanceSweep'
+import type { MaintenanceConfig } from '../../shared/env'
 
 /**
- * Stable job name for the opening-hours promotion sweep + the per-record delayed
- * nudge's dispatch key. Aligns with the CLAIM_STALE_JOB naming pattern on
- * MAINTENANCE_QUEUE (the outbox RECONCILE_JOB is gone — PR-A moved that sweep
- * onto the process-local maintenance scheduler).
- *
- * Two layers use this name to distinguish their jobs (distinguished by
- * `job.name`, like CLAIM_STALE_JOB):
- *   - the repeatable durable SWEEP is registered with this name AS its `job.name`
- *     (`makeQueue(MAINTENANCE_QUEUE).add(PROMOTE_PENDING_HOURS_JOB, {}, …)`), so
- *     the worker dispatches it by `job.name === PROMOTE_PENDING_HOURS_JOB` and runs
- *     the full `promotePendingHours(prisma)` sweep; and
- *   - the per-record delayed NUDGE (enqueued by setOpeningHours via
- *     `enqueue(MAINTENANCE_QUEUE, { job: PROMOTE_PENDING_HOURS_JOB, pendingId }, …)`)
- *     arrives with `job.name === MAINTENANCE_QUEUE` (because the shared `enqueue`
- *     helper sets the job name to the queue name), so the worker distinguishes it
- *     by `job.data.job === PROMOTE_PENDING_HOURS_JOB` and runs
- *     `promoteOnePendingHours(prisma, job.data.pendingId)` for that one record.
+ * Stable dispatch key for the per-record delayed NUDGE (enqueued by
+ * setOpeningHours via `enqueue(MAINTENANCE_QUEUE, { job: PROMOTE_PENDING_HOURS_JOB,
+ * pendingId }, …)`). The nudge arrives with `job.name === MAINTENANCE_QUEUE`
+ * (the shared `enqueue` helper sets the job name to the queue name), so the
+ * worker distinguishes it by `job.data.job === PROMOTE_PENDING_HOURS_JOB` and
+ * runs `promoteOnePendingHours(prisma, job.data.pendingId)` for that one record.
+ * (The repeatable SWEEP that used to share this name is gone — PR-B moved it
+ * onto the process-local maintenance scheduler.)
  */
 export const PROMOTE_PENDING_HOURS_JOB = 'promote-pending-hours'
 
-/**
- * Repeatable durable-sweep cadence. ~60s (aligned with the outbox reconciler,
- * tighter than the hourly claim-stale sweep) so the 2-hour promotion target is
- * not overshot when the sweep is the only thing that fires.
- */
-export const PROMOTE_PENDING_HOURS_EVERY_MS = 60_000 // every 60 s
-
-/** Bound per run so a backlog of due rows can't thundering-herd the promotions. */
+/** Bound per Phase-A scan so a backlog of due rows can't thundering-herd the promotions. */
 export const PROMOTE_PENDING_HOURS_BATCH = 200
 
-/** A `tx` (inside $transaction) or a top-level PrismaClient — both expose the model delegates we use. */
-type PrismaLike = PrismaClient | Prisma.TransactionClient
+/** The pending-hours sweep's advisory-lock identity — distinct per sweep (spec §4.1). */
+export const PENDING_HOURS_SWEEP_LOCK_KEY = 731_002n
+export const PENDING_HOURS_SWEEP_NAME = 'pending-hours-promote'
 
 /** One day of the staged single-window weekly schedule (the validated proposedHours payload). */
 interface ProposedDay {
@@ -70,29 +62,40 @@ interface ProposedDay {
   isClosed: boolean
 }
 
-export interface PromoteSweepResult {
-  /** rows that were promoted (live BranchOpeningHours upserted + row marked PROMOTED) this run. */
-  promoted: number
-  /** due-candidate rows scanned (PENDING with effectiveAt <= now). */
-  scanned: number
+/** Per-row transaction bounds for the FLOOR path (spec §4.2: every Phase-B
+ *  per-row transaction is itself statement-timeout-bounded). The nudge handler
+ *  passes none and keeps its existing behaviour. */
+export interface PromoteTxBounds {
+  statementTimeoutMs: number
+  txTimeoutMs: number
 }
 
 /**
  * Promote ONE staged opening-hours change atomically + idempotently. Shared by
- * BOTH the durable sweep AND the per-record delayed-job handler so promotion has
- * a single source of truth (PR-4 §4c).
+ * BOTH the maintenance-floor sweep AND the per-record delayed-job handler so
+ * promotion has a single source of truth (PR-4 §4c).
  *
  * Everything runs inside ONE `prisma.$transaction` so a crash mid-promotion can
- * never half-apply (status flipped without the live upsert, or vice versa):
- *   1. RE-READ the pending row by id (NEVER trust job.data beyond the id).
- *   2. Promote ONLY if it is still `status='PENDING'` AND `effectiveAt <= now` —
- *      so a cancel that landed first wins (non-PENDING ⇒ no-op) and a not-yet-due
- *      delayed misfire is a no-op. Idempotent: a second run sees PROMOTED ⇒ no-op.
- *   3. REPLACE the LIVE BranchOpeningHours for the branch with `proposedHours`:
- *      delete-all-for-branch + createMany (N rows per day under the PR-8 multi-window
- *      model — the old per-day upsert keyed on `branchId_dayOfWeek` is GONE because
- *      PR-8 dropped that unique). The live hours change ONLY here.
- *   4. Flip the pending row to `status='PROMOTED'`, `promotedAt=now`.
+ * never half-apply (status flipped without the live replace, or vice versa):
+ *   1. RE-READ the pending row by id (NEVER trust job.data beyond the id) and
+ *      gate the clean no-ops: missing / CANCELLED / already-PROMOTED / not-due.
+ *   2. CLAIM the row with a CONDITIONAL `updateMany` (id + status='PENDING' +
+ *      effectiveAt <= now → status='PROMOTED', promotedAt=now). This is the
+ *      exclusive-ownership step: concurrent promoters (floor sweep + delayed
+ *      nudge) serialize on the row lock and exactly ONE matches; losers get
+ *      count=0 and return false WITHOUT touching live hours. A cancel that
+ *      landed first also wins here (count=0).
+ *   3. RE-READ the claimed row (authoritative post-claim payload, locked by our
+ *      own update until commit).
+ *   4. REPLACE the LIVE BranchOpeningHours for the branch with `proposedHours`:
+ *      delete-all-for-branch + createMany (N rows per day under the PR-8
+ *      multi-window model). Only the claim winner performs this; a failure here
+ *      rolls the claim back with it (same transaction).
+ *
+ * When `bounds` is passed (the floor's Phase B), the transaction is SHORT and
+ * statement-timeout-bounded: a parameterized `set_config('statement_timeout',…)`
+ * is the first statement, and the explicit Prisma tx `timeout` replaces the 5s
+ * default — so an unlocked per-row promotion can never hang the sweep.
  *
  * Returns true if this call promoted the row, false if it was a no-op (already
  * promoted / cancelled / not due / missing).
@@ -101,111 +104,133 @@ export async function promoteOnePendingHours(
   prisma: PrismaClient,
   pendingId: string,
   now: Date = new Date(),
+  bounds?: PromoteTxBounds,
 ): Promise<boolean> {
-  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    // (1) RE-READ from the DB — the durable row is the source of truth, never job.data.
-    const pending = await tx.branchOpeningHoursPending.findUnique({ where: { id: pendingId } })
-    if (!pending) return false
+  return prisma.$transaction(
+    async (tx: Prisma.TransactionClient) => {
+      if (bounds) {
+        // Floor path: bound each statement server-side, PARAMETERIZED (spec §4.2).
+        await tx.$queryRaw`SELECT set_config('statement_timeout', ${String(bounds.statementTimeoutMs)}, true)`
+      }
+      // (1) RE-READ from the DB — the durable row is the source of truth, never
+      // job.data. Validates existence + the clean no-op gates (missing /
+      // CANCELLED / already-PROMOTED / not-yet-due) without any write.
+      const pending = await tx.branchOpeningHoursPending.findUnique({ where: { id: pendingId } })
+      if (!pending) return false
+      if (pending.status !== 'PENDING') return false
+      if (pending.effectiveAt.getTime() > now.getTime()) return false
 
-    // (2) Promote only if still PENDING and due. A cancel that landed first wins;
-    // a not-yet-due delayed misfire is a clean no-op; a re-run on a PROMOTED row
-    // is a no-op (idempotent).
-    if (pending.status !== 'PENDING') return false
-    if (pending.effectiveAt.getTime() > now.getTime()) return false
-
-    // (3) REPLACE the LIVE BranchOpeningHours for the branch with the proposed week.
-    // Branches PR-8 (D9): the live model is now MULTI-WINDOW (the
-    // `@@unique([branchId, dayOfWeek])` was dropped), so the prior per-day upsert
-    // keyed on `branchId_dayOfWeek` no longer compiles/applies. The promotion now
-    // does delete-all-rows-for-this-branch + createMany (N rows/day) inside this same
-    // transaction so the swap is atomic. proposedHours was validated by
-    // validateOpeningHours at stage time; PR-4 staged a single-window-per-day JSON,
-    // which is a valid multi-row subset (one window per day), so the createMany is a
-    // straight pass-through.
-    const proposed = (pending.proposedHours ?? []) as unknown as ProposedDay[]
-    await tx.branchOpeningHours.deleteMany({ where: { branchId: pending.branchId } })
-    if (proposed.length > 0) {
-      await tx.branchOpeningHours.createMany({
-        data: proposed.map(({ dayOfWeek, openTime, closeTime, isClosed }) => ({
-          branchId: pending.branchId,
-          dayOfWeek,
-          openTime: openTime ?? null,
-          closeTime: closeTime ?? null,
-          isClosed,
-        })),
+      // (2) TRANSACTIONAL CLAIM — exclusive promotion ownership BEFORE any live
+      // write. The floor sweep and the delayed nudge can promote the same row
+      // CONCURRENTLY; a plain read-then-write lets both pass the PENDING check
+      // and interleave their delete/create pairs (duplicated live rows, or a
+      // concurrent cancel silently overwritten). The conditional updateMany
+      // serializes on the row lock: exactly ONE transaction matches
+      // status='PENDING' and flips it PROMOTED; every loser matches 0 rows and
+      // returns false WITHOUT touching live hours. Same transaction as the live
+      // replace below, so a later failure rolls the claim back too.
+      const claimed = await tx.branchOpeningHoursPending.updateMany({
+        where: { id: pendingId, status: 'PENDING', effectiveAt: { lte: now } },
+        data: { status: 'PROMOTED', promotedAt: now },
       })
-    }
+      if (claimed.count !== 1) return false
 
-    // (4) Flip the durable row PROMOTED in the SAME transaction as the live replace.
-    await tx.branchOpeningHoursPending.update({
-      where: { id: pendingId },
-      data: { status: 'PROMOTED', promotedAt: now },
-    })
-    return true
-  })
+      // (3) RE-READ the claimed row for the payload. Our updateMany holds the
+      // row lock until commit, so this snapshot of proposedHours/branchId is
+      // the authoritative post-claim state (a concurrent edit can no longer
+      // slip between the validation read and the live write).
+      const claimedRow = await tx.branchOpeningHoursPending.findUnique({ where: { id: pendingId } })
+      if (!claimedRow) return false // defensive: cannot happen inside our own tx
+
+      // (4) REPLACE the LIVE BranchOpeningHours for the branch with the proposed week.
+      // Branches PR-8 (D9): the live model is MULTI-WINDOW (the
+      // `@@unique([branchId, dayOfWeek])` was dropped), so the promotion does
+      // delete-all-rows-for-this-branch + createMany (N rows/day) inside this same
+      // transaction so the swap is atomic. proposedHours was validated by
+      // validateOpeningHours at stage time. ONLY the claim winner reaches here.
+      const proposed = (claimedRow.proposedHours ?? []) as unknown as ProposedDay[]
+      await tx.branchOpeningHours.deleteMany({ where: { branchId: claimedRow.branchId } })
+      if (proposed.length > 0) {
+        await tx.branchOpeningHours.createMany({
+          data: proposed.map(({ dayOfWeek, openTime, closeTime, isClosed }) => ({
+            branchId: claimedRow.branchId,
+            dayOfWeek,
+            openTime: openTime ?? null,
+            closeTime: closeTime ?? null,
+            isClosed,
+          })),
+        })
+      }
+      return true
+    },
+    bounds ? { timeout: bounds.txTimeoutMs, maxWait: bounds.txTimeoutMs } : undefined,
+  )
+}
+
+/** The Phase-A → Phase-B payload: the due ids PLUS the DB-authoritative clock
+ *  they were selected against (the per-row re-check uses the same dbNow). */
+export interface PendingHoursSide {
+  ids: string[]
+  dbNow: Date
 }
 
 /**
- * The opening-hours promotion SWEEP — the durable correctness guarantee (PR-4
- * §4c). Modelled VERBATIM on claimStaleSweep.sweepStaleClaims: an index-backed
- * (`[status, effectiveAt]`) bounded `findMany` of due rows, then a per-row promote
- * with per-row try/catch so one bad row can't abort the batch. `now` is injectable
- * for tests.
- *
- * Why the sweep exists alongside the delayed nudge (D4 "no delayed-job-only"): the
- * shared Redis is MVP-mode `noeviction` precisely because a dropped key = a lost
- * job — a delayed promotion job can be lost on a Redis restart/blip, an eviction
- * misconfig, or simply never fire if the worker was down at the 2h mark. The
- * durable BranchOpeningHoursPending row + this periodic sweep GUARANTEE promotion
- * regardless; the delayed job is only the prompt nudge.
+ * Phase A (locked, light, DB-only) — runs on `tx`, the connection holding the
+ * per-sweep advisory lock, with the DB-authoritative clock (spec §8.3): SELECT
+ * the due pending-hours ids. Only light selection work happens here; every
+ * promotion runs unlocked in Phase B.
  */
-export async function promotePendingHours(
-  prisma: PrismaClient,
-  now: Date = new Date(),
-): Promise<PromoteSweepResult> {
+export async function pendingHoursDbPhase(
+  tx: Prisma.TransactionClient,
+  dbNow: Date,
+): Promise<{ full: boolean; sideEffects: PendingHoursSide }> {
   // Candidate scan (index-backed on [status, effectiveAt]): PENDING and due.
-  const due = await prisma.branchOpeningHoursPending.findMany({
-    where: { status: 'PENDING', effectiveAt: { lte: now } },
+  const due = await tx.branchOpeningHoursPending.findMany({
+    where: { status: 'PENDING', effectiveAt: { lte: dbNow } },
     take: PROMOTE_PENDING_HOURS_BATCH,
     orderBy: { effectiveAt: 'asc' },
     select: { id: true },
   })
-
-  let promoted = 0
-  for (const row of due) {
-    try {
-      // promoteOnePendingHours RE-READS inside its own transaction and re-checks
-      // PENDING + due, so a row cancelled between this scan and the promote is a
-      // clean no-op (the in-transaction re-check, not this stale scan, is the gate).
-      if (await promoteOnePendingHours(prisma, row.id, now)) promoted++
-    } catch (err) {
-      // Best-effort: one failed row must not abort the rest of the batch.
-      console.warn(
-        `[promote-hours] best-effort promotion for pending ${row.id} failed, sweep continues: ` +
-          (err instanceof Error ? err.message : String(err)),
-      )
-    }
+  // A full batch ⇒ needsRescan: the sweep stays on F_active until the backlog drains.
+  return {
+    full: due.length >= PROMOTE_PENDING_HOURS_BATCH,
+    sideEffects: { ids: due.map((r) => r.id), dbNow },
   }
-  return { promoted, scanned: due.length }
 }
 
 /**
- * Register the repeatable opening-hours promotion sweep on MAINTENANCE_QUEUE
- * (idempotent: the stable jobId means exactly ONE repeatable exists, even across
- * restarts). The MAINTENANCE_QUEUE worker (outboxReconciler.startReconcileWorker)
- * dispatches PROMOTE_PENDING_HOURS_JOB to promotePendingHours. Call once at boot
- * from src/worker.ts (mirrors scheduleClaimStaleSweep).
+ * Phase B (unlocked, idempotent, cooperatively budgeted): promote each id via
+ * promoteOnePendingHours — ONE atomic statement-timeout-bounded transaction per
+ * row (not broken mid-tx; the cooperative isStopping() check runs BETWEEN rows
+ * inside runBudgetedRows). A per-row failure is reported via failedRows → the
+ * sweep is classified FAILURE and backs off on its OWN degraded cadence; the
+ * durable PENDING rows replay next scan (re-read-and-recheck keeps it a no-op
+ * if another actor promoted meanwhile).
  */
-export async function schedulePromotePendingHours(): Promise<void> {
-  // makeQueue is async since PR-A Task A5 (explicit connect-before-Queue).
-  await (await makeQueue(MAINTENANCE_QUEUE)).add(
-    PROMOTE_PENDING_HOURS_JOB,
-    {},
-    {
-      repeat: { every: PROMOTE_PENDING_HOURS_EVERY_MS },
-      jobId: PROMOTE_PENDING_HOURS_JOB,
-      removeOnComplete: true,
-      removeOnFail: 100,
-    },
-  )
+export function makePendingHoursSideEffects(
+  prisma: PrismaClient,
+  bounds: PromoteTxBounds,
+): (side: PendingHoursSide, budget: PhaseBBudget) => Promise<PhaseBOutcome> {
+  return (side, budget) =>
+    runBudgetedRows(side.ids, budget, (id) => promoteOnePendingHours(prisma, id, side.dbNow, bounds))
+}
+
+/** Build the pending-hours BoundedSweepSpec from the validated maintenance config (A4). */
+export function buildPendingHoursSweep(
+  prisma: PrismaClient,
+  cfg: MaintenanceConfig & { mode: 'enabled' },
+): BoundedSweepSpec<PendingHoursSide> {
+  return {
+    name: PENDING_HOURS_SWEEP_NAME,
+    lockKey: PENDING_HOURS_SWEEP_LOCK_KEY,
+    statementTimeoutMs: cfg.statementTimeoutMs,
+    txTimeoutMs: cfg.txTimeoutMs,
+    phaseBMaxItems: cfg.phaseBMaxItems,
+    phaseBBudgetMs: cfg.phaseBBudgetMs,
+    dbPhase: pendingHoursDbPhase,
+    runSideEffects: makePendingHoursSideEffects(prisma, {
+      statementTimeoutMs: cfg.statementTimeoutMs,
+      txTimeoutMs: cfg.txTimeoutMs,
+    }),
+  }
 }

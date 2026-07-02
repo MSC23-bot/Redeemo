@@ -28,8 +28,8 @@ import {
 } from './api/queues/maintenanceScheduler'
 import { startEmailWorker } from './api/queues/processors/email'
 import { startReconcileWorker, buildOutboxSweep } from './api/queues/processors/outboxReconciler'
-import { scheduleClaimStaleSweep } from './api/queues/processors/claimStaleSweep'
-import { schedulePromotePendingHours } from './api/queues/processors/promotePendingHours'
+import { buildClaimStaleSweep } from './api/queues/processors/claimStaleSweep'
+import { buildPendingHoursSweep } from './api/queues/processors/promotePendingHours'
 import { startModerationWorker } from './api/queues/processors/moderation'
 import { runWorkerShutdown } from './workerShutdown'
 
@@ -117,37 +117,23 @@ async function main(): Promise<void> {
   const emailWorker = startEmailWorker(prisma, workerConnections[0])
   const reconcileWorker = startReconcileWorker(prisma, workerConnections[1])
   const moderationWorker = startModerationWorker(prisma, workerConnections[2])
-  // Idempotent: each stable jobId means exactly one repeatable exists. The
-  // outbox-reconcile 60s repeatable is GONE (Neon CU-burn PR-A Task A3 — it
-  // runs on the process-local maintenance scheduler below; deleted, not
-  // flag-restored). claim-stale (hourly) + the PR-4 opening-hours promotion
-  // sweep (60s) remain BullMQ repeatables until PR-B moves them onto the floor.
-  // BEST-EFFORT (spec §4.4: Redis-degraded is a modifier, never a floor-killer):
-  // with the A5 finite producer lifecycle these registrations fail FAST when
-  // Redis is down at boot — they must not abort the worker, or the
-  // Redis-independent maintenance floor below would never start. The
-  // registrations are idempotent and re-attempted on the next boot.
-  try {
-    await scheduleClaimStaleSweep()
-    await schedulePromotePendingHours()
-  } catch (err) {
-    console.error(
-      '[worker] BullMQ repeatable registration failed (Redis unavailable?) — continuing so the maintenance floor still runs; repeatables re-register on next boot:',
-      err instanceof Error ? err.message : String(err),
-    )
-  }
+  // Neon CU-burn PR-B: NO recurring BullMQ repeatable is registered any more.
+  // Every recurring sweep (outbox reconcile, pending-hours promotion,
+  // stale-claim) lives on the process-local maintenance scheduler below; the
+  // MAINTENANCE_QUEUE worker serves only the per-record pending-hours nudge.
   const workers: Worker[] = [emailWorker, reconcileWorker, moderationWorker]
-  console.info(`[worker] started: ${workers.length} processor(s) registered (email + maintenance[claim-stale + promote-pending-hours + pending-hours-nudge] + photo-moderation)`)
+  console.info(`[worker] started: ${workers.length} processor(s) registered (email + maintenance[pending-hours-nudge only] + photo-moderation)`)
 
-  // Neon CU-burn PR-A Tasks A2/A3: the process-local maintenance scheduler —
-  // the durable floor for the outbox reconcile sweep (PR-B adds the others).
-  // Redis-independent (survives a Redis outage) but NOT durable: the DB rows +
-  // the immediate BOOT scan are the durable guarantee.
+  // Neon CU-burn PR-A A2/A3 + PR-B: the process-local maintenance scheduler —
+  // the durable floor for ALL THREE sweeps, each an independent advisory-locked
+  // unit with its own enable flag (= per-sweep rollback switch), state and
+  // backoff. Redis-independent (survives a Redis outage) but NOT durable: the
+  // DB rows + the immediate BOOT scan are the durable guarantee.
   let scheduler: MaintenanceScheduler | null = null
   if (maintenance.mode === 'disabled') {
     // Loud structured log — the explicit owner-approved off-path (spec §14).
     console.warn(
-      '[worker] MAINTENANCE_MODE=disabled — maintenance scheduler NOT started; the durable outbox floor is OFF (explicit opt-out; expiry/re-enqueue reconciliation will not run)',
+      '[worker] MAINTENANCE_MODE=disabled — maintenance scheduler NOT started; the durable maintenance floor is OFF (explicit opt-out; outbox expiry/re-enqueue, pending-hours promotion and stale-claim reconciliation will not run)',
     )
   } else {
     scheduler = startMaintenanceScheduler(
@@ -163,10 +149,14 @@ async function main(): Promise<void> {
         nowMs: () => Date.now(),
         monotonicNowMs: () => performance.now(),
       },
-      [makeSweepRuntime(buildOutboxSweep(maintenance), maintenance.sweepOutboxEnabled)],
+      [
+        makeSweepRuntime(buildOutboxSweep(maintenance), maintenance.sweepOutboxEnabled),
+        makeSweepRuntime(buildPendingHoursSweep(prisma, maintenance), maintenance.sweepPendingHoursEnabled),
+        makeSweepRuntime(buildClaimStaleSweep(prisma, maintenance), maintenance.sweepClaimStaleEnabled),
+      ],
     )
     console.info(
-      `[worker] maintenance scheduler started (outbox sweep ${maintenance.sweepOutboxEnabled ? 'ENABLED' : 'disabled'}; F_idle=${maintenance.floorIdleMs}ms, F_active=${maintenance.floorActiveMs}ms)`,
+      `[worker] maintenance scheduler started (outbox ${maintenance.sweepOutboxEnabled ? 'ENABLED' : 'disabled'}, pending-hours ${maintenance.sweepPendingHoursEnabled ? 'ENABLED' : 'disabled'}, claim-stale ${maintenance.sweepClaimStaleEnabled ? 'ENABLED' : 'disabled'}; F_idle=${maintenance.floorIdleMs}ms, F_active=${maintenance.floorActiveMs}ms)`,
     )
   }
 

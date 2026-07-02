@@ -27,8 +27,9 @@
 //     re-selected next scan (durable rescheduling).
 //
 // The MAINTENANCE_QUEUE Worker below still serves the WP4 stale-claim sweep,
-// the PR-4 opening-hours promotion sweep (both still BullMQ repeatables until
-// PR-B moves them onto the floor) and the per-record pending-hours nudge.
+// the per-record pending-hours NUDGE only (Neon CU-burn PR-B moved the
+// stale-claim + pending-hours sweeps onto the process-local maintenance floor,
+// same as the outbox sweep in PR-A).
 
 import { Worker, type Job, type ConnectionOptions } from 'bullmq'
 import type IORedis from 'ioredis'
@@ -44,12 +45,7 @@ import {
   type PhaseBOutcome,
 } from '../maintenanceSweep'
 import type { MaintenanceConfig } from '../../shared/env'
-import { CLAIM_STALE_JOB, sweepStaleClaims } from './claimStaleSweep'
-import {
-  PROMOTE_PENDING_HOURS_JOB,
-  promotePendingHours,
-  promoteOnePendingHours,
-} from './promotePendingHours'
+import { PROMOTE_PENDING_HOURS_JOB, promoteOnePendingHours } from './promotePendingHours'
 
 /** Only RE-ENQUEUE rows older than this — ≥ the worker's max retry-backoff window. */
 export const RECONCILE_GRACE_MS = 120_000 // 2 min
@@ -146,27 +142,24 @@ export function buildOutboxSweep(cfg: MaintenanceConfig & { mode: 'enabled' }): 
 }
 
 /**
- * Start the MAINTENANCE_QUEUE Worker on its OWN Redis connection. One Worker
- * serves the whole queue, dispatching by job name: the WP4 stale-claim sweep
- * (CLAIM_STALE_JOB) and the PR-4 opening-hours promotion
- * (PROMOTE_PENDING_HOURS_JOB — repeatable sweep + a per-record delayed nudge).
- * The outbox reconcile job is GONE — it runs on the process-local maintenance
- * scheduler now (Task A3); PR-B moves the other two sweeps the same way.
+ * Start the MAINTENANCE_QUEUE Worker on its OWN Redis connection. Since Neon
+ * CU-burn PR-B it serves ONLY the per-record pending-hours delayed NUDGE (the
+ * unchanged accelerator). Every recurring sweep — outbox reconcile (PR-A),
+ * stale-claim + pending-hours promotion (PR-B) — runs on the process-local
+ * maintenance scheduler; their repeatable jobs are deleted, not flag-restored.
+ * A stale repeatable still registered in Redis from a pre-PR image simply
+ * no-ops through this handler (no matching branch).
  */
 export function startReconcileWorker(prisma: PrismaClient, connection?: IORedis): Worker {
   const worker = new Worker(
     MAINTENANCE_QUEUE,
     async (job: Job) => {
-      if (job.name === CLAIM_STALE_JOB) await sweepStaleClaims(prisma)
-      // PR-4 §4c: the repeatable promotion SWEEP arrives as its own job.name and
-      // runs the full bounded sweep (the durable correctness guarantee).
-      else if (job.name === PROMOTE_PENDING_HOURS_JOB) await promotePendingHours(prisma)
       // PR-4 §4c: the per-record delayed NUDGE is enqueued through the shared
       // `enqueue` helper, which sets job.name to the QUEUE name (MAINTENANCE_QUEUE),
       // so it is distinguished by job.data.job and promotes that one record by id.
       // The handler re-reads the durable row (never trusts job.data beyond the id)
       // and skips a withdrawn / already-promoted / not-yet-due record.
-      else if (
+      if (
         job.name === MAINTENANCE_QUEUE &&
         (job.data as { job?: string } | undefined)?.job === PROMOTE_PENDING_HOURS_JOB
       ) {

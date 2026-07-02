@@ -15,6 +15,8 @@ const VALID: NodeJS.ProcessEnv = {
   MAINTENANCE_STATEMENT_TIMEOUT_MS: '4000',
   MAINTENANCE_TX_TIMEOUT_MS: '8000',
   MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'true',
+  MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'true',
+  MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
 }
 
 describe('resolveMaintenanceConfig — canonical MAINTENANCE_MODE startup policy', () => {
@@ -33,7 +35,30 @@ describe('resolveMaintenanceConfig — canonical MAINTENANCE_MODE startup policy
       statementTimeoutMs: 4000,
       txTimeoutMs: 8000,
       sweepOutboxEnabled: true,
+      sweepPendingHoursEnabled: true,
+      sweepClaimStaleEnabled: true,
     })
+  })
+
+  it('PR-B: the pending-hours + claim-stale enable flags are REQUIRED bools when enabled, and parse independently', () => {
+    // Missing either flag fails startup with the flag named.
+    const noPending = { ...VALID }
+    delete noPending.MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED
+    expect(() => resolveMaintenanceConfig(noPending)).toThrow(/MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED/)
+    const noStale = { ...VALID }
+    delete noStale.MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED
+    expect(() => resolveMaintenanceConfig(noStale)).toThrow(/MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED/)
+    // Strict booleans only.
+    expect(() =>
+      resolveMaintenanceConfig({ ...VALID, MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'yes' }),
+    ).toThrow(/exactly "true" or "false"/)
+    // The flags map independently (each is that sweep's rollback switch).
+    const cfg = resolveMaintenanceConfig({
+      ...VALID,
+      MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'false',
+      MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
+    })
+    expect(cfg).toMatchObject({ sweepPendingHoursEnabled: false, sweepClaimStaleEnabled: true, sweepOutboxEnabled: true })
   })
 
   it('MAINTENANCE_MODE=enabled behaves identically to unset', () => {

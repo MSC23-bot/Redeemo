@@ -1,38 +1,37 @@
 import { describe, it, expect, vi } from 'vitest'
-import type { PrismaClient } from '../../../../generated/prisma/client'
+import type { Prisma, PrismaClient } from '../../../../generated/prisma/client'
 import { isOpenNow, type Hours } from '../../../../src/api/shared/isOpenNow'
+import type { PhaseBBudget } from '../../../../src/api/queues/maintenanceSweep'
 
-// Branches PR-4 (umbrella D4 §4c): the opening-hours 2-hour cool-off PROMOTION.
+// Branches PR-4 (umbrella D4 §4c): the opening-hours 2-hour cool-off PROMOTION —
+// re-pointed at the Neon CU-burn PR-B maintenance-floor split.
 //
 // A merchant hours edit STAGES a durable BranchOpeningHoursPending row
 // (proposedHours + effectiveAt = stage time + 2h) instead of writing the live
-// BranchOpeningHours immediately. Promotion is guaranteed by TWO layers on
-// MAINTENANCE_QUEUE, both reading the durable row as the source of truth:
-//   - a per-record DELAYED nudge (the handler -> promoteOnePendingHours), and
-//   - a repeatable durable SWEEP (promotePendingHours, modelled on sweepStaleClaims).
+// BranchOpeningHours immediately. Promotion is guaranteed by TWO layers, both
+// reading the durable row as the source of truth:
+//   - a per-record DELAYED nudge (the handler -> promoteOnePendingHours,
+//     UNCHANGED accelerator), and
+//   - the maintenance-floor SWEEP (pendingHoursDbPhase + the budgeted Phase-B
+//     promoter) — the ~60s BullMQ repeatable is GONE.
 //
 // These pins exercise the PURE functions with a fake prisma (no Redis/BullMQ):
-//   - the sweep promotes due PENDING rows, skips not-due / cancelled / promoted,
-//     is idempotent, re-checks PENDING inside the transaction, and is per-row
-//     resilient;
-//   - the delayed-job handler promotes a still-due PENDING row and is a clean
-//     no-op on a withdrawn / already-promoted / not-yet-due row (never trusts
-//     job.data beyond the id);
-//   - the customer read (isOpenNow) sees the LIVE rows only — invisible to the
-//     staging record until promotion swaps the live rows;
-//   - a staged cross-midnight window validates + promotes, and (Branches PR-8)
-//     isOpenNow now reads it OPEN inside its window (the D9 fix).
-//
-// Branches PR-8 (D9): promotion REPLACES the live BranchOpeningHours via
-// delete-all-for-branch + createMany (the @@unique([branchId, dayOfWeek]) was
-// dropped, so the prior per-day upsert no longer applies). The fake prisma below
-// models that write mechanism.
+//   - Phase A selects due PENDING rows off the DB-authoritative dbNow, bounded
+//     + ordered; Phase B promotes per-row in its OWN statement-timeout-bounded
+//     transaction, per-row isolated, cooperatively stoppable, idempotent;
+//   - the delayed-job handler keeps its exact pre-PR-B behaviour (no bounds);
+//   - the customer read (isOpenNow) sees the LIVE rows only;
+//   - a staged cross-midnight window validates + promotes (Branches PR-8 D9).
 
 import {
   promoteOnePendingHours,
-  promotePendingHours,
+  pendingHoursDbPhase,
+  makePendingHoursSideEffects,
   PROMOTE_PENDING_HOURS_BATCH,
+  PENDING_HOURS_SWEEP_LOCK_KEY,
+  type PromoteTxBounds,
 } from '../../../../src/api/queues/processors/promotePendingHours'
+import * as promoteModule from '../../../../src/api/queues/processors/promotePendingHours'
 
 type Status = 'PENDING' | 'PROMOTED' | 'CANCELLED'
 interface ProposedDay {
@@ -63,10 +62,12 @@ interface LiveRow {
 /**
  * Stateful in-memory fake of the slice of PrismaClient the promotion path uses.
  * It mutates an in-memory store so idempotency, the cancel-mid-promote race, and
- * the live-rows-upsert can all be exercised realistically. `$transaction(fn)`
+ * the live-rows-upsert can all be exercised realistically. `$transaction(fn, opts)`
  * runs `fn` against the SAME fake (a single-process store, so the body sees its
- * own writes — good enough for these unit pins). `onScan` lets a test mutate the
- * store between the sweep's findMany and the per-row promote (the race pin).
+ * own writes — good enough for these unit pins) and RECORDS `opts` so the
+ * bounded-per-row-tx contract is pinnable. `$queryRaw` records the floor path's
+ * parameterized set_config statement. `onScan` lets a test mutate the store
+ * between the Phase-A findMany and the per-row promote (the race pin).
  */
 function fakePrisma(
   pending: PendingRow[],
@@ -95,6 +96,18 @@ function fakePrisma(
     if (row) Object.assign(row, data)
     return row
   })
+  // The transactional CLAIM: conditional updateMany (id + status + effectiveAt<=)
+  // — models the row-level serialization: a non-matching row returns count 0.
+  const updateManyPending = vi.fn(
+    async ({ where, data }: { where: { id: string; status: Status; effectiveAt: { lte: Date } }; data: Partial<PendingRow> }) => {
+      const row = pendingStore.get(where.id)
+      if (!row || row.status !== where.status || row.effectiveAt.getTime() > where.effectiveAt.lte.getTime()) {
+        return { count: 0 }
+      }
+      Object.assign(row, data)
+      return { count: 1 }
+    },
+  )
   // Branches PR-8: promotion REPLACES the live rows for the branch via
   // deleteMany-for-branch + createMany (the per-day upsert is gone).
   const deleteManyLive = vi.fn(async ({ where }: { where: { branchId: string } }) => {
@@ -116,14 +129,17 @@ function fakePrisma(
     }
     return { count: data.length }
   })
+  const queryRaw = vi.fn(async () => [])
+  const transaction = vi.fn(async (fn: any, _txOpts?: any) => fn(prisma))
 
   const prisma = {
-    branchOpeningHoursPending: { findUnique, findMany: findManyPending, update: updatePending },
+    branchOpeningHoursPending: { findUnique, findMany: findManyPending, update: updatePending, updateMany: updateManyPending },
     branchOpeningHours: { deleteMany: deleteManyLive, createMany: createManyLive },
-    $transaction: vi.fn(async (fn: any) => fn(prisma)),
+    $queryRaw: queryRaw,
+    $transaction: transaction,
   } as unknown as PrismaClient
 
-  return { prisma, pendingStore, live, findUnique, findManyPending, updatePending, deleteManyLive, createManyLive }
+  return { prisma, pendingStore, live, findUnique, findManyPending, updatePending, updateManyPending, deleteManyLive, createManyLive, queryRaw, transaction }
 }
 
 const goodWeek: ProposedDay[] = [
@@ -140,84 +156,114 @@ const NOW = new Date('2026-06-24T12:00:00.000Z')
 const DUE = new Date(NOW.getTime() - 60_000) // effectiveAt in the past ⇒ due
 const NOT_DUE = new Date(NOW.getTime() + 60 * 60 * 1000) // 1h in the future ⇒ not due
 
-function pendingRow(overrides: Partial<PendingRow> = {}): PendingRow {
-  return {
-    id: 'ph1',
-    branchId: 'b1',
-    merchantId: 'm1',
-    proposedHours: goodWeek,
-    effectiveAt: DUE,
-    status: 'PENDING',
-    createdBy: 'ma1',
-    promotedAt: null,
-    cancelledAt: null,
-    ...overrides,
-  }
+/** Candidate floor bounds (mirrors the A4 config values wired in worker.ts). */
+const BOUNDS: PromoteTxBounds = { statementTimeoutMs: 4000, txTimeoutMs: 8000 }
+
+function budget(overrides: Partial<PhaseBBudget> = {}): PhaseBBudget {
+  return { maxItems: 500, budgetMs: 60_000, monotonicNowMs: () => 0, isStopping: () => false, ...overrides }
 }
 
-describe('promotePendingHours — durable sweep (PR-4 §4c)', () => {
-  it('promotes a PENDING row with effectiveAt <= now: live hours REPLACED + row PROMOTED + promotedAt', async () => {
-    const { prisma, pendingStore, live, deleteManyLive, createManyLive } = fakePrisma([pendingRow()])
-    const res = await promotePendingHours(prisma, NOW)
+/**
+ * Compose one FLOOR sweep run against the fake: Phase A (the fake doubles as the
+ * `tx` — same model delegates) then the budgeted Phase-B promoter with BOUNDS.
+ */
+async function runFloorSweep(
+  fake: ReturnType<typeof fakePrisma>,
+  dbNow: Date,
+  b: PhaseBBudget = budget(),
+) {
+  const phaseA = await pendingHoursDbPhase(fake.prisma as unknown as Prisma.TransactionClient, dbNow)
+  const outcome = await makePendingHoursSideEffects(fake.prisma, BOUNDS)(phaseA.sideEffects, b)
+  return { scanned: phaseA.sideEffects.ids.length, full: phaseA.full, outcome }
+}
 
-    expect(res).toEqual({ promoted: 1, scanned: 1 })
-    const row = pendingStore.get('ph1')!
+describe('pending-hours floor sweep — Phase A (locked, light, DB clock)', () => {
+  it('selects ONLY due PENDING rows off dbNow: status=PENDING, effectiveAt<=dbNow, bounded + ordered, ids only', async () => {
+    const { prisma, findManyPending } = fakePrisma([pendingRow()])
+    const res = await pendingHoursDbPhase(prisma as unknown as Prisma.TransactionClient, NOW)
+    const args = findManyPending.mock.calls[0][0] as any
+    expect(args.where.status).toBe('PENDING')
+    expect(args.where.effectiveAt.lte.getTime()).toBe(NOW.getTime()) // DB-authoritative clock drives the cutoff
+    expect(args.take).toBe(PROMOTE_PENDING_HOURS_BATCH)
+    expect(args.orderBy).toEqual({ effectiveAt: 'asc' })
+    expect(args.select).toEqual({ id: true }) // light selection only — no heavy work under the lock
+    expect(res.sideEffects).toEqual({ ids: ['ph1'], dbNow: NOW }) // dbNow threads into Phase B
+    expect(res.full).toBe(false)
+  })
+
+  it('reports full=true (needsRescan) at a full LIMIT-200 batch', async () => {
+    const many = Array.from({ length: PROMOTE_PENDING_HOURS_BATCH }, (_, i) => pendingRow({ id: `ph${i}`, branchId: `b${i}` }))
+    const { prisma } = fakePrisma(many)
+    const res = await pendingHoursDbPhase(prisma as unknown as Prisma.TransactionClient, NOW)
+    expect(res.full).toBe(true)
+    expect(res.sideEffects.ids).toHaveLength(PROMOTE_PENDING_HOURS_BATCH)
+  })
+
+  it('the sweep lock key is DISTINCT from the outbox and stale-claim keys', async () => {
+    expect(PENDING_HOURS_SWEEP_LOCK_KEY).toBe(731_002n)
+  })
+})
+
+describe('pending-hours floor sweep — Phase B (unlocked, bounded per-row tx, budgeted)', () => {
+  it('promotes a due PENDING row using dbNow: live hours REPLACED + row PROMOTED + promotedAt=dbNow', async () => {
+    const fake = fakePrisma([pendingRow()])
+    const res = await runFloorSweep(fake, NOW)
+
+    expect(res).toMatchObject({ scanned: 1, outcome: { full: false, failedRows: 0 } })
+    const row = fake.pendingStore.get('ph1')!
     expect(row.status).toBe('PROMOTED')
-    expect(row.promotedAt).toEqual(NOW)
+    expect(row.promotedAt).toEqual(NOW) // the DB clock the row was selected against
     // Branches PR-8: replace-the-week = one deleteMany + one createMany per promotion.
-    expect(deleteManyLive).toHaveBeenCalledTimes(1)
-    expect(createManyLive).toHaveBeenCalledTimes(1)
-    // Every proposed day landed in the LIVE BranchOpeningHours.
-    expect(live).toHaveLength(goodWeek.length)
-    const monday = live.find((l) => l.dayOfWeek === 1)!
+    expect(fake.deleteManyLive).toHaveBeenCalledTimes(1)
+    expect(fake.createManyLive).toHaveBeenCalledTimes(1)
+    expect(fake.live).toHaveLength(goodWeek.length)
+    const monday = fake.live.find((l) => l.dayOfWeek === 1)!
     expect(monday).toMatchObject({ branchId: 'b1', openTime: '10:00', closeTime: '20:00', isClosed: false })
-    const sunday = live.find((l) => l.dayOfWeek === 0)!
-    expect(sunday).toMatchObject({ isClosed: true, openTime: null, closeTime: null })
   })
 
-  it('does NOT promote a row with effectiveAt > now (not yet due)', async () => {
-    const { prisma, pendingStore, createManyLive } = fakePrisma([pendingRow({ effectiveAt: NOT_DUE })])
-    const res = await promotePendingHours(prisma, NOW)
-
-    expect(res).toEqual({ promoted: 0, scanned: 0 }) // not even scanned (SQL filters effectiveAt <= now)
-    expect(pendingStore.get('ph1')!.status).toBe('PENDING')
-    expect(createManyLive).not.toHaveBeenCalled()
+  it('each promotion runs in its OWN short statement-timeout-bounded transaction (set_config first + explicit tx timeout)', async () => {
+    const fake = fakePrisma([pendingRow()])
+    await runFloorSweep(fake, NOW)
+    // Explicit Prisma tx bounds — NOT the 5s default.
+    expect(fake.transaction).toHaveBeenCalledTimes(1)
+    expect(fake.transaction.mock.calls[0][1]).toEqual({ timeout: BOUNDS.txTimeoutMs, maxWait: BOUNDS.txTimeoutMs })
+    // Parameterized server-side statement bound as the FIRST tx statement.
+    expect(fake.queryRaw).toHaveBeenCalledTimes(1)
+    const [strings, ...values] = fake.queryRaw.mock.calls[0] as unknown as [TemplateStringsArray, ...unknown[]]
+    expect(strings.join('?')).toContain("set_config('statement_timeout'")
+    expect(values).toContain(String(BOUNDS.statementTimeoutMs)) // bound value, not interpolated SQL
   })
 
-  it('does NOT promote a CANCELLED row', async () => {
-    const { prisma, pendingStore, createManyLive } = fakePrisma([pendingRow({ status: 'CANCELLED', cancelledAt: DUE })])
-    const res = await promotePendingHours(prisma, NOW)
-
-    expect(res).toEqual({ promoted: 0, scanned: 0 }) // SQL filters status=PENDING
-    expect(pendingStore.get('ph1')!.status).toBe('CANCELLED')
-    expect(createManyLive).not.toHaveBeenCalled()
+  it('does NOT promote not-due / cancelled / already-promoted rows (Phase A filters them out)', async () => {
+    for (const overrides of [
+      { effectiveAt: NOT_DUE },
+      { status: 'CANCELLED' as Status, cancelledAt: DUE },
+      { status: 'PROMOTED' as Status, promotedAt: DUE },
+    ]) {
+      const fake = fakePrisma([pendingRow(overrides)])
+      const res = await runFloorSweep(fake, NOW)
+      expect(res.scanned).toBe(0)
+      expect(fake.createManyLive).not.toHaveBeenCalled()
+    }
   })
 
-  it('does NOT promote an already-PROMOTED row', async () => {
-    const { prisma, pendingStore, createManyLive } = fakePrisma([pendingRow({ status: 'PROMOTED', promotedAt: DUE })])
-    const res = await promotePendingHours(prisma, NOW)
+  it('is IDEMPOTENT under replay: running the floor sweep twice does not double-apply or error', async () => {
+    const fake = fakePrisma([pendingRow()])
+    const first = await runFloorSweep(fake, NOW)
+    const second = await runFloorSweep(fake, NOW)
 
-    expect(res).toEqual({ promoted: 0, scanned: 0 })
-    expect(createManyLive).not.toHaveBeenCalled()
-    expect(pendingStore.get('ph1')!.promotedAt).toEqual(DUE) // untouched
-  })
-
-  it('is IDEMPOTENT: running the sweep twice does not double-apply or error', async () => {
-    const { prisma, pendingStore, live, deleteManyLive, createManyLive } = fakePrisma([pendingRow()])
-    const first = await promotePendingHours(prisma, NOW)
-    const second = await promotePendingHours(prisma, NOW)
-
-    expect(first).toEqual({ promoted: 1, scanned: 1 })
-    // Second run: the row is now PROMOTED, so the SQL scan no longer returns it.
-    expect(second).toEqual({ promoted: 0, scanned: 0 })
-    expect(pendingStore.get('ph1')!.status).toBe('PROMOTED')
+    expect(first.outcome).toEqual({ full: false, failedRows: 0 })
+    // Second run: the row is now PROMOTED, so the Phase-A scan no longer returns it.
+    expect(second.scanned).toBe(0)
+    expect(second.outcome).toEqual({ full: false, failedRows: 0 })
+    expect(fake.pendingStore.get('ph1')!.status).toBe('PROMOTED')
     // The replace-the-week ran exactly once (not twice); live still holds one row/day.
-    expect(deleteManyLive).toHaveBeenCalledTimes(1)
-    expect(createManyLive).toHaveBeenCalledTimes(1)
-    expect(live).toHaveLength(goodWeek.length)
+    expect(fake.deleteManyLive).toHaveBeenCalledTimes(1)
+    expect(fake.createManyLive).toHaveBeenCalledTimes(1)
+    expect(fake.live).toHaveLength(goodWeek.length)
   })
 
-  it('in-transaction re-check skips a row CANCELLED between the scan and the promote', async () => {
+  it('in-transaction re-check skips a row CANCELLED between the Phase-A scan and the Phase-B promote (unlocked Phase B is safe)', async () => {
     let store: Map<string, PendingRow>
     const fake = fakePrisma([pendingRow()], {
       // The scan returns the row id; then (simulating a cancel landing first) we
@@ -228,41 +274,59 @@ describe('promotePendingHours — durable sweep (PR-4 §4c)', () => {
       },
     })
     store = fake.pendingStore
-    const res = await promotePendingHours(fake.prisma, NOW)
+    const res = await runFloorSweep(fake, NOW)
 
     expect(res.scanned).toBe(1) // it WAS scanned (before the cancel)
-    expect(res.promoted).toBe(0) // but the in-tx re-check saw CANCELLED ⇒ no-op
+    expect(res.outcome.failedRows).toBe(0) // a clean no-op is NOT a failure
     expect(fake.createManyLive).not.toHaveBeenCalled()
     expect(store.get('ph1')!.status).toBe('CANCELLED') // cancel wins
   })
 
-  it('per-row try/catch: one bad row does not abort the batch', async () => {
-    const { prisma, pendingStore, createManyLive } = fakePrisma([
+  it('per-row isolation: one failing row does not stop later rows, and is reported via failedRows (→ sweep FAILURE, degraded backoff)', async () => {
+    const fake = fakePrisma([
       pendingRow({ id: 'bad', branchId: 'b-bad' }),
       pendingRow({ id: 'good', branchId: 'b-good' }),
     ])
     // Make the FIRST promoted row's live createMany throw; the second must still promote.
-    createManyLive.mockImplementationOnce(async () => { throw new Error('db blip on first row') })
-    const res = await promotePendingHours(prisma, NOW)
+    fake.createManyLive.mockImplementationOnce(async () => { throw new Error('db blip on first row') })
+    const res = await runFloorSweep(fake, NOW)
 
     expect(res.scanned).toBe(2)
-    expect(res.promoted).toBe(1) // only the good row promoted; the bad row threw + was skipped
-    const statuses = [...pendingStore.values()].map((r) => r.status).sort()
-    expect(statuses).toEqual(['PENDING', 'PROMOTED']) // bad row stays PENDING (will retry next sweep)
+    expect(res.outcome.failedRows).toBe(1) // classified FAILURE by runBoundedSweep — never SUCCESS/active
+    expect(res.outcome.full).toBe(false) // the failure is NOT disguised as benign backlog
+    // The GOOD row promoted despite the earlier failure (per-row isolation).
+    expect(fake.pendingStore.get('good')!.status).toBe('PROMOTED')
+    // NOTE: on real Postgres the failed row's transactional CLAIM rolls back with
+    // the failed live write, leaving it PENDING for durable replay — this fake
+    // cannot model rollback, so that invariant is pinned by the real-DB rollback
+    // test in promotePendingHours.integration.test.ts.
   })
 
-  it('scans index-backed (status=PENDING, effectiveAt<=now), bounded + ordered', async () => {
-    const { prisma, findManyPending } = fakePrisma([pendingRow()])
-    await promotePendingHours(prisma, NOW)
-    const args = findManyPending.mock.calls[0][0] as any
-    expect(args.where.status).toBe('PENDING')
-    expect(args.where.effectiveAt.lte.getTime()).toBe(NOW.getTime())
-    expect(args.take).toBe(PROMOTE_PENDING_HOURS_BATCH)
-    expect(args.orderBy).toEqual({ effectiveAt: 'asc' })
+  it('cooperative shutdown: isStopping() flips mid-batch ⇒ NO later promotion starts (durable rows deferred)', async () => {
+    let stopping = false
+    const fake = fakePrisma([
+      pendingRow({ id: 'first', branchId: 'b-first' }),
+      pendingRow({ id: 'second', branchId: 'b-second' }),
+    ])
+    fake.transaction.mockImplementation(async (fn: any, _o?: any) => {
+      stopping = true // the terminal stop signal lands while row 1's tx is in flight
+      return fn(fake.prisma)
+    })
+    const res = await runFloorSweep(fake, NOW, budget({ isStopping: () => stopping }))
+    expect(res.outcome.full).toBe(true) // rows remaining — re-selected next scan
+    expect(fake.pendingStore.get('first')!.status).toBe('PROMOTED')
+    expect(fake.pendingStore.get('second')!.status).toBe('PENDING') // never STARTED after stop
+  })
+
+  it('no 60-second polling remains: the repeatable scheduler + cadence + monolithic sweep exports are GONE', async () => {
+    const mod = promoteModule as Record<string, unknown>
+    expect(mod.schedulePromotePendingHours).toBeUndefined()
+    expect(mod.PROMOTE_PENDING_HOURS_EVERY_MS).toBeUndefined()
+    expect(mod.promotePendingHours).toBeUndefined() // superseded by the dbPhase/sideEffects split
   })
 })
 
-describe('promoteOnePendingHours — delayed-job handler (PR-4 §4c)', () => {
+describe('promoteOnePendingHours — delayed-job handler (PR-4 §4c, UNCHANGED accelerator)', () => {
   it('promotes a still-PENDING due row (live upserted + row PROMOTED)', async () => {
     const { prisma, pendingStore, live } = fakePrisma([pendingRow()])
     const promoted = await promoteOnePendingHours(prisma, 'ph1', NOW)
@@ -270,6 +334,13 @@ describe('promoteOnePendingHours — delayed-job handler (PR-4 §4c)', () => {
     expect(promoted).toBe(true)
     expect(pendingStore.get('ph1')!.status).toBe('PROMOTED')
     expect(live).toHaveLength(goodWeek.length)
+  })
+
+  it('the NUDGE path is byte-for-byte pre-PR-B: no bounds ⇒ no set_config, no explicit tx timeout', async () => {
+    const fake = fakePrisma([pendingRow()])
+    await promoteOnePendingHours(fake.prisma, 'ph1', NOW)
+    expect(fake.queryRaw).not.toHaveBeenCalled() // statement_timeout only on the floor path
+    expect(fake.transaction.mock.calls[0][1]).toBeUndefined() // Prisma defaults preserved
   })
 
   it('is a clean no-op for a withdrawn (CANCELLED) row (never trusts job.data)', async () => {
@@ -313,6 +384,65 @@ describe('promoteOnePendingHours — delayed-job handler (PR-4 §4c)', () => {
   })
 })
 
+describe('promoteOnePendingHours — transactional CLAIM (exclusive promotion ownership)', () => {
+  it('ORDERING: the conditional claim (updateMany id+PENDING+due → PROMOTED) succeeds BEFORE any live-hours delete/create', async () => {
+    const fake = fakePrisma([pendingRow()])
+    const promoted = await promoteOnePendingHours(fake.prisma, 'ph1', NOW)
+    expect(promoted).toBe(true)
+    // The claim is the conditional updateMany with ALL THREE predicates + the PROMOTED flip.
+    expect(fake.updateManyPending).toHaveBeenCalledWith({
+      where: { id: 'ph1', status: 'PENDING', effectiveAt: { lte: NOW } },
+      data: { status: 'PROMOTED', promotedAt: NOW },
+    })
+    // Strict ordering: claim < deleteMany < createMany (mutation-resistant — a
+    // revert to write-live-then-flip inverts these call orders).
+    const claimOrder = fake.updateManyPending.mock.invocationCallOrder[0]
+    expect(claimOrder).toBeLessThan(fake.deleteManyLive.mock.invocationCallOrder[0])
+    expect(claimOrder).toBeLessThan(fake.createManyLive.mock.invocationCallOrder[0])
+  })
+
+  it('CLAIM LOSER: count=0 (a concurrent promoter or cancel won the row) ⇒ false and NO live-hours write of any kind', async () => {
+    const fake = fakePrisma([pendingRow()])
+    fake.updateManyPending.mockResolvedValueOnce({ count: 0 }) // lost the race after the validation read
+    const promoted = await promoteOnePendingHours(fake.prisma, 'ph1', NOW)
+    expect(promoted).toBe(false)
+    expect(fake.deleteManyLive).not.toHaveBeenCalled()
+    expect(fake.createManyLive).not.toHaveBeenCalled()
+  })
+
+  it('CANCEL BETWEEN read and claim: the conditional predicates catch it (count=0) — the cancel wins, live hours untouched', async () => {
+    const fake = fakePrisma([pendingRow()])
+    // Simulate a cancel committing between the validation findUnique and the claim.
+    fake.findUnique.mockImplementationOnce(async ({ where }: { where: { id: string } }) => {
+      const row = fake.pendingStore.get(where.id)!
+      const snapshot = { ...row } // the promoter's read sees PENDING…
+      row.status = 'CANCELLED' // …then the cancel lands before the claim executes
+      row.cancelledAt = NOW
+      return snapshot
+    })
+    const promoted = await promoteOnePendingHours(fake.prisma, 'ph1', NOW)
+    expect(promoted).toBe(false)
+    expect(fake.pendingStore.get('ph1')!.status).toBe('CANCELLED') // never overwritten to PROMOTED
+    expect(fake.deleteManyLive).not.toHaveBeenCalled()
+    expect(fake.createManyLive).not.toHaveBeenCalled()
+  })
+})
+
+function pendingRow(overrides: Partial<PendingRow> = {}): PendingRow {
+  return {
+    id: 'ph1',
+    branchId: 'b1',
+    merchantId: 'm1',
+    proposedHours: goodWeek,
+    effectiveAt: DUE,
+    status: 'PENDING',
+    createdBy: 'ma1',
+    promotedAt: null,
+    cancelledAt: null,
+    ...overrides,
+  }
+}
+
 describe('PR-8 multi-row write mechanism — delete-all + createMany round-trips N rows/day; carry-forward', () => {
   // Branches PR-8: the live write is now replace-the-week (deleteMany-for-branch +
   // createMany), so a MULTI-WINDOW day round-trips intact.
@@ -350,21 +480,22 @@ describe('PR-8 multi-row write mechanism — delete-all + createMany round-trips
   })
 
   it('carries forward a future-dated PENDING row unchanged (single-window JSON is a valid multi-row subset)', async () => {
-    // A future-dated single-window pending is not due; the sweep leaves it PENDING
-    // (carry-forward) and its single-window JSON is already a valid multi-row subset.
+    // A future-dated single-window pending is not due; the floor sweep leaves it
+    // PENDING (carry-forward) and its single-window JSON is already a valid
+    // multi-row subset.
     const singleWindow: ProposedDay[] = [
       { dayOfWeek: 1, openTime: '09:00', closeTime: '17:00', isClosed: false },
     ]
-    const { prisma, pendingStore, live } = fakePrisma(
+    const fake = fakePrisma(
       [pendingRow({ proposedHours: singleWindow, effectiveAt: NOT_DUE })],
       { live: [] },
     )
-    const res = await promotePendingHours(prisma, NOW)
+    const res = await runFloorSweep(fake, NOW)
 
-    expect(res).toEqual({ promoted: 0, scanned: 0 }) // not due ⇒ carried forward
-    expect(pendingStore.get('ph1')!.status).toBe('PENDING')
-    expect(pendingStore.get('ph1')!.proposedHours).toEqual(singleWindow) // unchanged
-    expect(live).toHaveLength(0) // live untouched until it becomes due
+    expect(res.scanned).toBe(0) // not due ⇒ carried forward
+    expect(fake.pendingStore.get('ph1')!.status).toBe('PENDING')
+    expect(fake.pendingStore.get('ph1')!.proposedHours).toEqual(singleWindow) // unchanged
+    expect(fake.live).toHaveLength(0) // live untouched until it becomes due
   })
 })
 

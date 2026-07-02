@@ -153,6 +153,8 @@ describe('buildOutboxSweep — the BoundedSweepSpec wiring', () => {
       statementTimeoutMs: 4000,
       txTimeoutMs: 8000,
       sweepOutboxEnabled: true,
+      sweepPendingHoursEnabled: true,
+      sweepClaimStaleEnabled: true,
     })
     expect(spec.name).toBe('outbox-reconcile')
     expect(spec.lockKey).toBe(OUTBOX_SWEEP_LOCK_KEY)
