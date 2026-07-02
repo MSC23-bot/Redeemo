@@ -37,6 +37,10 @@ export interface SweepResult {
    *  classified FAILURE → the sweep's OWN degraded backoff, NEVER the active cadence. */
   full: boolean
   error?: unknown
+  /** PR-C metrics seam: the Phase-B outcome when Phase B ran (started/failed row
+   *  counts, honestly measured — absent on LOCK_SKIPPED/TIMEOUT/Phase-A-FAILURE
+   *  and the between-phases cooperative-stop path where Phase B never started). */
+  phaseB?: PhaseBOutcome
 }
 
 /** Light, DB-only Phase-A work on `tx` (the connection holding the lock), using the DB clock. */
@@ -98,6 +102,9 @@ export function isTimeout(err: unknown): boolean {
 export interface PhaseBOutcome {
   full: boolean
   failedRows: number
+  /** PR-C metrics seam: rows Phase B actually STARTED this run (successes =
+   *  startedRows − failedRows). Honest count — measured by the loop itself. */
+  startedRows: number
 }
 
 /**
@@ -118,9 +125,10 @@ export async function runBudgetedRows<T>(
   let started = 0
   let failedRows = 0
   for (const item of items) {
-    if (budget.isStopping()) return { full: true, failedRows } // cooperative shutdown: no NEW row starts
-    if (started >= budget.maxItems) return { full: true, failedRows } // item cap with rows remaining
-    if (budget.monotonicNowMs() - startedAt > budget.budgetMs) return { full: true, failedRows } // time budget
+    if (budget.isStopping()) return { full: true, failedRows, startedRows: started } // cooperative shutdown: no NEW row starts
+    if (started >= budget.maxItems) return { full: true, failedRows, startedRows: started } // item cap with rows remaining
+    if (budget.monotonicNowMs() - startedAt > budget.budgetMs)
+      return { full: true, failedRows, startedRows: started } // time budget
     started++
     try {
       await row(item)
@@ -128,7 +136,7 @@ export async function runBudgetedRows<T>(
       failedRows++ // per-row isolation: later rows still run; classified FAILURE by the wrapper
     }
   }
-  return { full: false, failedRows }
+  return { full: false, failedRows, startedRows: started }
 }
 
 /**
@@ -185,7 +193,7 @@ export async function runBoundedSweep<TSide>(
             monotonicNowMs,
             isStopping,
           })
-        : { full, failedRows: 0 }
+        : { full, failedRows: 0, startedRows: 0 }
     if (b.failedRows > 0) {
       // A side-effect failure (e.g. Redis down) is a FAILURE, never a
       // SUCCESS/active outcome: the scheduler applies this sweep's OWN degraded
@@ -195,9 +203,10 @@ export async function runBoundedSweep<TSide>(
         state: 'FAILURE',
         full: true,
         error: new Error(`phase-b: ${b.failedRows} side-effect row(s) failed`),
+        phaseB: b,
       }
     }
-    return { state: 'SUCCESS', full: full || b.full }
+    return { state: 'SUCCESS', full: full || b.full, phaseB: b }
   } catch (err) {
     return { state: 'FAILURE', full: false, error: err }
   }

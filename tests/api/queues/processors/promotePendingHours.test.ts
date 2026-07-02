@@ -252,10 +252,10 @@ describe('pending-hours floor sweep — Phase B (unlocked, bounded per-row tx, b
     const first = await runFloorSweep(fake, NOW)
     const second = await runFloorSweep(fake, NOW)
 
-    expect(first.outcome).toEqual({ full: false, failedRows: 0 })
+    expect(first.outcome).toEqual({ full: false, failedRows: 0, startedRows: 1 })
     // Second run: the row is now PROMOTED, so the Phase-A scan no longer returns it.
     expect(second.scanned).toBe(0)
-    expect(second.outcome).toEqual({ full: false, failedRows: 0 })
+    expect(second.outcome).toEqual({ full: false, failedRows: 0, startedRows: 0 })
     expect(fake.pendingStore.get('ph1')!.status).toBe('PROMOTED')
     // The replace-the-week ran exactly once (not twice); live still holds one row/day.
     expect(fake.deleteManyLive).toHaveBeenCalledTimes(1)

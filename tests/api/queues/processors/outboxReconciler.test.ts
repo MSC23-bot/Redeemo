@@ -101,7 +101,7 @@ describe('outboxDbPhase — Phase A (locked, DB-only, DB clock)', () => {
 describe('outboxSideEffects — Phase B (unlocked, idempotent, cooperatively budgeted)', () => {
   it('re-enqueues each id with jobId = id (the §4.1 dedup mechanism; replay-safe by construction)', async () => {
     const res = await outboxSideEffects(['a', 'b'], budget())
-    expect(res).toEqual({ full: false, failedRows: 0 })
+    expect(res).toEqual({ full: false, failedRows: 0, startedRows: 2 })
     expect(enqueueMock).toHaveBeenCalledWith('email', { communicationLogId: 'a' }, { jobId: 'a' })
     expect(enqueueMock).toHaveBeenCalledWith('email', { communicationLogId: 'b' }, { jobId: 'b' })
   })
@@ -138,7 +138,7 @@ describe('outboxSideEffects — Phase B (unlocked, idempotent, cooperatively bud
   it('item cap bounds how many rows are STARTED (benign backlog: full=true, no failures)', async () => {
     const res = await outboxSideEffects(['a', 'b', 'c'], budget({ maxItems: 1 }))
     expect(enqueueMock).toHaveBeenCalledTimes(1)
-    expect(res).toEqual({ full: true, failedRows: 0 })
+    expect(res).toEqual({ full: true, failedRows: 0, startedRows: 1 })
   })
 })
 
