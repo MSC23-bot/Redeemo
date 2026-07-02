@@ -279,6 +279,64 @@ A full workspace, not a directory row or an approval record. Panes and their sub
 | Insights / reporting, account health | `merchant/insights/*` (merchant-view only) | NOT-BUILT for admin; reference-reusable |
 | Lifecycle status, audit history, outstanding work | `MerchantStatus`/`OnboardingStep`/`AuditLog`/`AdminApproval` | ENGINEERED |
 
+#### 6.1.1 Onboarding-review field inventory (the actioner review surface, verified against the real onboarding data model)
+
+The onboarding review surface (the Approvals/Actioner detail panel in M2, and its read counterpart on the Merchant 360 onboarding pane) must show the FULL set of fields the merchant onboarding flow actually collects, so the actioner can judge quality before go-live. The inventory below is REAL unless a field is tagged NET-NEW / NOT-BUILT / PLANNED. Grouped by block; every value is captured by the real merchant onboarding path today unless tagged.
+
+**Merchant profile block (REAL, merchant-wide):**
+
+- Identity + presentation: `businessName`, `tradingName`, `description`, `logoUrl`, `bannerUrl` (cover image), `websiteUrl`. Logo and cover are part of the profile block; the review surface shows both.
+- Legal / commercial identifiers: `companyNumber` and `vatNumber` are FREE TEXT and are NEVER validated (no Companies House / HMRC cross-check today). The review surface must render them as unverified free text, not as a proven company or VAT registration. Business type (limited company vs sole trader vs charity vs partnership), charity registration and a registered / head-office address distinct from branches are NOT captured today (thin area; see below).
+- Taxonomy: `primaryCategoryId` (subcategory-level) plus the `MerchantCategory` join (additional categories); `primaryDescriptorTagId` (cuisine descriptor) plus the `MerchantTag` join (specialty tags). The review surface shows the full taxonomy so the actioner can spot mis-categorisation before it affects discovery.
+
+**Branch block (REAL, per branch; amenities, opening hours and photos live on the BRANCH, not the merchant):**
+
+- Core: `name`, address (`addressLine1`, `addressLine2`, `city`, `postcode`, `country`), `phone`, `email`, `websiteUrl`, `logoUrl`, `bannerUrl`, `about` (600-char), `isMainBranch`.
+- Opening hours (`BranchOpeningHours`) and amenities (`BranchAmenity`) per branch.
+- Photos (`BranchPhoto`) with per-photo moderation state (pending / approved). The review surface shows the photo set and its moderation state.
+- `redemptionPin`: SECRET, AES-256-GCM encrypted, NEVER shown on the review surface or returned to admin anywhere (redacted). The onboarding review must display "branch PINs are never shown here".
+- Location today = postcode centroid only (`LocationConfidence = POSTCODE_CENTROID`). Google Places is wired for address autofill and produces a suggestion that reaches the admin-review metadata, but that suggestion NEVER becomes the branch pin today. The `ADDRESS_GEOCODED` confidence tier exists in the enum but is never written. Admin location confirmation is covered in 6.1.2.
+
+**Voucher block (REAL, per voucher; the 2 mandatory RMVs plus any custom RCVs):**
+
+- Core: `type` (one of the 8 voucher types), `title`, `description`, `terms`, `imageUrl`, `estimatedSaving`, `expiryDate`, `status`, `approvalStatus`, `isRmv` / `isMandatory`, `rmvTemplateId`.
+- Type-specific: `cooldownSeconds` (REUSABLE), availability windows (TIME_LIMITED).
+- `merchantFields` bag: `askHelp` (the merchant flag "ask Redeemo to help with this offer" assistance request; REAL) and `adminProposed` (the admin concierge proposal; REAL). The review surface should surface `askHelp` as an assistance flag so the actioner can offer concierge help.
+- Voucher value / quality is CLIENT-SIDE ADVISORY ONLY: there is NO enforced minimum-saving floor. `RmvTemplate.minimumSaving` is a DEFAULT, not a gate. The review surface may show an advisory value indicator, but must NOT imply a hard minimum is enforced.
+
+**Agreement / contract-evidence block (REAL evidence; some fields thin):**
+
+- `MerchantContract` captures `signedAt`, `ipAddress`, `tcVersion`, `signatureMethod` (`CLICK_TO_AGREE` live; `ZOHO_SIGN` enum-only, unused). `@unique(merchantId)` means one acceptance (no versioned re-signature history).
+- Thin areas (NET-NEW, do NOT present as captured): the signatory NAME and TITLE are NOT persisted (only `tcVersion`); `contractEndDate` exists on `Merchant` but is NEVER populated (the 12-month end is not materialised); no authority-to-bind attestation, no `userAgent`, no in-person / device provenance. The contract text itself is a placeholder pending legal.
+
+**Acquisition-source block (thin; REAL only as a coarse binary):**
+
+- There is NO `source` / `lead` / `referral` field on `Merchant` today. The only real distinction is self-serve-register vs admin-created-draft, derivable from `AuditLog` event strings, not from a queryable column. A richer acquisition-source model (`MerchantLead`, `MerchantSource`, campaign / UTM, `Merchant.source` / `leadId`) is DESIGN-ONLY (see 8.2). The review surface may show the self-vs-admin-draft origin honestly; anything richer is a labelled FUTURE concept.
+
+**Thin-area flags the review surface must show as not-yet-captured (NET-NEW):** business type / charity status / registered-office address; signatory name + title + contractEndDate; richer acquisition source; sector-specific evidence document types with a required-document gate. These are "thin area" flags for data the model does not yet capture, not silent omissions.
+
+#### 6.1.2 Admin location confirmation (owner decision 2026-07-02: AUTOMATED map-confirm, no manual coordinates; see D33)
+
+This REVERSES the blueprint's prior position that admin location confirmation is "manual lat/lng, no map". Owner direction 2026-07-02: an operator must NEVER type raw coordinates (operator-error risk). The DECIDED design intent is:
+
+- Auto-resolve the branch pin via Google-Places geocode (with the postcode centroid as a baseline), then present the candidate on a MAP for the operator to VISUALLY verify and confirm with ONE CLICK. The operator can nudge or flag a wrong pin, but never types a latitude / longitude.
+- On confirm, write the `ADDRESS_GEOCODED` confidence tier (today `POSTCODE_CENTROID` is the only tier ever written; `ADDRESS_GEOCODED` exists in the enum but is unused).
+
+Ground-truth today (label REAL vs NET-NEW faithfully): admin confirm-location is `branch:confirm-location` (OPERATIONS), and the CURRENT implementation is manual lat/lng with no map. Google Places produces an address suggestion that reaches admin-review metadata but never becomes the pin. The net-new parts of the decision (promote the Google suggestion to the pin, write `ADDRESS_GEOCODED`, build the map-confirm UI) are FUTURE / net-new build. The automated map-confirm (no manual coordinates) is the DECIDED design intent even though parts are net-new; it must be designed as the target, with the manual-lat/lng current state shown only as the honest as-built baseline it supersedes.
+
+#### 6.1.3 Business verification (labelled CONCEPT, NOT built)
+
+Business verification is NOT built today. `verificationStatus = VERIFIED` is a MANUAL admin flag stamped only inside `approveApproval` (`approval:action`); `companyNumber` / `vatNumber` are unvalidated free text; there is NO Companies House, FHRS food-hygiene, Google Place Details cross-check or in-house duplicate detection; a merchant CANNOT upload verification documents (documents are admin-managed on-behalf only, `merchant:manage-documents`, SUPER_ADMIN). A DESIGN spec for the future verification concept EXISTS at `docs/superpowers/specs/2026-06-10-merchant-portal-admin-onboarding-design.md` §5 (Google Place Details cross-check, Companies House, FHRS food-hygiene, in-house duplicate detection, a findings snapshot, and an "auto-approve nothing" posture). The onboarding review surface should carry a clearly-labelled NOT-BUILT business-verification findings panel that reflects that §5 concept: manual review is the only verification today, findings are a future signal, and nothing is auto-approved. See D34.
+
+#### 6.1.4 Edit-on-behalf model on the onboarding surface (real model plus labelled FUTURE)
+
+The actioner can edit merchant data on-behalf in two REAL modes (both run the same shared cores, tighter input allow-list, mandatory ADMIN-actor reason and audit; see Section 9):
+
+- **DIRECT edits** (applied immediately): `websiteUrl`, `vatNumber`, `companyNumber`, branch contact fields, category, documents, suspend / reactivate, confirm-location.
+- **PROPOSE lane** (sensitive identity edits, e.g. `businessName` / `tradingName` / `description`, branch address text): the edit is written as a `MerchantPendingEdit` / `BranchPendingEdit` row into an `AdminApproval`, then applied by the `editApplier`. IMPORTANT: this propose lane is ADMIN SELF-REVIEW today (one admin proposes, an admin approves through the lane), NOT a merchant sign-off and NOT true four-eyes (both capabilities are admin-held; see Section 9 L3 / L4 and BC-3).
+
+Clearly-labelled FUTURE concepts (NOT-BUILT; do NOT present as available): "send this edit to the merchant for THEIR approval" (merchant sign-off of an admin edit) and a per-merchant preference for whether admin edits apply directly vs must be proposed. Neither exists today; both are labelled future concepts on the edit affordances. See D35.
+
 ### 6.2 Customer 360 workspace
 
 Read substrate is rich and needs no schema change; every admin surface, capability and mutation is net-new; the module is PII/DPIA-heavy (Tier 3).
@@ -311,10 +369,10 @@ Source-cited; drives the authority matrix (Section 9). Note column values: DIREC
 | Identity `vatNumber/companyNumber` | Edit directly | DIRECT (`merchant:edit-identity`, SUPER_ADMIN, confirm:true) | DIRECT+notify (high bar) |
 | `primaryCategoryId` | Set in onboarding; blocked once RMVs live | DIRECT (`merchant:edit-category`, SUPER_ADMIN; RMV re-provision) | DIRECT+notify (side-effecting) |
 | Branch contact `phone/email/websiteUrl/isActive` | Edit directly | DIRECT (`merchant:edit`) | DIRECT+notify |
-| Branch `address/name/city/postcode` (SENSITIVE) | Edit-request | No text route; only lat/lng pin-drop | NOT-YET-SUPPORTED |
+| Branch `address/name/city/postcode` (SENSITIVE) | Edit-request | No text route; location confirm only (see below) | NOT-YET-SUPPORTED |
 | Branch create | OWNER; non-first stages BRANCH_CREATE approval | DIRECT create (`merchant:manage-branches`, SUPER_ADMIN) | DIRECT for admin; merchant path is FOUR-EYES |
 | Branch close/soft-delete | close-request stages BRANCH_CLOSE approval | DIRECT soft-delete (guards) | DIRECT for admin; merchant path FOUR-EYES |
-| Branch location (lat/lng) | Submit candidate token | DIRECT confirm (`branch:confirm-location`, OPERATIONS) | DIRECT (admin-owned) |
+| Branch location | Submit candidate token | Confirm (`branch:confirm-location`, OPERATIONS); TARGET = automated map-confirm, no manual coordinates (D33, see 6.1.2); current as-built = manual lat/lng, no map | DIRECT (admin-owned) |
 | Branch hours / amenities / photos / redemption-alerts | Manage directly (staged for hours/photos) | No admin route (photos reviewable via approval only) | NOT-YET-SUPPORTED |
 | Branch redemption PIN | GET/PUT/send | Never returned to admin (redacted everywhere) | PROHIBITED |
 | Custom (RCV) vouchers CRUD | OWNER / canManageVouchers | Admin covers RMV only; reviews go-live | NOT-YET-SUPPORTED (B5.2 future) |
@@ -354,7 +412,16 @@ Redeemo needs native relationship operations but is not a complete CRM today. De
 1. **Self-serve:** register to email-verify to auto-login (`auth/merchant/service.ts:548/654`), non-enumerating; creates Merchant(REGISTERED) plus first OWNER membership; terms consent recorded in audit metadata (not a column).
 2. **Admin create-draft plus secure handoff:** `createMerchantDraft` NEVER sets a password (`passwordSetupRequired:true`, no token returned); owner claims via a single-use 7-day claim token (`issueMerchantClaim`; token never returned/logged). This is the secure owner handoff.
 
-Both land on the same OWNER membership and the same uniform go-live checklist (`computeOnboardingChecklist`: >=1 branch, contract SIGNED, >=2 RMV). There is no expedited/fast-track bypass today.
+Both land on the same OWNER membership and the same uniform gate set. There is no expedited/fast-track bypass today.
+
+**Real go-live gates (verified; the review surface checklist must match these EXACTLY, not CLAUDE.md rule 7's intended list):**
+
+- **Submit gate** (`computeOnboardingChecklist`): >=1 branch exists; `contractStatus = SIGNED`; the 2 RMVs configured (each `status` in `PENDING_APPROVAL` | `ACTIVE`).
+- **Go-live gate** (re-run in-transaction inside `approveApproval`): the submit gate PLUS a main branch (`isMainBranch` / `isActive`) PLUS the main-branch location confirmed (`LocationConfidence = MANUALLY_CONFIRMED`).
+
+So the REAL five gates are: (1) branch exists; (2) contract SIGNED; (3) 2 RMVs configured; (4) main branch present; (5) main-branch location confirmed.
+
+**Intended-but-NOT-enforced (a gap vs CLAUDE.md rule 7, do NOT present as gates):** "documents uploaded", "branch-user assigned" and "mandatory-fields filled" are NOT enforced by any gate today. Rule 7 states them as the intended approval bar, but the shipped checklist does not check them. The review surface must present these as intended-not-enforced (thin-area flags the actioner can weigh manually), never as hard go-live gates.
 
 ### 8.2 Representative-assisted channel (DESIGN-ONLY; net-new)
 
@@ -364,7 +431,7 @@ Net-new substrate required (all design-only or absent): `MerchantLead`, `Merchan
 
 ### 8.3 Field verification and fast-track (POLICY decision)
 
-A representative visit is EVIDENCE, not authorization. Today `verificationStatus=VERIFIED` is stamped only inside `approveApproval` (`approval:action`), which re-runs the go-live checklist and main-branch-location gate in-transaction; no rep-side write can flip it; FHRS/Companies-House/verification pre-score are absent (Google Places exists but only for branch geocoding). Present for owner decision: rep verifies and a separate Operations Admin approves; a specifically authorized senior representative verifies and approves lower-risk items; sensitive/legal/financial/high-risk always require independent approval; emergency/platform-risk actions follow a separate override policy. Do not mislabel the current claim/approve process as true four-eyes.
+A representative visit is EVIDENCE, not authorization. Today `verificationStatus=VERIFIED` is a MANUAL admin flag stamped only inside `approveApproval` (`approval:action`), which re-runs the go-live checklist and main-branch-location gate in-transaction; no rep-side write can flip it; FHRS/Companies-House/verification pre-score are absent (Google Places exists but only for branch geocoding). The future business-verification concept (Google Place Details cross-check, Companies House, FHRS, in-house duplicate detection, findings snapshot, auto-approve-nothing) is a labelled NOT-BUILT concept per 6.1.3 / D34, not a shipped capability. Present for owner decision: rep verifies and a separate Operations Admin approves; a specifically authorized senior representative verifies and approves lower-risk items; sensitive/legal/financial/high-risk always require independent approval; emergency/platform-risk actions follow a separate override policy. Do not mislabel the current claim/approve process as true four-eyes.
 
 ### 8.4 Agreement and signature (compare channels; do not approve one legally)
 
@@ -463,7 +530,7 @@ Every screen handles the DoD state set: loading, empty, error, permission-denied
 | `merchant:propose-edit` | propose sensitive edit | M5 | RETAIN-BUT-REDESIGN | BC-5 |
 | `merchant:manage-documents` | doc upload/delete | M5 | RETAIN-BUT-REDESIGN | BC-5 |
 | `merchant:manage-vouchers` | RMV co-build | M5 | RETAIN-BUT-REDESIGN | BC-5 |
-| `branch:confirm-location` | lat/lng pin-drop | M5 (+ coverage read informs M22/BC-4) | SPLIT | BC-4, BC-5 |
+| `branch:confirm-location` | location confirm (target: automated map-confirm, no manual coordinates, D33; current as-built: manual lat/lng) | M5 (+ coverage read informs M22/BC-4) | SPLIT | BC-4, BC-5 |
 | `approval:read` | queue/review read; per-merchant timeline | M2, M7 | SPLIT (queue vs timeline) | BC-5 |
 | `approval:action` | claim/approve/reject/request-changes; voucher | M2 | RETAIN-BUT-REDESIGN | BC-3 |
 | `approval:apply-edit` | apply pending/branch-lifecycle edits (incl. photos) | M2, M12 | SPLIT (edit vs media review) | BC-2 |
@@ -526,6 +593,9 @@ Sub-typed: gated-by-decision (owner/legal) vs gated-by-dependency (net-new primi
 | Deployment / `admin.redeemo.co.uk` + CORS + strict posture | by-decision | note as pre-launch gate | platform |
 | `AdminCapabilityGrant` / per-person delegation | by-dependency | show grant OUTCOMES; note fixed-role cannot express per-person grants | authz |
 | `MerchantLead`/`MerchantSource` / rep-assisted channel / fast-track / provenance | by-dependency (design-only-in-specs) | design as build-on-spec | owner + eng |
+| Automated map-confirm for admin location confirmation (no manual coordinates; write `ADDRESS_GEOCODED`) | by-decision (DECIDED) + dependency | owner-DECIDED design intent (D33, 6.1.2); net-new build (promote Google suggestion to pin, write the tier, map-confirm UI); reverses the prior manual-lat/lng position | owner (decided) + eng |
+| Business verification concept (Google Place Details / Companies House / FHRS / duplicate detection / findings snapshot) | by-dependency | NOT-built; design a labelled findings panel per the onboarding design spec §5 (D34, 6.1.3); manual `verificationStatus` flag + admin-uploaded docs only today; auto-approve nothing | owner + eng |
+| Admin edit "send to merchant for approval" + per-merchant apply-direct-vs-propose preference | by-dependency | NOT-built (D35, 6.1.4); today = DIRECT edits + admin-self-review PROPOSE lane; label as future concepts, not available | owner + eng |
 | CMS content / `CmsContent` wiring; legal content | by-decision | leave `CmsContent` unwired; legal external, owner/legal sign-off (hard launch gate) | owner + legal |
 | Incident/StatusEvent model, ops-status history, alert emitters | by-dependency | v1 read panels only; Incident model gated | eng |
 | Deployed-SHA / version endpoint (source-vs-deploy drift) | by-dependency | show version/drift when built; until then show external/unavailable, never fabricate | eng (platform/backend) |
@@ -571,7 +641,7 @@ Claude Design packaging (D14): one shared master blueprint/context, plus separat
 
 ## 16. Decision register (status recorded per row)
 
-Approved process decisions: D1, D2, D14. D20 is owner-DECIDED (FUTURE / DEFERRED, see below). D27 is owner-DECIDED (the Members and Revenue domain + Growth reorg, 2026-07-02). All other rows are PROPOSED and separately gated. Provider credential / rollout actions (for example applying rotated Resend or Google keys) are deliberately NOT in this register: they are an incident / provider-operations workstream, not an Admin Panel product decision.
+Approved process decisions: D1, D2, D14. D20 is owner-DECIDED (FUTURE / DEFERRED, see below). D27 is owner-DECIDED (the Members and Revenue domain + Growth reorg, 2026-07-02). D33 is owner-DECIDED (automated map-confirm for admin location confirmation, reversing the prior manual-lat/lng position, 2026-07-02). All other rows are PROPOSED and separately gated. Provider credential / rollout actions (for example applying rotated Resend or Google keys) are deliberately NOT in this register: they are an incident / provider-operations workstream, not an Admin Panel product decision.
 
 | # | Decision | Recommended default (proposed) | Gating |
 |---|---|---|---|
@@ -604,6 +674,10 @@ Approved process decisions: D1, D2, D14. D20 is owner-DECIDED (FUTURE / DEFERRED
 | D30 | Refund / chargeback / dunning-beyond-PAST_DUE tracking | PROPOSED FUTURE: no `RefundLog`/`DisputeLog`; disputes are not even webhook-handled; dunning stops at PAST_DUE. Design the flows; label NOT-built. | owner + provider |
 | D31 | Member behavioural / demographic analytics (locality, age/gender, interest + retention cohorts) | PROPOSED: keep DPIA-gated in Insights (M19), default-off, minimum-cohort, "not available" until the privacy gate opens; NEVER surfaced as operational in Members and Revenue. Operational member/subscription/revenue aggregates are fine. | owner + legal |
 | D32 | STOP-AND-FLAG (data minimisation / DSAR): account deletion retains DOB, gender, interests and postcode/location (anonymise-in-place scrubs only name/email/phone) | STOP-AND-FLAG, NOT resolved here: surfacing member data made this retention posture visible. It needs a data-minimisation / DSAR review by legal + backend (is retaining DOB/gender/interests/postcode on DELETED rows justified by a lawful basis + retention schedule, or should the scrub set widen?). The prototype must show the retained-fields-on-DELETED-row fact honestly and flag it; it must NOT quietly resolve, widen or narrow the retention. | owner + legal + eng |
+| D33 | Admin location confirmation = AUTOMATED map-confirm (no manual coordinates) | DECIDED (owner, 2026-07-02): REVERSES the prior "admin confirm = manual lat/lng, no map" position. The operator must never type raw coordinates (operator-error risk). Target design: auto-resolve the pin via Google-Places geocode (postcode centroid as baseline), present it on a MAP, operator verifies visually and confirms with one click (nudge / flag if wrong, never type coordinates); write the `ADDRESS_GEOCODED` tier. Net-new parts (promote the Google suggestion to the pin, write `ADDRESS_GEOCODED`, build the map-confirm UI) are FUTURE / net-new build; the automated map-confirm is the decided design intent even though parts are net-new. See 6.1.2. | owner (decided) + eng |
+| D34 | Business verification concept (per the onboarding design spec §5) | PROPOSED as a labelled CONCEPT, NOT built: today `verificationStatus` is a manual admin flag, company# / VAT are unvalidated free text, merchants cannot upload verification docs (admin-on-behalf only), and nothing is auto-approved. Design a NOT-BUILT findings panel reflecting `docs/superpowers/specs/2026-06-10-merchant-portal-admin-onboarding-design.md` §5 (Google Place Details cross-check, Companies House, FHRS food-hygiene, in-house duplicate detection, findings snapshot, auto-approve-nothing). Show as concept + manual-review-today; never as available. See 6.1.3. | owner + eng |
+| D35 | Admin edit "send to merchant for approval" + per-merchant apply-direct-vs-propose preference | PROPOSED FUTURE (NOT built): today admin edit-on-behalf is DIRECT (operational fields) plus a PROPOSE lane that is ADMIN SELF-REVIEW (not merchant sign-off, not true four-eyes). "Send this edit to the merchant for their approval" and a per-merchant preference for whether admin edits apply directly vs must be proposed are both net-new; label as future concepts on the edit affordances, never as available. See 6.1.4. | owner + eng |
+| D36 | Correction: real go-live gates + intended-not-enforced gap | CORRECTION (verified): the REAL gates are branch exists + contract SIGNED + 2 RMVs configured (submit), plus main branch + main-branch location confirmed (go-live) = five gates. "Documents uploaded / branch-user assigned / mandatory-fields filled" from CLAUDE.md rule 7 are INTENDED but NOT enforced by any gate today. The review-surface checklist must match the real five gates; the rule-7 items show as intended-not-enforced thin-area flags, never as hard gates. See 8.1. | eng + owner |
 
 ---
 
