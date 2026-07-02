@@ -26,6 +26,7 @@ import {
   makeSweepRuntime,
   type MaintenanceScheduler,
 } from './api/queues/maintenanceScheduler'
+import { createAlertSink, type AlertSink } from './api/queues/maintenanceMetrics'
 import { startEmailWorker } from './api/queues/processors/email'
 import { startReconcileWorker, buildOutboxSweep } from './api/queues/processors/outboxReconciler'
 import { buildClaimStaleSweep } from './api/queues/processors/claimStaleSweep'
@@ -130,12 +131,20 @@ async function main(): Promise<void> {
   // backoff. Redis-independent (survives a Redis outage) but NOT durable: the
   // DB rows + the immediate BOOT scan are the durable guarantee.
   let scheduler: MaintenanceScheduler | null = null
+  let alertSink: AlertSink | null = null
   if (maintenance.mode === 'disabled') {
     // Loud structured log — the explicit owner-approved off-path (spec §14).
     console.warn(
       '[worker] MAINTENANCE_MODE=disabled — maintenance scheduler NOT started; the durable maintenance floor is OFF (explicit opt-out; outbox expiry/re-enqueue, pending-hours promotion and stale-claim reconciliation will not run)',
     )
   } else {
+    // Neon CU-burn PR-C: the maintenance AlertSink — in-app admin alerts
+    // (degraded/recovered/expired-outbox via getAlertableAdmins + adminNotify,
+    // NO CommunicationLog, NO email) + in-process counters + structured logs.
+    // Wired into the four PR-C scheduler seams and the outbox sweep's
+    // post-commit expiry emission; stopped in ordered shutdown below.
+    alertSink = createAlertSink(prisma)
+    const sink = alertSink
     scheduler = startMaintenanceScheduler(
       prisma,
       {
@@ -148,9 +157,13 @@ async function main(): Promise<void> {
         stopDrainMs: MAINTENANCE_STOP_DRAIN_MS,
         nowMs: () => Date.now(),
         monotonicNowMs: () => performance.now(),
+        recordSweepFailure: (name, state, error) => sink.sweepFailure(name, state, error),
+        alertDegraded: (name, streak) => sink.sweepDegraded(name, streak),
+        sweepRecovered: (name) => sink.sweepRecovered(name),
+        onSweepRun: (info) => sink.sweepRun(info),
       },
       [
-        makeSweepRuntime(buildOutboxSweep(maintenance), maintenance.sweepOutboxEnabled),
+        makeSweepRuntime(buildOutboxSweep(maintenance, sink), maintenance.sweepOutboxEnabled),
         makeSweepRuntime(buildPendingHoursSweep(prisma, maintenance), maintenance.sweepPendingHoursEnabled),
         makeSweepRuntime(buildClaimStaleSweep(prisma, maintenance), maintenance.sweepClaimStaleEnabled),
       ],
@@ -174,6 +187,7 @@ async function main(): Promise<void> {
       // → scheduler forceJoin — so the process.exit below is ALWAYS reached.
       const summary = await runWorkerShutdown({
         scheduler,
+        alertSink,
         workers,
         workerConnections,
         closeQueues,
