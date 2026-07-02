@@ -323,7 +323,11 @@ export function scanBullmqProducerContract(source: string, file: string): Violat
   // (1) `Queue` may exist as a VALUE only inside the helper. A type-only
   // specifier (`type Queue`) is harmless anywhere; a namespace import smuggles
   // the value, so it is banned outside the helper too.
-  for (const m of source.matchAll(/import\s+(.+?)\s+from\s+['"]bullmq['"]/gs)) {
+  // CodeRabbit PR #355: the clause capture excludes quote characters so it can
+  // never lazily span a PRECEDING import statement (whose `from '...'` tail
+  // contains quotes) and inspect the wrong brace group. A real import clause
+  // ({...} / * as x / ident, possibly multi-line) never contains a quote.
+  for (const m of source.matchAll(/import\s+([^'"]+?)\s+from\s+['"]bullmq['"]/g)) {
     const clause = m[1]
     if (/\*\s+as\s+\w+/.test(clause) && !isHelper) {
       v.push({ file, rule: 'bullmq-namespace-import', match: m[0].slice(0, 80) })
@@ -430,6 +434,22 @@ describe('PR-D producer guard — no BullMQ producer outside the enqueue() helpe
       `
       const v = scanBullmqProducerContract(fixture, 'src/api/sneaky.ts')
       expect(v.map((x) => x.rule)).toContain('queue-value-import-outside-helper')
+    })
+
+    it('detects a Queue value import even when a NON-bullmq import precedes it (CodeRabbit PR #355 regression fixture)', () => {
+      const fixture = `
+        import { readFileSync } from 'node:fs'
+        import { something } from './elsewhere'
+        import { Queue } from 'bullmq'
+        const q = new Queue('sneaky')
+      `
+      const v = scanBullmqProducerContract(fixture, 'src/api/sneaky.ts')
+      expect(v.map((x) => x.rule)).toContain('queue-value-import-outside-helper')
+      // multi-line named import is still caught (the clause legitimately spans lines)
+      const multiline = `import {\n  Worker,\n  Queue,\n} from 'bullmq'`
+      expect(
+        scanBullmqProducerContract(multiline, 'src/api/sneaky2.ts').map((x) => x.rule),
+      ).toContain('queue-value-import-outside-helper')
     })
 
     it('detects a makeQueue() bypass outside the helper', () => {
