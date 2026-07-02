@@ -1623,6 +1623,12 @@ enum NotificationType {
   ADMIN_OWNER_EMAIL_BOUNCED
   ADMIN_DELIVERY_FAILED
   ADMIN_REVIEW_ASSIGNED
+  // Neon CU-burn PR-C: maintenance-sweep health alerts (spec §PR-C). Distinct
+  // DEGRADED/RECOVERED types so a recovery notice can never be suppressed by a
+  // recent degraded alert's dedup window. Expired-outbox alerts reuse
+  // ADMIN_DELIVERY_FAILED above (owner Decision 1).
+  ADMIN_MAINTENANCE_DEGRADED
+  ADMIN_MAINTENANCE_RECOVERED
 }
 
 enum CommunicationChannel {
