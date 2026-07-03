@@ -108,7 +108,9 @@ export function PinCard({ branch, isOwner }: { branch: Branch; isOwner: boolean 
   }
 
   return (
-    <Card className="gap-4" data-testid="branch-pin-card">
+    // id="pin": the topbar Quick Action deep-links to /branches/{id}#pin so the
+    // browser lands on this card; the PIN itself still reveals only on demand.
+    <Card className="gap-4" data-testid="branch-pin-card" id="pin" style={{ scrollMarginTop: 80 }}>
       <div className="flex flex-wrap items-center justify-between gap-3 px-6">
         <div className="flex items-center gap-2">
           <KeyRound size={16} aria-hidden style={{ color: 'var(--text-tertiary)' }} />

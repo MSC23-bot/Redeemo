@@ -177,6 +177,22 @@ describe('RedemptionsPage (F1 log + filters)', () => {
   })
 })
 
+describe('RedemptionsPage range=today deep-link (shell wave Quick Action)', () => {
+  it('seeds the from filter to the start of today', async () => {
+    searchParams = new URLSearchParams('range=today')
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    const expectedFrom = new Date()
+    expectedFrom.setHours(0, 0, 0, 0)
+    await waitFor(() =>
+      expect(listRedemptions).toHaveBeenCalledWith(
+        expect.objectContaining({ from: expectedFrom.toISOString() }),
+      ),
+    )
+  })
+})
+
 describe('RedemptionsPage voucherId deep-link (B-2)', () => {
   it('applies the ?voucherId= filter on first load', async () => {
     searchParams = new URLSearchParams('voucherId=v1')

@@ -30,8 +30,17 @@ jest.mock('@/components/vouchers/builder/DayTwoBuilder', () => ({
 }))
 
 const push = jest.fn()
+// Shell wave: /vouchers?create=1 (the Quick Action deep-link) seeds the builder.
+let searchParams = new URLSearchParams()
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push }),
+  useSearchParams: () => searchParams,
+}))
+
+// Shell wave: the capability seam now reads the session profile; the page tests
+// pin page behaviour, not the seam (covered by useVoucherCapability.test.ts).
+jest.mock('@/lib/voucher/useVoucherCapability', () => ({
+  useVoucherCapability: () => ({ canManage: true, ready: true }),
 }))
 
 // The resolved top-level category name feeds the builder's suggestion chips.
@@ -65,6 +74,7 @@ function renderPage() {
 
 beforeEach(() => {
   push.mockReset()
+  searchParams = new URLSearchParams()
   listCustomVouchers.mockReset().mockResolvedValue([])
   listFlagshipVouchers.mockReset().mockResolvedValue([])
 })
@@ -122,6 +132,13 @@ describe('VouchersPage list', () => {
     const title = await screen.findByText('Tappable voucher')
     fireEvent.click(title.closest('[data-voucher-card]')!)
     expect(push).toHaveBeenCalledWith('/vouchers/v9')
+  })
+
+  it('opens the builder immediately on the ?create=1 deep-link (shell wave Quick Action)', async () => {
+    searchParams = new URLSearchParams('create=1')
+    listCustomVouchers.mockResolvedValue([row()])
+    renderPage()
+    expect(await screen.findByTestId('day-two-builder')).toBeInTheDocument()
   })
 
   it('the Create a voucher action opens the builder', async () => {

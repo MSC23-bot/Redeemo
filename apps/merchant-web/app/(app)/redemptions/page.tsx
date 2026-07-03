@@ -35,9 +35,18 @@ export default function RedemptionsPage() {
   // B-2: a /redemptions?voucherId=<id> deep-link (from the Voucher Detail "View
   // redemptions" link) seeds the filter so the log opens scoped to that voucher.
   const initialVoucherId = searchParams?.get('voucherId') ?? undefined
-  const [filters, setFilters] = React.useState<Filters>(
-    initialVoucherId ? { voucherId: initialVoucherId } : {},
-  )
+  // Shell wave: /redemptions?range=today (the topbar Quick Action) seeds the
+  // date-range filter to the start of today (device-local), i.e. "redeemed today".
+  const initialRange = searchParams?.get('range') ?? undefined
+  const [filters, setFilters] = React.useState<Filters>(() => {
+    if (initialVoucherId) return { voucherId: initialVoucherId }
+    if (initialRange === 'today') {
+      const start = new Date()
+      start.setHours(0, 0, 0, 0)
+      return { from: start.toISOString() }
+    }
+    return {}
+  })
   const [offset, setOffset] = React.useState(0)
   const [selected, setSelected] = React.useState<RedemptionRow | null>(null)
   const [exporting, setExporting] = React.useState(false)

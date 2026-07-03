@@ -20,6 +20,12 @@ jest.mock('next/navigation', () => ({
   useParams: () => ({ id: 'v1' }),
 }))
 
+// Shell wave: the capability seam now reads the session profile; these tests pin
+// page behaviour, not the seam (covered by useVoucherCapability.test.ts).
+jest.mock('@/lib/voucher/useVoucherCapability', () => ({
+  useVoucherCapability: () => ({ canManage: true, ready: true }),
+}))
+
 jest.mock('@/lib/voucher/useVoucherCategoryName', () => ({
   useVoucherCategoryName: () => 'Food & Drink',
 }))

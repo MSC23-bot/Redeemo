@@ -12,7 +12,7 @@
  * or renders customer PII or a redemption PIN.
  */
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,9 +25,15 @@ import { DayTwoBuilder } from '@/components/vouchers/builder/DayTwoBuilder'
 
 export default function VouchersPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { canManage } = useVoucherCapability()
   const categoryName = useVoucherCategoryName()
-  const [creating, setCreating] = React.useState(false)
+  // Shell wave: /vouchers?create=1 (the topbar Quick Action) opens the builder
+  // immediately - but only for a viewer who can manage vouchers.
+  const [creating, setCreating] = React.useState(
+    () => searchParams?.get('create') === '1',
+  )
+  const allowCreating = creating && canManage
 
   const custom = useQuery({
     queryKey: ['vouchers'],
@@ -43,7 +49,7 @@ export default function VouchersPage() {
   const customRows: VoucherCardData[] = (custom.data ?? []).map(toCardData)
   const flagshipRows: VoucherCardData[] = (flagship.data ?? []).map((r) => ({ ...toCardData(r), isRmv: true }))
 
-  if (creating) {
+  if (allowCreating) {
     return (
       <div className="space-y-6">
         <header>

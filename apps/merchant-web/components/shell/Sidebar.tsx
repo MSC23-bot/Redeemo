@@ -1,16 +1,37 @@
+'use client'
 import * as React from 'react'
 import Image from 'next/image'
+import { usePathname } from 'next/navigation'
 import { StatusPill, type LifecycleState } from './StatusPill'
-import { HOME_ITEM, NAV_GROUPS, PINNED_ITEMS, type NavItem } from './navItems'
+import { HOME_ITEM, visibleNavGroups, visiblePinnedItems, type NavItem, type ViewerRole } from './navItems'
 
-function NavRow({ item, active = false }: { item: NavItem; active?: boolean }) {
+/** '/' matches exactly; every other item highlights on itself + its subtree
+ * (e.g. /branches/abc keeps Branches active). */
+export function isNavItemActive(pathname: string | null, href: string): boolean {
+  if (!pathname) return false
+  if (href === '/') return pathname === '/'
+  return pathname === href || pathname.startsWith(href + '/')
+}
+
+function NavRow({ item, active = false, collapsed = false, onNavigate }: {
+  item: NavItem
+  active?: boolean
+  collapsed?: boolean
+  onNavigate?: () => void
+}) {
   const Icon = item.icon
   return (
     <a
       href={item.href}
       aria-current={active ? 'page' : undefined}
+      aria-label={collapsed ? item.label : undefined}
+      title={collapsed ? item.label : undefined}
+      onClick={onNavigate}
       style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px',
+        display: 'flex', alignItems: 'center',
+        gap: collapsed ? 0 : 12,
+        justifyContent: collapsed ? 'center' : undefined,
+        padding: collapsed ? '11px 0' : '9px 12px',
         borderRadius: 10, textDecoration: 'none',
         fontWeight: active ? 700 : 500,
         color: item.soon ? '#6B7390' : active ? '#010C35' : '#455373',
@@ -20,8 +41,8 @@ function NavRow({ item, active = false }: { item: NavItem; active?: boolean }) {
       }}
     >
       <Icon size={18} />
-      <span style={{ flex: 1 }}>{item.label}</span>
-      {item.soon && (
+      {!collapsed && <span style={{ flex: 1 }}>{item.label}</span>}
+      {!collapsed && item.soon && (
         <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#6B7390', border: '1px solid #E5E7EB', borderRadius: 999, padding: '1px 6px' }}>Soon</span>
       )}
     </a>
@@ -29,56 +50,73 @@ function NavRow({ item, active = false }: { item: NavItem; active?: boolean }) {
 }
 
 /**
- * Left sidebar. `canViewInsights` hides ONLY the Insights & reports item for callers
- * who cannot view Insights (STAFF). It defaults to false so an absent signal FAILS
- * CLOSED (the item stays hidden until we positively know the viewer may see it); the
- * backend assertInsightsAccess remains the real boundary. Owner + Branch Manager nav
- * is unchanged.
+ * Left sidebar (shell wave).
+ * - Active route highlighting via usePathname (prototype: tint bg + inset navy bar).
+ * - Role-aware nav via visibleNavGroups (STAFF minimal; Grow group owner-only;
+ *   unknown role = role-neutral baseline). `canViewInsights` keeps its original
+ *   fail-closed contract; backend authz remains the real boundary.
+ * - `collapsed` renders the 72px icon-only rail (labels, group titles, badges and
+ *   status text hidden; dot-only status pill).
+ * - `onNavigate` lets the narrow drawer close itself when a nav item is tapped.
  */
 export function Sidebar({
   status = 'setup' as LifecycleState,
   canViewInsights = false,
+  role = null,
+  collapsed = false,
+  onNavigate,
 }: {
   status?: LifecycleState
   canViewInsights?: boolean
+  role?: ViewerRole
+  collapsed?: boolean
+  onNavigate?: () => void
 }) {
+  const pathname = usePathname()
+  const groups = visibleNavGroups(role, canViewInsights)
+  const pinned = visiblePinnedItems()
+
   return (
-    <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '18px 14px', height: '100%' }}>
+    <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: collapsed ? '18px 10px' : '18px 14px', height: '100%' }}>
       {/* Brand lockup */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : undefined, gap: collapsed ? 0 : 10, padding: collapsed ? 0 : '0 6px' }}>
         <Image src="/redeemo-r-mark.png" alt="Redeemo" width={34} height={34} />
-        <div style={{ lineHeight: 1.1 }}>
-          <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 15, color: '#010C35' }}>Redeemo</div>
-          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6B7390' }}>for Business</div>
-        </div>
+        {!collapsed && (
+          <div style={{ lineHeight: 1.1 }}>
+            <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 15, color: '#010C35' }}>Redeemo</div>
+            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6B7390' }}>for Business</div>
+          </div>
+        )}
       </div>
 
-      <div style={{ padding: '0 6px' }}><StatusPill state={status} /></div>
+      <div style={{ padding: collapsed ? 0 : '0 6px', display: 'flex', justifyContent: collapsed ? 'center' : undefined }}>
+        <StatusPill state={status} dotOnly={collapsed} />
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <NavRow item={HOME_ITEM} />
+        <NavRow item={HOME_ITEM} active={isNavItemActive(pathname, HOME_ITEM.href)} collapsed={collapsed} onNavigate={onNavigate} />
       </div>
 
-      {NAV_GROUPS.map((group) => {
-        // Hide ONLY the Insights item for a viewer who cannot view Insights (STAFF);
-        // every other item is untouched. A group emptied by the filter is dropped.
-        const items = group.items.filter((item) => canViewInsights || item.href !== '/insights')
-        if (items.length === 0) return null
-        return (
-          <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {groups.map((group) => (
+        <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {!collapsed && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
               <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#8089A4' }}>{group.title}</span>
               {group.tag && (
                 <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: '#6B7390', background: '#F3F4F6', borderRadius: 999, padding: '1px 6px' }}>{group.tag}</span>
               )}
             </div>
-            {items.map((item) => <NavRow key={item.label} item={item} />)}
-          </div>
-        )
-      })}
+          )}
+          {group.items.map((item) => (
+            <NavRow key={item.label} item={item} active={isNavItemActive(pathname, item.href)} collapsed={collapsed} onNavigate={onNavigate} />
+          ))}
+        </div>
+      ))}
 
       <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 2, paddingTop: 12, borderTop: '1px solid #EEF1F4' }}>
-        {PINNED_ITEMS.map((item) => <NavRow key={item.label} item={item} />)}
+        {pinned.map((item) => (
+          <NavRow key={item.label} item={item} active={isNavItemActive(pathname, item.href)} collapsed={collapsed} onNavigate={onNavigate} />
+        ))}
       </div>
     </nav>
   )

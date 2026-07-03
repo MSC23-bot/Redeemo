@@ -31,12 +31,21 @@ export const merchantProfileSchema = z
     websiteUrl: z.string().nullish(),
     vatNumber: z.string().nullish(),
     companyNumber: z.string().nullish(),
-    // Insights & Reports: the viewer's coarse capability set, derived server-side
-    // from the membership role (OWNER/BRANCH_MANAGER can view Insights; STAFF cannot).
-    // The whole object is OPTIONAL so a backend that has not deployed the field yet, or
-    // a loading state, still parses cleanly; consumers FAIL CLOSED (absent -> treated as
-    // cannot view, so the Insights nav stays hidden until we positively know otherwise).
-    viewerCapabilities: z.object({ canViewInsights: z.boolean() }).nullish(),
+    // Shell wave: the viewer's OWN coarse capability set, derived server-side from
+    // the membership (OWNER/BRANCH_MANAGER can view Insights; STAFF cannot;
+    // canManageVouchers mirrors assertCanManageVouchers; role + displayName feed the
+    // account-menu identity line and nav filtering). The whole object is OPTIONAL and
+    // every added field tolerates absence so a backend that has not deployed a field
+    // yet, or a loading state, still parses cleanly; consumers FAIL CLOSED (absent ->
+    // hidden Insights nav, no create-voucher/PIN quick actions, role-neutral nav).
+    viewerCapabilities: z
+      .object({
+        canViewInsights: z.boolean(),
+        canManageVouchers: z.boolean().nullish(),
+        role: z.string().nullish(),
+        displayName: z.string().nullish(),
+      })
+      .nullish(),
   })
   .passthrough()
 
