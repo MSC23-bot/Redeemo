@@ -330,7 +330,7 @@ The repeatable sweeps are the **leading identified persistent-activity mechanism
 - **No paid upgrade**; wait for the Free reset.
 - **Worker stays Offline** until the permanent reduction + approval; not required for R1.
 - **R1 migration not applied before P8 exists, P9 is proven, AND P1b passes.**
-- **Changing Railway's connected branch** + **disabling auto-migrate** are **separately-approved provider ops**; **auto-deploy stays disabled.**
+- **Changing Railway's connected branch** + **removing the auto pre-deploy migrate** are **separately-approved changes that only STAGE** — applied exclusively by the deliberate deployment's single Deploy click (apply-equals-deploy, §13.4); **auto-deploy stays disabled.**
 - **Do not rely on a retention-limited image rollback** as the sole P8 basis — the durable basis is the protected-branch rebuild; **re-establish P8 if the provider action disappears.**
 - **Do not permanently remove automatic migrations** in recovery without a separate policy decision (§13.6).
 - **Do not** repoint runtime `DATABASE_URL`→direct.
@@ -345,7 +345,7 @@ The repeatable sweeps are the **leading identified persistent-activity mechanism
 | Image rollback ≠ source rebuild | provider retention model + build-determinism limits | Web Failed; older deploys `REMOVED` | byte-identical not guaranteed; rollback ephemeral | P8 requires **BOTH** the durable protected-branch rebuild **and** a currently-visible Railway redeploy/rollback action (D-R6); BLOCKED + re-established if the provider action disappears | Owner + Codex |
 | Single P1 gate | this runbook (P1 row) | one gate conflates runtime + migration | runtime-serve vs migrate need different endpoints | **split P1 → P1a (pooled) + P1b (direct)** (this amendment) | Owner + Codex |
 | "No DB op before P1" too strict | owner correction | over-gated | can't verify permissions without a read | **minimum read-only preflight allowed**; only mutations gated | Owner + Codex |
-| Migrations + runtime share `DATABASE_URL` | `prisma.config.ts`; `worker.ts:48/60`; `plugins/prisma.ts:7` | migrate-on-pooled fails P1001 | migration needs direct | short-term: operator-run-on-direct + temp disable auto-migrate; long-term: **`MIGRATION_DATABASE_URL`** | Owner + Codex |
+| Migrations + runtime share `DATABASE_URL` | `prisma.config.ts`; `worker.ts:48/60`; `plugins/prisma.ts:7` | migrate-on-pooled fails P1001 | migration needs direct | short-term: operator-run-on-direct + the pre-deploy-migrate removal staged with the recovery Deploy (§13.4, apply-equals-deploy); long-term: **`MIGRATION_DATABASE_URL`** | Owner + Codex |
 | Worker persistent activity | `worker.ts` + processors (`RECONCILE_EVERY_MS=60000`, hourly, `PROMOTE_PENDING_HOURS_EVERY_MS=60000`) | sweeps run when worker online | over-quota; offline | permanent reduction — gates worker restart only | Owner + Codex |
 | Over-quota / archived | P1 dashboard | staging cold | recovery needs headroom | **wait for Free reset** (no payment) | Owner |
 | P1001 cause | owner log (sanitised) | connection fails at pre-deploy | cause not isolated | fix reachability + direct path, re-attempt, re-diagnose if persists | Owner + Codex |
