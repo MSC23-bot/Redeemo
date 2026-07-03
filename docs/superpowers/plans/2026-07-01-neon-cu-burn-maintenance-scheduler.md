@@ -473,4 +473,4 @@ Docs only. Adds to `docs/runbooks/deploy-security-runbook.md` (or a new maintena
 
 ## Holds (unchanged)
 
-All operational holds remain: `neon-observer` no-use hold; P1/P8/P9 blocked; no R1; no R2/R3/R4 or Operations A/B; no Phase 2B credential rotation; no Neon/Railway/Redis access, migration, deployment, restart, resume/unarchive, autoscaling change, key action; PR #338 untouched. Docs-only; implementation not authorised.
+All operational holds remain: `neon-observer` no-use hold; P1b/P9 blocked (P1a PASSED + P8 ESTABLISHED 2026-07-03 — r1 §13.3.1/§13.5.1; the P8 retention rule applies); no R1; no R2/R3/R4 or Operations A/B; no Phase 2B credential rotation; no Neon/Railway/Redis access, migration, deployment, restart, resume/unarchive, autoscaling change, key action; PR #338 untouched. Docs-only; implementation not authorised.
