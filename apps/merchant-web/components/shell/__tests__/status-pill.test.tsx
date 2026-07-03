@@ -9,6 +9,7 @@ const ALL: { state: LifecycleState; label: string }[] = [
   { state: 'live', label: 'Live' },
   { state: 'live_new', label: 'Live, just started' },
   { state: 'suspended', label: 'Suspended' },
+  { state: 'rejected', label: 'Not approved' },
 ]
 
 describe('StatusPill', () => {

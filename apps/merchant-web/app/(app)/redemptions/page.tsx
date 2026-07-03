@@ -36,14 +36,18 @@ export default function RedemptionsPage() {
   // redemptions" link) seeds the filter so the log opens scoped to that voucher.
   const initialVoucherId = searchParams?.get('voucherId') ?? undefined
   // Shell wave: /redemptions?range=today (the topbar Quick Action) seeds the
-  // date-range filter to the start of today (device-local), i.e. "redeemed today".
+  // From filter to today's LOCAL calendar date, serialized exactly the way a
+  // manual "From" pick is (UTC midnight of that date, see RedemptionFilters) -
+  // so the displayed date and the query semantics match a hand-picked "today".
   const initialRange = searchParams?.get('range') ?? undefined
   const [filters, setFilters] = React.useState<Filters>(() => {
     if (initialVoucherId) return { voucherId: initialVoucherId }
     if (initialRange === 'today') {
-      const start = new Date()
-      start.setHours(0, 0, 0, 0)
-      return { from: start.toISOString() }
+      const now = new Date()
+      const y = now.getFullYear()
+      const m = String(now.getMonth() + 1).padStart(2, '0')
+      const d = String(now.getDate()).padStart(2, '0')
+      return { from: `${y}-${m}-${d}T00:00:00.000Z` }
     }
     return {}
   })

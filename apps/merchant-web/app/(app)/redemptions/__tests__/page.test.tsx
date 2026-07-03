@@ -178,16 +178,20 @@ describe('RedemptionsPage (F1 log + filters)', () => {
 })
 
 describe('RedemptionsPage range=today deep-link (shell wave Quick Action)', () => {
-  it('seeds the from filter to the start of today', async () => {
+  it("seeds the From filter to today's local calendar date at UTC midnight (matches a manual pick)", async () => {
     searchParams = new URLSearchParams('range=today')
     listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
     renderPage()
     await screen.findByText('Free coffee')
-    const expectedFrom = new Date()
-    expectedFrom.setHours(0, 0, 0, 0)
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = String(now.getMonth() + 1).padStart(2, '0')
+    const d = String(now.getDate()).padStart(2, '0')
+    // Serialized exactly like RedemptionFilters serializes a hand-picked From
+    // date, so the date INPUT displays today's date in every timezone.
     await waitFor(() =>
       expect(listRedemptions).toHaveBeenCalledWith(
-        expect.objectContaining({ from: expectedFrom.toISOString() }),
+        expect.objectContaining({ from: `${y}-${m}-${d}T00:00:00.000Z` }),
       ),
     )
   })

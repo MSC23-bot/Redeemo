@@ -49,6 +49,34 @@ beforeEach(() => {
   sendPending = false
 })
 
+describe('PinCard #pin deep-link scroll (shell wave Quick Action)', () => {
+  it('scrolls itself into view on mount when the URL hash is #pin', () => {
+    const scrollIntoView = jest.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    window.location.hash = '#pin'
+    try {
+      render(<PinCard branch={branch()} isOwner />)
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    } finally {
+      Element.prototype.scrollIntoView = original
+      window.location.hash = ''
+    }
+  })
+
+  it('does not scroll without the hash', () => {
+    const scrollIntoView = jest.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      render(<PinCard branch={branch()} isOwner />)
+      expect(scrollIntoView).not.toHaveBeenCalled()
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+  })
+})
+
 describe('PinCard owner gating', () => {
   it('renders nothing for a non-owner', () => {
     const { container } = render(<PinCard branch={branch()} isOwner={false} />)

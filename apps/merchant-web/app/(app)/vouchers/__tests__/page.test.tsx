@@ -39,8 +39,9 @@ jest.mock('next/navigation', () => ({
 
 // Shell wave: the capability seam now reads the session profile; the page tests
 // pin page behaviour, not the seam (covered by useVoucherCapability.test.ts).
+let mockCapability = { canManage: true, ready: true }
 jest.mock('@/lib/voucher/useVoucherCapability', () => ({
-  useVoucherCapability: () => ({ canManage: true, ready: true }),
+  useVoucherCapability: () => mockCapability,
 }))
 
 // The resolved top-level category name feeds the builder's suggestion chips.
@@ -74,6 +75,7 @@ function renderPage() {
 
 beforeEach(() => {
   push.mockReset()
+  mockCapability = { canManage: true, ready: true }
   searchParams = new URLSearchParams()
   listCustomVouchers.mockReset().mockResolvedValue([])
   listFlagshipVouchers.mockReset().mockResolvedValue([])
@@ -138,6 +140,28 @@ describe('VouchersPage list', () => {
     searchParams = new URLSearchParams('create=1')
     listCustomVouchers.mockResolvedValue([row()])
     renderPage()
+    expect(await screen.findByTestId('day-two-builder')).toBeInTheDocument()
+  })
+
+  it('?create=1 waits out the fail-closed capability load, then opens the builder (no stranding)', async () => {
+    searchParams = new URLSearchParams('create=1')
+    mockCapability = { canManage: false, ready: false } // profile still loading
+    listCustomVouchers.mockResolvedValue([row()])
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(
+      <QueryClientProvider client={qc}>
+        <VouchersPage />
+      </QueryClientProvider>,
+    )
+    // Fail closed: no builder while the capability is unknown.
+    expect(screen.queryByTestId('day-two-builder')).not.toBeInTheDocument()
+    // Capability resolves -> the deep-link intent is preserved and the builder opens.
+    mockCapability = { canManage: true, ready: true }
+    view.rerender(
+      <QueryClientProvider client={qc}>
+        <VouchersPage />
+      </QueryClientProvider>,
+    )
     expect(await screen.findByTestId('day-two-builder')).toBeInTheDocument()
   })
 
