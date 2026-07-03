@@ -63,7 +63,9 @@ export function Topbar({
       </button>
       {isNarrow ? (
         <>
-          <span style={{ position: 'absolute', left: 0, right: 0, textAlign: 'center', pointerEvents: 'none', fontWeight: 700, fontSize: 15, color: '#010C35', letterSpacing: '-0.01em' }}>
+          {/* Centred title clipped to the middle band so it can never collide
+              with the left hamburger / right controls on small phones. */}
+          <span style={{ position: 'absolute', left: '30%', right: '30%', textAlign: 'center', pointerEvents: 'none', fontWeight: 700, fontSize: 15, color: '#010C35', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             Redeemo for Business
           </span>
           <div style={{ flex: 1 }} />
