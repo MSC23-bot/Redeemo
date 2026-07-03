@@ -275,6 +275,10 @@ describe('claim-stale Option C: atomic CAS + bell (real-DB race matrix)', () => 
     const { claimerId, approvalId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null })
     ;(adminNotify as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('simulated bell-write failure'))
     const phaseA = await phaseAOnly(NOW)
+    // Bind the one-shot mock to THIS row: earlier scenarios' rows are stamped/
+    // mutated and ineligible by now, but assert it loudly so a residue row can
+    // never consume the one-shot and fake a pass (CodeRabbit).
+    expect(phaseA.sideEffects.rows.map((r) => r.id)).toEqual([approvalId])
     const outcome = await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
     expect(outcome.failedRows).toBe(1) // the failed transaction is classified, later behaviour unchanged
     expect(await countAlerts(claimerId)).toBe(0) // no bell committed
@@ -318,6 +322,8 @@ describe('claim-stale Option C: atomic CAS + bell (real-DB race matrix)', () => 
       throw new Error('simulated post-create in-tx failure')
     })
     const phaseA = await phaseAOnly(NOW)
+    // Bind the one-shot mock to THIS row (same rationale as the rollback pin).
+    expect(phaseA.sideEffects.rows.map((r) => r.id)).toEqual([approvalId])
     const outcome = await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
     expect(outcome.failedRows).toBe(1)
     expect(await countAlerts(claimerId)).toBe(0) // the WRITTEN bell rolled back with the transaction
