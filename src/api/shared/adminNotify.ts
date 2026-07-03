@@ -23,7 +23,7 @@
 // (marked FAILED by the worker because EMAIL_ENABLED is unset) triggers nothing.
 
 import type { Redis } from 'ioredis'
-import type { PrismaClient } from '../../../generated/prisma/client'
+import type { Prisma, PrismaClient } from '../../../generated/prisma/client'
 import type { NotificationType } from '../../../generated/prisma/enums'
 import { adminMerchantSubmittedEmail, adminMerchantResubmittedEmail } from './emailTemplates'
 
@@ -45,8 +45,16 @@ export interface AdminNotifyInput {
  * this is the in-app-only writer (notify() is the email path). `userId` is
  * hardcoded null: the M2 invariant is that an ADMIN-recipient Notification never
  * carries the legacy USER FK. Pure prisma write (no redis).
+ *
+ * Accepts either the root client or an interactive-transaction client (the
+ * narrowest honest widening): the stale-claim atomic row (alertOneStaleClaim)
+ * creates the bell INSIDE its CAS transaction so notification + stamp commit
+ * or roll back together. The single `notification.create` is tx-safe.
  */
-export async function adminNotify(prisma: PrismaClient, input: AdminNotifyInput): Promise<void> {
+export async function adminNotify(
+  prisma: PrismaClient | Prisma.TransactionClient,
+  input: AdminNotifyInput,
+): Promise<void> {
   await prisma.notification.create({
     data: {
       recipientType: 'ADMIN',

@@ -14,23 +14,34 @@
 // Dedup + re-arm via AdminApproval.lastStaleAlertAt: alert once per distinct
 // claim; re-arm only after release + reclaim (a newer claimedAt).
 //
-// Neon CU-burn PR-B: the hourly BullMQ repeatable is GONE — the sweep now runs
-// on the process-local maintenance scheduler as an independent, advisory-locked,
+// Neon CU-burn PR-B: the hourly BullMQ repeatable is GONE — the sweep runs on
+// the process-local maintenance scheduler as an independent, advisory-locked,
 // bounded sweep (spec §4.2), split into:
 //   Phase A (locked, light, DB-only, DB clock): the bounded ELIGIBLE scan
 //     (@@index([status, claimedAt]); LIMIT 200) — eligibility (lastStaleAlertAt
 //     vs claimedAt, a cross-column comparison Prisma cannot express in one
 //     `where`) is pushed into a parameterized raw query so ineligible rows can
 //     neither fake a backlog (false full=true → F_active hot loop) nor starve
-//     eligible claims beyond the cap.
-//   Phase B (unlocked, idempotent, cooperatively budgeted): per row —
-//     adminNotify, then a SEPARATE isStopping() check, then the
-//     lastStaleAlertAt stamp. The between-ops check means no stamp update ever
-//     STARTS after the stop signal. HONEST EDGE (spec §4.6): if stop lands
-//     while adminNotify is already in flight, the bell may complete while the
-//     stamp is skipped — the row stays eligible, so ONE benign duplicate bell
-//     can follow after restart. We do NOT claim the in-flight notification is
-//     cancelled.
+//     eligible claims beyond the cap. The FULL ownership snapshot (claimedById,
+//     claimedAt, lastStaleAlertAt) is carried into Phase B for the CAS below.
+//   Phase B (unlocked, idempotent, cooperatively budgeted): per row, ONE short
+//     bounded ATOMIC transaction (mirrors promoteOnePendingHours — spec §4.6
+//     "an atomic single-tx row is one awaited op, not broken mid-tx"):
+//     (1) a conditional compare-and-set stamps lastStaleAlertAt ONLY if the row
+//         still EXACTLY matches the Phase-A snapshot (exists, still PENDING,
+//         same claimant, same claimedAt, same lastStaleAlertAt — which also
+//         re-proves the dedup condition); a CAS loss (released / reassigned /
+//         actioned / resubmitted / hard-deleted / already-alerted meanwhile) is
+//         a SAFE SKIP: no bell, not a failure.
+//     (2) only the single CAS winner creates the in-app bell, INSIDE the same
+//         transaction — so the notification and the stamp commit or roll back
+//         together. A create failure rolls the stamp back and the row stays
+//         eligible for a clean retry (no lost alert, no duplicate).
+//     The cooperative stop predicate is honoured BEFORE each row (runBudgetedRows);
+//     once the transaction starts it runs to commit/rollback as one awaited op.
+//     Guarantee honesty: the CAS revalidates ownership under database
+//     transaction ordering at COMMIT time — it does not (and cannot) prevent a
+//     committed bell from referring to an approval that changes AFTER commit.
 
 import type { Prisma, PrismaClient } from '../../../../generated/prisma/client'
 import { adminNotify } from '../../shared/adminNotify'
@@ -51,10 +62,13 @@ export const CLAIM_STALE_BATCH = 200
 export const CLAIM_STALE_SWEEP_LOCK_KEY = 731_003n
 export const CLAIM_STALE_SWEEP_NAME = 'claim-stale'
 
-/** One ELIGIBLE stale claim (already deduped/re-arm-filtered in Phase A). */
+/** One ELIGIBLE stale claim, carrying the FULL ownership snapshot the Phase-B
+ *  CAS compares against (claimedById + claimedAt + lastStaleAlertAt). */
 export interface StaleClaimRow {
   id: string
   claimedById: string
+  claimedAt: Date
+  lastStaleAlertAt: Date | null
   referenceId: string
   referenceType: string
 }
@@ -64,6 +78,13 @@ export interface StaleClaimRow {
 export interface ClaimStaleSide {
   rows: StaleClaimRow[]
   dbNow: Date
+}
+
+/** Per-row transaction bounds (spec §4.2: every Phase-B per-row transaction is
+ *  itself statement-timeout-bounded). Mirrors PromoteTxBounds. */
+export interface ClaimStaleTxBounds {
+  statementTimeoutMs: number
+  txTimeoutMs: number
 }
 
 /**
@@ -90,9 +111,10 @@ export async function claimStaleDbPhase(
   const cutoff = new Date(dbNow.getTime() - CLAIM_STALE_AGE_MS)
 
   // Eligible scan (index-backed on [status, claimedAt]): PENDING, claimed,
-  // claimed more than 24 h ago, AND not yet alerted for THIS claim.
+  // claimed more than 24 h ago, AND not yet alerted for THIS claim. The
+  // snapshot columns (claimedAt, lastStaleAlertAt) ride along for the CAS.
   const rows = await tx.$queryRaw<StaleClaimRow[]>`
-    SELECT "id", "claimedById", "referenceId", "referenceType"
+    SELECT "id", "claimedById", "claimedAt", "lastStaleAlertAt", "referenceId", "referenceType"
     FROM "AdminApproval"
     WHERE "status" = 'PENDING'
       AND "claimedById" IS NOT NULL
@@ -108,21 +130,64 @@ export async function claimStaleDbPhase(
 }
 
 /**
- * Phase B (unlocked, idempotent, cooperatively budgeted): per eligible row,
- * bell the claimer then stamp lastStaleAlertAt with dbNow. TWO separately
- * awaited ops per row, so the cooperative stop predicate is checked BETWEEN
- * them (spec §4.6): once stop is requested, no stamp update starts. A per-row
- * failure (notify OR stamp) is reported via failedRows → the sweep is
- * classified FAILURE and backs off on its OWN degraded cadence; the un-stamped
- * row stays eligible and replays after recovery (lastStaleAlertAt dedup keeps
- * repeat runs to at most one duplicate bell per interruption — benign).
+ * Alert ONE stale claim atomically (the Phase-B row unit). One short bounded
+ * interactive transaction (mirrors promoteOnePendingHours):
+ *
+ *   (1) CAS: conditionally stamp lastStaleAlertAt = dbNow WHERE the row still
+ *       EXACTLY matches the Phase-A snapshot — exists, status PENDING, same
+ *       claimedById, same claimedAt, same lastStaleAlertAt. Any interleaved
+ *       release / reclaim / approve / reject / request-changes / resubmit /
+ *       hard-delete / sibling-sweep stamp makes the CAS match 0 rows. The
+ *       conditional UPDATE serializes concurrent attempts on the row lock:
+ *       exactly ONE transaction wins; every loser returns false WITHOUT
+ *       writing a bell (safe skip, not a failure).
+ *   (2) Only the CAS winner creates the in-app bell — inside the SAME
+ *       transaction, so notification + stamp commit or roll back together. A
+ *       create failure rolls the stamp back; the row stays eligible and a
+ *       clean retry produces exactly one bell.
+ *
+ * The transaction is one awaited atomic operation: the cooperative stop signal
+ * is honoured BEFORE the row starts (runBudgetedRows); once started it commits
+ * or rolls back, never split mid-transaction. Both bounds come from the
+ * validated maintenance config: a parameterized server-side statement_timeout
+ * plus the explicit Prisma interactive-tx timeout.
+ *
+ * Guarantee honesty: the CAS revalidates the row under database transaction
+ * ordering at commit time; it does not prevent the approval changing AFTER the
+ * commit (a bell can still reference an approval actioned moments later).
+ *
+ * Returns true if this call alerted + stamped the row, false on CAS loss.
  */
-export function makeClaimStaleSideEffects(
+export async function alertOneStaleClaim(
   prisma: PrismaClient,
-): (side: ClaimStaleSide, budget: PhaseBBudget) => Promise<PhaseBOutcome> {
-  return (side, budget) =>
-    runBudgetedRows(side.rows, budget, async (row) => {
-      await adminNotify(prisma, {
+  row: StaleClaimRow,
+  dbNow: Date,
+  bounds: ClaimStaleTxBounds,
+): Promise<boolean> {
+  return prisma.$transaction(
+    async (tx: Prisma.TransactionClient) => {
+      // Bound each statement server-side, PARAMETERIZED (spec §4.2 — bound
+      // value, never interpolation).
+      await tx.$queryRaw`SELECT set_config('statement_timeout', ${String(bounds.statementTimeoutMs)}, true)`
+
+      // (1) CAS against the EXACT Phase-A snapshot. `lastStaleAlertAt` equality
+      // (null ⇒ IS NULL) re-proves the dedup condition; `claimedAt` equality
+      // pins the exact claim generation; `claimedById` + status pin ownership.
+      const won = await tx.adminApproval.updateMany({
+        where: {
+          id: row.id,
+          status: 'PENDING',
+          claimedById: row.claimedById,
+          claimedAt: row.claimedAt,
+          lastStaleAlertAt: row.lastStaleAlertAt,
+        },
+        data: { lastStaleAlertAt: dbNow },
+      })
+      if (won.count === 0) return false // ownership/state moved on — safe skip, no bell
+
+      // (2) The single winner writes the bell in the SAME transaction: a
+      // failure here rolls the stamp back too (row stays eligible, clean retry).
+      await adminNotify(tx, {
         adminUserId: row.claimedById,
         type: 'ADMIN_CLAIM_STALE',
         title: 'A claimed review is going stale',
@@ -130,17 +195,28 @@ export function makeClaimStaleSideEffects(
         referenceId: row.referenceId,
         referenceType: row.referenceType,
       })
-      // BETWEEN-OPS cooperative stop (spec §4.6): the bell already went out; if
-      // the terminal stop signal landed while it was in flight, do NOT start the
-      // stamp update. Honest edge: the row stays eligible, so one benign
-      // duplicate bell may follow after restart — we never claim the in-flight
-      // adminNotify was cancelled.
-      if (budget.isStopping()) return
-      await prisma.adminApproval.update({
-        where: { id: row.id },
-        data: { lastStaleAlertAt: side.dbNow },
-      })
-    })
+      return true
+    },
+    { timeout: bounds.txTimeoutMs, maxWait: bounds.txTimeoutMs },
+  )
+}
+
+/**
+ * Phase B (unlocked, idempotent, cooperatively budgeted): each eligible row is
+ * ONE atomic alertOneStaleClaim transaction. runBudgetedRows checks the
+ * cooperative stop predicate BEFORE each row; a started row commits or rolls
+ * back as one awaited op. A per-row transaction FAILURE is reported via
+ * failedRows → the sweep is classified FAILURE and backs off on its OWN
+ * degraded cadence; the un-stamped row stays eligible and replays after
+ * recovery with no duplicate bell (the stamp and bell are atomic). A CAS loss
+ * is a clean skip — neither a bell nor a failure.
+ */
+export function makeClaimStaleSideEffects(
+  prisma: PrismaClient,
+  bounds: ClaimStaleTxBounds,
+): (side: ClaimStaleSide, budget: PhaseBBudget) => Promise<PhaseBOutcome> {
+  return (side, budget) =>
+    runBudgetedRows(side.rows, budget, (row) => alertOneStaleClaim(prisma, row, side.dbNow, bounds))
 }
 
 /** Build the stale-claim BoundedSweepSpec from the validated maintenance config (A4). */
@@ -151,15 +227,18 @@ export function buildClaimStaleSweep(
   return {
     name: CLAIM_STALE_SWEEP_NAME,
     lockKey: CLAIM_STALE_SWEEP_LOCK_KEY,
-    // Phase B here is DATABASE work (adminNotify bell write + lastStaleAlertAt
-    // stamp), so N failed rows classify as a database-domain failure and the
-    // alert layer stays log-only (writing a Notification would hit the down DB).
+    // Phase B here is DATABASE work (the atomic CAS + bell transaction), so N
+    // failed rows classify as a database-domain failure and the alert layer
+    // stays log-only (writing a Notification would hit the down DB).
     sideEffectDomain: 'DATABASE',
     statementTimeoutMs: cfg.statementTimeoutMs,
     txTimeoutMs: cfg.txTimeoutMs,
     phaseBMaxItems: cfg.phaseBMaxItems,
     phaseBBudgetMs: cfg.phaseBBudgetMs,
     dbPhase: claimStaleDbPhase,
-    runSideEffects: makeClaimStaleSideEffects(prisma),
+    runSideEffects: makeClaimStaleSideEffects(prisma, {
+      statementTimeoutMs: cfg.statementTimeoutMs,
+      txTimeoutMs: cfg.txTimeoutMs,
+    }),
   }
 }
