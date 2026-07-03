@@ -1,19 +1,35 @@
-// Real-DB tests for the WP4 stale-claim sweep — re-pointed at the Neon CU-burn
-// PR-B maintenance-floor split. Runs against the strict-loopback integration
-// database (tests/integration.setup.ts fail-closes on any non-loopback target).
-// Proves end-to-end: the alert reaches the CLAIMER, lastStaleAlertAt is stamped
-// with dbNow, a re-run dedups, a later claim re-arms, and the
-// window/claimed/status gates exclude the rest. Each scenario uses its own
-// claimer so its alert count is isolated; all seeded rows are bulk-removed in
-// afterAll (prefix-scoped, mirrors the m5-golive- discipline).
+// Real-DB tests for the WP4 stale-claim sweep — re-pointed at the ATOMIC
+// Phase-B row (owner-approved Option C). Runs against the strict-loopback
+// integration database (tests/integration.setup.ts fail-closes on any
+// non-loopback target). Proves end-to-end: the alert reaches the CLAIMER,
+// lastStaleAlertAt is stamped with dbNow, a re-run dedups, a later claim
+// re-arms, the window/claimed/status gates exclude the rest — AND the Option C
+// race matrix: release / release+reclaim / action / hard-delete between
+// Phase A and Phase B produce NO bell (CAS loss = safe skip); a bell-write
+// failure rolls the stamp back atomically with exactly ONE bell on retry; and
+// concurrent duplicate Phase-B execution has exactly one winner. Each scenario
+// uses its own claimer so its alert count is isolated; all seeded rows are
+// bulk-removed in afterAll (prefix-scoped, mirrors the m5-golive- discipline).
 
 import 'dotenv/config'
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, vi } from 'vitest'
 import { PrismaClient } from '../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
+
+// Partial module mock: adminNotify passes through to the REAL implementation
+// by default (real bell rows in every scenario) but can be forced to throw
+// once for the rollback-atomicity pin.
+vi.mock('../../../src/api/shared/adminNotify', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/api/shared/adminNotify')>()
+  return { ...actual, adminNotify: vi.fn(actual.adminNotify) }
+})
+
+import { adminNotify } from '../../../src/api/shared/adminNotify'
 import {
   claimStaleDbPhase,
   makeClaimStaleSideEffects,
+  alertOneStaleClaim,
+  type ClaimStaleTxBounds,
 } from '../../../src/api/queues/processors/claimStaleSweep'
 import type { PhaseBBudget } from '../../../src/api/queues/maintenanceSweep'
 
@@ -31,11 +47,20 @@ const PERMISSIVE_BUDGET: PhaseBBudget = {
   isStopping: () => false,
 }
 
+/** The validated-config per-row transaction bounds (candidate test values). */
+const BOUNDS: ClaimStaleTxBounds = { statementTimeoutMs: 4000, txTimeoutMs: 8000 }
+
 /** One floor run: Phase A inside a real transaction (as runBoundedSweep does),
  *  then the unlocked Phase B — the same composition the scheduler drives. */
 async function runClaimStaleFloorOnce(now: Date): Promise<void> {
   const phaseA = await prisma.$transaction((tx) => claimStaleDbPhase(tx, now))
-  await makeClaimStaleSideEffects(prisma)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+  await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+}
+
+/** Phase A only — returns the snapshot rows so a test can mutate the DB
+ *  BETWEEN the phases (the Option C race window). */
+async function phaseAOnly(now: Date) {
+  return prisma.$transaction((tx) => claimStaleDbPhase(tx, now))
 }
 
 const createdAdminIds: string[] = []
@@ -170,7 +195,7 @@ describe('claim-stale floor sweep (real DB)', () => {
     expect(phaseA.full).toBe(false) // eligible count << 200 ⇒ the sweep CANNOT stay on the active cadence
 
     // End-to-end: the eligible claimer is alerted; the blocker gets nothing new.
-    await makeClaimStaleSideEffects(prisma)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+    await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
     expect(await countAlerts(eligibleClaimer)).toBe(1)
     expect(await countAlerts(blocker.id)).toBe(0)
 
@@ -180,4 +205,141 @@ describe('claim-stale floor sweep (real DB)', () => {
     expect(phaseA2.sideEffects.rows.map((r) => r.claimedById)).not.toContain(eligibleClaimer)
     expect(phaseA2.full).toBe(false)
   }, 60_000)
+})
+
+describe('claim-stale Option C: atomic CAS + bell (real-DB race matrix)', () => {
+  it('RELEASE between Phase A and Phase B ⇒ CAS loss: no bell, no stamp, not a failure', async () => {
+    const { claimerId, approvalId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null })
+    const phaseA = await phaseAOnly(NOW)
+    expect(phaseA.sideEffects.rows.some((r) => r.id === approvalId)).toBe(true)
+    // The claimer releases between the phases.
+    await prisma.adminApproval.update({ where: { id: approvalId }, data: { claimedById: null, claimedAt: null } })
+    const outcome = await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+    expect(await countAlerts(claimerId)).toBe(0) // NO bell to the former claimer
+    const row = await prisma.adminApproval.findUnique({ where: { id: approvalId }, select: { lastStaleAlertAt: true } })
+    expect(row?.lastStaleAlertAt).toBeNull() // no stamp either
+    expect(outcome.failedRows).toBe(0) // a CAS loss is a safe skip, never a failure
+  })
+
+  it('RELEASE + REASSIGNMENT between phases ⇒ no bell to the FORMER admin; the new claim re-alerts at its own staleness', async () => {
+    const { claimerId: formerId, approvalId } = await seed({ claimedAt: hoursAgo(30), lastStaleAlertAt: null })
+    const newAdmin = await prisma.adminUser.create({
+      data: {
+        email: `${PREFIX}-reclaimer@example.com`,
+        passwordHash: 'x',
+        firstName: 'New',
+        lastName: 'Claimer',
+        role: 'OPERATIONS',
+      },
+    })
+    createdAdminIds.push(newAdmin.id)
+    const phaseA = await phaseAOnly(NOW)
+    expect(phaseA.sideEffects.rows.some((r) => r.id === approvalId)).toBe(true)
+    // Release + reclaim by ANOTHER admin between the phases (fresh, stale claim).
+    await prisma.adminApproval.update({
+      where: { id: approvalId },
+      data: { claimedById: newAdmin.id, claimedAt: hoursAgo(26) },
+    })
+    await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+    expect(await countAlerts(formerId)).toBe(0) // never the former administrator
+    expect(await countAlerts(newAdmin.id)).toBe(0) // and not the new one from a STALE snapshot
+    // The NEXT scan alerts the CURRENT claimant from a FRESH snapshot.
+    await runClaimStaleFloorOnce(NOW)
+    expect(await countAlerts(newAdmin.id)).toBe(1)
+    expect(await countAlerts(formerId)).toBe(0)
+  })
+
+  it('RESOLUTION (status change) between phases ⇒ no stale alert', async () => {
+    const { claimerId, approvalId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null })
+    const phaseA = await phaseAOnly(NOW)
+    // The claimer finishes the review between the phases (actioner clears the claim).
+    await prisma.adminApproval.update({
+      where: { id: approvalId },
+      data: { status: 'APPROVED', claimedById: null, claimedAt: null, actionedAt: NOW },
+    })
+    const outcome = await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+    expect(await countAlerts(claimerId)).toBe(0)
+    expect(outcome.failedRows).toBe(0)
+  })
+
+  it('HARD DELETE between phases ⇒ safe skip: no bell, no throw, sweep stays clean', async () => {
+    const { claimerId, approvalId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null })
+    const phaseA = await phaseAOnly(NOW)
+    await prisma.adminApproval.delete({ where: { id: approvalId } })
+    const outcome = await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+    expect(await countAlerts(claimerId)).toBe(0)
+    expect(outcome.failedRows).toBe(0) // updateMany on a deleted row matches 0 — a skip, not a P2025 failure
+  })
+
+  it('ROLLBACK ATOMICITY: a bell-write failure rolls the stamp back; the retry produces exactly ONE bell total', async () => {
+    const { claimerId, approvalId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null })
+    ;(adminNotify as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('simulated bell-write failure'))
+    const phaseA = await phaseAOnly(NOW)
+    // Bind the one-shot mock to THIS row: earlier scenarios' rows are stamped/
+    // mutated and ineligible by now, but assert it loudly so a residue row can
+    // never consume the one-shot and fake a pass (CodeRabbit).
+    expect(phaseA.sideEffects.rows.map((r) => r.id)).toEqual([approvalId])
+    const outcome = await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+    expect(outcome.failedRows).toBe(1) // the failed transaction is classified, later behaviour unchanged
+    expect(await countAlerts(claimerId)).toBe(0) // no bell committed
+    const after = await prisma.adminApproval.findUnique({ where: { id: approvalId }, select: { lastStaleAlertAt: true } })
+    expect(after?.lastStaleAlertAt).toBeNull() // the STAMP ROLLED BACK with it — row stays eligible
+    // Clean retry (adminNotify back to pass-through): exactly one bell, one stamp.
+    await runClaimStaleFloorOnce(NOW)
+    expect(await countAlerts(claimerId)).toBe(1)
+    const stamped = await prisma.adminApproval.findUnique({ where: { id: approvalId }, select: { lastStaleAlertAt: true } })
+    expect(stamped?.lastStaleAlertAt).toEqual(NOW)
+  })
+
+  it('CONCURRENT duplicate Phase-B execution: exactly ONE winner, ONE bell, one stamp', async () => {
+    const { claimerId, approvalId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null })
+    const phaseA = await phaseAOnly(NOW)
+    const row = phaseA.sideEffects.rows.find((r) => r.id === approvalId)!
+    // Two concurrent attempts on the SAME snapshot (cross-replica / duplicate
+    // sweep shape): the conditional UPDATE serializes on the row lock — the
+    // loser re-evaluates against the winner's committed stamp and matches 0.
+    const results = await Promise.all([
+      alertOneStaleClaim(prisma, row, NOW, BOUNDS),
+      alertOneStaleClaim(prisma, row, NOW, BOUNDS),
+    ])
+    expect(results.filter(Boolean)).toHaveLength(1) // exactly one winner
+    expect(await countAlerts(claimerId)).toBe(1) // exactly one bell
+    const after = await prisma.adminApproval.findUnique({ where: { id: approvalId }, select: { lastStaleAlertAt: true } })
+    expect(after?.lastStaleAlertAt).toEqual(NOW)
+  })
+
+  it('ATOMICITY-BREAK PIN (defense-in-depth): a bell WRITTEN inside the tx rolls back when a later in-tx failure hits', async () => {
+    // Kills the "adminNotify(prisma, ...) on the ROOT client" mutation at the
+    // real-DB level: the bell row is genuinely CREATED, then a post-create
+    // failure aborts the transaction. On the tx client the committed state
+    // shows NO bell and NO stamp; on the root client the bell would survive.
+    const { claimerId, approvalId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null })
+    const actual = await vi.importActual<typeof import('../../../src/api/shared/adminNotify')>(
+      '../../../src/api/shared/adminNotify',
+    )
+    ;(adminNotify as ReturnType<typeof vi.fn>).mockImplementationOnce(async (client, input) => {
+      await actual.adminNotify(client, input) // the bell IS written on the passed client
+      throw new Error('simulated post-create in-tx failure')
+    })
+    const phaseA = await phaseAOnly(NOW)
+    // Bind the one-shot mock to THIS row (same rationale as the rollback pin).
+    expect(phaseA.sideEffects.rows.map((r) => r.id)).toEqual([approvalId])
+    const outcome = await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+    expect(outcome.failedRows).toBe(1)
+    expect(await countAlerts(claimerId)).toBe(0) // the WRITTEN bell rolled back with the transaction
+    const row = await prisma.adminApproval.findUnique({ where: { id: approvalId }, select: { lastStaleAlertAt: true } })
+    expect(row?.lastStaleAlertAt).toBeNull() // and so did the stamp — nothing committed
+    // Clean retry still yields exactly one bell.
+    await runClaimStaleFloorOnce(NOW)
+    expect(await countAlerts(claimerId)).toBe(1)
+  })
+
+  it('SNAPSHOT ROUND-TRIP: raw-selected claimedAt/lastStaleAlertAt values match Prisma equality (no precision drift)', async () => {
+    // The CAS depends on the raw SELECT returning values that Prisma where-equality
+    // matches exactly (timestamp(3) round-trip). A precision mismatch would make
+    // EVERY row a false CAS loss — this pin fails loudly if that ever drifts.
+    const { claimerId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: hoursAgo(48) })
+    await runClaimStaleFloorOnce(NOW)
+    expect(await countAlerts(claimerId)).toBe(1) // re-arm row: non-null snapshot matched exactly
+  })
 })
