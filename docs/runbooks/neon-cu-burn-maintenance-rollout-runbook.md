@@ -1,6 +1,6 @@
 # Neon CU-Burn Maintenance Scheduler — Provider Rollout Runbook (PR-E + PR-F)
 
-> **STATUS: DRAFT / PREPARATION ONLY — do NOT execute.** Docs-only. No step here has been run: no provider was accessed, no variable set, no migration applied, no deployment or restart triggered, no Redis key inspected or deleted while drafting this document. Execution requires Codex review + explicit SHA-bound owner approval, and remains gated by the R1 recovery preconditions (**P1a/P1b, P8, P9 — all currently BLOCKED/OPEN**, `docs/runbooks/r1-key-rotation-activation-runbook.md` §1/§13).
+> **STATUS: DRAFT / PREPARATION ONLY — do NOT execute.** Docs-only. No step here has been run: no provider was accessed, no variable set, no migration applied, no deployment or restart triggered, no Redis key inspected or deleted while drafting this document. Execution requires Codex review + explicit SHA-bound owner approval, and remains gated by the R1 recovery preconditions (**P1a PASSED 2026-07-03; P1b, P8, P9 remain BLOCKED/OPEN**, `docs/runbooks/r1-key-rotation-activation-runbook.md` §1/§13 + §13.3.1).
 >
 > **Audience:** the owner (or an owner-supervised operator) preparing and later executing the staging activation of the merged Neon CU-burn maintenance scheduler (PR-A..PR-D + the CI-truthfulness fix + the explicit worker pool mechanism, all on `main`).
 >
@@ -34,11 +34,11 @@ The following was recorded during prior sessions. It requires **fresh owner veri
 | Web service | **Failed / non-serving** on deployment `1d65f2ec…` | Confirm current deployment state + history |
 | Redis (Railway) | Online | Confirm reachability + `noeviction` policy |
 | GitHub auto-deploy | **Disabled** on Web AND Worker | Confirm still disabled on BOTH before any config change |
-| Neon | **LAUNCH plan (usage-based) since 2026-07-01, owner-set $20 spending limit (hard-stop enforcement UNVERIFIED); no further plan/limit change authorized.** Branch/compute/endpoint state re-verified read-only 2026-07-02 (all branches archived; computes idle; staging endpoint `ep-round-wave-abpnesg3`) | Fresh owner usage/spending-headroom check (r1 A1) + full P1a/P1b re-verification per r1 runbook §13.1-§13.3 |
-| R1 gates | **P1 (split P1a/P1b), P8, P9 all BLOCKED/OPEN** | These gates block execution of this runbook (see §6 step 1) |
+| Neon | **LAUNCH plan (usage-based) since 2026-07-01, owner-set $20 spending limit (hard-stop enforcement UNVERIFIED); no further plan/limit change authorized.** **P1a PASSED 2026-07-03** (pooled runtime verified; probe cost $0.00; r1 §13.3.1). State after the probe: staging compute woke and returned to Idle; `staging` + `production` branch rows now UNARCHIVED (flag side effect; production's compute never woke; do not manually re-archive); staging endpoint `ep-round-wave-abpnesg3` | Fresh A1 re-check before the recovery deployment; P1b re-verification per r1 runbook §13.2-§13.3 |
+| R1 gates | **P1a PASSED 2026-07-03 (r1 §13.3.1); P1b, P8, P9 remain BLOCKED/OPEN** | The remaining gates block execution of this runbook (see §6 step 1) |
 | Neon spending limit | Owner-set `$20` known | Hard-stop enforcement remains **UNVERIFIED** (§8) |
 
-**Plainly: while P1a/P1b, P8 and P9 remain blocked, NO step of §4-§7 may execute.** The r1 runbook §13.8 recovery ordering (compute headroom → resume → P1a → pre-R1 baseline + P8 → P9 fixture → P1b → migration) must complete first or alongside; this runbook's rollout sequence (§6) states where it slots in.
+**Plainly: while P1b, P8 and P9 remain blocked (P1a PASSED 2026-07-03), NO step of §4-§7 may execute.** The r1 runbook §13.8 recovery ordering (compute headroom → resume → P1a → pre-R1 baseline + P8 → P9 fixture → P1b → migration) must complete first or alongside; this runbook's rollout sequence (§6) states where it slots in.
 
 ---
 
@@ -321,7 +321,7 @@ Every step is owner-approved, deliberate, and stops on its stop condition. The w
 
 ## 12. Warnings + contradictions register (as of this draft)
 
-1. **P1a/P1b, P8, P9 are BLOCKED/OPEN** — this runbook is not executable until the r1 §13.8 recovery ordering closes them.
+1. **P1b, P8, P9 are BLOCKED/OPEN (P1a PASSED 2026-07-03 — r1 §13.3.1)** — this runbook is not executable until the r1 §13.8 recovery ordering closes the remaining gates.
 2. **r1 P3 is stale** (src-equivalence to `b66b0f95` false on `main`) — D-M2.
 3. **r1 P5 "only pending migration" conflicts** with the two-migration reality of a combined activation — D-M1.
 4. **`docs/runbooks/railway-backend-hosting-plan.md` is UNTRACKED** on the owner's machine yet cited as an anchor by tracked runbooks (including this one, for D-3) — D-P1.
@@ -346,7 +346,7 @@ Verified provider behaviour: Railway stages Web configuration edits ("Apply N ch
 | "apply it WITHOUT triggering an unintended deployment… confirm the deployment list is unchanged after saving" (E7 as a standalone save) | No deploy-free apply exists; the standalone attempt was discarded 2026-07-03 | E7's removal is staged with — and applied by — the deliberate recovery/activation deployment | this runbook §3 / §3.1 E5+E7 / §4.2 step 0 / §6 steps 5-6 / §10 / §12 8-8a | Yes — D-E6; approval attaches to the deployment event |
 | "Railway source-branch/pre-deploy-command changes must not trigger an unintended deploy" | Those changes apply ONLY via a Deploy | Staged-set verification + single deliberate Deploy discipline | encryption spec §20 ledger row R5-#3 | Yes |
 
-Unchanged by this amendment (deliberately): the migration policy (direct-endpoint-only; no pooled migrations; D-R8 `MIGRATION_DATABASE_URL`; additive-only; non-restoration of the hook), the P8 BOTH-legs evidence model (recorded AFTER successful liveness + bounded read-only DB-backed smoke + provider-action visibility), the P9 fixture timing, all owner gates (P1a/P1b/P8/P9 remain blocked; D-R4/D-R5/D-E6 remain OPEN — nothing is promoted to "approved" by this amendment or by the discarded 2026-07-03 attempt), and the D-M1/D-M2 migration-set reconciliation.
+Unchanged by this amendment (deliberately): the migration policy (direct-endpoint-only; no pooled migrations; D-R8 `MIGRATION_DATABASE_URL`; additive-only; non-restoration of the hook), the P8 BOTH-legs evidence model (recorded AFTER successful liveness + bounded read-only DB-backed smoke + provider-action visibility), the P9 fixture timing, all owner gates (at amendment time P1a/P1b/P8/P9 were blocked — **P1a subsequently PASSED 2026-07-03**, r1 §13.3.1; P1b/P8/P9 remain blocked; D-R4/D-R5/D-E6 remain OPEN — nothing is promoted to "approved" by this amendment or by the discarded 2026-07-03 attempt), and the D-M1/D-M2 migration-set reconciliation.
 
 ---
 
