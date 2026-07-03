@@ -76,7 +76,7 @@
 
 **Step 3.0 — Credential-safe target preflight (confirm staging WITHOUT printing the secret).** Prints only host + database identifier — never username, password, query parameters, or the full URL:
 ```bash
-node -e 'try{const u=new URL(process.env.DATABASE_URL??"");const ok=(x)=>/^[A-Za-z0-9._-]+$/.test(x);const h=u.hostname,d=u.pathname.replace(/^\//,"");if(!ok(h)||!ok(d)){console.log("preflight: INVALID (identifier failed sanitization)");process.exit(1)}console.log("host:",h,"| db:",d)}catch{console.log("preflight: INVALID or MISSING DATABASE_URL");process.exit(1)}'
+node -e 'const SAN=/^[A-Za-z0-9._-]+$/;let h,d,ok=true;try{const u=new URL(process.env.DATABASE_URL??"");h=u.hostname;d=u.pathname.replace(/^\//,"")}catch{ok=false;console.log("preflight: INVALID or MISSING DATABASE_URL")}if(ok&&(!SAN.test(h)||!SAN.test(d))){ok=false;console.log("preflight: INVALID (identifier failed sanitization)")}if(ok){console.log("host:",h,"| db:",d)}process.exitCode=ok?0:1'
 ```
 (Parser safety, corrected 2026-07-03: the try/catch emits only a generic invalid-or-missing classification — a malformed value is never echoed — and both identifiers are sanitized to `[A-Za-z0-9._-]` before printing so terminal-control or malformed input cannot be emitted. The script reads the env var internally; the URL never appears in argv, and username/password/query parameters are never accessed.) Expected: `host:` (which embeds the compute **endpoint ID**) **exactly matches** the staging endpoint hostname recorded in the P1 control-plane mapping, and `db:` **exactly matches** the recorded staging database. The migration **role** is confirmed from the private secret mapping (P1) — it is **never** printed by this preflight (the one-liner deliberately prints neither `u.username` nor `u.password`). **STOP** if: the host / endpoint ID or the database **differs** from the P1 record; the endpoint belongs to **another** branch; the host is pooled/`-pooler` (prohibited — §2); the role lacks migration permissions; or **any production identifier** appears.
 
@@ -265,36 +265,119 @@ Verify, via a **separately-approved minimum read-only preflight** (§13.3): the 
 
 ### 13.3 Minimum read-only preflight boundary
 - **Permitted (separately approved):** a *minimum* read-only connection/preflight that verifies reachability, host/database identity, the injected role, and required permissions (read-only catalog/grant inspection).
-- **Sanctioned P1a probe (secret-safe; corrected 2026-07-03).** Run from a controlled operator process (OD8) with the owner-injected pooled runtime `DATABASE_URL` in the environment. It **reads the URL internally** (never in `argv`), prints **only** the host + database identifiers and a `SELECT 1` / `current_database()` result, runs inside a **read-only transaction** with **finite connection + statement timeouts**, and on ANY failure emits only an **allow-listed error class** (never `error.message`/stack/DSN). Do **NOT** use `psql "$DATABASE_URL"` (it expands the credential-bearing URL into the process argument list). P1a runs **only** the identity + reachability checks below; role/permission verification is **P1b** (§13.2), a separate gate on the DIRECT endpoint.
-```js
-// P1a probe — reachability + identity only (no role check; that is P1b). Secret-safe.
-const pg = require('pg')
-const SAN = /^[A-Za-z0-9._-]+$/
-function classify(err){const c=typeof err?.code==='string'&&SAN.test(err.code)?err.code:null
-  if(c==='ENOTFOUND'||c==='EAI_AGAIN')return'DNS_RESOLUTION_FAILED'
-  if(c==='ECONNREFUSED')return'CONNECTION_REFUSED'
-  if(c==='ETIMEDOUT'||c==='ECONNRESET')return'CONNECTION_TIMEOUT_OR_RESET'
-  if(c==='28P01'||c==='28000')return'AUTHENTICATION_FAILED'
-  if(c==='57014')return'STATEMENT_TIMEOUT'; if(c==='3D000')return'DATABASE_DOES_NOT_EXIST'
-  if(err?.name==='TypeError')return'INVALID_OR_MISSING_DATABASE_URL'
-  return c?`PG_ERROR_${c}`:'UNCLASSIFIED_FAILURE'}
-async function main(){
-  let host,db
-  try{const u=new URL(process.env.DATABASE_URL??'');host=u.hostname;db=u.pathname.replace(/^\//,'')}
-  catch{console.log('probe: INVALID or MISSING DATABASE_URL');process.exit(1)}
-  if(!SAN.test(host)||!SAN.test(db)){console.log('probe: INVALID (identifier failed sanitization)');process.exit(1)}
-  console.log('host:',host,'| db:',db) // identifiers only — never user/pass/query params
-  const client=new pg.Client({connectionString:process.env.DATABASE_URL,
-    connectionTimeoutMillis:60000,query_timeout:5000,statement_timeout:5000})
-  try{await client.connect();await client.query('BEGIN TRANSACTION READ ONLY')
-    const one=await client.query('SELECT 1 AS reachable');const cur=await client.query('SELECT current_database() AS db')
-    await client.query('ROLLBACK');const r=String(cur.rows[0]?.db??'')
-    console.log('reachable:',one.rows[0]?.reachable===1?'YES':'UNEXPECTED')
-    console.log('current_database:',SAN.test(r)?r:'(failed sanitization)');process.exit(0)}
-  catch(err){console.log('probe: FAILED —',classify(err));process.exit(1)} // class only, never the payload
-  finally{try{await client.end()}catch{/* swallowed */}}}
-main()
+- **Sanctioned P1a preflight — TWO SEPARATE STEPS (secret-safe; corrected 2026-07-03).** Run from a controlled operator process (OD8) with the owner-injected pooled runtime `DATABASE_URL` in the **environment only** (never in `argv`; do **NOT** use `psql "$DATABASE_URL"` — it expands the credential-bearing URL into the process argument list). Identity verification and the compute-waking connection are deliberately **separate invocations with an owner decision point between them**. P1a runs **only** these identity + reachability checks; role/permission verification is **P1b** (§13.2), a separate gate on the DIRECT endpoint.
+
+  **Step A — identity parse (NO connection; nothing wakes).** Prints only the sanitized host + database + pooled/direct class; exits non-zero on malformed/missing input without ever echoing it:
+```bash
+node -e 'const SAN=/^[A-Za-z0-9._-]+$/;let h,d,ok=true;try{const u=new URL(process.env.DATABASE_URL??"");h=u.hostname;d=u.pathname.replace(/^\//,"")}catch{ok=false;console.log("stepA: INVALID or MISSING DATABASE_URL")}if(ok&&(!SAN.test(h)||!SAN.test(d))){ok=false;console.log("stepA: INVALID (identifier failed sanitization)")}if(ok){console.log("host:",h,"| db:",d,"| class:",/^[^.]*-pooler\./.test(h)?"POOLED":"DIRECT")}process.exitCode=ok?0:1'
 ```
+  **STOP here.** The owner compares Step A's output against the private P1 control-plane mapping: the host's embedded endpoint ID, the database name, and `class: POOLED` must ALL match expectations. A `DIRECT` class ⇒ **P1a is BLOCKED before any connection** (the pooled-runtime contract is unmet; a direct runtime requires a separate owner architecture/provider decision) — do not run Step B. Only after the owner confirms an exact pooled match, proceed:
+
+  **Step B — bounded reachability probe (this connection IS the controlled A2 resume).** Invoke via stdin heredoc — no temporary script file; the DSN stays in `process.env`:
+```bash
+node - <<'P1A_PROBE_EOF'
+'use strict'
+// P1a Step B — reachability probe (POOLED host only). Secret-safe.
+// Run ONLY after Step A output was owner-verified against the private P1 mapping.
+const SAN = /^[A-Za-z0-9._-]+$/
+const POOLED = /^[^.]*-pooler\./ // Neon pooled host: endpoint label ends with -pooler
+const CONNECT_TIMEOUT_MS = 60000 // archived-branch unarchive can be slow
+const QUERY_TIMEOUT_MS = 5000
+const CLEANUP_TIMEOUT_MS = 5000 // finite bound on client.end()
+
+// Allow-listed error classification — never echoes driver payloads.
+function classify (err) {
+  const c = typeof err?.code === 'string' && SAN.test(err.code) ? err.code : null
+  if (c === 'ENOTFOUND' || c === 'EAI_AGAIN') return 'DNS_RESOLUTION_FAILED'
+  if (c === 'ECONNREFUSED') return 'CONNECTION_REFUSED'
+  if (c === 'ETIMEDOUT' || c === 'ECONNRESET') return 'CONNECTION_TIMEOUT_OR_RESET'
+  if (c === '28P01' || c === '28000') return 'AUTHENTICATION_FAILED'
+  if (c === '57014') return 'STATEMENT_TIMEOUT'
+  if (c === '3D000') return 'DATABASE_DOES_NOT_EXIST'
+  if (err?.name === 'TypeError') return 'INVALID_OR_MISSING_DATABASE_URL'
+  return c ? 'PG_ERROR_' + c : 'UNCLASSIFIED_FAILURE'
+}
+
+// Bounded settle: resolves 'OK' | 'FAILED' | 'TIMED_OUT'; never rejects, never hangs.
+function settleWithin (promise, ms) {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve('TIMED_OUT'), ms)
+    Promise.resolve(promise).then(
+      () => { clearTimeout(t); resolve('OK') },
+      () => { clearTimeout(t); resolve('FAILED') }
+    )
+  })
+}
+
+async function main () {
+  // Independent re-parse (Step B trusts nothing from Step A's process).
+  let host, db
+  try {
+    const u = new URL(process.env.DATABASE_URL ?? '')
+    host = u.hostname
+    db = u.pathname.replace(/^\//, '')
+  } catch {
+    console.log('probe: INVALID or MISSING DATABASE_URL')
+    return 1
+  }
+  if (!SAN.test(host) || !SAN.test(db)) {
+    console.log('probe: INVALID (identifier failed sanitization)')
+    return 1
+  }
+  // HARD STOP before any pg Client construction: pooled hosts only.
+  if (!POOLED.test(host)) {
+    console.log('probe: P1A_BLOCKED_RUNTIME_ENDPOINT_NOT_POOLED')
+    return 1
+  }
+  console.log('host:', host, '| db:', db, '| class: POOLED')
+
+  const pg = require('pg') // loaded only after the pooled gate
+  const client = new pg.Client({
+    connectionString: process.env.DATABASE_URL,
+    connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+    query_timeout: QUERY_TIMEOUT_MS,
+    statement_timeout: QUERY_TIMEOUT_MS,
+  })
+  let code = 1
+  try {
+    await client.connect()
+    await client.query('BEGIN TRANSACTION READ ONLY')
+    const one = await client.query('SELECT 1 AS reachable')
+    const cur = await client.query('SELECT current_database() AS db')
+    await client.query('ROLLBACK')
+    const reported = String(cur.rows[0]?.db ?? '')
+    if (one.rows[0]?.reachable !== 1) {
+      console.log('probe: FAILED - UNEXPECTED_SELECT1_RESULT')
+    } else if (!SAN.test(reported)) {
+      console.log('probe: FAILED - CURRENT_DATABASE_FAILED_SANITIZATION')
+    } else if (reported !== db) {
+      console.log('probe: FAILED - CURRENT_DATABASE_MISMATCH')
+    } else {
+      console.log('reachable: YES')
+      console.log('current_database:', reported)
+      code = 0
+    }
+  } catch (err) {
+    console.log('probe: FAILED -', classify(err)) // class only, never the payload
+  } finally {
+    // Cleanup ALWAYS runs, with a finite bound; a hung/failed end() cannot
+    // stall the operator process — the controlled fallback destroys the socket.
+    const cleanup = await settleWithin(client.end(), CLEANUP_TIMEOUT_MS)
+    if (cleanup !== 'OK') {
+      try { client.connection?.stream?.destroy?.() } catch { /* swallowed */ }
+      console.log('cleanup:', cleanup === 'TIMED_OUT' ? 'CLEANUP_TIMED_OUT (controlled fallback)' : 'CLEANUP_FAILED (controlled fallback)')
+    }
+  }
+  return code
+}
+
+main().then(
+  (code) => { process.exitCode = code }, // assigned only after cleanup settled
+  () => { console.log('probe: FAILED - UNCLASSIFIED_FAILURE'); process.exitCode = 1 }
+)
+P1A_PROBE_EOF
+```
+  Step B **independently re-parses** the URL and **hard-stops before constructing the pg Client** unless the host is pooled (`P1A_BLOCKED_RUNTIME_ENDPOINT_NOT_POOLED`, zero connection attempt). Its exit status is **truthful**: `0` only when the connection succeeds, the read-only transaction begins, `SELECT 1` returns exactly `1`, `current_database()` passes sanitization AND exactly equals the database parsed from the injected URL, `ROLLBACK` succeeds, and cleanup completes (or reaches its controlled finite fallback — a hung/failed `client.end()` is bounded at 5 s and can never stall the operator process). All other paths exit non-zero printing only an allow-listed class — never `error.message`, stack, cause, query, or DSN. `process.exitCode` is assigned only after cleanup settles; the script contains no `process.exit()` call. Pinned by a 12-case mocked-driver adversarial suite (planted-DSN output scans, direct-host zero-Client-construction, cleanup-order, cleanup-hang fallback, truthful-exit cases).
   Note: the `pg` driver may emit an SSL-mode deprecation warning to **stderr** — it is benign and contains **no credential** (only the words `sslmode`/`require`); it is not the DSN. Run from the repo root (or any tree where `pg` resolves).
 - **Forbidden during the preflight:** **no migration, no schema write, no seed, no application mutation.** The rule is *no **mutating** database operation before the relevant gate* — read-only verification IS allowed.
 - **Caveat:** a read-only connection **auto-resumes/unarchives** the Neon compute, so the preflight IS the controlled, **owner-approved** resume (not a stray query) and must stay within the owner-checked current LAUNCH usage/spending headroom (A1; usage-based billing since 2026-07-01; the $20 limit is a budget signal whose hard-stop enforcement is UNVERIFIED — never guaranteed containment; no further plan or spending-limit change is authorized).
