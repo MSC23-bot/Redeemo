@@ -76,9 +76,9 @@
 
 **Step 3.0 — Credential-safe target preflight (confirm staging WITHOUT printing the secret).** Prints only host + database identifier — never username, password, query parameters, or the full URL:
 ```bash
-node -e 'const u=new URL(process.env.DATABASE_URL); console.log("host:", u.hostname, "| db:", u.pathname.replace(/^\//,""))'
+node -e 'try{const u=new URL(process.env.DATABASE_URL??"");const ok=(x)=>/^[A-Za-z0-9._-]+$/.test(x);const h=u.hostname,d=u.pathname.replace(/^\//,"");if(!ok(h)||!ok(d)){console.log("preflight: INVALID (identifier failed sanitization)");process.exit(1)}console.log("host:",h,"| db:",d)}catch{console.log("preflight: INVALID or MISSING DATABASE_URL");process.exit(1)}'
 ```
-Expected: `host:` (which embeds the compute **endpoint ID**) **exactly matches** the staging endpoint hostname recorded in the P1 control-plane mapping, and `db:` **exactly matches** the recorded staging database. The migration **role** is confirmed from the private secret mapping (P1) — it is **never** printed by this preflight (the one-liner deliberately prints neither `u.username` nor `u.password`). **STOP** if: the host / endpoint ID or the database **differs** from the P1 record; the endpoint belongs to **another** branch; the host is pooled/`-pooler` (prohibited — §2); the role lacks migration permissions; or **any production identifier** appears.
+(Parser safety, corrected 2026-07-03: the try/catch emits only a generic invalid-or-missing classification — a malformed value is never echoed — and both identifiers are sanitized to `[A-Za-z0-9._-]` before printing so terminal-control or malformed input cannot be emitted. The script reads the env var internally; the URL never appears in argv, and username/password/query parameters are never accessed.) Expected: `host:` (which embeds the compute **endpoint ID**) **exactly matches** the staging endpoint hostname recorded in the P1 control-plane mapping, and `db:` **exactly matches** the recorded staging database. The migration **role** is confirmed from the private secret mapping (P1) — it is **never** printed by this preflight (the one-liner deliberately prints neither `u.username` nor `u.password`). **STOP** if: the host / endpoint ID or the database **differs** from the P1 record; the endpoint belongs to **another** branch; the host is pooled/`-pooler` (prohibited — §2); the role lacks migration permissions; or **any production identifier** appears.
 
 **Step 3.1 — Pre-check the pending set (gates P5).**
 ```bash
@@ -255,18 +255,49 @@ R1 worker parity — and **every** later worker parity check (R2 Gate B, R3, R4,
 
 ## 13. Pre-R1 staging recovery (provider-grounded amendment)
 
-> **Status: DRAFT amendment — not executed.** Codifies the owner-approved recovery architecture after the P1001 diagnosis. Staging is currently archived/suspended + over the Free monthly compute allowance; the Web service is Failed/non-serving (its pre-deploy `prisma migrate deploy` failed with **Prisma P1001** — a database **connection** failure; cause not isolated; pooled-host is a confirmed migration mismatch but is **not** proven to be the P1001 cause). Mirrors spec §20 + plan "Pre-R1 staging recovery". **This §13 splits the single P1 gate into P1a/P1b — that split is itself this reviewed amendment and must merge before execution.**
+> **Status: DRAFT amendment — not executed.** Codifies the owner-approved recovery architecture after the P1001 diagnosis. At diagnosis time (June 2026) staging was archived/suspended + over the then-Free monthly compute allowance; **Neon was upgraded to the LAUNCH plan (usage-based) on 2026-07-01 with an owner-set $20 spending limit (hard-stop enforcement UNVERIFIED; no further plan or limit change authorized)**; the Web service is Failed/non-serving (its pre-deploy `prisma migrate deploy` failed with **Prisma P1001** — a database **connection** failure; cause not isolated; pooled-host is a confirmed migration mismatch but is **not** proven to be the P1001 cause). Mirrors spec §20 + plan "Pre-R1 staging recovery". **This §13 splits the single P1 gate into P1a/P1b — that split is itself this reviewed amendment and must merge before execution.**
 
 ### 13.1 P1a — runtime-recovery gate (serve the pre-R1 baseline; NO migration)
-Verify, via a **separately-approved minimum read-only preflight** (§13.3): the **verified staging POOLED runtime endpoint**; the **runtime database identity**; **compute headroom + reachability**. **Sufficient ONLY for recovering the pre-R1 Web baseline** (serving). **No migration, no mutation.** STOP if the pooled runtime endpoint/database cannot be verified, the compute will not stay reachable within the reset Free headroom, or any production identifier appears.
+Verify, via a **separately-approved minimum read-only preflight** (§13.3): the **verified staging POOLED runtime endpoint**; the **runtime database identity**; **compute headroom + reachability**. **Sufficient ONLY for recovering the pre-R1 Web baseline** (serving). **No migration, no mutation.** STOP if the pooled runtime endpoint/database cannot be verified, the compute will not stay reachable within the owner-checked current Launch usage/spending headroom (A1), or any production identifier appears.
 
 ### 13.2 P1b — migration-readiness gate (before applying the R1 migration)
 Verify, via a **separately-approved minimum read-only preflight** (§13.3): the **verified DIRECT endpoint** (not `-pooler`); the **exact migration database**; the **exact injected migration role**; and the **required schema/migration permissions** via **read-only catalog / grant inspection** (e.g. `information_schema` / `pg_catalog` reads — never a test-DDL). **The first real migration is the *execution confirmation*, NOT the proof required to pass P1b** — P1b passes on read-only evidence (role owns / is granted the needed privileges), and the migration is then run under that gate. **No schema mutation before P1b passes.** STOP on any host/db/role mismatch, pooled endpoint, insufficient grants, or production identifier.
 
 ### 13.3 Minimum read-only preflight boundary
 - **Permitted (separately approved):** a *minimum* read-only connection/preflight that verifies reachability, host/database identity, the injected role, and required permissions (read-only catalog/grant inspection).
+- **Sanctioned P1a probe (secret-safe; corrected 2026-07-03).** Run from a controlled operator process (OD8) with the owner-injected pooled runtime `DATABASE_URL` in the environment. It **reads the URL internally** (never in `argv`), prints **only** the host + database identifiers and a `SELECT 1` / `current_database()` result, runs inside a **read-only transaction** with **finite connection + statement timeouts**, and on ANY failure emits only an **allow-listed error class** (never `error.message`/stack/DSN). Do **NOT** use `psql "$DATABASE_URL"` (it expands the credential-bearing URL into the process argument list). P1a runs **only** the identity + reachability checks below; role/permission verification is **P1b** (§13.2), a separate gate on the DIRECT endpoint.
+```js
+// P1a probe — reachability + identity only (no role check; that is P1b). Secret-safe.
+const pg = require('pg')
+const SAN = /^[A-Za-z0-9._-]+$/
+function classify(err){const c=typeof err?.code==='string'&&SAN.test(err.code)?err.code:null
+  if(c==='ENOTFOUND'||c==='EAI_AGAIN')return'DNS_RESOLUTION_FAILED'
+  if(c==='ECONNREFUSED')return'CONNECTION_REFUSED'
+  if(c==='ETIMEDOUT'||c==='ECONNRESET')return'CONNECTION_TIMEOUT_OR_RESET'
+  if(c==='28P01'||c==='28000')return'AUTHENTICATION_FAILED'
+  if(c==='57014')return'STATEMENT_TIMEOUT'; if(c==='3D000')return'DATABASE_DOES_NOT_EXIST'
+  if(err?.name==='TypeError')return'INVALID_OR_MISSING_DATABASE_URL'
+  return c?`PG_ERROR_${c}`:'UNCLASSIFIED_FAILURE'}
+async function main(){
+  let host,db
+  try{const u=new URL(process.env.DATABASE_URL??'');host=u.hostname;db=u.pathname.replace(/^\//,'')}
+  catch{console.log('probe: INVALID or MISSING DATABASE_URL');process.exit(1)}
+  if(!SAN.test(host)||!SAN.test(db)){console.log('probe: INVALID (identifier failed sanitization)');process.exit(1)}
+  console.log('host:',host,'| db:',db) // identifiers only — never user/pass/query params
+  const client=new pg.Client({connectionString:process.env.DATABASE_URL,
+    connectionTimeoutMillis:60000,query_timeout:5000,statement_timeout:5000})
+  try{await client.connect();await client.query('BEGIN TRANSACTION READ ONLY')
+    const one=await client.query('SELECT 1 AS reachable');const cur=await client.query('SELECT current_database() AS db')
+    await client.query('ROLLBACK');const r=String(cur.rows[0]?.db??'')
+    console.log('reachable:',one.rows[0]?.reachable===1?'YES':'UNEXPECTED')
+    console.log('current_database:',SAN.test(r)?r:'(failed sanitization)');process.exit(0)}
+  catch(err){console.log('probe: FAILED —',classify(err));process.exit(1)} // class only, never the payload
+  finally{try{await client.end()}catch{/* swallowed */}}}
+main()
+```
+  Note: the `pg` driver may emit an SSL-mode deprecation warning to **stderr** — it is benign and contains **no credential** (only the words `sslmode`/`require`); it is not the DSN. Run from the repo root (or any tree where `pg` resolves).
 - **Forbidden during the preflight:** **no migration, no schema write, no seed, no application mutation.** The rule is *no **mutating** database operation before the relevant gate* — read-only verification IS allowed.
-- **Caveat:** a read-only connection **auto-resumes/unarchives** the Neon compute, so the preflight IS the controlled, **owner-approved** resume (not a stray query) and must stay within the reset Free headroom (no paid upgrade).
+- **Caveat:** a read-only connection **auto-resumes/unarchives** the Neon compute, so the preflight IS the controlled, **owner-approved** resume (not a stray query) and must stay within the owner-checked current LAUNCH usage/spending headroom (A1; usage-based billing since 2026-07-01; the $20 limit is a budget signal whose hard-stop enforcement is UNVERIFIED — never guaranteed containment; no further plan or spending-limit change is authorized).
 
 ### 13.4 Protected recovery branch
 - **Exact source SHA (verified):** `53bafac4716e8819b3a77ffb5a129bd6b25d59ef` (`git rev-parse 53bafac4` ✓; parent of the R1 merge `b66b0f95`; the R1 migration `20260629000000_keyring_fingerprint` is **absent** from this tree; `package-lock.json` present).
@@ -298,10 +329,10 @@ Verify, via a **separately-approved minimum read-only preflight** (§13.3): the 
 - **The temporary recovery disabling of auto-migrate (§13.4) is NOT the permanent policy** — permanently removing automatic migrations is a separate deployment-policy decision, not part of incident recovery.
 
 ### 13.7 Worker boundary
-The repeatable sweeps are the **leading identified persistent-activity mechanism, not a telemetry-proven sole cause** of the Neon compute usage (§11). **The worker remains Offline.** **Permanent worker remediation gates the worker RESTART only** — not the bounded Web/R1 recovery. **No paid Neon upgrade; waiting for the Free allowance reset is the default.**
+The repeatable sweeps are the **leading identified persistent-activity mechanism, not a telemetry-proven sole cause** of the Neon compute usage (§11). **The worker remains Offline.** **Permanent worker remediation gates the worker RESTART only** — not the bounded Web/R1 recovery. **Plan state (owner-confirmed): Neon LAUNCH (usage-based) since 2026-07-01 with the owner-set $20 limit (enforcement UNVERIFIED); no FURTHER plan or spending-limit change is authorized.**
 
 ### 13.8 Exact release ordering
-1. **A1** — compute headroom: **wait for the Free monthly allowance reset** (default; no payment).
+1. **A1** — compute/cost headroom (updated 2026-07-03): Neon is on the **LAUNCH plan (usage-based) since 2026-07-01** with an owner-set **$20 spending limit** (hard-stop enforcement UNVERIFIED — a budget signal, never guaranteed containment). A1 now = a **fresh owner check of current Launch usage, available spending headroom and project state immediately before P1a**. No further plan upgrade or spending-limit change is authorized.
 2. **A2** — owner-approved **unarchive/resume** the staging compute (control-plane; or the §13.3 read-only preflight IS that controlled resume).
 3. **P1a** (§13.1) — runtime-recovery read-only preflight (pooled). Gate for baseline serving.
 4. **Short-term recovery** (auto-deploy disabled · worker Offline): create + protect the recovery branch (§13.4) → **STAGE together (do not apply): the Web source-branch change to the recovery branch AND the removal of the Web pre-deploy migrate command** → verify the staged set is EXACTLY those two owner-approved changes (§13.4 discipline; anything else ⇒ Discard + STOP) → **click Deploy ONCE as the deliberately approved recovery deployment** (the same click applies both staged changes and starts the deployment; Railway runs NO migration — the hook is gone and the recovery tree lacks the R1 migration) → the image must build/boot cleanly → record the **P8 evidence** (§13.5) ⇒ **P8 established**.
@@ -314,7 +345,7 @@ The repeatable sweeps are the **leading identified persistent-activity mechanism
 ### 13.9 Decision ledger — unresolved owner decisions
 | # | Decision | Status |
 |---|---|---|
-| D-R1 | Compute-headroom policy | **DECIDED (owner) — wait for the Free monthly allowance reset; reconsider Launch (a paid upgrade) ONLY if the reset does not occur.** |
+| D-R1 | Compute-headroom policy | **SUPERSEDED (owner, 2026-07-01): upgraded to Neon LAUNCH (usage-based) + the $20 spending limit (hard-stop enforcement UNVERIFIED). A1 = a fresh owner usage/spending-headroom check immediately before P1a. No further plan or limit change is authorized.** |
 | D-R2 | Approve the **control-plane unarchive/resume** (A2) | OPEN |
 | D-R3 | Approve the **separately-scoped minimum read-only preflight** (P1a now; P1b later) | OPEN |
 | D-R4 | Create + protect the **recovery branch** at the verified SHA; approve **repointing Railway's connected branch** | OPEN — note (2026-07-03): the repoint STAGES and is applied only by the recovery deployment's single Deploy click (apply-equals-deploy, §13.4) |
@@ -327,7 +358,7 @@ The repeatable sweeps are the **leading identified persistent-activity mechanism
 
 ### 13.10 Failure / rollback boundaries
 - **No *mutating* DB op before the relevant gate** (P1a to serve; P1b to migrate); read-only preflight only, separately approved; **no migration/schema-write/seed/app-mutation** in it.
-- **No paid upgrade**; wait for the Free reset.
+- **No FURTHER plan or spending-limit change** (Launch + the $20 limit were set 2026-07-01); A1 = the fresh owner usage/headroom check.
 - **Worker stays Offline** until the permanent reduction + approval; not required for R1.
 - **R1 migration not applied before P8 exists, P9 is proven, AND P1b passes.**
 - **Changing Railway's connected branch** + **removing the auto pre-deploy migrate** are **separately-approved changes that only STAGE** — applied exclusively by the deliberate deployment's single Deploy click (apply-equals-deploy, §13.4); **auto-deploy stays disabled.**
@@ -347,7 +378,7 @@ The repeatable sweeps are the **leading identified persistent-activity mechanism
 | "No DB op before P1" too strict | owner correction | over-gated | can't verify permissions without a read | **minimum read-only preflight allowed**; only mutations gated | Owner + Codex |
 | Migrations + runtime share `DATABASE_URL` | `prisma.config.ts`; `worker.ts:48/60`; `plugins/prisma.ts:7` | migrate-on-pooled fails P1001 | migration needs direct | short-term: operator-run-on-direct + the pre-deploy-migrate removal staged with the recovery Deploy (§13.4, apply-equals-deploy); long-term: **`MIGRATION_DATABASE_URL`** | Owner + Codex |
 | Worker persistent activity | `worker.ts` + processors (`RECONCILE_EVERY_MS=60000`, hourly, `PROMOTE_PENDING_HOURS_EVERY_MS=60000`) | sweeps run when worker online | over-quota; offline | permanent reduction — gates worker restart only | Owner + Codex |
-| Over-quota / archived | P1 dashboard | staging cold | recovery needs headroom | **wait for Free reset** (no payment) | Owner |
+| Headroom / archived | P1 dashboard | staging cold (branches archived) | recovery needs cost headroom | **LAUNCH (usage-based) since 2026-07-01 + $20 limit (enforcement UNVERIFIED); A1 = fresh owner usage/headroom check; no further plan/limit change** | Owner |
 | P1001 cause | owner log (sanitised) | connection fails at pre-deploy | cause not isolated | fix reachability + direct path, re-attempt, re-diagnose if persists | Owner + Codex |
 
 ---

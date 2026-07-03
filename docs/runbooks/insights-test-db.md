@@ -62,7 +62,7 @@ CONF
 set -a; . ./.env.test; set +a
 # proves loopback before migrating; aborts on a remote host
 DATABASE_URL="$TEST_DATABASE_URL" fnm exec --using=24 -- node -e '
-  const u=new URL(process.env.DATABASE_URL);
+  const u=(()=>{try{return new URL(process.env.DATABASE_URL??"")}catch{console.error("invalid or missing DATABASE_URL");process.exit(1)}})();
   if(!["127.0.0.1","localhost"].includes(u.hostname)) { console.error("ABORT not loopback"); process.exit(1); }'
 DATABASE_URL="$TEST_DATABASE_URL" fnm exec --using=24 -- npx prisma migrate deploy
 ```

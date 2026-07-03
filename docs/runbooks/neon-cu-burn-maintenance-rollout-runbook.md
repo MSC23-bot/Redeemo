@@ -34,7 +34,7 @@ The following was recorded during prior sessions. It requires **fresh owner veri
 | Web service | **Failed / non-serving** on deployment `1d65f2ec…` | Confirm current deployment state + history |
 | Redis (Railway) | Online | Confirm reachability + `noeviction` policy |
 | GitHub auto-deploy | **Disabled** on Web AND Worker | Confirm still disabled on BOTH before any config change |
-| Neon | Launch plan exists; branch/compute/endpoint state UNVERIFIED | Full P1a/P1b re-verification per r1 runbook §13.1-§13.3 |
+| Neon | **LAUNCH plan (usage-based) since 2026-07-01, owner-set $20 spending limit (hard-stop enforcement UNVERIFIED); no further plan/limit change authorized.** Branch/compute/endpoint state re-verified read-only 2026-07-02 (all branches archived; computes idle; staging endpoint `ep-round-wave-abpnesg3`) | Fresh owner usage/spending-headroom check (r1 A1) + full P1a/P1b re-verification per r1 runbook §13.1-§13.3 |
 | R1 gates | **P1 (split P1a/P1b), P8, P9 all BLOCKED/OPEN** | These gates block execution of this runbook (see §6 step 1) |
 | Neon spending limit | Owner-set `$20` known | Hard-stop enforcement remains **UNVERIFIED** (§8) |
 
