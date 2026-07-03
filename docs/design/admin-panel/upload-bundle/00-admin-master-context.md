@@ -66,6 +66,8 @@ Brand is non-negotiable and identical to the previously-created Redeemo Merchant
 - **CONTENT**: content/taxonomy, comms/broadcast, announcements (future/gated).
 - **Platform Manager (PROPOSED)**: broad operational + financial oversight, cannot hold platform-critical. Label PROPOSED; do not imply it exists as a role today.
 
+**Persona-model evolution (DESIGN-ONLY, shown clearly-labelled on the Team and Roles screen).** Two DESIGN-ONLY prototype decisions touch this ladder: (a) TEAM AND ROLES staff-reframe (D58): the people here are Redeemo STAFF / team members who hold admin-panel access, DISTINCT from the merchant-side "Staff and access" (a merchant's own branch / portal staff); the screen holds the basic operational + employment fields to onboard a staff member to the PANEL and manage their access, and it is NOT the HR system (fuller HR data lives in the dedicated HR tool, e.g. Zoho People). (b) COMBINED / multi-module access (D57): today an admin holds EXACTLY ONE fixed role (`AdminRole` is a scalar, not an array; Super Admin is the only "everything" role); holding several modules at once (Operations + Finance + Content) is a FUTURE concept via one of two net-new models (multi-role union OR per-person capability grants), the model AND its timing a later capability-matrix decision. Show both as clearly-labelled FUTURE; do not imply a chosen model or a live toggle.
+
 ### C.2 Authority model (reflect on every on-behalf/lifecycle action)
 Two lenses, aligned to blueprint §9 and to Section A's outcome list:
 
@@ -75,6 +77,8 @@ Two lenses, aligned to blueprint §9 and to Section A's outcome list:
 Two policy-gated columns to show as not-yet-buildable: legal/financial (no admin contract-sign, no billing today) and access/ownership (no admin staff-management or ownership-transfer today).
 
 Note on the blueprint's authority table: where it prints "FOUR-EYES" as a column value it denotes the merchant's own submit-then-approve staging (the merchant approval lane), which is still a SINGLE-ADMIN-actor decision on the Redeemo side. Never render it as an enforced dual-operator countersign badge.
+
+**Assign-then-claim workflow (owner-decided D59, DESIGN-ONLY, DEFERRED to Wave 2).** Today an admin only SELF-CLAIMS a queue item. D59 adds a directed-assignment layer: certain ASSIGNER roles (a net-new assign capability; likely Super Admin + a lead / senior-Operations tier, possibly the proposed Platform Manager) can ASSIGN a queue item / merchant / task to a SPECIFIC staff member, who is then notified (it fires the reserved `ADMIN_REVIEW_ASSIGNED` notification, whose emitter is deferred until this flow exists) and CLAIMS it. INVARIANT: assignment ROUTES, claim COMMITS: the single-actor claim-to-act accountability is preserved (self-claim and assign COEXIST). This is a Wave-2 first-pass concept over net-new schema; show it clearly-labelled, not built.
 
 ### C.3 Cross-product state glossary (reflect these; do not invent others)
 - **Merchant lifecycle:** REGISTERED, PENDING_APPROVAL, ACTIVE, SUSPENDED (immediate takedown: vouchers instantly hidden), INACTIVE, DELETED. Onboarding steps: registered, branch added, contract signed, RMV configured, submitted, under review, approved, live, needs changes, rejected, suspended.
@@ -101,7 +105,7 @@ Left sidebar, grouped; a role-aware Ops Home; top bar (search, bell, operator + 
 6. **Growth and Commercial** (merchant-paid, gated on billing): Campaigns · Featured placement · Trending.
 7. **Content and Taxonomy**: Taxonomy management · Versioned Legal/T&C/FAQ (external/gated) · Announcements (future).
 8. **Insights and Reporting** (data + DPIA gated): platform analytics, including behavioural/demographic member cohorts (default-off, minimum-cohort, "not available" until the privacy gate opens).
-9. **Platform**: Admin Users and Roles · Global Audit / Activity Explorer · Operational Status (bounded) · Feature flags / config · Notifications.
+9. **Platform**: Team and Roles (reframed per D58: Redeemo STAFF who hold admin-panel access, distinct from the merchant-side "Staff and access"; a basic staff record for panel onboarding + access, NOT the HR system; the combined / multi-module access model D57 is a clearly-labelled FUTURE concept; the assign-then-claim workflow D59 is a deferred Wave-2 concept) · Global Audit / Activity Explorer · Operational Status (bounded) · Feature flags / config · Notifications.
 
 **Reorg (owner-decided 2026-07-02, blueprint D27):** Subscriptions/Billing/Refunds and Promo codes moved OUT of Growth and Commercial INTO the new Members and Revenue group; Growth now keeps only the merchant-paid items (Campaigns, Featured placement, Trending). Customer 360 STAYS in Relationships (symmetry with Merchant 360); the Members and Subscriptions list cross-links into it.
 
