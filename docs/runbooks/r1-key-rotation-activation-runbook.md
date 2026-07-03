@@ -365,12 +365,15 @@ async function main () {
   } catch (err) {
     console.log('probe: FAILED -', classify(err)) // class only, never the payload
   } finally {
-    // Cleanup ALWAYS runs, with a finite bound; a hung/failed end() cannot
-    // stall the operator process — the controlled fallback destroys the socket.
-    const cleanup = await settleWithin(client.end(), CLEANUP_TIMEOUT_MS)
+    // Cleanup ALWAYS runs, with a finite bound; a hung/rejected/synchronously-
+    // throwing end() cannot stall the operator process — the controlled
+    // fallback destroys the socket. The deferred wrapper normalizes a
+    // synchronous throw from end() into FAILED.
+    const cleanup = await settleWithin(Promise.resolve().then(() => client.end()), CLEANUP_TIMEOUT_MS)
     if (cleanup !== 'OK') {
       try { client.connection?.stream?.destroy?.() } catch { /* swallowed */ }
       console.log('cleanup:', cleanup === 'TIMED_OUT' ? 'CLEANUP_TIMED_OUT (controlled fallback)' : 'CLEANUP_FAILED (controlled fallback)')
+      code = 1 // graceful cleanup did not complete: never report P1a PASS
     }
   }
   return code
@@ -382,7 +385,7 @@ main().then(
 )
 P1A_PROBE_EOF
 ```
-  Step B **independently re-parses** the URL and **hard-stops before constructing the pg Client** unless the host is pooled (`P1A_BLOCKED_RUNTIME_ENDPOINT_NOT_POOLED`, zero connection attempt). Its exit status is **truthful**: `0` only when the connection succeeds, the read-only transaction begins, `SELECT 1` returns exactly `1`, `current_database()` passes sanitization AND exactly equals the database parsed from the injected URL, `ROLLBACK` succeeds, and cleanup completes (or reaches its controlled finite fallback — a hung/failed `client.end()` is bounded at 5 s and can never stall the operator process). All other paths exit non-zero printing only an allow-listed class — never `error.message`, stack, cause, query, or DSN. `process.exitCode` is assigned only after cleanup settles; the script contains no `process.exit()` call, and `process.exitCode` defaults to `1` at the top so a pathological driver that strands the event loop can never exit as success. Verified at correction time (2026-07-03) against a mocked-driver adversarial harness — 16 cases: planted-DSN output scans, non-Postgres-scheme rejection, direct-host zero-Client-construction, cleanup-order, cleanup-hang/reject fallbacks, truthful-exit (bad SELECT 1 / mismatched / unsafe current_database), unknown-code collapse. The harness is operator/session tooling, not a committed test suite.
+  Step B **independently re-parses** the URL and **hard-stops before constructing the pg Client** unless the host is pooled (`P1A_BLOCKED_RUNTIME_ENDPOINT_NOT_POOLED`, zero connection attempt). Its exit status is **truthful**: `0` only when the connection succeeds, the read-only transaction begins, `SELECT 1` returns exactly `1`, `current_database()` passes sanitization AND exactly equals the database parsed from the injected URL, `ROLLBACK` succeeds, **AND graceful cleanup (`client.end()`) completes within its 5 s bound**. A hung, rejected, or synchronously-throwing `client.end()` reaches the controlled finite fallback (best-effort socket destroy + a fixed sanitized classification, so the operator process never stalls and no raw driver error prints) — but the probe then **exits non-zero: the controlled fallback is safe containment, not success. The P1a result is BLOCKED pending review; P1a PASS is never reported when graceful cleanup failed or timed out.** Step B exit `0` therefore means the complete read-only probe AND cleanup both succeeded. All other paths exit non-zero printing only an allow-listed class — never `error.message`, stack, cause, query, or DSN. `process.exitCode` is assigned only after cleanup settles; the script contains no `process.exit()` call, and `process.exitCode` defaults to `1` at the top so a pathological driver that strands the event loop can never exit as success. Verified at correction time (2026-07-03) against a mocked-driver adversarial harness — 16 cases: planted-DSN output scans, non-Postgres-scheme rejection, direct-host zero-Client-construction, cleanup-order, cleanup-hang/reject/sync-throw fallbacks (each exits non-zero with the socket-destroy fallback attempted), truthful-exit (bad SELECT 1 / mismatched / unsafe current_database), unknown-code collapse. The harness is operator/session tooling, not a committed test suite.
   Note: the `pg` driver may emit an SSL-mode deprecation warning to **stderr** — it is benign and contains **no credential** (only the words `sslmode`/`require`); it is not the DSN. Run from the repo root (or any tree where `pg` resolves).
 - **Forbidden during the preflight:** **no migration, no schema write, no seed, no application mutation.** The rule is *no **mutating** database operation before the relevant gate* — read-only verification IS allowed.
 - **Caveat:** a read-only connection **auto-resumes/unarchives** the Neon compute, so the preflight IS the controlled, **owner-approved** resume (not a stray query) and must stay within the owner-checked current LAUNCH usage/spending headroom (A1; usage-based billing since 2026-07-01; the $20 limit is a budget signal whose hard-stop enforcement is UNVERIFIED — never guaranteed containment; no further plan or spending-limit change is authorized).
