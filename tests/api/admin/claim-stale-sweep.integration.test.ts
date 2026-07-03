@@ -304,6 +304,30 @@ describe('claim-stale Option C: atomic CAS + bell (real-DB race matrix)', () => 
     expect(after?.lastStaleAlertAt).toEqual(NOW)
   })
 
+  it('ATOMICITY-BREAK PIN (defense-in-depth): a bell WRITTEN inside the tx rolls back when a later in-tx failure hits', async () => {
+    // Kills the "adminNotify(prisma, ...) on the ROOT client" mutation at the
+    // real-DB level: the bell row is genuinely CREATED, then a post-create
+    // failure aborts the transaction. On the tx client the committed state
+    // shows NO bell and NO stamp; on the root client the bell would survive.
+    const { claimerId, approvalId } = await seed({ claimedAt: hoursAgo(25), lastStaleAlertAt: null })
+    const actual = await vi.importActual<typeof import('../../../src/api/shared/adminNotify')>(
+      '../../../src/api/shared/adminNotify',
+    )
+    ;(adminNotify as ReturnType<typeof vi.fn>).mockImplementationOnce(async (client, input) => {
+      await actual.adminNotify(client, input) // the bell IS written on the passed client
+      throw new Error('simulated post-create in-tx failure')
+    })
+    const phaseA = await phaseAOnly(NOW)
+    const outcome = await makeClaimStaleSideEffects(prisma, BOUNDS)(phaseA.sideEffects, PERMISSIVE_BUDGET)
+    expect(outcome.failedRows).toBe(1)
+    expect(await countAlerts(claimerId)).toBe(0) // the WRITTEN bell rolled back with the transaction
+    const row = await prisma.adminApproval.findUnique({ where: { id: approvalId }, select: { lastStaleAlertAt: true } })
+    expect(row?.lastStaleAlertAt).toBeNull() // and so did the stamp — nothing committed
+    // Clean retry still yields exactly one bell.
+    await runClaimStaleFloorOnce(NOW)
+    expect(await countAlerts(claimerId)).toBe(1)
+  })
+
   it('SNAPSHOT ROUND-TRIP: raw-selected claimedAt/lastStaleAlertAt values match Prisma equality (no precision drift)', async () => {
     // The CAS depends on the raw SELECT returning values that Prisma where-equality
     // matches exactly (timestamp(3) round-trip). A precision mismatch would make
