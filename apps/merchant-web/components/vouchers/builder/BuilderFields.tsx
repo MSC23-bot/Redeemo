@@ -356,8 +356,21 @@ function ReusableFields({ state, onCooldown }: FieldsProps) {
   const presetActive = COOLDOWN_OPTIONS.some((o) => o.value === current)
   // V1 custom interval (prototype parity): "every N unit" beyond the presets.
   // The floor stays server-validated; the UI clamps for fast feedback.
-  const [customN, setCustomN] = React.useState('2')
-  const [customUnit, setCustomUnit] = React.useState<'hours' | 'days' | 'weeks'>('days')
+  // Hydrate from the SAVED value when editing a custom-cooldown voucher (largest
+  // unit that divides evenly), so the fields reflect reality instead of a default.
+  const seed = React.useMemo(() => {
+    if (!presetActive && current > 0) {
+      for (const u of [...CUSTOM_UNITS].reverse()) {
+        if (current % u.seconds === 0) return { n: String(current / u.seconds), unit: u.id }
+      }
+      return { n: String(Math.max(1, Math.round(current / 3600))), unit: 'hours' as const }
+    }
+    return { n: '2', unit: 'days' as const }
+    // Seed once from the initial value; later edits are user-driven.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const [customN, setCustomN] = React.useState(seed.n)
+  const [customUnit, setCustomUnit] = React.useState<'hours' | 'days' | 'weeks'>(seed.unit)
   function applyCustom(nRaw: string, unitId: 'hours' | 'days' | 'weeks') {
     const n = Math.max(1, Math.floor(Number(nRaw) || 0))
     const unit = CUSTOM_UNITS.find((u) => u.id === unitId)!

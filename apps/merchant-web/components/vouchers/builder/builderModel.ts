@@ -215,7 +215,10 @@ export function toCreatePayload(state: BuilderState, categoryKey: CategoryKey = 
   }
 
   // STRUCTURED: terms are composed from the checklist; free text is the
-  // TIME_LIMITED / REUSABLE path only.
+  // TIME_LIMITED / REUSABLE path only. A structured compose ALWAYS sends the
+  // string - including '' when the merchant removed every clause/custom - so a
+  // partial PATCH actually CLEARS the stored terms instead of silently keeping
+  // the old text (the key would otherwise be omitted). Backend zod accepts ''.
   const termsText = structured ? composeTermsText(state, categoryKey) : state.terms
 
   const payload: CreateVoucherPayload = {
@@ -223,7 +226,7 @@ export function toCreatePayload(state: BuilderState, categoryKey: CategoryKey = 
     title,
     estimatedSaving: saving > 0 ? saving : 5, // advisory floor fallback; admin review is the backstop.
     description: effectiveDescription(state) || undefined,
-    terms: termsText || undefined,
+    terms: structured ? termsText : termsText || undefined,
     imageUrl: state.imageUrl || undefined,
     expiryDate: state.expiryDate || undefined,
     merchantFields,

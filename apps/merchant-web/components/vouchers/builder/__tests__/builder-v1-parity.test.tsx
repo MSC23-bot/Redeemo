@@ -9,6 +9,7 @@
  *   end-date toggle (generic expiryDate).
  */
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { DayTwoBuilder } from '@/components/vouchers/builder/DayTwoBuilder'
 import {
@@ -40,7 +41,7 @@ jest.mock('@/lib/api/client', () => ({
   apiFetch: jest.fn(() => Promise.resolve({ url: 'https://cdn.example/p.png' })),
 }))
 
-function renderBuilder(props: Partial<React.ComponentProps<typeof DayTwoBuilder>> = {}) {
+function renderBuilder(props: Partial<ComponentProps<typeof DayTwoBuilder>> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const onDone = props.onDone ?? jest.fn()
   render(
@@ -180,6 +181,35 @@ describe('TIME_LIMITED presets + end date', () => {
     fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
     await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
     expect(createVoucher.mock.calls[0][0].expiryDate).toBe('2026-09-30')
+  })
+})
+
+describe('empty structured terms clear explicitly (CodeRabbit #366)', () => {
+  it("removing every clause and custom sends terms: '' (an explicit PATCH clear), never an omitted key", () => {
+    const state = { ...emptyBuilderState('freebie'), selectedClauseIds: [], customTerms: [] }
+    const payload = toCreatePayload(state, 'food_drink')
+    expect(payload.terms).toBe('')
+    expect('terms' in payload).toBe(true)
+  })
+
+  it('non-structured types keep the omit-when-empty free-text semantics', () => {
+    const state = emptyBuilderState('time')
+    expect(toCreatePayload(state).terms).toBeUndefined()
+  })
+})
+
+describe('custom cooldown hydration (CodeRabbit #366)', () => {
+  it('editing a voucher with a saved custom cooldown seeds the every-N fields from it', () => {
+    renderBuilder({
+      voucherId: 'v1',
+      initialType: 'REUSABLE',
+      initialTitle: 'Reusable offer',
+      initialCooldown: 3 * 86400, // 3 days - not a preset
+    })
+    const box = screen.getByTestId('custom-cooldown')
+    expect(within(box).getByLabelText(/custom cooldown amount/i)).toHaveValue(3)
+    expect(within(box).getByLabelText(/custom cooldown unit/i)).toHaveValue('days')
+    expect(screen.getByText(/custom interval applied/i)).toBeInTheDocument()
   })
 })
 

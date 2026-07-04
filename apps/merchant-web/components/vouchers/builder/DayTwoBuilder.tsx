@@ -29,6 +29,7 @@ import {
   effectiveDescription,
   effectiveSaving,
   clausesFor,
+  composeTermsText,
   isStructuredPickerId,
   type BuilderState,
   type DayTwoPickerId,
@@ -227,7 +228,9 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
   const currentForDiff = {
     title: effectiveTitle(state),
     description: effectiveDescription(state),
-    terms: state.terms,
+    // Structured types keep their terms in the checklist model; compose so the
+    // diff's "Your version" row shows the real current terms, not stale state.terms.
+    terms: isStructuredPickerId(state.pickerId) ? composeTermsText(state, categoryKey) : state.terms,
     estimatedSaving: effectiveSaving(state),
   }
 
