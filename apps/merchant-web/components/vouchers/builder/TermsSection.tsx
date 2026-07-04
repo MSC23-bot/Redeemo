@@ -110,6 +110,7 @@ export function TermsSection({ clauses, selectedIds, onToggle, customs, onAddCus
               </span>
               <button
                 type="button"
+                aria-label={`Remove term: ${c.text}`}
                 onClick={() => onRemoveCustom(i)}
                 className="text-xs font-semibold text-[#B91C1C] hover:underline"
               >

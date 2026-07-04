@@ -34,11 +34,12 @@ jest.mock('@/lib/api/voucher', () => {
   }
 })
 
-// The photo control POSTs through apiFetch inside FileUpload; stub the client so
-// no network fires (upload behaviour itself is pinned in file-upload.test.tsx).
+// The photo control POSTs through apiFetch inside FileUpload; a reprogrammable
+// stub lets the interaction tests drive success / STORAGE_NOT_ENABLED paths.
+const mockApiFetch = jest.fn()
 jest.mock('@/lib/api/client', () => ({
   ...jest.requireActual('@/lib/api/client'),
-  apiFetch: jest.fn(() => Promise.resolve({ url: 'https://cdn.example/p.png' })),
+  apiFetch: (...a: unknown[]) => mockApiFetch(...a),
 }))
 
 function renderBuilder(props: Partial<ComponentProps<typeof DayTwoBuilder>> = {}) {
@@ -53,6 +54,7 @@ function renderBuilder(props: Partial<ComponentProps<typeof DayTwoBuilder>> = {}
 }
 
 beforeEach(() => {
+  mockApiFetch.mockReset().mockResolvedValue({ url: 'https://cdn.example/p.png' })
   createVoucher.mockReset().mockResolvedValue({ id: 'new1', status: 'DRAFT', approvalStatus: 'PENDING' })
   updateVoucher.mockReset().mockResolvedValue({ id: 'new1', status: 'DRAFT', approvalStatus: 'PENDING' })
   submitVoucher.mockReset().mockResolvedValue({ id: 'new1', status: 'PENDING_APPROVAL', approvalStatus: 'PENDING' })
@@ -128,14 +130,84 @@ describe('legacy free-text rehydration', () => {
   })
 })
 
-describe('photo upload', () => {
-  it('renders the photo control for every type and carries imageUrl in the payload', async () => {
+function pickPhoto(name = 'p.png') {
+  const input = document.getElementById('file-upload-photo') as HTMLInputElement
+  const file = new File(['x'.repeat(10)], name, { type: 'image/png' })
+  fireEvent.change(input, { target: { files: [file] } })
+}
+
+describe('photo upload (real FileUpload interaction)', () => {
+  it('a successful upload propagates the returned URL into the saved payload', async () => {
     renderBuilder()
     fireEvent.click(screen.getByRole('button', { name: /freebie/i }))
-    expect(screen.getByText(/add a photo \(optional\)/i)).toBeInTheDocument()
-    // Model-level: a state with imageUrl lands in the payload.
-    const state = { ...emptyBuilderState('freebie'), imageUrl: 'https://cdn.example/p.png' }
-    expect(toCreatePayload(state).imageUrl).toBe('https://cdn.example/p.png')
+    pickPhoto()
+    await waitFor(() =>
+      expect(mockApiFetch).toHaveBeenCalledWith('/api/v1/merchant/uploads/photo', expect.objectContaining({ method: 'POST' })),
+    )
+    await screen.findByText('Replace photo')
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
+    expect(createVoucher.mock.calls[0][0].imageUrl).toBe('https://cdn.example/p.png')
+  })
+
+  it('replacement swaps the payload URL to the newest upload', async () => {
+    renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /freebie/i }))
+    pickPhoto('first.png')
+    await screen.findByText('Replace photo')
+    mockApiFetch.mockResolvedValue({ url: 'https://cdn.example/second.png' })
+    pickPhoto('second.png')
+    // Wait for the upload to COMPLETE (exact filename without the 'Uploading '
+    // prefix = FileUpload's done state), so onUploaded has updated the builder
+    // state before saving.
+    await screen.findByText('second.png', { exact: true })
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
+    expect(createVoucher.mock.calls[0][0].imageUrl).toBe('https://cdn.example/second.png')
+  })
+
+  it('pre-save removal on a NEW voucher clears the photo (create-omission means no photo)', async () => {
+    renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /freebie/i }))
+    pickPhoto()
+    await screen.findByText('Replace photo')
+    fireEvent.click(screen.getByRole('button', { name: /remove photo/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
+    expect(createVoucher.mock.calls[0][0].imageUrl).toBeUndefined()
+  })
+
+  it('STORAGE_NOT_ENABLED surfaces the honest not-available message in the builder', async () => {
+    renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /freebie/i }))
+    mockApiFetch.mockRejectedValueOnce(Object.assign(new Error('dark'), { code: 'STORAGE_NOT_ENABLED' }))
+    pickPhoto()
+    expect(await screen.findByText(/image upload is not available yet/i)).toBeInTheDocument()
+  })
+})
+
+describe('saved-photo removal constraint (edit mode - PATCH has no nullable clear)', () => {
+  const editProps = {
+    voucherId: 'v1',
+    initialType: 'FREEBIE',
+    initialTitle: 'Free coffee',
+    initialImageUrl: 'https://cdn.example/saved.png',
+  }
+
+  it('the saved baseline shows the replace-only note, never a Remove button', () => {
+    renderBuilder(editProps)
+    expect(screen.getByText(/a saved photo can be replaced, not removed, for now/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove photo/i })).not.toBeInTheDocument()
+  })
+
+  it('a session upload over a saved photo offers revert-to-saved, and reverting restores the baseline in the payload', async () => {
+    renderBuilder(editProps)
+    pickPhoto('new.png')
+    const revert = await screen.findByRole('button', { name: /use the saved photo instead/i })
+    fireEvent.click(revert)
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    expect(updateVoucher.mock.calls[0][1].imageUrl).toBe('https://cdn.example/saved.png')
   })
 })
 
@@ -173,14 +245,71 @@ describe('TIME_LIMITED presets + end date', () => {
     expect(windows[0]).toEqual({ dayOfWeek: 1, openTime: '12:00', closeTime: '14:30' })
   })
 
-  it('the end-date toggle writes the generic expiryDate into the payload', async () => {
+  it('the end-date toggle writes the normalized ISO expiryDate into the payload', async () => {
     renderBuilder()
     fireEvent.click(screen.getByRole('button', { name: /time limited/i }))
     fireEvent.click(screen.getByRole('checkbox', { name: /ends on a date/i }))
     fireEvent.change(screen.getByLabelText(/^end date$/i), { target: { value: '2026-09-30' } })
     fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
     await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
-    expect(createVoucher.mock.calls[0][0].expiryDate).toBe('2026-09-30')
+    expect(createVoucher.mock.calls[0][0].expiryDate).toBe('2026-09-30T00:00:00.000Z')
+  })
+})
+
+describe('expiryDate + imageUrl hydration and contract (Codex round)', () => {
+  it('the date-only UI value normalizes to a literal ISO datetime in the outgoing payload', async () => {
+    renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /time limited/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /ends on a date/i }))
+    fireEvent.change(screen.getByLabelText(/^end date$/i), { target: { value: '2026-09-30' } })
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
+    // LITERAL ISO datetime - the backend contract is z.string().datetime().
+    expect(createVoucher.mock.calls[0][0].expiryDate).toBe('2026-09-30T00:00:00.000Z')
+  })
+
+  it('a description-only EDIT preserves the saved imageUrl and expiryDate in the PATCH', async () => {
+    renderBuilder({
+      voucherId: 'v1',
+      initialType: 'FREEBIE',
+      initialTitle: 'Free coffee',
+      initialImageUrl: 'https://cdn.example/saved.png',
+      initialExpiryDate: '2026-12-01T00:00:00.000Z',
+    })
+    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'New description.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    const payload = updateVoucher.mock.calls[0][1]
+    expect(payload.imageUrl).toBe('https://cdn.example/saved.png')
+    expect(payload.expiryDate).toBe('2026-12-01T00:00:00.000Z') // full ISO passes through untouched
+  })
+
+  it('a DUPLICATE carries the source imageUrl and expiryDate into the new create', async () => {
+    renderBuilder({
+      initialType: 'FREEBIE',
+      initialTitle: 'Free coffee (copy)',
+      initialImageUrl: 'https://cdn.example/saved.png',
+      initialExpiryDate: '2026-12-01T00:00:00.000Z',
+    })
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
+    const payload = createVoucher.mock.calls[0][0]
+    expect(payload.imageUrl).toBe('https://cdn.example/saved.png')
+    expect(payload.expiryDate).toBe('2026-12-01T00:00:00.000Z')
+  })
+})
+
+describe('custom-term remove buttons have distinct accessible names (Codex round)', () => {
+  it('each Remove is named for its term', async () => {
+    renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /freebie/i }))
+    const section = screen.getByTestId('terms-section')
+    for (const text of ['First custom', 'Second custom']) {
+      fireEvent.change(within(section).getByLabelText(/add your own term/i), { target: { value: text } })
+      fireEvent.click(within(section).getByRole('button', { name: /add term/i }))
+    }
+    expect(within(section).getByRole('button', { name: 'Remove term: First custom' })).toBeInTheDocument()
+    expect(within(section).getByRole('button', { name: 'Remove term: Second custom' })).toBeInTheDocument()
   })
 })
 

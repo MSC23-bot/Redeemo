@@ -67,6 +67,10 @@ export interface DayTwoBuilderProps {
   initialSaving?: number | null
   initialWindows?: AvailabilityWindow[] | null
   initialCooldown?: number | null
+  /** Edit/duplicate prefill: the saved voucher photo + end date (preserved on
+   * save unless the user changes them). */
+  initialImageUrl?: string | null
+  initialExpiryDate?: string | null
   /** B6 concierge: the admin-proposed corrections + note (CHANGES_REQUESTED only). */
   initialAdminProposed?: AdminProposed | null
   initialAdminNote?: string | null
@@ -85,6 +89,8 @@ function seedState(props: DayTwoBuilderProps): BuilderState | null {
     estimatedSaving: props.initialSaving,
     cooldownSeconds: props.initialCooldown,
     availabilityWindows: props.initialWindows,
+    imageUrl: props.initialImageUrl,
+    expiryDate: props.initialExpiryDate,
     merchantFields: props.initialFields,
   })
 }
@@ -272,7 +278,14 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
 
           {/* Voucher photo (V1): the backend photo kind is gated on voucher-management
               power, matching this builder's capability gate. Optional; a photo lifts
-              the advisory score. */}
+              the advisory score.
+              REMOVAL CONSTRAINT (Codex round): the PATCH contract has no nullable
+              clear, so on an EDIT an already-saved photo can be REPLACED but not
+              removed - omitting the key preserves the stored image. Removal is
+              offered only for a photo that is not the saved baseline (a
+              session upload reverts to the saved one; a fresh/duplicate builder
+              clears freely because CREATE-omission genuinely means no photo).
+              Saved-image clearing needs a nullable API field: recorded follow-up. */}
           <div className="flex flex-col gap-1.5">
             <FileUpload
               kind="photo"
@@ -280,15 +293,27 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
               hint="JPG or PNG, landscape, at least 1200 by 600 pixels, up to 5 MB."
               onUploaded={(url) => setImageUrl(url)}
             />
-            {state.imageUrl ? (
-              <button
-                type="button"
-                onClick={() => setImageUrl(undefined)}
-                className="w-fit text-xs font-semibold text-[#B91C1C] hover:underline"
-              >
-                Remove photo
-              </button>
-            ) : null}
+            {(() => {
+              const isEdit = !!voucherId
+              const savedBaseline = isEdit ? state.savedImageUrl : undefined
+              if (!state.imageUrl) return null
+              if (savedBaseline && state.imageUrl === savedBaseline) {
+                return (
+                  <p className="text-xs text-[#8089A4]">
+                    A saved photo can be replaced, not removed, for now.
+                  </p>
+                )
+              }
+              return (
+                <button
+                  type="button"
+                  onClick={() => setImageUrl(savedBaseline)}
+                  className="w-fit text-xs font-semibold text-[#B91C1C] hover:underline"
+                >
+                  {savedBaseline ? 'Use the saved photo instead' : 'Remove photo'}
+                </button>
+              )
+            })()}
           </div>
 
           {isStructuredPickerId(state.pickerId) ? (

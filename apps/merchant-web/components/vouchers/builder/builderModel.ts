@@ -51,6 +51,10 @@ export interface BuilderState {
   selectedClauseIds: string[]
   customTerms: CustomTerm[]
   imageUrl?: string
+  /** The HYDRATED saved image (edit mode baseline). The PATCH contract has no
+   * nullable clear, so an already-saved image can be replaced but not removed;
+   * the UI constrains removal to session-uploaded photos (revert-to-saved). */
+  savedImageUrl?: string
   expiryDate?: string
   askHelp: boolean
   // TIME_LIMITED only.
@@ -228,7 +232,7 @@ export function toCreatePayload(state: BuilderState, categoryKey: CategoryKey = 
     description: effectiveDescription(state) || undefined,
     terms: structured ? termsText : termsText || undefined,
     imageUrl: state.imageUrl || undefined,
-    expiryDate: state.expiryDate || undefined,
+    expiryDate: normalizeExpiryDate(state.expiryDate || undefined),
     merchantFields,
   }
 
@@ -246,6 +250,14 @@ export function toCreatePayload(state: BuilderState, categoryKey: CategoryKey = 
   }
 
   return payload
+}
+
+// The date input emits YYYY-MM-DD; the backend accepts z.string().datetime().
+// Normalize a date-only value to UTC midnight ISO; pass a full ISO through
+// (hydrated values arrive as full ISO already).
+export function normalizeExpiryDate(v: string | undefined): string | undefined {
+  if (!v) return undefined
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T00:00:00.000Z` : v
 }
 
 // A sensible non-empty title for the time/reusable types (no compose logic).
@@ -268,6 +280,7 @@ export interface VoucherDetailPrefill {
   estimatedSaving?: number | null
   cooldownSeconds?: number | null
   availabilityWindows?: AvailabilityWindow[] | null
+  expiryDate?: string | null
   merchantFields?: Record<string, unknown> | null
 }
 
@@ -326,6 +339,8 @@ export function fromDetail(input: VoucherDetailPrefill): BuilderState {
     selectedClauseIds: savedIds ?? (legacyCustoms ? [] : base.selectedClauseIds),
     customTerms: savedCustoms ?? legacyCustoms ?? [],
     imageUrl: input.imageUrl ?? undefined,
+    savedImageUrl: input.imageUrl ?? undefined,
+    expiryDate: input.expiryDate ?? undefined,
     askHelp: bag.askHelp === true,
     availabilityWindows: input.availabilityWindows ?? [],
     // Loaded only when the detail payload actually carried a windows array.

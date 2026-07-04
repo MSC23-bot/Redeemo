@@ -122,6 +122,8 @@ export default function VoucherDetailPage() {
             initialSaving={voucher.estimatedSaving}
             initialWindows={voucher.availabilityWindows ?? null}
             initialCooldown={voucher.cooldownSeconds ?? null}
+            initialImageUrl={voucher.imageUrl ?? null}
+            initialExpiryDate={voucher.expiryDate ?? null}
             // The concierge diff only applies to an in-place edit, not a duplicate.
             initialAdminProposed={isDuplicate ? null : proposed}
             initialAdminNote={isDuplicate ? null : note}

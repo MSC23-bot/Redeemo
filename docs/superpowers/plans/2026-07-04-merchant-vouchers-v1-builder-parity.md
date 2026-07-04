@@ -12,6 +12,10 @@ V1 is safely independent of PR-G1b (#365, unmerged): it is bounded merchant-web 
 4. **TIME_LIMITED quick-start presets + explicit end-date toggle (S).** Presets for common window sets; a labeled "does this end on a date?" toggle wiring the EXISTING generic `expiryDate` field.
 5. **Docs hygiene (S).** Roadmap row 44: fill the Missing/gap column with the 4 recorded-deferred detail actions (request-change/end/run-again/withdraw). Day-2 spec §3.3 line 92: correct the stale "per-row redemption totals deferred" line (shipped code renders the count; only the prototype's big-stat treatment is absent). Spec §4.4: annotate the adminProposed windows/cooldown overstatement as the recorded deferral it became.
 
+## Recorded follow-up opened by this slice (API-contract gated)
+
+- **Saved-image clearing**: the voucher PATCH contract accepts an optional imageUrl but no nullable clear, so an already-saved photo can be REPLACED but not REMOVED. The builder constrains removal accordingly (session uploads revert to the saved baseline on edit; fresh/duplicate builders clear freely because CREATE-omission genuinely means no photo). Shipping true removal needs a deliberate contract change (nullable imageUrl on PATCH + backend handling) - owner/Codex gated, NOT smuggled into this slice.
+
 ## Explicitly EXCLUDED (owner-gated / recorded deferrals - do not touch)
 - Flagship "Always live" mislabel fix (owner-gated; memory instruction).
 - Read-only flagship detail page (recorded v1 deferral).
