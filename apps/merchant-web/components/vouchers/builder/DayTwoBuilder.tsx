@@ -16,8 +16,11 @@ import { TypePicker } from './TypePicker'
 import { BuilderFields } from './BuilderFields'
 import { BuilderPreview } from './BuilderPreview'
 import { BuilderScore } from './BuilderScore'
+import { TermsSection } from './TermsSection'
 import { ConciergeDiff } from '../ConciergeDiff'
 import { TextAreaField } from './fields'
+import { FileUpload } from '@/components/ui/file-upload'
+import { tierOf, type CustomTerm } from '@/lib/voucher/terms'
 import {
   emptyBuilderState,
   fromDetail,
@@ -25,6 +28,9 @@ import {
   effectiveTitle,
   effectiveDescription,
   effectiveSaving,
+  clausesFor,
+  composeTermsText,
+  isStructuredPickerId,
   type BuilderState,
   type DayTwoPickerId,
 } from './builderModel'
@@ -61,6 +67,10 @@ export interface DayTwoBuilderProps {
   initialSaving?: number | null
   initialWindows?: AvailabilityWindow[] | null
   initialCooldown?: number | null
+  /** Edit/duplicate prefill: the saved voucher photo + end date (preserved on
+   * save unless the user changes them). */
+  initialImageUrl?: string | null
+  initialExpiryDate?: string | null
   /** B6 concierge: the admin-proposed corrections + note (CHANGES_REQUESTED only). */
   initialAdminProposed?: AdminProposed | null
   initialAdminNote?: string | null
@@ -79,6 +89,8 @@ function seedState(props: DayTwoBuilderProps): BuilderState | null {
     estimatedSaving: props.initialSaving,
     cooldownSeconds: props.initialCooldown,
     availabilityWindows: props.initialWindows,
+    imageUrl: props.initialImageUrl,
+    expiryDate: props.initialExpiryDate,
     merchantFields: props.initialFields,
   })
 }
@@ -94,7 +106,7 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
   const save = useMutation({
     mutationFn: async (action: 'draft' | 'submit') => {
       if (!state) throw new Error('No voucher type selected')
-      const payload = toCreatePayload(state)
+      const payload = toCreatePayload(state, categoryKey)
       const saved = voucherId
         ? await updateVoucher(voucherId, payload)
         : await createVoucher(payload)
@@ -136,6 +148,27 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
   function setTerms(v: string) {
     setState((prev) => (prev ? { ...prev, terms: v } : prev))
   }
+  function toggleClause(id: string) {
+    setState((prev) => {
+      if (!prev) return prev
+      const next = new Set(prev.selectedClauseIds)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return { ...prev, selectedClauseIds: [...next] }
+    })
+  }
+  function addCustomTerm(term: CustomTerm) {
+    setState((prev) => (prev ? { ...prev, customTerms: [...prev.customTerms, term] } : prev))
+  }
+  function removeCustomTerm(index: number) {
+    setState((prev) => (prev ? { ...prev, customTerms: prev.customTerms.filter((_, i) => i !== index) } : prev))
+  }
+  function setImageUrl(url: string | undefined) {
+    setState((prev) => (prev ? { ...prev, imageUrl: url } : prev))
+  }
+  function setExpiryDate(v: string | undefined) {
+    setState((prev) => (prev ? { ...prev, expiryDate: v } : prev))
+  }
 
   // B6: apply the admin-proposed corrections into the form state.
   function applyAdminProposed(proposed: AdminProposed) {
@@ -144,7 +177,22 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
       const next: BuilderState = { ...prev }
       if (typeof proposed.title === 'string') next.titleOverride = proposed.title
       if (typeof proposed.description === 'string') next.descriptionOverride = proposed.description
-      if (typeof proposed.terms === 'string') next.terms = proposed.terms
+      if (typeof proposed.terms === 'string') {
+        if (isStructuredPickerId(prev.pickerId)) {
+          // Structured types compose their terms from the checklist model, so the
+          // admin's proposed terms text must land THERE (as verbatim custom lines,
+          // replacing the current selections) or it would be silently dropped by
+          // toCreatePayload. Mirrors the legacy free-text conversion in fromDetail.
+          next.selectedClauseIds = []
+          next.customTerms = proposed.terms
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .map((text) => ({ text, tier: tierOf(text) }))
+        } else {
+          next.terms = proposed.terms
+        }
+      }
       if (typeof proposed.estimatedSaving === 'number') next.savingOverride = proposed.estimatedSaving
       if (Array.isArray(proposed.availabilityWindows)) {
         next.availabilityWindows = proposed.availabilityWindows
@@ -186,7 +234,9 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
   const currentForDiff = {
     title: effectiveTitle(state),
     description: effectiveDescription(state),
-    terms: state.terms,
+    // Structured types keep their terms in the checklist model; compose so the
+    // diff's "Your version" row shows the real current terms, not stale state.terms.
+    terms: isStructuredPickerId(state.pickerId) ? composeTermsText(state, categoryKey) : state.terms,
     estimatedSaving: effectiveSaving(state),
   }
 
@@ -216,6 +266,8 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
             onFields={patchFields}
             onWindows={setWindows}
             onCooldown={setCooldown}
+            onExpiryDate={setExpiryDate}
+            lockEndDateRemoval={!!voucherId && !!state.savedExpiryDate}
           />
 
           <TextAreaField
@@ -225,12 +277,63 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
             placeholder="Tell customers why they will love this offer."
           />
 
-          <TextAreaField
-            label="Terms (optional)"
-            value={state.terms ?? ''}
-            onChange={setTerms}
-            placeholder="Any conditions a customer should know."
-          />
+          {/* Voucher photo (V1): the backend photo kind is gated on voucher-management
+              power, matching this builder's capability gate. Optional; a photo lifts
+              the advisory score.
+              REMOVAL CONSTRAINT (Codex round): the PATCH contract has no nullable
+              clear, so on an EDIT an already-saved photo can be REPLACED but not
+              removed - omitting the key preserves the stored image. Removal is
+              offered only for a photo that is not the saved baseline (a
+              session upload reverts to the saved one; a fresh/duplicate builder
+              clears freely because CREATE-omission genuinely means no photo).
+              Saved-image clearing needs a nullable API field: recorded follow-up. */}
+          <div className="flex flex-col gap-1.5">
+            <FileUpload
+              kind="photo"
+              label={state.imageUrl ? 'Replace photo' : 'Add a photo (optional)'}
+              hint="JPG or PNG, landscape, at least 1200 by 600 pixels, up to 5 MB."
+              onUploaded={(url) => setImageUrl(url)}
+            />
+            {(() => {
+              const isEdit = !!voucherId
+              const savedBaseline = isEdit ? state.savedImageUrl : undefined
+              if (!state.imageUrl) return null
+              if (savedBaseline && state.imageUrl === savedBaseline) {
+                return (
+                  <p className="text-xs text-[#8089A4]">
+                    A saved photo can be replaced, not removed, for now.
+                  </p>
+                )
+              }
+              return (
+                <button
+                  type="button"
+                  onClick={() => setImageUrl(savedBaseline)}
+                  className="w-fit text-xs font-semibold text-[#B91C1C] hover:underline"
+                >
+                  {savedBaseline ? 'Use the saved photo instead' : 'Remove photo'}
+                </button>
+              )
+            })()}
+          </div>
+
+          {isStructuredPickerId(state.pickerId) ? (
+            <TermsSection
+              clauses={clausesFor(state, categoryKey)}
+              selectedIds={new Set(state.selectedClauseIds)}
+              onToggle={toggleClause}
+              customs={state.customTerms}
+              onAddCustom={addCustomTerm}
+              onRemoveCustom={removeCustomTerm}
+            />
+          ) : (
+            <TextAreaField
+              label="Terms (optional)"
+              value={state.terms ?? ''}
+              onChange={setTerms}
+              placeholder="Any conditions a customer should know."
+            />
+          )}
         </div>
 
         <div className="space-y-4">

@@ -38,6 +38,11 @@ interface FieldsProps {
   onFields: (patch: Partial<DraftFields>) => void
   onWindows: (windows: AvailabilityWindow[]) => void
   onCooldown: (seconds: number) => void
+  onExpiryDate: (date: string | undefined) => void
+  /** EDIT mode with a hydrated end date: the PATCH contract has no nullable
+   * clear, so unticking would silently KEEP the stored date - the toggle is
+   * locked to honest change-only behaviour (mirrors the saved-photo rule). */
+  lockEndDateRemoval?: boolean
 }
 
 export function BuilderFields(props: FieldsProps) {
@@ -197,8 +202,26 @@ function PackageFields({ state, categoryKey, onFields }: FieldsProps) {
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-function TimeLimitedFields({ state, onWindows }: FieldsProps) {
+// V1 quick-start presets (prototype parity): one tap seeds a common window set;
+// the rows stay fully editable afterwards.
+const WINDOW_PRESETS: Array<{ label: string; windows: AvailabilityWindow[] }> = [
+  {
+    label: 'Weekday lunchtimes',
+    windows: [1, 2, 3, 4, 5].map((d) => ({ dayOfWeek: d, openTime: '12:00', closeTime: '14:30' })),
+  },
+  {
+    label: 'Weekday early evenings',
+    windows: [1, 2, 3, 4].map((d) => ({ dayOfWeek: d, openTime: '17:00', closeTime: '19:00' })),
+  },
+  {
+    label: 'Weekend mornings',
+    windows: [6, 0].map((d) => ({ dayOfWeek: d, openTime: '10:00', closeTime: '12:00' })),
+  },
+]
+
+function TimeLimitedFields({ state, onWindows, onExpiryDate, lockEndDateRemoval = false }: FieldsProps) {
   const windows = state.availabilityWindows
+  const hasEndDate = typeof state.expiryDate === 'string' && state.expiryDate.length > 0
   function addWindow() {
     onWindows([...windows, { dayOfWeek: 1, openTime: '14:00', closeTime: '17:00' }])
   }
@@ -215,6 +238,20 @@ function TimeLimitedFields({ state, onWindows }: FieldsProps) {
         helper="Add one or more day-and-time windows. Customers can only redeem inside a window."
       >
         <div className="flex flex-col gap-3">
+          {windows.length === 0 ? (
+            <div className="flex flex-wrap gap-2" data-testid="window-presets">
+              {WINDOW_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => onWindows(p.windows)}
+                  className="inline-flex h-9 items-center rounded-full border border-[#D7DBE2] bg-white px-3.5 text-[13px] font-semibold text-[#1F2A4A] hover:border-[#E20C04] hover:bg-[#FEF6F5]"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {windows.map((w, idx) => (
             <div key={idx} className="flex flex-wrap items-end gap-2 rounded-[12px] border border-[#E5E7EB] bg-white p-3">
               <label className="flex flex-col gap-1 text-xs font-medium text-[#010C35]">
@@ -270,6 +307,41 @@ function TimeLimitedFields({ state, onWindows }: FieldsProps) {
           </button>
         </div>
       </FieldBlock>
+
+      {/* V1: an explicit end-date affordance for the EXISTING generic expiryDate
+          field (prototype parity - previously reachable only via prefill). */}
+      <FieldBlock heading="Does this offer end on a date?" helper="Optional. Leave off and the offer runs until you end it.">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-[#010C35]">
+            <input
+              type="checkbox"
+              checked={hasEndDate}
+              disabled={lockEndDateRemoval}
+              onChange={(e) => {
+                // Seed from the LOCAL calendar date (en-CA = YYYY-MM-DD), not the
+                // UTC date, so early-hours UTC+ users do not see yesterday.
+                onExpiryDate(e.target.checked ? new Date().toLocaleDateString('en-CA') : undefined)
+              }}
+              className="size-4 accent-[#E20C04]"
+            />
+            Ends on a date
+          </label>
+          {hasEndDate ? (
+            <input
+              type="date"
+              aria-label="End date"
+              value={(state.expiryDate ?? '').slice(0, 10)}
+              onChange={(e) => onExpiryDate(e.target.value || undefined)}
+              className="h-9 rounded-[10px] border border-[#D1D5DB] bg-white px-2 text-sm text-[#010C35]"
+            />
+          ) : null}
+          {lockEndDateRemoval ? (
+            <p className="w-full text-xs text-[#8089A4]">
+              A saved end date can be changed, not removed, for now.
+            </p>
+          ) : null}
+        </div>
+      </FieldBlock>
     </div>
   )
 }
@@ -283,8 +355,37 @@ const COOLDOWN_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 604800, label: '1 week' },
 ]
 
+const CUSTOM_UNITS: Array<{ id: 'hours' | 'days' | 'weeks'; label: string; seconds: number }> = [
+  { id: 'hours', label: 'hours', seconds: 3600 },
+  { id: 'days', label: 'days', seconds: 86400 },
+  { id: 'weeks', label: 'weeks', seconds: 604800 },
+]
+
 function ReusableFields({ state, onCooldown }: FieldsProps) {
   const current = state.cooldownSeconds ?? REUSABLE_COOLDOWN_FLOOR
+  const presetActive = COOLDOWN_OPTIONS.some((o) => o.value === current)
+  // V1 custom interval (prototype parity): "every N unit" beyond the presets.
+  // The floor stays server-validated; the UI clamps for fast feedback.
+  // Hydrate from the SAVED value when editing a custom-cooldown voucher (largest
+  // unit that divides evenly), so the fields reflect reality instead of a default.
+  const seed = React.useMemo(() => {
+    if (!presetActive && current > 0) {
+      for (const u of [...CUSTOM_UNITS].reverse()) {
+        if (current % u.seconds === 0) return { n: String(current / u.seconds), unit: u.id }
+      }
+      return { n: String(Math.max(1, Math.round(current / 3600))), unit: 'hours' as const }
+    }
+    return { n: '2', unit: 'days' as const }
+    // Seed once from the initial value; later edits are user-driven.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const [customN, setCustomN] = React.useState(seed.n)
+  const [customUnit, setCustomUnit] = React.useState<'hours' | 'days' | 'weeks'>(seed.unit)
+  function applyCustom(nRaw: string, unitId: 'hours' | 'days' | 'weeks') {
+    const n = Math.max(1, Math.floor(Number(nRaw) || 0))
+    const unit = CUSTOM_UNITS.find((u) => u.id === unitId)!
+    onCooldown(Math.max(REUSABLE_COOLDOWN_FLOOR, n * unit.seconds))
+  }
   return (
     <div className="flex flex-col gap-4">
       <FieldBlock
@@ -311,6 +412,39 @@ function ReusableFields({ state, onCooldown }: FieldsProps) {
               </button>
             )
           })}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="custom-cooldown">
+          <span className="text-[13px] font-semibold text-[#1F2A4A]">Or every</span>
+          <input
+            type="number"
+            min={1}
+            aria-label="Custom cooldown amount"
+            value={customN}
+            onChange={(e) => {
+              setCustomN(e.target.value)
+              applyCustom(e.target.value, customUnit)
+            }}
+            className="h-9 w-20 rounded-[10px] border border-[#D1D5DB] bg-white px-2 text-sm text-[#010C35]"
+          />
+          <select
+            aria-label="Custom cooldown unit"
+            value={customUnit}
+            onChange={(e) => {
+              const unit = e.target.value as 'hours' | 'days' | 'weeks'
+              setCustomUnit(unit)
+              applyCustom(customN, unit)
+            }}
+            className="h-9 rounded-[10px] border border-[#D1D5DB] bg-white px-2 text-sm text-[#010C35]"
+          >
+            {CUSTOM_UNITS.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.label}
+              </option>
+            ))}
+          </select>
+          {!presetActive ? (
+            <span className="text-xs font-semibold text-[#0F7A3E]">Custom interval applied</span>
+          ) : null}
         </div>
       </FieldBlock>
     </div>

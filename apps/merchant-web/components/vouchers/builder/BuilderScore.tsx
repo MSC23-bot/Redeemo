@@ -1,7 +1,6 @@
 'use client'
 
 import { scoreVoucher, PLATFORM_FRAMING, type CalKey, type ScoreType } from '@/lib/voucher/scoring'
-import { buildClauseList } from '@/lib/voucher/terms'
 import { resolveCategoryKey } from '@/lib/voucher/config'
 import {
   effectiveTitle,
@@ -10,6 +9,7 @@ import {
   effectiveSavingPercent,
   descIsUntouched,
   isStructuredPickerId,
+  selectedClausesFor,
   type BuilderState,
 } from './builderModel'
 
@@ -36,17 +36,10 @@ export function BuilderScore({
   const categoryKey = resolveCategoryKey(categoryName)
   const type = state.pickerId as ScoreType
   const f = state.fields
-  // The built-in selected clauses for the live type (default selection) - drives
-  // the term-stacking inputs to the score. Customs are not surfaced in the day-2
-  // builder UI yet, so the score uses the built-in defaults only.
-  const selectedClauses = buildClauseList({
-    type: state.pickerId,
-    categoryKey,
-    spendAmt: f.spendAmount,
-    freeNeedsPurchase: f.freeNeedsPurchase,
-    discountKind: f.discountKind,
-    discMin: f.discMin,
-  })
+  // V1: the score now consumes the REAL builder selections (the same
+  // selectedClauseIds + customTerms the TermsSection edits and the payload
+  // composes) instead of the whole built-in pool with empty customs.
+  const selectedClauses = selectedClausesFor(state, categoryKey)
 
   const result = scoreVoucher({
     type,
@@ -59,7 +52,7 @@ export function BuilderScore({
     freeStandalone: state.pickerId === 'freebie' && !f.freeNeedsPurchase,
     reuseFrequent: false,
     selectedClauses,
-    customs: [],
+    customs: state.customTerms,
   })
 
   return (
