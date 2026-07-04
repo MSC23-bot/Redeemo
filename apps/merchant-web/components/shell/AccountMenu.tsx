@@ -88,7 +88,10 @@ export function AccountMenu({
 
   const initials = businessInitials(businessName)
   const label = roleLabel(role)
-  const showBusinessProfile = role !== 'STAFF'
+  // Positive allowlist (fail closed): an unresolved/unknown role does NOT see
+  // Business profile until the role is positively known (Codex correction 3;
+  // matches the sidebar's least-privilege baseline).
+  const showBusinessProfile = role === 'OWNER' || role === 'BRANCH_MANAGER'
 
   return (
     <div style={{ position: 'relative' }}>

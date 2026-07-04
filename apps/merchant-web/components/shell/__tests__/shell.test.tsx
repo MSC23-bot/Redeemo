@@ -36,7 +36,15 @@ let mockSession: SessionShape
 jest.mock('@/lib/auth/session', () => ({ useSession: () => mockSession }))
 jest.mock('@/lib/auth/useMerchantProfile', () => ({
   useMerchantProfile: () => ({
-    data: { status: 'REGISTERED', onboardingStep: 'REGISTERED', businessName: 'Test Co' },
+    data: {
+      status: 'REGISTERED',
+      onboardingStep: 'REGISTERED',
+      businessName: 'Test Co',
+      // Codex correction 3: the nav is a positive-allowlist on role, so the
+      // shell tests exercise a resolved OWNER (the fail-closed states are
+      // pinned in sidebar/mobile-tab-bar/navItems tests).
+      viewerCapabilities: { canViewInsights: false, canManageVouchers: true, role: 'OWNER', displayName: 'Priya Shah' },
+    },
     isLoading: false,
   }),
 }))

@@ -37,7 +37,8 @@ export const merchantProfileSchema = z
     // account-menu identity line and nav filtering). The whole object is OPTIONAL and
     // every added field tolerates absence so a backend that has not deployed a field
     // yet, or a loading state, still parses cleanly; consumers FAIL CLOSED (absent ->
-    // hidden Insights nav, no create-voucher/PIN quick actions, role-neutral nav).
+    // hidden Insights nav, no create-voucher/PIN quick actions, and the
+    // least-privilege baseline nav until the role is positively known).
     viewerCapabilities: z
       .object({
         canViewInsights: z.boolean(),

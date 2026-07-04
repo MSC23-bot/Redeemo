@@ -98,11 +98,19 @@ describe('Topbar', () => {
     expect(onSignOut).toHaveBeenCalledTimes(1)
   })
 
-  it('hides Business profile in the account menu for STAFF', () => {
-    renderTopbar(<Topbar onMenu={() => {}} businessName="Roe Cafe" role="STAFF" />)
+  // Codex correction 3: Business profile is a positive allowlist (OWNER/BM) -
+  // STAFF, an unresolved (null) role and unknown future roles all fail closed.
+  it.each([['STAFF'], [null], ['AUDITOR']])('hides Business profile in the account menu for role %s', (role) => {
+    renderTopbar(<Topbar onMenu={() => {}} businessName="Roe Cafe" role={role as string | null} />)
     fireEvent.click(screen.getByRole('button', { name: /account menu/i }))
     expect(screen.queryByRole('menuitem', { name: /business profile/i })).not.toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /my account/i })).toBeInTheDocument()
+  })
+
+  it('shows Business profile for BRANCH_MANAGER', () => {
+    renderTopbar(<Topbar onMenu={() => {}} businessName="Roe Cafe" role="BRANCH_MANAGER" />)
+    fireEvent.click(screen.getByRole('button', { name: /account menu/i }))
+    expect(screen.getByRole('menuitem', { name: /business profile/i })).toBeInTheDocument()
   })
 
   it('closes the account menu on Escape and returns focus to the trigger (a11y)', () => {

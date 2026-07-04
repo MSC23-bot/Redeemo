@@ -28,11 +28,18 @@ export default function VouchersPage() {
   const searchParams = useSearchParams()
   const { canManage } = useVoucherCapability()
   const categoryName = useVoucherCategoryName()
-  // Shell wave: /vouchers?create=1 (the topbar Quick Action) opens the builder
-  // immediately - but only for a viewer who can manage vouchers.
-  const [creating, setCreating] = React.useState(
-    () => searchParams?.get('create') === '1',
-  )
+  // Shell wave: /vouchers?create=1 (the topbar Quick Action) opens the builder -
+  // but only for a viewer who can manage vouchers. The deep-link must also work
+  // SAME-PAGE (Quick Action fired while already on /vouchers keeps the page
+  // mounted), so the effect below reacts to the param APPEARING after mount.
+  // Cancel strips the param (router.replace below); because the effect only
+  // fires on a wantCreate transition to true, a cancelled builder does not
+  // reopen until the param transitions again.
+  const wantCreate = searchParams?.get('create') === '1'
+  const [creating, setCreating] = React.useState(wantCreate)
+  React.useEffect(() => {
+    if (wantCreate) setCreating(true)
+  }, [wantCreate])
   const allowCreating = creating && canManage
 
   const custom = useQuery({
@@ -69,6 +76,9 @@ export default function VouchersPage() {
             }}
             onDone={({ id }) => {
               setCreating(false)
+              // push (not replace) is deliberate: Back from the new voucher's
+              // detail returns to /vouchers?create=1 and reopens the builder -
+              // browser-normal deep-link semantics for a completed create.
               router.push(`/vouchers/${id}`)
             }}
           />

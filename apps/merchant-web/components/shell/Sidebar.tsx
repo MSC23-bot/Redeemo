@@ -53,9 +53,10 @@ function NavRow({ item, active = false, collapsed = false, onNavigate }: {
 /**
  * Left sidebar (shell wave).
  * - Active route highlighting via usePathname (prototype: tint bg + inset navy bar).
- * - Role-aware nav via visibleNavGroups (STAFF minimal; Grow group owner-only;
- *   unknown role = role-neutral baseline). `canViewInsights` keeps its original
- *   fail-closed contract; backend authz remains the real boundary.
+ * - Role-aware nav via visibleNavGroups (positive allowlist: OWNER/BM get the
+ *   full nav, Grow group owner-only; STAFF, null and unknown roles get the
+ *   least-privilege baseline). `canViewInsights` keeps its original fail-closed
+ *   contract; backend authz remains the real boundary.
  * - `collapsed` renders the 72px icon-only rail (labels, group titles, badges and
  *   status text hidden; dot-only status pill).
  * - `onNavigate` lets the narrow drawer close itself when a nav item is tapped.

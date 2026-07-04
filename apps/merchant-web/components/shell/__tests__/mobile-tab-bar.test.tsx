@@ -25,8 +25,10 @@ describe('MobileTabBar', () => {
     expect(screen.getByText('Insights')).toBeInTheDocument()
   })
 
-  it('drops Vouchers + Insights for STAFF', () => {
-    render(<MobileTabBar role="STAFF" canViewInsights={false} />)
+  // Codex correction 3: STAFF, null (loading) and unknown roles all get the
+  // least-privilege baseline tabs (fail closed).
+  it.each([['STAFF'], [null], ['AUDITOR']])('drops Vouchers + Insights for role %s', (role) => {
+    render(<MobileTabBar role={role as string | null} canViewInsights={false} />)
     expect(screen.getByText('Home')).toBeInTheDocument()
     expect(screen.getByText('Redemptions')).toBeInTheDocument()
     expect(screen.queryByText('Vouchers')).not.toBeInTheDocument()
@@ -45,7 +47,12 @@ describe('mobileTabItems', () => {
   it('returns the full curated set for OWNER with insights', () => {
     expect(mobileTabItems('OWNER', true).map((t) => t.href)).toEqual(['/', '/vouchers', '/redemptions', '/insights'])
   })
-  it('fails closed on unknown role for insights only', () => {
-    expect(mobileTabItems(null, false).map((t) => t.href)).toEqual(['/', '/vouchers', '/redemptions'])
+  it('fails closed to the baseline on null/unknown roles', () => {
+    expect(mobileTabItems(null, false).map((t) => t.href)).toEqual(['/', '/redemptions'])
+    expect(mobileTabItems('AUDITOR', true).map((t) => t.href)).toEqual(['/', '/redemptions'])
+  })
+  it('BRANCH_MANAGER keeps Vouchers, with Insights per capability', () => {
+    expect(mobileTabItems('BRANCH_MANAGER', true).map((t) => t.href)).toEqual(['/', '/vouchers', '/redemptions', '/insights'])
+    expect(mobileTabItems('BRANCH_MANAGER', false).map((t) => t.href)).toEqual(['/', '/vouchers', '/redemptions'])
   })
 })

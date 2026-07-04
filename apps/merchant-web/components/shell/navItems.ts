@@ -55,27 +55,33 @@ export const PINNED_ITEMS: NavItem[] = [
  * unknown/future role falls into the fail-closed baseline, never a wider view). */
 export type ViewerRole = string | null
 
-const STAFF_HREFS = new Set(['/', '/redemptions', '/account', '/help'])
+// Least-privilege baseline: what EVERY member may see regardless of role
+// (Home, Redemptions, and the pinned My account / Help & support). This is also
+// exactly the prototype's STAFF route set.
+const BASELINE_HREFS = new Set(['/', '/redemptions', '/account', '/help'])
+// Positive allowlist for the full management nav. An unresolved (null) or
+// unknown/future role gets ONLY the baseline - wider affordances appear when
+// the role is positively known (fail closed; backend authz stays the boundary).
+const FULL_NAV_ROLES = new Set(['OWNER', 'BRANCH_MANAGER'])
 const GROW_TITLE = 'Grow your business'
 
 /**
- * Prototype ROLE_ROUTES filtering.
- * - STAFF: Home + Redemptions in the main nav (pinned My account / Help stay).
- * - BRANCH_MANAGER: all standard groups; the owner-only Grow group is hidden.
- * - OWNER: everything, including the Grow group.
- * - Unknown/absent role (loading, backend field not yet deployed): the role-neutral
- *   baseline - all standard groups WITHOUT the owner-only Grow group. Gated items
- *   (Insights via canViewInsights, Grow via role) FAIL CLOSED until positively known.
- * Insights visibility stays driven by `canViewInsights` exactly as before.
+ * Prototype ROLE_ROUTES filtering, fail-closed:
+ * - OWNER: everything, including the owner-only Grow group.
+ * - BRANCH_MANAGER: all standard groups; Grow hidden.
+ * - STAFF, null (loading / backend field not deployed), or any unknown future
+ *   role: the least-privilege baseline (Home + Redemptions; pinned items stay).
+ * Insights visibility stays additionally driven by `canViewInsights`.
  */
 export function visibleNavGroups(role: ViewerRole, canViewInsights: boolean): NavGroup[] {
+  const fullNav = role !== null && FULL_NAV_ROLES.has(role)
   return NAV_GROUPS
     .filter((group) => group.title !== GROW_TITLE || role === 'OWNER')
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
         if (item.href === '/insights' && !canViewInsights) return false
-        if (role === 'STAFF' && !STAFF_HREFS.has(item.href)) return false
+        if (!fullNav && !BASELINE_HREFS.has(item.href)) return false
         return true
       }),
     }))
@@ -89,9 +95,11 @@ export function visiblePinnedItems(): NavItem[] {
 
 /**
  * Narrow-viewport bottom tab bar (prototype responsive spec): Home, Vouchers,
- * Redemptions, Insights - filtered by the same role/capability rules.
+ * Redemptions, Insights - filtered by the same fail-closed role/capability rules
+ * (an unresolved/unknown role gets only the baseline tabs).
  */
 export function mobileTabItems(role: ViewerRole, canViewInsights: boolean): NavItem[] {
+  const fullNav = role !== null && FULL_NAV_ROLES.has(role)
   const tabs: NavItem[] = [
     HOME_ITEM,
     { label: 'Vouchers', href: '/vouchers', icon: Ticket },
@@ -100,7 +108,7 @@ export function mobileTabItems(role: ViewerRole, canViewInsights: boolean): NavI
   ]
   return tabs.filter((t) => {
     if (t.href === '/insights' && !canViewInsights) return false
-    if (role === 'STAFF' && !STAFF_HREFS.has(t.href)) return false
+    if (!fullNav && !BASELINE_HREFS.has(t.href)) return false
     return true
   })
 }

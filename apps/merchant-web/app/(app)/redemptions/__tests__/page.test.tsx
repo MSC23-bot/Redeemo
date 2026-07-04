@@ -178,6 +178,45 @@ describe('RedemptionsPage (F1 log + filters)', () => {
 })
 
 describe('RedemptionsPage range=today deep-link (shell wave Quick Action)', () => {
+  it('SAME-PAGE Quick Action: an in-place transition to range=today REPLACES the filters and resets paging', async () => {
+    // Codex correction 2: firing the Quick Action while already on /redemptions
+    // keeps the page mounted; the param-transition effect must apply the today
+    // filter, replacing whatever was set before.
+    searchParams = new URLSearchParams('voucherId=v1')
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const pageUi = () => (
+      <QueryClientProvider client={qc}>
+        <RedemptionsPage />
+      </QueryClientProvider>
+    )
+    const view = render(pageUi())
+    await screen.findByText('Free coffee')
+    await waitFor(() =>
+      expect(listRedemptions).toHaveBeenCalledWith(expect.objectContaining({ voucherId: 'v1' })),
+    )
+    // Quick Action fires in place: the URL gains range=today (no remount).
+    searchParams = new URLSearchParams('range=today')
+    view.rerender(pageUi())
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = String(now.getMonth() + 1).padStart(2, '0')
+    const d = String(now.getDate()).padStart(2, '0')
+    const todayFrom = `${y}-${m}-${d}T00:00:00.000Z`
+    await waitFor(() => {
+      const last = listRedemptions.mock.calls.at(-1)![0] as Record<string, unknown>
+      expect(last.from).toBe(todayFrom)
+      expect(last.voucherId).toBeUndefined() // REPLACED, not merged
+      expect(last.offset).toBe(0)
+    })
+    // Repeated rerenders with the param unchanged do NOT re-apply the filter
+    // (transition-based, so later user edits are never clobbered).
+    const callsAfter = listRedemptions.mock.calls.length
+    view.rerender(pageUi())
+    view.rerender(pageUi())
+    expect(listRedemptions.mock.calls.length).toBe(callsAfter)
+  })
+
   it("seeds the From filter to today's local calendar date at UTC midnight (matches a manual pick)", async () => {
     searchParams = new URLSearchParams('range=today')
     listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
