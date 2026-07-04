@@ -256,6 +256,46 @@ describe('TIME_LIMITED presets + end date', () => {
   })
 })
 
+describe('saved end-date lock on edits (review F1 - same omission semantics as photos)', () => {
+  it('an EDIT with a hydrated end date locks the toggle and shows the honest note', () => {
+    renderBuilder({
+      voucherId: 'v1',
+      initialType: 'TIME_LIMITED',
+      initialTitle: 'Happy hour',
+      initialExpiryDate: '2026-12-01T00:00:00.000Z',
+    })
+    const box = screen.getByRole('checkbox', { name: /ends on a date/i })
+    expect(box).toBeChecked()
+    expect(box).toBeDisabled()
+    expect(screen.getByText(/a saved end date can be changed, not removed, for now/i)).toBeInTheDocument()
+    // The DATE stays editable (change-only contract).
+    expect(screen.getByLabelText(/^end date$/i)).toBeEnabled()
+  })
+
+  it('a DUPLICATE with a source end date keeps the toggle free (create-omission is truthful)', () => {
+    renderBuilder({
+      initialType: 'TIME_LIMITED',
+      initialTitle: 'Happy hour (copy)',
+      initialExpiryDate: '2026-12-01T00:00:00.000Z',
+    })
+    const box = screen.getByRole('checkbox', { name: /ends on a date/i })
+    expect(box).toBeChecked()
+    expect(box).toBeEnabled()
+  })
+})
+
+describe('duplicate free photo removal (review F2 pin)', () => {
+  it('a DUPLICATE with a source photo offers free Remove (not the replace-only note)', () => {
+    renderBuilder({
+      initialType: 'FREEBIE',
+      initialTitle: 'Free coffee (copy)',
+      initialImageUrl: 'https://cdn.example/saved.png',
+    })
+    expect(screen.getByRole('button', { name: /remove photo/i })).toBeInTheDocument()
+    expect(screen.queryByText(/a saved photo can be replaced, not removed/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('expiryDate + imageUrl hydration and contract (Codex round)', () => {
   it('the date-only UI value normalizes to a literal ISO datetime in the outgoing payload', async () => {
     renderBuilder()

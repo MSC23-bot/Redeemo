@@ -39,6 +39,10 @@ interface FieldsProps {
   onWindows: (windows: AvailabilityWindow[]) => void
   onCooldown: (seconds: number) => void
   onExpiryDate: (date: string | undefined) => void
+  /** EDIT mode with a hydrated end date: the PATCH contract has no nullable
+   * clear, so unticking would silently KEEP the stored date - the toggle is
+   * locked to honest change-only behaviour (mirrors the saved-photo rule). */
+  lockEndDateRemoval?: boolean
 }
 
 export function BuilderFields(props: FieldsProps) {
@@ -215,7 +219,7 @@ const WINDOW_PRESETS: Array<{ label: string; windows: AvailabilityWindow[] }> = 
   },
 ]
 
-function TimeLimitedFields({ state, onWindows, onExpiryDate }: FieldsProps) {
+function TimeLimitedFields({ state, onWindows, onExpiryDate, lockEndDateRemoval = false }: FieldsProps) {
   const windows = state.availabilityWindows
   const hasEndDate = typeof state.expiryDate === 'string' && state.expiryDate.length > 0
   function addWindow() {
@@ -312,6 +316,7 @@ function TimeLimitedFields({ state, onWindows, onExpiryDate }: FieldsProps) {
             <input
               type="checkbox"
               checked={hasEndDate}
+              disabled={lockEndDateRemoval}
               onChange={(e) => {
                 // Seed from the LOCAL calendar date (en-CA = YYYY-MM-DD), not the
                 // UTC date, so early-hours UTC+ users do not see yesterday.
@@ -329,6 +334,11 @@ function TimeLimitedFields({ state, onWindows, onExpiryDate }: FieldsProps) {
               onChange={(e) => onExpiryDate(e.target.value || undefined)}
               className="h-9 rounded-[10px] border border-[#D1D5DB] bg-white px-2 text-sm text-[#010C35]"
             />
+          ) : null}
+          {lockEndDateRemoval ? (
+            <p className="w-full text-xs text-[#8089A4]">
+              A saved end date can be changed, not removed, for now.
+            </p>
           ) : null}
         </div>
       </FieldBlock>

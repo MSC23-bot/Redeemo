@@ -15,6 +15,7 @@ V1 is safely independent of PR-G1b (#365, unmerged): it is bounded merchant-web 
 ## Recorded follow-up opened by this slice (API-contract gated)
 
 - **Saved-image clearing**: the voucher PATCH contract accepts an optional imageUrl but no nullable clear, so an already-saved photo can be REPLACED but not REMOVED. The builder constrains removal accordingly (session uploads revert to the saved baseline on edit; fresh/duplicate builders clear freely because CREATE-omission genuinely means no photo). Shipping true removal needs a deliberate contract change (nullable imageUrl on PATCH + backend handling) - owner/Codex gated, NOT smuggled into this slice.
+- **Saved end-date clearing**: identical PATCH-omission semantics apply to expiryDate (adversarial-review F1) - unticking "Ends on a date" on an EDIT would silently keep the stored expiry. The toggle is therefore LOCKED on edits with a saved end date ("A saved end date can be changed, not removed, for now."); duplicates/new vouchers keep the free toggle. True clearing rides the same gated nullable-field contract follow-up as the photo.
 
 ## Explicitly EXCLUDED (owner-gated / recorded deferrals - do not touch)
 - Flagship "Always live" mislabel fix (owner-gated; memory instruction).

@@ -56,6 +56,10 @@ export interface BuilderState {
    * the UI constrains removal to session-uploaded photos (revert-to-saved). */
   savedImageUrl?: string
   expiryDate?: string
+  /** The HYDRATED saved end date (edit mode baseline). Same PATCH-omission
+   * semantics as savedImageUrl: no nullable clear exists, so a saved end date
+   * can be changed but not removed; the UI constrains the toggle on edits. */
+  savedExpiryDate?: string
   askHelp: boolean
   // TIME_LIMITED only.
   availabilityWindows: AvailabilityWindow[]
@@ -341,6 +345,7 @@ export function fromDetail(input: VoucherDetailPrefill): BuilderState {
     imageUrl: input.imageUrl ?? undefined,
     savedImageUrl: input.imageUrl ?? undefined,
     expiryDate: input.expiryDate ?? undefined,
+    savedExpiryDate: input.expiryDate ?? undefined,
     askHelp: bag.askHelp === true,
     availabilityWindows: input.availabilityWindows ?? [],
     // Loaded only when the detail payload actually carried a windows array.

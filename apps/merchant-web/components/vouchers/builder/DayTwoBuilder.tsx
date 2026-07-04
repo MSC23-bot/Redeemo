@@ -267,6 +267,7 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
             onWindows={setWindows}
             onCooldown={setCooldown}
             onExpiryDate={setExpiryDate}
+            lockEndDateRemoval={!!voucherId && !!state.savedExpiryDate}
           />
 
           <TextAreaField
