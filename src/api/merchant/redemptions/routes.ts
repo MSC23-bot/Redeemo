@@ -22,7 +22,12 @@ const filterSchema = z.object({
   // the Vouchers detail page). ANDed with branch.merchantId so a cross-tenant
   // voucherId yields an empty result rather than leaking another merchant's data.
   voucherId: z.string().optional(),
-  code: z.string().optional(),
+  // Capped: the term feeds an indexed code-prefix match AND an UNINDEXED
+  // tenant-bounded voucher-title ILIKE, so an unbounded string is pointless
+  // cost (review F1). 64 chars comfortably covers codes + realistic titles.
+  code: z.string().max(64).optional(),
+  // Redemptions fidelity: ordering for list + CSV. Default recency.
+  sort: z.enum(['recent', 'saving']).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
   offset: z.coerce.number().int().min(0).default(0),
 })

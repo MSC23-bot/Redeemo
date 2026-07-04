@@ -66,6 +66,8 @@ export interface RedemptionFilters {
   // builder already serialises this key once it is on the typed filter shape.
   voucherId?: string
   code?: string
+  // Redemptions fidelity: 'recent' (default) or 'saving'; applied to CSV too.
+  sort?: 'recent' | 'saving'
   limit?: number
   offset?: number
 }

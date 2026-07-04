@@ -155,3 +155,21 @@ describe('exportRedemptionsCsvPath', () => {
     expect(exportRedemptionsCsvPath()).toBe('/api/v1/merchant/redemptions/export.csv')
   })
 })
+
+describe('sort serialisation (fidelity slice)', () => {
+  it('listRedemptions serialises the sort key into the querystring', async () => {
+    apiFetch.mockResolvedValueOnce({ items: [], total: 0, limit: 25, offset: 0 })
+    await listRedemptions({ sort: 'saving' })
+    expect(apiFetch).toHaveBeenCalledWith(
+      expect.stringContaining('sort=saving'),
+      expect.anything(),
+    )
+  })
+
+  it('exportRedemptionsCsvPath carries sort but strips pagination', () => {
+    const path = exportRedemptionsCsvPath({ sort: 'saving', limit: 25, offset: 50 })
+    expect(path).toContain('sort=saving')
+    expect(path).not.toContain('limit=')
+    expect(path).not.toContain('offset=')
+  })
+})

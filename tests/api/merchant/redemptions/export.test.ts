@@ -33,7 +33,7 @@ describe('getMerchantRedemptionsForExport (cap + truncation)', () => {
     const arg = findMany.mock.calls[0][0]
     // status=validated must shape isValidated=true (filter parity with B1).
     expect(arg.where).toMatchObject({ branch: { merchantId: 'm1' }, isTestData: false, isValidated: true })
-    expect(arg.orderBy).toEqual({ redeemedAt: 'desc' })
+    expect(arg.orderBy).toEqual([{ redeemedAt: 'desc' }, { id: 'desc' }])
     // CAP+1 = 50001 (the +1 detects truncation).
     expect(arg.take).toBe(50001)
   })
