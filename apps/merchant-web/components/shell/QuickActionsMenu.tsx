@@ -109,6 +109,15 @@ export function QuickActionsMenu({ open, onOpenChange, role, canManageVouchers }
   function go(href: string) {
     closeMenu(false)
     router.push(href)
+    // Same-page #pin jump: when the target branch page is ALREADY mounted,
+    // pushing only changes the hash (no PinCard remount, so its mount-scroll
+    // effect never re-runs, and pushState fires no hashchange). If the card is
+    // in the DOM, scroll it directly after the navigation settles.
+    if (href.includes('#pin')) {
+      window.setTimeout(() => {
+        document.getElementById('pin')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 150)
+    }
   }
 
   function handlePinAction() {

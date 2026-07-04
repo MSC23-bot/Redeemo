@@ -1,6 +1,7 @@
 'use client'
 import * as React from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { StatusPill, type LifecycleState } from './StatusPill'
 import { HOME_ITEM, visibleNavGroups, visiblePinnedItems, type NavItem, type ViewerRole } from './navItems'
@@ -21,7 +22,7 @@ function NavRow({ item, active = false, collapsed = false, onNavigate }: {
 }) {
   const Icon = item.icon
   return (
-    <a
+    <Link
       href={item.href}
       aria-current={active ? 'page' : undefined}
       aria-label={collapsed ? item.label : undefined}
@@ -45,7 +46,7 @@ function NavRow({ item, active = false, collapsed = false, onNavigate }: {
       {!collapsed && item.soon && (
         <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: '#6B7390', border: '1px solid #E5E7EB', borderRadius: 999, padding: '1px 6px' }}>Soon</span>
       )}
-    </a>
+    </Link>
   )
 }
 

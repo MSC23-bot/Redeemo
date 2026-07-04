@@ -74,6 +74,27 @@ describe('QuickActionsMenu', () => {
     expect(push).toHaveBeenCalledWith('/branches/b1#pin')
   })
 
+  it('same-page #pin jump: scrolls the already-mounted PIN card after navigation', async () => {
+    // Simulate being ON the branch page already: the card exists in the DOM, so
+    // pushing only changes the hash and no remount effect fires. The quick
+    // action itself scrolls the card after the navigation settles.
+    const pinEl = document.createElement('div')
+    pinEl.id = 'pin'
+    pinEl.scrollIntoView = jest.fn()
+    document.body.appendChild(pinEl)
+    try {
+      renderMenu({ role: 'OWNER' })
+      const action = await screen.findByText('View a branch redemption PIN')
+      jest.useFakeTimers()
+      fireEvent.click(action)
+      jest.advanceTimersByTime(200)
+      jest.useRealTimers()
+      expect(pinEl.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    } finally {
+      pinEl.remove()
+    }
+  })
+
   it('multi-branch OWNER: the PIN action expands the sub-picker; a branch row routes to its PIN section', async () => {
     listBranches.mockResolvedValue([branch(), branch({ id: 'b2', name: 'Riverside', city: 'Leeds' })])
     renderMenu({ role: 'OWNER' })

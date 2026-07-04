@@ -61,6 +61,14 @@ export function AccountMenu({
   const firstItemRef = React.useRef<HTMLButtonElement>(null)
   const [confirmingLogout, setConfirmingLogout] = React.useState(false)
 
+  // The confirm dialog opens while the menu (which held focus) unmounts, so the
+  // shared Dialog's own focus-restore lands on <body>. Restore to the account
+  // trigger explicitly on every non-signout close (CodeRabbit #364 a11y).
+  const closeConfirm = React.useCallback(() => {
+    setConfirmingLogout(false)
+    triggerRef.current?.focus()
+  }, [])
+
   React.useEffect(() => {
     if (open) firstItemRef.current?.focus()
   }, [open])
@@ -189,7 +197,7 @@ export function AccountMenu({
       )}
 
       {confirmingLogout && (
-        <Dialog label="Log out of Redeemo for Business?" onClose={() => setConfirmingLogout(false)} panelTestId="logout-confirm">
+        <Dialog label="Log out of Redeemo for Business?" onClose={closeConfirm} panelTestId="logout-confirm">
           <div style={{ maxWidth: 380, padding: '26px 26px 22px', textAlign: 'center' }}>
             <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: '#010C35', fontFamily: 'var(--font-body)' }}>
               Log out of Redeemo for Business?
@@ -200,7 +208,7 @@ export function AccountMenu({
             <div style={{ display: 'flex', gap: 11, marginTop: 28 }}>
               <button
                 type="button"
-                onClick={() => setConfirmingLogout(false)}
+                onClick={closeConfirm}
                 style={{ flex: 1, height: 46, borderRadius: 12, border: '1px solid #D1D5DB', background: '#fff', color: '#010C35', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
               >
                 Stay logged in

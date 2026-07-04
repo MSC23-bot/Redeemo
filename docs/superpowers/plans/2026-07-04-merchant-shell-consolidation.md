@@ -28,7 +28,7 @@
 
 `getMerchantProfile` already resolves the membership via `resolveMerchantContext` (role + canManageVouchers). Extend the UX-hint block additively:
 
-```
+```ts
 viewerCapabilities: { canViewInsights, canManageVouchers, role, displayName }
 ```
 

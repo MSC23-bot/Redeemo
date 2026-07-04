@@ -81,10 +81,12 @@ describe('Topbar', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /log out/i }))
     expect(onSignOut).not.toHaveBeenCalled()
     expect(screen.getByText('Log out of Redeemo for Business?')).toBeInTheDocument()
-    // "Stay logged in" cancels without signing out.
+    // "Stay logged in" cancels without signing out, and focus returns to the
+    // account trigger (the menu that held focus unmounted - CodeRabbit a11y fix).
     fireEvent.click(screen.getByRole('button', { name: /stay logged in/i }))
     expect(onSignOut).not.toHaveBeenCalled()
     expect(screen.queryByText('Log out of Redeemo for Business?')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /account menu/i })).toHaveFocus()
   })
 
   it('confirming the logout dialog calls onSignOut', () => {

@@ -8,6 +8,7 @@
  * brand rose; the shell adds 88px bottom content padding to clear this bar.
  */
 import * as React from 'react'
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { mobileTabItems, type ViewerRole } from './navItems'
 import { isNavItemActive } from './Sidebar'
@@ -29,7 +30,7 @@ export function MobileTabBar({ role, canViewInsights }: { role: ViewerRole; canV
         const Icon = tab.icon
         const active = isNavItemActive(pathname, tab.href)
         return (
-          <a
+          <Link
             key={tab.href}
             href={tab.href}
             aria-current={active ? 'page' : undefined}
@@ -41,7 +42,7 @@ export function MobileTabBar({ role, canViewInsights }: { role: ViewerRole; canV
           >
             <Icon size={21} />
             <span style={{ fontSize: 12, fontWeight: 700 }}>{tab.label}</span>
-          </a>
+          </Link>
         )
       })}
     </nav>

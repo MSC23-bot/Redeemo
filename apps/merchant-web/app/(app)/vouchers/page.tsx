@@ -61,7 +61,12 @@ export default function VouchersPage() {
         <Card className="p-6">
           <DayTwoBuilder
             categoryName={categoryName}
-            onCancel={() => setCreating(false)}
+            onCancel={() => {
+              setCreating(false)
+              // Strip a ?create=1 deep-link seed so refresh/back does not
+              // reopen the builder the user just cancelled (CodeRabbit #364).
+              router.replace('/vouchers')
+            }}
             onDone={({ id }) => {
               setCreating(false)
               router.push(`/vouchers/${id}`)
