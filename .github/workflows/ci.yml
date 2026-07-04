@@ -24,7 +24,7 @@ jobs:
     name: customer-web (typecheck / lint / build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -68,7 +68,7 @@ jobs:
     name: admin-web (typecheck / lint / build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -115,7 +115,7 @@ jobs:
     name: merchant-web (typecheck / lint / build / test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -162,7 +162,7 @@ jobs:
     steps:
       # No git operations in this job and it uploads an artifact - do not
       # persist the checkout credentials (zizmor artipacked hardening).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -206,7 +206,7 @@ jobs:
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_dummy
       REDIS_URL: redis://localhost:6379
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -261,7 +261,7 @@ jobs:
       DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/redeemo_integration_test
       TEST_DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/redeemo_integration_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
         uses: actions/setup-node@v4
