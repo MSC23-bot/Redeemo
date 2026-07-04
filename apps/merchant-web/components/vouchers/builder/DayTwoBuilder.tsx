@@ -20,7 +20,7 @@ import { TermsSection } from './TermsSection'
 import { ConciergeDiff } from '../ConciergeDiff'
 import { TextAreaField } from './fields'
 import { FileUpload } from '@/components/ui/file-upload'
-import type { CustomTerm } from '@/lib/voucher/terms'
+import { tierOf, type CustomTerm } from '@/lib/voucher/terms'
 import {
   emptyBuilderState,
   fromDetail,
@@ -170,7 +170,22 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
       const next: BuilderState = { ...prev }
       if (typeof proposed.title === 'string') next.titleOverride = proposed.title
       if (typeof proposed.description === 'string') next.descriptionOverride = proposed.description
-      if (typeof proposed.terms === 'string') next.terms = proposed.terms
+      if (typeof proposed.terms === 'string') {
+        if (isStructuredPickerId(prev.pickerId)) {
+          // Structured types compose their terms from the checklist model, so the
+          // admin's proposed terms text must land THERE (as verbatim custom lines,
+          // replacing the current selections) or it would be silently dropped by
+          // toCreatePayload. Mirrors the legacy free-text conversion in fromDetail.
+          next.selectedClauseIds = []
+          next.customTerms = proposed.terms
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .map((text) => ({ text, tier: tierOf(text) }))
+        } else {
+          next.terms = proposed.terms
+        }
+      }
       if (typeof proposed.estimatedSaving === 'number') next.savingOverride = proposed.estimatedSaving
       if (Array.isArray(proposed.availabilityWindows)) {
         next.availabilityWindows = proposed.availabilityWindows

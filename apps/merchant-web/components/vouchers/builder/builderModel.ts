@@ -287,7 +287,8 @@ export function fromDetail(input: VoucherDetailPrefill): BuilderState {
   // Clause-selection rehydration (V1): prefer the persisted ids/customs; a LEGACY
   // structured draft (free-text terms, no persisted selections) converts each
   // terms line into a custom term so the merchant's own words are preserved
-  // verbatim in the checklist model (nothing silently dropped).
+  // (content-preserving: lines are whitespace-trimmed and blank lines dropped,
+  // matching the composer's own output format, so the round-trip is stable).
   const savedIds = Array.isArray(bag.selectedClauseIds)
     ? (bag.selectedClauseIds as unknown[]).filter((id): id is string => typeof id === 'string')
     : null

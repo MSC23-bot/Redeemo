@@ -183,6 +183,23 @@ describe('TIME_LIMITED presets + end date', () => {
   })
 })
 
+describe('concierge terms apply (structured)', () => {
+  it("'Apply Redeemo's suggestions' terms text survives into the composed payload verbatim", async () => {
+    renderBuilder({
+      voucherId: 'v1',
+      initialType: 'FREEBIE',
+      initialTitle: 'Free coffee',
+      initialAdminProposed: { terms: 'Weekdays before 5pm\nOne per table' },
+      initialAdminNote: 'Tightened the terms.',
+    })
+    fireEvent.click(screen.getByRole('button', { name: /apply redeemo's suggestions/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    const payload = updateVoucher.mock.calls[0][1]
+    expect(String(payload.terms).split('\n')).toEqual(['Weekdays before 5pm', 'One per table'])
+  })
+})
+
 describe('defaults sanity', () => {
   it('emptyBuilderState pre-ticks the per-type default clause ids', () => {
     expect(emptyBuilderState('freebie').selectedClauseIds).toEqual(defaultSelectedClauseIds('freebie'))

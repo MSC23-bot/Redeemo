@@ -312,7 +312,11 @@ function TimeLimitedFields({ state, onWindows, onExpiryDate }: FieldsProps) {
             <input
               type="checkbox"
               checked={hasEndDate}
-              onChange={(e) => onExpiryDate(e.target.checked ? new Date().toISOString().slice(0, 10) : undefined)}
+              onChange={(e) => {
+                // Seed from the LOCAL calendar date (en-CA = YYYY-MM-DD), not the
+                // UTC date, so early-hours UTC+ users do not see yesterday.
+                onExpiryDate(e.target.checked ? new Date().toLocaleDateString('en-CA') : undefined)
+              }}
               className="size-4 accent-[#E20C04]"
             />
             Ends on a date
