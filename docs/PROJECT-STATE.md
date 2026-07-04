@@ -7,7 +7,7 @@
 > Portal roadmap are a **coordinated, cross-linked pair**: kept as separate PRs only for reviewability,
 > but reviewed, approved, and merged together.
 >
-> **Freshness:** verified against `origin/main` @ `434ca4eb` on **2026-06-28**. Lines without
+> **Freshness:** Merchant-programme lines re-verified against `origin/main` @ `8c4258ba` on **2026-07-04** (other programmes last verified @ `434ca4eb`, 2026-06-28). Lines without
 > a fresh citation this pass are marked **[UNVERIFIED]** and must be re-checked before reliance.
 > A modification date is **never** evidence of completeness - every claim is verified against
 > the evidence appropriate to its type (below).
@@ -53,7 +53,7 @@ They are **cross-check evidence, not authority over merged source** - each check
 
 ## 3. Repository pointers (merged & deployed truth)
 
-- **Merged:** `origin/main` @ `434ca4eb` (latest merge: Insights PR-B #333). Verify any "merged" claim with `git log`/the PR.
+- **Merged:** `origin/main` @ `8c4258ba` (latest merge: Merchant global-shell consolidation #364). Verify any "merged" claim with `git log`/the PR.
 - **Deployed (staging, provider URLs used as staging):** customer/admin/merchant apps on `*.vercel.app` (all HTTP 200 on the 2026-06-28 probe; re-probe before reliance); backend + worker on Railway env `redeemo/staging` (`web-staging-bf7c.up.railway.app/health` → 200). **Custom domains `merchant.redeemo.co.uk` / `api.redeemo.co.uk` are NOT provisioned.** Exact deployed SHA = verify in the Vercel/Railway dashboards (not readable read-only). **Merged ≠ deployed:** the deployed SHA may lag `origin/main`.
 
 ---
@@ -68,8 +68,9 @@ Status keys: **MERGED** (on `origin/main`) · **NOT-ACCEPTED** (merged, no authe
 **Detail/links:** root `CLAUDE.md` Phase 3 sections; `docs/customer-flow-current.md` + `docs/customer-flow-changelog.md`; customer-app closure memories; Customer App Codex checklist (§2 - note it itself trails, last Codex update 2026-06-13, so verify its lines against `origin/main` too). Deferrals: §8 + the deferred archive.
 
 ### 4.2 Merchant Portal - **active programme**
-**Merged (verified this pass against `origin/main` + specs):** M0 scaffold, M1 auth/session, M2 onboarding (+ flagship bridge), M3 redemptions + Validate-a-code, M4 notifications, Day-2 Vouchers, Staff & Access, Branches PR1-PR8, **Insights operational** (#329-#333). All **NOT-ACCEPTED** (no authenticated staging acceptance yet).
-**Gated / not-done:** Insights behavioural + event CSV = **LEGAL-GATED** (default-off, fail-closed); Insights demographics = **LEGAL-GATED + NOT-STARTED**; Home Live dashboard = **PLACEHOLDER/OWNER-GATED**; Home Staff view = **NOT-STARTED/OWNER-GATED**; Business-profile settings, My Account, Help & Support = **NOT-STARTED**; Promote, Payments & Billing = **NOT-STARTED/PROVIDER-GATED**; global-shell gaps (logout-confirm, active-route highlight, notification deep-links, Quick-Actions launcher, View-as lens, responsive) = **PARTIAL**.
+**Merged (verified 2026-07-04 against `origin/main` + specs):** M0 scaffold, M1 auth/session, M2 onboarding (+ flagship bridge), M3 redemptions + Validate-a-code, M4 notifications, Day-2 Vouchers, Staff & Access, Branches PR1-PR8, **Insights operational** (#329-#333), **global-shell consolidation** (#364, squash `8c4258ba`: active-route highlight, role fail-closed nav incl. least-privilege baseline, 72px collapse + narrow bottom tab bar, account menu + logout confirm, Quick Actions launcher with guarded PIN routing, notification deep-links voucher/redemption, honest placeholder routes for the 5 former dead links, favicon + middleware static-asset exemption, additive viewerCapabilities {canManageVouchers, role, displayName}). All **NOT-ACCEPTED** (no authenticated staging acceptance yet).
+**In review (open PRs, NOT merged):** PR #365 (PR-G1b deterministic local Playwright smoke lane, advisory CI job; head `3f9bf74e`) and PR #366 (Vouchers V1 builder parity: terms checklist, photo upload, custom cooldown, window presets; head `f829ed46`) - both all-green + CodeRabbit-clean, awaiting SHA-bound owner/Codex merge approval.
+**Gated / not-done:** Insights behavioural + event CSV = **LEGAL-GATED** (default-off, fail-closed); Insights demographics = **LEGAL-GATED + NOT-STARTED**; Home Live dashboard = **PLACEHOLDER/OWNER-GATED**; Home Staff view = **NOT-STARTED/OWNER-GATED**; Business-profile settings, My Account, Help & Support = **NOT-STARTED**; Promote, Payments & Billing = **NOT-STARTED/PROVIDER-GATED**; global-shell gaps CLOSED by #364 (logout-confirm, active-route highlight, notification deep-links, Quick-Actions launcher placement, responsive collapse/tab bar, favicon); View-as lens NOT built - the prototype itself labels it "Prototype control only. Not part of the live portal." (owner to record the drop; same for the Demo switcher).
 **Corrections that must be preserved:** Staff/BM **can** authenticate into the portal (only the lean Staff Home is unbuilt); Branch PIN reveal has a guarded backend route + on-demand `PinCard` (only Quick-Actions placement is undecided); the three Vercel apps are already deployed (do not propose new blank-slate Vercel projects).
 **Detail/links:** **`docs/superpowers/roadmaps/merchant-portal-programme-roadmap.md`** (the full module/screen/role/lifecycle/shell/conflict/gap/gate map + Option-C sequencing + Definition of Complete); merged specs/plans under `docs/superpowers/specs|plans` (M0-M4, Day-2 vouchers, staff-access, branches PR1-8, Insights); `docs/superpowers/governance/2026-06-27-insights-dpia/`; Admin/Merchant Codex checklists (§2).
 
@@ -103,8 +104,8 @@ Backend (Node 24), Prisma 7 + Neon, Stripe/Twilio/FCM; **Resend is WIRED in code
 | Documentation architecture migration (A+C) next steps (slim CLAUDE.md; memory hygiene) | platform | continuity reliability | after this docs foundation |
 | Home Live dashboard: on Home (prototype) vs in Insights (source) | Merchant | build a Home dashboard + analytics contract, or keep pointer | before "not-started surfaces" wave |
 | Staff Home: build the lean staff home or formally drop | Merchant | build vs mark superseded | same |
-| Quick-Actions launcher + PIN-reveal placement | Merchant | reuse existing guarded route; placement only | shell wave |
-| View-as role lens: build or drop | Merchant | global topbar feature | shell wave |
+| Quick-Actions launcher + PIN-reveal placement | Merchant | RESOLVED by prototype authority in #364 (launcher routes to the guarded on-page PinCard; no inline reveal) - close formally | done (record) |
+| View-as role lens: build or drop | Merchant | prototype marks it "Prototype control only. Not part of the live portal." - recommend recording DROP | record |
 | Redemption reversal: build (prototype) or keep deferred | Merchant | audit/data-integrity implications | Redemptions slice |
 | CI Postgres service + strict-loopback guard | platform/G1 | enables the security test gate | G1a1 |
 | Add `@playwright/test` | platform/G1 | enables deterministic browser smoke | G1b |
@@ -131,8 +132,8 @@ The full historical detail lives in `project_deferred_followups_index.md` (705 K
 | Merchant: flagship "Always live" semantics fix | owner-gated | small data-semantics PR |
 | Merchant: flagship read-only voucher detail | owner | M-vouchers slice |
 | Merchant: redemption reversal, merchantId denorm, redemption emails | owner | Redemptions slice / decision |
-| Merchant: notification deep-link resolver (`redemption`/`voucher`) | eng | shell wave |
-| Merchant: logout confirmation, active-route highlight, responsive collapse | eng | shell wave |
+| Merchant: notification deep-link resolver (`redemption`/`voucher`) | eng | CLOSED by #364 |
+| Merchant: logout confirmation, active-route highlight, responsive collapse | eng | CLOSED by #364 |
 | G1: CI integration gate, security lane, browser smoke, staging acceptance | owner/eng | G1a1→G1c |
 | Platform: §SEC.1 atomic limiter (pre-Resend), §SEC.6 SEO, SEC-H6/M1-M5 | owner | pre-email / pre-launch |
 | Staging admin-login OTP delivery (UNVERIFIED - needs a receivable/admin-controlled inbox if the DB-read workaround is current) + deployed favicon 404 (cosmetic) | owner/eng | Codex Vol-2 "Active State" (read-only); a live/provider check |
@@ -167,4 +168,5 @@ The full historical detail lives in `project_deferred_followups_index.md` (705 K
 
 ## Change log
 
+- **2026-07-04** - Merchant shell wave MERGED (#364, squash `8c4258ba`): §4.2 status flipped (shell gaps closed; View-as/Demo prototype-only, drop recommended); §6 Quick-Actions decision resolved by prototype authority; §8 shell-wave deferrals closed. Open in-review PRs recorded: #365 (G1b Playwright smoke lane, `3f9bf74e`), #366 (Vouchers V1 builder parity, `f829ed46`). Merchant freshness re-stamped @ `8c4258ba`.
 - **2026-06-28** - Document created (docs-only PR, foundation of the A+C documentation architecture). Establishes the fact-type authority model, the read-only Codex reconciliation protocol, the programme-partitioned status index, cross-product invariants, open owner decisions, verified warnings, the compact deferrals register, and the change/update protocol. Verified against `origin/main` @ `434ca4eb`. Customer App + Admin sections summarized from existing records and marked for line-level re-reconciliation at their next programme switch.
