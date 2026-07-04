@@ -107,7 +107,7 @@ describe('GET /api/v1/merchant/redemptions (B1 list)', () => {
   it('orders by redeemedAt desc and honours limit/offset', async () => {
     await get('/api/v1/merchant/redemptions?limit=10&offset=20')
     const arg = findManyArg()
-    expect(arg.orderBy).toEqual({ redeemedAt: 'desc' })
+    expect(arg.orderBy).toEqual([{ redeemedAt: 'desc' }, { id: 'desc' }])
     expect(arg.take).toBe(10)
     expect(arg.skip).toBe(20)
   })
@@ -158,10 +158,10 @@ describe('GET /api/v1/merchant/redemptions (B1 list)', () => {
 
   it('sort=saving orders by estimatedSaving desc; default stays recency', async () => {
     await get('/api/v1/merchant/redemptions?sort=saving')
-    expect(findManyArg().orderBy).toEqual({ estimatedSaving: 'desc' })
+    expect(findManyArg().orderBy).toEqual([{ estimatedSaving: 'desc' }, { redeemedAt: 'desc' }, { id: 'desc' }])
     vi.mocked(app.prisma.voucherRedemption.findMany).mockClear()
     await get('/api/v1/merchant/redemptions')
-    expect(findManyArg().orderBy).toEqual({ redeemedAt: 'desc' })
+    expect(findManyArg().orderBy).toEqual([{ redeemedAt: 'desc' }, { id: 'desc' }])
   })
 
   it('an over-length search term is rejected with 400 before any query (review F1 cap)', async () => {

@@ -97,12 +97,16 @@ export default function RedemptionsPage() {
   })
 
   // Redemptions fidelity: vouchers power the per-voucher filter (custom +
-  // flagship merged, title-sorted). Same non-fatal contract as branches.
+  // flagship merged, title-sorted). Same non-fatal contract as branches -
+  // PARTIAL settlement (Codex round 2): one source failing must not discard
+  // the other; both failing degrades to the empty-options hidden-select state.
+  // Raw errors are never surfaced.
   const voucherOptions = useQuery({
     queryKey: ['merchantVoucherOptions'],
     queryFn: async () => {
-      const [custom, flagship] = await Promise.all([listCustomVouchers(), listFlagshipVouchers()])
-      return [...flagship, ...custom]
+      const settled = await Promise.allSettled([listFlagshipVouchers(), listCustomVouchers()])
+      return settled
+        .flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
         .map((v) => ({ id: v.id, title: v.title }))
         .sort((a, b) => a.title.localeCompare(b.title))
     },

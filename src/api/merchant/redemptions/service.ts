@@ -73,12 +73,21 @@ export function buildRedemptionWhere(merchantId: string, f: RedemptionFilters): 
 }
 
 // The single orderBy source for list + export (identical semantics, B4 parity).
+// DETERMINISTIC (Codex round 2): equal values are common (same saving across a
+// campaign, same-second redemptions), and a non-total order shuffles /
+// duplicates / omits rows across offset pages. Every branch therefore ends in
+// the unique primary key as a stable total-order tie-breaker; 'saving' also
+// tie-breaks on recency first so equal savings read newest-first. The Prisma
+// FindMany orderBy accepts VoucherRedemptionOrderByWithRelationInput[] (verified
+// against the generated types).
 // Honesty note (review F2): 'recent' rides the indexed redeemedAt column;
 // 'saving' sorts the UNINDEXED estimatedSaving Decimal - acceptable because
 // every query is tenant-bounded (branch.merchantId) and capped (limit<=100 /
 // EXPORT_CAP), but do not widen without revisiting indexing.
-export function buildRedemptionOrderBy(sort: RedemptionFilters['sort']): Prisma.VoucherRedemptionOrderByWithRelationInput {
-  return sort === 'saving' ? { estimatedSaving: 'desc' } : { redeemedAt: 'desc' }
+export function buildRedemptionOrderBy(sort: RedemptionFilters['sort']): Prisma.VoucherRedemptionOrderByWithRelationInput[] {
+  return sort === 'saving'
+    ? [{ estimatedSaving: 'desc' }, { redeemedAt: 'desc' }, { id: 'desc' }]
+    : [{ redeemedAt: 'desc' }, { id: 'desc' }]
 }
 
 export async function listMerchantRedemptions(

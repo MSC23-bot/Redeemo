@@ -9,13 +9,23 @@ import {
 // The OR search must sit INSIDE the tenant/branch-scoped where (top-level keys
 // AND together in Prisma), and list/export must share identical ordering.
 
-describe('buildRedemptionOrderBy', () => {
-  it("defaults to recency (redeemedAt desc) when sort is absent or 'recent'", () => {
-    expect(buildRedemptionOrderBy(undefined)).toEqual({ redeemedAt: 'desc' })
-    expect(buildRedemptionOrderBy('recent')).toEqual({ redeemedAt: 'desc' })
+describe('buildRedemptionOrderBy - deterministic total order (Codex round 2)', () => {
+  it("recency is redeemedAt desc THEN the unique id tie-breaker", () => {
+    expect(buildRedemptionOrderBy(undefined)).toEqual([{ redeemedAt: 'desc' }, { id: 'desc' }])
+    expect(buildRedemptionOrderBy('recent')).toEqual([{ redeemedAt: 'desc' }, { id: 'desc' }])
   })
-  it("'saving' orders by estimatedSaving desc", () => {
-    expect(buildRedemptionOrderBy('saving')).toEqual({ estimatedSaving: 'desc' })
+  it("'saving' is estimatedSaving desc THEN redeemedAt desc THEN the unique id tie-breaker", () => {
+    expect(buildRedemptionOrderBy('saving')).toEqual([
+      { estimatedSaving: 'desc' },
+      { redeemedAt: 'desc' },
+      { id: 'desc' },
+    ])
+  })
+  it('every branch ends in the unique primary key (offset paging is a total order)', () => {
+    for (const sort of [undefined, 'recent', 'saving'] as const) {
+      const order = buildRedemptionOrderBy(sort)
+      expect(order[order.length - 1]).toEqual({ id: 'desc' })
+    }
   })
 })
 
@@ -44,13 +54,13 @@ describe('buildRedemptionWhere - code-or-voucher-title search', () => {
   })
 })
 
-describe('CSV export sort parity', () => {
-  it('export uses the SAME orderBy as the list for sort=saving', async () => {
+describe('CSV export sort parity - exact same order array as the list', () => {
+  it.each([undefined, 'recent', 'saving'] as const)('export orderBy === buildRedemptionOrderBy(%s)', async (sort) => {
     const findMany = vi.fn().mockResolvedValue([])
     const prisma: any = { voucherRedemption: { findMany } }
-    await getMerchantRedemptionsForExport(prisma, 'm1', { sort: 'saving' })
+    await getMerchantRedemptionsForExport(prisma, 'm1', { sort })
     expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ orderBy: { estimatedSaving: 'desc' } }),
+      expect.objectContaining({ orderBy: buildRedemptionOrderBy(sort) }),
     )
   })
 })

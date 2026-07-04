@@ -316,6 +316,41 @@ describe('RedemptionsPage voucherId deep-link (B-2)', () => {
   })
 })
 
+describe('voucher options partial-source resilience (Codex round 2)', () => {
+  async function renderWithSources() {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+  }
+
+  it('custom fails: flagship options remain (no raw error surfaced)', async () => {
+    listCustomVouchers.mockRejectedValue(new Error('custom 500'))
+    listFlagshipVouchers.mockResolvedValue([{ id: 'f1', title: 'Always free coffee' }])
+    await renderWithSources()
+    const select = await screen.findByLabelText(/^voucher$/i)
+    const labels = Array.from((select as HTMLSelectElement).options).map((o) => o.label)
+    expect(labels).toEqual(['All vouchers', 'Always free coffee'])
+    expect(screen.queryByText(/custom 500/)).not.toBeInTheDocument()
+  })
+
+  it('flagship fails: custom options remain', async () => {
+    listCustomVouchers.mockResolvedValue([{ id: 'c1', title: 'Lunch deal' }])
+    listFlagshipVouchers.mockRejectedValue(new Error('flagship 403'))
+    await renderWithSources()
+    const select = await screen.findByLabelText(/^voucher$/i)
+    const labels = Array.from((select as HTMLSelectElement).options).map((o) => o.label)
+    expect(labels).toEqual(['All vouchers', 'Lunch deal'])
+  })
+
+  it('both fail: empty options keep the select hidden and the page alive', async () => {
+    listCustomVouchers.mockRejectedValue(new Error('a'))
+    listFlagshipVouchers.mockRejectedValue(new Error('b'))
+    await renderWithSources()
+    expect(screen.getByText('Free coffee')).toBeInTheDocument() // page unaffected
+    expect(screen.queryByLabelText(/^voucher$/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('voucher filter options wiring (fidelity slice)', () => {
   it('merges custom + flagship vouchers into the Voucher filter, title-sorted', async () => {
     listCustomVouchers.mockResolvedValue([{ id: 'v2', title: 'Zesty lunch' }])
