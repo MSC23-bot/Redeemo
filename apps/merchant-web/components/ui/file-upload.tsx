@@ -94,9 +94,17 @@ export function FileUpload({ kind, label, hint, onUploaded, className, id }: Fil
       })
       setStatus('done')
       onUploaded?.(res.url)
-    } catch {
+    } catch (err) {
       setStatus('error')
-      setError('Upload failed. Please try again.')
+      // Honest degrade when the storage capability is dark (feature-flagged off):
+      // the control stays visible but explains itself instead of a generic failure.
+      // Duck-typed (not instanceof) so partial client mocks in tests stay valid.
+      const code = (err as { code?: unknown } | null | undefined)?.code
+      setError(
+        code === 'STORAGE_NOT_ENABLED'
+          ? 'Image upload is not available yet. You can add a photo later.'
+          : 'Upload failed. Please try again.',
+      )
     } finally {
       // Reset the native input value so re-selecting the EXACT same file refires
       // onChange (the input does not emit a change for an identical value). Without

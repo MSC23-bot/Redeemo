@@ -10,7 +10,15 @@
 
 import type { DraftFields } from '@/lib/voucher/compose'
 import { composeTitle, composeDescription, deriveSaving, deriveSavingPercent } from '@/lib/voucher/compose'
-import type { BuilderType } from '@/lib/voucher/terms'
+import {
+  buildClauseList,
+  defaultSelectedClauseIds,
+  tierOf,
+  type BuilderType,
+  type Clause,
+  type CustomTerm,
+} from '@/lib/voucher/terms'
+import type { CategoryKey } from '@/lib/voucher/config'
 import type { AvailabilityWindow, CreateVoucherPayload, VoucherTypeEnum } from '@/lib/api/voucher'
 
 // The picker exposes 7 cards => 8 backend types. The day-2 picker id space is the
@@ -34,7 +42,14 @@ export interface BuilderState {
   titleOverride?: string
   descriptionOverride?: string
   savingOverride?: number
+  // Free-text terms (TIME_LIMITED / REUSABLE only - the clause engine has no
+  // pools for them). For the 5 STRUCTURED types the terms string is COMPOSED
+  // from selectedClauseIds + customTerms (V1 checklist parity with onboarding).
   terms?: string
+  // STRUCTURED types only: the ticked built-in clause ids + merchant-written
+  // custom terms (persisted in merchantFields for edit rehydration).
+  selectedClauseIds: string[]
+  customTerms: CustomTerm[]
   imageUrl?: string
   expiryDate?: string
   askHelp: boolean
@@ -62,6 +77,8 @@ export function emptyBuilderState(pickerId: DayTwoPickerId): BuilderState {
       type: structuredType,
       discountKind: pickerId === 'discount' ? 'percent' : undefined,
     },
+    selectedClauseIds: isStructuredPickerId(pickerId) ? defaultSelectedClauseIds(pickerId) : [],
+    customTerms: [],
     askHelp: false,
     availabilityWindows: [],
     // A fresh CREATE builder owns its window state from the start.
@@ -147,28 +164,66 @@ export function descIsUntouched(state: BuilderState): boolean {
   return state.descriptionOverride == null || state.descriptionOverride.trim().length === 0
 }
 
+// The live clause list for a STRUCTURED state (the same inputs the onboarding
+// builder feeds: spend amount, freebie qualifier, discount kind + minimum).
+export function clausesFor(state: BuilderState, categoryKey: CategoryKey): Clause[] {
+  if (!isStructuredPickerId(state.pickerId)) return []
+  const f = state.fields
+  return buildClauseList({
+    type: state.pickerId,
+    categoryKey,
+    spendAmt: f.spendAmount,
+    freeNeedsPurchase: f.freeNeedsPurchase,
+    discountKind: f.discountKind,
+    discMin: f.discMin,
+  })
+}
+
+export function selectedClausesFor(state: BuilderState, categoryKey: CategoryKey): Clause[] {
+  const ids = new Set(state.selectedClauseIds)
+  return clausesFor(state, categoryKey).filter((c) => ids.has(c.id))
+}
+
+// The terms string sent to the backend for a STRUCTURED type: selected built-in
+// labels + custom texts, one per line (identical to the onboarding composer).
+export function composeTermsText(state: BuilderState, categoryKey: CategoryKey): string {
+  const builtin = selectedClausesFor(state, categoryKey).map((c) => c.label)
+  const custom = state.customTerms.map((c) => c.text)
+  return [...builtin, ...custom].join('\n')
+}
+
 // Build the API payload from the builder state. The merchantFields bag stores the
-// builder draft (builderType + the DraftFields + askHelp) so a later edit can
-// rehydrate. status/approvalStatus/isRmv/merchantId are NEVER set here (the server
-// sets them) - they are not in CreateVoucherPayload by construction.
-export function toCreatePayload(state: BuilderState): CreateVoucherPayload {
+// builder draft (builderType + the DraftFields + clause selections + askHelp) so a
+// later edit can rehydrate. status/approvalStatus/isRmv/merchantId are NEVER set
+// here (the server sets them) - they are not in CreateVoucherPayload by construction.
+// categoryKey feeds the structured-type terms composition (defaults to the
+// fallback pool when the merchant has no category yet).
+export function toCreatePayload(state: BuilderState, categoryKey: CategoryKey = 'CATEGORY_FALLBACK'): CreateVoucherPayload {
   const type = pickerIdToEnum(state)
   const title = effectiveTitle(state) || defaultTitleFor(state)
   const saving = effectiveSaving(state)
+  const structured = isStructuredPickerId(state.pickerId)
 
   const merchantFields: Record<string, unknown> = {
     askHelp: state.askHelp,
     builderType: state.pickerId,
-    // Persist the structured DraftFields bag so editing rehydrates the inputs.
-    ...(isStructuredPickerId(state.pickerId) ? { draftFields: state.fields } : {}),
+    // Persist the structured DraftFields bag + the clause selections so editing
+    // rehydrates the inputs (mirrors the onboarding builder's bag shape).
+    ...(structured
+      ? { draftFields: state.fields, selectedClauseIds: state.selectedClauseIds, customTerms: state.customTerms }
+      : {}),
   }
+
+  // STRUCTURED: terms are composed from the checklist; free text is the
+  // TIME_LIMITED / REUSABLE path only.
+  const termsText = structured ? composeTermsText(state, categoryKey) : state.terms
 
   const payload: CreateVoucherPayload = {
     type,
     title,
     estimatedSaving: saving > 0 ? saving : 5, // advisory floor fallback; admin review is the backstop.
     description: effectiveDescription(state) || undefined,
-    terms: state.terms || undefined,
+    terms: termsText || undefined,
     imageUrl: state.imageUrl || undefined,
     expiryDate: state.expiryDate || undefined,
     merchantFields,
@@ -229,6 +284,31 @@ export function fromDetail(input: VoucherDetailPrefill): BuilderState {
   const draft = nested && nested.type ? nested : flat && flat.type ? flat : undefined
   const base = emptyBuilderState(pickerId)
 
+  // Clause-selection rehydration (V1): prefer the persisted ids/customs; a LEGACY
+  // structured draft (free-text terms, no persisted selections) converts each
+  // terms line into a custom term so the merchant's own words are preserved
+  // verbatim in the checklist model (nothing silently dropped).
+  const savedIds = Array.isArray(bag.selectedClauseIds)
+    ? (bag.selectedClauseIds as unknown[]).filter((id): id is string => typeof id === 'string')
+    : null
+  const savedCustoms = Array.isArray(bag.customTerms)
+    ? (bag.customTerms as Array<{ text?: unknown; tier?: unknown }>)
+        .filter((c): c is { text: string; tier?: unknown } => !!c && typeof c.text === 'string')
+        .map((c) => ({
+          text: c.text,
+          tier: c.tier === 'restrictive' || c.tier === 'caution' || c.tier === 'fair' ? (c.tier as CustomTerm['tier']) : tierOf(c.text),
+        }))
+    : null
+  const structured = isStructuredPickerId(pickerId)
+  const legacyCustoms =
+    structured && savedIds == null && typeof input.terms === 'string' && input.terms.trim().length > 0
+      ? input.terms
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .map((text) => ({ text, tier: tierOf(text) }))
+      : null
+
   return {
     ...base,
     fields: draft ?? base.fields,
@@ -236,7 +316,11 @@ export function fromDetail(input: VoucherDetailPrefill): BuilderState {
     titleOverride: input.title ?? undefined,
     descriptionOverride: input.description ?? undefined,
     savingOverride: typeof input.estimatedSaving === 'number' ? input.estimatedSaving : undefined,
-    terms: input.terms ?? undefined,
+    // Structured types own their terms via the checklist model below; free text
+    // stays only for TIME_LIMITED / REUSABLE.
+    terms: structured ? undefined : input.terms ?? undefined,
+    selectedClauseIds: savedIds ?? (legacyCustoms ? [] : base.selectedClauseIds),
+    customTerms: savedCustoms ?? legacyCustoms ?? [],
     imageUrl: input.imageUrl ?? undefined,
     askHelp: bag.askHelp === true,
     availabilityWindows: input.availabilityWindows ?? [],

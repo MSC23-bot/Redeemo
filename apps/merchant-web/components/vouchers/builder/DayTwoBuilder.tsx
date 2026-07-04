@@ -16,8 +16,11 @@ import { TypePicker } from './TypePicker'
 import { BuilderFields } from './BuilderFields'
 import { BuilderPreview } from './BuilderPreview'
 import { BuilderScore } from './BuilderScore'
+import { TermsSection } from './TermsSection'
 import { ConciergeDiff } from '../ConciergeDiff'
 import { TextAreaField } from './fields'
+import { FileUpload } from '@/components/ui/file-upload'
+import type { CustomTerm } from '@/lib/voucher/terms'
 import {
   emptyBuilderState,
   fromDetail,
@@ -25,6 +28,8 @@ import {
   effectiveTitle,
   effectiveDescription,
   effectiveSaving,
+  clausesFor,
+  isStructuredPickerId,
   type BuilderState,
   type DayTwoPickerId,
 } from './builderModel'
@@ -94,7 +99,7 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
   const save = useMutation({
     mutationFn: async (action: 'draft' | 'submit') => {
       if (!state) throw new Error('No voucher type selected')
-      const payload = toCreatePayload(state)
+      const payload = toCreatePayload(state, categoryKey)
       const saved = voucherId
         ? await updateVoucher(voucherId, payload)
         : await createVoucher(payload)
@@ -135,6 +140,27 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
   }
   function setTerms(v: string) {
     setState((prev) => (prev ? { ...prev, terms: v } : prev))
+  }
+  function toggleClause(id: string) {
+    setState((prev) => {
+      if (!prev) return prev
+      const next = new Set(prev.selectedClauseIds)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return { ...prev, selectedClauseIds: [...next] }
+    })
+  }
+  function addCustomTerm(term: CustomTerm) {
+    setState((prev) => (prev ? { ...prev, customTerms: [...prev.customTerms, term] } : prev))
+  }
+  function removeCustomTerm(index: number) {
+    setState((prev) => (prev ? { ...prev, customTerms: prev.customTerms.filter((_, i) => i !== index) } : prev))
+  }
+  function setImageUrl(url: string | undefined) {
+    setState((prev) => (prev ? { ...prev, imageUrl: url } : prev))
+  }
+  function setExpiryDate(v: string | undefined) {
+    setState((prev) => (prev ? { ...prev, expiryDate: v } : prev))
   }
 
   // B6: apply the admin-proposed corrections into the form state.
@@ -216,6 +242,7 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
             onFields={patchFields}
             onWindows={setWindows}
             onCooldown={setCooldown}
+            onExpiryDate={setExpiryDate}
           />
 
           <TextAreaField
@@ -225,12 +252,44 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
             placeholder="Tell customers why they will love this offer."
           />
 
-          <TextAreaField
-            label="Terms (optional)"
-            value={state.terms ?? ''}
-            onChange={setTerms}
-            placeholder="Any conditions a customer should know."
-          />
+          {/* Voucher photo (V1): the backend photo kind is gated on voucher-management
+              power, matching this builder's capability gate. Optional; a photo lifts
+              the advisory score. */}
+          <div className="flex flex-col gap-1.5">
+            <FileUpload
+              kind="photo"
+              label={state.imageUrl ? 'Replace photo' : 'Add a photo (optional)'}
+              hint="JPG or PNG, landscape, at least 1200 by 600 pixels, up to 5 MB."
+              onUploaded={(url) => setImageUrl(url)}
+            />
+            {state.imageUrl ? (
+              <button
+                type="button"
+                onClick={() => setImageUrl(undefined)}
+                className="w-fit text-xs font-semibold text-[#B91C1C] hover:underline"
+              >
+                Remove photo
+              </button>
+            ) : null}
+          </div>
+
+          {isStructuredPickerId(state.pickerId) ? (
+            <TermsSection
+              clauses={clausesFor(state, categoryKey)}
+              selectedIds={new Set(state.selectedClauseIds)}
+              onToggle={toggleClause}
+              customs={state.customTerms}
+              onAddCustom={addCustomTerm}
+              onRemoveCustom={removeCustomTerm}
+            />
+          ) : (
+            <TextAreaField
+              label="Terms (optional)"
+              value={state.terms ?? ''}
+              onChange={setTerms}
+              placeholder="Any conditions a customer should know."
+            />
+          )}
         </div>
 
         <div className="space-y-4">
