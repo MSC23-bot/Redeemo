@@ -130,7 +130,7 @@ export interface MockApiOptions {
   redemptions?: Record<string, unknown>[]
   redemptionsTotal?: number
   unreadCount?: number
-  /** The viewer-is-owner probe: STAFF/BM get 403 INSUFFICIENT_PERMISSIONS. */
+  /** Owner-only staff surfaces (/staff AND /staff/app-users): STAFF/BM get 403. */
   staffListAllowed?: boolean
 }
 
@@ -202,7 +202,10 @@ export async function installMockApi(
       return
     }
     if (method === 'GET' && p === '/api/v1/merchant/staff/app-users') {
-      await route.fulfill(json(200, { branches: [] }))
+      // Mirrors the real route: ownerCtx (owner-only), same as /staff.
+      await route.fulfill(
+        staffListAllowed ? json(200, { branches: [] }) : json(403, { error: 'INSUFFICIENT_PERMISSIONS' }),
+      )
       return
     }
     if (method === 'GET' && p === '/api/v1/merchant/staff') {

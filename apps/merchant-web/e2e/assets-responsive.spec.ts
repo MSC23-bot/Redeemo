@@ -3,32 +3,31 @@
  * Pins the shell-wave middleware fix (static assets must NOT be gated: the
  * favicon for logged-out visitors, and the next/image optimizer's cookie-less
  * upstream fetch of the sidebar logo) and the narrow-viewport shell.
+ *
+ * Guards + unmatched-tracker assertions are automatic via ./support/fixtures.
  */
-import { test, expect } from '@playwright/test'
-import { installMockApi, signIn, attachErrorGuards, BASE_URL } from './support/mocks'
+import { test, expect } from './support/fixtures'
+import { BASE_URL } from './support/mocks'
 
-test('favicon + brand mark are served WITHOUT a session (middleware asset exemption)', async ({ page, context }) => {
-  await installMockApi(context)
-  const guards = attachErrorGuards(page)
-  // No cookie on purpose.
-  const icon = await page.request.get(`${BASE_URL}/icon.png`, { maxRedirects: 0 })
-  expect(icon.status(), '/icon.png must not redirect to /sign-in').toBe(200)
-  expect(icon.headers()['content-type']).toContain('image')
+test.describe('logged out', () => {
+  test.use({ authenticated: false })
 
-  const mark = await page.request.get(`${BASE_URL}/redeemo-r-mark.png`, { maxRedirects: 0 })
-  expect(mark.status(), '/redeemo-r-mark.png must not redirect to /sign-in').toBe(200)
+  test('favicon + brand mark are served WITHOUT a session (middleware asset exemption)', async ({ page }) => {
+    // page.request bypasses route mocks and hits the real local server only.
+    const icon = await page.request.get(`${BASE_URL}/icon.png`, { maxRedirects: 0 })
+    expect(icon.status(), '/icon.png must not redirect to /sign-in').toBe(200)
+    expect(icon.headers()['content-type']).toContain('image')
 
-  await page.goto('/sign-in')
-  const iconLink = page.locator('link[rel~="icon"]').first()
-  await expect(iconLink).toHaveAttribute('href', /icon\.png/)
-  guards.assertClean()
+    const mark = await page.request.get(`${BASE_URL}/redeemo-r-mark.png`, { maxRedirects: 0 })
+    expect(mark.status(), '/redeemo-r-mark.png must not redirect to /sign-in').toBe(200)
+
+    await page.goto('/sign-in')
+    const iconLink = page.locator('link[rel~="icon"]').first()
+    await expect(iconLink).toHaveAttribute('href', /icon\.png/)
+  })
 })
 
-test('the sidebar brand mark actually renders through next/image (no broken logo)', async ({ page, context }) => {
-  const tracker = await installMockApi(context, { role: 'OWNER' })
-  await signIn(context)
-  const guards = attachErrorGuards(page)
-
+test('the sidebar brand mark actually renders through next/image (no broken logo)', async ({ page }) => {
   await page.goto('/')
   const logo = page.getByRole('navigation', { name: 'Primary' }).getByRole('img', { name: 'Redeemo' })
   await expect(logo).toBeVisible()
@@ -41,15 +40,9 @@ test('the sidebar brand mark actually renders through next/image (no broken logo
       timeout: 15_000,
     })
     .toBeGreaterThan(0)
-  guards.assertClean()
-  expect(tracker.unmatched, 'unmocked API calls').toEqual([])
 })
 
-test('narrow viewport: drawer + bottom tab bar; wide: collapsible rail', async ({ page, context }) => {
-  const tracker = await installMockApi(context, { role: 'OWNER' })
-  await signIn(context)
-  const guards = attachErrorGuards(page)
-
+test('narrow viewport: drawer + bottom tab bar; wide: collapsible rail', async ({ page }) => {
   // Wide first: hamburger collapses the sidebar to the icon rail.
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/')
@@ -68,7 +61,4 @@ test('narrow viewport: drawer + bottom tab bar; wide: collapsible rail', async (
   await expect(tabBar.getByText('Home')).toBeVisible()
   await expect(tabBar.getByText('Redemptions')).toBeVisible()
   await expect(page.getByText('Redeemo for Business').first()).toBeVisible()
-
-  guards.assertClean()
-  expect(tracker.unmatched, 'unmocked API calls').toEqual([])
 })
