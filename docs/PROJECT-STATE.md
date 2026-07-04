@@ -7,7 +7,7 @@
 > Portal roadmap are a **coordinated, cross-linked pair**: kept as separate PRs only for reviewability,
 > but reviewed, approved, and merged together.
 >
-> **Freshness:** Merchant-programme lines re-verified against `origin/main` @ `8c4258ba` on **2026-07-04** (other programmes last verified @ `434ca4eb`, 2026-06-28). Lines without
+> **Freshness:** Merchant-programme lines re-verified against `origin/main` @ `1eb2b382` on **2026-07-04** (other programmes last verified @ `434ca4eb`, 2026-06-28). Lines without
 > a fresh citation this pass are marked **[UNVERIFIED]** and must be re-checked before reliance.
 > A modification date is **never** evidence of completeness - every claim is verified against
 > the evidence appropriate to its type (below).
@@ -53,7 +53,7 @@ They are **cross-check evidence, not authority over merged source** - each check
 
 ## 3. Repository pointers (merged & deployed truth)
 
-- **Merged:** `origin/main` @ `8c4258ba` (latest merge: Merchant global-shell consolidation #364). Verify any "merged" claim with `git log`/the PR.
+- **Merged:** `origin/main` @ `1eb2b382` (latest merge: Vouchers V1 builder parity #366). Verify any "merged" claim with `git log`/the PR.
 - **Deployed (staging, provider URLs used as staging):** customer/admin/merchant apps on `*.vercel.app` (all HTTP 200 on the 2026-06-28 probe; re-probe before reliance); backend + worker on Railway env `redeemo/staging` (`web-staging-bf7c.up.railway.app/health` → 200). **Custom domains `merchant.redeemo.co.uk` / `api.redeemo.co.uk` are NOT provisioned.** Exact deployed SHA = verify in the Vercel/Railway dashboards (not readable read-only). **Merged ≠ deployed:** the deployed SHA may lag `origin/main`.
 
 ---
