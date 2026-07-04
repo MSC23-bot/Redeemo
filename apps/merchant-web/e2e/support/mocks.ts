@@ -195,9 +195,18 @@ export async function installMockApi(
       return
     }
     if (method === 'GET' && p === '/api/v1/merchant/redemptions') {
+      // Wire-accurate paging: honour the requested offset/limit and SLICE the
+      // fixture rows, exactly as the real endpoint pages (a mock that returns
+      // the same rows for every offset would mask paging regressions).
       const offset = Number(url.searchParams.get('offset') ?? '0')
+      const limit = Number(url.searchParams.get('limit') ?? '25')
       await route.fulfill(
-        json(200, { items: redemptions, total: redemptionsTotal, limit: 25, offset }),
+        json(200, {
+          items: redemptions.slice(offset, offset + limit),
+          total: redemptionsTotal,
+          limit,
+          offset,
+        }),
       )
       return
     }

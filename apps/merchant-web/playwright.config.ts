@@ -18,6 +18,8 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
   retries: 0,
+  // A stray test.only must never silently shrink the lane in CI.
+  forbidOnly: !!process.env.CI,
   // One worker: the suite shares a single next start instance and asserts
   // console/pageerror cleanliness; parallel contexts would interleave logs.
   workers: 1,
@@ -33,13 +35,18 @@ export default defineConfig({
     },
   ],
   webServer: {
-    // assert-dead-port.mjs fails the lane BEFORE start when a .env.local has
-    // overridden NEXT_PUBLIC_API_URL at build (Next gives .env.local precedence
-    // over process env); e2e/00-safety.spec.ts re-checks the served build for
-    // the reuseExistingServer path.
+    // Layer-1 enforcement: clean build, then assert-dead-port.mjs verifies the
+    // CURRENT build's manifest-referenced chunks carry the dead-port sentinel
+    // before next start (adjudicated: process env WINS over .env.local for this
+    // invocation - the enforcement exists to close the stale-chunk hazard and to
+    // stay safe if that precedence ever inverts across Next versions);
+    // e2e/00-safety.spec.ts re-asserts the SERVED build from the runner.
     command: 'rm -rf .next && npx next build && node e2e/support/assert-dead-port.mjs && npx next start --port 3103',
     url: 'http://127.0.0.1:3103/sign-in',
-    reuseExistingServer: !process.env.CI,
+    // NEVER attach to an unknown process already bound to 3103: the safety spec
+    // inspects THIS worktree's .next, so reusing a foreign server would break the
+    // served-build identity assumption. An occupied port fails the run loudly.
+    reuseExistingServer: false,
     timeout: 240_000,
     env: {
       // Dead loopback port: the mock boundary is the ONLY way any /api/v1

@@ -1,13 +1,11 @@
 /**
  * PR-G1b safety Layer 1, second checkpoint: the on-disk production build that
  * `next start` serves must carry the dead-port sentinel. The webServer command
- * already asserts this after a FRESH build (assert-dead-port.mjs); this spec
- * re-asserts from the test runner so the `reuseExistingServer` local path (no
- * rebuild) is covered too. If a developer's .env.local overrode
- * NEXT_PUBLIC_API_URL in the stale build, the run fails here with a clear
- * message instead of silently pointing the client at a real API base.
- * (Residual edge: a foreign server already bound to 3103 serving a different
- * build tree - the context.route mock layer remains the backstop for that.)
+ * already asserts this after the fresh build (assert-dead-port.mjs); this spec
+ * re-asserts from the test runner as defence-in-depth. With
+ * reuseExistingServer: false the lane NEVER attaches to a foreign process on
+ * 3103 (an occupied port fails the run), so the served build IS this
+ * worktree's .next - the identity this spec inspects.
  */
 import { test, expect } from '@playwright/test'
 import { readFileSync, existsSync } from 'node:fs'
@@ -41,6 +39,6 @@ test('SAFETY: the served build has the dead loopback API base inlined', () => {
   })
   expect(
     found,
-    `current build must contain NEXT_PUBLIC_API_URL sentinel ${SENTINEL} - a .env.local likely overrode the build env; remove it for smoke runs`,
+    `current build must contain NEXT_PUBLIC_API_URL sentinel ${SENTINEL} - something overrode the build env (check for a .env.local); the lane must not run against an unknown API base`,
   ).toBe(true)
 })
