@@ -148,9 +148,34 @@ describe('GET /api/v1/merchant/redemptions (B1 list)', () => {
     expect(app.prisma.voucherRedemption.findMany).not.toHaveBeenCalled()
   })
 
-  it('code filter prefixes the normalised redemptionCode', async () => {
+  it('code search matches the normalised code prefix OR the voucher title (fidelity slice)', async () => {
     await get('/api/v1/merchant/redemptions?code=a7k2')
-    expect(findManyArg().where.redemptionCode).toEqual({ startsWith: 'A7K2' })
+    expect(findManyArg().where.OR).toEqual([
+      { redemptionCode: { startsWith: 'A7K2' } },
+      { voucher: { is: { title: { contains: 'a7k2', mode: 'insensitive' } } } },
+    ])
+  })
+
+  it('sort=saving orders by estimatedSaving desc; default stays recency', async () => {
+    await get('/api/v1/merchant/redemptions?sort=saving')
+    expect(findManyArg().orderBy).toEqual({ estimatedSaving: 'desc' })
+    vi.mocked(app.prisma.voucherRedemption.findMany).mockClear()
+    await get('/api/v1/merchant/redemptions')
+    expect(findManyArg().orderBy).toEqual({ redeemedAt: 'desc' })
+  })
+
+  it('an over-length search term is rejected with 400 before any query (review F1 cap)', async () => {
+    vi.mocked(app.prisma.voucherRedemption.findMany).mockClear()
+    const res = await get(`/api/v1/merchant/redemptions?code=${'a'.repeat(65)}`)
+    expect(res.statusCode).toBe(400)
+    expect(app.prisma.voucherRedemption.findMany).not.toHaveBeenCalled()
+  })
+
+  it('an invalid sort value is rejected with 400 before any query', async () => {
+    vi.mocked(app.prisma.voucherRedemption.findMany).mockClear()
+    const res = await get('/api/v1/merchant/redemptions?sort=oldest')
+    expect(res.statusCode).toBe(400)
+    expect(app.prisma.voucherRedemption.findMany).not.toHaveBeenCalled()
   })
 
   // Day-2 Vouchers A1: voucherId filter (additive). Scopes to that voucher AND

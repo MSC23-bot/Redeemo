@@ -14,6 +14,13 @@ jest.mock('@/lib/api/redemptions', () => ({
 
 // Branches feed the branch filter selector.
 const listBranches = jest.fn()
+const listCustomVouchers = jest.fn()
+const listFlagshipVouchers = jest.fn()
+jest.mock('@/lib/api/voucher', () => ({
+  listCustomVouchers: () => listCustomVouchers(),
+  listFlagshipVouchers: () => listFlagshipVouchers(),
+}))
+
 jest.mock('@/lib/api/branch', () => ({
   listBranches: () => listBranches(),
 }))
@@ -65,6 +72,8 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  listCustomVouchers.mockReset().mockResolvedValue([])
+  listFlagshipVouchers.mockReset().mockResolvedValue([])
   listRedemptions.mockReset()
   downloadRedemptionsCsv.mockReset().mockResolvedValue(undefined)
   listBranches.mockReset().mockResolvedValue([{ id: 'b1', name: 'High Street' }])
@@ -304,5 +313,22 @@ describe('RedemptionsPage voucherId deep-link (B-2)', () => {
     renderPage()
     await screen.findByText('Free coffee')
     expect(screen.queryByRole('button', { name: /filtered to this voucher/i })).toBeNull()
+  })
+})
+
+describe('voucher filter options wiring (fidelity slice)', () => {
+  it('merges custom + flagship vouchers into the Voucher filter, title-sorted', async () => {
+    listCustomVouchers.mockResolvedValue([{ id: 'v2', title: 'Zesty lunch' }])
+    listFlagshipVouchers.mockResolvedValue([{ id: 'v1', title: 'Always free coffee' }])
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    const select = await screen.findByLabelText(/^voucher$/i)
+    const labels = Array.from((select as HTMLSelectElement).options).map((o) => o.label)
+    expect(labels).toEqual(['All vouchers', 'Always free coffee', 'Zesty lunch'])
+    fireEvent.change(select, { target: { value: 'v1' } })
+    await waitFor(() =>
+      expect(listRedemptions).toHaveBeenCalledWith(expect.objectContaining({ voucherId: 'v1', offset: 0 })),
+    )
   })
 })

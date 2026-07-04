@@ -11,6 +11,9 @@ export interface RedemptionFilters {
   // Day-2 Vouchers A1: per-voucher filter (additive). ANDed with branch.merchantId.
   voucherId?: string
   code?: string
+  // Redemptions fidelity: result ordering. 'recent' (default) = redeemedAt desc;
+  // 'saving' = estimatedSaving desc. Applied identically to list AND CSV export.
+  sort?: 'recent' | 'saving'
   // Staff & Access B5 (§4.3 SCOPED-READ): the caller's allowed-branch set. Owner /
   // allBranches members pass `null`/`undefined` (no restriction = all branches).
   // A scoped member passes their `allowedBranchIds`; the where-builder then
@@ -55,8 +58,27 @@ export function buildRedemptionWhere(merchantId: string, f: RedemptionFilters): 
   if (f.status === 'validated') where.isValidated = true
   if (f.from || f.to) where.redeemedAt = { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) }
   if (f.voucherType) where.voucher = { is: { type: f.voucherType as any } }
-  if (f.code) where.redemptionCode = { startsWith: normalizeRedemptionCode(f.code) }
+  // Redemptions fidelity: the search box matches the redemption CODE (normalized
+  // prefix, as before) OR the voucher TITLE (case-insensitive substring). The OR
+  // sits INSIDE the tenant/branch-scoped where (top-level keys AND together), so
+  // the IDOR/scope boundary is untouched. Customer-name search is deliberately
+  // NOT offered (names are privacy-formatted server-side at read time).
+  if (f.code) {
+    where.OR = [
+      { redemptionCode: { startsWith: normalizeRedemptionCode(f.code) } },
+      { voucher: { is: { title: { contains: f.code, mode: 'insensitive' } } } },
+    ]
+  }
   return where
+}
+
+// The single orderBy source for list + export (identical semantics, B4 parity).
+// Honesty note (review F2): 'recent' rides the indexed redeemedAt column;
+// 'saving' sorts the UNINDEXED estimatedSaving Decimal - acceptable because
+// every query is tenant-bounded (branch.merchantId) and capped (limit<=100 /
+// EXPORT_CAP), but do not widen without revisiting indexing.
+export function buildRedemptionOrderBy(sort: RedemptionFilters['sort']): Prisma.VoucherRedemptionOrderByWithRelationInput {
+  return sort === 'saving' ? { estimatedSaving: 'desc' } : { redeemedAt: 'desc' }
 }
 
 export async function listMerchantRedemptions(
@@ -65,7 +87,7 @@ export async function listMerchantRedemptions(
   const where = buildRedemptionWhere(merchantId, f)
   const [total, rows] = await Promise.all([
     prisma.voucherRedemption.count({ where }),
-    prisma.voucherRedemption.findMany({ where, orderBy: { redeemedAt: 'desc' }, take: f.limit, skip: f.offset, select: ROW_SELECT }),
+    prisma.voucherRedemption.findMany({ where, orderBy: buildRedemptionOrderBy(f.sort), take: f.limit, skip: f.offset, select: ROW_SELECT }),
   ])
   return { items: rows.map(toMerchantRedemptionRow), total, limit: f.limit, offset: f.offset }
 }
@@ -102,7 +124,7 @@ const EXPORT_CAP = 50000
 
 export async function getMerchantRedemptionsForExport(prisma: PrismaClient, merchantId: string, f: RedemptionFilters) {
   const where = buildRedemptionWhere(merchantId, f)
-  const rows = await prisma.voucherRedemption.findMany({ where, orderBy: { redeemedAt: 'desc' }, take: EXPORT_CAP + 1, select: ROW_SELECT })
+  const rows = await prisma.voucherRedemption.findMany({ where, orderBy: buildRedemptionOrderBy(f.sort), take: EXPORT_CAP + 1, select: ROW_SELECT })
   const truncated = rows.length > EXPORT_CAP
   return { rows: rows.slice(0, EXPORT_CAP).map(toMerchantRedemptionRow), truncated }
 }

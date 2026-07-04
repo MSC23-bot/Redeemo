@@ -26,6 +26,7 @@ import {
   type RedemptionRow,
 } from '@/lib/api/redemptions'
 import { listBranches } from '@/lib/api/branch'
+import { listCustomVouchers, listFlagshipVouchers } from '@/lib/api/voucher'
 
 const PAGE_SIZE = 25
 
@@ -92,6 +93,19 @@ export default function RedemptionsPage() {
   const branches = useQuery({
     queryKey: ['merchantBranches'],
     queryFn: listBranches,
+    staleTime: 60_000,
+  })
+
+  // Redemptions fidelity: vouchers power the per-voucher filter (custom +
+  // flagship merged, title-sorted). Same non-fatal contract as branches.
+  const voucherOptions = useQuery({
+    queryKey: ['merchantVoucherOptions'],
+    queryFn: async () => {
+      const [custom, flagship] = await Promise.all([listCustomVouchers(), listFlagshipVouchers()])
+      return [...flagship, ...custom]
+        .map((v) => ({ id: v.id, title: v.title }))
+        .sort((a, b) => a.title.localeCompare(b.title))
+    },
     staleTime: 60_000,
   })
 
@@ -167,7 +181,7 @@ export default function RedemptionsPage() {
         </button>
       ) : null}
 
-      <RedemptionFilters filters={filters} branches={branchOptions} onChange={patchFilters} />
+      <RedemptionFilters filters={filters} branches={branchOptions} vouchers={voucherOptions.data ?? []} onChange={patchFilters} />
 
       {list.isLoading ? (
         <Card>

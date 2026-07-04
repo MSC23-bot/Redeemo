@@ -31,13 +31,21 @@ const selectClass =
   'h-9 rounded-md border border-input bg-transparent px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
 const labelClass = 'flex flex-col gap-1 text-xs font-semibold text-muted-foreground'
 
+export interface VoucherOption {
+  id: string
+  title: string
+}
+
 export function RedemptionFilters({
   filters,
   branches,
+  vouchers = [],
   onChange,
 }: {
   filters: Filters
   branches: BranchOption[]
+  /** Redemptions fidelity: per-voucher filter options (custom + flagship). */
+  vouchers?: VoucherOption[]
   onChange: (patch: Partial<Filters>) => void
 }) {
   return (
@@ -113,11 +121,45 @@ export function RedemptionFilters({
         />
       </label>
 
+      {vouchers.length > 0 ? (
+        <label className={labelClass}>
+          Voucher
+          <select
+            className={selectClass}
+            value={filters.voucherId ?? ''}
+            onChange={(e) => onChange({ voucherId: e.target.value || undefined })}
+          >
+            <option value="">All vouchers</option>
+            {/* A deep-linked voucherId can predate/miss the options load; a
+                fallback option keeps the select honest instead of blank. */}
+            {filters.voucherId && !vouchers.some((v) => v.id === filters.voucherId) ? (
+              <option value={filters.voucherId}>Selected voucher</option>
+            ) : null}
+            {vouchers.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.title}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <label className={labelClass}>
-        Code
+        Sort
+        <select
+          className={selectClass}
+          value={filters.sort ?? ''}
+          onChange={(e) => onChange({ sort: (e.target.value || undefined) as Filters['sort'] })}
+        >
+          <option value="">Newest first</option>
+          <option value="saving">Biggest saving</option>
+        </select>
+      </label>
+      <label className={labelClass}>
+        Search
         <Input
           type="text"
-          placeholder="Search code"
+          placeholder="Code or voucher"
+          maxLength={64}
           className="w-[160px]"
           value={filters.code ?? ''}
           onChange={(e) => onChange({ code: e.target.value || undefined })}
