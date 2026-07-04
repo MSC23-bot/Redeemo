@@ -177,6 +177,101 @@ describe('RedemptionsPage (F1 log + filters)', () => {
   })
 })
 
+describe('RedemptionsPage range=today deep-link (shell wave Quick Action)', () => {
+  it('SAME-PAGE Quick Action: an in-place transition to range=today REPLACES the filters and resets a non-zero offset', async () => {
+    // Codex correction 2 (re-review hardening): firing the Quick Action while
+    // already on /redemptions keeps the page mounted; the param-transition
+    // effect must apply the today filter, replacing whatever was set before,
+    // AND reset real pagination (offset proven non-zero first).
+    //
+    // Freeze ONLY the clock (every timer function stays real so React Query +
+    // waitFor keep working) and assert a LITERAL timestamp - independent of the
+    // production todayFromIso() implementation this test verifies. The frozen
+    // instant is local noon, so the local calendar date is unambiguous in any
+    // timezone the suite runs in.
+    jest.useFakeTimers({
+      doNotFake: [
+        'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+        'setImmediate', 'clearImmediate', 'queueMicrotask', 'nextTick',
+        'hrtime', 'performance', 'requestAnimationFrame', 'cancelAnimationFrame',
+        'requestIdleCallback', 'cancelIdleCallback',
+      ],
+    })
+    jest.setSystemTime(new Date(2026, 6, 15, 12, 0, 0)) // local 15 Jul 2026, noon
+    try {
+      searchParams = new URLSearchParams('voucherId=v1')
+      // total 60 > 2 pages so the Next button is enabled.
+      listRedemptions.mockResolvedValue({ items: [ROW], total: 60, limit: 25, offset: 0 })
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      const pageUi = () => (
+        <QueryClientProvider client={qc}>
+          <RedemptionsPage />
+        </QueryClientProvider>
+      )
+      const view = render(pageUi())
+      await screen.findByText('Free coffee')
+      await waitFor(() =>
+        expect(listRedemptions).toHaveBeenCalledWith(
+          expect.objectContaining({ voucherId: 'v1', offset: 0 }),
+        ),
+      )
+      // Paginate: the request offset becomes non-zero.
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await waitFor(() =>
+        expect(listRedemptions).toHaveBeenCalledWith(
+          expect.objectContaining({ voucherId: 'v1', offset: 25 }),
+        ),
+      )
+      // Quick Action fires in place: the URL gains range=today (no remount).
+      searchParams = new URLSearchParams('range=today')
+      view.rerender(pageUi())
+      await waitFor(() => {
+        const last = listRedemptions.mock.calls.at(-1)![0] as Record<string, unknown>
+        expect(last.from).toBe('2026-07-15T00:00:00.000Z') // literal, from the frozen clock
+        expect(last.voucherId).toBeUndefined() // REPLACED, not merged
+        expect(last.offset).toBe(0) // pagination reset from 25
+      })
+      // Repeated rerenders with the param unchanged do NOT re-apply the filter
+      // (transition-based, so later user edits are never clobbered).
+      const callsAfter = listRedemptions.mock.calls.length
+      view.rerender(pageUi())
+      view.rerender(pageUi())
+      expect(listRedemptions.mock.calls.length).toBe(callsAfter)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it("seeds the From filter to today's local calendar date at UTC midnight (matches a manual pick)", async () => {
+    // Frozen clock + literal expectation (independent of the production
+    // todayFromIso implementation); only Date is faked, all timers stay real.
+    jest.useFakeTimers({
+      doNotFake: [
+        'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+        'setImmediate', 'clearImmediate', 'queueMicrotask', 'nextTick',
+        'hrtime', 'performance', 'requestAnimationFrame', 'cancelAnimationFrame',
+        'requestIdleCallback', 'cancelIdleCallback',
+      ],
+    })
+    jest.setSystemTime(new Date(2026, 6, 15, 12, 0, 0)) // local 15 Jul 2026, noon
+    try {
+      searchParams = new URLSearchParams('range=today')
+      listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+      renderPage()
+      await screen.findByText('Free coffee')
+      // Serialized exactly like RedemptionFilters serializes a hand-picked From
+      // date, so the date INPUT displays today's date in every timezone.
+      await waitFor(() =>
+        expect(listRedemptions).toHaveBeenCalledWith(
+          expect.objectContaining({ from: '2026-07-15T00:00:00.000Z' }),
+        ),
+      )
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+})
+
 describe('RedemptionsPage voucherId deep-link (B-2)', () => {
   it('applies the ?voucherId= filter on first load', async () => {
     searchParams = new URLSearchParams('voucherId=v1')

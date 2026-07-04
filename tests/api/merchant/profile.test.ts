@@ -77,25 +77,64 @@ describe('merchant profile routes', () => {
     expect(res.statusCode).toBe(401)
   })
 
-  // Insights & Reports: viewerCapabilities.canViewInsights is derived from the
-  // membership role (OWNER + BRANCH_MANAGER true; STAFF false). It mirrors the
-  // assertInsightsAccess deny (the real boundary) and lets merchant-web hide the
-  // Insights nav for STAFF.
+  // Shell wave: viewerCapabilities is the viewer's OWN membership UX-hint block
+  // { canViewInsights, canManageVouchers, role, displayName }. canViewInsights is
+  // derived from the membership role (OWNER + BRANCH_MANAGER true; STAFF false) and
+  // mirrors the assertInsightsAccess deny (the real boundary); canManageVouchers
+  // mirrors assertCanManageVouchers (OWNER, or a BM with the grant); role/displayName
+  // feed the account-menu identity line. No other member's data is ever exposed.
   // role is `string` so a test can pass a future/unknown role value (not in the
   // current union) to prove the allowlist fails closed.
-  function membershipRow(role: string) {
-    return [{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role, allBranches: role !== 'STAFF', canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]
+  function membershipRow(role: string, canManageVouchers = false) {
+    return [{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role, allBranches: role !== 'STAFF', canManageVouchers, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]
   }
   function profileRow() {
     return { id: 'm1', businessName: 'Acme', status: 'ACTIVE', onboardingStep: 'LIVE' }
   }
 
-  it('GET profile exposes viewerCapabilities.canViewInsights=true for OWNER', async () => {
+  it('GET profile exposes the full viewerCapabilities block for OWNER (vouchers always manageable, displayName from the admin row)', async () => {
     app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue(membershipRow('OWNER'))
     app.prisma.merchant.findUnique = vi.fn().mockResolvedValue(profileRow())
+    app.prisma.merchantAdmin.findUnique = vi.fn().mockResolvedValue({ firstName: 'Priya', lastName: 'Shah' })
     const res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body).viewerCapabilities).toEqual({ canViewInsights: true })
+    expect(JSON.parse(res.body).viewerCapabilities).toEqual({
+      canViewInsights: true,
+      canManageVouchers: true,
+      role: 'OWNER',
+      displayName: 'Priya Shah',
+    })
+  })
+
+  it('canManageVouchers is false for a BRANCH_MANAGER without the grant and true with it', async () => {
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue(profileRow())
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue(membershipRow('BRANCH_MANAGER', false))
+    let res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(JSON.parse(res.body).viewerCapabilities.canManageVouchers).toBe(false)
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue(membershipRow('BRANCH_MANAGER', true))
+    res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(JSON.parse(res.body).viewerCapabilities.canManageVouchers).toBe(true)
+  })
+
+  it('displayName collapses missing parts and emits null when the admin row has no name', async () => {
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue(profileRow())
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue(membershipRow('STAFF'))
+    app.prisma.merchantAdmin.findUnique = vi.fn().mockResolvedValue({ firstName: 'Emma', lastName: '' })
+    let res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(JSON.parse(res.body).viewerCapabilities.displayName).toBe('Emma')
+    app.prisma.merchantAdmin.findUnique = vi.fn().mockResolvedValue(null)
+    res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(JSON.parse(res.body).viewerCapabilities.displayName).toBeNull()
+  })
+
+  it('STAFF role is emitted verbatim, with canManageVouchers=false and canViewInsights=false', async () => {
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue(profileRow())
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue(membershipRow('STAFF', false))
+    const res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    const caps = JSON.parse(res.body).viewerCapabilities
+    expect(caps.role).toBe('STAFF')
+    expect(caps.canManageVouchers).toBe(false)
+    expect(caps.canViewInsights).toBe(false)
   })
 
   it('GET profile exposes viewerCapabilities.canViewInsights=true for BRANCH_MANAGER', async () => {

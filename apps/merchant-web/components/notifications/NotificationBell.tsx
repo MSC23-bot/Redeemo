@@ -1,19 +1,19 @@
 'use client'
 
 /**
- * M4 F2: the topbar notification bell. Replaces the inert Notifications button.
+ * The topbar notification bell (M4 F2, restyled to the prototype in the shell wave).
  *
- * - An unread-count poll (45s, refetch on focus) drives a small red count bubble
- *   (brand red #E20C04), capped at "9+", hidden when 0.
- * - Clicking the bell opens a custom popover (mirrors the Topbar account-menu
- *   pattern: a fixed scrim that closes on outside-click + an absolute panel at
- *   top:46 right:0, Escape closes and returns focus to the trigger, the first row
- *   is focused on open). The popover lazily loads the most-recent 8 (enabled only
- *   while open, same 45s poll).
- * - Each row: the type icon + title + truncated body + a relative timestamp + an
- *   unread dot. A row click marks it read, invalidates ['notifications'], closes
- *   the popover, and navigates to the resolved deep-link destination.
- * - Footer: "Mark all as read" + "See all" -> /notifications.
+ * - An unread-count poll (45s, refetch on focus) drives a small count bubble
+ *   (brand gradient), capped at "9+", hidden when 0.
+ * - The popover follows the prototype: header "Notifications" + a summary line
+ *   ("All caught up" / "N unread") with "Mark all as read" in the header ONLY when
+ *   something is unread; a flat list of the 5 most recent (unread rows tinted
+ *   #FFF7F3 with a rose dot); footer "See all notifications" -> /notifications.
+ *   Grouping (New/Earlier) lives on the full view, not the popover.
+ * - Open state can be CONTROLLED by the parent (open/onOpenChange) so the topbar
+ *   menus stay mutually exclusive; uncontrolled falls back to internal state.
+ * - Row click marks read, invalidates ['notifications'], closes, navigates to the
+ *   resolved deep-link destination.
  *
  * Privacy: renders only title/body/type/sentAt/isRead from the curated API; no
  * recipient ids and no customer PII.
@@ -21,7 +21,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell } from '@/lib/icons'
+import { Bell, ChevronDown } from '@/lib/icons'
 import {
   getUnreadCount,
   listNotifications,
@@ -34,13 +34,27 @@ import { resolveNotificationDestination } from '@/lib/notifications/resolveDesti
 import { formatRelativeTime } from '@/lib/notifications/relativeTime'
 
 const POLL_MS = 45_000
-const RECENT_PAGE_SIZE = 8
+const RECENT_PAGE_SIZE = 5
 const BRAND_RED = '#E20C04'
 
-export function NotificationBell() {
+export function NotificationBell({
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+} = {}) {
   const router = useRouter()
   const queryClient = useQueryClient()
-  const [open, setOpen] = React.useState(false)
+  const [internalOpen, setInternalOpen] = React.useState(false)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      setInternalOpen(next)
+      onOpenChange?.(next)
+    },
+    [onOpenChange],
+  )
   const triggerRef = React.useRef<HTMLButtonElement>(null)
   const firstItemRef = React.useRef<HTMLButtonElement>(null)
 
@@ -64,10 +78,13 @@ export function NotificationBell() {
     if (open) firstItemRef.current?.focus()
   }, [open, recent.data])
 
-  const closePopover = React.useCallback((returnFocus: boolean) => {
-    setOpen(false)
-    if (returnFocus) triggerRef.current?.focus()
-  }, [])
+  const closePopover = React.useCallback(
+    (returnFocus: boolean) => {
+      setOpen(false)
+      if (returnFocus) triggerRef.current?.focus()
+    },
+    [setOpen],
+  )
 
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: ['notifications'] })
@@ -101,7 +118,7 @@ export function NotificationBell() {
         aria-label="Notifications"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen(!open)}
         style={{
           position: 'relative',
           width: 38,
@@ -128,7 +145,7 @@ export function NotificationBell() {
               height: 16,
               padding: '0 4px',
               borderRadius: 999,
-              background: BRAND_RED,
+              background: 'linear-gradient(135deg,#E20C04,#E84A00)',
               color: '#fff',
               fontSize: 10,
               fontWeight: 800,
@@ -163,43 +180,66 @@ export function NotificationBell() {
               right: 0,
               top: 46,
               zIndex: 50,
-              width: 360,
-              maxWidth: 'calc(100vw - 32px)',
+              width: 372,
+              maxWidth: 'calc(100vw - 24px)',
               background: '#fff',
               border: '1px solid #E5E7EB',
-              borderRadius: 12,
-              boxShadow: 'var(--shadow-md)',
+              borderRadius: 18,
+              boxShadow: '0 28px 70px -26px rgba(1,12,53,0.46)',
               overflow: 'hidden',
             }}
           >
             <div
               style={{
-                padding: '12px 14px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                gap: 8,
+                padding: '14px 17px 10px',
                 borderBottom: '1px solid #EEF1F4',
-                fontSize: 14,
-                fontWeight: 700,
-                color: '#010C35',
               }}
             >
-              Notifications
+              <div>
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 16, color: '#010C35' }}>
+                  Notifications
+                </div>
+                <div style={{ fontSize: 11.5, color: '#9AA0B0' }}>
+                  {count > 0 ? `${count} unread` : 'All caught up'}
+                </div>
+              </div>
+              {count > 0 && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={handleMarkAll}
+                  style={{ border: 'none', background: 'transparent', color: BRAND_RED, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', padding: 0, marginTop: 2 }}
+                >
+                  Mark all as read
+                </button>
+              )}
             </div>
 
-            <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            <div style={{ maxHeight: 392, overflowY: 'auto' }}>
               {recent.isLoading ? (
                 <div
                   role="status"
                   aria-live="polite"
-                  style={{ padding: '20px 14px', fontSize: 13, color: '#6B7280' }}
+                  style={{ padding: '20px 17px', fontSize: 13, color: '#6B7280' }}
                 >
                   Loading notifications...
                 </div>
               ) : recent.isError ? (
-                <div role="alert" style={{ padding: '20px 14px', fontSize: 13, color: 'var(--danger)' }}>
+                <div role="alert" style={{ padding: '20px 17px', fontSize: 13, color: 'var(--danger)' }}>
                   We could not load your notifications.
                 </div>
               ) : items.length === 0 ? (
-                <div style={{ padding: '24px 14px', fontSize: 13, color: '#6B7280', textAlign: 'center' }}>
-                  You are all caught up.
+                <div style={{ padding: '28px 17px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#010C35' }}>
+                    You are all caught up
+                  </div>
+                  <div style={{ fontSize: 13, color: '#8089A4', marginTop: 4 }}>
+                    New updates about your business, vouchers and redemptions will show here.
+                  </div>
                 </div>
               ) : (
                 items.map((n, i) => {
@@ -217,10 +257,10 @@ export function NotificationBell() {
                         gap: 10,
                         width: '100%',
                         textAlign: 'left',
-                        padding: '12px 14px',
+                        padding: '13px 17px',
                         border: 'none',
-                        borderBottom: '1px solid #F4F6F8',
-                        background: n.isRead ? '#fff' : '#FBFCFE',
+                        borderBottom: '1px solid #F4F1EC',
+                        background: n.isRead ? '#fff' : '#FFF7F3',
                         cursor: 'pointer',
                         alignItems: 'flex-start',
                       }}
@@ -244,9 +284,9 @@ export function NotificationBell() {
                         <span
                           style={{
                             display: 'block',
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: '#010C35',
+                            fontSize: 13.5,
+                            fontWeight: n.isRead ? 600 : 700,
+                            color: n.isRead ? '#3A465F' : '#010C35',
                           }}
                         >
                           {n.title}
@@ -255,7 +295,7 @@ export function NotificationBell() {
                           style={{
                             display: 'block',
                             fontSize: 12,
-                            color: '#6B7280',
+                            color: n.isRead ? '#8089A4' : '#566079',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -263,7 +303,7 @@ export function NotificationBell() {
                         >
                           {n.body}
                         </span>
-                        <span style={{ display: 'block', fontSize: 11, color: '#9AA3B2', marginTop: 2 }}>
+                        <span style={{ display: 'block', fontSize: 11, color: '#9AA0B0', marginTop: 2 }}>
                           {formatRelativeTime(n.sentAt)}
                         </span>
                       </span>
@@ -287,46 +327,29 @@ export function NotificationBell() {
               )}
             </div>
 
-            <div
+            <button
+              type="button"
+              role="menuitem"
+              onClick={handleSeeAll}
               style={{
                 display: 'flex',
-                justifyContent: 'space-between',
-                gap: 8,
-                padding: '10px 14px',
-                borderTop: '1px solid #EEF1F4',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                width: '100%',
+                padding: '11px 14px',
+                border: 'none',
+                borderTop: '1px solid #F1ECE6',
+                background: '#FBFAF8',
+                color: '#010C35',
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: 'pointer',
               }}
             >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={handleMarkAll}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: '#455373',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Mark all as read
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={handleSeeAll}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: BRAND_RED,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                See all
-              </button>
-            </div>
+              See all notifications
+              <ChevronDown size={13} aria-hidden style={{ transform: 'rotate(-90deg)' }} />
+            </button>
           </div>
         </>
       )}

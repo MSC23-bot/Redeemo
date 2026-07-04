@@ -110,7 +110,28 @@ export default function NotificationsPage() {
         </Card>
       ) : (
         <>
-          <NotificationsList items={items} onSelect={handleSelect} />
+          {/* Prototype full-view grouping: unread under "New", read under "Earlier"
+              (within the current page; sections only render when non-empty). */}
+          {(() => {
+            const newItems = items.filter((n) => !n.isRead)
+            const earlierItems = items.filter((n) => n.isRead)
+            return (
+              <div className="space-y-5">
+                {newItems.length > 0 && (
+                  <section className="space-y-2">
+                    <div className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-[#9AA0B0]">New</div>
+                    <NotificationsList items={newItems} onSelect={handleSelect} />
+                  </section>
+                )}
+                {earlierItems.length > 0 && (
+                  <section className="space-y-2">
+                    <div className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-[#9AA0B0]">Earlier</div>
+                    <NotificationsList items={earlierItems} onSelect={handleSelect} />
+                  </section>
+                )}
+              </div>
+            )
+          })()}
           {total > PAGE_SIZE && (
             <div className="flex items-center justify-between text-sm text-muted-foreground">
               <span>

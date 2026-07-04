@@ -29,16 +29,48 @@ import { listBranches } from '@/lib/api/branch'
 
 const PAGE_SIZE = 25
 
+// Today's LOCAL calendar date serialized as UTC midnight - the exact shape a
+// manual "From" pick produces (see RedemptionFilters), so display + query
+// semantics match a hand-picked "today" in every timezone.
+function todayFromIso(): string {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}T00:00:00.000Z`
+}
+
 export default function RedemptionsPage() {
   const { openValidate } = useValidateDialog()
   const searchParams = useSearchParams()
   // B-2: a /redemptions?voucherId=<id> deep-link (from the Voucher Detail "View
   // redemptions" link) seeds the filter so the log opens scoped to that voucher.
   const initialVoucherId = searchParams?.get('voucherId') ?? undefined
-  const [filters, setFilters] = React.useState<Filters>(
-    initialVoucherId ? { voucherId: initialVoucherId } : {},
-  )
+  // Shell wave: /redemptions?range=today (the topbar Quick Action) seeds the
+  // From filter to today's LOCAL calendar date, serialized exactly the way a
+  // manual "From" pick is (UTC midnight of that date, see RedemptionFilters) -
+  // so the displayed date and the query semantics match a hand-picked "today".
+  const rangeParam = searchParams?.get('range') ?? null
+  const [filters, setFilters] = React.useState<Filters>(() => {
+    if (initialVoucherId) return { voucherId: initialVoucherId }
+    if (rangeParam === 'today') return { from: todayFromIso() }
+    return {}
+  })
   const [offset, setOffset] = React.useState(0)
+  // The Quick Action must also work SAME-PAGE (fired while already on
+  // /redemptions, page stays mounted). React only to the param TRANSITION to
+  // 'today': the quick-action intent is "show today's redemptions", so it
+  // REPLACES the current filter set and resets pagination. Because it fires on
+  // the transition (tracked via ref), not on every render, it never overwrites
+  // filters the user edits afterwards while the param sits unchanged in the URL.
+  const lastRangeRef = React.useRef(rangeParam)
+  React.useEffect(() => {
+    if (rangeParam === 'today' && lastRangeRef.current !== 'today') {
+      setFilters({ from: todayFromIso() })
+      setOffset(0)
+    }
+    lastRangeRef.current = rangeParam
+  }, [rangeParam])
   const [selected, setSelected] = React.useState<RedemptionRow | null>(null)
   const [exporting, setExporting] = React.useState(false)
   const [exportError, setExportError] = React.useState<string | null>(null)

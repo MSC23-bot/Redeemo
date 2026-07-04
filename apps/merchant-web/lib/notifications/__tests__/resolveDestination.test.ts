@@ -18,8 +18,24 @@ describe('resolveNotificationDestination', () => {
     expect(dest).toEqual({ href: '/', built: true })
   })
 
-  it('falls back to home, built:false for an unknown referenceType', () => {
+  // Shell wave: the live merchant-facing reference types now deep-link.
+  it('routes referenceType "voucher" to the voucher detail page, built:true', () => {
     const dest = resolveNotificationDestination('voucher', 'v1', 'VOUCHER_APPROVAL_UPDATE')
+    expect(dest).toEqual({ href: '/vouchers/v1', built: true })
+  })
+
+  it('routes referenceType "voucher" with a null id to the vouchers list, built:true', () => {
+    const dest = resolveNotificationDestination('voucher', null, 'VOUCHER_APPROVAL_UPDATE')
+    expect(dest).toEqual({ href: '/vouchers', built: true })
+  })
+
+  it('routes referenceType "redemption" to the redemptions log, built:true', () => {
+    const dest = resolveNotificationDestination('redemption', 'r1', 'VOUCHER_REDEEMED')
+    expect(dest).toEqual({ href: '/redemptions', built: true })
+  })
+
+  it('falls back to home, built:false for an unknown referenceType', () => {
+    const dest = resolveNotificationDestination('campaign', 'c1', 'CAMPAIGN_UPDATE')
     expect(dest).toEqual({ href: '/', built: false })
   })
 

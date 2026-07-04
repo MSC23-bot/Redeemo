@@ -17,26 +17,52 @@ const STATUS: Record<LifecycleState, PillStyle> = {
 }
 
 /**
- * Sidebar business-status pill. M0 renders a static, prop-driven default; the live
- * state source (server merchant.status) is wired in a later milestone (M7).
+ * Sidebar business-status pill (prototype-faithful two-line variant): a
+ * "BUSINESS STATUS" micro-label over the status text, with the lifecycle dot.
+ * `dotOnly` renders just the (centred) dot for the collapsed 72px icon rail.
  */
-export function StatusPill({ state = 'setup' }: { state?: LifecycleState }) {
+export function StatusPill({ state = 'setup', dotOnly = false }: { state?: LifecycleState; dotOnly?: boolean }) {
   const st = STATUS[state]
+  const dot = (
+    <span
+      aria-hidden
+      style={{
+        width: dotOnly ? 10 : 8, height: dotOnly ? 10 : 8, borderRadius: 999, background: st.dot,
+        flexShrink: 0,
+        animation: st.pulse ? 'rdmoPulse 2.2s infinite' : undefined,
+      }}
+    />
+  )
+  if (dotOnly) {
+    return (
+      <span
+        role="img"
+        aria-label={`Business status: ${st.label}`}
+        title={st.label}
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 34, height: 34, borderRadius: 13, background: st.bg,
+        }}
+      >
+        {dot}
+      </span>
+    )
+  }
   return (
     <span
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: 8,
-        padding: '6px 12px', borderRadius: 13, background: st.bg, color: st.fg,
-        fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-body)',
+        display: 'inline-flex', alignItems: 'center', gap: 9,
+        padding: '7px 13px', borderRadius: 13, background: st.bg, color: st.fg,
+        fontFamily: 'var(--font-body)',
       }}
     >
-      <span
-        style={{
-          width: 8, height: 8, borderRadius: 999, background: st.dot,
-          animation: st.pulse ? 'rdmoPulse 2.2s infinite' : undefined,
-        }}
-      />
-      {st.label}
+      {dot}
+      <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+        <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, opacity: 0.65 }}>
+          Business status
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>{st.label}</span>
+      </span>
     </span>
   )
 }

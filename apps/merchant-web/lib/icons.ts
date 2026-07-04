@@ -13,6 +13,7 @@ export {
   CreditCard,
   Settings,
   LifeBuoy,
+  LogOut,
   Bell,
   Grid3x3,
   ChevronDown,

@@ -30,8 +30,19 @@ jest.mock('@/components/vouchers/builder/DayTwoBuilder', () => ({
 }))
 
 const push = jest.fn()
+const replace = jest.fn()
+// Shell wave: /vouchers?create=1 (the Quick Action deep-link) seeds the builder.
+let searchParams = new URLSearchParams()
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push, replace }),
+  useSearchParams: () => searchParams,
+}))
+
+// Shell wave: the capability seam now reads the session profile; the page tests
+// pin page behaviour, not the seam (covered by useVoucherCapability.test.ts).
+let mockCapability = { canManage: true, ready: true }
+jest.mock('@/lib/voucher/useVoucherCapability', () => ({
+  useVoucherCapability: () => mockCapability,
 }))
 
 // The resolved top-level category name feeds the builder's suggestion chips.
@@ -65,6 +76,9 @@ function renderPage() {
 
 beforeEach(() => {
   push.mockReset()
+  replace.mockReset()
+  mockCapability = { canManage: true, ready: true }
+  searchParams = new URLSearchParams()
   listCustomVouchers.mockReset().mockResolvedValue([])
   listFlagshipVouchers.mockReset().mockResolvedValue([])
 })
@@ -122,6 +136,100 @@ describe('VouchersPage list', () => {
     const title = await screen.findByText('Tappable voucher')
     fireEvent.click(title.closest('[data-voucher-card]')!)
     expect(push).toHaveBeenCalledWith('/vouchers/v9')
+  })
+
+  it('opens the builder immediately on the ?create=1 deep-link (shell wave Quick Action)', async () => {
+    searchParams = new URLSearchParams('create=1')
+    listCustomVouchers.mockResolvedValue([row()])
+    renderPage()
+    expect(await screen.findByTestId('day-two-builder')).toBeInTheDocument()
+  })
+
+  it('SAME-PAGE Quick Action: the builder opens when ?create=1 appears after mount, gated on capability', async () => {
+    // Codex correction 1: navigating /vouchers -> /vouchers?create=1 keeps the
+    // page mounted, so the lazy initializer never re-runs; the param-transition
+    // effect must open the builder - and only once the capability is approved.
+    searchParams = new URLSearchParams() // mounted WITHOUT the param
+    mockCapability = { canManage: false, ready: false } // capability still loading
+    listCustomVouchers.mockResolvedValue([row()])
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(
+      <QueryClientProvider client={qc}>
+        <VouchersPage />
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByTestId('day-two-builder')).not.toBeInTheDocument()
+    // Quick Action fires: the URL gains ?create=1 in place (no remount).
+    searchParams = new URLSearchParams('create=1')
+    view.rerender(
+      <QueryClientProvider client={qc}>
+        <VouchersPage />
+      </QueryClientProvider>,
+    )
+    // Capability still unresolved -> fail closed, no builder yet.
+    expect(screen.queryByTestId('day-two-builder')).not.toBeInTheDocument()
+    // Capability approves -> the builder opens without a remount.
+    mockCapability = { canManage: true, ready: true }
+    view.rerender(
+      <QueryClientProvider client={qc}>
+        <VouchersPage />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByTestId('day-two-builder')).toBeInTheDocument()
+  })
+
+  it('cancelling strips ?create=1 and the builder does not reopen on rerender', async () => {
+    searchParams = new URLSearchParams('create=1')
+    listCustomVouchers.mockResolvedValue([row()])
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(
+      <QueryClientProvider client={qc}>
+        <VouchersPage />
+      </QueryClientProvider>,
+    )
+    const builder = await screen.findByTestId('day-two-builder')
+    expect(builder).toBeInTheDocument()
+    fireEvent.click(screen.getByText('builder-cancel'))
+    expect(replace).toHaveBeenCalledWith('/vouchers')
+    // DANGEROUS WINDOW: the replace has not landed yet, so ?create=1 is STILL
+    // in the URL. Rerenders in this window must NOT reopen the builder (the
+    // effect fires only on a wantCreate TRANSITION, and true -> true is none).
+    view.rerender(
+      <QueryClientProvider client={qc}>
+        <VouchersPage />
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByTestId('day-two-builder')).not.toBeInTheDocument()
+    // The replace lands: the param is gone; still closed.
+    searchParams = new URLSearchParams()
+    view.rerender(
+      <QueryClientProvider client={qc}>
+        <VouchersPage />
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByTestId('day-two-builder')).not.toBeInTheDocument()
+  })
+
+  it('?create=1 waits out the fail-closed capability load, then opens the builder (no stranding)', async () => {
+    searchParams = new URLSearchParams('create=1')
+    mockCapability = { canManage: false, ready: false } // profile still loading
+    listCustomVouchers.mockResolvedValue([row()])
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(
+      <QueryClientProvider client={qc}>
+        <VouchersPage />
+      </QueryClientProvider>,
+    )
+    // Fail closed: no builder while the capability is unknown.
+    expect(screen.queryByTestId('day-two-builder')).not.toBeInTheDocument()
+    // Capability resolves -> the deep-link intent is preserved and the builder opens.
+    mockCapability = { canManage: true, ready: true }
+    view.rerender(
+      <QueryClientProvider client={qc}>
+        <VouchersPage />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByTestId('day-two-builder')).toBeInTheDocument()
   })
 
   it('the Create a voucher action opens the builder', async () => {

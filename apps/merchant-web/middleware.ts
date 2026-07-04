@@ -27,7 +27,12 @@ export const config = {
   // The (auth)/api tokens are anchored to a FULL path segment ((?:/|$)) so a future
   // authed path that merely STARTS WITH one (e.g. /otp-settings, /claims, /registration)
   // is still gated, not silently treated as public.
+  // Static image/font files are excluded by EXTENSION: they are public brand
+  // assets, and gating them breaks (a) the /icon.png favicon for logged-out
+  // visitors on /sign-in and (b) the next/image optimizer, whose internal
+  // upstream fetch of /redeemo-r-mark.png carries no session cookie and would
+  // receive the /sign-in HTML instead of the image (shell-wave fidelity finding).
   matcher: [
-    '/((?!(?:sign-in|otp|forgot-password|reset-password|claim|register|api)(?:/|$)|_next/|favicon\\.ico|fonts/|robots\\.txt|sitemap\\.xml).*)',
+    '/((?!(?:sign-in|otp|forgot-password|reset-password|claim|register|api)(?:/|$)|_next/|favicon\\.ico|fonts/|robots\\.txt|sitemap\\.xml|.*\\.(?:png|jpg|jpeg|svg|webp|gif|ico|woff2?)$).*)',
   ],
 }

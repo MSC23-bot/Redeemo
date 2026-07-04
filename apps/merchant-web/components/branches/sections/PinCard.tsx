@@ -49,6 +49,16 @@ export function PinCard({ branch, isOwner }: { branch: Branch; isOwner: boolean 
   const [draftPin, setDraftPin] = React.useState('')
   const [actionError, setActionError] = React.useState<string | null>(null)
 
+  // Quick-Action deep-link: /branches/{id}#pin loads the branch page async, so
+  // the browser's native hash scroll fires before this card exists. Scroll on
+  // mount when the hash targets us. (Effect sits above the owner early-return
+  // to satisfy the rules of hooks; it no-ops when the card never renders.)
+  React.useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#pin') {
+      document.getElementById('pin')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [])
+
   // The whole section is owner-only.
   if (!isOwner) return null
 
@@ -108,7 +118,9 @@ export function PinCard({ branch, isOwner }: { branch: Branch; isOwner: boolean 
   }
 
   return (
-    <Card className="gap-4" data-testid="branch-pin-card">
+    // id="pin": the topbar Quick Action deep-links to /branches/{id}#pin so the
+    // browser lands on this card; the PIN itself still reveals only on demand.
+    <Card className="gap-4" data-testid="branch-pin-card" id="pin" style={{ scrollMarginTop: 80 }}>
       <div className="flex flex-wrap items-center justify-between gap-3 px-6">
         <div className="flex items-center gap-2">
           <KeyRound size={16} aria-hidden style={{ color: 'var(--text-tertiary)' }} />

@@ -54,7 +54,9 @@ function messageForError(err: unknown): string {
     case 'REDEMPTION_NOT_FOUND':
       return 'No redemption found for that code. Check it and try again.'
     case 'MERCHANT_SUSPENDED':
-      return 'Your account is suspended. Contact Redeemo.'
+      // Prototype "Validation paused" copy: the Validate CTA stays enabled while
+      // suspended; the pause is explained here, inside the dialog.
+      return 'Your account is suspended at the moment, so codes cannot be validated. Resolve this with Redeemo to start validating again.'
     case 'BRANCH_UNAVAILABLE':
       return 'This branch is currently unavailable.'
     default:

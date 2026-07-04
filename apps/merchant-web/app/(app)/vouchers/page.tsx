@@ -12,7 +12,7 @@
  * or renders customer PII or a redemption PIN.
  */
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,9 +25,22 @@ import { DayTwoBuilder } from '@/components/vouchers/builder/DayTwoBuilder'
 
 export default function VouchersPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { canManage } = useVoucherCapability()
   const categoryName = useVoucherCategoryName()
-  const [creating, setCreating] = React.useState(false)
+  // Shell wave: /vouchers?create=1 (the topbar Quick Action) opens the builder -
+  // but only for a viewer who can manage vouchers. The deep-link must also work
+  // SAME-PAGE (Quick Action fired while already on /vouchers keeps the page
+  // mounted), so the effect below reacts to the param APPEARING after mount.
+  // Cancel strips the param (router.replace below); because the effect only
+  // fires on a wantCreate transition to true, a cancelled builder does not
+  // reopen until the param transitions again.
+  const wantCreate = searchParams?.get('create') === '1'
+  const [creating, setCreating] = React.useState(wantCreate)
+  React.useEffect(() => {
+    if (wantCreate) setCreating(true)
+  }, [wantCreate])
+  const allowCreating = creating && canManage
 
   const custom = useQuery({
     queryKey: ['vouchers'],
@@ -43,7 +56,7 @@ export default function VouchersPage() {
   const customRows: VoucherCardData[] = (custom.data ?? []).map(toCardData)
   const flagshipRows: VoucherCardData[] = (flagship.data ?? []).map((r) => ({ ...toCardData(r), isRmv: true }))
 
-  if (creating) {
+  if (allowCreating) {
     return (
       <div className="space-y-6">
         <header>
@@ -55,9 +68,17 @@ export default function VouchersPage() {
         <Card className="p-6">
           <DayTwoBuilder
             categoryName={categoryName}
-            onCancel={() => setCreating(false)}
+            onCancel={() => {
+              setCreating(false)
+              // Strip a ?create=1 deep-link seed so refresh/back does not
+              // reopen the builder the user just cancelled (CodeRabbit #364).
+              router.replace('/vouchers')
+            }}
             onDone={({ id }) => {
               setCreating(false)
+              // push (not replace) is deliberate: Back from the new voucher's
+              // detail returns to /vouchers?create=1 and reopens the builder -
+              // browser-normal deep-link semantics for a completed create.
               router.push(`/vouchers/${id}`)
             }}
           />

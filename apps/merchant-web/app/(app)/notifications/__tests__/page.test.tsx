@@ -115,9 +115,23 @@ describe('NotificationsPage', () => {
     expect(push).toHaveBeenCalledWith('/')
   })
 
+  it('a "voucher" row deep-links to the voucher detail page (shell wave resolver)', async () => {
+    listNotifications.mockResolvedValue({
+      notifications: [row({ id: 'n8', referenceType: 'voucher', referenceId: 'v1' })],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    })
+    renderPage()
+    const item = await screen.findByText('Application update')
+    fireEvent.click(item.closest('button')!)
+    await waitFor(() => expect(markNotificationRead).toHaveBeenCalledWith('n8'))
+    expect(push).toHaveBeenCalledWith('/vouchers/v1')
+  })
+
   it('a row with an unknown referenceType still navigates to the safe fallback', async () => {
     listNotifications.mockResolvedValue({
-      notifications: [row({ id: 'n9', referenceType: 'voucher', referenceId: 'v1' })],
+      notifications: [row({ id: 'n9', referenceType: 'campaign', referenceId: 'c1' })],
       page: 1,
       pageSize: 20,
       total: 1,

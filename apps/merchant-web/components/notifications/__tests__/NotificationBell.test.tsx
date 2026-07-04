@@ -99,11 +99,11 @@ describe('NotificationBell popover', () => {
     expect(screen.queryByTestId('unread-dot-n2')).not.toBeInTheDocument()
   })
 
-  it('requests the most recent 8 for the popover', async () => {
+  it('requests the most recent 5 for the popover (prototype cap)', async () => {
     renderBell()
     fireEvent.click(screen.getByRole('button', { name: /notifications/i }))
     await waitFor(() =>
-      expect(listNotifications).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 8 })),
+      expect(listNotifications).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 5 })),
     )
   })
 
@@ -129,7 +129,9 @@ describe('NotificationBell popover', () => {
 })
 
 describe('NotificationBell actions', () => {
-  it('marks all as read and invalidates', async () => {
+  it('marks all as read and invalidates (header action, shown only when unread)', async () => {
+    // The prototype header shows "Mark all as read" ONLY when something is unread.
+    getUnreadCount.mockResolvedValue({ count: 1 })
     listNotifications.mockResolvedValue({ notifications: [row()], page: 1, pageSize: 8, total: 1 })
     renderBell()
     fireEvent.click(screen.getByRole('button', { name: /notifications/i }))
@@ -149,9 +151,24 @@ describe('NotificationBell actions', () => {
     expect(push).toHaveBeenCalledWith('/')
   })
 
+  it('a "voucher" row deep-links to the voucher detail page (shell wave resolver)', async () => {
+    listNotifications.mockResolvedValue({
+      notifications: [row({ id: 'n8', referenceType: 'voucher', referenceId: 'v1' })],
+      page: 1,
+      pageSize: 8,
+      total: 1,
+    })
+    renderBell()
+    fireEvent.click(screen.getByRole('button', { name: /notifications/i }))
+    const dl = await screen.findByText('Application update')
+    fireEvent.click(dl.closest('button')!)
+    await waitFor(() => expect(markNotificationRead).toHaveBeenCalledWith('n8'))
+    expect(push).toHaveBeenCalledWith('/vouchers/v1')
+  })
+
   it('a row with an unknown referenceType still navigates to the safe fallback', async () => {
     listNotifications.mockResolvedValue({
-      notifications: [row({ id: 'n9', referenceType: 'voucher', referenceId: 'v1' })],
+      notifications: [row({ id: 'n9', referenceType: 'campaign', referenceId: 'c1' })],
       page: 1,
       pageSize: 8,
       total: 1,
