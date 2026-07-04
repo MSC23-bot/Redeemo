@@ -149,6 +149,50 @@ jobs:
         continue-on-error: true
         run: npm audit --workspace=@redeemo/merchant-web --audit-level=high
 
+  # PR-G1b: the deterministic local browser-smoke lane, PILOT/ADVISORY per the
+  # roadmap CI tiers (T2 starts advisory; promotion to a required check is a
+  # separate owner-approved step). The app is BUILT with NEXT_PUBLIC_API_URL on
+  # a dead loopback port and every spec mocks /api/v1/** in the browser, so the
+  # job can never reach Neon/Railway/staging. Assertion failures are NEVER
+  # retried (retries: 0 in playwright.config.ts); continue-on-error keeps the
+  # JOB green while the step stays visibly failed-but-continued.
+  merchant-web-smoke:
+    name: merchant-web browser smoke (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      # No git operations in this job and it uploads an artifact - do not
+      # persist the checkout credentials (zizmor artipacked hardening).
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc # repo-level source of truth (root .nvmrc)
+          cache: npm
+
+      - name: Install (root install, hoists workspaces)
+        run: npm ci
+
+      - name: Install Playwright chromium (with system deps)
+        working-directory: apps/merchant-web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser smoke (advisory)
+        working-directory: apps/merchant-web
+        continue-on-error: true
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: merchant-web-playwright-report
+          path: apps/merchant-web/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
   backend:
     name: backend (typecheck + unit)
     runs-on: ubuntu-latest

@@ -50,3 +50,8 @@ prisma/scripts/.local/
 # cluster data dir or the local TEST_DATABASE_URL env file.
 .pgtest/
 .env.test
+
+# PR-G1b merchant-web Playwright smoke lane - local runner artifacts only.
+apps/merchant-web/playwright-report/
+apps/merchant-web/test-results/
+.playwright-mcp/
