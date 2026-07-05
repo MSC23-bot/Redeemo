@@ -6,7 +6,7 @@ Provenance: main `3a097161`. Tier 3 (auth/session architecture) under the reposi
 
 ## 0. Scope guard
 
-Client-only, `apps/merchant-web/**`. NO backend, BFF-cookie, schema, provider, or customer-web/admin-web change. No React Query key changes. The #381 `useBranchCapability` machinery is untouched. Estimated production-code footprint: ~4 files touched + 1 new module + tests.
+Client-only, `apps/merchant-web/**`. No React Query key changes. The #381 `useBranchCapability` machinery is untouched. Estimated production-code footprint: ~5 files touched + 1 new module + tests. NOTE on the BFF-cookie boundary (adversarial review F1/F2): the client cache-isolation change itself is client-only, BUT the confirmed-cookie-clearance logout contract (spec 4.5) requires two coupled changes that this plan flags as its dependency on the companion backend/BFF design: (1) `lib/api/auth.ts` `authApi.logout` MUST be reworked (F2) - accept an `AbortSignal`, STOP swallowing errors (`.catch(()=>{})` today), and RETURN the `Response`/status (and read the `{ ok, remoteRevoke }` body) so `signOut` can label confirmed-vs-UNCONFIRMED clearance; (2) the BFF `logout/route.ts` must derive the revoke identity from the cookie, not the Bearer (F1, owned by the backend design 3.3). If the owner wants the client PR to stay strictly client-only, the logout-contract change ships WITH the backend/BFF design PR, not this one - stated so the scope split is explicit.
 
 ## 1. Task sequence
 

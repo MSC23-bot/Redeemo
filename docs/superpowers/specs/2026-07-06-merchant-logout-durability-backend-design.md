@@ -61,10 +61,10 @@ The happy-path invariant above needs NO tombstone. A tombstone IS needed for the
 
 ### 3.3 Reliable (non-best-effort) revoke on the logout path
 
-Today the BFF logout forwards a best-effort backend revoke and swallows failures (`logout/route.ts:16-21`); the backend `logoutMerchant` is fire-and-mostly-forget. Under A:
+Today the BFF logout forwards a best-effort backend revoke ONLY when a Bearer is present (`logout/route.ts:15` `if (authorization)`) and swallows failures (`:16-21`); the backend `logoutMerchant` is fire-and-mostly-forget. Under A:
 
-- The BFF logout MUST await the backend revoke and treat a NON-timeout failure as a logout that has not yet durably revoked - see 3.4 for bounded behaviour.
-- The backend `logoutMerchant` DELs the refresh-token key (3.1) as its FIRST durable step, so once it runs, the session is atomically unusable regardless of any straddling refresh.
+- **Revoke identity is COOKIE-DERIVED, not Bearer-derived (adversarial review F1).** The BFF logout reads `readSessionCookie()` -> `{ sessionId, entityId }` (the cookie already carries both, `cookies.ts:21-23`) and calls a body-based backend revoke passing `sessionId` + `entityId`, exactly mirroring the existing `/refresh` route's body-based pattern (`refresh/route.ts:14,22-26`). It does NOT depend on the forwarded access-token Bearer. This is REQUIRED because: (a) the client logout contract (client design 4.5) clears the in-memory token BEFORE calling the BFF logout, so a Bearer-gated revoke would silently skip (the F1 regression); and (b) an idle user's access token may already be expired at logout time, which would fail the backend `authenticateMerchant` preHandler and silently no-op a Bearer-based revoke - the cookie (90-day refresh material) is the durable identity that a reliable revoke must use.
+- The backend logout endpoint therefore accepts `sessionId` + `entityId` in the body (a new/modified path alongside today's `authenticateMerchant`-gated one) and `logoutMerchant` DELs the refresh-token key (3.1) as its FIRST durable step, so once it runs, the session is atomically unusable regardless of any straddling refresh. The BFF logout MUST await this revoke within its bounded timeout (3.4) and treat a non-timeout failure as not-yet-durably-revoked.
 
 ### 3.4 Bounded failure - logout always reaches a locally-clean state
 
@@ -91,9 +91,11 @@ The normative invariant the implementation must guarantee and test: **for any in
 
 - `src/api/auth/merchant/service.ts` - `refreshMerchantToken` (single-key atomic Lua rotate, 3.1), `logoutMerchant` (plain DEL revoke, unchanged shape).
 - The shared refresh-token helpers (`storeRefreshToken` / `revokeRefreshToken` / `validateRefreshToken`, `src/api/shared/session.ts`) - CONFIRMED shared and admin/branch/customer each carry the IDENTICAL non-atomic GET+validate+DEL+store pattern (verified: admin `service.ts:185-201`, branch, customer `:323-350`). A new `rotateRefreshTokenAtomic` Lua helper is therefore cross-role by construction; the implementer either scopes a merchant-only code path or takes the cross-role regression pass (R2). This doc scopes the merchant behaviour + invariant; the helper change is flagged cross-role.
-- `apps/merchant-web/app/api/merchant-auth/logout/route.ts` + `refresh/route.ts` - bounded-await revoke; keep the always-clear-cookie guarantee.
+- `src/api/auth/merchant/routes.ts` (+ `service.ts` `logoutMerchant`) - the backend logout endpoint accepts `sessionId` + `entityId` in the BODY (cookie-derived, 3.3), mirroring the `/refresh` route's body-based identity, instead of relying solely on the `authenticateMerchant`-gated Bearer. `logoutMerchant` revokes by those.
+- `apps/merchant-web/app/api/merchant-auth/logout/route.ts` - derive `{ sessionId, entityId }` from `readSessionCookie()` (F1), bounded-await the body-based backend revoke, ALWAYS `clearSessionCookie` on the response regardless of revoke outcome, and return the `{ ok, remoteRevoke: 'confirmed' | 'pending' | 'unavailable' }` discriminator (3.4 point 2).
+- `apps/merchant-web/lib/api/auth.ts` - `authApi.logout` rework (adversarial review F2): accept an `AbortSignal`, STOP swallowing errors (`.catch(()=>{})` today drops both failure AND abort), and RETURN the `Response`/status + parse the `{ ok, remoteRevoke }` body, so the client `signOut` (client design 4.5) can distinguish a confirmed 2xx from a timeout/failure and label cookie clearance confirmed-vs-UNCONFIRMED. It no longer needs to forward the access-token Bearer for revoke (cookie-derived, 3.3).
 - `src/api/shared/redis-keys.ts` - new `sessionRevoked(role, entityId, sessionId)` key (REQUIRED: it carries the 3.4 failed-revoke tombstone that the Lua step-0 checks; not merely observability).
-- `apps/merchant-web/app/api/merchant-auth/logout/route.ts` - return the `{ ok, remoteRevoke: 'confirmed' | 'pending' | 'unavailable' }` discriminator (3.4 point 2).
+- `apps/merchant-web/app/api/merchant-auth/refresh/route.ts` - unchanged shape; already body-based/cookie-derived (the pattern the logout route now mirrors).
 - NO Prisma schema change (Redis-only session state); NO provider change.
 
 ## 5. Test strategy
