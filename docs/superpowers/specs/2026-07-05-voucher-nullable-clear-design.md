@@ -25,7 +25,7 @@ On `PATCH /api/v1/merchant/vouchers/:id`, independently for each of `imageUrl` a
 
 ## 3. Create versus update
 
-The Zod widening lands on the shared `baseVoucherFields`, so CREATE also accepts explicit null. Design decision: create-with-null is defined as identical to create-with-omission (a new voucher has no photo/date by default); the equivalence is pinned by a dedicated test rather than assumed. The alternative (forking the create/update schemas) was rejected as complexity without behavioural difference.
+Today CREATE rejects explicit null exactly like PATCH does (`baseVoucherFields` is `.optional()` only, shared by both schemas). Because the proposed widening lands on that shared shape, CREATE will also start accepting explicit null once this ships. Design decision: create-with-null is DEFINED as identical to create-with-omission (a new voucher has no photo/date by default); the equivalence is pinned by a dedicated test rather than assumed. The alternative (forking the create/update schemas so only PATCH widens) was rejected as complexity without behavioural difference.
 
 ## 4. Edit boundary: DRAFT-only, no approval interaction
 
