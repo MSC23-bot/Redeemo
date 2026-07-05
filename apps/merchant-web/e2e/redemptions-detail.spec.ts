@@ -144,13 +144,16 @@ test.describe('validate-a-code (M3 F2): happy path two-step confirm', () => {
     await lookupRequest
     expect(order).toEqual(['lookup'])
 
-    // Preview step: an awaiting-validation match, so Confirm is offered (no
-    // "already validated" copy) and no verify POST has fired yet.
-    await expect(dialog.getByText('This code is already validated.')).toHaveCount(0)
+    // Preview step: an awaiting-validation match, so Confirm is offered and no
+    // verify POST has fired yet. Positive assertions run FIRST so the preview
+    // has demonstrably settled before the negative "already validated" check;
+    // asserting the absence pre-settle could false-pass against a regression
+    // whose render simply had not landed yet.
     await expect(dialog.getByText('Free coffee with breakfast')).toBeVisible()
     await expect(dialog.getByText('A7K2 P9X4')).toBeVisible()
     await expect(dialog.getByText('Sarah K.')).toBeVisible()
     await expect(dialog.getByText('£3.50')).toBeVisible()
+    await expect(dialog.getByText('This code is already validated.')).toHaveCount(0)
     expect(order).toEqual(['lookup'])
 
     const verifyRequest = page.waitForRequest(
