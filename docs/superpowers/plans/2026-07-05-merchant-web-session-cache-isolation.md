@@ -16,17 +16,21 @@ Client-only, `apps/merchant-web/**`. NO backend, BFF-cookie, schema, provider, o
 ### T2 - Transport epoch guard
 `lib/api/client.ts`:
 - `apiFetchResponse`: capture epoch at entry; after the terminal resolution path (success, and after the one refresh-retry), if epoch changed throw `ApiError` with synthetic code `SESSION_SWITCHED` (status 0; never delivered as data).
-- `doRefresh`: capture epoch before the fetch; on resolution with a changed epoch, return `false` WITHOUT `setAccessToken` (closes the spec section 3 mint-after-logout defect).
+- `doRefresh`: capture epoch before the fetch; on resolution with a changed epoch, return `false` WITHOUT `setAccessToken` (closes the spec section 3 in-memory mint-after-logout arm).
+- **Session-side-effect epoch gate (Codex #3):** in the 401 branch, BEFORE `setAccessToken(null)` / `triggerSessionLost()` (or any token/session mutation), re-check the epoch against the captured value; if it moved, throw `SESSION_SWITCHED` and invoke NO logout callback (the request belongs to a dead session). Pin: an old-epoch request whose refresh returns false must NOT call `setAccessToken(null)` or the `onSessionLost` callback (spy asserts zero calls); a current-epoch request still hard-logs-out normally.
 Unit pins per spec section 6, incl. the same-epoch byte-equivalence cases (no behaviour change absent a boundary).
 
 ### T3 - Teardown pipeline
 New `lib/auth/sessionReset.ts`: `resetSessionState(queryClient)` implementing the normative order (spec 4.3): `bumpSessionEpoch()` -> `setAccessToken(null)` + `resetRefreshInFlight()` -> `await queryClient.cancelQueries()` -> `queryClient.clear()`. Add `resetRefreshInFlight()` export to `client.ts` (nulls the module single-flight). Ordering pins: (a) deferred-promise test that a fetch resolving between cancel and clear cannot survive; (b) F5 pin - a `clear()`-triggered refetch on a STILL-MOUNTED observer issues NO old-bearer request (token already null at that step); (c) F4 pin - after reset, a new-session 401 does NOT adopt the prior single-flight promise (no spurious hard logout).
 
-### T4 - Boundary wiring
-`lib/auth/session.tsx`: `useQueryClient()` in `SessionProvider`; insert `await resetSessionState(qc)` in (a) `signOut` before navigation, (b) the `onSessionLost` handler before navigation, (c) `setSession` BEFORE applying the new token/merchant. No other behaviour change; the hard-logout latch and refresh-on-mount stay byte-identical.
+### T4 - Boundary wiring (async contracts - Codex #2 + #4)
+`lib/auth/session.tsx`: `useQueryClient()` in `SessionProvider`.
+- **signOut** (already async): `await resetSessionState(qc)` before `router.replace('/sign-in')`.
+- **setSession -> `Promise<void>` (Codex #2):** becomes async; `await resetSessionState(qc)` FIRST, then `applyToken(newToken)` + `setMerchant(m)`. The `SessionValue.setSession` type changes to `(t, m) => Promise<void>`. All three callers (`sign-in/page.tsx:48`, `otp/page.tsx:47`, `register/verify/page.tsx:57`) MUST `await setSession(...)` before navigation/subsequent action. Pin (Codex #2): a test proving the new token is NOT installed in tokenStore until the reset promise resolves (deferred `cancelQueries`; assert `getAccessToken()` is still null while the reset is pending, becomes the new token only after it resolves).
+- **onSessionLost -> async ownership (Codex #4):** the handler starts ONE `resetSessionState(qc)` promise, stores it in a `teardownInFlightRef` (single-flight: re-entry reuses the same promise; a fresh `setAccessToken` clears the ref), navigates ONLY in its `.then()`, and `.catch()`es any rejection to a logged no-op that STILL navigates. No floating promise, no unhandled rejection. `triggerSessionLost`'s at-most-once latch is unchanged; refresh-on-mount stays byte-identical. Pins: duplicate-invocation reuses one teardown (spy: `cancelQueries` called once); a rejected teardown still navigates and surfaces no unhandled rejection; navigation happens only after the reset resolves (ordering pin).
 
 ### T5 - Integration + mutation evidence
-The spec section 6 account-switch simulation (user A cached + hung in-flight; logout; login B; resolve A's request; assert no A data anywhere, tokenStore holds only B). Mutation evidence minimum: (a) drop the setSession epoch bump; (b) drop the doRefresh epoch check; (c) reorder clear() before cancelQueries(). Each must fail a named test; revert and re-verify after each.
+The spec section 6 account-switch simulation (user A cached + hung in-flight; logout; login B; resolve A's request; assert no A data anywhere, tokenStore holds only B). Mutation evidence minimum: (a) drop the setSession epoch bump; (b) drop the doRefresh epoch check; (c) reorder clear() before cancelQueries(); (d) drop the session-side-effect epoch gate -> the old-epoch-no-hard-logout pin fails; (e) apply the new token before awaiting reset in setSession -> the token-not-installed-before-reset pin fails; (f) drop the onSessionLost single-flight ref -> the duplicate-teardown pin fails. Each must fail a named test; revert and re-verify after each.
 
 ### T6 - E2E (additive, existing Playwright lane)
 Sign-out -> sign-in journey pinning no stale-data paint (new-session first render shows skeleton/empty, never prior-account values). Additive spec + additive-only mocks per the established lane conventions.
@@ -42,9 +46,9 @@ Implementation in an isolated worktree; Sonnet may execute mechanical tasks; a F
 
 Single `git revert`. No flag, no migration, no stored state. Spec section 8.
 
-## 4. Open owner decision (blocks nothing in T1-T7)
+## 4. Cookie-arm logout durability - separate backend/BFF track (Codex Wave 11)
 
-Spec section 10 - cookie-arm logout durability (F1). The client-side cache-isolation work ships independently; the cookie re-arm needs a backend/BFF change (options A/B/C in the spec). Surface for owner direction alongside this docs PR; do NOT fold a backend change into the client-only implementation without a separate approval.
+Spec section 10. Codex direction: Option A (reliable server-side revocation) is accepted in principle; B is insufficient on serverless (cross-instance gap), C is unsafe (shared merchant devices). This is a SEPARATE backend/BFF design at `docs/superpowers/specs/2026-07-06-merchant-logout-durability-backend-design.md` and is NOT implemented in the client PR. Do NOT fold a backend change into the client-only implementation. The client cache-isolation work (T1-T7) ships independently of it.
 
 ## 5. Explicitly deferred
 

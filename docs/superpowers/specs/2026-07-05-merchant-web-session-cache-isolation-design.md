@@ -44,11 +44,17 @@ The epoch is the single "which session issued this work?" discriminator. It is N
 
 ### 4.2 Transport-layer epoch guard (the backstop)
 
-`apiFetch`/`apiFetchResponse` and `doRefresh` capture `getSessionEpoch()` at entry. After ANY resolution (including the post-refresh retry), if the current epoch differs from the captured epoch, the result is DISCARDED: apiFetch throws a typed `ApiError` with a reserved synthetic code (`SESSION_SWITCHED`), and `doRefresh` returns `false` WITHOUT calling `setAccessToken`. Consequences:
+`apiFetch`/`apiFetchResponse` and `doRefresh` capture `getSessionEpoch()` at entry. The epoch is checked at TWO points, not one:
+
+- **On resolution:** after ANY resolution (including the post-refresh retry), if the current epoch differs from the captured epoch, the result is DISCARDED - apiFetch throws a typed `ApiError` with a reserved synthetic code (`SESSION_SWITCHED`), and `doRefresh` returns `false` WITHOUT calling `setAccessToken`.
+- **Before any session side effect (Codex #3):** the 401 branch's own teardown steps - `setAccessToken(null)`, `triggerSessionLost()`, and any other token/session mutation - are ALSO epoch-gated. A request that 401s, fails its refresh, and finds the epoch has moved must NOT run those side effects (it belongs to a dead session; a NEW session is already live). The stale path throws `SESSION_SWITCHED` and invokes NO logout callback. Only a current-epoch request may drive a hard logout. This closes the F4 spurious-hard-logout-of-the-new-session class at the source, independent of the single-flight reset.
+
+Consequences:
 
 - An old-bearer data response can never be delivered to any consumer (query, mutation, or ad-hoc caller) after a session switch - this is what "prevent old-bearer responses repopulating the cache" means enforced at the choke point every request already flows through.
-- The section 3 mint-after-logout defect closes: the stale refresh resolution is dropped before `setAccessToken`.
-- The single-flight `refreshInFlight` promise needs no teardown reset: any awaiter that outlives the switch receives a result that the epoch guard already neutralised; and `tryRefresh` callers from the new epoch start a NEW refresh because the stale promise self-nulled on settle. (If a stale refresh is STILL in flight when the new session's first 401 occurs, single-flight would hand the new caller the old-epoch promise; the guard makes it resolve `false`, the caller's retry path treats it as a failed refresh. Defensive acceptability analysed in section 8, risk R3.)
+- The section 3 mint-after-logout (in-memory arm) defect closes: the stale refresh resolution is dropped before `setAccessToken`.
+- No stale request can hard-logout a fresh session: the pre-side-effect epoch gate above suppresses `triggerSessionLost` / `setAccessToken(null)` on any old-epoch path.
+- The single-flight `refreshInFlight` promise MUST be reset at teardown (4.3 step 2) - this is MANDATORY, not optional (corrected per CodeRabbit + Codex #1/#5). The epoch guard only makes a stale RESULT and its side effects safe; it does NOT stop a new-session caller from ADOPTING the still-pending old promise via single-flight. Without the teardown reset, the new session's first 401 would await the old-epoch promise and receive `false` - at best a needless failed-refresh round-trip, and it couples the new session's refresh liveness to a dead session's request (see R3). Resetting `refreshInFlight` to null in the teardown forces the new session to start its own refresh. Guard and reset are COMPLEMENTARY: the guard makes a stale result safe; the reset stops the new session inheriting stale in-flight work.
 
 ### 4.3 Teardown pipeline (ordering is normative)
 
@@ -60,18 +66,30 @@ One exported async function, e.g. `resetSessionState(queryClient)` in `lib/auth/
 4. `queryClient.clear()` - removes every query AND mutation cache entry: cached data, cached errors, paused mutations, in-flight mutation records. The next account starts from an empty cache - loading skeletons, never prior-account paint.
 5. Caller-specific state clearing proceeds as today (merchant React state via `setMerchant(null)`/replacement - already present in all three sites; navigation).
 
-Call sites and their deltas:
-- **Normal logout** (`signOut`): backend revoke + cookie clear stay as-is; insert `await resetSessionState(qc)` before `router.replace('/sign-in')`.
-- **Hard logout** (`onSessionLost` handler in `SessionProvider`): same insertion. `triggerSessionLost`'s at-most-once latch semantics are unchanged.
-- **Login** (`setSession`): run the SAME pipeline BEFORE applying the new token/merchant. This is what makes same-tab account replacement without a full page reload safe even when no explicit logout preceded it, and it globally retires the #381 empty-cache in-flight-adoption class (any pre-login hung request is epoch-dead and its retryer cancelled before the first new-session query mounts).
+`resetSessionState` is `async` (it awaits `cancelQueries`). Every caller MUST await it before the step that depends on a clean slate. Call sites and their deltas:
+
+- **Normal logout** (`signOut`, already `async`): backend revoke + cookie clear stay as-is; `await resetSessionState(qc)` BEFORE `router.replace('/sign-in')`.
+- **Hard logout** (`onSessionLost`): see 4.4 - the callback becomes an awaited async teardown with single-flight + navigation-after-reset ownership.
+- **Login** (`setSession`, contract change - Codex #2): `setSession` becomes `async` returning `Promise<void>`. It runs the SAME pipeline and AWAITS it BEFORE applying the new token/merchant (`applyToken(newToken)` / `setMerchant(m)` run only after `await resetSessionState(qc)` resolves). The new token can NEVER be installed before cache+session reset completes - this is a hard ordering guarantee, pinned by a test (section 6). All three login/verify callers (`sign-in/page.tsx:48`, `otp/page.tsx:47`, `register/verify/page.tsx:57`) MUST `await setSession(...)` before any navigation or subsequent action. Awaiting the reset before the token apply is what makes same-tab account replacement without a full page reload safe even when no explicit logout preceded it, and it globally retires the #381 empty-cache in-flight-adoption class (any pre-login hung request is epoch-dead and its retryer cancelled before the first new-session query mounts).
 
 `SessionProvider` obtains the client via `useQueryClient()` - it already renders inside `QueryClientProvider` (`app/providers.tsx:21-23`).
 
-### 4.4 Mutations and optimistic state
+### 4.4 Async hard-logout ownership (Codex #4)
+
+The hard-logout path (`setOnSessionLost` registered in `SessionProvider`, invoked by `triggerSessionLost` in `client.ts`) is synchronous today. It becomes an owner of ONE async teardown promise with these normative properties:
+
+- **Single async teardown, single-flight.** The registered callback starts `resetSessionState(qc)` and stores the returned promise in a ref (`teardownInFlightRef`). `triggerSessionLost`'s existing at-most-once `sessionLostFired` latch already guarantees the callback body runs once per dead session; the ref is belt-and-braces so that even if the callback were entered twice, the SAME teardown promise is reused rather than a second pipeline started. A fresh token (`setAccessToken` re-arming the latch, `tokenStore.ts:16`) clears the ref so the next dead session can tear down again.
+- **Navigation only after reset.** `router.replace('/sign-in')` runs in the teardown promise's `.then()` (or after `await`), never before it. The user never lands on /sign-in with a half-cleared cache.
+- **Failures caught, never floating.** The teardown promise is `.catch()`-handled: a `cancelQueries`/`clear` rejection (not expected, but defensively) is swallowed to a logged no-op and navigation STILL proceeds (a dead session must always reach /sign-in). There is no unhandled rejection and no floating promise - the callback either `await`s inside an async IIFE with try/catch or attaches `.then(nav).catch(navAnyway)`.
+- **Idempotent teardown.** `resetSessionState` is safe to run twice (bump is monotonic, clear on an empty cache is a no-op), so a race between the hard-logout teardown and a subsequent explicit `signOut` cannot corrupt state.
+
+The bump-first ordering (4.3 step 1) means the instant the dead session is detected, every other in-flight request is already epoch-dead and cannot re-drive `triggerSessionLost` (4.2 pre-side-effect gate) - so concurrent 401s collapse to this one teardown.
+
+### 4.5 Mutations and optimistic state
 
 Today: zero optimistic patterns; the one `setQueryData` write-back (`useBranches.ts:249`) runs in a hook-level `onSuccess`. Correcting the reasoning (adversarial review F2/F3): that `onSuccess` DOES fire after the screen unmounts, and in the in-flight-at-logout path the pipeline (with its `clear()`) runs FIRST, so a late `onSuccess`->`setQueryData` lands AFTER `clear()` and is NOT wiped by it. The actual protection is therefore (a) the transport epoch guard rejecting the mutationFn's response the moment it resolves post-bump (SESSION_SWITCHED -> mutation errors -> `onSuccess` never runs), and (b) the next `setSession` re-running the pipeline `clear()`. The only residue window is a mutation whose `apiFetch` returned data pre-bump but whose `onSuccess` runs post-clear; that entry is never rendered (portal unmounting to /sign-in) and is cleared at next login. Future optimistic patterns inherit the transport guard automatically because rollback/commit both consume apiFetch results. The spec imposes NO new per-mutation obligations.
 
-### 4.5 What is deliberately kept
+### 4.6 What is deliberately kept
 
 - The #381 fresh-observer + own-fetch-gate machinery in `useBranchCapability` REMAINS (defence in depth for the highest-privilege UI decision; its removal trigger stays tied to the Railway #364 deployment, and any simplification is a separate later cleanup, not this change).
 - `redeemo_merchant_device_id` in localStorage intentionally survives logout (known-device OTP UX; random UUID, no account data). Documented as accepted.
@@ -89,7 +107,7 @@ Today: zero optimistic patterns; the one `setQueryData` write-back (`useBranches
 | Cached successful data | 4.3 step 3 clear() |
 | Cached errors | 4.3 step 3 (clear removes error states) |
 | Active/in-flight requests | 4.2 epoch guard + 4.3 step 2 cancelQueries |
-| Mutations + optimistic state | 4.4 (none optimistic today; triple defence; future-proof via transport guard) |
+| Mutations + optimistic state | 4.5 (none optimistic today; triple defence; future-proof via transport guard) |
 | Cancellation ordering | 4.3 normative order: epoch -> cancel -> clear -> state/nav, with rationale per step |
 | Query removal/clearing timing | 4.3 steps 2-3 (cancel BEFORE clear so nothing settles in between) |
 | Old-bearer responses repopulating cache | 4.2 transport guard + 4.3 step-2 token-null (post-clear refetch protection, F5); in-memory mint arm closed, cookie arm = open owner decision (section 10) |
@@ -122,14 +140,18 @@ E2E (existing Playwright lane, additive spec): sign-out -> sign-in journey asser
 
 ## 9. Out of scope
 
-Backend/session/token semantics; multi-tab propagation; customer-web and admin-web (each needs its own audit - admin-web uses localStorage sessions and is a DIFFERENT posture); AbortController plumbing (7); #381 machinery simplification (4.5).
+Backend/session/token semantics; multi-tab propagation; customer-web and admin-web (each needs its own audit - admin-web uses localStorage sessions and is a DIFFERENT posture); AbortController plumbing (7); #381 machinery simplification (4.6).
 
 ## 10. OPEN OWNER DECISION - cookie-arm logout durability (F1)
 
-This client-only design closes the in-memory mint-after-logout arm but CANNOT make logout durable against the cookie arm (section 3): a `/refresh` in flight at logout re-writes a valid httpOnly cookie server-side that the client cannot un-set. Closing it needs a backend/BFF change, which this design deliberately scopes out. Options for the owner:
+This client-only design closes the in-memory mint-after-logout arm but CANNOT make logout durable against the cookie arm (section 3): a `/refresh` in flight at logout re-writes a valid httpOnly cookie server-side that the client cannot un-set. Closing it needs a backend/BFF change, which this design deliberately scopes out of the client PR.
 
-- **(A) Backend revoke-before-clear with a reliable revoke.** Make `logout` await a NON-best-effort backend revoke that invalidates the session id, so a straddling `/refresh` (single-use rotation on a revoked session) fails and clears rather than rotates. Strongest; a backend change.
-- **(B) BFF re-clear guard.** Track a logout-in-progress marker in the BFF; if `/refresh` completes during that window, immediately `clearSessionCookie` again. Cheaper; BFF-only; a small race remains between the two writes.
-- **(C) Accept + document.** The window is narrow (a refresh must be mid-flight at the logout click) and the residue is "the previous account can re-hydrate on this browser until the refresh token naturally expires or is used elsewhere." For a single-operator device this may be acceptable at current risk.
+**Codex Wave 11 direction (recorded as the accepted position in principle): Option A.** Merchant devices may be shared (a branch tablet, a back-office machine used by successive staff), so accepting previous-account rehydration after logout is UNSAFE - option C (accept + document) is rejected. Option B (BFF re-clear guard) is INSUFFICIENT unless it works across serverless instances: the BFF runs on stateless serverless functions, so a "logout-in-progress" marker held in one instance's memory does not see a `/refresh` served by another instance; B only holds with a shared cross-instance store, at which point A is the cleaner design. The durable fix is therefore reliable SERVER-SIDE session revocation (A), specified in a SEPARATE backend/BFF design (see below) and NOT implemented in this client PR.
 
-Recommendation: (A) if logout durability is treated as a security requirement; otherwise (C) with an explicit accepted-risk note. This decision does NOT block the client-side cache-isolation work (sections 4-8), which is independently valuable and ships regardless; it is called out so the docs PR does not imply the mint defect is fully closed.
+- **(A) Backend revoke-before-clear with a reliable revoke - ACCEPTED IN PRINCIPLE.** `logout` awaits a NON-best-effort backend revoke that invalidates the session id server-side, so a straddling `/refresh` (single-use rotation on a now-revoked session) FAILS and the BFF clears rather than rotates the cookie. Strongest; requires a backend change; owned by the separate design.
+- **(B) BFF re-clear guard - REJECTED as primary** (serverless cross-instance gap above).
+- **(C) Accept + document - REJECTED** (shared-device rehydration is unsafe).
+
+Companion backend/BFF design: `docs/superpowers/specs/2026-07-06-merchant-logout-durability-backend-design.md` (separate PR/track). It must cover: reliable server-side session revocation; refresh-versus-logout ordering; local cookie/cache clearing even when the remote revoke FAILS (logout must always reach a locally-clean state); bounded failure behaviour (a revoke timeout must not hang or silently no-op logout); and tests proving an in-flight refresh cannot restore a logged-out account across serverless instances.
+
+This decision does NOT block the client-side cache-isolation work (sections 4-8), which is independently valuable and ships regardless; the cookie arm is called out so this docs PR does not imply the mint defect is fully closed by the client change alone.
