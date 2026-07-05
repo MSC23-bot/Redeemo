@@ -1,6 +1,8 @@
 # Plan: Branch-Manager per-branch capability signal (merchant-web)
 
-Status: DRAFT plan for review. Implementation follows only after this plan lands (Tier 2 plan-first). Verified against `origin/main` @ `aaf7f382`; source inspection 2026-07-05 (all citations re-checkable).
+Status: DRAFT implementation plan for review. IMPLEMENTATION IS OWNER-GATED: D-BM1 changes a merchant-facing API contract and ~12 permission-adjacent UI gates, so it requires the companion design spec + this plan to pass review, then explicit owner approval, before any code.
+Companion design spec: `docs/superpowers/specs/2026-07-05-bm-per-branch-capability-design.md` (owns the durable design semantics: contract, predicate ownership, fail-closed + skew behaviour, flip matrices, test/mutation matrix; this plan owns execution sequencing).
+Provenance (corrected 2026-07-05 round 2): the source inspection ran at `aaf7f382`; this PR is BASED ON main `8831e55a` (main moved via the #376 docs merge from a parallel session). Proven equivalent: `git diff aaf7f382..8831e55a` touches exactly one file (docs/runbooks/r1-key-rotation-activation-runbook.md) - zero overlap with any cited anchor, so every citation remains byte-accurate at the base.
 Closes the twice-recorded roadmap residual: "extend the [Quick-Actions] PIN row to eligible assigned Branch Managers when PinCard gains a per-branch capability signal" (roadmap :32, :50). Server-side BM-scoped writes are FULLY SHIPPED (PR-2, `205db89e`); ONLY the frontend signal is outstanding.
 
 ## 0. Problem
@@ -45,4 +47,4 @@ M (bounded): 1 backend file + shared predicate + pins; 1 hook rewrite; ~12 FE co
 ## 6. Open items for the owner (recorded, not blockers to the plan)
 
 - Photo-Remove BM parity and staff-list widening stay open owner decisions (unchanged by this plan).
-- If the owner prefers plan-approval-before-implementation (Tier 2 default), say so on this PR; otherwise the implementation PR follows autonomously and carries its own SHA-bound review gate.
+- Implementation is OWNER-GATED (corrected round 2, superseding the earlier autonomous-follow wording): D-BM1 proceeds only after the corrected spec + plan are reviewed AND the owner explicitly approves.
