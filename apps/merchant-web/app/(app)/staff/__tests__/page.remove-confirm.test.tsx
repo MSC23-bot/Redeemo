@@ -215,7 +215,7 @@ describe('StaffPage remove-member confirm flow', () => {
   })
 
   it('while the mutation is pending, the CTA reads "Working..." and both buttons are disabled; a second click fires only one mutation', async () => {
-    let resolveRemove: (v: { id: string }) => void
+    let resolveRemove!: (v: { id: string }) => void
     removeStaff.mockReturnValue(
       new Promise((resolve) => {
         resolveRemove = resolve
@@ -236,7 +236,7 @@ describe('StaffPage remove-member confirm flow', () => {
     fireEvent.click(workingCta)
     expect(removeStaff).toHaveBeenCalledTimes(1)
 
-    resolveRemove!({ id: 'm2' })
+    resolveRemove({ id: 'm2' })
     await waitFor(() => expect(screen.queryByTestId('staff-confirm')).toBeNull())
   })
 
