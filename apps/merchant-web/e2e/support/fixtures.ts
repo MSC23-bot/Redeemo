@@ -6,6 +6,10 @@
  *
  * - `mockOptions` (option): per-test/per-describe MockApiOptions via test.use.
  * - `authenticated` (option, default true): set false for logged-out journeys.
+ * - `expectedConsoleErrorSubstrings` (option, default []): substrings of
+ *   console-error text a spec deliberately expects (e.g. a forced 500 mock
+ *   pinning Promise.allSettled resilience). Every existing journey keeps the
+ *   strict empty-array guard unless it opts in.
  * - `tracker` (auto): installs the mock boundary + cookie BEFORE the test, and
  *   AFTER it asserts no unmocked /api call escaped to the 404 fallback.
  * - `guards` (auto): collects pageerror/console-error during the test and
@@ -25,6 +29,7 @@ import {
 interface SmokeFixtures {
   mockOptions: MockApiOptions
   authenticated: boolean
+  expectedConsoleErrorSubstrings: string[]
   tracker: MockApiTracker
   guards: ErrorGuards
 }
@@ -32,6 +37,7 @@ interface SmokeFixtures {
 export const test = base.extend<SmokeFixtures>({
   mockOptions: [{}, { option: true }],
   authenticated: [true, { option: true }],
+  expectedConsoleErrorSubstrings: [[], { option: true }],
   tracker: [
     async ({ context, mockOptions, authenticated }, use) => {
       const tracker = await installMockApi(context, mockOptions)
@@ -42,8 +48,8 @@ export const test = base.extend<SmokeFixtures>({
     { auto: true },
   ],
   guards: [
-    async ({ page }, use) => {
-      const guards = attachErrorGuards(page)
+    async ({ page, expectedConsoleErrorSubstrings }, use) => {
+      const guards = attachErrorGuards(page, expectedConsoleErrorSubstrings)
       await use(guards)
       guards.assertClean()
     },
