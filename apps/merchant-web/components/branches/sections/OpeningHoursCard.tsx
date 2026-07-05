@@ -24,7 +24,7 @@
 //   - The live table + the pending banner render N windows per day (e.g. "9am to 2pm,
 //     5pm to 11pm"), ordered by openTime, via the shared formatDay / formatDayWindows.
 //   - The edit still routes through the PR-4 cool-off STAGE-not-apply path + the same
-//     OWNER-only client gate; only the window UI + the payload cardinality changed.
+//     capability client gate (D-BM1); only the window UI + the payload cardinality changed.
 //
 // CLIENT GATING (PR-4 §6 #4, updated for D-BM1): the Edit + Cancel controls
 // gate on `canManage` (the per-branch effective capability), so OWNER and
@@ -160,7 +160,7 @@ export function OpeningHoursCard({
             <Clock size={12} aria-hidden />2 hour customer cool off
           </span>
         </div>
-        {/* PR-4: LIVE Edit control (owner-gated client-side; server-enforced). */}
+        {/* PR-4: LIVE Edit control (capability-gated client-side per D-BM1; server-enforced). */}
         {canManage ? (
           <button
             type="button"

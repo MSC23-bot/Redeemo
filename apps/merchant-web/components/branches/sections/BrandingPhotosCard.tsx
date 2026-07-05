@@ -13,7 +13,7 @@
 //
 // EDIT semantics (unchanged from PR-1): logo + banner are SENSITIVE identity fields
 // applied via the F7 reviewed edit-request lane, so the header "Edit" control OPENS
-// the F7 BranchDetailsEditModal (owner-only). Banner stays the F7 lane (PR-3 §7
+// the F7 BranchDetailsEditModal (Edit affordance owner-only here - see GATES below). Banner stays the F7 lane (PR-3 §7
 // default); the gallery manages branch PHOTOS only, not the banner.
 //
 // GATES (D-BM1 + PR-3 §7 / D-PR3-4): Add-photo now flips via `canManage` (the

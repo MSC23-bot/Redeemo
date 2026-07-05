@@ -9,8 +9,9 @@
 //
 // Owner gate (plan §1.5): `isOwner` (from useBranchCapability on the page) gates the
 // write controls the later tasks add; F3 only uses it for the staff panel (which is
-// itself owner-gated) and threads it down so F4-F8 can gate on it. The backend
-// owner-only resolver is the real boundary.
+// itself profile-role-derived since D-BM1) plus the effective per-branch capability
+// and threads them down per the D-BM1 flip matrix. The backend asserts are the
+// real boundary.
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
 import Image from 'next/image'
@@ -77,21 +78,21 @@ export function BranchDetail({
       {/* F9: read-only location confidence badge + static (no-network) map stub + locked PR-6 lookup affordance. */}
       <LocationCard branch={branch} canManage={canEditIdentity} />
 
-      {/* F4: contact instant-save (phone / email / website). Owner-only edit; BM read-only. */}
+      {/* F4: contact instant-save (phone / email / website). D-BM1: OWNER or assigned BM edits. */}
       <ContactCard branch={branch} canManage={managed} />
 
       {/* F10: read-only opening-hours table (incl. Closed days) + locked PR-4 Edit + locked PR-8 multi-window. */}
       <OpeningHoursCard branch={branch} canManage={managed} now={now} />
 
-      {/* F6: masked PIN with on-demand reveal + change + send. Owner-only (renders nothing for a non-owner). */}
+      {/* F6: masked PIN with on-demand reveal + change + send. D-BM1: OWNER or assigned BM; renders nothing otherwise. */}
       <PinCard branch={branch} canManage={managed} />
 
-      {/* PR-7: redemption-alerts card. A LIVE single per-branch on/off switch (owner-gated
+      {/* PR-7: redemption-alerts card. A LIVE single per-branch on/off switch (D-BM1: OWNER or assigned BM;
           UX; server-enforced) that reads/writes branch.redemptionAlertsEnabled; when ON
           an in-store validation surfaces an in-app bell to the team. */}
       <RedemptionAlertsCard branch={branch} canManage={managed} isOwner={ready && isOwner} />
 
-      {/* F5: amenities catalogue toggle (full-replace). Owner-only edit; BM read-only. */}
+      {/* F5: amenities catalogue toggle (full-replace). D-BM1: OWNER or assigned BM edits. */}
       <AmenitiesCard branch={branch} canManage={managed} />
 
       {/* F11: logo / banner display (edit via the F7 modal) + photo grid display-only + locked PR-3 Add. */}

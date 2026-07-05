@@ -8,7 +8,7 @@
  *   2. Create a voucher - canManageVouchers only; routes to /vouchers?create=1.
  *   3. View a branch redemption PIN - OWNER only in this wave (backend PR-2 D3
  *      also admits an assigned BRANCH_MANAGER, but the branch page's PIN section
- *      currently renders owner-only; extend both together when a per-branch
+ *      renders for OWNER and assigned BMs since D-BM1; keep both surfaces aligned when the per-branch
  *      capability signal exists). Single branch: routes straight to its PIN
  *      section; multiple: expands an inline branch sub-picker. The PIN is NEVER
  *      revealed here - the destination is the guarded on-page PinCard

@@ -1,12 +1,13 @@
 'use client'
 
-// Branches PR-1 F6: the owner-only Redemption PIN card (prototype 04/08). The PIN is
+// Branches PR-1 F6 (updated for D-BM1): the Redemption PIN card (prototype 04/08). The PIN is
 // MASKED by default (dots). The decrypted value is fetched ON DEMAND via GET /pin
 // (the getBranchPin client) only when the owner taps Reveal: NEVER from the list
 // payload (since #377 the payload carries only the derived `redemptionPinSet`
 // boolean; the ciphertext no longer rides the wire). Change validates /^\d{4}$/ then PUTs (useSetBranchPin); Send
 // dispatches the PIN to the branch (useSendBranchPin). The whole section is
-// owner-only (all PIN routes are owner-only); a non-owner sees nothing.
+// gated on the D-BM1 effective capability (all PIN routes take assertCanManageBranch,
+// so OWNER or an assigned BM); anyone else sees nothing.
 //
 // SECURITY (wire hygiene 2026-07-05, revising plan §6 #3/#4): set/not-set comes
 // from the shared branchPinSet bridge (explicit server boolean wins; legacy
@@ -61,7 +62,7 @@ export function PinCard({ branch, canManage }: { branch: Branch; canManage: bool
     }
   }, [])
 
-  // The whole section is owner-only.
+  // The whole section is capability-gated (OWNER or assigned BM).
   if (!canManage) return null
 
   async function reveal() {

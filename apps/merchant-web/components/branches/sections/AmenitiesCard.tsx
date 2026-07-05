@@ -1,7 +1,7 @@
 'use client'
 
-// Branches PR-1 F5: the owner-only Amenities card (prototype 04). View shows the
-// branch's selected amenities as checked chips read-only; edit (owner-only) loads
+// Branches PR-1 F5 (updated for D-BM1): the Amenities card (prototype 04). View shows
+// the branch's selected amenities as checked chips read-only; edit (OWNER or assigned BM) loads
 // the catalogue (the OPEN customer endpoint keyed by the merchant's
 // primaryCategoryId) and toggles chips, then saves a FULL-REPLACE list via
 // POST /branches/:id/amenities (the useSetAmenities hook). A non-owner is read-only.

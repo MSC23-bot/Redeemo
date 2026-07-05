@@ -89,7 +89,7 @@ export function LocationCard({ branch, canManage }: { branch: Branch; canManage:
 
         {/* PR-6: ACTIVE "Update location" control (was a disabled locked affordance).
             Opens the reviewed edit modal, which carries the business / address lookup.
-            Owner-gated UX; the backend is the real boundary. */}
+            Capability-gated UX (D-BM1); the backend is the real boundary. */}
         {canManage ? (
           <div className="pt-1">
             <button

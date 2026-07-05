@@ -7,7 +7,8 @@
 // (the notification bell in the topbar) to the team; email is dark / coming later.
 //
 // Recipient list: a read-only "who is alerted" list (active owner(s) + the branch's
-// scope-covering Branch Managers) sourced from the EXISTING owner-gated useStaff query
+// scope-covering Branch Managers) sourced from the EXISTING assertOwner-gated useStaff query
+// (which is WHY the recipients sub-list stays isOwner while the toggle flips)
 // (no new field plumbing). It mirrors the backend fan-out (mini-spec §6c). STAFF and
 // app users are NOT recipients and are excluded. Per-recipient on/off toggles and the
 // "Add an extra recipient" email field are DEFERRED (a later email-enabled slice).
