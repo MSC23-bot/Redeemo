@@ -9,11 +9,11 @@
 ---
 
 ## Phase 0 — Owner decisions (BLOCKING)
-Resolve D1–D7 + D-Neon (spec register). In particular D3 (redemptionPin model) determines the exact grant block. Do not proceed until each is decided.
+Resolve **D1–D8 + D-Neon** (spec register) before any provisioning. **No role may be created while D3 OR D8 remains open** — the resolved **D3 + D8 combination determines** whether temporary safe projections are created, the exact inspection script, its new SHA-256 (if changed), the exact grant matrix, and the required fresh Opus + Codex review. If either projection (D3(c) PIN / D8 email) is chosen, edit the script → new digest → re-derive matrix → fresh Opus + Codex review before Phase 3.
 
 ## Phase 1 — Confirm provider behavior + LIVE PUBLIC-function inventory gate
 - Docs (already verified 2026-07-05, spec §14): `psql \password` is secret-safe; `neondb_owner`→`neon_superuser` holds CREATEROLE; `DROP OWNED BY` before `DROP ROLE`; direct vs pooled session semantics.
-- **Live read-only PUBLIC-function inventory gate (spec §12) — run in the Neon SQL editor, read-only, BEFORE creating the role.** Enumerate callable functions/procedures with `prosecdef` (SECURITY DEFINER), `has_function_privilege('public', …, 'EXECUTE')`, and trigger-vs-non-trigger; compare against `prisma/migrations/**` (repo defines only the trigger `enforce_merchant_highlight_cap()`, SECURITY INVOKER, no side effects — but **live staging is authoritative**). **STOP if any callable function could bypass the SELECT-only boundary** (SECURITY DEFINER owned by a privileged role, or any mutation/side-effect-capable PUBLIC function). Do NOT globally revoke PUBLIC function privileges. Record findings in the security log. (No MCP, no data mutation.)
+- **Live read-only PUBLIC-function inventory gate (spec §12) — run in the Neon SQL editor, read-only, BEFORE creating the role.** Enumerate, read-only, EACH function/procedure with **owner** (`pg_get_userbyid(proowner)`), **language** (`pg_language`), **SECURITY DEFINER** (`prosecdef`), **kind** (`prokind`), **trigger status** (`prorettype='pg_catalog.trigger'`), **PUBLIC EXECUTE** (`has_function_privilege('public', oid, 'EXECUTE')`), and **exact schema + identity arguments** (`pg_get_function_identity_arguments`) — full query in spec §12. Apply the **deterministic STOP matrix (spec §12):** STOP on every PUBLIC-executable SECURITY DEFINER; STOP on every PUBLIC-executable non-trigger function/procedure unless it EXACTLY matches separately-reviewed repo evidence AND is adjudicated safe; STOP on every live function absent from `prisma/migrations/**`; STOP whenever a live definition/owner/security attribute differs from reviewed evidence. Metadata alone does NOT prove absence of side effects. The repo trigger `enforce_merchant_highlight_cap()` (SECURITY INVOKER, trigger-only) may pass ONLY if its live identity/owner/security-mode/trigger-only classification all match the reviewed migration. Do NOT globally revoke PUBLIC function privileges. Record findings in the security log. (No MCP, no data mutation.)
 
 ## Phase 2 — Fresh A1 + endpoint identity (owner)
 Fresh Neon usage/spending-headroom check (per r1 A1). Confirm the intended **staging** endpoint + `neondb` from the private P1 mapping (never production). This mirrors the P1a Step-A identity discipline.
@@ -23,8 +23,11 @@ Run the exact block below (values in `<...>` are owner-set; the password is type
 
 **Secret-safe fail-closed order (spec §3.0): create NOLOGIN + NO PASSWORD → grant → verify → `\password` → LOGIN. NEVER put a `PASSWORD '...'` literal in SQL text. If ANY statement below errors, STOP and jump straight to Phase 8 teardown — do not run later grants, do not set a password, do not enable LOGIN.**
 
+**Role name (spec §3.0.1): use a UNIQUE, sanitized, session-specific `<role>` (e.g. `insp_ro_<YYYYMMDD>_<short-random>`) — never a generic reusable name. Create via SQL ONLY — NEVER the Neon Console/CLI/API (those grant `neon_superuser`).**
 ```sql
 -- === temporary SELECT-only inspection role (staging neondb ONLY) ===
+-- 0) COLLISION-SAFE PREFLIGHT (read-only) — the exact name MUST be absent first:
+SELECT 1 FROM pg_roles WHERE rolname='<role>';   -- expect NO ROW; if a row => STOP (name taken), do not touch it.
 -- 1) born NOLOGIN, NO PASSWORD (cannot authenticate during provisioning):
 CREATE ROLE <role> NOLOGIN
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT
@@ -63,8 +66,10 @@ GRANT SELECT ("redemptionPin") ON "Branch" TO <role>;
                        -- password must be >= 60-bit entropy (>= 12 chars) per Neon.
 ```
 ```sql
-ALTER ROLE <role> LOGIN;   -- ONLY after steps 2-4 all pass. If \password is unavailable => STOP; leave NOLOGIN or tear down.
+ALTER ROLE <role> LOGIN;   -- ONLY after steps 2-4 all pass.
 ```
+If `psql \password` (or another separately-reviewed non-privileged, non-plaintext mechanism against this SQL-created role) is unavailable => **STOP and TEAR DOWN the NOLOGIN role** (Phase 8). Never use a plaintext `PASSWORD '...'` literal; never create the role via Neon Console/CLI/API.
+**On a `CREATE ROLE` failure (spec §3.0.1 / §7):** re-run `SELECT 1 FROM pg_roles WHERE rolname='<role>'`. If the name now exists and we did not just create it => **STOP + report; never auto-alter/revoke/drop it**. A fresh unique name only in a separately-adjudicated retry.
 
 ## Phase 4 — Verify the role read-only, + authority + ownership-zero (owner, read-only SQL; BEFORE `\password`/LOGIN)
 ```sql
@@ -79,16 +84,23 @@ SELECT table_name, privilege_type
   FROM information_schema.role_table_grants WHERE grantee='<role>';
 -- default_transaction_read_only set on the role:
 SELECT rolconfig FROM pg_roles WHERE rolname='<role>';   -- expect it contains default_transaction_read_only=on
--- CREATOR AUTHORITY (spec §13): operator is an admin_option member of <role> (can later DROP it):
-SELECT m.admin_option FROM pg_auth_members m
-  JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles g ON g.oid=m.member
- WHERE r.rolname='<role>' AND g.rolname=current_user;   -- expect admin_option=t (or operator is neon_superuser)
+-- CREATOR AUTHORITY (spec §13): PG16 `DROP ROLE <role>` needs CREATEROLE *and* ADMIN OPTION on <role>
+-- (or neon_superuser). Path (a) must prove BOTH — admin_option alone is necessary-but-not-sufficient:
+SELECT m.admin_option AS has_admin_option, cur.rolcreaterole AS operator_can_createrole
+  FROM pg_auth_members m
+  JOIN pg_roles r   ON r.oid=m.roleid
+  JOIN pg_roles g   ON g.oid=m.member
+  JOIN pg_roles cur ON cur.rolname=current_user
+ WHERE r.rolname='<role>' AND g.rolname=current_user;   -- expect has_admin_option=t AND operator_can_createrole=t
+-- ...OR prove neon_superuser membership explicitly (subsumes CREATEROLE+ADMIN OPTION; do NOT infer authority
+--    from the role name / "we created it"):
+SELECT pg_has_role(current_user, 'neon_superuser', 'MEMBER') AS is_neon_superuser;   -- t satisfies drop authority
 -- OWNERSHIP-ZERO proof (spec §13; so DROP OWNED BY is purely a revoker):
 SELECT 1 FROM pg_class     WHERE relowner   = (SELECT oid FROM pg_roles WHERE rolname='<role>') LIMIT 1;  -- expect: no row
 SELECT 1 FROM pg_namespace WHERE nspowner   = (SELECT oid FROM pg_roles WHERE rolname='<role>') LIMIT 1;  -- expect: no row
 SELECT 1 FROM pg_proc      WHERE proowner    = (SELECT oid FROM pg_roles WHERE rolname='<role>') LIMIT 1;  -- expect: no row
 ```
-**STOP (and run Phase 8 teardown)** if: anything beyond the §2 read set appears; any safe-attribute is wrong; `default_transaction_read_only` is not set; the operator is **not** provably able to drop the role (no admin membership and not neon_superuser); or the role owns any object.
+**STOP (and run Phase 8 teardown)** if: anything beyond the §2 read set appears; any safe-attribute is wrong; `default_transaction_read_only` is not set; the operator is **not** provably able to drop the role via EXPLICIT evidence (neither `admin_option` on `<role>` **combined with** `rolcreaterole=t` on the operator, NOR `pg_has_role(current_user,'neon_superuser','MEMBER')=t` — never inferred from naming); or the role owns any object.
 
 ## Phase 5 — Inject the credential (owner-private)
 Owner assembles the direct-endpoint `INSPECT_DATABASE_URL` for `<role>` and injects it into a fresh operator terminal via `read -s INSPECT_DATABASE_URL; export INSPECT_DATABASE_URL` — never in argv/chat/history. (Endpoint per D4; direct recommended.)
