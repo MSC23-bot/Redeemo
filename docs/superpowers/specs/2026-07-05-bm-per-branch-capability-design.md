@@ -45,7 +45,7 @@ The same conceptual decision has two independent sources that can silently diver
 
 Response gains an additive block:
 
-```
+```text
 viewerCapabilities: { canManage: boolean }
 ```
 
