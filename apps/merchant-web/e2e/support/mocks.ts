@@ -120,6 +120,23 @@ export function memberFixture(role: string) {
   }
 }
 
+// Notification rows: curated fields only (no recipient ids, no customer PII),
+// matching the backend select mirrored by lib/api/notifications.ts.
+export function notificationFixture(id = 'n1', over: Record<string, unknown> = {}) {
+  return {
+    id,
+    type: 'VOUCHER_APPROVAL_UPDATE',
+    title: 'Voucher approved',
+    body: 'Your "Free coffee with breakfast" voucher was approved.',
+    referenceId: 'v1',
+    referenceType: 'VOUCHER',
+    isRead: false,
+    readAt: null,
+    sentAt: '2026-07-01T09:00:00.000Z',
+    ...over,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Route installation
 // ---------------------------------------------------------------------------
@@ -132,6 +149,18 @@ export interface MockApiOptions {
   unreadCount?: number
   /** Owner-only staff surfaces (/staff AND /staff/app-users): STAFF/BM get 403. */
   staffListAllowed?: boolean
+  /** Override the /staff members list (default: a single-member array from memberFixture). */
+  members?: Record<string, unknown>[]
+  /** Custom (RCV) vouchers list; default []. */
+  customVouchers?: Record<string, unknown>[]
+  /** Flagship (RMV) vouchers list; default []. */
+  flagshipVouchers?: Record<string, unknown>[]
+  /** Force a non-200 status for GET /merchant/vouchers/rmv (partial-source resilience case). */
+  flagshipVouchersStatus?: number
+  /** Force a non-200 status for GET /merchant/vouchers (partial-source resilience case). */
+  customVouchersStatus?: number
+  /** Notification rows for both the bell popover (recent) and the full list page. */
+  notifications?: Record<string, unknown>[]
 }
 
 export interface MockApiTracker {
@@ -152,6 +181,10 @@ export async function installMockApi(
   const redemptions = opts.redemptions ?? [redemptionFixture()]
   const redemptionsTotal = opts.redemptionsTotal ?? redemptions.length
   const staffListAllowed = opts.staffListAllowed ?? role === 'OWNER'
+  const members = opts.members ?? [memberFixture(role === 'ABSENT' ? 'OWNER' : role)]
+  const customVouchers = opts.customVouchers ?? []
+  const flagshipVouchers = opts.flagshipVouchers ?? []
+  const notifications = opts.notifications ?? []
   const tracker: MockApiTracker = { unmatched: [] }
 
   // Same-origin BFF: refresh mints the access token from the httpOnly cookie.
@@ -220,25 +253,59 @@ export async function installMockApi(
     if (method === 'GET' && p === '/api/v1/merchant/staff') {
       await route.fulfill(
         staffListAllowed
-          ? json(200, { members: [memberFixture(role === 'ABSENT' ? 'OWNER' : role)] })
+          ? json(200, { members })
           : json(403, { error: 'INSUFFICIENT_PERMISSIONS' }),
       )
       return
     }
     if (method === 'GET' && p === '/api/v1/merchant/vouchers') {
-      await route.fulfill(json(200, []))
+      if (opts.customVouchersStatus && opts.customVouchersStatus !== 200) {
+        await route.fulfill(json(opts.customVouchersStatus, { error: 'E2E_FORCED_FAILURE' }))
+        return
+      }
+      await route.fulfill(json(200, customVouchers))
       return
     }
     if (method === 'GET' && p === '/api/v1/merchant/vouchers/rmv') {
-      await route.fulfill(json(200, []))
+      if (opts.flagshipVouchersStatus && opts.flagshipVouchersStatus !== 200) {
+        await route.fulfill(json(opts.flagshipVouchersStatus, { error: 'E2E_FORCED_FAILURE' }))
+        return
+      }
+      await route.fulfill(json(200, flagshipVouchers))
       return
     }
     if (method === 'GET' && p === '/api/v1/merchant/notifications/unread-count') {
-      await route.fulfill(json(200, { count: opts.unreadCount ?? 0 }))
+      await route.fulfill(
+        json(200, { count: opts.unreadCount ?? notifications.filter((n) => !(n as { isRead?: boolean }).isRead).length }),
+      )
       return
     }
     if (method === 'GET' && p === '/api/v1/merchant/notifications') {
-      await route.fulfill(json(200, { notifications: [], page: 1, pageSize: 5, total: 0 }))
+      // Wire-accurate paging: honour pageSize (the bell popover requests 5, the
+      // full page requests 20) by slicing the fixture rows.
+      const page = Number(url.searchParams.get('page') ?? '1')
+      const pageSize = Number(url.searchParams.get('pageSize') ?? '20')
+      const unreadOnly = url.searchParams.get('unreadOnly') === 'true'
+      const source = unreadOnly
+        ? notifications.filter((n) => !(n as { isRead?: boolean }).isRead)
+        : notifications
+      const start = (page - 1) * pageSize
+      await route.fulfill(
+        json(200, {
+          notifications: source.slice(start, start + pageSize),
+          page,
+          pageSize,
+          total: source.length,
+        }),
+      )
+      return
+    }
+    if (method === 'POST' && /^\/api\/v1\/merchant\/notifications\/[^/]+\/read$/.test(p)) {
+      await route.fulfill(json(200, { updated: 1 }))
+      return
+    }
+    if (method === 'POST' && p === '/api/v1/merchant/notifications/read-all') {
+      await route.fulfill(json(200, { updated: notifications.length }))
       return
     }
     if (method === 'GET' && p === '/api/v1/merchant/onboarding/taxonomy') {
@@ -282,15 +349,42 @@ export interface ErrorGuards {
   assertClean: () => void
 }
 
-export function attachErrorGuards(page: Page): ErrorGuards {
+// A count-bounded expected console error: BOTH the failing request's URL and
+// the console message text must match, and the match must occur EXACTLY
+// `count` times - not fewer (the deliberate failure never fired), not more
+// (something else is also failing). An open-ended substring match on text
+// alone would let an unrelated broken asset or extra failed request hide
+// behind the same "Failed to load resource" wording.
+export interface ExpectedConsoleError {
+  urlSubstring: string
+  textSubstring: string
+  count: number
+}
+
+export function attachErrorGuards(page: Page, expectedConsoleErrors: ExpectedConsoleError[] = []): ErrorGuards {
   const pageErrors: string[] = []
   const consoleErrors: string[] = []
+  // Per-entry match tally so assertClean can require EXACTLY `count` hits.
+  const matchCounts = expectedConsoleErrors.map(() => 0)
   page.on('pageerror', (err) => pageErrors.push(String(err)))
   page.on('console', (msg) => {
     if (msg.type() !== 'error') return
     const text = msg.text()
-    // Expected noise: none. Failed-resource lines only appear if a request
-    // escaped the mock boundary (dead loopback port), which IS a finding.
+    // Chromium sets the console message's location().url to the failed
+    // resource's URL for "Failed to load resource" devtools lines (verified
+    // empirically against a forced-500 fetch through the same route-mock
+    // boundary these specs use). Matching on BOTH the message text AND this
+    // location URL - rather than text alone - is what makes an expectation
+    // load-bearing to a SPECIFIC request instead of any console line that
+    // happens to contain the same words.
+    const url = msg.location().url
+    const matchIndex = expectedConsoleErrors.findIndex(
+      (e) => text.includes(e.textSubstring) && url.includes(e.urlSubstring),
+    )
+    if (matchIndex !== -1) {
+      matchCounts[matchIndex] += 1
+      return
+    }
     consoleErrors.push(text)
   })
   return {
@@ -299,6 +393,12 @@ export function attachErrorGuards(page: Page): ErrorGuards {
     assertClean: () => {
       expect(pageErrors, 'uncaught page errors').toEqual([])
       expect(consoleErrors, 'browser console errors').toEqual([])
+      expectedConsoleErrors.forEach((e, i) => {
+        expect(
+          matchCounts[i],
+          `expected console error [urlSubstring="${e.urlSubstring}", textSubstring="${e.textSubstring}"] to match exactly ${e.count} time(s)`,
+        ).toBe(e.count)
+      })
     },
   }
 }

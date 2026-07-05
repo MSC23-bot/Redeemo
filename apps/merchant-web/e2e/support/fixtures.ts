@@ -6,10 +6,18 @@
  *
  * - `mockOptions` (option): per-test/per-describe MockApiOptions via test.use.
  * - `authenticated` (option, default true): set false for logged-out journeys.
+ * - `expectedConsoleErrors` (option, default []): count-bounded expectations a
+ *   spec deliberately opts into (e.g. a forced 500 mock pinning
+ *   Promise.allSettled resilience). Each entry requires BOTH the failing
+ *   request's URL (`urlSubstring`) and the console text (`textSubstring`) to
+ *   match, and requires EXACTLY `count` matches - an open-ended substring
+ *   match on text alone would silently swallow an unrelated broken asset or
+ *   extra failed request during the same test. Every existing journey keeps
+ *   the strict empty-array guard unless it opts in.
  * - `tracker` (auto): installs the mock boundary + cookie BEFORE the test, and
  *   AFTER it asserts no unmocked /api call escaped to the 404 fallback.
  * - `guards` (auto): collects pageerror/console-error during the test and
- *   asserts both empty afterwards.
+ *   asserts both empty (plus each expected-error count) afterwards.
  * Specs import { test, expect } from './support/fixtures'.
  */
 import { test as base, expect } from '@playwright/test'
@@ -20,11 +28,13 @@ import {
   type MockApiOptions,
   type MockApiTracker,
   type ErrorGuards,
+  type ExpectedConsoleError,
 } from './mocks'
 
 interface SmokeFixtures {
   mockOptions: MockApiOptions
   authenticated: boolean
+  expectedConsoleErrors: ExpectedConsoleError[]
   tracker: MockApiTracker
   guards: ErrorGuards
 }
@@ -32,6 +42,7 @@ interface SmokeFixtures {
 export const test = base.extend<SmokeFixtures>({
   mockOptions: [{}, { option: true }],
   authenticated: [true, { option: true }],
+  expectedConsoleErrors: [[], { option: true }],
   tracker: [
     async ({ context, mockOptions, authenticated }, use) => {
       const tracker = await installMockApi(context, mockOptions)
@@ -42,8 +53,8 @@ export const test = base.extend<SmokeFixtures>({
     { auto: true },
   ],
   guards: [
-    async ({ page }, use) => {
-      const guards = attachErrorGuards(page)
+    async ({ page, expectedConsoleErrors }, use) => {
+      const guards = attachErrorGuards(page, expectedConsoleErrors)
       await use(guards)
       guards.assertClean()
     },
