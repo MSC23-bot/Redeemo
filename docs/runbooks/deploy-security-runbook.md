@@ -11,6 +11,8 @@
 > 2. ✅ **RESOLVED — standalone recompute-count runner.** `prisma/recompute-counts.ts` recomputes the category/tag count maps from current merchant state (**excluding test data**), behind opt-in + target-confirm gates and a Category/Tag-only default-deny write guard, safe with `NODE_ENV=production`. See §4 step 4.
 >
 > **HARD LAUNCH GATE (still blocks go-live):** the **static customer-web legal pages** (`/terms`, `/privacy`, `/cookies`, `/about`, `/faq`) are the launch source of truth and MUST be **owner/legal-reviewed and complete** (company number, registered office, ICO reference, effective date) before go-live. The seeded `CmsContent` keys are **unwired** (nothing reads them) — not the source of truth. See the Legal launch gate (**§12**).
+>
+> **Scope note (2026-07-05): "ONE HARD LAUNCH GATE" = the one hard *legal-content* gate for the SEC-core work this runbook covers — it is NOT the only remaining launch gate for Redeemo overall.** Separately governed and still open in their own workstreams: Merchant Portal completion, Admin Panel implementation (including admin-side redemption visibility — an approved pre-launch product requirement that currently exists only in the Admin prototype, not as a live feature), backend deploy, worker/background processing, provider integrations, staging acceptance, domain/DNS (D-D), and full cross-platform testing. R1 key rotation is **deferred, not cancelled**. See `docs/runbooks/2026-07-05-security-deployment-state-reconciliation.md` for the consolidated open-gate picture.
 
 ---
 
