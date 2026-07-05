@@ -167,6 +167,108 @@ export function notificationFixture(id = 'n1', over: Record<string, unknown> = {
 }
 
 // ---------------------------------------------------------------------------
+// Insights fixtures (test/insights-smoke additions). The lib/api/insights.ts
+// client wraps EVERY numeric field in z.coerce.number() defensively (the same
+// #327 class as branch latitude/longitude), even though the current backend
+// service already coerces its Decimal/bigint aggregates to plain numbers
+// server-side (src/api/merchant/insights/service.ts `num()`). These fixtures
+// default to plain numbers (matching today's real wire); the wire-accuracy e2e
+// spec overrides individual fields with STRINGS to exercise the z.coerce path
+// end-to-end, guarding against a future service-layer regression that starts
+// emitting raw Decimals again.
+// ---------------------------------------------------------------------------
+
+export function insightsOverviewFixture(over: Record<string, unknown> = {}) {
+  return {
+    redemptionActivity: { logged: 61, confirmed: 49, awaiting: 12, comparison: null },
+    distinctCustomers: { logged: 40, comparison: null },
+    repeatRate: { value: 28, insufficient: false, comparison: null },
+    savings: { estimatedLogged: 793, estimatedConfirmed: 638, awaiting: 155, comparison: null },
+    meta: {
+      scopeLabel: 'All branches',
+      earliestDate: '2026-03-01',
+      filtersEcho: { period: 'this_month', branchId: null, voucherType: null, from: null, to: null },
+    },
+    ...over,
+  }
+}
+
+export function insightsTrendFixture(over: Record<string, unknown> = {}) {
+  return {
+    months: [
+      { monthStartLondon: '2026-05-01', logged: 20, confirmed: 16 },
+      { monthStartLondon: '2026-06-01', logged: 41, confirmed: 33 },
+    ],
+    ...over,
+  }
+}
+
+export function insightsVouchersFixture(over: Record<string, unknown> = {}) {
+  return {
+    top: [
+      {
+        voucherId: 'v1',
+        title: 'Buy one main, get one free',
+        type7: 'BOGO',
+        logged: 32,
+        confirmed: 30,
+        estimatedLogged: 416,
+        estimatedConfirmed: 390,
+      },
+    ],
+    byType: [{ type7: 'BOGO', logged: 32, sharePct: 100 }],
+    ...over,
+  }
+}
+
+export function insightsBranchesFixture(over: Record<string, unknown> = {}) {
+  return {
+    rows: [
+      {
+        branchId: 'b1',
+        name: 'Old Foundry',
+        logged: 32,
+        confirmed: 30,
+        estimatedLogged: 416,
+        estimatedConfirmed: 390,
+      },
+    ],
+    ...over,
+  }
+}
+
+export function insightsValidationFixture(over: Record<string, unknown> = {}) {
+  return {
+    logged: 61,
+    confirmed: 49,
+    awaiting: 12,
+    completionRate: 0.8,
+    methods: [
+      { method: 'QR_SCAN', count: 30 },
+      { method: 'MANUAL', count: 19 },
+    ],
+    ...over,
+  }
+}
+
+export function insightsBusyTimesFixture(over: Record<string, unknown> = {}) {
+  return {
+    mode: 'intensity',
+    grid: [{ day: 0, daypart: 2, intensity: 3 }],
+    busiest: { day: 0, daypart: 2 },
+    ...over,
+  }
+}
+
+export function insightsCustomersFixture(over: Record<string, unknown> = {}) {
+  return {
+    newVsReturning: { newCount: 18, returningCount: 22, total: 40 },
+    repeatRate: { value: 28, insufficient: false, comparison: null },
+    ...over,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Route installation
 // ---------------------------------------------------------------------------
 
@@ -204,6 +306,28 @@ export interface MockApiOptions {
    * of them ever click Reveal (no spec before branches.spec.ts requests this route).
    */
   branchPins?: Record<string, string | null>
+  /** GET /insights/overview response body; default a populated ACTIVE-merchant fixture. */
+  insightsOverview?: Record<string, unknown>
+  /** GET /insights/trend response body; default a populated two-month fixture. */
+  insightsTrend?: Record<string, unknown>
+  /** GET /insights/vouchers response body; default a populated fixture. */
+  insightsVouchers?: Record<string, unknown>
+  /** GET /insights/branches response body; default a populated fixture. */
+  insightsBranches?: Record<string, unknown>
+  /** GET /insights/validation response body; default a populated fixture. */
+  insightsValidation?: Record<string, unknown>
+  /** GET /insights/busy-times response body; default a populated intensity-mode fixture. */
+  insightsBusyTimes?: Record<string, unknown>
+  /** GET /insights/customers response body; default a populated fixture. */
+  insightsCustomers?: Record<string, unknown>
+  /**
+   * The event-level CSV export gate (GET /insights/export.csv). Default false: the
+   * gate-closed `{ available:false }` JSON body (mirrors the real fail-closed
+   * default). Set true to return a `text/csv` body instead (see insightsExportCsv).
+   */
+  insightsExportAvailable?: boolean
+  /** The csv body text returned when insightsExportAvailable is true. */
+  insightsExportCsv?: string
 }
 
 export interface MockApiTracker {
@@ -301,6 +425,55 @@ export async function installMockApi(
           offset,
         }),
       )
+      return
+    }
+    // Insights (test/insights-smoke additions). Each sub-endpoint is independent
+    // (the page mounts only the active tab's query), so a spec that never touches
+    // Insights never hits any of these. Query params (period/branchId/voucherType/
+    // from/to) are NOT branched on here - the fixture body is the same regardless
+    // of filter, and specs pin the OUTGOING request's querystring directly (mirrors
+    // the redemptions sort/search convention above) rather than varying the mock
+    // response by filter.
+    if (method === 'GET' && p === '/api/v1/merchant/insights/overview') {
+      await route.fulfill(json(200, opts.insightsOverview ?? insightsOverviewFixture()))
+      return
+    }
+    if (method === 'GET' && p === '/api/v1/merchant/insights/trend') {
+      await route.fulfill(json(200, opts.insightsTrend ?? insightsTrendFixture()))
+      return
+    }
+    if (method === 'GET' && p === '/api/v1/merchant/insights/vouchers') {
+      await route.fulfill(json(200, opts.insightsVouchers ?? insightsVouchersFixture()))
+      return
+    }
+    if (method === 'GET' && p === '/api/v1/merchant/insights/branches') {
+      await route.fulfill(json(200, opts.insightsBranches ?? insightsBranchesFixture()))
+      return
+    }
+    if (method === 'GET' && p === '/api/v1/merchant/insights/validation') {
+      await route.fulfill(json(200, opts.insightsValidation ?? insightsValidationFixture()))
+      return
+    }
+    if (method === 'GET' && p === '/api/v1/merchant/insights/busy-times') {
+      await route.fulfill(json(200, opts.insightsBusyTimes ?? insightsBusyTimesFixture()))
+      return
+    }
+    if (method === 'GET' && p === '/api/v1/merchant/insights/customers') {
+      await route.fulfill(json(200, opts.insightsCustomers ?? insightsCustomersFixture()))
+      return
+    }
+    if (method === 'GET' && p === '/api/v1/merchant/insights/export.csv') {
+      // Mirrors the real contract: application/json { available:false } when the
+      // fail-closed behavioural gate is shut, text/csv when it is open.
+      if (opts.insightsExportAvailable) {
+        const csv =
+          opts.insightsExportCsv ??
+          'date,voucher,branch,type,value,status,method\n' +
+            '2026-06-21,Free coffee with breakfast,Old Foundry,FREEBIE,4.50,VALIDATED,MANUAL\n'
+        await route.fulfill({ status: 200, contentType: 'text/csv', body: csv })
+      } else {
+        await route.fulfill(json(200, { available: false }))
+      }
       return
     }
     if (method === 'GET' && p === '/api/v1/merchant/staff/app-users') {
