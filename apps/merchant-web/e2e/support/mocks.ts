@@ -653,6 +653,14 @@ export interface ErrorGuards {
   pageErrors: string[]
   consoleErrors: string[]
   assertClean: () => void
+  /**
+   * Detaches the `context.on('page', ...)` listener installed by
+   * attachErrorGuards. Each Playwright test gets a brand-new BrowserContext
+   * by default, so the listener would be garbage-collected with it anyway -
+   * but fixtures.ts calls this explicitly at teardown so the wiring is
+   * correct and inspectable rather than relying only on that default.
+   */
+  dispose: () => void
 }
 
 // A count-bounded expected console error: BOTH the failing request's URL and
@@ -667,38 +675,74 @@ export interface ExpectedConsoleError {
   count: number
 }
 
-export function attachErrorGuards(page: Page, expectedConsoleErrors: ExpectedConsoleError[] = []): ErrorGuards {
+/**
+ * Guards the WHOLE BrowserContext against unexpected console errors and
+ * uncaught pageerrors, not just the single `page` handed in.
+ *
+ * A child page opened in a popup / `target="_blank"` link / `window.open`
+ * (e.g. the Insights printable-report tab) gets its own `Page` object that
+ * the original page-only listeners never saw. `context.on('page', wire)`
+ * closes that gap: every page the context EVER opens - the initial one AND
+ * any future popup - is wired into the SAME shared pageErrors/consoleErrors
+ * arrays and the SAME expectedConsoleErrors allowance/tally, so a spec that
+ * never explicitly references the child page still gets it guarded.
+ *
+ * The `context.on('page', ...)` registration happens synchronously, with no
+ * `await` before it - Playwright fires that event the instant a new Page
+ * object exists, before any navigation or script on it has run, so wiring it
+ * synchronously (rather than after an awaited setup step) is what prevents a
+ * race where an error fired during the child page's very first load is
+ * missed.
+ */
+export function attachErrorGuards(
+  context: BrowserContext,
+  page: Page,
+  expectedConsoleErrors: ExpectedConsoleError[] = [],
+): ErrorGuards {
   const pageErrors: string[] = []
   const consoleErrors: string[] = []
   // Per-entry match tally so assertClean can require EXACTLY `count` hits.
+  // Shared across every page (main + any child tabs) this guard covers.
   const matchCounts = expectedConsoleErrors.map(() => 0)
-  page.on('pageerror', (err) => pageErrors.push(String(err)))
-  page.on('console', (msg) => {
-    if (msg.type() !== 'error') return
-    const text = msg.text()
-    // Chromium sets the console message's location().url to the failed
-    // resource's URL for "Failed to load resource" devtools lines (verified
-    // empirically against a forced-500 fetch through the same route-mock
-    // boundary these specs use). Matching on BOTH the message text AND this
-    // location URL - rather than text alone - is what makes an expectation
-    // load-bearing to a SPECIFIC request instead of any console line that
-    // happens to contain the same words.
-    const url = msg.location().url
-    const matchIndex = expectedConsoleErrors.findIndex(
-      (e) => text.includes(e.textSubstring) && url.includes(e.urlSubstring),
-    )
-    if (matchIndex !== -1) {
-      matchCounts[matchIndex] += 1
-      return
-    }
-    consoleErrors.push(text)
-  })
+
+  function wire(target: Page) {
+    target.on('pageerror', (err) => pageErrors.push(String(err)))
+    target.on('console', (msg) => {
+      if (msg.type() !== 'error') return
+      const text = msg.text()
+      // Chromium sets the console message's location().url to the failed
+      // resource's URL for "Failed to load resource" devtools lines (verified
+      // empirically against a forced-500 fetch through the same route-mock
+      // boundary these specs use). Matching on BOTH the message text AND this
+      // location URL - rather than text alone - is what makes an expectation
+      // load-bearing to a SPECIFIC request instead of any console line that
+      // happens to contain the same words.
+      const url = msg.location().url
+      const matchIndex = expectedConsoleErrors.findIndex(
+        (e) => text.includes(e.textSubstring) && url.includes(e.urlSubstring),
+      )
+      if (matchIndex !== -1) {
+        matchCounts[matchIndex] += 1
+        return
+      }
+      consoleErrors.push(text)
+    })
+  }
+
+  // The page the fixture already handed us (the tab the test navigates in).
+  wire(page)
+  // Every FUTURE page the context opens - popups, target="_blank" links,
+  // window.open - shares the exact same wiring. Registered synchronously (no
+  // await above), and only ever fires for pages created AFTER this line, so
+  // `page` above is never double-wired.
+  context.on('page', wire)
+
   return {
     pageErrors,
     consoleErrors,
     assertClean: () => {
-      expect(pageErrors, 'uncaught page errors').toEqual([])
-      expect(consoleErrors, 'browser console errors').toEqual([])
+      expect(pageErrors, 'uncaught page errors (main page + any child tabs)').toEqual([])
+      expect(consoleErrors, 'browser console errors (main page + any child tabs)').toEqual([])
       expectedConsoleErrors.forEach((e, i) => {
         expect(
           matchCounts[i],
@@ -706,5 +750,6 @@ export function attachErrorGuards(page: Page, expectedConsoleErrors: ExpectedCon
         ).toBe(e.count)
       })
     },
+    dispose: () => context.off('page', wire),
   }
 }

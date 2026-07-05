@@ -17,7 +17,10 @@
  * - `tracker` (auto): installs the mock boundary + cookie BEFORE the test, and
  *   AFTER it asserts no unmocked /api call escaped to the 404 fallback.
  * - `guards` (auto): collects pageerror/console-error during the test and
- *   asserts both empty (plus each expected-error count) afterwards.
+ *   asserts both empty (plus each expected-error count) afterwards. Covers
+ *   the WHOLE BrowserContext - the main `page` AND any child tab opened via
+ *   a popup / `target="_blank"` link / `window.open` during the test (see
+ *   attachErrorGuards in ./mocks for the context.on('page', ...) wiring).
  * Specs import { test, expect } from './support/fixtures'.
  */
 import { test as base, expect } from '@playwright/test'
@@ -53,10 +56,11 @@ export const test = base.extend<SmokeFixtures>({
     { auto: true },
   ],
   guards: [
-    async ({ page, expectedConsoleErrors }, use) => {
-      const guards = attachErrorGuards(page, expectedConsoleErrors)
+    async ({ context, page, expectedConsoleErrors }, use) => {
+      const guards = attachErrorGuards(context, page, expectedConsoleErrors)
       await use(guards)
       guards.assertClean()
+      guards.dispose()
     },
     { auto: true },
   ],
