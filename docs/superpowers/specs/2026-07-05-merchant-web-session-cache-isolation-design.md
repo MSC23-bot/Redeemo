@@ -70,8 +70,8 @@ One exported async function, e.g. `resetSessionState(queryClient)` in `lib/auth/
 
 `resetSessionState` is `async` (it awaits `cancelQueries`). Every caller MUST await it before the step that depends on a clean slate. Call sites and their deltas:
 
-- **Normal logout** (`signOut`, already `async`): backend revoke + cookie clear stay as-is; `await resetSessionState(qc)` BEFORE `router.replace('/sign-in')`.
-- **Hard logout** (`onSessionLost`): see 4.4 - the callback becomes an awaited async teardown with single-flight + navigation-after-reset ownership.
+- **Normal logout** (`signOut`, already `async`): see 4.5 - the ordered confirmed-cookie-clearance contract (client state cleared first, then an awaited bounded BFF logout so cookie clearance is confirmed, then navigation).
+- **Hard logout** (`onSessionLost`): see 4.4 - the callback becomes an awaited async teardown with single-flight + navigation-after-reset ownership. (The hard-logout path fires only after a refresh already FAILED, so the session is already dead server-side and the cookie was already cleared by the failed `/refresh` route's `!res.ok` branch; it does not re-invoke the BFF logout, and 4.5's cookie-confirmation step does not apply.)
 - **Login** (`setSession`, contract change - Codex #2): `setSession` becomes `async` returning `Promise<void>`. It runs the SAME pipeline and AWAITS it BEFORE applying the new token/merchant (`applyToken(newToken)` / `setMerchant(m)` run only after `await resetSessionState(qc)` resolves). The new token can NEVER be installed before cache+session reset completes - this is a hard ordering guarantee, pinned by a test (section 6). All three login/verify callers (`sign-in/page.tsx:48`, `otp/page.tsx:47`, `register/verify/page.tsx:57`) MUST `await setSession(...)` before any navigation or subsequent action. Awaiting the reset before the token apply is what makes same-tab account replacement without a full page reload safe even when no explicit logout preceded it, and it globally retires the #381 empty-cache in-flight-adoption class (any pre-login hung request is epoch-dead and its retryer cancelled before the first new-session query mounts).
 
 `SessionProvider` obtains the client via `useQueryClient()` - it already renders inside `QueryClientProvider` (`app/providers.tsx:21-23`).
@@ -85,13 +85,25 @@ The hard-logout path (`setOnSessionLost` registered in `SessionProvider`, invoke
 - **Failures caught, never floating.** The teardown promise is `.catch()`-handled: a `cancelQueries`/`clear` rejection (not expected, but defensively) is swallowed to a logged no-op and navigation STILL proceeds (a dead session must always reach /sign-in). There is no unhandled rejection and no floating promise - the callback either `await`s inside an async IIFE with try/catch or attaches `.then(nav).catch(navAnyway)`.
 - **Idempotent teardown.** `resetSessionState` is safe to run twice (bump is monotonic, clear on an empty cache is a no-op), so a race between the hard-logout teardown and a subsequent explicit `signOut` cannot corrupt state.
 
+### 4.5 Normal-logout confirmed-cookie-clearance contract (Codex Wave 12)
+
+The httpOnly session cookie (`redeemo_merchant_session`) is NOT reachable from JavaScript - only the BFF `logout` route's `clearSessionCookie` (a `Set-Cookie` on its RESPONSE) can clear it. Therefore the client cannot itself clear the cookie and must not claim it cleared without response evidence. A prior draft said the client should navigate WITHOUT awaiting the BFF logout ("fire-and-forget"); that was wrong - navigation can abort a non-keepalive request before the BFF's clearing response is received, leaving cookie clearance unconfirmed. The corrected ordered contract for `signOut`:
+
+1. **Invalidate + clear client state FIRST, synchronously observable.** `await resetSessionState(qc)` - epoch bump (4.3 step 1), token null + `refreshInFlight` reset (step 2), `cancelQueries` (step 3), `clear` (step 4). In-memory and cached state are gone immediately, independent of any network call. A stale in-flight request cannot repopulate anything (epoch guard).
+2. **Invoke the BFF logout with a STRICT bounded timeout.** `POST /api/merchant-auth/logout` (via `authApi.logout`), wrapped in a bounded timeout (a few seconds, e.g. an `AbortController` + timer). The BFF ALWAYS attempts `clearSessionCookie` regardless of the backend revoke result (backend revoke best-effort/awaited per the backend design; cookie clearance is unconditional on the BFF response path).
+3. **AWAIT the bounded BFF response BEFORE normal navigation.** Because the client awaits the response before navigating, the request is NOT aborted by navigation - so no `keepalive` is required (keepalive is not used; if a future revision proposes it, it must prove browser `Set-Cookie`-on-unload behaviour, not assume it). A resolved 2xx response is the EVIDENCE that the clearing `Set-Cookie` was received and the cookie is cleared.
+4. **Then navigate** to `/sign-in`.
+5. **Honest degraded behaviour if the BFF is unreachable or the bounded timeout fires.** Navigation still proceeds to `/sign-in` (the user is not trapped), BUT cookie clearance is UNCONFIRMED: the httpOnly cookie may persist, so a subsequent refresh-on-mount could re-hydrate the session on this browser. The design does NOT claim the cookie is cleared in this case. The in-memory/cache state is still gone (step 1), which limits same-tab exposure, but durable server-side session termination in this path depends on the backend revoke (backend design section 3) having succeeded, not on the client. This unconfirmed-clearance state is surfaced honestly (not silently treated as a clean logout).
+
+The single-flight, catch-never-floating, and navigation-after-teardown properties from 4.4 apply here too. The F1 cookie-arm race (an in-flight `/refresh` re-writing the cookie AFTER this logout cleared it) is a SEPARATE concern owned by the backend design's atomic revoke - even a confirmed clearance here can be undone by a straddling refresh, which is exactly why the backend logout-durability design (section 10 / the backend companion) is required alongside this client contract.
+
 The bump-first ordering (4.3 step 1) means the instant the dead session is detected, every other in-flight request is already epoch-dead and cannot re-drive `triggerSessionLost` (4.2 pre-side-effect gate) - so concurrent 401s collapse to this one teardown.
 
-### 4.5 Mutations and optimistic state
+### 4.6 Mutations and optimistic state
 
 Today: zero optimistic patterns; the one `setQueryData` write-back (`useBranches.ts:249`) runs in a hook-level `onSuccess`. Correcting the reasoning (adversarial review F2/F3): that `onSuccess` DOES fire after the screen unmounts, and in the in-flight-at-logout path the pipeline (with its `clear()`) runs FIRST, so a late `onSuccess`->`setQueryData` lands AFTER `clear()` and is NOT wiped by it. The actual protection is therefore (a) the transport epoch guard rejecting the mutationFn's response the moment it resolves post-bump (SESSION_SWITCHED -> mutation errors -> `onSuccess` never runs), and (b) the next `setSession` re-running the pipeline `clear()`. The only residue window is a mutation whose `apiFetch` returned data pre-bump but whose `onSuccess` runs post-clear; that entry is never rendered (portal unmounting to /sign-in) and is cleared at next login. Future optimistic patterns inherit the transport guard automatically because rollback/commit both consume apiFetch results. The spec imposes NO new per-mutation obligations.
 
-### 4.6 What is deliberately kept
+### 4.7 What is deliberately kept
 
 - The #381 fresh-observer + own-fetch-gate machinery in `useBranchCapability` REMAINS (defence in depth for the highest-privilege UI decision; its removal trigger stays tied to the Railway #364 deployment, and any simplification is a separate later cleanup, not this change).
 - `redeemo_merchant_device_id` in localStorage intentionally survives logout (known-device OTP UX; random UUID, no account data). Documented as accepted.
@@ -109,7 +121,7 @@ Today: zero optimistic patterns; the one `setQueryData` write-back (`useBranches
 | Cached successful data | 4.3 step 3 clear() |
 | Cached errors | 4.3 step 3 (clear removes error states) |
 | Active/in-flight requests | 4.2 epoch guard + 4.3 step 2 cancelQueries |
-| Mutations + optimistic state | 4.5 (none optimistic today; triple defence; future-proof via transport guard) |
+| Mutations + optimistic state | 4.6 (none optimistic today; triple defence; future-proof via transport guard) |
 | Cancellation ordering | 4.3 normative order: epoch -> cancel -> clear -> state/nav, with rationale per step |
 | Query removal/clearing timing | 4.3 steps 2-3 (cancel BEFORE clear so nothing settles in between) |
 | Old-bearer responses repopulating cache | 4.2 transport guard + 4.3 step-2 token-null (post-clear refetch protection, F5); in-memory mint arm closed, cookie arm = open owner decision (section 10) |
@@ -122,7 +134,8 @@ Today: zero optimistic patterns; the one `setQueryData` write-back (`useBranches
 Unit - epoch + transport guard: old-epoch apiFetch resolution discarded (typed error, no data delivery); old-epoch doRefresh resolution returns false and does NOT setAccessToken (regression pin for section 3); post-refresh retry straddling a bump is discarded; same-epoch paths byte-equivalent to today (no behaviour change without a boundary).
 Unit - teardown pipeline: seed cache -> signOut -> cache empty + all queries cancelled; same for hard-logout and setSession; ordering pin (a fetch resolving between cancel and clear cannot survive - deferred-promise test); mutation-cache cleared.
 Integration (jest, real QueryClient, mocked network): full account-switch simulation - user A data cached + one hung in-flight request; logout; login as B; resolve A's hung request; assert: no A data in cache, no A data rendered, tokenStore holds only B's token; the #381 capability suite (20 cases) stays green unchanged.
-Mutation evidence (minimum): (a) remove the epoch bump from setSession -> account-switch test fails; (b) remove the doRefresh epoch check -> mint-after-logout pin fails; (c) reorder clear() before cancelQueries() -> ordering pin fails.
+Unit - normal-logout cookie-clearance contract (section 4.5, Codex Wave 12): (a) client state (epoch/token/cache) is cleared BEFORE the BFF logout is awaited - assert `resetSessionState` completed (token null, cache empty) while the BFF logout mock is still pending; (b) normal navigation WAITS for the bounded BFF response - with a deferred logout mock, assert `router.replace('/sign-in')` has NOT been called until the response resolves (or the bounded timeout fires); (c) a resolved 2xx logout response is treated as confirmed cookie clearance; (d) the BFF timeout / unreachable path still navigates BUT surfaces cookie clearance as UNCONFIRMED (not silently clean) - assert the honest-degraded state is reported; (e) navigation-abort behaviour is NOT assumed - there is no test or code path that relies on a request completing after navigation (no keepalive dependency); the await-before-navigate ordering is what guarantees the request is not aborted.
+Mutation evidence (minimum): (a) remove the epoch bump from setSession -> account-switch test fails; (b) remove the doRefresh epoch check -> mint-after-logout pin fails; (c) reorder clear() before cancelQueries() -> ordering pin fails; (d) navigate before awaiting the BFF logout response -> the "navigation waits for bounded BFF completion" pin fails.
 E2E (existing Playwright lane, additive spec): sign-out -> sign-in journey asserting no stale-data paint (skeletons/empty on first render of the new session).
 
 ## 7. Alternatives considered and rejected
@@ -142,7 +155,7 @@ E2E (existing Playwright lane, additive spec): sign-out -> sign-in journey asser
 
 ## 9. Out of scope
 
-Backend/session/token semantics; multi-tab propagation; customer-web and admin-web (each needs its own audit - admin-web uses localStorage sessions and is a DIFFERENT posture); AbortController plumbing (7); #381 machinery simplification (4.6).
+Backend/session/token semantics; multi-tab propagation; customer-web and admin-web (each needs its own audit - admin-web uses localStorage sessions and is a DIFFERENT posture); AbortController plumbing (7); #381 machinery simplification (4.7).
 
 ## 10. OPEN OWNER DECISION - cookie-arm logout durability (F1)
 
