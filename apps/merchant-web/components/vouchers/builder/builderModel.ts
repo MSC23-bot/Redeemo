@@ -50,15 +50,20 @@ export interface BuilderState {
   // custom terms (persisted in merchantFields for edit rehydration).
   selectedClauseIds: string[]
   customTerms: CustomTerm[]
-  imageUrl?: string
-  /** The HYDRATED saved image (edit mode baseline). The PATCH contract has no
-   * nullable clear, so an already-saved image can be replaced but not removed;
-   * the UI constrains removal to session-uploaded photos (revert-to-saved). */
+  /** Three-state (spec 2026-07-05 D1): `undefined` = never set / untouched-empty;
+   * a string = saved baseline or in-session value; `null` = EXPLICIT clear of a
+   * saved baseline (edit mode only) - serialized as JSON null so the PATCH
+   * clears the stored column. */
+  imageUrl?: string | null
+  /** The HYDRATED saved image (edit mode baseline). Clearing it sends an
+   * explicit null on the PATCH (nullable-clear contract); reverting a session
+   * upload restores this baseline value. */
   savedImageUrl?: string
-  expiryDate?: string
-  /** The HYDRATED saved end date (edit mode baseline). Same PATCH-omission
-   * semantics as savedImageUrl: no nullable clear exists, so a saved end date
-   * can be changed but not removed; the UI constrains the toggle on edits. */
+  /** Three-state, mirroring imageUrl - the two fields are INDEPENDENT: no
+   * shared conditional may couple their clear/preserve decisions. */
+  expiryDate?: string | null
+  /** The HYDRATED saved end date (edit mode baseline). Unticking the end-date
+   * toggle on an edit with a saved date sends an explicit null on the PATCH. */
   savedExpiryDate?: string
   askHelp: boolean
   // TIME_LIMITED only.
@@ -235,8 +240,11 @@ export function toCreatePayload(state: BuilderState, categoryKey: CategoryKey = 
     estimatedSaving: saving > 0 ? saving : 5, // advisory floor fallback; admin review is the backstop.
     description: effectiveDescription(state) || undefined,
     terms: structured ? termsText : termsText || undefined,
-    imageUrl: state.imageUrl || undefined,
-    expiryDate: normalizeExpiryDate(state.expiryDate || undefined),
+    // Nullable-clear (D1): explicit null survives serialization as a clear
+    // signal; falsy-but-not-null still coerces to omission. The two lines are
+    // deliberately INDEPENDENT per-field checks - never couple them.
+    imageUrl: state.imageUrl === null ? null : state.imageUrl || undefined,
+    expiryDate: state.expiryDate === null ? null : normalizeExpiryDate(state.expiryDate || undefined),
     merchantFields,
   }
 
@@ -259,7 +267,8 @@ export function toCreatePayload(state: BuilderState, categoryKey: CategoryKey = 
 // The date input emits YYYY-MM-DD; the backend accepts z.string().datetime().
 // Normalize a date-only value to UTC midnight ISO; pass a full ISO through
 // (hydrated values arrive as full ISO already).
-export function normalizeExpiryDate(v: string | undefined): string | undefined {
+export function normalizeExpiryDate(v: string | undefined | null): string | undefined | null {
+  if (v === null) return null
   if (!v) return undefined
   return /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T00:00:00.000Z` : v
 }
