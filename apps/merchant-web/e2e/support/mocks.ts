@@ -328,6 +328,20 @@ export interface MockApiOptions {
   insightsExportAvailable?: boolean
   /** The csv body text returned when insightsExportAvailable is true. */
   insightsExportCsv?: string
+  /**
+   * M3 F2/F3 (Validate-a-code + redemption detail): GET
+   * /merchant/redemptions/lookup response body for a real (not-masked) match.
+   * Default: undefined - a spec that never opts in gets the wire-accurate
+   * masked not-found envelope below, matching the real backend's cross-tenant
+   * default, never an accidental 200.
+   */
+  lookupResult?: Record<string, unknown>
+  /** Force a non-200 AppError-shaped envelope for GET .../redemptions/lookup. */
+  lookupError?: { status: number; code: string }
+  /** POST /redemption/verify (Validate-a-code confirm) success body; default { message: 'ok' }. */
+  verifyResponse?: Record<string, unknown>
+  /** Force a non-200 AppError-shaped envelope for POST /redemption/verify. */
+  verifyError?: { status: number; code: string }
 }
 
 export interface MockApiTracker {
@@ -588,6 +602,31 @@ export async function installMockApi(
     }
     if (method === 'GET' && p === '/api/v1/merchant/onboarding/status') {
       await route.fulfill(json(200, { status: 'APPROVED', comment: null, actionedAt: '2026-06-20T10:00:00.000Z' }))
+      return
+    }
+    // M3 F2 Validate-a-code: the read-only lookup-preview step.
+    if (method === 'GET' && p === '/api/v1/merchant/redemptions/lookup') {
+      if (opts.lookupError) {
+        await route.fulfill(json(opts.lookupError.status, { error: { code: opts.lookupError.code } }))
+        return
+      }
+      if (opts.lookupResult) {
+        await route.fulfill(json(200, opts.lookupResult))
+        return
+      }
+      // Default (opts.lookupResult/lookupError both omitted): the wire-accurate
+      // masked not-found envelope, mirroring the real backend's cross-tenant-safe
+      // default so a spec that never opts in never gets an accidental 200.
+      await route.fulfill(json(404, { error: { code: 'REDEMPTION_NOT_FOUND' } }))
+      return
+    }
+    // M3 F2 Validate-a-code: the confirm step (shared with the branch/staff app path).
+    if (method === 'POST' && p === '/api/v1/redemption/verify') {
+      if (opts.verifyError) {
+        await route.fulfill(json(opts.verifyError.status, { error: { code: opts.verifyError.code } }))
+        return
+      }
+      await route.fulfill(json(200, opts.verifyResponse ?? { message: 'ok' }))
       return
     }
 
