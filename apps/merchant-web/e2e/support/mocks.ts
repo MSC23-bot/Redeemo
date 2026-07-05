@@ -105,6 +105,35 @@ export function redemptionFixture(id = 'r1', over: Record<string, unknown> = {})
   }
 }
 
+// Custom (RCV) voucher DETAIL row (GET /merchant/vouchers/:id): the full shape
+// the edit builder rehydrates from (lib/api/voucher.ts customVoucherDetailSchema).
+// estimatedSaving ships as a STRING on the wire (Prisma Decimal, the #327 class);
+// z.coerce.number() in the real schema is what parses it.
+export function voucherDetailFixture(id = 'v-custom-1', over: Record<string, unknown> = {}) {
+  return {
+    id,
+    title: 'Happy hour',
+    type: 'TIME_LIMITED',
+    status: 'DRAFT',
+    approvalStatus: 'PENDING',
+    approvalComment: null,
+    estimatedSaving: '4.50', // STRING on the wire (Prisma Decimal)
+    description: 'Enjoy a discount during happy hour.',
+    terms: 'One per visit',
+    isRmv: false,
+    cooldownSeconds: null,
+    publishedAt: null,
+    expiryDate: '2026-12-01T00:00:00.000Z',
+    approvedAt: null,
+    createdAt: '2026-06-19T10:00:00.000Z',
+    redemptionCount: 0,
+    imageUrl: 'https://cdn.example/saved.png',
+    availabilityWindows: [{ dayOfWeek: 1, openTime: '14:00', closeTime: '17:00' }],
+    merchantFields: { builderType: 'time' },
+    ...over,
+  }
+}
+
 export function memberFixture(role: string) {
   return {
     id: 'mm1',
@@ -161,6 +190,13 @@ export interface MockApiOptions {
   customVouchersStatus?: number
   /** Notification rows for both the bell popover (recent) and the full list page. */
   notifications?: Record<string, unknown>[]
+  /**
+   * Custom voucher DETAIL rows for GET /merchant/vouchers/:id, keyed by id.
+   * Default: undefined (no detail rows mocked - GET-by-id 404s, matching every
+   * pre-existing spec's behaviour byte-for-byte since none navigate to a voucher
+   * detail page today).
+   */
+  voucherDetails?: Record<string, Record<string, unknown>>
 }
 
 export interface MockApiTracker {
@@ -185,6 +221,15 @@ export async function installMockApi(
   const customVouchers = opts.customVouchers ?? []
   const flagshipVouchers = opts.flagshipVouchers ?? []
   const notifications = opts.notifications ?? []
+  // Deep-clone per install: the PATCH handler below mutates this map in place
+  // (simulating the backend's merge-and-return), and `opts.voucherDetails` may
+  // be a fixture object literal shared by reference across every test in a
+  // describe block's `test.use`. Without cloning, a PATCH in one test would
+  // leak its mutation into the next test's "saved baseline" - exactly the
+  // cross-test pollution this guards against.
+  const voucherDetails: Record<string, Record<string, unknown>> = JSON.parse(
+    JSON.stringify(opts.voucherDetails ?? {}),
+  )
   const tracker: MockApiTracker = { unmatched: [] }
 
   // Same-origin BFF: refresh mints the access token from the httpOnly cookie.
@@ -273,6 +318,40 @@ export async function installMockApi(
       }
       await route.fulfill(json(200, flagshipVouchers))
       return
+    }
+    // GET/PATCH the custom voucher DETAIL by id. Checked AFTER the literal
+    // '/vouchers/rmv' path above (a route param match would otherwise also
+    // catch the literal segment). The handler installs ONLY when the spec
+    // explicitly provided voucherDetails (CodeRabbit #378): a spec that never
+    // declared the option keeps the omitted-means-unmocked contract - an
+    // accidental detail call lands in tracker.unmatched and fails loudly
+    // instead of being absorbed by a quiet 404. When the option IS provided,
+    // ids missing from the map 404 deliberately (a legitimate not-found
+    // simulation the declaring spec opted into).
+    const voucherIdMatch =
+      opts.voucherDetails !== undefined ? p.match(/^\/api\/v1\/merchant\/vouchers\/([^/]+)$/) : null
+    if (voucherIdMatch && voucherIdMatch[1] !== 'rmv') {
+      const vid = voucherIdMatch[1]
+      const row = voucherDetails[vid]
+      if (!row) {
+        await route.fulfill(json(404, { error: 'VOUCHER_NOT_FOUND' }))
+        return
+      }
+      if (method === 'GET') {
+        await route.fulfill(json(200, row))
+        return
+      }
+      if (method === 'PATCH') {
+        // Wire-accurate PATCH: the real backend MERGES the sent keys onto the
+        // stored row and returns the updated resource. A null value (the
+        // nullable-clear contract) must overwrite the stored value, not be
+        // dropped by a naive spread - JSON.parse already preserves `null` as
+        // a real value, so a plain spread merge is correct here.
+        const body = route.request().postDataJSON() as Record<string, unknown>
+        voucherDetails[vid] = { ...row, ...body }
+        await route.fulfill(json(200, voucherDetails[vid]))
+        return
+      }
     }
     if (method === 'GET' && p === '/api/v1/merchant/notifications/unread-count') {
       await route.fulfill(
