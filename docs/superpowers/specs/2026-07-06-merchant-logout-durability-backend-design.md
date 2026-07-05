@@ -25,35 +25,36 @@ The logged-out account is fully re-armed server-side. On a shared merchant devic
 
 ### 3.1 Revocation tombstone, checked inside the refresh critical section
 
-Introduce an explicit, short-lived REVOCATION MARKER keyed by session, written by logout and checked by refresh AFTER it reads the token but BEFORE it rotates:
+The clean fix (corrected per adversarial review F4) does NOT need a second marker key on the hot path. The resurrection race exists purely because refresh's read-validate-delete-store is not atomic against logout's delete on the SAME key. Make the rotation ONE atomic server-side operation on the single refresh-token key, and make logout a plain delete of that key:
 
-- `logoutMerchant` writes `RedisKey.sessionRevoked('merchant', entityId, sessionId)` = `1` with a TTL >= the max refresh-token lifetime (so a straddling refresh cannot outlive the marker), THEN deletes the refresh-token key + `authMerchant` key (revoke stays first, so even a crash between steps leaves the session unusable, not half-alive).
-- `refreshMerchantToken`, after `validateRefreshToken` passes, checks the revocation marker; if present, it treats the session as dead: no rotation, no new token, throw `REFRESH_TOKEN_INVALID` (the BFF then clears the cookie via its existing `!res.ok` branch, `refresh/route.ts:29-38`).
+- `refreshMerchantToken` rotates via a single Lua script (`EVAL`) that, on the one key `RedisKey.refreshToken('merchant', entityId, sessionId)`, atomically GETs the stored token, validates it matches (hash compare), DELs it, and SETs the new rotated hash - all in one server-side execution (Redis runs a script atomically; no other command interleaves).
+- `logoutMerchant` revokes by a plain DEL of that same key (its existing `revokeRefreshToken`) plus `redis.del(authMerchant)`.
 
-This closes the interleaving in section 1 step 3: the refresh sees the marker written in step 2 and refuses to rotate.
+Every interleaving of one refresh and one logout then terminates UNAUTHENTICATED, because Redis is single-threaded so the logout DEL is atomically either fully before or fully after the refresh Lua - there is no "during":
 
-### 3.2 Atomicity of the marker-check-then-rotate
+- Logout DEL BEFORE the Lua: the Lua's GET returns nil -> the script refuses (no SET) -> `REFRESH_TOKEN_INVALID` -> the BFF clears the cookie via its `!res.ok` branch (`refresh/route.ts:29-38`). Terminal: dead.
+- Logout DEL AFTER the Lua: the Lua rotated a new token, then logout DELs it. Terminal: dead (the next refresh with the rotated cookie fails).
 
-The check and the rotate must be atomic against a concurrent logout, or the same race reappears one layer in (logout writes the marker between refresh's check and its `storeRefreshToken`). Options, in preference order:
+This satisfies the section 3.5 invariant for the same-instance AND cross-instance cases (the single Redis store is shared across all serverless instances; both flows hit the same key). It REMOVES the F4 hole: a separate revocation-marker key only atomised the token read+delete and left the marker-check-vs-store window open, so a live rotated session could still exist after logout - the single-key atomic rotate closes that window entirely.
 
-- **(A1) Single-key compare-and-delete rotation (preferred).** Fold the revocation into the refresh-token key's own lifecycle: refresh does an atomic `GETDEL` (or a Lua script) that reads-and-deletes the current token in one round trip, then only rotates if the read succeeded AND no revocation marker exists; logout's `revokeRefreshToken` deletes the same key. With `GETDEL`, a logout that deletes the key first makes refresh's `GETDEL` return nil -> refuse. This removes the read-then-delete window entirely without a second key in the hot path (the marker in 3.1 remains as the belt-and-braces cross-instance signal for the cookie-already-rotated edge).
-- **(A2) Lua script (`EVAL`) doing check-marker + validate + del + store in one atomic server-side execution.** Strongest ordering guarantee; one script, no round-trip races. Heavier to maintain; specify only if A1's `GETDEL` proves insufficient for the rotate step.
+### 3.2 The revocation marker is OPTIONAL and observability-only (narrowed per F4)
 
-The design MUST pick one and pin it with a concurrency test (section 5); it does not hand-wave "atomic."
+The correctness guarantee rests entirely on 3.1 (atomic rotate + logout DEL on one shared key), NOT on a marker. A `RedisKey.sessionRevoked` marker is retained only if an operator wants an explicit "this session was logged out" signal for diagnostics; it is NOT load-bearing for the section 3.5 invariant and carries no safety TTL requirement. The concurrency test (section 5) pins the invariant against the atomic rotate, not against any marker.
 
 ### 3.3 Reliable (non-best-effort) revoke on the logout path
 
 Today the BFF logout forwards a best-effort backend revoke and swallows failures (`logout/route.ts:16-21`); the backend `logoutMerchant` is fire-and-mostly-forget. Under A:
 
 - The BFF logout MUST await the backend revoke and treat a NON-timeout failure as a logout that has not yet durably revoked - see 3.4 for bounded behaviour.
-- The backend `logoutMerchant` writes the revocation marker (3.1) as its FIRST durable step, before deleting keys, so "revoke happened" is observable even if a later step fails.
+- The backend `logoutMerchant` DELs the refresh-token key (3.1) as its FIRST durable step, so once it runs, the session is atomically unusable regardless of any straddling refresh.
 
 ### 3.4 Bounded failure - logout always reaches a locally-clean state
 
 A remote revoke can be slow or fail; logout must never hang or silently no-op. Contract:
 
 - The BFF awaits the backend revoke with a BOUNDED timeout (e.g. a few seconds). On timeout OR error, it STILL `clearSessionCookie` locally and returns success to the client (the client-side teardown - cache clear + epoch bump - proceeds regardless; the local device is clean).
-- BUT: a failed/timed-out remote revoke means the refresh token MAY still be live server-side. The design records this residual honestly: on a shared device, until the refresh token naturally expires, a determined actor with the cookie could still refresh. Mitigation for that residual: (a) the revocation marker's short TTL bounds the exposure; (b) an OPTIONAL fire-and-forget backend retry queue for failed revokes (specify only if the residual is deemed unacceptable). The design surfaces this as an explicit accepted-or-mitigated risk rather than pretending an offline backend can be durably revoked synchronously.
+- HONEST RESIDUAL (corrected per F5): when the remote revoke TIMES OUT or the backend is unreachable, `logoutMerchant`'s DEL never ran, so the refresh-token key is STILL LIVE. There is no marker (3.2) and no short TTL bounding this - the residual is bounded only by the refresh-token's own lifetime, which is **90 days** (`REFRESH_TOKEN_TTL_SECONDS`, `src/api/shared/session.ts:6`). On a shared merchant device that is a real 90-day rehydration window for the logged-out account. The earlier claim that "a short marker TTL bounds the exposure" was WRONG for exactly this case (the marker is written by the same `logoutMerchant` that failed to run).
+- Therefore the mitigation is NOT optional: the design MUST include a durable failed-revoke path so a timed-out logout still revokes eventually. Options (pick one at implementation, pin it): (a) a backend-side revoke retry/queue that re-attempts the DEL until it succeeds; (b) a revoke-on-next-refresh sweep - since refresh is the only way to re-arm, a server-side "pending-logout" set checked at the top of the refresh Lua would refuse a refresh for a session whose logout is still pending (this reintroduces a small shared-state check but ONLY on the failed-revoke path, not the hot path). The design does not ship the client change implying durability while leaving a 90-day hole unmitigated.
 
 ### 3.5 Refresh-versus-logout ordering (summary invariant)
 
@@ -61,27 +62,26 @@ The normative invariant the implementation must guarantee and test: **for any in
 
 ## 4. Surfaces touched (scoping the eventual PR)
 
-- `src/api/auth/merchant/service.ts` - `refreshMerchantToken` (marker check + atomic rotate), `logoutMerchant` (marker-first revoke).
-- The shared refresh-token helpers (`storeRefreshToken` / `revokeRefreshToken` / `validateRefreshToken`) - possibly a new `revokeSessionAtomic` / `rotateIfNotRevoked` helper; check whether customer/branch/admin auth share these and whether the same defect + fix applies to them (LIKELY yes - flag for the implementer to audit `revokeRefreshToken` call sites across roles; this doc scopes merchant, but the helper change may be cross-role and needs its own regression pass).
-- `src/api/shared/redis-keys.ts` - new `sessionRevoked` key.
+- `src/api/auth/merchant/service.ts` - `refreshMerchantToken` (single-key atomic Lua rotate, 3.1), `logoutMerchant` (plain DEL revoke, unchanged shape).
+- The shared refresh-token helpers (`storeRefreshToken` / `revokeRefreshToken` / `validateRefreshToken`, `src/api/shared/session.ts`) - CONFIRMED shared and admin/branch/customer each carry the IDENTICAL non-atomic GET+validate+DEL+store pattern (verified: admin `service.ts:185-201`, branch, customer `:323-350`). A new `rotateRefreshTokenAtomic` Lua helper is therefore cross-role by construction; the implementer either scopes a merchant-only code path or takes the cross-role regression pass (R2). This doc scopes the merchant behaviour + invariant; the helper change is flagged cross-role.
 - `apps/merchant-web/app/api/merchant-auth/logout/route.ts` + `refresh/route.ts` - bounded-await revoke; keep the always-clear-cookie guarantee.
+- OPTIONAL only if the observability marker (3.2) is kept: `src/api/shared/redis-keys.ts` new `sessionRevoked` key. NOT required for correctness.
 - NO Prisma schema change (Redis-only session state); NO provider change.
 
 ## 5. Test strategy
 
-- **Concurrency/interleaving (the core):** a harness that drives `/refresh` and `logout` on the same sessionId with controlled ordering across ALL interleavings of section 3.5, asserting the terminal Redis state is always unauthenticated and no post-logout `storeRefreshToken` survives. Include the specific step-1/2/3 race from section 1.
-- **Cross-instance simulation:** two BFF "instances" (no shared memory) - logout on one, in-flight refresh on the other - asserting the shared Redis marker/`GETDEL` closes it (proves B's gap is closed by A).
-- **Bounded failure:** backend revoke times out -> BFF still clears the cookie + returns success; refresh token residual bounded by marker TTL (assert the marker expiry).
-- **Reliable revoke happy path:** logout writes the marker before deleting keys; a subsequent refresh refuses.
-- **No regression:** normal login/refresh/logout single-threaded flows unchanged; the SUSPENDED-merchant refuse path (`service.ts:305-309`) intact; audit-log events unchanged.
-- **Cross-role audit pin (if the helper is shared):** the same interleaving test for customer/branch/admin refresh+logout if they share the mutated helper.
+- **Concurrency/interleaving (the core):** a harness that drives `/refresh` and `logout` on the same sessionId with controlled ordering across BOTH interleavings of section 3.5 (logout-DEL-before-Lua and logout-DEL-after-Lua), asserting the terminal Redis state is always unauthenticated and no post-logout rotated token survives. Include the specific step-1/2/3 race from section 1 (which the atomic rotate must now defeat).
+- **Cross-instance simulation:** two "instances" (no shared memory) - logout on one, in-flight refresh on the other - asserting the SHARED Redis atomic rotate closes it (both hit the same key; proves B's serverless gap is closed by the atomic rotate, not by any instance-local marker).
+- **Bounded failure (the 90-day residual):** backend revoke times out -> BFF still clears the cookie + returns success (local device clean) AND the mandatory failed-revoke path (3.4) eventually revokes / refuses the next refresh; assert a straddling refresh cannot rehydrate after the failed-revoke path fires.
+- **No regression:** normal single-threaded login/refresh/logout unchanged; the SUSPENDED-merchant refuse path (`service.ts:305-309`) intact; audit-log events unchanged.
+- **Cross-role pin:** the same interleaving test for customer/branch/admin refresh+logout, since the atomic-rotate helper is shared (section 4 / R2).
 
 ## 6. Rollback + risk
 
-- Rollback: `git revert` of the backend PR restores best-effort revoke; the marker key self-expires; no schema/migration, no persisted state beyond short-TTL Redis keys.
-- R1 - marker TTL vs refresh-token lifetime: TTL must be >= max refresh-token lifetime or a long-lived straddling refresh could outlive the marker. Pin the relationship in code + test.
-- R2 - cross-role helper blast radius: if `revokeRefreshToken`/rotation helpers are shared, the change touches all four roles; either scope the fix merchant-only (separate code path) or take the cross-role regression pass. Implementer decides with evidence; flagged here.
-- R3 - added Redis round trips on the hot refresh path: one marker check (or one `GETDEL` replacing a `GET`+`DEL`) - negligible; measure if refresh QPS is ever a concern.
+- Rollback: `git revert` of the backend PR restores the prior non-atomic rotate; Redis session keys self-expire; no schema/migration, no persisted state beyond the existing refresh-token keys.
+- R1 - refresh-token lifetime magnitude (adversarial review F6): `REFRESH_TOKEN_TTL_SECONDS = 90 days` (`src/api/shared/session.ts:6`). This is the residual window if the mandatory failed-revoke path (3.4) itself fails; it is also worth asking whether 90 days is the right merchant refresh lifetime at all (a shorter merchant TTL would shrink every residual here). Flagged for the owner; not changed by this doc.
+- R2 - cross-role helper blast radius: the atomic-rotate helper is shared, so the change touches all four roles; either scope a merchant-only code path or take the cross-role regression pass. Flagged.
+- R3 - added Redis cost on the hot refresh path: one `EVAL` replacing a `GET`+`DEL`+`SET` sequence - fewer round trips, not more; negligible.
 
 ## 7. Out of scope
 
