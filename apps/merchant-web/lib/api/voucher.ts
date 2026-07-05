@@ -202,8 +202,10 @@ export interface CreateVoucherPayload {
   estimatedSaving: number
   description?: string
   terms?: string
-  imageUrl?: string
-  expiryDate?: string
+  // Nullable-clear contract (spec 2026-07-05, D1): explicit null on a PATCH
+  // clears the saved value; omission preserves. The two fields are independent.
+  imageUrl?: string | null
+  expiryDate?: string | null
   availabilityWindows?: AvailabilityWindow[]
   cooldownSeconds?: number | null
   merchantFields?: Record<string, unknown>

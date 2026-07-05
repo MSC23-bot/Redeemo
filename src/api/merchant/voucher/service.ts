@@ -282,8 +282,8 @@ export async function createVoucher(
     estimatedSaving: number
     description?: string
     terms?: string
-    imageUrl?: string
-    expiryDate?: string
+    imageUrl?: string | null
+    expiryDate?: string | null
     availabilityWindows?: AvailabilityWindowInput[]
     // M5 Task 12.5 — REUSABLE cooldown propagation. Zod has already
     // enforced type/range/REUSABLE-scope at API ingress (routes.ts) and
@@ -397,7 +397,15 @@ export async function updateVoucher(
   for (const key of allowedFields) {
     if (key in data) safe[key] = data[key]
   }
-  if (data.expiryDate) safe.expiryDate = new Date(data.expiryDate as string)
+  // Nullable-clear contract (spec 2026-07-05, D1): presence-based, not truthy.
+  // Present with a value -> convert to Date; present with null -> explicit
+  // column clear (the copy loop above already put null in `safe`, restated here
+  // so the clear branch is deliberate); omitted -> the key never enters `safe`
+  // and Prisma leaves the column untouched. imageUrl needs no equivalent line:
+  // the presence copy alone is the whole contract for a string column.
+  if ('expiryDate' in data) {
+    safe.expiryDate = data.expiryDate == null ? null : new Date(data.expiryDate as string)
+  }
 
   // Day-2 Vouchers A3: merchantFields MERGES (never replaces). This preserves
   // existing keys (askHelp, the concierge adminProposed / adminNote, builder

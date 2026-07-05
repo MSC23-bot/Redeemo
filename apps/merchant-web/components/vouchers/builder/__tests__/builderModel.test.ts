@@ -2,6 +2,7 @@ import {
   emptyBuilderState,
   toCreatePayload,
   fromDetail,
+  normalizeExpiryDate,
   type BuilderState,
 } from '@/components/vouchers/builder/builderModel'
 import type { AvailabilityWindow } from '@/lib/api/voucher'
@@ -84,5 +85,63 @@ describe('builderModel fromDetail - duplicate carries windows', () => {
     })
     expect(state.pickerId).toBe('time')
     expect(state.availabilityWindows).toEqual([WINDOW])
+  })
+})
+
+// Nullable-clear contract (spec 2026-07-05, D1): the three-state imageUrl /
+// expiryDate representation on BuilderState + the independent per-field
+// toCreatePayload coercions. `null` is the EXPLICIT clear signal and must
+// survive to the outgoing payload literally; every other falsy/absent shape
+// still coerces to omission (`undefined`). The two fields are independent -
+// each pin below clears one field while asserting the OTHER still carries
+// its saved value, guarding against the originating proposal's coupled-field
+// defect (expiryDate gated on state.imageUrl).
+describe('builderModel normalizeExpiryDate - nullable-clear', () => {
+  it('passes an explicit null straight through (the clear signal)', () => {
+    expect(normalizeExpiryDate(null)).toBeNull()
+  })
+
+  it('still coerces undefined/empty to undefined (omission, unchanged behaviour)', () => {
+    expect(normalizeExpiryDate(undefined)).toBeUndefined()
+    expect(normalizeExpiryDate('')).toBeUndefined()
+  })
+
+  it('still normalizes a date-only value to UTC-midnight ISO (unchanged behaviour)', () => {
+    expect(normalizeExpiryDate('2026-09-30')).toBe('2026-09-30T00:00:00.000Z')
+  })
+})
+
+describe('builderModel toCreatePayload - nullable-clear independence', () => {
+  it('imageUrl: null clears the photo while a saved expiryDate is retained verbatim', () => {
+    const state: BuilderState = {
+      ...emptyBuilderState('freebie'),
+      imageUrl: null,
+      savedImageUrl: 'https://cdn.example/saved.png',
+      expiryDate: '2026-12-01T00:00:00.000Z',
+      savedExpiryDate: '2026-12-01T00:00:00.000Z',
+    }
+    const payload = toCreatePayload(state, 'food_drink')
+    expect(payload.imageUrl).toBeNull()
+    expect(payload.expiryDate).toBe('2026-12-01T00:00:00.000Z')
+  })
+
+  it('expiryDate: null clears the end date while a saved imageUrl is retained verbatim (mirror)', () => {
+    const state: BuilderState = {
+      ...emptyBuilderState('freebie'),
+      imageUrl: 'https://cdn.example/saved.png',
+      savedImageUrl: 'https://cdn.example/saved.png',
+      expiryDate: null,
+      savedExpiryDate: '2026-12-01T00:00:00.000Z',
+    }
+    const payload = toCreatePayload(state, 'food_drink')
+    expect(payload.expiryDate).toBeNull()
+    expect(payload.imageUrl).toBe('https://cdn.example/saved.png')
+  })
+
+  it('undefined (never set) still coerces to omission for both fields on a fresh CREATE', () => {
+    const state = emptyBuilderState('freebie')
+    const payload = toCreatePayload(state, 'food_drink')
+    expect(payload.imageUrl).toBeUndefined()
+    expect(payload.expiryDate).toBeUndefined()
   })
 })

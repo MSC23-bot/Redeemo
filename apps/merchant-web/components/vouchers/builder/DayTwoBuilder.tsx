@@ -163,10 +163,10 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
   function removeCustomTerm(index: number) {
     setState((prev) => (prev ? { ...prev, customTerms: prev.customTerms.filter((_, i) => i !== index) } : prev))
   }
-  function setImageUrl(url: string | undefined) {
+  function setImageUrl(url: string | null | undefined) {
     setState((prev) => (prev ? { ...prev, imageUrl: url } : prev))
   }
-  function setExpiryDate(v: string | undefined) {
+  function setExpiryDate(v: string | null | undefined) {
     setState((prev) => (prev ? { ...prev, expiryDate: v } : prev))
   }
 
@@ -267,7 +267,7 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
             onWindows={setWindows}
             onCooldown={setCooldown}
             onExpiryDate={setExpiryDate}
-            lockEndDateRemoval={!!voucherId && !!state.savedExpiryDate}
+            hasSavedEndDate={!!voucherId && !!state.savedExpiryDate}
           />
 
           <TextAreaField
@@ -280,13 +280,12 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
           {/* Voucher photo (V1): the backend photo kind is gated on voucher-management
               power, matching this builder's capability gate. Optional; a photo lifts
               the advisory score.
-              REMOVAL CONSTRAINT (Codex round): the PATCH contract has no nullable
-              clear, so on an EDIT an already-saved photo can be REPLACED but not
-              removed - omitting the key preserves the stored image. Removal is
-              offered only for a photo that is not the saved baseline (a
-              session upload reverts to the saved one; a fresh/duplicate builder
-              clears freely because CREATE-omission genuinely means no photo).
-              Saved-image clearing needs a nullable API field: recorded follow-up. */}
+              Nullable-clear (spec 2026-07-05, D1+D3): a SAVED photo can now be
+              removed - the Remove control sets state.imageUrl to explicit null,
+              which the PATCH serializes as a column clear. A session upload that
+              is not yet saved keeps the revert-to-saved affordance; a
+              fresh/duplicate builder clears freely (CREATE-omission means no
+              photo, never an accidental null). */}
           <div className="flex flex-col gap-1.5">
             <FileUpload
               kind="photo"
@@ -300,9 +299,13 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
               if (!state.imageUrl) return null
               if (savedBaseline && state.imageUrl === savedBaseline) {
                 return (
-                  <p className="text-xs text-[#8089A4]">
-                    A saved photo can be replaced, not removed, for now.
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setImageUrl(null)}
+                    className="w-fit text-xs font-semibold text-[#B91C1C] hover:underline"
+                  >
+                    Remove photo
+                  </button>
                 )
               }
               return (

@@ -172,6 +172,36 @@ describe('updateVoucher', () => {
     const sent = JSON.parse((apiFetch.mock.calls[0][1] as { body: string }).body)
     expect(sent.merchantFields.askHelp).toBe(false)
   })
+
+  // Nullable-clear contract (spec 2026-07-05, D1): explicit null on the client
+  // payload MUST serialize as a literal `null` on the wire (not dropped, not
+  // stringified) so the backend can distinguish "clear" from "omit".
+  it('serializes an explicit imageUrl: null as a literal null on the wire (nullable-clear)', async () => {
+    const payload: UpdateVoucherPayload = { imageUrl: null }
+    await updateVoucher('v1', payload)
+    const sentBodyString = (apiFetch.mock.calls[0][1] as { body: string }).body
+    expect(sentBodyString).toContain('"imageUrl":null')
+    const sent = JSON.parse(sentBodyString)
+    expect(sent.imageUrl).toBeNull()
+    expect(sent).not.toHaveProperty('expiryDate')
+  })
+
+  it('serializes an explicit expiryDate: null as a literal null on the wire (independence mirror)', async () => {
+    const payload: UpdateVoucherPayload = { expiryDate: null }
+    await updateVoucher('v1', payload)
+    const sentBodyString = (apiFetch.mock.calls[0][1] as { body: string }).body
+    expect(sentBodyString).toContain('"expiryDate":null')
+    const sent = JSON.parse(sentBodyString)
+    expect(sent.expiryDate).toBeNull()
+    expect(sent).not.toHaveProperty('imageUrl')
+  })
+
+  it('omission drops the key entirely (no imageUrl/expiryDate in the wire body when not supplied)', async () => {
+    await updateVoucher('v1', { title: 'Updated title' })
+    const sent = JSON.parse((apiFetch.mock.calls[0][1] as { body: string }).body)
+    expect(sent).not.toHaveProperty('imageUrl')
+    expect(sent).not.toHaveProperty('expiryDate')
+  })
 })
 
 describe('submitVoucher', () => {

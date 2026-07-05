@@ -46,8 +46,13 @@ const baseVoucherFields = {
   estimatedSaving: z.number().positive(),
   description: z.string().max(2000).optional(),
   terms: z.string().max(2000).optional(),
-  imageUrl: z.string().url().optional(),
-  expiryDate: z.string().datetime().optional(),
+  // Nullable-clear contract (spec 2026-07-05, owner-approved D1): explicit null
+  // CLEARS the saved value on PATCH; omission preserves; a valid value replaces;
+  // an invalid non-null still 400s (nullable widens the domain, never the
+  // format check). On CREATE, null is defined as identical to omission. The two
+  // fields are evaluated independently - never couple their checks.
+  imageUrl: z.string().url().nullable().optional(),
+  expiryDate: z.string().datetime().nullable().optional(),
   // M4a-7: TIME_LIMITED availability windows (validated at service layer for
   // 24:00-sentinel-openTime / closeTime<=openTime / per-day overlap /
   // type-attachment per spec §3.2).

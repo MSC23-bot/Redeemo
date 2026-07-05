@@ -186,7 +186,7 @@ describe('photo upload (real FileUpload interaction)', () => {
   })
 })
 
-describe('saved-photo removal constraint (edit mode - PATCH has no nullable clear)', () => {
+describe('saved-photo removal (edit mode - nullable-clear spec 2026-07-05, D1+D3)', () => {
   const editProps = {
     voucherId: 'v1',
     initialType: 'FREEBIE',
@@ -194,10 +194,18 @@ describe('saved-photo removal constraint (edit mode - PATCH has no nullable clea
     initialImageUrl: 'https://cdn.example/saved.png',
   }
 
-  it('the saved baseline shows the replace-only note, never a Remove button', () => {
+  it('the saved baseline shows a Remove photo button, never the old replace-only note', () => {
     renderBuilder(editProps)
-    expect(screen.getByText(/a saved photo can be replaced, not removed, for now/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /remove photo/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /remove photo/i })).toBeInTheDocument()
+    expect(screen.queryByText(/a saved photo can be replaced, not removed, for now/i)).not.toBeInTheDocument()
+  })
+
+  it('clicking Remove photo on the saved baseline sends imageUrl: null on save', async () => {
+    renderBuilder(editProps)
+    fireEvent.click(screen.getByRole('button', { name: /remove photo/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    expect(updateVoucher.mock.calls[0][1].imageUrl).toBeNull()
   })
 
   it('a session upload over a saved photo offers revert-to-saved, and reverting restores the baseline in the payload', async () => {
@@ -256,8 +264,8 @@ describe('TIME_LIMITED presets + end date', () => {
   })
 })
 
-describe('saved end-date lock on edits (review F1 - same omission semantics as photos)', () => {
-  it('an EDIT with a hydrated end date locks the toggle and shows the honest note', () => {
+describe('saved end-date removal on edits (nullable-clear spec 2026-07-05, D1+D2)', () => {
+  it('an EDIT with a hydrated end date shows an ENABLED toggle and no locked copy; unticking clears expiryDate to null on save', async () => {
     renderBuilder({
       voucherId: 'v1',
       initialType: 'TIME_LIMITED',
@@ -266,10 +274,13 @@ describe('saved end-date lock on edits (review F1 - same omission semantics as p
     })
     const box = screen.getByRole('checkbox', { name: /ends on a date/i })
     expect(box).toBeChecked()
-    expect(box).toBeDisabled()
-    expect(screen.getByText(/a saved end date can be changed, not removed, for now/i)).toBeInTheDocument()
-    // The DATE stays editable (change-only contract).
-    expect(screen.getByLabelText(/^end date$/i)).toBeEnabled()
+    expect(box).toBeEnabled()
+    expect(screen.queryByText(/a saved end date can be changed, not removed, for now/i)).not.toBeInTheDocument()
+    fireEvent.click(box) // untick
+    expect(box).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    expect(updateVoucher.mock.calls[0][1].expiryDate).toBeNull()
   })
 
   it('a DUPLICATE with a source end date keeps the toggle free (create-omission is truthful)', () => {
@@ -336,6 +347,55 @@ describe('expiryDate + imageUrl hydration and contract (Codex round)', () => {
     const payload = createVoucher.mock.calls[0][0]
     expect(payload.imageUrl).toBe('https://cdn.example/saved.png')
     expect(payload.expiryDate).toBe('2026-12-01T00:00:00.000Z')
+  })
+})
+
+describe('nullable-clear cross-field independence (spec 2026-07-05, D1)', () => {
+  const editProps = {
+    voucherId: 'v1',
+    initialType: 'TIME_LIMITED',
+    initialTitle: 'Happy hour',
+    initialImageUrl: 'https://cdn.example/saved.png',
+    initialExpiryDate: '2026-12-01T00:00:00.000Z',
+  }
+
+  it('clearing the saved photo leaves the saved expiryDate in the PATCH untouched', async () => {
+    renderBuilder(editProps)
+    fireEvent.click(screen.getByRole('button', { name: /remove photo/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    const payload = updateVoucher.mock.calls[0][1]
+    expect(payload.imageUrl).toBeNull()
+    expect(payload.expiryDate).toBe('2026-12-01T00:00:00.000Z')
+  })
+
+  it('clearing the saved end date leaves the saved imageUrl in the PATCH untouched (mirror)', async () => {
+    renderBuilder(editProps)
+    fireEvent.click(screen.getByRole('checkbox', { name: /ends on a date/i })) // untick
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    const payload = updateVoucher.mock.calls[0][1]
+    expect(payload.expiryDate).toBeNull()
+    expect(payload.imageUrl).toBe('https://cdn.example/saved.png')
+  })
+
+  it('an untouched EDIT still resends both unchanged saved values (always-resend preserved)', async () => {
+    renderBuilder(editProps)
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    const payload = updateVoucher.mock.calls[0][1]
+    expect(payload.imageUrl).toBe('https://cdn.example/saved.png')
+    expect(payload.expiryDate).toBe('2026-12-01T00:00:00.000Z')
+  })
+
+  it('CREATE with blank photo/date sends undefined for both, never null (no keys with null values)', async () => {
+    renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /freebie/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
+    await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
+    const payload = createVoucher.mock.calls[0][0]
+    expect(payload.imageUrl).toBeUndefined()
+    expect(payload.expiryDate).toBeUndefined()
   })
 })
 
