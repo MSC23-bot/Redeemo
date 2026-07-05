@@ -29,13 +29,14 @@ jest.mock('@/lib/branches/useBranches', () => ({
 const toast = jest.fn()
 jest.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast }) }))
 
-// A branch row carries the encrypted redemptionPin (passthrough). The card derives
-// only set/not-set from its presence and NEVER reads the value off it.
+// Wire hygiene (2026-07-05): the server strips the encrypted redemptionPin and
+// emits the derived redemptionPinSet boolean instead. The card derives set/not-set
+// from that boolean and NEVER reads a raw pin value off the row.
 function branch(over: Record<string, unknown> = {}): Branch {
   return {
     id: 'b1',
     name: 'High Street',
-    redemptionPin: 'ENCRYPTED-CIPHERTEXT',
+    redemptionPinSet: true,
     ...over,
   } as unknown as Branch
 }
@@ -95,10 +96,11 @@ describe('PinCard owner gating', () => {
 })
 
 describe('PinCard reveal-on-demand (security)', () => {
-  it('does NOT fetch the PIN on mount and never reads the encrypted value off the branch', () => {
+  it('does NOT fetch the PIN on mount and never renders a ciphertext (the server no longer sends one at all)', () => {
     const { container } = render(<PinCard branch={branch()} isOwner />)
     expect(getBranchPin).not.toHaveBeenCalled()
-    // The encrypted ciphertext from the list payload is never rendered.
+    // Regression guard: even if a stray ciphertext rode along on the row, it must
+    // never render.
     expect(container.textContent ?? '').not.toContain('ENCRYPTED-CIPHERTEXT')
     // And the decrypted value is not shown until the owner reveals it.
     expect(container.textContent ?? '').not.toContain('4821')
@@ -163,11 +165,47 @@ describe('PinCard send', () => {
 
 describe('PinCard not-set state', () => {
   it('shows a not-set state when no PIN is configured and disables Reveal + Send', () => {
-    render(<PinCard branch={branch({ redemptionPin: null })} isOwner />)
+    render(<PinCard branch={branch({ redemptionPinSet: false })} isOwner />)
     expect(screen.getByText(/no pin set yet/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /reveal/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /send to branch/i })).toBeDisabled()
     // Change is still available so the owner can set the first PIN.
     expect(screen.getByRole('button', { name: /change pin|set pin/i })).toBeEnabled()
+  })
+
+  // Wire hygiene explicit pin: set-state is driven purely by redemptionPinSet.
+  it('set-state is driven by redemptionPinSet: true (masked dots, Reveal/Send enabled)', () => {
+    render(<PinCard branch={branch({ redemptionPinSet: true })} isOwner />)
+    expect(screen.getByTestId('branch-pin-masked')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /reveal/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /send to branch/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /change pin/i })).toBeEnabled()
+  })
+
+  it('not-set state is driven by redemptionPinSet: false, independent of any other field', () => {
+    render(<PinCard branch={branch({ redemptionPinSet: false })} isOwner />)
+    expect(screen.queryByTestId('branch-pin-masked')).not.toBeInTheDocument()
+    expect(screen.getByText(/no pin set yet/i)).toBeInTheDocument()
+  })
+})
+
+// #377 correction round 2: the compatibility-bridge behaviour at the component
+// level (the shared branchPinSet helper carries the full matrix in its own suite).
+describe('PinCard - version-skew compatibility bridge', () => {
+  it('old backend (legacy ciphertext only, no boolean) still shows the set state', () => {
+    render(<PinCard branch={branch({ redemptionPinSet: undefined, redemptionPin: 'enc:v1:OLDBACKEND' }) as never} isOwner />)
+    expect(screen.getByRole('button', { name: /change pin/i })).toBeInTheDocument()
+  })
+
+  it('an explicit redemptionPinSet false beats a conflicting legacy ciphertext (not-set state)', () => {
+    render(<PinCard branch={branch({ redemptionPinSet: false, redemptionPin: 'enc:v1:CONFLICT' }) as never} isOwner />)
+    expect(screen.getByRole('button', { name: /^set pin$/i })).toBeInTheDocument()
+  })
+
+  it('never renders the legacy ciphertext anywhere in the card', () => {
+    const cipher = 'enc:v1:NEVERSHOWME42'
+    const { container } = render(<PinCard branch={branch({ redemptionPinSet: undefined, redemptionPin: cipher }) as never} isOwner />)
+    expect(container.textContent).not.toContain(cipher)
+    expect(container.innerHTML).not.toContain(cipher)
   })
 })

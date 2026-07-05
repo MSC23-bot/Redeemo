@@ -53,8 +53,8 @@ export function profileFixture(role: RoleFixture = 'OWNER') {
 }
 
 // Branch rows: latitude/longitude are Prisma Decimal => JSON STRINGS on the
-// wire (the #327 contract). redemptionPin ships as ciphertext; the client
-// reads PRESENCE only.
+// wire (the #327 contract). Since #377 the wire carries the derived
+// redemptionPinSet boolean (ciphertext stripped server-side).
 export function branchFixture(id = 'b1', over: Record<string, unknown> = {}) {
   return {
     id,
@@ -77,7 +77,7 @@ export function branchFixture(id = 'b1', over: Record<string, unknown> = {}) {
     redemptionAlertsEnabled: false,
     latitude: '53.645792', // STRING on the wire (Prisma Decimal)
     longitude: '-1.785035', // STRING on the wire (Prisma Decimal)
-    redemptionPin: 'enc:v1:abcdef0123456789',
+    redemptionPinSet: true,
     openingHours: [],
     photos: [],
     amenities: [],

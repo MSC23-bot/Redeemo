@@ -5,9 +5,12 @@
 // the Vouchers/Redemptions list-page conventions (design-system primitives, brand
 // tokens, role=alert/role=status states owned by the page orchestrator).
 //
-// SECURITY (plan §6 / §7): the list row carries the AES-encrypted redemptionPin.
-// We derive ONLY a set / not-set indicator from its presence; the value is NEVER
-// rendered, logged, or extracted. The decrypted PIN is fetched on demand in F6.
+// SECURITY (wire hygiene 2026-07-05, revising the PR-1 trade-off): the #377
+// backend emits a server-derived `redemptionPinSet` boolean and strips the
+// ciphertext. Set/not-set is read via the shared branchPinSet bridge, which
+// also tolerates an OLDER backend during deploy skew (legacy presence-only
+// fallback; value never read/rendered/logged). The decrypted PIN is fetched
+// on demand via the guarded reveal route only.
 
 import * as React from 'react'
 import { Card } from '@/components/ui/card'
@@ -20,9 +23,10 @@ import { formatDay } from '@/lib/branches/hoursFormat'
 import { isWithRedeemo } from '@/lib/branches/withRedeemo'
 import { AddBranchModal } from '@/components/branches/AddBranchModal'
 import type { Branch } from '@/lib/api/branch'
+import { branchPinSet } from '@/lib/branches/pinSet'
 
-// A branch row carries the encrypted pin under `redemptionPin` (passthrough). We
-// only ever read its presence, never its value.
+// Set/not-set via the shared bridge; the legacy field stays typed presence-only
+// for the old-backend skew window (see lib/branches/pinSet.ts removal trigger).
 type BranchRow = Branch & { redemptionPin?: string | null; localityName?: string | null; postTown?: string | null }
 
 export function BranchesOverview({
@@ -157,7 +161,7 @@ function BranchTableRow({
   const today = formatTodaysHours((branch.openingHours ?? []) as OpeningHoursRow[], now)
   const isOpen = openNow((branch.openingHours ?? []) as OpeningHoursRow[], now)
   const amenityCount = branch.amenities?.length ?? 0
-  const pinSet = branch.redemptionPin != null
+  const pinSet = branchPinSet(branch)
 
   return (
     <TR

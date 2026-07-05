@@ -135,6 +135,11 @@ export const branchSchema = z
     id: z.string(),
     name: z.string(),
     isMainBranch: z.boolean().optional(),
+    // Wire hygiene (#377): the server-derived PIN set/not-set boolean. Optional
+    // because an OLDER backend (pre-#377) omits it during deploy skew; consumers
+    // go through the shared branchPinSet bridge (lib/branches/pinSet.ts), never
+    // the legacy ciphertext field directly.
+    redemptionPinSet: z.boolean().optional(),
     // PR-5: the lifecycle axis (see branchLifecycleStatusSchema). getBranch /
     // listBranches now ship it; .nullish() keeps an older payload parsing cleanly.
     lifecycleStatus: branchLifecycleStatusSchema.nullish(),
