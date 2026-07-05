@@ -44,6 +44,15 @@ export default function BranchDetailPage() {
 
   const branch = query.data
   const canManage = effectiveCanManage(role, branch)
+  // isDraftWindow reads the PLAIN `useMerchantProfile` observer (not the
+  // fresh-session-gated one `useBranchCapability` uses internally) - it MUST
+  // only ever be consumed ANDed with `ready` (as `canEditIdentity` in
+  // <BranchDetail> does: `ready && canManage && (!isDraftWindow || isOwner)`).
+  // By the time `ready` is true, `useBranchCapability`'s own fetch has
+  // already refreshed the SAME shared ['merchantProfile'] cache entry this
+  // plain observer reads from, so this derivation is current-session data in
+  // the same render pass - it is never read standalone as a session-boundary
+  // signal on its own.
   const isDraftWindow =
     profile.data?.status === 'REGISTERED' || profile.data?.onboardingStep === 'NEEDS_CHANGES'
   // The sub-brand under the branch name. Prefer the profile (authoritative); fall

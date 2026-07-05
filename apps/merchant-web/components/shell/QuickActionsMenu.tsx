@@ -86,7 +86,8 @@ export function QuickActionsMenu({ open, onOpenChange, role, canManageVouchers }
   // PIN row and is server-denied in depth.
   const canPinRow = role === 'OWNER' || role === 'BRANCH_MANAGER'
 
-  // Branch list only fetched while the popover is open for an OWNER (lazy; the
+  // Branch list only fetched while the popover is open for a PIN-capable
+  // viewer (OWNER or an assigned BRANCH_MANAGER via canPinRow) (lazy; the
   // list endpoint is scope-safe server-side).
   const branches = useQuery({
     queryKey: ['branches'],
