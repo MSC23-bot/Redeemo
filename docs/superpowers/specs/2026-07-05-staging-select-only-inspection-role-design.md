@@ -36,6 +36,18 @@ The script reads six tables. Postgres evaluates every referenced column (even in
 
 ## 3. Role definition (least privilege)
 
+### 3.0 Secret-safe fail-closed activation sequence (Correction 1 — NOLOGIN → verify → `\password` → LOGIN)
+**No password ever appears in submitted SQL, argv, shell history, chat, or a screenshot.** A `CREATE ROLE ... PASSWORD '...'` / `ALTER ROLE ... PASSWORD '...'` literal would land the plaintext in the Neon SQL-editor query history / server log — prohibited. Instead, the role is **born NOLOGIN and password-less**, hardened + verified, then given a password via psql's client-side-encrypting `\password`, and only then flipped to LOGIN:
+
+1. **`CREATE ROLE <role> NOLOGIN` with NO `PASSWORD`** and the safe attributes (§3.1). It cannot authenticate at all during provisioning.
+2. Apply **only** the reviewed grants (§3.3) and the read-only GUC (§3.2). If **any** statement errors, STOP immediately and run the full teardown (§3.5/§7) — do not proceed to step 5.
+3. **Verify** every attribute + grant read-only (§5 / plan Phase 4) — including the ownership-zero + creator-authority proofs (§13). STOP on any deviation.
+4. **Set the password via `psql \password <role>`** — psql *"encrypts it, and sends it to the server as an `ALTER ROLE` command … so the new password does not appear in cleartext in the command history, the server log, or elsewhere"* (PostgreSQL docs, §14). The plaintext never leaves the operator's client. The password must meet Neon's **≥ 60-bit entropy (≥ 12 chars)** rule (§14). `\password` works on a NOLOGIN role (it only sets the verifier). **`\password` is a psql CLIENT meta-command — it MUST be run from a `psql` session, NOT the Neon web SQL editor** (the web editor executes SQL statements only and cannot run backslash commands; its only SQL-statement equivalent would be the *prohibited* plaintext `ALTER ROLE ... PASSWORD '...'` literal). If a psql client is not available, use the **Neon Console create-role auto-generated-secret flow** as the equivalently-non-plaintext mechanism (per step 6); never type a plaintext password into SQL. (The read-only verification of §5/§13 is plain SQL and DOES run in the web editor via `pg_roles`/`information_schema` — only the password step is psql-only.)
+5. **`ALTER ROLE <role> LOGIN;`** — enable authentication **only after** steps 2–4 all pass.
+6. **If a secret-safe password mechanism (`\password` or an equivalently non-plaintext flow) is unavailable, STOP** — leave the role NOLOGIN or tear it down. Never fall back to a plaintext `PASSWORD '...'` literal.
+
+The privileged operator credential (the `neondb_owner`/`neon_superuser` connection used to run this) is the owner's existing Neon credential; it is injected/opened by the owner in their own psql/SQL-editor session and is **never** shared with Claude, printed, or logged. It is closed/cleared at the end of the session.
+
 ### 3.1 Attributes (requirement 6 — all safe)
 `LOGIN` · **`NOSUPERUSER` `NOCREATEDB` `NOCREATEROLE` `NOREPLICATION` `NOBYPASSRLS` `NOINHERIT`** · `VALID UNTIL '<owner-set expiry>'` · **not a member of any group role** (no inherited privilege). `NOINHERIT` guarantees no unintended inheritance even if a future membership were added.
 
@@ -76,11 +88,27 @@ All verification is itself read-only:
 
 Inherited from the reviewed script: `connectionTimeoutMillis 60000`; `statement_timeout`+`query_timeout 5000`; every candidate query `LIMIT 50`; explicit `ROLLBACK`; bounded `client.end()` (5 s `settleWithin` + socket-destroy fallback); fail-closed `process.exitCode=1`, success only after clean cleanup; no `process.exit()`.
 
-## 7. Failure recovery for partial creation (requirement 15)
+## 7. Failure recovery for partial creation (requirement 15 — Correction 2, corrected 2026-07-05)
 
-- If `CREATE ROLE` succeeds but a `GRANT` fails: the role exists with **no useful privilege** (safe) — teardown = `DROP ROLE`.
-- If `VALID UNTIL` was omitted: the role could linger loginable — teardown MUST be run; the checklist re-verifies the role is gone.
-- Teardown is idempotent (`DROP ROLE IF EXISTS`), so a partial or repeated run converges to "role absent."
+**The earlier claim that a failed GRANT leaves the role with "no useful privilege" was FALSE** — earlier grants in the block may already have committed, so a mid-sequence failure can leave the role holding a *partial* set of real SELECT grants. The corrected fail-closed contract:
+
+- **Any statement failure immediately STOPS the sequence.** Never continue applying later grants after an error.
+- The role is **NOLOGIN throughout provisioning** (§3.0), so even a partially-granted role cannot authenticate — but it must still be removed, because the partial grants are real.
+- **Immediately execute the COMPLETE teardown** (not a partial cleanup): `DROP OWNED BY <role>;` → `DROP ROLE IF EXISTS <role>;` (+ `DROP VIEW IF EXISTS public.inspect_branch_pin;` if D3(c) had created it). `DROP OWNED BY` is required first — see §3.5; **`DROP ROLE` alone is NOT sufficient while any grant remains** (it errors on the dependency).
+- **Verify the role is absent** (`SELECT 1 FROM pg_roles WHERE rolname='<role>'` → no row).
+- **If teardown itself fails, this is a SECURITY INCIDENT/BLOCKER** — stop, report, and do not continue; a partially-privileged loginable-or-not role must not be left behind.
+- Teardown is idempotent (`DROP ... IF EXISTS`), so a repeated run converges to "role absent."
+
+**Per-grant mutation/failure cases** (each ⇒ STOP + full teardown + verify absent):
+| Failure point | State reached | Required action |
+|---|---|---|
+| `CREATE ROLE` fails | role does not exist | nothing to tear down; STOP + report |
+| a role-attribute / GUC (`ALTER ROLE ... SET`) fails | role exists NOLOGIN, no data grants yet | `DROP OWNED BY` → `DROP ROLE` → verify absent |
+| `GRANT CONNECT`/`USAGE` fails | role exists NOLOGIN, minimal grant(s) | full teardown → verify absent |
+| the **1st** column `GRANT SELECT` succeeds, the **2nd** fails | role holds 1 real SELECT grant | full teardown (DROP OWNED BY revokes it) → verify absent |
+| any later column `GRANT` fails | role holds N partial SELECT grants + schema/db grants | full teardown → verify absent |
+| `\password` fails / unavailable (§3.0 step 4) | role hardened+granted but NOLOGIN | either leave NOLOGIN (cannot authenticate) OR tear down; never plaintext-password fallback |
+| `ALTER ROLE ... LOGIN` fails | role granted, still NOLOGIN | tear down (cannot use it) → verify absent |
 
 ## 8. Audit evidence safe to retain (requirement 16)
 
@@ -97,6 +125,41 @@ The inspection **only lists candidates**. `isTestData`, names, timestamps, and d
 ## 11. Separation from P1b / migrations / R1 / runtime (requirement 19, 20)
 
 This role and its credential are used **exclusively** for the Option-3 read-only inspection. It is NOT `DATABASE_URL` (pooled runtime read-write), NOT `MIGRATION_DATABASE_URL` (write-capable migrations / P1b / R1), and NOT `TEST_DATABASE_URL` (local loopback). It performs no migration, no schema change, and does not advance P1b or R1. It shares nothing with those credentials beyond the physical staging database it reads.
+
+## 12. PUBLIC-function inventory gate (Correction 3 — load-bearing, run BEFORE role activation)
+
+A read-only transaction does **not** make every publicly-executable function harmless (a `SECURITY DEFINER` or side-effecting function could bypass the SELECT-only boundary). Because the PUBLIC baseline (§3.3) confers `EXECUTE` on `public` functions, the owner MUST run this **read-only inventory gate against LIVE staging** (the deployed catalog is authoritative; the repo is only a cross-reference) before enabling LOGIN:
+
+```sql
+-- enumerate callable functions/procedures + their security + PUBLIC EXECUTE, read-only
+SELECT n.nspname AS schema, p.proname AS fn, p.prokind,           -- prokind: f=func, p=proc, a=agg, w=window
+       p.prosecdef AS security_definer,                            -- true = SECURITY DEFINER (risk)
+       pg_get_function_identity_arguments(p.oid) AS args,
+       has_function_privilege('public', p.oid, 'EXECUTE') AS public_execute,
+       (p.prorettype = 'pg_catalog.trigger'::regtype) AS is_trigger
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+ ORDER BY security_definer DESC, public_execute DESC, 1, 2;
+```
+Then: **identify** every PUBLIC-EXECUTE function; every `SECURITY DEFINER`; every **non-trigger** callable function (trigger functions returning `trigger` are not usefully callable via `SELECT`); and any function with **external side effects or mutation capability** (writes, `COPY`, `dblink`/`pg_read_file`/extension calls). **Compare** the live inventory against `prisma/migrations/**`. **STOP if any callable function could bypass the SELECT-only boundary** (a `SECURITY DEFINER` function owned by a privileged role, or any mutation-capable PUBLIC function).
+
+**Repo cross-reference (not authoritative):** the migrations define exactly ONE function — `enforce_merchant_highlight_cap()` (`prisma/migrations/20260428124838_category_taxonomy/migration.sql:176`), a plpgsql **trigger** function (`RETURNS TRIGGER`, **not** `SECURITY DEFINER` → defaults to `SECURITY INVOKER`, no external side effects; it only `RAISE EXCEPTION`s over a cap). It is trigger-only and cannot be usefully invoked by the inspection role to mutate. **But live staging is authoritative at execution time** — if the live inventory shows anything the repo does not, STOP and adjudicate. **Do NOT globally `REVOKE` PUBLIC function privileges as part of this task** (it would affect every role).
+
+## 13. Creator & teardown authority (Correction 5 — verify BEFORE execution, official sources §14)
+
+- **Creating role:** the owner's **`neondb_owner`**, which Neon auto-assigns to **`neon_superuser`** (elevated: create databases/roles, read/write all) — so it holds effective `CREATEROLE`. Per PostgreSQL, `CREATEROLE` lets a role *"create, alter, drop, comment on, and change the security label for other roles"* (§14) — sufficient to create the temp role, run `\password`/`ALTER ROLE ... LOGIN`, and DROP it.
+- **Authority over the created role (verify live, do not assume):** Phase-4 verification MUST prove, read-only, that the operator can administer + drop the temp role. On PostgreSQL 16 a `CREATEROLE` role that creates a role is granted administrative membership over it; confirm live via `pg_auth_members` (the operator is `admin_option` member of `<role>`). If that cannot be confirmed, STOP — do not create a role you cannot later drop.
+- **`DROP OWNED BY` + `DROP ROLE` authority:** `DROP OWNED BY <role>` *"drops all the objects … owned by … the specified roles. Any privileges granted to the given roles on objects in the current database or on shared objects (databases, tablespaces, configuration parameters) will also be revoked"* (§14) — this is what revokes the database `CONNECT` and the schema/table grants; it must run **before** `DROP ROLE`, because *"any objects owned by the role must first be dropped or reassigned … and any permissions granted to the role must be revoked"* (§14). The operator must be a member of the temp role (or superuser-equivalent) to run `DROP OWNED BY` — satisfied by `neon_superuser` / the CREATEROLE-creator membership above.
+- **Teardown handles the database `CONNECT` and role-level settings:** `DROP OWNED BY` revokes the shared-object `CONNECT`; the role-level `ALTER ROLE ... SET default_transaction_read_only` and `VALID UNTIL` are role attributes that vanish with `DROP ROLE`. Nothing lingers.
+- **Ownership-zero proof (required before `DROP OWNED BY`, so its semantics are exactly "revoke-only"):** confirm the temp role owns no objects — e.g. `SELECT 1 FROM pg_class WHERE relowner = (SELECT oid FROM pg_roles WHERE rolname='<role>') LIMIT 1;` (and the analogous `pg_namespace`/`pg_proc` checks) return no rows. The §D3(c) view is owned by `neondb_owner`, not the temp role, so it is dropped separately.
+
+## 14. Official documentation sources (verified 2026-07-05; browsing only, no MCP/provider access)
+
+- PostgreSQL `psql \password` (client-side encrypt; no cleartext in history/log): https://www.postgresql.org/docs/current/app-psql.html
+- PostgreSQL `DROP OWNED BY` (revokes grants incl. shared-object database privileges): https://www.postgresql.org/docs/current/sql-drop-owned.html
+- PostgreSQL role removal (`REASSIGN OWNED` + `DROP OWNED` before `DROP ROLE`): https://www.postgresql.org/docs/current/role-removal.html
+- PostgreSQL `CREATE ROLE` / `CREATEROLE` (create/alter/drop other roles): https://www.postgresql.org/docs/current/sql-createrole.html
+- Neon Manage roles (SQL `CREATE ROLE`, `neondb_owner`→`neon_superuser`, ≥60-bit password, standard `DROP ROLE`): https://neon.com/docs/manage/roles
 
 ---
 
@@ -127,6 +190,16 @@ This role and its credential are used **exclusively** for the Option-3 read-only
 
 ---
 
+## Correction cross-check table (PR #380 review round 2 — 2026-07-05)
+
+| # | Correction | Where applied | Official source |
+|---|---|---|---|
+| 1 | Secret-safe activation: no `PASSWORD '...'` in SQL text; NOLOGIN → verify → `\password` → LOGIN; STOP if no secret-safe mechanism | §3.0; plan Phase 3 | psql `\password` (§14) |
+| 2 | Partial-creation = immediate STOP + FULL teardown (not "no useful privilege"); NOLOGIN during provisioning; `DROP ROLE` alone insufficient; per-grant failure cases; teardown-failure = incident | §7 (rewritten) + table; plan Phase 3/8 | `DROP OWNED BY` / role-removal (§14) |
+| 3 | PUBLIC-function inventory gate against LIVE staging (PUBLIC EXECUTE / SECURITY DEFINER / non-trigger callable / side-effect; compare vs migrations; STOP if bypass); no global PUBLIC revoke | §12 (new); plan Phase 1 | repo `…category_taxonomy/migration.sql:176` (cross-ref) |
+| 4 | Zero-email projection owner decision, paired with zero-ciphertext PIN; either ⇒ edit script → new digest → re-derive matrix → fresh Opus+Codex review; script unchanged now | §2 email note; §D8; §D3 | — |
+| 5 | Creator/teardown authority: neondb_owner→neon_superuser CREATEROLE; verify admin membership live; DROP OWNED BY handles db CONNECT + role settings; ownership-zero proof | §13 (new); plan Phase 4 | Neon roles; PG CREATE ROLE / DROP OWNED (§14) |
+
 ## Owner-decision register (nothing here is pre-approved)
 
 - **D1 — Create the temporary role at all?** (Recommended: yes, as the minimal unblock for Option 3.) — OPEN
@@ -136,6 +209,7 @@ This role and its credential are used **exclusively** for the Option-3 read-only
 - **D5 — Who creates + deletes the role, and the credential-injection method** (recommended: owner creates/deletes in the Neon SQL editor; password never shown to Claude; injected via `read -s INSPECT_DATABASE_URL` into a fresh operator terminal; cleared after). — OPEN
 - **D6 — May Option 3 wake staging compute?** (The read connection unavoidably wakes it; cost ~cents within the $20 limit.) — OPEN
 - **D7 — Retain or remove the auto-deploy-session Playwright snapshots** (see the plan's artifact inventory; they are gitignored, owner-local, contain no secrets/variables/logs). — OPEN
+- **D8 — Eliminate the ad-hoc customer-email read capability** (Correction 4) via a tightly-scoped owner-owned **zero-email eligibility projection** (a view/boolean exposing only the exclusion result, so `User.email` is never grantable to the inspection role). **Recommended pairing:** adopt D8 (zero-email projection) **together with** D3(c) (zero-ciphertext PIN projection) so the role reads neither raw email nor PIN ciphertext. **If either projection is selected: the script MUST be edited → a new SHA-256 calculated → the grant matrix re-derived → a FRESH Opus AND Codex review obtained BEFORE execution.** The current script is **not** changed now (owner has not decided). — OPEN
 - **D-Neon — Confirm from current Neon/PostgreSQL docs** (browsing allowed; no MCP/provider access): that a custom SQL-created `LOGIN` role with column-level grants + `ALTER ROLE ... SET default_transaction_read_only` behaves as standard Postgres on Neon, and the exact `DROP ROLE` prerequisites. — OPEN
 
 ---
@@ -143,7 +217,7 @@ This role and its credential are used **exclusively** for the Option-3 read-only
 ## Rollback / revocation checklist (owner-run, at teardown)
 
 1. Confirm the inspection is complete (or aborted) and the sanitized output recorded.
-2. In the Neon SQL editor (staging), run the teardown block: `REVOKE ALL ... FROM <role>` on the granted objects → `DROP OWNED BY <role>` → `DROP ROLE IF EXISTS <role>` (and drop the §D3(c) view if created).
+2. Run the teardown block: `DROP OWNED BY <role>` (the required grant-revoker — it revokes ALL grants incl. the shared-object database `CONNECT`) → `DROP VIEW IF EXISTS public.inspect_branch_pin` (if D3(c) created it) → `DROP ROLE IF EXISTS <role>`. (An explicit `REVOKE ALL` first is optional belt-and-suspenders; `DROP OWNED BY` alone is sufficient.) Note the password step used psql `\password`, but `DROP OWNED BY`/`DROP ROLE`/`DROP VIEW` are plain SQL and run in the Neon web editor or psql.
 3. Read-only verify the role is gone (`SELECT 1 FROM pg_roles WHERE rolname='<role>'` returns no row).
 4. Unset `INSPECT_DATABASE_URL` and clear the terminal/clipboard in the operator session.
 5. Confirm staging compute returns to Idle (~10 min) and record the cost delta.

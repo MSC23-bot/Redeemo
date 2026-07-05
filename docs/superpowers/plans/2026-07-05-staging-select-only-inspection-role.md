@@ -11,8 +11,9 @@
 ## Phase 0 — Owner decisions (BLOCKING)
 Resolve D1–D7 + D-Neon (spec register). In particular D3 (redemptionPin model) determines the exact grant block. Do not proceed until each is decided.
 
-## Phase 1 — Confirm provider behavior (docs only; no provider access)
-Browse current Neon + PostgreSQL docs to confirm: custom `LOGIN` role + column grants + `ALTER ROLE ... SET default_transaction_read_only` behave as standard Postgres on Neon; the `DROP ROLE` prerequisites; direct vs pooled endpoint session semantics. Record findings in the security log. (No MCP, no connection.)
+## Phase 1 — Confirm provider behavior + LIVE PUBLIC-function inventory gate
+- Docs (already verified 2026-07-05, spec §14): `psql \password` is secret-safe; `neondb_owner`→`neon_superuser` holds CREATEROLE; `DROP OWNED BY` before `DROP ROLE`; direct vs pooled session semantics.
+- **Live read-only PUBLIC-function inventory gate (spec §12) — run in the Neon SQL editor, read-only, BEFORE creating the role.** Enumerate callable functions/procedures with `prosecdef` (SECURITY DEFINER), `has_function_privilege('public', …, 'EXECUTE')`, and trigger-vs-non-trigger; compare against `prisma/migrations/**` (repo defines only the trigger `enforce_merchant_highlight_cap()`, SECURITY INVOKER, no side effects — but **live staging is authoritative**). **STOP if any callable function could bypass the SELECT-only boundary** (SECURITY DEFINER owned by a privileged role, or any mutation/side-effect-capable PUBLIC function). Do NOT globally revoke PUBLIC function privileges. Record findings in the security log. (No MCP, no data mutation.)
 
 ## Phase 2 — Fresh A1 + endpoint identity (owner)
 Fresh Neon usage/spending-headroom check (per r1 A1). Confirm the intended **staging** endpoint + `neondb` from the private P1 mapping (never production). This mirrors the P1a Step-A identity discipline.
@@ -20,9 +21,12 @@ Fresh Neon usage/spending-headroom check (per r1 A1). Confirm the intended **sta
 ## Phase 3 — Create the role (owner, Neon SQL editor; SEPARATE approval)
 Run the exact block below (values in `<...>` are owner-set; the password is typed by the owner and never shared). **The currently-pinned script digest `d673…` is D3(a)-compatible ONLY** (it reads `Branch.redemptionPin` directly). If the owner picks **D3(b) or D3(c)**, the script MUST be edited first, re-pinned in the spec §1, and re-reviewed **before** Phase 6 — otherwise Q2 fails `42501` on `Branch.redemptionPin`.
 
+**Secret-safe fail-closed order (spec §3.0): create NOLOGIN + NO PASSWORD → grant → verify → `\password` → LOGIN. NEVER put a `PASSWORD '...'` literal in SQL text. If ANY statement below errors, STOP and jump straight to Phase 8 teardown — do not run later grants, do not set a password, do not enable LOGIN.**
+
 ```sql
 -- === temporary SELECT-only inspection role (staging neondb ONLY) ===
-CREATE ROLE <role> LOGIN PASSWORD '<owner-typed>'
+-- 1) born NOLOGIN, NO PASSWORD (cannot authenticate during provisioning):
+CREATE ROLE <role> NOLOGIN
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT
   VALID UNTIL '<owner-set, <=24h from now>';
 ALTER ROLE <role> SET default_transaction_read_only = on;   -- defense-in-depth (spec 3.2)
@@ -49,20 +53,42 @@ GRANT SELECT ("redemptionPin") ON "Branch" TO <role>;
 -- GRANT SELECT ON public.inspect_branch_pin TO <role>;   -- and DROP the Branch redemptionPin grant above
 
 -- Explicitly NOT run: any INSERT/UPDATE/DELETE/TRUNCATE grant; ALTER DEFAULT PRIVILEGES;
--- any sequence grant; GRANT CREATE ON SCHEMA; ownership. (Function EXECUTE + schema USAGE + db CONNECT
--- already exist via the PUBLIC baseline on stock PG16/Neon — an accepted floor, spec §3.3; not re-granted.)
+-- any sequence grant; GRANT CREATE ON SCHEMA; ownership; and NO `PASSWORD '...'` literal anywhere.
+-- (Function EXECUTE + schema USAGE + db CONNECT already exist via the PUBLIC baseline on stock
+--  PG16/Neon — an accepted floor, spec §3.3; not re-granted.)
+```
+**After the grants verify (Phase 4), set the password secret-safely, then enable login:**
+```text
+\password <role>       -- psql prompts; encrypts client-side; NO plaintext in SQL/history/log (spec §3.0 step 4).
+                       -- password must be >= 60-bit entropy (>= 12 chars) per Neon.
+```
+```sql
+ALTER ROLE <role> LOGIN;   -- ONLY after steps 2-4 all pass. If \password is unavailable => STOP; leave NOLOGIN or tear down.
 ```
 
-## Phase 4 — Verify the role read-only (owner, read-only SQL)
+## Phase 4 — Verify the role read-only, + authority + ownership-zero (owner, read-only SQL; BEFORE `\password`/LOGIN)
 ```sql
+-- attributes (expect canlogin=f at this point — LOGIN is enabled only after this passes):
 SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls, rolinherit, rolcanlogin, rolvaliduntil
-  FROM pg_roles WHERE rolname='<role>';                       -- expect: super/createdb/createrole/repl/bypassrls=f, inherit=f, canlogin=t, validuntil set
+  FROM pg_roles WHERE rolname='<role>';   -- super/createdb/createrole/repl/bypassrls=f, inherit=f, canlogin=f (yet), validuntil set
+-- column grants (expect ONLY SELECT on the §2 columns):
 SELECT table_name, column_name, privilege_type
-  FROM information_schema.role_column_grants WHERE grantee='<role>' ORDER BY 1,2;  -- expect: only SELECT on the §2 columns
+  FROM information_schema.role_column_grants WHERE grantee='<role>' ORDER BY 1,2;
+-- table/view grants (expect only the D3c view / nothing broad):
 SELECT table_name, privilege_type
-  FROM information_schema.role_table_grants WHERE grantee='<role>';  -- expect: only the view (D3c) / nothing broad
+  FROM information_schema.role_table_grants WHERE grantee='<role>';
+-- default_transaction_read_only set on the role:
+SELECT rolconfig FROM pg_roles WHERE rolname='<role>';   -- expect it contains default_transaction_read_only=on
+-- CREATOR AUTHORITY (spec §13): operator is an admin_option member of <role> (can later DROP it):
+SELECT m.admin_option FROM pg_auth_members m
+  JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles g ON g.oid=m.member
+ WHERE r.rolname='<role>' AND g.rolname=current_user;   -- expect admin_option=t (or operator is neon_superuser)
+-- OWNERSHIP-ZERO proof (spec §13; so DROP OWNED BY is purely a revoker):
+SELECT 1 FROM pg_class     WHERE relowner   = (SELECT oid FROM pg_roles WHERE rolname='<role>') LIMIT 1;  -- expect: no row
+SELECT 1 FROM pg_namespace WHERE nspowner   = (SELECT oid FROM pg_roles WHERE rolname='<role>') LIMIT 1;  -- expect: no row
+SELECT 1 FROM pg_proc      WHERE proowner    = (SELECT oid FROM pg_roles WHERE rolname='<role>') LIMIT 1;  -- expect: no row
 ```
-STOP if anything beyond the read set appears, or the attributes are not all safe.
+**STOP (and run Phase 8 teardown)** if: anything beyond the §2 read set appears; any safe-attribute is wrong; `default_transaction_read_only` is not set; the operator is **not** provably able to drop the role (no admin membership and not neon_superuser); or the role owns any object.
 
 ## Phase 5 — Inject the credential (owner-private)
 Owner assembles the direct-endpoint `INSPECT_DATABASE_URL` for `<role>` and injects it into a fresh operator terminal via `read -s INSPECT_DATABASE_URL; export INSPECT_DATABASE_URL` — never in argv/chat/history. (Endpoint per D4; direct recommended.)
@@ -81,7 +107,7 @@ DROP VIEW IF EXISTS public.inspect_branch_pin;  -- only if D3(c) created it (own
 DROP ROLE IF EXISTS <role>;                 -- idempotent
 SELECT 1 FROM pg_roles WHERE rolname='<role>';  -- expect: no row
 ```
-Then unset `INSPECT_DATABASE_URL`; confirm compute idle + cost delta; log the result.
+Then unset `INSPECT_DATABASE_URL`; confirm compute idle + cost delta; log the result. **If any teardown step fails or the role persists, this is a SECURITY INCIDENT/BLOCKER — stop, report, do not continue, and do not leave a partially-privileged role behind** (`DROP ROLE` alone is insufficient while grants remain; re-run `DROP OWNED BY` first). Teardown is idempotent.
 
 ## Phase 9 — Record
 Append role name, timestamps, grants (no secret), digest, sanitized output, cost delta, and teardown confirmation to the security execution log. Do not commit the log; do not edit the Codex checklist.
