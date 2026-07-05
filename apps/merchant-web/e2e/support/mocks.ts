@@ -321,10 +321,15 @@ export async function installMockApi(
     }
     // GET/PATCH the custom voucher DETAIL by id. Checked AFTER the literal
     // '/vouchers/rmv' path above (a route param match would otherwise also
-    // catch the literal segment). Only rows present in voucherDetails resolve;
-    // everything else 404s, matching every pre-existing spec's behaviour
-    // byte-for-byte (default voucherDetails is {}).
-    const voucherIdMatch = p.match(/^\/api\/v1\/merchant\/vouchers\/([^/]+)$/)
+    // catch the literal segment). The handler installs ONLY when the spec
+    // explicitly provided voucherDetails (CodeRabbit #378): a spec that never
+    // declared the option keeps the omitted-means-unmocked contract - an
+    // accidental detail call lands in tracker.unmatched and fails loudly
+    // instead of being absorbed by a quiet 404. When the option IS provided,
+    // ids missing from the map 404 deliberately (a legitimate not-found
+    // simulation the declaring spec opted into).
+    const voucherIdMatch =
+      opts.voucherDetails !== undefined ? p.match(/^\/api\/v1\/merchant\/vouchers\/([^/]+)$/) : null
     if (voucherIdMatch && voucherIdMatch[1] !== 'rmv') {
       const vid = voucherIdMatch[1]
       const row = voucherDetails[vid]
