@@ -21,6 +21,7 @@ import { ArrowLeft } from '@/lib/icons'
 import { ApiError } from '@/lib/api/client'
 import { useBranch } from '@/lib/branches/useBranches'
 import { useBranchCapability } from '@/lib/branches/useBranchCapability'
+import { effectiveCanManage } from '@/lib/branches/capability'
 import { useSession } from '@/lib/auth/session'
 import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
 import { BranchDetail } from '@/components/branches/BranchDetail'
@@ -33,10 +34,15 @@ export default function BranchDetailPage() {
   const profile = useMerchantProfile(session.isAuthenticated)
 
   const query = useBranch(id)
-  // Owner probe + the F12 staff data source. Only enabled once we have an id.
-  const { isOwner, ready } = useBranchCapability(!!id)
+  // D-BM1: role from the profile (the probe is retired). effectiveCanManage
+  // composes the role with the branch payload's capability hint; the draft
+  // window keeps sensitive identity edits owner-only (merged spec §8).
+  const { isOwner, ready, role } = useBranchCapability(!!id)
 
   const branch = query.data
+  const canManage = effectiveCanManage(role, branch)
+  const isDraftWindow =
+    profile.data?.status === 'REGISTERED' || profile.data?.onboardingStep === 'NEEDS_CHANGES'
   // The sub-brand under the branch name. Prefer the profile (authoritative); fall
   // back to the session value the auth flow stamped.
   const businessName = profile.data?.businessName ?? session.businessName ?? null
@@ -79,7 +85,7 @@ export default function BranchDetailPage() {
           </div>
         </Card>
       ) : (
-        <BranchDetail branch={branch} businessName={businessName} isOwner={isOwner} ready={ready} />
+        <BranchDetail branch={branch} businessName={businessName} isOwner={isOwner} canManage={canManage} isDraftWindow={isDraftWindow} ready={ready} />
       )}
     </div>
   )

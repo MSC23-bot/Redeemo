@@ -73,44 +73,44 @@ beforeEach(() => {
 
 describe('RedemptionAlertsCard heading + visibility', () => {
   it('renders the card with its heading (always visible)', () => {
-    render(<RedemptionAlertsCard branch={branch()} isOwner />)
+    render(<RedemptionAlertsCard branch={branch()} canManage isOwner />)
     expect(screen.getByText(/redemption alerts/i)).toBeInTheDocument()
   })
 })
 
 describe('RedemptionAlertsCard live toggle (owner)', () => {
   it('renders a switch reflecting redemptionAlertsEnabled: off', () => {
-    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: false })} isOwner />)
+    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: false })} canManage isOwner />)
     const sw = screen.getByRole('switch', { name: /redemption alerts for this branch/i })
     expect(sw).toHaveAttribute('aria-checked', 'false')
   })
 
   it('renders a switch reflecting redemptionAlertsEnabled: on', () => {
-    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} isOwner />)
+    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} canManage isOwner />)
     const sw = screen.getByRole('switch', { name: /redemption alerts for this branch/i })
     expect(sw).toHaveAttribute('aria-checked', 'true')
   })
 
   it('binds the mutation to this branch id', () => {
-    render(<RedemptionAlertsCard branch={branch({ id: 'branch-42' })} isOwner />)
+    render(<RedemptionAlertsCard branch={branch({ id: 'branch-42' })} canManage isOwner />)
     expect(useSetRedemptionAlerts).toHaveBeenCalledWith('branch-42')
   })
 
   it('turning the toggle ON calls the mutation with enabled=true', async () => {
-    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: false })} isOwner />)
+    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: false })} canManage isOwner />)
     fireEvent.click(screen.getByRole('switch', { name: /redemption alerts for this branch/i }))
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith(true))
   })
 
   it('turning the toggle OFF calls the mutation with enabled=false', async () => {
-    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} isOwner />)
+    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} canManage isOwner />)
     fireEvent.click(screen.getByRole('switch', { name: /redemption alerts for this branch/i }))
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith(false))
   })
 
   it('shows a calm error and leaves the value persisted when the write fails', async () => {
     mutateAsync.mockRejectedValueOnce(new Error('boom'))
-    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: false })} isOwner />)
+    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: false })} canManage isOwner />)
     fireEvent.click(screen.getByRole('switch', { name: /redemption alerts for this branch/i }))
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(/could not update redemption alerts/i),
@@ -124,34 +124,65 @@ describe('RedemptionAlertsCard live toggle (owner)', () => {
 
 describe('RedemptionAlertsCard gating (non-owner)', () => {
   it('does NOT render the switch for a non-owner', () => {
-    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} isOwner={false} />)
+    render(
+      <RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} canManage={false} isOwner={false} />,
+    )
     expect(
       screen.queryByRole('switch', { name: /redemption alerts for this branch/i }),
     ).not.toBeInTheDocument()
   })
 
   it('does NOT fetch the owner-only staff query for a non-owner', () => {
-    render(<RedemptionAlertsCard branch={branch()} isOwner={false} />)
+    render(<RedemptionAlertsCard branch={branch()} canManage={false} isOwner={false} />)
     expect(useStaffEnabledArg).toBe(false)
+  })
+})
+
+// D-BM1 (merged spec §9): the toggle FLIPS to effectiveCanManage (assigned BM
+// sees it), but the recipients sub-list stays isOwner-only (it reads the
+// assertOwner-gated staff family, unaffected by the new per-branch signal).
+describe('RedemptionAlertsCard D-BM1 flip: assigned Branch Manager', () => {
+  it('an assigned BM (canManage=true, isOwner=false) sees the live switch', () => {
+    render(
+      <RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} canManage isOwner={false} />,
+    )
+    const sw = screen.getByRole('switch', { name: /redemption alerts for this branch/i })
+    expect(sw).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('an assigned BM (canManage=true, isOwner=false) does NOT fetch the owner-only staff query and sees no recipient list', () => {
+    staffData = [member()]
+    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} canManage isOwner={false} />)
+    expect(useStaffEnabledArg).toBe(false)
+    expect(screen.queryByTestId('branch-alerts-recipients')).not.toBeInTheDocument()
+  })
+
+  it('STAFF (canManage=false, isOwner=false) sees neither the switch nor the recipient list', () => {
+    staffData = [member()]
+    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} canManage={false} isOwner={false} />)
+    expect(
+      screen.queryByRole('switch', { name: /redemption alerts for this branch/i }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId('branch-alerts-recipients')).not.toBeInTheDocument()
   })
 })
 
 describe('RedemptionAlertsCard copy (in-app now, email later)', () => {
   it('says the team is alerted in the portal / notification bell', () => {
-    render(<RedemptionAlertsCard branch={branch()} isOwner />)
+    render(<RedemptionAlertsCard branch={branch()} canManage isOwner />)
     expect(screen.getByText(/alerted in the portal/i)).toBeInTheDocument()
     expect(screen.getByText(/notification bell/i)).toBeInTheDocument()
   })
 
   it('says email alerts are coming later (does NOT promise an email now)', () => {
-    render(<RedemptionAlertsCard branch={branch()} isOwner />)
+    render(<RedemptionAlertsCard branch={branch()} canManage isOwner />)
     expect(screen.getByText(/email alerts are coming later/i)).toBeInTheDocument()
     // no "gets an email" / "everyone below gets an email" promise
     expect(screen.queryByText(/gets an email/i)).not.toBeInTheDocument()
   })
 
   it('privacy line names voucher / branch / validation time and never the redemption code', () => {
-    render(<RedemptionAlertsCard branch={branch()} isOwner />)
+    render(<RedemptionAlertsCard branch={branch()} canManage isOwner />)
     expect(screen.getByText(/shows the voucher, the branch, and the validation time/i)).toBeInTheDocument()
     expect(screen.getByText(/never shows the customer personal details/i)).toBeInTheDocument()
     expect(screen.queryByText(/redemption code/i)).not.toBeInTheDocument()
@@ -160,14 +191,14 @@ describe('RedemptionAlertsCard copy (in-app now, email later)', () => {
 
 describe('RedemptionAlertsCard deferred controls are ABSENT', () => {
   it('renders no "Add an extra recipient" email field', () => {
-    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} isOwner />)
+    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} canManage isOwner />)
     expect(screen.queryByText(/add an extra recipient/i)).not.toBeInTheDocument()
     expect(screen.queryByPlaceholderText(/@/)).not.toBeInTheDocument()
   })
 
   it('renders no per-recipient on/off toggles (only the single per-branch switch)', () => {
     staffData = [member(), member({ id: 'm2', name: 'Ben Manager', role: 'BRANCH_MANAGER' })]
-    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} isOwner />)
+    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: true })} canManage isOwner />)
     // exactly one switch on the card: the per-branch toggle
     expect(screen.getAllByRole('switch')).toHaveLength(1)
   })
@@ -182,7 +213,7 @@ describe('RedemptionAlertsCard read-only recipient list', () => {
       member({ id: 'm4', name: 'Dev Staff', role: 'STAFF', allBranches: true }),
       member({ id: 'm5', name: 'Inactive Owner', role: 'OWNER', allBranches: true, status: 'INACTIVE' }),
     ]
-    render(<RedemptionAlertsCard branch={branch({ id: 'b1', redemptionAlertsEnabled: true })} isOwner />)
+    render(<RedemptionAlertsCard branch={branch({ id: 'b1', redemptionAlertsEnabled: true })} canManage isOwner />)
     const rows = screen.getAllByTestId('branch-alerts-recipient-row')
     expect(rows).toHaveLength(2)
     expect(screen.getByText('Asha Owner')).toBeInTheDocument()
@@ -194,7 +225,7 @@ describe('RedemptionAlertsCard read-only recipient list', () => {
 
   it('hides the recipient list when the toggle is off', () => {
     staffData = [member()]
-    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: false })} isOwner />)
+    render(<RedemptionAlertsCard branch={branch({ redemptionAlertsEnabled: false })} canManage isOwner />)
     expect(screen.queryByTestId('branch-alerts-recipients')).not.toBeInTheDocument()
   })
 })

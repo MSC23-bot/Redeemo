@@ -1,66 +1,102 @@
 /**
- * PR-1 F1 tests for lib/branches/useBranchCapability.ts.
- *
- * Mirrors the Staff & Access pattern (§1.5): isOwner is derived from whether the
- * owner-gated GET /staff query succeeds. A 403 with code INSUFFICIENT_PERMISSIONS
- * means the caller is NOT the owner. `ready` is true once the query has settled
- * either way (success OR the forbidden error).
+ * D-BM1 (merged spec §5): useBranchCapability is REWRITTEN to derive the
+ * owner-vs-Branch-Manager signal from the profile's viewerCapabilities.role
+ * (the SAME source Quick-Actions and the shell nav use), retiring the PR-1
+ * stopgap that probed the owner-gated GET /staff for a 403/200. Mirrors the
+ * useVoucherCapability test pattern. `ready` settles once the profile query
+ * has settled either way (success OR error); `isOwner` is fail-closed (only
+ * true for an explicit OWNER role).
  */
-import * as React from 'react'
-import { renderHook, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ApiError } from '@/lib/api/client'
+import { renderHook } from '@testing-library/react'
 import { useBranchCapability } from '../useBranchCapability'
 
+jest.mock('@/lib/auth/session', () => ({
+  useSession: () => ({ isAuthenticated: true }),
+}))
+
+const mockProfile = jest.fn()
+jest.mock('@/lib/auth/useMerchantProfile', () => ({
+  useMerchantProfile: (enabled: boolean) => mockProfile(enabled),
+}))
+
+// The retired PR-1 probe: proves useBranchCapability makes NO call to the
+// owner-gated staff endpoint anymore.
 const listStaff = jest.fn()
 jest.mock('@/lib/api/staff', () => ({
   listStaff: (...a: unknown[]) => listStaff(...a),
 }))
 
-function wrapper(qc: QueryClient) {
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
-  }
-}
-
-function freshClient() {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } })
-}
-
 beforeEach(() => {
+  mockProfile.mockReset()
   listStaff.mockReset()
 })
 
 describe('useBranchCapability', () => {
-  it('isOwner=true + ready=true when the staff query succeeds', async () => {
-    listStaff.mockResolvedValue([{ id: 'm1' }])
-    const qc = freshClient()
-    const { result } = renderHook(() => useBranchCapability(true), { wrapper: wrapper(qc) })
-    await waitFor(() => expect(result.current.ready).toBe(true))
-    expect(result.current.isOwner).toBe(true)
+  it('isOwner=true + role="OWNER" + ready=true when the profile role is OWNER', () => {
+    mockProfile.mockReturnValue({
+      data: { viewerCapabilities: { role: 'OWNER' } },
+      isSuccess: true,
+      isError: false,
+    })
+    const { result } = renderHook(() => useBranchCapability(true))
+    expect(result.current).toEqual({ isOwner: true, ready: true, role: 'OWNER' })
   })
 
-  it('isOwner=false + ready=true when the staff query 403s with INSUFFICIENT_PERMISSIONS', async () => {
-    listStaff.mockRejectedValue(new ApiError(403, { error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'no' } }))
-    const qc = freshClient()
-    const { result } = renderHook(() => useBranchCapability(true), { wrapper: wrapper(qc) })
-    await waitFor(() => expect(result.current.ready).toBe(true))
-    expect(result.current.isOwner).toBe(false)
+  it('isOwner=false + role="BRANCH_MANAGER" for a Branch Manager', () => {
+    mockProfile.mockReturnValue({
+      data: { viewerCapabilities: { role: 'BRANCH_MANAGER' } },
+      isSuccess: true,
+      isError: false,
+    })
+    const { result } = renderHook(() => useBranchCapability(true))
+    expect(result.current).toEqual({ isOwner: false, ready: true, role: 'BRANCH_MANAGER' })
   })
 
-  it('not ready while the query is in flight (no premature owner flash)', () => {
-    listStaff.mockReturnValue(new Promise(() => {})) // never resolves
-    const qc = freshClient()
-    const { result } = renderHook(() => useBranchCapability(true), { wrapper: wrapper(qc) })
-    expect(result.current.ready).toBe(false)
-    expect(result.current.isOwner).toBe(false)
+  it('isOwner=false + role="STAFF" for STAFF', () => {
+    mockProfile.mockReturnValue({
+      data: { viewerCapabilities: { role: 'STAFF' } },
+      isSuccess: true,
+      isError: false,
+    })
+    const { result } = renderHook(() => useBranchCapability(true))
+    expect(result.current).toEqual({ isOwner: false, ready: true, role: 'STAFF' })
   })
 
-  it('does not fetch when disabled (and is not ready/owner)', () => {
-    const qc = freshClient()
-    const { result } = renderHook(() => useBranchCapability(false), { wrapper: wrapper(qc) })
+  it('FAILS CLOSED (role=null) while the profile is loading (no data yet)', () => {
+    mockProfile.mockReturnValue({ data: undefined, isSuccess: false, isError: false })
+    const { result } = renderHook(() => useBranchCapability(true))
+    expect(result.current).toEqual({ isOwner: false, ready: false, role: null })
+  })
+
+  it('FAILS CLOSED (role=null) on an older backend without viewerCapabilities.role', () => {
+    mockProfile.mockReturnValue({
+      data: { viewerCapabilities: { canManageVouchers: true } },
+      isSuccess: true,
+      isError: false,
+    })
+    const { result } = renderHook(() => useBranchCapability(true))
+    expect(result.current).toEqual({ isOwner: false, ready: true, role: null })
+  })
+
+  it('ready=true (still not-owner) when the profile fetch errors', () => {
+    mockProfile.mockReturnValue({ data: undefined, isSuccess: false, isError: true })
+    const { result } = renderHook(() => useBranchCapability(true))
+    expect(result.current).toEqual({ isOwner: false, ready: true, role: null })
+  })
+
+  it('threads the enabled flag through to useMerchantProfile', () => {
+    mockProfile.mockReturnValue({ data: undefined, isSuccess: false, isError: false })
+    renderHook(() => useBranchCapability(false))
+    expect(mockProfile).toHaveBeenCalledWith(false)
+  })
+
+  it('never calls the retired GET /merchant/staff probe', () => {
+    mockProfile.mockReturnValue({
+      data: { viewerCapabilities: { role: 'OWNER' } },
+      isSuccess: true,
+      isError: false,
+    })
+    renderHook(() => useBranchCapability(true))
     expect(listStaff).not.toHaveBeenCalled()
-    expect(result.current.ready).toBe(false)
-    expect(result.current.isOwner).toBe(false)
   })
 })

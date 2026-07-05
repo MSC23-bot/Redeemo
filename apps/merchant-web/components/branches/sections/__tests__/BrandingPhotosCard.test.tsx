@@ -65,11 +65,19 @@ function branch(over: Record<string, unknown> = {}): Branch {
   } as Branch
 }
 
-function renderCard(b: Branch, isOwner = true) {
+// D-BM1: BrandingPhotosCard now takes BOTH `canManage` (the D-BM1 flip - gates
+// ONLY Add-photo + its file input) and `isOwner` (unchanged owner-only gate for
+// the header Edit + per-photo Remove - the §9 must-not-flip list). Legacy
+// call sites pass a single boolean that drives both (owner: true/true,
+// non-owner: false/false); the D-BM1 permutation tests below pass them
+// independently to prove the two gates are now distinct.
+function renderCard(b: Branch, capability: boolean | { canManage: boolean; isOwner: boolean } = true) {
+  const { canManage, isOwner } =
+    typeof capability === 'boolean' ? { canManage: capability, isOwner: capability } : capability
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <BrandingPhotosCard branch={b} isOwner={isOwner} />
+      <BrandingPhotosCard branch={b} canManage={canManage} isOwner={isOwner} />
     </QueryClientProvider>,
   )
 }
@@ -179,6 +187,27 @@ describe('BrandingPhotosCard owner-only gating', () => {
     fireEvent.click(screen.getByRole('button', { name: /^edit/i }))
     expect(screen.getByTestId('f7-edit-modal')).toBeInTheDocument()
     expect(modalRendered).toHaveBeenCalled()
+  })
+})
+
+// D-BM1 (merged spec §9): Add-photo (+ its file input) FLIP to
+// effectiveCanManage; the header Edit + per-photo Remove stay isOwner-only
+// (the explicit D-PR3-4 owner-only exception - untouched by this change).
+describe('BrandingPhotosCard D-BM1 flip: assigned Branch Manager', () => {
+  it('an assigned BM (canManage=true, isOwner=false) sees Add photo but NOT Edit or Remove', () => {
+    renderCard(branch(), { canManage: true, isOwner: false })
+    expect(screen.getByTestId('branch-photo-add')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^edit/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('branch-photo-remove')).not.toBeInTheDocument()
+    // The gallery itself still renders for everyone.
+    expect(screen.getAllByTestId('branch-photo')).toHaveLength(2)
+  })
+
+  it('STAFF (canManage=false, isOwner=false) sees none of Edit, Remove, or Add', () => {
+    renderCard(branch(), { canManage: false, isOwner: false })
+    expect(screen.queryByRole('button', { name: /^edit/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('branch-photo-remove')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('branch-photo-add')).not.toBeInTheDocument()
   })
 })
 

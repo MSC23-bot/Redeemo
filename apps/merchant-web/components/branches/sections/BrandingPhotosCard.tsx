@@ -16,13 +16,13 @@
 // the F7 BranchDetailsEditModal (owner-only). Banner stays the F7 lane (PR-3 §7
 // default); the gallery manages branch PHOTOS only, not the banner.
 //
-// FE OWNER-GATE (PR-3 §7 / D-PR3-4): the merchant-web FE renders the Add + Remove
-// controls OWNER-ONLY because merchant-web has no per-branch BM capability signal
-// yet. The BACKEND already permits an assigned BRANCH_MANAGER to add-via-review
-// (assertBranchAllowed on both the upload + the edit-request, no canManageVouchers);
-// those controls light up for BMs only when the deferred FE `viewerCapabilities`
-// signal lands (the PR-2 follow-up). Instant-removal stays OWNER-only on both sides
-// in v1. So this gate is presentational only; the backend is the real boundary.
+// GATES (D-BM1 + PR-3 §7 / D-PR3-4): Add-photo now flips via `canManage` (the
+// per-branch effective capability - the deferred signal this comment once
+// anticipated). Per-photo REMOVE stays OWNER-only (explicit D-PR3-4 exception;
+// BM parity is a separate unapproved owner decision). The branding Edit
+// affordance also stays OWNER-only - it is not in the approved D-BM1 flip list;
+// a BM reaches the same modal via BranchDetailsCard on LIVE merchants. All
+// presentational only; the backend is the real boundary.
 //
 // SECURITY: never render redemptionPin or any encrypted/secret field (PR-1 discipline).
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
@@ -42,7 +42,7 @@ import type { Branch } from '@/lib/api/branch'
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg']
 const PHOTO_MAX_BYTES = 5 * 1024 * 1024
 
-export function BrandingPhotosCard({ branch, isOwner }: { branch: Branch; isOwner: boolean }) {
+export function BrandingPhotosCard({ branch, canManage, isOwner }: { branch: Branch; canManage: boolean; isOwner: boolean }) {
   const { toast } = useToast()
   const requestEdit = useRequestBranchPhotoEdit()
   const removePhoto = useRemoveBranchPhoto()
@@ -285,8 +285,8 @@ export function BrandingPhotosCard({ branch, isOwner }: { branch: Branch; isOwne
               </figure>
             ))}
 
-            {/* Add photo (owner-only; backend BM-ready, lights up with viewerCapabilities). */}
-            {isOwner ? (
+            {/* Add photo: D-BM1 flip - OWNER or assigned BM (effectiveCanManage). */}
+            {canManage ? (
               <button
                 type="button"
                 data-testid="branch-photo-add"
@@ -311,8 +311,8 @@ export function BrandingPhotosCard({ branch, isOwner }: { branch: Branch; isOwne
               </button>
             ) : null}
 
-            {/* The native file input the owner Add button triggers. */}
-            {isOwner ? (
+            {/* The native file input the Add button triggers (same D-BM1 gate). */}
+            {canManage ? (
               <input
                 ref={fileInputRef}
                 type="file"

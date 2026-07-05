@@ -23,7 +23,7 @@ function val(v: string | null | undefined): string {
   return (v ?? '').trim()
 }
 
-export function BranchDetailsCard({ branch, isOwner }: { branch: Branch; isOwner: boolean }) {
+export function BranchDetailsCard({ branch, canManage }: { branch: Branch; canManage: boolean }) {
   const [editOpen, setEditOpen] = React.useState(false)
 
   // An identity (non-photo) edit currently in review blocks a second concurrent edit.
@@ -48,7 +48,7 @@ export function BranchDetailsCard({ branch, isOwner }: { branch: Branch; isOwner
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Reviewed by Redeemo
           </span>
-          {isOwner ? (
+          {canManage ? (
             <button
               type="button"
               onClick={() => setEditOpen(true)}
@@ -63,7 +63,7 @@ export function BranchDetailsCard({ branch, isOwner }: { branch: Branch; isOwner
 
       <div className="space-y-3 px-6">
         {/* Pending-edit banner + withdraw (owner only gets the withdraw control). */}
-        <PendingEditsList branch={branch} isOwner={isOwner} />
+        <PendingEditsList branch={branch} canManage={canManage} />
 
         <Field label="Branch name" value={val(branch.name)} empty="No name set" />
         <Field label="Description" value={val(branch.about)} empty="No description added" />

@@ -38,7 +38,7 @@ function pinErrorMessage(err: unknown, fallback: string): string {
   return fallback
 }
 
-export function PinCard({ branch, isOwner }: { branch: Branch; isOwner: boolean }) {
+export function PinCard({ branch, canManage }: { branch: Branch; canManage: boolean }) {
   const { toast } = useToast()
   const change = useSetBranchPin()
   const send = useSendBranchPin()
@@ -62,7 +62,7 @@ export function PinCard({ branch, isOwner }: { branch: Branch; isOwner: boolean 
   }, [])
 
   // The whole section is owner-only.
-  if (!isOwner) return null
+  if (!canManage) return null
 
   async function reveal() {
     if (revealed) {

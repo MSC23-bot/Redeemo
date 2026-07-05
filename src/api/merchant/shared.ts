@@ -152,14 +152,28 @@ export function assertBranchAllowed(ctx: MerchantContext, branchId: string): voi
 }
 
 /**
+ * D-BM1: THE single per-branch management predicate. This function body is the
+ * ONLY place the branch-management authorization formula may exist - both
+ * `assertCanManageBranch` (the write guard) and the `getBranch` capability emit
+ * delegate here, so the emitted UX hint and the enforced boundary cannot drift
+ * (pinned by the structural delegation + single-definition-site guards).
+ * OWNER manages any branch; BRANCH_MANAGER manages assigned branches only
+ * (allBranches or an explicit assignment); STAFF and any other role never manage.
+ */
+export function canManageBranchPredicate(ctx: MerchantContext, branchId: string): boolean {
+  if (ctx.role === 'OWNER') return true
+  return ctx.role === 'BRANCH_MANAGER' && (ctx.allBranches || ctx.allowedBranchIds.includes(branchId))
+}
+
+/**
  * Branches D3 + Staff & Access D3: branch-management WRITE guard. Distinct from
  * assertBranchAllowed (the pure branch-scope check, which stays on READ surfaces
  * where a STAFF member may VIEW an assigned branch). A branch-management WRITE
  * requires OWNER (any branch) OR BRANCH_MANAGER (assigned branch only). STAFF is
  * view/validate-only and is denied even when assigned to the branch.
+ * D-BM1: a throw-on-false wrapper over canManageBranchPredicate - never inline
+ * the formula here (the single-definition-site guard fails the build's tests).
  */
 export function assertCanManageBranch(ctx: MerchantContext, branchId: string): void {
-  if (ctx.role === 'OWNER') return
-  if (ctx.role === 'BRANCH_MANAGER' && (ctx.allBranches || ctx.allowedBranchIds.includes(branchId))) return
-  throw new AppError('INSUFFICIENT_PERMISSIONS')
+  if (!canManageBranchPredicate(ctx, branchId)) throw new AppError('INSUFFICIENT_PERMISSIONS')
 }

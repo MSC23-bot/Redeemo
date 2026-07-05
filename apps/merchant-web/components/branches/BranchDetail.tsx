@@ -34,15 +34,26 @@ export function BranchDetail({
   branch,
   businessName,
   isOwner,
+  canManage,
+  isDraftWindow = false,
   ready,
   now = new Date(),
 }: {
   branch: Branch
   businessName: string | null
   isOwner: boolean
+  /** D-BM1 effective capability (lib/branches/capability.ts) - OWNER or assigned BM. */
+  canManage: boolean
+  /** Onboarding draft window: sensitive identity edits stay owner-only (spec §8). */
+  isDraftWindow?: boolean
   ready: boolean
   now?: Date
 }) {
+  // Draft-window composite for the BranchDetails/Location pair: the LIVE-merchant
+  // edit-request lane is BM-eligible, but the SAME buttons drive an owner-only
+  // direct write during onboarding.
+  const canEditIdentity = ready && canManage && (!isDraftWindow || isOwner)
+  const managed = ready && canManage
   return (
     <div className="space-y-5">
       <BranchHeader
@@ -61,30 +72,30 @@ export function BranchDetail({
       <ReviewStateBanners branch={branch} />
 
       {/* F7: branch-details identity values (read-only) + reviewed edit modal + pending edits + withdraw. */}
-      <BranchDetailsCard branch={branch} isOwner={ready && isOwner} />
+      <BranchDetailsCard branch={branch} canManage={canEditIdentity} />
 
       {/* F9: read-only location confidence badge + static (no-network) map stub + locked PR-6 lookup affordance. */}
-      <LocationCard branch={branch} isOwner={ready && isOwner} />
+      <LocationCard branch={branch} canManage={canEditIdentity} />
 
       {/* F4: contact instant-save (phone / email / website). Owner-only edit; BM read-only. */}
-      <ContactCard branch={branch} isOwner={ready && isOwner} />
+      <ContactCard branch={branch} canManage={managed} />
 
       {/* F10: read-only opening-hours table (incl. Closed days) + locked PR-4 Edit + locked PR-8 multi-window. */}
-      <OpeningHoursCard branch={branch} isOwner={ready && isOwner} now={now} />
+      <OpeningHoursCard branch={branch} canManage={managed} now={now} />
 
       {/* F6: masked PIN with on-demand reveal + change + send. Owner-only (renders nothing for a non-owner). */}
-      <PinCard branch={branch} isOwner={ready && isOwner} />
+      <PinCard branch={branch} canManage={managed} />
 
       {/* PR-7: redemption-alerts card. A LIVE single per-branch on/off switch (owner-gated
           UX; server-enforced) that reads/writes branch.redemptionAlertsEnabled; when ON
           an in-store validation surfaces an in-app bell to the team. */}
-      <RedemptionAlertsCard branch={branch} isOwner={ready && isOwner} />
+      <RedemptionAlertsCard branch={branch} canManage={managed} isOwner={ready && isOwner} />
 
       {/* F5: amenities catalogue toggle (full-replace). Owner-only edit; BM read-only. */}
-      <AmenitiesCard branch={branch} isOwner={ready && isOwner} />
+      <AmenitiesCard branch={branch} canManage={managed} />
 
       {/* F11: logo / banner display (edit via the F7 modal) + photo grid display-only + locked PR-3 Add. */}
-      <BrandingPhotosCard branch={branch} isOwner={ready && isOwner} />
+      <BrandingPhotosCard branch={branch} canManage={managed} isOwner={ready && isOwner} />
 
       {/* F12: owner-only staff-at-branch card. Renders nothing for a non-owner. */}
       <StaffAtBranchCard branchId={branch.id} isOwner={isOwner} ready={ready} />

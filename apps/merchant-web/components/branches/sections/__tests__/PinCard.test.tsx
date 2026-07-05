@@ -57,7 +57,7 @@ describe('PinCard #pin deep-link scroll (shell wave Quick Action)', () => {
     Element.prototype.scrollIntoView = scrollIntoView
     window.location.hash = '#pin'
     try {
-      render(<PinCard branch={branch()} isOwner />)
+      render(<PinCard branch={branch()} canManage />)
       expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
     } finally {
       Element.prototype.scrollIntoView = original
@@ -70,7 +70,7 @@ describe('PinCard #pin deep-link scroll (shell wave Quick Action)', () => {
     const original = Element.prototype.scrollIntoView
     Element.prototype.scrollIntoView = scrollIntoView
     try {
-      render(<PinCard branch={branch()} isOwner />)
+      render(<PinCard branch={branch()} canManage />)
       expect(scrollIntoView).not.toHaveBeenCalled()
     } finally {
       Element.prototype.scrollIntoView = original
@@ -80,24 +80,24 @@ describe('PinCard #pin deep-link scroll (shell wave Quick Action)', () => {
 
 describe('PinCard owner gating', () => {
   it('renders nothing for a non-owner', () => {
-    const { container } = render(<PinCard branch={branch()} isOwner={false} />)
+    const { container } = render(<PinCard branch={branch()} canManage={false} />)
     expect(container).toBeEmptyDOMElement()
   })
 
   it('renders the PIN section for an owner', () => {
-    render(<PinCard branch={branch()} isOwner />)
+    render(<PinCard branch={branch()} canManage />)
     expect(screen.getByText(/redemption pin/i)).toBeInTheDocument()
   })
 
   it('renders the private-PIN explainer copy', () => {
-    render(<PinCard branch={branch()} isOwner />)
+    render(<PinCard branch={branch()} canManage />)
     expect(screen.getByText(/keep it private/i)).toBeInTheDocument()
   })
 })
 
 describe('PinCard reveal-on-demand (security)', () => {
   it('does NOT fetch the PIN on mount and never renders a ciphertext (the server no longer sends one at all)', () => {
-    const { container } = render(<PinCard branch={branch()} isOwner />)
+    const { container } = render(<PinCard branch={branch()} canManage />)
     expect(getBranchPin).not.toHaveBeenCalled()
     // Regression guard: even if a stray ciphertext rode along on the row, it must
     // never render.
@@ -107,7 +107,7 @@ describe('PinCard reveal-on-demand (security)', () => {
   })
 
   it('fetches GET /pin only when Reveal is pressed and then shows the value', async () => {
-    render(<PinCard branch={branch()} isOwner />)
+    render(<PinCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /reveal/i }))
     await waitFor(() => expect(getBranchPin).toHaveBeenCalledWith('b1'))
     expect(await screen.findByText('4821')).toBeInTheDocument()
@@ -116,7 +116,7 @@ describe('PinCard reveal-on-demand (security)', () => {
 
 describe('PinCard change', () => {
   it('rejects a non-4-digit PIN without calling PUT', async () => {
-    render(<PinCard branch={branch()} isOwner />)
+    render(<PinCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /change pin/i }))
     fireEvent.change(screen.getByLabelText(/new 4-digit pin/i), { target: { value: '12' } })
     fireEvent.click(screen.getByRole('button', { name: /save pin/i }))
@@ -125,7 +125,7 @@ describe('PinCard change', () => {
   })
 
   it('PUTs a valid 4-digit PIN and toasts', async () => {
-    render(<PinCard branch={branch()} isOwner />)
+    render(<PinCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /change pin/i }))
     fireEvent.change(screen.getByLabelText(/new 4-digit pin/i), { target: { value: '9876' } })
     fireEvent.click(screen.getByRole('button', { name: /save pin/i }))
@@ -137,7 +137,7 @@ describe('PinCard change', () => {
 
   it('surfaces INVALID_PIN_FORMAT from the backend via role=alert', async () => {
     changeMutateAsync.mockRejectedValue(new ApiError(400, { error: { code: 'INVALID_PIN_FORMAT' } }))
-    render(<PinCard branch={branch()} isOwner />)
+    render(<PinCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /change pin/i }))
     fireEvent.change(screen.getByLabelText(/new 4-digit pin/i), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: /save pin/i }))
@@ -147,7 +147,7 @@ describe('PinCard change', () => {
 
 describe('PinCard send', () => {
   it('POSTs the send and toasts success', async () => {
-    render(<PinCard branch={branch()} isOwner />)
+    render(<PinCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /send to branch/i }))
     await waitFor(() => expect(sendMutateAsync).toHaveBeenCalledWith('b1'))
     await waitFor(() =>
@@ -157,7 +157,7 @@ describe('PinCard send', () => {
 
   it('surfaces PIN_NOT_CONFIGURED from the backend via role=alert', async () => {
     sendMutateAsync.mockRejectedValue(new ApiError(400, { error: { code: 'PIN_NOT_CONFIGURED' } }))
-    render(<PinCard branch={branch()} isOwner />)
+    render(<PinCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /send to branch/i }))
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
   })
@@ -165,7 +165,7 @@ describe('PinCard send', () => {
 
 describe('PinCard not-set state', () => {
   it('shows a not-set state when no PIN is configured and disables Reveal + Send', () => {
-    render(<PinCard branch={branch({ redemptionPinSet: false })} isOwner />)
+    render(<PinCard branch={branch({ redemptionPinSet: false })} canManage />)
     expect(screen.getByText(/no pin set yet/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /reveal/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /send to branch/i })).toBeDisabled()
@@ -175,7 +175,7 @@ describe('PinCard not-set state', () => {
 
   // Wire hygiene explicit pin: set-state is driven purely by redemptionPinSet.
   it('set-state is driven by redemptionPinSet: true (masked dots, Reveal/Send enabled)', () => {
-    render(<PinCard branch={branch({ redemptionPinSet: true })} isOwner />)
+    render(<PinCard branch={branch({ redemptionPinSet: true })} canManage />)
     expect(screen.getByTestId('branch-pin-masked')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /reveal/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /send to branch/i })).toBeEnabled()
@@ -183,7 +183,7 @@ describe('PinCard not-set state', () => {
   })
 
   it('not-set state is driven by redemptionPinSet: false, independent of any other field', () => {
-    render(<PinCard branch={branch({ redemptionPinSet: false })} isOwner />)
+    render(<PinCard branch={branch({ redemptionPinSet: false })} canManage />)
     expect(screen.queryByTestId('branch-pin-masked')).not.toBeInTheDocument()
     expect(screen.getByText(/no pin set yet/i)).toBeInTheDocument()
   })
@@ -193,18 +193,18 @@ describe('PinCard not-set state', () => {
 // level (the shared branchPinSet helper carries the full matrix in its own suite).
 describe('PinCard - version-skew compatibility bridge', () => {
   it('old backend (legacy ciphertext only, no boolean) still shows the set state', () => {
-    render(<PinCard branch={branch({ redemptionPinSet: undefined, redemptionPin: 'enc:v1:OLDBACKEND' }) as never} isOwner />)
+    render(<PinCard branch={branch({ redemptionPinSet: undefined, redemptionPin: 'enc:v1:OLDBACKEND' }) as never} canManage />)
     expect(screen.getByRole('button', { name: /change pin/i })).toBeInTheDocument()
   })
 
   it('an explicit redemptionPinSet false beats a conflicting legacy ciphertext (not-set state)', () => {
-    render(<PinCard branch={branch({ redemptionPinSet: false, redemptionPin: 'enc:v1:CONFLICT' }) as never} isOwner />)
+    render(<PinCard branch={branch({ redemptionPinSet: false, redemptionPin: 'enc:v1:CONFLICT' }) as never} canManage />)
     expect(screen.getByRole('button', { name: /^set pin$/i })).toBeInTheDocument()
   })
 
   it('never renders the legacy ciphertext anywhere in the card', () => {
     const cipher = 'enc:v1:NEVERSHOWME42'
-    const { container } = render(<PinCard branch={branch({ redemptionPinSet: undefined, redemptionPin: cipher }) as never} isOwner />)
+    const { container } = render(<PinCard branch={branch({ redemptionPinSet: undefined, redemptionPin: cipher }) as never} canManage />)
     expect(container.textContent).not.toContain(cipher)
     expect(container.innerHTML).not.toContain(cipher)
   })

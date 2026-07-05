@@ -12,9 +12,10 @@
 // app users are NOT recipients and are excluded. Per-recipient on/off toggles and the
 // "Add an extra recipient" email field are DEFERRED (a later email-enabled slice).
 //
-// Gate: `isOwner` (UX gate only, the same fallback PR-6's LocationCard used). merchant-web
-// has no per-branch BRANCH_MANAGER `canManage` signal today, so an assigned Branch Manager
-// does not see the control here; the backend assertCanManageBranch is the real boundary.
+// Gate (D-BM1): the toggle gates on `canManage` (the per-branch effective
+// capability), so an assigned Branch Manager sees it; the recipients sub-list
+// stays `isOwner` (it reads the assertOwner-gated staff family). The backend
+// assertCanManageBranch remains the real boundary.
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
 import * as React from 'react'
@@ -49,7 +50,7 @@ function recipientsForBranch(members: MemberRow[], branchId: string): RecipientR
     .map((m) => ({ key: m.id, name: m.name, roleLabel: ROLE_LABEL[m.role] }))
 }
 
-export function RedemptionAlertsCard({ branch, isOwner }: { branch: Branch; isOwner: boolean }) {
+export function RedemptionAlertsCard({ branch, canManage, isOwner }: { branch: Branch; canManage: boolean; isOwner: boolean }) {
   const { toast } = useToast()
   const set = useSetRedemptionAlerts(branch.id)
 
@@ -92,7 +93,7 @@ export function RedemptionAlertsCard({ branch, isOwner }: { branch: Branch; isOw
           <Bell size={16} aria-hidden style={{ color: 'var(--text-tertiary)' }} />
           <h2 className="font-display text-lg font-semibold text-foreground">Redemption alerts</h2>
         </div>
-        {isOwner ? (
+        {canManage ? (
           <Switch
             checked={checked}
             disabled={set.isPending}

@@ -671,3 +671,71 @@ describe('lib/api/branch (Decimal coordinate coercion)', () => {
     expect(res[0].longitude).toBe(-1.780861)
   })
 })
+
+// D-BM1 (merged spec §5): the per-branch capability hint. NON-THROWING
+// malformed-to-absent contract via `.optional().catch(undefined)` - a missing
+// block parses to undefined, a valid block parses typed, and a malformed
+// block (wrong shape / wrong-typed field / explicit null) resolves to
+// undefined INSTEAD of throwing. Consumers never read this raw (see
+// lib/branches/capability.ts); this suite only pins the parse layer.
+describe('lib/api/branch (D-BM1 viewerCapabilities)', () => {
+  it('block MISSING -> parses to undefined (older backend / list rows)', () => {
+    const parsed = branchSchema.parse({ id: 'b1', name: 'Main' })
+    expect(parsed.viewerCapabilities).toBeUndefined()
+  })
+
+  it('block valid canManage:true -> parses typed', () => {
+    const parsed = branchSchema.parse({ id: 'b1', name: 'Main', viewerCapabilities: { canManage: true } })
+    expect(parsed.viewerCapabilities).toEqual({ canManage: true })
+  })
+
+  it('block valid canManage:false -> parses typed', () => {
+    const parsed = branchSchema.parse({ id: 'b1', name: 'Main', viewerCapabilities: { canManage: false } })
+    expect(parsed.viewerCapabilities).toEqual({ canManage: false })
+  })
+
+  it('block MALFORMED (wrong-typed canManage field) -> resolves to undefined, does NOT throw', () => {
+    const parsed = branchSchema.parse({
+      id: 'b1',
+      name: 'Main',
+      viewerCapabilities: { canManage: 'yes' },
+    })
+    expect(parsed.viewerCapabilities).toBeUndefined()
+  })
+
+  it('block WRONG-TYPE (a bare string instead of an object) -> resolves to undefined, does NOT throw', () => {
+    const parsed = branchSchema.parse({
+      id: 'b1',
+      name: 'Main',
+      viewerCapabilities: 'garbage',
+    })
+    expect(parsed.viewerCapabilities).toBeUndefined()
+  })
+
+  it('block explicit NULL -> resolves to undefined, does NOT throw', () => {
+    const parsed = branchSchema.parse({ id: 'b1', name: 'Main', viewerCapabilities: null })
+    expect(parsed.viewerCapabilities).toBeUndefined()
+  })
+
+  it('a full branch payload carrying the block parses cleanly (no throw) alongside every other field', () => {
+    expect(() =>
+      branchSchema.parse({
+        id: 'b1',
+        name: 'Main',
+        isMainBranch: true,
+        addressLine1: '12 High Street',
+        city: 'Cambridge',
+        postcode: 'CB2 1AB',
+        isActive: true,
+        locationConfidence: 'MANUALLY_CONFIRMED',
+        redemptionPinSet: true,
+        lifecycleStatus: 'LIVE',
+        viewerCapabilities: { canManage: true },
+        openingHours: [],
+        amenities: [],
+        photos: [],
+        pendingEdits: [],
+      }),
+    ).not.toThrow()
+  })
+})

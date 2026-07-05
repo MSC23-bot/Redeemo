@@ -31,7 +31,7 @@ function val(v: string | null | undefined): string {
   return (v ?? '').trim()
 }
 
-export function ContactCard({ branch, isOwner }: { branch: Branch; isOwner: boolean }) {
+export function ContactCard({ branch, canManage }: { branch: Branch; canManage: boolean }) {
   const { toast } = useToast()
   const update = useUpdateBranchContact()
 
@@ -101,7 +101,7 @@ export function ContactCard({ branch, isOwner }: { branch: Branch; isOwner: bool
           >
             Saves instantly
           </span>
-          {isOwner && !editing ? (
+          {canManage && !editing ? (
             <button
               type="button"
               onClick={startEdit}

@@ -7,6 +7,7 @@ import {
   resolveMerchantContext,
   assertBranchAllowed,
   assertCanManageBranch,
+  canManageBranchPredicate,
   assertOwner,
   isDraftWindow,
   type EditActor,
@@ -186,7 +187,15 @@ export async function getBranch(prisma: PrismaClient, adminId: string, branchId:
   // their allowed set; assertBranchAllowed throws INSUFFICIENT_PERMISSIONS otherwise.
   const ctx = await resolveMerchantContext(prisma, adminId)
   assertBranchAllowed(ctx, branchId)
-  return toMerchantBranch(await resolveBranch(prisma, branchId, ctx.merchantId))
+  // D-BM1: additive per-branch capability hint computed from the context already
+  // in memory via the ONE shared predicate (never inline the formula here - the
+  // single-definition-site guard pins that). Composed AFTER toMerchantBranch so
+  // the #377 pin-hygiene chain is preserved. A boolean only - never ids or
+  // assignment lists. UX hint: backend asserts remain the real boundary.
+  return {
+    ...toMerchantBranch(await resolveBranch(prisma, branchId, ctx.merchantId)),
+    viewerCapabilities: { canManage: canManageBranchPredicate(ctx, branchId) },
+  }
 }
 
 /**

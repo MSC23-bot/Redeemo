@@ -79,14 +79,19 @@ export function QuickActionsMenu({ open, onOpenChange, role, canManageVouchers }
   const firstItemRef = React.useRef<HTMLButtonElement>(null)
   const [pinPickerOpen, setPinPickerOpen] = React.useState(false)
 
-  const isOwner = role === 'OWNER'
+  // D-BM1: the PIN row widens to assigned Branch Managers. Safe by chain: the
+  // branch list below is scope-filtered server-side (a BM receives ONLY assigned
+  // branches), every listed branch satisfies assertCanManageBranch for that BM,
+  // and the reveal route itself stays server-guarded regardless. STAFF keeps no
+  // PIN row and is server-denied in depth.
+  const canPinRow = role === 'OWNER' || role === 'BRANCH_MANAGER'
 
   // Branch list only fetched while the popover is open for an OWNER (lazy; the
   // list endpoint is scope-safe server-side).
   const branches = useQuery({
     queryKey: ['branches'],
     queryFn: listBranches,
-    enabled: open && isOwner,
+    enabled: open && canPinRow,
     staleTime: 60_000,
   })
   // CLOSED branches are terminal/soft-deleted; everything else may carry a PIN.
@@ -195,7 +200,7 @@ export function QuickActionsMenu({ open, onOpenChange, role, canManageVouchers }
                   onClick={() => go('/vouchers?create=1')}
                 />
               )}
-              {isOwner && branchRows.length > 0 && (
+              {canPinRow && branchRows.length > 0 && (
                 <ActionRow
                   icon={<KeyRound size={18} />}
                   accent="#198375"
