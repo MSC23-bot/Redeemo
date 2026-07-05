@@ -76,7 +76,7 @@ Direct `state.imageUrl`/`state.expiryDate` consumers outside tests: `builderMode
 ## 10. Rollback + compatibility
 
 - Backward compatible both directions: the widened Zod schema is a strict superset (current frontend never sends null); the old frontend against the new backend is unchanged behaviour.
-- Deploy order free: backend may ship alone; recommend one PR for reviewability.
+- Deploy order: backend-first or same-release ONLY (CodeRabbit #370 finding, accepted). The widened Zod schema is backward compatible with the old frontend, but the reverse is NOT order-free: a new frontend sending explicit null to the current backend fails the PATCH Zod validation (`routes.ts:49-50` rejects null) with a 400. The frontend clear controls must never ship ahead of the backend schema change; one PR shipping both is the recommended shape.
 - Rollback = revert the PR; no data migration, no flag, no env change. Vouchers cleared while the feature was live simply hold NULL, which every read path already handles as first-class "no photo / no expiry" (favourites bucketing, Voucher Detail D4 expired-first derivation, redemption guard - all `if (expiryDate && ...)` guarded).
 
 ## 11. Test plan (contract, UI, adversarial)
