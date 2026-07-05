@@ -1,5 +1,18 @@
 # Redeemo — Private Staging Runbook (audit-corrected)
 
+> ## ⚠️ SUPERSEDED (2026-07-05) — pre-incident snapshot; do not trust the deployment state below
+>
+> This runbook is a **2026-06-25 pre-incident snapshot** written before the **2026-07-03 staging Web P1001 failure + recovery**. Its "everything is live and auto-deploying" framing is **stale**. For the verified current state + the reusable future-deployment handoff, use **`docs/runbooks/2026-07-05-security-deployment-state-reconciliation.md`** (authoritative) and **`docs/runbooks/r1-key-rotation-activation-runbook.md`** (§13 recovery record).
+>
+> **Do NOT rely on the following claims in this doc — all corrected in the reconciliation doc §5:**
+> - "Web auto-deploys from `main`" (lines 18/42/68) → **auto-deploy last verified DISABLED**; Web serves the protected recovery branch `recovery/pre-r1-baseline` @ `53bafac4` (serving deployment `6d26b0b4`).
+> - "running / target `fe10fb16`" (lines 18/42/85/159) → **no historical SHA is the next deploy target**; the SHA is chosen + reviewed at the future deployment session.
+> - "pre-deploy `migrate deploy` hook already applied/ran" (lines 22/66/159) → the **pre-deploy migration command is ABSENT** (removed by the recovery, not restored); migrations run operator-controlled on the verified Neon **DIRECT** endpoint, never a pooled hook.
+> - "Worker Online" (line 19) → **Worker Offline** (stopped).
+> - "staging Neon endpoint direct/non-pooled" (D-3, lines 21/106/171) → the runtime `DATABASE_URL` is **POOLED**; only migrations use the separate DIRECT endpoint.
+>
+> The "test-keys-only / sandboxed email / seed-data-only / not a public launch" framing below remains correct. R1 key rotation is **deferred, not cancelled** (reconciliation doc §1).
+>
 > **Status: AUDIT + PLAN. No changes made.** This was first drafted (2026-06-25) as a blank-slate stand-up. A read-only infrastructure audit then established that **a `redeemo / staging` environment already exists and is live** (Railway web + worker + Redis, Neon staging branch, sandbox email), built owner-led on **2026-06-13**. This version reflects the **real current state**: most of staging already exists; the genuine remaining work is **deploying the three Next apps to Vercel + wiring CORS**, plus a short hardening/verify pass.
 >
 > **Not a public launch.** Staging stays access-controlled, noindex, test-keys-only, sandboxed email, seed/test data only.
