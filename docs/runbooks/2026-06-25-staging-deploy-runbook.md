@@ -12,7 +12,7 @@
 > - "staging Neon endpoint direct/non-pooled" (D-3, lines 21/106/171) → the runtime `DATABASE_URL` is **POOLED**; only migrations use the separate DIRECT endpoint.
 >
 > The "test-keys-only / sandboxed email / seed-data-only / not a public launch" framing below remains correct. R1 key rotation is **deferred, not cancelled** (reconciliation doc §1).
-
+>
 > **Status: AUDIT + PLAN. No changes made.** This was first drafted (2026-06-25) as a blank-slate stand-up. A read-only infrastructure audit then established that **a `redeemo / staging` environment already exists and is live** (Railway web + worker + Redis, Neon staging branch, sandbox email), built owner-led on **2026-06-13**. This version reflects the **real current state**: most of staging already exists; the genuine remaining work is **deploying the three Next apps to Vercel + wiring CORS**, plus a short hardening/verify pass.
 >
 > **Not a public launch.** Staging stays access-controlled, noindex, test-keys-only, sandboxed email, seed/test data only.

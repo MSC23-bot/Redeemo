@@ -16,7 +16,9 @@ Governing main at authorship: `3a097161`. Recovery baseline (Railway Web source)
 
 The R1 encryption-key rotation is **deferred**. The existing, uncompromised `ENCRYPTION_KEY` **legacy-bridge mode** remains the **approved temporary operating mode**: the application boots and serves on the single key; existing 3-part branch-PIN ciphertext reads unchanged; nothing is rotated. This was adjudicated C-DEFERRABLE (Sonnet source evidence + Opus adversarial challenge, zero blocking corrections) and is consistent with the R1 runbook's own DRAFT/preparation-only status.
 
-**Unexecuted and remaining so under this decision:** P9 (acceptance-fixture provenance), P1b (migration-readiness gate), Option 3 (SELECT-only candidate-fixture inspection), the temporary staging-only SELECT-only inspection role, and R1 activation itself (migration + deliberate deploy of the R1 image + fingerprint parity + staging acceptance + any future key flip).
+**Deferred WITH R1 (advance only on a §1.1 reopening trigger):** P9 (acceptance-fixture provenance), Option 3 (SELECT-only candidate-fixture inspection), the temporary staging-only SELECT-only inspection role, and R1 activation / the rotation ceremony itself (fingerprint parity, staging acceptance, any future key flip). These are the key-rotation programme and do not proceed until a §1.1 trigger fires.
+
+**Separately gated — NOT tied to an R1 trigger:** P1b (or the equivalent direct-endpoint migration-readiness verification: identity/permission preflight + `prisma migrate status` on the verified Neon DIRECT endpoint) remains **unexecuted and separately owner-gated**. It **may be approved for a non-R1 deployment migration** — e.g. a separately approved pre-launch current-main deploy that needs its additive migrations applied — **without reopening or executing the rotation ceremony**. Such approval authorises only the specific in-scope migration and promotes **no** P9, Option 3, inspection-role, or key-rotation step.
 
 ### 1.1 Reopen R1 only when ONE of these triggers fires
 1. The owner **schedules a post-launch rotation**.
@@ -24,7 +26,7 @@ The R1 encryption-key rotation is **deferred**. The existing, uncompromised `ENC
 3. **Explicit multi-key mode is needed** (an operational reason to run the keyring in explicit mode with more than the bridged legacy kid).
 4. A **relevant encryption format or rollback contract changes** (e.g. a v2 write-path is enabled, the envelope format changes, or the rollback-compatibility guarantee is altered).
 
-Until a trigger fires, do not advance P9/P1b/Option 3/the SELECT-only role/R1. R1 remains a scheduled-later, owner-gated programme.
+Until a trigger fires, do not reopen or advance P9 / Option 3 / the SELECT-only role / R1 rotation. (P1b migration-readiness is separately gated per §1 and may be owner-approved for a non-R1 deployment migration without any trigger — it promotes no rotation step.) R1 rotation remains a scheduled-later, owner-gated programme.
 
 ---
 
@@ -52,14 +54,18 @@ When the owner later approves deploying a reviewed current-main SHA to staging, 
 
 1. **Freeze the exact SHA.** Record the full 40-char SHA to deploy; bind all subsequent checks to it.
 2. **Compare with the serving recovery baseline.** `git diff --stat 53bafac4..<SHA>` (and on `src/api/shared/`, `src/worker.ts`, `prisma/`) so the deployer sees exactly what changes vs what is currently serving.
-3. **Inventory every pending migration.** `git diff --name-only 53bafac4..<SHA> -- prisma/migrations/`; for each, note additive-vs-destructive and whether the serving code hard-requires it at boot (as of authorship the two pending are `20260629000000_keyring_fingerprint` and `20260702000000_maintenance_alert_types`, both additive and non-fatal-if-unapplied for the core journey — confirm at freeze).
+3. **Inventory candidate migrations from source, then prove live pending-state separately — Git alone never proves database migration state.**
+   - **(a) Source candidate inventory (Git, informational only):** `git diff --name-only 53bafac4..<SHA> -- prisma/migrations/` lists the migration files added in *source* since the baseline (as of authorship: `20260629000000_keyring_fingerprint` + `20260702000000_maintenance_alert_types`, both additive; note additive-vs-destructive + whether the serving code hard-requires each at boot). This shows what the source tree contains, **not** what the database has applied.
+   - **(b) Authoritative live pending-state:** proven ONLY by `prisma migrate status` (or equivalent) run during a **separately approved operator session** against the **verified Neon DIRECT endpoint**, after an identity/permission preflight. Never describe the Git diff as proof of applied/pending database state.
 4. **Reconcile required env-var NAMES (no values).** Diff `REQUIRED_SECRETS` + `FEATURE_GATED_SECRETS` in `src/api/shared/env.ts` against what the target environment is asserted to have. Names only — never inspect or print values.
 5. **Confirm provider TEST credentials for the chosen acceptance scope.** Only the providers the acceptance run will exercise (e.g. Stripe test, Twilio test, Resend sandbox, R2 staging bucket) — test/sandbox tier, never production keys, for staging.
 6. **Confirm Railway source + auto-deploy + pre-deploy-command state.** Source branch, auto-deploy DISABLED, and NO `release:`/pre-deploy migration command — re-verify live; never restore a pooled pre-deploy migration hook.
 7. **Confirm which Vercel/mobile surfaces are actually hosted and at which SHA.** customer-web, merchant-web, admin-web (Vercel) and any customer-app build — record each surface's deployed SHA to expose version-skew before acceptance.
 8. **Keep the worker Offline** unless its activation is separately owner-approved (worker start is its own gate).
-9. **Health + bounded read-only acceptance checks.** `/health`, then a bounded read-only smoke of the target journey; no writes beyond seed/test data; no destructive checks.
-10. **Record rollback + protected-recovery-branch evidence.** Confirm the recovery baseline is still deployable (P8), the protective ruleset is intact, and capture the rollback path before flipping serving traffic.
+9. **Acceptance in two separately-gated phases — do NOT conflate them.**
+   - **(a) Initial read-only checks:** `/health` + a bounded **read-only** smoke of the target journey. Truly read-only — no writes of any kind.
+   - **(b) Later synthetic end-to-end acceptance (separately approved):** may create or mutate **only explicitly-scoped test data**. Voucher publication, redemption, and seeding are **writes** — a synthetic E2E run is NOT read-only; it must be separately gated and scoped as a write operation and must never be described as read-only.
+10. **Record rollback + protected-recovery-branch evidence (verifiable WITHOUT rebuilding).** Capture, without performing any build/deploy: (i) the protected recovery branch still exists at the exact SHA (`53bafac4`); (ii) the ruleset (`18485943`) remains active; (iii) the lockfile / source path remains available; (iv) the provider rollback/rebuild path remains documented and visible where applicable. Do NOT claim the baseline is "deployable" — asserting deployability would require an actual build/deploy; record the preserved-rollback evidence instead.
 
 Migrations in step 3, when applied, run via the controlled operator process on the verified Neon **DIRECT** endpoint — separately owner-approved, never a pooled Railway pre-deploy hook.
 
