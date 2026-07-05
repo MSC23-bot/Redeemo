@@ -197,6 +197,13 @@ export interface MockApiOptions {
    * detail page today).
    */
   voucherDetails?: Record<string, Record<string, unknown>>
+  /**
+   * Decrypted PIN values for GET /merchant/branches/:id/pin, keyed by branch id
+   * (branches.spec.ts PIN-reveal journey). Default: {} - any branch id not listed
+   * returns { pin: null }, matching every pre-existing spec byte-for-byte since none
+   * of them ever click Reveal (no spec before branches.spec.ts requests this route).
+   */
+  branchPins?: Record<string, string | null>
 }
 
 export interface MockApiTracker {
@@ -221,6 +228,7 @@ export async function installMockApi(
   const customVouchers = opts.customVouchers ?? []
   const flagshipVouchers = opts.flagshipVouchers ?? []
   const notifications = opts.notifications ?? []
+  const branchPins = opts.branchPins ?? {}
   // Deep-clone per install: the PATCH handler below mutates this map in place
   // (simulating the backend's merge-and-return), and `opts.voucherDetails` may
   // be a fixture object literal shared by reference across every test in a
@@ -270,6 +278,13 @@ export async function installMockApi(
     if (method === 'GET' && branchMatch) {
       const row = branches.find((b) => (b as { id?: string }).id === branchMatch[1])
       await route.fulfill(row ? json(200, row) : json(404, { error: 'BRANCH_NOT_FOUND' }))
+      return
+    }
+    // GET /merchant/branches/:id/pin (decrypted, on-demand reveal only - branches.spec.ts).
+    // Checked before the fallback so an unmocked test never silently 404s here.
+    const branchPinMatch = p.match(/^\/api\/v1\/merchant\/branches\/([^/]+)\/pin$/)
+    if (method === 'GET' && branchPinMatch) {
+      await route.fulfill(json(200, { pin: branchPins[branchPinMatch[1]] ?? null }))
       return
     }
     if (method === 'GET' && p === '/api/v1/merchant/redemptions') {
