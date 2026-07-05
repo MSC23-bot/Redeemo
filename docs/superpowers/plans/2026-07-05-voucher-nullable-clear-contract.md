@@ -1,7 +1,8 @@
 # Voucher nullable-clear contract: saved photo (imageUrl) + end date (expiryDate)
 
-Status: DRAFT - durable plan / spec amendment for owner approval. IMPLEMENTATION IS OWNER-GATED: do not build until the owner explicitly approves this plan.
-Date: 2026-07-05. Verified against `origin/main` @ `8621c9a1` (every anchor re-read from source this pass; see §12 cross-check table).
+Status: DRAFT - implementation plan for owner approval. IMPLEMENTATION IS OWNER-GATED: do not build until the owner explicitly approves the companion spec + this plan.
+Companion design spec: `docs/superpowers/specs/2026-07-05-voucher-nullable-clear-design.md` (durable design semantics; this plan carries the implementation detail).
+Date: 2026-07-05. Provenance: every anchor was read from source at `origin/main` @ `8621c9a1`; re-verified through `fd8e80b6` (the PR base) and `2945bf78` (current main at correction time). Proof: `git diff --name-only 8621c9a1..2945bf78` touches ONLY `docs/PROJECT-STATE.md`, the Merchant roadmap, and `apps/merchant-web/app/(app)/staff/__tests__/page.remove-confirm.test.tsx` - none of this plan's source anchors (voucher routes/service, builder components, voucher API client, prisma schema, redemption service) changed in either range, so all file:line citations remain byte-accurate.
 Tier: 1 (bounded change inside the existing custom-voucher DRAFT-edit lane), documented at Tier-2 rigour because it widens a PATCH contract and enables deletion of saved values.
 Predecessor record: `docs/superpowers/plans/2026-07-04-merchant-vouchers-v1-builder-parity.md` (PR #366) shipped the honestly-constrained UI and recorded this contract change as the gated follow-up. The roadmap Vouchers row carries the same recorded follow-up.
 
