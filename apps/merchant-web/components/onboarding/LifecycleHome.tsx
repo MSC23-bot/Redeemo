@@ -132,13 +132,19 @@ function ReadOnlyNotice({
                 {reason}
               </div>
             ) : null}
-            <button
-              type="button"
+            {/* Interim mailto affordance (owner-approved merchants@redeemo.co.uk per the
+                D-F email decision) pending the real support-model decision. `role="button"`
+                keeps this affordance discoverable via getByRole('button', ...) the same way
+                the previous inert <button> was, since the visual treatment and surrounding
+                copy are unchanged - only the element (and its functionality) changed. */}
+            <a
+              href="mailto:merchants@redeemo.co.uk"
+              role="button"
               className="mt-3.5 inline-flex h-9 items-center rounded-[10px] border bg-white px-4 text-[13px] font-bold"
               style={{ borderColor: accent, color: accent }}
             >
               Contact Redeemo
-            </button>
+            </a>
           </div>
         </div>
       </div>

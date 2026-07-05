@@ -54,4 +54,30 @@ describe('LifecycleHome', () => {
     render(<LifecycleHome state="live" businessName="Roe Cafe" status={null} />)
     expect(screen.getByText(/your business is live/i)).toBeInTheDocument()
   })
+
+  // Polish batch: the Contact Redeemo affordance was previously an inert <button>
+  // with no onClick/href. It is now a real mailto link (role="button" preserves
+  // the getByRole('button', ...) queries above, since only the element and its
+  // functionality changed - not the visual treatment or surrounding copy).
+  it('gives the suspended-home Contact Redeemo affordance a working mailto href', () => {
+    render(<LifecycleHome state="suspended" businessName="Roe Cafe" status={null} />)
+    expect(screen.getByRole('button', { name: /contact redeemo/i })).toHaveAttribute(
+      'href',
+      'mailto:merchants@redeemo.co.uk',
+    )
+  })
+
+  it('gives the rejected-home Contact Redeemo affordance a working mailto href', () => {
+    render(
+      <LifecycleHome
+        state="rejected"
+        businessName="Roe Cafe"
+        status={{ status: 'REJECTED', comment: null, actionedAt: null }}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /contact redeemo/i })).toHaveAttribute(
+      'href',
+      'mailto:merchants@redeemo.co.uk',
+    )
+  })
 })
