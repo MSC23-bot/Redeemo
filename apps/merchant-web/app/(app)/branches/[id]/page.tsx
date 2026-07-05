@@ -9,10 +9,12 @@
  * their section cards into its marked mount points and F13 slots locked affordances.
  * F3 renders the header, the review-state banners, and the owner-only staff card.
  *
- * Owner gate (plan §1.5): useBranchCapability() derives isOwner from the owner-gated
- * staff query (the same query that feeds the F12 staff card). It is threaded into
- * <BranchDetail> so the later write controls gate on it. The backend owner-only
- * resolver is the real boundary.
+ * Role gate (D-BM1): useBranchCapability() derives the role from the profile
+ * viewerCapabilities, with a TEMPORARY owner-only staff-probe fallback for
+ * pre-#364 backends (see the hook's contract comment + removal trigger). It is
+ * threaded into <BranchDetail> alongside the effective per-branch capability so
+ * write controls gate per the D-BM1 flip matrix. Backend asserts are the real
+ * boundary.
  */
 import { useParams, useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
@@ -34,7 +36,8 @@ export default function BranchDetailPage() {
   const profile = useMerchantProfile(session.isAuthenticated)
 
   const query = useBranch(id)
-  // D-BM1: role from the profile (the probe is retired). effectiveCanManage
+  // D-BM1: role from the profile (with the temporary owner-only skew fallback
+  // inside the hook - see its removal trigger). effectiveCanManage
   // composes the role with the branch payload's capability hint; the draft
   // window keeps sensitive identity edits owner-only (merged spec §8).
   const { isOwner, ready, role } = useBranchCapability(!!id)

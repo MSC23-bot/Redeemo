@@ -18,6 +18,13 @@ function branchWith(viewerCapabilities: Branch['viewerCapabilities']): Pick<Bran
 }
 
 describe('effectiveCanManage', () => {
+  // Also covers the D-BM1 correction-round legacy-probe fallback: a role of
+  // 'OWNER' derived from the old-backend GET /merchant/staff 200 probe (see
+  // useBranchCapability.ts) is indistinguishable from a modern profile-role
+  // OWNER by the time it reaches this formula, and an absent branch block is
+  // exactly what an old backend emits (it never sends the per-branch
+  // canManage grant either). See useBranchCapability.test.tsx case 4 for the
+  // hook-level pin of the fallback itself.
   it('OWNER + block absent -> true', () => {
     expect(effectiveCanManage('OWNER', branchWith(undefined))).toBe(true)
   })
