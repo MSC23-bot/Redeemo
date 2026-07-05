@@ -22,7 +22,7 @@ function identityPendingEdits(branch: Branch): BranchPendingEdit[] {
   return (branch.pendingEdits ?? []).filter((e) => e.status === 'PENDING' && !e.includesPhotos)
 }
 
-export function PendingEditsList({ branch, isOwner }: { branch: Branch; isOwner: boolean }) {
+export function PendingEditsList({ branch, canManage }: { branch: Branch; canManage: boolean }) {
   const { toast } = useToast()
   const withdraw = useWithdrawBranchEditRequest()
   const [actionError, setActionError] = React.useState<string | null>(null)
@@ -69,7 +69,7 @@ export function PendingEditsList({ branch, isOwner }: { branch: Branch; isOwner:
               </p>
             </div>
           </div>
-          {isOwner ? (
+          {canManage ? (
             <Button
               type="button"
               size="sm"

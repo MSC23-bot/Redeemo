@@ -60,7 +60,7 @@ beforeEach(() => {
 
 describe('AmenitiesCard catalogue + owner gating', () => {
   it('does NOT fetch the catalogue on mount (owner, view mode) but DOES once Edit opens, keyed by primaryCategoryId', async () => {
-    render(<AmenitiesCard branch={branch()} isOwner />)
+    render(<AmenitiesCard branch={branch()} canManage />)
     // Lazy: nothing requested while the owner is just viewing the card.
     expect(getBranchAmenities).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
@@ -68,7 +68,7 @@ describe('AmenitiesCard catalogue + owner gating', () => {
   })
 
   it('shows current selected amenities read-only for a non-owner with NO Edit control and NO catalogue fetch', async () => {
-    render(<AmenitiesCard branch={branch()} isOwner={false} />)
+    render(<AmenitiesCard branch={branch()} canManage={false} />)
     expect(screen.getByText('Outdoor Seating')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument()
     // A read-only viewer must never hit the customer amenity endpoint.
@@ -76,20 +76,20 @@ describe('AmenitiesCard catalogue + owner gating', () => {
   })
 
   it('shows an Edit control for an owner', () => {
-    render(<AmenitiesCard branch={branch()} isOwner />)
+    render(<AmenitiesCard branch={branch()} canManage />)
     expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument()
     expect(getBranchAmenities).not.toHaveBeenCalled()
   })
 
   it('renders the "Saves instantly" hint', () => {
-    render(<AmenitiesCard branch={branch()} isOwner />)
+    render(<AmenitiesCard branch={branch()} canManage />)
     expect(screen.getByText(/saves instantly/i)).toBeInTheDocument()
   })
 })
 
 describe('AmenitiesCard toggle + save', () => {
   it('owner toggle then save POSTs the FULL amenityIds list', async () => {
-    render(<AmenitiesCard branch={branch()} isOwner />)
+    render(<AmenitiesCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     // Catalogue chips appear once loaded; toggle Free Parking ON (a1 already on).
     const freeParking = await screen.findByRole('button', { name: /free parking/i })
@@ -103,7 +103,7 @@ describe('AmenitiesCard toggle + save', () => {
   })
 
   it('toggling an already-selected amenity off removes it from the full list', async () => {
-    render(<AmenitiesCard branch={branch()} isOwner />)
+    render(<AmenitiesCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     const outdoor = await screen.findByRole('button', { name: /outdoor seating/i })
     fireEvent.click(outdoor) // turn a1 off
@@ -113,7 +113,7 @@ describe('AmenitiesCard toggle + save', () => {
   })
 
   it('shows a success toast after a save', async () => {
-    render(<AmenitiesCard branch={branch()} isOwner />)
+    render(<AmenitiesCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     const freeParking = await screen.findByRole('button', { name: /free parking/i })
     fireEvent.click(freeParking)
@@ -127,7 +127,7 @@ describe('AmenitiesCard toggle + save', () => {
 describe('AmenitiesCard missing-category fallback', () => {
   it('renders current amenities read-only + a note + no edit, and does NOT fetch the catalogue', async () => {
     mockProfile = { data: { primaryCategoryId: null } }
-    render(<AmenitiesCard branch={branch()} isOwner />)
+    render(<AmenitiesCard branch={branch()} canManage />)
     expect(screen.getByText('Outdoor Seating')).toBeInTheDocument()
     expect(
       screen.getByText(/amenity editing is unavailable until your business category is set/i),
@@ -139,7 +139,7 @@ describe('AmenitiesCard missing-category fallback', () => {
 
   it('does not crash when the merchant profile is still loading (undefined data)', () => {
     mockProfile = { data: undefined }
-    expect(() => render(<AmenitiesCard branch={branch()} isOwner />)).not.toThrow()
+    expect(() => render(<AmenitiesCard branch={branch()} canManage />)).not.toThrow()
     expect(getBranchAmenities).not.toHaveBeenCalled()
   })
 })
@@ -147,7 +147,7 @@ describe('AmenitiesCard missing-category fallback', () => {
 describe('AmenitiesCard catalogue error', () => {
   it('surfaces a catalogue load failure via role=alert without crashing', async () => {
     getBranchAmenities.mockRejectedValue(new Error('down'))
-    render(<AmenitiesCard branch={branch()} isOwner />)
+    render(<AmenitiesCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
   })

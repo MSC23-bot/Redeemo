@@ -24,15 +24,13 @@
 //   - The live table + the pending banner render N windows per day (e.g. "9am to 2pm,
 //     5pm to 11pm"), ordered by openTime, via the shared formatDay / formatDayWindows.
 //   - The edit still routes through the PR-4 cool-off STAGE-not-apply path + the same
-//     OWNER-only client gate; only the window UI + the payload cardinality changed.
+//     capability client gate (D-BM1); only the window UI + the payload cardinality changed.
 //
-// CLIENT GATING (PR-4 §6 #4): the Edit + Cancel controls render OWNER-only client-side
-// via the existing `isOwner` signal. The backend ALSO allows an assigned
-// BRANCH_MANAGER (server-enforced via assertCanManageBranch), but merchant-web has no
-// Branch-Manager capability signal yet (the viewerCapabilities slice is deferred per
-// PR-2), so we render OWNER-only for now. The backend is the real authorization
-// boundary; this only drives which controls render. BM-rendering awaits the deferred
-// viewerCapabilities signal. STAFF / non-owner see the read-only table only.
+// CLIENT GATING (PR-4 §6 #4, updated for D-BM1): the Edit + Cancel controls
+// gate on `canManage` (the per-branch effective capability), so OWNER and
+// assigned Branch Managers both see them. The backend assertCanManageBranch is
+// the real authorization boundary; this only drives which controls render.
+// STAFF / unassigned members see the read-only table only.
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
 import * as React from 'react'
@@ -116,11 +114,11 @@ function friendlyGoLive(iso: string): string {
 
 export function OpeningHoursCard({
   branch,
-  isOwner,
+  canManage,
   now = new Date(),
 }: {
   branch: Branch
-  isOwner: boolean
+  canManage: boolean
   now?: Date
 }) {
   const { toast } = useToast()
@@ -162,8 +160,8 @@ export function OpeningHoursCard({
             <Clock size={12} aria-hidden />2 hour customer cool off
           </span>
         </div>
-        {/* PR-4: LIVE Edit control (owner-gated client-side; server-enforced). */}
-        {isOwner ? (
+        {/* PR-4: LIVE Edit control (capability-gated client-side per D-BM1; server-enforced). */}
+        {canManage ? (
           <button
             type="button"
             data-testid="hours-edit"
@@ -209,7 +207,7 @@ export function OpeningHoursCard({
                   </p>
                 </div>
               </div>
-              {isOwner ? (
+              {canManage ? (
                 <Button
                   type="button"
                   size="sm"

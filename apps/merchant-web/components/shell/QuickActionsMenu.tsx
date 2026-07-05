@@ -8,7 +8,7 @@
  *   2. Create a voucher - canManageVouchers only; routes to /vouchers?create=1.
  *   3. View a branch redemption PIN - OWNER only in this wave (backend PR-2 D3
  *      also admits an assigned BRANCH_MANAGER, but the branch page's PIN section
- *      currently renders owner-only; extend both together when a per-branch
+ *      renders for OWNER and assigned BMs since D-BM1; keep both surfaces aligned when the per-branch
  *      capability signal exists). Single branch: routes straight to its PIN
  *      section; multiple: expands an inline branch sub-picker. The PIN is NEVER
  *      revealed here - the destination is the guarded on-page PinCard
@@ -79,14 +79,20 @@ export function QuickActionsMenu({ open, onOpenChange, role, canManageVouchers }
   const firstItemRef = React.useRef<HTMLButtonElement>(null)
   const [pinPickerOpen, setPinPickerOpen] = React.useState(false)
 
-  const isOwner = role === 'OWNER'
+  // D-BM1: the PIN row widens to assigned Branch Managers. Safe by chain: the
+  // branch list below is scope-filtered server-side (a BM receives ONLY assigned
+  // branches), every listed branch satisfies assertCanManageBranch for that BM,
+  // and the reveal route itself stays server-guarded regardless. STAFF keeps no
+  // PIN row and is server-denied in depth.
+  const canPinRow = role === 'OWNER' || role === 'BRANCH_MANAGER'
 
-  // Branch list only fetched while the popover is open for an OWNER (lazy; the
+  // Branch list only fetched while the popover is open for a PIN-capable
+  // viewer (OWNER or an assigned BRANCH_MANAGER via canPinRow) (lazy; the
   // list endpoint is scope-safe server-side).
   const branches = useQuery({
     queryKey: ['branches'],
     queryFn: listBranches,
-    enabled: open && isOwner,
+    enabled: open && canPinRow,
     staleTime: 60_000,
   })
   // CLOSED branches are terminal/soft-deleted; everything else may carry a PIN.
@@ -195,7 +201,7 @@ export function QuickActionsMenu({ open, onOpenChange, role, canManageVouchers }
                   onClick={() => go('/vouchers?create=1')}
                 />
               )}
-              {isOwner && branchRows.length > 0 && (
+              {canPinRow && branchRows.length > 0 && (
                 <ActionRow
                   icon={<KeyRound size={18} />}
                   accent="#198375"

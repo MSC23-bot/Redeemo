@@ -2,8 +2,9 @@
  * Shell wave: QuickActionsMenu tests. Pins the prototype action set + the
  * capability gating (UX hints; backend asserts remain the boundary):
  * Validate (always) / Create a voucher (canManageVouchers) / branch PIN
- * (OWNER only, routes to the guarded on-page PinCard - never inline) /
- * Today's redemptions (always).
+ * (D-BM1: OWNER or an assigned BRANCH_MANAGER, routes to the guarded on-page
+ * PinCard - never inline; STAFF never sees the row) / Today's redemptions
+ * (always).
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -115,18 +116,24 @@ describe('QuickActionsMenu', () => {
     expect(screen.getByText('Reveal your branch PIN')).toBeInTheDocument()
   })
 
-  it('the PIN action never appears for BRANCH_MANAGER or STAFF in this wave (fail closed)', async () => {
-    const { rerender } = renderMenu({ role: 'BRANCH_MANAGER' })
+  // D-BM1 (merged spec §10): the PIN row widens from OWNER-only to OWNER OR
+  // BRANCH_MANAGER. Safety chain: the branch list is scope-filtered server-side
+  // (a BM only ever receives their assigned set), so every listed row already
+  // satisfies assertCanManageBranch for that BM, and the reveal route itself
+  // stays server-guarded regardless. STAFF keeps NO PIN row and fetches nothing.
+  it('a BRANCH_MANAGER sees the PIN row (single-branch copy) and the scoped branch list is fetched', async () => {
+    renderMenu({ role: 'BRANCH_MANAGER' })
+    const action = await screen.findByText('View a branch redemption PIN')
+    expect(screen.getByText('Reveal your branch PIN')).toBeInTheDocument()
+    fireEvent.click(action)
+    expect(push).toHaveBeenCalledWith('/branches/b1#pin')
+    expect(listBranches).toHaveBeenCalled()
+  })
+
+  it('the PIN action never appears for STAFF in this wave (fail closed)', async () => {
+    renderMenu({ role: 'STAFF' })
     expect(screen.queryByText('View a branch redemption PIN')).not.toBeInTheDocument()
-    rerender(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <ValidateDialogContext.Provider value={{ openValidate: jest.fn() }}>
-          <QuickActionsMenu open onOpenChange={jest.fn()} role="STAFF" canManageVouchers={false} />
-        </ValidateDialogContext.Provider>
-      </QueryClientProvider>,
-    )
-    expect(screen.queryByText('View a branch redemption PIN')).not.toBeInTheDocument()
-    // And no branch fetch fires for non-owners (lazy + gated).
+    // And no branch fetch fires for STAFF (lazy + gated).
     await waitFor(() => expect(listBranches).not.toHaveBeenCalled())
   })
 

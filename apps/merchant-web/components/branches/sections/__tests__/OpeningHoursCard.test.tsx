@@ -81,7 +81,7 @@ beforeEach(() => {
 
 describe('OpeningHoursCard read-only live table', () => {
   it('renders all seven weekdays with their open/close times', () => {
-    render(<OpeningHoursCard branch={branch()} isOwner />)
+    render(<OpeningHoursCard branch={branch()} canManage />)
     expect(screen.getByText('Monday')).toBeInTheDocument()
     expect(screen.getByText('Tuesday')).toBeInTheDocument()
     expect(screen.getByText('Sunday')).toBeInTheDocument()
@@ -89,37 +89,37 @@ describe('OpeningHoursCard read-only live table', () => {
   })
 
   it('renders "Closed" for closed days', () => {
-    render(<OpeningHoursCard branch={branch()} isOwner />)
+    render(<OpeningHoursCard branch={branch()} canManage />)
     expect(screen.getAllByText(/closed/i).length).toBeGreaterThan(0)
   })
 
   it('makes no network call to render', () => {
-    render(<OpeningHoursCard branch={branch()} isOwner />)
+    render(<OpeningHoursCard branch={branch()} canManage />)
     expect(apiFetch).not.toHaveBeenCalled()
   })
 })
 
 describe('OpeningHoursCard PR-4 cool-off chip + live Edit', () => {
   it('renders the "2 hour customer cool off" chip (was OMITTED in PR-1)', () => {
-    render(<OpeningHoursCard branch={branch()} isOwner />)
+    render(<OpeningHoursCard branch={branch()} canManage />)
     expect(screen.getByTestId('cool-off-chip')).toBeInTheDocument()
     expect(screen.getByText(/2 hour customer cool off/i)).toBeInTheDocument()
   })
 
   it('the Edit control is now a LIVE enabled button (was a disabled LockedAffordance)', () => {
-    render(<OpeningHoursCard branch={branch()} isOwner />)
+    render(<OpeningHoursCard branch={branch()} canManage />)
     const editBtn = screen.getByTestId('hours-edit')
     expect(editBtn).toBeEnabled()
   })
 
   it('opens the hours editor when Edit is clicked', () => {
-    render(<OpeningHoursCard branch={branch()} isOwner />)
+    render(<OpeningHoursCard branch={branch()} canManage />)
     fireEvent.click(screen.getByTestId('hours-edit'))
     expect(screen.getByTestId('hours-editor-modal')).toBeInTheDocument()
   })
 
   it('no longer shows the locked "Add a second window" affordance (multi-window is now live in the editor)', () => {
-    render(<OpeningHoursCard branch={branch()} isOwner />)
+    render(<OpeningHoursCard branch={branch()} canManage />)
     expect(screen.queryByRole('button', { name: /second window/i })).not.toBeInTheDocument()
   })
 })
@@ -134,19 +134,19 @@ describe('OpeningHoursCard multi-window (PR-8)', () => {
   ]
 
   it('renders BOTH windows of a split day, ordered by openTime', () => {
-    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} isOwner />)
+    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} canManage />)
     const monday = screen.getByTestId('hours-row-1')
     expect(within(monday).getByText(/9am to 2pm, 5pm to 11pm/i)).toBeInTheDocument()
   })
 
   it('renders an overnight window (close < open) verbatim (e.g. 6pm to 2am)', () => {
-    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} isOwner />)
+    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} canManage />)
     const friday = screen.getByTestId('hours-row-5')
     expect(within(friday).getByText(/6pm to 2am/i)).toBeInTheDocument()
   })
 
   it('the editor prefills the split day with both windows and supports add / remove', () => {
-    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} isOwner />)
+    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} canManage />)
     fireEvent.click(screen.getByTestId('hours-edit'))
     const editorRow = screen.getByTestId('editor-hours-row-1')
     // Both windows prefilled.
@@ -161,7 +161,7 @@ describe('OpeningHoursCard multi-window (PR-8)', () => {
   })
 
   it('stages the full multi-window payload (one row per window) on save', async () => {
-    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} isOwner />)
+    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} canManage />)
     fireEvent.click(screen.getByTestId('hours-edit'))
     fireEvent.click(screen.getByTestId('hours-editor-save'))
     await waitFor(() => expect(stageMutateAsync).toHaveBeenCalledTimes(1))
@@ -174,7 +174,7 @@ describe('OpeningHoursCard multi-window (PR-8)', () => {
   })
 
   it('shows an inline overlap error and does NOT stage when windows overlap', async () => {
-    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} isOwner />)
+    render(<OpeningHoursCard branch={branch({ openingHours: MULTI_HOURS })} canManage />)
     fireEvent.click(screen.getByTestId('hours-edit'))
     // Push Monday window 2 to open at 12:00 so it overlaps window 1 (09:00-14:00).
     fireEvent.change(screen.getByLabelText(/monday opening time, window 2/i), { target: { value: '12:00' } })
@@ -186,12 +186,12 @@ describe('OpeningHoursCard multi-window (PR-8)', () => {
 
 describe('OpeningHoursCard owner gating', () => {
   it('OWNER sees the Edit control', () => {
-    render(<OpeningHoursCard branch={branch()} isOwner />)
+    render(<OpeningHoursCard branch={branch()} canManage />)
     expect(screen.getByTestId('hours-edit')).toBeInTheDocument()
   })
 
   it('STAFF / non-owner do NOT see Edit (read-only table only)', () => {
-    render(<OpeningHoursCard branch={branch()} isOwner={false} />)
+    render(<OpeningHoursCard branch={branch()} canManage={false} />)
     expect(screen.queryByTestId('hours-edit')).not.toBeInTheDocument()
     // The live table still renders for everyone.
     expect(screen.getByText('Monday')).toBeInTheDocument()
@@ -200,7 +200,7 @@ describe('OpeningHoursCard owner gating', () => {
   })
 
   it('STAFF / non-owner do NOT see the Cancel control even when a change is pending', () => {
-    render(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} isOwner={false} />)
+    render(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} canManage={false} />)
     expect(screen.getByTestId('pending-hours-banner')).toBeInTheDocument()
     expect(screen.queryByTestId('pending-hours-cancel')).not.toBeInTheDocument()
   })
@@ -208,12 +208,12 @@ describe('OpeningHoursCard owner gating', () => {
 
 describe('OpeningHoursCard pending-hours banner', () => {
   it('does NOT render the banner when there is no pending change', () => {
-    render(<OpeningHoursCard branch={branch()} isOwner />)
+    render(<OpeningHoursCard branch={branch()} canManage />)
     expect(screen.queryByTestId('pending-hours-banner')).not.toBeInTheDocument()
   })
 
   it('renders the banner with the proposed change + a "goes live at" time when pending', () => {
-    render(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} isOwner />)
+    render(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} canManage />)
     const banner = screen.getByTestId('pending-hours-banner')
     expect(banner).toBeInTheDocument()
     // The go-live time is rendered (Europe/London friendly format). The 16:30Z stages
@@ -226,7 +226,7 @@ describe('OpeningHoursCard pending-hours banner', () => {
   })
 
   it('the LIVE table keeps showing the CURRENT live hours, not the pending', () => {
-    render(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} isOwner />)
+    render(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} canManage />)
     // The live Monday row still reads 11am to 11pm (the live hours), not 10am to 6pm.
     const liveMonday = screen.getByTestId('hours-row-1')
     expect(within(liveMonday).getByText(/11am to 11pm/i)).toBeInTheDocument()
@@ -235,7 +235,7 @@ describe('OpeningHoursCard pending-hours banner', () => {
 
 describe('OpeningHoursCard stage flow', () => {
   it('saving in the editor calls useStageBranchHours and shows the success toast', async () => {
-    render(<OpeningHoursCard branch={branch()} isOwner />)
+    render(<OpeningHoursCard branch={branch()} canManage />)
     fireEvent.click(screen.getByTestId('hours-edit'))
     fireEvent.click(screen.getByTestId('hours-editor-save'))
     await waitFor(() => expect(stageMutateAsync).toHaveBeenCalledTimes(1))
@@ -249,16 +249,16 @@ describe('OpeningHoursCard stage flow', () => {
   it('the banner appears once the branch payload carries the staged pending row', () => {
     // Stage success invalidates ['branch', id]; the refetched branch carries
     // pendingHours, which is what drives the banner. Re-render with the pending row.
-    const { rerender } = render(<OpeningHoursCard branch={branch()} isOwner />)
+    const { rerender } = render(<OpeningHoursCard branch={branch()} canManage />)
     expect(screen.queryByTestId('pending-hours-banner')).not.toBeInTheDocument()
-    rerender(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} isOwner />)
+    rerender(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} canManage />)
     expect(screen.getByTestId('pending-hours-banner')).toBeInTheDocument()
   })
 })
 
 describe('OpeningHoursCard cancel flow', () => {
   it('Cancel calls useCancelPendingHours and shows the success toast', async () => {
-    render(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} isOwner />)
+    render(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} canManage />)
     fireEvent.click(screen.getByTestId('pending-hours-cancel'))
     await waitFor(() => expect(cancelMutateAsync).toHaveBeenCalledWith('b1'))
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' }))
@@ -266,7 +266,7 @@ describe('OpeningHoursCard cancel flow', () => {
 
   it('a stale / missing pending surfaces a calm error, not a crash', async () => {
     cancelMutateAsync.mockRejectedValueOnce(new Error('PENDING_HOURS_NOT_FOUND'))
-    render(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} isOwner />)
+    render(<OpeningHoursCard branch={branch({ pendingHours: [pendingHours()] })} canManage />)
     fireEvent.click(screen.getByTestId('pending-hours-cancel'))
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByRole('alert').textContent).toMatch(/could not cancel|already gone live/i)

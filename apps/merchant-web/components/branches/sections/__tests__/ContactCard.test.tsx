@@ -40,26 +40,26 @@ beforeEach(() => {
 
 describe('ContactCard owner gating', () => {
   it('shows the values read-only for a non-owner (no Edit control)', () => {
-    render(<ContactCard branch={branch()} isOwner={false} />)
+    render(<ContactCard branch={branch()} canManage={false} />)
     expect(screen.getByText('+44 1223 456 789')).toBeInTheDocument()
     expect(screen.getByText('hello@oldfoundrykitchen.co.uk')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument()
   })
 
   it('shows an Edit control for an owner', () => {
-    render(<ContactCard branch={branch()} isOwner />)
+    render(<ContactCard branch={branch()} canManage />)
     expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument()
   })
 
   it('renders the "Saves instantly" hint', () => {
-    render(<ContactCard branch={branch()} isOwner />)
+    render(<ContactCard branch={branch()} canManage />)
     expect(screen.getByText(/saves instantly/i)).toBeInTheDocument()
   })
 })
 
 describe('ContactCard edit + save', () => {
   it('owner edit PATCHes with exactly the changed direct fields', async () => {
-    render(<ContactCard branch={branch()} isOwner />)
+    render(<ContactCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
 
     const phone = screen.getByLabelText(/phone/i)
@@ -73,7 +73,7 @@ describe('ContactCard edit + save', () => {
   })
 
   it('sends only phone/email/website and never isActive', async () => {
-    render(<ContactCard branch={branch()} isOwner />)
+    render(<ContactCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     fireEvent.change(screen.getByLabelText(/website/i), { target: { value: 'newsite.co.uk' } })
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'new@x.co.uk' } })
@@ -87,7 +87,7 @@ describe('ContactCard edit + save', () => {
   })
 
   it('shows a success toast after an instant save', async () => {
-    render(<ContactCard branch={branch()} isOwner />)
+    render(<ContactCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     fireEvent.change(screen.getByLabelText(/phone/i), { target: { value: '+44 0000' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
@@ -97,7 +97,7 @@ describe('ContactCard edit + save', () => {
   })
 
   it('does not call the API when nothing changed (save is a no-op back to view)', async () => {
-    render(<ContactCard branch={branch()} isOwner />)
+    render(<ContactCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
     await waitFor(() =>
@@ -107,7 +107,7 @@ describe('ContactCard edit + save', () => {
   })
 
   it('Cancel discards edits and returns to view', () => {
-    render(<ContactCard branch={branch()} isOwner />)
+    render(<ContactCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     fireEvent.change(screen.getByLabelText(/phone/i), { target: { value: 'CHANGED' } })
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
@@ -119,7 +119,7 @@ describe('ContactCard edit + save', () => {
 describe('ContactCard error', () => {
   it('surfaces a save failure via role=alert', async () => {
     mutateAsync.mockRejectedValue(new Error('boom'))
-    render(<ContactCard branch={branch()} isOwner />)
+    render(<ContactCard branch={branch()} canManage />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     fireEvent.change(screen.getByLabelText(/phone/i), { target: { value: '+44 0000' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))

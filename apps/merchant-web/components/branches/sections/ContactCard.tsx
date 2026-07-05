@@ -1,11 +1,11 @@
 'use client'
 
-// Branches PR-1 F4: the owner-only Contact instant-save card (prototype 03/08).
+// Branches PR-1 F4 (updated for D-BM1): the Contact instant-save card (prototype 03/08); OWNER or assigned BM edits.
 // View shows the phone / email / website rows + a "Saves instantly" hint + an Edit
 // pencil; edit swaps to labelled inputs + Save / Cancel. Save sends ONLY the
 // CHANGED DIRECT fields { phone?, email?, websiteUrl? } via PATCH /branches/:id (the
 // useUpdateBranchContact hook). A non-owner sees the values read-only with NO edit
-// control; the backend owner-only resolver is the real boundary.
+// control; the backend assertCanManageBranch is the real boundary.
 //
 // SECURITY / SCOPE (plan §6, §F4): isActive is NOT a Contact control. The active /
 // closed state is the read-only header status pill from F3; PR-1 exposes no isActive
@@ -31,7 +31,7 @@ function val(v: string | null | undefined): string {
   return (v ?? '').trim()
 }
 
-export function ContactCard({ branch, isOwner }: { branch: Branch; isOwner: boolean }) {
+export function ContactCard({ branch, canManage }: { branch: Branch; canManage: boolean }) {
   const { toast } = useToast()
   const update = useUpdateBranchContact()
 
@@ -101,7 +101,7 @@ export function ContactCard({ branch, isOwner }: { branch: Branch; isOwner: bool
           >
             Saves instantly
           </span>
-          {isOwner && !editing ? (
+          {canManage && !editing ? (
             <button
               type="button"
               onClick={startEdit}

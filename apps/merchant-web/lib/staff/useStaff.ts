@@ -37,6 +37,37 @@ export function useStaff(enabled: boolean) {
   })
 }
 
+// D-BM1 security correction: a capability-grade variant of the same query, for
+// the legacy owner-probe in useBranchCapability. Same rationale as
+// useMerchantProfileFresh (see that hook's comment for the full explanation):
+// the QueryClient is never cleared on logout/login, so a cached STAFF_KEY
+// success from a PREVIOUS owner session must never be trusted by a
+// capability decision for the CURRENT session.
+//
+// `staleTime: 0` is load-bearing here for a reason `useMerchantProfileFresh`
+// doesn't have to deal with: this probe mounts DISABLED (`enabled: false`)
+// while the profile check is still pending, then flips to enabled once the
+// legacy-fallback condition is known. A disabled -> enabled flip goes through
+// react-query's `shouldFetchOptionally` path, which requires `isStale(query,
+// options)` to decide whether to fetch - `refetchOnMount: 'always'` does NOT
+// apply on that path (it only forces a fetch on the initial subscribe/mount
+// path). Without `staleTime: 0`, an already-fresh cached STAFF_KEY success
+// (e.g. within the previous session's 30s staleTime) would be considered
+// non-stale on the enable-flip and this observer would never fetch at all -
+// silently granting OWNER off a stale cross-session success instead of
+// gating on `isFetchedAfterMount` as intended.
+export function useStaffFresh(enabled: boolean) {
+  return useQuery({
+    queryKey: STAFF_KEY,
+    queryFn: listStaff,
+    enabled,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+}
+
 // Read-only app-user surface (BranchUsers grouped by branch, with appUserCount).
 export function useBranchAppUsers(enabled: boolean) {
   return useQuery({

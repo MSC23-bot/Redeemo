@@ -140,6 +140,12 @@ export const branchSchema = z
     // go through the shared branchPinSet bridge (lib/branches/pinSet.ts), never
     // the legacy ciphertext field directly.
     redemptionPinSet: z.boolean().optional(),
+    // D-BM1: the per-branch management capability hint (GET /branches/:id only;
+    // absent on list rows and on older backends). NON-THROWING malformed-to-absent
+    // contract: .catch(undefined) resolves any malformed-present block to absent
+    // instead of failing the whole parse. Consumers NEVER read this raw - they go
+    // through effectiveCanManage (lib/branches/capability.ts).
+    viewerCapabilities: z.object({ canManage: z.boolean() }).optional().catch(undefined),
     // PR-5: the lifecycle axis (see branchLifecycleStatusSchema). getBranch /
     // listBranches now ship it; .nullish() keeps an older payload parsing cleanly.
     lifecycleStatus: branchLifecycleStatusSchema.nullish(),

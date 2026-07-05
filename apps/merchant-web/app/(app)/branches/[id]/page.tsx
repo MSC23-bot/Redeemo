@@ -9,10 +9,12 @@
  * their section cards into its marked mount points and F13 slots locked affordances.
  * F3 renders the header, the review-state banners, and the owner-only staff card.
  *
- * Owner gate (plan §1.5): useBranchCapability() derives isOwner from the owner-gated
- * staff query (the same query that feeds the F12 staff card). It is threaded into
- * <BranchDetail> so the later write controls gate on it. The backend owner-only
- * resolver is the real boundary.
+ * Role gate (D-BM1): useBranchCapability() derives the role from the profile
+ * viewerCapabilities, with a TEMPORARY owner-only staff-probe fallback for
+ * pre-#364 backends (see the hook's contract comment + removal trigger). It is
+ * threaded into <BranchDetail> alongside the effective per-branch capability so
+ * write controls gate per the D-BM1 flip matrix. Backend asserts are the real
+ * boundary.
  */
 import { useParams, useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
@@ -21,6 +23,7 @@ import { ArrowLeft } from '@/lib/icons'
 import { ApiError } from '@/lib/api/client'
 import { useBranch } from '@/lib/branches/useBranches'
 import { useBranchCapability } from '@/lib/branches/useBranchCapability'
+import { effectiveCanManage } from '@/lib/branches/capability'
 import { useSession } from '@/lib/auth/session'
 import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
 import { BranchDetail } from '@/components/branches/BranchDetail'
@@ -33,10 +36,25 @@ export default function BranchDetailPage() {
   const profile = useMerchantProfile(session.isAuthenticated)
 
   const query = useBranch(id)
-  // Owner probe + the F12 staff data source. Only enabled once we have an id.
-  const { isOwner, ready } = useBranchCapability(!!id)
+  // D-BM1: role from the profile (with the temporary owner-only skew fallback
+  // inside the hook - see its removal trigger). effectiveCanManage
+  // composes the role with the branch payload's capability hint; the draft
+  // window keeps sensitive identity edits owner-only (merged spec §8).
+  const { isOwner, ready, role } = useBranchCapability(!!id)
 
   const branch = query.data
+  const canManage = effectiveCanManage(role, branch)
+  // isDraftWindow reads the PLAIN `useMerchantProfile` observer (not the
+  // fresh-session-gated one `useBranchCapability` uses internally) - it MUST
+  // only ever be consumed ANDed with `ready` (as `canEditIdentity` in
+  // <BranchDetail> does: `ready && canManage && (!isDraftWindow || isOwner)`).
+  // By the time `ready` is true, `useBranchCapability`'s own fetch has
+  // already refreshed the SAME shared ['merchantProfile'] cache entry this
+  // plain observer reads from, so this derivation is current-session data in
+  // the same render pass - it is never read standalone as a session-boundary
+  // signal on its own.
+  const isDraftWindow =
+    profile.data?.status === 'REGISTERED' || profile.data?.onboardingStep === 'NEEDS_CHANGES'
   // The sub-brand under the branch name. Prefer the profile (authoritative); fall
   // back to the session value the auth flow stamped.
   const businessName = profile.data?.businessName ?? session.businessName ?? null
@@ -79,7 +97,7 @@ export default function BranchDetailPage() {
           </div>
         </Card>
       ) : (
-        <BranchDetail branch={branch} businessName={businessName} isOwner={isOwner} ready={ready} />
+        <BranchDetail branch={branch} businessName={businessName} isOwner={isOwner} canManage={canManage} isDraftWindow={isDraftWindow} ready={ready} />
       )}
     </div>
   )

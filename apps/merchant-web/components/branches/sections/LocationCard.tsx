@@ -13,10 +13,11 @@
 // address lookup (search-and-pick autofill). The address change rides the reviewed
 // edit lane on a LIVE branch; the precise pin stays admin-confirmed.
 //
-// Gate: `isOwner` (UX gate only - the backend denies STAFF on the search + apply
-// regardless). The merchant-web client has no per-branch BRANCH_MANAGER `canManage`
-// signal today, so an assigned Branch Manager does not see this entry point. Recorded
-// follow-up: "BM-sees-lookup needs the client role/branch signal" (Layer 3 issues log).
+// Gate: `canManage` (UX gate only - the backend denies STAFF on the search + apply
+// regardless). D-BM1: the per-branch capability signal is LIVE - an assigned
+// Branch Manager sees this entry point on LIVE merchants; draft-window identity
+// edits stay owner-only via the canEditIdentity composite threaded by BranchDetail.
+// (Closes the recorded "BM-sees-lookup needs the client role/branch signal" follow-up.)
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
 import * as React from 'react'
@@ -29,7 +30,7 @@ function val(v: string | null | undefined): string {
   return (v ?? '').trim()
 }
 
-export function LocationCard({ branch, isOwner }: { branch: Branch; isOwner: boolean }) {
+export function LocationCard({ branch, canManage }: { branch: Branch; canManage: boolean }) {
   const [editOpen, setEditOpen] = React.useState(false)
   const confirmed = branch.locationConfidence === 'MANUALLY_CONFIRMED'
 
@@ -88,8 +89,8 @@ export function LocationCard({ branch, isOwner }: { branch: Branch; isOwner: boo
 
         {/* PR-6: ACTIVE "Update location" control (was a disabled locked affordance).
             Opens the reviewed edit modal, which carries the business / address lookup.
-            Owner-gated UX; the backend is the real boundary. */}
-        {isOwner ? (
+            Capability-gated UX (D-BM1); the backend is the real boundary. */}
+        {canManage ? (
           <div className="pt-1">
             <button
               type="button"

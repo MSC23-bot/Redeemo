@@ -1,7 +1,7 @@
 'use client'
 
-// Branches PR-1 F5: the owner-only Amenities card (prototype 04). View shows the
-// branch's selected amenities as checked chips read-only; edit (owner-only) loads
+// Branches PR-1 F5 (updated for D-BM1): the Amenities card (prototype 04). View shows
+// the branch's selected amenities as checked chips read-only; edit (OWNER or assigned BM) loads
 // the catalogue (the OPEN customer endpoint keyed by the merchant's
 // primaryCategoryId) and toggles chips, then saves a FULL-REPLACE list via
 // POST /branches/:id/amenities (the useSetAmenities hook). A non-owner is read-only.
@@ -26,7 +26,7 @@ function selectedAmenities(branch: Branch): { id: string; name: string }[] {
   return (branch.amenities ?? []).map((a) => ({ id: a.amenity.id, name: a.amenity.name }))
 }
 
-export function AmenitiesCard({ branch, isOwner }: { branch: Branch; isOwner: boolean }) {
+export function AmenitiesCard({ branch, canManage }: { branch: Branch; canManage: boolean }) {
   const { toast } = useToast()
   const save = useSetAmenities()
   // Authenticated by the time the detail page renders; this read is shared (cached)
@@ -51,7 +51,7 @@ export function AmenitiesCard({ branch, isOwner }: { branch: Branch; isOwner: bo
   // never reaches edit mode). The catalogue is cached after the first edit open so a
   // re-open does not refetch.
   React.useEffect(() => {
-    if (!isOwner || !editing || !hasCategory) return
+    if (!canManage || !editing || !hasCategory) return
     if (catalogue) return
     let cancelled = false
     setCatalogueLoading(true)
@@ -70,7 +70,7 @@ export function AmenitiesCard({ branch, isOwner }: { branch: Branch; isOwner: bo
     return () => {
       cancelled = true
     }
-  }, [isOwner, editing, hasCategory, primaryCategoryId, catalogue])
+  }, [canManage, editing, hasCategory, primaryCategoryId, catalogue])
 
   function startEdit() {
     setSelected(new Set(currentIds))
@@ -114,7 +114,7 @@ export function AmenitiesCard({ branch, isOwner }: { branch: Branch; isOwner: bo
           >
             Saves instantly
           </span>
-          {isOwner && hasCategory && !editing ? (
+          {canManage && hasCategory && !editing ? (
             <button
               type="button"
               onClick={startEdit}

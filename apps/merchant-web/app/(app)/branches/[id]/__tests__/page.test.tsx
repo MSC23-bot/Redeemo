@@ -30,7 +30,15 @@ jest.mock('@/lib/auth/useMerchantProfile', () => ({
 }))
 
 // --- owner capability + staff card (F12 is mounted by the detail) -----------
-let capability = { isOwner: false, ready: true }
+// D-BM1: the capability now also carries `role` (the profile-derived source
+// effectiveCanManage composes with the branch payload). `isOwner` still
+// drives owner-only surfaces (StaffAtBranchCard, CloseBranchSection, the
+// lifecycle banner); `role` drives the D-BM1 canManage-gated sections.
+let capability: { isOwner: boolean; ready: boolean; role: string | null } = {
+  isOwner: false,
+  ready: true,
+  role: null,
+}
 jest.mock('@/lib/branches/useBranchCapability', () => ({
   useBranchCapability: () => capability,
 }))
@@ -84,7 +92,7 @@ function renderPage() {
 
 beforeEach(() => {
   push.mockReset()
-  capability = { isOwner: false, ready: true }
+  capability = { isOwner: false, ready: true, role: null }
   getBranch.mockReset().mockResolvedValue(branch())
 })
 
@@ -210,7 +218,7 @@ describe('BranchDetailPage review-state banners', () => {
 
 describe('BranchDetailPage staff panel (F12 wiring)', () => {
   it('does NOT render the staff panel for a non-owner', async () => {
-    capability = { isOwner: false, ready: true }
+    capability = { isOwner: false, ready: true, role: null }
     getBranch.mockResolvedValue(branch())
     renderPage()
     await screen.findByRole('heading', { name: 'High Street' })
@@ -218,7 +226,7 @@ describe('BranchDetailPage staff panel (F12 wiring)', () => {
   })
 
   it('renders the staff panel for an owner', async () => {
-    capability = { isOwner: true, ready: true }
+    capability = { isOwner: true, ready: true, role: 'OWNER' }
     getBranch.mockResolvedValue(branch())
     renderPage()
     await screen.findByRole('heading', { name: 'High Street' })
@@ -228,7 +236,7 @@ describe('BranchDetailPage staff panel (F12 wiring)', () => {
 
 describe('BranchDetailPage locked affordances (F13 wiring)', () => {
   it('composes the read-only location, hours and branding cards', async () => {
-    capability = { isOwner: true, ready: true }
+    capability = { isOwner: true, ready: true, role: 'OWNER' }
     getBranch.mockResolvedValue(branch())
     renderPage()
     await screen.findByRole('heading', { name: 'High Street' })
@@ -238,7 +246,7 @@ describe('BranchDetailPage locked affordances (F13 wiring)', () => {
   })
 
   it('renders the redemption-alerts card (visible) with a LIVE owner toggle (PR-7)', async () => {
-    capability = { isOwner: true, ready: true }
+    capability = { isOwner: true, ready: true, role: 'OWNER' }
     getBranch.mockResolvedValue(branch())
     renderPage()
     await screen.findByRole('heading', { name: 'High Street' })
@@ -253,7 +261,7 @@ describe('BranchDetailPage locked affordances (F13 wiring)', () => {
   })
 
   it('renders the close-branch section for an owner with a disabled close control', async () => {
-    capability = { isOwner: true, ready: true }
+    capability = { isOwner: true, ready: true, role: 'OWNER' }
     getBranch.mockResolvedValue(branch())
     renderPage()
     await screen.findByRole('heading', { name: 'High Street' })
@@ -263,7 +271,7 @@ describe('BranchDetailPage locked affordances (F13 wiring)', () => {
   })
 
   it('hides the close-branch section for a non-owner', async () => {
-    capability = { isOwner: false, ready: true }
+    capability = { isOwner: false, ready: true, role: null }
     getBranch.mockResolvedValue(branch())
     renderPage()
     await screen.findByRole('heading', { name: 'High Street' })
@@ -278,5 +286,47 @@ describe('BranchDetailPage back navigation', () => {
     await screen.findByRole('heading', { name: 'High Street' })
     fireEvent.click(screen.getByRole('button', { name: /back to branches/i }))
     expect(push).toHaveBeenCalledWith('/branches')
+  })
+})
+
+// D-BM1 (merged spec §5/§6/§9): end-to-end page-level wiring of the per-branch
+// viewerCapabilities hint through effectiveCanManage into the D-BM1-gated
+// sections. The malformed-block pin proves the page never throws even when
+// the backend sends a garbage block (the branchSchema .catch(undefined)
+// contract at the parse layer).
+describe('BranchDetailPage D-BM1 viewerCapabilities wiring', () => {
+  it('an assigned BRANCH_MANAGER with viewerCapabilities.canManage=true sees the D-BM1-gated PIN section', async () => {
+    capability = { isOwner: false, ready: true, role: 'BRANCH_MANAGER' }
+    getBranch.mockResolvedValue(branch({ viewerCapabilities: { canManage: true }, redemptionPinSet: true }))
+    renderPage()
+    await screen.findByRole('heading', { name: 'High Street' })
+    expect(screen.getByText(/redemption pin/i)).toBeInTheDocument()
+  })
+
+  it('an assigned BRANCH_MANAGER with viewerCapabilities.canManage=false (or absent) does NOT see the PIN section', async () => {
+    capability = { isOwner: false, ready: true, role: 'BRANCH_MANAGER' }
+    getBranch.mockResolvedValue(branch({ viewerCapabilities: { canManage: false }, redemptionPinSet: true }))
+    renderPage()
+    await screen.findByRole('heading', { name: 'High Street' })
+    expect(screen.queryByText(/redemption pin/i)).not.toBeInTheDocument()
+  })
+
+  it('does NOT crash when the branch payload carries a malformed viewerCapabilities block', async () => {
+    capability = { isOwner: false, ready: true, role: 'BRANCH_MANAGER' }
+    // Simulates what a malformed-present block resolves to once branchSchema's
+    // `.catch(undefined)` has already run at the parse layer (§6) - absent, not
+    // a garbage shape. The page must render normally either way.
+    getBranch.mockResolvedValue(branch({ viewerCapabilities: undefined }))
+    renderPage()
+    expect(await screen.findByRole('heading', { name: 'High Street' })).toBeInTheDocument()
+    expect(screen.queryByText(/redemption pin/i)).not.toBeInTheDocument()
+  })
+
+  it('an OWNER keeps the PIN section even when viewerCapabilities is absent (owner arm never consults the branch block)', async () => {
+    capability = { isOwner: true, ready: true, role: 'OWNER' }
+    getBranch.mockResolvedValue(branch({ viewerCapabilities: undefined, redemptionPinSet: true }))
+    renderPage()
+    await screen.findByRole('heading', { name: 'High Street' })
+    expect(screen.getByText(/redemption pin/i)).toBeInTheDocument()
   })
 })
