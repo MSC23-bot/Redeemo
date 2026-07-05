@@ -3,14 +3,15 @@
 // Branches PR-1 F6: the owner-only Redemption PIN card (prototype 04/08). The PIN is
 // MASKED by default (dots). The decrypted value is fetched ON DEMAND via GET /pin
 // (the getBranchPin client) only when the owner taps Reveal: NEVER from the list
-// payload (the list ships the AES-encrypted ciphertext, which this card never reads
-// or renders). Change validates /^\d{4}$/ then PUTs (useSetBranchPin); Send
+// payload (since #377 the payload carries only the derived `redemptionPinSet`
+// boolean; the ciphertext no longer rides the wire). Change validates /^\d{4}$/ then PUTs (useSetBranchPin); Send
 // dispatches the PIN to the branch (useSendBranchPin). The whole section is
 // owner-only (all PIN routes are owner-only); a non-owner sees nothing.
 //
 // SECURITY (wire hygiene 2026-07-05, revising plan §6 #3/#4): set/not-set comes
-// from the server-derived `redemptionPinSet` boolean (the ciphertext no longer
-// rides the wire); the decrypted value comes solely from the explicit-reveal GET /pin.
+// from the shared branchPinSet bridge (explicit server boolean wins; legacy
+// presence-only fallback covers old-backend deploy skew); the decrypted value
+// comes solely from the explicit-reveal GET /pin.
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
 import * as React from 'react'
@@ -22,10 +23,11 @@ import { useToast } from '@/components/ui/toast'
 import { Eye, EyeOff, KeyRound, Pencil, Send } from '@/lib/icons'
 import { useSetBranchPin, useSendBranchPin } from '@/lib/branches/useBranches'
 import { getBranchPin, type Branch } from '@/lib/api/branch'
+import { branchPinSet } from '@/lib/branches/pinSet'
 import { ApiError } from '@/lib/api/client'
 
-// The server strips the encrypted pin and emits `redemptionPinSet` (passthrough).
-type BranchWithPin = Branch & { redemptionPinSet?: boolean }
+// Bridge fields (see lib/branches/pinSet.ts removal trigger for the legacy one).
+type BranchWithPin = Branch & { redemptionPinSet?: boolean; redemptionPin?: string | null }
 
 const PIN_RE = /^\d{4}$/
 
@@ -41,7 +43,7 @@ export function PinCard({ branch, isOwner }: { branch: Branch; isOwner: boolean 
   const change = useSetBranchPin()
   const send = useSendBranchPin()
 
-  const pinSet = (branch as BranchWithPin).redemptionPinSet === true
+  const pinSet = branchPinSet(branch as BranchWithPin)
 
   const [revealed, setRevealed] = React.useState<string | null>(null)
   const [revealing, setRevealing] = React.useState(false)

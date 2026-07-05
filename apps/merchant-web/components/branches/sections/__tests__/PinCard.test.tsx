@@ -188,3 +188,24 @@ describe('PinCard not-set state', () => {
     expect(screen.getByText(/no pin set yet/i)).toBeInTheDocument()
   })
 })
+
+// #377 correction round 2: the compatibility-bridge behaviour at the component
+// level (the shared branchPinSet helper carries the full matrix in its own suite).
+describe('PinCard - version-skew compatibility bridge', () => {
+  it('old backend (legacy ciphertext only, no boolean) still shows the set state', () => {
+    render(<PinCard branch={branch({ redemptionPinSet: undefined, redemptionPin: 'enc:v1:OLDBACKEND' }) as never} isOwner />)
+    expect(screen.getByRole('button', { name: /change pin/i })).toBeInTheDocument()
+  })
+
+  it('an explicit redemptionPinSet false beats a conflicting legacy ciphertext (not-set state)', () => {
+    render(<PinCard branch={branch({ redemptionPinSet: false, redemptionPin: 'enc:v1:CONFLICT' }) as never} isOwner />)
+    expect(screen.getByRole('button', { name: /^set pin$/i })).toBeInTheDocument()
+  })
+
+  it('never renders the legacy ciphertext anywhere in the card', () => {
+    const cipher = 'enc:v1:NEVERSHOWME42'
+    const { container } = render(<PinCard branch={branch({ redemptionPinSet: undefined, redemptionPin: cipher }) as never} isOwner />)
+    expect(container.textContent).not.toContain(cipher)
+    expect(container.innerHTML).not.toContain(cipher)
+  })
+})

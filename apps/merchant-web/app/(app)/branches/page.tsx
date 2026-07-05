@@ -12,8 +12,10 @@
  * OWNER-only (PR-5 §6): it opens the create form. A Branch Manager sees no add
  * control (create/close are owner-only per D3 + the backend resolver).
  *
- * Privacy: the list row ships the AES-encrypted redemptionPin; this surface only
- * derives a set / not-set indicator from its presence and NEVER renders the value.
+ * Privacy: since #377 the list row carries only the server-derived
+ * `redemptionPinSet` boolean (ciphertext stripped server-side). Set/not-set is
+ * read via the shared branchPinSet bridge, which tolerates an older backend
+ * during deploy skew via presence-only fallback; the value is NEVER rendered.
  */
 import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
