@@ -186,6 +186,16 @@ describe('updateVoucher', () => {
     expect(sent).not.toHaveProperty('expiryDate')
   })
 
+  it('serializes an explicit expiryDate: null as a literal null on the wire (independence mirror)', async () => {
+    const payload: UpdateVoucherPayload = { expiryDate: null }
+    await updateVoucher('v1', payload)
+    const sentBodyString = (apiFetch.mock.calls[0][1] as { body: string }).body
+    expect(sentBodyString).toContain('"expiryDate":null')
+    const sent = JSON.parse(sentBodyString)
+    expect(sent.expiryDate).toBeNull()
+    expect(sent).not.toHaveProperty('imageUrl')
+  })
+
   it('omission drops the key entirely (no imageUrl/expiryDate in the wire body when not supplied)', async () => {
     await updateVoucher('v1', { title: 'Updated title' })
     const sent = JSON.parse((apiFetch.mock.calls[0][1] as { body: string }).body)

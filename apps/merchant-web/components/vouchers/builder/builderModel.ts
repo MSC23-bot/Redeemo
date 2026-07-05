@@ -243,8 +243,11 @@ export function toCreatePayload(state: BuilderState, categoryKey: CategoryKey = 
     // Nullable-clear (D1): explicit null survives serialization as a clear
     // signal; falsy-but-not-null still coerces to omission. The two lines are
     // deliberately INDEPENDENT per-field checks - never couple them.
+    // (normalizeExpiryDate owns the null-passthrough + falsy-to-undefined
+    // handling for expiryDate; imageUrl keeps its inline ternary because no
+    // equivalent helper exists for it.)
     imageUrl: state.imageUrl === null ? null : state.imageUrl || undefined,
-    expiryDate: state.expiryDate === null ? null : normalizeExpiryDate(state.expiryDate || undefined),
+    expiryDate: normalizeExpiryDate(state.expiryDate),
     merchantFields,
   }
 
