@@ -11,9 +11,11 @@
  * Covers: opening the dialog from the row menu; confirming calls removeStaff with
  * the right memberId and closes on success; backend failure maps to visible copy,
  * closes the dialog, and keeps the row; a distinct error code maps to distinct
- * copy; cancelling never calls removeStaff; the pending "Working..." state disables
- * both buttons and de-dupes a double-click into a single mutation call; and the
- * shared runConfirm mechanism also drives deactivate-member (distinct title/CTA).
+ * copy; cancelling never calls removeStaff; scrim-click and Escape both dismiss
+ * without calling removeStaff (pinning the shared Dialog primitive's close paths);
+ * the pending "Working..." state disables both buttons and de-dupes a double-click
+ * into a single mutation call; and the shared runConfirm mechanism also drives
+ * deactivate-member (distinct title/CTA).
  */
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -171,6 +173,34 @@ describe('StaffPage remove-member confirm flow', () => {
     expect(
       screen.queryByText(/you cannot remove or deactivate the only active owner/i),
     ).toBeNull()
+  })
+
+  it('clicking the scrim dismisses the dialog and never calls removeStaff', async () => {
+    renderPage()
+    await screen.findByText('Bea Manager')
+    await openRemoveConfirmFor(/actions for bea manager/i)
+
+    // The shared Dialog primitive (components/ui/dialog.tsx) wires the scrim's
+    // onClick to onClose; the page's onCancel clears the confirm state, which
+    // unmounts the dialog.
+    fireEvent.click(screen.getByTestId('staff-confirm-scrim'))
+
+    await waitFor(() => expect(screen.queryByTestId('staff-confirm')).toBeNull())
+    expect(removeStaff).not.toHaveBeenCalled()
+  })
+
+  it('pressing Escape dismisses the dialog and never calls removeStaff', async () => {
+    renderPage()
+    await screen.findByText('Bea Manager')
+    await openRemoveConfirmFor(/actions for bea manager/i)
+
+    // The shared Dialog primitive handles Escape via onKeyDown on its root wrapper
+    // div (components/ui/dialog.tsx handleKeyDown); a keyDown fired on the panel
+    // bubbles up to that wrapper handler, which calls onClose.
+    fireEvent.keyDown(screen.getByTestId('staff-confirm'), { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByTestId('staff-confirm')).toBeNull())
+    expect(removeStaff).not.toHaveBeenCalled()
   })
 
   it('cancelling closes the dialog and never calls removeStaff', async () => {
