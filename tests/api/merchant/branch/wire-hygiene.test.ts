@@ -32,6 +32,7 @@ import {
   toMerchantBranch,
   listBranches,
   getBranch,
+  updateBranch,
   setRedemptionAlerts,
   requestBranchClose,
   withdrawBranchClose,
@@ -291,6 +292,33 @@ describe('setRedemptionAlerts / requestBranchClose / withdrawBranchClose - wire 
     const prisma = mockPrisma({ lifecycleStatus: 'PENDING_CLOSE', closeReason: 'closing down' })
     prisma.adminApproval = { deleteMany: vi.fn().mockResolvedValue({ count: 1 }), create: vi.fn() }
     const result = await withdrawBranchClose(prisma as any, 'ma1', 'b1', {
+      ipAddress: '1.2.3.4', userAgent: 'vitest',
+    })
+    expect((result as any).redemptionPinSet).toBe(true)
+    expect(result).not.toHaveProperty('redemptionPin')
+  })
+
+  // CodeRabbit #377: the two remaining wire exits, exercised end-to-end through
+  // the exported updateBranch dispatcher (the cores are not exported).
+  it('isMainBranch promotion returns a sanitized branch', async () => {
+    const prisma = mockPrisma()
+    prisma.branch.updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const result = await updateBranch(prisma as any, 'ma1', 'b1', { isMainBranch: true }, {
+      ipAddress: '1.2.3.4', userAgent: 'vitest',
+    })
+    expect((result as any).redemptionPinSet).toBe(true)
+    expect(result).not.toHaveProperty('redemptionPin')
+  })
+
+  it('draft-window SENSITIVE-direct update returns a sanitized branch', async () => {
+    const prisma = mockPrisma()
+    // Draft window = merchant status REGISTERED (isDraftWindow); OWNER context is
+    // the mockPrisma default. addressLine1 is SENSITIVE but avoids the postcode
+    // gazetteer resolve.
+    prisma.merchant.findUnique = vi.fn().mockResolvedValue({
+      id: 'm1', status: 'REGISTERED', onboardingStep: 'BRANCHES',
+    })
+    const result = await updateBranch(prisma as any, 'ma1', 'b1', { addressLine1: '2 New Row' }, {
       ipAddress: '1.2.3.4', userAgent: 'vitest',
     })
     expect((result as any).redemptionPinSet).toBe(true)
