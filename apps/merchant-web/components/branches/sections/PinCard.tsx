@@ -8,8 +8,9 @@
 // dispatches the PIN to the branch (useSendBranchPin). The whole section is
 // owner-only (all PIN routes are owner-only); a non-owner sees nothing.
 //
-// SECURITY (plan §6 #3/#4): set/not-set is derived from branch.redemptionPin
-// presence only; the decrypted value comes solely from the explicit-reveal GET /pin.
+// SECURITY (wire hygiene 2026-07-05, revising plan §6 #3/#4): set/not-set comes
+// from the server-derived `redemptionPinSet` boolean (the ciphertext no longer
+// rides the wire); the decrypted value comes solely from the explicit-reveal GET /pin.
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
 import * as React from 'react'
@@ -23,9 +24,8 @@ import { useSetBranchPin, useSendBranchPin } from '@/lib/branches/useBranches'
 import { getBranchPin, type Branch } from '@/lib/api/branch'
 import { ApiError } from '@/lib/api/client'
 
-// A branch row carries the encrypted redemptionPin under passthrough. We read ONLY
-// its presence (set / not-set), never the value.
-type BranchWithPin = Branch & { redemptionPin?: string | null }
+// The server strips the encrypted pin and emits `redemptionPinSet` (passthrough).
+type BranchWithPin = Branch & { redemptionPinSet?: boolean }
 
 const PIN_RE = /^\d{4}$/
 
@@ -41,7 +41,7 @@ export function PinCard({ branch, isOwner }: { branch: Branch; isOwner: boolean 
   const change = useSetBranchPin()
   const send = useSendBranchPin()
 
-  const pinSet = (branch as BranchWithPin).redemptionPin != null
+  const pinSet = (branch as BranchWithPin).redemptionPinSet === true
 
   const [revealed, setRevealed] = React.useState<string | null>(null)
   const [revealing, setRevealing] = React.useState(false)

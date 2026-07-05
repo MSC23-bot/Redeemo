@@ -180,6 +180,26 @@ describe('B2.1: admin merchant/branch direct-edit routes (auth + capability + st
       )
     })
 
+    // Wire hygiene (2026-07-05): this route sends the shared updateBranchDirectCore
+    // result straight to the client; BEFORE the sanitizer it leaked the raw
+    // AES-encrypted redemptionPin ciphertext on the wire. Pin the closed leak: the
+    // response carries the derived redemptionPinSet boolean, never the ciphertext.
+    it('200 response is pin-sanitized: redemptionPinSet boolean, no ciphertext on the wire', async () => {
+      ;(app.prisma.branch.update as any).mockResolvedValueOnce({
+        id: 'b1', phone: '+44333', isActive: true, redemptionPin: 'enc:ADMINCIPHER456',
+      })
+      const res = await app.inject({
+        method: 'PATCH', url: branchUrl,
+        headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` },
+        payload: { phone: '+44333', reason: 'phone fix' },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body)
+      expect(body.redemptionPinSet).toBe(true)
+      expect(body).not.toHaveProperty('redemptionPin')
+      expect(res.body).not.toContain('enc:ADMINCIPHER456')
+    })
+
     it('200 for SUPER_ADMIN (superuser holds merchant:edit)', async () => {
       const res = await app.inject({
         method: 'PATCH', url: branchUrl,

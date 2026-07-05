@@ -149,12 +149,26 @@ async function resolveBranch(
   return branch
 }
 
+/**
+ * Wire hygiene (2026-07-05): strip the AES-encrypted `redemptionPin` ciphertext
+ * from every branch row that leaves the API and replace it with the derived
+ * `redemptionPinSet` boolean. Branches PR-1 shipped the ciphertext deliberately
+ * (the FE only ever derived set/not-set from its presence), but that trade-off
+ * contradicts the stronger no-select invariant used by the redemptions and
+ * staff endpoints - the ciphertext has no legitimate client use and the guarded
+ * reveal route (`getBranchPin`) remains the ONLY way to read the PIN.
+ */
+export function toMerchantBranch<T extends { redemptionPin?: string | null }>(row: T) {
+  const { redemptionPin, ...rest } = row
+  return { ...rest, redemptionPinSet: redemptionPin != null }
+}
+
 export async function listBranches(prisma: PrismaClient, adminId: string) {
   // Staff & Access B5 (§4.3 SCOPED-READ): a scoped member sees only their allowed
   // branches; owner / allBranches sees all. resolveMerchantContext keeps the SEC-M2
   // suspended guard.
   const ctx = await resolveMerchantContext(prisma, adminId)
-  return prisma.branch.findMany({
+  const rows = await prisma.branch.findMany({
     where: {
       merchantId: ctx.merchantId,
       deletedAt: null,
@@ -164,6 +178,7 @@ export async function listBranches(prisma: PrismaClient, adminId: string) {
     include: BRANCH_INCLUDE,
     orderBy: [{ isMainBranch: 'desc' }, { createdAt: 'asc' }],
   })
+  return rows.map(toMerchantBranch)
 }
 
 export async function getBranch(prisma: PrismaClient, adminId: string, branchId: string) {
@@ -171,7 +186,7 @@ export async function getBranch(prisma: PrismaClient, adminId: string, branchId:
   // their allowed set; assertBranchAllowed throws INSUFFICIENT_PERMISSIONS otherwise.
   const ctx = await resolveMerchantContext(prisma, adminId)
   assertBranchAllowed(ctx, branchId)
-  return resolveBranch(prisma, branchId, ctx.merchantId)
+  return toMerchantBranch(await resolveBranch(prisma, branchId, ctx.merchantId))
 }
 
 /**
@@ -330,14 +345,16 @@ export async function createBranch(
   })
   const stageForApproval = existingNonDeletedBranchCount >= 1
 
-  return createBranchCore(
+  // Wire hygiene: the merchant create response never carries the pin ciphertext
+  // (the admin route curates its own shape via toAdminBranchShape).
+  return toMerchantBranch(await createBranchCore(
     prisma,
     { merchantId, actor: { type: 'MERCHANT_ADMIN', id: adminId } },
     data,
     ctx,
     stageForApproval,
     locationSuggestion,
-  )
+  ))
 }
 
 /**
@@ -410,7 +427,7 @@ export async function updateBranchDirectCore(
   }
 
   const branch = await resolveBranch(prisma, branchId, merchantId)
-  if (Object.keys(safe).length === 0) return branch
+  if (Object.keys(safe).length === 0) return toMerchantBranch(branch)
 
   const before: Record<string, unknown> = {}
   for (const k of Object.keys(safe)) before[k] = (branch as any)[k]
@@ -434,7 +451,9 @@ export async function updateBranchDirectCore(
       userAgent: ctx.userAgent,
       metadata: { merchantId },
     })
-    return updated
+    // Wire hygiene: the shared core serves BOTH the merchant route and the admin
+    // on-behalf route - neither client has any use for the pin ciphertext.
+    return toMerchantBranch(updated)
   })
 }
 
@@ -467,7 +486,7 @@ async function updateBranchSensitiveDirectCore(
   const safe: Record<string, unknown> = {}
   for (const key of SENSITIVE_FIELDS) if (key in data) safe[key] = data[key]
   for (const key of DIRECT_FIELDS) if (key in data) safe[key] = data[key]
-  if (Object.keys(safe).length === 0) return branch
+  if (Object.keys(safe).length === 0) return toMerchantBranch(branch)
 
   // Re-resolve location on a postcode change (mirrors createBranchCore +
   // createBranchEditRequest). The resolved snapshot OVERWRITES any caller-supplied
@@ -505,7 +524,7 @@ async function updateBranchSensitiveDirectCore(
         ...(locationSuggestion ? { locationSuggestion: locationSuggestionMetadata(locationSuggestion) } : {}),
       },
     })
-    return updated
+    return toMerchantBranch(updated)
   })
 }
 
@@ -579,7 +598,7 @@ export async function updateBranch(
       event: 'BRANCH_UPDATED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
       metadata: { branchId },
     })
-    return updated
+    return toMerchantBranch(updated)
   }
 
   // M2 B1 (D1): sensitive branch fields write DIRECTLY in the draft window
@@ -1145,7 +1164,7 @@ export async function setRedemptionAlerts(
     data:  { redemptionAlertsEnabled: enabled },
     include: BRANCH_INCLUDE,
   })
-  return updated
+  return toMerchantBranch(updated)
 }
 
 /**
@@ -1276,7 +1295,7 @@ export async function requestBranchClose(
     })
     return b
   })
-  return updated
+  return toMerchantBranch(updated)
 }
 
 /**
@@ -1323,7 +1342,7 @@ export async function withdrawBranchClose(
     })
     return b
   })
-  return updated
+  return toMerchantBranch(updated)
 }
 
 export async function getBranchPin(

@@ -71,7 +71,9 @@ function branch(over: Record<string, unknown> = {}) {
     openingHours: allDayHours(),
     amenities: [{ amenity: { id: 'a1', name: 'Wifi' } }],
     photos: [],
-    redemptionPin: 'ENCRYPTED::aes::4821',
+    // Wire hygiene (2026-07-05): the server strips the ciphertext and emits the
+    // derived redemptionPinSet boolean instead - see toMerchantBranch.
+    redemptionPinSet: true,
     ...over,
   }
 }
@@ -211,23 +213,35 @@ describe('BranchesPage rows', () => {
     expect(within(row).getByText(/main/i)).toBeInTheDocument()
   })
 
-  it('shows the Setup PIN set indicator WITHOUT exposing the encrypted pin value', async () => {
-    listBranches.mockResolvedValue([branch({ redemptionPin: 'ENCRYPTED::aes::4821' })])
+  it('shows the Setup PIN set indicator, driven by redemptionPinSet (server no longer sends the ciphertext at all)', async () => {
+    listBranches.mockResolvedValue([branch({ redemptionPinSet: true })])
     const { container } = renderPage()
     const row = (await screen.findByText('High Street')).closest('tr')!
-    // The setup cell announces PIN is set, but never the value/ciphertext.
+    // The setup cell announces PIN is set, but never any value/ciphertext.
     expect(within(row).getByText(/^pin$/i)).toBeInTheDocument()
     const text = container.textContent ?? ''
     expect(text).not.toContain('ENCRYPTED::aes::4821')
     expect(text).not.toContain('4821')
-    expect(text).not.toMatch(/redemptionPin/i)
+    expect(text).not.toMatch(/redemptionPin"/i)
   })
 
-  it('shows a PIN not-set indicator when the branch has no pin', async () => {
-    listBranches.mockResolvedValue([branch({ redemptionPin: null })])
+  it('shows a PIN not-set indicator when redemptionPinSet is false', async () => {
+    listBranches.mockResolvedValue([branch({ redemptionPinSet: false })])
     renderPage()
     const row = (await screen.findByText('High Street')).closest('tr')!
     expect(within(row).getByText(/no pin/i)).toBeInTheDocument()
+  })
+
+  // Wire hygiene explicit pin: the Setup-cell PIN badge is driven ONLY by
+  // redemptionPinSet, never by any residual redemptionPin field on the row.
+  it('the pin badge reflects redemptionPinSet regardless of any redemptionPin field on the row', async () => {
+    listBranches.mockResolvedValue([
+      branch({ redemptionPinSet: true, redemptionPin: undefined }),
+    ])
+    renderPage()
+    const row = (await screen.findByText('High Street')).closest('tr')!
+    expect(within(row).getByText(/^pin$/i)).toBeInTheDocument()
+    expect(within(row).queryByText(/no pin/i)).not.toBeInTheDocument()
   })
 
   it('shows the amenity count in the Setup cell', async () => {
