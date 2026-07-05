@@ -102,12 +102,25 @@ test.describe('partial voucher-source failure: flagship 500, custom succeeds', (
     },
     // The forced 500 makes Chromium log a devtools "Failed to load resource"
     // console line for that one fetch - expected noise from the deliberate
-    // failure this test pins, not an app bug. See mocks.ts attachErrorGuards.
-    expectedConsoleErrorSubstrings: ['Failed to load resource'],
+    // failure this test pins, not an app bug (see mocks.ts attachErrorGuards).
+    // Count-bounded to exactly 1: the guard fails both if the forced 500 never
+    // fires (0 matches) and if anything else ALSO fails during the test
+    // (2+ matches, or a non-matching console error) - see fixtures.ts.
+    expectedConsoleErrors: [
+      { urlSubstring: '/api/v1/merchant/vouchers/rmv', textSubstring: 'Failed to load resource', count: 1 },
+    ],
   })
 
   test('the Voucher select still renders with only the surviving custom option', async ({ page }) => {
+    // Proves the forced 500 actually landed on the wire (not just that the UI
+    // happens to look right) - awaited before navigation so it can't race the
+    // page's own fetch.
+    const flagshipFailure = page.waitForResponse(
+      (res) => res.url().includes('/api/v1/merchant/vouchers/rmv') && res.status() === 500,
+    )
     await page.goto('/redemptions')
+    await flagshipFailure
+
     // Scoped to the table: see the identical note in the describe block above -
     // the redemption row's voucher title and the custom voucher fixture share
     // the same string, so an unscoped getByText can resolve ambiguously once

@@ -349,22 +349,42 @@ export interface ErrorGuards {
   assertClean: () => void
 }
 
-export function attachErrorGuards(page: Page, expectedConsoleErrorSubstrings: string[] = []): ErrorGuards {
+// A count-bounded expected console error: BOTH the failing request's URL and
+// the console message text must match, and the match must occur EXACTLY
+// `count` times - not fewer (the deliberate failure never fired), not more
+// (something else is also failing). An open-ended substring match on text
+// alone would let an unrelated broken asset or extra failed request hide
+// behind the same "Failed to load resource" wording.
+export interface ExpectedConsoleError {
+  urlSubstring: string
+  textSubstring: string
+  count: number
+}
+
+export function attachErrorGuards(page: Page, expectedConsoleErrors: ExpectedConsoleError[] = []): ErrorGuards {
   const pageErrors: string[] = []
   const consoleErrors: string[] = []
+  // Per-entry match tally so assertClean can require EXACTLY `count` hits.
+  const matchCounts = expectedConsoleErrors.map(() => 0)
   page.on('pageerror', (err) => pageErrors.push(String(err)))
   page.on('console', (msg) => {
     if (msg.type() !== 'error') return
     const text = msg.text()
-    // Expected noise: normally none - Failed-resource lines only appear if a
-    // request escaped the mock boundary (dead loopback port), which IS a
-    // finding. The one documented exception is a spec that deliberately mocks
-    // a 500 to pin Promise.allSettled resilience: Chromium logs a "Failed to
-    // load resource" devtools line for ANY non-2xx fetch response, which is
-    // expected browser behaviour for that forced failure, not an app bug. Such
-    // a spec must opt in explicitly via expectedConsoleErrorSubstrings so the
-    // guard stays strict everywhere else.
-    if (expectedConsoleErrorSubstrings.some((s) => text.includes(s))) return
+    // Chromium sets the console message's location().url to the failed
+    // resource's URL for "Failed to load resource" devtools lines (verified
+    // empirically against a forced-500 fetch through the same route-mock
+    // boundary these specs use). Matching on BOTH the message text AND this
+    // location URL - rather than text alone - is what makes an expectation
+    // load-bearing to a SPECIFIC request instead of any console line that
+    // happens to contain the same words.
+    const url = msg.location().url
+    const matchIndex = expectedConsoleErrors.findIndex(
+      (e) => text.includes(e.textSubstring) && url.includes(e.urlSubstring),
+    )
+    if (matchIndex !== -1) {
+      matchCounts[matchIndex] += 1
+      return
+    }
     consoleErrors.push(text)
   })
   return {
@@ -373,6 +393,12 @@ export function attachErrorGuards(page: Page, expectedConsoleErrorSubstrings: st
     assertClean: () => {
       expect(pageErrors, 'uncaught page errors').toEqual([])
       expect(consoleErrors, 'browser console errors').toEqual([])
+      expectedConsoleErrors.forEach((e, i) => {
+        expect(
+          matchCounts[i],
+          `expected console error [urlSubstring="${e.urlSubstring}", textSubstring="${e.textSubstring}"] to match exactly ${e.count} time(s)`,
+        ).toBe(e.count)
+      })
     },
   }
 }
