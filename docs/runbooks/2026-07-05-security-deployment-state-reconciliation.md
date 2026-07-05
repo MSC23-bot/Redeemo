@@ -14,7 +14,7 @@ Governing main at authorship: `3a097161`. Recovery baseline (Railway Web source)
 
 ## 1. Standing decision — R1 is DEFERRED, not cancelled
 
-The R1 encryption-key rotation is **deferred**. The existing, uncompromised `ENCRYPTION_KEY` **legacy-bridge mode** remains the **approved temporary operating mode**: the application boots and serves on the single key; existing 3-part branch-PIN ciphertext reads unchanged; nothing is rotated. This was adjudicated C-DEFERRABLE (Sonnet source evidence + Opus adversarial challenge, zero blocking corrections) and is consistent with the R1 runbook's own DRAFT/preparation-only status.
+The R1 encryption-key rotation is **deferred**. The existing `ENCRYPTION_KEY` remains the **approved temporary operating mode** in legacy-bridge mode — no compromise has been evidenced in the cited runbook / evidence trail (secret values were NOT inspected this session, §2), so this is a "not shown compromised" status, not an asserted verification. The application boots and serves on the single key; existing 3-part branch-PIN ciphertext reads unchanged; nothing is rotated. This was adjudicated C-DEFERRABLE (Sonnet source evidence + Opus adversarial challenge, zero blocking corrections) and is consistent with the R1 runbook's own DRAFT/preparation-only status.
 
 **Deferred WITH R1 (advance only on a §1.1 reopening trigger):** P9 (acceptance-fixture provenance), Option 3 (SELECT-only candidate-fixture inspection), the temporary staging-only SELECT-only inspection role, and R1 activation / the rotation ceremony itself (fingerprint parity, staging acceptance, any future key flip). These are the key-rotation programme and do not proceed until a §1.1 trigger fires.
 
