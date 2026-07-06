@@ -5,9 +5,17 @@
 # maintained EXCLUSIVELY by Codex (see docs/PROJECT-STATE.md §2). Claude may read them as
 # evidence but must never edit, append to, rename, move, or delete them.
 #
-# Registered for: Edit|Write|MultiEdit|NotebookEdit (file_path check) and Bash (heuristic
-# destructive-write check). Follows the same conventions as 01-git-safety.sh: requires jq,
-# fails open with a warning if the guard itself cannot run.
+# Registered for: Edit|Write|MultiEdit|NotebookEdit (file_path check; this arm is the
+# primary, robust protection) and Bash (heuristic destructive-write check; BEST-EFFORT
+# only - exotic writers like perl -i / python open(w) / rsync are not matched).
+#
+# Name coupling: protection keys on filenames containing "workflow-checklist" inside the
+# redeemo-notes dir. This is deliberate (Claude legitimately writes its own session log in
+# the same directory), but it means a future Codex-owned file WITHOUT that token is
+# instruction-protected (CLAUDE.md §2) yet not hook-protected - keep the naming convention.
+#
+# Follows the same conventions as 01-git-safety.sh: requires jq, fails open with a warning
+# if the guard itself cannot run.
 
 set -u
 
@@ -41,7 +49,7 @@ case "$TOOL_NAME" in
     if printf '%s' "$CMD" | grep -q "$GUARD_TOKEN"; then
       # Block only when a write/destructive operator plausibly targets the checklist:
       # redirection into it, in-place edit, tee, rm/mv/truncate/dd with it as an operand.
-      if printf '%s' "$CMD" | grep -Eq "(>>?[[:space:]]*[^[:space:]]*${GUARD_TOKEN}|tee[[:space:]]+(-a[[:space:]]+)?[^[:space:]]*${GUARD_TOKEN}|sed[[:space:]]+-i[^|;&]*${GUARD_TOKEN}|(^|[;&|][[:space:]]*)(rm|mv|truncate|shred)[[:space:]][^|;&]*${GUARD_TOKEN}|dd[[:space:]][^|;&]*of=[^[:space:]]*${GUARD_TOKEN})"; then
+      if printf '%s' "$CMD" | grep -Eq "(>\|?>?[[:space:]]*[^[:space:]]*${GUARD_TOKEN}|tee[[:space:]]+(-a[[:space:]]+)?[^[:space:]]*${GUARD_TOKEN}|sed[[:space:]]+-i[^|;&]*${GUARD_TOKEN}|(^|[;&|][[:space:]]*)(rm|mv|truncate|shred)[[:space:]][^|;&]*${GUARD_TOKEN}|cp[[:space:]][^|;&]*[[:space:]][^[:space:]]*${GUARD_TOKEN}[^[:space:]]*[[:space:]]*$|find[[:space:]][^|;&]*${GUARD_TOKEN}[^|;&]*-delete|dd[[:space:]][^|;&]*of=[^[:space:]]*${GUARD_TOKEN})"; then
         block "Bash command appears to write to / remove a Codex-owned checklist"
       fi
     fi

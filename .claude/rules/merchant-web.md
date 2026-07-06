@@ -28,6 +28,7 @@ paths:
 - Production-resilience standing checklist (§W): every merchant slice must explicitly
   consider high-traffic flows and third-party dependencies (timeouts, retries, fail-closed
   behaviour) rather than assuming happy-path availability.
-- Status language: merchant modules are MERGED but NOT staging-accepted portfolio-wide;
-  do not describe any module as "complete" (Definition of Complete lives in
-  `docs/superpowers/roadmaps/merchant-portal-programme-roadmap.md`).
+- Status language: never describe a merchant module as "complete" from merged state alone;
+  completion requires the Definition of Complete in
+  `docs/superpowers/roadmaps/merchant-portal-programme-roadmap.md` (incl. staging
+  acceptance). Current per-module status lives in PROJECT-STATE §4.2, not here.

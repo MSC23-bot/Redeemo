@@ -15,9 +15,12 @@ paths:
 - Monthly cycle logic: `getCurrentCycleWindow()` in `src/api/subscription/cycle.ts` is the
   single source of truth. Never re-derive cycle windows; never make correctness depend on
   Stripe webhooks. `cycleAnchorDate` is immutable.
-- Redemption: the guard order in `src/api/redemption/service.ts` (subscription → voucher →
-  merchant → branch coherence → one-per-cycle → PIN → rate limit) is locked; the atomic
-  claim uses a transaction with cross-transaction P2002 retry. Do not reorder or weaken.
+- Redemption: the numbered guard sequence in `src/api/redemption/service.ts` is locked.
+  Every eligibility gate (voucher exists/active, TIME_LIMITED window, branch coherence,
+  subscription, phone-verified, one-per-cycle) runs BEFORE the PIN compare, and the
+  rate-limit gates the PIN compare (rate-limit BEFORE compare is the PIN-oracle defence).
+  The atomic claim uses a transaction with cross-transaction P2002 retry. Do not reorder
+  or weaken; read the in-file guard comments before touching it.
 - `VoucherRedemption` has NO `merchantId` column; join via `branch.merchantId`.
 - Analytics/insights cleanliness: always exclude `isTestData` rows (redemption + branch +
   merchant), QA emails, and `User.status = 'DELETED'`.
@@ -29,6 +32,7 @@ paths:
   (`STORAGE_ENABLED` / `EMAIL_ENABLED`). Never construct clients or send when off.
 - Tests: `npm run test:unit` is the CI lane. Most integration suites under `tests/` mutate
   the shared Neon database unless `DATABASE_URL` is overridden to a disposable DB; do not
-  run `npx vitest run` (full) casually. The integration project is NOT run in CI.
+  run `npx vitest run` (full) casually. Do not assume CI covers the integration project:
+  verify `ci.yml` (coverage status lives in PROJECT-STATE §7).
 - Migrations are applied to the local/dev DB only by hand; staging/production apply via
   `prisma migrate deploy` through the deploy runbook, never ad hoc.

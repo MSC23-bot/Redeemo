@@ -34,13 +34,14 @@ not a basic coupon app.
 | Customer App | `apps/customer-app` (Expo/React Native) | discovery, vouchers, redemption |
 | Customer Website | `apps/customer-web` (Next.js) | no redemption (mobile only) |
 | Merchant Web Portal | `apps/merchant-web` (Next.js) | management, staff, insights |
-| Merchant Mobile App | (not started) | branch staff scan/validate |
+| Merchant Mobile App | planned surface (status: PROJECT-STATE §4) | branch staff scan/validate |
 | Admin Panel | `apps/admin-web` (Next.js) | approvals, ops console |
 
 ## 4. Tech stack essentials
 
 Backend: Node 24 + TypeScript + Fastify · PostgreSQL 16 on Neon · Prisma 7 · Redis ·
-Stripe · Twilio · FCM · Resend (wired, dark by default) · R2 storage (feature-flagged).
+Stripe · Twilio · FCM · Resend + R2 storage (both feature-flagged, default-off in code:
+`EMAIL_ENABLED` / `STORAGE_ENABLED`; enablement status lives in PROJECT-STATE §4.4).
 Web apps: Next.js 15 (TypeScript). Mobile: Expo SDK 54 + expo-router.
 
 **Node version policy (do not conflate):**
