@@ -20,6 +20,9 @@ const FRIENDLY: Record<string, string> = {
     'Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a special character.',
   CAPTCHA_FAILED: 'We could not verify that you are human. Please try again.',
   SESSION_INIT_FAILED: 'Could not start your session. Please try again.',
+  // My Account (§BP-ACC) change-password.
+  CURRENT_PASSWORD_INCORRECT: 'That current password is incorrect.',
+  NEW_PASSWORD_SAME_AS_CURRENT: 'Choose a new password that is different from your current one.',
 }
 
 export interface AuthError {

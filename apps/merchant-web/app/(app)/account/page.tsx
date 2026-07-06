@@ -1,17 +1,59 @@
-import type { Metadata } from 'next'
-import { ComingSoonModule } from '@/components/shell/ComingSoonModule'
+'use client'
 
-export const metadata: Metadata = { title: 'My account · Redeemo for Business' }
+/**
+ * My Account (§BP-ACC): the read shell page. Mirrors the Business Profile page
+ * pattern - the route owns the useMerchantAccount + useMerchantSessions fetches
+ * and their loading/error states; the resolved data is handed to
+ * <MyAccountScreen>. Available to ANY authenticated merchant admin (not
+ * role-gated the way Business Profile is - My Account is the logged-in person's
+ * own account, so there is no "wrong role" for it).
+ */
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { useSession } from '@/lib/auth/session'
+import { useMerchantAccount } from '@/lib/account/useMerchantAccount'
+import { useMerchantSessions } from '@/lib/account/useMerchantSessions'
+import { MyAccountScreen } from '@/components/account/MyAccountScreen'
 
-// Honest placeholder (roadmap: My Account is a separate NOT-STARTED module).
 export default function MyAccountPage() {
+  const session = useSession()
+  const account = useMerchantAccount(session.isAuthenticated)
+  const sessions = useMerchantSessions(session.isAuthenticated)
+
   return (
-    <ComingSoonModule
-      eyebrow="Your account"
-      badge="Being built"
-      title="My account"
-      intro="Your personal sign-in details will be managed here: email, phone, password and signed-in devices. This area is being built and will open soon."
-      footnote="If you need to change your password today, sign out and use Forgot password on the sign-in screen."
-    />
+    <div className="space-y-6">
+      <header className="space-y-1">
+        <h1 className="font-display text-2xl font-semibold text-foreground">My account</h1>
+        <p className="text-sm text-muted-foreground">
+          Your personal account: your details, how you sign in, and the emails you get from Redeemo. Your
+          business, branches and team each have their own home in the menu.
+        </p>
+      </header>
+
+      {account.isLoading ? (
+        <Card>
+          <div role="status" aria-live="polite" className="px-6 text-sm text-muted-foreground">
+            Loading your account...
+          </div>
+        </Card>
+      ) : account.isError || !account.data ? (
+        <Card>
+          <div role="alert" className="space-y-3 px-6">
+            <p className="text-sm text-foreground">We could not load your account.</p>
+            <Button variant="secondary" onClick={() => account.refetch()}>
+              Try again
+            </Button>
+          </div>
+        </Card>
+      ) : (
+        <MyAccountScreen
+          account={account.data}
+          businessName={session.businessName}
+          sessions={sessions.data}
+          sessionsLoading={sessions.isLoading}
+          sessionsError={sessions.isError}
+        />
+      )}
+    </div>
   )
 }

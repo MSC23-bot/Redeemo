@@ -8,11 +8,15 @@
  * renders the real read shell, <BusinessProfileScreen>, driven by a live
  * useMerchantProfile fetch) - its pin moved to
  * app/(app)/profile/__tests__/page.test.tsx.
+ *
+ * My Account (§BP-ACC): /account is likewise NO LONGER one of these
+ * placeholders - it now renders the real read shell, <MyAccountScreen>, driven
+ * by live useMerchantAccount/useMerchantSessions fetches; its pin moved to
+ * app/(app)/account/__tests__/page.test.tsx.
  */
 import { render, screen } from '@testing-library/react'
 import PromotePage from '../promote/page'
 import BillingPage from '../billing/page'
-import MyAccountPage from '../account/page'
 import HelpPage from '../help/page'
 
 describe('placeholder module routes', () => {
@@ -32,12 +36,6 @@ describe('placeholder module routes', () => {
     expect(screen.getByRole('heading', { name: 'Payments & billing' })).toBeInTheDocument()
     expect(screen.getByText('Being listed on Redeemo is free')).toBeInTheDocument()
     expect(screen.getByText(/nothing here is live or chargeable yet/i)).toBeInTheDocument()
-  })
-
-  it('/account is an honest being-built placeholder', () => {
-    render(<MyAccountPage />)
-    expect(screen.getByRole('heading', { name: 'My account' })).toBeInTheDocument()
-    expect(screen.getByText('Being built')).toBeInTheDocument()
   })
 
   it('/help is honest and fabricates no contact channels', () => {
