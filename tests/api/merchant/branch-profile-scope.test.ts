@@ -33,6 +33,9 @@ async function makeApp(row: any) {
       findFirst: vi.fn().mockResolvedValue({ id: 'b1', name: 'Main', merchantId: 'm1', openingHours: [], amenities: [], photos: [], pendingEdits: [] }),
     },
     merchant: { findUnique: vi.fn().mockResolvedValue({ id: 'm1', businessName: 'Acme', pendingEdits: [] }) },
+    // Business Profile M1: getMerchantProfile additionally resolves the OWNER
+    // contact + signed agreement (both additive, both default to absent here).
+    merchantContract: { findUnique: vi.fn().mockResolvedValue(null) },
   }
   app.decorate('prisma', prismaMock as any)
   app.decorate('redis', { get: vi.fn().mockResolvedValue(null), exists: vi.fn().mockResolvedValue(1) } as any)

@@ -41,8 +41,53 @@ export async function getMerchantProfile(prisma: PrismaClient, adminId: string) 
   })
   const displayName =
     [admin?.firstName, admin?.lastName].filter((p) => typeof p === 'string' && p.length > 0).join(' ') || null
+
+  // Business Profile M1: two ADDITIVE read-only blocks the day-2 Business Profile
+  // page needs. Both resolved by merchantId (NOT the viewer's own membership) so
+  // every active member of this merchant sees the SAME owner contact + agreement
+  // the "Business contact" card shows - a BRANCH_MANAGER/STAFF viewer still sees
+  // the OWNER's details, matching the mockup. SECURITY: both queries are scoped
+  // strictly to this resolved `merchantId` - never cross-merchant. Two small
+  // targeted queries run in parallel (not N+1 - each fires once per request).
+  const [ownerMembership, contract] = await Promise.all([
+    prisma.merchantMembership.findFirst({
+      where: { merchantId, role: 'OWNER', status: 'ACTIVE' },
+      select: {
+        merchantAdmin: {
+          select: { firstName: true, lastName: true, email: true, phone: true, phoneCountryCode: true, jobTitle: true },
+        },
+      },
+    }),
+    prisma.merchantContract.findUnique({
+      where: { merchantId },
+      select: { tcVersion: true, signedAt: true, signatureMethod: true },
+    }),
+  ])
+  // Lenient by design: if somehow no OWNER membership resolves (data anomaly),
+  // return null rather than throw - this is a read-only enrichment block, not a
+  // security boundary the caller depends on.
+  const ownerContact = ownerMembership?.merchantAdmin
+    ? {
+        firstName: ownerMembership.merchantAdmin.firstName,
+        lastName: ownerMembership.merchantAdmin.lastName,
+        email: ownerMembership.merchantAdmin.email,
+        phone: ownerMembership.merchantAdmin.phone,
+        phoneCountryCode: ownerMembership.merchantAdmin.phoneCountryCode,
+        jobTitle: ownerMembership.merchantAdmin.jobTitle,
+      }
+    : null
+  const agreement = contract
+    ? {
+        acceptedVersion: contract.tcVersion,
+        acceptedAt: contract.signedAt,
+        signatureMethod: contract.signatureMethod,
+      }
+    : null
+
   return {
     ...merchant,
+    ownerContact,
+    agreement,
     viewerCapabilities: { canViewInsights, canManageVouchers, role, displayName },
   }
 }
