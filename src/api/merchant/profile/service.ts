@@ -43,46 +43,70 @@ export async function getMerchantProfile(prisma: PrismaClient, adminId: string) 
     [admin?.firstName, admin?.lastName].filter((p) => typeof p === 'string' && p.length > 0).join(' ') || null
 
   // Business Profile M1: two ADDITIVE read-only blocks the day-2 Business Profile
-  // page needs. Both resolved by merchantId (NOT the viewer's own membership) so
-  // every active member of this merchant sees the SAME owner contact + agreement
-  // the "Business contact" card shows - a BRANCH_MANAGER/STAFF viewer still sees
-  // the OWNER's details, matching the mockup. SECURITY: both queries are scoped
-  // strictly to this resolved `merchantId` - never cross-merchant. Two small
-  // targeted queries run in parallel (not N+1 - each fires once per request).
-  const [ownerMembership, contract] = await Promise.all([
-    prisma.merchantMembership.findFirst({
-      where: { merchantId, role: 'OWNER', status: 'ACTIVE' },
-      select: {
-        merchantAdmin: {
-          select: { firstName: true, lastName: true, email: true, phone: true, phoneCountryCode: true, jobTitle: true },
+  // page needs. Both resolved by merchantId (NOT the viewer's own membership), so
+  // every PRIVILEGED member of this merchant sees the SAME owner contact +
+  // agreement the "Business contact" card shows. Role-gated (Codex PII/role
+  // boundary fix): BRANCH_MANAGER still sees the owner's business-contact details
+  // (matches the mockup, consistent with the FULL_NAV role set), but STAFF does
+  // NOT - least-privilege, same allowlist/fail-closed rationale as
+  // `canViewInsights` above. An explicit ALLOWLIST (not `!== 'STAFF'`) so a future
+  // newly-added role FAILS CLOSED - it must be added here deliberately to gain
+  // owner PII, never by default. When not privileged, the two queries are SKIPPED
+  // entirely (no fetch, zero leak) rather than fetched-and-discarded. SECURITY:
+  // both queries, when they do run, are scoped strictly to this resolved
+  // `merchantId` - never cross-merchant.
+  const canViewBusinessProfile = role === 'OWNER' || role === 'BRANCH_MANAGER'
+  let ownerContact: {
+    firstName: string
+    lastName: string
+    email: string
+    phone: string | null
+    phoneCountryCode: string | null
+    jobTitle: string | null
+  } | null = null
+  let agreement: {
+    acceptedVersion: string
+    acceptedAt: Date
+    signatureMethod: string
+  } | null = null
+  if (canViewBusinessProfile) {
+    // Two small targeted queries run in parallel (not N+1 - each fires once per
+    // request).
+    const [ownerMembership, contract] = await Promise.all([
+      prisma.merchantMembership.findFirst({
+        where: { merchantId, role: 'OWNER', status: 'ACTIVE' },
+        select: {
+          merchantAdmin: {
+            select: { firstName: true, lastName: true, email: true, phone: true, phoneCountryCode: true, jobTitle: true },
+          },
         },
-      },
-    }),
-    prisma.merchantContract.findUnique({
-      where: { merchantId },
-      select: { tcVersion: true, signedAt: true, signatureMethod: true },
-    }),
-  ])
-  // Lenient by design: if somehow no OWNER membership resolves (data anomaly),
-  // return null rather than throw - this is a read-only enrichment block, not a
-  // security boundary the caller depends on.
-  const ownerContact = ownerMembership?.merchantAdmin
-    ? {
-        firstName: ownerMembership.merchantAdmin.firstName,
-        lastName: ownerMembership.merchantAdmin.lastName,
-        email: ownerMembership.merchantAdmin.email,
-        phone: ownerMembership.merchantAdmin.phone,
-        phoneCountryCode: ownerMembership.merchantAdmin.phoneCountryCode,
-        jobTitle: ownerMembership.merchantAdmin.jobTitle,
-      }
-    : null
-  const agreement = contract
-    ? {
-        acceptedVersion: contract.tcVersion,
-        acceptedAt: contract.signedAt,
-        signatureMethod: contract.signatureMethod,
-      }
-    : null
+      }),
+      prisma.merchantContract.findUnique({
+        where: { merchantId },
+        select: { tcVersion: true, signedAt: true, signatureMethod: true },
+      }),
+    ])
+    // Lenient by design: if somehow no OWNER membership resolves (data anomaly),
+    // return null rather than throw - this is a read-only enrichment block, not a
+    // security boundary the caller depends on.
+    ownerContact = ownerMembership?.merchantAdmin
+      ? {
+          firstName: ownerMembership.merchantAdmin.firstName,
+          lastName: ownerMembership.merchantAdmin.lastName,
+          email: ownerMembership.merchantAdmin.email,
+          phone: ownerMembership.merchantAdmin.phone,
+          phoneCountryCode: ownerMembership.merchantAdmin.phoneCountryCode,
+          jobTitle: ownerMembership.merchantAdmin.jobTitle,
+        }
+      : null
+    agreement = contract
+      ? {
+          acceptedVersion: contract.tcVersion,
+          acceptedAt: contract.signedAt,
+          signatureMethod: contract.signatureMethod,
+        }
+      : null
+  }
 
   return {
     ...merchant,
