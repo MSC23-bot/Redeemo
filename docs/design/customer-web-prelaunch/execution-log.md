@@ -109,3 +109,16 @@ edited by this workstream.
   (fictional business names web-vetted; addresses fine for map pins, glance if
   extra caution wanted). Same-name Old Foundry Kitchen in London (02) and
   Huddersfield (11) reads as a two-city chain; intentional, shared branding.
+- Codex review of PR #400 (at e152584b): approach approved in principle; three
+  execution blockers. All fixed at 0e07c157: (1) fail-closed DB identity guard
+  (seedTargetGuard.ts; production always refused; SEED_DEMO_TARGET_DB must equal
+  the exact host/dbname of DATABASE_URL, printed on refusal); (2) truthful
+  teardown (failures collected, INCOMPLETE banner, non-zero exit, success line
+  unreachable after failure); (3) ENCRYPTION_KEY required only for seeding.
+  Campaign journey made honest by POPULATING it (bannerImageUrl + demo-cm-*
+  CampaignMerchant links, torn down first). Fable address judgement: street
+  numbers removed from the five numbered Huddersfield lines (real streets stay,
+  no specific frontage claimed). Load-bearing tests added:
+  tests/api/lib/seedTargetGuard.test.ts (10) + seed-demo.guard.test.ts (9
+  structural), all green. Fresh Opus review of 0e07c157 dispatched; PR stays
+  draft/unmerged; seed run still owner-queued.
