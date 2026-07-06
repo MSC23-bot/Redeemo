@@ -76,6 +76,7 @@ subplot.
 | 2 | Find | Cream, video continues | Quality fear answered: curation, real places, the map moment | Real app UI journey: home feed -> categories -> map with pins -> merchant profile |
 | 3 | Choose | White | Tangible value, no-catches: terms visible on real voucher UI; all 7 types as a card deck | Voucher deck around real voucher-detail screen |
 | 4 | Redeem | NAVY (the one dark act) | Embarrassment fear answered: 2 seconds at the till, staff-confirmed, done | Code moment (code-rendered UI; ambient video glow) |
+| 4.5 | How it works recap | Cream, calm | Owner 2026-07-06: explicit comprehension after the cinematic beats; skimmers get the boxed version | "So that's Redeemo. Here's how it works:" 4 numbered steps: (1) Browse free, no card: every place + voucher near you; (2) Subscribe from £6.99: every voucher at every place included; (3) Redeem in-store: tap redeem, show your code, staff confirm in seconds; (4) Fresh every month: once per place per month, new cycle brings them back. Link: full journey -> /how-it-works |
 | 5 | The maths | Cream | Rational permission after emotional buy-in | One voucher > £6.99 = month paid for itself. Arithmetic, no invented stats |
 | 6 | The standard | White (navy type) | Trust: we launch properly, city by city | Chosen places + honest terms + one rollout line ("Huddersfield first. Then city by city.") |
 | 7 | Pricing | Cream | Clarity, zero surprises | 3 plans, facts unchanged |
