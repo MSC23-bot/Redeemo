@@ -609,12 +609,12 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         city: 'Huddersfield',
         postcode: 'HD1 2LR',
         latitude: 53.6452, longitude: -1.7838,
-        phone: '+441484512034',
+        phone: '+441484496010',
         hours: [
           [1, '12:00', '22:00'], [2, '12:00', '22:00'], [3, '12:00', '22:00'], [4, '12:00', '23:00'],
           [5, '12:00', '23:30'], [6, '11:00', '23:30'], [0, '11:00', '21:00'],
         ],
-        amenityNames: ['Card Payment', 'Outdoor Seating', 'Free WiFi'],
+        amenityNames: ['Wi-Fi', 'Outdoor Seating', 'Group Bookings', 'Wheelchair Access'],
         reviews: [
           { reviewerIdx: 0, rating: 5, comment: 'The wood-fired hake was outstanding. Midweek it feels like your own private dining room.' },
           { reviewerIdx: 3, rating: 5, comment: 'Proper Yorkshire cooking without the fuss. Staff talked us through the voucher, zero awkwardness.' },
@@ -628,12 +628,12 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         city: 'Huddersfield',
         postcode: 'HD1 3AP',
         latitude: 53.6421, longitude: -1.7789,
-        phone: '+441484512035',
+        phone: '+441484496011',
         hours: [
           [1, 'closed'], [2, '17:00', '22:00'], [3, '17:00', '22:00'], [4, '17:00', '22:30'],
           [5, '12:00', '23:00'], [6, '12:00', '23:00'], [0, '12:00', '20:00'],
         ],
-        amenityNames: ['Card Payment', 'Takeaway'],
+        amenityNames: ['Walk-Ins Welcome', 'Group Bookings'],
         reviews: [
           { reviewerIdx: 2, rating: 5, comment: 'Smaller than High Street but the same kitchen standards. The Sunday roast is the move.' },
         ],
@@ -675,12 +675,12 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         city: 'Huddersfield',
         postcode: 'HD1 1DA',
         latitude: 53.6478, longitude: -1.7815,
-        phone: '+441484512036',
+        phone: '+441484496012',
         hours: [
           [1, '07:30', '17:00'], [2, '07:30', '17:00'], [3, '07:30', '17:00'], [4, '07:30', '17:00'],
           [5, '07:30', '18:00'], [6, '08:30', '18:00'], [0, '09:00', '16:00'],
         ],
-        amenityNames: ['Free WiFi', 'Card Payment', 'Takeaway', 'Outdoor Seating'],
+        amenityNames: ['Wi-Fi', 'Outdoor Seating', 'Walk-Ins Welcome'],
         reviews: [
           { reviewerIdx: 4, rating: 5, comment: 'Best flat white in town and the almond croissants go by 10am. Get there early.' },
           { reviewerIdx: 1, rating: 5, comment: 'My regular now. The free pastry voucher genuinely works, staff scan and done.' },
@@ -722,12 +722,12 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         city: 'Huddersfield',
         postcode: 'HD1 2QA',
         latitude: 53.6469, longitude: -1.7842,
-        phone: '+441484512037',
+        phone: '+441484496013',
         hours: [
           [1, '08:00', '16:00'], [2, '08:00', '16:00'], [3, '08:00', '16:00'], [4, '08:00', '16:00'],
           [5, '08:00', '17:00'], [6, '09:00', '17:00'], [0, 'closed'],
         ],
-        amenityNames: ['Card Payment', 'Takeaway'],
+        amenityNames: ['Walk-Ins Welcome', 'Click & Collect'],
         reviews: [
           { reviewerIdx: 2, rating: 5, comment: 'The half-price lunch window changed my work weeks. Focaccia is genuinely special.' },
           { reviewerIdx: 0, rating: 4, comment: 'Queue moves fast, portions are generous. Hot box on Thursdays is the one.' },
@@ -770,12 +770,12 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         city: 'Huddersfield',
         postcode: 'HD1 6QT',
         latitude: 53.6438, longitude: -1.7891,
-        phone: '+441484512038',
+        phone: '+441484496014',
         hours: [
           [1, '06:00', '21:00'], [2, '06:00', '21:00'], [3, '06:00', '21:00'], [4, '06:00', '21:00'],
           [5, '06:00', '20:00'], [6, '08:00', '14:00'], [0, '09:00', '13:00'],
         ],
-        amenityNames: ['Card Payment', 'Free WiFi'],
+        amenityNames: ['Showers', 'Lockers', 'Online Booking'],
         reviews: [
           { reviewerIdx: 1, rating: 5, comment: 'Half price first class got me through the door; the coaching kept me. Six months in now.' },
           { reviewerIdx: 4, rating: 5, comment: 'Small classes, real programming, no ego. Rare.' },
@@ -817,12 +817,12 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         city: 'Huddersfield',
         postcode: 'HD1 1DX',
         latitude: 53.6486, longitude: -1.7799,
-        phone: '+441484512039',
+        phone: '+441484496015',
         hours: [
           [1, 'closed'], [2, '09:00', '18:00'], [3, '09:00', '18:00'], [4, '09:00', '19:00'],
           [5, '09:00', '19:00'], [6, '08:30', '17:00'], [0, 'closed'],
         ],
-        amenityNames: ['Card Payment'],
+        amenityNames: ['Walk-Ins Welcome', 'Online Booking'],
         reviews: [
           { reviewerIdx: 3, rating: 5, comment: 'Best scissor cut I have had in Yorkshire. The hot towel finish is worth the visit alone.' },
           { reviewerIdx: 0, rating: 4, comment: 'Walked in with a voucher, walked out looking sharp. No awkward moment at the till.' },
@@ -864,12 +864,12 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         city: 'Huddersfield',
         postcode: 'HD1 1LS',
         latitude: 53.6474, longitude: -1.7862,
-        phone: '+441484512040',
+        phone: '+441484496016',
         hours: [
           [1, 'closed'], [2, '10:00', '18:00'], [3, '10:00', '18:00'], [4, '10:00', '20:00'],
           [5, '10:00', '18:00'], [6, '09:00', '17:00'], [0, 'closed'],
         ],
-        amenityNames: ['Card Payment'],
+        amenityNames: ['Online Booking', 'Same-Day Appointments', 'Wheelchair Access'],
         reviews: [
           { reviewerIdx: 4, rating: 5, comment: 'Unhurried, meticulous, lovely room. My gels have never lasted longer.' },
           { reviewerIdx: 2, rating: 5, comment: 'The free nail art upgrade is a real treat, not a token gesture.' },
@@ -1249,7 +1249,9 @@ async function clearDemo() {
   console.log('Clearing demo records...')
 
   // Delete in FK-safe order:
-  // featuredMerchant → voucher → branchAmenity/openingHours/reviews → branch → merchantAdmin → merchantCategory → merchant → reviewer users
+  // voucherRedemption → campaign → featuredMerchant → voucher →
+  // branchAmenity/openingHours/reviews → branch → merchantAdmin →
+  // merchantCategory → merchant → reviewer users
   const merchantIds = DEMO_MERCHANTS.map(m => m.id)
 
   const del = async (label: string, fn: () => Promise<{ count: number }>) => {
@@ -1260,6 +1262,15 @@ async function clearDemo() {
       console.error(`  failed to remove ${label}:`, (e as Error).message)
     }
   }
+
+  // Redemptions FIRST: their voucherId/branchId/userId FKs are ON DELETE
+  // RESTRICT, so leaving them in place silently blocks the voucher, branch
+  // and reviewer-user deletes below (the teardown then reported success
+  // while removing nothing).
+  await del('voucherRedemption rows',
+    () => prisma.voucherRedemption.deleteMany({ where: { redemptionCode: { startsWith: 'demo-red-' } } }))
+  await del('campaign rows',
+    () => prisma.campaign.deleteMany({ where: { id: { startsWith: 'demo-campaign-' } } }))
 
   await del('featuredMerchant rows',
     () => prisma.featuredMerchant.deleteMany({ where: { merchantId: { in: merchantIds } } }))
