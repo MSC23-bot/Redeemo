@@ -163,3 +163,24 @@ build (separate approval, per step-by-step instruction).
 - Structure sign-off on §1 (or reorder).
 - Reference kit sign-off on §4.
 - D4 budget ceiling once numbers are quoted post-login.
+
+## v2.4 amendments (owner, capture + motion session)
+
+- Placement adjudicated: hero = phone right / text+CTA left (headline owns the
+  first read); story section = phone slides to CENTRE and pins, text alternates
+  left/right per chapter; navy break at Redeem. Hero surrounded by the animated
+  3D brand-object drift (Phase 1 stills -> B-roll).
+- Shot list v2 (owner: map + favourites EXCLUDED, need polish): home feed;
+  all-categories; search "coffee"; Old Foundry profile top; profile voucher list;
+  BOGO detail; freebie detail; redeem confirmation step; PIN-entry screen;
+  savings screen with breakdown. Code/QR screen stays code-rendered (capture-
+  blocked by design); PIN screen falls back to code-render if protected.
+- Redemption depth: FULL journey shown visually in the Redeem chapter (owner
+  direction: people should see how it works); copy stays at one-line level
+  ("tap redeem, show your phone"): depth in pictures, not paragraphs.
+- No-slideshow rule: in-screen motion via Higgsfield image-to-video (savings
+  bars/count-up first; feed/profile candidates) + code-driven between-screen
+  transitions that mimic real app navigation, scroll-scrubbed.
+- Higgsfield account live: admin@redeemo.co.uk, Plus, 110 credits. Real costs:
+  images ~1 credit; clips 7.5-10. Plan: stills ~12 + B-roll ~30-40 + in-screen
+  ~20-30 = ~70-85 total inside existing credits, no purchase.
