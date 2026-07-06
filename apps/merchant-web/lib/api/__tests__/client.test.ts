@@ -423,6 +423,126 @@ describe('session epoch guard (T2) + single-flight self-ownership (T3/F1)', () =
     await expect(apiFetchRaw('/export.csv', { auth: true })).rejects.toMatchObject({ code: 'SESSION_SWITCHED' })
   })
 
+  // Defense-in-depth closure (post-#389 composed review): every remaining
+  // body-consuming success-or-error path now re-checks the epoch AFTER the body
+  // await, so a mid-flight boundary can never deliver stale data NOR throw a stale
+  // ApiError to a caller. See docs/superpowers/... PR description for the full
+  // enumeration; these pins cover the paths that were NOT already gated.
+
+  it('new gate (non-401 error, post-body): a boundary DURING the !res.ok error-body json() consumption discards the stale ApiError in favour of SESSION_SWITCHED', async () => {
+    // WITH the new gate (real code): rejects SESSION_SWITCHED.
+    // MUTATION (remove the post-body assertEpoch in the `if (!res.ok)` branch of
+    // apiFetchResponse): the parsed { code: 'BOOM' } ApiError is delivered instead and
+    // this assertion flips to `code: 'BOOM'` - test fails.
+    setAccessToken('tok')
+    const res = {
+      status: 500,
+      ok: false,
+      json: async () => {
+        bumpSessionEpoch() // boundary lands while the ERROR body is being streamed/parsed
+        return { error: { code: 'BOOM' } }
+      },
+    } as unknown as Response
+    global.fetch = jest.fn(async () => res) as unknown as typeof fetch
+    await expect(apiFetch('/profile', { auth: true })).rejects.toMatchObject({ code: 'SESSION_SWITCHED' })
+  })
+
+  it('same-epoch behavior-preservation: a non-401 error response with NO epoch boundary still throws the REAL ApiError (not SESSION_SWITCHED)', async () => {
+    setAccessToken('tok')
+    global.fetch = jest.fn(async () => jsonRes(500, { error: { code: 'BOOM' } })) as unknown as typeof fetch
+    await expect(apiFetch('/profile', { auth: true })).rejects.toMatchObject({ status: 500, code: 'BOOM' })
+  })
+
+  it('new gate (401 failed-refresh, post-body): a boundary DURING the 401 error-body json() consumption after a failed refresh discards the stale ApiError(401) in favour of SESSION_SWITCHED', async () => {
+    // WITH the new gate (real code): rejects SESSION_SWITCHED.
+    // MUTATION (remove the post-body assertEpoch in the 401-failed-refresh branch of
+    // apiFetchResponse): the parsed 401 ApiError is delivered instead and this
+    // assertion flips to `code: 'SESSION_REVOKED'` - test fails.
+    setAccessToken('expired')
+    global.fetch = jest.fn(async (url: unknown) => {
+      if (String(url).endsWith('/api/merchant-auth/refresh')) {
+        return jsonRes(401, {}) // refresh itself fails
+      }
+      return {
+        status: 401,
+        ok: false,
+        json: async () => {
+          bumpSessionEpoch() // boundary lands while the 401 error body is being parsed
+          return { error: { code: 'SESSION_REVOKED' } }
+        },
+      } as unknown as Response
+    }) as unknown as typeof fetch
+    await expect(apiFetch('/profile', { auth: true })).rejects.toMatchObject({ code: 'SESSION_SWITCHED' })
+  })
+
+  it('new gate (JSON-parse-throw): a boundary DURING a res.json() REJECTION discards the parse error in favour of SESSION_SWITCHED', async () => {
+    // WITH guardStaleReject (real code): rejects SESSION_SWITCHED.
+    // MUTATION (unwrap apiFetch's `guardStaleReject(res.json(), capturedEpoch)` back to
+    // a bare `res.json()`): the raw SyntaxError propagates uncaught instead and this
+    // assertion (which looks for `code: 'SESSION_SWITCHED'`) fails.
+    setAccessToken('tok')
+    const res = {
+      status: 200,
+      ok: true,
+      json: async () => {
+        bumpSessionEpoch() // boundary lands while the body is mid-parse
+        throw new SyntaxError('Unexpected token')
+      },
+    } as unknown as Response
+    global.fetch = jest.fn(async () => res) as unknown as typeof fetch
+    await expect(apiFetch('/profile', { auth: true })).rejects.toMatchObject({ code: 'SESSION_SWITCHED' })
+  })
+
+  it('same-epoch behavior-preservation: a res.json() REJECTION with NO epoch boundary rethrows the ORIGINAL parse error unchanged', async () => {
+    setAccessToken('tok')
+    const parseErr = new SyntaxError('Unexpected token')
+    const res = {
+      status: 200,
+      ok: true,
+      json: async () => {
+        throw parseErr
+      },
+    } as unknown as Response
+    global.fetch = jest.fn(async () => res) as unknown as typeof fetch
+    await expect(apiFetch('/profile', { auth: true })).rejects.toBe(parseErr)
+  })
+
+  it('new gate (raw arrayBuffer-reject): a boundary DURING an arrayBuffer() REJECTION discards the read error in favour of SESSION_SWITCHED', async () => {
+    // WITH guardStaleReject (real code): rejects SESSION_SWITCHED.
+    // MUTATION (unwrap apiFetchRaw's `guardStaleReject(res.arrayBuffer(), capturedEpoch)`
+    // back to a bare `res.arrayBuffer()`): the raw Error propagates uncaught instead and
+    // this assertion fails.
+    setAccessToken('tok')
+    const res = {
+      status: 200,
+      ok: true,
+      statusText: 'OK',
+      headers: new Headers(),
+      arrayBuffer: async () => {
+        bumpSessionEpoch() // boundary lands while the raw body read is in flight
+        throw new Error('stream aborted')
+      },
+    } as unknown as Response
+    global.fetch = jest.fn(async () => res) as unknown as typeof fetch
+    await expect(apiFetchRaw('/export.csv', { auth: true })).rejects.toMatchObject({ code: 'SESSION_SWITCHED' })
+  })
+
+  it('same-epoch behavior-preservation: an arrayBuffer() REJECTION with NO epoch boundary rethrows the ORIGINAL read error unchanged', async () => {
+    setAccessToken('tok')
+    const readErr = new Error('stream aborted')
+    const res = {
+      status: 200,
+      ok: true,
+      statusText: 'OK',
+      headers: new Headers(),
+      arrayBuffer: async () => {
+        throw readErr
+      },
+    } as unknown as Response
+    global.fetch = jest.fn(async () => res) as unknown as typeof fetch
+    await expect(apiFetchRaw('/export.csv', { auth: true })).rejects.toBe(readErr)
+  })
+
   it('session-side-effect epoch gate (Codex #3): an old-epoch request whose refresh fails does NOT null the token or hard-logout', async () => {
     setAccessToken('expired')
     const lost = jest.fn()
