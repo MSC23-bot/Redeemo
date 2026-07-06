@@ -14,8 +14,18 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import * as crypto from 'crypto'
 import { encrypt } from '../src/api/shared/encryption'
 import { requireSeedEncryptionKey } from './seed-data/requireEncryptionKey'
+import { assertConfirmedSeedTarget, SEED_TARGET_ENV_VAR } from './seed-data/seedTargetGuard'
 
-requireSeedEncryptionKey() // F8: require the REAL ENCRYPTION_KEY (no repo-public fallback) before encrypting branch PINs
+// Fail-closed target confirmation (PR #400 review blocker 1): refuse to touch
+// any database the operator has not explicitly named via SEED_DEMO_TARGET_DB,
+// and refuse production outright. Runs for BOTH seed and clear modes.
+const confirmedTarget = assertConfirmedSeedTarget({
+  databaseUrl: process.env.DATABASE_URL,
+  confirm: process.env[SEED_TARGET_ENV_VAR],
+  deployEnv: process.env.REDEEMO_DEPLOY_ENV,
+  nodeEnv: process.env.NODE_ENV,
+})
+console.log(`Target database confirmed: ${confirmedTarget}`)
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
@@ -605,7 +615,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         suffix: 'a',
         name: 'High Street',
         isMainBranch: true,
-        addressLine1: '3 High Street',
+        addressLine1: 'High Street',
         city: 'Huddersfield',
         postcode: 'HD1 2LR',
         latitude: 53.6452, longitude: -1.7838,
@@ -671,7 +681,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         suffix: 'a',
         name: 'Byram Street',
         isMainBranch: true,
-        addressLine1: '18 Byram Street',
+        addressLine1: 'Byram Street',
         city: 'Huddersfield',
         postcode: 'HD1 1DA',
         latitude: 53.6478, longitude: -1.7815,
@@ -718,7 +728,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         suffix: 'a',
         name: 'Market Walk',
         isMainBranch: true,
-        addressLine1: '5 Market Walk',
+        addressLine1: 'Market Walk',
         city: 'Huddersfield',
         postcode: 'HD1 2QA',
         latitude: 53.6469, longitude: -1.7842,
@@ -813,7 +823,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         suffix: 'a',
         name: 'Wood Street',
         isMainBranch: true,
-        addressLine1: '27 Wood Street',
+        addressLine1: 'Wood Street',
         city: 'Huddersfield',
         postcode: 'HD1 1DX',
         latitude: 53.6486, longitude: -1.7799,
@@ -860,7 +870,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         suffix: 'a',
         name: 'Station Street',
         isMainBranch: true,
-        addressLine1: '9 Station Street',
+        addressLine1: 'Station Street',
         city: 'Huddersfield',
         postcode: 'HD1 1LS',
         latitude: 53.6474, longitude: -1.7862,
@@ -896,6 +906,11 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
 // ─── Seed runner ──────────────────────────────────────────────────────────
 
 async function seedDemo() {
+  // ENCRYPTION_KEY is needed only on the seeding path (branch PIN encryption);
+  // teardown performs no encryption and must not demand the key (PR #400
+  // review blocker 3).
+  requireSeedEncryptionKey()
+
   console.log('Seeding demo merchants...')
 
   // 1. Resolve shared references (categories, amenities) by name from the main seed
@@ -1157,7 +1172,11 @@ async function seedDemo() {
     console.log(`  ✓ ${m.tradingName} (${m.branches.length} branch${m.branches.length === 1 ? '' : 'es'}, ${m.vouchers.length} vouchers)`)
   }
 
-  // 4. Campaigns — clear old demo campaigns and insert 3 fresh ones
+  // 4. Campaigns — clear old demo campaign links + campaigns, insert 3 fresh
+  //    ones WITH banner imagery and CampaignMerchant links so the campaign
+  //    tap-through journey (banner -> merchant list) is genuinely populated
+  //    (PR #400 review: do not claim the journey without the rows).
+  await prisma.campaignMerchant.deleteMany({ where: { id: { startsWith: 'demo-cm-' } } })
   await prisma.campaign.deleteMany({ where: { id: { startsWith: 'demo-campaign-' } } })
   const now = new Date()
   const campaignData = [
@@ -1165,31 +1184,51 @@ async function seedDemo() {
       id: 'demo-campaign-1',
       name: 'Summer Savings',
       description: 'Member vouchers from quality local businesses all summer long.',
+      bannerImageUrl: U('photo-1504674900247-0877df9cc836'),
       status: 'ACTIVE' as const,
       startDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
       endDate:   new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000),
+      merchantIds: ['demo-merchant-11', 'demo-merchant-12', 'demo-merchant-13', 'demo-merchant-01', 'demo-merchant-02'],
     },
     {
       id: 'demo-campaign-2',
       name: 'New in Your Area',
       description: 'Fresh openings and new vouchers from merchants near you.',
+      bannerImageUrl: U('photo-1441986300917-64674bd600d8'),
       status: 'ACTIVE' as const,
       startDate: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000),
       endDate:   new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000),
+      merchantIds: ['demo-merchant-14', 'demo-merchant-15', 'demo-merchant-16'],
     },
     {
       id: 'demo-campaign-3',
       name: 'Redeemo Picks',
       description: 'Hand-picked vouchers our team rates. Worth a look.',
+      bannerImageUrl: U('photo-1517248135467-4c7edcad34c4'),
       status: 'ACTIVE' as const,
       startDate: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
       endDate:   new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
+      merchantIds: ['demo-merchant-11', 'demo-merchant-14', 'demo-merchant-03', 'demo-merchant-04'],
     },
   ]
-  for (const c of campaignData) {
+  for (const { merchantIds, ...c } of campaignData) {
     await prisma.campaign.create({ data: c })
+    for (const merchantId of merchantIds) {
+      await prisma.campaignMerchant.create({
+        data: {
+          id: `demo-cm-${c.id.replace('demo-campaign-', '')}-${merchantId.replace('demo-merchant-', '')}`,
+          campaignId: c.id,
+          merchantId,
+          startDate: c.startDate,
+          endDate: c.endDate,
+          costGbp: 0,
+          paymentStatus: 'PAID',
+          isActive: true,
+        },
+      })
+    }
   }
-  console.log(`Upserted ${campaignData.length} demo campaigns`)
+  console.log(`Created ${campaignData.length} demo campaigns with merchant links`)
 
   // 5. Trending redemptions — give demo-merchant-01..04 some this-month redemptions
   //    so the Trending section is populated. Uses reviewer users as fake redeemers.
@@ -1254,12 +1293,17 @@ async function clearDemo() {
   // merchantCategory → merchant → reviewer users
   const merchantIds = DEMO_MERCHANTS.map(m => m.id)
 
+  // Truthful teardown (PR #400 review blocker 2): failures are collected and
+  // the run exits non-zero with an INCOMPLETE banner; it must never print a
+  // success line after a failed delete.
+  const failures: string[] = []
   const del = async (label: string, fn: () => Promise<{ count: number }>) => {
     try {
       const r = await fn()
       console.log(`  removed ${r.count} ${label}`)
     } catch (e) {
-      console.error(`  failed to remove ${label}:`, (e as Error).message)
+      failures.push(`${label}: ${(e as Error).message}`)
+      console.error(`  FAILED to remove ${label}:`, (e as Error).message)
     }
   }
 
@@ -1269,6 +1313,8 @@ async function clearDemo() {
   // while removing nothing).
   await del('voucherRedemption rows',
     () => prisma.voucherRedemption.deleteMany({ where: { redemptionCode: { startsWith: 'demo-red-' } } }))
+  await del('campaignMerchant rows',
+    () => prisma.campaignMerchant.deleteMany({ where: { id: { startsWith: 'demo-cm-' } } }))
   await del('campaign rows',
     () => prisma.campaign.deleteMany({ where: { id: { startsWith: 'demo-campaign-' } } }))
 
@@ -1311,6 +1357,14 @@ async function clearDemo() {
 
   await del('reviewer user rows',
     () => prisma.user.deleteMany({ where: { id: { in: REVIEWERS.map(r => r.id) } } }))
+
+  if (failures.length > 0) {
+    console.error(`\n❌ Demo clear INCOMPLETE: ${failures.length} deletion step(s) failed:`)
+    for (const f of failures) console.error(`   - ${f}`)
+    console.error('   Demo rows remain in the database. Fix the cause and re-run --clear.')
+    process.exitCode = 1
+    return
+  }
 
   console.log('\n✅ Demo records cleared.')
 }
