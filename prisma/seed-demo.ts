@@ -105,7 +105,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1511920170033-f8396924c348', 400),
     bannerUrl:  U('photo-1498804103079-a6351b050096'),
     adminEmail: 'demo-merchant-01@redeemo.local',
-    primaryCategoryName: 'Cafes & Coffee',
+    primaryCategoryName: 'Cafe & Coffee',
     additionalCategoryNames: ['Food & Drink'],
     featured: true,
     branches: [
@@ -173,7 +173,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1550966871-3ed3cdb5ed0c', 400),
     bannerUrl:  U('photo-1552566626-52f8b828add9'),
     adminEmail: 'demo-merchant-02@redeemo.local',
-    primaryCategoryName: 'Restaurants',
+    primaryCategoryName: 'Restaurant',
     additionalCategoryNames: ['Food & Drink'],
     featured: true,
     branches: [
@@ -229,7 +229,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1521572163474-6864f9cf17ab', 400),
     bannerUrl:  U('photo-1503951914875-452162b0f3f1'),
     adminEmail: 'demo-merchant-03@redeemo.local',
-    primaryCategoryName: 'Hair Salons',
+    primaryCategoryName: 'Barber',
     additionalCategoryNames: ['Beauty & Wellness'],
     branches: [
       {
@@ -277,7 +277,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1540497077202-7c8a3999166f', 400),
     bannerUrl:  U('photo-1534438327276-14e5300c3a48'),
     adminEmail: 'demo-merchant-04@redeemo.local',
-    primaryCategoryName: 'Health & Fitness',
+    primaryCategoryName: 'Gym',
     featured: true,
     branches: [
       {
@@ -327,7 +327,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1555396273-367ea4eb4db5', 400),
     bannerUrl:  U('photo-1414235077428-338989a2e8c0'),
     adminEmail: 'demo-merchant-05@redeemo.local',
-    primaryCategoryName: 'Restaurants',
+    primaryCategoryName: 'Restaurant',
     additionalCategoryNames: ['Food & Drink'],
     branches: [
       {
@@ -377,7 +377,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1552693673-1bf958298935', 400),
     bannerUrl:  U('photo-1570172619644-dfd03ed5d881'),
     adminEmail: 'demo-merchant-06@redeemo.local',
-    primaryCategoryName: 'Nail & Beauty',
+    primaryCategoryName: 'Beauty Salon',
     additionalCategoryNames: ['Beauty & Wellness'],
     branches: [
       {
@@ -426,7 +426,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1588286840104-8957b019727f', 400),
     bannerUrl:  U('photo-1545389336-cf090694435e'),
     adminEmail: 'demo-merchant-07@redeemo.local',
-    primaryCategoryName: 'Health & Fitness',
+    primaryCategoryName: 'Boutique Studio',
     branches: [
       {
         suffix: 'a',
@@ -469,7 +469,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1507842217343-583bb7270b66', 400),
     bannerUrl:  U('photo-1519682337058-a94d519337bc'),
     adminEmail: 'demo-merchant-08@redeemo.local',
-    primaryCategoryName: 'Retail & Shopping',
+    primaryCategoryName: 'Bookshop',
     branches: [
       {
         suffix: 'a',
@@ -511,7 +511,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1489599849927-2ee91cede3ba', 400),
     bannerUrl:  U('photo-1536440136628-849c177e76a1'),
     adminEmail: 'demo-merchant-09@redeemo.local',
-    primaryCategoryName: 'Entertainment',
+    primaryCategoryName: 'Cinema',
     branches: [
       {
         suffix: 'a',
@@ -558,7 +558,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1561181286-d3fee7d55364', 400),
     bannerUrl:  U('photo-1508610048659-a06b669e3321'),
     adminEmail: 'demo-merchant-10@redeemo.local',
-    primaryCategoryName: 'Retail & Shopping',
+    primaryCategoryName: 'Florist',
     branches: [
       {
         suffix: 'a',
@@ -608,7 +608,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1550966871-3ed3cdb5ed0c', 400),
     bannerUrl:  U('photo-1552566626-52f8b828add9'),
     adminEmail: 'demo-merchant-11@redeemo.local',
-    primaryCategoryName: 'Restaurants',
+    primaryCategoryName: 'Restaurant',
     featured: true,
     branches: [
       {
@@ -674,7 +674,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1511920170033-f8396924c348', 400),
     bannerUrl:  U('photo-1498804103079-a6351b050096'),
     adminEmail: 'demo-merchant-12@redeemo.local',
-    primaryCategoryName: 'Cafes & Coffee',
+    primaryCategoryName: 'Cafe & Coffee',
     featured: true,
     branches: [
       {
@@ -722,7 +722,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1486887396153-fa416526c108', 400),
     bannerUrl:  U('photo-1509440159596-0249088772ff'),
     adminEmail: 'demo-merchant-13@redeemo.local',
-    primaryCategoryName: 'Restaurants',
+    primaryCategoryName: 'Independent Grocer & Deli',
     branches: [
       {
         suffix: 'a',
@@ -769,7 +769,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1540497077202-7c8a3999166f', 400),
     bannerUrl:  U('photo-1571902943202-507ec2618e8f'),
     adminEmail: 'demo-merchant-14@redeemo.local',
-    primaryCategoryName: 'Health & Fitness',
+    primaryCategoryName: 'Gym',
     featured: true,
     branches: [
       {
@@ -817,7 +817,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1521572163474-6864f9cf17ab', 400),
     bannerUrl:  U('photo-1503951914875-452162b0f3f1'),
     adminEmail: 'demo-merchant-15@redeemo.local',
-    primaryCategoryName: 'Hair Salons',
+    primaryCategoryName: 'Barber',
     branches: [
       {
         suffix: 'a',
@@ -864,7 +864,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     logoUrl:    U('photo-1522337660859-02fbefca4702', 400),
     bannerUrl:  U('photo-1560066984-138dadb4c035'),
     adminEmail: 'demo-merchant-16@redeemo.local',
-    primaryCategoryName: 'Nail & Beauty',
+    primaryCategoryName: 'Nail Salon',
     branches: [
       {
         suffix: 'a',
@@ -921,7 +921,7 @@ async function seedDemo() {
   const amenityByName = Object.fromEntries(allAmenities.map(a => [a.name, a.id]))
 
   // Sanity check — fail loud if main seed hasn't been run
-  const requiredCats = ['Cafes & Coffee', 'Restaurants', 'Hair Salons', 'Nail & Beauty', 'Health & Fitness', 'Retail & Shopping', 'Entertainment']
+  const requiredCats = ['Food & Drink', 'Beauty & Wellness', 'Health & Fitness', 'Shopping'] // top-level taxonomy sentinels: base seed present
   const missingCats = requiredCats.filter(n => !categoryByName[n])
   if (missingCats.length > 0) {
     throw new Error(
