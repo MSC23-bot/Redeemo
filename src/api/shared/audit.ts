@@ -6,6 +6,21 @@ export type AuditEvent =
   | 'AUTH_SSO_LOGIN_SUCCESS'
   | 'AUTH_LOGOUT'
   | 'AUTH_REFRESH_FAILED'
+  // Merchant logout-durability (backend design 2026-07-06, merchant-only).
+  // `event` is a String column, so these are union-only literals with NO
+  // migration.
+  //   AUTH_LOGOUT_REVOKE_PENDING     — a signed-JWT logout's unconditional DEL
+  //     of the refresh-token key could not be confirmed after bounded retry,
+  //     so a pending-revocation tombstone was written instead (§3.4 point 3).
+  //   AUTH_LOGOUT_REVOKE_UNAVAILABLE — neither the DEL nor the tombstone could
+  //     be written (Redis unreachable at logout) — the honestly-degraded case
+  //     (§3.4 point 7); the session may remain valid until natural expiry.
+  //   AUTH_REFRESH_REFUSED_REVOKED   — a refresh was refused because the
+  //     session's pending-revocation tombstone was present (§3.2 step 0) —
+  //     the pull-based durable enforcement of an earlier PENDING logout.
+  | 'AUTH_LOGOUT_REVOKE_PENDING'
+  | 'AUTH_LOGOUT_REVOKE_UNAVAILABLE'
+  | 'AUTH_REFRESH_REFUSED_REVOKED'
   // Distinct from AUTH_REFRESH_FAILED — fired when the previous mobile
   // session was deliberately superseded by a newer login on another
   // device (one-mobile-device-per-account rule). Lets the audit log

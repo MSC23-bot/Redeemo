@@ -98,11 +98,57 @@ export const authApi = {
     )
   },
 
-  /** Best-effort: forward the in-memory access token so the backend can revoke. */
-  async logout(token: string | null): Promise<void> {
-    await fetch('/api/merchant-auth/logout', {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    }).catch(() => {})
+  /**
+   * Forward the captured access token (§4.5 point 0 — captured by the caller
+   * BEFORE its own state reset) so the BFF/backend can revoke the session.
+   * Unlike the old best-effort version, this does NOT swallow errors/aborts:
+   * the caller (signOut) needs to distinguish a confirmed 2xx from a
+   * timeout/failure (logout-durability design §4.5). Accepts an AbortSignal so
+   * the caller can bound the wait.
+   *
+   * The result reports TWO INDEPENDENT axes — do not collapse them:
+   *   - `ok`          → COOKIE-CLEARANCE confirmation. `res.ok` (a 2xx) means
+   *                     the BFF ran to completion and its Set-Cookie clearing
+   *                     the httpOnly session cookie reached the browser. This
+   *                     is the axis signOut branches on to label local cookie
+   *                     clearance confirmed vs UNCONFIRMED.
+   *   - `remoteRevoke`→ SERVER-SIDE REVOKE DURABILITY, forwarded verbatim from
+   *                     the backend ('confirmed' | 'pending' | 'unavailable').
+   *                     Redis may be degraded ('pending'/'unavailable') while
+   *                     the cookie was still cleared cleanly (`ok === true`).
+   *
+   * These are orthogonal by design: a `pending` revoke on a successful 2xx is a
+   * real, expected state (cookie gone, server revoke durably queued). That is
+   * why `ok` is `res.ok` and NOT `remoteRevoke === 'confirmed'` — the latter
+   * (CodeRabbit #390 Finding 1's suggestion, DECLINED) would mislabel that valid
+   * degraded-but-cleared outcome as an unconfirmed cookie clearance and push the
+   * user into a false failure path.
+   */
+  async logout(token: string | null, signal?: AbortSignal): Promise<LogoutResult> {
+    try {
+      const res = await fetch('/api/merchant-auth/logout', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        signal,
+      })
+      const data = (await res.json().catch(() => null)) as { remoteRevoke?: string } | null
+      const remoteRevoke =
+        data?.remoteRevoke === 'confirmed' || data?.remoteRevoke === 'pending' || data?.remoteRevoke === 'unavailable'
+          ? data.remoteRevoke
+          : 'unavailable'
+      return { ok: res.ok, status: res.status, remoteRevoke }
+    } catch (err) {
+      // Network failure, timeout, or abort — surface it, don't swallow. The
+      // caller treats this identically to a non-2xx: cookie clearance is
+      // UNCONFIRMED.
+      return { ok: false, status: 0, remoteRevoke: 'unavailable', error: err }
+    }
   },
+}
+
+export interface LogoutResult {
+  ok: boolean
+  status: number
+  remoteRevoke: 'confirmed' | 'pending' | 'unavailable'
+  error?: unknown
 }

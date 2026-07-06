@@ -25,8 +25,18 @@ jest.mock('@/lib/api/client', () => ({
   resetRefreshInFlight: () => resetRefreshInFlightMock(),
 }))
 
-const logoutMock = jest.fn<Promise<void>, [string | null]>(async () => {})
-jest.mock('@/lib/api/auth', () => ({ authApi: { logout: (t: string | null) => logoutMock(t) } }))
+// COMPOSED contract (PR #389 cache-isolation + PR #390 confirmed-cookie-clearance):
+// authApi.logout returns a LogoutResult ({ ok, status, remoteRevoke }) instead of
+// throwing (logout-durability design §4.5 — signOut reads result.ok to decide
+// confirmed vs UNCONFIRMED) and takes an optional AbortSignal (the bounded-timeout
+// controller). Default mock resolves the "confirmed" happy path; individual tests
+// override for the unconfirmed / throwing paths.
+const logoutMock = jest.fn<Promise<{ ok: boolean; status: number; remoteRevoke: string }>, [string | null, AbortSignal?]>(
+  async () => ({ ok: true, status: 200, remoteRevoke: 'confirmed' }),
+)
+jest.mock('@/lib/api/auth', () => ({
+  authApi: { logout: (t: string | null, s?: AbortSignal) => logoutMock(t, s) },
+}))
 
 function Probe() {
   const s = useSession()
@@ -64,7 +74,7 @@ function renderProvider(queryClient: QueryClient = new QueryClient()) {
   }
 }
 
-describe('SessionProvider (M1 Slice 1 + session cache-isolation core T4)', () => {
+describe('SessionProvider (M1 Slice 1 + session cache-isolation core T4 + confirmed-cookie-clearance §4.5)', () => {
   beforeEach(() => {
     setAccessToken(null)
     jest.clearAllMocks()
@@ -104,6 +114,88 @@ describe('SessionProvider (M1 Slice 1 + session cache-isolation core T4)', () =>
     expect(screen.getByTestId('auth').textContent).toBe('false')
   })
 
+  // ── PR #390 confirmed-cookie-clearance (§4.5) ──────────────────────────────
+
+  it('signOut captures the access token BEFORE the reset and forwards it (with an AbortSignal) to authApi.logout', async () => {
+    // §4.5 point 0 — the token must be read BEFORE resetSessionState nulls the token
+    // store, else authApi.logout would be called with null and the backend would fall
+    // through to the (much weaker) no-proof path. The bounded-timeout controller is
+    // passed as the second arg.
+    refreshSessionMock.mockImplementation(async () => {
+      setAccessToken('the-captured-token')
+      return true
+    })
+    renderProvider()
+    await waitFor(() => expect(screen.getByTestId('auth').textContent).toBe('true'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('out'))
+    })
+    expect(logoutMock).toHaveBeenCalledWith('the-captured-token', expect.any(AbortSignal))
+  })
+
+  it('signOut AWAITS the bounded BFF logout before navigating; state clears after the guard (composed ordering)', async () => {
+    // Design §4.5 points 2-3: navigation must NOT fire until the bounded BFF response
+    // is observed. COMPOSED ORDERING (#389 correction 8): unlike the pre-merge #390
+    // draft that cleared client state immediately, the React-state clear + navigate now
+    // happen AFTER the awaited logout + the ownership guard — the token store + cache
+    // are already cleared synchronously by resetSessionState, so nothing leaks during
+    // the pending logout, and gating the commit is what makes the concurrent-re-login
+    // race safe.
+    refreshSessionMock.mockImplementation(async () => {
+      setAccessToken('hydrated')
+      return true
+    })
+    let resolveLogout: (v: { ok: boolean; status: number; remoteRevoke: string }) => void = () => {}
+    logoutMock.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveLogout = resolve }),
+    )
+    renderProvider()
+    await waitFor(() => expect(screen.getByTestId('auth').textContent).toBe('true'))
+
+    act(() => {
+      fireEvent.click(screen.getByText('out'))
+    })
+
+    // The bounded BFF logout is still pending — navigation must NOT have fired yet.
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(replace).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveLogout({ ok: true, status: 200, remoteRevoke: 'confirmed' })
+    })
+    // Only after the awaited response + ownership guard does the commit happen.
+    expect(replace).toHaveBeenCalledWith('/sign-in')
+    expect(screen.getByTestId('auth').textContent).toBe('false')
+  })
+
+  it('signOut still navigates to /sign-in when the BFF logout is unconfirmed (honest degraded path, §4.5 point 5)', async () => {
+    refreshSessionMock.mockImplementation(async () => {
+      setAccessToken('hydrated')
+      return true
+    })
+    logoutMock.mockResolvedValueOnce({ ok: false, status: 0, remoteRevoke: 'unavailable' })
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    renderProvider()
+    await waitFor(() => expect(screen.getByTestId('auth').textContent).toBe('true'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('out'))
+    })
+    expect(logoutMock).toHaveBeenCalled()
+    // Navigation is NOT trapped by an unconfirmed/failed logout response.
+    expect(replace).toHaveBeenCalledWith('/sign-in')
+    expect(screen.getByTestId('auth').textContent).toBe('false')
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[signOut] cookie clearance unconfirmed',
+      expect.objectContaining({ status: 0, remoteRevoke: 'unavailable' }),
+    )
+    warnSpy.mockRestore()
+  })
+
+  // ── PR #389 cache-isolation core (epoch / generation / fail-safe) ──────────
+
   it('signOut bumps the session epoch and clears the query cache', async () => {
     refreshSessionMock.mockImplementation(async () => {
       setAccessToken('hydrated')
@@ -118,19 +210,6 @@ describe('SessionProvider (M1 Slice 1 + session cache-isolation core T4)', () =>
     })
     expect(getSessionEpoch()).toBe(before + 1)
     expect(queryClient.getQueryData(['some-cached-thing'])).toBeUndefined()
-  })
-
-  it('signOut forwards the token captured BEFORE the reset to the backend logout', async () => {
-    refreshSessionMock.mockImplementation(async () => {
-      setAccessToken('captured-token')
-      return true
-    })
-    renderProvider()
-    await waitFor(() => expect(screen.getByTestId('auth').textContent).toBe('true'))
-    await act(async () => {
-      fireEvent.click(screen.getByText('out'))
-    })
-    expect(logoutMock).toHaveBeenCalledWith('captured-token')
   })
 
   it('setSession does NOT install the new token until the reset pipeline resolves (Codex #2)', async () => {
@@ -263,6 +342,7 @@ describe('SessionProvider (M1 Slice 1 + session cache-isolation core T4)', () =>
       return true
     })
     logoutMock.mockRejectedValueOnce(new Error('network'))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const { queryClient } = renderProvider()
     queryClient.setQueryData(['cached'], { s: 1 })
     await waitFor(() => expect(screen.getByTestId('auth').textContent).toBe('true'))
@@ -271,12 +351,14 @@ describe('SessionProvider (M1 Slice 1 + session cache-isolation core T4)', () =>
       fireEvent.click(screen.getByText('out'))
     })
 
-    // The reset (clear) runs BEFORE the throwing logout, and logout is wrapped in
-    // try/catch. MUTATION (remove the try/catch around authApi.logout): the rejection
-    // propagates and the navigation below is skipped, flipping this test.
+    // The reset (clear) runs BEFORE the throwing logout, and the composed signOut wraps
+    // authApi.logout in try/catch/finally. MUTATION (remove the try/catch around
+    // authApi.logout): the rejection propagates, the ownership guard + navigation are
+    // skipped, and this test flips.
     expect(queryClient.getQueryData(['cached'])).toBeUndefined()
     expect(replace).toHaveBeenCalledWith('/sign-in')
     expect(screen.getByTestId('auth').textContent).toBe('false')
+    warnSpy.mockRestore()
   })
 
   it('correction 7 (reset failure): signOut still nulls local state and navigates even if the reset pipeline throws', async () => {

@@ -41,6 +41,13 @@ export interface SessionValue {
 
 const SessionContext = createContext<SessionValue | null>(null)
 
+// Bounded wait for the BFF logout response (logout-durability design §4.5
+// point 2-3). Must sit ABOVE the BFF route's own internal backend-revoke
+// timeout (3000ms in app/api/merchant-auth/logout/route.ts) so this await
+// still returns having received the BFF's cookie-clearing response in the
+// common case, while remaining bounded so signOut can never hang.
+const SIGN_OUT_TIMEOUT_MS = 5000
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -84,28 +91,64 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [applyToken, queryClient],
   )
 
+  // COMPOSED signOut (PR #389 cache-isolation core + PR #390 confirmed-cookie-
+  // clearance / logout-durability). Both contracts are preserved, in one ordered
+  // pipeline (design §4.3 cache-isolation + §4.5 confirmed clearance):
+  //   0. capture the SIGNED access token BEFORE the reset - it is the authoritative
+  //      revoke proof forwarded to the BFF/backend;
+  //   1. resetSessionState (#389): bump the session epoch + null the token store +
+  //      isolate the React-Query cache, all synchronously-first, best-effort;
+  //   2. the BOUNDED, AWAITED BFF logout (§4.5) so cookie clearance is labelled
+  //      confirmed vs UNCONFIRMED before navigating;
+  //   3. the ownership guard (#389) gates the FINAL React-state clear + navigate so a
+  //      re-login that supersedes this sign-out mid-flight is never clobbered.
+  // The final applyToken(null)/setMerchant(null) sit AFTER the guard on purpose: the
+  // token store + cache are already cleared by resetSessionState (no data can leak
+  // during the bounded logout), and gating the React-state commit is what makes the
+  // concurrent-re-login race safe.
   const signOut = useCallback(async () => {
-    // Capture the access token BEFORE the reset nulls it - it is still forwarded to
-    // the best-effort backend revoke below (the token-null ordering does not skip
-    // the revoke).
+    // 0. Capture the signed access token BEFORE the reset nulls the store - it is the
+    //    authoritative revoke proof (the backend verifies its SIGNED claims).
     const token = getAccessToken()
-    // CONTINUE SAFELY (correction 7): a deliberate sign-out must ALWAYS end
-    // signed-out. Even if the reset pipeline throws (a broken clear()), the local
-    // state is still nulled and the user still reaches /sign-in below - no early
-    // return skips the teardown.
+
+    // 1. Failure-safe reset (#389 corrections 5/6/7): bump epoch + isolate cache + null
+    //    the token store BEFORE the network call. Best-effort - even a broken clear()
+    //    still ends the user signed-out below (correction 7).
     let generation: number | undefined
     try {
       generation = await resetSessionState(queryClient)
     } catch {
       // reset best-effort - fall through to null local state + navigate anyway.
     }
+
+    // 2. Confirmed-cookie-clearance (§4.5 steps 2-3+5): invoke the BFF logout under a
+    //    STRICT bounded timeout and AWAIT the response BEFORE navigating, forwarding
+    //    the captured signed token. A resolved 2xx is the only evidence the clearing
+    //    Set-Cookie was received (the httpOnly cookie is unreachable from page JS). A
+    //    non-2xx / aborted / thrown result means cookie clearance is UNCONFIRMED (the
+    //    cookie may still be live on this browser); navigation still proceeds so the
+    //    user is never trapped, but the degraded state is surfaced, not silently
+    //    treated as clean.
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), SIGN_OUT_TIMEOUT_MS)
     try {
-      await authApi.logout(token)
+      const result = await authApi.logout(token, controller.signal)
+      if (!result.ok) {
+        console.warn('[signOut] cookie clearance unconfirmed', { status: result.status, remoteRevoke: result.remoteRevoke })
+      }
     } catch {
-      // best-effort
+      // authApi.logout is total (returns a LogoutResult even on abort/error), but
+      // defend correction 7 regardless: a thrown logout must NOT skip the signed-out
+      // commit below.
+      console.warn('[signOut] cookie clearance unconfirmed (logout aborted or threw)')
+    } finally {
+      clearTimeout(timer)
     }
-    // OWNERSHIP GUARD (correction 8): if a newer transition (e.g. a re-login during
-    // the revoke round-trip) superseded this sign-out, do NOT clobber it.
+
+    // 3. Ownership guard (#389 correction 8): if a NEWER transition (e.g. a re-login
+    //    during the bounded logout round-trip) superseded this sign-out, do NOT
+    //    clobber it. On a reset that threw (generation undefined) fall through to the
+    //    safe signed-out commit.
     if (generation !== undefined && getSessionEpoch() !== generation) return
     applyToken(null)
     setMerchant(null)
