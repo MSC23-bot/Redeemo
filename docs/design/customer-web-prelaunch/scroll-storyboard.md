@@ -27,6 +27,13 @@ with the saving and uses discovery as the supporting mechanism:
   keeps score of money saved (synthetic figure from seed data). "One voucher covers
   the month. The app counts the rest." This is why the savings screen is on the shot
   list.
+- "Pays for itself" claims ladder (owner idea 2026-07-06, staged for honesty):
+  PRE-LAUNCH (now): arithmetic form only: "The membership pays for itself: one
+  typical voucher covers the £6.99." Used in beat 5 and on the pricing section.
+  POST-LAUNCH (unlock once admin redemption data verifies it): the member-stat form:
+  "Most members cover their monthly fee with their first redemption." Stronger, but
+  it is a statistic and must wait for real members; wire a reminder into the launch
+  copy checklist rather than shipping it dark.
 - Guardrails unchanged: membership framing (vouchers included, never bought), no
   "deals/discount" vocabulary, no percentage-off hero claims, no urgency theatre.
   Savings-led and premium are compatible: the saving is the outcome of membership,
