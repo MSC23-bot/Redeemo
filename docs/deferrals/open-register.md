@@ -117,6 +117,14 @@ throw paths; assessed non-security); cuisine-aware specialty filtering open prod
 drift vs locked Q6b (shipped SUPER_ADMIN/OPERATIONS/FINANCE/CONTENT/SUPPORT; locked plan was
 SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
 
+**Business Profile v1 follow-ups (OPENED 2026-07-06 on the M1-M4 merge; do not forget):**
+- **§BP-ADJ1** (Low, defence-in-depth): `getMerchantProfile`'s `...merchant` spread still returns base registered/compliance fields (`companyNumber`, `vatNumber`, `contractStatus`, contract dates, `verificationStatus`, `websiteUrl`) to a STAFF *API* caller, though the `/profile` page UI now hides them. Pre-existing member-read; low-sensitivity (public-record numbers). Fix = role-gate those fields for non-privileged members after a consumer-impact audit of every `getMerchantProfile` caller (narrowing a shared endpoint = regression risk). Opus-surfaced.
+- **§BP-ADJ2** (Very Low): `createMerchantEditRequestCore` lacks a server-side non-null guard on `businessName` (the modal never sends null; a raw-API `{businessName:null}` stores a row that later fails admin `approveEdit` at the NOT NULL constraint - no corruption/breach). Fix = validate `SENSITIVE_FIELDS` types before store; fold into the §BP-ADJ1 slice or a backend-hardening pass. Opus-surfaced.
+- **§BP-DOC** - Compliance Documents: merchant self-serve document upload + view-own AND the admin "Redeemo needs a document" request mechanism (cross-surface, undesigned - spans the admin panel). Own owner-gated brainstorm-first slice; sooner if pre-launch verification-document collection is needed.
+- **§BP-ACC** - My Account (personal): logged-in change-password + sign-out-all + email/phone/notification-prefs. Backend MISSING (no logged-in `changePassword`; no `logout-all` route) - those routes come FIRST. The Business Contact card links here (placeholder page stays).
+- **Business-generic-contact** (future): additive `Merchant` field so a BRANCH_MANAGER need not see the account owner's PERSONAL contact. Owner APPROVED personal-contact for v1 (matches the mockup + the data model's single owner-contact); narrowing is a tracked future option, not a defect.
+- Detail: `docs/superpowers/plans/2026-07-06-merchant-web-business-profile.md` §4 + the private `project-business-profile-approach-a` memory. Business Profile v1 (M1-M4) is COMPLETE; these five items are what remains - none of them makes Documents or My Account "done".
+
 ## Change log
 
 - **2026-07-06** · Register created (documentation-architecture migration). Extracted from
@@ -131,3 +139,8 @@ SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
   tail pointer row + two decision-needed rows (Savings ROI semantics; lifecycle nudges).
   §SE.1 split-session opening hours confirmed CLOSED by PR #320 (`fe10fb16`); it was never a
   register row; recorded here for traceability.
+- **2026-07-06d** · Business Profile day-2 v1 SHIPPED (M1-M4 merged: #393 `b9d110a6` / #394
+  `5ab3997c` / #395 `6e6e5ec4` / #396 `ade3efe5`; owner-approved Approach A; Codex PII/role +
+  nullable-clear findings corrected + Opus-cleared before merge). Opened five §5 follow-ups
+  (§BP-ADJ1, §BP-ADJ2, §BP-DOC, §BP-ACC, business-generic-contact). Recorded COMPLETE in
+  PROJECT-STATE §4.2 + the Merchant roadmap WITHOUT implying Documents or My Account are done.
