@@ -39,6 +39,11 @@ function profile(over: Record<string, unknown> = {}) {
     ownerContact: null,
     agreement: null,
     pendingEdits: [],
+    // Codex role-boundary fix: the page now gates on viewerCapabilities.role.
+    // Default to OWNER so every pre-existing test (which asserts
+    // <BusinessProfileScreen> renders) keeps passing unchanged; the dedicated
+    // role-gate tests below override this per-case.
+    viewerCapabilities: { canViewInsights: true, canManageVouchers: true, role: 'OWNER', displayName: 'Test Owner' },
     ...over,
   }
 }
@@ -90,5 +95,45 @@ describe('BusinessProfilePage', () => {
     renderPage()
     expect(screen.getByRole('heading', { name: 'Business profile' })).toBeInTheDocument()
     await screen.findByTestId('business-profile-screen')
+  })
+
+  // Codex role-boundary fix: the page fails closed for STAFF (and any future /
+  // unknown role) on direct /profile URL access, defense-in-depth over the nav
+  // hiding the link. OWNER and BRANCH_MANAGER keep rendering the real screen.
+  describe('role gate (Codex fix)', () => {
+    it('renders the access-restricted state (not BusinessProfileScreen) for STAFF', async () => {
+      getMerchantProfile.mockResolvedValue(profile({ viewerCapabilities: { canViewInsights: false, canManageVouchers: false, role: 'STAFF', displayName: 'A Staffer' } }))
+      renderPage()
+      expect(await screen.findByTestId('business-profile-access-restricted')).toBeInTheDocument()
+      expect(screen.queryByTestId('business-profile-screen')).not.toBeInTheDocument()
+    })
+
+    it('renders the access-restricted state for a future/unknown role (fail-closed allowlist)', async () => {
+      getMerchantProfile.mockResolvedValue(profile({ viewerCapabilities: { canViewInsights: false, canManageVouchers: false, role: 'AUDITOR', displayName: 'An Auditor' } }))
+      renderPage()
+      expect(await screen.findByTestId('business-profile-access-restricted')).toBeInTheDocument()
+      expect(screen.queryByTestId('business-profile-screen')).not.toBeInTheDocument()
+    })
+
+    it('renders the access-restricted state when viewerCapabilities/role is absent (fail-closed, not fail-open)', async () => {
+      getMerchantProfile.mockResolvedValue(profile({ viewerCapabilities: null }))
+      renderPage()
+      expect(await screen.findByTestId('business-profile-access-restricted')).toBeInTheDocument()
+      expect(screen.queryByTestId('business-profile-screen')).not.toBeInTheDocument()
+    })
+
+    it('renders the real BusinessProfileScreen for OWNER', async () => {
+      getMerchantProfile.mockResolvedValue(profile({ viewerCapabilities: { canViewInsights: true, canManageVouchers: true, role: 'OWNER', displayName: 'The Owner' } }))
+      renderPage()
+      expect(await screen.findByTestId('business-profile-screen')).toBeInTheDocument()
+      expect(screen.queryByTestId('business-profile-access-restricted')).not.toBeInTheDocument()
+    })
+
+    it('renders the real BusinessProfileScreen for BRANCH_MANAGER', async () => {
+      getMerchantProfile.mockResolvedValue(profile({ viewerCapabilities: { canViewInsights: true, canManageVouchers: false, role: 'BRANCH_MANAGER', displayName: 'A Manager' } }))
+      renderPage()
+      expect(await screen.findByTestId('business-profile-screen')).toBeInTheDocument()
+      expect(screen.queryByTestId('business-profile-access-restricted')).not.toBeInTheDocument()
+    })
   })
 })
