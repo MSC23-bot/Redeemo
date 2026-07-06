@@ -91,6 +91,13 @@ access to period end. Free trials via promo codes only. Stripe for standard bill
 `stripeSubscriptionId`/`stripeCustomerId` are nullable (IAP/admin-grant ready).
 Voucher types: BOGO, Spend & Save, Discount (£ or %), Freebie, Package Deal, Time-Limited, Reusable.
 
+Data model spine (full schema: `prisma/schema.prisma`): `User` → `Subscription` (1:1, has
+immutable `cycleAnchorDate`) → `SubscriptionPlan`; `User` → `UserVoucherCycleState` (cycle
+enforcement) and → `VoucherRedemption` (redemption event + unique `redemptionCode`,
+`isValidated`, `validationMethod`); `Merchant` → `Branch` (1:many) → `BranchUser`;
+`Merchant` → `Voucher` (merchant-wide, not per-branch); `AdminApproval` (onboarding/voucher
+queue); `Campaign` → `CampaignMerchant`; `FeaturedMerchant` (paid placement).
+
 ## 7. Workflow tiers (classify BEFORE implementing; state the tier in your first reply)
 
 - **Tier 0** tiny fix: no plan doc.
@@ -110,6 +117,11 @@ their `REDEEMO_CONFIRM_*` env override · `gh pr merge` without
 `REDEEMO_PR_SCOPE_VERIFIED=<current-head-SHA>`.
 Before merging any PR, verify GitHub's live `compare` diff (commit count + files) against
 expectation; PR-level cached fields go stale.
+The hook also WARNS (without blocking) on: `npm install` (lockfile may change), commits with
+more than 30 staged files, and pushing while local `main` is ahead of `origin/main`.
+The hook needs `jq` (no-ops with a warning if missing). Hook changes go via PR like any code;
+per-user overrides belong in gitignored `.claude/settings.local.json`; never disable the
+shared `.claude/settings.json`.
 
 Hard rules (from the 2026-04-26 v7 UI-loss incident; apply to humans too):
 1. Before ANY destructive command, run `git status --short` in the TARGET tree and classify

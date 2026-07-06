@@ -24,11 +24,13 @@ closed by a later PR; confirm and then remove with a citation).
 | §S2 + §S residuals | Show-to-Staff animated gradient border; SuccessPopup polish (confetti, saving amount, Rate & Review visual + routing). T8m/T8n/T8p closed parts of §S1-S3 | OPEN, Tier 2 |
 | §AE (v2) | iOS anti-fraud hardening v2: QR hidden by default, tap/hold reveal, rotating QR payload, merchant validation policy, telemetry dashboards | GATED: production fraud telemetry OR pre-launch threat-model escalation |
 | §AF | Polished SVG circular stamp + full redeemed visual treatment + backend `presentationExpiresAt` mirror | OPEN, Tier 2 (with §Q pass) |
-| §U1 | Customer name on Show-to-Staff (suppressed while empty) | OPEN; trigger was "after merchant-portal validation surfaces lock" — merchant M3 Validate-a-code is merged, so this is now actionable |
+| §U1 | Customer name on Show-to-Staff (suppressed while empty) | OPEN; trigger was "after merchant-portal validation surfaces lock"; merchant M3 Validate-a-code is merged, so this is now actionable |
 | §N10 / §N8 | Native iOS edge-swipe-back for `voucher/[id]` + `merchant/[id]` (requires moving both into a Stack flow together) | OPEN, Tier 2/3 navigation workstream |
 | §N11 | Branch-switch perceived-lag UX (`keepPreviousData` shows old branch until refetch) | OPEN, Tier 1/2 owner-direction |
 | §O3 | `Change ▾` glyph → chevron icon polish | OPEN, Tier 1 |
 | §O5 | VoucherDetailScreen decomposition | OPEN, only if it grows past ~600 lines |
+| §O6 | Already-Redeemed full surface | VERIFY: largely subsumed by M3 (PR #49 persisted return-visit card closed §P2); residual past-cycle browsing = §Q5. Confirm and close with a citation |
+| §HSH | Home sticky brand header residuals (header shipped PR #142; memory topic `project_home_sticky_brand_header.md` tracks the tail) | VERIFY: enumerate what remains open from the memory topic, then record here |
 | §P4 | Non-PIN redemption error action-button routing | OPEN, Tier 1 polish batch |
 | §R1 (redemption) | Redemption-code collision-retry hardening (NOT the security key-rotation R1) | OPEN, Tier 1 |
 | §R2 | Dead nanoid mock cleanup | OPEN, Tier 1 |
@@ -85,7 +87,7 @@ closed by a later PR; confirm and then remove with a citation).
 |---|---|
 | Untracked `prisma/*.ts` probe scripts (12 as of 2026-07-06, incl. `check-user.ts`, `test-login.ts`, `test-session.ts`, `_get-admin-otp.ts`, `_check-merchant-login.ts`, `_reset-merchant-pw.ts`, `qa-m4c-mixed-states.ts`, …) | Do NOT commit without refactor/review; do NOT delete without owner approval. Refactor-or-delete decision pending per script |
 | `prisma/reset-user-password.ts` | Hardcodes a personal email + plaintext password; functionality covered by `issue-reset-token.ts` + `set-auth-state.ts`; most likely action is DELETE WITH APPROVAL |
-| Git stash "discovery: drop merchant phone/email from customer-facing select — pending privacy review" | Pending merchant/API privacy review; identify by LABEL not index; do NOT auto-classify; ask the owner before acting |
+| Git stash "discovery: drop merchant phone/email from customer-facing select — pending privacy review" | Pending merchant/API privacy review; identify by LABEL not index; do NOT auto-classify; ask the owner before acting. Older unrelated stashes from prior sessions exist too: leave them alone |
 | `docs/branding/` (556 MB, gitignored) | Decision pending: S3/R2 vs Git LFS |
 | Untracked plan/spec docs for already-merged work (admin actioner slice-A, WP1-WP5, Option B B1, platform strategy, security-stabilisation gate, edit-on-behalf design) | Commit-or-archive decision pending (owner); do not delete |
 | Root Railway a11y-snapshot artifacts (`settings-after-both-edits.md`, `web-settings-snapshot.md`, `worker-snapshot.md`, `proto-setting-up.png`) | Evidence captures from the security/R1 track; file or discard only with the security thread's agreement |
@@ -104,10 +106,11 @@ cross-tenant existence, cap enforcement, a11y); merchant M1 a11y focus-on-error 
 OTP-lockout message; admin M2-M8 deferred lists; Option B B2+/B3/B4/B5 + photo-apply;
 `canManageVouchers` migration applied to LOCAL dev DB only (staging/prod need
 `prisma migrate deploy`); staging admin-OTP delivery UNVERIFIED; Karaara staging cleanup
-UNVERIFIED.
+UNVERIFIED; automated monthly merchant statements (from the old §R4 architecture note) not
+yet tracked in any roadmap row: confirm placement.
 
 ## Change log
 
-- **2026-07-06** — Register created (documentation-architecture migration). Extracted from
+- **2026-07-06** · Register created (documentation-architecture migration). Extracted from
   the archived CLAUDE.md deferred lists + PROJECT-STATE §8 + memory index. Memory deferred
   archive intentionally NOT yet reconciled line-by-line (see provenance note).

@@ -10,10 +10,23 @@ paths:
 - Tests: run from the worktree copy
   (`cd .worktrees/customer-app/apps/customer-app && npx jest --forceExit`).
 - Locked, test-pinned surfaces: Voucher Detail (M1-M5), Merchant Profile, Home visual
-  system, Favourites (branch-level), Savings, Profile tab, redemption/Show-to-Staff flow.
-  Before changing any of them, read the as-shipped addendum in the relevant plan under
-  `docs/superpowers/plans/` (and the archive at `docs/history/claude-md-2026-06-20-archive.md`
-  for the locked-invariant lists). Regressing a pinned invariant fails tests by design.
+  system, Discovery/Search/Map/Categories (branch-first), Favourites (branch-level),
+  Savings, Profile tab, redemption/Show-to-Staff flow, and the Saved-Area/location-context
+  family. Before changing any of them, read the as-shipped addendum in the relevant plan
+  under `docs/superpowers/plans/` (and the archive at
+  `docs/history/claude-md-2026-06-20-archive.md` for the locked-invariant lists).
+  Regressing a pinned invariant fails tests by design.
+- Location-context locks (§DF v1 + §DF-v2-j D1-D11): resolver precedence is
+  PLACE_QUERY > GPS > SAVED_PROFILE > none; GPS coordinates are NEVER written to
+  `User.postcode` (explicit "Update postcode" is the only mutator); Home keeps BOTH
+  `LocationStatusLabel` AND `SavedAreaHonestyHint` (never collapse them); `source='profile'`
+  requires localityId + latitude + longitude, all three.
+- Branch policy: `feature/customer-app` is REFERENCE ONLY. Never build on it; port surfaces
+  off it via dedicated PRs onto current `main`.
+- Device-QA reconciliation: no ad-hoc fixes. Classify each issue against spec → baseline →
+  device behaviour, confirm priorities with the owner, implement in controlled batches.
+- `PRODUCT.md` / `DESIGN.md` are gitignored local design-context files (same category as
+  `.claude/`); do not commit them.
 - Plan-4 locked interim contracts (do NOT touch until Plan 4 is specified):
   - `branch.city`-based CITY-tier classification stays as the locked interim location model.
   - Four flagged code hooks stay flagged: `AllCategoriesScreen` `merchantCount`;

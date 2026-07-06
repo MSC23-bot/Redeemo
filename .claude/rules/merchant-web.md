@@ -25,6 +25,9 @@ paths:
 - Browser smoke lane (`npx playwright test`): deterministic local lane with an enforced
   dead-port + route-mock safety boundary; strict zero-console-error default, count-bounded
   expected-error opt-in per spec. Its CI job is ADVISORY (promotion is an open owner decision).
+- Production-resilience standing checklist (§W): every merchant slice must explicitly
+  consider high-traffic flows and third-party dependencies (timeouts, retries, fail-closed
+  behaviour) rather than assuming happy-path availability.
 - Status language: merchant modules are MERGED but NOT staging-accepted portfolio-wide;
   do not describe any module as "complete" (Definition of Complete lives in
   `docs/superpowers/roadmaps/merchant-portal-programme-roadmap.md`).
