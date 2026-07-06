@@ -142,6 +142,24 @@ describe('PublicIdentityEditModal lane selection - LIVE merchant (edit-request l
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /send for review/i })).toBeEnabled()
   })
+
+  // Codex nullable-clear fix: the LIVE (edit-request) lane sends the SAME
+  // `tradingName: null` clear body as the draft/direct lane (see the
+  // 'clears tradingName to null when emptied' pin below, in the DRAFT WINDOW
+  // describe block). Before the fix, this body round-tripped through
+  // createMerchantEditRequest's real merchantProposedChangesSchema.parse() (the
+  // hook is mocked here, so this component-level test does not itself exercise
+  // that parse - see lib/api/__tests__/profile.test.ts for the schema-level
+  // regression pin) and would have thrown on the mocked resolution's shape;
+  // this test pins that the LIVE lane submits the identical null-clear body so
+  // both lanes stay in parity.
+  it('clears tradingName to null when emptied (LIVE edit-request lane)', async () => {
+    render(<PublicIdentityEditModal profile={profile({ status: 'ACTIVE', onboardingStep: 'LIVE' })} onClose={onClose} />)
+    fireEvent.change(screen.getByLabelText(/trading name/i), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /send for review/i }))
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledWith({ tradingName: null }))
+    expect(updateMutateAsync).not.toHaveBeenCalled()
+  })
 })
 
 describe('PublicIdentityEditModal lane selection - DRAFT WINDOW merchant (direct-edit lane)', () => {

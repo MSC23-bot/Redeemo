@@ -116,11 +116,22 @@ export const merchantPendingEditStatusSchema = z.enum(['PENDING', 'APPROVED', 'R
 
 const merchantProposedChangesSchema = z
   .object({
+    // businessName never clears to null (the backend always keeps a value here),
+    // so it stays a plain optional string.
     businessName: z.string().optional(),
-    tradingName: z.string().optional(),
-    description: z.string().optional(),
-    logoUrl: z.string().optional(),
-    bannerUrl: z.string().optional(),
+    // tradingName / description / logoUrl / bannerUrl map to NULLABLE Merchant
+    // columns and can be cleared to null through the reviewed lane (the M4
+    // PublicIdentityEditModal's `changedBody()` sends `tradingName: null` on
+    // clear - see PublicIdentityEditModal.tsx). `.optional()` alone rejects
+    // `null` (it only tolerates `undefined`), so a legitimate null-clear
+    // response from createMerchantEditRequest/listMerchantEditRequests/
+    // withdrawMerchantEditRequest previously threw on `.parse()` even though
+    // the backend write succeeded (Codex nullable-clear finding). `.nullable()`
+    // added so the round trip survives a null value.
+    tradingName: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    logoUrl: z.string().nullable().optional(),
+    bannerUrl: z.string().nullable().optional(),
   })
   .passthrough()
 

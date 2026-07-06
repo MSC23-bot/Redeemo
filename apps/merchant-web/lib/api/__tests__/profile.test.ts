@@ -222,4 +222,73 @@ describe('Business Profile M4: edit-request client (mirrors lib/api/branch.ts)',
     })
     expect(edit.status).toBe('WITHDRAWN')
   })
+
+  // Codex nullable-clear fix (REGRESSION): tradingName/description/logoUrl/
+  // bannerUrl map to nullable Merchant columns and can be cleared to null
+  // through the reviewed lane (PublicIdentityEditModal's changedBody() sends
+  // `tradingName: null` on clear). Before the fix, `merchantProposedChangesSchema`
+  // typed these as `z.string().optional()`, which rejects `null` (only
+  // `undefined` is tolerated) - so a LIVE clear-to-null submit created the
+  // MerchantPendingEdit row successfully on the backend, but the
+  // createMerchantEditRequest response `.parse()` THREW, surfacing a false
+  // "could not send your change for review" error to a merchant whose edit had
+  // actually gone through. This pins the full create -> response -> pending-
+  // render round trip surviving a null value, not only the draft/direct
+  // (updateMerchantProfileDirectCore) path which was never affected.
+  it('REGRESSION: createMerchantEditRequest parses a response whose proposedChanges.tradingName is null (live clear-to-null)', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      merchantId: 'm1',
+      proposedChanges: { tradingName: null },
+      status: 'PENDING',
+      createdAt: '2026-07-06T10:00:00.000Z',
+    })
+    const edit = await createMerchantEditRequest({ tradingName: null })
+    expect(edit.proposedChanges.tradingName).toBeNull()
+    expect(edit.status).toBe('PENDING')
+  })
+
+  it('REGRESSION: listMerchantEditRequests parses a row whose proposedChanges has description/logoUrl/bannerUrl all null', async () => {
+    apiFetch.mockResolvedValueOnce([
+      {
+        id: 'pe1',
+        merchantId: 'm1',
+        proposedChanges: { description: null, logoUrl: null, bannerUrl: null },
+        status: 'PENDING',
+        createdAt: '2026-07-06T10:00:00.000Z',
+      },
+    ])
+    const list = await listMerchantEditRequests()
+    expect(list[0].proposedChanges.description).toBeNull()
+    expect(list[0].proposedChanges.logoUrl).toBeNull()
+    expect(list[0].proposedChanges.bannerUrl).toBeNull()
+  })
+
+  it('REGRESSION: withdrawMerchantEditRequest parses a withdrawn row whose proposedChanges.tradingName is null', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      merchantId: 'm1',
+      proposedChanges: { tradingName: null },
+      status: 'WITHDRAWN',
+      createdAt: '2026-07-06T10:00:00.000Z',
+      reviewedAt: '2026-07-06T11:00:00.000Z',
+    })
+    const edit = await withdrawMerchantEditRequest('pe1')
+    expect(edit.proposedChanges.tradingName).toBeNull()
+  })
+
+  // businessName never clears to null (the backend always keeps a non-null
+  // value there); it stays a plain optional string and a null response should
+  // still fail to parse. This is the negative control proving the `.nullable()`
+  // widening was scoped to the four clearable fields only.
+  it('businessName stays REJECTED as null (never widened) - proves the nullable() scoping is precise', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      merchantId: 'm1',
+      proposedChanges: { businessName: null },
+      status: 'PENDING',
+      createdAt: '2026-07-06T10:00:00.000Z',
+    })
+    await expect(createMerchantEditRequest({ businessName: 'irrelevant' })).rejects.toThrow()
+  })
 })
