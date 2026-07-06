@@ -122,3 +122,12 @@ edited by this workstream.
   tests/api/lib/seedTargetGuard.test.ts (10) + seed-demo.guard.test.ts (9
   structural), all green. Fresh Opus review of 0e07c157 dispatched; PR stays
   draft/unmerged; seed run still owner-queued.
+- Fresh Opus 4.8 review of 0e07c157: SAFE, no blockers. Guard fail-closed under
+  bypass attempts (module-level, pre-Prisma, both modes); teardown truthful and
+  fully demo-scoped; campaign journeys verified against real endpoint predicates;
+  idempotent re-runs; tests judged load-bearing. Unit lane 2782/2782. Accepted
+  MINORs recorded on the PR (demo redemptions count as real in shared-dev
+  analytics: deliberate, prefix-classifiable, owner ack requested; coverage test
+  checks presence not scope; two steps outside the failure collector). PR #400
+  stays draft/unmerged at 0e07c157; seed run remains owner-queued with the
+  two-step confirm procedure (guard prints the identity to paste back).
