@@ -71,10 +71,31 @@ export const merchantProfileSchema = z
         signatureMethod: z.string().nullish(),
       })
       .nullish(),
+    // Business Profile M2: the merchant row's PENDING identity edit requests (mirrors
+    // src/api/merchant/profile/service.ts getMerchantProfile, which already
+    // `include`s pendingEdits where status PENDING, take 1 - the field is already on
+    // the wire, M1 simply had no reader for it yet). The M2 read shell surfaces this as
+    // a calm "awaiting review" banner only - no withdraw control (that is the
+    // Branches-style edit lane, which ships alongside Business Profile M3/M4 editing).
+    // Loosely typed + .passthrough() per row so a future backend field addition never
+    // breaks parsing; the array itself is optional so an older backend that has not
+    // deployed this include still parses cleanly.
+    pendingEdits: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            status: z.string(), // PendingEditStatus enum value
+            createdAt: z.string(),
+          })
+          .passthrough(),
+      )
+      .optional(),
   })
   .passthrough()
 
 export type MerchantProfile = z.infer<typeof merchantProfileSchema>
+export type MerchantPendingEdit = NonNullable<MerchantProfile['pendingEdits']>[number]
 
 export async function getMerchantProfile(): Promise<MerchantProfile> {
   return merchantProfileSchema.parse(

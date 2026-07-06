@@ -55,4 +55,6 @@ export {
   TrendingUp,
   TrendingDown,
   Minus,
+  FileText,
+  Store,
 } from 'lucide-react'
