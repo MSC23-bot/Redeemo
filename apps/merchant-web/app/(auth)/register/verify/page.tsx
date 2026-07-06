@@ -53,8 +53,10 @@ export default function RegisterVerifyPage() {
     try {
       const result = await authApi.verifyEmail({ sessionChallenge: challenge, code })
       window.sessionStorage.removeItem(VERIFY_CHALLENGE_KEY)
-      // Verifying auto-logs the new owner in: land in the portal.
-      setSession(result.accessToken, result.merchant)
+      // Verifying auto-logs the new owner in: land in the portal. setSession awaits
+      // the full session-reset pipeline before the new token is installed - see the
+      // cache-isolation core note in lib/auth/session.tsx.
+      await setSession(result.accessToken, result.merchant)
       router.replace('/')
     } catch (err) {
       const er = authErrorMessage(err)
