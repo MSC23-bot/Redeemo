@@ -80,7 +80,11 @@ Dev seed logins (non-production; deliberately committed):
 5. In-store validation only (QR scan, manual entry, or merchant Quick Validate); never self-serve.
 6. Two mandatory vouchers per merchant (RMV-001/002) before approval; merchant cannot edit
    or delete them. Custom vouchers: RCV-XXX.
-7. Merchant approval gated on: mandatory fields + docs + 2 RMV vouchers + main branch + branch user.
+7. Merchant approval is gated. Enforced gates (owner-approved correction 2026-07-02):
+   at least one branch; contract signed; 2 RMV vouchers configured; main branch set;
+   main-branch location confirmed. Intended but NOT yet code-enforced (aspirational):
+   mandatory profile fields, verification docs uploaded, branch staff user assigned
+   (admin blueprint §8.1 / D36).
 8. Merchant suspension is immediate; all vouchers deactivate; history preserved.
 9. 12-month merchant contract, signed digitally during onboarding.
 10. Trending = merchants with redemptions this month within admin-configured radius.

@@ -40,7 +40,6 @@ closed by a later PR; confirm and then remove with a citation).
 | PR-C carry-overs | Prompt-card "Update your review" copy (needs `myReview` on getCustomerVoucher); upfront verified banner on cold-open (needs `id` in `lastRedemption` schema); Path A TOCTOU on hard-delete (minor) | OPEN, Tier 1 |
 | §FAV.1 | Legacy `FavouriteMerchant` model + routes removal | OPEN; trigger (2-4 weeks soak after PR #137, merged 2026-05-31) has PASSED |
 | Favourites Polish Batch | Hierarchy/spacing/illustrations/motion/card visuals/remove-confirmation UX | GATED: owner direction; Tier 2 brainstorm-first |
-| Home card locality | `<BranchTile>` should surface branch locality when profile-location/GPS-off is the source | OPEN, Tier 1 |
 | §DF-v2-k/l/m/n | Your Location: town/city/place search (k, Tier 2 brainstorm-first); identity-card residual polish (l); save-success toast (m); Search place-intent copy (n) | OPEN |
 | §DF-v2-a..h | Multi-saved-locations; no-postcode Home prompt; first-open GPS prompt; GPS-vs-postcode reconciliation UI; periodic postcode check; honesty hint on other surfaces; Home "use current location" pill; locality re-resolution job | OPEN, spec §11 batch (postcode-profile-fallback spec) |
 | §DF-v2-o | Voucher Detail location-context awareness (plumb lat/lng on `/vouchers/:id`, emit envelope, LocationStatusLabel decision) | OPEN, Tier 1-2; trigger: a Voucher Detail consumer needs location |
@@ -56,6 +55,9 @@ closed by a later PR; confirm and then remove with a citation).
 | EAS config | `eas.json` / `app.config.ts` / expo-build-properties port | OPEN (deliberately not ported in Profile Sub-PR 1) |
 | Node upgrade | Customer-app toolchain Node 20.19.4 → newer LTS | GATED on re-verifying jest-expo |
 | Seed-email hygiene | `admin@`/`customer@`/`staff@` seed addresses use unowned `redeemo.com` | OPEN, platform-wide follow-up |
+| Checklist-only customer-app tail | Additional open follow-ups tracked ONLY in the Customer App Codex checklist (read-only; reconciled 2026-07-06): §CE-§CK Search follow-ups (filters, sorting, recent searches, empty-state illustrations, heart migration, pagination, tactile polish); §BY/§CA/§CC/§DJ/§DK cross-surface copy + pill + ranking-audit items; §DB/§DC/§DD/§DE/§DI Home follow-ups; Map polish bucket + §CZ category/filter correctness (owner-deferred to the Map rebase pass); Category FilterSheet redesign + copy-mismatch bug; Savings redemption-history pagination end-state bug + sticky-header redesign; QA-seed Stage 3 coordinate verification; pg SSL-semantics warning; stale-generated-Prisma-client dev note; Profile-scope navigation-architecture concern | OPEN in the checklist; promote rows here as they become active |
+| Savings ROI copy semantics | "You've saved £X, Y× your subscription": calendar-month vs billing-cycle comparison + annual-plan denomination | OPEN: needs owner product decision |
+| Lifecycle nudges | Post-redemption "rate this merchant" delayed notification (timing/scheduler/dedup) + subscription-renewal notification (copy/event-source/destination) | OPEN: needs owner product decisions; Phase-6-adjacent |
 
 ## 2. Customer Website
 
@@ -79,6 +81,7 @@ closed by a later PR; confirm and then remove with a citation).
 | Phase 6 | Comms layer: email PIN delivery (Resend), FCM push, marketing comms | GATED: Phase 6 |
 | Subscription purchase | In-app subscribe flow (Apple IAP on iOS; Stripe or Play Billing on Android) | GATED: PROJECT-STATE §6 Apple IAP decision |
 | G1 items | CI integration gate, security lane, browser-smoke promotion to required, staging acceptance, seed strategy for 53 seed-dependent suites | See PROJECT-STATE §6/§8 (authoritative for these) |
+| Google Places quota hardening | Move Google API cost/abuse protection from the file-based daily-cap comment to a Redis `atomicLimiter` before merchant-facing production use (locked pre-production requirement, Codex Vol-1 ~L4789; `src/api/lib/googlePlaces.ts` has NO limiter today and the key is live on staging) | OPEN, pre-launch |
 
 ## 4. Workspace / repo hygiene (was CLAUDE.md "Pending local-only artefacts"; live owner-gated)
 
@@ -106,7 +109,13 @@ OTP-lockout message; admin M2-M8 deferred lists; Option B B2+/B3/B4/B5 + photo-a
 `canManageVouchers` migration applied to LOCAL dev DB only (staging/prod need
 `prisma migrate deploy`); staging admin-OTP delivery UNVERIFIED; Karaara staging cleanup
 UNVERIFIED; automated monthly merchant statements (from the old §R4 architecture note) not
-yet tracked in any roadmap row: confirm placement.
+yet tracked in any roadmap row: confirm placement; `GET /branches` payload still returns the
+encrypted `redemptionPin` field (UI never renders it; harden the payload before treating it
+as a curated contract); optional #389 defence-in-depth follow-up (re-gate non-401/JSON-parse
+throw paths; assessed non-security); cuisine-aware specialty filtering open product question
+(cuisine selection does not narrow the specialty pool; Codex Vol-1 ~L11137); AdminRole enum
+drift vs locked Q6b (shipped SUPER_ADMIN/OPERATIONS/FINANCE/CONTENT/SUPPORT; locked plan was
+SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
 
 ## Change log
 
@@ -116,3 +125,9 @@ yet tracked in any roadmap row: confirm placement.
 - **2026-07-06b** · graphify row CLOSED: owner retired graphify from the active workflow
   (recorded in PROJECT-STATE §6 resolved-decisions note); artifacts preserved, nothing to
   regenerate.
+- **2026-07-06c** · Codex-checklist reconciliation round: "Home card locality" row REMOVED —
+  already shipped via PR #139 (`8b352cba`, 2026-05-31; the old CLAUDE.md deferred list this
+  register was extracted from predated that closure). Added the checklist-only customer-app
+  tail pointer row + two decision-needed rows (Savings ROI semantics; lifecycle nudges).
+  §SE.1 split-session opening hours confirmed CLOSED by PR #320 (`fe10fb16`) — was never a
+  register row; recorded here for traceability.

@@ -26,6 +26,8 @@ paths:
   merchant), QA emails, and `User.status = 'DELETED'`.
 - Notifications: `notify()` (and `adminNotify` for admin bell) are the SOLE writers to the
   Notification table. Admin reads are isolated by `recipientType` + `recipientId`.
+- BullMQ custom job IDs must NEVER contain a colon (crashes BullMQ; PR #325 incident,
+  generalized by the #355 deterministic-jobId producer guard).
 - Branch PINs are AES-256-GCM encrypted (`Branch.redemptionPin`). Never select or return
   `redemptionPin` in any list/read payload; reveal only via the guarded PIN routes.
 - Storage (R2) and email (Resend) are feature-flagged and DARK by default
