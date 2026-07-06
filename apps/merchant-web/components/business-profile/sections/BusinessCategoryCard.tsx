@@ -1,21 +1,27 @@
 'use client'
 
-// Business Profile M2: the "Business category" card (prototype 01/03/04). Read-only
-// display of the merchant's saved category identity, resolved from the taxonomy
-// (lib/business-profile/categoryDisplay). The category icon is a generic brand-tint
-// glyph in M2 - there is no per-category icon asset system yet (the taxonomy carries
-// no icon field), unlike the reference screenshots' bespoke per-category icon. The
-// "Change category" affordance renders (matches the screenshots) but is disabled -
-// category change is gated Tier-3 backend work (M4), not M2 scope.
+// Business Profile M2/M3: the "Business category" card (prototype 01/03/04).
+// Read-only display of the merchant's saved category identity, resolved from the
+// taxonomy (lib/business-profile/categoryDisplay). The category icon is a generic
+// brand-tint glyph - there is no per-category icon asset system yet (the taxonomy
+// carries no icon field), unlike the reference screenshots' bespoke per-category
+// icon.
 //
-// House style: brand tokens, no em-dashes, SVG icons not emojis.
+// M3: an OWNER viewer (`profile.viewerCapabilities.role === 'OWNER'`) gets a LIVE
+// "Change category" button that opens <CategoryChangeModal> once the taxonomy has
+// loaded. A non-owner (BRANCH_MANAGER / STAFF / absent viewerCapabilities -
+// fail-closed) sees the card fully read-only: no Change-category button renders at
+// all. The backend `setMerchantCategoryCore` remains the real security boundary;
+// this is a UX-only gate.
 import { useQuery } from '@tanstack/react-query'
+import * as React from 'react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { DisabledEditButton } from '@/components/business-profile/DisabledEditButton'
+import { Button } from '@/components/ui/button'
 import { getOnboardingTaxonomy } from '@/lib/api/taxonomy'
 import { resolveCategoryDisplay } from '@/lib/business-profile/categoryDisplay'
 import { Lock, Store } from '@/lib/icons'
+import { CategoryChangeModal } from '@/components/business-profile/sections/CategoryChangeModal'
 import type { MerchantProfile } from '@/lib/api/profile'
 
 export function BusinessCategoryCard({ profile }: { profile: MerchantProfile }) {
@@ -24,6 +30,8 @@ export function BusinessCategoryCard({ profile }: { profile: MerchantProfile }) 
     queryFn: getOnboardingTaxonomy,
     staleTime: 5 * 60_000,
   })
+  const [changing, setChanging] = React.useState(false)
+  const isOwner = profile.viewerCapabilities?.role === 'OWNER'
 
   const display = resolveCategoryDisplay(taxonomy.data, profile.primaryCategoryId, profile.primaryDescriptorTagId)
 
@@ -55,7 +63,18 @@ export function BusinessCategoryCard({ profile }: { profile: MerchantProfile }) 
           </div>
         </div>
 
-        <DisabledEditButton label="Change category" icon={null} testId="business-category-change" />
+        {isOwner ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setChanging(true)}
+            disabled={!taxonomy.data}
+            data-testid="business-category-change"
+          >
+            Change category
+          </Button>
+        ) : null}
       </div>
 
       <div className="px-6">
@@ -64,6 +83,10 @@ export function BusinessCategoryCard({ profile }: { profile: MerchantProfile }) 
           set up. Changing it affects those starter offers and needs confirmation.
         </p>
       </div>
+
+      {changing && taxonomy.data ? (
+        <CategoryChangeModal profile={profile} taxonomy={taxonomy.data} onClose={() => setChanging(false)} />
+      ) : null}
     </Card>
   )
 }

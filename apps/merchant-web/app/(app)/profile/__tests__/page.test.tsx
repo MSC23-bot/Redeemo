@@ -6,6 +6,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import BusinessProfilePage from '@/app/(app)/profile/page'
+import { ToastProvider } from '@/components/ui/toast'
 
 const getMerchantProfile = jest.fn()
 jest.mock('@/lib/api/profile', () => {
@@ -52,7 +53,9 @@ function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <BusinessProfilePage />
+      <ToastProvider>
+        <BusinessProfilePage />
+      </ToastProvider>
     </QueryClientProvider>,
   )
 }

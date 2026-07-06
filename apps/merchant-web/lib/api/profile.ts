@@ -110,6 +110,19 @@ export async function getMerchantProfile(): Promise<MerchantProfile> {
 // always. Every field is optional so a partial save ("Save and finish later") sends
 // only the filled keys. Nulls clear a value (e.g. VAT switched to No clears
 // vatNumber).
+//
+// Business Profile M3: `primaryCategoryId` + `confirm` extend the same body for the
+// day-2 category-change path. The backend routes a `primaryCategoryId` key through
+// `setMerchantCategoryCore` (src/api/merchant/profile/service.ts), which delegates an
+// actual CHANGE (merchant already has a category) to `handleCategoryChange`
+// (src/api/merchant/voucher/service.ts): it throws `CATEGORY_CHANGE_BLOCKED` once any
+// RMV has been submitted/activated, otherwise returns a `{ requiresConfirmation,
+// message }` preview UNLESS `confirm: true` rides in the same body, in which case it
+// applies the change (discarding DRAFT RMVs) and returns the refreshed profile like
+// every other field. This is the SUBCATEGORY-only day-2 path (mirrors the merchant's
+// already-set `primaryCategoryId`); it does not touch `primaryDescriptorTagId` or the
+// specialty tag set (that full identity write is `setMerchantIdentityCore`, which is
+// onboarding-draft-window-only and unreachable here).
 export interface MerchantProfileUpdateBody {
   businessName?: string
   tradingName?: string | null
@@ -119,16 +132,48 @@ export interface MerchantProfileUpdateBody {
   websiteUrl?: string | null
   vatNumber?: string | null
   companyNumber?: string | null
+  primaryCategoryId?: string
+  confirm?: boolean
+}
+
+// Business Profile M3: the ONE non-profile shape the PATCH endpoint can return - the
+// category-change confirmation preview (no `confirm: true` yet, and there IS an
+// existing different category to move away from). `.passthrough()` so a future
+// backend field addition never breaks parsing.
+const categoryChangeConfirmationSchema = z
+  .object({
+    requiresConfirmation: z.literal(true),
+    message: z.string(),
+  })
+  .passthrough()
+
+export type CategoryChangeConfirmation = z.infer<typeof categoryChangeConfirmationSchema>
+export type MerchantProfileUpdateResult = MerchantProfile | CategoryChangeConfirmation
+
+// Both MerchantProfile and CategoryChangeConfirmation are `.passthrough()` zod
+// schemas, so their inferred types carry a `[k: string]: unknown` index signature.
+// A plain `'requiresConfirmation' in result` check therefore does not narrow the
+// union for TypeScript (the passthrough index signature on the OTHER member also
+// "has" that key, typed `unknown`) - callers should use this type-predicate helper
+// instead so `result.message` etc. resolve to their real types after the check.
+export function isCategoryChangeConfirmation(
+  result: MerchantProfileUpdateResult,
+): result is CategoryChangeConfirmation {
+  return (result as { requiresConfirmation?: unknown }).requiresConfirmation === true
 }
 
 export async function updateMerchantProfile(
   body: MerchantProfileUpdateBody,
-): Promise<MerchantProfile> {
-  return merchantProfileSchema.parse(
-    await apiFetch('/api/v1/merchant/profile', {
-      method: 'PATCH',
-      auth: true,
-      body: JSON.stringify(body),
-    }),
-  )
+): Promise<MerchantProfileUpdateResult> {
+  const raw = await apiFetch('/api/v1/merchant/profile', {
+    method: 'PATCH',
+    auth: true,
+    body: JSON.stringify(body),
+  })
+  // Try the confirmation-preview shape first: `requiresConfirmation` is not a field
+  // on MerchantProfile, so a strict-enough check here never misparses a real profile
+  // (a profile response never carries `requiresConfirmation: true`).
+  const confirmation = categoryChangeConfirmationSchema.safeParse(raw)
+  if (confirmation.success) return confirmation.data
+  return merchantProfileSchema.parse(raw)
 }

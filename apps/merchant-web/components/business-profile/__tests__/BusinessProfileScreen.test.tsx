@@ -11,6 +11,7 @@
 import { render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BusinessProfileScreen } from '@/components/business-profile/BusinessProfileScreen'
+import { ToastProvider } from '@/components/ui/toast'
 import type { MerchantProfile } from '@/lib/api/profile'
 
 const getOnboardingTaxonomy = jest.fn()
@@ -76,7 +77,9 @@ function renderScreen(p: MerchantProfile) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <BusinessProfileScreen profile={p} />
+      <ToastProvider>
+        <BusinessProfileScreen profile={p} />
+      </ToastProvider>
     </QueryClientProvider>,
   )
 }
@@ -156,10 +159,33 @@ describe('BusinessProfileScreen', () => {
     expect(screen.queryByRole('button', { name: /^view$/i })).not.toBeInTheDocument()
   })
 
-  it('never wires the Edit / Change category affordances (all disabled, no live edit lane in M2)', () => {
+  it('never wires the Public identity Edit affordance (disabled, no live edit lane until M4)', () => {
     renderScreen(profile())
     expect(screen.getByTestId('public-identity-edit')).toBeDisabled()
-    expect(screen.getByTestId('registered-details-edit')).toBeDisabled()
-    expect(screen.getByTestId('business-category-change')).toBeDisabled()
+  })
+
+  // Business Profile M3: Registered details Edit + Business category Change are
+  // OWNER-only live affordances. A viewer with no viewerCapabilities (the default
+  // `profile()` fixture - mirrors an older backend / a loading state) fails closed:
+  // neither button renders at all (not merely disabled).
+  it('does not render the Registered details Edit / Change category buttons for a non-owner viewer', async () => {
+    renderScreen(profile())
+    await screen.findByTestId('business-profile-category-chip')
+    expect(screen.queryByTestId('registered-details-edit')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('business-category-change')).not.toBeInTheDocument()
+  })
+
+  it('renders the Registered details Edit + Change category buttons for an OWNER viewer', async () => {
+    renderScreen(profile({ viewerCapabilities: { canViewInsights: true, role: 'OWNER' } }))
+    await screen.findByTestId('business-profile-category-chip')
+    expect(screen.getByTestId('registered-details-edit')).toBeEnabled()
+    expect(screen.getByTestId('business-category-change')).toBeEnabled()
+  })
+
+  it('does not render the Registered details Edit / Change category buttons for a BRANCH_MANAGER viewer', async () => {
+    renderScreen(profile({ viewerCapabilities: { canViewInsights: true, role: 'BRANCH_MANAGER' } }))
+    await screen.findByTestId('business-profile-category-chip')
+    expect(screen.queryByTestId('registered-details-edit')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('business-category-change')).not.toBeInTheDocument()
   })
 })
