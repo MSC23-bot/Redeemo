@@ -100,7 +100,7 @@ function VoucherScreen() {
   return (
     <div className="h-full flex flex-col" style={{ background: '#FFF9F5' }}>
       <StatusBar />
-      <div className="px-4 pt-2 flex-1">
+      <div className="px-4 flex-1 flex flex-col justify-center pb-6">
         <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(1,12,53,0.08)', background: '#FFFFFF' }}>
           <div className="px-4 pt-4 pb-3" style={{ background: 'rgba(124,58,237,0.08)' }}>
             <span
@@ -149,7 +149,7 @@ function CodeScreen() {
   return (
     <div className="h-full flex flex-col" style={{ background: '#010C35' }}>
       <StatusBar dark />
-      <div className="px-4 pt-3 flex-1 flex flex-col items-center text-center">
+      <div className="px-4 flex-1 flex flex-col items-center justify-center text-center pb-8">
         <p className="text-[9px] font-bold tracking-[0.16em] uppercase" style={{ color: 'rgba(255,255,255,0.45)' }}>
           Show this at the till
         </p>
@@ -233,6 +233,11 @@ export function PhoneDemo() {
               <Screen />
             </motion.div>
           </AnimatePresence>
+          {/* Home indicator */}
+          <div
+            className="absolute bottom-[9px] left-1/2 -translate-x-1/2 w-[86px] h-[4px] rounded-full z-10"
+            style={{ background: step === 2 ? 'rgba(255,255,255,0.35)' : 'rgba(1,12,53,0.25)' }}
+          />
         </div>
       </div>
 
@@ -267,16 +272,17 @@ export function PhoneDemo() {
                 >
                   {s.label}
                 </span>
-                {i === step && (
-                  <span className="block text-[11.5px] mt-0.5 leading-snug" style={{ color: 'rgba(255,255,255,0.45)' }}>
-                    {s.caption}
-                  </span>
-                )}
+                <span
+                  className={i === step ? 'block text-[11.5px] mt-0.5 leading-snug' : 'sr-only'}
+                  style={i === step ? { color: 'rgba(255,255,255,0.55)' } : undefined}
+                >
+                  {s.caption}
+                </span>
               </span>
             </button>
           ))}
         </div>
-        <p className="text-[10px] mt-3 text-center" style={{ color: 'rgba(255,255,255,0.3)' }}>
+        <p className="text-[10px] mt-3 text-center" style={{ color: 'rgba(255,255,255,0.5)' }}>
           App preview · example places, not live listings
         </p>
       </div>

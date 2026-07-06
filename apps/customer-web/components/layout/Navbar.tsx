@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, ChevronDown, LayoutDashboard, PiggyBank, Heart, CreditCard, User, LogOut, Bell } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { isMarketplaceLive } from '@/lib/prelaunch'
+import { isLeadCaptureLive, isMarketplaceLive } from '@/lib/prelaunch'
 
 // Links shown to logged-out visitors. Marketplace routes are middleware-gated
 // pre-launch (they redirect home), so Discover only appears once live.
@@ -126,6 +126,10 @@ export function Navbar() {
   const marketplaceLive = isMarketplaceLive()
   const getAppHref = marketplaceLive ? 'https://apps.apple.com' : '/how-it-works'
   const getAppExternalProps = marketplaceLive ? { target: '_blank', rel: 'noreferrer' } : {}
+  // Pre-launch the primary CTA must not imply the marketplace is joinable today:
+  // it routes to the waitlist once lead capture is live, the teaching page until then.
+  const primaryCtaHref = marketplaceLive ? '/register' : isLeadCaptureLive() ? '/#waitlist' : '/how-it-works'
+  const primaryCtaLabel = marketplaceLive ? 'Join free' : 'Get early access'
 
   return (
     <header className={`sticky top-0 z-50 border-b transition-colors duration-300 ${navBg}`}>
@@ -314,11 +318,11 @@ export function Navbar() {
                   Get the app
                 </a>
                 <Link
-                  href="/register"
+                  href={primaryCtaHref}
                   className="text-[14px] font-semibold text-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
-                  Join free
+                  {primaryCtaLabel}
                 </Link>
               </>
             )
@@ -428,12 +432,12 @@ export function Navbar() {
                         Get the app
                       </a>
                       <Link
-                        href="/register"
+                        href={primaryCtaHref}
                         onClick={() => setMenuOpen(false)}
                         className="px-3 py-3 text-[14px] font-semibold text-white text-center rounded-lg no-underline hover:opacity-90 transition-opacity"
                         style={{ background: 'var(--brand-gradient)' }}
                       >
-                        Join free
+                        {primaryCtaLabel}
                       </Link>
                     </>
                   )}

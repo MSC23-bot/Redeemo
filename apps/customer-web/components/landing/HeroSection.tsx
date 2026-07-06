@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion'
+import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import { useRef, useCallback } from 'react'
 import { PhoneDemo } from './PhoneDemo'
 import { isLeadCaptureLive, isMarketplaceLive } from '@/lib/prelaunch'
@@ -17,6 +17,7 @@ const FACTS = [
 
 export function HeroSection() {
   const sectionRef = useRef<HTMLElement>(null)
+  const reduceMotion = useReducedMotion()
   const marketplaceLive = isMarketplaceLive()
   const leadCaptureLive = isLeadCaptureLive()
 
@@ -36,12 +37,15 @@ export function HeroSection() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
+      // Continuous background repaint: skipped for reduced-motion visitors
+      // (touch devices never fire mousemove, so they get the static glow).
+      if (reduceMotion) return
       const rect = sectionRef.current?.getBoundingClientRect()
       if (!rect) return
       rawX.set(((e.clientX - rect.left) / rect.width) * 100)
       rawY.set(((e.clientY - rect.top) / rect.height) * 100)
     },
-    [rawX, rawY],
+    [rawX, rawY, reduceMotion],
   )
 
   const primaryCta = marketplaceLive
@@ -155,7 +159,7 @@ export function HeroSection() {
                   >
                     {s.value}
                   </span>
-                  <span className="text-[12px] text-white/38 font-medium">{s.label}</span>
+                  <span className="text-[12px] text-white/60 font-medium">{s.label}</span>
                 </div>
               ))}
             </motion.div>
@@ -179,7 +183,7 @@ export function HeroSection() {
           transition={{ duration: 0.4, delay: 0.56 }}
           className="mt-14 pt-8 border-t border-white/[0.08] flex flex-col sm:flex-row sm:items-center gap-4"
         >
-          <p className="text-[11.5px] text-white/30 uppercase tracking-[0.14em] font-semibold flex-shrink-0">
+          <p className="text-[11.5px] text-white/55 uppercase tracking-[0.14em] font-semibold flex-shrink-0">
             {marketplaceLive
               ? 'Redeem in the app · Download free'
               : 'The app arrives with launch · iOS & Android'}
@@ -201,7 +205,7 @@ export function HeroSection() {
 
 export function AppStoreBadge() {
   return (
-    <div className="inline-flex items-center gap-2.5 rounded-xl bg-[#010C35] border border-white/15 text-white px-4 py-2.5 cursor-default hover:border-white/25 transition-colors">
+    <div className="inline-flex items-center gap-2.5 rounded-xl bg-[#010C35] border border-white/15 text-white px-4 py-2.5">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
       </svg>
@@ -215,7 +219,7 @@ export function AppStoreBadge() {
 
 export function GooglePlayBadge() {
   return (
-    <div className="inline-flex items-center gap-2.5 rounded-xl bg-[#010C35] border border-white/15 text-white px-4 py-2.5 cursor-default hover:border-white/25 transition-colors">
+    <div className="inline-flex items-center gap-2.5 rounded-xl bg-[#010C35] border border-white/15 text-white px-4 py-2.5">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M3.1 2.54C2.73 2.88 2.5 3.4 2.5 4.08v15.84c0 .68.23 1.2.6 1.54l.08.07 8.88-8.88v-.23L3.18 2.47zm11.93 9.67-2.96-2.96L3.8 1.97l10.45 6.06zm.95 0 2.82-1.64c.85-.49.85-1.28 0-1.77L14.27 6.8 11.3 9.77zM3.8 22.03l8.27-8.28 2.96-2.96L14.25 9.5z" />
       </svg>

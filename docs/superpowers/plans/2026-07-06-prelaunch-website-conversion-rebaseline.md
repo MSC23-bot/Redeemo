@@ -120,6 +120,16 @@ deployment/env changes.
 
 Nothing in PR-A/PR-B depends on D1-D4 to be safe and shippable.
 
+ORDERING WARNING (D1): `NEXT_PUBLIC_LEAD_CAPTURE_LIVE` must not be flipped before the
+backend slice ships; the dark forms post to `/api/v1/public/waitlist` and
+`/api/v1/public/merchant-interest`, which do not exist yet, so a premature flip fails
+every submission into the error state.
+
+Known limitation (accepted 2026-07-06, post-Opus-review): the portal showcase captures
+retain the prototype's "View: Owner" / "Demo: Live" switchers in the topbar. Mitigated
+by the example-data captions; fix is a clean re-capture from the prototype without demo
+chrome when convenient.
+
 ## 7. QA and evidence
 
 agent-browser visual passes at 1440/768/390 widths, light checks on Safari-equivalent

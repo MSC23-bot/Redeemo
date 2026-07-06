@@ -136,6 +136,7 @@ function PlanCard({ plan, delay }: { plan: Plan; delay: number }) {
 
       <Link
         href={plan.href}
+        aria-label={`${plan.cta}: ${plan.name} plan`}
         className={`mt-auto block text-center font-semibold text-[14px] py-3 rounded-xl no-underline transition-opacity hover:opacity-90 ${
           isPrimary
             ? 'text-white'
