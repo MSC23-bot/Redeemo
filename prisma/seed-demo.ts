@@ -102,7 +102,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Small-batch specialty roaster on Redchurch Street. Single-origin espresso, slow-drip filter, and sourdough from a sister bakery in Hackney. Quiet in the morning, loud with regulars by 11.',
     websiteUrl: 'https://laneway-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=LC',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=laneway-roast&size=400&backgroundColor=6F4E37',
     bannerUrl:  U('photo-1498804103079-a6351b050096'),
     adminEmail: 'demo-merchant-01@redeemo.local',
     primaryCategoryName: 'Cafe & Coffee',
@@ -170,7 +170,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Modern British plates in a converted Victorian foundry. The menu changes weekly with what the local farms send in. Cask ales, natural wines, and a wood-fired oven that runs from breakfast to close.',
     websiteUrl: 'https://oldfoundry-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=OF',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=old-foundry-ldn&size=400&backgroundColor=B0413E',
     bannerUrl:  U('photo-1552566626-52f8b828add9'),
     adminEmail: 'demo-merchant-02@redeemo.local',
     primaryCategoryName: 'Restaurant',
@@ -226,7 +226,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Traditional barbering for the way people actually dress now. Hot towel shaves, skin fades, beard work. Walk-ins welcome but we prefer a booking.',
     websiteUrl: 'https://fleetbarbers-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=FS',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=fleet-street&size=400&backgroundColor=263238',
     bannerUrl:  U('photo-1503951914875-452162b0f3f1'),
     adminEmail: 'demo-merchant-03@redeemo.local',
     primaryCategoryName: 'Barber',
@@ -274,7 +274,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Small-group training in an independent gym in Bermondsey. Coaches programme your session, you just turn up. Focus on strength, conditioning, and long-term movement quality, not classes that count burpees.',
     websiteUrl: 'https://edge-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=ES',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=edge-sc&size=400&backgroundColor=1B5E20',
     bannerUrl:  U('photo-1534438327276-14e5300c3a48'),
     adminEmail: 'demo-merchant-04@redeemo.local',
     primaryCategoryName: 'Gym',
@@ -324,7 +324,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Modern tapas, Spanish-leaning wine list, and a bar that welcomes solo diners. Proper jamón, grilled octopus, and a tortilla that people write about.',
     websiteUrl: 'https://mirador-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=MT',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=mirador&size=400&backgroundColor=C62828',
     bannerUrl:  U('photo-1414235077428-338989a2e8c0'),
     adminEmail: 'demo-merchant-05@redeemo.local',
     primaryCategoryName: 'Restaurant',
@@ -374,7 +374,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Evidence-led facial studio for people who care about what\'s actually in the products on their face. Results-focused treatments, no sales pressure, rooms you can fall asleep in.',
     websiteUrl: 'https://lumen-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=LS',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=lumen-skin&size=400&backgroundColor=AD1457',
     bannerUrl:  U('photo-1570172619644-dfd03ed5d881'),
     adminEmail: 'demo-merchant-06@redeemo.local',
     primaryCategoryName: 'Beauty Salon',
@@ -423,7 +423,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Independent yoga studio in a converted warehouse. Vinyasa, yin, restorative, and a Saturday morning slow flow that locals plan their weekends around.',
     websiteUrl: 'https://greenwichyoga-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=GY',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=greenwich-yoga&size=400&backgroundColor=4527A0',
     bannerUrl:  U('photo-1545389336-cf090694435e'),
     adminEmail: 'demo-merchant-07@redeemo.local',
     primaryCategoryName: 'Boutique Studio',
@@ -466,7 +466,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Independent bookshop and small-press showcase. Carefully chosen fiction, non-fiction, and art monographs. Regular readings, always strong coffee on the counter.',
     websiteUrl: 'https://northbankbooks-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=NB',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=north-bank&size=400&backgroundColor=283593',
     bannerUrl:  U('photo-1519682337058-a94d519337bc'),
     adminEmail: 'demo-merchant-08@redeemo.local',
     primaryCategoryName: 'Bookshop',
@@ -508,7 +508,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'A four-screen independent cinema with a proper bar and a programme that mixes new releases, restored classics, and director-led seasons.',
     websiteUrl: 'https://camdensocial-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=CS',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=camden-social&size=400&backgroundColor=E65100',
     bannerUrl:  U('photo-1536440136628-849c177e76a1'),
     adminEmail: 'demo-merchant-09@redeemo.local',
     primaryCategoryName: 'Cinema',
@@ -555,7 +555,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'A small family-run florist supplying seasonal British-grown stems. Wedding work, subscriptions, and a weekly by-the-stem bar in the shop on Fridays.',
     websiteUrl: 'https://pimlicoflorals-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=PF',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=pimlico-florals&size=400&backgroundColor=2E7D32',
     bannerUrl:  U('photo-1508610048659-a06b669e3321'),
     adminEmail: 'demo-merchant-10@redeemo.local',
     primaryCategoryName: 'Florist',
@@ -605,7 +605,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Seasonal kitchen and bar in a converted ironworks. Wood-fired mains, Yorkshire produce, and a short wine list picked by the owner. Busiest Fridays; calm and candlelit midweek.',
     websiteUrl: 'https://oldfoundry-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=OF',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=old-foundry&size=400&backgroundColor=BF360C',
     bannerUrl:  U('photo-1552566626-52f8b828add9'),
     adminEmail: 'demo-merchant-11@redeemo.local',
     primaryCategoryName: 'Restaurant',
@@ -671,7 +671,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Independent coffee house by the station. House-roasted espresso, proper pastries from the counter, and a long window bench for watching the town go by.',
     websiteUrl: 'https://juniper-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=JC',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=juniper-coffee&size=400&backgroundColor=5D4037',
     bannerUrl:  U('photo-1498804103079-a6351b050096'),
     adminEmail: 'demo-merchant-12@redeemo.local',
     primaryCategoryName: 'Cafe & Coffee',
@@ -719,8 +719,8 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Market-quarter deli and lunch counter. Yorkshire cheeses, fresh sandwiches on house focaccia, and a rotating hot box that sells out most days.',
     websiteUrl: 'https://fernandfield-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=FF',
-    bannerUrl:  U('photo-1509440159596-0249088772ff'),
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=fern-field&size=400&backgroundColor=33691E',
+    bannerUrl:  U('photo-1540189549336-e6e99c3679fe'),
     adminEmail: 'demo-merchant-13@redeemo.local',
     primaryCategoryName: 'Independent Grocer & Deli',
     branches: [
@@ -766,8 +766,8 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Coached strength and conditioning in a converted mill space. Small class sizes, proper programming, and coaches who learn your name in week one.',
     websiteUrl: 'https://northlight-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=NS',
-    bannerUrl:  U('photo-1571902943202-507ec2618e8f'),
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=northlight&size=400&backgroundColor=0D47A1',
+    bannerUrl:  U('photo-1534438327276-14e5300c3a48'),
     adminEmail: 'demo-merchant-14@redeemo.local',
     primaryCategoryName: 'Gym',
     featured: true,
@@ -814,7 +814,7 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Traditional barbering with a modern hand. Scissor cuts, hot towel shaves, and a chair by the window that has the best people-watching in town.',
     websiteUrl: 'https://hatterly-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=HS',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=hatterly&size=400&backgroundColor=37474F',
     bannerUrl:  U('photo-1503951914875-452162b0f3f1'),
     adminEmail: 'demo-merchant-15@redeemo.local',
     primaryCategoryName: 'Barber',
@@ -861,8 +861,8 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Calm little studio for nails, brows and lashes. Two chairs, no rushing, and a colour wall that takes longer to choose from than the treatment takes.',
     websiteUrl: 'https://amberroom-demo.redeemo.co.uk',
-    logoUrl:    'https://placehold.co/400x400/010C35/FFF9F5/png?text=AR',
-    bannerUrl:  U('photo-1560066984-138dadb4c035'),
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=amber-room&size=400&backgroundColor=C2185B',
+    bannerUrl:  U('photo-1487412947147-5cebf100ffc2'),
     adminEmail: 'demo-merchant-16@redeemo.local',
     primaryCategoryName: 'Nail Salon',
     branches: [
