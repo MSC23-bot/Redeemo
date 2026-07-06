@@ -51,3 +51,22 @@ edited by this workstream.
   production build clean, 30/30 root guard tests green, desktop+mobile visual QA and
   interaction checks passed (step controls, anchors, mailto).
 - Register row "Redesign" updated to IN PROGRESS citing the 2026-07-06 owner brief.
+- Opus 4.8 adversarial review: 10 findings. Fixed: nav "Join free" pre-launch bypass
+  (now "Get early access", launch-aware), auth-shell fake-scale claims ("2,000+",
+  "Hundreds of businesses", unlabelled invented merchant) de-scaled, AA contrast on
+  navy hero labels, phone-frame void (content centred + home indicator), inert-badge
+  hover affordance removed, reduced-motion skip for the hero cursor glow, pricing CTA
+  aria-labels. Adjudicated, not changed: middleware gate (auth-public is approved
+  SEC-C3 design; routes already noindexed), portal prototype chrome (logged limitation,
+  clean re-capture later). D1 flag-ordering warning added to the plan.
+- PR #397 opened (draft, review-only).
+- Owner direction (same evening): scroll-driven storytelling; "Every kind of voucher"
+  and "Simple to join" sections too boxy/AI. Built ScrollStory: 340vh pinned stage,
+  find/choose/redeem chapters, cream-white-navy background journey, phone screens per
+  chapter, voucher-type colour cycle with wordmarks and progress dashes. Desktop only;
+  static sections remain for mobile/reduced-motion/crawlers (owner-visible limitation:
+  mobile story is a follow-up). Debugging note for posterity: scroll-linked stacked
+  layers froze because Chrome promotes directly-bound scroll transforms to native
+  ScrollTimeline animations and the promotion misbinds; routing every scroll-linked
+  value through useSpring keeps them on the JS path (and softens crossfades). Verified
+  by DOM probes at p=0.15/0.45/0.66/0.85 and screenshots; guard tests 30/30; tsc clean.
