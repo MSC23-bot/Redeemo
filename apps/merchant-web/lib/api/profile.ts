@@ -103,6 +103,95 @@ export async function getMerchantProfile(): Promise<MerchantProfile> {
   )
 }
 
+// --- Public identity edit-request (sensitive-field governed lane) ----------
+// Business Profile M4: mirrors the Branches PendingEdit lane (lib/api/branch.ts)
+// exactly - same PendingEditStatus enum, same passthrough-per-row shape. The
+// backend model is `MerchantPendingEdit` (prisma/schema.prisma): a single-row-
+// per-merchant governed edit awaiting admin review (createMerchantEditRequestCore
+// enforces ONE PENDING row per merchant -> 409 PENDING_EDIT_EXISTS on a second
+// attempt). `proposedChanges` is a partial bag of the SENSITIVE_FIELDS
+// (businessName, tradingName, logoUrl, bannerUrl, description); .passthrough() so
+// a future server key never breaks the parse.
+export const merchantPendingEditStatusSchema = z.enum(['PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN'])
+
+const merchantProposedChangesSchema = z
+  .object({
+    // businessName never clears to null (the backend always keeps a value here),
+    // so it stays a plain optional string.
+    businessName: z.string().optional(),
+    // tradingName / description / logoUrl / bannerUrl map to NULLABLE Merchant
+    // columns and can be cleared to null through the reviewed lane (the M4
+    // PublicIdentityEditModal's `changedBody()` sends `tradingName: null` on
+    // clear - see PublicIdentityEditModal.tsx). `.optional()` alone rejects
+    // `null` (it only tolerates `undefined`), so a legitimate null-clear
+    // response from createMerchantEditRequest/listMerchantEditRequests/
+    // withdrawMerchantEditRequest previously threw on `.parse()` even though
+    // the backend write succeeded (Codex nullable-clear finding). `.nullable()`
+    // added so the round trip survives a null value.
+    tradingName: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    logoUrl: z.string().nullable().optional(),
+    bannerUrl: z.string().nullable().optional(),
+  })
+  .passthrough()
+
+export const merchantPendingEditSchema = z
+  .object({
+    id: z.string(),
+    merchantId: z.string(),
+    proposedChanges: merchantProposedChangesSchema,
+    status: merchantPendingEditStatusSchema,
+    reviewedBy: z.string().nullish(),
+    reviewNote: z.string().nullish(),
+    createdAt: z.string(),
+    reviewedAt: z.string().nullish(),
+  })
+  .passthrough()
+
+export type MerchantPendingEditFull = z.infer<typeof merchantPendingEditSchema>
+
+// The reviewed-lane submit body: ONLY the SENSITIVE subset, exactly the fields
+// `createMerchantEditRequestCore` allow-lists (SENSITIVE_FIELDS in
+// src/api/merchant/profile/service.ts). Callers send just the CHANGED keys.
+export interface MerchantEditRequestBody {
+  businessName?: string
+  tradingName?: string | null
+  description?: string
+  logoUrl?: string
+  bannerUrl?: string
+}
+
+// POST /api/v1/merchant/profile/edit-request -> MerchantPendingEdit. 400
+// NO_SENSITIVE_FIELDS when the body carries none of the sensitive keys; 409
+// PENDING_EDIT_EXISTS when one is already in review.
+export async function createMerchantEditRequest(
+  changes: MerchantEditRequestBody,
+): Promise<MerchantPendingEditFull> {
+  const pendingEdit = await apiFetch('/api/v1/merchant/profile/edit-request', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify(changes),
+  })
+  return merchantPendingEditSchema.parse(pendingEdit)
+}
+
+// GET /api/v1/merchant/profile/edit-requests -> ALL statuses; callers filter
+// status === 'PENDING' when they need the in-review subset.
+export async function listMerchantEditRequests(): Promise<MerchantPendingEditFull[]> {
+  const list = await apiFetch('/api/v1/merchant/profile/edit-requests', { method: 'GET', auth: true })
+  return z.array(merchantPendingEditSchema).parse(list)
+}
+
+// DELETE /api/v1/merchant/profile/edit-requests/:id -> withdraws (status
+// WITHDRAWN). 404 PENDING_EDIT_NOT_FOUND when it is not PENDING / not found.
+export async function withdrawMerchantEditRequest(editId: string): Promise<MerchantPendingEditFull> {
+  const result = await apiFetch(`/api/v1/merchant/profile/edit-requests/${editId}`, {
+    method: 'DELETE',
+    auth: true,
+  })
+  return merchantPendingEditSchema.parse(result)
+}
+
 // M2 F3 (D4): the Tier-1 business-profile PATCH body. The backend
 // `updateMerchantProfile` (PATCH /api/v1/merchant/profile) accepts the SENSITIVE set
 // (businessName, tradingName, logoUrl, bannerUrl, description) directly in the draft

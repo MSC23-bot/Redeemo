@@ -159,9 +159,18 @@ describe('BusinessProfileScreen', () => {
     expect(screen.queryByRole('button', { name: /^view$/i })).not.toBeInTheDocument()
   })
 
-  it('never wires the Public identity Edit affordance (disabled, no live edit lane until M4)', () => {
+  // Business Profile M4: the Public identity Edit affordance is now a LIVE
+  // OWNER-only control (was M2's disabled DisabledEditButton stub). A viewer with
+  // no viewerCapabilities (the default `profile()` fixture - mirrors an older
+  // backend / a loading state) fails closed: the button does not render at all.
+  it('does not render the Public identity Edit button for a non-owner viewer (fail closed)', () => {
     renderScreen(profile())
-    expect(screen.getByTestId('public-identity-edit')).toBeDisabled()
+    expect(screen.queryByTestId('public-identity-edit')).not.toBeInTheDocument()
+  })
+
+  it('renders a live Public identity Edit button for an OWNER viewer', () => {
+    renderScreen(profile({ viewerCapabilities: { canViewInsights: true, role: 'OWNER' } }))
+    expect(screen.getByTestId('public-identity-edit')).toBeEnabled()
   })
 
   // Business Profile M3: Registered details Edit + Business category Change are

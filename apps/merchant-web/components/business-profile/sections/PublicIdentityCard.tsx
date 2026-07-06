@@ -1,14 +1,30 @@
 'use client'
 
-// Business Profile M2: the "Public identity" card (prototype 01/03). Read-only in
-// M2 - businessName, tradingName, description, logo + banner swatches with the
-// prototype's captions. The Edit affordance renders (matches the reference
-// screenshots) but is disabled: writing this card is M3/M4 scope.
+// Business Profile M2/M4: the "Public identity" card (prototype 01/03) -
+// businessName, tradingName, description, logo + banner. M2 shipped this
+// read-only; M4 wires the LAST Business Profile v1 edit affordance:
+//
+//   - An OWNER viewer (`profile.viewerCapabilities.role === 'OWNER'`) gets a live
+//     Edit button that opens <PublicIdentityEditModal>, which branches on the
+//     draft-vs-live lane (see that file's isDraftWindowProfile) - direct PATCH in
+//     the draft window, governed edit-request lane once live.
+//   - Whenever the merchant has a PENDING identity edit in review
+//     (`profile.pendingEdits`), the card shows an in-review notice + Withdraw
+//     action INSTEAD of the Edit button (mirrors Branches' BranchDetailsCard +
+//     PendingEditsList split, kept inline here since a merchant profile only ever
+//     has ONE edit-request type, unlike a branch's identity-vs-photo split).
+//   - A non-owner (BRANCH_MANAGER / STAFF / absent viewerCapabilities - fail
+//     closed) sees the card fully read-only: no Edit, no Withdraw, ever.
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
+import * as React from 'react'
 import Image from 'next/image'
 import { Card } from '@/components/ui/card'
-import { DisabledEditButton } from '@/components/business-profile/DisabledEditButton'
+import { Button } from '@/components/ui/button'
+import { useToast } from '@/components/ui/toast'
+import { Pencil, Clock } from '@/lib/icons'
+import { PublicIdentityEditModal } from '@/components/business-profile/sections/PublicIdentityEditModal'
+import { useWithdrawMerchantEditRequest } from '@/lib/business-profile/useMerchantEditRequest'
 import type { MerchantProfile } from '@/lib/api/profile'
 
 function val(v: string | null | undefined): string {
@@ -16,7 +32,27 @@ function val(v: string | null | undefined): string {
 }
 
 export function PublicIdentityCard({ profile }: { profile: MerchantProfile }) {
+  const { toast } = useToast()
+  const withdraw = useWithdrawMerchantEditRequest()
   const initial = profile.businessName.trim().charAt(0).toUpperCase() || '?'
+  const isOwner = profile.viewerCapabilities?.role === 'OWNER'
+
+  const [editOpen, setEditOpen] = React.useState(false)
+  const [withdrawError, setWithdrawError] = React.useState<string | null>(null)
+
+  const pendingEdit = (profile.pendingEdits ?? []).find((e) => e.status === 'PENDING')
+  const hasPendingEdit = !!pendingEdit
+
+  async function onWithdraw() {
+    if (!pendingEdit) return
+    setWithdrawError(null)
+    try {
+      await withdraw.mutateAsync(pendingEdit.id)
+      toast({ message: 'Edit withdrawn.', variant: 'success' })
+    } catch {
+      setWithdrawError('We could not withdraw this change. Please try again.')
+    }
+  }
 
   return (
     <Card className="gap-4" data-testid="business-profile-public-identity-card">
@@ -31,11 +67,58 @@ export function PublicIdentityCard({ profile }: { profile: MerchantProfile }) {
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Reviewed by Redeemo
           </span>
-          <DisabledEditButton label="Edit" testId="public-identity-edit" />
+          {isOwner && !hasPendingEdit ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setEditOpen(true)}
+              data-testid="public-identity-edit"
+            >
+              <Pencil size={14} aria-hidden />
+              Edit
+            </Button>
+          ) : null}
         </div>
       </div>
 
       <div className="space-y-4 px-6">
+        {hasPendingEdit ? (
+          <div
+            data-testid="public-identity-pending-edit"
+            className="flex items-start justify-between gap-3 rounded-[14px] p-4"
+            style={{ background: 'var(--tint)', border: '1px solid var(--border-subtle)' }}
+          >
+            <div className="flex min-w-0 items-start gap-3">
+              <Clock size={18} aria-hidden className="mt-0.5 shrink-0" style={{ color: 'var(--rose)' }} />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">A change is already in review</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Changes awaiting Redeemo review. Your current details stay live for customers until
+                  they are approved. You can withdraw before then.
+                </p>
+                {withdrawError ? (
+                  <p role="alert" className="mt-1.5 text-sm font-medium" style={{ color: 'var(--destructive)' }}>
+                    {withdrawError}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            {isOwner ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={onWithdraw}
+                disabled={withdraw.isPending}
+                data-testid="public-identity-withdraw"
+              >
+                {withdraw.isPending ? 'Withdrawing...' : 'Withdraw'}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Business name" value={val(profile.businessName)} empty="No name set" />
           <Field label="Trading name" value={val(profile.tradingName)} empty="Same as business name" />
@@ -90,6 +173,8 @@ export function PublicIdentityCard({ profile }: { profile: MerchantProfile }) {
           </div>
         </div>
       </div>
+
+      {editOpen ? <PublicIdentityEditModal profile={profile} onClose={() => setEditOpen(false)} /> : null}
     </Card>
   )
 }

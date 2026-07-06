@@ -8,7 +8,13 @@
  *   - FAIL CLOSED: absent -> the consumer's `canViewInsights === true` check is false,
  *     so the nav stays hidden until the backend positively reports access.
  */
-import { merchantProfileSchema, updateMerchantProfile } from '../profile'
+import {
+  merchantProfileSchema,
+  updateMerchantProfile,
+  createMerchantEditRequest,
+  listMerchantEditRequests,
+  withdrawMerchantEditRequest,
+} from '../profile'
 
 const apiFetch = jest.fn()
 jest.mock('../client', () => ({
@@ -137,5 +143,152 @@ describe('updateMerchantProfile (Business Profile M3: direct-edit + category cha
     const result = await updateMerchantProfile({ primaryCategoryId: 'sub-cafe', confirm: true })
     expect('requiresConfirmation' in result).toBe(false)
     expect(result).toMatchObject({ id: 'm1', primaryCategoryId: 'sub-cafe' })
+  })
+})
+
+describe('Business Profile M4: edit-request client (mirrors lib/api/branch.ts)', () => {
+  it('createMerchantEditRequest POSTs the sensitive subset to /edit-request and returns the parsed MerchantPendingEdit', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      merchantId: 'm1',
+      proposedChanges: { businessName: 'New Name', description: 'New description' },
+      status: 'PENDING',
+      createdAt: '2026-07-06T10:00:00.000Z',
+    })
+    const edit = await createMerchantEditRequest({
+      businessName: 'New Name',
+      tradingName: 'New Trading',
+      description: 'New description',
+      logoUrl: 'https://cdn.test/logo2.png',
+      bannerUrl: 'https://cdn.test/banner2.png',
+    })
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/profile/edit-request', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({
+        businessName: 'New Name',
+        tradingName: 'New Trading',
+        description: 'New description',
+        logoUrl: 'https://cdn.test/logo2.png',
+        bannerUrl: 'https://cdn.test/banner2.png',
+      }),
+    })
+    expect(edit.id).toBe('pe1')
+    expect(edit.status).toBe('PENDING')
+    expect(edit.createdAt).toBe('2026-07-06T10:00:00.000Z')
+  })
+
+  it('listMerchantEditRequests GETs /edit-requests with auth and returns the parsed array (all statuses)', async () => {
+    apiFetch.mockResolvedValueOnce([
+      {
+        id: 'pe1',
+        merchantId: 'm1',
+        proposedChanges: { businessName: 'A' },
+        status: 'PENDING',
+        createdAt: '2026-07-06T10:00:00.000Z',
+      },
+      {
+        id: 'pe2',
+        merchantId: 'm1',
+        proposedChanges: { businessName: 'B' },
+        status: 'WITHDRAWN',
+        createdAt: '2026-07-05T10:00:00.000Z',
+        reviewedAt: '2026-07-05T11:00:00.000Z',
+      },
+    ])
+    const list = await listMerchantEditRequests()
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/profile/edit-requests', {
+      method: 'GET',
+      auth: true,
+    })
+    expect(list).toHaveLength(2)
+    expect(list[0].status).toBe('PENDING')
+    expect(list[1].status).toBe('WITHDRAWN')
+  })
+
+  it('withdrawMerchantEditRequest DELETEs /edit-requests/:id with auth and returns the parsed edit', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      merchantId: 'm1',
+      proposedChanges: { businessName: 'A' },
+      status: 'WITHDRAWN',
+      createdAt: '2026-07-06T10:00:00.000Z',
+      reviewedAt: '2026-07-06T11:00:00.000Z',
+    })
+    const edit = await withdrawMerchantEditRequest('pe1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/profile/edit-requests/pe1', {
+      method: 'DELETE',
+      auth: true,
+    })
+    expect(edit.status).toBe('WITHDRAWN')
+  })
+
+  // Codex nullable-clear fix (REGRESSION): tradingName/description/logoUrl/
+  // bannerUrl map to nullable Merchant columns and can be cleared to null
+  // through the reviewed lane (PublicIdentityEditModal's changedBody() sends
+  // `tradingName: null` on clear). Before the fix, `merchantProposedChangesSchema`
+  // typed these as `z.string().optional()`, which rejects `null` (only
+  // `undefined` is tolerated) - so a LIVE clear-to-null submit created the
+  // MerchantPendingEdit row successfully on the backend, but the
+  // createMerchantEditRequest response `.parse()` THREW, surfacing a false
+  // "could not send your change for review" error to a merchant whose edit had
+  // actually gone through. This pins the full create -> response -> pending-
+  // render round trip surviving a null value, not only the draft/direct
+  // (updateMerchantProfileDirectCore) path which was never affected.
+  it('REGRESSION: createMerchantEditRequest parses a response whose proposedChanges.tradingName is null (live clear-to-null)', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      merchantId: 'm1',
+      proposedChanges: { tradingName: null },
+      status: 'PENDING',
+      createdAt: '2026-07-06T10:00:00.000Z',
+    })
+    const edit = await createMerchantEditRequest({ tradingName: null })
+    expect(edit.proposedChanges.tradingName).toBeNull()
+    expect(edit.status).toBe('PENDING')
+  })
+
+  it('REGRESSION: listMerchantEditRequests parses a row whose proposedChanges has description/logoUrl/bannerUrl all null', async () => {
+    apiFetch.mockResolvedValueOnce([
+      {
+        id: 'pe1',
+        merchantId: 'm1',
+        proposedChanges: { description: null, logoUrl: null, bannerUrl: null },
+        status: 'PENDING',
+        createdAt: '2026-07-06T10:00:00.000Z',
+      },
+    ])
+    const list = await listMerchantEditRequests()
+    expect(list[0].proposedChanges.description).toBeNull()
+    expect(list[0].proposedChanges.logoUrl).toBeNull()
+    expect(list[0].proposedChanges.bannerUrl).toBeNull()
+  })
+
+  it('REGRESSION: withdrawMerchantEditRequest parses a withdrawn row whose proposedChanges.tradingName is null', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      merchantId: 'm1',
+      proposedChanges: { tradingName: null },
+      status: 'WITHDRAWN',
+      createdAt: '2026-07-06T10:00:00.000Z',
+      reviewedAt: '2026-07-06T11:00:00.000Z',
+    })
+    const edit = await withdrawMerchantEditRequest('pe1')
+    expect(edit.proposedChanges.tradingName).toBeNull()
+  })
+
+  // businessName never clears to null (the backend always keeps a non-null
+  // value there); it stays a plain optional string and a null response should
+  // still fail to parse. This is the negative control proving the `.nullable()`
+  // widening was scoped to the four clearable fields only.
+  it('businessName stays REJECTED as null (never widened) - proves the nullable() scoping is precise', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      merchantId: 'm1',
+      proposedChanges: { businessName: null },
+      status: 'PENDING',
+      createdAt: '2026-07-06T10:00:00.000Z',
+    })
+    await expect(createMerchantEditRequest({ businessName: 'irrelevant' })).rejects.toThrow()
   })
 })
