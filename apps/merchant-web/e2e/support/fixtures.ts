@@ -20,7 +20,9 @@
  *   asserts both empty (plus each expected-error count) afterwards. Covers
  *   the WHOLE BrowserContext - the main `page` AND any child tab opened via
  *   a popup / `target="_blank"` link / `window.open` during the test (see
- *   attachErrorGuards in ./mocks for the context.on('page', ...) wiring).
+ *   attachErrorGuards in ./mocks for the per-page wiring + teardown, and
+ *   teardownGuards for the try/finally that keeps dispose() - listener
+ *   detach on every page - running even when assertClean() throws).
  * Specs import { test, expect } from './support/fixtures'.
  */
 import { test as base, expect } from '@playwright/test'
@@ -28,6 +30,7 @@ import {
   installMockApi,
   signIn,
   attachErrorGuards,
+  teardownGuards,
   type MockApiOptions,
   type MockApiTracker,
   type ErrorGuards,
@@ -59,8 +62,11 @@ export const test = base.extend<SmokeFixtures>({
     async ({ context, page, expectedConsoleErrors }, use) => {
       const guards = attachErrorGuards(context, page, expectedConsoleErrors)
       await use(guards)
-      guards.assertClean()
-      guards.dispose()
+      // teardownGuards runs assertClean() then dispose() in a try/finally -
+      // dispose() (listener detach on every page + context) still runs even
+      // when assertClean() throws (an uncaught pageerror, an unexpected
+      // console error, or an expectedConsoleErrors count mismatch).
+      teardownGuards(guards)
     },
     { auto: true },
   ],

@@ -11,7 +11,7 @@
  * Unmatched /api/v1/* requests get a 404 JSON body and are RECORDED on the
  * returned tracker so a spec can assert its surface hit only modelled routes.
  */
-import type { BrowserContext, Page } from '@playwright/test'
+import type { BrowserContext, ConsoleMessage, Page } from '@playwright/test'
 import { expect } from '@playwright/test'
 
 export const SESSION_COOKIE = 'redeemo_merchant_session'
@@ -673,6 +673,16 @@ export interface ExpectedConsoleError {
   urlSubstring: string
   textSubstring: string
   count: number
+  /**
+   * Optional page/source binding (mutation-tested by child-tab-guard.spec.ts
+   * cases (d) + (e)). When set, this allowance is consumed ONLY by an error
+   * captured on this EXACT Page instance - a popup/child-tab error can never
+   * satisfy an allowance bound to the main page, and a main-page error can
+   * never satisfy an allowance bound to a child page. When omitted (the
+   * default - every pre-existing spec's behaviour), the allowance matches on
+   * ANY page this guard covers, regardless of which page logged it.
+   */
+  page?: Page
 }
 
 /**
@@ -705,9 +715,21 @@ export function attachErrorGuards(
   // Shared across every page (main + any child tabs) this guard covers.
   const matchCounts = expectedConsoleErrors.map(() => 0)
 
+  // Every (page, handler) pair this guard has wired, so dispose() can detach
+  // from EVERY page it ever covered - the initial page AND every child tab -
+  // not just stop wiring FUTURE ones via context.off('page', wire). Without
+  // this, `target.on('pageerror'|'console', ...)` closures stay attached to
+  // each Page's own EventEmitter for the lifetime of that page object, a
+  // listener leak across every popup/child-tab a test opens.
+  const wired: Array<{
+    target: Page
+    onPageError: (err: Error) => void
+    onConsole: (msg: ConsoleMessage) => void
+  }> = []
+
   function wire(target: Page) {
-    target.on('pageerror', (err) => pageErrors.push(String(err)))
-    target.on('console', (msg) => {
+    const onPageError = (err: Error) => pageErrors.push(String(err))
+    const onConsole = (msg: ConsoleMessage) => {
       if (msg.type() !== 'error') return
       const text = msg.text()
       // Chromium sets the console message's location().url to the failed
@@ -719,14 +741,25 @@ export function attachErrorGuards(
       // happens to contain the same words.
       const url = msg.location().url
       const matchIndex = expectedConsoleErrors.findIndex(
-        (e) => text.includes(e.textSubstring) && url.includes(e.urlSubstring),
+        (e) =>
+          text.includes(e.textSubstring) &&
+          url.includes(e.urlSubstring) &&
+          // Page-bound allowances (see ExpectedConsoleError.page) only match
+          // errors captured on that EXACT Page instance - a popup error can
+          // never satisfy a main-page-bound allowance, and vice-versa.
+          // Unbound allowances (the default) match on any page this guard
+          // covers, preserving every pre-existing spec's behaviour.
+          (e.page === undefined || e.page === target),
       )
       if (matchIndex !== -1) {
         matchCounts[matchIndex] += 1
         return
       }
       consoleErrors.push(text)
-    })
+    }
+    target.on('pageerror', onPageError)
+    target.on('console', onConsole)
+    wired.push({ target, onPageError, onConsole })
   }
 
   // The page the fixture already handed us (the tab the test navigates in).
@@ -750,6 +783,34 @@ export function attachErrorGuards(
         ).toBe(e.count)
       })
     },
-    dispose: () => context.off('page', wire),
+    dispose: () => {
+      // Stop wiring any FUTURE popup/child-tab this context might still open.
+      context.off('page', wire)
+      // Detach from EVERY page already wired - main + every child tab seen so
+      // far - so no listener outlives this guard.
+      for (const { target, onPageError, onConsole } of wired) {
+        target.off('pageerror', onPageError)
+        target.off('console', onConsole)
+      }
+    },
+  }
+}
+
+/**
+ * Runs assertClean() then dispose(), guaranteeing dispose() executes even if
+ * assertClean() throws (an uncaught pageerror, an unexpected console error,
+ * or an expectedConsoleErrors count mismatch). fixtures.ts's auto `guards`
+ * fixture calls this at teardown instead of the two calls back-to-back, so a
+ * failing assertClean() can never leak the guard's page/context listeners.
+ *
+ * Extracted as a standalone function (rather than inlined in the fixture) so
+ * the try/finally contract is unit-testable with a fake ErrorGuards and no
+ * browser at all - see child-tab-guard.spec.ts case (g).
+ */
+export function teardownGuards(guards: ErrorGuards): void {
+  try {
+    guards.assertClean()
+  } finally {
+    guards.dispose()
   }
 }
