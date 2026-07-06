@@ -33,7 +33,7 @@ INPUT="$(cat 2>/dev/null || true)"
 TOOL_NAME="$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)"
 [ -n "$TOOL_NAME" ] || exit 0
 
-# Pattern identifying the protected files (all three checklists match it).
+# Pattern identifying the protected files (all current checklists match it).
 GUARD_DIR="Playground/redeemo-notes"
 GUARD_TOKEN="workflow-checklist"
 

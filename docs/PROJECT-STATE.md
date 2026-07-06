@@ -164,7 +164,7 @@ preserved.
 
 - **Claim-level, not date-based.** Each status/decision/warning/deferral is verified against the evidence in §1 before it is written; cite the SHA/PR/spec/decision. A claim with no current evidence is **[UNVERIFIED]**, not assumed true.
 - **Per-PR/decision update (mandatory step in the PR checklist):** on merge, flip the affected status + add a change-log line (date, PR/SHA, one line). On an owner decision, move it in §6 (open→closed, dated) and reflect it in §5 if cross-product. On a warning raised/cleared or staging check, update §7. On a deferral open/close, update §8.
-- **Re-reconciliation cadence:** continuous per-PR updates **plus** a full claim-level re-reconciliation (and a re-read of the three Codex checklists) at each **programme switch** or milestone - re-stamp the freshness line with the verified `origin/main` SHA.
+- **Re-reconciliation cadence:** continuous per-PR updates **plus** a full claim-level re-reconciliation (and a re-read of the Codex checklists per §2) at each **programme switch** or milestone - re-stamp the freshness line with the verified `origin/main` SHA.
 - **Programme switching:** read this doc, pick the programme section in §4, follow its links into that programme's roadmap/specs only - do not load every history.
 
 ## 10. Codex reconciliation log
