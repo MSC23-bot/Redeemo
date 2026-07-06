@@ -158,3 +158,18 @@ edited by this workstream.
   seed demo data there (provider action: owner approval required). The
   production-branch-as-dev arrangement itself is escalated to the security
   thread as a standing risk.
+- OWNER-APPROVED FAST PATH EXECUTED: Neon branch dev-screenshot
+  (br-lingering-brook-abaaucso, endpoint ep-purple-shadow-abibe61p, 0.25CU
+  scale-to-zero) created from production head. PR #400 seed run against it ONLY
+  (allow-pinned wrapper + deny-list of ep-dark-wave/ep-round-wave + the
+  SEED_DEMO_TARGET_DB guard). Found + fixed live: fixtures predated the current
+  category taxonomy (remapped to subcategories; sanity sentinels updated;
+  pushed to PR #400). Local .env host swapped dark-wave -> purple-shadow (backup
+  .env.bak-2026-07-07; sed, contents never read) and the :3000 backend
+  restarted onto the branch. Probes with Huddersfield coords: locality resolves
+  via the real location system; Featured 4 tiles / Trending 6 / 5 nearby rails /
+  campaigns 3 (two off-voice base-fixture campaigns incl. "Date Night Deals"
+  retired on the screenshot branch only); profile demo-merchant-11 = 2 branches
+  + 3 vouchers; search "coffee" -> Juniper Coffee. Production and staging
+  untouched. Teardown: seed:demo:clear against the same pinned target; full
+  reset = delete the Neon branch.
