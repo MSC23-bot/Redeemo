@@ -8,7 +8,7 @@ import { RedisKey } from '../../shared/redis-keys'
 import { consumePwdResetAttempt } from '../../shared/pwdResetLimiter'
 import { getActiveMembership } from '../../shared/merchantMembership'
 import {
-  storeRefreshToken, revokeAllSessionsForEntity,
+  storeRefreshToken, revokeAllSessionsForEntity, revokeOtherSessionsForEntity,
   revokeAllUserSessionRecords, writeUserSession, validateRefreshToken,
   REFRESH_TOKEN_TTL_SECONDS,
 } from '../../shared/session'
@@ -572,6 +572,90 @@ export async function resetPasswordMerchant(
   await redis.del(RedisKey.authMerchant(adminId))
 
   writeAuditLog(prisma, { entityId: adminId, entityType: 'merchant', event: 'AUTH_PASSWORD_RESET', ipAddress: data.ipAddress, userAgent: data.userAgent })
+}
+
+/**
+ * My Account (§BP-ACC): authenticated change-password for a logged-in
+ * merchant owner/team member. Distinct from `resetPasswordMerchant` (public,
+ * token-based, revokes EVERYTHING) — here the caller already holds a live
+ * session and is proving identity with their CURRENT password, so the
+ * revoke deliberately KEEPS that current session alive (§BP-ACC "revoke
+ * others, keep current" default) rather than logging the caller out of the
+ * request they just made.
+ *
+ * Order mirrors the design: wrong current password -> CURRENT_PASSWORD_INCORRECT;
+ * weak new password -> PASSWORD_POLICY_VIOLATION; new === current ->
+ * NEW_PASSWORD_SAME_AS_CURRENT; otherwise hash + persist, revoke every OTHER
+ * session (Redis refresh-token keys + DB UserSession rows), and write the
+ * existing PASSWORD_CHANGED audit event.
+ */
+export async function changePasswordMerchant(
+  prisma: PrismaClient,
+  redis: Redis,
+  adminId: string,
+  currentSessionId: string,
+  data: { currentPassword: string; newPassword: string; ipAddress: string; userAgent: string }
+): Promise<{ message: string }> {
+  const admin = await prisma.merchantAdmin.findUnique({ where: { id: adminId } })
+  // Mirrors loginMerchant's guard: passwordHash is nullable in the schema
+  // (draft-owner shells before claim). An authenticated caller should never
+  // hit this in practice, but it keeps the compare call type-safe and fails
+  // the same way loginMerchant does for a passwordless shell.
+  if (!admin || !admin.passwordHash) throw new AppError('INVALID_CREDENTIALS')
+
+  const currentValid = await verifyPassword(data.currentPassword, admin.passwordHash)
+  if (!currentValid) throw new AppError('CURRENT_PASSWORD_INCORRECT')
+
+  if (!validatePasswordPolicy(data.newPassword)) throw new AppError('PASSWORD_POLICY_VIOLATION')
+
+  const sameAsCurrent = await verifyPassword(data.newPassword, admin.passwordHash)
+  if (sameAsCurrent) throw new AppError('NEW_PASSWORD_SAME_AS_CURRENT')
+
+  const passwordHash = await hashPassword(data.newPassword)
+  await prisma.merchantAdmin.update({ where: { id: adminId }, data: { passwordHash } })
+
+  // Revoke every OTHER live session — keep the caller's current one so this
+  // request's own tab/device isn't self-signed-out.
+  await revokeOtherSessionsForEntity(redis, { role: 'merchant', entityId: adminId, keepSessionId: currentSessionId })
+  await revokeAllUserSessionRecords(prisma, {
+    entityId: adminId, entityType: 'merchant', reason: 'PASSWORD_CHANGED', exceptSessionId: currentSessionId,
+  })
+
+  writeAuditLog(prisma, {
+    entityId: adminId, entityType: 'merchant', event: 'PASSWORD_CHANGED',
+    ipAddress: data.ipAddress, userAgent: data.userAgent, sessionId: currentSessionId,
+  })
+
+  return { message: 'Password updated.' }
+}
+
+/**
+ * My Account (§BP-ACC): "Log out of all other devices/sessions" — revokes
+ * every OTHER live session for the calling merchant admin (Redis refresh-token
+ * keys + DB UserSession rows), keeping the caller's own current session alive
+ * (same keep-current default as `changePasswordMerchant`). Reversible: remove
+ * the keep-current filter to make it a full logout-everywhere instead.
+ */
+export async function logoutAllOtherMerchantSessions(
+  prisma: PrismaClient,
+  redis: Redis,
+  adminId: string,
+  currentSessionId: string,
+  ctx: { ipAddress: string; userAgent: string }
+): Promise<{ revokedCount: number }> {
+  const revokedCount = await revokeOtherSessionsForEntity(redis, {
+    role: 'merchant', entityId: adminId, keepSessionId: currentSessionId,
+  })
+  await revokeAllUserSessionRecords(prisma, {
+    entityId: adminId, entityType: 'merchant', reason: 'LOGOUT_ALL_OTHER_SESSIONS', exceptSessionId: currentSessionId,
+  })
+
+  writeAuditLog(prisma, {
+    entityId: adminId, entityType: 'merchant', event: 'AUTH_SESSIONS_REVOKED',
+    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: currentSessionId,
+  })
+
+  return { revokedCount }
 }
 
 /**

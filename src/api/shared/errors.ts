@@ -250,6 +250,12 @@ export const ERROR_DEFINITIONS = {
   BRANCH_ACCESS_DENIED:            { statusCode: 403, message: 'You do not have access to this branch.' },
 
   CURRENT_PASSWORD_INCORRECT:      { statusCode: 400, message: 'Your current password is incorrect.' },
+  // My Account (§BP-ACC): merchant authenticated change-password. The new
+  // password matches the current one — reject before hashing/updating so a
+  // no-op "change" can't silently succeed and can't be used as a password-
+  // guessing oracle against the current hash (verifyPassword already ran
+  // above for the current-password check; this reuses that same compare).
+  NEW_PASSWORD_SAME_AS_CURRENT:    { statusCode: 400, message: 'Your new password must be different from your current password.' },
   SEARCH_QUERY_REQUIRED:           { statusCode: 400, message: 'A search query or category is required.' },
   ALREADY_FAVOURITED:              { statusCode: 409, message: 'Already in your favourites.' },
   FAVOURITE_NOT_FOUND:             { statusCode: 404, message: 'This item is not in your favourites.' },
