@@ -27,7 +27,7 @@ describe('LifecycleHome', () => {
   it('renders the suspended read-only home with a Contact Redeemo affordance', () => {
     render(<LifecycleHome state="suspended" businessName="Roe Cafe" status={null} />)
     expect(screen.getByText(/your account is suspended/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /contact redeemo/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /contact redeemo/i })).toBeInTheDocument()
   })
 
   it('renders the rejected read-only home with the admin reason and a Contact Redeemo affordance', () => {
@@ -41,13 +41,13 @@ describe('LifecycleHome', () => {
     // a calm, factual not-approved heading + the reason + the contact affordance
     expect(screen.getByText(/not approved/i)).toBeInTheDocument()
     expect(screen.getByText(/could not verify the business at the address given/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /contact redeemo/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /contact redeemo/i })).toBeInTheDocument()
   })
 
   it('renders the rejected home with no reason line when the comment is empty', () => {
     render(<LifecycleHome state="rejected" businessName="Roe Cafe" status={{ status: 'REJECTED', comment: null, actionedAt: null }} />)
     expect(screen.getByText(/not approved/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /contact redeemo/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /contact redeemo/i })).toBeInTheDocument()
   })
 
   it('renders the live celebratory placeholder home', () => {
@@ -61,7 +61,7 @@ describe('LifecycleHome', () => {
   // functionality changed - not the visual treatment or surrounding copy).
   it('gives the suspended-home Contact Redeemo affordance a working mailto href', () => {
     render(<LifecycleHome state="suspended" businessName="Roe Cafe" status={null} />)
-    expect(screen.getByRole('button', { name: /contact redeemo/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /contact redeemo/i })).toHaveAttribute(
       'href',
       'mailto:merchants@redeemo.co.uk',
     )
@@ -75,7 +75,7 @@ describe('LifecycleHome', () => {
         status={{ status: 'REJECTED', comment: null, actionedAt: null }}
       />,
     )
-    expect(screen.getByRole('button', { name: /contact redeemo/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /contact redeemo/i })).toHaveAttribute(
       'href',
       'mailto:merchants@redeemo.co.uk',
     )
