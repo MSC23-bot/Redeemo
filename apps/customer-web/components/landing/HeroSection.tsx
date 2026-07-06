@@ -32,7 +32,7 @@ export function HeroSection() {
   const glowBg = useTransform(
     [glowX, glowY],
     ([x, y]) =>
-      `radial-gradient(700px circle at ${x}% ${y}%, rgba(226,12,4,0.36), transparent 52%)`,
+      `radial-gradient(700px circle at ${x}% ${y}%, rgba(226,12,4,0.07), transparent 55%)`,
   )
 
   const handleMouseMove = useCallback(
@@ -63,7 +63,7 @@ export function HeroSection() {
       ref={sectionRef}
       onMouseMove={handleMouseMove}
       className="relative overflow-hidden px-6 pt-16 pb-14 md:pt-20 md:pb-20"
-      style={{ background: '#010C35' }}
+      style={{ background: '#FFF9F5' }}
     >
       {/* Cursor-following red glow */}
       <motion.div
@@ -82,10 +82,10 @@ export function HeroSection() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4 }}
-              className="inline-flex items-center gap-2 mb-7 rounded-full border border-white/14 bg-white/7 backdrop-blur-sm px-4 py-2"
+              className="inline-flex items-center gap-2 mb-7 rounded-full border border-[#010C35]/10 bg-white px-4 py-2"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-[#E20C04] flex-shrink-0 animate-pulse" />
-              <span className="text-[11px] font-bold tracking-[0.18em] uppercase text-white/55">
+              <span className="text-[11px] font-bold tracking-[0.18em] uppercase text-[#010C35]/55">
                 {marketplaceLive
                   ? 'Restaurants · Cafes · Gyms · Wellness'
                   : 'Launching soon · Restaurants · Cafes · Gyms · Wellness'}
@@ -97,7 +97,7 @@ export function HeroSection() {
               initial={{ opacity: 0, y: 22 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.08, ease: EASE }}
-              className="font-display text-white leading-[1.06] mb-5 max-w-[620px]"
+              className="font-display text-[#010C35] leading-[1.06] mb-5 max-w-[620px]"
               style={{ fontSize: 'clamp(38px, 5vw, 66px)', letterSpacing: '-1px' }}
             >
               The best local spots near you.{' '}
@@ -109,7 +109,7 @@ export function HeroSection() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, delay: 0.18 }}
-              className="text-[16px] text-white/52 leading-[1.65] mb-9 max-w-[490px]"
+              className="text-[16px] text-[#4B5563] leading-[1.65] mb-9 max-w-[490px]"
             >
               Independent restaurants, cafes, gyms and studios, each with member
               vouchers included. One membership from £6.99 a month covers them all.
@@ -138,7 +138,7 @@ export function HeroSection() {
               </Link>
               <Link
                 href={secondaryCta.href}
-                className="inline-flex items-center text-white/75 font-semibold text-[15px] px-7 py-3.5 rounded-xl border border-white/16 bg-white/7 backdrop-blur-sm no-underline hover:bg-white/12 hover:text-white transition-all"
+                className="inline-flex items-center text-[#010C35]/75 font-semibold text-[15px] px-7 py-3.5 rounded-xl border border-[#010C35]/15 bg-white no-underline hover:border-[#010C35]/35 hover:text-[#010C35] transition-all"
               >
                 {secondaryCta.label}
               </Link>
@@ -154,12 +154,12 @@ export function HeroSection() {
               {FACTS.map((s, i) => (
                 <div key={i} className="flex items-baseline gap-1.5">
                   <span
-                    className="font-display text-white leading-none"
+                    className="font-display text-[#010C35] leading-none"
                     style={{ fontSize: '22px', letterSpacing: '-0.3px' }}
                   >
                     {s.value}
                   </span>
-                  <span className="text-[12px] text-white/60 font-medium">{s.label}</span>
+                  <span className="text-[12px] text-[#6B7280] font-medium">{s.label}</span>
                 </div>
               ))}
             </motion.div>
@@ -181,9 +181,9 @@ export function HeroSection() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.56 }}
-          className="mt-14 pt-8 border-t border-white/[0.08] flex flex-col sm:flex-row sm:items-center gap-4"
+          className="mt-14 pt-8 border-t border-[#010C35]/10 flex flex-col sm:flex-row sm:items-center gap-4"
         >
-          <p className="text-[11.5px] text-white/55 uppercase tracking-[0.14em] font-semibold flex-shrink-0">
+          <p className="text-[11.5px] text-[#010C35]/55 uppercase tracking-[0.14em] font-semibold flex-shrink-0">
             {marketplaceLive
               ? 'Redeem in the app · Download free'
               : 'The app arrives with launch · iOS & Android'}
@@ -192,7 +192,7 @@ export function HeroSection() {
             <AppStoreBadge />
             <GooglePlayBadge />
             {!marketplaceLive && (
-              <span className="text-[11px] text-white/35 font-semibold rounded-full border border-white/12 px-3 py-1.5">
+              <span className="text-[11px] text-[#6B7280] font-semibold rounded-full border border-[#010C35]/12 px-3 py-1.5">
                 Coming at launch
               </span>
             )}

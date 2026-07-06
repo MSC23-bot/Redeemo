@@ -192,9 +192,9 @@ export function PhoneFrame({ children, dark = false, width = 272, height = 500 }
       className="relative rounded-[42px] p-[10px] flex-shrink-0"
       style={{
         width,
-        background: 'linear-gradient(160deg, rgba(255,255,255,0.14), rgba(255,255,255,0.04))',
-        border: '1px solid rgba(255,255,255,0.16)',
-        boxShadow: '0 30px 80px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.12)',
+        background: 'linear-gradient(160deg, #26305C, #010C35)',
+        border: '1px solid rgba(255,255,255,0.14)',
+        boxShadow: '0 30px 80px rgba(1,12,53,0.28), inset 0 1px 0 rgba(255,255,255,0.10)',
       }}
     >
       <div className="relative rounded-[33px] overflow-hidden" style={{ height, background: '#FFF9F5' }}>
@@ -264,15 +264,15 @@ export function PhoneDemo() {
               aria-pressed={i === step}
               className="group flex items-start gap-3 rounded-xl px-3.5 py-2.5 text-left transition-colors"
               style={{
-                background: i === step ? 'rgba(255,255,255,0.08)' : 'transparent',
-                border: `1px solid ${i === step ? 'rgba(255,255,255,0.14)' : 'transparent'}`,
+                background: i === step ? 'rgba(1,12,53,0.05)' : 'transparent',
+                border: `1px solid ${i === step ? 'rgba(1,12,53,0.10)' : 'transparent'}`,
               }}
             >
               <span
                 className="mt-[3px] w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold transition-colors"
                 style={{
-                  background: i === step ? 'var(--brand-gradient)' : 'rgba(255,255,255,0.1)',
-                  color: i === step ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
+                  background: i === step ? 'var(--brand-gradient)' : 'rgba(1,12,53,0.08)',
+                  color: i === step ? '#FFFFFF' : 'rgba(1,12,53,0.55)',
                 }}
               >
                 {i + 1}
@@ -280,13 +280,13 @@ export function PhoneDemo() {
               <span>
                 <span
                   className="block text-[13px] font-bold leading-snug transition-colors"
-                  style={{ color: i === step ? '#FFFFFF' : 'rgba(255,255,255,0.55)' }}
+                  style={{ color: i === step ? '#010C35' : 'rgba(1,12,53,0.55)' }}
                 >
                   {s.label}
                 </span>
                 <span
                   className={i === step ? 'block text-[11.5px] mt-0.5 leading-snug' : 'sr-only'}
-                  style={i === step ? { color: 'rgba(255,255,255,0.55)' } : undefined}
+                  style={i === step ? { color: '#4B5563' } : undefined}
                 >
                   {s.caption}
                 </span>
@@ -294,7 +294,7 @@ export function PhoneDemo() {
             </button>
           ))}
         </div>
-        <p className="text-[10px] mt-3 text-center" style={{ color: 'rgba(255,255,255,0.5)' }}>
+        <p className="text-[10px] mt-3 text-center" style={{ color: '#6B7280' }}>
           App preview · example places, not live listings
         </p>
       </div>
