@@ -79,7 +79,28 @@ function makePrisma(opts: MakePrismaOptions = {}) {
     merchant: {
       findUnique:
         opts.merchantFindUnique ??
-        vi.fn().mockResolvedValue({ id: merchantId, businessName: 'Acme', pendingEdits: [] }),
+        vi.fn().mockResolvedValue({
+          id: merchantId,
+          businessName: 'Acme',
+          status: 'ACTIVE',
+          onboardingStep: 'LIVE',
+          tradingName: 'Acme Trading',
+          description: 'A great place',
+          logoUrl: 'https://x/logo.png',
+          bannerUrl: 'https://x/banner.png',
+          primaryCategoryId: 'cat-1',
+          pendingEdits: [],
+          // BP-ADJ1: REGISTERED/COMPLIANCE fields: populated on the raw row so
+          // the role-gate tests below can prove they are genuinely nulled for a
+          // non-privileged viewer (not merely absent from the mock).
+          companyNumber: '12345678',
+          vatNumber: 'GB123456789',
+          websiteUrl: 'https://acme.example',
+          contractStatus: 'SIGNED',
+          contractStartDate: new Date('2026-01-01'),
+          contractEndDate: new Date('2027-01-01'),
+          verificationStatus: 'VERIFIED',
+        }),
     },
     merchantAdmin: {
       findUnique: opts.adminFindUnique ?? vi.fn().mockResolvedValue({ firstName: 'Viewer', lastName: 'Person' }),
@@ -216,5 +237,69 @@ describe('getMerchantProfile - Business Profile M1 (ownerContact + agreement, ro
     expect(profile.ownerContact).not.toEqual(
       expect.objectContaining({ email: 'owner1@merchant-a.test' })
     )
+  })
+
+  // ── BP-ADJ1: registered/compliance fields role-gate ───────────────────────
+
+  const REGISTERED_COMPLIANCE_FIELDS = [
+    'companyNumber', 'vatNumber', 'websiteUrl',
+    'contractStatus', 'contractStartDate', 'contractEndDate', 'verificationStatus',
+  ] as const
+
+  it('a STAFF viewer gets ALL 7 registered/compliance fields nulled', async () => {
+    const prisma = makePrisma({ viewerRole: 'STAFF', adminId: 'staff-3', merchantId: 'm1' })
+    const profile: any = await getMerchantProfile(prisma, 'staff-3')
+    for (const field of REGISTERED_COMPLIANCE_FIELDS) {
+      expect(profile[field]).toBeNull()
+    }
+  })
+
+  it('an unknown/future role also gets ALL 7 registered/compliance fields nulled (fail closed)', async () => {
+    const prisma = makePrisma({ viewerRole: 'AUDITOR', adminId: 'auditor-2', merchantId: 'm1' })
+    const profile: any = await getMerchantProfile(prisma, 'auditor-2')
+    for (const field of REGISTERED_COMPLIANCE_FIELDS) {
+      expect(profile[field]).toBeNull()
+    }
+  })
+
+  it('an OWNER viewer sees the real registered/compliance field values', async () => {
+    const prisma = makePrisma({ viewerRole: 'OWNER', adminId: 'owner-2', merchantId: 'm1' })
+    const profile: any = await getMerchantProfile(prisma, 'owner-2')
+    expect(profile.companyNumber).toBe('12345678')
+    expect(profile.vatNumber).toBe('GB123456789')
+    expect(profile.websiteUrl).toBe('https://acme.example')
+    expect(profile.contractStatus).toBe('SIGNED')
+    expect(profile.verificationStatus).toBe('VERIFIED')
+  })
+
+  it('a BRANCH_MANAGER viewer also sees the real registered/compliance field values', async () => {
+    const prisma = makePrisma({ viewerRole: 'BRANCH_MANAGER', adminId: 'bm-2', merchantId: 'm1' })
+    const profile: any = await getMerchantProfile(prisma, 'bm-2')
+    expect(profile.companyNumber).toBe('12345678')
+    expect(profile.websiteUrl).toBe('https://acme.example')
+  })
+
+  it('a STAFF viewer still gets businessName + status (shell fields NOT nulled)', async () => {
+    const prisma = makePrisma({ viewerRole: 'STAFF', adminId: 'staff-4', merchantId: 'm1' })
+    const profile: any = await getMerchantProfile(prisma, 'staff-4')
+    expect(profile.businessName).toBe('Acme')
+    expect(profile.status).toBe('ACTIVE')
+    expect(profile.tradingName).toBe('Acme Trading')
+    expect(profile.description).toBe('A great place')
+    expect(profile.logoUrl).toBe('https://x/logo.png')
+    expect(profile.bannerUrl).toBe('https://x/banner.png')
+    expect(profile.primaryCategoryId).toBe('cat-1')
+    expect(profile.id).toBe('m1')
+  })
+
+  it('MUTATION CHECK: if the registered/compliance gate is removed (always spread merchant), the STAFF-null pin fails', async () => {
+    // Documents the mutation the fix design asks for: reverting to `{ ...merchant,
+    // ownerContact, agreement, viewerCapabilities }` (no registeredCompliance
+    // override) would make this assertion fail, since STAFF would then see the
+    // real companyNumber. We assert the CURRENT (correct, gated) behaviour.
+    const prisma = makePrisma({ viewerRole: 'STAFF', adminId: 'staff-5', merchantId: 'm1' })
+    const profile: any = await getMerchantProfile(prisma, 'staff-5')
+    expect(profile.companyNumber).not.toBe('12345678')
+    expect(profile.companyNumber).toBeNull()
   })
 })

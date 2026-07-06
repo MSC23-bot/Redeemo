@@ -366,6 +366,122 @@ describe('merchant profile routes', () => {
     expect(JSON.parse(res.body).error.code).toBe('PENDING_EDIT_EXISTS')
   })
 
+  // ── BP-ADJ2: server-side type/non-null guard on the edit-request writer ──
+
+  it('POST /api/v1/merchant/profile/edit-request rejects businessName: null', async () => {
+    app.prisma.merchantPendingEdit.findFirst = vi.fn().mockResolvedValue(null)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/profile/edit-request',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { businessName: null },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('MERCHANT_EDIT_REQUEST_INVALID_FIELD')
+    expect(app.prisma.merchantPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('POST /api/v1/merchant/profile/edit-request rejects businessName: "" (empty string)', async () => {
+    app.prisma.merchantPendingEdit.findFirst = vi.fn().mockResolvedValue(null)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/profile/edit-request',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { businessName: '   ' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('MERCHANT_EDIT_REQUEST_INVALID_FIELD')
+    expect(app.prisma.merchantPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('POST /api/v1/merchant/profile/edit-request rejects businessName: 123 (wrong type)', async () => {
+    app.prisma.merchantPendingEdit.findFirst = vi.fn().mockResolvedValue(null)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/profile/edit-request',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { businessName: 123 },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('MERCHANT_EDIT_REQUEST_INVALID_FIELD')
+    expect(app.prisma.merchantPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('POST /api/v1/merchant/profile/edit-request STILL accepts tradingName: null (M4 clear preserved)', async () => {
+    app.prisma.merchantPendingEdit.findFirst = vi.fn().mockResolvedValue(null)
+    app.prisma.merchantPendingEdit.create = vi.fn().mockResolvedValue({ id: 'pe2', merchantId: 'm1', status: 'PENDING', createdAt: new Date() })
+    app.prisma.adminApproval.create = vi.fn().mockResolvedValue({})
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/profile/edit-request',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { tradingName: null },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(app.prisma.merchantPendingEdit.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ proposedChanges: { tradingName: null } }) })
+    )
+  })
+
+  it('POST /api/v1/merchant/profile/edit-request accepts a valid businessName and stores it verbatim', async () => {
+    app.prisma.merchantPendingEdit.findFirst = vi.fn().mockResolvedValue(null)
+    app.prisma.merchantPendingEdit.create = vi.fn().mockResolvedValue({ id: 'pe3', merchantId: 'm1', status: 'PENDING', createdAt: new Date() })
+    app.prisma.adminApproval.create = vi.fn().mockResolvedValue({})
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/profile/edit-request',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { businessName: 'New Name' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(app.prisma.merchantPendingEdit.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ proposedChanges: { businessName: 'New Name' } }) })
+    )
+  })
+
+  it('POST /api/v1/merchant/profile/edit-request rejects tradingName: 123 and logoUrl: {} (wrong type, not null)', async () => {
+    app.prisma.merchantPendingEdit.findFirst = vi.fn().mockResolvedValue(null)
+
+    const res1 = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/profile/edit-request',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { tradingName: 123 },
+    })
+    expect(res1.statusCode).toBe(400)
+    expect(JSON.parse(res1.body).error.code).toBe('MERCHANT_EDIT_REQUEST_INVALID_FIELD')
+
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/profile/edit-request',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { logoUrl: {} },
+    })
+    expect(res2.statusCode).toBe(400)
+    expect(JSON.parse(res2.body).error.code).toBe('MERCHANT_EDIT_REQUEST_INVALID_FIELD')
+    expect(app.prisma.merchantPendingEdit.create).not.toHaveBeenCalled()
+  })
+
+  it('MUTATION CHECK: if the businessName guard is removed, the null-rejection assertion fails', async () => {
+    // Documents the mutation the fix design asks for: removing the ADJ2 guard
+    // would make `{ businessName: null }` fall through to a 201/create. We
+    // assert the CURRENT (correct, guarded) behaviour - a 400 with no create.
+    app.prisma.merchantPendingEdit.findFirst = vi.fn().mockResolvedValue(null)
+    app.prisma.merchantPendingEdit.create = vi.fn()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/profile/edit-request',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { businessName: null },
+    })
+    expect(res.statusCode).not.toBe(201)
+    expect(app.prisma.merchantPendingEdit.create).not.toHaveBeenCalled()
+  })
+
   it('GET /api/v1/merchant/profile/edit-requests returns list', async () => {
     app.prisma.merchantPendingEdit.findMany = vi.fn().mockResolvedValue([{ id: 'pe1', status: 'PENDING' }])
 
