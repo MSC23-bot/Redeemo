@@ -7,14 +7,16 @@ other way round. The narrative stays find -> choose -> redeem, but every beat le
 with the saving and uses discovery as the supporting mechanism:
 
 - Hook headline (v2.2, owner: previous draft too generic, must teach what Redeemo is):
-  WORKING H1 (option A): "Money off your dinners out, coffees, workouts and salon
-  visits." (gradient accent on "Money off"). Sub does the definitional work:
-  "Redeemo is a membership for the independent places near you. Every restaurant,
-  cafe, gym and salon on it includes vouchers for members: fresh every month, from
-  £6.99. Browse free first." Alternates held for owner veto:
-  B "One membership. Money off at independent restaurants, cafes, gyms and salons
-  near you." · C "Your local restaurants, cafes, gyms and salons. With member
-  prices." · D "Stop paying full price for your own neighbourhood."
+  WORKING H1 (option G, v2.3; owner: "money off" too commodity, highlight
+  BOGO/50%-off style offers): "Dinner for two, priced for one. Half-price workouts.
+  Free pastries with your coffee." Sub: "Redeemo is a membership of independent
+  places near you: restaurants, cafes, gyms, salons. Every one includes member
+  vouchers like these, fresh each month, from £6.99. Browse free first."
+  Honesty guard: offers read as EXAMPLES of member vouchers, never a promise that
+  every place runs 50% off (BOGO is the flagship standard; merchants design offers).
+  Alternates held for owner veto:
+  E "Buy one main, get one free. 50% off your first class. A pastry on the house."
+  F "Buy one main, get one free. That kind of membership."
   Comprehension is a system: Huddersfield pill above, real app animating beside,
   facts strip below (Free to browse · £6.99 to redeem · fresh monthly).
 - Beat 2 (Find) reframes: not "places worth knowing about" but "money off, everywhere
