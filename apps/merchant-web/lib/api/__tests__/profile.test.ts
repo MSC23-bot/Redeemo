@@ -34,3 +34,49 @@ describe('merchantProfileSchema viewerCapabilities (fail-closed Insights nav)', 
     expect(p.viewerCapabilities?.canViewInsights === true).toBe(false)
   })
 })
+
+describe('merchantProfileSchema ownerContact + agreement (Business Profile M1)', () => {
+  it('parses a profile WITHOUT ownerContact/agreement (older backend / pre-deploy)', () => {
+    const p = merchantProfileSchema.parse(BASE)
+    expect(p.ownerContact).toBeUndefined()
+    expect(p.agreement).toBeUndefined()
+  })
+
+  it('parses a populated ownerContact + agreement', () => {
+    const p = merchantProfileSchema.parse({
+      ...BASE,
+      ownerContact: {
+        firstName: 'Priya',
+        lastName: 'Shah',
+        email: 'owner@acme.test',
+        phone: '7000000001',
+        phoneCountryCode: '+44',
+        jobTitle: 'Founder',
+      },
+      agreement: {
+        acceptedVersion: 'v2',
+        acceptedAt: '2026-01-15T10:30:00.000Z',
+        signatureMethod: 'CLICK_TO_AGREE',
+      },
+    })
+    expect(p.ownerContact).toEqual({
+      firstName: 'Priya',
+      lastName: 'Shah',
+      email: 'owner@acme.test',
+      phone: '7000000001',
+      phoneCountryCode: '+44',
+      jobTitle: 'Founder',
+    })
+    expect(p.agreement).toEqual({
+      acceptedVersion: 'v2',
+      acceptedAt: '2026-01-15T10:30:00.000Z',
+      signatureMethod: 'CLICK_TO_AGREE',
+    })
+  })
+
+  it('accepts null ownerContact + null agreement (no resolvable owner / unsigned merchant)', () => {
+    const p = merchantProfileSchema.parse({ ...BASE, ownerContact: null, agreement: null })
+    expect(p.ownerContact).toBeNull()
+    expect(p.agreement).toBeNull()
+  })
+})

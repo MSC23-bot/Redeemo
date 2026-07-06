@@ -47,6 +47,30 @@ export const merchantProfileSchema = z
         displayName: z.string().nullish(),
       })
       .nullish(),
+    // Business Profile M1: two ADDITIVE read-only blocks for the day-2 Business
+    // Profile page. `ownerContact` is the merchant's OWNER's personal contact
+    // (shown to every active member, not just the owner - the backend resolves
+    // this by merchantId, not the viewer's own membership). `agreement` mirrors
+    // the signed MerchantContract, or null when the merchant has not signed yet.
+    // Both nullish so an older backend / a merchant with no resolvable owner /
+    // an unsigned merchant all parse cleanly.
+    ownerContact: z
+      .object({
+        firstName: z.string().nullish(),
+        lastName: z.string().nullish(),
+        email: z.string().nullish(),
+        phone: z.string().nullish(),
+        phoneCountryCode: z.string().nullish(),
+        jobTitle: z.string().nullish(),
+      })
+      .nullish(),
+    agreement: z
+      .object({
+        acceptedVersion: z.string().nullish(),
+        acceptedAt: z.string().nullish(),
+        signatureMethod: z.string().nullish(),
+      })
+      .nullish(),
   })
   .passthrough()
 

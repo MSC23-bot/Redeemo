@@ -75,6 +75,10 @@ describe('auto-provisioning uses the parent-walk after B2 (M2 B2/B3 coordination
       voucher: { findMany: vi.fn(), create: vi.fn().mockResolvedValue({ id: 'v1' }) },
       rmvTemplate: { findMany: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
+      // Business Profile M1: getMerchantProfile (called after successful
+      // provisioning) additionally resolves the OWNER contact + signed
+      // agreement (both additive, both default to absent here).
+      merchantContract: { findUnique: vi.fn().mockResolvedValue(null) },
     }
     prismaMock.$transaction = vi.fn().mockImplementation(async (cb: any) => cb(prismaMock))
     app.decorate('prisma', prismaMock as any)

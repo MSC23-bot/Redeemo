@@ -18,6 +18,12 @@ describe('merchant profile routes', () => {
         findMany: vi.fn().mockResolvedValue([{ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] }]),
       },
       merchant: { findUnique: vi.fn(), update: vi.fn() },
+      // Business Profile M1: getMerchantProfile additionally resolves the OWNER
+      // contact (merchantMembership.findFirst, already mocked above with a row
+      // that has no `merchantAdmin` select shape - so ownerContact resolves to
+      // null by default in these pre-existing tests) and the signed agreement
+      // (merchantContract.findUnique, defaulting to null/unsigned).
+      merchantContract: { findUnique: vi.fn().mockResolvedValue(null) },
       merchantPendingEdit: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
       branch: { count: vi.fn() },
       voucher: { count: vi.fn() },
@@ -75,6 +81,90 @@ describe('merchant profile routes', () => {
   it('GET /api/v1/merchant/profile returns 401 without token', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile' })
     expect(res.statusCode).toBe(401)
+  })
+
+  // Business Profile M1 (Codex PII/role-boundary fix): ownerContact + agreement
+  // are role-gated at the HTTP layer to OWNER | BRANCH_MANAGER only; STAFF (and
+  // any future/unknown role) fail closed to null/null with the two owner/
+  // contract queries never even fetched. The OWNER-resolution + no-cross-merchant
+  // -leak guarantee itself is pinned at the service layer
+  // (tests/api/merchant/profile.service.test.ts, which asserts the exact `where`
+  // clause); these route-level pins prove the role boundary + the fields
+  // actually reach the wire for privileged roles.
+  it('GET /api/v1/merchant/profile exposes ownerContact + agreement for a BRANCH_MANAGER viewer', async () => {
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', businessName: 'Acme', status: 'ACTIVE', onboardingStep: 'LIVE' })
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue([
+      { id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'BRANCH_MANAGER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] },
+    ])
+    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue({
+      merchantAdmin: { firstName: 'Priya', lastName: 'Shah', email: 'owner@acme.test', phone: '7000000001', phoneCountryCode: '+44', jobTitle: 'Founder' },
+    })
+    app.prisma.merchantContract.findUnique = vi.fn().mockResolvedValue({
+      tcVersion: 'v2', signedAt: '2026-01-15T10:30:00.000Z', signatureMethod: 'CLICK_TO_AGREE',
+    })
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.ownerContact).toEqual({
+      firstName: 'Priya', lastName: 'Shah', email: 'owner@acme.test', phone: '7000000001', phoneCountryCode: '+44', jobTitle: 'Founder',
+    })
+    expect(body.agreement).toEqual({ acceptedVersion: 'v2', acceptedAt: '2026-01-15T10:30:00.000Z', signatureMethod: 'CLICK_TO_AGREE' })
+  })
+
+  it('GET /api/v1/merchant/profile returns ownerContact: null and agreement: null for a STAFF viewer (fails closed) and NEVER fetches the owner/contract rows', async () => {
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', businessName: 'Acme', status: 'ACTIVE', onboardingStep: 'LIVE' })
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue([
+      { id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'STAFF', allBranches: false, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] },
+    ])
+    const ownerFindFirst = vi.fn().mockResolvedValue({
+      merchantAdmin: { firstName: 'Priya', lastName: 'Shah', email: 'owner@acme.test', phone: '7000000001', phoneCountryCode: '+44', jobTitle: 'Founder' },
+    })
+    const contractFindUnique = vi.fn().mockResolvedValue({
+      tcVersion: 'v2', signedAt: '2026-01-15T10:30:00.000Z', signatureMethod: 'CLICK_TO_AGREE',
+    })
+    app.prisma.merchantMembership.findFirst = ownerFindFirst
+    app.prisma.merchantContract.findUnique = contractFindUnique
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.ownerContact).toBeNull()
+    expect(body.agreement).toBeNull()
+    // Zero-leak proof: for a non-privileged role the queries are SKIPPED entirely,
+    // not fetched-and-discarded.
+    expect(ownerFindFirst).not.toHaveBeenCalled()
+    expect(contractFindUnique).not.toHaveBeenCalled()
+  })
+
+  it('GET /api/v1/merchant/profile returns ownerContact: null and agreement: null for a future/unknown role (fail-closed allowlist)', async () => {
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', businessName: 'Acme', status: 'ACTIVE', onboardingStep: 'LIVE' })
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue([
+      { id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'AUDITOR', allBranches: false, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Acme' }, branches: [] },
+    ])
+    const ownerFindFirst = vi.fn().mockResolvedValue({
+      merchantAdmin: { firstName: 'Priya', lastName: 'Shah', email: 'owner@acme.test', phone: '7000000001', phoneCountryCode: '+44', jobTitle: 'Founder' },
+    })
+    app.prisma.merchantMembership.findFirst = ownerFindFirst
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.ownerContact).toBeNull()
+    expect(body.agreement).toBeNull()
+    expect(ownerFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('GET /api/v1/merchant/profile returns ownerContact: null and agreement: null for OWNER when unresolvable / unsigned', async () => {
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', businessName: 'Acme', status: 'REGISTERED', onboardingStep: 'REGISTERED' })
+    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue(null)
+    app.prisma.merchantContract.findUnique = vi.fn().mockResolvedValue(null)
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/merchant/profile', headers: { authorization: `Bearer ${merchantToken}` } })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    expect(body.ownerContact).toBeNull()
+    expect(body.agreement).toBeNull()
   })
 
   // Shell wave: viewerCapabilities is the viewer's OWN membership UX-hint block
