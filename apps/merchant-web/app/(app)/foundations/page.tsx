@@ -27,7 +27,7 @@ export default function FoundationsPage() {
       <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, marginBottom: 24 }}>Foundations</h1>
       <Section title="Buttons">
         <Button variant="gradient">Save voucher</Button>
-        <Button variant="navy">Validate a code</Button>
+        <Button variant="navy">Navy (secondary)</Button>
         <Button variant="secondary">Secondary</Button>
         <Button variant="ghost">Ghost</Button>
         <Button variant="destructive">Delete</Button>

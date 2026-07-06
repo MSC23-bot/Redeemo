@@ -73,7 +73,7 @@ export function Topbar({
       ) : (
         <div style={{ flex: 1 }} />
       )}
-      <Button variant="navy" size="default" onClick={openValidate} aria-label="Validate a code">
+      <Button variant="gradient" size="default" onClick={openValidate} aria-label="Validate a code">
         <ScanLine size={16} />
         {!isCompact && 'Validate a code'}
       </Button>
