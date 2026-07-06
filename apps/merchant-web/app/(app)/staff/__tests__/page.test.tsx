@@ -125,9 +125,11 @@ describe('StaffPage (C3 list + cards + lifecycle)', () => {
     expect(within(table).getByText('Owner')).toBeInTheDocument()
     expect(within(table).getByText('Branch manager')).toBeInTheDocument()
     expect(within(table).getByText('+ Vouchers')).toBeInTheDocument()
-    // App user surfaces in the same unified table.
+    // App user surfaces in the same unified table, showing their real job title
+    // (fidelity fix: no more generic "App user" chip).
     expect(within(table).getByText('Jo Till')).toBeInTheDocument()
-    expect(within(table).getByText('App user')).toBeInTheDocument()
+    expect(within(table).getByText('Floor')).toBeInTheDocument()
+    expect(within(table).queryByText('App user')).toBeNull()
     // Branch coverage: scoped manager shows the branch name, owner shows All branches.
     // "High Street" appears both as the manager's scoped-branch coverage and the app
     // user's branch column, so it is expected to occur more than once.

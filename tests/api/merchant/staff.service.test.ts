@@ -107,6 +107,36 @@ describe('B1 listMembers', () => {
     expect(rows[0]).not.toHaveProperty('passwordHash')
   })
 
+  // Fidelity polish: jobTitle is curated-selected from MerchantAdmin and threaded
+  // through the row verbatim (or null when not set), so the table can render it
+  // under the member's role chip. No schema change: the column already exists.
+  it('threads jobTitle through when set, and normalizes a missing value to null', async () => {
+    const prisma = makePrisma({
+      membershipFindMany: vi.fn().mockResolvedValue([
+        {
+          id: 'mm1', role: 'BRANCH_MANAGER', status: 'ACTIVE', canManageVouchers: false, allBranches: true,
+          merchantAdmin: {
+            id: 'a1', firstName: 'Sam', lastName: 'Thorne', email: 's@x.com', passwordHash: 'H',
+            lastLoginAt: null, jobTitle: 'General Manager',
+          },
+          branches: [],
+        },
+        {
+          id: 'mm2', role: 'STAFF', status: 'ACTIVE', canManageVouchers: false, allBranches: true,
+          merchantAdmin: {
+            id: 'a2', firstName: 'Aisha', lastName: 'Khan', email: 'a@x.com', passwordHash: 'H',
+            lastLoginAt: null, jobTitle: null,
+          },
+          branches: [],
+        },
+      ]),
+    })
+
+    const rows = await listMembers(prisma, OWNER_CTX.adminId)
+    expect(rows.find((r) => r.id === 'mm1')?.jobTitle).toBe('General Manager')
+    expect(rows.find((r) => r.id === 'mm2')?.jobTitle).toBeNull()
+  })
+
   it('excludes DELETED memberships from the query', async () => {
     const findMany = vi.fn().mockResolvedValue([])
     const prisma = makePrisma({ membershipFindMany: findMany })

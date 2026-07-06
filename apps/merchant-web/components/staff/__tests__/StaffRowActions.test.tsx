@@ -95,6 +95,11 @@ describe('StaffRowActions member menu (C5)', () => {
     render(<StaffRowActions person={portal({ role: 'OWNER', isLastActiveOwner: true })} handlers={h} />)
     open(/actions for bea manager/i)
     expect(screen.getByTestId('last-owner-lock')).toBeInTheDocument()
+    // Fidelity fix: clearer footnote wording (was "The last active owner cannot be
+    // deactivated or removed.").
+    expect(screen.getByTestId('last-owner-lock')).toHaveTextContent(
+      'Your only owner. Add another owner to remove or change this account.',
+    )
     expect(screen.queryByRole('menuitem', { name: /deactivate/i })).toBeNull()
     expect(screen.queryByRole('menuitem', { name: /remove from team/i })).toBeNull()
     // Edit access stays available even for the last owner.

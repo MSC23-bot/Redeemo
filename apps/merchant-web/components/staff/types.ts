@@ -24,6 +24,8 @@ export interface PortalPerson {
   lastLoginAt: string | null
   /** Whether this membership is the only active owner (drives last-owner locks). */
   isLastActiveOwner: boolean
+  /** Optional, shows under the member's role chip. Absent on older payloads. */
+  jobTitle?: string | null
   raw: MemberRow
 }
 

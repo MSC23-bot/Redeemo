@@ -180,8 +180,8 @@ export function StaffAddEditDrawer({
               {isEdit ? `Edit ${editing!.name}` : 'Add staff member'}
             </h2>
             <p className="text-sm text-muted-foreground">
-              Portal access lets someone manage on the web. App access lets them validate at their
-              branches.
+              Portal access lets someone manage the business on the web. App access lets them
+              validate redemptions at their branches.
             </p>
           </div>
           <button
@@ -210,6 +210,7 @@ export function StaffAddEditDrawer({
               onChange={(e) => setFirstName(e.target.value)}
               disabled={isEdit}
               autoComplete="off"
+              placeholder="e.g. Sam"
             />
           </div>
           <div className="space-y-1">
@@ -220,6 +221,7 @@ export function StaffAddEditDrawer({
               onChange={(e) => setLastName(e.target.value)}
               disabled={isEdit}
               autoComplete="off"
+              placeholder="e.g. Thorne"
             />
           </div>
         </div>
@@ -232,6 +234,7 @@ export function StaffAddEditDrawer({
             onChange={(e) => setEmail(e.target.value)}
             disabled={isEdit}
             autoComplete="off"
+            placeholder="name@oldfoundrykitchen.co.uk"
           />
           {isEdit && (
             <p className="text-[12px] text-muted-foreground">
@@ -247,6 +250,7 @@ export function StaffAddEditDrawer({
               value={jobTitle}
               onChange={(e) => setJobTitle(e.target.value)}
               autoComplete="off"
+              placeholder="e.g. Barista, Branch Manager"
             />
           </div>
         )}
@@ -358,33 +362,44 @@ export function StaffAddEditDrawer({
           ))}
         </div>
 
-        {/* Branches scope */}
+        {/* Branches scope: a two-button segmented control (filled navy = selected),
+            wired to the same allBranches state as before (no behavior change). */}
         <div className="space-y-2">
           <p className={sectionLabel}>Branches</p>
-          <div role="radiogroup" aria-label="Branch scope" className="space-y-2">
-            <label className="flex cursor-pointer items-center gap-3">
-              <input
-                type="radio"
-                name="staff-branch-scope"
-                checked={allBranches}
-                onChange={() => setAllBranches(true)}
-                className="size-4"
-                style={{ accentColor: 'var(--rose)' }}
-              />
-              <span className="text-sm font-semibold text-foreground">All branches</span>
-            </label>
+          <div
+            role="radiogroup"
+            aria-label="Branch scope"
+            className={`grid gap-2 ${SPECIFIC_BRANCHES_ENABLED ? 'grid-cols-2' : 'grid-cols-1'}`}
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={allBranches}
+              onClick={() => setAllBranches(true)}
+              className="rounded-[10px] px-4 py-2.5 text-sm font-semibold transition-colors"
+              style={
+                allBranches
+                  ? { background: 'var(--navy)', color: 'var(--page)' }
+                  : { background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border-subtle)' }
+              }
+            >
+              All branches
+            </button>
             {SPECIFIC_BRANCHES_ENABLED && (
-              <label className="flex cursor-pointer items-center gap-3">
-                <input
-                  type="radio"
-                  name="staff-branch-scope"
-                  checked={!allBranches}
-                  onChange={() => setAllBranches(false)}
-                  className="size-4"
-                  style={{ accentColor: 'var(--rose)' }}
-                />
-                <span className="text-sm font-semibold text-foreground">Specific branches</span>
-              </label>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!allBranches}
+                onClick={() => setAllBranches(false)}
+                className="rounded-[10px] px-4 py-2.5 text-sm font-semibold transition-colors"
+                style={
+                  !allBranches
+                    ? { background: 'var(--navy)', color: 'var(--page)' }
+                    : { background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border-subtle)' }
+                }
+              >
+                Specific branches
+              </button>
             )}
           </div>
           {SPECIFIC_BRANCHES_ENABLED && !allBranches && (

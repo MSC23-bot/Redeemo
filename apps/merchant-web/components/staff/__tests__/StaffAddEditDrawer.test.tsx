@@ -117,8 +117,8 @@ describe('StaffAddEditDrawer (C4)', () => {
     fireEvent.change(screen.getByLabelText(/last name/i), { target: { value: 'Person' } })
     fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'new@shop.test' } })
     fireEvent.click(screen.getByLabelText('Branch manager'))
-    // Choose Specific branches and tick one.
-    fireEvent.click(screen.getByLabelText('Specific branches'))
+    // Choose Specific branches (segmented control) and tick one.
+    fireEvent.click(screen.getByRole('radio', { name: 'Specific branches' }))
     fireEvent.click(screen.getByLabelText('High Street'))
     fireEvent.click(screen.getByRole('button', { name: /send invite/i }))
     expect(onSubmit).toHaveBeenCalledTimes(1)
@@ -159,6 +159,43 @@ describe('StaffAddEditDrawer (C4)', () => {
     fireEvent.click(screen.getByRole('button', { name: /send invite/i }))
     expect(onSubmit).not.toHaveBeenCalled()
     expect(screen.getByRole('alert')).toHaveTextContent(/full name/i)
+  })
+
+  it('the segmented Branches control toggles the same allBranches state both ways (visual change only)', () => {
+    const { onSubmit } = renderDrawer()
+    const allBtn = screen.getByRole('radio', { name: 'All branches' })
+    const specificBtn = screen.getByRole('radio', { name: 'Specific branches' })
+    expect(allBtn).toHaveAttribute('aria-checked', 'true')
+    expect(specificBtn).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.click(specificBtn)
+    expect(specificBtn).toHaveAttribute('aria-checked', 'true')
+    expect(allBtn).toHaveAttribute('aria-checked', 'false')
+
+    // Toggling back to All branches works too (same underlying state both ways).
+    fireEvent.click(allBtn)
+    expect(allBtn).toHaveAttribute('aria-checked', 'true')
+    expect(specificBtn).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.change(screen.getByLabelText(/first name/i), { target: { value: 'New' } })
+    fireEvent.change(screen.getByLabelText(/last name/i), { target: { value: 'Person' } })
+    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'new@shop.test' } })
+    fireEvent.click(screen.getByRole('button', { name: /send invite/i }))
+    expect(onSubmit.mock.calls[0][0].invite.allBranches).toBe(true)
+  })
+
+  it('shows the prototype-matched placeholders on the identity fields', () => {
+    renderDrawer()
+    expect(screen.getByLabelText(/first name/i)).toHaveAttribute('placeholder', 'e.g. Sam')
+    expect(screen.getByLabelText(/last name/i)).toHaveAttribute('placeholder', 'e.g. Thorne')
+    expect(screen.getByLabelText(/^email$/i)).toHaveAttribute('placeholder', 'name@oldfoundrykitchen.co.uk')
+    expect(screen.getByLabelText(/job title/i)).toHaveAttribute('placeholder', 'e.g. Barista, Branch Manager')
+  })
+
+  it('uses the prototype sub-header copy (fidelity fix)', () => {
+    renderDrawer()
+    expect(screen.getByText(/manage the business on the web/i)).toBeInTheDocument()
+    expect(screen.getByText(/validate redemptions at their branches/i)).toBeInTheDocument()
   })
 
   it('an edit prefills role/scope and submits the update payload', () => {

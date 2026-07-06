@@ -73,28 +73,46 @@ function PersonCell({ person }: { person: Person }) {
   )
 }
 
+/** A blank/whitespace-only job title reads as "not set" (never dropped silently). */
+function hasJobTitle(jobTitle: string | null | undefined): jobTitle is string {
+  return typeof jobTitle === 'string' && jobTitle.trim().length > 0
+}
+
 function RoleAccessCell({ person }: { person: Person }) {
   if (person.kind === 'app') {
+    // App rows show the real job title (not a generic "App user" chip), with a
+    // plain-text fallback when it is not set.
     return (
-      <div className="flex flex-wrap items-center gap-1.5">
-        <RoleChip label="App user" />
-        <AccessPill label="App" />
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-semibold text-foreground">
+          {hasJobTitle(person.jobTitle) ? person.jobTitle : 'Not set'}
+        </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <AccessPill label="App" />
+        </div>
       </div>
     )
   }
   const showVouchers = person.role === 'BRANCH_MANAGER' && person.canManageVouchers
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <RoleChip label={ROLE_LABEL[person.role]} />
-      {showVouchers && (
-        <span
-          className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-          style={{ background: 'var(--tint-deep)', color: 'var(--rose)' }}
-        >
-          + Vouchers
-        </span>
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <RoleChip label={ROLE_LABEL[person.role]} isOwner={person.role === 'OWNER'} />
+        {showVouchers && (
+          <span
+            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+            style={{ background: 'var(--tint-deep)', color: 'var(--rose)' }}
+          >
+            + Vouchers
+          </span>
+        )}
+      </div>
+      {hasJobTitle(person.jobTitle) && (
+        <span className="text-sm font-semibold text-foreground">{person.jobTitle}</span>
       )}
-      <AccessPill label="Portal" />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <AccessPill label="Portal" />
+      </div>
     </div>
   )
 }

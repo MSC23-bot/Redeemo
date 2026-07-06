@@ -28,12 +28,19 @@ export function AccessPill({ label }: { label: string }) {
   )
 }
 
-// Plain single-tone role chip (verbatim from StaffTable: tint background, navy text).
-export function RoleChip({ label }: { label: string }) {
+// Role chip (Staff table). Owner gets a distinct pale-rose tone (tint-deep bg +
+// rose text, matching BranchRoleChip's OWNER tone below); Branch manager / Staff
+// keep the plain tint/navy tone. Token-only (no new hex values).
+export function RoleChip({ label, isOwner = false }: { label: string; isOwner?: boolean }) {
   return (
     <span
+      data-tone={isOwner ? 'owner' : 'default'}
       className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
-      style={{ background: 'var(--tint)', color: 'var(--navy)' }}
+      style={
+        isOwner
+          ? { background: 'var(--tint-deep)', color: 'var(--rose)' }
+          : { background: 'var(--tint)', color: 'var(--navy)' }
+      }
     >
       {label}
     </span>

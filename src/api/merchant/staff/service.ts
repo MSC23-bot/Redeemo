@@ -69,6 +69,8 @@ export type MemberRow = {
   branchIds: string[]
   claimed: boolean
   lastLoginAt: Date | null
+  /** Optional, shows on the person's row (fidelity polish; curated select, no schema change). */
+  jobTitle: string | null
 }
 
 const roleSchema = z.enum(['OWNER', 'BRANCH_MANAGER', 'STAFF'])
@@ -160,7 +162,9 @@ export async function listMembers(prisma: PrismaClient, adminId: string): Promis
       // it is NEVER returned in the MemberRow response (see the map below — only `claimed`
       // is exposed). Pinned by the staff.routes.test.ts + staff.service.test.ts
       // no-passwordHash-in-response regression tests.
-      merchantAdmin: { select: { id: true, firstName: true, lastName: true, email: true, passwordHash: true, lastLoginAt: true } },
+      merchantAdmin: {
+        select: { id: true, firstName: true, lastName: true, email: true, passwordHash: true, lastLoginAt: true, jobTitle: true },
+      },
       branches: { select: { branchId: true } },
     },
     orderBy: { createdAt: 'asc' },
@@ -177,6 +181,7 @@ export async function listMembers(prisma: PrismaClient, adminId: string): Promis
     branchIds: r.branches.map((b) => b.branchId),
     claimed: r.merchantAdmin.passwordHash != null,
     lastLoginAt: r.merchantAdmin.lastLoginAt,
+    jobTitle: r.merchantAdmin.jobTitle ?? null,
   }))
 }
 

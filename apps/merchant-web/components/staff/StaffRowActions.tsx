@@ -110,7 +110,7 @@ function PortalActions({
           style={{ color: 'var(--text-muted)' }}
         >
           <Lock size={13} aria-hidden="true" className="mt-0.5 shrink-0" />
-          The last active owner cannot be deactivated or removed.
+          Your only owner. Add another owner to remove or change this account.
         </p>
       )}
     </div>

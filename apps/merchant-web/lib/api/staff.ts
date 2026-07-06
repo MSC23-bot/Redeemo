@@ -47,6 +47,9 @@ export const memberRowSchema = z
     branchIds: z.array(z.string()),
     claimed: z.boolean(),
     lastLoginAt: z.string().nullable(),
+    // Optional, shows on the person's row. Nullable + optional so an older/absent
+    // backend payload still parses (fidelity polish; no schema change backing it).
+    jobTitle: z.string().nullable().optional(),
   })
   .passthrough()
 
