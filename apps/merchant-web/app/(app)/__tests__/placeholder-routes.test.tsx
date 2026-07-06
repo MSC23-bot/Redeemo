@@ -1,13 +1,17 @@
 /**
- * Shell wave: the five honest placeholder/teaser routes behind the former '#'
- * dead links (roadmap "generic coming-soon module shell"). Pins: each route
- * renders its title + an honest status badge, and never renders a dead CTA
- * (no "Notify me" - the interest CTA needs a backend and was deferred).
+ * Shell wave: the honest placeholder/teaser routes behind the former '#' dead
+ * links (roadmap "generic coming-soon module shell"). Pins: each route renders
+ * its title + an honest status badge, and never renders a dead CTA (no "Notify
+ * me" - the interest CTA needs a backend and was deferred).
+ *
+ * Business Profile M2: /profile is NO LONGER one of these placeholders (it now
+ * renders the real read shell, <BusinessProfileScreen>, driven by a live
+ * useMerchantProfile fetch) - its pin moved to
+ * app/(app)/profile/__tests__/page.test.tsx.
  */
 import { render, screen } from '@testing-library/react'
 import PromotePage from '../promote/page'
 import BillingPage from '../billing/page'
-import BusinessProfilePage from '../profile/page'
 import MyAccountPage from '../account/page'
 import HelpPage from '../help/page'
 
@@ -28,12 +32,6 @@ describe('placeholder module routes', () => {
     expect(screen.getByRole('heading', { name: 'Payments & billing' })).toBeInTheDocument()
     expect(screen.getByText('Being listed on Redeemo is free')).toBeInTheDocument()
     expect(screen.getByText(/nothing here is live or chargeable yet/i)).toBeInTheDocument()
-  })
-
-  it('/profile is an honest being-built placeholder', () => {
-    render(<BusinessProfilePage />)
-    expect(screen.getByRole('heading', { name: 'Business profile' })).toBeInTheDocument()
-    expect(screen.getByText('Being built')).toBeInTheDocument()
   })
 
   it('/account is an honest being-built placeholder', () => {
