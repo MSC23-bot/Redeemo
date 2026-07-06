@@ -142,3 +142,19 @@ edited by this workstream.
   all-white horizontal logo (brand package Horizontal Version 3 SVG) replaces
   logo-dark on the bar. CTA red aligned to the bar's deep red. Cross-surface
   effect: the website chrome now literally speaks the app header's language.
+- FINAL PROVIDER MAPPING (owner-approved bounded read-only Neon check, project
+  lively-lab-12323797 "Redeemo", aws-eu-west-2): ep-dark-wave-ab6okhp8 is the
+  compute of branch br-green-forest-abv6d6ns named "production": PRIMARY +
+  DEFAULT, created with the project 2026-04-07, compute active daily (dev
+  traffic). ep-round-wave-abpnesg3 = staging (br-ancient-water, cut from
+  production 2026-06-13). NO dev branch exists; the only other branches are
+  archived April/May feature branches. Synthesis: Codex's mapping was formally
+  correct AND the dev-usage classification was functionally correct: the team
+  has been using the production-named default branch as the shared dev DB.
+  VERDICT: Phase B (demo seed) into ep-dark-wave is PERMANENTLY REFUSED:
+  publicly-visible synthetic data must not be planted in the launch branch.
+  Recommendation: create a dedicated dev branch off production head (copy-on-
+  write carries all current dev data incl. categories), repoint local .env,
+  seed demo data there (provider action: owner approval required). The
+  production-branch-as-dev arrangement itself is escalated to the security
+  thread as a standing risk.
