@@ -135,14 +135,14 @@ export function Navbar() {
   return (
     <header
       className={`sticky top-0 z-50 border-b transition-shadow duration-300 ${navBg}`}
-      style={{ background: 'var(--brand-gradient)', boxShadow: scrolled ? '0 2px 18px rgba(226,12,4,0.28)' : 'none' }}
+      style={{ background: '#BE0A03 radial-gradient(120% 420% at 70% 16%, #F24E2C 0%, #BE0A03 100%)', boxShadow: scrolled ? '0 2px 18px rgba(190,10,3,0.30)' : 'none' }}
     >
       <nav aria-label="Main" className="max-w-7xl mx-auto px-6 h-[84px] flex items-center gap-6">
 
         {/* Logo */}
         <Link href="/" className="flex-shrink-0 no-underline">
           <Image
-            src={isDark ? '/logo-dark.png' : '/logo-light.png'}
+            src="/logo-white.svg"
             alt="Redeemo"
             width={220}
             height={60}
@@ -323,7 +323,7 @@ export function Navbar() {
                 </a>
                 <Link
                   href={primaryCtaHref}
-                  className="text-[14px] font-bold text-[#E20C04] bg-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
+                  className="text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
                 >
                   {primaryCtaLabel}
                 </Link>
@@ -359,7 +359,7 @@ export function Navbar() {
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.22, ease: 'easeInOut' }}
             className="md:hidden overflow-hidden border-t border-white/[0.14]"
-            style={{ background: 'var(--brand-gradient)' }}
+            style={{ background: '#BE0A03 radial-gradient(120% 300% at 70% 0%, #F24E2C 0%, #BE0A03 100%)' }}
           >
             <div className="px-6 py-4 flex flex-col gap-1">
 
@@ -438,7 +438,7 @@ export function Navbar() {
                       <Link
                         href={primaryCtaHref}
                         onClick={() => setMenuOpen(false)}
-                        className="px-3 py-3 text-[14px] font-bold text-[#E20C04] bg-white text-center rounded-lg no-underline hover:opacity-90 transition-opacity"
+                        className="px-3 py-3 text-[14px] font-bold text-[#BE0A03] bg-white text-center rounded-lg no-underline hover:opacity-90 transition-opacity"
                       >
                         {primaryCtaLabel}
                       </Link>
