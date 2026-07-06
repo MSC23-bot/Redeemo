@@ -1,67 +1,64 @@
-# Redeemo — Project Context for Claude
+# Redeemo · Project Instructions for Claude
 
-This file is read automatically by Claude Code at the start of every session.
-It contains everything needed to resume work without losing context.
+Durable instructions only. Current status lives in `docs/PROJECT-STATE.md` (see §2).
+Path-specific guidance lives in `.claude/rules/`. Build history: `docs/history/`.
 
----
+## 1. What Redeemo is
 
-## What Redeemo Is
+UK-based, location-first digital marketplace connecting consumers with local businesses
+through exclusive digital vouchers. Consumers pay a subscription to unlock redemption.
+Merchants join free, pay for featured placement and campaigns. Multi-sided marketplace,
+not a basic coupon app.
 
-Redeemo is a UK-based, location-first digital marketplace connecting consumers with local businesses through exclusive digital vouchers. Consumers pay a subscription to unlock redemption rights. Merchants join free but pay for featured placement and campaigns. It is a multi-sided marketplace — not a basic coupon app.
+## 2. Where to look first (authority routing)
 
----
+- **Current status, programme sequence, open owner decisions, warnings, deferrals:**
+  `docs/PROJECT-STATE.md` is authoritative. Read its §1 authority model and the §4 section
+  for your programme before starting work. Never infer current status from this file.
+- **Merchant Portal detail:** `docs/superpowers/roadmaps/merchant-portal-programme-roadmap.md`
+  (coordinated pair with PROJECT-STATE).
+- **Open deferred follow-ups:** `docs/deferrals/open-register.md` (live register).
+- **Customer flow contract:** `docs/customer-flow-current.md` + `docs/customer-flow-changelog.md`.
+- **Intended behaviour:** owner decisions, then the latest approved spec/plan in
+  `docs/superpowers/{specs,plans}/`. Shipped code that diverges from an approved spec is a
+  contract conflict to record, not the new truth.
+- **Private auto-memory** (MEMORY.md + topic files) is discovery/routing aid only; it never
+  overrides merged source, PROJECT-STATE, or owner decisions.
+- **Codex-owned checklists** under `~/Documents/Playground/redeemo-notes/` are READ-ONLY
+  evidence. Never edit, append to, rename, or delete them.
 
-## Product Surfaces (4 total)
+## 3. Product surfaces
 
-| Surface | Description |
-|---|---|
-| Customer App | iOS + Android (Flutter or React Native). Discovery, voucher browsing, redemption, savings, favourites, account. |
-| Customer Website | Fully functional Next.js site. Same features as app except NO redemption (mobile only). Subscription purchase, merchant discovery, voucher preview, account management. |
-| Merchant Web Portal | Full management: vouchers, branches, campaigns, analytics, settings, onboarding. |
-| Merchant Mobile App | Branch staff only: scan QR / validate redemption codes. Lean app. |
-| Admin Panel | Full operations: approvals, user/merchant management, campaigns, CMS, reporting, comms. |
+| Surface | App | Notes |
+|---|---|---|
+| Customer App | `apps/customer-app` (Expo/React Native) | discovery, vouchers, redemption |
+| Customer Website | `apps/customer-web` (Next.js) | no redemption (mobile only) |
+| Merchant Web Portal | `apps/merchant-web` (Next.js) | management, staff, insights |
+| Merchant Mobile App | (not started) | branch staff scan/validate |
+| Admin Panel | `apps/admin-web` (Next.js) | approvals, ops console |
 
----
+## 4. Tech stack essentials
 
-## Confirmed Tech Stack
+Backend: Node 24 + TypeScript + Fastify · PostgreSQL 16 on Neon · Prisma 7 · Redis ·
+Stripe · Twilio · FCM · Resend (wired, dark by default) · R2 storage (feature-flagged).
+Web apps: Next.js 15 (TypeScript). Mobile: Expo SDK 54 + expo-router.
 
-| Layer | Technology |
-|---|---|
-| Customer Website + Admin + Merchant Web Portal | Next.js (TypeScript) |
-| Mobile Apps | React Native (Expo) |
-| Backend API | Node.js 24 (Active LTS — pinned via root `.nvmrc`) + TypeScript (Fastify or Express) |
-| Database | PostgreSQL 16 via Neon (serverless) |
-| ORM | Prisma 7.7.0 |
-| Payments | Stripe |
-| SMS / OTP | Twilio |
-| Push Notifications | Firebase Cloud Messaging (FCM) |
-| Email | Resend (transactional + marketing) |
-| Cache / Sessions | Redis |
-| File Storage | AWS S3 or Cloudflare R2 |
-| Hosting | Vercel (Next.js) + Railway or Render (API + Redis) |
+**Node version policy (do not conflate):**
+- Backend / repo root / Railway / CI: Node 24 (root `.nvmrc`).
+- Customer app toolchain: Node 20.19.4 (`apps/customer-app/.nvmrc`); jest-expo hangs on
+  Node 24. Do not bump without re-verifying jest-expo.
 
-**Node version policy (split — do not conflate the two):**
-- **Backend API / repo root / Railway / CI:** Node 24 (Active LTS), pinned via the root `.nvmrc`. This is the hosted production runtime, and CI runs on it.
-- **Customer app (Expo / jest-expo):** Node 20.19.4, pinned via `apps/customer-app/.nvmrc`. jest-expo had hanging/slowness on Node 24 (see memory `project_environment_issues.md`), so the Expo local build/test toolchain stays on 20.19.4 until it is separately verified on a newer LTS. Node 20 is end-of-life as a *production* runtime, but this is a local build/test toolchain — not a hosted runtime — so the bump is deferred, not urgent. **Do not move the customer app to Node 24 without re-verifying jest-expo first.**
+**Prisma 7 specifics:** datasource URL in `prisma.config.ts` (not schema.prisma); generated
+client at `generated/prisma/client`; import `{ PrismaClient } from '../generated/prisma/client'`;
+requires `@prisma/adapter-pg` + `pg`; seed configured in `prisma.config.ts` under `migrations.seed`.
 
-**Prisma 7 specifics:**
-- Datasource URL lives in `prisma.config.ts`, NOT in `schema.prisma`
-- Generated client is at `generated/prisma/client`
-- Import: `import { PrismaClient } from '../generated/prisma/client'`
-- Requires driver adapter: `@prisma/adapter-pg` + `pg`
-- Seed config is in `prisma.config.ts` under `migrations.seed`
+## 5. Database and dev credentials
 
----
+Schema: `prisma/schema.prisma` · migrations: `prisma/migrations/` · seed: `npx prisma db seed`.
+`DATABASE_URL` in `.env` points at shared Neon; never commit it.
 
-## Database
+Dev seed logins (non-production; deliberately committed):
 
-- **Provider:** Neon (serverless PostgreSQL 16)
-- **Connection string:** in `.env` as `DATABASE_URL` (never committed)
-- **Schema file:** `prisma/schema.prisma`
-- **Migrations:** `prisma/migrations/`
-- **Seed:** `npx prisma db seed` (runs `prisma/seed.ts`)
-
-### Dev login credentials (seed data)
 | Role | Email | Password |
 |---|---|---|
 | Admin | admin@redeemo.com | Admin1234! |
@@ -69,997 +66,120 @@ Redeemo is a UK-based, location-first digital marketplace connecting consumers w
 | Merchant Admin | merchant@redeemo.test | Merchant1234! |
 | Branch Staff | staff@redeemo.com | Staff1234! |
 
-> Note: the Merchant Admin dev email uses the non-routable `.test` domain (M1 Slice R) because Redeemo does NOT own `redeemo.com`, and the Merchant Portal now queues login-OTP / registration-verify emails. The `admin@` / `customer@` / `staff@` `.com` seed addresses are a tracked platform-wide seed-email-hygiene follow-up (out of M1 scope).
+## 6. Key business rules (preserve in all code)
 
----
+1. Subscription gates redemption; free tier browses only.
+2. Monthly voucher cycle is subscription-anchored, not calendar-based:
+   `getCurrentCycleWindow(cycleAnchorDate, now)` in `src/api/subscription/cycle.ts` is the
+   single source of truth; independent of billing interval and payment source; day-clamped.
+3. A voucher is redeemable once per user per cycle across ALL branches.
+4. Redemption flow: redeem creates `VoucherRedemption` with a persistent `redemptionCode`
+   (8 chars, A-Z + 0-9 minus O/I, shown 4+4); merchant validates in-store; code lasts the cycle.
+5. In-store validation only (QR scan, manual entry, or merchant Quick Validate); never self-serve.
+6. Two mandatory vouchers per merchant (RMV-001/002) before approval; merchant cannot edit
+   or delete them. Custom vouchers: RCV-XXX.
+7. Merchant approval gated on: mandatory fields + docs + 2 RMV vouchers + main branch + branch user.
+8. Merchant suspension is immediate; all vouchers deactivate; history preserved.
+9. 12-month merchant contract, signed digitally during onboarding.
+10. Trending = merchants with redemptions this month within admin-configured radius.
+11. Featured = paid placement, admin-set duration and radius.
+12. The website never supports redemption (fraud prevention; mobile only).
+13. One unified merchant account: web portal manages, mobile app validates, same credentials.
 
-## Key Business Rules (must be preserved in all code)
+Subscription pricing: Free £0 · Monthly £6.99 · Annual £69.99 (~2 months free). Cancel anytime,
+access to period end. Free trials via promo codes only. Stripe for standard billing;
+`stripeSubscriptionId`/`stripeCustomerId` are nullable (IAP/admin-grant ready).
+Voucher types: BOGO, Spend & Save, Discount (£ or %), Freebie, Package Deal, Time-Limited, Reusable.
 
-1. **Subscription gates redemption.** Free tier can browse and view vouchers but cannot redeem. Attempting to redeem redirects to subscription screen.
-2. **Monthly voucher cycle is subscription-anchored, not calendar-based.** Each user's cycle resets on the same day-of-month as their `cycleAnchorDate` (set once at subscription creation, immutable). `getCurrentCycleWindow(cycleAnchorDate, now)` is the single source of truth. Independent of billing interval (monthly/annual) and payment source (Stripe, Apple IAP, Google Play, admin-grant). Day clamping handles short months (e.g. anchor day 31 → 28 in Feb). Cycle state check is time-based at redemption time — no dependency on Stripe webhooks for correctness.
-3. **Voucher redeemed once per user per cycle across ALL branches.** When redeemed at any branch, it becomes inactive for that user for the whole cycle.
-4. **Redemption flow:** Customer taps Redeem → backend creates `VoucherRedemption` record with a generated `redemptionCode` (alphanumeric + QR) → customer shows code to merchant in-store → merchant scans QR or manually enters code in merchant app → merchant validates → `isValidated = true`. The code persists (not time-limited) so customer can view it in "My Redeemed Vouchers" throughout the cycle.
-5. **In-store validation only.** Redemption requires merchant-side validation (QR scan, manual code entry, or merchant admin Quick Validate). Not self-serve.
-6. **Two mandatory vouchers per merchant.** Required before admin approval. Cannot be edited or deleted by merchant. IDs: RMV-001, RMV-002. Custom vouchers: RCV-XXX.
-7. **Merchant approval is gated.** Admin approves after: mandatory fields filled + docs uploaded + 2 mandatory vouchers created + main branch added + branch user assigned.
-8. **Merchant suspension = immediate.** All vouchers immediately inactive. Historical data preserved.
-9. **12-month merchant contract.** Signed digitally (click-to-agree or Zoho Sign) during onboarding.
-10. **Trending merchants** = merchants with redemptions in current month, within admin-configured geolocation radius.
-11. **Featured merchants** = paid placement, admin-set duration and radius, shown on home page.
-12. **Website does NOT support redemption.** Fraud prevention — redemption is mobile app only.
-13. **One unified merchant account.** Web portal = management. Mobile app = branch staff scan/validate. Same credentials.
+## 7. Workflow tiers (classify BEFORE implementing; state the tier in your first reply)
 
----
+- **Tier 0** tiny fix: no plan doc.
+- **Tier 1** small bounded change in one surface: no plan doc; PR must explain scope/risk/tests.
+- **Tier 2** surface rebaseline / multi-file work: written plan in `docs/superpowers/plans/`
+  FIRST; owner decisions surfaced before implementation; pause at milestones; amend the plan
+  on gaps (never hack around); update behaviour docs in the same PR.
+- **Tier 3** new architecture / backend contract / schema change: full flow
+  brainstorm → spec → plan → implement → review → lock.
+- Rebaselines are Tier 2 by default. If the tier is unclear, PAUSE and ask the owner.
 
-## Subscription Pricing
+## 8. Git safety (enforced by `.claude/hooks/pre-bash/01-git-safety.sh`)
 
-| Plan | Price | Billing |
+Blocked: broad `git add` (use explicit paths) · push to main (use PRs) · `--force` without
+lease · `git reset --hard` / `git clean` / dirty-tree `checkout|restore -- <paths>` without
+their `REDEEMO_CONFIRM_*` env override · `gh pr merge` without
+`REDEEMO_PR_SCOPE_VERIFIED=<current-head-SHA>`.
+Before merging any PR, verify GitHub's live `compare` diff (commit count + files) against
+expectation; PR-level cached fields go stale.
+
+Hard rules (from the 2026-04-26 v7 UI-loss incident; apply to humans too):
+1. Before ANY destructive command, run `git status --short` in the TARGET tree and classify
+   every entry as intended-to-discard or preserved.
+2. Compaction summaries are hypotheses about the conversation, not facts about the repo;
+   verify with `git log --all -- <path>`.
+3. Worktree state is per-worktree; check the right tree.
+4. Work is "done" only when committed or in a PR, never when only on disk.
+
+## 9. Style and copy locks (all output: UI, docs, PRs, marketing, chat)
+
+- No emojis in product UI; use SVG icons.
+- No em-dashes; use `:` `;` `()` `·` or a period instead.
+- Real brand colours only, via tokens: red `#E20C04`, coral `#E84A00`, navy `#010C35`,
+  cream `#FFF9F5`.
+- Owner-locked framing: NEVER describe iOS screenshot handling as "prevention" in any spec,
+  plan, PR, marketing, or in-app copy. iOS screenshots are detect-and-react only; iOS screen
+  RECORDING is prevented (system blur); Android FLAG_SECURE blocks both.
+
+## 10. Running locally
+
+| App | Command | Port |
 |---|---|---|
-| Free | £0 | None — browse only, no redemption |
-| Monthly | £6.99 | Monthly auto-renew |
-| Annual | £69.99 | Annual auto-renew (~2 months free) |
+| Backend API | `npm run dev` (repo root) | 3000 |
+| Customer web | `npm run dev` in `apps/customer-web` | 3001 |
+| Admin panel | `npm run dev` in `apps/admin-web` | 3002 |
+| Merchant portal | `npm run dev` in `apps/merchant-web` | 3003 |
 
-- Cancel anytime, access until end of billing period
-- Free trials via promo codes only (not open — prevents abuse)
-- Stripe handles billing for standard subscriptions
-- Complimentary/admin-granted subscriptions: planned for Phase 5. Subscription model already supports nullable Stripe fields. When built, will also add a `source` enum (STRIPE / APPLE / GOOGLE / ADMIN) for clarity
+Customer app: `npx expo start` in `apps/customer-app` (run `fnm use` there first: Node 20.19.4).
 
----
+## 11. Running tests
 
-## Voucher Types
-BOGO, Spend & Save, Discount (fixed £ or %), Freebie, Package Deal, Time-Limited, Reusable
+- Backend unit (safe; what CI runs): `npm run test:unit`. Plain `npx vitest run` includes
+  integration suites: most of those MUTATE the shared Neon database unless `DATABASE_URL`
+  is overridden to a disposable DB. Do not run them casually.
+- Customer app: `cd .worktrees/customer-app/apps/customer-app && npx jest --forceExit`
+  (Node 20.19.4 via `fnm use`).
+- merchant-web / admin-web: `npx jest` in the app dir. Merchant browser-smoke lane:
+  `npx playwright test` in `apps/merchant-web` (deterministic local lane; advisory in CI).
 
----
+## 12. Worktree CLAUDE.md rule
 
-## Data Model Summary
+Root `CLAUDE.md` is the single source. Manual worktrees under `.worktrees/` must symlink it,
+never copy: `rm -f .worktrees/<name>/CLAUDE.md && ln -s ../../CLAUDE.md .worktrees/<name>/CLAUDE.md`.
+(`.claude/worktrees/` agent worktrees are harness-managed copies; this rule is for `.worktrees/`.)
 
-All models live in `prisma/schema.prisma`. Key relationships:
+## 13. Dev/QA tooling
 
-- `User` → `Subscription` (1:1) → `SubscriptionPlan` — has `cycleAnchorDate` (immutable), `stripeSubscriptionId?`, `stripeCustomerId?`
-- `User` → `UserVoucherCycleState` (1:many) ← **monthly cycle enforcement table** — `cycleStartDate` compared against `getCurrentCycleWindow()` at redemption time
-- `User` → `VoucherRedemption` (1:many) ← **redemption event + code**
-- `Merchant` → `Branch` (1:many) → `BranchUser` (merchant mobile app logins)
-- `Merchant` → `Voucher` (1:many, merchant-wide not per-branch)
-- `VoucherRedemption` has: `redemptionCode` (unique, shown to customer), `isValidated`, `validatedAt`, `validationMethod?`
-- `AdminApproval` — queue for merchant onboarding + voucher approvals
-- `Campaign` → `CampaignMerchant` → `Merchant` (location-targeted banner campaigns)
-- `FeaturedMerchant` → `Merchant` (paid placement, proximity radius)
+For dev/QA scripts (grant subscriptions, decrypt branch PINs, set auth states, issue reset
+tokens, reset redemption cycles, backfills) and auth-UX test recipes, invoke the
+`redeemo-dev-qa-toolkit` skill.
 
----
+## 14. Governing documents
 
-## Build Progress
-
-### ✅ Phase 1 — Data Model (COMPLETE)
-- Project initialised: Node.js 24, TypeScript, Prisma 7, Neon PostgreSQL
-- All 30+ models defined, migrated, and applied to Neon database
-- Seed script working (`npx prisma db seed`)
-- All migrations in `prisma/migrations/`
-- Plan: `docs/superpowers/plans/2026-04-07-data-model.md`
-
-### ✅ Phase 2A — Auth System (COMPLETE)
-- Customer auth: register, login (password + OTP), refresh, logout, device sessions
-- Merchant auth: login, refresh, logout; branch-user management (create, list, deactivate)
-- Branch staff auth: login, refresh, logout
-- Admin auth: login, refresh, logout
-- JWT (customer/merchant/branch/admin tokens), Redis session store, OTP via shared utility
-- Plan: `docs/superpowers/plans/2026-04-08-auth-api-structure.md`
-
-### ✅ Phase 2B — Merchant, Branch & Voucher CRUD (COMPLETE)
-- Merchant onboarding: profile setup, document upload, contract acceptance, admin approval queue
-- Branch management: create, list, update branches
-- Voucher management: create (RMV mandatory + RCV custom), list, update, delete (with guards)
-- Merchant profile: read and update
-- Plan: `docs/superpowers/plans/2026-04-09-merchant-branch-voucher.md`
-
-### ✅ Phase 2C — Subscription System (COMPLETE)
-- Stripe SetupIntent-based payment flow (card collection via Stripe SDK)
-- stripeCustomerId stored server-side in Redis — never exposed to client
-- Subscription creation with confirmed payment method
-- Cancel at period end (access continues until currentPeriodEnd)
-- Webhook handler: renewal, cancellation, payment failure, voucher cycle reset
-- stripeCouponId on PromoCode for explicit Stripe coupon mapping
-- User.stripeCustomerId persisted — reused on repeat setup-intent calls (no orphaned customers)
-- Webhook idempotency via StripeWebhookEvent table (unique stripeEventId; P2002 → 200)
-- Webhook status mapped via SubscriptionStatus enum values (no string casts)
-- Stripe v22: period dates read from items.data[0] (not top-level Subscription)
-- **Subscription-anchored monthly voucher cycles:** `cycleAnchorDate` (immutable, set once at creation) is the single source of truth for monthly cycle windows. `getCurrentCycleWindow()` does pure date math with day-of-month clamping. Independent of billing interval and payment source.
-- **Nullable Stripe fields:** `stripeSubscriptionId` and `stripeCustomerId` are nullable — structural preparation for admin-grant, Apple IAP, Google Play subscriptions. `cancelSubscription()` guards Stripe API calls with null check.
-- 255 tests passing, TypeScript clean
-- Plans: `docs/superpowers/plans/2026-04-09-subscription-system.md`, `docs/superpowers/plans/2026-04-09-subscription-hardening.md`
-
-### ✅ Phase 2D — Redemption System (COMPLETE)
-- Customer redemption flow: PIN entry → guard checks → `VoucherRedemption` created with `redemptionCode` (nanoid) + `UserVoucherCycleState` updated atomically
-- All guards enforced: subscription (ACTIVE/TRIALLING), voucher (ACTIVE+APPROVED), merchant (ACTIVE), branch-merchant coherence, one-per-cycle, rate limit (5 attempts / 15 min per userId+branchId)
-- Branch PINs stored AES-256-GCM encrypted (`Branch.redemptionPin`)
-- Staff verification: `POST /api/v1/redemption/verify` accepts branch staff OR merchant admin; sets `isValidated=true`, records `validationMethod` (QR_SCAN / MANUAL)
-- Branch reconciliation list scoped to own branch (staff) or own merchant (admin)
-- PIN management routes: GET / PUT / POST send — SMS via Twilio (live), email via Resend (deferred to Phase 6)
-- Plan: `docs/superpowers/plans/2026-04-10-redemption-system.md`
-
-**Deferred to Phase 6:** Email PIN delivery (Resend not yet integrated — logs placeholder when `branch.email` is set)
-
-**Redemption codes:** `redemptionCode` uses `crypto.randomBytes` against a 34-char alphabet (A-Z + 0-9 minus O/I), 8 characters, displayed grouped 4+4. Locked in M2 (PR #46). Database `@unique` constraint prevents collisions. Safe for manual staff entry on bills.
-
-### ✅ Phase 3A — Customer UX Foundations Spec (COMPLETE)
-- Full UX spec covering both customer app (React Native) and customer website (Next.js)
-- Defines: user flows, screen inventory, state definitions, edge cases, backend dependencies, shared UX rules, web vs mobile distinction
-- Redemption is mobile-only by product design (not phase scope) — website shows "Redeem in the app"
-- Key backend gaps identified: customer-facing merchant/voucher/search APIs, branch selector route, favourites routes, customer profile/change-password routes, savings aggregation
-- Spec: `docs/superpowers/specs/2026-04-10-customer-ux-foundations-design.md`
-
-### ✅ Phase 3B — Customer-Facing API Gaps (backend) (COMPLETE)
-- Two-scope plugin: open (discovery, no auth) + authenticated (profile, favourites)
-- Discovery: home feed (featured merchants), merchant profile + branch list, voucher detail, search, categories
-- Profile: GET + PATCH (name, dob, gender, address, postcode, profileImageUrl, newsletterConsent) + interests read/update + change-password
-- Favourites: merchant + voucher add/remove/list
-- Savings: lifetime + monthly summary, redemption history with pagination
-- Plan: `docs/superpowers/plans/2026-04-10-customer-api-gaps.md`
-
-### ✅ Phase 3C.1a — Customer App Foundations + Auth (COMPLETE on main, with v7 polish rebaseline 2026-05-01)
-- Expo SDK 54 scaffold with expo-router v4, TypeScript strict, design tokens, motion primitives
-- Auth flows: Welcome / register / login / forgot+reset password / email verification (polling) / phone OTP verification (with country picker, masked entry, resend timer) — **all v7 polish landed on main 2026-05-01 via the auth/onboarding rebaseline PR.** Apple/Google SSO buttons present but stubbed (`Alert.alert("Coming soon", …)`, no network).
-- Four-step profile completion wizard (PC1 About / PC2 Address with UK postcode lookup / PC3 Interests / PC4 Avatar) with dismiss semantics
-- Subscribe wall: SubscribePromptScreen with the locked CTA contract — premium = alert-only (no stamp, no nav); free = stamp `subscriptionPromptSeenAt` + nav to `/(app)/`. Subscription purchase deferred (Apple IAP / Google Play / Stripe).
-- Tab bar: Home + Map enabled (PRs #20 + #22). Favourites/Savings/Profile pending — each lands a visible tab with its own rebaseline PR.
-- Password validation now requires special character on both client and backend (closes a real client-vs-backend mismatch bug fixed by rebaseline schemas.ts swap).
-- 215 customer-app tests (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts`); tsc clean.
-- Plan: `docs/superpowers/plans/2026-04-15-customer-app-foundations-auth.md` (original Phase 3C.1a baseline)
-- Rebaseline plan (2026-05-01): `docs/superpowers/plans/2026-05-01-auth-onboarding-rebaseline.md` — Tier 2 with M1 + M2 amendments; full traceability of each salvaged file from cefaf45.
-
-### ✅ Phase 3C.1b — Customer App Home + Discovery + Map (LIVE on main via Plan 1 + Plan 1.5 + PR-B Milestones 2/3/4 + Map rebaseline)
-
-The original Phase 3C.1b implementation on `feature/customer-app` (reference-only branch) was rebaselined onto `main` across the following tracks. Each surface ships independently against the current backend contract.
-
-**Backend foundations (shipped on main):**
-- **Plan 1 — Category taxonomy foundation** (PR #15, integration commit `504d140`, 2026-04-28). Schema + seed (11 top-level categories + 89 subcategories + 262 tags: 32 CUISINE / ~165 SPECIALTY / 18 HIGHLIGHT / ~35 DETAIL) + service layer + Discovery API extensions. Spec: `docs/superpowers/specs/2026-04-28-category-taxonomy-design.md`. Plan: `docs/superpowers/plans/2026-04-28-category-taxonomy-foundation.md`. Migration `20260428124838_category_taxonomy` + companion `20260428163710_category_name_parentid_unique`.
-- **Plan 1.5 — Supply-aware correction** (commits `76eeb5e`, `8dfce29`, `0d3d1f8`, `f7ee8dc`; migration `20260429000000_supply_aware_correction`). Replaced the original §4.5 "hide chips below threshold" rule with rank-not-hide via `Category.intentType` (LOCAL / DESTINATION / MIXED) + rank-then-enrich pipeline in `src/api/lib/ranking.ts`. Adds tier counts (`nearbyCount`, `cityCount`, `distantCount`) + `emptyStateReason` to discovery meta. Also shipped `CategoryAmenity` join table + `prisma/seed-data/categoryAmenities.ts` (amenity eligibility). **Plan 1.5 absorbed what memory had framed as a separate "Plan 1.6" supply-aware revision — both shipped together; there is no separate Plan 1.6 doc.** Spec: `docs/superpowers/specs/2026-04-29-supply-aware-correction-design.md`. Plan: `docs/superpowers/plans/2026-04-29-supply-aware-correction.md`.
-- **Backend in-area route** (`d017aaf`) — `GET /api/v1/customer/discovery/in-area` for Map bbox queries. Shipped via `feature/discovery-in-area-route` (merged).
-
-**Customer-app surface rebaselines (shipped on main):**
-- **PR-B Milestone 2 — Home tab end-to-end** (`ac12a0d`) at `app/(app)/index.tsx` + `src/features/home/`.
-- **PR-B Milestone 3 — Search end-to-end** + reusable scope/empty-state primitives (`f29de8a`) at `app/(app)/search.tsx` + `src/features/search/`.
-- **PR-B Milestone 4 — Category surface** (AllCategories + CategoryResults + FilterSheet) (`6896d4d`) at `app/(app)/categories.tsx` + `app/(app)/category/[id].tsx`.
-- **PR #19 review fixes** (`f8b227c`): SearchResultItem fake Open badge, empty-state flash, categoryId race, FilterSheet parent-toggle.
-- **Map surface** at `app/(app)/map.tsx` + `src/features/map/{components,hooks,screens}` — shipped via `feature/customer-app-discovery-map` (merged).
-- **Discovery rebaseline planning record** at `docs/superpowers/plans/2026-04-30-customer-app-pr4-remediation.md` (merged via `docs/discovery-surface-rebaseline-plan`).
-
-**Plan 4 readiness:** Plan 1 + Plan 1.5 + Plan 2 (this surface track) are all SHIPPED. The next location-modelling workstream is **Plan 4 — Location Model UK Enrichment** (brainstorm-first per memory `project_discovery_sequencing_plan4.md`). All precursors met — Karaara Huddersfield seed fixture shipped via PR #77 (merge `e73a849`, 2026-05-13); brainstorm is READY. **Plan 3 (PC3 interests → real `Category` migration) stays deferred** per `project_pc3_interests_category_migration.md` — owner direction is "leave until things are more stable"; it should sequence after Plan 4 (Plan 4 may also affect User schema, and a single migration cycle is preferable).
-
-**Locked interim contracts (do NOT touch until Plan 4 is specified):**
-- `branch.city`-based CITY-tier classification is foundationally inadequate for non-major-city UK localities (Brightlingsea ↔ Colchester ↔ Essex) — keep as locked interim model.
-- 4 customer-app code hooks flagged for Plan 4 work: `AllCategoriesScreen` `merchantCount` field; `PC2AddressScreen` civil-parish lookup via postcodes.io; `branchShortName` dedup utility; `MerchantProfileScreen` branch-name dedup. Leave flagged.
-
-Original baseline plan reference: `docs/superpowers/plans/2026-04-17-customer-app-home-discovery-map.md` (Phase 3C.1b initial implementation on `feature/customer-app`; superseded by the rebaseline track above).
-
-### ✅ Phase 3C.1c (M1) — Voucher Detail view-only rebaseline (LIVE on origin/main 2026-05-06, merge `b93ef9c`)
-
-PR #40 ported the M1 view-only Voucher Detail surface from the `feature/customer-app` reference branch onto current `main` (branch-aware, post-merchant-profile-track). 24 implementation rounds + the post-PRODUCT.md cleanup. Locked design baseline matches the v4 mockup at `.superpowers/brainstorm/88554-1776435672/content/voucher-detail-v4.html`.
-
-What shipped:
-- Route + screen: `app/(app)/voucher/[id].tsx` registered as `Tabs.Screen` with `href: null` + `tabBarStyle: display:none` (mirrors `merchant/[id]`); `VoucherDetailScreen.tsx` orchestrator (789 lines).
-- 10 components: CollapsedHeader, CouponBody, CouponHeader, HowItWorks, MerchantRow, PerforationLine, RedeemCTA, RedeemedBadge, SubscriptionPromptModal, TimeLimitedBanner.
-- 2 hooks: `useCustomerVoucher` (voucher fetch — branch-context-free per §11), `useTimeLimited` (M1 stub — see §O1).
-- API client + Zod: `lib/api/voucher.ts` with branch-attribution-aware schemas.
-- 12-state derivation: loading / error / free-user / can-redeem / redeemed-this-cycle / expired / time-limited × 3 / branch-error variants. `branchReady` gate on active CTAs; `MerchantRow` "Resolving branch…" placeholder for the in-flight window.
-- Branch attribution per §11 (locked): voucher merchant-wide; redemption branch-attributed; URL-driven `?branch=<id>` flows merchant-profile → voucher-detail; `useMerchantProfile(voucher.merchant.id, { branchId })` keys cache by branch.
-- URL-driven back navigation: `from`, `returnMerchantId`, `branch`, `tab` params; `buildReturnUrl` does NOT depend on voucher/merchant queries having resolved.
-- Free-user conversion flow (round 16): `SubscriptionPromptModal` replaces the deleted `FreeUserGateModal`. Sticky free-user CTA "Subscribe to Redeem · £6.99/mo" routes to `/(auth)/subscription-prompt` with full return context. Plan-pre-pick (annual / monthly) carries through.
-- Voucher-origin subscription routing (rounds 20–21): `SubscribePromptScreen` honours `source=voucher&plan=<plan>&returnVoucherId&branch&returnMerchantId&tab` — initialises the plan selector, swaps CTA copy ("Continue with Annual" / "Continue with Free Account"), routes the secondary CTA back to the exact voucher detail page rather than dumping the user on Discovery.
-- Suppression flag (round 22): `Continue with Free Account` returns to voucher with `?suppressSubscribePrompt=1`; voucher-detail reads it and skips the auto-modal so the user isn't nag-looped after a deliberate free-pick.
-- Delayed auto-modal (round 22 part 5): `SUBSCRIPTION_PROMPT_DELAY_MS = 800ms` setTimeout inside an effect with full cancellation paths (blur, dismiss, sub state change, suppression). Two-layer gate: `modalReady` (timer fired) AND every scheduling guard still holds.
-- How It Works section (rounds 17–19): 5 steps both subscribed + free variants; tappable card; default expanded (free) vs default collapsed (subscribed).
-- Round-13 impeccable critique pass: em dashes out of UI text (period or comma instead), tinted-warm whites for nested cards, banner empty-state, spacing rhythm.
-- §O7 branch-race fix (round 23): `MerchantProfileScreen.handleVoucherPress` reads branch id from URL via `useBranchSelection().branchId`, falling back to `merchant.selectedBranch?.id` only on cold-open. Removes the `keepPreviousData` stale-branch race when a user taps a voucher within ~1s of switching branches. Pre-existing bug (since PR #33), shipped inside PR #40 because PR #40 makes the voucher URL branch param load-bearing for redemption attribution.
-- Round 24 hygiene: `PRODUCT.md` (impeccable design-skill local context file) untracked + added to `.gitignore` alongside `DESIGN.md`. Same category as `.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`.
-- Post-merge symmetric fix (PR #41, merge `234e9e8`, 2026-05-06): `VoucherDetailScreen.buildSubscriptionUrl` now sources the return-URL `branch` from URL `branchIdParam` first, falling back to `selectedBranch?.id` only on cold-open. Closes the symmetric race to §O7 — the free-user sticky CTA + modal plan buttons can fire while merchantQuery is still in flight, and without this fix the URL would omit `branch=` entirely, breaking the `Continue with Free Account` round-trip + the `suppressSubscribePrompt=1` contract.
-
-Test counts at merge: customer-app jest **394/394** across 48 suites covering voucher/merchant/subscribe/guards/voucher-api (10s); backend vitest discovery.voucher-detail **10/10** (449ms); `tsc --noEmit` clean.
-
-Deferred from M1 (tracked in `project_deferred_followups_index.md`):
-- §N10 + §N8 — native iOS edge-swipe-back: `voucher/[id]` is a `Tabs.Screen`; restoring native swipe-back requires moving both `voucher/[id]` AND `merchant/[id]` into a Stack/native-stack flow together. Tier 2/3 navigation workstream, design-together with future tab-swipe / gesture arbitration.
-- §N11 — broader branch-switch perceived-lag UX (`keepPreviousData` shows OLD branch until refetch lands; voucher detail's loading-gate ignores `merchantQuery.isLoading`). Tier 1/2 owner-direction follow-up.
-- §O1 — TIME_LIMITED proper availability windows (M1 stub; needs backend `availableFrom`/`availableUntil`).
-- §O3 — `Change ▾` Unicode glyph → chevron icon polish.
-- §O4 — Voucher favourite toggle wiring (M1 fires `Alert("Coming next milestone")`).
-- §O5 — VoucherDetailScreen decomposition only if M2/M3 grow it past ~600 lines.
-- §O6 — Already-Redeemed full surface (M2/M3, backend dep on `lastRedeemedAt`, `redemptionCode`, `availableAgainAt`).
-
-PRs landed: #40 (24 implementation rounds + post-PRODUCT.md cleanup, merge `b93ef9c`, 2026-05-06); #41 (post-merge symmetric `buildSubscriptionUrl` branch-source fix, merge `234e9e8`, 2026-05-06).
-
-Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` (M1/M2/M3 milestones; "As shipped" addendum at §M1.1 captures the rounds 13–24 conversion-flow expansion).
-
-Spec reference: `.superpowers/brainstorm/88554-1776435672/content/voucher-detail-v4.html` (locked v4 mockup) + the inline §11 branch-attribution contract in the plan doc.
-
-### ✅ Phase 3C.1c (M2) — Voucher Detail Redemption flow (LIVE on origin/main 2026-05-07, merge `aea73f4`)
-
-PRs #43 → #44 → #45 → #46 closed M2 end-to-end. Four waves:
-- **PR #43 (backend, merge `8822458`)** — 12-step safe guard order in `createRedemption` + race-safe atomic claim using `prisma.$transaction` with cross-transaction P2002 retry. Backend now returns `remainingAttempts` / `retryAfter` on PIN failure + lockout payloads.
-- **PR #44 (frontend M2 Section B, merge `c233f04`)** — PinEntrySheet → useRedeem → SuccessPopup → state-3 surface, all per the M2 plan. SuccessPopup "Show to Staff" + RedemptionDetailsCard "Show to Staff again" both fire deferral alerts pointing at M3.
-- **PR #45 (PIN defensive fixes, merge `40d1f9f`)** — defensive INVALID_PIN fallback when backend doesn't return structured `remainingAttempts` payload; `textContentType="none"` to suppress iOS one-time-code autofill stealing focus; non-PIN backend errors visible to users (PIN_NOT_CONFIGURED, BRANCH_UNAVAILABLE, BRANCH_MERCHANT_MISMATCH, PHONE_NOT_VERIFIED, SUBSCRIPTION_REQUIRED, VOUCHER_NOT_FOUND).
-- **PR #46 (device-QA follow-ups, merge `aea73f4`, 2026-05-07)** — eight functional/copy/layout decisions from on-device QA. The functional + product-clarity items closed in this PR; the visual + microcopy redesign is the deferred §S design pass.
-
-What ships on M2 (locked):
-- **Already-redeemed safety hard-block** — branch picker / "Change ▾" pill / Redeem CTA all hard-blocked at three layers (MerchantRow `disableChangeBranch` + `handleChangeBranch` early-return + `handlePickerConfirm` defensive twin). Once redeemed, the user cannot reopen the redemption flow until the cycle rolls over.
-- **Redemption code format** — 8-char uppercase A–Z + 0–9 minus O,I, displayed 4+4 (e.g. `A7K2 P9X4`). Backend alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ0123456789` (34 chars). 34^8 ≈ 1.79 × 10^12 combinations; `redemptionCode @unique` constraint backstops collisions. Reason: 10-char mixed-case codes were too long, mis-readable when staff transcribe them onto bills, and easily confused (O/0, I/1).
-- **URL-first display branch resolver** — `displayBranch = pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id` with an `isActive` gate at all three resolution paths. Closes a stale-branch flash + an alarming "Resolving Branch…" CTA that shipped in PR #44.
-- **Branch picker change vs redeem intent** — `BranchPickerSheet` gains an `intent: 'change' | 'redeem'` prop. Title + CTA copy swap. `handlePickerConfirm` branches: change-intent updates branch only; redeem-intent confirms branch then opens PIN sheet.
-- **Race-safe back navigation after branch change** — voucher detail tracks `changedBranchOnVoucherId: string | null` (synchronous local state, not URL). `handleBack` reads `changedBranchOnVoucherId ?? params.branch`. Merchant Profile receives `?branchChanged=1`, fires `BranchSwitchToast`, scrubs the param via `router.replace`.
-- **Branch picker ordering** — selected/current first, then active branches sorted by distance, then unknown-distance branches last. Inactive branches gated out. `previewId` normalised to null when `currentBranchId` not in passed branches.
-- **`availableAgainAt` payload + CycleRulesCard** — backend `getCustomerVoucher` returns `availableAgainAt` (ISO string) for ACTIVE/TRIALLING subs, computed from `getCurrentCycleWindow(cycleAnchorDate, now).cycleEnd` (en-GB / Europe/London). Customer-app: `voucherDetailSchema.availableAgainAt: z.string().nullable()`. CycleRulesCard renders state-aware copy with prominent date in brand-rose tinted block:
-  - Pre-redemption: "Use this voucher once during your current cycle. After you redeem it, it will refresh on the renewal date shown below."
-  - Post-redemption: "You've used this voucher for your current cycle. It will be ready to use again on the renewal date shown below."
-- **VoucherTypeExplainerCard (renamed from `AboutThisOfferCard`)** — collapsible (default collapsed), per-type title ("What is a BOGO voucher?" / "What is a Discount voucher?" / etc.) sourced from `productCopy.voucherTypeExplainerTitle(type)` + `voucherTypeExplainer(type)`.
-- **"How redemption works" rename** — was "How It Works". Title only; default-expanded for free users, default-collapsed for subscribed.
-- **Auto-scroll on collapsible expand** — both VoucherTypeExplainerCard and HowItWorks call `onExpand(layoutY)`; `VoucherDetailScreen.handleCardExpand` calls `scrollViewRef.scrollTo({ y: cardY - 80, animated: true })` deferred via `requestAnimationFrame` so the body doesn't sit underneath the sticky bottom CTA.
-- **Layout reorder by state — locked DOM order:**
-  - **Redeemed:** hero → RedemptionDetailsCard → CycleRulesCard → coupon body → MerchantRow (`mode='redeemed-known'` showing "REDEEMED AT <branch>" if known, OR `mode='redeemed-unknown'` neutral wording when not known) → VoucherTypeExplainerCard → HowItWorks.
-  - **Non-redeemed:** hero → coupon body → CycleRulesCard → MerchantRow (`mode='redeem'` with "Change ▾" pill if multi-branch) → VoucherTypeExplainerCard → HowItWorks.
-- **MerchantRow `mode` prop** — `'redeem' | 'redeemed-known' | 'redeemed-unknown'` driving copy + Change-pill suppression.
-- **"Saved up to" past-tense copy + corrected disclaimer** on post-redemption RedemptionDetailsCard.
-- **16pt card spacing standardization** — all card-level top margins normalised to 16pt for consistent rhythm.
-- **Em-dash sweep** on customer-facing copy (productCopy.ts BOGO + REUSABLE bodies, CycleRulesCard, voucher-detail surfaces). Negative-pin tests in `product-copy.test.ts`.
-- **M2 ships immediate-after-redemption RedemptionDetailsCard ONLY** — driven by in-memory `lastRedemption` from the redeem mutation response. Return visits during the active cycle currently see only the RedeemedBadge + disabled CTA. Persisted return-visit RedemptionDetailsCard remains deferred (§P2 — needs `redemptionCode` / `redeemedAt` / `branch` fields on the voucher payload).
-- **QA-only reset-cycle dev script** — `prisma/reset-qa-redemption-cycle.ts` (default scope: `customer@redeemo.com` + 3 seeded Covelum/Kovalam vouchers; override via `--email` / `--voucherId`).
-
-Test counts at PR #46 merge: backend vitest 483/483; customer-app jest 792/793 (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts`); `tsc --noEmit` clean.
-
-Plan: `docs/superpowers/plans/2026-05-06-voucher-detail-redemption-rebaseline.md` §M2.1 (full as-shipped contract).
-Spec: `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md` §5.5 / §6.7 / §8.9 (shipped-state deltas).
-
-### ✅ Phase 3C.1c (M3) — ShowToStaff + QR + anti-fraud + persisted return-visit (LIVE on origin/main via PR #49)
-
-22 commits across 5 milestones (M3a backend → M3b building blocks → M3c anti-fraud → M3d wiring → M3e docs/spec consistency). Owner-locked decisions D1-D10 + post-implementation owner clarifications all encoded.
-
-What ships on M3 (locked):
-
-- **ShowToStaff full-screen surface** reachable from BOTH SuccessPopup (just-redeemed) AND RedemptionDetailsCard (return visit during active cycle). M2's `Alert.alert('Show to Staff', '…ships in next milestone')` stub is gone.
-- **Backend additive:** `RedemptionScreenshotEvent` Prisma model + migration, `flagRedemptionScreenshot` service with Redis SETNX 5s dedup, `getMyRedemptionByCode` customer self-lookup, two new customer routes (`GET /redemption/me/:code` + `POST /redemption/:code/screenshot-flag`), `getCustomerVoucher` payload extension with cycle-window-gated `lastRedemption` block.
-- **QR payload format:** opaque 8-character redemption code only (e.g. `A7K2P9X4`). NO public validation URL. Self-validation loophole NOT possible — customer-side `me/:code` is read-only customer-JWT-scoped; staff `verify` route requires merchant/branch auth that customers cannot reach.
-- **Building blocks:** PulsingDot (design-system, additive testID/style props), QRCodeBlock (logo overlay + blurred state with anti-fraud invariant — QR child NOT rendered when blurred), useRedemptionPolling (5s/15min budget + enabled/paused flags), useBrightnessBoost (best-effort capture/restore), useAutoHideTimer (2min idle / 10s warning / freeze-on-validated), **useScreenCaptureProtection** (cross-platform prevent/allow lifecycle — Android FLAG_SECURE + iOS 11+ recording-blur — shared between ShowToStaff, SuccessPopup, and Voucher Detail when the code is visible), **useScreenshotGuard** (iOS post-fact screenshot listener + 5s client dedup + best-effort backend telemetry + ref-pattern callback stability — installed by both ShowToStaff AND Voucher Detail when the code is visible; SuccessPopup intentionally does NOT install the iOS listener since it's a short-lived popup).
-- **Screen-capture model — platform asymmetry, locked framing (extended 2026-05-08 to add iOS screen-recording prevention).**
-  - **Android**: `preventScreenCaptureAsync()` enables `FLAG_SECURE` system-wide. Blocks BOTH screenshots AND screen recordings; recents previews go black; recordings capture a blank frame.
-  - **iOS — TWO complementary paths**:
-    - (a) **Screen recording / mirroring**: `preventScreenCaptureAsync()` (iOS 11+) — system observes `UIScreen.isCaptured` and overlays the captured view with a blurred snapshot. Active screen recordings + AirPlay/screen-mirroring sessions capture a blurred view, NOT the QR. Closes the recording-and-replay fraud vector.
-    - (b) **Screenshots — DETECT-AND-REACT ONLY**. Apple does not expose any screenshot-prevention API. `addScreenshotListener` fires AFTER the screenshot has been written to Photos. The captured image WILL contain the unblurred QR + 8-char code; the blur paints post-fact. Banner copy: *"Screenshot detected. Staff verify only the live screen. Tap the QR to show again."* The user-visible trust signal on iOS is the **live screen itself** (animated gradient border, pulsing LIVE dot, ticking en-GB London datetime, validated chip transition) — a static screenshot freezes all of these and trained staff can spot it.
-  - **Never describe iOS screenshots as "prevention"** in spec, plan, PR description, marketing, or in-app copy. The screenshot path is post-fact mitigation, not prevention. iOS recording IS prevention via system blur. Locked at deferred-followups §AB / §AE.
-- **SuccessPopup anti-fraud parity (added 2026-05-08).** Show-to-Staff has live trust signals; the SuccessPopup ALSO displays the redemption code, so it now has parity:
-  - Live ticking timestamp ("Live: 08 May 2026 · 14:24:38") in the proof area, RIGHT NEXT TO the code (so a screenshot can't crop one without the other). Updates every 1s, including under reduced motion (it's a trust signal, not decorative motion).
-  - Static "Redeemed on" receipt-style row replaces the previous separate Date + Time rows.
-  - Header subtitle: *"Staff verify on the live Show to Staff screen"* (replaces *"Show this to staff to claim your discount"* — old framing read like the popup itself was the proof).
-  - **Screen-capture protection while visible** via the shared `useScreenCaptureProtection` hook. Android FLAG_SECURE blocks screenshots + recordings; iOS 11+ overlays a blurred snapshot during active recording / mirroring. SuccessPopup intentionally does NOT install the iOS post-fact screenshot listener — it's a short-lived popup. (The iOS listener IS installed on both Show-to-Staff AND Voucher Detail when the code is visible — see §AE6.2 below for the Voucher Detail wiring added in wave 2.) Locked 2026-05-08, PR #49 final wave.
-  - Cross-ref deferred-followups §AE: stronger anti-fraud options (QR hidden by default, tap-to-reveal, rotating QR, merchant policy) deferred to v2 product brainstorm.
-- **AppState backgrounding contract (locked plan §Backgrounding):** surface stays mounted across background → foreground; polling/timer/brightness all pause/resume cleanly. Polling 15-min budget DOES count backgrounded time; auto-hide 2-min idle does NOT.
-- **Validated transition:** `successHaptic()` + green-tinted "Verified by staff at <branch>" badge + 2s auto-dismiss → onDone. Reduced motion routes through onDone instantly.
-- **Two kill-switches** (post-implementation owner clarifications): `BRIGHTNESS_BOOST_ENABLED` and `SCREENSHOT_GUARD_ENABLED` consts at the top of `ShowToStaff.tsx`. Default `true`. Flip to `false` to ship a build that disables the respective hook entirely without affecting QR/manual code/polling/auto-hide/AppState wiring. Owner-approved fast-remediation paths if device QA surfaces instability.
-- **Persisted return-visit RedemptionDetailsCard** (closes §P2 for current cycle): `voucher.lastRedemption` payload (cycle-window gated) drives the card on app relaunches and React Query cold-cache opens. Dual-source `displayRedemption`: in-memory `lastRedemption` PRIMARY (just-redeemed); `voucher.lastRedemption` FALLBACK (return visits). RedemptionDetailsCard's "Show to Staff" button is now LIVE (no longer stubbed) — testID `redemption-details-show-to-staff` (was `…-stub`); accessibility label drops the next-milestone suffix.
-- **§Q6 cycle-rollover invariant pinned:** the load-bearing gate is `stateKey === 'redeemed-this-cycle'` (driven by `voucher.isRedeemedThisCycle`), NOT `lastRedemption` data presence. Pinned by 4 phases in `voucher-detail-redeem-flow.test.tsx` (current cycle / rolled-over / defensive drift / negative defense). Defensive drift is the critical pin.
-- **Validated pill** (`Validated by staff` green): renders on RedemptionDetailsCard when `voucher.lastRedemption.isValidated === true`. Surfaces on return visits so the user doesn't need to reopen Show-to-Staff for status.
-- **customerName="" §U1 lock:** ShowToStaff suppresses the "Customer" info-row when name is empty. Forward-compat: passing a real first-name + last-initial renders the row. Tracked as §U1 deferred follow-up — pick up after merchant-portal validation surfaces (§R4) lock.
-- **§AE Presentation-window gate (locked 2026-05-08, refined wave 8 2026-05-09 — final shipped state).** The redemption code + QR + Show-to-Staff CTA on Voucher Detail are LIVE for **2 hours** after `redeemedAt`. After the window closes — OR once staff has validated — Voucher Detail FULLY HIDES the code surface (no QR, no manual code, no "for your records" text) and the inner notice card (§AE5 below) takes its place. The hero seal + washed-out treatment now appear IMMEDIATELY on redemption (not only after the window expires) so the user gets instant visual confirmation. Hook design is **setTimeout-at-expiry** (single timer fires once at the boundary), NOT polling — backgrounding-safe, JS-thread-light. Defense-in-depth: handler-side guard (`if (blockShowToStaffMount) return` in `VoucherDetailScreen.onShowToStaff`) refuses to mount ShowToStaff once the code surface has collapsed. The two booleans are intentionally separate — `showRedeemedSeal` (visual, immediate on redemption) vs `blockShowToStaffMount = isRedeemed && (!isPresentationActive || isRedemptionValidated)` (handler guard, only when code surface is hidden) — so the in-window Show-to-Staff button stays clickable while the seal still surfaces. Constant: `PRESENTATION_WINDOW_MS = 2 * 60 * 60 * 1000` in `apps/customer-app/src/features/voucher/utils/presentationWindow.ts`. The full polished SVG circular stamp + washed-out coupon visual treatment + merchant-profile redeemed-card + Profile → Redemption History full surface + backend `presentationExpiresAt` mirror are all DEFERRED to §Q1 / §AF — M3 ships the rustic-stamp seal + inner notice card + opacity treatment as the working stop-gap. Pinned by 16 unit tests on the helper/hook (`presentationWindow.test.ts`) + state-machine tests on the card + screen-level §AE pins. §Q6 cycle-rollover invariant (load-bearing gate is `voucher.isRedeemedThisCycle`, NOT `lastRedemption` data presence) remains intact through the window flip.
-- **§AE6 Screen-capture protection on Voucher Detail (locked 2026-05-08, PR #49 review wave 2).** The persisted RedemptionDetailsCard surfaces the redemption code on return visits during the 2-hour window. To enforce the locked rule "any surface that displays the redemption code or QR must have screen-capture protection active", `VoucherDetailScreen` now installs `useScreenCaptureProtection(codeVisibleOnVoucherDetail)` where `codeVisibleOnVoucherDetail = stateKey === 'redeemed-this-cycle' && hasRedemption && isPresentationActive && !isRedemptionValidated`. Mirrors the card's `showCodeSurface` gate so prevention lifts the moment the code surface collapses (boundary expiry OR validation transition). Cleanup releases prevention so other screens record normally afterwards. Pinned by 6 §AE6 cases in `voucher-detail-redeem-flow.test.tsx` (in-window prevent, out-of-window no-prevent, validated no-prevent, non-redeemed no-prevent, unmount-allow, loading no-prevent).
-- **§AE6.2 iOS post-fact screenshot detection on Voucher Detail (locked 2026-05-09, PR #49 device QA wave 2).** Apple has no SDK to PREVENT iOS screenshots — `preventScreenCaptureAsync` only blanks recordings, not screenshots. To match Show-to-Staff's behaviour (the locked product expectation), Voucher Detail now also installs `useScreenshotGuard` when the code is visible. On iOS screenshot fire: posts telemetry (`redemptionApi.postScreenshotFlag(code, 'ios')`) and surfaces a screen-level banner *"Screenshot detected. Staff verify only the live screen."* (testID `voucher-detail-screenshot-banner`). Banner auto-dismisses after 4 seconds, OR immediately when the code surface collapses (window expiry / validation / unmount). Listener install gated on the same `codeVisibleOnVoucherDetail` boolean as the prevention hook. Android skips this hook (FLAG_SECURE blocks screenshots before they happen — no after-the-fact event to listen for). 9 new §AE6.2 pins in `voucher-detail-redeem-flow.test.tsx`. Cross-ref §AB locked iOS framing — the captured photo still contains the unblurred code; the banner + telemetry are post-fact mitigations, NOT prevention.
-- **§AE5 user-facing helper copy (locked 2026-05-08, refined 2026-05-09 from PR #49 device QA waves 3+4).** Calm copy + visual treatment on the redeemed-state surface so the disappearing code never feels broken:
-  - **In-window helper line**, near the Show-to-Staff CTA: *"Available to show staff until \<D Mon, HH:mm\>."* (e.g. *"Available to show staff until 9 May, 00:55."*). **Display timezone: DEVICE-LOCAL** (locked 2026-05-09 wave 4 — was Europe/London; switched to local for consistency with the Date/Time info rows on the same card so a Qatar user sees ONE consistent timezone throughout. Math is absolute milliseconds — `redeemedAt + PRESENTATION_WINDOW_MS` — so calculation correctness is independent of display TZ). Date is always included so cross-midnight expiry can never be confused with the same-clock-time on the redeemed day. Defensive fallback to *"You can show this code to staff for 2 hours after redeeming."* on malformed ISO. testID `redemption-details-availability-helper`. Hermes-robust formatter (`formatExpiryLine`) uses `Intl.DateTimeFormat.formatToParts` numeric extraction + a hardcoded English month-name array; exported for direct unit testing with explicit `timeZone` arg (Qatar / Europe/London / UTC scenarios pinned in tests).
-  - **Out-of-window inner notice card** — replaces the previous loose-text-at-bottom-of-card treatment (locked 2026-05-09 wave 4). Sits in the slot where the redemption-code box used to be. Soft warm-tinted card with a Clock icon, a bold 14pt headline ("Staff handoff window ended"), and a 12pt supporting line ("Your code is now saved in Profile → Redemption History for your records."). testID `redemption-details-expired-notice` + `redemption-details-expired-headline` + `redemption-details-expired-support`. Suppressed when validated (the validated pill carries the message). The previous `redemption-details-window-ended` + `redemption-details-history-tip` testIDs are GONE; the notice card consolidates both into one intentional surface.
-  - 14 copy/structure pins in `redemption-details-card.test.tsx` covering: helper integration / fallback on malformed / validated suppresses helper / inner notice headline+support copy / inner notice replaces (not duplicates) the old loose-text / inner notice DOM position (between summary and info rows) / inner notice ↔ code-box mutual exclusion / regression pin against partial revert / pure-function `formatExpiryLine` Qatar+London+UTC scenarios for the device-QA reported case (21:55 UTC → "9 May, 00:55" Qatar / "8 May, 22:55" BST / "8 May, 21:55" UTC) / day-numeric format without leading zero / month rollover / null on malformed / production no-arg call.
-
-What stays deferred from M3:
-- §Q1-Q5 redeemed-state visual redesign (washed-out coupon, REDEEMED stamp, dimmed merchant card, merchant-profile voucher-card treatment, Settings → Redemption History past-cycle surface). Tier 2 design pass paired with §S1-S3.
-- §S2 animated gradient border on the code card (intentional v6 mockup deviation — static gradient ships in M3; the LIVE pulse + live datetime ticker already animate as the alive-signal).
-- §S2 SuccessPopup polish (confetti, saving amount, Rate & Review CTA visual treatment, Rate & Review routing) — kept open. M3 ships the ANTI-FRAUD baseline (live timestamp + staff-verify copy); the broader visual redesign is a §S2 follow-up.
-- §AE iOS anti-fraud hardening for v2 (QR hidden by default, tap/hold reveal, short-lived rotating QR payload, merchant validation policy formalisation, telemetry dashboards) — deferred until production fraud telemetry exists OR pre-launch threat-modelling escalates.
-- TIME_LIMITED window enforcement (§O1, M4).
-- REUSABLE multi-redemption (§T1, M5 brainstorm-first).
-- §P3 SuccessPopup confetti (folded into §S2 above), §P4 non-PIN error action-button routing, §R1 collision-retry hardening, §R2 dead nanoid mock cleanup — Tier 1 polish batches.
-
-**Pre-merge gate at branch tip (final shipped state):** focused customer-app M3/auth sweep **207/207 ✅**, backend M3 redemption + discovery suite **112/112 ✅**. Wider full-voucher sweep (26 jest suites covering presentationWindow utils, redemption-details-card, voucher-detail-redeem-flow, voucher-detail-states, success-popup, ShowToStaff, useScreenCaptureProtection, useScreenshotGuard, and other voucher suites) is also green at **474/474** ✅ as a defence-in-depth check. `tsc --noEmit` zero new errors in `src/api/` (single pre-existing unrelated `branchName: string | null` error in VoucherDetailScreen.tsx remains; not introduced by PR #49).
-
-- **Hero-overlay seal + removed RedeemedBadge (locked 2026-05-09 PR #49 device QA wave 4, refined wave 8).** Previously redeemed state surfaced TWO indicators on Voucher Detail — a small green "Redeemed this cycle" pill (`RedeemedBadge`) above the coupon AND a tilted brand-rose stamp block (`RedeemedSeal`) between the voucher and the merchant card. Owner direction consolidated both into ONE: the seal moved onto the hero/banner as an absolute overlay (testID `voucher-detail-hero-seal`, anchored at `insets.top + 96`, `pointerEvents='none'` so the hero stays tappable) and the standalone RedeemedBadge mount was deleted entirely. Page now signals "redeemed" with a single visually-stamped voucher rather than two redundant badges. Hero stays dimmed (opacity 0.55) so the seal carries weight. **Wave 8 (locked 2026-05-09):** seal + hero dim now fire IMMEDIATELY on redemption, not only after the 2h window expires. Two booleans split for clarity: `showRedeemedSeal = stateKey === 'redeemed-this-cycle' && !!redemptionRedeemedAt` (visual; immediate) vs `blockShowToStaffMount = isRedeemed && (!isPresentationActive || isRedemptionValidated)` (defense-in-depth handler guard; only when code surface is hidden). The split is critical — without it, blocking ShowToStaff on `showRedeemedSeal` would also block the legitimate in-window "Show to Staff" button press. Pinned by the IN-WINDOW seal-visible test in `voucher-detail-redeem-flow.test.tsx §AE`.
-- **Seal prominence + clipping fix (locked 2026-05-09, device QA waves 5+6).** Wave 5 boosted prominence so the seal reads as the dominant element while keeping the rubber-stamp tilt: solid pale-cream fill (`#FFF6EE`) instead of translucent rose tint, border 3px → 4px, shadow opacity 0.2 → 0.35 + larger radius, title 18 → 22pt with weight 900, ink-pressure textShadow. Wave 6 fixed clipped letter ascenders — root cause: the design-system `<Text>` variant's default `lineHeight` was below the bumped `fontSize`, so RN clipped at the line-box top. Fix: explicit `lineHeight: 32` on title (1.45× ratio gives ascenders generous headroom), explicit `lineHeight: 18` on subtitle, `includeFontPadding: true`, `paddingVertical` 16 → 20, explicit `overflow: 'visible'` on the seal container as a regression guard. Rustic feel preserved via opacity/textShadow/tilt — NOT via clipping the actual glyphs.
-
-Plan: `docs/superpowers/plans/2026-05-08-voucher-detail-m3-show-to-staff.md` (forward-looking) + `2026-05-06-voucher-detail-redemption-rebaseline.md` §M3.1 (as-shipped).
-Spec: `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md` §7.7 + §8.10 (M3 shipped-state deltas).
-
-### ✅ Phase 3C.1c (PR-B) — Customer redemption visual design pass (LIVE on origin/main via PR #60 merge `ed01be9`)
-
-24 commits on top of the M3 baseline shipping a focused visual + interaction-design pass across five customer-redemption surfaces. Heavy device-QA iteration: T1-T5 (initial implementation) + T8a-T8r (12 device-QA + impeccable rounds). Owner-direction-driven; design-system aligned to PRODUCT.md + DESIGN.md throughout.
-
-**Surfaces touched (final shipped state):**
-
-- **Show-to-Staff** (T8c → T8f → T8g → T8h → T8p → T8r): brand-correct navy base + brand-rose glow overlay; horizontal Redeemo lockup top-left (R + wordmark, 6pt gap); "Present to Staff" eyebrow in brand-rose all-caps (replaces misleading "Verified Voucher"); voucher type chip ABOVE QR card, redeemed timestamp BELOW; LIVE pulsing dot centered at top of QR card (was top-right); QR card content discipline (only LIVE + QR + 4+4 code chip + live ticking clock inside the animated brand-rose border); pale brand-rose tinted code chip for prominence against QR; split "Date Redeemed" / "Time Redeemed" rows with seconds; brand-rose gradient Done button at the bottom (replaces X close icon top-right). T8p impeccable: redemption code variant moved `display.md` (Mustica) → `mono.redemption` (Lato Bold 28pt + 4pt tracking) per DESIGN.md "Mono Redemption Rule"; Done button radius `lg`→`md`, shadow `0.32`→`0.20` per Glow-is-the-CTA Rule. T8r: QR overlay Redeemo logo recoloured navy (matches QR modules) and bumped 18%→20% of QR diameter; default `RedeemoLogo` brand-coloured everywhere else.
-- **SuccessPopup** (T8b → T8e → T8n → T8o): solid brand navy hero base + brand-rose 25/10/0 glow overlay (replaces fabricated 2-stop navy gradient that violated brand lock); white-on-navy title + voucher-type chip; airier body padding spacing[5]; saving-amount count-up signature elevated. T8n impeccable: title moved `heading.md` (Lato Semibold 18) → `display.sm` (Mustica Pro Semibold 22 + −0.3 tracking); saving amount moved `heading.lg` (Lato Semibold 20) → `display.md` (Mustica Pro Semibold 26 + −0.5 tracking) per DESIGN.md "Do put the savings amount in display.md or larger in Mustica Pro on every voucher card. The saving is the data; the data is the hero." Primary CTA `View voucher code` brand red→coral gradient, radius `lg`→`md`, shadow `0.30`→`0.20`; Rate & Review pill skeleton-red treatment (outlined brand-rose, transparent fill, brand-rose Star + label) replaces the previous filled navy gradient. X close icon top-right of hero. T8o: green check ring 22→30pt, slot 36→44pt, glyph 14→18pt, SparkleRing halo 56→64pt per owner direction "increase the size of the green tick icon".
-- **Voucher Detail hero** (T8a + T8h + T8i): owner-approved rubber-stamp `RedeemedSeal` design (tilt -8°, ink-fade band, ink-mid band, cream speckles, ink-pressure textShadow, stamp-impact entrance with overshoot) PRESERVED; `dimmed` prop on `CouponHeader` applied selectively to gradient + content + saveBadge ONLY (nav row stays full opacity per owner direction "navigation buttons are washed out"). T8h merchant-profile cache invalidation: `useRedeem.onSuccess` now invalidates `['merchantProfile']` so the Voucher tab card flips to redeemed state immediately on return instead of waiting for the 60s staleTime.
-- **Merchant Profile voucher card redeemed state** (T8a + T8j + T8k — closes deferred-followups §Q4): `isRedeemedThisCycle` flag wired through merchant payload. Card body recedes via T8j: cream wash overlay 0.30→0.55 alpha (warmer cream `rgba(255, 246, 238, 0.55)`); flat shadow when redeemed (active cards keep type-tinted shadow); brand-R watermark muted 0.14→0.06. T8k stamp redesign: replaced the centered cream pill with hairline accents → diagonal Mustica Pro Semibold 22pt cancellation overprint at -10° rotation, brand-rose @ α 0.32, letter-spacing 5pt, no backdrop / no border / no shadow; entry motion (scale 1.18→1.0 + opacity 0→1, 320ms ease-out-quart, reduced-motion safe). T8h "All offers redeemed this cycle" copy when `count === 0 && totalCount > 0` on the VoucherContextLabel.
-- **PinEntrySheet** (T8m): impeccable token + variant alignment. Title `heading.md` → `display.sm` Mustica Pro 22pt + −0.3 tracking; PIN boxes idle bg `color.cream` (#FFF9F5) → `color.surface.tint` (#FEF6F5) per Cream-for-Identity Rule, idle border hardcoded → `color.border.subtle` token, weight 2px→1.5px premium hairline, radius `lg`→`md`; submit radius `lg`→`md`, shadow `0.30`→`0.20`, label moved `body.md` + 800 override → `heading.sm`; backend error banner amber `#92400E` → `color.warning` token; lockout body amber → `color.text.secondary`. All owner-iterated copy preserved (subtitle two-line treatment, disclaimer D2, sentence-per-line lockout copy).
-- **BranchPickerSheet (voucher)** (T8l): impeccable redesign. Title `heading.md` → `display.sm` Mustica Pro + −0.3 tracking; per-row bordered cards → list with hairline `StyleSheet.hairlineWidth` dividers (No-Card-On-Card Rule); MapPin icon's 32×32 grey-square wrapper dropped → inline 20pt icon; selected row bg `color.cream` → `color.surface.tint` (cream is identity, surface.tint is state); CTA radius `lg`→`md`, shadow `0.30`→`0.20`, label `body.md`→`heading.sm`.
-
-**Sweep totals at PR head `545882a`:**
-- Customer-app jest (full suite): 1309/1310 ✅ (1 pre-existing baseline failure on `tests/lib/api/profile.test.ts` — documented existing-state, not introduced by PR-B).
-- Voucher + merchant scope: 941/941 ✅ across 77 suites.
-- Backend vitest: 553/553 ✅ across 60 files.
-- `tsc --noEmit` (customer-app): clean.
-
-**Closed deferrals:** §Q4 (Merchant Profile redeemed-card treatment) — closes via T5 + T8a + T8j + T8k.
-
-**Owner QA-driven shifts captured (where final state diverges from initial brief):**
-- Stamp evolution (Merchant Profile card): "REDEEMED" single word, top-right corner, label.eyebrow Lato Semibold (initial brief §3.5) → "Voucher Redeemed" two-word, centered overlay, refined hairline-pill (T8i) → diagonal Mustica Pro Semibold 22pt cancellation overprint at -10° (T8k, final).
-- Show-to-Staff register: cream Apple-Wallet-pass / vertical-receipt geometry (initial brief §3.1) → solid brand navy + brand-rose glow trust surface (T8c brand correctness) → owner-iterated through T8f/T8g/T8h device-QA fixes.
-- SuccessPopup: code rendering, anti-fraud disclosure, `useScreenCaptureProtection` REMOVED mid-PR-A (§0.9 lock); popup is no longer a sensitive code surface — code lives on `<ShowToStaff>` + persisted `<RedemptionDetailsCard>`. Confirmed parity gap closed in PR #49 wave (Show-to-Staff is the live trust signal; popup defers to it).
-- Voucher Detail hero seal redesign reverted at T8i: a T8h "premium hairline" redesign was applied to the wrong surface; owner direction restored the rubber-stamp `RedeemedSeal` exactly as approved pre-`8802084`. The refined treatment moved to the merchant-profile card stamp where it was always intended.
-
-Plan: `docs/superpowers/plans/2026-05-09-pr-b-customer-redemption-visual-design-pass.md` §"As Shipped" addendum.
-Brief: `docs/design-briefs/2026-05-09-pr-b-customer-redemption-visual-design-brief.md` §"As Shipped" addendum.
-Spec: `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md` §13 PR-B as-shipped notes.
-
-### ✅ Phase 3C.1j — Verified-Review Backend + Routing (PR-C, LIVE on origin/main 2026-05-09, merge `a80f427`)
-
-PR #57 closes out the verified-review track end-to-end. 21 commits across T1-T16 + Codex review fixes + 3 device-QA waves.
-
-**Backend contract (`Review.redemptionId` drives `isVerified`):**
-
-- `Review.redemptionId` is nullable, `@unique`, FK to `VoucherRedemption` with `ON DELETE SET NULL`. `isVerified = review.redemptionId !== null`. Staff validation (`isValidated`) is intentionally NOT required (replaces the old reviewer-level `isValidated`-required derivation; locked at §0.3).
-- **Path A — strict (explicit `redemptionId`):** validate the 5-condition rule (ownership / branch / merchant / current-cycle window / existence) BEFORE the upsert. Failures throw 400 with `REDEMPTION_NOT_FOUND` / `REDEMPTION_BRANCH_MISMATCH` / `REDEMPTION_MERCHANT_MISMATCH`. Stale-redemption (previous-cycle) surfaces as `REDEMPTION_NOT_FOUND` so existence isn't leaked. Cycle constraint added per Codex F1 mid-PR.
-- **Path B — auto-link (omitted `redemptionId` + no existing review row):** `autoLinkRedemption()` finds the most-recent eligible redemption in the user's current cycle window. None → unverified, no error. No subscription → unverified, no error.
-- **Path C — preserve (omitted `redemptionId` + existing review row already linked):** keep the existing linkage. REVIVE path (soft-deleted re-write) honours preserve too.
-- Path A and Path B share `getUserCycleWindowOrNull` so the cycle constraint is DRY.
-- Pre-PR-C reviews stay non-verified retrospectively (no backfill, locked at §0.3).
-
-**Frontend behaviour:**
-
-- **SuccessPopup** — top-right X close icon (replaces former bottom-row Done button, accessibility "Close"). Bottom row carries only a navy-gradient Rate & Review pill (`['#010C35', '#1F2A55']` filled, white-on-navy Star + label, soft navy shadow opacity 0.20, 48pt tap height). All three dismiss paths (X / hardware back / scrim) route to `onDone`.
-- **Voucher Detail `<ReviewPromptCard>`** — second entry point mounted immediately AFTER `<RedemptionDetailsCard>` in the redeemed-this-cycle state. Cream-tinted card surface, 1px hairline border, no card shadow. Heading "Share your experience"; body "Your review helps others choose this branch."; CTA pill identical to SuccessPopup's (same navy gradient, padding, glyph, label) so both surfaces share one CTA identity.
-- **URL contract** — both entry points push to `/(app)/merchant/[id]?branch=<id>&tab=reviews&openWriteReview=1&fromRedemption=<id?>`. Just-redeemed path (in-memory `lastRedemption.id` from RedeemResponse) includes `fromRedemption` → backend Path A validates + verified banner shows upfront on `<WriteReviewSheet>`. Cold-open return-visit path (persisted `voucher.lastRedemption`) omits `fromRedemption` because the persisted schema doesn't expose redemption id today; relies on backend Path B auto-link to verify on submit.
-- **MerchantProfileScreen receiving end** — lazy `useState` initialiser reads `screenParams.tab` so ReviewsTab mounts on render 1 (no Vouchers-tab flash). Effect on `initialOpenWriteFor` non-null forces `activeTab='reviews'` on every fresh attribution (handles cold-mount AND in-session repeat where URL `tab` value didn't change). URL scrub deferred via `onAutoOpenConsumed` callback so ReviewsTab consumes the prop BEFORE `router.replace` strips `openWriteReview` / `fromRedemption`.
-- **WriteReviewSheet "Update your review" copy (Option A locked).** When `initialRating > 0 OR initialComment.trim().length > 0` (parent pre-filled from `myReview`), title swaps to "Update your review", submit CTA to "Update review", loading to "Updating…", `BottomSheet` a11y label tracks. Whitespace-only `initialComment` defensively NOT treated as existing. Verified banner stays compatible with both copy variants — an UPDATE can still earn verification on a fresh redemption.
-- **ReviewCard verified badge** — green Check + "Verified redemption" copy, savings-green tinted background, accessibility label "Verified redemption".
-
-**Test totals at merge (head `1ce387a`):**
-- Backend full sweep: 553/553 across 60 files
-- Customer-app voucher + merchant + lib/api/reviews: 847/847 across 74 suites
-- Customer-app `tsc --noEmit`: clean
-
-**Carry-over follow-ups (NOT shipped in PR-C):**
-
-- **Prompt card "Update your review" copy** (Tier 1) — needs `myReview` exposed on `getCustomerVoucher` payload. Today both prompt cards keep "Share your experience" copy because the screen doesn't know about an existing review at the entry-point level; the sheet itself swaps once opened.
-- **Persisted return-visit verified banner upfront** (Tier 1) — needs `id` added to `voucherDetailLastRedemptionSchema`. Today the verified banner only shows on the in-memory just-redeemed path; cold-open return visits verify via Path B auto-link with the badge appearing AFTER submit (still functionally verified, just no upfront promise).
-- **Path A TOCTOU on hard-delete** (Minor) — Path A `findFirst` + upsert run in separate transactions; if a redemption is hard-deleted in the window the upsert FK-violates. Hard-deletes are admin-only and rare; user retries cleanly.
-- **Pre-PR-C reviews lose old "Verified" status** (locked behavioural note, no backfill) — owner-locked at §0.3.
-
-**Review-system v2 remains deferred (memory §AI):** the current `@@unique([userId, branchId])` one-review-per-branch model is the temporary placeholder. v2 (multi-review, spam / foul-language / rate-limit / anti-flood controls, moderation queue, `avgRating` / sort / helpfulness re-architecture) stays Tier 3 brainstorm-first work — pick up when customer base + review volume warrant the investment.
-
-Plan: `docs/superpowers/plans/2026-05-09-pr-c-verified-review-backend.md` §9 (as-shipped addendum).
-Spec: `docs/superpowers/specs/2026-04-17-voucher-detail-redemption-design.md` §8.6 (Voucher Detail prompt card) + §8.10 update note (SuccessPopup CTA + routing).
-Memory baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_pr_c_verified_review_complete.md`.
-
-### ✅ Phase 3C.1d — Merchant Profile (LIVE on origin/main 2026-05-05)
-- Branch-aware: customer API exposes `selectedBranch` block resolved from `?branch=<id>`; cold-open uses nearest-by-GPS or `Branch.isMainBranch`; in-tab switch via `router.replace`. Vouchers stay merchant-wide; redemption is branch-attributed.
-- Hero / banner / logo / favourite toggle + meta row (name, rating, distance, open status, contact/website/directions actions)
-- Sticky tab bar: Vouchers / About / Branches / Reviews. Tab fade transition with 8pt Y-settle (280ms ease-out-expo) + screen-wide opacity pulse on `selectedBranch.id` change (380ms)
-- Vouchers tab: locked voucher card design (pastel-but-alive per-type gradients, official Iconic v3 R watermark via SvgXml, hero-left + title-below layout, dark-translucent type chip, fixed-height descriptionWrap for consistent card heights, side notches, brand-red shadow tinted per type). VoucherContextLabel: `"{n} offers available · Redeem at {branch}"` (multi-branch) / `"{n} offers available"` (single-branch)
-- About tab: AboutCard (18pt 700 title + 14pt/22 body) + Photos + Amenities + OpeningHoursCard (with TODAY badge driven by London-local helper)
-- Branches tab: nearest-first sort with alphabetical fallback, suspended branches excluded; BranchCard with status pill, address, action buttons (Call/Directions/Hours/Switch)
-- Reviews tab: branch-scoped by default, two-state navy toggle (`[<branch-name>] [All branches]`), branch-aware empty state with "See reviews from other branches" cross-link, write/edit-from-card per-branch routing, `clearAllQueries` on auth-state transitions to prevent cross-user cache leak
-- All five sheets (Contact / Directions / Hours / BranchPicker / WriteReview) use the shared BottomSheet with close/outside/back/swipe dismiss
-- Subscribe-prompt modal animation: 320ms ease-out-expo (springify rejected as too bouncy)
-- Opening-hours timezone: `apps/customer-app/src/features/merchant/utils/londonNow.ts` exports `getLondonClock(now) → { dow, minutes }` — Hermes-CLDR-robust via numeric Intl parts + `getUTCDay()`. Both `useOpenStatus` (TODAY badge) and `smartStatus` (status pill / status text) route through this helper. See `reference_london_clock_helper.md` in memory.
-- PRs landed: #28 rebaseline → #30 nine bug fixes → #31 PR-A four Tier-1 fixes + 6 QA rounds → #32 P1 backend `selectedBranch` → #33 P2 frontend `selectedBranch` end-to-end → #35 UX refinement (30+ on-device QA rounds + Hermes timezone fix). Final merge `c5a52f2`.
-- Test counts at merge: customer-app jest 206/206 on the merchant suite, backend customer tests 115/115, tsc clean.
-- Locked design baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_merchant_profile_ux_refinement_complete.md` — read before any change to voucher card, Reviews scope label, opening-hours, or subscribe-prompt animation.
-- Plans: `docs/superpowers/plans/2026-04-17-merchant-profile.md` (initial), `docs/superpowers/plans/2026-05-04-merchant-profile-ux-refinement.md` (UX refinement)
-- Spec: `docs/superpowers/specs/2026-05-02-branch-aware-merchant-profile-design.md` (branch-aware), `docs/superpowers/specs/2026-05-04-merchant-profile-ux-refinement-design.md` (UX refinement)
-
-### ✅ Phase 3C.1e — Subscription Status Integration (LIVE on origin/main — wired into Voucher Detail M1+ via PR #40 and Merchant Profile via PR #35)
-- `useSubscription()` hook with React Query calling `GET /api/v1/subscription/me`
-- Zod safeParse for graceful null handling (free users)
-- `isSubLoading` flag prevents CTA flash during fetch
-- Wired into MerchantProfileScreen + VoucherDetailScreen
-- ACTIVE/TRIALLING = subscribed; PAST_DUE excluded (backend rejects, user sees subscribe CTA)
-
-### ✅ Phase 3C.1f — Savings Tab (LIVE on origin/main — PR-A backend SHIPPED PR #104 merge `b148a46` 2026-05-17; PR-B M1 frontend rebaseline SHIPPED PR #105 merge `5e63bef` 2026-05-18)
-- PR-A backend: revision-2 `byBranch` + `TopBranches` contract; multi-branch merchants render as multiple rows; per-entry shape includes `merchantLogoUrl`. Full detail: `~/.claude/projects/.../memory/project_savings_rebaseline_pra_complete.md`.
-- PR-B M1 frontend: customer-app Savings tab + new Redemption Receipt screen at `/(app)/redemption/[id]`. RedemptionRow gains a 4pt voucher-type left stripe (DESIGN.md side-stripe ban explicitly overridden by owner direction, recorded inline). Full detail: `~/.claude/projects/.../memory/project_savings_rebaseline_prb_m1_complete.md`.
-- Spec: `docs/superpowers/specs/2026-04-18-savings-tab-design.md`
-- Plan: `docs/superpowers/plans/2026-04-18-savings-tab.md`
-
-### ✅ Phase 3C.1g — Favourites tab (branch-level) — LIVE on origin/main 2026-05-31 (PR #137 merge `b529ba5`)
-
-42 commits / 95 files / +12,255 / −416. Tier 2 plan-first rebaseline of the Favourites surface from REFERENCE-ONLY `feature/customer-app` onto current `main`, with locked branch-level cardinality (heart = branch, not merchant; vouchers stay voucher-keyed per Phase 3C.1g spec §6.4 + `project_favourites_scope_branch_level.md` 2026-05-03).
-
-**Backend additive (no breaking changes):**
-- `FavouriteBranch` Prisma model + migration (`20260529094849_favourite_branch_additive`). Legacy `FavouriteMerchant` model deliberately preserved through v1 — retirement is a follow-up cleanup PR.
-- Idempotent backfill script `prisma/backfill-favourite-branches.ts` (main-branch only, P2002-safe, dry-run flag, parameterised on `prisma` for tests).
-- Customer routes + service: `POST/DELETE /customer/favourites/branches/:branchId` + `GET /customer/favourites/branches` (paginated, branch-keyed ratings, `exposeBranchPosition` redaction).
-- **`listFavouriteVouchers` Smart 7-bucket global sort** (spec §9.3 v1.1): Urgent TL < URGENT_THRESHOLD_MS / Active+available / REUSABLE cooldown / non-TL non-REUSABLE redeemed-this-cycle / TL outside window / Unavailable / Expired. `URGENT_THRESHOLD_MS = 60min` exported as a backend constant; pinned by `favourites.vouchers.threshold-parity.test.ts` against the customer-app `useTimeLimited` + `voucherCardSort` mirrors.
-- **`enrichBranchTiles` flipped from merchant-keyed → branch-keyed `isFavourited`** under Phase 3C.1g §6.4. Sibling branches of the same merchant carry independent heart states. Wire field name unchanged (Rev-2 §7 #13 forward-compat); only the source-of-truth table flipped (`FavouriteBranch.branchId`).
-- **`userId` threading through `homeRailBuilders.ts`** — fixes the Wave 4 systemic bug where Home rails hardcoded `userId: null` (every tile shipped `isFavourited: false` regardless of user state). Now explicitly threaded into `buildFeaturedRail` / `buildTrendingRail` / `buildPopularRail` / `buildNearbyByCategoryRails`.
-
-**Customer-app surface:**
-- `app/(app)/favourites.tsx` + `src/features/favourites/screens/FavouritesScreen.tsx` (new): header with tab switcher + counts, swipe-to-remove + 4s undo toast, infinite query, empty state, free-user nudge.
-- `<FavouriteHeart>` (M2.3) — canonical shared heart component; every surface entry point (Home rails, Search, Map carousel, Merchant Profile hero + voucher cards + branch cards, Voucher Detail, Favourites tab) routes through it instead of calling `useFavourite()` directly.
-- `BranchFavCard` (replaces reference branch's merchant card) + `VoucherFavCard` preserved-and-retuned.
-- `useRemoveFavourite` — Map-based per-row pending (W6.5), `flushPending()` on blur (W6.3), entity-tied undo (P2 below).
-- **Cross-surface optimistic heart sync (W6.7 + W6.8)** — `src/features/favourites/lib/optimisticCachePatch.ts`. `deepPatchTilesById` immutable recursive walker + `applyOptimisticFavouriteToDiscoveryCache(qc, entity, id, value)` helper. Synchronously flips matching tiles in cached `['discovery']` / `['merchantProfile']` (branch) + `['voucher']` (voucher) queries the instant a heart toggles — eliminates backend-RTT wait. Backend invalidate/refetch still runs as reconciliation. Walker pinned by 16 unit tests; W6.7+W6.8 cross-surface contract pinned by 10 hook tests + 1 cross-surface-symmetry pin.
-
-**Device-QA R1 wave-by-wave summary (W1 → W6.8 + P1/P2/I1 review fixes):**
-- W1-W3: surface bring-up; tab counts, empty states, swipe gestures, undo bar visibility.
-- W4: systemic heart-state consistency (root cause = `userId: null` hardcode); `useFavourite` identity-swap edge case on parent re-renders.
-- W5: back-routing through Favourites; undo toast above absolute tab bar.
-- W6 → W6.4: nested back navigation chain (multiple root causes: URL param drops in `useBranchSelection`; POP_TO_TOP `dismissAll` Stack-only action into Tabs root; MP background-tab effects re-firing; `useFocusEffect` deps instability collapsing undo timer to ~1s).
-- W6.5: multi-pending removal (`Map<rowId, PendingRemoval>` with insertion-order LIFO undo).
-- W6.6: HomeScreen explicit `refetch()` alongside `invalidateQueries(['discovery'])` belt-and-braces.
-- W6.7: optimistic cross-surface cache patch (eliminates stale-heart UX).
-- W6.8: voucher parity pins (tests-only, no impl change) — locks Voucher Detail ↔ MP voucher card symmetry, voucher multi-remove, voucher undo, voucher rollback.
-- **P1 (Codex review)**: `handleMerchantTap` on Voucher Detail now threads branch context via 3-tier resolver (`pickerConfirmedBranchId ?? branchIdParam ?? selectedBranch?.id`). URL: `/(app)/merchant/<id>?branch=<branchId>&from=favourites`. Branch param flows independently of the `from` token; non-favourites chains also benefit.
-- **P2 (Codex review)**: `FavouritesScreen` undo state now `{ message; entity: 'branch' \| 'voucher' }` — `handleUndo` dispatches on stored entity, not active tab. Closes the cross-tab-mid-undo bug where switching tabs while the toast was up routed undo to the wrong hook.
-- **I1**: stale `pessimistic-with-onSuccess` comment in `FavouriteHeart.tsx` swapped to `optimistic with rollback-on-error (W4 + W6.7)`.
-
-**Locked product/code invariants (do NOT regress — pinned by tests):**
-1. **Branch-level Favourites cardinality** — heart taps favourite the SELECTED branch, not the merchant. Different branches of the same merchant favourite independently. `enrichBranchTiles` queries `FavouriteBranch.branchId IN (...)`; sibling branches carry independent state.
-2. **Smart 7-bucket sort applied BEFORE pagination** in `listFavouriteVouchers`; documented cap N ≤ 200 per user per spec §6.3 cost model.
-3. **`URGENT_THRESHOLD_MS = 60min` parity** — drift between backend + customer-app constants caught by `favourites.vouchers.threshold-parity.test.ts`.
-4. **Cross-surface optimistic patch covers `['discovery']` + `['merchantProfile']` (branch) + `['voucher']` (voucher)** — does NOT touch `['favouriteBranches']` / `['favouriteVouchers']` (the favourites-list caches own splice/restore via useRemoveFavourite).
-5. **Walker `id+isFavourited:boolean` discriminator** — prevents accidentally creating the field on objects that never had it (e.g. merchant sub-objects with colliding ids but no `isFavourited` field).
-6. **`useFavourite` is optimistic with rollback-on-error** — not pessimistic-with-onSuccess (W4 deviation from spec §7.2 locked). Stale-state error codes (ALREADY_FAVOURITED on POST / FAVOURITE_NOT_FOUND on DELETE) keep the optimistic flip + invalidate.
-7. **Entity-tied undo** — `undoState: { entity }` drives `onUndo` dispatch, NOT `activeTab`. Reverting to tab-keyed dispatch reintroduces the cross-tab-mid-undo bug (pinned by §P2-1 + §P2-2).
-8. **`handleMerchantTap` branch threading** — URL push from Voucher Detail merchant-row MUST include `branch=` query param when any of the 3-tier resolver fires. Pinned by §W6-#1 + §P1 pins in `voucher-detail-back-navigation.test.tsx`.
-9. **`exposeBranchPosition` redaction** correctly applied on the new `listFavouriteBranches` payload (locked Plan 4 standing contract).
-10. **Branch-keyed ratings** in `listFavouriteBranches` (per `contextBranchId` standing direction — ratings on a branch surface belong to that branch, not the merchant rollup).
-
-**Carry-over deferred (NOT in PR #137 — tracked in `project_deferred_followups_index.md`):**
-- **Legacy `FavouriteMerchant` cleanup PR** (`§FAV.1`) — remove Prisma model + routes + service paths after v1 soaks. Trigger: 2-4 weeks post-merge, no rollback needed.
-- **Favourites Polish Batch** (Tier 2 brainstorm-first — `project_favourites_polish_batch_deferred.md`). Hierarchy / spacing / illustrations / motion / card visuals / possible Remove-confirmation UX.
-- **Home card locality polish** (Tier 1 — `project_home_card_locality_deferred.md`). Shared `<BranchTile>` should surface branch locality/town when profile-location/GPS-off is the source.
-- **Customer-web branch-first migration** (§CU.1 — Tier 3 brainstorm-first). Customer-web still consumes legacy `merchants` field from discovery; blocks §CU.1 + Plan 4 M5 + Discovery Phase 3b backend cleanup convergence.
-- **Minor code-review carry-overs**: branch-list row cap doc note; `openingHours as any` cast cleanup; `<FavouriteHeart>` `tone` prop unused (forward-compat); legacy `'merchant'` entity discriminator on `useFavourite` (retires with §FAV.1); backfill `skippedInactiveMerchant` re-runnability note in script header.
-
-**Verification at PR #137 merge:**
-- Customer-app full jest: **2590 / 2590** across 269 suites (+26 §W6.7 + 5 §W6.8 + 8 P1/P2 review-fix pins)
-- Customer-app `tsc --noEmit`: **0 errors**
-- Backend full vitest: all green pre-W6.6 (W6.6 → P1/P2/I1 are customer-app-only)
-- Backend `tsc --noEmit`: zero new errors (4 pre-existing baseline errors in `tests/api/customer/savings.service.test.ts` documented in CLAUDE.md remain)
-- Owner smoke re-QA: ✅ branch-preserving merchant-row, cross-tab Undo both directions, no POP_TO_TOP, no red screens, cross-surface heart agreement
-- Codex launch review: ✅ delta `d384078..35242e8` reviewed; 30/30 + 33/33 pins green; non-failing `act(...)` warning from location-permission probes is not a merge blocker
-
-Plan: `docs/superpowers/plans/2026-05-28-favourites-branch-level.md`.
-Spec: `docs/superpowers/specs/2026-05-28-favourites-branch-level-design.md`.
-Closure memory: `project_favourites_branch_level_complete.md`.
-
-### ✅ Phase 3C.1h — Profile Tab Sub-PR 1 (frontend port) — LIVE on origin/main 2026-05-26 (PR #133 merge `9484a84`)
-
-19 commits / 37 files / 4 review-and-fixup rounds. Full Profile surface ported from REFERENCE-ONLY `feature/customer-app` onto current `main` (which now includes §DF v1 saved-profile location + §DF-v2-j locationContext parity). Replaces the minimal Profile shell from PR #27.
-
-What shipped:
-
-- **Components:** ProfileHeader (completeness bar driven by `profile.profileCompleteness`, initials avatar, subscription badge), PersonalInfoSheet (read-only email/phone, editable name/DOB/gender), AddressSheet, InterestsSheet, ChangePasswordSheet, SubscriptionManagementSheet (cancel flow via live `useCancelSubscription` → `subscriptionApi.cancel`), NotificationsSection (live `newsletterConsent` toggle invalidating `meQueryKey` from `@/hooks/useMe`), AppSettingsSection (haptics, reduce motion, Location-access row routes to `/saved-area` — owner-confirmed direction, not `Linking.openSettings()`), RedeemoSection (Become a Merchant → external `LINKS.merchantPortal` URL per owner-confirmed M2; Request a Merchant → Sub-PR 2 stub), SupportLegalSection (opens GetHelpModal Sub-PR 2 stub + Terms/Privacy/FAQ external links), DeleteAccountFlow (2-stage OTP-gated deletion).
-- **Hooks:** `useCancelSubscription` (React Query mutation invalidating `['subscription']`), `useDeleteAccount` (state machine `warning`→`otp`→`done` with token-threaded `verifyOtp(): Promise<string | null>` + `confirmDelete(overrideToken?)` to avoid stale-closure on `actionToken`; post-deletion 2.5s `router.replace` setTimeout cleared on unmount via useRef cleanup), `useReduceMotion`.
-- **Screen:** `ProfileScreen` orchestrator with safe-area-aware ScrollView padding (`paddingTop: insets.top + 16`, `paddingBottom: insets.bottom + 100` for absolute tab bar clearance — matches PR #27 shell pattern). 3 MB avatar upload cap.
-- **Route:** `app/(app)/profile.tsx` becomes a 3-line re-export of `ProfileScreen`. The tab-bar entry from PR #27 carries forward unchanged.
-- **New constants:** `apps/customer-app/src/lib/constants/supportTopics.ts`.
-- **Tests:** 15 suites / 47 tests under `apps/customer-app/src/features/profile/__tests__/` + `apps/customer-app/tests/app/profile.test.tsx`. Key pins: DeleteAccountFlow regression for the stale-closure bug (drives OTP input + asserts `deleteAccount` called with token from `verifyOtp`); NotificationsSection `meQueryKey` invalidation pin via `jest.spyOn(client, 'invalidateQueries')`; GetHelpModal 3-pin stub contract (behavioural / no-op-on-false / rising-edge-guard / static-source seam for Sub-PR 2); AppSettingsSection `/saved-area` routing pin.
-
-### Intentional Sub-PR 1 stubs (matched to SubscribePromptScreen SSO pattern)
-
-- **`GetHelpModal`** — fires `Alert.alert("Coming soon", "In-app support is coming in a future update.")` on `visible=true` rising edge.
-- **`RequestMerchantSheet`** — fires `Alert.alert("Coming soon", "Merchant requests are coming in a future update.")` on `visible=true` rising edge.
-
-Both stubs use a `fired` ref to guarantee at-most-once-per-rising-edge semantics (resets when `visible` flips false). Without the ref, a parent re-render that swaps the `onDismiss` identity while `visible` stays true would re-run the effect and surface a duplicate Coming Soon popup.
-
-### Locked product/code invariants (do not regress — pinned by tests)
-
-1. **2-stage OTP-gated delete-account** — never collapse to single-tap.
-2. **Token threading on delete-account** — `verifyOtp` returns `Promise<string | null>`; `confirmDelete` accepts `overrideToken?: string`. Reverting to `if (actionToken) await confirmDelete()` reintroduces the stale-closure bug — `DeleteAccountFlow.test.tsx` regression pin will fail.
-3. **NotificationsSection invalidates `meQueryKey`** (the `['me']` key from `@/hooks/useMe`), NOT `['profile']`. Pinned by `NotificationsSection.test.tsx`.
-4. **AppSettingsSection Location-access row** routes to `/saved-area` (in-app Your Location screen from §DF v1), NOT `Linking.openSettings()`. Pinned by `AppSettingsSection.test.tsx`.
-5. **Become a Merchant** opens `LINKS.merchantPortal` external URL (owner-confirmed). In-app Merchant Request flow ships in Sub-PR 2.
-6. **Fired-ref guard on stub modals** — `GetHelpModal` + `RequestMerchantSheet` fire Alert at most once per rising edge of `visible`. Pinned by `GetHelpModal.test.tsx`.
-7. **Safe-area-aware ScrollView padding** on `ProfileScreen`. Must NOT regress to plain `padding: 16`.
-8. **Ownership boundary** — Profile work stays in `apps/customer-app/src/features/profile/**`, `apps/customer-app/app/(app)/profile.tsx`, `apps/customer-app/src/lib/constants/supportTopics.ts`, and `apps/customer-app/tests/app/profile.test.tsx`.
-
-### Deferred — Sub-PR 2 (Tier 3, brainstorm-first)
-
-Backend for the two stubs. Trigger to pick up: support-ticket or merchant-request need surfaces in user/QA traction.
-
-- New Prisma models: `SupportTicket` + `MerchantRequest` (+ migration). Owner direction needed on field shape (ticket categories / priority / SLA / merchant-request fields).
-- New customer routes: `customer/support/tickets` (list / detail / create) + `customer/merchant-requests` (create).
-- Customer-app: new `lib/api/support.ts` + `lib/api/merchant-requests.ts` clients; hooks `useSupportTickets` / `useCreateTicket` / `useMerchantRequest`; flip the 3 GetHelpModal stub pins; swap RedeemoSection inline Alert for real RequestMerchantSheet.
-- Per locked operating model: Sub-PR 2 needs `superpowers:brainstorming` → spec → plan before implementation. Do NOT start without owner direction.
-
-### Minor follow-ups from Sub-PR 1 reviews (deferred to Tier 1 or Sub-PR 2)
-
-- Inline structural interest types in `ProfileScreen.tsx` → import `Interest` from `@/lib/api/profile`.
-- `formatDate` allocates `Intl.DateTimeFormat` per call → hoist to module scope.
-- `GetHelpModal.test.tsx` static-source pin could use a clearer Sub-PR 2 disposition comment.
-- Dead `dob` mock field in `tests/app/profile.test.tsx` (real schema uses `dateOfBirth`).
-- ProfileScreen returns `null` while loading → skeleton/spinner UI is post-launch polish.
-
-EAS build config (`eas.json`, `app.config.ts`, `expo-build-properties`) was deliberately NOT ported in Sub-PR 1 per the plan's out-of-scope section.
-
-Plan: `docs/superpowers/plans/2026-05-27-profile-tab-rebaseline.md`.
-Memory baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_profile_tab_rebaseline_complete.md` — read this before any change to the Profile surface.
-
-#### Stabilisation Hotfix follow-up — LIVE on origin/main 2026-05-27 (PR #135 merge `dc1e8a0`)
-
-Bounded Tier 1/small-Tier-2 hotfix closing 8 device-QA findings + 3 Codex pre-merge review hardenings + 1 owner-reported HomeHeader avatar bug surfaced mid-PR. 3 commits / 14 files / +14 regression pins (full-sweep 253 suites / 2386 tests).
-
-P0/P1/P2 findings closed: (1) Reduce Motion toggle stuck — new `useOsReduceMotion()` OS-only signal + lock tightened to engage whenever OS forces reduce motion (Codex #2); (2) Avatar sync — `useUpdateAvatar` dual-sync `refreshUser()` + `meQueryKey` invalidate, with invalidate moved to `finally` so it survives refreshUser throws (Codex #3); (3) Profile Strength tip now field-aware (was tier-based hardcoded); (4) ScrollView wrapper View with `paddingTop: insets.top` so content can't slide behind Dynamic Island; (5) Location row wording + `/saved-area?from=profile` routing + SavedAreaScreen.handleBack `'profile'` branch; (6) Active session row removed; (7) Subscription label `{name} Plan` tweak. Plus the owner mid-PR HomeHeader fix — `avatarUrl` prop was plumbed but unused; now renders expo-image `<Image>` when provided, initial fallback otherwise.
-
-NEW locked invariants added by the hotfix (do NOT regress — pinned by tests):
-
-1. **Reduce Motion lock formula** — `isReduceMotionLocked = osReduceMotion` (NOT `osReduceMotion && motionScale === 0`). The lock engages whenever the OS is forcing reduce motion regardless of the in-app `motionScale` value; the in-app toggle cannot override an OS setting. Pinned by `AppSettingsSection.test.tsx` (motionScale=1+OS-on → switch ON + disabled).
-2. **`useUpdateAvatar` finally-block contract** — `invalidateQueries({ queryKey: meQueryKey })` MUST run even if `useAuthStore.getState().refreshUser()` throws. The Profile cache invariant holds across auth-store refresh failures. Pinned by `tests/hooks/useUpdateAvatar.test.tsx`.
-3. **HomeHeader avatar render contract** — when `avatarUrl` is provided, `<Image>` renders (testID `home-header-avatar-image`); initial fallback only when `avatarUrl` is null/undefined. Avatar URL pass-through from `HomeScreen` (`me.profileImageUrl`) is load-bearing. Pinned by `tests/features/home/components/HomeHeader.test.tsx`.
-
-Ownership boundary: intentional 3-file scope expansion beyond PR #133's strict Profile boundary, all owner-approved: `src/hooks/useUpdateAvatar.ts`, `src/features/saved-area/screens/SavedAreaScreen.tsx`, `src/features/home/components/HomeHeader.tsx`. Zero leakage into design-system, lib/api, routing, auth, voucher, merchant, savings, customer-web, backend, or Prisma.
-
-Memory baseline: `~/.claude/projects/-Users-shebinchaliyath-Developer-Redeemo/memory/project_profile_tab_rebaseline_complete.md` — Stabilisation Hotfix section at the end.
-
-### ✅ Phase 3C.1i — QR Code Rendering (LIVE on origin/main via Voucher Detail M3 — PR #49 merge `a80f427`, 2026-05-09)
-- Backend: `GET /api/v1/redemption/me/:code` (customer self-lookup) + `POST /api/v1/redemption/:code/screenshot-flag` (dedup, pre-validation gate)
-- `react-native-qrcode-svg`, `expo-brightness`, `expo-screen-capture`, `expo-blur` installed
-- `formatCode()` + `codeAccessibilityLabel()` helpers (3+3 grouping for 6-char codes)
-- `QRCodeBlock` shared component: Redeemo logo overlay, blur state, hero/compact sizes, a11y label
-- `useRedemptionPolling`: 5s poll, stops on validated or 15min timeout
-- `useBrightnessBoost`: captures and restores brightness, best-effort
-- `useScreenCaptureProtection`: cross-platform prevent/allow lifecycle — Android FLAG_SECURE + iOS 11+ recording-blur (shared by ShowToStaff, SuccessPopup, and Voucher Detail when the code is visible)
-- `useScreenshotGuard`: iOS post-fact screenshot listener + 5s client dedup + best-effort telemetry only (Show-to-Staff + Voucher Detail when the code is visible; SuccessPopup excluded — short-lived popup)
-- `useAutoHideTimer`: dims QR after 2min inactivity, 10s warning, frozen when validated
-- `ShowToStaff` rewritten: all 4 hooks, live QR, validated state, screenshot banner, auto-dismiss
-- `RedemptionDetailsCard` rewritten: live poll via useQuery + useFocusEffect, QR pre-validation, validated timestamp post-validation
-- `PulsingDot` design-system primitive (withRepeat stays inside design-system/motion/)
-- `src/design-system/icons.ts` re-export barrel (satisfies no-barrel-lucide ESLint rule)
-- 85 frontend tests passing; 264 backend tests passing; ESLint clean
-- Spec: `docs/superpowers/specs/2026-04-22-qr-code-rendering-design.md`
-- Plan: `docs/superpowers/plans/2026-04-22-qr-code-rendering.md`
-
-### 🚀 v1.0 Customer Auth + Onboarding Baseline — LIVE on origin/main (2026-04-26)
-
-The locked v1.0 customer auth + onboarding baseline (described in the section below) is now **on `origin/main`**. Local `main` and `origin/main` are aligned at merge commit `42f9768`. New feature branches must be created from updated `main` (not from the merged baseline branch).
-
-**PR sequence that landed v1.0:**
-
-1. **PR #6 (`chore/main-catchup`) — merged first** at `628d1e7`. Published a 34-commit pre-existing local-main backlog covering Phase 2C/2D/3B/3C backbone work that PR #5 depended on: 4 Prisma migrations (review-helpful, cycle-anchor-date, nullable-stripe-fields, onboarding-completion-flags), subscription-anchored cycles, alphanumeric redemption codes, savings/favourites/reviews endpoints, and 24 docs/specs.
-2. **PR #5 (`feature/customer-auth-baseline`) — merged second** at `4932633`. Established the locked v1.0 baseline: 5 commits including B1–B8 customer-app baseline, W1–W3 customer-web mirror, raw-token cleanup, and two Critical fixes from code review (account-collision auto-delete removal + server-flag onboarding contract wiring).
-3. **PR #7 (`chore/workspace-hygiene`) — merged third** at `42f9768`. `.gitignore` adds (`.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`), 6 future-phase docs/specs published, 8 approved Prisma dev scripts published.
-
-**Test baselines as of merge:** backend 285/285 (vitest), customer-app jest-expo 27+ on the modified suites passing in worktree (full suite still subject to the install-tree mismatch — see follow-ups). TypeScript clean across backend, customer-app, customer-web.
-
-**Safety tags pushed to origin:** `baseline-v1.0-rc1` (= PR #5 head `7c3964d`), `main-pre-catchup` (= local main tip pre-publish `56d6903`), `main-pre-publish`. Merged branches retained on origin: `feature/customer-auth-baseline`, `chore/main-catchup`, `chore/workspace-hygiene`.
-
-**PR scope verification rule (mandatory going forward):** before merging any PR, verify GitHub's *live* `compare` endpoint diff (commit count + file list) against expectation. PR-level cached fields (`gh pr view N --json commits/additions/changed_files`) are stale snapshots. Local `main` and `origin/main` can drift; that gap will be included in any PR off a head branch built on local `main`. See `feedback_pr_scope_verification.md` for the full pre-merge checklist.
-
-### 🔒 Customer Flow — Locked Baseline v1.0 (locked 2026-04-25 → live on origin/main 2026-04-26)
-The customer onboarding + auth + subscription flow is now locked **and live on `origin/main`**. Single source of truth for the as-built behaviour:
-
-- **Current spec:** `docs/customer-flow-current.md` — versioned, status `Locked`, covers login, registration, email/phone verification, profile completion (PC1–PC4), onboarding success, subscription prompt, `resolveRedirect` rules, and free vs premium placeholder behaviour.
-- **Change log:** `docs/customer-flow-changelog.md` — dated entries for every behaviour/logic/routing change. Visual styling iterations are NOT tracked here.
-
-**Rules going forward:**
-- Any change to the flows above MUST bump the version number at the top of `customer-flow-current.md` and add a dated entry in `customer-flow-changelog.md`.
-- The §11 "Deviations from Initial Spec" table in the current spec is the canonical list of deltas against `docs/superpowers/specs/2026-04-10-customer-ux-foundations-design.md`. Update it when a deviation closes or a new one opens.
-- Subscription prompt placeholder behaviour is locked: "Explore full access" → `Alert.alert('Coming soon', …)`, NO `markSubscriptionPromptSeen`, NO navigation. "Start with free access" is the only path that stamps the flag and routes to `/(app)/`. Do not collapse the two CTAs without a new design review.
-
-### ✅ Phase 3C — Device Review / Reconciliation (COMPLETE — 2026-04-24)
-Four-phase reconciliation pass against the approved specs after on-device review. Single ground-truth document captures every change, rationale, and file touched:
-**Plan: `docs/superpowers/plans/2026-04-24-reconciliation-phases-1-4.md`** — finalised baseline, do not revert without new design review. (Now superseded as the forward-facing reference by `docs/customer-flow-current.md`; the reconciliation plan remains the historical record of Phases 1–4.)
-
-Headline outcomes (full detail in the plan):
-- **Phase 1 (app).** Routing now driven entirely by server `/profile`; `(auth)/_layout` re-evaluates `resolveRedirect` on every render; subscribe-prompt stamps `subscriptionPromptSeenAt`.
-- **Phase 2 (web).** Register split into auth + profile + interests; login no longer blocks on unverified flags; `/verify` token flow added; `hydrateFromProfile` exposed in `AuthContext`.
-- **Phase 3 (web).** `VerificationBanners` — soft amber (email, with Resend) + blue (phone) banners, sessionStorage dismissal, pathname-scoped.
-- **Phase 4 (app + web).** Step auto-skipping via `firstIncompleteRequiredStep()`; canonical gender values (`female | male | non_binary | prefer_not_to_say`); retry-once + partial-save banner on web profile persistence; `SubscriptionNudge` component for non-subscribed web users.
-
-**Locked intentional asymmetry (do not collapse):** DOB/gender/postcode optional on web, mandatory on app (PC1 + PC2). Phone required at web register but verified only in app. Email verification hard-blocks in app, soft banner on web. `onboardingCompletedAt` + `subscriptionPromptSeenAt` are app-driven only.
-
-**Operating rule (historical, retained for future reconciliations):** no ad-hoc fixes — classify against spec → baseline → device behaviour, confirm priorities, implement in controlled batches. Per-issue template in the reconciliation plan.
-
-Test baselines after Phase 4: backend 282/282, app 350/350 (jest-expo), web tsc clean.
-
-### Customer app post-completion fixes (2026-04-23) — finalised baseline
-These fixes were applied after Phase 3C.1i and are part of the working baseline. They are not provisional.
-
-**Backend — Prisma Decimal serialization (impl bug, P1)**
-- `src/api/customer/discovery/service.ts` — coerce `estimatedSaving` → `Number` on voucher detail (line ~550) and merchant profile vouchers (line ~430).
-- `src/api/redemption/service.ts` — coerce `estimatedSaving` → `Number` on `redeem`, `listMyRedemptions`, `getMyRedemption`.
-- Root cause: Prisma Decimal serializes as string in JSON; client types declare `number`; `.toFixed` crashed.
-
-**Backend — Categories endpoint (impl bug, P1)**
-- `src/api/customer/discovery/routes.ts` — `GET /api/v1/customer/categories` returns `{ categories }` wrapper (not bare array).
-- `src/api/customer/discovery/service.ts` — `listActiveCategories` Prisma select includes `parentId` and `pinColour`.
-
-**Frontend — Auth rebuild to v7 brainstorm (spec alignment)**
-- `apps/customer-app/src/features/auth/screens/LoginScreen.tsx` — full rewrite: cream bg, small Redeemo logo, Apple/Google stubs, email + password (eye toggle), forgot-password link, gradient "Sign in" pill.
-- `apps/customer-app/src/features/auth/screens/RegisterScreen.tsx` — full rewrite: name row, email, password with 4-segment strength bar, phone, marketing consent, terms.
-
-**Frontend — Home CategoryGrid rebuild (spec alignment)**
-- `apps/customer-app/src/features/home/components/CategoryGrid.tsx` — 3-col liquid-glass grid; `LinearGradient` tiles; inline SVG icons; palette + `pinColour` fallback; purple "More" tile; `FadeInDown` stagger.
-
-**Frontend — Search rebuild (spec alignment)**
-- `apps/customer-app/src/features/search/components/SearchBar.tsx` — red SVG search icon, subtle red border, stronger shadow, circular grey clear button.
-- `apps/customer-app/src/features/search/components/TrendingSearches.tsx` — uppercase "TRENDING" + amber bolt; wrapping pill tags.
-- `apps/customer-app/src/features/search/components/SearchResultItem.tsx` — white card 12r, gradient fallback avatar, 12px name, 10px meta, save pill + open dot.
-- `apps/customer-app/src/features/search/screens/SearchScreen.tsx` — "Results for X" header with red `PulsingDot` + Loading text; card-style skeletons; empty state.
-
-**Frontend — Subscription recognition (impl bug, P1)**
-- `apps/customer-app/src/lib/api/subscription.ts` — `priceGbp: z.coerce.number()`. Prisma Decimal string was failing `z.number()` safeParse silently.
-- `apps/customer-app/src/features/voucher/components/CouponHeader.tsx` — defensive `Number(estimatedSaving).toFixed(2)`.
-
-**Frontend — Voucher detail + keyboard handling (impl bug, P1/P2)**
-- `apps/customer-app/app/(app)/_layout.tsx` — `tabBarStyle: { display: 'none' }` on `voucher/[id]` and `merchant/[id]` so the sticky Redeem CTA is not hidden behind the 80px tab bar.
-- `apps/customer-app/src/design-system/motion/BottomSheet.tsx` — listens to `keyboardWillShow/keyboardDidShow` and shifts `bottom: keyboardHeight`; sheet `zIndex: layer.overlay + 1` so the scrim (z=50) does not paint over the sheet when the keyboard lifts.
-- `apps/customer-app/src/features/voucher/components/PinEntrySheet.tsx` — auto-submits on 4th digit; `submittedRef` dedup guard prevents duplicate fire; clears `digits` on sheet hide.
-
-**Dev tooling scripts**
-- `prisma/grant-dev-subscription.ts` — grants 1-year ACTIVE monthly subscription to `customer@redeemo.com`. Stripe-free (uses nullable Stripe fields). Run: `npx tsx prisma/grant-dev-subscription.ts`.
-- `prisma/get-branch-pin.ts` — decrypts and prints branch PINs by merchant-name search. Run: `npx tsx prisma/get-branch-pin.ts "old foundry"`. Note: seed default PIN for all branches is `1234`.
-- `prisma/set-auth-state.ts` — flips a user's verification flags + status to exercise login auth-error UX without real email/SMS/admin. Modes: `verified` (restore), `email-unverified`, `phone-unverified`, `inactive`, `suspended`. Run: `npx tsx prisma/set-auth-state.ts <email> <mode>`. Always restore with `verified` before moving on.
-- `prisma/issue-reset-token.ts` — writes a real password-reset token into Redis (`pwd-reset:customer:<token>`) with configurable TTL so the reset-password flow can be tested without live email. Run: `npx tsx prisma/issue-reset-token.ts <email> [ttlSeconds=3600]`. Prints web + app deep links. For the expired/invalid path use any bogus token — Redis miss → `RESET_TOKEN_EXPIRED`.
-- UI-only auth cases (no script needed): `EMAIL_ALREADY_EXISTS` → register with a seeded email; `PASSWORD_POLICY_VIOLATION` → register with a weak password; `RESET_TOKEN_EXPIRED` → open reset link with `?token=nope`.
-
-### Pending local-only artefacts (2026-04-26) — not on main, not deleted
-
-The following 5 artefacts intentionally stayed off `origin/main` during the v1.0 publish. They remain on disk in the working tree. Do not commit without refactor/review. Do not delete without owner approval.
-
-**Untracked Prisma scripts** (will keep showing as `??` in `git status` until committed or deleted):
-- `prisma/check-user.ts` — hardcoded to a personal email; refactor to take `<email>` as argv before publishing.
-- `prisma/reset-user-password.ts` — hardcoded to a personal email + plaintext password (`Redeemo1!`). **Caught in PR #7 code review.** Functionality is already covered by `issue-reset-token.ts` + `set-auth-state.ts` — most likely action is delete with approval rather than refactor.
-- `prisma/test-login.ts`, `prisma/test-session.ts` — one-off auth/session probes from earlier scaffolding. No documentation, no clear ongoing utility. Decision pending: refactor + document, or delete.
-
-**Git stash — discovery merchant phone/email privacy review**
-
-On the project owner's local clone there is a stash labelled `discovery: drop merchant phone/email from customer-facing select — pending privacy review`. It contains a 1-line removal from the Prisma `select` in `getCustomerMerchant` (`src/api/customer/discovery/service.ts` ~line 331). Treat as **pending merchant/API privacy review, NOT part of the v1.0 baseline.** Three viable interpretations: (a) intentional privacy fix → small follow-up PR with a test pinning the new behaviour; (b) accidental deletion → drop the stash; (c) in-progress refactor → keep stashed. Do not auto-classify — ask the owner before acting. (Two older unrelated stashes also exist on the owner's clone from prior sessions — leave them alone.) Note: stashes are local-only and don't replicate to origin, so any specific stash index is owner-machine-specific; identify the stash by its label, not by `stash@{N}`.
-
-**Workspace hygiene gitignored dirs** (still on disk, just not in `git status`): `.claude/`, `.superpowers/`, `graphify-out/`, `docs/branding/`. The last one is 556 MB of brand assets and remains gitignored pending a decision on whether to move to S3/R2 or use Git LFS.
-
-### ✅ Phase 3C.1k — §DF Postcode/profile-location fallback v1 (SHIPPED 2026-05-25 via PR #128, merge `9e6d878`; final PR head `2ef9a24`; 47 commits / 41 files / +7321 / -77)
-
-Tier 2 plan-first customer-app workstream. When live GPS is denied or unavailable, Discovery now resolves against the user's saved profile postcode (server-side `resolveEffectiveLocation` already shipped via Plan 4 M2.4) and a visible honesty hint on Home discloses the fallback source. A dedicated Saved Area sub-screen lets the user update the postcode or grant GPS, with a branded pre-permission explainer + denied/off recovery sheet wrapping every explicit "Use current location" action.
-
-8 implementation tasks (Tasks 1 / 2 / 4 / 5 / 6 / 7 / 9 / 10) + 7 task-fixup commits + 2 SKIPPED (Tasks 3 + 8 folded into §DF-v2-j per audit Task 0c — backend `locationContext` parity emit + top-of-app `LocationStatusLabel` deferred since 4 endpoints need additive emit, two of which carry `lat`/`lng` propagation plumbing). PLUS 6 device-QA rounds of post-PR-open fixes (Rounds 1-6) covering: refreshUser-after-postcode-save, seed-determinism removal of postcodes.io dependency, profile API lat/lng exposure, Map locate-me cascade + initial-camera cascade + queryBbox-null seed, Home hint copy + structure refresh, Search profile-aware empty state with MapPinOff illustration, "Saved Area" → "Saved Location" → "Your Location" naming rename, recovery sheet secondary-CTA caller override, Saved Area keyboard layout (KAV + identity-card-hide-when-editing + drop-double-keyboard-adjustment), saving overlay during await chain, from-param routing for Search→YourLocation back-nav, and final em-dash sweep per DESIGN.md.
-
-What shipped (locked):
-- **Resolver precedence unchanged:** PLACE_QUERY > GPS > SAVED_PROFILE > none, preserved from Plan 4 M2.4. §DF closes the data gap so SAVED_PROFILE can actually fire for seed + legacy users.
-- **Seed (`14a822c`/`1a1a33a`):** `prisma/seed.ts` writes `HD1 1AA` + lat/lng/localityId on `customer@redeemo.com` via `findOrCreateLocality`.
-- **Backfill (`7a7addf`/`95d51e6`):** new `prisma/backfill-user-locality.ts` + tests; idempotent; targets `postcode IS NOT NULL AND (localityId IS NULL OR latitude IS NULL OR longitude IS NULL)`.
-- **Hook consolidation (`1e21a10`/`dc0079e`):** `useUserLocation` extended (audit Task 0a Option A) — 4-state `permission` enum, `coords` alias, `request()` with explainer hook, `openSettings()`, single-flight guard. All 7 pre-existing call sites stay backward-compatible. §AU dev-override preserved. Two-abstraction guardrail confirmed — `useLocationAssist` (PC2 reverse-geocode) untouched.
-- **Pre-permission + recovery (`d2360e2`/`e6a617c`/`e20f87c`):** `apps/customer-app/src/lib/location/{PrePermissionExplainer,LocationRecoverySheet,LocationPermissionProvider}.tsx`. Provider wraps the `(app)` layout. Critical fix `e6a617c` wired the "Open settings" CTA to actually call `Linking.openSettings()`.
-- **Honesty hint (`22ecc39`):** `SavedAreaHonestyHint.tsx` mounted above Featured on Home. Shows only when `locationContext.source === 'profile'`. Cream-tinted, brand-rose hairline, slide-up exit on `source` transition `'profile' → 'coordinates'`.
-- **Saved Area sub-screen + Profile cross-link (`ebf4269`/`fb26105`):** flat route `app/(app)/saved-area.tsx` (audit Task 0b Option A) + `src/features/saved-area/screens/SavedAreaScreen.tsx`. Update-postcode invalidates Discovery + me caches. Use-current-location routes through the consolidated hook + sheets. GPS coords NOT written to `User.postcode` — explicit "Update postcode" is the only mutator.
-- **Backend pins (`0cb19fa`/`19857c7`):** 7 new pins §DF-1..§DF-7 in `tests/api/customer/discovery/home-feed-rail-states.test.ts`. §DF-7 captures the latent §DF-v2-i wire-helper-vs-resolver inconsistency as baseline.
-- **Coverage-gap pins (`ebcf08c`):** customer-app focused suite 78/78 across `tests/hooks/`, `tests/lib/location/`, `tests/features/home/SavedAreaHonestyHint.test.tsx`, `tests/features/saved-area/SavedAreaScreen.test.tsx`.
-
-Post-PR-open device-QA rounds (Tasks 1-10 above were Task-12-locked; the rounds below are the additional patches owner direction added during review cycles):
-- **Round 1-2 review fixes:** `1c8baaf` refreshUser-after-save · `8ba63c0` seed determinism (fixed snapshots, drop postcodes.io dep at seed time).
-- **Round 3:** `94bcbb1`/`06686f7` backend profile lat/lng/locality · `0975abd` Map locate-me cascade · `697c2d0` Home hint copy GPS-off context · `d746b11`/`bb07aa0` Saved Area helper copy + reset-on-focus + await-refetch · `c7b5963` Search profile-aware empty state + route fix · `c135f0d` task-marker comment scrub across 8 source files.
-- **Round 4:** `1e21a10` "Saved Location" → "Your Location" rename · `8913dd6` centered RedeemoLoader saving overlay + identity-card visual · `697c2d0` em-dash sweep (Home + Search + Saved Area) · `14a3600` Map initial-camera cascade + LONDON_REGION fallback · `75c1612` keyboardVerticalOffset for nav header · `0a1cabc` Round 4 copy + identity-card polish.
-- **Round 5:** `ddb257c` identity-card hide-when-editing + fetchQuery prefetch before back-nav + from-param routing scaffolding · `9624bcb` recovery sheet secondary-CTA caller-override · `0574513` Search wires `?from=search` + "Not now" override · `82ff0af` Home hint title+body stacked structure · `95b432a` Search body 2-sentence refresh + MapPinOff illustration.
-- **Round 6:** `2ef9a24` final keyboard fix — drop double keyboard adjustment + hide redundant trailing caveat when editing.
-
-Test counts at merge tip: customer-app full sweep **~2299/2299** across 234 suites; backend `vitest -t "§DF"` **7/7**; customer-app `tsc --noEmit` clean; backend `tsc --noEmit` zero NEW errors (4 pre-existing baseline errors in `tests/api/customer/savings.service.test.ts` lines 84/353/433/473 unchanged).
-
-Carry-over deferred (in `project_deferred_followups_index.md`):
-- **§DF-v2-i** — align `resolveEffectiveLocation` invariants (`localityId AND lat AND lng`) with `resolveLocationContext` (`localityId OR city` text). Latent inconsistency now baselined by §DF-7 pin. Pickup: Tier 1 if device-QA flags `source='profile'` hint while ranking is UK-wide.
-- **§DF-v2-j** — ✅ SHIPPED via PR #131 (merge `877a32f`, 2026-05-26) — see "Phase 3C.1m" below. (Was: skipped §DF v1 Tasks 3 + 8 — backend additive `locationContext` emit + `lat`/`lng` plumbing + 4 Zod schema extensions + top-of-app `LocationStatusLabel`.) Live residual = §DF-v2-o only.
-- **§DF-v2-k** — town/city/place search in Your Location (currently postcode-only). Brainstorm-first. Tier 2.
-- **§DF-v2-l** — Your Location current-postcode card visual polish (Round 4 identity-card largely closed this; residual polish may surface during further device-QA).
-- **§DF-v2-m** — success acknowledgement toast after save (deferred — Round 4 saving overlay + Round 5 fetchQuery were the alternative; toast can layer in if device-QA flags). Tier 1.
-- **§DF-v2-n** — Search place-intent copy refinement (e.g. "Closest matches for London near Brightlingsea" should recognise London as a place). Tier 1-2.
-- §DF-v2-a/b/c/d/e/f/g/h — multi-saved-locations, no-postcode Home prompt, aggressive GPS prompt on first open, GPS-vs-postcode reconciliation UI, periodic "is postcode right?" prompt, honesty hint on Search/Map/voucher/merchant, standalone Home-top "Use current location" pill, locality re-resolution job. All in spec §11.
-- **§DF-web** — customer-website parallel work. Separate Tier 2 workstream per spec §13. Blocked on §BW customer-web test infra.
-
-Plan: `docs/superpowers/plans/2026-05-24-postcode-profile-fallback.md` v1.0.
-Spec: `docs/superpowers/specs/2026-05-24-postcode-profile-fallback-design.md` v1.1.
-Audit: `docs/superpowers/audits/2026-05-24-location-hook-audit.md` (Tasks 0a/0b/0c locked decisions).
-Closure memory: `project_df_postcode_profile_fallback_complete.md`.
-Customer-flow doc: `docs/customer-flow-current.md` §13 (saved-area fallback) + §14 (device-QA checklist).
-Customer-flow changelog: `docs/customer-flow-changelog.md` 2026-05-25 entry.
-
-### ✅ Phase 3C.1l — Discovery Rebaseline (branch-first cardinality) + Plan 4 M4 + §CD + §DG (umbrella)
-
-The 5-week burst of Discovery work between 2026-05-19 and 2026-05-24 shipped as 10 stacked PRs on origin/main. Owner-locked branch-first cardinality (one tile per branch instead of one tile per merchant) drove the rebaseline; Plan 4 M4 + §CD voucher search + §DG Popular ranking layered on top.
-
-| PR | Merge | What |
-|---|---|---|
-| #110 | `89dab9e` (2026-05-19) | Discovery Phase 1 backend additive — every endpoint emits both legacy `merchants` AND new `branches`; `rankBranchesV3` |
-| #111 | `7f5f42f` (2026-05-19) | Task 2.1.0 scope parity — `searchBranches` honours scope cascade |
-| #112 | `a1b0f04` (2026-05-20) | Discovery Phase 2.1 Search — branch-first Search end-to-end |
-| #113 | `4a380bd` (2026-05-20) | Discovery Phase 2.2 Map — branch-first pins + carousel + list |
-| #117 | (Phase 2.3 Home, 2026-05-21) | Discovery Phase 2.3 Home — branch-first Home rails |
-| #120 | `eac8acd` (2026-05-21) | Discovery Phase 2.4 Category — branch-first Category |
-| #121 | `a069a2e` (2026-05-21) | Discovery Phase 2.5 tile-rename — shared `<MerchantTile>` → `<BranchTile>` via `git mv` |
-| #122 | `c3fce64` (2026-05-21) | Discovery Phase 3a customer-app cleanup — legacy `MerchantTile` type + dependents removed |
-| #123 | `73b3149` (2026-05-22) | Tier 1 polish (image perf, skeletons, campaign overlay) |
-| #124 | `5dbd3b4` (2026-05-22) | Plan 4 M4 (Search + UX) — branch-first search ladder + scope cascade + place/tag header copy |
-| #125 | `afb7b61` (2026-05-22) | §CD voucher keyword search v1 — voucher.title + voucher.description matching, `matchContext` wire field, "Found in '<title>' voucher" copy |
-| #126 | `c62ec57` (2026-05-23) | Home Relevance v1.3-v1.9 — 7 incremental device-QA-driven fixes (cascade fill, parent-category grouping, thin-supply top-up, semantic chip tinting, banner trigger tightening) |
-| #127 | `d1e07ce` (2026-05-24) | §DG Popular ranking + test-redemption cleanup — drops location-blind top-30 pre-filter, adds `VoucherRedemption.isTestData` + QA email filter, rolling 30-day window, distance-based chip unification |
-
-Phase 3b backend cleanup + Plan 4 M5 cleanup stay DEFERRED, blocked on §CU.1 customer-web branch-first migration (Tier 3 brainstorm-first). Full per-PR detail lives in the corresponding `project_discovery_rebaseline_*_complete.md` + `project_dg_popular_ranking_locked_expectations.md` + `project_deferred_DB_DC_DD_home_relevance_followups.md` memory files.
-
-### ✅ Phase 3C.1m — locationContext parity + top-of-app status label (§DF-v2-j + §DF-v2-i) — SHIPPED 2026-05-26 (PR #131 merge `877a32f`; final fixup head `ca888b0`; 19 commits / 30 files / +5,662 / −136)
-
-Tier 2 plan-first. Bundles §DF-v2-i (tighten `resolveLocationContext` invariants to match `resolveEffectiveLocation`'s SAVED_PROFILE branch — `localityId + latitude + longitude` ALL required for `source='profile'`) with §DF-v2-j (parity emit on Search / Map / Merchant Profile + new `<LocationStatusLabel>` component mounted on Home / Search / Map).
-
-Owner-locked product copy: "Using profile location · {city}" / "Using profile location" / "No GPS · Set location ›" / "Set location ›" — the "saved area" / "saved location" vocabulary is fully retired across label, honesty hint, Your Location screen, and any future surface.
-
-Locked decisions inherited from spec §3 (D1-D11):
-
-- **D1** — bundle §DF-v2-i with §DF-v2-j atomically; ship §DF-v2-i first as Task 1 prerequisite.
-- **D2/Q1** — `<LocationStatusLabel>` lives at `apps/customer-app/src/lib/location/LocationStatusLabel.tsx`.
-- **D3/Q2** — `permission='unavailable'` renders same as `'denied'` (`No GPS · Set location ›`).
-- **D4/Q3a** — Voucher Detail + Merchant Profile do NOT mount the label.
-- **D5/Q3b** — Merchant Profile DOES emit the envelope additively (forward-compat); Voucher Detail entirely deferred to §DF-v2-o.
-- **D6/Q4** — Home keeps BOTH `<LocationStatusLabel>` (compact identity) AND `<SavedAreaHonestyHint>` (caveat + Update); they NEVER collapse.
-- **D7/Q5** — request-scope uniqueness for `resolveLocationContext` satisfied by construction (variant (a) route-level resolve); no standalone memo helper built.
-- **D8/Q6** — fallback copy when `source='profile'` and `city===null` defensive: `"Using profile location"` (no city suffix); owner-locked migration away from "saved area" / "saved location" wording.
-- **D9** — `locationContextSchema` hoisted to `apps/customer-app/src/lib/api/shared/location.ts`; consumed by `discovery.ts` + `merchant.ts`; `voucher.ts` deliberately untouched.
-- **D10** — Map keeps `meta.effectiveLocality` (viewport-context) AND `locationContext` (user-context) SEPARATE; pinned by §LSL-Map test.
-- **D11** — Voucher Detail deferred entirely to new follow-up §DF-v2-o.
-
-What ships (13 commits ahead of main):
-
-- 4 backend route emits — `/home` (migration), `/search`, `/discovery/in-area`, `/merchants/:id`. Pure service helpers stay free of `FastifyRequest`.
-- New helper exports — `resolveLocationContext`, `LocationContext`, `LocationContextWire`, `toLocationContextWire`.
-- New customer-app shared schema — `apps/customer-app/src/lib/api/shared/location.ts`.
-- New customer-app component — `<LocationStatusLabel>` with strip + chip variants.
-- 3 surface mounts — HomeScreen (strip, above honesty hint slot), SearchScreen (strip, above SearchBar + retired `useMe()`-driven `savedAreaCity`), MapScreen (chip, top of safe-area band).
-- 32 new backend pins (4 helper unit + 12 route integration + atomic §DF-7v2i rename) + 11 component pins + 5 surface integration pins.
-
-Carry-over deferred (new):
-
-- **§DF-v2-o** — Voucher Detail location-context awareness. Plumb `lat`/`lng` on `/api/v1/customer/vouchers/:id`, emit envelope, decide on `<LocationStatusLabel>` mount. Tier 1-2. Pickup trigger: Voucher Detail consumer needs location-awareness.
-
-**Shipped-state addendum:** 3 owner-led device-QA rounds + 1 pre-merge fixup round shaped the final code:
-
-- **Round 1** — Home `flush` prop (drops cream pill chrome); Search idle envelope fallback via `useMe()` (idle-state-only, owner-locked plan amendment); Map permission overlay gate; Map chip `flex:1` → `flexShrink:1` fix; Your Location v1 invariants documented (§15.6 in customer-flow-current).
-- **Round 2** — Home `marginTop: -spacing[3]` to absorb HomeHeader's bottom padding; Search label conditional on `showResults && branches.length > 0` (hide in idle/empty/loading per owner — empty-state copy carries identity); SearchEmptyState copy refresh ("Your location is turned off" / "Turn it on").
-- **Round 3** — Structural: `<LocationStatusLabel>` moved INSIDE `<HomeHeader>` at the same `marginTop: spacing[1]=4pt` rhythm as the GPS-on row. Standalone strip mount retired. `§LSL-Home-inside-header` pin locks the placement.
-- **PR #131 fixup** — Search synthesis tightened to mirror §DF-v2-i exactly (`localityId + latitude + longitude` all three required, no `me.data.city` text fallback); Map overlay gate aligned to the same complete-profile predicate; `/search` + `/discovery/in-area` route-level `resolveLocationContext` parallelized into the existing `Promise.all`.
-
-Final test counts at merge: backend §DF-v2-j + §DF-v2-i pins 16/16; customer-app focused 4-suite gate 36/36; customer-app full impacted-surface sweep 408/408 across 58 files; both tsc gates clean.
-
-Spec: `docs/superpowers/specs/2026-05-26-locationcontext-parity-design.md` v1.1.
-Plan: `docs/superpowers/plans/2026-05-26-locationcontext-parity.md`.
-Audit: `docs/superpowers/audits/2026-05-26-locationcontext-route-audit.md`.
-QA: `docs/superpowers/qa/2026-05-26-locationcontext-parity-device-qa.md` (3 device-QA rounds + 1 pre-merge fixup round).
-
-### ✅ Home Visual System Redesign — Batches 1B–5 + motion/gradient/scroll pass (SHIPPED via PR #140, merge `18d3fb1`, 1–3 June 2026)
-
-A multi-batch premium redesign of the Home screen, built on branch `feature/home-batch-1b-card-chip` (Batches 1B / 2 / 3 / 5 — `a2d00a8` BranchTile hierarchy / `514bc24` section composition / `fd74c4e` chrome cards / `93ec8c7` page-load motion + branded refresh — plus the Batch 4 illustrated 2-col category grid + Explore capsule + All-Categories re-skin and the entire 2026-06-03 motion/gradient/scroll pass). **MERGED to `main` via PR #140 — merge commit `18d3fb1` (2026-06-03), 15 commits / 156 files.** Scope was customer-app + docs + CLAUDE.md plus ONE backend/API change (NearbyByCategory per-category cap `NEARBY_CATEGORY_TAKE` 5→10 in `src/api/customer/discovery/homeRailBuilders.ts`; `NEARBY_MAX_CATEGORIES` stays 6; `NEARBY_MERCHANT_POOL_TAKE` stays 60). The branch `feature/home-batch-1b-card-chip` was **RETAINED on origin (not deleted).** The PR also carried the foundational spec/Batch-1B-plan commit `30a6f2b`, three post-review commits (PR-readiness fixes `56feefe`, Option B savings copy `20b5d7e`, the backend cap `89be008`), and a comment-only cleanup `78806fd`.
-
-**📑 Single consolidated rebuildable reference (read this first):** `docs/superpowers/plans/2026-06-03-home-visual-system-as-built-reference.md`. Per-pass detail: the 5 batch plans `docs/superpowers/plans/2026-06-01-home-*.md` + `2026-06-03-home-motion-gradient-scroll-pass.md`. Spec: `docs/superpowers/specs/2026-06-01-home-visual-system-design.md`. Tracker: deferred-index **§HC** (+ §HC.7 for the June-3 pass). Closure memory: `project_home_visual_system_redesign.md`. (`2026-06-01-home-visual-system-workflow-checklist.md` is a NON-canonical tombstone.)
-
-Headline: illustrated category cards (Model-A — app draws card + radial gradient + designer icon + Mustica label; `ElementCluster` overlays transparent 1254² 3D PNGs) + brand red→orange gradient iconography on every rail glyph (`BrandGradientGlyph` SVG mask/fill, no masked-view dep) + per-icon LOOPING rail motions + a spinning gradient Featured star (`RailIconMotion`) + open-dot live pulse (`LiveStatusDot`) + a one-time Explore-capsule intro demo (`demoToken`) + the SectionBand warm peach + dual-edge glow + a **scroll-performance fix** (pause all loops during scroll via the global `scrollActivity` flag + per-component `useAnimatedReaction`). New card archetypes: `FeaturedHeroCard` (editorial hero), `NearbyCard` (landscape browse), `PopularCard` (shared Popular/Trending rail card). Reduce-motion CANCELLATION fixed; DETECTION is open (**§RM**). **Non-blocking follow-ups** (tracked in the PR #140 body + `project_home_visual_system_redesign.md`): Family & Kids real glyph assets · AllCategories token pass · collapsing sticky + brand-coloured Home header (✅ SHIPPED — PR #142, merge `fe8e22e`, 2026-06-06; sticky/collapsing + brand red→orange radial/wave header, iOS device-QA + multi-agent /code-review fix pass; see memory `project_home_sticky_brand_header.md` + deferred §HSH) · bottom-nav redesign (✅ SHIPPED — PR #144, merge `0b46e57`, 2026-06-06; Option B calm branded shelf + bespoke Codex outline/filled nav icons via NavGlyph + custom tabBarButton + shared `layout.bottomNavHeight=90` clearance token + press scale/haptics/reduced-motion; see memory `project_bottom_nav_branded_shelf.md`) · reduce-motion detection (§RM) · `category-illustrations/` ~16 MB LFS/CDN optimisation · dense-market NearbyByCategory pool watch (`NEARBY_MERCHANT_POOL_TAKE` stays 60; raise to ~120 if dense markets under-fill) · low-end Android / iPhone SE narrow-width QA watch (`removeClippedSubviews` was removed from the root feed + rails) · shared `<SavingBlock>` + `useScrollPausedLoop` helper extraction.
-
-### 🔲 Next planned work
-
-**🔒 Pre-launch security / legal / domain gate (status 2026-06-08) — code-complete on `origin/main` (`2a221522`, PR #170).** A sequence of small, plan-first backend/devops/security/legal PRs ran after the Home/nav work. SHIPPED: SEC core (~#150–#159) + post-gate F1/F2/F4/F5/F8 (#160–#164) + deploy/security runbook `docs/runbooks/deploy-security-runbook.md` (#165) + production-safe reference seed = pre-launch **Task #1** (`prisma/seed-reference.ts`, #166/#167/#168) + standalone recompute-count runner = pre-launch **Task #2** (`prisma/recompute-counts.ts`, #169) + legal-gate **enforcement** (#170). **STILL OPEN (not closable by code):** owner/legal **legal-content sign-off = the TRUE hard launch gate** (real company number / registered office / ICO ref / solicitor review — the static customer-web legal pages are the launch source of truth; **`CmsContent` is unwired/deferred, NOT the gate**); **domain alignment** — D-A ✅ RESOLVED (owner, 2026-06-08): Redeemo does **NOT** own `redeemo.com`; `redeemo.co.uk` is the owned canonical domain (do not assume `.com` redirects), so any user-visible/externally-sent `redeemo.com` link is a launch/trust **risk**, not cosmetic. **Source alignment SHIPPED:** the non-DNS-coupled user-visible `.com` refs are now `redeemo.co.uk` (PR #172 — merchant share URL + dev header-test example + synthetic deletion-placeholder email + host-agnostic deep-link test + customer-web merchant-pitch contact emails + a static guard `tests/api/legal/canonical-url.guard.test.ts`), and **D-C ✅ RESOLVED (#173): Merchant Portal canonical link = `https://merchant.redeemo.co.uk`** (the subdomain DNS/hosting + the portal itself are Phase 4). **D-B ✅ DECIDED (docs, 2026-06-09): production API = `https://api.redeemo.co.uk`** (staging `api-staging.redeemo.co.uk` or the Railway URL until staging DNS) — **deploy-env + DNS only, no source change** (`NEXT_PUBLIC_API_URL`/`EXPO_PUBLIC_API_URL`; CSP `connect-src` derives from `NEXT_PUBLIC_API_URL`; `CORS_ORIGIN` stays the web origin; runbook §1). **D-E ✅ DECIDED (docs, 2026-06-09): web canonical = apex `https://redeemo.co.uk`; `www.redeemo.co.uk` → apex (308) at Vercel; keep both in `CORS_ORIGIN` during rollout** — Vercel/DNS config, no source change (links are relative/host-agnostic; runbook §1 + §5). SEO follow-up (`metadataBase`/canonical/OG + `robots.txt` + `sitemap.xml`, apex) tracked separately (deferred §SEC.6). **D-F ✅ DECIDED (docs, 2026-06-09): Phase-6 email sender policy** — From `Redeemo <noreply@redeemo.co.uk>`, Reply-To `support@redeemo.co.uk`, merchant `merchants@redeemo.co.uk`, legal/DSAR keeps `info@redeemo.co.uk`; real email stays **UNWIRED/not live** until domain verify + SPF/DKIM/DMARC + monitored inboxes + bounce webhooks→`CommunicationLog` + §SEC.1 atomic limiter (runbook §6); staging = separate key + sandbox. The `resend` SDK is in `package.json` but unimported; schema (`CommunicationLog`/consent fields) is already email-ready so no schema change. **Now gated — D-D only (domain):** universal-link/DNS (`app.config.ts` + AASA/assetlinks + app rebuild). Other open (non-domain): §SEC.1 atomic limiter (pre-Resend); §SEC.6 SEO follow-up; SEC-H6 + SEC-M1–M5. **No cookie-consent banner needed today** (only the strictly-necessary `redeemo_auth` cookie; no analytics) — adding analytics later triggers PECR cookie-consent work. Full record: memory `project_security_legal_domain_gate_complete.md` + `project_deferred_followups_index.md` §SEC.
-
-1. **Workflow hooks for scope discipline** — DONE (PR #9, PR #12). Hook script at `.claude/hooks/pre-bash/01-git-safety.sh` enforces broad-add / push-to-main / force / hard-reset / clean-fdx / dirty-tree-discard / `gh pr merge` SHA-binding. Kept here as a record.
-2. **Customer-app surface rebaselines** — `feature/customer-app` is REFERENCE ONLY (per the locked branch policy in memory). Each surface ports off it via its own dedicated PR onto current `main`. Tracks already shipped: Merchant Profile (PR #35), Voucher Detail M1 (PR #40), M2 (PRs #43-#46), M3 (PR #49), M4 TIME_LIMITED M4a/M4b/M4c/M4d (PRs #64/#65/#66/#68), M5 REUSABLE (PR #72), **Home / Discovery / Search / Categories / Map (Phase 3C.1b)**, **Savings tab (Phase 3C.1f — PRs #104 + #105)**, **§DF saved-profile location fallback (Phase 3C.1k — PR #128)**, **Profile tab Sub-PR 1 frontend port (Phase 3C.1h — PR #133)**, and **Favourites tab branch-level (Phase 3C.1g — PR #137, merge `b529ba5`, 2026-05-31)**. Surfaces still pending rebaseline:
-   - **Sub-PR 2 — Profile tab backend** (SupportTicket + MerchantRequest Prisma + customer routes + customer-app client/hooks; flip the 3 GetHelpModal stub pins; swap RedeemoSection inline Alert for real RequestMerchantSheet). Tier 3, brainstorm-first. Trigger to pick up: user/QA traction surfaces support-ticket or merchant-request need.
-   - **Profile Polish Batch** (Tier 2 brainstorm-first — see `project_profile_polish_batch_deferred.md`). Bounded visual + UX refinement bundle for Profile: subscription card visual redesign (plan-tier hierarchy, upgrade/change-plan UX), skeleton/loading UI, bottom-sheet UX refresh, card visuals + typography + icons + illustrations, Delete Account placement reconsidered, Active Session sheet if reintroduced, Settings → Redemption History past-cycle surface (pairs with the Redeemed-state design pass). Trigger: device QA after PR #135 (the Stabilisation Hotfix) surfaces these as next-priority OR explicit owner direction.
-   - **Redeemed-state design pass** (Tier 2) — bundles §Q1-Q3 + §Q5 (washed-out coupon hero, REDEEMED stamp on coupon body, dimmed merchant card on Voucher Detail, Settings → Redemption History past-cycle browsing) + §S1-S3 (PIN sheet + success popup + Show-to-Staff design polish). §Q4 (merchant-profile voucher-card treatment) ✅ closed via PR #60 (PR-B, merge `ed01be9`). §S1-S3 partially closed by PR-B's impeccable passes (T8m PIN sheet, T8n SuccessPopup, T8p Show-to-Staff). Remaining §Q1-Q3 + §Q5 + the §S1-S3 polish-not-yet-shipped items are the residual scope of this pass.
-   - **Customer name on Show-to-Staff** (§U1) — Tier 1 follow-up, picked up after merchant-portal validation surfaces lock so both sides design together.
-3. **Plan 4 — Location Model UK Enrichment** — Plan 4 M1-M4 SHIPPED (M1 PR #81, M2 PR #84, M3 PRs #85/#86/#88/#89, M4 PR #124). Only **M5 cleanup** remains, blocked on §CU.1 customer-web branch-first migration (Tier 3 brainstorm-first). M5 will converge with §CU as a single cleanup PR per `project_discovery_sequencing_plan4.md` + `project_deferred_followups_index.md` §CU. Plan 3 (PC3 interests → `Category` migration) stays deferred per `project_pc3_interests_category_migration.md` and should sequence after Plan 4 M5.
-4. **§DF-v2-j** — ✅ SHIPPED via PR #131 (merge `877a32f`, 2026-05-26) + docs closure #132; see "Phase 3C.1m" above. The only live residual is **§DF-v2-o** (Voucher Detail location-context awareness — plumb `lat`/`lng` on `/vouchers/:id`, emit the envelope, decide on the `LocationStatusLabel` mount). Tier 1-2; pick up when a Voucher Detail consumer needs location-awareness. (Current next-workstream shortlist lives in `project_current_state.md` + the 2026-06-06 audit: §RM reduce-motion detection → backend tile-enrichment → Search tooling.)
-5. **Open follow-ups** — see `project_merchant_profile_ux_refinement_complete.md` for the merchant-profile open list (tap-target A11y, seed enrichment, `closesAt` device-local removal, discovery card ratings via `contextBranchId`).
-6. **Phase 4** — Merchant Portal + Mobile App (queued). See deferred-followups §R4 for the locked architecture (branch-restricted access, per-user capabilities, automated monthly statements). Locked production-resilience standing checklist (memory §W) applies — high-traffic flows + third-party deps need explicit consideration.
-
-### 🔲 Phase 3C — explicitly deferred items
-- **Subscribe purchase flow** — iOS requires Apple IAP (Stripe cannot be used inside iOS app). Android could use Stripe or Google Play Billing. Deferred pending IAP decision. Placeholder screen exists at `subscription-prompt` (renamed from `subscribe-prompt` in PR #5; the locked CTA contract — alert-only premium, stamp+nav free — is preserved).
-
-### ✅ Phase 3D — Customer Website (Next.js) (COMPLETE — PR #3, branch feature/customer-web)
-- Full Next.js 15 App Router site at `apps/customer-web/`
-- Pages: home, discover, merchant profile, voucher detail, search, subscribe, account, savings, favourites, profile, forgot/reset password, delete account
-- Auth: register, login (OTP flow), logout — tokens in localStorage, flag cookie for middleware
-- Subscribe: Stripe SetupIntent flow, plan selector, promo code support, animated success state
-- Account: profile edit, subscription management (cancel), savings dashboard (chart + redemption history), favourites (merchants + vouchers), delete account (OTP-gated)
-- Fonts: Mustica Pro SemiBold (display/headings) + Lato (body) — self-hosted from branding package
-- Key decisions: account pages are client components (getAccessToken() is localStorage-only); 401s redirect to /login?next=<page>
-- PR: MSC23-bot/Redeemo#3
-### 🔲 Phase 4 — Merchant Portal + Mobile App
-### 🔲 Phase 5 — Admin Panel
-### 🔲 Phase 6 — Comms + Marketing Layer (Resend, FCM, Twilio — includes email PIN delivery)
-
----
-
-## Open Decisions / Things to Confirm Before Building
-
-- SMS OTP gateway: Twilio (recommended, owner agreed to evaluate)
-- Zoho One: use for CRM + contracts + helpdesk alongside the custom platform (not instead of it)
-- GDPR: ICO registration required; DSAR + deletion flows must be built into customer account
-- Website scope: fully defined above — no redemption, subscription purchase supported
-- White-label: not in scope for now, possible future expansion
-- **Apple IAP requirement:** iOS App Store requires Apple In-App Purchase for digital subscriptions — Stripe cannot be used inside iOS app. Subscription model already supports this (nullable Stripe fields, payment-agnostic cycle logic). Implementation deferred.
-- **Subscription source enum:** When admin-grant flow is built (Phase 5), add `source` field to Subscription (STRIPE / APPLE / GOOGLE / ADMIN) for clarity
-
----
-
-## How to Resume Work
-
-1. Read this file to get full context
-2. Check `git log --oneline` to see current state
-3. Check `docs/superpowers/plans/` for implementation plans
-4. Run `npx prisma db seed` to reset dev data if needed
-5. Ask Claude to continue from the current phase
-
-## Worktree CLAUDE.md Rule
-
-**Single source of truth:** Root `CLAUDE.md` only. Every worktree must symlink to it — never copy.
-
-`.worktrees/` is gitignored, so symlinks are local-only. Recreate after any worktree teardown:
-```bash
-rm -f .worktrees/customer-app/CLAUDE.md && ln -s ../../CLAUDE.md .worktrees/customer-app/CLAUDE.md
-```
-
-For any new worktree at `.worktrees/<name>/`:
-```bash
-rm -f .worktrees/<name>/CLAUDE.md && ln -s ../../CLAUDE.md .worktrees/<name>/CLAUDE.md
-```
-
-## Workflow Hooks (v1 — high-risk Git rules only)
-
-Project-level Claude Code hooks at `.claude/settings.json` + `.claude/hooks/pre-bash/01-git-safety.sh` enforce a small set of high-risk Git rules inside the Bash tool. The hook runs as a `PreToolUse` step on every Bash invocation; it inspects the command, then either blocks (exit 2 with an instructive message) or allows (exit 0, optionally with a stderr warning).
-
-**Blocked commands:**
-
-| Pattern | Override |
+| Doc | Role |
 |---|---|
-| `git add . / -A / --all / *` | (no override — use explicit paths) |
-| `git push origin main` (any refspec where destination is `main`) | (no override — open a PR via `gh pr create`) |
-| `git push --force` / `-f` (without `--force-with-lease`) | (no override — use `--force-with-lease`) |
-| `git reset --hard` | `REDEEMO_CONFIRM_HARD_RESET=1` |
-| `git clean -f / -d / -x / --force` | `REDEEMO_CONFIRM_GIT_CLEAN=1` |
-| `git checkout … -- <paths>` / `git restore <paths>` against a dirty working tree | `REDEEMO_CONFIRM_DISCARD=1` (added 2026-04-26 after the v7 UI loss incident — see "Incident" below) |
-| `gh pr merge` without scope verification | `REDEEMO_PR_SCOPE_VERIFIED=<head-sha>` (run `gh api compare` first; the env var binds to the PR's current head SHA so the gate re-blocks if a new commit lands between verification and merge) |
+| `docs/PROJECT-STATE.md` | status, decisions, warnings, deferrals (authoritative) |
+| `docs/superpowers/roadmaps/merchant-portal-programme-roadmap.md` | Merchant programme map |
+| `docs/deferrals/open-register.md` | live open deferred follow-ups |
+| `docs/customer-flow-current.md` (+ changelog) | locked customer-flow contract; version-bump on change |
+| `docs/product-decisions.md` | historical decision ledger (superseded by PROJECT-STATE §6) |
+| `docs/superpowers/{specs,plans,audits,governance}/` | intended-behaviour evidence |
+| `docs/runbooks/` | deploy/security/ops runbooks (check status headers; some are draft-only) |
+| `docs/history/` | archived historical records (e.g. the pre-2026-07 CLAUDE.md) |
 
-**Warned (printed to stderr, not blocked):**
+Build history 2026-04 → 2026-06 (all phases, locked baselines, per-PR detail):
+`docs/history/claude-md-2026-06-20-archive.md`.
 
-- `npm install` — `package-lock.json` may change; verify diff before staging
-- `git commit` with > 30 files staged — confirm scope before committing
-- `git push` when local `main` is ahead of `origin/main` — those commits will ride along on a feature branch built off local main; verify scope via `git log --oneline origin/main..HEAD`
+## 15. graphify caveat
 
-**Override usage:**
-
-Set the named env var on the same command line as the blocked command, never as a session-level export:
-```bash
-REDEEMO_CONFIRM_HARD_RESET=1 git reset --hard origin/main
-REDEEMO_PR_SCOPE_VERIFIED=$(gh pr view 5 --json headRefOid --jq .headRefOid) gh pr merge 5 --merge
-```
-
-For per-user persistent overrides (rare), edit `.claude/settings.local.json` (gitignored) — never disable the shared `.claude/settings.json` without owner approval.
-
-**Dependencies:** the hook script requires `jq` (macOS Homebrew default) plus `git` and `gh` (already required for project workflow). If `jq` is missing the hook prints a one-line warning and no-ops.
-
-**Updating hooks:** changes to `.claude/settings.json` or `.claude/hooks/**` go via PR like any other code. v1 covers only the high-risk rules above; pre-commit / pre-push / pre-merge full checklists and session-start checks are deferred to future PR B and PR C.
-
-### Incident: v7 UI loss + recovery (2026-04-26)
-
-The v7 auth/onboarding/subscription redesign was developed iteratively in `.worktrees/customer-app/` and existed only as uncommitted changes. A later cleanup (`git checkout HEAD -- src tests app`) intended to revert unrelated test-overlay residue also wiped that uncommitted v7 work. Recovered via deterministic transcript replay (PR #10 + PR #11 into `feature/customer-app`); owner-verified on-device.
-
-**Root causes:**
-- Significant work existed only as uncommitted changes — no checkpoint commit, no stash.
-- Conversation compaction summary referenced the work in past tense as if completed; subsequent agents trusted that framing without verifying against `git status`.
-- The destructive `git checkout HEAD -- <paths>` was not blocked by hooks at the time, despite having equivalent destructive power to `git reset --hard` on a dirty working tree.
-
-**Hard rules going forward (also apply to humans, not just AI):**
-1. **Before ANY destructive command** (`reset --hard`, `checkout … -- <paths>`, `restore <paths>`, `clean -f`, `stash drop`, branch switch with dirty tree), run `git status --short` in the target directory and classify every entry. Do not run the command until each entry is either intended-to-discard or preserved (commit / stash / copy).
-2. **Compaction summaries are hypotheses, not facts.** "We did X" describes the conversation, not the repository. Verify with `git log --all -- <path>` before assuming X is in a commit.
-3. **Worktree state is per-worktree.** `git status` in the main checkout says nothing about `.worktrees/<name>/`. Always check the right working tree.
-4. **Work is "done" only when it's in a commit or PR** — never when it's only on disk.
-
-The `git checkout … -- <paths>` / `git restore <paths>` block (with `REDEEMO_CONFIRM_DISCARD=1` override) was added to the workflow hooks specifically to catch this class of incident.
-
-## Workflow Tier Calibration
-
-Every Redeemo task is classified into one of four tiers BEFORE implementation begins. The tier determines whether a plan/spec doc is required and what process to follow. The tier should be surfaced in the first reply on a task ("This is a Tier 1 — small fix to PC2 postcode display") so scope and process are explicit from the start.
-
-### Tier 0 — Tiny fix
-One-line / one-file / obvious fix. No plan doc. Commit message + short PR description sufficient.
-
-### Tier 1 — Small bounded change
-Small change inside ONE existing surface. No plan doc required, but the PR description MUST explain scope, risk, and tests covered.
-
-### Tier 2 — Surface rebaseline / multi-file UI work
-Examples: auth/onboarding rebaseline (PR #25), merchant profile rebaseline, voucher detail rebaseline, Favourites / Savings / Profile tabs, any customer-app surface moved from `feature/customer-app` to `main`.
-
-Rules:
-- MUST have a written plan doc first (`docs/superpowers/plans/YYYY-MM-DD-<topic>.md`).
-- Owner decisions surfaced BEFORE implementation.
-- Implementation follows milestones; PAUSE at each milestone for review.
-- If a contract / dependency gap appears mid-execution, PAUSE and amend the plan — do NOT hack around it. Document amendments in the plan doc itself.
-- Docs must be updated in the SAME PR if behaviour changes (`customer-flow-current.md` + `customer-flow-changelog.md` etc.).
-- Tests required before PR.
-- No merge until review + QA complete.
-
-### Tier 3 — New architecture / backend contract / schema change
-Examples: Plan 4 location model, PC3 → category-preference migration, new backend flows, subscription/payment architecture.
-
-Rules:
-- Use the full Superpower flow: `superpowers:brainstorming` → spec doc → `superpowers:writing-plans` → implementation → review → lock.
-
-### Standing rules
-
-- **All rebaseline work is Tier 2 by default.**
-- **Never start Tier 2 or Tier 3 implementation** without the correct plan/spec process first.
-- **If the tier is unclear, PAUSE and ask the owner.** Do not guess.
-
-**Why this exists:** Locked 2026-05-01 after PR #25 (the auth/onboarding rebaseline) demonstrated that Tier 2 work without a plan-first discipline can balloon mid-execution and require multiple in-flight amendments, with each amendment costing a pause-for-review cycle. Plan-first discipline keeps scope honest, surfaces dependency gaps as decisions rather than fait-accomplis, and keeps the final PR diff explainable to reviewers.
-
-## Running Locally
-
-Two terminal tabs required simultaneously:
-
-**Tab 1 — Backend API (port 3000):**
-```bash
-cd /Users/shebinchaliyath/Developer/Redeemo
-npm run dev
-```
-
-**Tab 2 — Customer Website (port 3001):**
-```bash
-cd /Users/shebinchaliyath/Developer/Redeemo/apps/customer-web
-npm run dev
-```
-
-Then open http://localhost:3001. Seed credentials: `customer@redeemo.com` / `Customer1234!`
-
-Customer website env file: `apps/customer-web/.env.local` — requires `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` for subscribe flow.
-
-## Running Tests
-
-**Backend tests (vitest) — safe to run via Claude Code Bash tool:**
-```bash
-npx vitest run
-```
-
-**Customer-app tests (jest-expo) — run from within the worktree app directory:**
-```bash
-cd /Users/shebinchaliyath/Developer/Redeemo/.worktrees/customer-app/apps/customer-app
-npx jest --forceExit
-```
-After moving off iCloud and switching to Node 20.19.4, jest-expo runs normally from Claude Code's Bash tool (~8–10s for full suite). Use `--forceExit` to avoid open-handle hangs from React Query + fake timer combinations. Babel cache at `/tmp/jest-redeemo-customer-app` (cold build is fast now). Node version: run `fnm use` from inside `apps/customer-app/` so the customer-app `.nvmrc` (Node 20.19.4) is active — jest-expo needs Node 20.19.4, **not** the repo-root Node 24 (see the Node version policy under Confirmed Tech Stack).
-
----
-
-## Key Files
-
-| File | Purpose |
-|---|---|
-| `docs/customer-flow-current.md` | 🔒 Customer flow locked baseline (v1.0) — login, register, verification, PC1–PC4, onboarding success, subscription prompt, `resolveRedirect`, free vs premium placeholder |
-| `docs/customer-flow-changelog.md` | Customer flow change log — dated behaviour/logic/routing changes |
-| `prisma/schema.prisma` | Complete database schema — source of truth |
-| `prisma/seed.ts` | Dev seed script |
-| `prisma.config.ts` | Prisma 7 config (datasource URL, seed command) |
-| `.env` | Local environment variables (not committed) |
-| `docs/superpowers/plans/2026-04-07-data-model.md` | Phase 1: Data model plan |
-| `docs/superpowers/plans/2026-04-08-auth-api-structure.md` | Phase 2A: Auth system plan |
-| `docs/superpowers/plans/2026-04-09-merchant-branch-voucher.md` | Phase 2B: Merchant/branch/voucher plan |
-| `docs/superpowers/plans/2026-04-09-subscription-system.md` | Phase 2C: Subscription system plan |
-| `docs/superpowers/plans/2026-04-09-subscription-hardening.md` | Phase 2C: Subscription hardening plan |
-| `src/api/subscription/cycle.ts` | Subscription-anchored cycle logic: `getCurrentCycleWindow()`, `toMidnightUTC()`, `resetVoucherCycleForUser()` |
-| `src/api/redemption/service.ts` | Redemption flow with all guards (subscription, voucher, cycle, PIN, rate limit) |
-| `docs/superpowers/specs/2026-04-18-savings-tab-design.md` | Savings tab UX spec |
-| `docs/superpowers/plans/2026-04-18-savings-tab.md` | Savings tab implementation plan (13 tasks) |
-| `docs/superpowers/specs/2026-04-22-qr-code-rendering-design.md` | QR code rendering UX spec |
-| `docs/superpowers/plans/2026-04-22-qr-code-rendering.md` | QR code rendering implementation plan |
-| `docs/superpowers/plans/2026-04-24-reconciliation-phases-1-4.md` | Phase 3C reconciliation (Phases 1–4) — finalised baseline: routing, verification, gender normalisation, subscription nudge |
-| `apps/customer-web/components/layout/VerificationBanners.tsx` | Soft email + phone verification banners for web (Phase 3) |
-| `apps/customer-web/components/layout/SubscriptionNudge.tsx` | Soft subscription nudge for non-subscribed web users (Phase 4) |
-| `apps/customer-app/src/lib/routing.ts` | `resolveRedirect` + `firstIncompleteRequiredStep` — single source of routing truth |
-| `apps/customer-app/src/features/profile-completion/hooks/useProfileCompletion.ts` | Step auto-skipping via `nextRouteAfter` (Phase 4) |
-| `apps/customer-app/src/design-system/icons.ts` | Lucide icon re-export barrel (avoids barrel import ESLint rule in components) |
-| `apps/customer-app/src/design-system/motion/PulsingDot.tsx` | Pulsing dot animation primitive (withRepeat lives only in design-system) |
-| `apps/customer-app/src/features/voucher/components/QRCodeBlock.tsx` | Shared QR code component (hero + compact, blur state, a11y label) |
-| `apps/customer-app/src/features/voucher/hooks/useRedemptionPolling.ts` | Poll for validation status (5s interval, 15min timeout, stops on validated) |
-| `apps/customer-app/src/features/voucher/hooks/useAutoHideTimer.ts` | Auto-hide QR after 2min inactivity, 10s warning, frozen when validated |
-| `apps/customer-app/eas.json` | EAS build config (development/preview/production profiles) |
-
-## graphify
-
-This project has a graphify knowledge graph at graphify-out/.
-
-Rules:
-- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
-- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
-- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)
+`graphify-out/` exists but has been stale since 2026-04-18 (predates merchant-web, admin-web
+and all security work). Do not rely on `GRAPH_REPORT.md` until regenerated
+(`graphify update .`); regenerate-or-retire is an open owner decision.

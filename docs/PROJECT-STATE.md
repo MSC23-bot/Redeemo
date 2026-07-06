@@ -87,6 +87,12 @@ Backend (Node 24), Prisma 7 + Neon, Stripe/Twilio/FCM; **Resend is WIRED in code
 
 ## 5. Cross-product decisions & invariants (visible regardless of programme)
 
+> One-home-per-fact: rows here are the **decision record**; the canonical operative wording
+> of instruction-type invariants (style, Node policy, workflow tiers, git safety) lives in
+> the root `CLAUDE.md` (and its `.claude/rules/`), which is the always-loaded instruction
+> surface. If wording drifts, `CLAUDE.md` wins for "how to behave"; this doc wins for "what
+> was decided".
+
 - **Branch-first cardinality** (one tile per branch; favourites/heart = branch). Locked across discovery + favourites.
 - **Domain (owner):** Redeemo does **NOT** own `redeemo.com`; canonical = `redeemo.co.uk` (apex web), `api.redeemo.co.uk` (API, D-B), `merchant.redeemo.co.uk` (portal, D-C), `admin.redeemo.co.uk` (admin). `www`→apex 308 (D-E). Phase-6 email sender policy D-F: the Resend client is **wired in code** (see §4.4) but **production email sending stays dark/not-enabled** until the sender-domain is verified + SPF/DKIM/DMARC + provider + monitored inboxes + the runbook §6 pre-send gates are met. Universal-link/DNS (D-D) still open.
 - **Subscription gates redemption; monthly cycle is subscription-anchored** (`getCurrentCycleWindow`), not calendar-based.
@@ -114,19 +120,29 @@ Backend (Node 24), Prisma 7 + Neon, Stripe/Twilio/FCM; **Resend is WIRED in code
 | Insights gate-open (D1/D5) + demographics (D2-D4) | Merchant/legal | unblocks behavioural/CSV/demographics | parallel legal track |
 | Promote / Payments provider + billing/PCI | Merchant | unblocks commercial modules | before commercial wave |
 | Custom-domain provisioning (merchant/api/admin) | platform | trust/launch | pre-launch |
+| Apple IAP for iOS subscriptions (Stripe cannot be used in the iOS app; model is IAP-ready via nullable Stripe fields) | Customer/platform | gates the entire in-app subscribe-purchase surface | before mobile subscription launch |
+| Subscription `source` enum (STRIPE/APPLE/GOOGLE/ADMIN) + admin-grant flow | Customer/Admin | complimentary/admin subscriptions | with the admin-grant build (was "Phase 5") |
+| GDPR readiness: ICO registration + DSAR-flow confirmation (delete-account exists; DSAR export/process unconfirmed) | platform/legal | legal launch obligation | pre-launch (with legal sign-off) |
+| Zoho One scope (CRM + contracts + helpdesk alongside the custom platform) | ops | tooling spend + contract-signing path (click-to-agree vs Zoho Sign) | owner to confirm |
+| graphify knowledge graph: regenerate or retire (stale since 2026-04-18; usage rule demoted to a caveat in CLAUDE.md) | platform/docs | tooling accuracy | owner convenience |
+
+Decisions migrated 2026-07-06 from the old root-CLAUDE.md "Open Decisions" list and RESOLVED
+(recorded here so nothing is silently dropped): SMS/OTP gateway = Twilio (adopted; live in
+redemption PIN SMS since Phase 2D). Website scope = fully defined (no redemption; subscription
+purchase supported). White-label = out of scope for now (possible future expansion).
 
 ## 7. Verified warnings
 
 - **89 of 108 backend integration suites would mutate shared Neon if run locally without a `DATABASE_URL` override** (only the 11 insights harness + 8 mocked are guarded). Evidence: `vitest.config.ts` + grep; `.env DATABASE_URL` = Neon; `tests/setup.ts` does not guard it.
 - **Backend integration project (incl. all Insights legal-gate, tenant-isolation, SEC-M2 suspend proofs) is NOT run in CI** (`ci.yml` backend job runs `test:unit` only). **No e2e/browser tests exist repo-wide** - the class behind #324 (ToastProvider crash) and #327 (Decimal-as-string).
-- **Stale legacy docs:** root `CLAUDE.md` (145 KB, Jun 20) still marks Merchant "Phase 4 queued" / Admin "Phase 5 queued"; `MEMORY.md` (~100 KB) exceeds its ~24.4 KB load cap (partially loaded); `project_deferred_followups_index.md` is 705 KB; `project_current_state.md` (Jun 20) trails reality. **For CURRENT programme status, prefer this document over those** (they are not authoritative for current status). They may still be valid HISTORICAL evidence, or governing CONTRACT evidence, when a specific claim is claim-verified; and the detailed approved specs/plans may still govern INTENDED behaviour (per the §1 authority model).
+- **Stale legacy docs (updated 2026-07-06):** root `CLAUDE.md` was slimmed to durable instructions (its stale build/phase narrative is archived verbatim at `docs/history/claude-md-2026-06-20-archive.md`; treat that archive as 2026-06-20 evidence only). Private memory remains partially stale: `MEMORY.md` (~100 KB) exceeds its ~24.4 KB load cap (only the first ~14 lines load); `project_deferred_followups_index.md` is 705 KB; `project_current_state.md` (Jun 20) trails reality; a memory reconciliation is PREPARED but not applied (owner approval pending). **For CURRENT programme status, prefer this document** (they are not authoritative for current status). They may still be valid HISTORICAL evidence, or governing CONTRACT evidence, when a specific claim is claim-verified; and the detailed approved specs/plans may still govern INTENDED behaviour (per the §1 authority model).
 - **Insights gates are closed and must stay closed** until owner/legal records D1/D5 (behavioural/CSV) and D2-D4 (demographics).
 - **Staging admin-login OTP delivery is UNVERIFIED (from Codex Vol-2, read-only):** an earlier record describes the staging-admin mailbox as not owner-receivable (OTP read from the staging DB as a workaround); a later record describes sandbox email delivery to an owner-controlled inbox. The current flow cannot be established without a live/provider check (not performed) - do not treat the DB-read workaround as current. If the workaround is current it must be replaced with a receivable/admin-controlled inbox. Deployed `favicon.ico` 404 is a known cosmetic item. (PR #327 is MERGED at `9a687393` and is closed. The **Karaara staging cleanup is NOT recorded completed**: Vol-2 §"Karaara Voucher Cleanup" recommends deleting only the inactive-leftover flagship `RMV-886F935E` and keeping the draft flagship `RMV-71C5B59E` + branch + owner data, but records the outcome as not yet recorded - Karaara's current retained/deleted staging state is **UNVERIFIED**; see §8/§10.)
 - **Merged ≠ deployed ≠ staging-accepted:** every Merchant module is merged but **not authenticated-staging-accepted**.
 
 ## 8. Open deferrals register (compact; history NOT copied here)
 
-The full historical detail lives in `project_deferred_followups_index.md` (705 KB, an oversized/stale historical reference; **proposed for later freeze/reconciliation but currently UNTOUCHED** - no private-memory change has occurred; do not copy it here). Open, currently-relevant deferrals with owner + trigger:
+**The live detailed register is `docs/deferrals/open-register.md`** (created 2026-07-06 from the old CLAUDE.md deferred lists + this section; update it, and this summary when relevant, in the same PR as any deferral change). The full historical detail lives in `project_deferred_followups_index.md` (705 KB, an oversized/stale historical reference; **proposed for later freeze/reconciliation but currently UNTOUCHED** - no private-memory change has occurred; do not copy it here, and do not route live status into it). Open, currently-relevant deferrals with owner + trigger (summary of the register):
 
 | ID / area | Owner | Trigger to pick up |
 |---|---|---|
@@ -162,13 +178,15 @@ The full historical detail lives in `project_deferred_followups_index.md` (705 K
 - **Governance (Insights DPIA):** `docs/superpowers/governance/2026-06-27-insights-dpia/`
 - **Runbooks:** `docs/runbooks/` (deploy-security, staging, insights-test-db, insights-demo-fixture, railway-hosting)
 - **Customer flow:** `docs/customer-flow-current.md` + `docs/customer-flow-changelog.md`
-- **Constitution (stable):** root `CLAUDE.md` (tech stack, business rules, workflow tiers, hooks, run/test) - note its forward/phase markers are **stale**; this document supersedes them for status.
+- **Constitution (stable):** root `CLAUDE.md` (tech stack, business rules, workflow tiers, git safety, style locks, run/test) - slimmed 2026-07-06 to durable instructions only; it routes status questions here. Path-scoped guidance: `.claude/rules/`. Historical build narrative: `docs/history/claude-md-2026-06-20-archive.md`.
+- **Open deferrals register (live):** `docs/deferrals/open-register.md` (§8 is its summary).
 - **Codex checklists (read-only, §2).**
 
 ---
 
 ## Change log
 
+- **2026-07-06** - Documentation-architecture migration (branch `docs/claude-code-architecture`; closes the §6 "Documentation architecture migration (A+C) next steps" repo-side scope). Root `CLAUDE.md` slimmed to durable instructions (1,065 → ~200 lines) with its full former content archived verbatim at `docs/history/claude-md-2026-06-20-archive.md`; six path-scoped `.claude/rules/` files added; `redeemo-dev-qa-toolkit` skill added; Codex-checklist write-guard hook added (project-level); `docs/deferrals/open-register.md` created as the live deferral register (§8 now summarizes it); the 7 old CLAUDE.md "Open Decisions" migrated into §6 (3 recorded resolved: Twilio, website scope, white-label); §5 one-home-per-fact note added; §7 stale-docs warning updated; `docs/product-decisions.md` marked superseded. Memory reconciliation PREPARED only (apply is owner-gated). Evidence: the reconciliation log in `~/Documents/Playground/redeemo-notes/claude-documentation-reconciliation-log.md`.
 - **2026-07-05b** - Wave-3 merge records: #371 (`2945bf78`, staff remove confirm tests), #370 (`29f1801e`, nullable-clear spec+plan; D1-D3 owner-APPROVED after merge), #372 (`194654a5`, smoke journeys + count-bounded error-guard contract), #373 (`a58db583`, nullable-clear implementation - closes the #366 gated follow-up). Smoke-count metrics RESTATED: 26 runtime tests / 24 static call sites after #372 (was 17 runtime / 15 static; the 2026-07-05 "17 to 15" correction had conflated the two metrics - runtime exceeds static because roles.spec.ts parametrizes one site over three roles). Merged pointer + freshness re-stamped @ `a58db583`. Staging acceptance remains outstanding portfolio-wide; all owner/legal/provider gates preserved.
 - **2026-07-05** - #368 MERGED (squash `8621c9a1`: Redemptions fidelity slice - voucher filter, deterministic shared list/CSV sort, code-or-title search); Redemptions completion-map row's residual fidelity gaps CLOSED, status stays MERGED / NOT-ACCEPTED (authenticated staging acceptance outstanding); smoke-lane test count corrected 17 → 15 (direct spec grep) here and in the roadmap; Merchant freshness re-stamped @ `8621c9a1`. All owner/legal/provider gates preserved unchanged.
 - **2026-07-04c** - #365 + #366 MERGED (squash `cda007f7` / `1eb2b382`); pointers flipped from in-review to MERGED; Quick-Actions "placement undecided" correction line fixed (resolved in #364; residual = BM extension on a per-branch capability signal); @playwright/test decision closed (promotion-to-required stays open); staging acceptance explicitly outstanding portfolio-wide.

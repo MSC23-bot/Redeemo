@@ -20,6 +20,13 @@ coverage/
 !.claude/settings.json
 !.claude/hooks/
 !.claude/hooks/**
+!.claude/rules/
+!.claude/rules/**
+# Project-owned skill only; installed third-party skills stay ignored
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/redeemo-dev-qa-toolkit/
+!.claude/skills/redeemo-dev-qa-toolkit/**
 .superpowers/
 graphify-out/
 
