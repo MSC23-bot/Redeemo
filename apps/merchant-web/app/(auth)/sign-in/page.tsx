@@ -44,8 +44,11 @@ function SignInForm() {
         router.push(`/otp?next=${encodeURIComponent(next)}`)
         return
       }
-      // Recognised device: tokens issued. Land in the portal.
-      setSession(result.accessToken, result.merchant)
+      // Recognised device: tokens issued. Land in the portal. setSession awaits the
+      // full session-reset pipeline (epoch bump + cache clear) before the new token
+      // is installed, so a same-tab login as a different merchant never briefly
+      // serves the previous account's cached data.
+      await setSession(result.accessToken, result.merchant)
       router.replace(next)
     } catch (err) {
       setError(authErrorMessage(err).message)
