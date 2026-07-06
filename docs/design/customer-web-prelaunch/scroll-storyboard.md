@@ -6,11 +6,17 @@ Core business = saving customers money on lifestyle; discovery serves that, not 
 other way round. The narrative stays find -> choose -> redeem, but every beat leads
 with the saving and uses discovery as the supporting mechanism:
 
-- Hook headline becomes savings-first, quality-anchored (so it never reads Groupon):
-  working H1: "Pay less at the best places near you." Sub keeps the mechanism:
-  "Independent restaurants, cafes, gyms and salons, each with member vouchers
-  included. One membership from £6.99 a month." The saving is the promise; "best
-  places" is the identity guard.
+- Hook headline (v2.2, owner: previous draft too generic, must teach what Redeemo is):
+  WORKING H1 (option A): "Money off your dinners out, coffees, workouts and salon
+  visits." (gradient accent on "Money off"). Sub does the definitional work:
+  "Redeemo is a membership for the independent places near you. Every restaurant,
+  cafe, gym and salon on it includes vouchers for members: fresh every month, from
+  £6.99. Browse free first." Alternates held for owner veto:
+  B "One membership. Money off at independent restaurants, cafes, gyms and salons
+  near you." · C "Your local restaurants, cafes, gyms and salons. With member
+  prices." · D "Stop paying full price for your own neighbourhood."
+  Comprehension is a system: Huddersfield pill above, real app animating beside,
+  facts strip below (Free to browse · £6.99 to redeem · fresh monthly).
 - Beat 2 (Find) reframes: not "places worth knowing about" but "money off, everywhere
   you already go": the feed/map journey shows every place carrying a visible saving.
 - Beat 3 (Choose) leads with the £ value on the voucher cards (real UI already shows
