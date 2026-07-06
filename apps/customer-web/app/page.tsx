@@ -1,7 +1,6 @@
 import { HeroSection } from '@/components/landing/HeroSection'
-import { VoucherTypesSection } from '@/components/landing/VoucherTypesSection'
+import { ScrollStory } from '@/components/landing/ScrollStory'
 import { TrendingPreviewSection } from '@/components/landing/TrendingPreviewSection'
-import { HowItWorksSection } from '@/components/landing/HowItWorksSection'
 import { TestimonialsSection } from '@/components/landing/TestimonialsSection'
 import { FoundingPromiseSection } from '@/components/landing/FoundingPromiseSection'
 import { PricingSection } from '@/components/landing/PricingSection'
@@ -14,9 +13,10 @@ export default function HomePage() {
   return (
     <>
       <HeroSection />
-      <VoucherTypesSection />
       <TrendingPreviewSection />
-      <HowItWorksSection />
+      {/* Scroll-driven find/choose/redeem story on desktop; static sections on
+          mobile, reduced-motion, and for crawlers */}
+      <ScrollStory />
       {isMarketplaceLive() ? <TestimonialsSection /> : <FoundingPromiseSection />}
       <PricingSection />
       <WaitlistSection />

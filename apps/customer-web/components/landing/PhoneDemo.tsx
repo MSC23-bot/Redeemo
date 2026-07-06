@@ -24,7 +24,7 @@ const CYCLE_MS = 4200
 const BOGO_PURPLE = '#7C3AED'
 const FREEBIE_GREEN = '#16A34A'
 
-function StatusBar({ dark = false }: { dark?: boolean }) {
+export function StatusBar({ dark = false }: { dark?: boolean }) {
   const c = dark ? 'rgba(255,255,255,0.65)' : 'rgba(1,12,53,0.55)'
   return (
     <div className="flex items-center justify-between px-5 pt-3 pb-1">
@@ -37,7 +37,7 @@ function StatusBar({ dark = false }: { dark?: boolean }) {
   )
 }
 
-function BrowseScreen() {
+export function BrowseScreen() {
   return (
     <div className="h-full flex flex-col" style={{ background: '#FFF9F5' }}>
       <StatusBar />
@@ -145,7 +145,7 @@ function VoucherScreen() {
   )
 }
 
-function CodeScreen() {
+export function CodeScreen() {
   return (
     <div className="h-full flex flex-col" style={{ background: '#010C35' }}>
       <StatusBar dark />
@@ -179,6 +179,39 @@ function CodeScreen() {
 
 const SCREENS = [BrowseScreen, VoucherScreen, CodeScreen]
 
+/** Shared illustrative phone shell; screens render inside as absolute layers. */
+export function PhoneFrame({ children, dark = false, width = 272, height = 500 }: {
+  children: React.ReactNode
+  dark?: boolean
+  width?: number
+  height?: number
+}) {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative rounded-[42px] p-[10px] flex-shrink-0"
+      style={{
+        width,
+        background: 'linear-gradient(160deg, rgba(255,255,255,0.14), rgba(255,255,255,0.04))',
+        border: '1px solid rgba(255,255,255,0.16)',
+        boxShadow: '0 30px 80px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.12)',
+      }}
+    >
+      <div className="relative rounded-[33px] overflow-hidden" style={{ height, background: '#FFF9F5' }}>
+        <div
+          className="absolute top-[7px] left-1/2 -translate-x-1/2 w-[74px] h-[17px] rounded-full z-10"
+          style={{ background: '#010C35' }}
+        />
+        {children}
+        <div
+          className="absolute bottom-[9px] left-1/2 -translate-x-1/2 w-[86px] h-[4px] rounded-full z-10"
+          style={{ background: dark ? 'rgba(255,255,255,0.35)' : 'rgba(1,12,53,0.25)' }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function PhoneDemo() {
   const reduceMotion = useReducedMotion()
   const [step, setStep] = useState(0)
@@ -205,41 +238,20 @@ export function PhoneDemo() {
       </p>
 
       {/* Phone frame (illustrative only) */}
-      <div
-        aria-hidden="true"
-        className="relative rounded-[42px] p-[10px] flex-shrink-0"
-        style={{
-          width: 272,
-          background: 'linear-gradient(160deg, rgba(255,255,255,0.14), rgba(255,255,255,0.04))',
-          border: '1px solid rgba(255,255,255,0.16)',
-          boxShadow: '0 30px 80px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.12)',
-        }}
-      >
-        <div className="relative rounded-[33px] overflow-hidden" style={{ height: 500, background: '#FFF9F5' }}>
-          {/* Notch */}
-          <div
-            className="absolute top-[7px] left-1/2 -translate-x-1/2 w-[74px] h-[17px] rounded-full z-10"
-            style={{ background: '#010C35' }}
-          />
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={step}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.32 }}
-              className="absolute inset-0"
-            >
-              <Screen />
-            </motion.div>
-          </AnimatePresence>
-          {/* Home indicator */}
-          <div
-            className="absolute bottom-[9px] left-1/2 -translate-x-1/2 w-[86px] h-[4px] rounded-full z-10"
-            style={{ background: step === 2 ? 'rgba(255,255,255,0.35)' : 'rgba(1,12,53,0.25)' }}
-          />
-        </div>
-      </div>
+      <PhoneFrame dark={step === 2}>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={step}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.32 }}
+            className="absolute inset-0"
+          >
+            <Screen />
+          </motion.div>
+        </AnimatePresence>
+      </PhoneFrame>
 
       {/* Step controls: real, accessible, drive the scene */}
       <div className="w-full max-w-[300px]">
