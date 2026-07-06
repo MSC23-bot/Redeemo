@@ -4,19 +4,23 @@ import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { Button, buttonVariants } from '@/components/ui/button'
 
-// Route-level error boundary for the authenticated (app) shell (Next.js App
-// Router convention: error.tsx wraps this route segment and its children in a
-// React error boundary; the sibling app/(app)/layout.tsx - MerchantPortalShell's
-// sidebar/topbar - sits ABOVE this file in the tree, so it keeps rendering
-// around this fallback rather than being torn down). Without this file, an
-// uncaught render throw anywhere under (app) fell through to Next's unbranded
-// default error screen.
+// Root-level error boundary. Next.js App Router rule: an error.tsx wraps its own
+// route segment's `children`, NOT that same segment's layout.tsx (see the comment
+// on app/(app)/error.tsx for the full explanation). Concretely, MerchantPortalShell
+// (rendered by app/(app)/layout.tsx) sits ABOVE app/(app)/error.tsx in the tree, so
+// a render failure inside the shell itself - a bad session/profile hook, a sidebar
+// nav crash, anything thrown before {children} is reached - is invisible to that
+// file and used to fall through to Next's unbranded default error screen.
 //
-// NOTE: this boundary only wraps this segment's `children` (page content). A
-// throw from MerchantPortalShell itself (the layout that renders ABOVE this
-// file) is NOT catchable here - see the new root-level app/error.tsx, which is
-// nested one segment up and exists specifically to catch that case.
-export default function AppError({
+// This file is the fix: it lives next to the ROOT app/layout.tsx, so it is nested
+// INSIDE the root layout and wraps root's `children` - which is exactly where
+// app/(app)/layout.tsx (and app/(auth)/layout.tsx) render. A throw anywhere in the
+// (app) shell's own render is therefore caught here, one level up, while the more
+// specific app/(app)/error.tsx continues to handle page-level throws inside the
+// shell as before (React error boundaries nest; the innermost one that can see an
+// error wins). This also serves as the catch-all for anything that slips past
+// every more specific boundary.
+export default function RootError({
   error,
   reset,
 }: {
@@ -30,12 +34,12 @@ export default function AppError({
     console.error(error)
     // Move focus into the alert region so screen-reader and keyboard users are
     // notified of the failure immediately, instead of focus silently staying on
-    // whatever was focused before the crash.
+    // whatever was focused before the crash (or landing on <body>).
     alertRef.current?.focus()
   }, [error])
 
   return (
-    <div className="flex min-h-[55vh] items-center justify-center">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
       <div ref={alertRef} role="alert" tabIndex={-1} className="w-full max-w-md space-y-5 text-center">
         <span
           className="font-display text-2xl font-semibold"
@@ -68,7 +72,7 @@ export default function AppError({
               <path d="M12 3.5 21.5 20H2.5ZM12 10v4M12 17.6h.01" />
             </svg>
           </span>
-          <h1 className="mt-3 font-display text-lg font-semibold text-foreground">Something went wrong on our side</h1>
+          <h1 className="mt-3 font-display text-lg font-semibold text-foreground">Something went wrong</h1>
           <p className="mt-1.5 text-[13.5px] leading-relaxed text-[#566079]">
             We hit a snag loading this page. Nothing you did caused this, and your data is safe.
           </p>

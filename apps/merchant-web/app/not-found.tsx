@@ -8,7 +8,7 @@ import { buttonVariants } from '@/components/ui/button'
 // centred treatment the (auth) screens already use for unauthenticated visitors.
 export default function NotFound() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
+    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
       <div className="w-full max-w-md space-y-5 text-center">
         <div>
           <span
@@ -38,6 +38,6 @@ export default function NotFound() {
           Back to dashboard
         </Link>
       </div>
-    </div>
+    </main>
   )
 }

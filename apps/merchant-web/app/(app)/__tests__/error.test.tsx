@@ -25,4 +25,19 @@ describe('(app) error boundary', () => {
     const homeLink = screen.getByRole('link', { name: /back to dashboard/i })
     expect(homeLink).toHaveAttribute('href', '/')
   })
+
+  it('announces the failure via role="alert" and moves keyboard/AT focus onto it', () => {
+    const reset = jest.fn()
+    render(<AppError error={new Error('boom')} reset={reset} />)
+
+    // role="alert" gives an implicit assertive live region, so screen readers
+    // announce it the moment it mounts - not only if/when a sighted user notices
+    // and tabs to it.
+    const alert = screen.getByRole('alert')
+    expect(alert).toContainElement(screen.getByText(/something went wrong on our side/i))
+    // Focus must land ON the alert itself (not silently stay on <body>), so a
+    // keyboard/AT user's next action (e.g. Tab) reaches the recovery controls
+    // instead of wherever focus happened to be when the crash occurred.
+    expect(alert).toHaveFocus()
+  })
 })
