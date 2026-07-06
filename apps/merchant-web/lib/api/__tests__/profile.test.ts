@@ -8,7 +8,13 @@
  *   - FAIL CLOSED: absent -> the consumer's `canViewInsights === true` check is false,
  *     so the nav stays hidden until the backend positively reports access.
  */
-import { merchantProfileSchema, updateMerchantProfile } from '../profile'
+import {
+  merchantProfileSchema,
+  updateMerchantProfile,
+  createMerchantEditRequest,
+  listMerchantEditRequests,
+  withdrawMerchantEditRequest,
+} from '../profile'
 
 const apiFetch = jest.fn()
 jest.mock('../client', () => ({
@@ -137,5 +143,83 @@ describe('updateMerchantProfile (Business Profile M3: direct-edit + category cha
     const result = await updateMerchantProfile({ primaryCategoryId: 'sub-cafe', confirm: true })
     expect('requiresConfirmation' in result).toBe(false)
     expect(result).toMatchObject({ id: 'm1', primaryCategoryId: 'sub-cafe' })
+  })
+})
+
+describe('Business Profile M4: edit-request client (mirrors lib/api/branch.ts)', () => {
+  it('createMerchantEditRequest POSTs the sensitive subset to /edit-request and returns the parsed MerchantPendingEdit', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      merchantId: 'm1',
+      proposedChanges: { businessName: 'New Name', description: 'New description' },
+      status: 'PENDING',
+      createdAt: '2026-07-06T10:00:00.000Z',
+    })
+    const edit = await createMerchantEditRequest({
+      businessName: 'New Name',
+      tradingName: 'New Trading',
+      description: 'New description',
+      logoUrl: 'https://cdn.test/logo2.png',
+      bannerUrl: 'https://cdn.test/banner2.png',
+    })
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/profile/edit-request', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({
+        businessName: 'New Name',
+        tradingName: 'New Trading',
+        description: 'New description',
+        logoUrl: 'https://cdn.test/logo2.png',
+        bannerUrl: 'https://cdn.test/banner2.png',
+      }),
+    })
+    expect(edit.id).toBe('pe1')
+    expect(edit.status).toBe('PENDING')
+    expect(edit.createdAt).toBe('2026-07-06T10:00:00.000Z')
+  })
+
+  it('listMerchantEditRequests GETs /edit-requests with auth and returns the parsed array (all statuses)', async () => {
+    apiFetch.mockResolvedValueOnce([
+      {
+        id: 'pe1',
+        merchantId: 'm1',
+        proposedChanges: { businessName: 'A' },
+        status: 'PENDING',
+        createdAt: '2026-07-06T10:00:00.000Z',
+      },
+      {
+        id: 'pe2',
+        merchantId: 'm1',
+        proposedChanges: { businessName: 'B' },
+        status: 'WITHDRAWN',
+        createdAt: '2026-07-05T10:00:00.000Z',
+        reviewedAt: '2026-07-05T11:00:00.000Z',
+      },
+    ])
+    const list = await listMerchantEditRequests()
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/profile/edit-requests', {
+      method: 'GET',
+      auth: true,
+    })
+    expect(list).toHaveLength(2)
+    expect(list[0].status).toBe('PENDING')
+    expect(list[1].status).toBe('WITHDRAWN')
+  })
+
+  it('withdrawMerchantEditRequest DELETEs /edit-requests/:id with auth and returns the parsed edit', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'pe1',
+      merchantId: 'm1',
+      proposedChanges: { businessName: 'A' },
+      status: 'WITHDRAWN',
+      createdAt: '2026-07-06T10:00:00.000Z',
+      reviewedAt: '2026-07-06T11:00:00.000Z',
+    })
+    const edit = await withdrawMerchantEditRequest('pe1')
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/profile/edit-requests/pe1', {
+      method: 'DELETE',
+      auth: true,
+    })
+    expect(edit.status).toBe('WITHDRAWN')
   })
 })
