@@ -97,3 +97,15 @@ edited by this workstream.
   "The Old Foundry Kitchen" (demo-merchant-02, Clerkenwell); after seeding both
   exist (reads as a two-city chain). Flagged to the adversarial review.
 - No provider/deployment/schema/env actions taken or required.
+- Opus 4.8 adversarial review of PR #400: protection integrity PASS (no filter or
+  read-path changes); reversibility FAILED as written: clearDemo never deleted
+  demo-red-* redemptions and their RESTRICT FKs silently blocked every other delete
+  while reporting success; demo campaigns never cleared; Huddersfield amenity names
+  did not match the canonical set (would have silently vanished from screenshots);
+  phones were in live subscriber space. All fixed in the second PR commit
+  (teardown deletes redemptions + campaigns first; canonical amenities; Ofcom
+  reserved 01484 496 0xx range). Post-fix verdict: safe to run on owner approval.
+- Owner-eyeball residue: six real central-street addresses with plausible numbers
+  (fictional business names web-vetted; addresses fine for map pins, glance if
+  extra caution wanted). Same-name Old Foundry Kitchen in London (02) and
+  Huddersfield (11) reads as a two-city chain; intentional, shared branding.
