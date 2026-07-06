@@ -134,7 +134,7 @@ describe('merchant logout durability — security + interleaving (real Redis db 
 
   // ── (2) unauthenticated ────────────────────────────────────────────────
 
-  it('unauthenticated: neither a valid-signature JWT nor a valid refresh secret -> no revoke (no-op)', async (ctx) => {
+  it('unauthenticated: neither a valid-signature JWT nor a valid refresh secret -> honest "unavailable" externally + NO side-effects (no-op)', async (ctx) => {
     requireRedis(ctx)
     const victim = ids()
     await seedSession(victim.entityId, victim.sessionId, 'REAL_REFRESH')
@@ -147,7 +147,12 @@ describe('merchant logout durability — security + interleaving (real Redis db 
       ipAddress: '1.2.3.4', userAgent: 'test',
     })
 
-    expect(result.revoke).toBe('stale')
+    // External value is UNIFORM 'unavailable' for every unproven possession
+    // logout (Fable adjudication #390.3 + #390.6): honest (nothing was durably
+    // revoked) AND no session-existence oracle (see the absent-vs-present pin).
+    // The load-bearing guarantee is that NO side-effect fired: the victim's
+    // session key survives and no AUTH_LOGOUT row was written.
+    expect(result.revoke).toBe('unavailable')
     expect(await redis!.get(RedisKey.refreshToken('merchant', victim.entityId, victim.sessionId))).not.toBeNull()
     expect(prisma.auditLog.create).not.toHaveBeenCalled()
   })
@@ -167,7 +172,9 @@ describe('merchant logout durability — security + interleaving (real Redis db 
         entityId: victim.entityId,
         ipAddress: '9.9.9.9', userAgent: 'attacker',
       })
-      expect(result.revoke).toBe('stale')
+      // Uniform external 'unavailable' (#390.3); the DoS resistance is the
+      // no-side-effect assertions below, not the returned string.
+      expect(result.revoke).toBe('unavailable')
     }
     expect(await redis!.get(RedisKey.refreshToken('merchant', victim.entityId, victim.sessionId))).not.toBeNull()
     expect(prisma.auditLog.create).not.toHaveBeenCalled()
@@ -284,7 +291,9 @@ describe('merchant logout durability — security + interleaving (real Redis db 
       ipAddress: '1.1.1.1', userAgent: 'test',
     })
 
-    expect(result.revoke).toBe('stale')
+    // Uniform external 'unavailable' (#390.3); the load-bearing guarantees are
+    // the no-eviction + no-audit assertions below (#390.1 + #390.2).
+    expect(result.revoke).toBe('unavailable')
     expect(await redis!.get(RedisKey.authMerchant(victim.entityId))).not.toBeNull() // untouched
     expect(prisma.auditLog.create).not.toHaveBeenCalled()
   })
@@ -347,20 +356,95 @@ describe('merchant logout durability — security + interleaving (real Redis db 
 
   // ── (8) fallback ─────────────────────────────────────────────────────────
 
-  it('fallback: no access token + a VALID current refresh secret -> DEL on match', async (ctx) => {
+  it('genuine-match positive control: no access token + a VALID current refresh secret -> DEL session key + DEL authMerchant + AUTH_LOGOUT + "confirmed"', async (ctx) => {
     requireRedis(ctx)
     const { entityId, sessionId } = ids()
     await seedSession(entityId, sessionId, 'THE_REAL_REFRESH')
+    await redis!.set(RedisKey.authMerchant(entityId), JSON.stringify({ merchantId: 'm1' }), 'EX', 3600)
 
     const result = await logoutMerchant(prisma, redis!, app, {
       refreshToken: 'THE_REAL_REFRESH', sessionId, entityId, ipAddress: '1.1.1.1', userAgent: 'test',
     })
+    // GENUINE proof of possession — the ONLY outcome that fires side-effects.
     expect(result.revoke).toBe('confirmed')
     expect(await redis!.get(RedisKey.refreshToken('merchant', entityId, sessionId))).toBeNull()
+    expect(await redis!.get(RedisKey.authMerchant(entityId))).toBeNull() // cache evicted
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1)
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({ event: 'AUTH_LOGOUT', entityId, sessionId })
   })
 
-  it('fallback: no access token + a stale/mismatched secret -> "stale", no DEL (disclosed residual)', async (ctx) => {
+  // ── (8b) #390 owner items — absent-vs-present NO-ORACLE + unproven side-effect gating ──
+
+  it('absent-vs-present NO-ORACLE: an ABSENT session key and a PRESENT-but-mismatched key return the IDENTICAL external value, and NEITHER performs side-effects', async (ctx) => {
+    requireRedis(ctx)
+
+    // Case A — ABSENT session key (never seeded). Possession fallback with a
+    // refresh token; stored === null -> 'absent' internally.
+    const absent = ids()
+    await redis!.set(RedisKey.authMerchant(absent.entityId), JSON.stringify({ merchantId: 'mA' }), 'EX', 3600)
+    const absentResult = await logoutMerchant(prisma, redis!, app, {
+      refreshToken: 'any-token', sessionId: absent.sessionId, entityId: absent.entityId,
+      ipAddress: '1.1.1.1', userAgent: 'test',
+    })
+
+    // Case B — PRESENT session key but a MISMATCHED refresh secret -> 'stale'.
+    const present = ids()
+    await seedSession(present.entityId, present.sessionId, 'THE_REAL_REFRESH')
+    await redis!.set(RedisKey.authMerchant(present.entityId), JSON.stringify({ merchantId: 'mB' }), 'EX', 3600)
+    const presentResult = await logoutMerchant(prisma, redis!, app, {
+      refreshToken: 'wrong-secret', sessionId: present.sessionId, entityId: present.entityId,
+      ipAddress: '1.1.1.1', userAgent: 'test',
+    })
+
+    // (i) IDENTICAL external value — absence is indistinguishable from a
+    //     present-but-unproven key (no session-existence oracle, #390.3). Both
+    //     are 'unavailable' (honest: neither durably revoked a server session).
+    expect(absentResult.revoke).toBe(presentResult.revoke)
+    expect(absentResult.revoke).toBe('unavailable')
+
+    // (ii) NEITHER fired side-effects: both authMerchant caches survive, the
+    //      present session key survives, and NO audit row was written at all.
+    expect(await redis!.get(RedisKey.authMerchant(absent.entityId))).not.toBeNull()
+    expect(await redis!.get(RedisKey.authMerchant(present.entityId))).not.toBeNull()
+    expect(await redis!.get(RedisKey.refreshToken('merchant', present.entityId, present.sessionId))).not.toBeNull()
+    expect(prisma.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('no-cache-eviction on unproven (ABSENT key): does NOT del(authMerchant) and writes NO AUTH_LOGOUT row', async (ctx) => {
+    requireRedis(ctx)
+    // Absent session key — the exact case that previously returned 'confirmed'
+    // and wrongly evicted the cache + wrote a false audit row (#390.1 + #390.2).
+    const { entityId, sessionId } = ids()
+    await redis!.set(RedisKey.authMerchant(entityId), JSON.stringify({ merchantId: 'm1' }), 'EX', 3600)
+
+    const result = await logoutMerchant(prisma, redis!, app, {
+      refreshToken: 'a-token-for-a-session-that-does-not-exist',
+      sessionId, entityId, ipAddress: '1.1.1.1', userAgent: 'test',
+    })
+
+    expect(result.revoke).toBe('unavailable') // honest external (nothing revoked)
+    expect(await redis!.get(RedisKey.authMerchant(entityId))).not.toBeNull() // NOT evicted
+    expect(prisma.auditLog.create).not.toHaveBeenCalled() // no false audit
+  })
+
+  it('no-false-audit on mismatch (PRESENT key, wrong secret): writes NO AUTH_LOGOUT row and does NOT evict authMerchant', async (ctx) => {
+    requireRedis(ctx)
+    const { entityId, sessionId } = ids()
+    await seedSession(entityId, sessionId, 'THE_REAL_REFRESH')
+    await redis!.set(RedisKey.authMerchant(entityId), JSON.stringify({ merchantId: 'm1' }), 'EX', 3600)
+
+    const result = await logoutMerchant(prisma, redis!, app, {
+      refreshToken: 'definitely-not-the-real-secret',
+      sessionId, entityId, ipAddress: '1.1.1.1', userAgent: 'test',
+    })
+
+    expect(result.revoke).toBe('unavailable') // honest external (nothing revoked)
+    expect(prisma.auditLog.create).not.toHaveBeenCalled() // no false-attribution row
+    expect(await redis!.get(RedisKey.authMerchant(entityId))).not.toBeNull() // cache untouched
+    expect(await redis!.get(RedisKey.refreshToken('merchant', entityId, sessionId))).not.toBeNull() // session untouched
+  })
+
+  it('fallback: no access token + a stale/mismatched secret -> honest "unavailable", no DEL, no audit (disclosed residual)', async (ctx) => {
     requireRedis(ctx)
     const { entityId, sessionId } = ids()
     await seedSession(entityId, sessionId, 'THE_REAL_REFRESH')
@@ -368,7 +452,9 @@ describe('merchant logout durability — security + interleaving (real Redis db 
     const result = await logoutMerchant(prisma, redis!, app, {
       refreshToken: 'a-stale-token', sessionId, entityId, ipAddress: '1.1.1.1', userAgent: 'test',
     })
-    expect(result.revoke).toBe('stale')
+    // External value is UNIFORM 'unavailable' (#390.3); a mismatched secret is
+    // NOT proof of possession so NO session-key DEL and NO audit row fire.
+    expect(result.revoke).toBe('unavailable')
     expect(await redis!.get(RedisKey.refreshToken('merchant', entityId, sessionId))).not.toBeNull()
     expect(prisma.auditLog.create).not.toHaveBeenCalled()
   })

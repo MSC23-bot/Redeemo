@@ -369,7 +369,14 @@ export async function refreshMerchantToken(
   return { accessToken, refreshToken: newRefresh }
 }
 
-export type MerchantLogoutRevokeOutcome = 'confirmed' | 'pending' | 'unavailable' | 'stale'
+// External logout outcome — the value the route forwards to the client as
+// `remoteRevoke` (the "was the server session durably revoked?" axis of the
+// two-axis LogoutResult). Deliberately the SAME enum the client maps:
+// {confirmed|pending|unavailable}. 'stale' is an INTERNAL PossessionOutcome
+// only (see atomicRotate.ts) and never crosses the wire — an unproven
+// possession logout maps to 'unavailable' (honest: nothing was durably
+// revoked; and no session-existence oracle).
+export type MerchantLogoutRevokeOutcome = 'confirmed' | 'pending' | 'unavailable'
 
 /**
  * Merchant logout (backend logout-durability design §3.3/§3.4, merchant-only).
@@ -465,15 +472,38 @@ export async function logoutMerchant(
     const outcome = await revokeMerchantSessionByPossession(redis, {
       entityId: data.entityId, sessionId: data.sessionId, presentedRefreshToken: data.refreshToken,
     })
+    // Side-effects gate on GENUINELY PROVEN possession ONLY (a real hash
+    // match → 'confirmed'). 'absent' (the key was null — anyone can name a
+    // session that never existed or already expired) and 'stale' (mismatch /
+    // corrupt) are NOT proof of possession, so they must NEVER evict the auth
+    // cache nor write a false-attribution AUTH_LOGOUT audit row (#390.1 +
+    // #390.2). This is the fix for the defect where an ABSENT key returned
+    // 'confirmed' and wrongly triggered both side-effects.
     if (outcome === 'confirmed') {
       // Best-effort auth-cache eviction (see the proven-path note above).
       await redis.del(RedisKey.authMerchant(data.entityId)).catch(() => {})
+      // Best-effort audit (logout is never blocked by an audit-write failure —
+      // writeAuditLog is fire-and-forget telemetry, #390.5).
       writeAuditLog(prisma, {
         entityId: data.entityId, entityType: 'merchant', event: 'AUTH_LOGOUT',
         ipAddress: data.ipAddress, userAgent: data.userAgent, sessionId: data.sessionId,
       })
     }
-    return { revoke: outcome }
+    // External `{ revoke }` mapping (Fable adjudication, #390.3 + #390.6):
+    //   GENUINE hash match -> 'confirmed' (real durable revoke; side-effects
+    //     fired above).
+    //   absent / stale (mismatch|corrupt) / unavailable -> ONE UNIFORM
+    //     'unavailable'. This is simultaneously:
+    //       (a) no-oracle — an attacker with no/wrong token gets 'unavailable'
+    //           whether or not the target session actually exists (absent and
+    //           mismatch are INDISTINGUISHABLE); and
+    //       (b) honest on the two-axis LogoutResult — we did NOT durably revoke
+    //           a server session on this unproven path, so we do NOT claim
+    //           'confirmed'. 'unavailable' is exactly the client's
+    //           "revoke-durability not confirmed" value in the
+    //           {confirmed|pending|unavailable} enum (no 'stale' coercion —
+    //           'stale' is internal-only and never crosses the wire).
+    return { revoke: outcome === 'confirmed' ? 'confirmed' : 'unavailable' }
   }
 
   // No proof at all — pure no-op, uniform with a proof-bearing revoke of an

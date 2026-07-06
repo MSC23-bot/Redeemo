@@ -254,14 +254,20 @@ describe('revokeMerchantSessionByPossession', () => {
     expect(del).toHaveBeenCalledTimes(1)
   })
 
-  it('confirmed: an already-absent key is treated as confirmed (uniform, no mutation attempted)', async () => {
+  it('absent: an already-absent key returns "absent" (NOT "confirmed") and attempts no mutation — absence is not proof of possession (#390.1)', async () => {
     const get = vi.fn().mockResolvedValue(null)
     const del = vi.fn()
     const fakeRedis = { get, del } as any
     const outcome = await revokeMerchantSessionByPossession(fakeRedis, {
       entityId: 'ma1', sessionId: 's1', presentedRefreshToken: 'whatever',
     })
-    expect(outcome).toBe('confirmed')
+    // 'absent' is deliberately distinct from 'confirmed' so the caller
+    // (logoutMerchant) can gate side-effects on GENUINE proof only. The caller
+    // then collapses 'absent'/'stale'/'confirmed' into ONE uniform external
+    // response (no session-existence oracle, #390.3) — see the service-level
+    // no-cache-eviction / no-false-audit / no-oracle pins in
+    // tests/api/auth/merchant-logout-durability.test.ts.
+    expect(outcome).toBe('absent')
     expect(del).not.toHaveBeenCalled()
   })
 

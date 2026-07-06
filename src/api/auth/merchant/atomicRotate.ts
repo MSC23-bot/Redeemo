@@ -148,7 +148,7 @@ export async function revokeMerchantSessionUnconditional(
 
 // ── §3.3: rare no-access-token fallback — refresh-token possession ───────────
 
-export type PossessionOutcome = 'confirmed' | 'stale' | 'unavailable'
+export type PossessionOutcome = 'confirmed' | 'absent' | 'stale' | 'unavailable'
 
 /**
  * Reachable ONLY when no access token is presented at all (a cold/corner-case
@@ -160,6 +160,23 @@ export type PossessionOutcome = 'confirmed' | 'stale' | 'unavailable'
  * later successful logout. This is acceptable because the fallback is only
  * reachable when no signed proof exists, which is not the normal authenticated
  * path (the client always captures an access token when one exists).
+ *
+ * Outcome discipline (#390.1 + #390.2 + #390.3):
+ *   'confirmed'   — the presented hash GENUINELY matched the stored value and
+ *                   the DEL succeeded. This is the ONLY outcome that proves
+ *                   possession, so it is the ONLY one the caller acts on
+ *                   (auth-cache eviction + AUTH_LOGOUT audit).
+ *   'absent'      — the stored key was null. Absence is NOT proof of
+ *                   possession (anyone can request a logout for a session that
+ *                   never existed / already expired), so it MUST NOT trigger
+ *                   side-effects. Kept distinct from 'confirmed' internally so
+ *                   the caller can gate correctly; the caller then collapses
+ *                   'absent'/'stale'/'confirmed' into ONE uniform external
+ *                   response so no session-existence oracle leaks.
+ *   'stale'       — a JSON-parse failure, a hash mismatch, or the fail-closed
+ *                   timingSafeEqual guard. No mutation. Not proof.
+ *   'unavailable' — Redis GET or the confirmed-match DEL threw. Honest
+ *                   degradation; nothing re-attempts automatically.
  */
 export async function revokeMerchantSessionByPossession(
   redis: Redis,
@@ -174,9 +191,12 @@ export async function revokeMerchantSessionByPossession(
     return 'unavailable'
   }
 
-  // Already absent — uniform response (no session-existence oracle): treat
-  // exactly like a successful revoke of a now-dead session.
-  if (stored === null) return 'confirmed'
+  // Absent is NOT proof of possession — report it honestly as 'absent' so the
+  // caller does NOT evict the auth cache or write a false AUTH_LOGOUT row for a
+  // session it never proved it held (#390.1 + #390.2). The caller maps
+  // 'absent'/'stale'/'confirmed' to a UNIFORM external response, so there is
+  // still no session-existence oracle (#390.3).
+  if (stored === null) return 'absent'
 
   let parsed: { tokenHash?: string }
   try {
