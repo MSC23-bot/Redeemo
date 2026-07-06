@@ -56,21 +56,34 @@ export type EffectiveLocationQuery = {
   placeLocality?: Locality
 }
 
+/**
+ * DEV-ONLY screenshot/demo aid: when DEV_FORCE_CUSTOMER_LOCATION="lat,lng" is
+ * set (never in production), incoming GPS coordinates are replaced before
+ * resolution, so a device anywhere on earth renders the target city through
+ * the normal GPS path (same source, same header typography). Fail-closed:
+ * unset var = zero behaviour change; malformed value = ignored; only applies
+ * when the request actually carried GPS coordinates. Both customer location
+ * resolvers (this file + discovery/service.ts resolveLocationContext) call it.
+ */
+export function devForcedCoords<T extends number | null | undefined>(lat: T, lng: T): { lat: T | number; lng: T | number } {
+  if (process.env.DEV_FORCE_CUSTOMER_LOCATION && process.env.NODE_ENV !== 'production') {
+    const [fLat, fLng] = process.env.DEV_FORCE_CUSTOMER_LOCATION.split(',').map(Number)
+    if (Number.isFinite(fLat) && Number.isFinite(fLng) && lat !== undefined && lat !== null && lng !== undefined && lng !== null) {
+      return { lat: fLat, lng: fLng }
+    }
+  }
+  return { lat, lng }
+}
+
 export async function resolveEffectiveLocation(
   prisma: PrismaClient,
   query: EffectiveLocationQuery,
   userId: string | null,
 ): Promise<EffectiveLocation | null> {
-  // DEV-ONLY screenshot/demo aid: when DEV_FORCE_CUSTOMER_LOCATION="lat,lng"
-  // is set (never in production), incoming GPS coordinates are replaced before
-  // resolution, so a device anywhere on earth renders the target city through
-  // the normal GPS path (same source, same header typography). Fail-closed:
-  // unset var = zero behaviour change; malformed value = ignored; only applies
-  // when the request actually carried GPS coordinates.
-  if (process.env.DEV_FORCE_CUSTOMER_LOCATION && process.env.NODE_ENV !== 'production') {
-    const [fLat, fLng] = process.env.DEV_FORCE_CUSTOMER_LOCATION.split(',').map(Number)
-    if (Number.isFinite(fLat) && Number.isFinite(fLng) && query.lat !== undefined && query.lng !== undefined) {
-      query = { ...query, lat: fLat, lng: fLng }
+  {
+    const forced = devForcedCoords(query.lat, query.lng)
+    if (forced.lat !== query.lat || forced.lng !== query.lng) {
+      query = { ...query, lat: forced.lat as number, lng: forced.lng as number }
     }
   }
 

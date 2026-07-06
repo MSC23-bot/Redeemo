@@ -10,6 +10,7 @@ import {
   resolveLocationContext, toLocationContextWire,
 } from './service'
 import { getEligibleAmenitiesForSubcategory } from '../../lib/amenity'
+import { devForcedCoords } from '../../lib/effectiveLocation'
 import { optionalUserId } from '../plugin'
 
 const idParam       = z.object({ id: z.string().min(1) })
@@ -53,8 +54,11 @@ export async function discoveryRoutes(app: FastifyInstance) {
       lng: z.coerce.number().optional(),
     }).parse(req.query)
     const userId = await optionalUserId(req)
-    const lat    = query.lat ?? null
-    const lng    = query.lng ?? null
+    // DEV-ONLY screenshot/demo coordinate override (no-op unless
+    // DEV_FORCE_CUSTOMER_LOCATION is set outside production).
+    const forced = devForcedCoords(query.lat ?? null, query.lng ?? null)
+    const lat    = forced.lat
+    const lng    = forced.lng
     // §DF-v2-j Task 2 — route-level `locationContext` resolution (variant
     // (a) per `docs/superpowers/audits/2026-05-26-locationcontext-route-audit.md`).
     // Resolve once, strip to the 3-field wire envelope, then thread into
