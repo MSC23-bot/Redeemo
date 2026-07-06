@@ -44,7 +44,9 @@ function OtpForm() {
     try {
       const result = await authApi.verifyOtp({ sessionChallenge: challenge, code })
       window.sessionStorage.removeItem(OTP_CHALLENGE_KEY)
-      setSession(result.accessToken, result.merchant)
+      // setSession awaits the full session-reset pipeline before the new token is
+      // installed - see the cache-isolation core note in lib/auth/session.tsx.
+      await setSession(result.accessToken, result.merchant)
       router.replace(next)
     } catch (err) {
       const e = authErrorMessage(err)

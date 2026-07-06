@@ -52,8 +52,14 @@ export function StaircaseHub({
       {state === 'changes' ? <ChangesBanner comment={status?.comment ?? null} /> : null}
 
       <div className="flex flex-wrap items-start gap-6">
-        {/* Checklist (dominant) */}
-        <section className="min-w-[420px] flex-[2] overflow-hidden rounded-[20px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(1,12,53,0.04),0_18px_44px_-28px_rgba(1,12,53,0.32)]">
+        {/* Checklist (dominant). Below `sm` the fixed 420px min-width overflowed
+            phone viewports (e.g. 375px) because the flex-wrap parent still tried
+            to honour it before wrapping. `w-full` forces this section onto its
+            own full-width row below `sm`, so the side column cleanly wraps under
+            it instead of both columns being squeezed into one cramped row. At
+            `sm` and above the original fixed-width two-column intent returns
+            unchanged. */}
+        <section className="w-full min-w-0 flex-[2] sm:w-auto sm:min-w-[420px] overflow-hidden rounded-[20px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(1,12,53,0.04),0_18px_44px_-28px_rgba(1,12,53,0.32)]">
           <div className="border-b border-[#F3ECE7] bg-[linear-gradient(180deg,#FFF9F5,#FFFFFF)] px-6 pb-5 pt-6">
             <div className="flex flex-wrap items-center justify-between gap-3.5">
               <div>

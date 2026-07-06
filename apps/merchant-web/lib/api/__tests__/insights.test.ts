@@ -1,5 +1,12 @@
 /**
+ * @jest-environment node
+ *
  * PR-B Task B1 client tests for lib/api/insights.ts.
+ *
+ * Runs in the NODE environment (like lib/api/__tests__/client.test.ts): it exercises
+ * the fetch/Response transport layer, and apiFetchRaw now rebuilds a `new Response`
+ * from the buffered body (correction 4 - epoch re-check through body consumption),
+ * which needs the browser-native Response/TextEncoder globals jsdom does not provide.
  *
  * Mocks apiFetch and asserts the strict zod schemas mirror the PR-A wire contract
  * EXACTLY (src/api/merchant/insights/{routes,format,service}.ts):
@@ -536,11 +543,15 @@ describe('downloadInsightsExport', () => {
     const jsonRes = {
       ok: true,
       status: 200,
-      headers: { get: (h: string) => (h.toLowerCase() === 'content-type' ? 'application/json' : null) },
+      statusText: 'OK',
+      // apiFetchRaw now BUFFERS the body (correction 4) then rebuilds an equivalent
+      // Response, so the fake must be real-fetch-shaped: a real Headers + arrayBuffer.
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ available: false }),
       text: async () => {
         throw new Error('should not read text for json')
       },
+      arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({ available: false })).buffer,
     }
     global.fetch = jest.fn(async () => jsonRes) as unknown as typeof fetch
     const res = await downloadInsightsExport({ period: 'all' })
@@ -552,11 +563,13 @@ describe('downloadInsightsExport', () => {
     const csvRes = {
       ok: true,
       status: 200,
-      headers: { get: (h: string) => (h.toLowerCase() === 'content-type' ? 'text/csv; charset=utf-8' : null) },
+      statusText: 'OK',
+      headers: new Headers({ 'content-type': 'text/csv; charset=utf-8' }),
       text: async () => csv,
       json: async () => {
         throw new Error('should not read json for csv')
       },
+      arrayBuffer: async () => new TextEncoder().encode(csv).buffer,
     }
     global.fetch = jest.fn(async () => csvRes) as unknown as typeof fetch
     const res = await downloadInsightsExport({})
@@ -578,8 +591,10 @@ describe('downloadInsightsExport', () => {
       return {
         ok: true,
         status: 200,
-        headers: { get: (h: string) => (h.toLowerCase() === 'content-type' ? 'text/csv; charset=utf-8' : null) },
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'text/csv; charset=utf-8' }),
         text: async () => csv,
+        arrayBuffer: async () => new TextEncoder().encode(csv).buffer,
       }
     }) as unknown as typeof fetch
     const res = await downloadInsightsExport({})
