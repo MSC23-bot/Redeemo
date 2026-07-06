@@ -27,7 +27,9 @@
     "test:integration:maintenance": "vitest run --project integration tests/api/queues/maintenanceSweep.integration.test.ts tests/api/admin/claim-stale-sweep.integration.test.ts tests/api/queues/processors/promotePendingHours.integration.test.ts tests/api/queues/maintenanceAlerts.integration.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "insights:demo:seed": "tsx prisma/insights-demo-seed.ts"
+    "insights:demo:seed": "tsx prisma/insights-demo-seed.ts",
+    "seed:demo": "tsx prisma/seed-demo.ts",
+    "seed:demo:clear": "tsx prisma/seed-demo.ts --clear"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
