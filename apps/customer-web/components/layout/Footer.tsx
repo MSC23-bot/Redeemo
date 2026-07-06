@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import Image from 'next/image'
+import { isMarketplaceLive } from '@/lib/prelaunch'
 
 const CURRENT_YEAR = new Date().getFullYear()
 
@@ -11,11 +12,13 @@ const COMPANY_LINKS = [
   { href: '/insider',        label: 'Insider' },
 ]
 
+// "Contact" removed until a real contact destination exists: it pointed at
+// /contact, which has never been a route (it returned a 404). Merchant contact
+// lives at /for-businesses#register-interest.
 const SUPPORT_LINKS = [
   { href: '/faq',      label: 'FAQ' },
   { href: '/privacy',  label: 'Privacy policy' },
   { href: '/terms',    label: 'Terms' },
-  { href: '/contact',  label: 'Contact' },
 ]
 
 export function Footer() {
@@ -98,11 +101,11 @@ export function Footer() {
             &copy; {CURRENT_YEAR} Redeemo Ltd. All rights reserved. UK registered company.
           </p>
           <Link
-            href="/register"
+            href={isMarketplaceLive() ? '/register' : '/how-it-works'}
             className="text-[13px] font-semibold text-white px-5 py-2.5 rounded-lg no-underline hover:opacity-90 transition-opacity"
             style={{ background: 'var(--brand-gradient)' }}
           >
-            Join free today
+            {isMarketplaceLive() ? 'Join free today' : 'See how Redeemo works'}
           </Link>
         </div>
       </div>

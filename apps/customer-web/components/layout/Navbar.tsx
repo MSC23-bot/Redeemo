@@ -7,10 +7,12 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, ChevronDown, LayoutDashboard, PiggyBank, Heart, CreditCard, User, LogOut, Bell } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { isMarketplaceLive } from '@/lib/prelaunch'
 
-// Links shown to logged-out visitors
+// Links shown to logged-out visitors. Marketplace routes are middleware-gated
+// pre-launch (they redirect home), so Discover only appears once live.
 const NAV_LINKS_PUBLIC = [
-  { href: '/discover',       label: 'Discover' },
+  ...(isMarketplaceLive() ? [{ href: '/discover', label: 'Discover' }] : []),
   { href: '/how-it-works',   label: 'How it works' },
   { href: '/pricing',        label: 'Pricing' },
   { href: '/insider',        label: 'Insider' },
@@ -19,7 +21,7 @@ const NAV_LINKS_PUBLIC = [
 
 // Links shown to signed-in members
 const NAV_LINKS_MEMBER = [
-  { href: '/discover',       label: 'Discover' },
+  ...(isMarketplaceLive() ? [{ href: '/discover', label: 'Discover' }] : []),
   { href: '/for-businesses', label: 'For businesses' },
   { href: '/insider',        label: 'Insider' },
 ]
@@ -118,6 +120,12 @@ export function Navbar() {
       : isDark ? 'text-white/65 hover:text-white' : 'text-[#4B5563] hover:text-[#010C35]'
 
   const firstName = user?.name ? getFirstName(user.name) : ''
+
+  // Pre-launch there is no app to send visitors to yet; point "Get the app" at the
+  // explainer page instead of a generic App Store link.
+  const marketplaceLive = isMarketplaceLive()
+  const getAppHref = marketplaceLive ? 'https://apps.apple.com' : '/how-it-works'
+  const getAppExternalProps = marketplaceLive ? { target: '_blank', rel: 'noreferrer' } : {}
 
   return (
     <header className={`sticky top-0 z-50 border-b transition-colors duration-300 ${navBg}`}>
@@ -295,9 +303,8 @@ export function Navbar() {
                   Log in
                 </Link>
                 <a
-                  href="https://apps.apple.com"
-                  target="_blank"
-                  rel="noreferrer"
+                  href={getAppHref}
+                  {...getAppExternalProps}
                   className="text-[14px] font-medium text-white px-4 py-2 rounded-lg no-underline hover:opacity-80 transition-opacity"
                   style={{
                     background: '#010C35',
@@ -412,9 +419,8 @@ export function Navbar() {
                         Log in
                       </Link>
                       <a
-                        href="https://apps.apple.com"
-                        target="_blank"
-                        rel="noreferrer"
+                        href={getAppHref}
+                        {...getAppExternalProps}
                         onClick={() => setMenuOpen(false)}
                         className="px-3 py-3 text-[14px] font-medium text-white text-center rounded-lg no-underline hover:opacity-80 transition-opacity"
                         style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.18)' }}
