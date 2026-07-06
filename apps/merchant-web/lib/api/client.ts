@@ -31,6 +31,11 @@ import { getSessionEpoch } from '@/lib/auth/sessionEpoch'
 /** Reserved synthetic error code for a request/refresh discarded by the epoch guard. */
 export const SESSION_SWITCHED_CODE = 'SESSION_SWITCHED'
 
+/** A synthetic, never-delivered-as-data ApiError raised when the epoch has moved. */
+function sessionSwitchedError(): ApiError {
+  return new ApiError(0, { code: SESSION_SWITCHED_CODE, message: 'Session switched during this request' })
+}
+
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
 export class ApiError extends Error {
@@ -138,7 +143,10 @@ export function resetRefreshInFlight(): void {
  * export) so those downloads get the IDENTICAL auth lifecycle rather than a
  * hand-rolled weaker fetch that cannot refresh an expired token.
  */
-async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Promise<Response> {
+/** Internal: the terminal Response paired with the epoch captured for this request. */
+type FetchOutcome = { res: Response; capturedEpoch: number }
+
+async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Promise<FetchOutcome> {
   const { auth = false, _isRetry = false, _epoch, ...init } = options
   // Capture ONCE at the original request's entry; the retry below threads this same
   // value through via `_epoch` rather than re-capturing (design spec §4.2 F2) - a
@@ -158,15 +166,35 @@ async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Pr
   const res = await fetch(`${BASE}${path}`, { ...init, headers })
 
   if (res.status === 401 && auth && !_isRetry) {
+    // Correction 1 (pre-refresh epoch gate): before an OLD 401 starts a refresh,
+    // verify the request's captured epoch still equals the current session epoch. If
+    // a session boundary landed during the original request, this 401 belongs to a
+    // dead session - abort with SESSION_SWITCHED rather than refreshing under a new
+    // session (and never touch the single-use refresh-token rotation on its behalf).
+    if (getSessionEpoch() !== capturedEpoch) {
+      throw sessionSwitchedError()
+    }
     const refreshed = await tryRefresh()
-    if (refreshed) return apiFetchResponse(path, { ...options, _isRetry: true, _epoch: capturedEpoch })
+    if (refreshed) {
+      // Correction 1 (pre-retry-dispatch epoch gate) + Correction 2 (cross-account
+      // write safety): re-verify the epoch BEFORE dispatching the retry. The retry
+      // attaches the CURRENT bearer token - which, after a mid-flight account switch,
+      // is a DIFFERENT merchant's token. Aborting here guarantees an old request's
+      // retry never leaves the browser under a new merchant's credentials. (Belt and
+      // suspenders with the transport guard below, which only fires AFTER the retry's
+      // network call has already gone out.)
+      if (getSessionEpoch() !== capturedEpoch) {
+        throw sessionSwitchedError()
+      }
+      return apiFetchResponse(path, { ...options, _isRetry: true, _epoch: capturedEpoch })
+    }
     // Session-side-effect epoch gate (Codex #3): a request that 401s, fails its
     // refresh, and finds the epoch has moved belongs to a DEAD session - a new
     // session is already live. It must not run any session-mutating side effect
     // (setAccessToken(null) / triggerSessionLost()); only a current-epoch request
     // may drive a hard logout.
     if (getSessionEpoch() !== capturedEpoch) {
-      throw new ApiError(0, { code: SESSION_SWITCHED_CODE, message: 'Session switched during this request' })
+      throw sessionSwitchedError()
     }
     setAccessToken(null)
     triggerSessionLost()
@@ -179,20 +207,28 @@ async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Pr
   // a caller once a session boundary has happened mid-flight - discard it in favour
   // of a synthetic SESSION_SWITCHED error (status 0; never delivered as data).
   if (getSessionEpoch() !== capturedEpoch) {
-    throw new ApiError(0, { code: SESSION_SWITCHED_CODE, message: 'Session switched during this request' })
+    throw sessionSwitchedError()
   }
 
   if (!res.ok) {
     const body = await res.json().catch(() => null)
     throw new ApiError(res.status, body)
   }
-  return res
+  return { res, capturedEpoch }
 }
 
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
-  const res = await apiFetchResponse(path, options)
+  const { res, capturedEpoch } = await apiFetchResponse(path, options)
   if (res.status === 204) return undefined as T
-  return (await res.json()) as T
+  const data = (await res.json()) as T
+  // Correction 3 (post-body epoch gate): re-check AFTER JSON body consumption, not
+  // only after fetch returned headers. A session boundary that lands while the body
+  // is still streaming must still abort the pre-side-effect delivery - the parsed
+  // old-session payload is discarded rather than handed to the caller.
+  if (getSessionEpoch() !== capturedEpoch) {
+    throw sessionSwitchedError()
+  }
+  return data
 }
 
 /**
@@ -203,5 +239,21 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
  * authed downloads - an expired token must still refresh once and retry.
  */
 export async function apiFetchRaw(path: string, options: ApiFetchOptions = {}): Promise<Response> {
-  return apiFetchResponse(path, options)
+  const { res, capturedEpoch } = await apiFetchResponse(path, options)
+  // Correction 4 (raw post-body epoch gate): the CSV/raw path must be protected
+  // THROUGH body consumption too, not returned before the epoch protection ends.
+  // Bodyless statuses have nothing to stream, so re-check and hand the Response back
+  // as-is; otherwise BUFFER the body here so the epoch can be re-checked AFTER the
+  // bytes are consumed, then return an equivalent Response the caller can still read.
+  if (res.status === 204 || res.status === 304) {
+    if (getSessionEpoch() !== capturedEpoch) {
+      throw sessionSwitchedError()
+    }
+    return res
+  }
+  const buffered = await res.arrayBuffer()
+  if (getSessionEpoch() !== capturedEpoch) {
+    throw sessionSwitchedError()
+  }
+  return new Response(buffered, { status: res.status, statusText: res.statusText, headers: res.headers })
 }

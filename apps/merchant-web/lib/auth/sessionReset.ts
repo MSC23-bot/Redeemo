@@ -23,16 +23,34 @@
  *
  * Caller-specific state (React `merchant`/`accessToken` state sync, navigation)
  * proceeds in the caller AFTER this resolves - see lib/auth/session.tsx.
+ *
+ * RETURNS the generation (the epoch this reset bumped to). Overlapping transitions
+ * (setSession / signOut / hard-logout) use it as an ownership token: before their
+ * mutating commit they re-read getSessionEpoch() and skip if a NEWER transition has
+ * since bumped it, so an older async completion can never install or clear a newer
+ * session (correction 8).
+ *
+ * FAILURE-SAFE (correction 5): a `cancelQueries` rejection must NOT throw out of the
+ * teardown - the cache clear + token null are load-bearing and MUST still run. Only
+ * a `clear()` failure (a truly broken teardown) propagates, letting login fail
+ * closed (correction 6).
  */
 import type { QueryClient } from '@tanstack/react-query'
-import { bumpSessionEpoch } from './sessionEpoch'
+import { bumpSessionEpoch, getSessionEpoch } from './sessionEpoch'
 import { setAccessToken } from './tokenStore'
 import { resetRefreshInFlight } from '@/lib/api/client'
 
-export async function resetSessionState(queryClient: QueryClient): Promise<void> {
+export async function resetSessionState(queryClient: QueryClient): Promise<number> {
   bumpSessionEpoch()
+  const generation = getSessionEpoch()
   setAccessToken(null)
   resetRefreshInFlight()
-  await queryClient.cancelQueries()
+  try {
+    await queryClient.cancelQueries()
+  } catch {
+    // cancelQueries is best-effort: a rejection here (e.g. an abort race) must never
+    // stop the teardown from clearing the cache below.
+  }
   queryClient.clear()
+  return generation
 }

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { getAccessToken, setAccessToken, setOnSessionLost } from './tokenStore'
 import { resetSessionState } from './sessionReset'
+import { getSessionEpoch } from './sessionEpoch'
 import { refreshSession } from '@/lib/api/client'
 import { authApi, type SessionMerchant } from '@/lib/api/auth'
 
@@ -53,7 +54,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // session, so a re-entry here reuses the SAME promise rather than starting a
   // second teardown. Cleared PROVIDER-SIDE inside applyToken when a truthy token is
   // applied (a new session is live) - never by the tokenStore module itself.
-  const teardownInFlightRef = useRef<Promise<void> | null>(null)
+  const teardownInFlightRef = useRef<Promise<number> | null>(null)
 
   const applyToken = useCallback((t: string | null) => {
     setAccessToken(t)
@@ -67,7 +68,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // completes - this is a hard ordering guarantee (Codex #2). Any pre-login
       // hung request is epoch-dead and its retryer cancelled before the first
       // new-session query mounts.
-      await resetSessionState(queryClient)
+      //
+      // FAIL CLOSED (correction 6): resetSessionState is deliberately NOT wrapped in
+      // try/catch here. If a safe reset cannot complete (a clear() failure - the only
+      // path that still throws after correction 5 swallows cancelQueries rejections),
+      // the throw propagates and the new token/session is NEVER installed.
+      const generation = await resetSessionState(queryClient)
+      // OWNERSHIP GUARD (correction 8): if a NEWER transition bumped the epoch while
+      // this reset was in flight (e.g. a second, later login), skip the commit so an
+      // older async completion cannot clobber the newer session.
+      if (getSessionEpoch() !== generation) return
       applyToken(t)
       setMerchant(m)
     },
@@ -79,12 +89,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // the best-effort backend revoke below (the token-null ordering does not skip
     // the revoke).
     const token = getAccessToken()
-    await resetSessionState(queryClient)
+    // CONTINUE SAFELY (correction 7): a deliberate sign-out must ALWAYS end
+    // signed-out. Even if the reset pipeline throws (a broken clear()), the local
+    // state is still nulled and the user still reaches /sign-in below - no early
+    // return skips the teardown.
+    let generation: number | undefined
+    try {
+      generation = await resetSessionState(queryClient)
+    } catch {
+      // reset best-effort - fall through to null local state + navigate anyway.
+    }
     try {
       await authApi.logout(token)
     } catch {
       // best-effort
     }
+    // OWNERSHIP GUARD (correction 8): if a newer transition (e.g. a re-login during
+    // the revoke round-trip) superseded this sign-out, do NOT clobber it.
+    if (generation !== undefined && getSessionEpoch() !== generation) return
     applyToken(null)
     setMerchant(null)
     router.replace('/sign-in')
@@ -107,12 +129,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (!teardownInFlightRef.current) {
         teardownInFlightRef.current = resetSessionState(queryClient)
       }
-      const finish = () => {
+      // CONTINUE SAFELY (correction 7): finish runs on BOTH `.then` and `.catch`, so a
+      // dead session ALWAYS reaches /sign-in even if the reset pipeline rejects (a
+      // broken clear()), and no rejection is left floating/unhandled.
+      // OWNERSHIP GUARD (correction 8): when the reset resolved with a generation,
+      // skip the clear+navigate if a NEWER transition (e.g. a re-login) has since
+      // superseded this dead-session teardown. On a rejected reset the generation is
+      // unknown, so we fall back to the safe default of navigating to /sign-in.
+      const finish = (generation?: number) => {
+        if (generation !== undefined && getSessionEpoch() !== generation) return
         applyToken(null)
         setMerchant(null)
         router.replace('/sign-in')
       }
-      teardownInFlightRef.current.then(finish).catch(finish)
+      teardownInFlightRef.current.then((generation) => finish(generation)).catch(() => finish())
     })
     return () => setOnSessionLost(null)
   }, [applyToken, queryClient, router])

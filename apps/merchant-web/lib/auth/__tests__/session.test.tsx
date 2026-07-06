@@ -30,13 +30,22 @@ jest.mock('@/lib/api/auth', () => ({ authApi: { logout: (t: string | null) => lo
 
 function Probe() {
   const s = useSession()
+  // `.catch(() => {})` swallows the (deliberate) rejection when a test drives a
+  // reset failure through setSession (correction 6), so an unhandled rejection does
+  // not leak into the test runner.
   return (
     <div>
       <span data-testid="ready">{String(s.ready)}</span>
       <span data-testid="auth">{String(s.isAuthenticated)}</span>
       <button onClick={() => s.signOut()}>out</button>
-      <button onClick={() => void s.setSession('new-tok', { id: 'm2', businessName: 'B2', approvalStatus: 'APPROVED' })}>
+      <button onClick={() => void s.setSession('new-tok', { id: 'm2', businessName: 'B2', approvalStatus: 'APPROVED' }).catch(() => {})}>
         login
+      </button>
+      <button onClick={() => void s.setSession('A-token', { id: 'm-a', businessName: 'A', approvalStatus: 'APPROVED' }).catch(() => {})}>
+        login-a
+      </button>
+      <button onClick={() => void s.setSession('B-token', { id: 'm-b', businessName: 'B', approvalStatus: 'APPROVED' }).catch(() => {})}>
+        login-b
       </button>
     </div>
   )
@@ -221,6 +230,171 @@ describe('SessionProvider (M1 Slice 1 + session cache-isolation core T4)', () =>
 
     // A rejected teardown must STILL navigate - a dead session always reaches /sign-in.
     expect(replace).toHaveBeenCalledWith('/sign-in')
+  })
+
+  it('correction 6 (login fails closed): if the pre-install reset throws, setSession does NOT install the new token', async () => {
+    refreshSessionMock.mockResolvedValue(false)
+    const queryClient = new QueryClient()
+    // clear() throwing is the only path that still rejects after correction 5 (which
+    // swallows cancelQueries rejections). It models "a safe reset cannot complete".
+    jest.spyOn(queryClient, 'clear').mockImplementation(() => {
+      throw new Error('clear boom')
+    })
+    renderProvider(queryClient)
+    await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'))
+    expect(getAccessToken()).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('login'))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    // WITH the fail-closed ordering (await reset BEFORE install, no catch): the token
+    // is never installed. MUTATION (wrap the reset in try/catch + install anyway):
+    // the token would be installed and these expectations flip.
+    expect(getAccessToken()).toBeNull()
+    expect(screen.getByTestId('auth').textContent).toBe('false')
+  })
+
+  it('correction 7 (logout continues safely): signOut still clears the cache and navigates even when the backend logout throws', async () => {
+    refreshSessionMock.mockImplementation(async () => {
+      setAccessToken('hydrated')
+      return true
+    })
+    logoutMock.mockRejectedValueOnce(new Error('network'))
+    const { queryClient } = renderProvider()
+    queryClient.setQueryData(['cached'], { s: 1 })
+    await waitFor(() => expect(screen.getByTestId('auth').textContent).toBe('true'))
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('out'))
+    })
+
+    // The reset (clear) runs BEFORE the throwing logout, and logout is wrapped in
+    // try/catch. MUTATION (remove the try/catch around authApi.logout): the rejection
+    // propagates and the navigation below is skipped, flipping this test.
+    expect(queryClient.getQueryData(['cached'])).toBeUndefined()
+    expect(replace).toHaveBeenCalledWith('/sign-in')
+    expect(screen.getByTestId('auth').textContent).toBe('false')
+  })
+
+  it('correction 7 (reset failure): signOut still nulls local state and navigates even if the reset pipeline throws', async () => {
+    refreshSessionMock.mockImplementation(async () => {
+      setAccessToken('hydrated')
+      return true
+    })
+    const queryClient = new QueryClient()
+    jest.spyOn(queryClient, 'clear').mockImplementation(() => {
+      throw new Error('clear boom')
+    })
+    renderProvider(queryClient)
+    await waitFor(() => expect(screen.getByTestId('auth').textContent).toBe('true'))
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('out'))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    // WITH the try/catch around resetSessionState in signOut: sign-out completes and
+    // navigates. MUTATION (bare `await resetSessionState`): the throw propagates,
+    // router.replace is skipped, and this expectation flips.
+    expect(getAccessToken()).toBeNull()
+    expect(replace).toHaveBeenCalledWith('/sign-in')
+  })
+
+  it('correction 8 (overlapping logins): an OLDER setSession whose reset resolves LAST must NOT clobber the NEWER session', async () => {
+    refreshSessionMock.mockResolvedValue(false)
+    const queryClient = new QueryClient()
+    const cancelResolvers: Array<() => void> = []
+    jest.spyOn(queryClient, 'cancelQueries').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          cancelResolvers.push(resolve)
+        }),
+    )
+    renderProvider(queryClient)
+    await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'))
+
+    // Login-A then login-B overlap: each reset bumps the epoch synchronously and then
+    // hangs at cancelQueries (resolver[0] = A, resolver[1] = B).
+    act(() => {
+      fireEvent.click(screen.getByText('login-a'))
+    })
+    act(() => {
+      fireEvent.click(screen.getByText('login-b'))
+    })
+    await Promise.resolve()
+    expect(cancelResolvers.length).toBe(2)
+
+    // Resolve B (the NEWER transition) FIRST, then A (the OLDER) LAST.
+    await act(async () => {
+      cancelResolvers[1]()
+      await Promise.resolve()
+      await Promise.resolve()
+      cancelResolvers[0]()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    // WITH the ownership guard: A sees the epoch has moved past its generation and
+    // skips its install, so B wins. MUTATION (remove the `getSessionEpoch() !==
+    // generation` guard in setSession): A's late completion installs 'A-token',
+    // clobbering B, and this expectation flips.
+    expect(getAccessToken()).toBe('B-token')
+    expect(screen.getByTestId('auth').textContent).toBe('true')
+  })
+
+  it('correction 8 (hard-logout superseded by re-login): a dead-session teardown whose reset resolves after a newer login must NOT clear that newer session or navigate away', async () => {
+    refreshSessionMock.mockImplementation(async () => {
+      setAccessToken('hydrated')
+      return true
+    })
+    const queryClient = new QueryClient()
+    const cancelResolvers: Array<() => void> = []
+    jest.spyOn(queryClient, 'cancelQueries').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          cancelResolvers.push(resolve)
+        }),
+    )
+    const setOnSessionLostMock = setOnSessionLost as jest.Mock
+    renderProvider(queryClient)
+    await waitFor(() => expect(screen.getByTestId('auth').textContent).toBe('true'))
+    const calls = setOnSessionLostMock.mock.calls
+    const capturedOnSessionLost = calls[calls.length - 1][0] as () => void
+
+    // Hard-logout fires (reset bumps -> resolver[0], hangs). Then a newer login
+    // completes fully BEFORE the hard-logout's reset resolves.
+    act(() => {
+      capturedOnSessionLost()
+    })
+    act(() => {
+      fireEvent.click(screen.getByText('login-b'))
+    })
+    await Promise.resolve()
+    expect(cancelResolvers.length).toBe(2)
+
+    await act(async () => {
+      cancelResolvers[1]() // B's reset completes first -> B installed
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(getAccessToken()).toBe('B-token')
+    replace.mockClear()
+
+    await act(async () => {
+      cancelResolvers[0]() // the stale hard-logout's reset completes LAST
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    // WITH the ownership guard in finish: the stale teardown sees the epoch moved past
+    // its generation and does nothing. MUTATION (drop the guard in finish): it nulls
+    // the token and navigates to /sign-in, clobbering B - flipping these expectations.
+    expect(getAccessToken()).toBe('B-token')
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it('useSession throws when used outside a SessionProvider', () => {

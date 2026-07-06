@@ -64,6 +64,26 @@ describe('resetSessionState (T3 teardown pipeline)', () => {
     expect(qc.getMutationCache().getAll().length).toBe(0)
   })
 
+  it('correction 5 (failure-safe): a cancelQueries rejection does NOT throw out of teardown - clear() still runs and the cache is still wiped', async () => {
+    const qc = new QueryClient()
+    qc.setQueryData(['x'], { a: 1 })
+    jest.spyOn(qc, 'cancelQueries').mockRejectedValue(new Error('cancel boom'))
+    const clearSpy = jest.spyOn(qc, 'clear')
+    // WITH the try/catch around cancelQueries: resetSessionState resolves (does NOT
+    // reject) and clear() still ran. MUTATION (drop the try/catch, bare
+    // `await qc.cancelQueries()`): the reject propagates, clear() is skipped, and this
+    // expectation flips (the promise rejects + clearSpy is never called).
+    await expect(resetSessionState(qc)).resolves.toEqual(expect.any(Number))
+    expect(clearSpy).toHaveBeenCalledTimes(1)
+    expect(qc.getQueryData(['x'])).toBeUndefined()
+  })
+
+  it('returns the generation (the epoch it bumped to) for the overlapping-transition ownership guard (correction 8)', async () => {
+    const qc = new QueryClient()
+    const generation = await resetSessionState(qc)
+    expect(generation).toBe(getSessionEpoch())
+  })
+
   it('ordering: cancelQueries runs BEFORE clear (a fetch resolving in that exact gap cannot survive)', async () => {
     const qc = new QueryClient()
     const order: string[] = []

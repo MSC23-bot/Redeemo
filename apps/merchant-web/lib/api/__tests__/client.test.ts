@@ -13,6 +13,21 @@ function jsonRes(status: number, body: unknown) {
   } as unknown as Response
 }
 
+// Raw-path responses need a consumable body: apiFetchRaw now BUFFERS the body
+// (correction 4) so it can re-check the epoch AFTER body consumption, then rebuilds
+// an equivalent Response. These fakes therefore expose arrayBuffer() + headers.
+function rawRes(status: number, body: unknown): Response {
+  const text = JSON.stringify(body)
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    statusText: '',
+    headers: new Headers({ 'Content-Type': 'application/json' }),
+    json: async () => body,
+    arrayBuffer: async () => new TextEncoder().encode(text).buffer,
+  } as unknown as Response
+}
+
 describe('apiFetch (M1 Slice 1 BFF-lite client)', () => {
   beforeEach(() => {
     setAccessToken(null)
@@ -104,29 +119,32 @@ describe('apiFetchRaw (raw-Response variant for non-JSON downloads)', () => {
     jest.restoreAllMocks()
   })
 
-  it('resolves to the RAW Response on success and attaches the bearer token', async () => {
+  it('resolves to a readable Response on success (body buffered) and attaches the bearer token', async () => {
     setAccessToken('tok')
-    const res = jsonRes(200, { ok: 1 })
+    const res = rawRes(200, { ok: 1 })
     const fetchMock = jest.fn(async () => res)
     global.fetch = fetchMock as unknown as typeof fetch
     const out = await apiFetchRaw('/export.csv', { auth: true })
-    expect(out).toBe(res) // the raw Response, NOT parsed json
+    // apiFetchRaw buffers the body then hands back an equivalent Response (correction
+    // 4) - it is NOT JSON-parsed by the helper, but the caller can still read it.
+    expect(out.status).toBe(200)
+    expect(await out.json()).toEqual({ ok: 1 })
     const headers = ((fetchMock.mock.calls[0] as unknown[])[1] as RequestInit).headers as Headers
     expect(headers.get('Authorization')).toBe('Bearer tok')
   })
 
-  it('on a 401 refreshes ONCE and retries, returning the retried raw Response', async () => {
+  it('on a 401 refreshes ONCE and retries, returning the retried raw Response body', async () => {
     setAccessToken('expired')
     let exportCalls = 0
-    const okRes = jsonRes(200, { ok: 1 })
     global.fetch = jest.fn(async (url: unknown) => {
       const u = String(url)
       if (u.endsWith('/api/merchant-auth/refresh')) return jsonRes(200, { accessToken: 'fresh' })
       exportCalls += 1
-      return exportCalls === 1 ? jsonRes(401, {}) : okRes
+      return exportCalls === 1 ? jsonRes(401, {}) : rawRes(200, { ok: 1 })
     }) as unknown as typeof fetch
     const out = await apiFetchRaw('/export.csv', { auth: true })
-    expect(out).toBe(okRes)
+    expect(out.status).toBe(200)
+    expect(await out.json()).toEqual({ ok: 1 })
     expect(exportCalls).toBe(2)
     expect(getAccessToken()).toBe('fresh')
   })
@@ -239,18 +257,15 @@ describe('session epoch guard (T2) + single-flight self-ownership (T3/F1)', () =
     ).rejects.toMatchObject({ code: 'SESSION_SWITCHED' })
   })
 
-  it('F2 REAL recursive-threading pin: a boundary landing during the ORIGINAL 401 fetch (so the refresh still succeeds + retries) makes the retry discard on threaded epoch, deliver on unthreaded', async () => {
-    // This exercises the REAL recursive retry path (no direct `_epoch` injection).
-    // The bump happens during the FIRST (401) fetch - BEFORE doRefresh runs - so
-    // doRefresh captures the already-bumped epoch, its own guard passes, the refresh
-    // SUCCEEDS, and the recursive retry fires. The original request captured its
-    // epoch at entry, BEFORE the bump. So:
-    //   - THREADED (real code): retry's captured epoch = original entry epoch (pre-bump)
-    //     -> current(bumped) != original -> retry REJECTS with SESSION_SWITCHED.
-    //   - UNTHREADED (the mutation): retry re-captures at its own entry = current(bumped)
-    //     -> current(bumped) == retry-capture -> retry DELIVERS the 200 (cache poisoned).
-    // Only the threaded value produces the reject, so dropping `_epoch` from the
-    // recursive call flips this test red.
+  it('correction 1a (pre-refresh epoch gate): a boundary landing during the ORIGINAL 401 fetch aborts BEFORE any refresh is attempted', async () => {
+    // The bump happens DURING the first (401) fetch, so by the time the 401 is
+    // processed the epoch has already moved - this request belongs to a dead session.
+    // Correction 1's pre-refresh gate must abort here WITHOUT starting a refresh (it
+    // must never spend the single-use refresh-token rotation on a dead session).
+    //   - WITH the guard (real code): refreshCalls === 0, retry never dispatched,
+    //     the ORIGINAL token is left untouched, rejects SESSION_SWITCHED.
+    //   - MUTATION (remove the pre-refresh guard): tryRefresh IS called (refreshCalls
+    //     becomes 1), so `expect(refreshCalls).toBe(0)` flips red.
     setAccessToken('expired')
     let appCalls = 0
     let refreshCalls = 0
@@ -258,22 +273,154 @@ describe('session epoch guard (T2) + single-flight self-ownership (T3/F1)', () =
       const u = String(url)
       if (u.endsWith('/api/merchant-auth/refresh')) {
         refreshCalls += 1
-        return jsonRes(200, { accessToken: 'fresh' }) // no bump here - doRefresh's own guard must PASS
+        return jsonRes(200, { accessToken: 'fresh' })
       }
       appCalls += 1
       if (appCalls === 1) {
-        bumpSessionEpoch() // boundary lands DURING the original 401 fetch, before doRefresh
+        bumpSessionEpoch() // boundary lands DURING the original 401 fetch, before the pre-refresh gate
         return jsonRes(401, {})
       }
-      return jsonRes(200, { ok: 1 }) // the retry's clean 200 - must be discarded on threaded epoch
+      return jsonRes(200, { ok: 1 }) // a retry - must NEVER happen
     }) as unknown as typeof fetch
 
     await expect(apiFetch<{ ok: number }>('/profile', { auth: true })).rejects.toMatchObject({
       code: 'SESSION_SWITCHED',
     })
-    expect(refreshCalls).toBe(1) // refresh succeeded (doRefresh guard passed at the already-bumped epoch)
-    expect(appCalls).toBe(2) // original 401 + one retry both fired
-    expect(getAccessToken()).toBe('fresh') // the refresh itself installed a token (its epoch was stable)
+    expect(refreshCalls).toBe(0) // aborted BEFORE any refresh
+    expect(appCalls).toBe(1) // only the original request fired; no retry
+    expect(getAccessToken()).toBe('expired') // the pre-refresh gate touched nothing
+  })
+
+  it('correction 1b (pre-retry-dispatch epoch gate, concurrent adoption): a request that ADOPTS a shared refresh re-verifies the epoch before dispatching its retry - if a sibling retry moved the epoch first, it aborts WITHOUT sending its own retry under the new session', async () => {
+    // R1 (/a) and R2 (/b) both 401 and share ONE refresh (single-flight). When the
+    // shared refresh resolves (no bump - doRefresh's own guard must pass), both
+    // continuations run in attachment order: R1 first. R1's retry mock bumps the
+    // epoch SYNCHRONOUSLY, so by the time R2's continuation runs its pre-retry gate,
+    // the epoch has moved and R2 must abort WITHOUT dispatching its /b retry.
+    //   - WITH the pre-retry gate: R2's /b retry NEVER goes out (bCalls stays 1).
+    //   - MUTATION (remove the pre-retry gate): R2 dispatches its retry under the
+    //     moved epoch (bCalls becomes 2) before the transport guard rejects it - the
+    //     exact cross-session request the gate exists to prevent.
+    setAccessToken('expired')
+    let refreshCalls = 0
+    let releaseRefresh: ((r: Response) => void) | undefined
+    let aCalls = 0
+    let bCalls = 0
+    global.fetch = jest.fn(async (url: unknown) => {
+      const u = String(url)
+      if (u.endsWith('/api/merchant-auth/refresh')) {
+        refreshCalls += 1
+        return new Promise<Response>((resolve) => {
+          releaseRefresh = resolve
+        })
+      }
+      if (u.endsWith('/a')) {
+        aCalls += 1
+        if (aCalls === 1) return jsonRes(401, {})
+        bumpSessionEpoch() // R1's retry bumps synchronously - lands before R2's pre-retry gate runs
+        return jsonRes(200, { ok: 1 })
+      }
+      bCalls += 1
+      if (bCalls === 1) return jsonRes(401, {})
+      return jsonRes(200, { ok: 1 }) // R2's retry - must NEVER fire
+    }) as unknown as typeof fetch
+
+    const r1 = apiFetch('/a', { auth: true }).then(
+      () => ({ kind: 'resolved' as const }),
+      (e: unknown) => ({ kind: 'rejected' as const, e }),
+    )
+    const r2 = apiFetch('/b', { auth: true }).then(
+      () => ({ kind: 'resolved' as const }),
+      (e: unknown) => ({ kind: 'rejected' as const, e }),
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(refreshCalls).toBe(1) // single-flight: R2 adopted R1's refresh
+    releaseRefresh?.(jsonRes(200, { accessToken: 'fresh' }))
+    const [res1, res2] = await Promise.all([r1, r2])
+
+    expect(aCalls).toBe(2) // R1's retry fired (then its OWN transport guard rejected it post-fetch)
+    expect(bCalls).toBe(1) // R2 aborted at the pre-retry gate: its /b retry NEVER went out
+    expect(res1.kind).toBe('rejected')
+    expect(res2.kind).toBe('rejected')
+    expect((res2 as { e: ApiError }).e.code).toBe('SESSION_SWITCHED')
+  })
+
+  it('correction 2 (cross-account write): an old request captured under merchant A must NEVER retry under merchant B; the account switch mid-flight aborts it and B token never hits the wire', async () => {
+    // A-token request to a WRITE endpoint 401s; mid-flight the session switches to
+    // merchant B (epoch bump + B token installed). The old request must abort and its
+    // retry must never be dispatched under B's credentials.
+    //   - WITH the guards: writeCalls === 1, only 'Bearer A-token' ever hit the wire.
+    //   - MUTATION (remove the pre-refresh gate): a refresh is attempted and, with the
+    //     pre-retry gate ALSO removed, a retry would go out under a non-A token,
+    //     flipping writeCalls to 2 / a non-A Authorization header onto the wire.
+    setAccessToken('A-token')
+    const writeAuthHeaders: (string | null)[] = []
+    let refreshCalls = 0
+    let writeCalls = 0
+    global.fetch = jest.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url)
+      if (u.endsWith('/api/merchant-auth/refresh')) {
+        refreshCalls += 1
+        return jsonRes(200, { accessToken: 'stale-refresh' })
+      }
+      writeCalls += 1
+      const h = init?.headers as Headers | undefined
+      writeAuthHeaders.push(h?.get ? h.get('Authorization') : null)
+      if (writeCalls === 1) {
+        // Merchant B logs in DURING the original request (same tab, same transport).
+        bumpSessionEpoch()
+        setAccessToken('B-token')
+        return jsonRes(401, {})
+      }
+      return jsonRes(200, { ok: 1 }) // the retry - must NEVER fire
+    }) as unknown as typeof fetch
+
+    await expect(apiFetch('/merchant/write', { auth: true })).rejects.toMatchObject({
+      code: 'SESSION_SWITCHED',
+    })
+    expect(writeCalls).toBe(1) // the retry NEVER went out
+    expect(writeAuthHeaders).toEqual(['Bearer A-token']) // ONLY A's token ever hit the wire; NEVER B's
+    expect(refreshCalls).toBe(0) // aborted at the pre-refresh gate, before any refresh
+    expect(getAccessToken()).toBe('B-token') // B's freshly-installed token is left intact
+  })
+
+  it('correction 3 (post-body epoch gate): a boundary DURING res.json() body consumption still aborts - old-session data is never delivered', async () => {
+    // The transport guard fires after fetch returns HEADERS; this pins the SECOND
+    // check, after the JSON body has been consumed.
+    //   - WITH the post-body gate: rejects SESSION_SWITCHED.
+    //   - MUTATION (remove the post-body gate in apiFetch): the parsed { ok: 1 } is
+    //     delivered to the caller and the test flips (resolves instead of rejects).
+    setAccessToken('tok')
+    const res = {
+      status: 200,
+      ok: true,
+      json: async () => {
+        bumpSessionEpoch() // boundary lands while the body is being streamed/parsed
+        return { ok: 1 }
+      },
+    } as unknown as Response
+    global.fetch = jest.fn(async () => res) as unknown as typeof fetch
+    await expect(apiFetch('/profile', { auth: true })).rejects.toMatchObject({ code: 'SESSION_SWITCHED' })
+  })
+
+  it('correction 4 (raw post-body epoch gate): a boundary DURING raw body consumption aborts - the CSV/raw path is protected through body consumption too', async () => {
+    //   - WITH the post-body gate in apiFetchRaw: rejects SESSION_SWITCHED.
+    //   - MUTATION (remove the post-body gate in apiFetchRaw): the rebuilt Response is
+    //     returned to the caller and the test flips (resolves instead of rejects).
+    setAccessToken('tok')
+    const res = {
+      status: 200,
+      ok: true,
+      statusText: 'OK',
+      headers: new Headers(),
+      arrayBuffer: async () => {
+        bumpSessionEpoch() // boundary lands while the raw body is being consumed
+        return new ArrayBuffer(8)
+      },
+    } as unknown as Response
+    global.fetch = jest.fn(async () => res) as unknown as typeof fetch
+    await expect(apiFetchRaw('/export.csv', { auth: true })).rejects.toMatchObject({ code: 'SESSION_SWITCHED' })
   })
 
   it('session-side-effect epoch gate (Codex #3): an old-epoch request whose refresh fails does NOT null the token or hard-logout', async () => {
