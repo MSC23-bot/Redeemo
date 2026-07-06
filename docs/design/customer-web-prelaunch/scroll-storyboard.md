@@ -1,4 +1,28 @@
-# Landing Page Scroll Narrative · Storyboard & Structure (v2, for owner review)
+# Landing Page Scroll Narrative · Storyboard & Structure (v2.1, for owner review)
+
+## v2.1 amendment: savings-led hierarchy (owner, 2026-07-06)
+
+Core business = saving customers money on lifestyle; discovery serves that, not the
+other way round. The narrative stays find -> choose -> redeem, but every beat leads
+with the saving and uses discovery as the supporting mechanism:
+
+- Hook headline becomes savings-first, quality-anchored (so it never reads Groupon):
+  working H1: "Pay less at the best places near you." Sub keeps the mechanism:
+  "Independent restaurants, cafes, gyms and salons, each with member vouchers
+  included. One membership from £6.99 a month." The saving is the promise; "best
+  places" is the identity guard.
+- Beat 2 (Find) reframes: not "places worth knowing about" but "money off, everywhere
+  you already go": the feed/map journey shows every place carrying a visible saving.
+- Beat 3 (Choose) leads with the £ value on the voucher cards (real UI already shows
+  "Up to £16" style values).
+- Beat 5 (The maths) gets promoted to the app's REAL Savings screen as proof: the app
+  keeps score of money saved (synthetic figure from seed data). "One voucher covers
+  the month. The app counts the rest." This is why the savings screen is on the shot
+  list.
+- Guardrails unchanged: membership framing (vouchers included, never bought), no
+  "deals/discount" vocabulary, no percentage-off hero claims, no urgency theatre.
+  Savings-led and premium are compatible: the saving is the outcome of membership,
+  not a bargain hunt.
 
 2026-07-06 · Fable. Status: PROPOSED, not implemented. v2 folds in owner refinements:
 conversion/psychology-first narrative, colour rebalance (navy is secondary, not the
