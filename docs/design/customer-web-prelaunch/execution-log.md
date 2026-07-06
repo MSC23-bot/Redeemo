@@ -70,3 +70,30 @@ edited by this workstream.
   ScrollTimeline animations and the promotion misbinds; routing every scroll-linked
   value through useSpring keeps them on the JS path (and softens crossfades). Verified
   by DOM probes at p=0.15/0.45/0.66/0.85 and screenshots; guard tests 30/30; tsc clean.
+
+## 2026-07-06 (evening) · Empty customer app investigation
+
+- ROOT CAUSE (verified with code + read-only DB inspection): (1) the base seed's
+  SEC-C3 sweep marks ALL merchant/branch/voucher rows isTestData=true and every
+  customer read path excludes them unconditionally (CI-guarded; correct); (2) the
+  sanctioned display tier prisma/seed-demo.ts (demo- prefixed, visible by design,
+  clearable) was never run on the current dev DB; (3) the only isTestData=false
+  ACTIVE rows are leaked test artifacts with zero active vouchers; (4) demo branches
+  default to POSTCODE_CENTROID location confidence, which is never rankable, so
+  Featured/Trending/NearbyByCategory would hide them even after seeding.
+- CONTENT-SAFETY finding: existing QA fixtures are unusable for public visuals:
+  Pino's is a real Huddersfield multi-site business; "Karaara"/"My Kerala"/"Covelum"
+  are explicitly labelled REAL merchants in prisma/seed-data/demoMerchantEnrichment.ts;
+  Karaara's fixture address is the real premises of another restaurant (Veppura).
+- FIX (PR #400, draft): six web-vetted fictional Huddersfield merchants
+  (demo-merchant-11..16, The Old Foundry Kitchen mirroring the portal prototype's
+  example business), MANUALLY_CONFIRMED demo branches, Huddersfield demo redemptions
+  for Trending, city-correct Featured targeting, the missing seed:demo scripts,
+  two brand-voice campaign copy fixes. No isTestData filter or read-path changes.
+- QUEUED FOR OWNER APPROVAL (auto-mode classifier correctly held it): running
+  `npm run seed:demo` against the shared dev Neon DB. One command, additive,
+  reversible via `npm run seed:demo:clear`.
+- Known minor: the original London set already contains a same-named
+  "The Old Foundry Kitchen" (demo-merchant-02, Clerkenwell); after seeding both
+  exist (reads as a two-city chain). Flagged to the adversarial review.
+- No provider/deployment/schema/env actions taken or required.
