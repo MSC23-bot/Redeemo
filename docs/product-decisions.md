@@ -1,5 +1,12 @@
 # Redeemo Product Decisions
 
+> **SUPERSEDED as the active decision ledger (2026-07-06).** This file was last maintained
+> 2026-04-09 and is preserved as historical reasoning per its own rule below. The active
+> ledger for open owner decisions is `docs/PROJECT-STATE.md` §6; cross-product locked
+> decisions live in PROJECT-STATE §5. Entries below remain valid historical evidence of
+> WHY early choices were made; verify any still-operative claim against PROJECT-STATE and
+> `origin/main` before relying on it.
+
 This document records confirmed product decisions with their reasoning. It is the source of truth for non-obvious choices made during design. Update it when decisions change — do not delete old entries, mark them superseded.
 
 ---
