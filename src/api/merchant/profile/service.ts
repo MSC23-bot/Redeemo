@@ -108,8 +108,31 @@ export async function getMerchantProfile(prisma: PrismaClient, adminId: string) 
       : null
   }
 
+  // BP-ADJ1 (Business Profile hardening, defence-in-depth): the REGISTERED/
+  // COMPLIANCE fields (companies-house/VAT/website + contract + verification
+  // status) are OWNER | BRANCH_MANAGER-only, same allowlist rationale as
+  // ownerContact/agreement above - a STAFF (or any future/unknown role) viewer
+  // fails closed. Audit-confirmed no STAFF-reachable consumer reads these:
+  // Home reads businessName + status only; the Business Profile page's
+  // RegisteredDetailsCard is itself role-gated; onboarding prefill always runs
+  // as OWNER. Shell/home/public-identity fields (businessName, status,
+  // onboardingStep, tradingName, description, logoUrl, bannerUrl,
+  // primaryCategoryId, id) are left untouched for every viewer.
+  const registeredCompliance = canViewBusinessProfile
+    ? {}
+    : {
+        companyNumber: null,
+        vatNumber: null,
+        websiteUrl: null,
+        contractStatus: null,
+        contractStartDate: null,
+        contractEndDate: null,
+        verificationStatus: null,
+      }
+
   return {
     ...merchant,
+    ...registeredCompliance,
     ownerContact,
     agreement,
     viewerCapabilities: { canViewInsights, canManageVouchers, role, displayName },
@@ -541,6 +564,28 @@ export async function createMerchantEditRequestCore(
 ) {
   const sensitiveKeys = SENSITIVE_FIELDS.filter(k => k in proposedChanges)
   if (sensitiveKeys.length === 0) throw new AppError('NO_SENSITIVE_FIELDS')
+
+  // BP-ADJ2 (Business Profile hardening): this store had NO type validation, so
+  // a raw-API `{ businessName: null }` (or empty/wrong-typed) was accepted
+  // verbatim, later failing the merchant-web response parse AND the admin
+  // approveEdit NOT NULL constraint. Validate shape up front, fail fast before
+  // any DB read. `businessName`, when present, must be a non-empty trimmed
+  // string - it is never nullable on the Merchant row. The other SENSITIVE
+  // fields (tradingName/description/logoUrl/bannerUrl) are nullable columns, so
+  // `null` on those stays a legitimate clear (M4 contract) - only a
+  // non-string/non-null value is rejected.
+  for (const k of sensitiveKeys) {
+    const v = proposedChanges[k]
+    if (k === 'businessName') {
+      if (typeof v !== 'string' || v.trim().length === 0) {
+        throw new AppError('MERCHANT_EDIT_REQUEST_INVALID_FIELD')
+      }
+    } else {
+      if (v !== null && typeof v !== 'string') {
+        throw new AppError('MERCHANT_EDIT_REQUEST_INVALID_FIELD')
+      }
+    }
+  }
 
   // App-layer enforcement: no DB unique constraint on merchantId.
   const existing = await prisma.merchantPendingEdit.findFirst({

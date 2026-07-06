@@ -180,6 +180,15 @@ export const ERROR_DEFINITIONS = {
   FLAGSHIP_RMV_LIMIT_REACHED:     { statusCode: 409, message: 'You can set up at most two mandatory flagship vouchers. Edit or remove an existing one to add a different type.' },
   NO_SENSITIVE_FIELDS:            { statusCode: 400, message: 'No editable sensitive fields were provided. Use PATCH /profile for non-sensitive fields.' },
   SENSITIVE_FIELDS_REQUIRE_EDIT_REQUEST: { statusCode: 400, message: 'Sensitive fields cannot be changed directly. Submit an edit request instead.' },
+  // BP-ADJ2 (Business Profile hardening): `createMerchantEditRequestCore` stores
+  // SENSITIVE_FIELDS verbatim with no type validation, so a raw-API
+  // `{ businessName: null }` (or empty/wrong-typed) was silently stored, then
+  // failed the merchant-web response parse AND the admin approveEdit NOT NULL
+  // constraint downstream. This is the reject code for that server-side guard.
+  // `businessName` must be a non-empty trimmed string when present;
+  // `tradingName`/`description`/`logoUrl`/`bannerUrl` must be `string | null`
+  // when present: `null` on those four stays a legitimate clear (M4 contract).
+  MERCHANT_EDIT_REQUEST_INVALID_FIELD: { statusCode: 400, message: 'One or more proposed field changes are invalid. Business name cannot be empty; other fields must be text or cleared.' },
   PLAN_NOT_FOUND:                  { statusCode: 404, message: 'Subscription plan not found.' },
   SUBSCRIPTION_ALREADY_ACTIVE:     { statusCode: 409, message: 'You already have an active subscription.' },
   SUBSCRIPTION_NOT_FOUND:          { statusCode: 404, message: 'No active subscription found.' },
