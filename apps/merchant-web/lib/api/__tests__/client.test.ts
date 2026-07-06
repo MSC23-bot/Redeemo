@@ -239,6 +239,43 @@ describe('session epoch guard (T2) + single-flight self-ownership (T3/F1)', () =
     ).rejects.toMatchObject({ code: 'SESSION_SWITCHED' })
   })
 
+  it('F2 REAL recursive-threading pin: a boundary landing during the ORIGINAL 401 fetch (so the refresh still succeeds + retries) makes the retry discard on threaded epoch, deliver on unthreaded', async () => {
+    // This exercises the REAL recursive retry path (no direct `_epoch` injection).
+    // The bump happens during the FIRST (401) fetch - BEFORE doRefresh runs - so
+    // doRefresh captures the already-bumped epoch, its own guard passes, the refresh
+    // SUCCEEDS, and the recursive retry fires. The original request captured its
+    // epoch at entry, BEFORE the bump. So:
+    //   - THREADED (real code): retry's captured epoch = original entry epoch (pre-bump)
+    //     -> current(bumped) != original -> retry REJECTS with SESSION_SWITCHED.
+    //   - UNTHREADED (the mutation): retry re-captures at its own entry = current(bumped)
+    //     -> current(bumped) == retry-capture -> retry DELIVERS the 200 (cache poisoned).
+    // Only the threaded value produces the reject, so dropping `_epoch` from the
+    // recursive call flips this test red.
+    setAccessToken('expired')
+    let appCalls = 0
+    let refreshCalls = 0
+    global.fetch = jest.fn(async (url: unknown) => {
+      const u = String(url)
+      if (u.endsWith('/api/merchant-auth/refresh')) {
+        refreshCalls += 1
+        return jsonRes(200, { accessToken: 'fresh' }) // no bump here - doRefresh's own guard must PASS
+      }
+      appCalls += 1
+      if (appCalls === 1) {
+        bumpSessionEpoch() // boundary lands DURING the original 401 fetch, before doRefresh
+        return jsonRes(401, {})
+      }
+      return jsonRes(200, { ok: 1 }) // the retry's clean 200 - must be discarded on threaded epoch
+    }) as unknown as typeof fetch
+
+    await expect(apiFetch<{ ok: number }>('/profile', { auth: true })).rejects.toMatchObject({
+      code: 'SESSION_SWITCHED',
+    })
+    expect(refreshCalls).toBe(1) // refresh succeeded (doRefresh guard passed at the already-bumped epoch)
+    expect(appCalls).toBe(2) // original 401 + one retry both fired
+    expect(getAccessToken()).toBe('fresh') // the refresh itself installed a token (its epoch was stable)
+  })
+
   it('session-side-effect epoch gate (Codex #3): an old-epoch request whose refresh fails does NOT null the token or hard-logout', async () => {
     setAccessToken('expired')
     const lost = jest.fn()
