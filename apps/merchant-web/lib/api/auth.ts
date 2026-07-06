@@ -103,9 +103,26 @@ export const authApi = {
    * BEFORE its own state reset) so the BFF/backend can revoke the session.
    * Unlike the old best-effort version, this does NOT swallow errors/aborts:
    * the caller (signOut) needs to distinguish a confirmed 2xx from a
-   * timeout/failure so it can label cookie clearance confirmed vs
-   * UNCONFIRMED (logout-durability design §4.5). Accepts an AbortSignal so
+   * timeout/failure (logout-durability design §4.5). Accepts an AbortSignal so
    * the caller can bound the wait.
+   *
+   * The result reports TWO INDEPENDENT axes — do not collapse them:
+   *   - `ok`          → COOKIE-CLEARANCE confirmation. `res.ok` (a 2xx) means
+   *                     the BFF ran to completion and its Set-Cookie clearing
+   *                     the httpOnly session cookie reached the browser. This
+   *                     is the axis signOut branches on to label local cookie
+   *                     clearance confirmed vs UNCONFIRMED.
+   *   - `remoteRevoke`→ SERVER-SIDE REVOKE DURABILITY, forwarded verbatim from
+   *                     the backend ('confirmed' | 'pending' | 'unavailable').
+   *                     Redis may be degraded ('pending'/'unavailable') while
+   *                     the cookie was still cleared cleanly (`ok === true`).
+   *
+   * These are orthogonal by design: a `pending` revoke on a successful 2xx is a
+   * real, expected state (cookie gone, server revoke durably queued). That is
+   * why `ok` is `res.ok` and NOT `remoteRevoke === 'confirmed'` — the latter
+   * (CodeRabbit #390 Finding 1's suggestion, DECLINED) would mislabel that valid
+   * degraded-but-cleared outcome as an unconfirmed cookie clearance and push the
+   * user into a false failure path.
    */
   async logout(token: string | null, signal?: AbortSignal): Promise<LogoutResult> {
     try {

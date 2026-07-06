@@ -436,7 +436,13 @@ export async function logoutMerchant(
 
   if (proven) {
     const outcome = await revokeMerchantSessionUnconditional(redis, proven)
-    await redis.del(RedisKey.authMerchant(proven.entityId))
+    // Best-effort auth-cache eviction. The session-key revoke above is the
+    // authoritative teardown; this secondary DEL only clears the entity cache
+    // (self-heals on the next DB read). A Redis rejection here — the same
+    // failure mode that produces outcome==='unavailable' — must NOT abort the
+    // degraded path before the audit rows are written and the honest outcome
+    // is returned. (CodeRabbit #390 Finding 3)
+    await redis.del(RedisKey.authMerchant(proven.entityId)).catch(() => {})
     writeAuditLog(prisma, {
       entityId: proven.entityId, entityType: 'merchant', event: 'AUTH_LOGOUT',
       ipAddress: data.ipAddress, userAgent: data.userAgent, sessionId: proven.sessionId,
@@ -460,7 +466,8 @@ export async function logoutMerchant(
       entityId: data.entityId, sessionId: data.sessionId, presentedRefreshToken: data.refreshToken,
     })
     if (outcome === 'confirmed') {
-      await redis.del(RedisKey.authMerchant(data.entityId))
+      // Best-effort auth-cache eviction (see the proven-path note above).
+      await redis.del(RedisKey.authMerchant(data.entityId)).catch(() => {})
       writeAuditLog(prisma, {
         entityId: data.entityId, entityType: 'merchant', event: 'AUTH_LOGOUT',
         ipAddress: data.ipAddress, userAgent: data.userAgent, sessionId: data.sessionId,

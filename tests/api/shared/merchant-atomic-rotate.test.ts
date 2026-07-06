@@ -296,4 +296,20 @@ describe('revokeMerchantSessionByPossession', () => {
     })
     expect(outcome).toBe('unavailable')
   })
+
+  // CodeRabbit #390 Finding 2 / Opus F2: a poisoned/non-hex tokenHash of
+  // MATCHING STRING LENGTH decodes to a different BYTE length and would make
+  // timingSafeEqual throw. The comparison must fail CLOSED ('stale', no DEL),
+  // never escape as an unhandled rejection.
+  it('stale: a poisoned non-hex stored hash of matching string length fails closed (no throw, no DEL)', async () => {
+    const poisonedHash = 'z'.repeat(hashRefreshToken('the-real-token').length) // 64 non-hex chars
+    const get = vi.fn().mockResolvedValue(JSON.stringify({ tokenHash: poisonedHash }))
+    const del = vi.fn()
+    const fakeRedis = { get, del } as any
+    const outcome = await revokeMerchantSessionByPossession(fakeRedis, {
+      entityId: 'ma1', sessionId: 's1', presentedRefreshToken: 'the-real-token',
+    })
+    expect(outcome).toBe('stale')
+    expect(del).not.toHaveBeenCalled()
+  })
 })

@@ -187,9 +187,20 @@ export async function revokeMerchantSessionByPossession(
 
   const storedHash = parsed.tokenHash ?? ''
   const presentedHash = hashRefreshToken(params.presentedRefreshToken)
-  const match =
-    presentedHash.length === storedHash.length &&
-    crypto.timingSafeEqual(Buffer.from(presentedHash, 'hex'), Buffer.from(storedHash, 'hex'))
+  // Fail CLOSED. The string-length guard is not sufficient on its own: a
+  // poisoned/non-hex storedHash of matching string length decodes to a
+  // different BYTE length and makes timingSafeEqual throw. Any throw (or
+  // mismatch) is treated as no-proof-of-possession → 'stale', never a match.
+  // (CodeRabbit #390 Finding 2 / Opus F2 — defensive; unreachable for our own
+  // well-formed writes, but must never escape as an unhandled rejection.)
+  let match = false
+  if (presentedHash.length === storedHash.length) {
+    try {
+      match = crypto.timingSafeEqual(Buffer.from(presentedHash, 'hex'), Buffer.from(storedHash, 'hex'))
+    } catch {
+      match = false
+    }
+  }
 
   if (!match) return 'stale'
 

@@ -303,6 +303,48 @@ describe('merchant logout durability — security + interleaving (real Redis db 
     expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({ event: 'AUTH_LOGOUT', entityId })
   })
 
+  // ── (7b) CodeRabbit #390 Finding 3: degraded path survives a failing cache DEL ──
+
+  it('best-effort authMerchant DEL: a Redis rejection on the cache eviction does NOT abort the degraded path (audit + outcome still returned)', async (ctx) => {
+    requireRedis(ctx)
+    const { entityId, sessionId } = ids()
+    await seedSession(entityId, sessionId, 'REFRESH')
+    await redis!.set(RedisKey.authMerchant(entityId), JSON.stringify({ merchantId: 'm1' }), 'EX', 3600)
+
+    // Wrap the real client so ONLY the authMerchant cache DEL rejects; the
+    // authoritative session-key DEL (a different key) still succeeds. This is
+    // the exact failure mode that produces a 'unavailable'/'pending' outcome
+    // (Redis flaky) — the secondary best-effort DEL must not throw past the
+    // audit writes + return.
+    const authKey = RedisKey.authMerchant(entityId)
+    const wrapped = new Proxy(redis!, {
+      get(target, prop, receiver) {
+        if (prop === 'del') {
+          return (...args: unknown[]) => {
+            if (args.length === 1 && args[0] === authKey) {
+              return Promise.reject(new Error('simulated Redis DEL failure'))
+            }
+            return (target as any).del(...args)
+          }
+        }
+        const v = Reflect.get(target, prop, receiver)
+        return typeof v === 'function' ? v.bind(target) : v
+      },
+    }) as unknown as Redis
+
+    const accessToken = signAccess(entityId, sessionId)
+    // Before the fix this rejected; now it resolves cleanly.
+    const result = await logoutMerchant(prisma, wrapped, app, { accessToken, ipAddress: '1.1.1.1', userAgent: 'test' })
+
+    // Authoritative revoke still happened (session key gone), the outcome is
+    // returned honestly, and the AUTH_LOGOUT audit row was still written even
+    // though the cache eviction failed.
+    expect(result.revoke).toBe('confirmed')
+    expect(await redis!.get(RedisKey.refreshToken('merchant', entityId, sessionId))).toBeNull()
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1)
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({ event: 'AUTH_LOGOUT', entityId })
+  })
+
   // ── (8) fallback ─────────────────────────────────────────────────────────
 
   it('fallback: no access token + a VALID current refresh secret -> DEL on match', async (ctx) => {
