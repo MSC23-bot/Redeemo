@@ -23,6 +23,13 @@ with the saving and uses discovery as the supporting mechanism:
   you already go": the feed/map journey shows every place carrying a visible saving.
 - Beat 3 (Choose) leads with the £ value on the voucher cards (real UI already shows
   "Up to £16" style values).
+- Beat 3 climax line (owner idea 2026-07-06, all-access framing): "Every place. Every
+  voucher. One membership." Support: "Nothing on Redeemo is held back. No premium
+  tier, no add-ons: £6.99 covers every voucher at every place, whatever kind of
+  business it is. Each voucher is yours once a month, then it comes back fresh."
+  Echoed as the lead bullet of the pricing section. Guardrail: never naked
+  "unlimited/no limits" (once-per-place-per-cycle is the rule; framed as freshness,
+  per the brand voice lock).
 - Beat 5 (The maths) gets promoted to the app's REAL Savings screen as proof: the app
   keeps score of money saved (synthetic figure from seed data). "One voucher covers
   the month. The app counts the rest." This is why the savings screen is on the shot
