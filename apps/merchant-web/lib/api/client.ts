@@ -24,6 +24,14 @@
  * the 401 branch's own session side effects (setAccessToken(null) /
  * triggerSessionLost()) are skipped entirely so a dead request can never hard-log-out
  * a session that has already moved on. See design spec §4.2.
+ *
+ * Defense-in-depth closure (post-#389 composed review): EVERY body-consuming
+ * success-or-error path re-checks the epoch AFTER the body await, not just before it
+ * - including the non-401 `!res.ok` error throw, the 401-failed-refresh error throw,
+ * and a JSON-parse/arrayBuffer-read REJECTION (`guardStaleReject`). A mid-flight
+ * epoch move can therefore never deliver stale data NOR throw a stale ApiError to a
+ * caller; only same-epoch behaviour is preserved unchanged. `assertEpoch()` is the
+ * single shared gate primitive so this logic is defined exactly once.
  */
 import { getAccessToken, setAccessToken, triggerSessionLost } from '@/lib/auth/tokenStore'
 import { getSessionEpoch } from '@/lib/auth/sessionEpoch'
@@ -34,6 +42,37 @@ export const SESSION_SWITCHED_CODE = 'SESSION_SWITCHED'
 /** A synthetic, never-delivered-as-data ApiError raised when the epoch has moved. */
 function sessionSwitchedError(): ApiError {
   return new ApiError(0, { code: SESSION_SWITCHED_CODE, message: 'Session switched during this request' })
+}
+
+/**
+ * Shared epoch-re-check primitive (defense-in-depth follow-up to PR #389's composed
+ * review). Throws the synthetic SESSION_SWITCHED error if the session epoch has moved
+ * since `capturedEpoch` was captured at request entry. Every terminal path below -
+ * success or error, before or after a body is consumed - routes through this single
+ * helper so the gate logic is defined exactly once.
+ */
+function assertEpoch(capturedEpoch: number): void {
+  if (getSessionEpoch() !== capturedEpoch) {
+    throw sessionSwitchedError()
+  }
+}
+
+/**
+ * Wraps a body-consuming read (`res.json()`, `res.arrayBuffer()`, etc.) so that a
+ * REJECTION from the read itself is also subject to the epoch gate, not just a
+ * successful resolution. If the promise rejects AND the epoch moved during the
+ * await, the original rejection reason (e.g. a JSON parse SyntaxError) is discarded
+ * in favour of SESSION_SWITCHED - a dead session must never surface even a parse
+ * error to a caller that has already moved to a new session. If the epoch has NOT
+ * moved, the original error is rethrown unchanged (behavior-preserving).
+ */
+async function guardStaleReject<T>(promise: Promise<T>, capturedEpoch: number): Promise<T> {
+  try {
+    return await promise
+  } catch (err) {
+    assertEpoch(capturedEpoch)
+    throw err
+  }
 }
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
@@ -171,9 +210,7 @@ async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Pr
     // a session boundary landed during the original request, this 401 belongs to a
     // dead session - abort with SESSION_SWITCHED rather than refreshing under a new
     // session (and never touch the single-use refresh-token rotation on its behalf).
-    if (getSessionEpoch() !== capturedEpoch) {
-      throw sessionSwitchedError()
-    }
+    assertEpoch(capturedEpoch)
     const refreshed = await tryRefresh()
     if (refreshed) {
       // Correction 1 (pre-retry-dispatch epoch gate) + Correction 2 (cross-account
@@ -183,9 +220,7 @@ async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Pr
       // retry never leaves the browser under a new merchant's credentials. (Belt and
       // suspenders with the transport guard below, which only fires AFTER the retry's
       // network call has already gone out.)
-      if (getSessionEpoch() !== capturedEpoch) {
-        throw sessionSwitchedError()
-      }
+      assertEpoch(capturedEpoch)
       return apiFetchResponse(path, { ...options, _isRetry: true, _epoch: capturedEpoch })
     }
     // Session-side-effect epoch gate (Codex #3): a request that 401s, fails its
@@ -193,12 +228,15 @@ async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Pr
     // session is already live. It must not run any session-mutating side effect
     // (setAccessToken(null) / triggerSessionLost()); only a current-epoch request
     // may drive a hard logout.
-    if (getSessionEpoch() !== capturedEpoch) {
-      throw sessionSwitchedError()
-    }
+    assertEpoch(capturedEpoch)
     setAccessToken(null)
     triggerSessionLost()
     const body = await res.json().catch(() => null)
+    // Post-body-consumption epoch gate (defense-in-depth follow-up to #389's composed
+    // review): a session boundary landing during this await still belongs to a DEAD
+    // session by the time we reach the throw - re-check so the stale 401's ApiError
+    // can never be delivered to a caller that has already moved to a new session.
+    assertEpoch(capturedEpoch)
     throw new ApiError(401, body)
   }
 
@@ -206,12 +244,15 @@ async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Pr
   // (success or a non-401 error), an old-session response can never be delivered to
   // a caller once a session boundary has happened mid-flight - discard it in favour
   // of a synthetic SESSION_SWITCHED error (status 0; never delivered as data).
-  if (getSessionEpoch() !== capturedEpoch) {
-    throw sessionSwitchedError()
-  }
+  assertEpoch(capturedEpoch)
 
   if (!res.ok) {
     const body = await res.json().catch(() => null)
+    // Post-body-consumption epoch gate (defense-in-depth follow-up to #389's composed
+    // review): mirrors the success-path re-check in apiFetch/apiFetchRaw below - an
+    // old-session error body must not reach the caller as a delivered ApiError once a
+    // boundary has landed while the body was still being read.
+    assertEpoch(capturedEpoch)
     throw new ApiError(res.status, body)
   }
   return { res, capturedEpoch }
@@ -220,14 +261,17 @@ async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Pr
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
   const { res, capturedEpoch } = await apiFetchResponse(path, options)
   if (res.status === 204) return undefined as T
-  const data = (await res.json()) as T
+  // guardStaleReject: if res.json() itself REJECTS (malformed JSON / truncated body)
+  // and the epoch moved during that await, surface SESSION_SWITCHED instead of the
+  // raw parse error - a dead session must not throw anything but SESSION_SWITCHED to
+  // a caller that has already moved to a new session. Same-epoch parse failures
+  // rethrow the original error unchanged (behavior-preserving).
+  const data = (await guardStaleReject(res.json(), capturedEpoch)) as T
   // Correction 3 (post-body epoch gate): re-check AFTER JSON body consumption, not
   // only after fetch returned headers. A session boundary that lands while the body
   // is still streaming must still abort the pre-side-effect delivery - the parsed
   // old-session payload is discarded rather than handed to the caller.
-  if (getSessionEpoch() !== capturedEpoch) {
-    throw sessionSwitchedError()
-  }
+  assertEpoch(capturedEpoch)
   return data
 }
 
@@ -246,14 +290,14 @@ export async function apiFetchRaw(path: string, options: ApiFetchOptions = {}): 
   // as-is; otherwise BUFFER the body here so the epoch can be re-checked AFTER the
   // bytes are consumed, then return an equivalent Response the caller can still read.
   if (res.status === 204 || res.status === 304) {
-    if (getSessionEpoch() !== capturedEpoch) {
-      throw sessionSwitchedError()
-    }
+    assertEpoch(capturedEpoch)
     return res
   }
-  const buffered = await res.arrayBuffer()
-  if (getSessionEpoch() !== capturedEpoch) {
-    throw sessionSwitchedError()
-  }
+  // guardStaleReject: if res.arrayBuffer() itself REJECTS (stream error / aborted
+  // download) and the epoch moved during that await, surface SESSION_SWITCHED instead
+  // of the raw read error, mirroring apiFetch's guarded JSON read above. Same-epoch
+  // read failures rethrow the original error unchanged (behavior-preserving).
+  const buffered = await guardStaleReject(res.arrayBuffer(), capturedEpoch)
+  assertEpoch(capturedEpoch)
   return new Response(buffered, { status: res.status, statusText: res.statusText, headers: res.headers })
 }
