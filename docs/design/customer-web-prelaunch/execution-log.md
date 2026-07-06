@@ -173,3 +173,26 @@ edited by this workstream.
   + 3 vouchers; search "coffee" -> Juniper Coffee. Production and staging
   untouched. Teardown: seed:demo:clear against the same pinned target; full
   reset = delete the Neon branch.
+
+## 2026-07-07 (small hours) · Screenshot stack live end-to-end
+
+- Owner-approved fast path completed on SECOND pristine branch dev-screenshot-2
+  (br-tiny-wildflower-abq7ohwm, endpoint ep-calm-feather-abqza1pk) after the
+  first branch accumulated interleaved curations during debugging. Final state:
+  16 merchants (6 Huddersfield), 3 on-voice campaigns with merchant links, 18
+  trending redemptions, 24/7 demo hours, vibrant banners (owner feedback),
+  mixed-style generated logos (owner rejected uniform initials AND single-family
+  shapes; Higgsfield logo generation owner-vetoed to conserve credits; trial
+  plan also blocks CLI generation: MCP-only).
+- DEV_FORCE_CUSTOMER_LOCATION shim (route + both resolvers via one fail-closed
+  helper, non-production) delivers the full Huddersfield home to a device in
+  Doha through the normal GPS path: same header typography (owner requirement).
+  Verified: Doha coords -> Huddersfield context, Featured 4 / Trending 6 /
+  5 nearby rails / 3 campaigns.
+- Honest post-mortem: an hour lost to two self-inflicted ghosts: (1) a zombie
+  tsx child held :3000 across restarts (EADDRINUSE logged silently; kills must
+  target the process tree), and (2) the verification probe regressed mid-stream
+  (read `tiles` where the wire key is `branches`), making healthy backends look
+  broken. Neither was a product defect; recorded so the lesson survives.
+- Owner phone flow: Expo restart -c, login customer@redeemo.com, branch PIN
+  1234 everywhere (seed-encrypted). Higgsfield credits untouched (110).
