@@ -125,9 +125,9 @@ SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
 - **2026-07-06b** · graphify row CLOSED: owner retired graphify from the active workflow
   (recorded in PROJECT-STATE §6 resolved-decisions note); artifacts preserved, nothing to
   regenerate.
-- **2026-07-06c** · Codex-checklist reconciliation round: "Home card locality" row REMOVED —
-  already shipped via PR #139 (`8b352cba`, 2026-05-31; the old CLAUDE.md deferred list this
+- **2026-07-06c** · Codex-checklist reconciliation round: "Home card locality" row REMOVED
+  (already shipped via PR #139 `8b352cba`, 2026-05-31; the old CLAUDE.md deferred list this
   register was extracted from predated that closure). Added the checklist-only customer-app
   tail pointer row + two decision-needed rows (Savings ROI semantics; lifecycle nudges).
-  §SE.1 split-session opening hours confirmed CLOSED by PR #320 (`fe10fb16`) — was never a
+  §SE.1 split-session opening hours confirmed CLOSED by PR #320 (`fe10fb16`); it was never a
   register row; recorded here for traceability.
