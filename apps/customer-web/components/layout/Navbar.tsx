@@ -107,10 +107,11 @@ export function Navbar() {
     if (menuOpen) firstMobileLinkRef.current?.focus()
   }, [menuOpen])
 
-  const isDark = scrolled || menuOpen
-  const navBg = isDark
-    ? 'bg-[#010C35] border-transparent'
-    : 'bg-white border-[#EDE8E8]'
+  // Owner direction 2026-07-06: the nav bar carries the primary brand colour
+  // at the top and while scrolled; all inner chrome therefore runs the
+  // on-colour (dark) theme permanently. `scrolled` still drives the shadow.
+  const isDark = true
+  const navBg = 'border-transparent'
 
   const navLinks = user ? NAV_LINKS_MEMBER : NAV_LINKS_PUBLIC
 
@@ -132,7 +133,10 @@ export function Navbar() {
   const primaryCtaLabel = marketplaceLive ? 'Join free' : 'Get early access'
 
   return (
-    <header className={`sticky top-0 z-50 border-b transition-colors duration-300 ${navBg}`}>
+    <header
+      className={`sticky top-0 z-50 border-b transition-shadow duration-300 ${navBg}`}
+      style={{ background: 'var(--brand-gradient)', boxShadow: scrolled ? '0 2px 18px rgba(226,12,4,0.28)' : 'none' }}
+    >
       <nav aria-label="Main" className="max-w-7xl mx-auto px-6 h-[84px] flex items-center gap-6">
 
         {/* Logo */}
@@ -319,8 +323,7 @@ export function Navbar() {
                 </a>
                 <Link
                   href={primaryCtaHref}
-                  className="text-[14px] font-semibold text-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
-                  style={{ background: 'var(--brand-gradient)' }}
+                  className="text-[14px] font-bold text-[#E20C04] bg-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
                 >
                   {primaryCtaLabel}
                 </Link>
@@ -355,7 +358,8 @@ export function Navbar() {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.22, ease: 'easeInOut' }}
-            className="md:hidden overflow-hidden bg-[#010C35] border-t border-white/[0.06]"
+            className="md:hidden overflow-hidden border-t border-white/[0.14]"
+            style={{ background: 'var(--brand-gradient)' }}
           >
             <div className="px-6 py-4 flex flex-col gap-1">
 
@@ -434,8 +438,7 @@ export function Navbar() {
                       <Link
                         href={primaryCtaHref}
                         onClick={() => setMenuOpen(false)}
-                        className="px-3 py-3 text-[14px] font-semibold text-white text-center rounded-lg no-underline hover:opacity-90 transition-opacity"
-                        style={{ background: 'var(--brand-gradient)' }}
+                        className="px-3 py-3 text-[14px] font-bold text-[#E20C04] bg-white text-center rounded-lg no-underline hover:opacity-90 transition-opacity"
                       >
                         {primaryCtaLabel}
                       </Link>
