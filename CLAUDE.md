@@ -5,10 +5,9 @@ Path-specific guidance lives in `.claude/rules/`. Build history: `docs/history/`
 
 ## 1. What Redeemo is
 
-UK-based, location-first digital marketplace connecting consumers with local businesses
-through exclusive digital vouchers. Consumers pay a subscription to unlock redemption.
-Merchants join free, pay for featured placement and campaigns. Multi-sided marketplace,
-not a basic coupon app.
+UK-based, location-first digital marketplace connecting consumers with local businesses through
+exclusive digital vouchers. Consumers pay a subscription to unlock redemption; merchants join
+free and pay for featured placement and campaigns. A multi-sided marketplace, not a coupon app.
 
 ## 2. Where to look first (authority routing)
 
@@ -125,9 +124,8 @@ Before merging any PR, verify GitHub's live `compare` diff (commit count + files
 expectation; PR-level cached fields go stale.
 The hook also WARNS (without blocking) on: `npm install` (lockfile may change), commits with
 more than 30 staged files, and pushing while local `main` is ahead of `origin/main`.
-The hook needs `jq` (no-ops with a warning if missing). Hook changes go via PR like any code;
-per-user overrides belong in gitignored `.claude/settings.local.json`; never disable the
-shared `.claude/settings.json`.
+The hook needs `jq` (no-ops with a warning if missing). Hook changes go via PR; per-user overrides
+belong in gitignored `.claude/settings.local.json`; never disable the shared `.claude/settings.json`.
 
 Hard rules (from the 2026-04-26 v7 UI-loss incident; apply to humans too):
 1. Before ANY destructive command, run `git status --short` in the TARGET tree and classify
@@ -176,9 +174,8 @@ never copy: `rm -f .worktrees/<name>/CLAUDE.md && ln -s ../../CLAUDE.md .worktre
 
 ## 13. Dev/QA tooling
 
-For dev/QA scripts (grant subscriptions, decrypt branch PINs, set auth states, issue reset
-tokens, reset redemption cycles, backfills) and auth-UX test recipes, invoke the
-`redeemo-dev-qa-toolkit` skill.
+For dev/QA scripts (grant subscriptions, decrypt branch PINs, set auth states, issue reset tokens,
+reset redemption cycles, backfills) and auth-UX test recipes, invoke the `redeemo-dev-qa-toolkit` skill.
 
 ## 14. Governing documents
 
@@ -198,6 +195,6 @@ Build history 2026-04 → 2026-06 (all phases, locked baselines, per-PR detail):
 
 ## 15. graphify (retired)
 
-Owner decision 2026-07-06: graphify is RETIRED from Redeemo's active workflow. Do not
-consult or regenerate `graphify-out/` (stale artifacts from 2026-04-18 are preserved on
-disk, gitignored). The user-invoked `/graphify` skill remains available but is optional.
+Owner decision 2026-07-06: graphify is RETIRED from the active workflow; do not consult or
+regenerate `graphify-out/`. Stale 2026-04-18 artifacts stay on disk (gitignored); the optional
+user-invoked `/graphify` skill remains available.
