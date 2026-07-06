@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Codex-checklist write guard (PreToolUse).
 #
-# The three workflow checklists under ~/Documents/Playground/redeemo-notes/ are owned and
-# maintained EXCLUSIVELY by Codex (see docs/PROJECT-STATE.md §2). Claude may read them as
-# evidence but must never edit, append to, rename, move, or delete them.
+# The Codex-owned workflow checklists under ~/Documents/Playground/redeemo-notes/ (four as
+# of 2026-07-06; authoritative list in docs/PROJECT-STATE.md §2 - the set may grow, and any
+# file there whose name contains "workflow-checklist" is covered) are maintained EXCLUSIVELY
+# by Codex. Claude may read them as evidence but must never edit, append to, rename, move,
+# or delete them.
 #
 # Registered for: Edit|Write|MultiEdit|NotebookEdit (file_path check; this arm is the
-# primary, robust protection) and Bash (heuristic destructive-write check; BEST-EFFORT
-# only - exotic writers like perl -i / python open(w) / rsync are not matched).
+# primary, robust protection and requires BOTH the redeemo-notes dir and the filename
+# token) and Bash (heuristic destructive-write check; BEST-EFFORT only - exotic writers
+# like perl -i / python open(w) / rsync are not matched). The Bash arm deliberately keys
+# on the filename token ALONE (no dir check) because bash paths may be relative or
+# ~-prefixed after a cd; safety-first at the cost of blocking writes to any
+# *workflow-checklist* file via Bash.
 #
 # Name coupling: protection keys on filenames containing "workflow-checklist" inside the
 # redeemo-notes dir. This is deliberate (Claude legitimately writes its own session log in

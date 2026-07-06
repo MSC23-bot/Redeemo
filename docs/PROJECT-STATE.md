@@ -37,13 +37,14 @@
 
 ## 2. Read-only Codex reconciliation protocol
 
-Codex maintains three external workflow checklists. Claude (and any agent) may **read** them to discover missing decisions, warnings, deferrals, PR history, and owner instructions, and to cross-check this document. Claude must **never** edit, append to, rename, reorganize, delete, or assume maintenance of them - **Codex alone owns them.**
+Codex maintains four external workflow checklists (the set may grow; this table is the authoritative list). Claude (and any agent) may **read** them to discover missing decisions, warnings, deferrals, PR history, and owner instructions, and to cross-check this document. Claude must **never** edit, append to, rename, reorganize, delete, or assume maintenance of them - **Codex alone owns them.**
 
 | Checklist | Path | Scope |
 |---|---|---|
 | Customer App | `/Users/shebinchaliyath/Documents/Playground/redeemo-notes/2026-05-20-customer-app-workflow-checklist.md` | Customer app/website history, deferrals, PR history |
 | Admin/Merchant Vol-1 | `/Users/shebinchaliyath/Documents/Playground/redeemo-notes/2026-05-23-admin-merchant-portal-workflow-checklist.md` | Admin + Merchant portal, decisions, PR history |
 | Admin/Merchant Vol-2 (continuation) | `/Users/shebinchaliyath/Documents/Playground/redeemo-notes/2026-06-27-admin-merchant-portal-workflow-checklist-continuation.md` | Insights, G1, PR #328, recent decisions/warnings |
+| Admin Prototype | `/Users/shebinchaliyath/Documents/Playground/redeemo-notes/2026-07-01-admin-panel-prototype-workflow-checklist.md` | Admin Panel Claude-Design prototype build: stages, owner decisions, doc-sync |
 
 They are **cross-check evidence, not authority over merged source** - each checklist itself trails its programme, so a checklist line is verified against `origin/main`/specs before reliance. Reconciliation is **one-way (read-only)**: record the reconciliation date + any unresolved deltas in §10; never write back.
 
@@ -124,12 +125,14 @@ Backend (Node 24), Prisma 7 + Neon, Stripe/Twilio/FCM; **Resend is WIRED in code
 | Subscription `source` enum (STRIPE/APPLE/GOOGLE/ADMIN) + admin-grant flow | Customer/Admin | complimentary/admin subscriptions | with the admin-grant build (was "Phase 5") |
 | GDPR readiness: ICO registration + DSAR-flow confirmation (delete-account exists; DSAR export/process unconfirmed) | platform/legal | legal launch obligation | pre-launch (with legal sign-off) |
 | Zoho One scope (CRM + contracts + helpdesk alongside the custom platform) | ops | tooling spend + contract-signing path (click-to-agree vs Zoho Sign) | owner to confirm |
-| graphify knowledge graph: regenerate or retire (stale since 2026-04-18; usage rule demoted to a caveat in CLAUDE.md) | platform/docs | tooling accuracy | owner convenience |
 
 Decisions migrated 2026-07-06 from the old root-CLAUDE.md "Open Decisions" list and RESOLVED
 (recorded here so nothing is silently dropped): SMS/OTP gateway = Twilio (adopted; live in
 redemption PIN SMS since Phase 2D). Website scope = fully defined (no redemption; subscription
 purchase supported). White-label = out of scope for now (possible future expansion).
+Also RESOLVED (owner, 2026-07-06): **graphify RETIRED** from Redeemo's active workflow - no
+prompts to consult it, no regeneration required; artifacts + the optional user-invoked skill
+preserved.
 
 ## 7. Verified warnings
 
@@ -186,6 +189,7 @@ purchase supported). White-label = out of scope for now (possible future expansi
 
 ## Change log
 
+- **2026-07-06b** - Owner clarifications round: §2 corrected to FOUR Codex checklists (Admin Prototype checklist `2026-07-01-admin-panel-prototype-workflow-checklist.md` added; it was missing from this doc and the migration); graphify decision CLOSED as RETIRED (owner 2026-07-06) - §6 row removed, resolved note added, Glob/Grep reminder hook deleted, CLAUDE.md §15 now records the retirement; checklist-guard wording updated to four-and-growing (protection was already filename-pattern-based, so the fourth checklist was covered; regression evidence extended).
 - **2026-07-06** - Documentation-architecture migration (branch `docs/claude-code-architecture`; closes the §6 "Documentation architecture migration (A+C) next steps" repo-side scope). Root `CLAUDE.md` slimmed to durable instructions (1,065 → ~200 lines) with its full former content archived verbatim at `docs/history/claude-md-2026-06-20-archive.md`; six path-scoped `.claude/rules/` files added; `redeemo-dev-qa-toolkit` skill added; Codex-checklist write-guard hook added (project-level); `docs/deferrals/open-register.md` created as the live deferral register (§8 now summarizes it); the 7 old CLAUDE.md "Open Decisions" migrated into §6 (3 recorded resolved: Twilio, website scope, white-label); §5 one-home-per-fact note added; §7 stale-docs warning updated; `docs/product-decisions.md` marked superseded. Memory reconciliation PREPARED only (apply is owner-gated). Evidence: the reconciliation log in `~/Documents/Playground/redeemo-notes/claude-documentation-reconciliation-log.md`.
 - **2026-07-05b** - Wave-3 merge records: #371 (`2945bf78`, staff remove confirm tests), #370 (`29f1801e`, nullable-clear spec+plan; D1-D3 owner-APPROVED after merge), #372 (`194654a5`, smoke journeys + count-bounded error-guard contract), #373 (`a58db583`, nullable-clear implementation - closes the #366 gated follow-up). Smoke-count metrics RESTATED: 26 runtime tests / 24 static call sites after #372 (was 17 runtime / 15 static; the 2026-07-05 "17 to 15" correction had conflated the two metrics - runtime exceeds static because roles.spec.ts parametrizes one site over three roles). Merged pointer + freshness re-stamped @ `a58db583`. Staging acceptance remains outstanding portfolio-wide; all owner/legal/provider gates preserved.
 - **2026-07-05** - #368 MERGED (squash `8621c9a1`: Redemptions fidelity slice - voucher filter, deterministic shared list/CSV sort, code-or-title search); Redemptions completion-map row's residual fidelity gaps CLOSED, status stays MERGED / NOT-ACCEPTED (authenticated staging acceptance outstanding); smoke-lane test count corrected 17 → 15 (direct spec grep) here and in the roadmap; Merchant freshness re-stamped @ `8621c9a1`. All owner/legal/provider gates preserved unchanged.

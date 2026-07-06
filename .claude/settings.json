@@ -2,15 +2,6 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Glob|Grep",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -f graphify-out/graph.json ] && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: a knowledge graph exists at graphify-out/ but is STALE (last generated 2026-04-18; predates merchant-web/admin-web/security work). Do not rely on GRAPH_REPORT.md until regenerated; see CLAUDE.md graphify caveat and PROJECT-STATE open decision.\"}}' || true"
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {

@@ -78,7 +78,6 @@ closed by a later PR; confirm and then remove with a citation).
 | PECR | Cookie-consent banner becomes required if analytics are ever added (none today) | GATED on adding analytics |
 | Phase 6 | Comms layer: email PIN delivery (Resend), FCM push, marketing comms | GATED: Phase 6 |
 | Subscription purchase | In-app subscribe flow (Apple IAP on iOS; Stripe or Play Billing on Android) | GATED: PROJECT-STATE §6 Apple IAP decision |
-| graphify | Regenerate (`graphify update .`) or retire the knowledge graph + its usage rule (stale since 2026-04-18) | GATED: owner decision (PROJECT-STATE §6) |
 | G1 items | CI integration gate, security lane, browser-smoke promotion to required, staging acceptance, seed strategy for 53 seed-dependent suites | See PROJECT-STATE §6/§8 (authoritative for these) |
 
 ## 4. Workspace / repo hygiene (was CLAUDE.md "Pending local-only artefacts"; live owner-gated)
@@ -114,3 +113,6 @@ yet tracked in any roadmap row: confirm placement.
 - **2026-07-06** · Register created (documentation-architecture migration). Extracted from
   the archived CLAUDE.md deferred lists + PROJECT-STATE §8 + memory index. Memory deferred
   archive intentionally NOT yet reconciled line-by-line (see provenance note).
+- **2026-07-06b** · graphify row CLOSED: owner retired graphify from the active workflow
+  (recorded in PROJECT-STATE §6 resolved-decisions note); artifacts preserved, nothing to
+  regenerate.

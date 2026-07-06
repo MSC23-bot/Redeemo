@@ -24,8 +24,9 @@ not a basic coupon app.
   contract conflict to record, not the new truth.
 - **Private auto-memory** (MEMORY.md + topic files) is discovery/routing aid only; it never
   overrides merged source, PROJECT-STATE, or owner decisions.
-- **Codex-owned checklists** under `~/Documents/Playground/redeemo-notes/` are READ-ONLY
-  evidence. Never edit, append to, rename, or delete them.
+- **Codex-owned workflow checklists** under `~/Documents/Playground/redeemo-notes/`
+  (four today; the authoritative list is PROJECT-STATE §2) are READ-ONLY evidence.
+  Never edit, append to, rename, or delete them.
 
 ## 3. Product surfaces
 
@@ -191,8 +192,8 @@ tokens, reset redemption cycles, backfills) and auth-UX test recipes, invoke the
 Build history 2026-04 → 2026-06 (all phases, locked baselines, per-PR detail):
 `docs/history/claude-md-2026-06-20-archive.md`.
 
-## 15. graphify caveat
+## 15. graphify (retired)
 
-`graphify-out/` exists but has been stale since 2026-04-18 (predates merchant-web, admin-web
-and all security work). Do not rely on `GRAPH_REPORT.md` until regenerated
-(`graphify update .`); regenerate-or-retire is an open owner decision.
+Owner decision 2026-07-06: graphify is RETIRED from Redeemo's active workflow. Do not
+consult or regenerate `graphify-out/` (stale artifacts from 2026-04-18 are preserved on
+disk, gitignored). The user-invoked `/graphify` skill remains available but is optional.

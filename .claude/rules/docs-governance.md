@@ -22,8 +22,9 @@ paths:
   archive files with provenance headers.
 - `docs/product-decisions.md` is a superseded historical ledger: mark entries superseded,
   never delete; new decisions go to PROJECT-STATE §6.
-- The three Codex-owned checklists under `~/Documents/Playground/redeemo-notes/` are
-  READ-ONLY for Claude (also enforced by a hook): read for evidence, never write, and
+- The Codex-owned workflow checklists under `~/Documents/Playground/redeemo-notes/`
+  (four as of 2026-07-06; the authoritative list is PROJECT-STATE §2 and the set may grow)
+  are READ-ONLY for Claude (also enforced by a hook): read for evidence, never write, and
   record any reconciliation in PROJECT-STATE §10.
 - Runbooks carry status headers (DRAFT / SUPERSEDED / preparation-only): check the header
   before following one, and set an honest header on any new runbook.
