@@ -115,7 +115,7 @@ deployment/env changes.
 |---|---|---|---|
 | D1 | Waitlist + merchant-lead persistence: adopt `ConsumerWaitlist` + `MerchantLead` models per 2026-06-07 strategy §6 Phase 1 + 2026-06-10 design (MerchantLead as CRM object, source attribution), backend rate-limited POSTs + Turnstile, admin panel lanes | Approve as a separate small Tier 3 backend slice; frontend in PR-A/PR-B ships flag-gated dark and wires up when it lands | Live waitlist + tracked merchant form |
 | D2 | Waitlist incentive wording | Until a concrete incentive is chosen, ship the launch-safe "Founding members get first access when we go live in your area"; if you want a stronger offer (e.g. promo-code free period, consistent with "free trials via promo codes only") say the word and copy updates | Stronger incentive copy only |
-| D3 | Launch-city framing ("Yorkshire first" / "Huddersfield" / generic UK) | Generic-but-true "Launching city by city across the UK" until owner confirms the first city publicly | Sharper local hook only |
+| D3 | Launch-city framing | RESOLVED (owner, 2026-07-06): Huddersfield first, rolling out across the UK; hero pill + one standard-beat line + waitlist postcode framing, no dedicated section (storyboard v2 §6) | resolved |
 | D4 | Higgsfield credit budget for one exploratory batch (post-auth) | Small first batch (a handful of image generations) reviewed by Fable before anything ships | Generated visuals only |
 
 Nothing in PR-A/PR-B depends on D1-D4 to be safe and shippable.
