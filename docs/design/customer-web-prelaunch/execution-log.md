@@ -131,3 +131,8 @@ edited by this workstream.
   checks presence not scope; two steps outside the failure collector). PR #400
   stays draft/unmerged at 0e07c157; seed run remains owner-queued with the
   two-step confirm procedure (guard prints the identity to paste back).
+- Owner approved the cream-hero trial (with the explicit nuance that navy remains
+  for sectioned backgrounds in places: mixture with good balance). Implemented on
+  PR #397: hero ground cream, navy type, navy phone bezel + nav chip as deliberate
+  accents, glow softened; navy section moments retained (scroll-story Redeem
+  chapter, founding-promise band, app CTA, footer).
