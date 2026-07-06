@@ -5,9 +5,9 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog } from '@/components/ui/dialog'
-import { useToast } from '@/components/ui/toast'
 import { Lock, ShieldCheck, LogOut, Clock, Info } from '@/lib/icons'
 import { formatApproxAge } from '@/lib/account/sessionLabel'
+import { useSession } from '@/lib/auth/session'
 import { useLogoutAllOtherSessions } from '@/lib/account/useLogoutAllOtherSessions'
 import { ChangePasswordModal } from './ChangePasswordModal'
 import { SessionsList } from './SessionsList'
@@ -24,21 +24,35 @@ export function LoginSecurityCard({
   sessionsLoading: boolean
   sessionsError: boolean
 }) {
-  const { toast } = useToast()
+  const session = useSession()
   const logoutAll = useLogoutAllOtherSessions()
   const [changingPassword, setChangingPassword] = React.useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = React.useState(false)
-  const [signOutError, setSignOutError] = React.useState<string | null>(null)
+  const [signingOutEverywhere, setSigningOutEverywhere] = React.useState(false)
 
+  // "Sign out of all devices" is a FULL sign-out security action (prototype
+  // copy: "Ends every session, including this one and the staff mobile app").
+  // The two merged backend routes are COMPOSED - no backend change:
+  //   1. POST /auth/logout-all revokes every OTHER live session (Redis + DB).
+  //   2. session.signOut() (the SAME flow the account-menu "Sign out" uses)
+  //      ends THIS session: it clears the redeemo_merchant_session httpOnly
+  //      cookie via the BFF /logout route and redirects to /sign-in.
+  // Sequencing is best-effort-then-always-end: even if logout-all rejects
+  // (a benign revoke-others failure), the current-session sign-out STILL runs,
+  // so the user can never be left half-signed-out-of-others-but-still-here.
+  // No toast/error UI is needed on the happy path because the page navigates
+  // away to /sign-in; a rare signOut failure routes through the session
+  // provider's own unconfirmed-logout handling.
   async function confirmSignOutEverywhere() {
-    setSignOutError(null)
+    setSigningOutEverywhere(true)
     try {
       await logoutAll.mutateAsync()
-      setConfirmingSignOut(false)
-      toast({ message: 'Signed out of your other devices.', variant: 'success' })
     } catch {
-      setSignOutError('We could not sign out your other devices. Please try again.')
+      // Swallow: a failed revoke-others must not block ending THIS session.
+      // The user still lands on /sign-in; they can re-run this if needed.
     }
+    // Always end the current session + redirect, regardless of the above.
+    await session.signOut()
   }
 
   return (
@@ -88,7 +102,7 @@ export function LoginSecurityCard({
           icon={<LogOut size={18} aria-hidden />}
           iconTone="rose"
           title="Sign out of all devices"
-          subtitle="Signs out every other session, including the staff mobile app where you are signed in, and keeps this one signed in. Use this if a device is lost or shared."
+          subtitle="Ends every session, including this one and the staff mobile app where you are signed in. Use this if a device is lost or shared."
           action={
             <Button type="button" variant="secondary" size="sm" onClick={() => setConfirmingSignOut(true)} data-testid="sign-out-everywhere-open">
               Sign out everywhere
@@ -119,26 +133,21 @@ export function LoginSecurityCard({
 
       {confirmingSignOut ? (
         <Dialog
-          label="Sign out of your other devices?"
-          onClose={() => setConfirmingSignOut(false)}
+          label="Sign out of all devices?"
+          onClose={() => (signingOutEverywhere ? undefined : setConfirmingSignOut(false))}
           panelTestId="sign-out-everywhere-confirm"
         >
-          <h2 className="font-display text-xl font-semibold text-foreground">Sign out of your other devices?</h2>
+          <h2 className="font-display text-xl font-semibold text-foreground">Sign out of all devices?</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Every other signed-in session (including the staff mobile app) will be ended. This session stays
-            signed in.
+            Every session will be ended, including this one and the staff mobile app where you are signed in. You
+            will be signed out here and taken back to sign-in.
           </p>
-          {signOutError ? (
-            <p role="alert" className="mt-3 text-sm font-medium" style={{ color: 'var(--destructive)' }}>
-              {signOutError}
-            </p>
-          ) : null}
           <div className="mt-5 flex items-center justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => setConfirmingSignOut(false)} disabled={logoutAll.isPending}>
-              Stay signed in everywhere
+            <Button type="button" variant="secondary" onClick={() => setConfirmingSignOut(false)} disabled={signingOutEverywhere}>
+              Cancel
             </Button>
-            <Button type="button" onClick={confirmSignOutEverywhere} disabled={logoutAll.isPending}>
-              {logoutAll.isPending ? 'Signing out...' : 'Sign out everywhere'}
+            <Button type="button" onClick={confirmSignOutEverywhere} disabled={signingOutEverywhere}>
+              {signingOutEverywhere ? 'Signing out...' : 'Sign out everywhere'}
             </Button>
           </div>
         </Dialog>

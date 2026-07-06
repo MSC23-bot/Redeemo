@@ -13,8 +13,16 @@ jest.mock('@/lib/account/useLogoutAllOtherSessions', () => ({
   useLogoutAllOtherSessions: () => ({ mutateAsync: logoutAllMutateAsync, isPending: logoutAllPending }),
 }))
 
+// The ChangePasswordModal child still uses useToast; the card itself no longer does.
 const toast = jest.fn()
 jest.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast }) }))
+
+// The card composes logout-all (revoke OTHERS) with the app's normal signOut
+// (end THIS session + clear the httpOnly cookie + redirect to /sign-in).
+const signOut = jest.fn().mockResolvedValue(undefined)
+jest.mock('@/lib/auth/session', () => ({
+  useSession: () => ({ signOut }),
+}))
 
 function account(over: Partial<MerchantAccount> = {}): MerchantAccount {
   return {
@@ -56,6 +64,7 @@ beforeEach(() => {
   logoutAllMutateAsync.mockReset().mockResolvedValue({ message: 'Signed out of all other sessions.', revokedCount: 1 })
   logoutAllPending = false
   toast.mockReset()
+  signOut.mockReset().mockResolvedValue(undefined)
 })
 
 function renderCard(sessions: MerchantSession[] = [CURRENT_SESSION, OTHER_SESSION]) {
@@ -99,31 +108,54 @@ describe('LoginSecurityCard login verification (display-only)', () => {
   })
 })
 
-describe('LoginSecurityCard sign out everywhere', () => {
-  it('requires confirmation before calling logout-all', () => {
+describe('LoginSecurityCard sign out everywhere (FULL sign-out, prototype intent)', () => {
+  it('requires confirmation before doing anything', () => {
     renderCard()
     fireEvent.click(screen.getByTestId('sign-out-everywhere-open'))
     expect(logoutAllMutateAsync).not.toHaveBeenCalled()
+    expect(signOut).not.toHaveBeenCalled()
     expect(screen.getByTestId('sign-out-everywhere-confirm')).toBeInTheDocument()
   })
 
-  it('confirming calls logout-all, toasts, and keeps the current-session message honest', async () => {
+  it("the copy states it ends THIS device too (not a keep-current action)", () => {
+    renderCard()
+    expect(screen.getByText(/ends every session, including this one/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('sign-out-everywhere-open'))
+    expect(
+      within(screen.getByTestId('sign-out-everywhere-confirm')).getByText(/including this one/i),
+    ).toBeInTheDocument()
+  })
+
+  it('confirming fires logout-all THEN the normal signOut (current session ended + redirect)', async () => {
     renderCard()
     fireEvent.click(screen.getByTestId('sign-out-everywhere-open'))
     const confirmDialog = screen.getByTestId('sign-out-everywhere-confirm')
     fireEvent.click(within(confirmDialog).getByRole('button', { name: /^sign out everywhere$/i }))
 
-    await waitFor(() => expect(logoutAllMutateAsync).toHaveBeenCalledTimes(1))
-    expect(toast).toHaveBeenCalledWith(
-      expect.objectContaining({ variant: 'success', message: expect.stringMatching(/other devices/i) }),
-    )
+    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1))
+    expect(logoutAllMutateAsync).toHaveBeenCalledTimes(1)
+    // Ordering: logout-all (revoke others) must resolve/attempt before the
+    // current-session signOut runs.
+    expect(logoutAllMutateAsync.mock.invocationCallOrder[0]).toBeLessThan(signOut.mock.invocationCallOrder[0])
   })
 
-  it('Stay signed in everywhere closes the confirm without calling logout-all', () => {
+  it('still ends the current session (signOut) even if logout-all rejects (best-effort revoke-others)', async () => {
+    logoutAllMutateAsync.mockRejectedValueOnce(new Error('revoke-others failed'))
     renderCard()
     fireEvent.click(screen.getByTestId('sign-out-everywhere-open'))
-    fireEvent.click(screen.getByRole('button', { name: /stay signed in everywhere/i }))
+    const confirmDialog = screen.getByTestId('sign-out-everywhere-confirm')
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: /^sign out everywhere$/i }))
+
+    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1))
+    expect(logoutAllMutateAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it('Cancel closes the confirm without calling logout-all or signOut', () => {
+    renderCard()
+    fireEvent.click(screen.getByTestId('sign-out-everywhere-open'))
+    fireEvent.click(within(screen.getByTestId('sign-out-everywhere-confirm')).getByRole('button', { name: /cancel/i }))
     expect(logoutAllMutateAsync).not.toHaveBeenCalled()
+    expect(signOut).not.toHaveBeenCalled()
     expect(screen.queryByTestId('sign-out-everywhere-confirm')).not.toBeInTheDocument()
   })
 })
