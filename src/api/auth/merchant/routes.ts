@@ -8,6 +8,7 @@ import {
   loginMerchant, verifyMerchantOtp, refreshMerchantToken,
   logoutMerchant, forgotPasswordMerchant, resetPasswordMerchant, claimMerchantAccount,
   registerMerchant, verifyMerchantEmail, resendMerchantVerification,
+  changePasswordMerchant, logoutAllOtherMerchantSessions,
 } from './service'
 import { getOwnerMembership } from '../../shared/merchantMembership'
 
@@ -163,6 +164,24 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
     const { sessionChallenge } = z.object({ sessionChallenge: z.string() }).parse(req.body)
     await resendMerchantVerification(app.prisma, app.redis, { sessionChallenge, ipAddress: req.ip })
     return reply.send({ message: 'If your account still needs verifying, a new code has been sent.' })
+  })
+
+  // ── My Account (§BP-ACC): authenticated change-password + logout-all-other-
+  // sessions. Both keep the caller's OWN current session alive (revoke
+  // OTHERS, not everything) — see changePasswordMerchant / logoutAllOtherMerchantSessions.
+  app.post(`${prefix}/change-password`, { preHandler: [app.authenticateMerchant] }, async (req: any, reply) => {
+    const body = z.object({ currentPassword: z.string().min(1), newPassword: passwordSchema }).parse(req.body)
+    const result = await changePasswordMerchant(app.prisma, app.redis, req.user.sub, req.user.sessionId, {
+      ...body, ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send(result)
+  })
+
+  app.post(`${prefix}/logout-all`, { preHandler: [app.authenticateMerchant] }, async (req: any, reply) => {
+    const result = await logoutAllOtherMerchantSessions(app.prisma, app.redis, req.user.sub, req.user.sessionId, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send({ message: 'Signed out of all other sessions.', revokedCount: result.revokedCount })
   })
 
   // Soft-deactivate merchant (self-service)

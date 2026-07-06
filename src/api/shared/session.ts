@@ -54,6 +54,29 @@ export async function revokeAllSessionsForEntity(
   }
 }
 
+/**
+ * My Account (§BP-ACC): revoke every OTHER live refresh-token session for an
+ * entity, deliberately KEEPING the caller's own current session so an
+ * authenticated change-password / logout-all-other-devices action does not
+ * self-sign-out the tab that performed it. Same key-scan as
+ * `revokeAllSessionsForEntity` (`refresh:<role>:<entityId>:*`), just filtered
+ * to exclude `keepSessionId`'s key before the DEL. Returns the count revoked
+ * so callers can report it back to the client.
+ */
+export async function revokeOtherSessionsForEntity(
+  redis: Redis,
+  params: { role: string; entityId: string; keepSessionId: string }
+): Promise<number> {
+  const pattern = `refresh:${params.role}:${params.entityId}:*`
+  const keys = await redis.keys(pattern)
+  const keepKey = RedisKey.refreshToken(params.role, params.entityId, params.keepSessionId)
+  const toDelete = keys.filter((key) => key !== keepKey)
+  if (toDelete.length > 0) {
+    await redis.del(...toDelete)
+  }
+  return toDelete.length
+}
+
 export async function getActiveMobileSessionId(
   redis: Redis,
   role: string,
@@ -112,10 +135,21 @@ export async function revokeUserSessionRecord(
 
 export async function revokeAllUserSessionRecords(
   prisma: PrismaClient,
-  params: { entityId: string; entityType: string; reason: string }
+  // My Account (§BP-ACC): `exceptSessionId` is additive/optional so every
+  // existing caller (full logout / password reset — revoke ALL sessions) is
+  // unaffected. When present, it mirrors `revokeOtherSessionsForEntity`'s
+  // keep-current semantics on the DB-side UserSession audit trail: every live
+  // row for this entity is marked revoked EXCEPT the caller's own current
+  // session.
+  params: { entityId: string; entityType: string; reason: string; exceptSessionId?: string }
 ): Promise<void> {
   await prisma.userSession.updateMany({
-    where: { entityId: params.entityId, entityType: params.entityType, revokedAt: null },
+    where: {
+      entityId: params.entityId,
+      entityType: params.entityType,
+      revokedAt: null,
+      ...(params.exceptSessionId ? { sessionId: { not: params.exceptSessionId } } : {}),
+    },
     data:  { revokedAt: new Date(), revokedReason: params.reason },
   })
 }
