@@ -9,6 +9,18 @@ export const RedisKey = {
   refreshToken:        (role: string, entityId: string, sessionId: string) =>
                          `refresh:${role}:${entityId}:${sessionId}`,
 
+  // Merchant logout-durability (backend design 2026-07-06 §3.2/§3.4): pending-
+  // revocation tombstone. Written ONLY when a signed-JWT logout's unconditional
+  // DEL of the refresh-token key could not be confirmed (bounded retry
+  // exhausted); the merchant refresh Lua checks + self-deletes it on the NEXT
+  // refresh attempt for that session (pull-based durable enforcement — no new
+  // worker/infra). TTL = REFRESH_TOKEN_TTL_SECONDS so it always outlives any
+  // straddling refresh token. Merchant-only for now (see
+  // src/api/auth/merchant/atomicRotate.ts); a future cross-role convergence
+  // would reuse this same key shape for other roles.
+  sessionRevoked:      (role: string, entityId: string, sessionId: string) =>
+                         `session-revoked:${role}:${entityId}:${sessionId}`,
+
   // Active mobile sessions (for single-session enforcement)
   activeMobileSession: (role: string, entityId: string) =>
                          `sessions:mobile:${role}:${entityId}`,

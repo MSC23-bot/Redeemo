@@ -54,4 +54,57 @@ describe('authApi (M1 Slice 1)', () => {
     await authApi.forgotPassword({ email: 'e' })
     expect(fetchUrl()).toContain('/api/v1/merchant/auth/forgot-password')
   })
+
+  // Logout-durability design §4.5 — authApi.logout no longer swallows errors
+  // and returns a LogoutResult (ok/status/remoteRevoke) instead of throwing,
+  // so signOut can distinguish confirmed cookie clearance from UNCONFIRMED.
+  describe('logout', () => {
+    it('forwards the token as a Bearer header and parses the confirmed remoteRevoke discriminator', async () => {
+      global.fetch = jest.fn(async () => jsonRes(200, { ok: true, remoteRevoke: 'confirmed' })) as unknown as typeof fetch
+      const result = await authApi.logout('the-token')
+      expect(fetchUrl()).toBe('/api/merchant-auth/logout')
+      const headers = (global.fetch as jest.Mock).mock.calls[0][1]?.headers
+      expect(headers).toEqual({ Authorization: 'Bearer the-token' })
+      expect(result).toEqual({ ok: true, status: 200, remoteRevoke: 'confirmed' })
+    })
+
+    it('omits the Authorization header when no token is held', async () => {
+      global.fetch = jest.fn(async () => jsonRes(200, { ok: true, remoteRevoke: 'confirmed' })) as unknown as typeof fetch
+      await authApi.logout(null)
+      const headers = (global.fetch as jest.Mock).mock.calls[0][1]?.headers
+      expect(headers).toBeUndefined()
+    })
+
+    it('surfaces a non-2xx response as ok:false without throwing', async () => {
+      global.fetch = jest.fn(async () => jsonRes(500, { ok: false })) as unknown as typeof fetch
+      const result = await authApi.logout('t')
+      expect(result.ok).toBe(false)
+      expect(result.status).toBe(500)
+      expect(result.remoteRevoke).toBe('unavailable')
+    })
+
+    it('surfaces a network failure / abort as ok:false without throwing (does NOT swallow silently)', async () => {
+      global.fetch = jest.fn(async () => { throw new Error('network down') }) as unknown as typeof fetch
+      const result = await authApi.logout('t')
+      expect(result.ok).toBe(false)
+      expect(result.status).toBe(0)
+      expect(result.remoteRevoke).toBe('unavailable')
+      expect(result.error).toBeInstanceOf(Error)
+    })
+
+    it('defaults remoteRevoke to unavailable when the body is missing/malformed', async () => {
+      global.fetch = jest.fn(async () => jsonRes(200, {})) as unknown as typeof fetch
+      const result = await authApi.logout('t')
+      expect(result.ok).toBe(true)
+      expect(result.remoteRevoke).toBe('unavailable')
+    })
+
+    it('passes the provided AbortSignal through to fetch', async () => {
+      global.fetch = jest.fn(async () => jsonRes(200, { ok: true, remoteRevoke: 'pending' })) as unknown as typeof fetch
+      const controller = new AbortController()
+      await authApi.logout('t', controller.signal)
+      const opts = (global.fetch as jest.Mock).mock.calls[0][1]
+      expect(opts.signal).toBe(controller.signal)
+    })
+  })
 })

@@ -31,6 +31,14 @@ const TIERS = {
   // tokens at scale, not to throttle real users. Locked 2026-05-08,
   // deferred-followups §AC8 / §AD4.
   refresh:        { prod: { max: 30, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } },
+  // Merchant logout tier (backend logout-durability design 2026-07-06, §3.3
+  // F5). The merchant /logout route is deliberately NOT authenticateMerchant-
+  // gated (an already-expired token must still authorize a logout), so it is
+  // reachable without a live bearer. A legitimate logout is a single request;
+  // this generous per-IP ceiling (mirrors the `refresh` tier) bounds raw
+  // request volume from a forged/bogus-token flood without false-positiving
+  // on real users signing out from a shared merchant device.
+  merchantLogout: { prod: { max: 30, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } },
   // Redemption polling tier — protects GET /api/v1/redemption/me/:code,
   // the Show-to-Staff polling endpoint hit every 5 seconds for up to a
   // 15-minute budget per open ShowToStaff session. Legitimate cadence

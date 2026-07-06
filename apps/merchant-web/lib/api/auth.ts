@@ -98,11 +98,40 @@ export const authApi = {
     )
   },
 
-  /** Best-effort: forward the in-memory access token so the backend can revoke. */
-  async logout(token: string | null): Promise<void> {
-    await fetch('/api/merchant-auth/logout', {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    }).catch(() => {})
+  /**
+   * Forward the captured access token (§4.5 point 0 — captured by the caller
+   * BEFORE its own state reset) so the BFF/backend can revoke the session.
+   * Unlike the old best-effort version, this does NOT swallow errors/aborts:
+   * the caller (signOut) needs to distinguish a confirmed 2xx from a
+   * timeout/failure so it can label cookie clearance confirmed vs
+   * UNCONFIRMED (logout-durability design §4.5). Accepts an AbortSignal so
+   * the caller can bound the wait.
+   */
+  async logout(token: string | null, signal?: AbortSignal): Promise<LogoutResult> {
+    try {
+      const res = await fetch('/api/merchant-auth/logout', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        signal,
+      })
+      const data = (await res.json().catch(() => null)) as { remoteRevoke?: string } | null
+      const remoteRevoke =
+        data?.remoteRevoke === 'confirmed' || data?.remoteRevoke === 'pending' || data?.remoteRevoke === 'unavailable'
+          ? data.remoteRevoke
+          : 'unavailable'
+      return { ok: res.ok, status: res.status, remoteRevoke }
+    } catch (err) {
+      // Network failure, timeout, or abort — surface it, don't swallow. The
+      // caller treats this identically to a non-2xx: cookie clearance is
+      // UNCONFIRMED.
+      return { ok: false, status: 0, remoteRevoke: 'unavailable', error: err }
+    }
   },
+}
+
+export interface LogoutResult {
+  ok: boolean
+  status: number
+  remoteRevoke: 'confirmed' | 'pending' | 'unavailable'
+  error?: unknown
 }

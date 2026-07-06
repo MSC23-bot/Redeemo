@@ -31,6 +31,38 @@ function hmacFor(challenge: string, code: string): string {
   return crypto.createHmac('sha256', TEST_ENCRYPTION_KEY).update(challenge + ':' + code).digest('hex')
 }
 
+// Merchant-only atomic compare-and-rotate (backend logout-durability design
+// 2026-07-06, §3.1) replaced refreshMerchantToken's plain del+set with a
+// single Lua EVAL. This is a pure-JS mirror of that Lua's semantics over the
+// same in-memory `store` these fakes already use, so the pre-existing
+// stateful fake-redis pattern in this file keeps working without a real Lua
+// engine. Mirrors the Lua exactly (see src/api/auth/merchant/atomicRotate.ts)
+// — tombstone check first, then missing/corrupt/mismatch/ok.
+function makeRotateEval(store: Record<string, string | null>) {
+  return vi.fn(async (_script: string, numKeys: number, ...rest: unknown[]) => {
+    const keys = rest.slice(0, numKeys) as string[]
+    const argv = rest.slice(numKeys) as string[]
+    const [tokenKey, tombstoneKey] = keys
+    const [expectedHash, replacementValue] = argv
+    if (store[tombstoneKey]) {
+      delete store[tokenKey]
+      delete store[tombstoneKey]
+      return ['refused', 'revoked']
+    }
+    const cur = store[tokenKey]
+    if (cur === undefined || cur === null) return ['refused', 'missing']
+    let parsed: { tokenHash?: string }
+    try {
+      parsed = JSON.parse(cur)
+    } catch {
+      return ['refused', 'corrupt']
+    }
+    if (parsed.tokenHash !== expectedHash) return ['refused', 'mismatch']
+    store[tokenKey] = replacementValue
+    return ['ok']
+  })
+}
+
 let savedEncKey: string | undefined
 let savedNodeEnv: string | undefined
 beforeEach(() => {
@@ -175,6 +207,7 @@ describe('FIX 1: refreshMerchantToken suspended-merchant gate (any-role)', () =>
       get: vi.fn(async (k: string) => store[k] ?? null),
       set: vi.fn(async (k: string, v: string) => { store[k] = v; return 'OK' }),
       del: vi.fn(async (k: string) => { delete store[k]; return 1 }),
+      eval: makeRotateEval(store),
     }
     const prisma = {
       // getActiveMembership uses findMany (any role); a BRANCH_MANAGER of a SUSPENDED merchant.
@@ -197,6 +230,7 @@ describe('FIX 1: refreshMerchantToken suspended-merchant gate (any-role)', () =>
       get: vi.fn(async (k: string) => store[k] ?? null),
       set: vi.fn(async (k: string, v: string) => { store[k] = v; return 'OK' }),
       del: vi.fn(async (k: string) => { delete store[k]; return 1 }),
+      eval: makeRotateEval(store),
     }
     const ownerSuspended = { ...bmMembership('SUSPENDED'), id: 'mm-owner', role: 'OWNER', allBranches: true, branches: [] }
     const prisma = {
@@ -218,6 +252,7 @@ describe('FIX 1: refreshMerchantToken suspended-merchant gate (any-role)', () =>
       get: vi.fn(async (k: string) => store[k] ?? null),
       set: vi.fn(async (k: string, v: string) => { store[k] = v; return 'OK' }),
       del: vi.fn(async (k: string) => { delete store[k]; return 1 }),
+      eval: makeRotateEval(store),
     }
     const prisma = {
       merchantMembership: { findMany: vi.fn(async () => [bmMembership('ACTIVE')]), findFirst: vi.fn(async () => null) },

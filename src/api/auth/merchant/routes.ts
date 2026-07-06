@@ -55,12 +55,34 @@ export async function merchantAuthRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  app.post(`${prefix}/logout`, { preHandler: [app.authenticateMerchant] }, async (req: any, reply) => {
-    await logoutMerchant(app.prisma, app.redis, {
-      entityId: req.user.sub, sessionId: req.user.sessionId,
+  // Logout durability (backend design 2026-07-06, merchant-only). Deliberately
+  // NOT `authenticateMerchant`-gated: an already-expired access token must
+  // still authorize a logout (the signed-JWT proof ignores expiry — §3.3),
+  // and the body-based fallback (refresh-token possession) has no bearer at
+  // all. A per-IP rate limit bounds raw request volume on this now-
+  // unauthenticated route (§3.3 F5). The response is intentionally uniform
+  // regardless of whether real proof was presented (no session-existence
+  // oracle) — see logoutMerchant's doc comment.
+  app.post(`${prefix}/logout`, {
+    config: { rateLimit: routeRateLimit('merchantLogout') },
+  }, async (req, reply) => {
+    const body = z.object({
+      refreshToken: z.string().optional(),
+      sessionId:    z.string().optional(),
+      entityId:     z.string().optional(),
+    }).parse(req.body ?? {})
+
+    const authHeader = req.headers.authorization
+    const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : undefined
+
+    const result = await logoutMerchant(app.prisma, app.redis, app, {
+      accessToken,
+      refreshToken: body.refreshToken,
+      sessionId:    body.sessionId,
+      entityId:     body.entityId,
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
     })
-    return reply.send({ message: 'Logged out.' })
+    return reply.send({ message: 'Logged out.', revoke: result.revoke })
   })
 
   app.post(`${prefix}/forgot-password`, {

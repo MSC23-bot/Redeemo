@@ -8,12 +8,18 @@ import { RedisKey } from '../../shared/redis-keys'
 import { consumePwdResetAttempt } from '../../shared/pwdResetLimiter'
 import { getActiveMembership } from '../../shared/merchantMembership'
 import {
-  storeRefreshToken, revokeRefreshToken, revokeAllSessionsForEntity,
+  storeRefreshToken, revokeAllSessionsForEntity,
   revokeAllUserSessionRecords, writeUserSession, validateRefreshToken,
+  REFRESH_TOKEN_TTL_SECONDS,
 } from '../../shared/session'
 import { writeAuditLog, writeAuditLogTx } from '../../shared/audit'
 import { merchantVerifyEmail, merchantAccountExistsEmail, type RenderedEmail } from '../../shared/emailTemplates'
 import { TERMS_VERSION } from '../../shared/legal'
+import {
+  rotateMerchantRefreshTokenAtomic,
+  revokeMerchantSessionUnconditional,
+  revokeMerchantSessionByPossession,
+} from './atomicRotate'
 
 const OTP_CHALLENGE_TTL = 600   // 10 minutes
 const PWD_RESET_TTL     = 3600
@@ -314,15 +320,41 @@ export async function refreshMerchantToken(
   }
 
   const parsed     = JSON.parse(stored)
-  await redis.del(key)
 
+  // §3.1 (backend logout-durability design, merchant-only): the previous
+  // `redis.del(key)` + `storeRefreshToken(...)` pair ran as two separate
+  // commands, leaving a window where a concurrent `logoutMerchant` DEL could
+  // land BETWEEN the del and the set and resurrect the session (design §3.5
+  // CO-SHIP dependency). Replaced with a single atomic Lua compare-and-rotate:
+  // it re-verifies the token still matches at rotation time and, on match,
+  // atomically SETs the complete replacement — no del-then-set window exists
+  // for a concurrent logout to interleave into. See
+  // src/api/auth/merchant/atomicRotate.ts.
   const newRefresh = generateRefreshToken()
   const newHash    = hashRefreshToken(newRefresh)
-
-  await storeRefreshToken(redis, {
-    role: 'merchant', entityId: data.entityId, sessionId: data.sessionId,
-    tokenHash: newHash, deviceId: parsed.deviceId, deviceType: parsed.deviceType,
+  const replacementValue = JSON.stringify({
+    tokenHash:  newHash,
+    deviceId:   parsed.deviceId,
+    deviceType: parsed.deviceType,
+    deviceName: parsed.deviceName,
+    createdAt:  new Date().toISOString(),
   })
+
+  const rotated = await rotateMerchantRefreshTokenAtomic(redis, {
+    entityId: data.entityId, sessionId: data.sessionId,
+    expectedHash: hashRefreshToken(data.refreshToken),
+    replacementValue, ttlSeconds: REFRESH_TOKEN_TTL_SECONDS,
+  })
+
+  if (!rotated.ok) {
+    // §3.2: a 'revoked' refusal means a pending-revocation tombstone from an
+    // earlier bounded-failure logout (§3.4) enforced itself here — the pull-
+    // based durable owner. Any other refusal (missing/mismatch/corrupt) is the
+    // ordinary "token no longer valid" case.
+    const event = rotated.reason === 'revoked' ? 'AUTH_REFRESH_REFUSED_REVOKED' : 'AUTH_REFRESH_FAILED'
+    writeAuditLog(prisma, { entityId: data.entityId, entityType: 'merchant', event, ipAddress: data.ipAddress, userAgent: data.userAgent })
+    throw new AppError('REFRESH_TOKEN_INVALID')
+  }
 
   await prisma.userSession.updateMany({
     where: { sessionId: data.sessionId },
@@ -337,14 +369,109 @@ export async function refreshMerchantToken(
   return { accessToken, refreshToken: newRefresh }
 }
 
+export type MerchantLogoutRevokeOutcome = 'confirmed' | 'pending' | 'unavailable' | 'stale'
+
+/**
+ * Merchant logout (backend logout-durability design §3.3/§3.4, merchant-only).
+ *
+ * NOT gated by `authenticateMerchant` — an already-expired access token must
+ * still authorize a logout (§3.3's explicit expired-token policy: expiry is
+ * ignored for logout because a validly-signed even-expired token proves the
+ * caller held THIS session, and logout is strictly lower-risk than API
+ * access). The route instead calls this function directly with whatever
+ * proof material the caller presents.
+ *
+ * Proof precedence:
+ *   1. SIGNED access-token JWT (primary, authoritative). Verified with
+ *      `ignoreExpiration: true` + `algorithms: ['HS256']` (pinned — forecloses
+ *      alg-confusion even though fast-jwt already rejects `alg:none` /
+ *      asymmetric here). `entityId`/`sessionId` are read from the SIGNED
+ *      claims, NEVER the raw body — a tampered/forged body cannot revoke or
+ *      audit-attribute another merchant's session. A validly-signed token
+ *      missing `sub`/`sessionId`, or one whose `role` claim isn't `'merchant'`,
+ *      is NOT treated as signed proof (falls through to the fallback).
+ *   2. Fallback (rare — no access token at all): refresh-token POSSESSION.
+ *      Validates the presented refresh token's hash against the currently
+ *      stored value and DELs on match; a stale/mismatched secret is a no-op
+ *      (disclosed residual — design §3.5).
+ *   3. No proof at all: pure no-op. Uniform with a proof-bearing revoke of an
+ *      already-absent key (no session-existence oracle, §3.3 F6).
+ *
+ * Side effects (authMerchant cache invalidation + AUTH_LOGOUT audit row) are
+ * gated ONLY on a PROVEN identity (signed verification succeeding, or the
+ * fallback's hash actually matching) — never on the raw/unforced body — so a
+ * forged or stale request cannot thrash another merchant's cache or write a
+ * false-attribution audit row (§3.3 F3).
+ */
 export async function logoutMerchant(
   prisma: PrismaClient,
   redis: Redis,
-  data: { entityId: string; sessionId: string; ipAddress: string; userAgent: string }
-): Promise<void> {
-  await revokeRefreshToken(redis, { role: 'merchant', entityId: data.entityId, sessionId: data.sessionId })
-  await redis.del(RedisKey.authMerchant(data.entityId))
-  writeAuditLog(prisma, { entityId: data.entityId, entityType: 'merchant', event: 'AUTH_LOGOUT', ipAddress: data.ipAddress, userAgent: data.userAgent, sessionId: data.sessionId })
+  app: any,
+  data: {
+    accessToken?: string
+    refreshToken?: string
+    sessionId?: string
+    entityId?: string
+    ipAddress: string
+    userAgent: string
+  }
+): Promise<{ revoke: MerchantLogoutRevokeOutcome }> {
+  let proven: { entityId: string; sessionId: string } | null = null
+
+  if (data.accessToken) {
+    try {
+      const claims = app.jwt.merchant.verify(data.accessToken, {
+        ignoreExpiration: true,
+        algorithms: ['HS256'],
+      }) as { sub?: unknown; role?: unknown; sessionId?: unknown }
+      if (claims?.role === 'merchant' && typeof claims.sub === 'string' && typeof claims.sessionId === 'string') {
+        proven = { entityId: claims.sub, sessionId: claims.sessionId }
+      }
+    } catch {
+      // Invalid signature / malformed token — proven stays null, falls
+      // through to the possession fallback (never throws: logout must
+      // always reach a locally-clean state on the caller's side).
+    }
+  }
+
+  if (proven) {
+    const outcome = await revokeMerchantSessionUnconditional(redis, proven)
+    await redis.del(RedisKey.authMerchant(proven.entityId))
+    writeAuditLog(prisma, {
+      entityId: proven.entityId, entityType: 'merchant', event: 'AUTH_LOGOUT',
+      ipAddress: data.ipAddress, userAgent: data.userAgent, sessionId: proven.sessionId,
+    })
+    if (outcome === 'pending') {
+      writeAuditLog(prisma, {
+        entityId: proven.entityId, entityType: 'merchant', event: 'AUTH_LOGOUT_REVOKE_PENDING',
+        ipAddress: data.ipAddress, userAgent: data.userAgent, sessionId: proven.sessionId,
+      })
+    } else if (outcome === 'unavailable') {
+      writeAuditLog(prisma, {
+        entityId: proven.entityId, entityType: 'merchant', event: 'AUTH_LOGOUT_REVOKE_UNAVAILABLE',
+        ipAddress: data.ipAddress, userAgent: data.userAgent, sessionId: proven.sessionId,
+      })
+    }
+    return { revoke: outcome }
+  }
+
+  if (data.refreshToken && data.sessionId && data.entityId) {
+    const outcome = await revokeMerchantSessionByPossession(redis, {
+      entityId: data.entityId, sessionId: data.sessionId, presentedRefreshToken: data.refreshToken,
+    })
+    if (outcome === 'confirmed') {
+      await redis.del(RedisKey.authMerchant(data.entityId))
+      writeAuditLog(prisma, {
+        entityId: data.entityId, entityType: 'merchant', event: 'AUTH_LOGOUT',
+        ipAddress: data.ipAddress, userAgent: data.userAgent, sessionId: data.sessionId,
+      })
+    }
+    return { revoke: outcome }
+  }
+
+  // No proof at all — pure no-op, uniform with a proof-bearing revoke of an
+  // already-absent key (§3.3 F6: no session-existence oracle).
+  return { revoke: 'confirmed' }
 }
 
 export async function forgotPasswordMerchant(

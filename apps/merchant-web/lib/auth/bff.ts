@@ -28,11 +28,17 @@ interface BackendResult {
   data: unknown
 }
 
-/** POST to the backend merchant-auth API. `body === undefined` sends NO body. */
+/**
+ * POST to the backend merchant-auth API. `body === undefined` sends NO body.
+ * `signal` is optional — the logout route uses it to bound the backend revoke
+ * under a strict timeout (logout-durability design §3.4 point 2) so this
+ * route never hangs.
+ */
 export async function backendPost(
   path: string,
   body: unknown,
   headers: Record<string, string> = {},
+  signal?: AbortSignal,
 ): Promise<BackendResult> {
   const hasBody = body !== undefined
   const res = await fetch(`${BACKEND}/api/v1/merchant/auth${path}`, {
@@ -42,6 +48,7 @@ export async function backendPost(
     // silently fail the bodyless /logout server-side revoke.
     headers: { ...(hasBody ? { 'content-type': 'application/json' } : {}), ...headers },
     body: hasBody ? JSON.stringify(body) : undefined,
+    signal,
   })
   const data = await res.json().catch(() => null)
   return { res, data }

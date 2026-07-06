@@ -169,4 +169,61 @@ describe('BFF merchant-auth route handlers (M1 Slice 1)', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(cookieStore.delete).toHaveBeenCalled()
   })
+
+  // Logout-durability design 2026-07-06 (§3.4/§4.5): the logout BFF forwards
+  // BOTH proof sources, awaits the backend revoke under a bounded timeout,
+  // maps its outcome to the { ok, remoteRevoke } discriminator, and ALWAYS
+  // clears the cookie regardless of the outcome.
+  describe('logout durability (§3.4/§4.5)', () => {
+    it('forwards the cookie-derived {refreshToken,sessionId,entityId} as the fallback body when there is no Bearer', async () => {
+      store.set('redeemo_merchant_session', { value: JSON.stringify({ refreshToken: 'RT', sessionId: 's1', entityId: 'ma1' }) })
+      const fetchMock = jest.fn(async () => jsonRes(200, { message: 'Logged out.', revoke: 'confirmed' }))
+      global.fetch = fetchMock as unknown as typeof fetch
+      const res = await logoutPOST(mockReq(undefined, {}))
+      const body = JSON.parse(((fetchMock.mock.calls[0] as unknown[])[1] as { body: string }).body)
+      expect(body).toEqual({ refreshToken: 'RT', sessionId: 's1', entityId: 'ma1' })
+      expect((await res.json())).toEqual({ ok: true, remoteRevoke: 'confirmed' })
+      expect(cookieStore.delete).toHaveBeenCalledWith('redeemo_merchant_session')
+    })
+
+    it('forwards BOTH the Bearer token AND the cookie-derived body when both are present', async () => {
+      store.set('redeemo_merchant_session', { value: JSON.stringify({ refreshToken: 'RT', sessionId: 's1', entityId: 'ma1' }) })
+      const fetchMock = jest.fn(async () => jsonRes(200, { message: 'Logged out.', revoke: 'confirmed' }))
+      global.fetch = fetchMock as unknown as typeof fetch
+      await logoutPOST(mockReq(undefined, { authorization: 'Bearer tok' }))
+      const init = ((fetchMock.mock.calls[0] as unknown[])[1]) as { headers: Record<string, string>; body: string }
+      expect(init.headers.authorization).toBe('Bearer tok')
+      expect(JSON.parse(init.body)).toEqual({ refreshToken: 'RT', sessionId: 's1', entityId: 'ma1' })
+    })
+
+    it('maps a backend revoke:"pending" straight through to remoteRevoke, and still clears the cookie', async () => {
+      global.fetch = jest.fn(async () => jsonRes(200, { message: 'Logged out.', revoke: 'pending' })) as unknown as typeof fetch
+      const res = await logoutPOST(mockReq(undefined, { authorization: 'Bearer tok' }))
+      expect(await res.json()).toEqual({ ok: true, remoteRevoke: 'pending' })
+      expect(cookieStore.delete).toHaveBeenCalled()
+    })
+
+    it('a backend failure/unreachable surfaces remoteRevoke:"unavailable" but ALWAYS clears the cookie', async () => {
+      global.fetch = jest.fn(async () => { throw new Error('fetch failed') }) as unknown as typeof fetch
+      const res = await logoutPOST(mockReq(undefined, { authorization: 'Bearer tok' }))
+      expect(res.status).toBe(200) // logout never fails the caller's request
+      expect(await res.json()).toEqual({ ok: true, remoteRevoke: 'unavailable' })
+      expect(cookieStore.delete).toHaveBeenCalled()
+    })
+
+    it('a malformed/unrecognised revoke value defaults to "unavailable" (never trusts an unexpected backend body)', async () => {
+      global.fetch = jest.fn(async () => jsonRes(200, { message: 'Logged out.', revoke: 'bogus' })) as unknown as typeof fetch
+      const res = await logoutPOST(mockReq(undefined, { authorization: 'Bearer tok' }))
+      expect((await res.json()).remoteRevoke).toBe('unavailable')
+    })
+
+    it('no token AND no cookie: skips the backend call entirely and reports remoteRevoke:"confirmed" (nothing to revoke)', async () => {
+      const fetchMock = jest.fn()
+      global.fetch = fetchMock as unknown as typeof fetch
+      const res = await logoutPOST(mockReq(undefined, {}))
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(await res.json()).toEqual({ ok: true, remoteRevoke: 'confirmed' })
+      expect(cookieStore.delete).toHaveBeenCalled()
+    })
+  })
 })

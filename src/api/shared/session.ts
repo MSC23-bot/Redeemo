@@ -3,7 +3,12 @@ import type { PrismaClient } from '../../../generated/prisma/client'
 import { RedisKey } from './redis-keys'
 import { hashRefreshToken } from './tokens'
 
-const REFRESH_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60 // 90 days
+// Exported (additive, no behaviour change) so the merchant-only logout-durability
+// code (src/api/auth/merchant/atomicRotate.ts) can size its rotate TTL and its
+// pending-revocation tombstone TTL identically to the refresh-token lifetime,
+// without duplicating the constant. Every other role's use of this value is
+// unchanged.
+export const REFRESH_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60 // 90 days
 
 export interface StoreRefreshTokenParams {
   role: string

@@ -613,6 +613,13 @@ const TIMER_ALLOW_LIST: TimerAllowEntry[] = [
     count: 1,
     justification: 'One-shot boundedPhase deadline in the shutdown coordinator — shutdown control, no DB work.',
   },
+  {
+    file: 'src/api/auth/merchant/atomicRotate.ts',
+    context: /return new Promise\(\(resolve\) => setTimeout\(resolve, ms\)\)/,
+    count: 1,
+    justification:
+      'One-shot bounded retry-backoff delay (100ms) between DEL attempts inside revokeMerchantSessionUnconditional\'s in-request retry loop (logout-durability design 2026-07-06 §3.4 point 3) — a fixed small pause on a request-scoped call path, not a recurring poller/scheduler, and does no DB work.',
+  },
 ]
 
 /** Pure scanner (proven against fixtures below). */

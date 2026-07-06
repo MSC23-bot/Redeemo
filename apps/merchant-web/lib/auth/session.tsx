@@ -26,6 +26,13 @@ export interface SessionValue {
 
 const SessionContext = createContext<SessionValue | null>(null)
 
+// Bounded wait for the BFF logout response (logout-durability design §4.5
+// point 2-3). Must sit ABOVE the BFF route's own internal backend-revoke
+// timeout (3000ms in app/api/merchant-auth/logout/route.ts) so this await
+// still returns having received the BFF's cookie-clearing response in the
+// common case, while remaining bounded so signOut can never hang.
+const SIGN_OUT_TIMEOUT_MS = 5000
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
   const [accessToken, setTok] = useState<string | null>(null)
@@ -45,14 +52,51 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [applyToken],
   )
 
+  // Confirmed-cookie-clearance signOut contract (logout-durability design
+  // §4.5). NOTE: this branch is built off current `main`, which does NOT yet
+  // carry the client-side session-epoch + React-Query cache-isolation core
+  // (`resetSessionState`, design §4.3 — that lands via a separate PR built off
+  // a different branch). The two compose on merge: once that core lands,
+  // step 1 below should become `await resetSessionState(queryClient)`. For
+  // now this clears the two pieces of client state this module owns
+  // (in-memory access token + React `merchant` state) — the ordering and
+  // network contract below (steps 0/2/3/5) are the full §4.5 contract.
   const signOut = useCallback(async () => {
-    try {
-      await authApi.logout(getAccessToken())
-    } catch {
-      // best-effort
-    }
+    // 0. Capture the access token BEFORE resetting any state. This captured
+    //    value is the authoritative revoke proof (the backend verifies its
+    //    SIGNED claims); capturing it first decouples the revoke from the
+    //    client-side token-null on the next line.
+    const token = getAccessToken()
+
+    // 1. Clear client state immediately, independent of any network call.
     applyToken(null)
     setMerchant(null)
+
+    // 2-3. Invoke the BFF logout under a STRICT bounded timeout and AWAIT the
+    //    response BEFORE navigating. A resolved 2xx is the evidence the
+    //    clearing Set-Cookie was received (the httpOnly cookie is otherwise
+    //    unreachable from page JS) — navigating without awaiting this would
+    //    let the router abort a non-keepalive request before that response
+    //    lands, leaving cookie clearance unconfirmed (the rejected "fire-and-
+    //    forget" ordering).
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), SIGN_OUT_TIMEOUT_MS)
+    try {
+      const result = await authApi.logout(token, controller.signal)
+      // 5. Honest degraded behaviour: a non-2xx / aborted / unreachable
+      //    result means cookie clearance is UNCONFIRMED — the httpOnly
+      //    cookie may still be live on this browser, so a subsequent
+      //    refresh-on-mount could re-hydrate the session. Navigation still
+      //    proceeds (the user must never be trapped), but this is surfaced
+      //    rather than silently treated as a clean logout.
+      if (!result.ok) {
+        console.warn('[signOut] cookie clearance unconfirmed', { status: result.status, remoteRevoke: result.remoteRevoke })
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+
+    // 4. Then navigate.
     router.replace('/sign-in')
   }, [applyToken, router])
 
