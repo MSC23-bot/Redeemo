@@ -136,3 +136,9 @@ edited by this workstream.
   PR #397: hero ground cream, navy type, navy phone bezel + nav chip as deliberate
   accents, glow softened; navy section moments retained (scroll-story Redeem
   chapter, founding-promise band, app CTA, footer).
+- Owner approved the red nav trial; refined to match the customer app's actual
+  header recipe (radial glow #F24E2C at 70%/16% into deep red #BE0A03, from
+  HomeHeader EXPANDED_STOPS) rather than the flat marketing gradient; the
+  all-white horizontal logo (brand package Horizontal Version 3 SVG) replaces
+  logo-dark on the bar. CTA red aligned to the bar's deep red. Cross-surface
+  effect: the website chrome now literally speaks the app header's language.
