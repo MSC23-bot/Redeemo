@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StaircaseHub } from '@/components/onboarding/StaircaseHub'
 import { LifecycleHome } from '@/components/onboarding/LifecycleHome'
+import HomeDashboard from '@/components/home/HomeDashboard'
 import { useSession } from '@/lib/auth/session'
 import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
 import { deriveStatusPill } from '@/lib/auth/lifecycle'
@@ -72,9 +73,16 @@ export default function HomePage() {
   const businessName = profile.data.businessName
   const statusData = status.data ?? null
 
-  // Read-only + live homes (submitted / in_review / suspended / rejected / live).
-  if (state === 'submitted' || state === 'in_review' || state === 'suspended' || state === 'rejected' || state === 'live' || state === 'live_new') {
+  // Read-only pre-live homes (submitted / in_review / suspended / rejected) stay on the
+  // existing LifecycleHome, untouched.
+  if (state === 'submitted' || state === 'in_review' || state === 'suspended' || state === 'rejected') {
     return <LifecycleHome state={state} businessName={businessName} status={statusData} />
+  }
+
+  // LIVE (live / live_new): the Home dashboard. It gates the full insights dashboard on
+  // canViewInsights (OWNER / BRANCH_MANAGER) and renders a lean live home for STAFF.
+  if (state === 'live' || state === 'live_new') {
+    return <HomeDashboard profile={profile.data} />
   }
 
   // setup / changes -> the staircase hub. Derive from the merged reads.
