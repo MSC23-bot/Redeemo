@@ -30,8 +30,8 @@ type RailType = {
   chip: string
   title: string
   body: string
-  example: string
-  scope: string
+  scenario: string
+  takeback: string
   art: string
   accent: string
   accentBg: string
@@ -42,8 +42,8 @@ const TYPES: RailType[] = [
     chip: 'BOGO',
     title: 'Buy one, get one free',
     body: 'Order one, and a second arrives on the house.',
-    example: 'Dinner for two, priced for one',
-    scope: 'Restaurants & kitchens',
+    scenario: 'Date night: two £14 mains, one bill for £14.',
+    takeback: '£14 back: two months of membership, one dinner',
     art: '/category-art/plated-dish.png',
     accent: '#7C3AED',
     accentBg: 'rgba(124,58,237,0.1)',
@@ -52,8 +52,8 @@ const TYPES: RailType[] = [
     chip: 'Discount',
     title: 'Straight discount',
     body: 'A clean percentage or amount off the bill. No riddles.',
-    example: 'Half-price day passes, any weekday',
-    scope: 'Gyms & studios',
+    scenario: '20% off a £45 monthly gym pass.',
+    takeback: '£9 back without changing your routine',
     art: '/category-art/dumbbells.png',
     accent: '#E20C04',
     accentBg: 'rgba(226,12,4,0.1)',
@@ -62,8 +62,8 @@ const TYPES: RailType[] = [
     chip: 'Freebie',
     title: 'Freebie',
     body: 'Something free with your visit, just for being a member.',
-    example: 'A pastry on the house with any coffee',
-    scope: 'Cafes & bakeries',
+    scenario: 'A £3 pastry on the house with your coffee.',
+    takeback: 'Small, monthly, and it adds up',
     art: '/category-art/coffee-cup.png',
     accent: '#16A34A',
     accentBg: 'rgba(22,163,74,0.1)',
@@ -72,8 +72,8 @@ const TYPES: RailType[] = [
     chip: 'Spend & save',
     title: 'Spend and save',
     body: 'Pass a spend threshold, watch a chunk come off.',
-    example: 'Spend £30 on the good stuff, save £5',
-    scope: 'Delis & grocers',
+    scenario: '£10 off when you spend £40 stocking up.',
+    takeback: '£10 back on things you were buying anyway',
     art: '/category-art/picnic-basket.png',
     accent: '#E84A00',
     accentBg: 'rgba(232,74,0,0.1)',
@@ -82,8 +82,8 @@ const TYPES: RailType[] = [
     chip: 'Package deal',
     title: 'Package deal',
     body: 'A bundle priced better than the sum of its parts.',
-    example: 'Cut, wash and finish, one price',
-    scope: 'Barbers & salons',
+    scenario: '£30 of barbering for £22, in one booking.',
+    takeback: '£8 back in the chair',
     art: '/category-art/gift-box.png',
     accent: '#2563EB',
     accentBg: 'rgba(37,99,235,0.1)',
@@ -92,8 +92,8 @@ const TYPES: RailType[] = [
     chip: 'Time-limited',
     title: 'Time-limited',
     body: 'Extra generous, for a short window. Catch it while it is live.',
-    example: 'Half price, weekdays before noon',
-    scope: 'Beauty & wellness',
+    scenario: 'A £20 blow-dry for £10, weekdays before noon.',
+    takeback: '£10 back for going early',
     art: '/category-art/vanity-mirror.png',
     accent: '#D97706',
     accentBg: 'rgba(217,119,6,0.1)',
@@ -102,8 +102,8 @@ const TYPES: RailType[] = [
     chip: 'Reusable',
     title: 'Reusable',
     body: 'Does not burn out after one visit: it comes back automatically.',
-    example: 'Ready again next cycle, nothing to re-claim',
-    scope: 'Wherever you see it',
+    scenario: '£2 off your usual coffee, every visit.',
+    takeback: 'A habit that pays you back weekly',
     art: '/category-art/water-bottle.png',
     accent: '#0D9488',
     accentBg: 'rgba(13,148,136,0.1)',
@@ -163,11 +163,12 @@ function RailCard({
           </h3>
           <p className="relative text-[13.5px] text-[#4B5563] leading-[1.6] max-w-[200px]">{type.body}</p>
 
-          {/* Stub: the example, behind a tear line like a real voucher */}
+          {/* Stub: a moment you recognise and the money that comes back,
+              behind a tear line like a real voucher */}
           <div className="relative mt-auto pt-4 border-t border-dashed border-[#010C35]/15 bg-white/60">
-            <p className="text-[13.5px] font-semibold text-[#010C35] leading-[1.5] mb-1">{type.example}</p>
-            <p className="text-[11.5px] font-medium" style={{ color: type.accent }}>
-              {type.scope}
+            <p className="text-[13.5px] font-semibold text-[#010C35] leading-[1.5] mb-1">{type.scenario}</p>
+            <p className="text-[11.5px] font-bold" style={{ color: type.accent }}>
+              {type.takeback}
             </p>
           </div>
         </div>
@@ -242,7 +243,10 @@ export function VoucherTypesRail() {
               <div className="absolute inset-0 border-t-[3px] border-dotted border-[#010C35]/12" />
               <motion.div className="absolute inset-y-0 left-0 w-full origin-left" style={{ scaleX: progress, background: 'var(--brand-gradient)' }} />
             </div>
-            <p className="mt-4 text-[12px] text-[#6B7280]">One redemption per place each month. New cycle, fresh set.</p>
+            <p className="mt-4 text-[12px] text-[#6B7280]">
+              Any place can run any type: restaurants, cafes, gyms, salons, delis and beyond.
+              One redemption per place each month (reusables come back sooner).
+            </p>
           </div>
         </div>
       </section>
@@ -261,8 +265,10 @@ export function VoucherTypesRail() {
           ))}
         </div>
         <div className="px-6 mt-2">
-          <p className="text-[12px] text-[#6B7280]">
-            Swipe for more · One redemption per place each month. New cycle, fresh set.
+          <p className="text-[12px] text-[#6B7280] leading-[1.6]">
+            Swipe for more · Any place can run any type: restaurants, cafes, gyms,
+            salons, delis and beyond. One redemption per place each month
+            (reusables come back sooner).
           </p>
         </div>
       </section>
