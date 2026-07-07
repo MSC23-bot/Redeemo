@@ -18,14 +18,14 @@ const VIEW_W = 1440
 const VIEW_H = 300
 const HALF_W = 52 // base half-thickness (scaled by the taper below)
 const SAMPLES = 400
-const NOTCH_T = 0.36 // die-cut notch pair + tear line (the coupon stub)
+const NOTCH_TS = [0.3, 0.68] // die-cut notch pairs + tear lines (coupon stubs)
 const NOTCH_R = 14
 
-// Centreline: one confident sweep, edge to edge with bleed past both sides.
-const P0 = { x: -80, y: 120 }
-const P1 = { x: 420, y: 240 }
-const P2 = { x: 980, y: 30 }
-const P3 = { x: 1540, y: 160 }
+// Centreline: a confident sweep with real bends, edge to edge with bleed.
+const P0 = { x: -80, y: 140 }
+const P1 = { x: 430, y: 250 }
+const P2 = { x: 970, y: 10 }
+const P3 = { x: 1540, y: 185 }
 
 // Fills bleed past the viewBox so the scroll drift never exposes a gap.
 const BLEED_X = 100
@@ -56,7 +56,7 @@ const halfWidth = (t: number) => HALF_W * (1.6 - 1.0 * t)
 type Pt = { x: number; y: number }
 const top: Pt[] = []
 const bottom: Pt[] = []
-const NOTCH_X = bezier(NOTCH_T).x
+const NOTCH_XS = NOTCH_TS.map((t) => bezier(t).x)
 for (let i = 0; i <= SAMPLES; i++) {
   const t = i / SAMPLES
   const p = bezier(t)
@@ -66,19 +66,21 @@ for (let i = 0; i <= SAMPLES; i++) {
   let ty = p.y + tan.x * w
   let bx = p.x + tan.y * w
   let by = p.y - tan.x * w
-  // Carve the die-cut notch pair straight into both edges, so the edge
+  // Carve each die-cut notch pair straight into both edges, so the edge
   // lighting wraps around them like a real punched coupon.
-  const dTop = tx - NOTCH_X
-  if (Math.abs(dTop) < NOTCH_R) {
-    const depth = Math.sqrt(NOTCH_R * NOTCH_R - dTop * dTop)
-    tx += tan.y * depth
-    ty -= tan.x * depth
-  }
-  const dBot = bx - NOTCH_X
-  if (Math.abs(dBot) < NOTCH_R) {
-    const depth = Math.sqrt(NOTCH_R * NOTCH_R - dBot * dBot)
-    bx -= tan.y * depth
-    by += tan.x * depth
+  for (const nx of NOTCH_XS) {
+    const dTop = tx - nx
+    if (Math.abs(dTop) < NOTCH_R) {
+      const depth = Math.sqrt(NOTCH_R * NOTCH_R - dTop * dTop)
+      tx += tan.y * depth
+      ty -= tan.x * depth
+    }
+    const dBot = bx - nx
+    if (Math.abs(dBot) < NOTCH_R) {
+      const depth = Math.sqrt(NOTCH_R * NOTCH_R - dBot * dBot)
+      bx -= tan.y * depth
+      by += tan.x * depth
+    }
   }
   top.push({ x: tx, y: ty })
   bottom.push({ x: bx, y: by })
@@ -96,14 +98,11 @@ const BAND_PATH = `${line(top, true)} ${[...bottom]
 const TOP_EDGE = line(top, true)
 const BOTTOM_EDGE = line(bottom, true)
 
-// The dashed tear line runs stub-style across the band at the notch pair
-const NOTCH_I = Math.round(NOTCH_T * SAMPLES)
-const TEAR = {
-  x1: top[NOTCH_I].x,
-  y1: top[NOTCH_I].y + 6,
-  x2: bottom[NOTCH_I].x,
-  y2: bottom[NOTCH_I].y - 6,
-}
+// Dashed tear lines run stub-style across the band at each notch pair
+const TEARS = NOTCH_TS.map((t) => {
+  const i = Math.round(t * SAMPLES)
+  return { x1: top[i].x, y1: top[i].y + 6, x2: bottom[i].x, y2: bottom[i].y - 6 }
+})
 
 // The seam itself: topColor above the band, bottomColor below it.
 const TOP_FILL = `M${-BLEED_X} ${-BLEED_Y} L${VIEW_W + BLEED_X} ${-BLEED_Y} L${VIEW_W + BLEED_X} ${top[SAMPLES].y.toFixed(1)} ${[...top]
@@ -150,9 +149,21 @@ export function VoucherRibbon({
       >
         <defs>
           <linearGradient id={`${uid}-band`} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0" stopColor="#B00700" />
-            <stop offset="0.42" stopColor="#E20C04" />
+            <stop offset="0" stopColor="#8E0B04" />
+            <stop offset="0.28" stopColor="#E20C04" />
+            <stop offset="0.5" stopColor="#C11004" />
+            <stop offset="0.74" stopColor="#EE3A0C" />
             <stop offset="1" stopColor="#F0480F" />
+          </linearGradient>
+          {/* Shade travel along the length: the bends read as different
+              tones, like the artwork ribbon catching the light */}
+          <linearGradient id={`${uid}-bends`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stopColor="#3D0200" stopOpacity="0.2" />
+            <stop offset="0.22" stopColor="#3D0200" stopOpacity="0" />
+            <stop offset="0.46" stopColor="#3D0200" stopOpacity="0.22" />
+            <stop offset="0.62" stopColor="#FFFFFF" stopOpacity="0.1" />
+            <stop offset="0.85" stopColor="#3D0200" stopOpacity="0.16" />
+            <stop offset="1" stopColor="#3D0200" stopOpacity="0" />
           </linearGradient>
           {/* Cylindrical light: lit crest rolling into shadow at the foot */}
           <linearGradient id={`${uid}-shade`} x1="0" y1="0" x2="0" y2="1">
@@ -187,6 +198,7 @@ export function VoucherRibbon({
 
           {/* The coupon band */}
           <path d={BAND_PATH} fill={`url(#${uid}-band)`} />
+          <path d={BAND_PATH} fill={`url(#${uid}-bends)`} />
           <path d={BAND_PATH} fill={`url(#${uid}-shade)`} />
 
           <g clipPath={`url(#${uid}-clip)`}>
@@ -194,17 +206,20 @@ export function VoucherRibbon({
             <path d={TOP_EDGE} fill="none" stroke="rgba(255,214,190,0.7)" strokeWidth="3.5" />
             <path d={BOTTOM_EDGE} fill="none" stroke="rgba(40,1,0,0.5)" strokeWidth="4" />
 
-            {/* Stub tear line across the band at the notch pair */}
-            <line
-              x1={TEAR.x1}
-              y1={TEAR.y1}
-              x2={TEAR.x2}
-              y2={TEAR.y2}
-              stroke="rgba(255,249,245,0.75)"
-              strokeWidth="3"
-              strokeDasharray="9 12"
-              strokeLinecap="round"
-            />
+            {/* Stub tear lines across the band at each notch pair */}
+            {TEARS.map((tear, i) => (
+              <line
+                key={i}
+                x1={tear.x1}
+                y1={tear.y1}
+                x2={tear.x2}
+                y2={tear.y2}
+                stroke="rgba(255,249,245,0.75)"
+                strokeWidth="3"
+                strokeDasharray="9 12"
+                strokeLinecap="round"
+              />
+            ))}
 
             {/* Scroll-driven sheen sweeping the satin */}
             {!reduceMotion && (

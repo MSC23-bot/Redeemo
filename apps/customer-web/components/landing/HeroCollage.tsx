@@ -45,8 +45,6 @@ function CardLayer({
   reduceMotion: boolean
 }) {
   const [l, t, w, h] = layer.box
-  const x = useTransform(parX, (v) => v * layer.depth * 7)
-  const y = useTransform(parY, (v) => v * layer.depth * 5)
   return (
     <motion.div
       className="absolute"
@@ -58,8 +56,6 @@ function CardLayer({
         top: `${(t / IMG_H) * 100}%`,
         width: `${(w / IMG_W) * 100}%`,
         height: `${(h / IMG_H) * 100}%`,
-        x: reduceMotion ? 0 : x,
-        y: reduceMotion ? 0 : y,
       }}
     >
       {/* Hover: the card presents itself: rises toward the viewer with a
@@ -67,14 +63,14 @@ function CardLayer({
       <motion.div
         className="relative h-full w-full"
         variants={{
-          rest: { scale: 1.07, filter: 'drop-shadow(0 10px 14px rgba(97,20,4,0.12))' },
-          hover: { scale: 1.12, filter: 'drop-shadow(0 22px 30px rgba(97,20,4,0.22))' },
+          rest: { scale: 1.04, filter: 'drop-shadow(0 8px 12px rgba(97,20,4,0.1))' },
+          hover: { scale: 1.11, filter: 'drop-shadow(0 22px 30px rgba(97,20,4,0.22))' },
         }}
         transition={{ type: 'spring', stiffness: 240, damping: 20 }}
       >
         <motion.div
           className="relative h-full w-full"
-          animate={reduceMotion ? undefined : { y: [0, -6, 0], rotate: [0, 0.8, 0] }}
+          animate={reduceMotion ? undefined : { y: [0, -3, 0], rotate: [0, 0.4, 0] }}
           transition={{ duration: layer.dur, repeat: Infinity, ease: 'easeInOut' }}
         >
           {/* Pre-cut, pre-sized assets: the optimizer's re-encode only
@@ -140,19 +136,29 @@ export function HeroCollage() {
   // Gentle lift as the visitor scrolls away
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] })
   const lift = useScrollLinked(useTransform(scrollYProgress, [0, 1], [0, -26]))
+  // The whole artwork leans toward the cursor as one object
+  const groupX = useTransform(parX, (v) => v * 14)
+  const groupRY = useTransform(parX, (v) => v * 2.5)
 
   return (
-    <div ref={ref} className="absolute inset-0 overflow-hidden" aria-hidden="true" style={{ background: GROUND, pointerEvents: 'auto' }}>
+    <div ref={ref} className="absolute inset-0 overflow-hidden" aria-hidden="true" style={{ background: GROUND, pointerEvents: 'auto', perspective: 1600 }}>
       {/* 76% height: the group breathes instead of pressing the edges */}
       <motion.div
         className="absolute right-[4%] top-1/2 h-[76%] max-w-[92%]"
-        style={{ aspectRatio: `${IMG_W} / ${IMG_H}`, y: '-50%', translateY: reduceMotion ? 0 : lift }}
+        style={{
+          aspectRatio: `${IMG_W} / ${IMG_H}`,
+          y: '-50%',
+          translateY: reduceMotion ? 0 : lift,
+          translateX: reduceMotion ? 0 : groupX,
+          rotateY: reduceMotion ? 0 : groupRY,
+          transformStyle: 'preserve-3d',
+        }}
       >
         {/* The artwork's cream is not perfectly uniform, so its rectangle
             printed a faint edge against the ground: feather all four borders
             and it melts in. Cards are outside this mask on purpose. */}
         <Image
-          src="/app-shots/hero-collage/base-v3.jpg"
+          src="/app-shots/hero-collage/base-v4.jpg"
           alt=""
           fill
           priority

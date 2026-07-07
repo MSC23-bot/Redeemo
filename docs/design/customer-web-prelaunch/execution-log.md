@@ -350,3 +350,16 @@ edited by this workstream.
   bold sweep, halfWidth 1.6x tapering to 0.6x (thick left, slim right), die-cut
   notch PAIR carved into both edges with a dashed stub tear line across the
   band, satin shading + edge lights + scroll sheen retained; twist pinch gone.
+- Hero v4.4 + Ribbon v5 (owner: artwork ribbon greyed near cards; baked edges
+  still peek during motion; divider needs curves/shades back + more indents):
+  (1) Grey patches were the ring-inpaint misclassifying SHADED ribbon as
+  shadow; redone from the recovered pre-inpaint base with a hue guard
+  (r > g+22 & r > b+22 protects ribbon in any lighting); base-v4.jpg.
+  (2) Edge peek eliminated architecturally: cursor parallax moved to the
+  whole artwork group (base + cards lean together, rotateY 2.5deg + 14px, so
+  nothing inside can misalign); per-card motion reduced to a 3px whisper
+  float; overlay rest scale 1.04. A full-footprint card removal was attempted
+  and abandoned: colour guards cannot distinguish red cards from ribbon.
+  (3) VoucherRibbon v5: deeper S-bend, five-stop gradient + along-length
+  shade travel (bends read as different tones), TWO die-cut notch pairs with
+  stub tear lines.
