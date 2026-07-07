@@ -378,3 +378,12 @@ edited by this workstream.
   width gathers to 38% at t=0.55 and the band continues in its darker back
   face gradient (front/back segments overlap at the crease), on top of the
   taper, both notch pairs, tear lines, shade travel.
+- Hero v4.6 FINAL ARCHITECTURE (owner: residue marks around hovered cards):
+  the shadow-carrying layers left speckle residue when lifted (their alpha
+  included background pixels that betrayed themselves under scale). Settled
+  on the simplest correct configuration: PRISTINE base (its painted shadows
+  never move: motion is small enough that they stay believable under the
+  hover's live shadow) + card-only cutouts at rest scale 1.04 (covers the
+  3px whisper float), hover 1.1 + live shadow + sheen. shadow-*.png assets
+  removed; one final 0.6px alpha soften on all four mattes. Nothing carried,
+  nothing filled: neither residue nor grey nor edge-peek has a mechanism.

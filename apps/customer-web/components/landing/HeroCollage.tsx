@@ -27,10 +27,10 @@ const GROUND = '#FFF5EB'
 // Crop boxes of each card in source pixels (see crop-meta.json in the
 // design log): left, top, width, height as fractions of the image.
 const LAYERS = [
-  { key: 'coffee', img: '/app-shots/hero-collage/shadow-coffee.png', mask: '/app-shots/hero-collage/layer-coffee.png', box: [610, 56, 384, 339], dur: 5.4 },
-  { key: 'lunch', img: '/app-shots/hero-collage/shadow-lunch.png', mask: '/app-shots/hero-collage/layer-lunch.png', box: [526, 338, 435, 330], dur: 6.2 },
-  { key: 'gym', img: '/app-shots/hero-collage/shadow-gym.png', mask: '/app-shots/hero-collage/layer-gym.png', box: [1354, 141, 318, 282], dur: 5.8 },
-  { key: 'pizza', img: '/app-shots/hero-collage/shadow-pizza.png', mask: '/app-shots/hero-collage/layer-pizza.png', box: [1304, 376, 368, 339], dur: 6.8 },
+  { key: 'coffee', img: '/app-shots/hero-collage/layer-coffee.png', mask: '/app-shots/hero-collage/layer-coffee.png', box: [610, 56, 384, 339], dur: 5.4 },
+  { key: 'lunch', img: '/app-shots/hero-collage/layer-lunch.png', mask: '/app-shots/hero-collage/layer-lunch.png', box: [526, 338, 435, 330], dur: 6.2 },
+  { key: 'gym', img: '/app-shots/hero-collage/layer-gym.png', mask: '/app-shots/hero-collage/layer-gym.png', box: [1354, 141, 318, 282], dur: 5.8 },
+  { key: 'pizza', img: '/app-shots/hero-collage/layer-pizza.png', mask: '/app-shots/hero-collage/layer-pizza.png', box: [1304, 376, 368, 339], dur: 6.8 },
 ] as const
 
 function CardLayer({
@@ -63,8 +63,8 @@ function CardLayer({
       <motion.div
         className="relative h-full w-full"
         variants={{
-          rest: { scale: 1, filter: 'drop-shadow(0 0px 0px rgba(97,20,4,0))' },
-          hover: { scale: 1.08, filter: 'drop-shadow(0 18px 26px rgba(97,20,4,0.2))' },
+          rest: { scale: 1.04, filter: 'drop-shadow(0 0px 0px rgba(97,20,4,0))' },
+          hover: { scale: 1.1, filter: 'drop-shadow(0 18px 26px rgba(97,20,4,0.2))' },
         }}
         transition={{ type: 'spring', stiffness: 240, damping: 20 }}
       >
