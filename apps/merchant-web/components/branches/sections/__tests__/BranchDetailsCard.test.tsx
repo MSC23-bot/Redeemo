@@ -104,7 +104,61 @@ describe('BranchDetailsCard pending requests + withdraw', () => {
     // The withdrawn edit must NOT surface a withdraw control; only the PENDING one.
     const withdrawButtons = screen.getAllByRole('button', { name: /withdraw/i })
     expect(withdrawButtons).toHaveLength(1)
-    expect(screen.getByText(/change is already in review|in review/i)).toBeInTheDocument()
+    expect(screen.getByText(/awaiting review/i)).toBeInTheDocument()
+  })
+
+  // Fidelity polish (2026-07-07 audit): the banner now diffs proposedChanges
+  // against the branch's current live values + shows the submission date, instead
+  // of only the old generic "a change is already in review" copy.
+  it('shows the field diff (old -> new) + the submitted date for a sample proposedChanges', () => {
+    render(
+      <BranchDetailsCard
+        branch={branch({
+          addressLine1: '12 High Street',
+          pendingEdits: [
+            pendingEdit({
+              proposedChanges: { addressLine1: '32 High Street' },
+              createdAt: '2026-06-17T09:00:00.000Z',
+            }),
+          ],
+        })}
+        canManage
+      />,
+    )
+    const diff = screen.getByTestId('pending-edit-diff')
+    expect(diff).toHaveTextContent('Address line 1:')
+    expect(diff).toHaveTextContent('12 High Street')
+    expect(diff).toHaveTextContent('32 High Street')
+    expect(screen.getByText(/submitted 17 june 2026/i)).toBeInTheDocument()
+  })
+
+  // IMAGE fields (logoUrl/bannerUrl) must never leak the raw URL into the diff -
+  // only a friendly "<field> (change pending)" label.
+  it('shows a friendly label for an image field instead of the raw URL', () => {
+    render(
+      <BranchDetailsCard
+        branch={branch({
+          logoUrl: 'https://cdn.example.com/logo-old.png',
+          pendingEdits: [
+            pendingEdit({ proposedChanges: { logoUrl: 'https://cdn.example.com/logo-new-secret.png' } }),
+          ],
+        })}
+        canManage
+      />,
+    )
+    const diff = screen.getByTestId('pending-edit-diff')
+    expect(diff).toHaveTextContent('Logo image (change pending)')
+    expect(diff).not.toHaveTextContent('https://cdn.example.com')
+  })
+
+  it('renders no diff rows when proposedChanges carries no labelled fields', () => {
+    render(
+      <BranchDetailsCard
+        branch={branch({ pendingEdits: [pendingEdit({ proposedChanges: {} })] })}
+        canManage
+      />,
+    )
+    expect(screen.queryByTestId('pending-edit-diff')).not.toBeInTheDocument()
   })
 
   it('withdraws the correct editId and toasts', async () => {
@@ -130,7 +184,8 @@ describe('BranchDetailsCard non-owner read-only', () => {
     render(<BranchDetailsCard branch={branch({ pendingEdits: [pendingEdit()] })} canManage={false} />)
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /withdraw/i })).not.toBeInTheDocument()
-    // The current values still render read-only.
-    expect(screen.getByText('High Street')).toBeInTheDocument()
+    // The current values still render read-only (the branch name text also appears
+    // inside the pending-edit diff's "old" value, hence getAllByText here).
+    expect(screen.getAllByText('High Street').length).toBeGreaterThan(0)
   })
 })

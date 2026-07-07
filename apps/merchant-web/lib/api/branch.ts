@@ -22,7 +22,13 @@ const branchOpeningHoursSchema = z
 
 const branchAmenityLinkSchema = z
   .object({
-    amenity: z.object({ id: z.string(), name: z.string() }).passthrough(),
+    // iconUrl mirrors the catalogue Amenity shape (amenitySchema, further down):
+    // the backend's branch include (`amenities: { include: { amenity: true } }`)
+    // already ships the full Amenity row, so this was already on the wire - the
+    // fidelity-polish per-amenity icon just adds a typed reader for it.
+    amenity: z
+      .object({ id: z.string(), name: z.string(), iconUrl: z.string().nullable().optional() })
+      .passthrough(),
   })
   .passthrough()
 
