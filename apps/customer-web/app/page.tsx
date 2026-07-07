@@ -9,6 +9,7 @@ import { WaitlistSection } from '@/components/landing/WaitlistSection'
 import { ForBusinessesBridgeSection } from '@/components/landing/ForBusinessesBridgeSection'
 import { AppCtaFooterSection } from '@/components/landing/AppCtaFooterSection'
 import { VoucherRibbon } from '@/components/landing/VoucherRibbon'
+import { VoucherTypesRail } from '@/components/landing/VoucherTypesRail'
 import { isMarketplaceLive } from '@/lib/prelaunch'
 
 export default function HomePage() {
@@ -23,6 +24,9 @@ export default function HomePage() {
       {/* Scroll-driven find/choose/redeem story on desktop; static sections on
           mobile, reduced-motion, and for crawlers */}
       <ScrollStory />
+      {/* The voucher shelf: vertical scroll sweeps the seven voucher types
+          horizontally (desktop; mobile gets the static grid via ScrollStory) */}
+      <VoucherTypesRail />
       <HowItWorksSection />
       <VoucherRibbon flip topColor="#FAFAF8" bottomColor="#010C35" />
       {isMarketplaceLive() ? <TestimonialsSection /> : <FoundingPromiseSection />}

@@ -394,3 +394,17 @@ edited by this workstream.
   wash (pale desaturated rule, x > w-170, pepperoni-safe), hardened the matte
   (alpha < 120 -> 0), resoftened 0.7px. QA composite verified the notch now
   shows the artwork's red ribbon through it.
+- Voucher shelf SHIPPED (owner 2026-07-08: horizontal-scroll section for the
+  seven voucher types, hook header + descriptions + examples): new
+  VoucherTypesRail as the third desktop section (after the scroll cinema):
+  280vh pinned stage, vertical scroll sweeps seven die-cut voucher cards
+  horizontally (measured viewport -> exact end offset, useScrollLinked
+  spring). Header "Seven ways to pay less." + labelled-types subcopy. Cards:
+  app voucher-type token colours (stripe + pill), display-type title, blurb,
+  dashed tear-line stub with a concrete example at a fictional demo merchant
+  (Old Foundry, Northlight, Juniper, Fern & Field, Hatterly, Amber Room);
+  alternating tilt straightens + lifts on hover; die-cut edge notches form a
+  ticket strip between neighbours. Perforated progress line fills with the
+  brand gradient as the shelf sweeps; honest footer line (one redemption per
+  place per month). Mobile + reduced motion keep the static
+  VoucherTypesSection via ScrollStory (rail returns null / hidden).
