@@ -981,6 +981,17 @@ export async function listBranchEditRequests(
   })
 }
 
+// Hygiene fix (2026-07-07, aligning with the voucher governed-flows lane,
+// #411): withdrawing a PENDING BranchPendingEdit used to flip only the edit
+// row -> WITHDRAWN and leave its linked AdminApproval{BRANCH_IDENTITY_EDIT}
+// PENDING forever (a dangling admin-queue row) — same gap class as the
+// merchant profile sibling (withdrawMerchantEditRequest). Mirrors
+// withdrawVoucherPendingEdit's exact convention: edit -> WITHDRAWN AND its
+// AdminApproval (matched by type + referenceId=editId, status PENDING;
+// CHANGES_REQUESTED is onboarding/VOUCHER-only per editApplier.ts, so it never
+// applies to this type) -> WITHDRAWN with the claim cleared, atomically. The
+// approval lookup is optional (a historical row created before this fix, or
+// one already actioned, does not block the edit withdraw).
 export async function withdrawBranchEditRequest(
   prisma: PrismaClient,
   adminId: string,
@@ -1002,17 +1013,36 @@ export async function withdrawBranchEditRequest(
   if (!edit) throw new AppError('PENDING_EDIT_NOT_FOUND')
   if (edit.status !== 'PENDING') throw new AppError('PENDING_EDIT_NOT_FOUND')
 
-  const updated = await prisma.branchPendingEdit.update({
-    where: { id: editId },
-    data: { status: 'WITHDRAWN', reviewedAt: new Date() },
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.branchPendingEdit.update({
+      where: { id: editId },
+      data: { status: 'WITHDRAWN', reviewedAt: new Date() },
+    })
+    const approval = await tx.adminApproval.findFirst({
+      where: { type: 'BRANCH_IDENTITY_EDIT', referenceId: editId, status: 'PENDING' },
+      select: { id: true },
+    })
+    if (approval) {
+      await tx.adminApproval.update({
+        where: { id: approval.id },
+        data: {
+          status: 'WITHDRAWN',
+          claimedById: null,
+          claimedAt: null,
+          actionedAt: new Date(),
+          comment: 'Merchant withdrew the request',
+        },
+      })
+    }
+    await writeAuditLogTx(tx, {
+      entityId: merchantId, entityType: 'merchant',
+      event: 'BRANCH_EDIT_REQUEST_WITHDRAWN',
+      actorId: adminId, actorType: 'MERCHANT_ADMIN',
+      metadata: { branchId, editId },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return updated
   })
-
-  writeAuditLog(prisma, {
-    entityId: merchantId, entityType: 'merchant',
-    event: 'BRANCH_EDIT_REQUEST_WITHDRAWN', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    metadata: { branchId, editId },
-  })
-  return updated
 }
 
 // Branches PR-4 (umbrella D4): the opening-hours customer cool-off window. A merchant

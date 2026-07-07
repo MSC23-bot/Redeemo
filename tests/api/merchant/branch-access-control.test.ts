@@ -83,7 +83,14 @@ async function makeApp(row: ReturnType<typeof membershipRow>, lifecycle = { stat
       findMany: vi.fn().mockResolvedValue([]),
     },
     branchUser: { updateMany: vi.fn().mockResolvedValue({}) },
-    adminApproval: { create: vi.fn().mockResolvedValue({}) },
+    // Hygiene fix (2026-07-07): withdrawBranchEditRequest now looks up + flips
+    // the linked BRANCH_IDENTITY_EDIT approval inside the withdraw transaction.
+    // Default to "not found" so tests that never withdraw are unaffected.
+    adminApproval: {
+      create: vi.fn().mockResolvedValue({}),
+      findFirst: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({}),
+    },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     locality: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: 'loc1' }) },
   }
@@ -141,8 +148,25 @@ describe('branch write-route authorization matrix — Staff & Access PR-2 (D3)',
     const list = await inject(made.app, made.token, 'GET', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}/edit-requests`)
     expect(list.statusCode).toBe(200)
     made.prismaMock.branchPendingEdit.findFirst = vi.fn().mockResolvedValue({ id: 'pe1', branchId: ASSIGNED_BRANCH, merchantId: 'm1', status: 'PENDING' })
+    // Hygiene fix (2026-07-07): the linked BRANCH_IDENTITY_EDIT approval (referenceId
+    // = the pending-edit id) is found and flipped -> WITHDRAWN atomically with the
+    // pending-edit flip, mirroring the voucher governed lane (withdrawVoucherPendingEdit).
+    made.prismaMock.adminApproval.findFirst = vi.fn().mockResolvedValue({ id: 'appr1' })
     const withdraw = await inject(made.app, made.token, 'DELETE', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}/edit-requests/pe1`)
     expect(withdraw.statusCode).toBe(200)
+    expect(made.prismaMock.branchPendingEdit.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'pe1' }, data: expect.objectContaining({ status: 'WITHDRAWN' }) })
+    )
+    expect(made.prismaMock.adminApproval.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ type: 'BRANCH_IDENTITY_EDIT', referenceId: 'pe1', status: 'PENDING' }),
+      })
+    )
+    const aUpd = (made.prismaMock.adminApproval.update as any).mock.calls[0][0]
+    expect(aUpd.where).toEqual({ id: 'appr1' })
+    expect(aUpd.data.status).toBe('WITHDRAWN')
+    expect(aUpd.data.claimedById).toBeNull()
+    expect(aUpd.data.claimedAt).toBeNull()
   })
 
   it('OWNER -> set-main (PATCH isMainBranch:true) succeeds (200)', async () => {
