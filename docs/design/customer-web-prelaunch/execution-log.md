@@ -329,3 +329,11 @@ edited by this workstream.
   content layer is pointer-events-none on lg with the text column and badge
   strip re-enabled, so CTAs stay clickable (verified) while hovers reach the
   cards; veil and floor fade are pointer-transparent.
+- Hero v4.2 (owner: smaller still; background edge on the right; rough card
+  edges under hover zoom): group at 76% height with 4% right inset; the
+  artwork's rectangle printed a faint seam against the ground (its cream is
+  not uniform), fixed by feathering all four borders of the base image with a
+  two-axis mask (70px, mask-composite intersect), card layers deliberately
+  outside the mask; all four cutout mattes refined (1px erode + 1.1px
+  gaussian on alpha, pizza's dark bezel remnant cleared) so silhouettes stay
+  smooth under magnification; hover lift eased 1.16 -> 1.12.

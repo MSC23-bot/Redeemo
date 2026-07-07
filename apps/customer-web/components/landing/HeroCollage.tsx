@@ -68,7 +68,7 @@ function CardLayer({
         className="relative h-full w-full"
         variants={{
           rest: { scale: 1.07, filter: 'drop-shadow(0 10px 14px rgba(97,20,4,0.12))' },
-          hover: { scale: 1.16, filter: 'drop-shadow(0 26px 34px rgba(97,20,4,0.24))' },
+          hover: { scale: 1.12, filter: 'drop-shadow(0 22px 30px rgba(97,20,4,0.22))' },
         }}
         transition={{ type: 'spring', stiffness: 240, damping: 20 }}
       >
@@ -143,11 +143,14 @@ export function HeroCollage() {
 
   return (
     <div ref={ref} className="absolute inset-0 overflow-hidden" aria-hidden="true" style={{ background: GROUND, pointerEvents: 'auto' }}>
-      {/* 84% height: the group breathes instead of pressing every edge */}
+      {/* 76% height: the group breathes instead of pressing the edges */}
       <motion.div
-        className="absolute right-[2%] top-1/2 h-[84%] max-w-[96%]"
+        className="absolute right-[4%] top-1/2 h-[76%] max-w-[92%]"
         style={{ aspectRatio: `${IMG_W} / ${IMG_H}`, y: '-50%', translateY: reduceMotion ? 0 : lift }}
       >
+        {/* The artwork's cream is not perfectly uniform, so its rectangle
+            printed a faint edge against the ground: feather all four borders
+            and it melts in. Cards are outside this mask on purpose. */}
         <Image
           src="/app-shots/hero-collage/base-v2.jpg"
           alt=""
@@ -155,6 +158,14 @@ export function HeroCollage() {
           priority
           unoptimized
           className="object-fill"
+          style={{
+            maskImage:
+              'linear-gradient(90deg, transparent 0, black 70px, black calc(100% - 70px), transparent 100%), linear-gradient(180deg, transparent 0, black 70px, black calc(100% - 70px), transparent 100%)',
+            WebkitMaskImage:
+              'linear-gradient(90deg, transparent 0, black 70px, black calc(100% - 70px), transparent 100%), linear-gradient(180deg, transparent 0, black 70px, black calc(100% - 70px), transparent 100%)',
+            maskComposite: 'intersect',
+            WebkitMaskComposite: 'source-in',
+          }}
         />
         {LAYERS.map((layer) => (
           <CardLayer key={layer.key} layer={layer} parX={parX} parY={parY} reduceMotion={!!reduceMotion} />
