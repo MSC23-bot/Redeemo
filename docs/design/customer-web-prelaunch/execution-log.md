@@ -270,3 +270,20 @@ edited by this workstream.
   whole cream seam). FoundingPromise glow origins moved inside the section
   (they printed a step against the divider's flat navy). Glass quick-nav is
   now simply present past the hero (hysteresis 480/340), no direction logic.
+- Hero film v1 SHIPPED (owner-approved 30cr; actual spend 18.12, balance
+  42.38): owner generated the start frame (phone centre-right, photoreal
+  voucher cards, brand ribbon, left third clean; found in ~/Downloads,
+  archived to ~/Desktop/redeemo-hero-films/hero-frame-owner-v1.png). Pipeline
+  ran fully through the in-session Higgsfield MCP: media_upload + confirm,
+  2x kling3_0_turbo 6s seeds with a LOCKED-CAMERA prompt (camera motion
+  belongs to code so it stays crisp and interactive), frame-level QA (seed A
+  screen diff 3.94 vs B 6.03; A mounted, B retained), bytedance aigc upscale
+  to 1080p (no extra charge recorded), ffmpeg palindrome encode (12s seamless
+  loop, CRF24, 4.4MB) + poster. New HeroFilm component: full-bleed film on
+  lg+, scroll push-in (scale 1->1.08 + y drift), spring cursor tilt (listener
+  on the owning section: the film layer never receives pointer events),
+  cream scrim over the left half for headline legibility, floor fade into the
+  divider; PhoneDemo remains the mobile/tablet hero. Known trade-offs: film
+  screen shows AI-approximate UI (Manchester); real-screen DOM overlay
+  deferred as the screen held stable; fictional voucher cards (green/purple)
+  echo app category colours.
