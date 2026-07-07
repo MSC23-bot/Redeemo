@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import { useRef, useCallback } from 'react'
 import { PhoneDemo } from './PhoneDemo'
-import { HeroScene } from './HeroScene'
+import { HeroCollage } from './HeroCollage'
 import { isLeadCaptureLive, isMarketplaceLive } from '@/lib/prelaunch'
 
 const EASE = [0.22, 1, 0.36, 1] as [number, number, number, number]
@@ -73,8 +73,13 @@ export function HeroSection() {
         style={{ backgroundImage: glowBg }}
       />
 
+      {/* The owner's hero artwork, alive in layers: desktop only */}
+      <div className="hidden lg:block absolute inset-0" aria-hidden="true">
+        <HeroCollage />
+      </div>
+
       <div className="relative max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,560px)_1fr] gap-14 lg:gap-16 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,560px)_1fr] gap-14 lg:gap-16 items-center lg:min-h-[600px]">
 
           {/* ── Left: Text ── */}
           <div>
@@ -168,19 +173,15 @@ export function HeroSection() {
             </motion.div>
           </div>
 
-          {/* ── Right: the product itself. Code-built scene on desktop
-                 (crisp at any resolution); PhoneDemo on mobile/tablet ── */}
+          {/* ── Right: the product itself. On desktop the collage carries the
+                 phone; PhoneDemo remains the mobile/tablet hero ── */}
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.3, ease: EASE }}
+            className="flex justify-center lg:hidden"
           >
-            <div className="flex justify-center lg:hidden">
-              <PhoneDemo />
-            </div>
-            <div className="hidden lg:block">
-              <HeroScene />
-            </div>
+            <PhoneDemo />
           </motion.div>
         </div>
 
@@ -189,7 +190,7 @@ export function HeroSection() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.56 }}
-          className="mt-14 pt-8 border-t border-[#010C35]/10 flex flex-col sm:flex-row sm:items-center gap-4"
+          className="mt-14 pt-8 border-t border-[#010C35]/10 flex flex-col sm:flex-row sm:items-center gap-4 lg:max-w-[48%]"
         >
           <p className="text-[11.5px] text-[#010C35]/55 uppercase tracking-[0.14em] font-semibold flex-shrink-0">
             {marketplaceLive

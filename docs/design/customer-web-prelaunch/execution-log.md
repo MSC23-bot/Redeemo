@@ -299,3 +299,23 @@ edited by this workstream.
   PhoneDemo remains the mobile hero; reduced-motion gets the static pose.
   HeroFilm component + film assets retained unmounted (ambient reuse
   candidates elsewhere). Verified at 1512 and 2238.
+- Hero v4 SHIPPED: the owner's artwork as a living collage (owner rejected the
+  code-built HeroScene as not premium; provided the Higgsfield frame in
+  ~/Desktop/Landing Screenshot). Pipeline, all via MCP + PIL: four voucher
+  cards cropped from the artwork and cut out with Higgsfield remove_background
+  (the burger crop needed a patch-and-recut: the remover kept the food and
+  deleted the card; merged card+burger after a second pass), mattes cleaned
+  (ribbon fragment colour-keyed off the coffee card, bezel sliver trimmed,
+  largest-component filter), base upscaled to 4K (2 credits; total spend
+  20.1/30, 40.4 remain) BUT the AI upscale garbled small screen text
+  ("Heaitn & Fitncas"), so the shipped base is a hybrid: AI-4K everywhere,
+  faithful Lanczos 2x over the phone rect (feathered). Assets served
+  unoptimized (Next's re-encode softened the hand-tuned files; cache-busted
+  base-v2.jpg). HeroCollage: contain-fit right-anchored on the artwork's own
+  ground colour (#FFF5EB), cards float over their baked positions at 1.07
+  scale (idle drift + spring cursor parallax by depth + scroll lift), frosted
+  backdrop-blur veil under the text column (invisible over cream; fogs
+  whatever drifts beneath the headline at narrow widths), floor fade, badge
+  strip capped to the veiled zone on lg. Verified 1512 + 2238; text fidelity
+  checked at pixel level. HeroScene/HeroFilm components + film assets removed
+  from the tree (history retains them).
