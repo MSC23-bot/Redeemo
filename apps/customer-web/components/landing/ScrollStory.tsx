@@ -1,6 +1,6 @@
 'use client'
 
-import { motion, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue } from 'framer-motion'
+import { motion, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue } from 'framer-motion'
 import { useRef } from 'react'
 
 /**
@@ -70,6 +70,39 @@ function Shot({ src }: { src: string }) {
   return <Image src={src} alt="" fill sizes="272px" className="object-cover object-top" />
 }
 
+
+function ChapterBackdrop({ progress, band, name, children }: {
+  progress: MotionValue<number>
+  band: [number, number, number, number]
+  name: string
+  children?: React.ReactNode
+}) {
+  const opacity = useScrollLinked(useTransform(progress, band, [0, 1, 1, 0]))
+  const videoRef = useRef<HTMLVideoElement>(null)
+  useMotionValueEvent(opacity, 'change', (v) => {
+    const el = videoRef.current
+    if (!el) return
+    if (v > 0.05 && el.paused) el.play().catch(() => {})
+    if (v <= 0.05 && !el.paused) el.pause()
+  })
+  return (
+    <motion.div aria-hidden="true" className="absolute inset-0 pointer-events-none" style={{ opacity }}>
+      <video
+        ref={videoRef}
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        poster={`/app-motion/${name}.jpg`}
+        className="absolute inset-0 h-full w-full object-cover"
+      >
+        <source src={`/app-motion/${name}.mp4`} type="video/mp4" />
+      </video>
+      {children}
+    </motion.div>
+  )
+}
+
 function ChapterLayer({ progress, index, children }: {
   progress: MotionValue<number>
   index: number
@@ -121,7 +154,18 @@ function StoryStage() {
   return (
     <div ref={trackRef} className="relative" style={{ height: '340vh' }}>
       <motion.div className="sticky top-0 h-screen overflow-hidden" style={{ background: bg }}>
-        <div className="max-w-7xl mx-auto h-full px-6 grid grid-cols-[1fr_420px] gap-8 items-center">
+        {/* Ambient generated backdrops (Higgsfield Phase 2), one per chapter.
+            Washed toward the ground colour so the foreground always wins. */}
+        <ChapterBackdrop progress={scrollYProgress} band={[0, 0.04, 0.24, 0.31]} name="find-town">
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(255,249,245,0.94) 0%, rgba(255,249,245,0.72) 46%, rgba(255,249,245,0.30) 100%)' }} />
+        </ChapterBackdrop>
+        <ChapterBackdrop progress={scrollYProgress} band={[0.28, 0.35, 0.55, 0.62]} name="choose-fan">
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.82) 50%, rgba(255,255,255,0.55) 100%)' }} />
+        </ChapterBackdrop>
+        <ChapterBackdrop progress={scrollYProgress} band={[0.62, 0.74, 0.96, 1]} name="redeem-glow">
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(1,12,53,0.72) 0%, rgba(1,12,53,0.4) 55%, rgba(1,12,53,0.25) 100%)' }} />
+        </ChapterBackdrop>
+        <div className="relative max-w-7xl mx-auto h-full px-6 grid grid-cols-[1fr_420px] gap-8 items-center">
 
           {/* Chapter text (stacked, crossfading) */}
           <div className="relative min-h-[380px]">

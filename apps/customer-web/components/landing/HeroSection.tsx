@@ -65,6 +65,24 @@ export function HeroSection() {
       className="relative overflow-hidden px-6 pt-16 pb-14 md:pt-20 md:pb-20"
       style={{ background: '#FFF9F5' }}
     >
+      {/* Ambient generated drift (Higgsfield Phase 2); posters under reduced motion */}
+      {!reduceMotion && (
+        <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+          <video
+            muted
+            loop
+            autoPlay
+            playsInline
+            preload="metadata"
+            poster="/app-motion/hero-drift.jpg"
+            className="absolute inset-0 h-full w-full object-cover"
+          >
+            <source src="/app-motion/hero-drift.mp4" type="video/mp4" />
+          </video>
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(255,249,245,0.96) 0%, rgba(255,249,245,0.86) 44%, rgba(255,249,245,0.35) 100%)' }} />
+        </div>
+      )}
+
       {/* Cursor-following red glow */}
       <motion.div
         aria-hidden="true"
