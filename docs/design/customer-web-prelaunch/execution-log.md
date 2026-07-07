@@ -477,3 +477,17 @@ edited by this workstream.
   where they explain the mechanic. Footer line now "One membership unlocks
   all seven, wherever you see them." + the honest redemption cadence.
   category-art PNGs removed (no remaining references).
+- What-is-Redeemo section (owner 2026-07-08: cold visitors need to be told
+  what the platform IS; his draft points: all kinds/sizes of local business
+  in one simple app, exclusive member vouchers, find/redeem/track, "no
+  hunting for codes, no screenshots, no deal sites", lifestyle savings app):
+  new WhatIsRedeemoSection mounted directly after the hero ribbon, before
+  TrendingPreview: definition before cinema. Editorial asymmetric layout, no
+  icon-card slop: left, kicker + display statement ("Your favourite places,
+  at member prices.") + two-sentence definition opening "Redeemo is a
+  lifestyle savings app" + the anti deal-site line as three cross-glyph
+  chips + "See how it works" link. Right, the three product pillars (Find
+  local offers / Redeem in store / Track your savings) as a hairline ledger
+  with ghost red numerals, whileInView stagger. Section ground is white; the
+  ribbon above now bakes the cream-to-white handover along its fabric edge
+  (bottomColor swap on the first RibbonBand mount).
