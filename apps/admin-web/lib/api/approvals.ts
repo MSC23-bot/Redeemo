@@ -53,10 +53,15 @@ export const approvalSchema = z.object({
     // Branches PR-5 (D5): the branch-lifecycle approval lane.
     'BRANCH_CREATE',
     'BRANCH_CLOSE',
+    // Voucher governed-flows PR-B (sibling backend PR #411): a merchant voucher
+    // change/end request.
+    'VOUCHER_EDIT',
   ]),
   referenceId: z.string(),
   referenceType: z.string(),
-  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CHANGES_REQUESTED']),
+  // WITHDRAWN (sibling backend PR #411): the merchant withdrew the request
+  // before an admin acted; leaves the actionable queue, never actionable again.
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CHANGES_REQUESTED', 'WITHDRAWN']),
   adminUserId: z.string().nullable(),
   comment: z.string().nullable(),
   submittedAt: z.string(),
@@ -70,6 +75,10 @@ export const approvalSchema = z.object({
   // could not be loaded carries voucher:null + goLiveHint:null.
   voucher: voucherSummarySchema.nullable().optional(),
   goLiveHint: z.enum(['live-now', 'waiting-for-go-live']).nullable().optional(),
+  // VOUCHER_EDIT-only enrichment (optional; the exact list-row shape for PR #411
+  // is not fully specified — if the backend omits this field, the queue row
+  // falls back to a generic "Voucher edit request" label rather than crashing).
+  voucherEditKind: z.enum(['CHANGE', 'END']).nullable().optional(),
 })
 export type AdminApproval = z.infer<typeof approvalSchema>
 

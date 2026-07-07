@@ -65,6 +65,11 @@ function approvalTypeLabel(type: ReviewApproval['type']): string {
     BRANCH_IDENTITY_EDIT: 'Branch edit review',
     BRANCH_CREATE: 'New branch review',
     BRANCH_CLOSE: 'Branch close review',
+    // Voucher governed-flows PR-B: MerchantHeader only ever renders on the
+    // MERCHANT_ONBOARDING branch of the review page, so this label is unreachable
+    // in practice; present only to keep the Record exhaustive over the shared
+    // ReviewApproval['type'] union.
+    VOUCHER_EDIT: 'Voucher edit review',
   }
   return map[type] ?? type
 }

@@ -33,8 +33,14 @@ export const reviewApprovalSchema = z.object({
     // BranchLifecyclePanel; the panel reads its detail from /branch-lifecycle-review.
     'BRANCH_CREATE',
     'BRANCH_CLOSE',
+    // Voucher governed-flows PR-B (sibling backend PR #411): a merchant voucher
+    // change/end request. The page dispatches it to EditReviewPanel, which reads
+    // its detail from the existing /edit-review endpoint (kind:'voucher').
+    'VOUCHER_EDIT',
   ]),
-  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CHANGES_REQUESTED']),
+  // WITHDRAWN (sibling backend PR #411): the merchant withdrew the request before
+  // an admin acted. It leaves the actionable queue and is never actionable again.
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CHANGES_REQUESTED', 'WITHDRAWN']),
   submittedAt: z.string(),
   actionedAt: z.string().nullable(),
   claimedAt: z.string().nullable(),

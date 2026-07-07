@@ -565,6 +565,101 @@ describe('ReviewPage edit-approval surface (B1)', () => {
   })
 })
 
+// ── Voucher governed-flows PR-B: VOUCHER_EDIT routes to the edit-review surface
+
+describe('ReviewPage VOUCHER_EDIT approval surface (PR-B)', () => {
+  function voucherEditApproval() {
+    return makeContext({
+      approval: {
+        id: 'apr-ve-1',
+        type: 'VOUCHER_EDIT',
+        status: 'PENDING',
+        submittedAt: '2026-07-01T09:00:00.000Z',
+        actionedAt: null,
+        claimedAt: null,
+        comment: null,
+        claimedBy: null,
+        actionedBy: null,
+      },
+    })
+  }
+
+  function mockVoucherEditReview(over: Record<string, unknown> = {}) {
+    mockedUseEditReview.mockReturnValue({
+      data: {
+        kind: 'voucher',
+        voucherId: 'v-1',
+        voucherEditKind: 'CHANGE',
+        reason: 'Ingredient costs changed.',
+        status: 'PENDING',
+        fields: [{ key: 'estimatedSaving', label: 'Estimated saving', current: 5, proposed: 7.5 }],
+        voucher: {
+          id: 'v-1',
+          code: 'RCV-004',
+          title: '20% off all mains',
+          type: 'DISCOUNT',
+          status: 'ACTIVE',
+          isRmv: false,
+          estimatedSaving: 5,
+        },
+        ...over,
+      },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    })
+  }
+
+  it('renders the voucher edit-review diff (NOT the generic non-onboarding notice) for VOUCHER_EDIT', () => {
+    mockSession()
+    mockVoucherEditReview()
+    mockReview({ data: voucherEditApproval() })
+    renderPage()
+    expect(screen.getByTestId('voucher-edit-review-diff')).toBeInTheDocument()
+    expect(screen.queryByTestId('review-non-onboarding')).not.toBeInTheDocument()
+    expect(screen.getByTestId('voucher-edit-review-diff')).toHaveTextContent('20% off all mains')
+  })
+
+  it('shows the Approve / Reject actions when the admin holds approval:apply-edit', () => {
+    mockSession({ can: () => true })
+    mockVoucherEditReview()
+    mockReview({ data: voucherEditApproval() })
+    renderPage()
+    expect(screen.getByTestId('voucher-edit-approve-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('voucher-edit-reject-btn')).toBeInTheDocument()
+  })
+
+  it('hides the actions when the admin lacks approval:apply-edit (read-only)', () => {
+    mockSession({ can: (cap: string) => cap !== 'approval:apply-edit' })
+    mockVoucherEditReview()
+    mockReview({ data: voucherEditApproval() })
+    renderPage()
+    expect(screen.getByTestId('voucher-edit-review-diff')).toBeInTheDocument()
+    expect(screen.queryByTestId('voucher-edit-review-actions')).not.toBeInTheDocument()
+  })
+
+  it('opens the approve-edit dialog with END-specific copy when Approve is clicked for an END request', () => {
+    mockSession()
+    mockVoucherEditReview({ voucherEditKind: 'END', fields: [] })
+    mockReview({ data: voucherEditApproval() })
+    renderPage()
+    fireEvent.click(screen.getByTestId('voucher-edit-approve-btn'))
+    expect(screen.getByTestId('approve-edit-confirm-dialog')).toBeInTheDocument()
+    expect(screen.getByTestId('approve-edit-consequences-copy')).toHaveTextContent(
+      'stop being available to customers'
+    )
+  })
+
+  it('renders the withdrawn label and no actions for a WITHDRAWN voucher edit', () => {
+    mockSession({ can: () => true })
+    mockVoucherEditReview({ status: 'WITHDRAWN' })
+    mockReview({ data: voucherEditApproval() })
+    renderPage()
+    expect(screen.getByTestId('voucher-edit-review-diff')).toHaveTextContent('Withdrawn')
+    expect(screen.queryByTestId('voucher-edit-review-actions')).not.toBeInTheDocument()
+  })
+})
+
 // ── Branches PR-5: BRANCH_CREATE / BRANCH_CLOSE route to the BranchLifecyclePanel
 
 describe('ReviewPage branch-lifecycle surface (PR-5)', () => {
