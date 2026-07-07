@@ -1,116 +1,238 @@
 'use client'
 
-import Image from 'next/image'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { useScrollLinked } from './scroll'
 
 /**
  * The voucher shelf (owner direction 2026-07-08): the seven voucher types as
- * die-cut cards with the customer app's own category illustrations. Desktop:
- * a pinned stage where vertical scroll sweeps the shelf horizontally.
- * Mobile: the same cards as a native swipe carousel (no scroll-jacking on
- * touch). Reduced-motion visitors get the static VoucherTypesSection that
- * ScrollStory renders, so this returns null for them.
+ * die-cut cards. Desktop: a pinned stage where vertical scroll sweeps the
+ * shelf horizontally. Mobile: the same cards as a native swipe carousel (no
+ * scroll-jacking on touch). Reduced-motion visitors get the static
+ * VoucherTypesSection that ScrollStory renders, so this returns null for them.
  *
- * Copy rules: examples are generic scopes, never named merchants (nothing
- * fictional may read as a real business on the landing page). Colours are
- * the app's voucher-type tokens.
+ * Card anatomy (owner v4): each card is a real voucher: a tinted header
+ * carrying a bespoke SVG motif of the TYPE MECHANIC (not a category), a
+ * dashed tear line aligned with the die-cut side notches, and below the tear
+ * the title, the mechanic in a sentence, and the kinds of deals it produces.
+ * Copy rules: examples are kinds of deals, not forced arithmetic; never
+ * named merchants; values only where they explain the mechanic.
  */
 
 const CARD_W = 380
 const CARD_H = 340
 const NOTCH_R = 11
 const GAP = 28
+// The tear line (and its die-cut notches) sits at 44% height: header above,
+// content below, like a real coupon stub.
+const NOTCH_F = 0.44
 
-const cardClip = (w: number, h: number) =>
-  `path('M 20 0 H ${w - 20} Q ${w} 0 ${w} 20 V ${h / 2 - NOTCH_R} A ${NOTCH_R} ${NOTCH_R} 0 0 0 ${w} ${h / 2 + NOTCH_R} V ${h - 20} Q ${w} ${h} ${w - 20} ${h} H 20 Q 0 ${h} 0 ${h - 20} V ${h / 2 + NOTCH_R} A ${NOTCH_R} ${NOTCH_R} 0 0 0 0 ${h / 2 - NOTCH_R} V 20 Q 0 0 20 0 Z')`
+const cardClip = (w: number, h: number) => {
+  const ny = Math.round(h * NOTCH_F)
+  return `path('M 20 0 H ${w - 20} Q ${w} 0 ${w} 20 V ${ny - NOTCH_R} A ${NOTCH_R} ${NOTCH_R} 0 0 0 ${w} ${ny + NOTCH_R} V ${h - 20} Q ${w} ${h} ${w - 20} ${h} H 20 Q 0 ${h} 0 ${h - 20} V ${ny + NOTCH_R} A ${NOTCH_R} ${NOTCH_R} 0 0 0 0 ${ny - NOTCH_R} V 20 Q 0 0 20 0 Z')`
+}
 
 type RailType = {
+  key: string
   chip: string
   title: string
   body: string
-  scenario: string
-  takeback: string
-  art: string
+  deals: string
   accent: string
   accentBg: string
 }
 
 const TYPES: RailType[] = [
   {
+    key: 'bogo',
     chip: 'BOGO',
     title: 'Buy one, get one free',
-    body: 'Order one, and a second arrives on the house.',
-    scenario: 'Date night: two £14 mains, one bill for £14.',
-    takeback: '£14 back: two months of membership, one dinner',
-    art: '/category-art/plated-dish.png',
+    body: 'Order one and a second arrives on the house.',
+    deals: 'A second coffee free · a second main free · one to share for nothing',
     accent: '#7C3AED',
     accentBg: 'rgba(124,58,237,0.1)',
   },
   {
+    key: 'discount',
     chip: 'Discount',
     title: 'Straight discount',
-    body: 'A clean percentage or amount off the bill. No riddles.',
-    scenario: '20% off a £45 monthly gym pass.',
-    takeback: '£9 back without changing your routine',
-    art: '/category-art/dumbbells.png',
+    body: 'A clean cut off the bill, stated up front.',
+    deals: '20% off the bill · £10 off a treatment · money off, plain and simple',
     accent: '#E20C04',
     accentBg: 'rgba(226,12,4,0.1)',
   },
   {
+    key: 'freebie',
     chip: 'Freebie',
     title: 'Freebie',
-    body: 'Something free with your visit, just for being a member.',
-    scenario: 'A £3 pastry on the house with your coffee.',
-    takeback: 'Small, monthly, and it adds up',
-    art: '/category-art/coffee-cup.png',
+    body: 'Something extra, free with your visit.',
+    deals: 'A pastry with your coffee · a side with your main · a taster on the house',
     accent: '#16A34A',
     accentBg: 'rgba(22,163,74,0.1)',
   },
   {
+    key: 'spend',
     chip: 'Spend & save',
     title: 'Spend and save',
-    body: 'Pass a spend threshold, watch a chunk come off.',
-    scenario: '£10 off when you spend £40 stocking up.',
-    takeback: '£10 back on things you were buying anyway',
-    art: '/category-art/picnic-basket.png',
+    body: 'Pass a spend level and money comes off.',
+    deals: 'Spend £40, save £10 · stock up and save · bigger baskets, bigger rewards',
     accent: '#E84A00',
     accentBg: 'rgba(232,74,0,0.1)',
   },
   {
+    key: 'package',
     chip: 'Package deal',
     title: 'Package deal',
-    body: 'A bundle priced better than the sum of its parts.',
-    scenario: '£30 of barbering for £22, in one booking.',
-    takeback: '£8 back in the chair',
-    art: '/category-art/gift-box.png',
+    body: 'A bundle priced better than its parts.',
+    deals: 'Cut and finish as one booking · lunch combos · sessions bundled for less',
     accent: '#2563EB',
     accentBg: 'rgba(37,99,235,0.1)',
   },
   {
+    key: 'time',
     chip: 'Time-limited',
     title: 'Time-limited',
-    body: 'Extra generous, for a short window. Catch it while it is live.',
-    scenario: 'A £20 blow-dry for £10, weekdays before noon.',
-    takeback: '£10 back for going early',
-    art: '/category-art/vanity-mirror.png',
+    body: 'Extra generous, for a short window.',
+    deals: 'Off-peak prices · morning-only treats · catch it while it is live',
     accent: '#D97706',
     accentBg: 'rgba(217,119,6,0.1)',
   },
   {
+    key: 'reusable',
     chip: 'Reusable',
     title: 'Reusable',
-    body: 'Does not burn out after one visit: it comes back automatically.',
-    scenario: '£2 off your usual coffee, every visit.',
-    takeback: 'A habit that pays you back weekly',
-    art: '/category-art/water-bottle.png',
+    body: 'It does not burn out: it returns after every visit.',
+    deals: 'Your usual order, cheaper every time · the regular that rewards you',
     accent: '#0D9488',
     accentBg: 'rgba(13,148,136,0.1)',
   },
 ]
 
 const ROW_W = TYPES.length * CARD_W + (TYPES.length - 1) * GAP
+
+/**
+ * Bespoke motifs: each draws the TYPE'S MECHANIC. Bold rounded shapes in the
+ * type colour + white, sized for the card header. viewBox 0 0 96 96.
+ */
+function Motif({ kind, accent }: { kind: string; accent: string }) {
+  switch (kind) {
+    case 'bogo':
+      // Two tickets: the one you pay for, and its twin on the house
+      return (
+        <svg viewBox="0 0 96 96" fill="none" aria-hidden="true">
+          <g transform="rotate(-8 48 38)">
+            <rect x="16" y="22" width="64" height="32" rx="7" fill="#fff" opacity="0.92" stroke={accent} strokeWidth="2" />
+            <line x1="62" y1="27" x2="62" y2="49" stroke={accent} strokeWidth="2" strokeDasharray="3 4" opacity="0.5" />
+            <rect x="24" y="32" width="24" height="4" rx="2" fill={accent} opacity="0.35" />
+            <rect x="24" y="40" width="16" height="4" rx="2" fill={accent} opacity="0.2" />
+          </g>
+          <g transform="rotate(5 48 62)">
+            <rect x="16" y="46" width="64" height="32" rx="7" fill={accent} />
+            <line x1="62" y1="51" x2="62" y2="73" stroke="#fff" strokeWidth="2" strokeDasharray="3 4" opacity="0.7" />
+            <text x="39" y="67" textAnchor="middle" fontSize="12" fontWeight="800" fill="#fff" fontFamily="inherit" letterSpacing="0.5">
+              FREE
+            </text>
+          </g>
+        </svg>
+      )
+    case 'discount':
+      // The percent roundel: money off, stated up front
+      return (
+        <svg viewBox="0 0 96 96" fill="none" aria-hidden="true">
+          <circle cx="63" cy="30" r="10" fill={accent} opacity="0.18" />
+          <circle cx="24" cy="68" r="6" fill={accent} opacity="0.25" />
+          <circle cx="46" cy="52" r="27" fill={accent} />
+          <circle cx="37" cy="43" r="5" fill="none" stroke="#fff" strokeWidth="3" />
+          <circle cx="55" cy="61" r="5" fill="none" stroke="#fff" strokeWidth="3" />
+          <line x1="36" y1="64" x2="57" y2="40" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" />
+          <path d="M74 52 l3 6 6 3 -6 3 -3 6 -3-6 -6-3 6-3 Z" fill={accent} opacity="0.55" />
+        </svg>
+      )
+    case 'freebie':
+      // A gift, on the house
+      return (
+        <svg viewBox="0 0 96 96" fill="none" aria-hidden="true">
+          <rect x="22" y="42" width="52" height="34" rx="6" fill={accent} />
+          <rect x="18" y="30" width="60" height="15" rx="5" fill={accent} opacity="0.8" />
+          <rect x="43" y="30" width="10" height="46" fill="#fff" opacity="0.9" />
+          <path d="M48 30 c-5-11 -19-10 -16-2 c2 6 10 5 16 2 Z" fill={accent} />
+          <path d="M48 30 c5-11 19-10 16-2 c-2 6 -10 5 -16 2 Z" fill={accent} />
+          <path d="M76 18 l2.4 4.8 4.8 2.4 -4.8 2.4 -2.4 4.8 -2.4-4.8 -4.8-2.4 4.8-2.4 Z" fill={accent} opacity="0.5" />
+          <circle cx="16" cy="24" r="3.5" fill={accent} opacity="0.3" />
+        </svg>
+      )
+    case 'spend':
+      // The receipt with a saving printed on it
+      return (
+        <svg viewBox="0 0 96 96" fill="none" aria-hidden="true">
+          <path
+            d="M26 16 h38 v58 l-4.75 -4 -4.75 4 -4.75 -4 -4.75 4 -4.75 -4 -4.75 4 -4.75 -4 -4.75 4 Z"
+            fill="#fff"
+            opacity="0.95"
+            stroke={accent}
+            strokeWidth="2.5"
+            strokeLinejoin="round"
+          />
+          <rect x="33" y="26" width="20" height="4" rx="2" fill={accent} opacity="0.3" />
+          <rect x="33" y="35" width="24" height="4" rx="2" fill={accent} opacity="0.3" />
+          <rect x="33" y="44" width="16" height="4" rx="2" fill={accent} opacity="0.3" />
+          <rect x="31" y="54" width="28" height="11" rx="5.5" fill={accent} />
+          <text x="45" y="62.5" textAnchor="middle" fontSize="8" fontWeight="800" fill="#fff" fontFamily="inherit" letterSpacing="0.6">
+            SAVE
+          </text>
+          <circle cx="70" cy="66" r="12" fill={accent} />
+          <text x="70" y="71" textAnchor="middle" fontSize="13" fontWeight="800" fill="#fff" fontFamily="inherit">
+            £
+          </text>
+        </svg>
+      )
+    case 'package':
+      // One strap around several things: bundled and priced as one
+      return (
+        <svg viewBox="0 0 96 96" fill="none" aria-hidden="true">
+          <circle cx="33" cy="38" r="9" fill={accent} opacity="0.3" />
+          <circle cx="50" cy="33" r="10" fill={accent} opacity="0.5" />
+          <circle cx="66" cy="39" r="8" fill={accent} opacity="0.3" />
+          <rect x="20" y="44" width="56" height="32" rx="6" fill={accent} />
+          <rect x="20" y="54" width="56" height="9" fill="#fff" opacity="0.85" />
+          <rect x="43" y="50" width="10" height="17" rx="3" fill={accent} opacity="0.9" />
+          <g transform="rotate(14 74 46)">
+            <rect x="68" y="40" width="16" height="11" rx="3" fill="#fff" stroke={accent} strokeWidth="2" />
+            <circle cx="72" cy="45.5" r="1.6" fill={accent} />
+          </g>
+        </svg>
+      )
+    case 'time':
+      // The stopwatch: generous, but the window is ticking
+      return (
+        <svg viewBox="0 0 96 96" fill="none" aria-hidden="true">
+          <rect x="42" y="12" width="12" height="8" rx="3" fill={accent} />
+          <line x1="65" y1="22" x2="70" y2="27" stroke={accent} strokeWidth="4" strokeLinecap="round" />
+          <circle cx="48" cy="54" r="28" fill="#fff" opacity="0.95" stroke={accent} strokeWidth="3.5" />
+          <path d="M48 54 L48 31 A23 23 0 0 1 68 43 Z" fill={accent} opacity="0.85" />
+          <line x1="48" y1="54" x2="37" y2="63" stroke={accent} strokeWidth="3.5" strokeLinecap="round" />
+          <circle cx="48" cy="54" r="3" fill={accent} />
+          <line x1="12" y1="46" x2="20" y2="46" stroke={accent} strokeWidth="3.5" strokeLinecap="round" opacity="0.45" />
+          <line x1="8" y1="56" x2="18" y2="56" stroke={accent} strokeWidth="3.5" strokeLinecap="round" opacity="0.25" />
+        </svg>
+      )
+    case 'reusable':
+      // The loop: redeem, return, repeat
+      return (
+        <svg viewBox="0 0 96 96" fill="none" aria-hidden="true">
+          <path d="M26 42 a24 24 0 0 1 41 -7" stroke={accent} strokeWidth="6" strokeLinecap="round" />
+          <path d="M67 26 l1.5 10.5 -10.5 -1.5" stroke={accent} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M70 58 a24 24 0 0 1 -41 7" stroke={accent} strokeWidth="6" strokeLinecap="round" />
+          <path d="M29 74 l-1.5 -10.5 10.5 1.5" stroke={accent} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <rect x="32" y="40" width="32" height="20" rx="5" fill="#fff" opacity="0.95" stroke={accent} strokeWidth="2.5" />
+          <line x1="55" y1="44" x2="55" y2="56" stroke={accent} strokeWidth="2" strokeDasharray="2.5 3" opacity="0.6" />
+          <rect x="37" y="47" width="12" height="4" rx="2" fill={accent} opacity="0.4" />
+        </svg>
+      )
+    default:
+      return null
+  }
+}
 
 function RailCard({
   type,
@@ -125,6 +247,8 @@ function RailCard({
   height?: number
   tilt?: boolean
 }) {
+  const notchY = Math.round(height * NOTCH_F)
+  const motifSize = notchY - 34
   return (
     <motion.div
       className="relative flex-shrink-0 cursor-default snap-center"
@@ -134,41 +258,45 @@ function RailCard({
     >
       {/* Shadow on a wrapper so the die-cut notches read in the silhouette */}
       <div className="absolute inset-0" style={{ filter: 'drop-shadow(0 14px 26px rgba(1,12,53,0.1))' }}>
-        <div
-          className="relative h-full w-full bg-white flex flex-col px-7 pt-7 pb-6 overflow-hidden"
-          style={{ clipPath: cardClip(width, height) }}
-        >
-          {/* Type stripe, same recipe as the app's voucher cards */}
-          <span aria-hidden="true" className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: type.accent }} />
-          {/* A soft wash of the type colour behind the illustration */}
+        <div className="relative h-full w-full bg-white overflow-hidden" style={{ clipPath: cardClip(width, height) }}>
+          {/* Header: the type's world, tinted in its colour */}
           <div
             aria-hidden="true"
-            className="absolute -right-14 top-16 w-56 h-56 rounded-full"
-            style={{ background: type.accentBg, filter: 'blur(6px)' }}
+            className="absolute inset-x-0 top-0"
+            style={{ height: notchY, background: `linear-gradient(150deg, ${type.accentBg}, rgba(255,255,255,0))` }}
           />
-          {/* The app's own category illustration, bleeding off the die-cut edge */}
-          <div className="absolute -right-5 top-[88px] w-[168px] h-[168px] rotate-[8deg]">
-            <Image src={type.art} alt="" fill sizes="168px" className="object-contain drop-shadow-[0_10px_14px_rgba(1,12,53,0.12)]" />
+          {/* Type stripe, same recipe as the app's voucher cards */}
+          <span aria-hidden="true" className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: type.accent }} />
+
+          {/* The mechanic, drawn: two tickets, a stopwatch, a receipt... */}
+          <div className="absolute" style={{ right: 22, top: 17, width: motifSize, height: motifSize }}>
+            <Motif kind={type.key} accent={type.accent} />
           </div>
 
           <span
-            className="self-start text-[10.5px] font-bold uppercase tracking-[0.1em] px-2.5 py-1 rounded-full mb-4"
-            style={{ color: type.accent, background: type.accentBg }}
+            className="absolute left-6 top-6 text-[10.5px] font-bold uppercase tracking-[0.1em] px-2.5 py-1 rounded-full text-white"
+            style={{ background: type.accent }}
           >
             {type.chip}
           </span>
 
-          <h3 className="relative font-display text-[#010C35] leading-[1.12] mb-2.5 max-w-[220px]" style={{ fontSize: '24px', letterSpacing: '-0.4px' }}>
-            {type.title}
-          </h3>
-          <p className="relative text-[13.5px] text-[#4B5563] leading-[1.6] max-w-[200px]">{type.body}</p>
+          {/* Tear line on the notch line: header is the stub, content below */}
+          <div
+            aria-hidden="true"
+            className="absolute left-5 right-5 border-t-2 border-dashed border-[#010C35]/12"
+            style={{ top: notchY - 1 }}
+          />
 
-          {/* Stub: a moment you recognise and the money that comes back,
-              behind a tear line like a real voucher */}
-          <div className="relative mt-auto pt-4 border-t border-dashed border-[#010C35]/15 bg-white/60">
-            <p className="text-[13.5px] font-semibold text-[#010C35] leading-[1.5] mb-1">{type.scenario}</p>
-            <p className="text-[11.5px] font-bold" style={{ color: type.accent }}>
-              {type.takeback}
+          <div className="relative flex flex-col h-full px-6 pb-5" style={{ paddingTop: notchY + 18 }}>
+            <h3 className="font-display text-[#010C35] leading-[1.12] mb-2" style={{ fontSize: '24px', letterSpacing: '-0.4px' }}>
+              {type.title}
+            </h3>
+            <p className="text-[13.5px] text-[#4B5563] leading-[1.55]">{type.body}</p>
+            <p className="mt-auto text-[12.5px] leading-[1.65] text-[#6B7280]">
+              <span className="font-bold" style={{ color: type.accent }}>
+                Deals like:
+              </span>{' '}
+              {type.deals}
             </p>
           </div>
         </div>
@@ -193,6 +321,9 @@ function ShelfHeader() {
     </div>
   )
 }
+
+const FOOTER_LINE =
+  'One membership unlocks all seven, wherever you see them. One redemption per place each month (reusables come back sooner).'
 
 export function VoucherTypesRail() {
   const trackRef = useRef<HTMLDivElement>(null)
@@ -243,10 +374,7 @@ export function VoucherTypesRail() {
               <div className="absolute inset-0 border-t-[3px] border-dotted border-[#010C35]/12" />
               <motion.div className="absolute inset-y-0 left-0 w-full origin-left" style={{ scaleX: progress, background: 'var(--brand-gradient)' }} />
             </div>
-            <p className="mt-4 text-[12px] text-[#6B7280]">
-              Any place can run any type: restaurants, cafes, gyms, salons, delis and beyond.
-              One redemption per place each month (reusables come back sooner).
-            </p>
+            <p className="mt-4 text-[12px] text-[#6B7280]">{FOOTER_LINE}</p>
           </div>
         </div>
       </section>
@@ -265,11 +393,7 @@ export function VoucherTypesRail() {
           ))}
         </div>
         <div className="px-6 mt-2">
-          <p className="text-[12px] text-[#6B7280] leading-[1.6]">
-            Swipe for more · Any place can run any type: restaurants, cafes, gyms,
-            salons, delis and beyond. One redemption per place each month
-            (reusables come back sooner).
-          </p>
+          <p className="text-[12px] text-[#6B7280] leading-[1.6]">Swipe for more · {FOOTER_LINE}</p>
         </div>
       </section>
     </>

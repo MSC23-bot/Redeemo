@@ -462,3 +462,18 @@ edited by this workstream.
   scrolling): bar h-64 to h-70, logo 48 to 52; the link group (How it works,
   Pricing, Insider, For businesses) is now centred in the bar, matching the
   top island's logo-links-actions composition.
+- Voucher shelf v4 (owner: visuals must represent the voucher TYPES, not
+  categories; composition disliked; examples should describe kinds of deals,
+  not forced arithmetic; footer line rework): category illustrations
+  replaced with seven bespoke SVG motifs drawing each type's MECHANIC: twin
+  tickets with a FREE stub (BOGO), percent roundel (discount), gift with
+  bow (freebie), receipt with a SAVE line + pound coin (spend & save),
+  strapped bundle with price tag (package), stopwatch with a ticking wedge
+  (time-limited), loop arrows around a returning ticket (reusable). Card
+  anatomy rebuilt as a real coupon: tinted header (type colour gradient)
+  carrying chip + motif, dashed tear line aligned with the die-cut side
+  notches at 44% height, content below the tear (title, mechanic sentence,
+  "Deals like:" line). Examples rewritten as kinds of deals with values only
+  where they explain the mechanic. Footer line now "One membership unlocks
+  all seven, wherever you see them." + the honest redemption cadence.
+  category-art PNGs removed (no remaining references).
