@@ -45,8 +45,8 @@ function CardLayer({
   reduceMotion: boolean
 }) {
   const [l, t, w, h] = layer.box
-  const x = useTransform(parX, (v) => v * layer.depth * 9)
-  const y = useTransform(parY, (v) => v * layer.depth * 7)
+  const x = useTransform(parX, (v) => v * layer.depth * 7)
+  const y = useTransform(parY, (v) => v * layer.depth * 5)
   return (
     <motion.div
       className="absolute"
@@ -152,7 +152,7 @@ export function HeroCollage() {
             printed a faint edge against the ground: feather all four borders
             and it melts in. Cards are outside this mask on purpose. */}
         <Image
-          src="/app-shots/hero-collage/base-v2.jpg"
+          src="/app-shots/hero-collage/base-v3.jpg"
           alt=""
           fill
           priority

@@ -337,3 +337,16 @@ edited by this workstream.
   outside the mask; all four cutout mattes refined (1px erode + 1.1px
   gaussian on alpha, pizza's dark bezel remnant cleared) so silhouettes stay
   smooth under magnification; hover lift eased 1.16 -> 1.12.
+- Hero v4.3 + Ribbon v4 (owner findings: baked voucher visible under floating
+  cutouts; junk on the pizza card corner; divider reads like a DNA strand):
+  (1) The "voucher underneath" was the baked cards' PAINTED drop shadows
+  extending past the cutouts. Fixed by ring-inpainting the base: the shadow
+  band around each card (dilated alpha minus footprint) filled from light
+  background pixels only, preserving ribbon (saturated red) and phone (dark)
+  pixels; footprints stay and are always covered by the overlays; base-v3.jpg
+  replaces v2. Parallax eased (7/5 per depth) to keep worst-case drift inside
+  the cover margin. (2) Pizza cutout: red ribbon wedge and bezel remnant
+  colour-keyed off. (3) VoucherRibbon rebuilt as the icon's coupon band: one
+  bold sweep, halfWidth 1.6x tapering to 0.6x (thick left, slim right), die-cut
+  notch PAIR carved into both edges with a dashed stub tear line across the
+  band, satin shading + edge lights + scroll sheen retained; twist pinch gone.
