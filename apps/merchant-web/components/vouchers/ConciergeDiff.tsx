@@ -154,7 +154,7 @@ export function ConciergeDiff({
             ))}
           </div>
           <div className="mt-4">
-            <Button variant="navy" size="sm" onClick={() => onApply(proposed)}>
+            <Button variant="gradient" size="sm" onClick={() => onApply(proposed)}>
               Apply Redeemo&apos;s suggestions
             </Button>
           </div>

@@ -197,7 +197,7 @@ export function ValidateCodeDialog({ onClose }: { onClose: () => void }) {
               <Button variant="secondary" onClick={onClose}>
                 Cancel
               </Button>
-              <Button variant="navy" onClick={handleLookup} disabled={busy}>
+              <Button variant="gradient" onClick={handleLookup} disabled={busy}>
                 {busy ? 'Looking up...' : 'Look up'}
               </Button>
             </div>

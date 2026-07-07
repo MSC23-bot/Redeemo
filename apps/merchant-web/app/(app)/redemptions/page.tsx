@@ -161,7 +161,7 @@ export default function RedemptionsPage() {
           <Button variant="secondary" onClick={handleExport} disabled={exporting}>
             {exporting ? 'Exporting...' : 'Export CSV'}
           </Button>
-          <Button variant="navy" onClick={openValidate}>
+          <Button variant="gradient" onClick={openValidate}>
             <ScanLine size={16} /> Validate a code
           </Button>
         </div>
