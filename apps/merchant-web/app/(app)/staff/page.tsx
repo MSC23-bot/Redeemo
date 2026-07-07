@@ -72,6 +72,7 @@ function buildPortalPeople(members: MemberRow[]): PortalPerson[] {
     claimed: m.claimed,
     lastLoginAt: m.lastLoginAt,
     isLastActiveOwner: m.id === lastOwnerId,
+    jobTitle: m.jobTitle ?? null,
     raw: m,
   }))
 }
@@ -198,10 +199,12 @@ export default function StaffPage() {
   const branchOptions: BranchOption[] = (branchesQuery.data ?? []).map((b) => ({ id: b.id, name: b.name }))
   const branchNameById = (id: string) => branchOptions.find((b) => b.id === id)?.name
 
-  // Counts for the summary cards.
+  // Counts for the summary cards. The People card headline is the TOTAL person
+  // count (active + deactivated); peopleActive/peopleDeactivated drive the sub-line.
   const peopleActive = people.filter((p) => p.status !== 'INACTIVE').length
   const peopleDeactivated = people.filter((p) => p.status === 'INACTIVE').length
   const counts: StaffCounts = {
+    peopleTotal: peopleActive + peopleDeactivated,
     peopleActive,
     peopleDeactivated,
     portalUsed: portalPeople.length,
@@ -434,7 +437,8 @@ function Header({ action }: { action?: React.ReactNode }) {
       <div className="space-y-1">
         <h1 className="font-display text-2xl font-semibold text-foreground">Staff & access</h1>
         <p className="text-sm text-muted-foreground">
-          Portal access lets someone manage on the web. App access lets them validate at their branches.
+          Portal access lets someone manage the business on the web. App access lets them validate
+          redemptions at their branches.
         </p>
       </div>
       {action}

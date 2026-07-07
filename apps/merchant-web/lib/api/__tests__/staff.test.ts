@@ -77,6 +77,16 @@ describe('listStaff', () => {
     apiFetch.mockResolvedValueOnce({ members: [{ id: 'x' }] })
     await expect(listStaff()).rejects.toBeDefined()
   })
+
+  it('parses a member row jobTitle when present, and tolerates it being absent', async () => {
+    apiFetch.mockResolvedValueOnce({ members: [{ ...MEMBER, jobTitle: 'General Manager' }] })
+    const withTitle = await listStaff()
+    expect(withTitle[0].jobTitle).toBe('General Manager')
+
+    apiFetch.mockResolvedValueOnce({ members: [MEMBER] })
+    const withoutTitle = await listStaff()
+    expect(withoutTitle[0].jobTitle).toBeUndefined()
+  })
 })
 
 describe('inviteStaff', () => {
