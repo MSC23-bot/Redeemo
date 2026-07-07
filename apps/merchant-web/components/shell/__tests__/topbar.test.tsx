@@ -106,6 +106,25 @@ describe('Topbar', () => {
     expect(onSignOut).toHaveBeenCalledTimes(1)
   })
 
+  // Staging-acceptance regression (2026-07): the logout confirm lives inside the
+  // Topbar, whose sticky strip sets backdrop-filter. A backdrop-filter ancestor
+  // establishes a containing block for `position: fixed` descendants, so a NON
+  // portalled fixed dialog would size to the topbar strip and render clipped at
+  // the very top of the page. The shared Dialog now portals to document.body, so
+  // the confirm panel escapes the Topbar subtree and cannot be clipped by it.
+  it('logout confirm dialog portals out of the Topbar (escapes the backdrop-filter containing block)', () => {
+    const { container } = renderTopbar(
+      <Topbar onMenu={() => {}} businessName="Roe Cafe" role="OWNER" onSignOut={jest.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /account menu/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /log out/i }))
+    const panel = screen.getByTestId('logout-confirm')
+    // The confirm panel is attached under document.body, NOT inside the Topbar's
+    // rendered subtree (which is where the backdrop-filter ancestor lives).
+    expect(document.body).toContainElement(panel)
+    expect(container.querySelector('header')).not.toContainElement(panel)
+  })
+
   // Codex correction 3: Business profile is a positive allowlist (OWNER/BM) -
   // STAFF, an unresolved (null) role and unknown future roles all fail closed.
   it.each([['STAFF'], [null], ['AUDITOR']])('hides Business profile in the account menu for role %s', (role) => {

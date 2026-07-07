@@ -13,8 +13,15 @@
  * Parents conditionally MOUNT this (it is "open" whenever rendered); closing is
  * the parent unmounting it via onClose. The scrim/panel testids and aria-label
  * pass through.
+ *
+ * The overlay + panel render through a React portal into document.body so the
+ * `position: fixed` scrim always sizes to the viewport. Without the portal, any
+ * ancestor with backdrop-filter / filter / transform / contain (e.g. the
+ * topbar's blurred strip) establishes a containing block for fixed descendants,
+ * which clipped the logout-confirm dialog to a thin bar at the top of the page.
  */
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -88,7 +95,13 @@ export function Dialog({
     }
   }
 
-  return (
+  // SSR guard: document.body only exists in the browser. The dialog is only ever
+  // mounted via client interaction, so on the client the portal is present on the
+  // first commit (panelRef is set before the focus effect runs) and there is no
+  // hydration mismatch to reconcile.
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       onKeyDown={handleKeyDown}
@@ -109,6 +122,7 @@ export function Dialog({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
