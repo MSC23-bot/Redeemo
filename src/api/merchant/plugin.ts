@@ -1,6 +1,7 @@
 import fp from 'fastify-plugin'
 import { FastifyInstance } from 'fastify'
 import { profileRoutes } from './profile/routes'
+import { merchantAccountRoutes } from './account/routes'
 import { onboardingRoutes } from './onboarding/routes'
 import { branchRoutes } from './branch/routes'
 import { locationRoutes } from './location/routes'
@@ -18,6 +19,7 @@ async function merchantManagementPlugin(app: FastifyInstance) {
     scoped.addHook('preHandler', app.authenticateMerchant)
 
     await scoped.register(profileRoutes)
+    await scoped.register(merchantAccountRoutes)
     await scoped.register(onboardingRoutes)
     await scoped.register(branchRoutes)
     await scoped.register(locationRoutes)
