@@ -177,10 +177,21 @@ export function CodeScreen() {
   )
 }
 
-const SCREENS = [BrowseScreen, VoucherScreen, CodeScreen]
+function ShotScreen({ src, alt }: { src: string; alt: string }) {
+  return (
+    <div className="absolute inset-0">
+      <Image src={src} alt={alt} fill sizes="272px" className="object-cover object-top" />
+    </div>
+  )
+}
+
+const HomeShotScreen = () => <ShotScreen src="/app-shots/home-top.png" alt="" />
+const VoucherShotScreen = () => <ShotScreen src="/app-shots/voucher-bogo.png" alt="" />
+
+const SCREENS = [HomeShotScreen, VoucherShotScreen, CodeScreen]
 
 /** Shared illustrative phone shell; screens render inside as absolute layers. */
-export function PhoneFrame({ children, dark = false, width = 272, height = 500 }: {
+export function PhoneFrame({ children, dark = false, width = 272, height = 548 }: {
   children: React.ReactNode
   dark?: boolean
   width?: number

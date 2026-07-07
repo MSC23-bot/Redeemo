@@ -13,9 +13,9 @@ import { useRef } from 'react'
 function useScrollLinked(value: MotionValue<number>) {
   return useSpring(value, { stiffness: 320, damping: 40, mass: 0.5 })
 }
-import { BrowseScreen, CodeScreen, PhoneFrame, StatusBar } from './PhoneDemo'
+import Image from 'next/image'
+import { CodeScreen, PhoneFrame } from './PhoneDemo'
 import { VoucherTypesSection } from './VoucherTypesSection'
-import { HowItWorksSection } from './HowItWorksSection'
 
 /**
  * Scroll-driven product story (owner direction 2026-07-06): one pinned phone
@@ -32,16 +32,16 @@ import { HowItWorksSection } from './HowItWorksSection'
 const CHAPTERS = [
   {
     kicker: '01 · Find',
-    title: 'Places worth knowing about.',
-    body: 'Independent kitchens, coffee houses, studios and salons, chosen one by one. Browse them all free, before you spend anything.',
+    title: 'Money off, everywhere you already go.',
+    body: 'Independent kitchens, coffee houses, studios and salons, chosen one by one. Every place carries its saving. Browse them all free.',
     ink: '#010C35',
     sub: '#4B5563',
     kickerColour: '#E20C04',
   },
   {
     kicker: '02 · Choose',
-    title: 'Every kind of voucher. One membership.',
-    body: 'One voucher per place, each month. A new cycle brings them back, fresh.',
+    title: 'Every place. Every voucher. One membership.',
+    body: 'Nothing is held back. No premium tier, no add-ons: £6.99 covers every voucher at every place. Each one is yours once a month, then it comes back fresh.',
     ink: '#010C35',
     sub: '#4B5563',
     kickerColour: '#E20C04',
@@ -64,111 +64,10 @@ const CH_BANDS: [number[], number[]][] = [
   [[0.68, 0.76, 1], [0, 1, 1]],
 ]
 
-// Voucher variants the phone cycles through in chapter two. Colours are the
-// app's voucher-type tokens; places are the site-wide synthetic examples.
-const VOUCHER_VARIANTS = [
-  {
-    key: 'bogo',
-    chip: 'Buy one get one free',
-    colour: '#7C3AED',
-    tint: 'rgba(124,58,237,0.08)',
-    title: 'Buy one main, get one free',
-    merchant: 'The Old Foundry Kitchen',
-  },
-  {
-    key: 'freebie',
-    chip: 'Freebie',
-    colour: '#16A34A',
-    tint: 'rgba(22,163,74,0.08)',
-    title: 'Free pastry with any drink',
-    merchant: 'Juniper Coffee',
-  },
-  {
-    key: 'spend',
-    chip: 'Spend and save',
-    colour: '#E84A00',
-    tint: 'rgba(232,74,0,0.08)',
-    title: 'Spend £30, save £8',
-    merchant: 'The Old Foundry Kitchen',
-  },
-  {
-    key: 'timed',
-    chip: 'Time-limited',
-    colour: '#D97706',
-    tint: 'rgba(217,119,6,0.08)',
-    title: 'Half price, weekday lunches',
-    merchant: 'Fern & Field Deli',
-  },
-]
+const OTHER_TYPES = 'Buy one get one free, freebies, spend-and-save, package deals, time-limited, reusable and straight discounts.'
 
-// Chapter two's inner band, subdivided evenly per variant with hard cuts.
-const VARIANT_BAND: [number, number] = [0.3, 0.56]
-
-function variantOpacityRange(i: number): [number[], number[]] {
-  const [a, b] = VARIANT_BAND
-  const span = (b - a) / VOUCHER_VARIANTS.length
-  const start = a + i * span
-  const end = start + span
-  const fade = 0.012
-  if (i === 0) return [[start, end - fade, end], [1, 1, 0]]
-  if (i === VOUCHER_VARIANTS.length - 1) return [[start, start + fade, 1], [0, 1, 1]]
-  return [[start, start + fade, end - fade, end], [0, 1, 1, 0]]
-}
-
-const OTHER_TYPES = 'Plus discounts, package deals and reusable vouchers.'
-
-function StoryVoucherScreen({ variant }: { variant: (typeof VOUCHER_VARIANTS)[number] }) {
-  return (
-    <div className="h-full flex flex-col" style={{ background: '#FFF9F5' }}>
-      <StatusBar />
-      <div className="px-4 flex-1 flex flex-col justify-center pb-6">
-        <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(1,12,53,0.08)', background: '#FFFFFF' }}>
-          <div className="px-4 pt-4 pb-3" style={{ background: variant.tint }}>
-            <span
-              className="text-[8px] font-bold tracking-[0.1em] uppercase px-2 py-1 rounded-full text-white"
-              style={{ background: variant.colour }}
-            >
-              {variant.chip}
-            </span>
-            <p className="font-display text-[17px] leading-[1.2] mt-2.5" style={{ color: '#010C35' }}>
-              {variant.title}
-            </p>
-            <p className="text-[10px] mt-1" style={{ color: 'rgba(1,12,53,0.5)' }}>{variant.merchant}</p>
-          </div>
-          <div className="px-4 py-3 space-y-2">
-            {['Included with your membership', 'Once per month, fresh each cycle'].map((line) => (
-              <div key={line} className="flex items-center gap-2">
-                <span className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: variant.colour }} />
-                <p className="text-[9.5px]" style={{ color: 'rgba(1,12,53,0.6)' }}>{line}</p>
-              </div>
-            ))}
-          </div>
-          <div className="px-4 pb-4">
-            <div className="rounded-xl py-2.5 text-center text-[11px] font-bold text-white" style={{ background: 'var(--brand-gradient)' }}>
-              Redeem at the venue
-            </div>
-          </div>
-        </div>
-        <p className="text-center text-[8.5px] mt-3" style={{ color: 'rgba(1,12,53,0.4)' }}>
-          Example voucher
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function VariantLayer({ progress, index, children }: {
-  progress: MotionValue<number>
-  index: number
-  children: React.ReactNode
-}) {
-  const [input, output] = variantOpacityRange(index)
-  const opacity = useScrollLinked(useTransform(progress, input, output))
-  return (
-    <motion.div className="absolute inset-0" style={{ opacity }}>
-      {children}
-    </motion.div>
-  )
+function Shot({ src }: { src: string }) {
+  return <Image src={src} alt="" fill sizes="272px" className="object-cover object-top" />
 }
 
 function ChapterLayer({ progress, index, children }: {
@@ -200,10 +99,16 @@ function StoryStage() {
     ['#FFF9F5', '#FFF9F5', '#FFFFFF', '#FFFFFF', '#010C35', '#010C35'],
   )
 
-  // Phone screen layers
+  // Phone screen layers: real app captures per chapter
   const browseOpacity = useScrollLinked(useTransform(scrollYProgress, [0, 0.24, 0.31], [1, 1, 0]))
   const voucherOpacity = useScrollLinked(useTransform(scrollYProgress, [0.27, 0.34, 0.56, 0.63], [0, 1, 1, 0]))
   const codeOpacity = useScrollLinked(useTransform(scrollYProgress, [0.6, 0.72, 1], [0, 1, 1]))
+  // Chapter one: the stitched real home page scrolls inside the frame
+  const homeScrollY = useScrollLinked(useTransform(scrollYProgress, [0.02, 0.3], [0, -820]))
+  // Chapter three: the real redemption journey: sheet -> PIN -> code
+  const sheetOpacity = useScrollLinked(useTransform(scrollYProgress, [0.6, 0.66, 0.74, 0.78], [0, 1, 1, 0]))
+  const pinOpacity = useScrollLinked(useTransform(scrollYProgress, [0.74, 0.78, 0.86, 0.9], [0, 1, 1, 0]))
+  const codeScreenOpacity = useScrollLinked(useTransform(scrollYProgress, [0.86, 0.9, 1], [0, 1, 1]))
 
   // Gentle phone drift so the pin never feels frozen
   const phoneY = useScrollLinked(useTransform(scrollYProgress, [0, 1], [16, -16]))
@@ -212,13 +117,6 @@ function StoryStage() {
   // Chrome that must flip with the navy chapter
   const lightCaptionOpacity = useScrollLinked(useTransform(scrollYProgress, [0.6, 0.72], [1, 0]))
   const darkCaptionOpacity = useScrollLinked(useTransform(scrollYProgress, [0.6, 0.72], [0, 1]))
-
-  // Variant progress dashes (chapter two)
-  const dashScales = VOUCHER_VARIANTS.map((_, i) => {
-    const [input, output] = variantOpacityRange(i)
-    // eslint-disable-next-line react-hooks/rules-of-hooks -- fixed-length list, stable order
-    return useScrollLinked(useTransform(scrollYProgress, input, output))
-  })
 
   return (
     <div ref={trackRef} className="relative" style={{ height: '340vh' }}>
@@ -243,32 +141,9 @@ function StoryStage() {
                 </p>
 
                 {i === 1 && (
-                  <div className="mt-8">
-                    {/* Stacked wordmarks, one visible per variant band */}
-                    <div className="relative h-[46px]">
-                      {VOUCHER_VARIANTS.map((v, vi) => (
-                        <VariantLayer key={v.key} progress={scrollYProgress} index={vi}>
-                          <p
-                            className="font-display leading-none"
-                            style={{ fontSize: 'clamp(26px, 2.6vw, 38px)', letterSpacing: '-0.5px', color: v.colour }}
-                          >
-                            {v.chip}
-                          </p>
-                        </VariantLayer>
-                      ))}
-                    </div>
-                    <div className="mt-4 flex items-center gap-2">
-                      {VOUCHER_VARIANTS.map((v, vi) => (
-                        <span key={v.key} className="relative h-[4px] w-[24px] rounded-full overflow-hidden" aria-hidden="true" style={{ background: 'rgba(1,12,53,0.12)' }}>
-                          <motion.span
-                            className="absolute inset-0 rounded-full"
-                            style={{ background: v.colour, opacity: dashScales[vi] }}
-                          />
-                        </span>
-                      ))}
-                    </div>
-                    <p className="mt-4 text-[13.5px]" style={{ color: '#6B7280' }}>{OTHER_TYPES}</p>
-                  </div>
+                  <p className="mt-6 text-[13.5px] max-w-[420px] leading-[1.7]" style={{ color: '#6B7280' }}>
+                    {OTHER_TYPES}
+                  </p>
                 )}
               </ChapterLayer>
             ))}
@@ -277,18 +152,18 @@ function StoryStage() {
           {/* The pinned phone */}
           <motion.div style={{ y: phoneY, rotate: phoneRotate }} className="justify-self-end">
             <PhoneFrame dark={false}>
-              <motion.div className="absolute inset-0" style={{ opacity: browseOpacity }}>
-                <BrowseScreen />
+              <motion.div className="absolute inset-0 overflow-hidden" style={{ opacity: browseOpacity }}>
+                <motion.div className="absolute inset-x-0 top-0" style={{ y: homeScrollY, height: 1404 }}>
+                  <Image src="/app-shots/home-tall.png" alt="" fill sizes="272px" className="object-cover object-top" />
+                </motion.div>
               </motion.div>
               <motion.div className="absolute inset-0" style={{ opacity: voucherOpacity }}>
-                {VOUCHER_VARIANTS.map((v, vi) => (
-                  <VariantLayer key={v.key} progress={scrollYProgress} index={vi}>
-                    <StoryVoucherScreen variant={v} />
-                  </VariantLayer>
-                ))}
+                <Shot src="/app-shots/voucher-bogo.png" />
               </motion.div>
               <motion.div className="absolute inset-0" style={{ opacity: codeOpacity }}>
-                <CodeScreen />
+                <motion.div className="absolute inset-0" style={{ opacity: sheetOpacity }}><Shot src="/app-shots/redeem-sheet.png" /></motion.div>
+                <motion.div className="absolute inset-0" style={{ opacity: pinOpacity }}><Shot src="/app-shots/redeem-pin.png" /></motion.div>
+                <motion.div className="absolute inset-0" style={{ opacity: codeScreenOpacity }}><CodeScreen /></motion.div>
               </motion.div>
             </PhoneFrame>
             <div className="relative mt-3 h-[16px] text-center">
@@ -314,7 +189,6 @@ export function ScrollStory() {
       {/* Static fallback: mobile, reduced motion, no-JS and crawlers */}
       <div className={reduceMotion ? '' : 'lg:hidden'}>
         <VoucherTypesSection />
-        <HowItWorksSection />
       </div>
       {!reduceMotion && (
         <div className="hidden lg:block">

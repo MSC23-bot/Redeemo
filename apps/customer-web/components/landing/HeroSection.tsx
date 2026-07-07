@@ -98,10 +98,11 @@ export function HeroSection() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.08, ease: EASE }}
               className="font-display text-[#010C35] leading-[1.06] mb-5 max-w-[620px]"
-              style={{ fontSize: 'clamp(38px, 5vw, 66px)', letterSpacing: '-1px' }}
+              style={{ fontSize: 'clamp(32px, 4.2vw, 56px)', letterSpacing: '-1px' }}
             >
-              The best local spots near you.{' '}
-              <span className="gradient-text">Members pay less.</span>
+              Dinner for two, priced for one.{' '}
+              <span className="gradient-text">Half-price workouts.</span>{' '}
+              Free pastries with your coffee.
             </motion.h1>
 
             {/* Sub */}
@@ -111,8 +112,9 @@ export function HeroSection() {
               transition={{ duration: 0.45, delay: 0.18 }}
               className="text-[16px] text-[#4B5563] leading-[1.65] mb-9 max-w-[490px]"
             >
-              Independent restaurants, cafes, gyms and studios, each with member
-              vouchers included. One membership from £6.99 a month covers them all.
+              Redeemo is a membership of independent places near you: restaurants,
+              cafes, gyms, salons. Every one includes member vouchers like these,
+              fresh each month, from £6.99. Browse free first.
             </motion.p>
 
             {/* CTAs */}
