@@ -319,3 +319,13 @@ edited by this workstream.
   strip capped to the veiled zone on lg. Verified 1512 + 2238; text fidelity
   checked at pixel level. HeroScene/HeroFilm components + film assets removed
   from the tree (history retains them).
+- Hero v4.1 (owner: scale it down for breathing space; make single vouchers
+  respond to the mouse, creative not gimmicky): artwork group now 84% height
+  with a 2% right inset (air on every side); per-card hover added: the card
+  the pointer rests on rises toward the viewer on a spring (1.07 -> 1.16,
+  deeper shadow) while a single light sweep crosses the satin, clipped to the
+  die-cut silhouette by the card's own alpha (mask-image: its own PNG).
+  Neighbours keep idling: one voucher at a time. Pointer plumbing: hero
+  content layer is pointer-events-none on lg with the text column and badge
+  strip re-enabled, so CTAs stay clickable (verified) while hovers reach the
+  cards; veil and floor fade are pointer-transparent.

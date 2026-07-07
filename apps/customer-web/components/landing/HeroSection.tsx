@@ -78,11 +78,14 @@ export function HeroSection() {
         <HeroCollage />
       </div>
 
-      <div className="relative max-w-7xl mx-auto">
+      {/* On desktop the content layer passes pointer events through to the
+          collage (so the voucher cards are hoverable); the text column and
+          badge strip re-enable their own interactivity */}
+      <div className="relative max-w-7xl mx-auto lg:pointer-events-none">
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,560px)_1fr] gap-14 lg:gap-16 items-center lg:min-h-[600px]">
 
           {/* ── Left: Text ── */}
-          <div>
+          <div className="lg:pointer-events-auto">
             {/* Eyebrow */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -190,7 +193,7 @@ export function HeroSection() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.56 }}
-          className="mt-14 pt-8 border-t border-[#010C35]/10 flex flex-col sm:flex-row sm:items-center gap-4 lg:max-w-[48%]"
+          className="mt-14 pt-8 border-t border-[#010C35]/10 flex flex-col sm:flex-row sm:items-center gap-4 lg:max-w-[48%] lg:pointer-events-auto"
         >
           <p className="text-[11.5px] text-[#010C35]/55 uppercase tracking-[0.14em] font-semibold flex-shrink-0">
             {marketplaceLive

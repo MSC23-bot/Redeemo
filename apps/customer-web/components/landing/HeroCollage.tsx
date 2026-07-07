@@ -50,6 +50,9 @@ function CardLayer({
   return (
     <motion.div
       className="absolute"
+      initial="rest"
+      animate="rest"
+      whileHover={reduceMotion ? undefined : 'hover'}
       style={{
         left: `${(l / IMG_W) * 100}%`,
         top: `${(t / IMG_H) * 100}%`,
@@ -57,18 +60,46 @@ function CardLayer({
         height: `${(h / IMG_H) * 100}%`,
         x: reduceMotion ? 0 : x,
         y: reduceMotion ? 0 : y,
-        scale: 1.07,
       }}
     >
+      {/* Hover: the card presents itself: rises toward the viewer with a
+          deeper shadow while its neighbours keep idling */}
       <motion.div
         className="relative h-full w-full"
-        animate={reduceMotion ? undefined : { y: [0, -6, 0], rotate: [0, 0.8, 0] }}
-        transition={{ duration: layer.dur, repeat: Infinity, ease: 'easeInOut' }}
-        style={{ filter: 'drop-shadow(0 10px 14px rgba(97,20,4,0.12))' }}
+        variants={{
+          rest: { scale: 1.07, filter: 'drop-shadow(0 10px 14px rgba(97,20,4,0.12))' },
+          hover: { scale: 1.16, filter: 'drop-shadow(0 26px 34px rgba(97,20,4,0.24))' },
+        }}
+        transition={{ type: 'spring', stiffness: 240, damping: 20 }}
       >
-        {/* Pre-cut, pre-sized assets: the optimizer's re-encode only softens
-            them, so serve the exact files */}
-        <Image src={layer.src} alt="" fill unoptimized />
+        <motion.div
+          className="relative h-full w-full"
+          animate={reduceMotion ? undefined : { y: [0, -6, 0], rotate: [0, 0.8, 0] }}
+          transition={{ duration: layer.dur, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          {/* Pre-cut, pre-sized assets: the optimizer's re-encode only
+              softens them, so serve the exact files */}
+          <Image src={layer.src} alt="" fill unoptimized />
+          {/* A single light sweep across the satin of the card, clipped to
+              its die-cut silhouette by its own alpha */}
+          <motion.div
+            className="absolute inset-0"
+            style={{
+              WebkitMaskImage: `url(${layer.src})`,
+              maskImage: `url(${layer.src})`,
+              WebkitMaskSize: '100% 100%',
+              maskSize: '100% 100%',
+              background:
+                'linear-gradient(105deg, rgba(255,255,255,0) 42%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 58%)',
+              backgroundSize: '260% 100%',
+            }}
+            variants={{
+              rest: { backgroundPosition: '135% 0%' },
+              hover: { backgroundPosition: '-35% 0%' },
+            }}
+            transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+          />
+        </motion.div>
       </motion.div>
     </motion.div>
   )
@@ -111,9 +142,10 @@ export function HeroCollage() {
   const lift = useScrollLinked(useTransform(scrollYProgress, [0, 1], [0, -26]))
 
   return (
-    <div ref={ref} className="absolute inset-0 overflow-hidden" aria-hidden="true" style={{ background: GROUND }}>
+    <div ref={ref} className="absolute inset-0 overflow-hidden" aria-hidden="true" style={{ background: GROUND, pointerEvents: 'auto' }}>
+      {/* 84% height: the group breathes instead of pressing every edge */}
       <motion.div
-        className="absolute right-0 top-1/2 h-full max-w-full"
+        className="absolute right-[2%] top-1/2 h-[84%] max-w-[96%]"
         style={{ aspectRatio: `${IMG_W} / ${IMG_H}`, y: '-50%', translateY: reduceMotion ? 0 : lift }}
       >
         <Image
@@ -134,7 +166,7 @@ export function HeroCollage() {
           anything that drifts beneath the headline at narrower viewports
           fogs into backdrop instead of colliding with the type */}
       <div
-        className="absolute inset-y-0 left-0"
+        className="absolute inset-y-0 left-0 pointer-events-none"
         style={{
           // The text column spans to 50vw - 80px (max-w-7xl, 560px column):
           // cover it fully, then fade over the last 180px
@@ -150,7 +182,7 @@ export function HeroCollage() {
       {/* Melt into the page cream at the floor so the badge strip and ribbon
           divider below read over calm ground */}
       <div
-        className="absolute inset-x-0 bottom-0 h-32"
+        className="absolute inset-x-0 bottom-0 h-32 pointer-events-none"
         style={{ background: 'linear-gradient(180deg, rgba(255,249,245,0) 0%, rgba(255,249,245,0.97) 100%)' }}
       />
     </div>
