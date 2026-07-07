@@ -80,16 +80,28 @@ export function Navbar() {
   const pathname = usePathname()
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  // Owner direction 2026-07-07: the red bar lives at the top only and scrolls
+  // away with the page (it clashed with section backgrounds when sticky). A
+  // neutral glass bar slides in when the visitor scrolls UP mid-page.
+  const [floatVisible, setFloatVisible] = useState(false)
   const accountRef = useRef<HTMLDivElement>(null)
   const firstMobileLinkRef = useRef<HTMLAnchorElement>(null)
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 80)
+    let lastY = window.scrollY
+    const onScroll = () => {
+      const y = window.scrollY
+      if (y < 300) setFloatVisible(false)
+      else if (y < lastY - 2) setFloatVisible(true)
+      else if (y > lastY + 2) setFloatVisible(false)
+      lastY = y
+    }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
+
+  useEffect(() => { setMenuOpen(false) }, [floatVisible])
 
   useEffect(() => { setMenuOpen(false); setAccountOpen(false) }, [pathname])
 
@@ -107,9 +119,8 @@ export function Navbar() {
     if (menuOpen) firstMobileLinkRef.current?.focus()
   }, [menuOpen])
 
-  // Owner direction 2026-07-06: the nav bar carries the primary brand colour
-  // at the top and while scrolled; all inner chrome therefore runs the
-  // on-colour (dark) theme permanently. `scrolled` still drives the shadow.
+  // Owner direction 2026-07-06: the top-of-page bar carries the primary brand
+  // colour, so its inner chrome runs the on-colour (dark) theme permanently.
   const isDark = true
   const navBg = 'border-transparent'
 
@@ -133,9 +144,10 @@ export function Navbar() {
   const primaryCtaLabel = marketplaceLive ? 'Join free' : 'Get early access'
 
   return (
+    <>
     <header
-      className={`sticky top-0 z-50 border-b transition-shadow duration-300 ${navBg}`}
-      style={{ background: '#BE0A03 radial-gradient(120% 420% at 70% 16%, #F24E2C 0%, #BE0A03 100%)', boxShadow: scrolled ? '0 2px 18px rgba(190,10,3,0.30)' : 'none' }}
+      className={`relative z-40 border-b ${navBg}`}
+      style={{ background: '#BE0A03 radial-gradient(120% 420% at 70% 16%, #F24E2C 0%, #BE0A03 100%)' }}
     >
       <nav aria-label="Main" className="max-w-7xl mx-auto px-6 h-[84px] flex items-center gap-6">
 
@@ -451,5 +463,79 @@ export function Navbar() {
         )}
       </AnimatePresence>
     </header>
+
+    {/* Glass quick-nav: slides in when scrolling UP mid-page; neutral so it
+        never fights whatever section background is behind it */}
+    <AnimatePresence>
+      {floatVisible && (
+        <motion.div
+          initial={{ y: -76, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -76, opacity: 0 }}
+          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          className="fixed top-3 inset-x-3 md:inset-x-6 z-50"
+        >
+          <nav
+            aria-label="Quick navigation"
+            className="max-w-6xl mx-auto flex items-center gap-5 px-4 md:px-6 h-[58px] rounded-2xl"
+            style={{
+              background: 'rgba(255,249,245,0.90)',
+              backdropFilter: 'blur(16px) saturate(1.5)',
+              WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
+              border: '1px solid rgba(1,12,53,0.08)',
+              boxShadow: '0 12px 40px rgba(1,12,53,0.14)',
+            }}
+          >
+            <Link href="/" className="flex-shrink-0 no-underline">
+              <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[44px] w-auto" />
+            </Link>
+
+            <div className="hidden md:flex gap-0.5 flex-1">
+              {navLinks.map(link => {
+                const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`px-3 py-1.5 rounded-md text-[13.5px] font-medium transition-colors duration-150 no-underline ${
+                      isActive ? 'text-[#E20C04]' : 'text-[#4B5563] hover:text-[#010C35]'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                )
+              })}
+            </div>
+
+            <div className="flex items-center gap-3 ml-auto">
+              {!isLoading && (
+                user ? (
+                  <Link href="/account" aria-label="Your account" className="no-underline">
+                    <UserAvatar name={user.name} imageUrl={user.profileImageUrl} size={32} />
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      href="/login"
+                      className="hidden md:block text-[13.5px] font-medium text-[#4B5563] hover:text-[#010C35] no-underline transition-colors"
+                    >
+                      Log in
+                    </Link>
+                    <Link
+                      href={primaryCtaHref}
+                      className="text-[13.5px] font-bold text-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
+                      style={{ background: 'var(--brand-gradient)' }}
+                    >
+                      {primaryCtaLabel}
+                    </Link>
+                  </>
+                )
+              )}
+            </div>
+          </nav>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    </>
   )
 }

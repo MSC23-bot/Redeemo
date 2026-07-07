@@ -245,3 +245,16 @@ edited by this workstream.
   the shared useScrollLinked spring (hoisted to components/landing/scroll.ts).
   Two mounts only: hero seam + HowItWorks-to-navy seam. Reduced-motion renders
   it static; aria-hidden, pointer-events-none. next build clean.
+- Ribbon v2 (owner references 2026-07-07: satin dimensional ribbon, "cartoonish"
+  v1 rejected): rebuilt as a twist-fold band: width pinches at the fold and the
+  band flips to a darker back-face gradient; cylindrical light overlay, lit top
+  edge + shadowed lower edge, thickness underlay, ONE die-cut voucher notch on
+  the bright face, scroll-driven sheen sweep replacing the dashed pulse. Dotted
+  edges and centre dash removed. Flip mount mirrors horizontally (never
+  vertically: that inverts the satin lighting; the first flip attempt glared
+  against the navy section).
+- Navbar rework (owner 2026-07-07: red bar clashed with section backgrounds
+  when sticky): red bar is now top-of-page only and scrolls away; a neutral
+  glass quick-nav (cream blur, coloured logo, navy links, gradient CTA) slides
+  in only while scrolling UP past 300px and hides again on scroll-down. Mobile
+  glass pill = logo + primary CTA.

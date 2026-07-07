@@ -5,26 +5,27 @@ import { useRef } from 'react'
 import { useScrollLinked } from './scroll'
 
 /**
- * The brand's R is two voucher ribbons: flowing bands with die-cut perforation
- * notches (owner direction 2026-07-07). This is that motif as a section
- * divider: a gradient ribbon sweeping across the seam, notched edges, dashed
- * tear line, drifting gently with scroll while a soft light pulse travels
- * along the perforation. Decorative only: aria-hidden, no pointer events,
- * static for reduced-motion visitors.
+ * The brand's R is two voucher ribbons. Owner reference (2026-07-07): a satin,
+ * dimensional ribbon: deep-red gradient, a twist fold where the band flips to
+ * its darker back face, lit top edge, ONE die-cut voucher notch. Explicitly
+ * not the flat "road with dots" look. Decorative only: aria-hidden, no pointer
+ * events, static for reduced-motion visitors.
  */
 
 const VIEW_W = 1440
-const VIEW_H = 240
-const HALF_W = 27 // ribbon half-thickness
-const SAMPLES = 140
-const NOTCH_EVERY = 7 // samples between die-cut notches
-const NOTCH_R = 8
+const VIEW_H = 260
+const HALF_W = 40 // ribbon half-thickness at full width
+const SAMPLES = 160
+const FOLD_T = 0.58 // where the band twists over itself
+const FOLD_SPAN = 0.085 // how quickly it pinches
+const NOTCH_T = 0.44 // die-cut voucher bite, on the bright front face
+const NOTCH_R = 15
 
 // Centreline: one relaxed S-bend, edge to edge with bleed past both sides.
-const P0 = { x: -80, y: 78 }
-const P1 = { x: 380, y: 210 }
-const P2 = { x: 1020, y: -40 }
-const P3 = { x: 1540, y: 165 }
+const P0 = { x: -80, y: 88 }
+const P1 = { x: 380, y: 230 }
+const P2 = { x: 1020, y: -50 }
+const P3 = { x: 1540, y: 180 }
 
 function bezier(t: number) {
   const u = 1 - t
@@ -44,37 +45,47 @@ function bezierTangent(t: number) {
   return { x: x / len, y: y / len }
 }
 
+// Band half-width pinches to a sliver at the fold: that pinch is the twist.
+function halfWidth(t: number) {
+  const s = Math.min(1, Math.abs(t - FOLD_T) / FOLD_SPAN)
+  const smooth = s * s * (3 - 2 * s)
+  return HALF_W * (0.12 + 0.88 * smooth)
+}
+
 // Geometry is pure module-scope math: identical on server and client.
-const centre: { x: number; y: number }[] = []
-const top: { x: number; y: number }[] = []
-const bottom: { x: number; y: number }[] = []
+type Pt = { x: number; y: number }
+const top: Pt[] = []
+const bottom: Pt[] = []
 for (let i = 0; i <= SAMPLES; i++) {
   const t = i / SAMPLES
   const p = bezier(t)
   const tan = bezierTangent(t)
-  const nx = -tan.y
-  const ny = tan.x
-  centre.push(p)
-  top.push({ x: p.x + nx * HALF_W, y: p.y + ny * HALF_W })
-  bottom.push({ x: p.x - nx * HALF_W, y: p.y - ny * HALF_W })
+  const w = halfWidth(t)
+  top.push({ x: p.x - tan.y * w, y: p.y + tan.x * w })
+  bottom.push({ x: p.x + tan.y * w, y: p.y - tan.x * w })
 }
 
-const toPath = (pts: { x: number; y: number }[]) =>
-  pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
+const FOLD_I = Math.round(FOLD_T * SAMPLES)
 
-const RIBBON_PATH = `${toPath(top)} ${[...bottom]
-  .reverse()
-  .map((p) => `L${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-  .join(' ')} Z`
+const line = (pts: Pt[], move: boolean) =>
+  pts
+    .map((p, i) => `${i === 0 && move ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+    .join(' ')
 
-const TEAR_PATH = toPath(centre)
-
-// Die-cut notches sit ON both edges so the mask punches semicircular dents.
-const NOTCHES: { cx: number; cy: number }[] = []
-for (let i = Math.floor(NOTCH_EVERY / 2); i <= SAMPLES; i += NOTCH_EVERY) {
-  NOTCHES.push({ cx: top[i].x, cy: top[i].y })
-  NOTCHES.push({ cx: bottom[i].x, cy: bottom[i].y })
+function bandPath(from: number, to: number) {
+  const t = top.slice(from, to + 1)
+  const b = bottom.slice(from, to + 1).reverse()
+  return `${line(t, true)} ${line(b, false)} Z`
 }
+
+// Segments overlap by two samples so the pinch never opens a hairline gap.
+const FRONT_PATH = bandPath(0, Math.min(FOLD_I + 2, SAMPLES))
+const BACK_PATH = bandPath(Math.max(FOLD_I - 2, 0), SAMPLES)
+const FRONT_TOP_EDGE = line(top.slice(0, FOLD_I + 1), true)
+const BACK_TOP_EDGE = line(top.slice(FOLD_I, SAMPLES + 1), true)
+const FRONT_BOTTOM_EDGE = line(bottom.slice(0, FOLD_I + 1), true)
+
+const NOTCH = top[Math.round(NOTCH_T * SAMPLES)]
 
 export function VoucherRibbon({ flip = false }: { flip?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -85,10 +96,10 @@ export function VoucherRibbon({ flip = false }: { flip?: boolean }) {
   })
 
   const x = useScrollLinked(useTransform(scrollYProgress, [0, 1], [-36, 36]))
-  // Light pulse travels the tear line as the divider crosses the viewport.
-  const dashOffset = useScrollLinked(useTransform(scrollYProgress, [0, 1], [1750, -150]))
+  // Satin sheen: a soft diagonal light band sweeps along the ribbon with scroll.
+  const sheenX = useScrollLinked(useTransform(scrollYProgress, [0, 1], [-620, 1720]))
 
-  // Mask ids must differ per instance or the two mounts collide.
+  // Gradient/mask ids must differ per instance or the two mounts collide.
   const uid = flip ? 'rib-b' : 'rib-a'
 
   return (
@@ -103,66 +114,76 @@ export function VoucherRibbon({ flip = false }: { flip?: boolean }) {
         style={{
           x: reduceMotion ? 0 : x,
           y: '-50%',
-          scaleY: flip ? -1 : 1,
+          // Mirror horizontally for variety; never vertically, which would
+          // flip the satin lighting upside down.
+          scaleX: flip ? -1 : 1,
         }}
       >
-        <svg
-          viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-          className="block w-[112%] -ml-[6%] h-auto"
-          style={{ filter: 'drop-shadow(0 14px 22px rgba(190,10,3,0.16))' }}
-        >
+        <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="block w-[112%] -ml-[6%] h-auto">
           <defs>
-            <linearGradient id={`${uid}-fill`} x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0" stopColor="#E20C04" />
-              <stop offset="1" stopColor="#E84A00" />
+            {/* Front face: satin red travelling toward coral light */}
+            <linearGradient id={`${uid}-front`} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stopColor="#B00700" />
+              <stop offset="0.35" stopColor="#E20C04" />
+              <stop offset="0.58" stopColor="#F04314" />
+            </linearGradient>
+            {/* Back face after the twist: the band's darker underside */}
+            <linearGradient id={`${uid}-back`} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0.55" stopColor="#8E0B04" />
+              <stop offset="1" stopColor="#C43509" />
+            </linearGradient>
+            {/* Cylindrical light: lit along the top, falling into shadow below */}
+            <linearGradient id={`${uid}-shade`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#FFD9C4" stopOpacity="0.34" />
+              <stop offset="0.42" stopColor="#FFFFFF" stopOpacity="0" />
+              <stop offset="1" stopColor="#4A0300" stopOpacity="0.38" />
+            </linearGradient>
+            <linearGradient id={`${uid}-sheen`} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stopColor="#FFFFFF" stopOpacity="0" />
+              <stop offset="0.5" stopColor="#FFFFFF" stopOpacity="0.22" />
+              <stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
             </linearGradient>
             <mask id={`${uid}-cut`} maskUnits="userSpaceOnUse">
-              <path d={RIBBON_PATH} fill="#fff" />
-              {NOTCHES.map((n, i) => (
-                <circle key={i} cx={n.cx} cy={n.cy} r={NOTCH_R} fill="#000" />
-              ))}
+              <path d={FRONT_PATH} fill="#fff" />
+              <path d={BACK_PATH} fill="#fff" />
+              {/* ONE die-cut voucher bite */}
+              <circle cx={NOTCH.x} cy={NOTCH.y} r={NOTCH_R} fill="#000" />
             </mask>
           </defs>
 
-          {/* Echo ribbon: the logo's R is TWO flowing bands; the second one
-              trails softly behind and below */}
-          <path
-            d={RIBBON_PATH}
-            fill="rgba(232,74,0,0.16)"
-            transform="translate(26 30)"
-          />
+          {/* Grounding shadow, soft and warm */}
+          <g opacity="0.2" transform="translate(6 20)">
+            <path d={FRONT_PATH} fill="#6B0A03" style={{ filter: 'blur(14px)' }} />
+            <path d={BACK_PATH} fill="#6B0A03" style={{ filter: 'blur(14px)' }} />
+          </g>
 
           <g mask={`url(#${uid}-cut)`}>
-            <path d={RIBBON_PATH} fill={`url(#${uid}-fill)`} />
-            {/* Soft top-edge sheen so the band reads as curved, not flat */}
-            <path
-              d={TEAR_PATH}
-              fill="none"
-              stroke="rgba(255,255,255,0.14)"
-              strokeWidth={HALF_W * 2}
-              strokeDasharray="none"
-              transform={`translate(0 ${-HALF_W * 0.55})`}
-            />
-            {/* Perforated tear line */}
-            <path
-              d={TEAR_PATH}
-              fill="none"
-              stroke="rgba(255,249,245,0.7)"
-              strokeWidth="2.5"
-              strokeDasharray="7 11"
-              strokeLinecap="round"
-            />
-            {/* Scroll-driven light pulse running along the tear line */}
+            {/* Band thickness peeking beneath the front face */}
+            <path d={FRONT_PATH} fill="#7A0E06" transform="translate(0 5)" />
+
+            {/* Back face (behind the twist), then front face over it */}
+            <path d={BACK_PATH} fill={`url(#${uid}-back)`} />
+            <path d={BACK_PATH} fill={`url(#${uid}-shade)`} />
+            <path d={FRONT_PATH} fill={`url(#${uid}-front)`} />
+            <path d={FRONT_PATH} fill={`url(#${uid}-shade)`} />
+
+            {/* Edge lighting: lit top edge, shadowed lower edge */}
+            <path d={FRONT_TOP_EDGE} fill="none" stroke="rgba(255,205,180,0.55)" strokeWidth="2" />
+            <path d={BACK_TOP_EDGE} fill="none" stroke="rgba(255,160,130,0.28)" strokeWidth="1.5" />
+            <path d={FRONT_BOTTOM_EDGE} fill="none" stroke="rgba(60,2,0,0.45)" strokeWidth="2" />
+
+            {/* Scroll-driven sheen sweeping the satin */}
             {!reduceMotion && (
-              <motion.path
-                d={TEAR_PATH}
-                fill="none"
-                stroke="rgba(255,255,255,0.85)"
-                strokeWidth="3"
-                strokeDasharray="90 1660"
-                strokeLinecap="round"
-                style={{ strokeDashoffset: dashOffset }}
-              />
+              <motion.g style={{ x: sheenX }}>
+                <rect
+                  x="-160"
+                  y="-40"
+                  width="420"
+                  height={VIEW_H + 80}
+                  fill={`url(#${uid}-sheen)`}
+                  transform="skewX(-18)"
+                />
+              </motion.g>
             )}
           </g>
         </svg>
