@@ -93,6 +93,24 @@ export type AuditEvent =
   | 'VOUCHER_APPROVED'
   | 'VOUCHER_REJECTED'
   | 'VOUCHER_CHANGES_REQUESTED'
+  // Voucher governed flows (2026-07-07). `event` is a String column, so these
+  // are union-only literals with NO migration, mirroring the sibling
+  // *_EDIT_REQUEST_* and *_EDIT_APPROVED/REJECTED naming.
+  //   VOUCHER_EDIT_REQUEST_CREATED — merchant created a governed request
+  //     (VoucherPendingEdit kind CHANGE on a live flagship, or END on a live
+  //     custom voucher); metadata carries voucherId + pendingEditId + kind.
+  //   VOUCHER_EDIT_REQUEST_WITHDRAWN — merchant self-service withdrew their own
+  //     PENDING VoucherPendingEdit (its AdminApproval -> WITHDRAWN too).
+  //   VOUCHER_EDIT_APPROVED / VOUCHER_EDIT_REJECTED — admin applier decisions on
+  //     a VOUCHER_EDIT approval (APPROVED carries before/after; REJECTED the reason).
+  //   VOUCHER_SUBMISSION_WITHDRAWN — merchant instantly withdrew a
+  //     PENDING_APPROVAL custom-voucher submission (voucher -> DRAFT, the open
+  //     VOUCHER AdminApproval -> WITHDRAWN; no admin involvement, D2).
+  | 'VOUCHER_EDIT_REQUEST_CREATED'
+  | 'VOUCHER_EDIT_REQUEST_WITHDRAWN'
+  | 'VOUCHER_EDIT_APPROVED'
+  | 'VOUCHER_EDIT_REJECTED'
+  | 'VOUCHER_SUBMISSION_WITHDRAWN'
   | 'RMV_CREATED'
   | 'RMV_UPDATED'
   | 'RMV_SUBMITTED'
@@ -164,7 +182,10 @@ export type AuditEvent =
 
 export interface AuditContext {
   entityId: string
-  entityType: 'customer' | 'merchant' | 'branch' | 'admin'
+  // 'voucher' added for the voucher governed flows (2026-07-07): the claim/release
+  // audit-entity resolution for a VOUCHER_EDIT approval targets the real voucher
+  // (entityType String column — union-only, no migration).
+  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher'
   event: AuditEvent
   ipAddress: string
   userAgent: string
@@ -204,7 +225,8 @@ export type ActorType =
 export interface AuditActorContext {
   /** The TARGET of the action (e.g. the merchant being created). */
   entityId: string
-  entityType: 'customer' | 'merchant' | 'branch' | 'admin'
+  // 'voucher': see the AuditContext note (voucher governed flows, 2026-07-07).
+  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher'
   event: AuditEvent
   /** WHO performed the action. */
   actorId: string

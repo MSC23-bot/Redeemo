@@ -159,3 +159,101 @@ describe('A8b: VOUCHER queue enrichment in listApprovals', () => {
     expect(row.goLiveHint ?? null).toBeNull()
   })
 })
+
+// Voucher governed flows: listApprovals enriches each VOUCHER_EDIT row with the
+// request kind (CHANGE | END) resolved from its VoucherPendingEdit staging row,
+// via ONE batched findMany over the page's VOUCHER_EDIT referenceIds (no N+1;
+// curated select: id + kind only). Other row types omit the field entirely; the
+// admin-web queue renders "Voucher change request" vs "Voucher end request"
+// from it (generic fallback when null).
+describe('governed flows: VOUCHER_EDIT queue rows carry voucherEditKind', () => {
+  let app: FastifyInstance
+  const signOps = () =>
+    (app.jwt as any).admin.sign(
+      { sub: 'admin-1', role: 'admin', adminRole: 'OPERATIONS', sessionId: 's1' },
+      { expiresIn: '1h' },
+    )
+
+  function makePrisma() {
+    const rows = [
+      {
+        id: 'appr-ve-change', type: 'VOUCHER_EDIT', referenceId: 'pe-change', referenceType: 'voucher_pending_edit',
+        status: 'PENDING', adminUserId: null, comment: null,
+        submittedAt: new Date('2026-07-07T10:00:00.000Z'), actionedAt: null, claimedById: null, claimedAt: null,
+      },
+      {
+        id: 'appr-ve-end', type: 'VOUCHER_EDIT', referenceId: 'pe-end', referenceType: 'voucher_pending_edit',
+        status: 'PENDING', adminUserId: null, comment: null,
+        submittedAt: new Date('2026-07-07T10:01:00.000Z'), actionedAt: null, claimedById: null, claimedAt: null,
+      },
+      {
+        id: 'appr-e', type: 'MERCHANT_IDENTITY_EDIT', referenceId: 'pe-m', referenceType: 'MerchantPendingEdit',
+        status: 'PENDING', adminUserId: null, comment: null,
+        submittedAt: new Date('2026-07-07T10:02:00.000Z'), actionedAt: null, claimedById: null, claimedAt: null,
+      },
+    ]
+    return {
+      adminApproval: {
+        count: vi.fn().mockResolvedValue(rows.length),
+        findMany: vi.fn().mockResolvedValue(rows),
+      },
+      voucher: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
+      merchant: { findMany: vi.fn().mockResolvedValue([]) },
+      adminUser: { findMany: vi.fn().mockResolvedValue([]) },
+      voucherPendingEdit: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'pe-change', kind: 'CHANGE' },
+          { id: 'pe-end', kind: 'END' },
+        ]),
+      },
+    } as any
+  }
+
+  beforeEach(async () => {
+    app = await buildApp()
+    app.decorate('prisma', makePrisma())
+    app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue('OK') } as any)
+    await app.ready()
+  })
+  afterEach(async () => {
+    await app.close()
+  })
+
+  it('attaches voucherEditKind (CHANGE and END) to VOUCHER_EDIT rows via ONE batched lookup; other rows omit it', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/approvals',
+      headers: { authorization: `Bearer ${signOps()}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+
+    const changeRow = body.approvals.find((a: any) => a.id === 'appr-ve-change')
+    const endRow = body.approvals.find((a: any) => a.id === 'appr-ve-end')
+    const editRow = body.approvals.find((a: any) => a.id === 'appr-e')
+    expect(changeRow.voucherEditKind).toBe('CHANGE')
+    expect(endRow.voucherEditKind).toBe('END')
+    // Non-VOUCHER_EDIT rows omit the key entirely (optional field).
+    expect('voucherEditKind' in editRow).toBe(false)
+
+    // ONE batched findMany over exactly the page's VOUCHER_EDIT referenceIds,
+    // curated select (kind only) - no N+1, nothing else selected.
+    expect((app.prisma.voucherPendingEdit.findMany as any).mock.calls.length).toBe(1)
+    const args = (app.prisma.voucherPendingEdit.findMany as any).mock.calls[0][0]
+    expect(args.where).toEqual({ id: { in: ['pe-change', 'pe-end'] } })
+    expect(args.select).toEqual({ id: true, kind: true })
+  })
+
+  it('a VOUCHER_EDIT row whose staging row is missing carries voucherEditKind:null (never throws)', async () => {
+    app.prisma.voucherPendingEdit.findMany = vi.fn().mockResolvedValue([{ id: 'pe-change', kind: 'CHANGE' }])
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/approvals',
+      headers: { authorization: `Bearer ${signOps()}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    const endRow = body.approvals.find((a: any) => a.id === 'appr-ve-end')
+    expect(endRow.voucherEditKind).toBeNull()
+  })
+})

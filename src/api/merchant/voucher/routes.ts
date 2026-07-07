@@ -12,6 +12,10 @@ import {
   createFlagshipRmvVoucher,
   updateRmvVoucher,
   submitRmvVoucher,
+  requestFlagshipVoucherChange,
+  requestVoucherEnd,
+  withdrawVoucherSubmission,
+  withdrawVoucherPendingEdit,
 } from './service'
 import { getVoucherAnalytics } from './analytics'
 
@@ -172,6 +176,45 @@ export async function voucherRoutes(app: FastifyInstance) {
     )
   })
 
+  // ─── Voucher governed flows (2026-07-07) ────────────────────────────────────
+
+  // D4: request-to-end is CUSTOM-only (a flagship target is rejected in the
+  // service with VOUCHER_EDIT_NOT_ALLOWED, never a Zod error). Mandatory reason.
+  const governedReasonSchema = z.object({ reason: z.string().min(1).max(2000) })
+
+  app.post(`${prefix}/:id/request-end`, async (req: FastifyRequest, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params)
+    const { reason } = governedReasonSchema.parse(req.body)
+    const pendingEdit = await requestVoucherEnd(app.prisma, req.user.sub, id, reason, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.status(201).send(pendingEdit)
+  })
+
+  // D2: INSTANT self-service withdraw of a PENDING_APPROVAL custom submission.
+  // No body; the service flips voucher -> DRAFT + the open VOUCHER approval ->
+  // WITHDRAWN atomically.
+  app.post(`${prefix}/:id/withdraw`, async (req: FastifyRequest, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params)
+    return reply.send(
+      await withdrawVoucherSubmission(app.prisma, req.user.sub, id, {
+        ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+      })
+    )
+  })
+
+  // Withdraw an own PENDING VoucherPendingEdit (mirrors the profile
+  // edit-request withdraw). Static 'pending-edits' segment wins over the
+  // param routes above.
+  app.post(`${prefix}/pending-edits/:id/withdraw`, async (req: FastifyRequest, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params)
+    return reply.send(
+      await withdrawVoucherPendingEdit(app.prisma, req.user.sub, id, {
+        ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+      })
+    )
+  })
+
   // ─── RMV routes ───────────────────────────────────────────────────────────
   const rmvPrefix = `${prefix}/rmv`
 
@@ -206,5 +249,34 @@ export async function voucherRoutes(app: FastifyInstance) {
     return reply.send(await submitRmvVoucher(app.prisma, req.user.sub, id, {
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
     }))
+  })
+
+  // Voucher governed flows: request a change to a LIVE (ACTIVE) flagship. The
+  // proposable fields are a fixed shape (the promotable top-level set) + the
+  // MANDATORY reason; unknown body keys are stripped by Zod, and the service
+  // re-checks the keys against the voucher's RmvTemplate.allowedFields. A draft
+  // flagship keeps the direct PATCH path above.
+  const requestChangeSchema = z.object({
+    reason:          z.string().min(1).max(2000),
+    title:           z.string().min(1).max(200).optional(),
+    description:     z.string().max(2000).optional(),
+    terms:           z.string().max(2000).optional(),
+    imageUrl:        z.string().url().optional(),
+    estimatedSaving: z.number().positive().optional(),
+  })
+
+  app.post(`${rmvPrefix}/:id/request-change`, async (req: FastifyRequest, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params)
+    const { reason, ...proposedFields } = requestChangeSchema.parse(req.body)
+    // Drop keys Zod resolved to undefined (omitted optionals) so the service
+    // sees only genuinely-proposed fields.
+    const proposed: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(proposedFields)) {
+      if (v !== undefined) proposed[k] = v
+    }
+    const pendingEdit = await requestFlagshipVoucherChange(app.prisma, req.user.sub, id, proposed, reason, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.status(201).send(pendingEdit)
   })
 }
