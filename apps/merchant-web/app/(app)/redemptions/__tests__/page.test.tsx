@@ -37,6 +37,16 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => searchParams,
 }))
 
+// The page gates the drawer's "View voucher" link on the viewer's role
+// (OWNER / BRANCH_MANAGER only). Mock the session + profile so tests can drive it.
+let viewerRole: string | null = 'OWNER'
+jest.mock('@/lib/auth/session', () => ({
+  useSession: () => ({ isAuthenticated: true }),
+}))
+jest.mock('@/lib/auth/useMerchantProfile', () => ({
+  useMerchantProfile: () => ({ data: { viewerCapabilities: { role: viewerRole } } }),
+}))
+
 const ROW = {
   id: 'r1',
   redemptionCode: 'A7K2P9X4',
@@ -79,6 +89,7 @@ beforeEach(() => {
   listBranches.mockReset().mockResolvedValue([{ id: 'b1', name: 'High Street' }])
   openValidate.mockReset()
   searchParams = new URLSearchParams()
+  viewerRole = 'OWNER'
 })
 
 describe('RedemptionsPage (F1 log + filters)', () => {
@@ -172,6 +183,38 @@ describe('RedemptionsPage (F1 log + filters)', () => {
     expect(detail.textContent ?? '').not.toMatch(/@|07\d{9}|\+44|Khan/)
   })
 
+  it('OWNER viewer: the detail drawer offers a View voucher link', async () => {
+    viewerRole = 'OWNER'
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    fireEvent.click((await screen.findByText('Free coffee')).closest('tr')!)
+    const detail = await screen.findByRole('dialog')
+    expect(within(detail).getByRole('link', { name: /view voucher/i })).toHaveAttribute(
+      'href',
+      '/vouchers/v1',
+    )
+  })
+
+  it('STAFF viewer: the detail drawer does NOT offer a View voucher link', async () => {
+    viewerRole = 'STAFF'
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    fireEvent.click((await screen.findByText('Free coffee')).closest('tr')!)
+    const detail = await screen.findByRole('dialog')
+    expect(within(detail).queryByRole('link', { name: /view voucher/i })).toBeNull()
+    // Redemptions detail itself stays fully usable for STAFF.
+    expect(within(detail).getByText('A7K2 P9X4')).toBeInTheDocument()
+  })
+
+  it('unknown/absent role: fails closed (no View voucher link)', async () => {
+    viewerRole = null
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    fireEvent.click((await screen.findByText('Free coffee')).closest('tr')!)
+    const detail = await screen.findByRole('dialog')
+    expect(within(detail).queryByRole('link', { name: /view voucher/i })).toBeNull()
+  })
+
   it('the Export CSV button passes the active filters (not the pagination)', async () => {
     listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
     renderPage()
@@ -183,6 +226,35 @@ describe('RedemptionsPage (F1 log + filters)', () => {
         expect.objectContaining({ status: 'validated' }),
       ),
     )
+  })
+})
+
+describe('RedemptionsPage info cards + awaiting banner (fidelity)', () => {
+  it('renders the Awaiting + Validated definition cards and NO Reversed card', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    expect(
+      screen.getByText(/the customer redeemed in the app and has a code/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/staff confirmed the code, by qr scan/i)).toBeInTheDocument()
+    // Reversed is backend-gated and must NOT appear anywhere on the surface.
+    expect(screen.queryByText(/reversed/i)).toBeNull()
+  })
+
+  it('shows the awaiting banner with a count when rows are awaiting validation', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW, VALIDATED_ROW], total: 2, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    expect(screen.getByText(/1 code is awaiting validation/i)).toBeInTheDocument()
+    expect(screen.getByText(/validate each one when staff confirm it/i)).toBeInTheDocument()
+  })
+
+  it('hides the awaiting banner when nothing is awaiting', async () => {
+    listRedemptions.mockResolvedValue({ items: [VALIDATED_ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Lunch deal')
+    expect(screen.queryByText(/validate each one when staff confirm it/i)).toBeNull()
   })
 })
 

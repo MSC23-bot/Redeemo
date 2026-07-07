@@ -26,7 +26,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Chip } from '@/components/ui/chip'
-import { CircleCheck } from '@/lib/icons'
+import { CircleCheck, AlertTriangle } from '@/lib/icons'
 import { ApiError } from '@/lib/api/client'
 import { lookupRedemptionByCode, validateRedemptionCode, type RedemptionRow } from '@/lib/api/redemptions'
 import {
@@ -64,7 +64,7 @@ function messageForError(err: unknown): string {
   }
 }
 
-type Step = 'entry' | 'preview' | 'done'
+type Step = 'entry' | 'preview' | 'done' | 'error'
 
 const labelClass = 'text-xs font-semibold uppercase tracking-wide text-muted-foreground'
 
@@ -99,12 +99,28 @@ function PreviewBody({ row }: { row: RedemptionRow }) {
   )
 }
 
-export function ValidateCodeDialog({ onClose }: { onClose: () => void }) {
+// The verify response may carry the validator label; typed loosely so the
+// success detail block can show it when present (never guessed).
+type ValidateResult = { validatedByLabel?: string | null }
+
+export function ValidateCodeDialog({
+  onClose,
+  initialCode = '',
+}: {
+  onClose: () => void
+  // Pre-seeds the entry input (the detail drawer's "Validate this code" action).
+  initialCode?: string
+}) {
   const queryClient = useQueryClient()
   const [step, setStep] = React.useState<Step>('entry')
-  const [code, setCode] = React.useState('')
+  const [code, setCode] = React.useState(() => normalizeCode(initialCode))
   const [preview, setPreview] = React.useState<RedemptionRow | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  // The dedicated "Check the code" warning-state message (format-invalid or
+  // not-found); distinct from the inline `error` used for suspended / branch /
+  // generic failures on the entry + preview steps.
+  const [warning, setWarning] = React.useState<string | null>(null)
+  const [result, setResult] = React.useState<ValidateResult | null>(null)
   const [busy, setBusy] = React.useState(false)
 
   const normalized = normalizeCode(code)
@@ -112,7 +128,10 @@ export function ValidateCodeDialog({ onClose }: { onClose: () => void }) {
   async function handleLookup() {
     setError(null)
     if (!CODE_ALPHABET.test(normalized)) {
-      setError('Enter the 8-character code (letters and numbers).')
+      setWarning(
+        'A redemption code is eight characters, shown as two groups of four. Enter all eight to continue.',
+      )
+      setStep('error')
       return
     }
     setBusy(true)
@@ -121,7 +140,15 @@ export function ValidateCodeDialog({ onClose }: { onClose: () => void }) {
       setPreview(row)
       setStep('preview')
     } catch (err) {
-      setError(messageForError(err))
+      // A not-found code is a "check the code" problem, so it goes to the same
+      // dedicated warning state as a malformed code. Other failures (suspended,
+      // branch unavailable, generic) stay as an inline note on the entry step.
+      if (err instanceof ApiError && err.code === 'REDEMPTION_NOT_FOUND') {
+        setWarning(messageForError(err))
+        setStep('error')
+      } else {
+        setError(messageForError(err))
+      }
     } finally {
       setBusy(false)
     }
@@ -131,7 +158,8 @@ export function ValidateCodeDialog({ onClose }: { onClose: () => void }) {
     setError(null)
     setBusy(true)
     try {
-      await validateRedemptionCode(normalized)
+      const res = (await validateRedemptionCode(normalized)) as ValidateResult
+      setResult(res ?? null)
       await queryClient.invalidateQueries({ queryKey: ['redemptions'] })
       setStep('done')
     } catch (err) {
@@ -148,13 +176,18 @@ export function ValidateCodeDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // Reset to a fresh entry step (Back, "Try another code", "Validate another").
   function backToEntry() {
     setStep('entry')
     setPreview(null)
+    setResult(null)
     setError(null)
+    setWarning(null)
+    setCode('')
   }
 
   const isAlreadyValidated = preview?.status === 'VALIDATED'
+  const validatedByLabel = result?.validatedByLabel ?? preview?.validatedByLabel ?? null
 
   return (
     <Dialog
@@ -172,7 +205,7 @@ export function ValidateCodeDialog({ onClose }: { onClose: () => void }) {
           </p>
         </header>
 
-        {error && (
+        {error && step !== 'error' && (
           <div role="alert" className="text-sm" style={{ color: 'var(--danger)' }}>
             {error}
           </div>
@@ -217,7 +250,7 @@ export function ValidateCodeDialog({ onClose }: { onClose: () => void }) {
                 Back
               </Button>
               {isAlreadyValidated ? (
-                <Button variant="navy" onClick={onClose}>
+                <Button variant="secondary" onClick={onClose}>
                   Done
                 </Button>
               ) : (
@@ -231,18 +264,58 @@ export function ValidateCodeDialog({ onClose }: { onClose: () => void }) {
 
         {step === 'done' && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
-              <CircleCheck size={28} aria-hidden="true" style={{ color: 'var(--success)' }} />
-              <div>
-                <p className="font-semibold text-foreground">Validated</p>
-                <p className="text-sm text-muted-foreground">
-                  {preview?.voucher.title} for {preview?.customerName} is now validated.
-                </p>
-              </div>
+            <div className="flex flex-col items-center gap-2 pt-2 text-center">
+              <span
+                className="flex size-14 items-center justify-center rounded-full"
+                style={{ background: 'rgba(15,122,62,0.10)' }}
+              >
+                <CircleCheck size={30} aria-hidden="true" style={{ color: 'var(--success)' }} />
+              </span>
+              <p className="font-display text-lg font-semibold text-foreground">
+                Validated for {preview?.customerName}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {preview?.voucher.title}. The customer can enjoy their voucher now.
+              </p>
             </div>
-            <div className="flex justify-end">
-              <Button variant="navy" onClick={onClose}>
+
+            <div className="rounded-lg border border-border bg-card px-4 py-1">
+              {validatedByLabel && <PreviewRow label="Validated by">{validatedByLabel}</PreviewRow>}
+              <PreviewRow label="When">Just now</PreviewRow>
+              <PreviewRow label="Method">Manual code entry</PreviewRow>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              {/* Dismiss = secondary (owner no-navy-CTA direction); the primary
+                  forward action (Validate another) keeps the brand gradient. */}
+              <Button variant="secondary" onClick={onClose}>
                 Done
+              </Button>
+              <Button variant="gradient" onClick={backToEntry}>
+                Validate another
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {step === 'error' && (
+          <div className="space-y-4">
+            <div className="flex flex-col items-center gap-2 pt-2 text-center">
+              <span
+                className="flex size-14 items-center justify-center rounded-2xl"
+                style={{ background: 'rgba(232,74,0,0.10)' }}
+              >
+                <AlertTriangle size={28} aria-hidden="true" style={{ color: 'var(--coral)' }} />
+              </span>
+              <p className="font-display text-lg font-semibold text-foreground">Check the code</p>
+              <p className="text-sm text-muted-foreground">{warning}</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={onClose}>
+                Close
+              </Button>
+              <Button variant="gradient" onClick={backToEntry}>
+                Try another code
               </Button>
             </div>
           </div>

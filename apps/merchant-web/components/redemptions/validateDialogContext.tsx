@@ -12,7 +12,14 @@
 import * as React from 'react'
 
 interface ValidateDialogContextValue {
-  openValidate: () => void
+  // Overloaded so the zero-arg form stays assignable directly to an onClick
+  // handler (topbar / quick actions / page button: `onClick={openValidate}`),
+  // while the detail drawer's "Validate this code" action can pre-seed the entry
+  // step with `openValidate(code)`.
+  openValidate: {
+    (): void
+    (code: string): void
+  }
 }
 
 export const ValidateDialogContext = React.createContext<ValidateDialogContextValue | null>(null)
