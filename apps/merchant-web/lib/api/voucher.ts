@@ -271,3 +271,68 @@ export async function listFlagshipVouchers(): Promise<FlagshipVoucherRow[]> {
     .array(flagshipRowSchema)
     .parse(await apiFetch('/api/v1/merchant/vouchers/rmv', { method: 'GET', auth: true }))
 }
+
+// ─── Slice E: per-voucher analytics ──────────────────────────────────────────
+//
+// GET /api/v1/merchant/vouchers/:id/analytics -> a read-only aggregation over this
+// voucher's eligible redemptions (src/api/merchant/voucher/analytics.ts). Mirrors the
+// AS-BUILT wire shape; a drift is a parse failure here, not a silent render bug.
+//
+// EVERY numeric field uses z.coerce.number() (NOT z.number()) because Prisma Decimal
+// sums (estimatedSaving*) serialise as JSON STRINGS - the PR#327 coercion bug class.
+// The when-used slots are ORDINAL intensity bands (0..3) ONLY: there is deliberately
+// no raw-count field to read, mirroring the Insights busy-times privacy contract.
+
+const whenSlotSchema = z.object({
+  index: z.coerce.number().int(),
+  intensity: z.coerce.number().int().min(0).max(3),
+})
+
+export const voucherAnalyticsSchema = z.object({
+  voucherId: z.string(),
+  totals: z.object({
+    logged: z.coerce.number(),
+    confirmed: z.coerce.number(),
+    confirmedInPersonPct: z.coerce.number(),
+    distinctCustomers: z.coerce.number(),
+    estimatedSavingLogged: z.coerce.number(),
+    estimatedSavingConfirmed: z.coerce.number(),
+  }),
+  lifecycle: z.object({
+    liveSince: z.string().nullable(),
+    liveSinceSource: z.enum(['approvedAt', 'publishedAt']).nullable(),
+    daysLive: z.coerce.number().nullable(),
+  }),
+  trend: z.object({
+    months: z.array(
+      z.object({
+        monthStartLondon: z.string(),
+        logged: z.coerce.number(),
+        confirmed: z.coerce.number(),
+      }),
+    ),
+  }),
+  whenUsed: z.object({
+    days: z.array(whenSlotSchema),
+    dayparts: z.array(whenSlotSchema),
+    busiestDay: z.coerce.number().int().nullable(),
+    busiestDaypart: z.coerce.number().int().nullable(),
+  }),
+  whereUsed: z.object({
+    branches: z.array(
+      z.object({
+        branchId: z.string(),
+        name: z.string(),
+        logged: z.coerce.number(),
+        sharePct: z.coerce.number(),
+      }),
+    ),
+  }),
+})
+export type VoucherAnalytics = z.infer<typeof voucherAnalyticsSchema>
+
+export async function getVoucherAnalytics(id: string): Promise<VoucherAnalytics> {
+  return voucherAnalyticsSchema.parse(
+    await apiFetch(`/api/v1/merchant/vouchers/${id}/analytics`, { method: 'GET', auth: true }),
+  )
+}

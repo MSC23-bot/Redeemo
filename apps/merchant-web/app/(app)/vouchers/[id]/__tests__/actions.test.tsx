@@ -41,6 +41,12 @@ jest.mock('@/lib/voucher/useVoucherCategoryName', () => ({
   useVoucherCategoryName: () => 'Food & Drink',
 }))
 
+// Slice E: the per-voucher analytics section is gated on canViewInsights and is not
+// under test here; keep it hidden so it never fires its own analytics fetch.
+jest.mock('@/lib/insights/useInsightsCapability', () => ({
+  useInsightsCapability: () => ({ canViewInsights: false, ready: true }),
+}))
+
 // Use the REAL builder so the Edit/Duplicate prefill + the save path are exercised
 // end-to-end (it renders the type fields + the Save/Submit buttons).
 function voucher(over: Record<string, unknown> = {}) {
