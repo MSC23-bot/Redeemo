@@ -82,3 +82,71 @@ describe('ChangePasswordModal submit', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 })
+
+describe('ChangePasswordModal dismissal is allowed when NOT pending', () => {
+  it('closes via the X button', () => {
+    const onClose = jest.fn()
+    render(<ChangePasswordModal onClose={onClose} />)
+    fireEvent.click(screen.getByRole('button', { name: /close/i }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes via Escape', () => {
+    const onClose = jest.fn()
+    render(<ChangePasswordModal onClose={onClose} />)
+    fireEvent.keyDown(screen.getByTestId('change-password-modal'), { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes via a scrim click', () => {
+    const onClose = jest.fn()
+    render(<ChangePasswordModal onClose={onClose} />)
+    fireEvent.click(screen.getByTestId('change-password-scrim'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('enables the X button when not pending', () => {
+    render(<ChangePasswordModal onClose={jest.fn()} />)
+    expect(screen.getByRole('button', { name: /close/i })).toBeEnabled()
+  })
+})
+
+describe('ChangePasswordModal blocks EVERY dismissal path while the update is in flight (P3 hardening)', () => {
+  beforeEach(() => {
+    // Force the pending state: isPending true AND a never-resolving mutation so
+    // the modal is stuck mid-request for the duration of the assertions.
+    isPending = true
+    mutateAsync.mockReset().mockReturnValue(new Promise(() => {}))
+  })
+
+  it('the X button is disabled and clicking it does NOT close', () => {
+    const onClose = jest.fn()
+    render(<ChangePasswordModal onClose={onClose} />)
+    const closeButton = screen.getByRole('button', { name: /close/i })
+    expect(closeButton).toBeDisabled()
+    fireEvent.click(closeButton)
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('change-password-modal')).toBeInTheDocument()
+  })
+
+  it('Escape does NOT close while pending', () => {
+    const onClose = jest.fn()
+    render(<ChangePasswordModal onClose={onClose} />)
+    fireEvent.keyDown(screen.getByTestId('change-password-modal'), { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('change-password-modal')).toBeInTheDocument()
+  })
+
+  it('a scrim click does NOT close while pending', () => {
+    const onClose = jest.fn()
+    render(<ChangePasswordModal onClose={onClose} />)
+    fireEvent.click(screen.getByTestId('change-password-scrim'))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('change-password-modal')).toBeInTheDocument()
+  })
+
+  it('Cancel is disabled while pending', () => {
+    render(<ChangePasswordModal onClose={jest.fn()} />)
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
+  })
+})
