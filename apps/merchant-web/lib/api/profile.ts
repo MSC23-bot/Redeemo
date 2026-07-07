@@ -1,6 +1,33 @@
 import { z } from 'zod'
 import { apiFetch } from './client'
 
+// Business Profile M4 / fidelity polish: the SENSITIVE_FIELDS proposed-changes bag
+// a MerchantPendingEdit row carries (businessName, tradingName, description,
+// logoUrl, bannerUrl). Hoisted above merchantProfileSchema (and exported) so the
+// read-shell's `pendingEdits` rows (which merchantProfileSchema types) and the
+// full edit-request lane's `merchantPendingEditSchema` (below) share ONE typed
+// shape instead of the read-shell falling back to an untyped passthrough bag.
+export const merchantProposedChangesSchema = z
+  .object({
+    // businessName never clears to null (the backend always keeps a value here),
+    // so it stays a plain optional string.
+    businessName: z.string().optional(),
+    // tradingName / description / logoUrl / bannerUrl map to NULLABLE Merchant
+    // columns and can be cleared to null through the reviewed lane (the M4
+    // PublicIdentityEditModal's `changedBody()` sends `tradingName: null` on
+    // clear - see PublicIdentityEditModal.tsx). `.optional()` alone rejects
+    // `null` (it only tolerates `undefined`), so a legitimate null-clear
+    // response from createMerchantEditRequest/listMerchantEditRequests/
+    // withdrawMerchantEditRequest previously threw on `.parse()` even though
+    // the backend write succeeded (Codex nullable-clear finding). `.nullable()`
+    // added so the round trip survives a null value.
+    tradingName: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    logoUrl: z.string().nullable().optional(),
+    bannerUrl: z.string().nullable().optional(),
+  })
+  .passthrough()
+
 // M1 Slice 5 lifecycle source. GET /api/v1/merchant/profile returns the raw Merchant
 // row (no wrapper). We pick ONLY the fields the StatusPill + two-home routing need
 // and .passthrough() the rest so a future backend `select` narrowing cannot break
@@ -79,7 +106,10 @@ export const merchantProfileSchema = z
     // Branches-style edit lane, which ships alongside Business Profile M3/M4 editing).
     // Loosely typed + .passthrough() per row so a future backend field addition never
     // breaks parsing; the array itself is optional so an older backend that has not
-    // deployed this include still parses cleanly.
+    // deployed this include still parses cleanly. `proposedChanges` typed via the
+    // shared merchantProposedChangesSchema (fidelity polish) so the read-shell
+    // banner can diff it against the live profile instead of only knowing id/status/
+    // createdAt; `.optional()` so a payload without it (older backend) still parses.
     pendingEdits: z
       .array(
         z
@@ -87,6 +117,7 @@ export const merchantProfileSchema = z
             id: z.string(),
             status: z.string(), // PendingEditStatus enum value
             createdAt: z.string(),
+            proposedChanges: merchantProposedChangesSchema.optional(),
           })
           .passthrough(),
       )
@@ -114,26 +145,8 @@ export async function getMerchantProfile(): Promise<MerchantProfile> {
 // a future server key never breaks the parse.
 export const merchantPendingEditStatusSchema = z.enum(['PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN'])
 
-const merchantProposedChangesSchema = z
-  .object({
-    // businessName never clears to null (the backend always keeps a value here),
-    // so it stays a plain optional string.
-    businessName: z.string().optional(),
-    // tradingName / description / logoUrl / bannerUrl map to NULLABLE Merchant
-    // columns and can be cleared to null through the reviewed lane (the M4
-    // PublicIdentityEditModal's `changedBody()` sends `tradingName: null` on
-    // clear - see PublicIdentityEditModal.tsx). `.optional()` alone rejects
-    // `null` (it only tolerates `undefined`), so a legitimate null-clear
-    // response from createMerchantEditRequest/listMerchantEditRequests/
-    // withdrawMerchantEditRequest previously threw on `.parse()` even though
-    // the backend write succeeded (Codex nullable-clear finding). `.nullable()`
-    // added so the round trip survives a null value.
-    tradingName: z.string().nullable().optional(),
-    description: z.string().nullable().optional(),
-    logoUrl: z.string().nullable().optional(),
-    bannerUrl: z.string().nullable().optional(),
-  })
-  .passthrough()
+// merchantProposedChangesSchema is defined above (hoisted next to the imports) so
+// merchantProfileSchema's `pendingEdits` rows can share the same typed shape.
 
 export const merchantPendingEditSchema = z
   .object({

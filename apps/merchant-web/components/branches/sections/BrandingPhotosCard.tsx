@@ -16,6 +16,13 @@
 // the F7 BranchDetailsEditModal (Edit affordance owner-only here - see GATES below). Banner stays the F7 lane (PR-3 §7
 // default); the gallery manages branch PHOTOS only, not the banner.
 //
+// Fidelity polish (2026-07-07 audit): the empty-banner slot used to render a
+// LockedAffordance ("Add a new banner" / "Coming in this Branches rollout"), but
+// banner upload has ALREADY shipped via this card's Edit button (BranchDetailsEditModal
+// carries a live banner FileUpload) - so that copy was stale/misleading, not a real
+// gate. The empty state now just names the gap and, for an owner, points at the
+// live Edit control above rather than claiming the feature is "coming soon".
+//
 // GATES (D-BM1 + PR-3 §7 / D-PR3-4): Add-photo now flips via `canManage` (the
 // per-branch effective capability - the deferred signal this comment once
 // anticipated). Per-photo REMOVE stays OWNER-only (explicit D-PR3-4 exception;
@@ -31,7 +38,6 @@ import Image from 'next/image'
 import { Card } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
 import { Image as ImageIcon, CheckCircle2, Clock, Pencil, Plus, X } from '@/lib/icons'
-import { LockedAffordance } from '@/components/branches/LockedAffordance'
 import { BranchDetailsEditModal } from '@/components/branches/BranchDetailsEditModal'
 import { uploadBranchPhoto } from '@/lib/api/branch'
 import { useRequestBranchPhotoEdit, useRemoveBranchPhoto } from '@/lib/branches/useBranches'
@@ -200,8 +206,13 @@ export function BrandingPhotosCard({ branch, canManage, isOwner }: { branch: Bra
                 style={{ background: 'var(--tint)', borderColor: 'var(--border-subtle)' }}
               >
                 <ImageIcon size={18} aria-hidden style={{ color: 'var(--text-tertiary)' }} />
-                {/* Banner is the F7 reviewed-edit lane, not the photo gallery (PR-3 §7). */}
-                <LockedAffordance label="Add a new banner" variant="link" subtext={false} />
+                {/* Banner is the F7 reviewed-edit lane, not the photo gallery (PR-3 §7).
+                    Upload already works via the header Edit button above (live banner
+                    FileUpload in BranchDetailsEditModal) - this is a plain empty state,
+                    not a "coming soon" claim. */}
+                <p className="text-[11px] font-medium text-muted-foreground" data-testid="banner-empty-state">
+                  {isOwner ? 'No banner yet. Add one via Edit above.' : 'No banner yet.'}
+                </p>
               </div>
             )}
           </div>

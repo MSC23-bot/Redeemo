@@ -94,7 +94,7 @@ describe('AmenitiesCard toggle + save', () => {
     // Catalogue chips appear once loaded; toggle Free Parking ON (a1 already on).
     const freeParking = await screen.findByRole('button', { name: /free parking/i })
     fireEvent.click(freeParking)
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
     const arg = mutateAsync.mock.calls[0][0]
@@ -107,7 +107,7 @@ describe('AmenitiesCard toggle + save', () => {
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     const outdoor = await screen.findByRole('button', { name: /outdoor seating/i })
     fireEvent.click(outdoor) // turn a1 off
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1))
     expect(mutateAsync.mock.calls[0][0].amenityIds).toEqual([])
   })
@@ -117,10 +117,102 @@ describe('AmenitiesCard toggle + save', () => {
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     const freeParking = await screen.findByRole('button', { name: /free parking/i })
     fireEvent.click(freeParking)
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
     await waitFor(() =>
       expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' })),
     )
+  })
+})
+
+// Fidelity polish (2026-07-07 audit): Edit opens a real Dialog (was inline chip
+// toggling in the card body), matching prototype branches-2 - own header + close,
+// a "this saves straight away" banner - and each amenity renders its OWN iconUrl,
+// falling back to the generic Check only when an amenity has no iconUrl.
+describe('AmenitiesCard edit dialog + per-amenity icons', () => {
+  it('opens a Dialog (not an inline toggle list) with its own header + close + saves-straight-away banner', async () => {
+    render(<AmenitiesCard branch={branch()} canManage />)
+    expect(screen.queryByTestId('edit-amenities-dialog')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    const dialog = screen.getByTestId('edit-amenities-dialog')
+    expect(dialog).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /edit amenities/i })).toBeInTheDocument()
+    expect(screen.getByText(/this saves straight away/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument()
+  })
+
+  it('closes the dialog via Cancel and via the Close button', async () => {
+    render(<AmenitiesCard branch={branch()} canManage />)
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    await screen.findByRole('button', { name: /free parking/i })
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(screen.queryByTestId('edit-amenities-dialog')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /close/i }))
+    expect(screen.queryByTestId('edit-amenities-dialog')).not.toBeInTheDocument()
+  })
+
+  it('renders an amenity\'s own iconUrl in the view-mode selected chip', () => {
+    render(
+      <AmenitiesCard
+        branch={branch({
+          amenities: [{ amenity: { id: 'a1', name: 'Outdoor Seating', iconUrl: 'https://icons.example.com/chair.svg' } }],
+        })}
+        canManage
+      />,
+    )
+    const chip = screen.getByText('Outdoor Seating').closest('span') as HTMLElement
+    const img = chip.querySelector('img')
+    expect(img).toHaveAttribute('src', 'https://icons.example.com/chair.svg')
+  })
+
+  it('falls back to the generic Check icon when an amenity has no iconUrl', () => {
+    render(<AmenitiesCard branch={branch()} canManage />)
+    const chip = screen.getByText('Outdoor Seating').closest('span') as HTMLElement
+    expect(chip.querySelector('img')).not.toBeInTheDocument()
+    expect(chip.querySelector('svg')).toBeInTheDocument()
+  })
+
+  it('renders each catalogue chip\'s own iconUrl in the edit dialog', async () => {
+    getBranchAmenities.mockResolvedValue([
+      { id: 'a1', name: 'Outdoor Seating', iconUrl: 'https://icons.example.com/chair.svg' },
+      { id: 'a2', name: 'Free Parking', iconUrl: null },
+    ])
+    render(<AmenitiesCard branch={branch()} canManage />)
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    const outdoorButton = await screen.findByRole('button', { name: /outdoor seating/i })
+    expect(outdoorButton.querySelector('img')).toHaveAttribute('src', 'https://icons.example.com/chair.svg')
+    const freeParkingButton = screen.getByRole('button', { name: /free parking/i })
+    expect(freeParkingButton.querySelector('img')).not.toBeInTheDocument()
+  })
+
+  // Consistency hardening (Codex, optional): the dialog must not be dismissable
+  // while the "saves straight away" request is in flight (matches the change-password
+  // modal pattern). Escape, scrim-click, and the X must all no-op while pending; X +
+  // Cancel are disabled. The save's own success path still closes the dialog normally
+  // (covered by the toggle+save tests above).
+  it('does NOT dismiss via Escape, scrim, or X while a save is in flight, and disables Cancel + X', async () => {
+    isPending = true // the busy ref reads this live: requestClose must no-op.
+    render(<AmenitiesCard branch={branch()} canManage />)
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    await screen.findByRole('button', { name: /free parking/i })
+
+    // Both dismiss controls are disabled while the save is pending.
+    expect(screen.getByRole('button', { name: /close/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
+
+    // Escape on the dialog wrapper does not dismiss.
+    fireEvent.keyDown(screen.getByTestId('edit-amenities-dialog'), { key: 'Escape' })
+    expect(screen.getByTestId('edit-amenities-dialog')).toBeInTheDocument()
+
+    // Scrim click does not dismiss.
+    fireEvent.click(screen.getByTestId('edit-amenities-scrim'))
+    expect(screen.getByTestId('edit-amenities-dialog')).toBeInTheDocument()
+
+    // Clicking the X does not dismiss.
+    fireEvent.click(screen.getByRole('button', { name: /close/i }))
+    expect(screen.getByTestId('edit-amenities-dialog')).toBeInTheDocument()
   })
 })
 

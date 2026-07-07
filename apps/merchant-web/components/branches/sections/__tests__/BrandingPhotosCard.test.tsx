@@ -211,6 +211,33 @@ describe('BrandingPhotosCard D-BM1 flip: assigned Branch Manager', () => {
   })
 })
 
+// Fidelity polish (2026-07-07 audit): the empty-banner slot used to render a
+// LockedAffordance claiming banner upload was "Coming in this Branches rollout" -
+// stale, since it already works via the header Edit button. It must now show a
+// plain empty state (owner-pointer to Edit), never the rollout copy.
+describe('BrandingPhotosCard empty banner state', () => {
+  it('shows a plain empty state pointing to Edit for an owner, never the stale "coming soon" copy', () => {
+    renderCard(branch({ bannerUrl: null }), true)
+    expect(screen.queryByText(/coming in this branches rollout/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('banner-empty-state')).toHaveTextContent(/add one via edit above/i)
+  })
+
+  it('shows a plain empty state with no Edit pointer for a non-owner', () => {
+    renderCard(branch({ bannerUrl: null }), false)
+    expect(screen.queryByText(/coming in this branches rollout/i)).not.toBeInTheDocument()
+    const emptyState = screen.getByTestId('banner-empty-state')
+    expect(emptyState).toHaveTextContent(/no banner yet/i)
+    expect(emptyState).not.toHaveTextContent(/edit/i)
+  })
+
+  it('still renders the live banner image via Edit-based upload when bannerUrl is set (Edit upload untouched)', () => {
+    renderCard(branch({ bannerUrl: 'https://cdn/banner.png' }), true)
+    expect(screen.queryByTestId('banner-empty-state')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^edit/i }))
+    expect(screen.getByTestId('f7-edit-modal')).toBeInTheDocument()
+  })
+})
+
 describe('BrandingPhotosCard remove (instant)', () => {
   it('owner Remove calls the DELETE client and toasts on success', async () => {
     removeBranchPhoto.mockResolvedValue(undefined)
