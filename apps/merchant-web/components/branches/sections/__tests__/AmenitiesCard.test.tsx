@@ -186,6 +186,34 @@ describe('AmenitiesCard edit dialog + per-amenity icons', () => {
     const freeParkingButton = screen.getByRole('button', { name: /free parking/i })
     expect(freeParkingButton.querySelector('img')).not.toBeInTheDocument()
   })
+
+  // Consistency hardening (Codex, optional): the dialog must not be dismissable
+  // while the "saves straight away" request is in flight (matches the change-password
+  // modal pattern). Escape, scrim-click, and the X must all no-op while pending; X +
+  // Cancel are disabled. The save's own success path still closes the dialog normally
+  // (covered by the toggle+save tests above).
+  it('does NOT dismiss via Escape, scrim, or X while a save is in flight, and disables Cancel + X', async () => {
+    isPending = true // the busy ref reads this live: requestClose must no-op.
+    render(<AmenitiesCard branch={branch()} canManage />)
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    await screen.findByRole('button', { name: /free parking/i })
+
+    // Both dismiss controls are disabled while the save is pending.
+    expect(screen.getByRole('button', { name: /close/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
+
+    // Escape on the dialog wrapper does not dismiss.
+    fireEvent.keyDown(screen.getByTestId('edit-amenities-dialog'), { key: 'Escape' })
+    expect(screen.getByTestId('edit-amenities-dialog')).toBeInTheDocument()
+
+    // Scrim click does not dismiss.
+    fireEvent.click(screen.getByTestId('edit-amenities-scrim'))
+    expect(screen.getByTestId('edit-amenities-dialog')).toBeInTheDocument()
+
+    // Clicking the X does not dismiss.
+    fireEvent.click(screen.getByRole('button', { name: /close/i }))
+    expect(screen.getByTestId('edit-amenities-dialog')).toBeInTheDocument()
+  })
 })
 
 describe('AmenitiesCard missing-category fallback', () => {

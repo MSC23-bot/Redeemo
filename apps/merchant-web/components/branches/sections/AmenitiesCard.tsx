@@ -111,6 +111,20 @@ export function AmenitiesCard({ branch, canManage }: { branch: Branch; canManage
     setEditing(false)
   }
 
+  // Consistency hardening (Codex, optional): the dialog must not be dismissable
+  // while the "saves straight away" request is in flight, matching the
+  // change-password modal pattern. A busy ref (read live off the mutation's
+  // isPending) gates Escape + scrim-click (via the Dialog onClose) AND the X/Cancel
+  // controls, so an in-flight save can never be interrupted mid-request. The save's
+  // own success path still closes the dialog normally (via setEditing(false)).
+  const busyRef = React.useRef(false)
+  busyRef.current = save.isPending
+  // cancel is a plain per-render local closure that only calls stable state setters,
+  // so ESLint does not flag it as a missing dep; the ref read is what gates the close.
+  const requestClose = React.useCallback(() => {
+    if (!busyRef.current) cancel()
+  }, [])
+
   function toggle(id: string) {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -172,7 +186,7 @@ export function AmenitiesCard({ branch, canManage }: { branch: Branch; canManage
       {editing ? (
         <Dialog
           label="Edit amenities"
-          onClose={cancel}
+          onClose={requestClose}
           panelTestId="edit-amenities-dialog"
           scrimTestId="edit-amenities-scrim"
         >
@@ -180,9 +194,10 @@ export function AmenitiesCard({ branch, canManage }: { branch: Branch; canManage
             <h2 className="font-display text-xl font-semibold text-foreground">Edit amenities</h2>
             <button
               type="button"
-              onClick={cancel}
+              onClick={requestClose}
+              disabled={save.isPending}
               aria-label="Close"
-              className="text-[#6B7390] hover:text-[#010C35]"
+              className="text-[#6B7390] hover:text-[#010C35] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <X size={18} aria-hidden />
             </button>
