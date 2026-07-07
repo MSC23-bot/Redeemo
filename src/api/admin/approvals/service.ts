@@ -163,6 +163,20 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     claimers.map((c: { id: string; firstName: string; lastName: string }) => [c.id, `${c.firstName} ${c.lastName}`]),
   )
 
+  // Voucher governed flows: batch-resolve each VOUCHER_EDIT row's kind so the
+  // queue can label "Voucher change request" vs "Voucher end request" without
+  // opening the row. ONE findMany over the page's VOUCHER_EDIT referenceIds
+  // (mirrors the voucher/merchant batches above - no N+1), curated select
+  // (kind only). Additive/optional on the row shape: other types omit it.
+  const voucherEditIds = approvals.filter((a) => a.type === 'VOUCHER_EDIT').map((a) => a.referenceId)
+  const voucherEditRows = voucherEditIds.length
+    ? await prisma.voucherPendingEdit.findMany({
+        where: { id: { in: voucherEditIds } },
+        select: { id: true, kind: true },
+      })
+    : []
+  const voucherEditKindById = new Map(voucherEditRows.map((e) => [e.id, e.kind]))
+
   return {
     page,
     pageSize,
@@ -197,6 +211,12 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
         ...a,
         merchant: a.type === 'MERCHANT_ONBOARDING' ? (merchantById.get(a.referenceId) ?? null) : null,
         claimedBy: a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null,
+        // Voucher governed flows: VOUCHER_EDIT rows carry the request kind
+        // (CHANGE | END) for the queue label; null when the staging row is
+        // missing. Other types omit the key entirely (optional field).
+        ...(a.type === 'VOUCHER_EDIT'
+          ? { voucherEditKind: voucherEditKindById.get(a.referenceId) ?? null }
+          : {}),
       }
     }),
   }
