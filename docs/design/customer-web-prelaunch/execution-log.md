@@ -387,3 +387,10 @@ edited by this workstream.
   3px whisper float), hover 1.1 + live shadow + sheen. shadow-*.png assets
   removed; one final 0.6px alpha soften on all four mattes. Nothing carried,
   nothing filled: neither residue nor grey nor edge-peek has a mechanism.
+- Hero v4.6.1 (owner: pizza card's bottom-left corner ragged; ribbon washed
+  out at its right notch): both were matte flaws in layer-pizza.png: a pale
+  half-transparent ribbon patch sat over the right notch (hiding the true red
+  ribbon in the base) and low-alpha haze ringed the corner. Erased the pink
+  wash (pale desaturated rule, x > w-170, pepperoni-safe), hardened the matte
+  (alpha < 120 -> 0), resoftened 0.7px. QA composite verified the notch now
+  shows the artwork's red ribbon through it.
