@@ -217,3 +217,11 @@ edited by this workstream.
   explicitly approved 12 credits; Phase 1 stills batch (12 images, image-tier
   only, hard-capped) launched. Clip animation round will be a separate explicit
   approval.
+- Higgsfield Phase 1+2 complete (owner-approved 12 + ~40 credits; ~58 remain):
+  12 stills generated via the headless-session MCP bridge, curated on a
+  published artifact (picks 1/6/8/10/11; owner confirmed); 5 clips animated
+  from the picked stills. Integrated: hero ambient drift + per-chapter
+  backdrops (dusk town behind Find is the signature frame), gradient-washed
+  toward ground colours so foreground always wins, videos play only while
+  their band is visible, posters serve reduced-motion. Follow-ups: transcode/
+  CDN for the 15MB of loops; mobile story variant.
