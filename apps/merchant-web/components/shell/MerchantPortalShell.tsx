@@ -72,12 +72,21 @@ export function MerchantPortalShell({ children }: { children: React.ReactNode })
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#fff' }}>
-      {/* Sidebar: fixed drawer on narrow, static (collapsible) column on wide */}
+      {/* Sidebar: fixed drawer on narrow, viewport-anchored (collapsible) column
+          on wide. Both modes pin the sidebar to the SCREEN (not the page), so
+          its own pinned bottom section (My account / Help & support) never
+          drifts with page content height - it stays put on short pages and
+          never falls below the fold on long ones. `100vh` (not `100dvh`) is
+          fine here: this branch only renders above the NARROW breakpoint
+          (desktop), where dvh's benefit over vh - accounting for a mobile
+          browser's collapsing address bar - does not apply; the narrow
+          drawer below is already viewport-correct via fixed top:0/bottom:0. */}
       <aside
+        data-testid="sidebar-shell"
         style={
           isNarrow
             ? { position: 'fixed', top: 0, left: 0, bottom: 0, width: 282, zIndex: 60, background: '#fff', borderRight: '1px solid #EEF1F4', transform: showDrawer ? 'translateX(0)' : 'translateX(-101%)', transition: 'transform .2s ease' }
-            : { width: collapsed ? 72 : 262, flexShrink: 0, borderRight: '1px solid #EEF1F4', background: '#fff', transition: 'width .2s ease' }
+            : { position: 'sticky', top: 0, alignSelf: 'flex-start', height: '100vh', width: collapsed ? 72 : 262, flexShrink: 0, borderRight: '1px solid #EEF1F4', background: '#fff', transition: 'width .2s ease' }
         }
       >
         <Sidebar

@@ -15,7 +15,11 @@ export function ValidateDialogProvider({ children }: { children: React.ReactNode
   const [open, setOpen] = React.useState(false)
   const [initialCode, setInitialCode] = React.useState('')
   const openValidate = React.useCallback((code?: string) => {
-    setInitialCode(code ?? '')
+    // Defensive: openValidate is designed to be passed directly as an onClick
+    // handler (`onClick={openValidate}`), so any call site that forwards the
+    // React SyntheticEvent instead of a real code string must never poison the
+    // dialog's initial input - a non-string argument is treated as "no code".
+    setInitialCode(typeof code === 'string' ? code : '')
     setOpen(true)
   }, [])
   const close = React.useCallback(() => setOpen(false), [])

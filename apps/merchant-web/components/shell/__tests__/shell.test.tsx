@@ -95,6 +95,24 @@ describe('MerchantPortalShell (M1 Slice 5 guard)', () => {
     expect(screen.getByText('Vouchers')).toBeInTheDocument()
   })
 
+  // Regression for the staging-acceptance layout bug: on wide viewports the
+  // sidebar's pinned bottom items ("My account" / "Help & support") used to
+  // scroll away/move depending on PAGE height, because the <aside> was a
+  // plain flex item stretched to match the (page-length-dependent) row
+  // height. It must instead be pinned to the SCREEN: sticky + its own
+  // viewport-height box, independent of how tall the page content is.
+  it('anchors the wide-viewport sidebar to the viewport (sticky + full viewport height), not the page', () => {
+    renderShell(
+      <MerchantPortalShell>
+        <p>page content</p>
+      </MerchantPortalShell>,
+    )
+    const aside = screen.getByTestId('sidebar-shell')
+    expect(aside.style.position).toBe('sticky')
+    expect(aside.style.top).toBe('0px')
+    expect(aside.style.height).toBe('100vh')
+  })
+
   it('does not render the mobile tab bar on wide viewports', () => {
     renderShell(
       <MerchantPortalShell>

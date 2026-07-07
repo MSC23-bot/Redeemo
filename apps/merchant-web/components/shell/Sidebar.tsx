@@ -79,43 +79,58 @@ export function Sidebar({
   const pinned = visiblePinnedItems()
 
   return (
-    <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: collapsed ? '18px 10px' : '18px 14px', height: '100%' }}>
-      {/* Brand lockup */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : undefined, gap: collapsed ? 0 : 10, padding: collapsed ? 0 : '0 6px' }}>
-        <Image src="/redeemo-r-mark.png" alt="Redeemo" width={34} height={34} />
-        {!collapsed && (
-          <div style={{ lineHeight: 1.1 }}>
-            <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 15, color: '#010C35' }}>Redeemo</div>
-            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6B7390' }}>for Business</div>
-          </div>
-        )}
-      </div>
-
-      <div style={{ padding: collapsed ? 0 : '0 6px', display: 'flex', justifyContent: collapsed ? 'center' : undefined }}>
-        <StatusPill state={status} dotOnly={collapsed} />
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <NavRow item={HOME_ITEM} active={isNavItemActive(pathname, HOME_ITEM.href)} collapsed={collapsed} onNavigate={onNavigate} />
-      </div>
-
-      {groups.map((group) => (
-        <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* Scrollable region: brand + status + Home + nav groups. This is the
+          ONLY part of the sidebar that scrolls internally (nav overflow), so
+          the pinned block below always stays on-screen at the bottom of the
+          sidebar's own viewport-anchored box (see MerchantPortalShell), never
+          the bottom of the page. */}
+      <div
+        data-testid="sidebar-scroll-region"
+        style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16, padding: collapsed ? '18px 10px' : '18px 14px' }}
+      >
+        {/* Brand lockup */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : undefined, gap: collapsed ? 0 : 10, padding: collapsed ? 0 : '0 6px' }}>
+          <Image src="/redeemo-r-mark.png" alt="Redeemo" width={34} height={34} />
           {!collapsed && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
-              <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#8089A4' }}>{group.title}</span>
-              {group.tag && (
-                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: '#6B7390', background: '#F3F4F6', borderRadius: 999, padding: '1px 6px' }}>{group.tag}</span>
-              )}
+            <div style={{ lineHeight: 1.1 }}>
+              <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 15, color: '#010C35' }}>Redeemo</div>
+              <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#6B7390' }}>for Business</div>
             </div>
           )}
-          {group.items.map((item) => (
-            <NavRow key={item.label} item={item} active={isNavItemActive(pathname, item.href)} collapsed={collapsed} onNavigate={onNavigate} />
-          ))}
         </div>
-      ))}
 
-      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 2, paddingTop: 12, borderTop: '1px solid #EEF1F4' }}>
+        <div style={{ padding: collapsed ? 0 : '0 6px', display: 'flex', justifyContent: collapsed ? 'center' : undefined }}>
+          <StatusPill state={status} dotOnly={collapsed} />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <NavRow item={HOME_ITEM} active={isNavItemActive(pathname, HOME_ITEM.href)} collapsed={collapsed} onNavigate={onNavigate} />
+        </div>
+
+        {groups.map((group) => (
+          <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {!collapsed && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
+                <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: '#8089A4' }}>{group.title}</span>
+                {group.tag && (
+                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: '#6B7390', background: '#F3F4F6', borderRadius: 999, padding: '1px 6px' }}>{group.tag}</span>
+                )}
+              </div>
+            )}
+            {group.items.map((item) => (
+              <NavRow key={item.label} item={item} active={isNavItemActive(pathname, item.href)} collapsed={collapsed} onNavigate={onNavigate} />
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Pinned section: NOT part of the scrollable region, so it is always
+          visible at the bottom of the sidebar's own box. */}
+      <div
+        data-testid="sidebar-pinned"
+        style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 2, padding: collapsed ? '12px 10px 18px' : '12px 14px 18px', borderTop: '1px solid #EEF1F4' }}
+      >
         {pinned.map((item) => (
           <NavRow key={item.label} item={item} active={isNavItemActive(pathname, item.href)} collapsed={collapsed} onNavigate={onNavigate} />
         ))}
