@@ -27,10 +27,10 @@ const GROUND = '#FFF5EB'
 // Crop boxes of each card in source pixels (see crop-meta.json in the
 // design log): left, top, width, height as fractions of the image.
 const LAYERS = [
-  { key: 'coffee', src: '/app-shots/hero-collage/layer-coffee.png', box: [610, 56, 384, 339], depth: 1.2, dur: 5.4 },
-  { key: 'lunch', src: '/app-shots/hero-collage/layer-lunch.png', box: [526, 338, 435, 330], depth: 1.0, dur: 6.2 },
-  { key: 'gym', src: '/app-shots/hero-collage/layer-gym.png', box: [1354, 141, 318, 282], depth: 0.85, dur: 5.8 },
-  { key: 'pizza', src: '/app-shots/hero-collage/layer-pizza.png', box: [1304, 376, 368, 339], depth: 1.1, dur: 6.8 },
+  { key: 'coffee', img: '/app-shots/hero-collage/shadow-coffee.png', mask: '/app-shots/hero-collage/layer-coffee.png', box: [610, 56, 384, 339], dur: 5.4 },
+  { key: 'lunch', img: '/app-shots/hero-collage/shadow-lunch.png', mask: '/app-shots/hero-collage/layer-lunch.png', box: [526, 338, 435, 330], dur: 6.2 },
+  { key: 'gym', img: '/app-shots/hero-collage/shadow-gym.png', mask: '/app-shots/hero-collage/layer-gym.png', box: [1354, 141, 318, 282], dur: 5.8 },
+  { key: 'pizza', img: '/app-shots/hero-collage/shadow-pizza.png', mask: '/app-shots/hero-collage/layer-pizza.png', box: [1304, 376, 368, 339], dur: 6.8 },
 ] as const
 
 function CardLayer({
@@ -63,8 +63,8 @@ function CardLayer({
       <motion.div
         className="relative h-full w-full"
         variants={{
-          rest: { scale: 1.04, filter: 'drop-shadow(0 8px 12px rgba(97,20,4,0.1))' },
-          hover: { scale: 1.11, filter: 'drop-shadow(0 22px 30px rgba(97,20,4,0.22))' },
+          rest: { scale: 1, filter: 'drop-shadow(0 0px 0px rgba(97,20,4,0))' },
+          hover: { scale: 1.08, filter: 'drop-shadow(0 18px 26px rgba(97,20,4,0.2))' },
         }}
         transition={{ type: 'spring', stiffness: 240, damping: 20 }}
       >
@@ -75,14 +75,14 @@ function CardLayer({
         >
           {/* Pre-cut, pre-sized assets: the optimizer's re-encode only
               softens them, so serve the exact files */}
-          <Image src={layer.src} alt="" fill unoptimized />
+          <Image src={layer.img} alt="" fill unoptimized />
           {/* A single light sweep across the satin of the card, clipped to
               its die-cut silhouette by its own alpha */}
           <motion.div
             className="absolute inset-0"
             style={{
-              WebkitMaskImage: `url(${layer.src})`,
-              maskImage: `url(${layer.src})`,
+              WebkitMaskImage: `url(${layer.mask})`,
+              maskImage: `url(${layer.mask})`,
               WebkitMaskSize: '100% 100%',
               maskSize: '100% 100%',
               background:
@@ -158,7 +158,7 @@ export function HeroCollage() {
             printed a faint edge against the ground: feather all four borders
             and it melts in. Cards are outside this mask on purpose. */}
         <Image
-          src="/app-shots/hero-collage/base-v4.jpg"
+          src="/app-shots/hero-collage/base-v5.jpg"
           alt=""
           fill
           priority

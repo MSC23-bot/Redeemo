@@ -363,3 +363,18 @@ edited by this workstream.
   (3) VoucherRibbon v5: deeper S-bend, five-stop gradient + along-length
   shade travel (bends read as different tones), TWO die-cut notch pairs with
   stub tear lines.
+- Hero v4.5 + Ribbon v6 (owner: grey/washed ribbon persisted; wants the
+  divider to fold "from one side, then fold, then the other side"):
+  (1) Inpainting abandoned entirely: the base is the PRISTINE artwork again
+  (base-v5 = recovered original with the faithful phone rect). Each floating
+  card now carries its own PAINTED shadow: new shadow-*.png layers cut from
+  the original (alpha = card silhouette UNION shadow mask: darker-than-ground
+  cream, hue-guarded against ribbon/phone, border-feathered). Rest state is
+  exact alignment (scale 1, no CSS shadow), so the page at rest is literally
+  the owner's image; hover lifts with a live shadow; sheen still masked by
+  the card-only silhouette. No colour classification of the background
+  remains anywhere: grey is impossible by construction.
+  (2) VoucherRibbon v6: the fold is back, done properly on the coupon band:
+  width gathers to 38% at t=0.55 and the band continues in its darker back
+  face gradient (front/back segments overlap at the crease), on top of the
+  taper, both notch pairs, tear lines, shade travel.

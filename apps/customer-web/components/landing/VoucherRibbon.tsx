@@ -18,8 +18,10 @@ const VIEW_W = 1440
 const VIEW_H = 300
 const HALF_W = 52 // base half-thickness (scaled by the taper below)
 const SAMPLES = 400
-const NOTCH_TS = [0.3, 0.68] // die-cut notch pairs + tear lines (coupon stubs)
+const NOTCH_TS = [0.28, 0.76] // die-cut notch pairs + tear lines (coupon stubs)
 const NOTCH_R = 14
+const FOLD_T = 0.55 // the band folds over itself here, showing its back face
+const FOLD_SPAN = 0.07
 
 // Centreline: a confident sweep with real bends, edge to edge with bleed.
 const P0 = { x: -80, y: 140 }
@@ -49,8 +51,14 @@ function bezierTangent(t: number) {
   return { x: x / len, y: y / len }
 }
 
-// The coupon taper: markedly thicker on the left, slimming as it recedes.
-const halfWidth = (t: number) => HALF_W * (1.6 - 1.0 * t)
+// The coupon taper: markedly thicker on the left, slimming as it recedes,
+// with the fold's gather where the band twists over
+function foldPinch(t: number) {
+  const s = Math.min(1, Math.abs(t - FOLD_T) / FOLD_SPAN)
+  const smooth = s * s * (3 - 2 * s)
+  return 0.38 + 0.62 * smooth
+}
+const halfWidth = (t: number) => HALF_W * (1.6 - 1.0 * t) * foldPinch(t)
 
 // Geometry is pure module-scope math: identical on server and client.
 type Pt = { x: number; y: number }
@@ -91,10 +99,16 @@ const line = (pts: Pt[], move: boolean) =>
     .map((p, i) => `${i === 0 && move ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
     .join(' ')
 
-const BAND_PATH = `${line(top, true)} ${[...bottom]
-  .reverse()
-  .map((p) => `L${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-  .join(' ')} Z`
+const FOLD_I = Math.round(FOLD_T * SAMPLES)
+const bandPath = (from: number, to: number) => {
+  const t = top.slice(from, to + 1)
+  const b = bottom.slice(from, to + 1).reverse()
+  return `${line(t, true)} ${b.map((p) => `L${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')} Z`
+}
+// Segments overlap a few samples so the fold never opens a hairline gap
+const FRONT_PATH = bandPath(0, Math.min(FOLD_I + 4, SAMPLES))
+const BACK_PATH = bandPath(Math.max(FOLD_I - 4, 0), SAMPLES)
+const BAND_PATH = bandPath(0, SAMPLES)
 const TOP_EDGE = line(top, true)
 const BOTTOM_EDGE = line(bottom, true)
 
@@ -155,6 +169,12 @@ export function VoucherRibbon({
             <stop offset="0.74" stopColor="#EE3A0C" />
             <stop offset="1" stopColor="#F0480F" />
           </linearGradient>
+          {/* Back face beyond the fold: the band's darker underside */}
+          <linearGradient id={`${uid}-back`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0.5" stopColor="#8E0B04" />
+            <stop offset="0.78" stopColor="#B92F08" />
+            <stop offset="1" stopColor="#D63A0A" />
+          </linearGradient>
           {/* Shade travel along the length: the bends read as different
               tones, like the artwork ribbon catching the light */}
           <linearGradient id={`${uid}-bends`} x1="0" y1="0" x2="1" y2="0">
@@ -196,8 +216,10 @@ export function VoucherRibbon({
             style={{ filter: 'blur(10px)' }}
           />
 
-          {/* The coupon band */}
-          <path d={BAND_PATH} fill={`url(#${uid}-band)`} />
+          {/* The coupon band folds over itself at the twist: the far side
+              shows its darker back face */}
+          <path d={BACK_PATH} fill={`url(#${uid}-back)`} />
+          <path d={FRONT_PATH} fill={`url(#${uid}-band)`} />
           <path d={BAND_PATH} fill={`url(#${uid}-bends)`} />
           <path d={BAND_PATH} fill={`url(#${uid}-shade)`} />
 
