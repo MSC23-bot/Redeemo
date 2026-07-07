@@ -8,7 +8,7 @@ import { PricingSection } from '@/components/landing/PricingSection'
 import { WaitlistSection } from '@/components/landing/WaitlistSection'
 import { ForBusinessesBridgeSection } from '@/components/landing/ForBusinessesBridgeSection'
 import { AppCtaFooterSection } from '@/components/landing/AppCtaFooterSection'
-import { VoucherRibbon } from '@/components/landing/VoucherRibbon'
+import { RibbonBand } from '@/components/landing/RibbonBand'
 import { VoucherTypesRail } from '@/components/landing/VoucherTypesRail'
 import { isMarketplaceLive } from '@/lib/prelaunch'
 
@@ -19,7 +19,7 @@ export default function HomePage() {
       {/* The logo's voucher-ribbon motif as the section seam (owner direction
           2026-07-07); two mounts only, restraint on purpose. The colours are
           the adjoining sections' backgrounds: the ribbon IS the break. */}
-      <VoucherRibbon topColor="#FFF9F5" bottomColor="#FFF9F5" />
+      <RibbonBand topColor="#FFF9F5" bottomColor="#FFF9F5" />
       <TrendingPreviewSection />
       {/* Scroll-driven find/choose/redeem story on desktop; static sections on
           mobile, reduced-motion, and for crawlers */}
@@ -28,7 +28,7 @@ export default function HomePage() {
           horizontally (desktop; mobile gets the static grid via ScrollStory) */}
       <VoucherTypesRail />
       <HowItWorksSection />
-      <VoucherRibbon flip topColor="#FAFAF8" bottomColor="#010C35" />
+      <RibbonBand flip topColor="#FAFAF8" bottomColor="#010C35" />
       {isMarketplaceLive() ? <TestimonialsSection /> : <FoundingPromiseSection />}
       <PricingSection />
       <WaitlistSection />

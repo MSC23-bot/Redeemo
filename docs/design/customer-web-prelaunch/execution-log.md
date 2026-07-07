@@ -419,3 +419,28 @@ edited by this workstream.
   desktop keeps the pinned sweep. ScrollStory's static VoucherTypesSection
   fallback narrowed to reduced-motion only (the shelf covers mobile now), so
   no duplicate types content anywhere.
+- Voucher shelf v3 (owner: examples too vague and category-locked; think
+  conversion but stay truthful): every card now pairs a recognisable moment
+  with real arithmetic: a scenario line ("Date night: two £14 mains, one
+  bill for £14.") and a money-back line in the type colour ("£14 back: two
+  months of membership, one dinner"). No invented statistics anywhere: the
+  persuasion is the sums. Category breadth stated once at section level
+  ("Any place can run any type...") instead of per-card scopes, so no type
+  reads locked to a category.
+- Ribbon v7 REAL SATIN (owner: "not really liking the two ribbons... please
+  improve"): procedural SVG retired after three rounds; the divider is now a
+  photographed object. flux_2 generated a 3D-rendered red satin ribbon with
+  a single elegant twist fold, thick-to-thin, deep red to coral (2 seeds,
+  seed A chosen), background-removed, trimmed to 1280x249, graded to brand
+  (saturation/warmth toward #E20C04). New RibbonBand component replaces
+  VoucherRibbon: the band PNG stretches across the seam and the adjoining
+  sections' colours are baked as SVG fill paths from the PNG's own
+  per-column alpha edges (160 samples), so the section boundary follows the
+  actual fabric silhouette top and bottom. Scroll drift +/-30px
+  (useScrollLinked) and a travelling sheen masked by the band's own alpha.
+  Second mount mirrors with scaleX(-1) only (scaleY would invert the satin
+  lighting). Verified at 2238px: seam A cream-to-cream invisible; seam B
+  carries the light-to-navy handover along the fabric's lower edge; mobile
+  110px band reads correctly. Higgsfield cost 10cr actual (seeds + cutout);
+  approval envelope now 28.12 of 30 spent, balance 32.38: no further
+  generation without fresh approval.
