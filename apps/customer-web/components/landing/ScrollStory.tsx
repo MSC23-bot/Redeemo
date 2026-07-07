@@ -212,10 +212,10 @@ export function ScrollStory() {
 
   return (
     <>
-      {/* Static fallback: mobile, reduced motion, no-JS and crawlers */}
-      <div className={reduceMotion ? '' : 'lg:hidden'}>
-        <VoucherTypesSection />
-      </div>
+      {/* Static fallback for reduced-motion visitors; everyone else gets the
+          voucher shelf (VoucherTypesRail) right after this section, so no
+          duplicate types content */}
+      {reduceMotion && <VoucherTypesSection />}
       {!reduceMotion && (
         <div className="hidden lg:block">
           <StoryStage />

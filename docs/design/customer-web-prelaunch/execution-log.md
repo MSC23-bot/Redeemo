@@ -408,3 +408,14 @@ edited by this workstream.
   brand gradient as the shelf sweeps; honest footer line (one redemption per
   place per month). Mobile + reduced motion keep the static
   VoucherTypesSection via ScrollStory (rail returns null / hidden).
+- Voucher shelf v2 (owner: mobile-optimise incl. scrolling; fictional
+  merchants must not read as real businesses; add visuals): cards now carry
+  the customer app's own category illustrations (7 picks copied to
+  public/category-art at 440px: plated dish, dumbbells, coffee cup, picnic
+  basket, gift box, vanity mirror, water bottle) over a soft type-colour
+  wash, bleeding off the die-cut edge. Merchant names replaced with generic
+  scopes (Restaurants & kitchens, Gyms & studios, ...). Mobile gets the same
+  cards as a native snap-scroll swipe carousel ("Swipe for more" microcopy);
+  desktop keeps the pinned sweep. ScrollStory's static VoucherTypesSection
+  fallback narrowed to reduced-motion only (the shelf covers mobile now), so
+  no duplicate types content anywhere.
