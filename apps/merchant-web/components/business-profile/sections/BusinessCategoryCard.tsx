@@ -13,12 +13,23 @@
 // fail-closed) sees the card fully read-only: no Change-category button renders at
 // all. The backend `setMerchantCategoryCore` remains the real security boundary;
 // this is a UX-only gate.
+//
+// Staging-acceptance A4: the LOCKED state is derived up-front instead of only
+// being discovered on submit. The backend throws CATEGORY_CHANGE_BLOCKED when any
+// RMV voucher is PENDING_APPROVAL or ACTIVE (handleCategoryChange in
+// src/api/merchant/voucher/service.ts); the owner-visible flagship list carries
+// exactly those statuses, so the card mirrors the same condition and disables the
+// Change-category affordance (with the locked explainer) rather than offering an
+// editable picker that can only dead-end. When the lock state is UNKNOWN (list
+// still loading / failed), the button stays live and the modal's blocked dialog
+// remains the honest backend-driven fallback.
 import { useQuery } from '@tanstack/react-query'
 import * as React from 'react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getOnboardingTaxonomy } from '@/lib/api/taxonomy'
+import { listFlagshipVouchers } from '@/lib/api/voucher'
 import { resolveCategoryDisplay } from '@/lib/business-profile/categoryDisplay'
 import { Lock, Store } from '@/lib/icons'
 import { CategoryChangeModal } from '@/components/business-profile/sections/CategoryChangeModal'
@@ -32,6 +43,19 @@ export function BusinessCategoryCard({ profile }: { profile: MerchantProfile }) 
   })
   const [changing, setChanging] = React.useState(false)
   const isOwner = profile.viewerCapabilities?.role === 'OWNER'
+
+  // A4: the flagship (RMV) rows drive the derived lock state. Owner-only fetch
+  // (the affordance itself is owner-only); shares the cache key used elsewhere.
+  const flagship = useQuery({
+    queryKey: ['merchantFlagshipVouchers'],
+    queryFn: listFlagshipVouchers,
+    staleTime: 60_000,
+    enabled: isOwner,
+  })
+  // true / false when known; null while loading or after a fetch error (unknown).
+  const categoryLocked: boolean | null = flagship.data
+    ? flagship.data.some((v) => v.status === 'PENDING_APPROVAL' || v.status === 'ACTIVE')
+    : null
 
   const display = resolveCategoryDisplay(taxonomy.data, profile.primaryCategoryId, profile.primaryDescriptorTagId)
 
@@ -69,7 +93,7 @@ export function BusinessCategoryCard({ profile }: { profile: MerchantProfile }) 
             variant="secondary"
             size="sm"
             onClick={() => setChanging(true)}
-            disabled={!taxonomy.data}
+            disabled={!taxonomy.data || categoryLocked === true}
             data-testid="business-category-change"
           >
             Change category
@@ -78,13 +102,20 @@ export function BusinessCategoryCard({ profile }: { profile: MerchantProfile }) 
       </div>
 
       <div className="px-6">
-        <p className="text-xs text-muted-foreground">
-          Your category sets the two mandatory starter vouchers for your business, so it is fixed once you are
-          set up. Changing it affects those starter offers and needs confirmation.
-        </p>
+        {categoryLocked === true ? (
+          <p className="text-xs text-muted-foreground" data-testid="business-category-locked-note">
+            Your category is locked once your starter vouchers have been submitted or are live. Contact
+            Redeemo support if this needs to change.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Your category sets the two mandatory starter vouchers for your business, so it is fixed once you are
+            set up. Changing it affects those starter offers and needs confirmation.
+          </p>
+        )}
       </div>
 
-      {changing && taxonomy.data ? (
+      {changing && taxonomy.data && categoryLocked !== true ? (
         <CategoryChangeModal profile={profile} taxonomy={taxonomy.data} onClose={() => setChanging(false)} />
       ) : null}
     </Card>

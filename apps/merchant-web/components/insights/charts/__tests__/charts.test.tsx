@@ -61,6 +61,32 @@ describe('BarSeries (trend: logged total + confirmed subset overlay)', () => {
     expect(container.querySelector('svg')).toBeNull()
     expect(getByText(/no data/i)).toBeInTheDocument()
   })
+
+  // Staging-acceptance A3 regression pin: a single-month low-count series must
+  // render as a normal centered bar, never a near full-bleed solid block.
+  it('caps the bar width for a tiny series (1 month, 3 redemptions): centered bar, visible baseline, not a full-bleed block', () => {
+    const { container } = render(<BarSeries data={[{ label: 'Jun', logged: 3, confirmed: 1 }]} />)
+    const loggedRect = container.querySelector('rect[data-series="logged"]') as SVGRectElement
+    expect(loggedRect).toBeTruthy()
+    const width = Number(loggedRect.getAttribute('width'))
+    const x = Number(loggedRect.getAttribute('x'))
+    // Capped width (64 logical units of the 720 viewBox), centered in the slot.
+    expect(width).toBeLessThanOrEqual(64)
+    expect(x).toBeCloseTo((720 - width) / 2, 5)
+    // The baseline axis stays visible either side of the bar.
+    const baseline = container.querySelector('line')
+    expect(baseline).toBeTruthy()
+    // And the value label ("3") still renders above the bar.
+    expect(container.textContent).toContain('3')
+  })
+
+  it('leaves a typical 12-month series untouched by the width cap', () => {
+    const twelve = Array.from({ length: 12 }, (_, i) => ({ label: `M${i}`, logged: 10 + i, confirmed: 5 }))
+    const { container } = render(<BarSeries data={twelve} />)
+    const first = container.querySelector('rect[data-series="logged"]') as SVGRectElement
+    // slot = 720/12 = 60; barW = 60 * 0.68 = 40.8 (< the 64 cap).
+    expect(Number(first.getAttribute('width'))).toBeCloseTo(40.8, 5)
+  })
 })
 
 describe('Heatmap (busy-times: 7 days x 6 dayparts, intensity bands only)', () => {

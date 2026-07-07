@@ -14,6 +14,13 @@ import { DAY_FULL } from './shared'
 
 const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 
+// Staging-acceptance A3: bar heights are computed in PIXELS against this fixed
+// bar-area height. The previous percentage heights resolved against an
+// auto-height flex column (the outer row aligned items-end, so the columns never
+// stretched to the container's 160px), which collapses a percentage height to 0:
+// the chart rendered as a blank box with only the day labels visible.
+const BAR_AREA_H = 132
+
 export function BusiestDays({ data }: { data: InsightsBusyTimes }) {
   const available = 'mode' in data
   const busiest = available ? data.busiest : null
@@ -70,17 +77,20 @@ export function BusiestDays({ data }: { data: InsightsBusyTimes }) {
       </header>
 
       {available && hasAnyActivity ? (
-        <div className="flex items-end justify-between gap-2" style={{ height: 160 }} aria-hidden>
+        <div className="flex items-end justify-between gap-2" aria-hidden data-testid="home-busiest-bars">
           {perDay.map((total, day) => {
             const isBusiest = busiest != null && busiest.day === day
-            const heightPct = Math.max((total / maxTotal) * 100, total > 0 ? 6 : 3)
+            // Pixel height against the fixed bar area (see BAR_AREA_H note):
+            // active days get a visible floor of 8px; zero days a 4px stub.
+            const barH = total > 0 ? Math.max(Math.round((total / maxTotal) * BAR_AREA_H), 8) : 4
             return (
               <div key={DAY_SHORT[day]} className="flex flex-1 flex-col items-center gap-2">
-                <div className="flex w-full flex-1 items-end justify-center">
+                <div className="flex w-full items-end justify-center" style={{ height: BAR_AREA_H }}>
                   <div
                     className="w-full max-w-[34px] rounded-t-md"
+                    data-testid={`home-busiest-bar-${day}`}
                     style={{
-                      height: `${heightPct}%`,
+                      height: barH,
                       background: isBusiest ? 'var(--brand-gradient)' : 'var(--chart-intensity-1)',
                     }}
                   />
@@ -96,9 +106,15 @@ export function BusiestDays({ data }: { data: InsightsBusyTimes }) {
           })}
         </div>
       ) : (
-        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          We will show your busiest days once there are enough redemptions.
-        </p>
+        // A3: the in-chart empty state (same presentation Insights' BarSeries
+        // uses for an empty selection), with Home-context copy: never a blank box.
+        <div
+          className="flex h-32 items-center justify-center text-sm"
+          style={{ color: 'var(--text-tertiary)' }}
+          data-testid="home-busiest-empty"
+        >
+          Your first redemptions will show here.
+        </div>
       )}
 
       {/* Screen-reader summary: qualitative only. */}
