@@ -38,6 +38,7 @@ import { VoucherDetail } from '@/components/vouchers/VoucherDetail'
 import { ConciergeReadOnly } from '@/components/vouchers/ConciergeDiff'
 import { DuplicateAction } from '@/components/vouchers/DuplicateAction'
 import { DayTwoBuilder } from '@/components/vouchers/builder/DayTwoBuilder'
+import { VoucherAnalytics } from '@/components/vouchers/VoucherAnalytics'
 
 type Mode = 'view' | 'edit' | 'duplicate'
 
@@ -208,6 +209,9 @@ export default function VoucherDetailPage() {
               ) : null
             }
           />
+          {/* Slice E: per-voucher analytics (read-only). Its own query, so a slow
+              or failing stats fetch never blocks the detail render above. */}
+          <VoucherAnalytics voucherId={voucher.id} />
         </>
       )}
 

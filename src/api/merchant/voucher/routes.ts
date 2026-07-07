@@ -13,6 +13,7 @@ import {
   updateRmvVoucher,
   submitRmvVoucher,
 } from './service'
+import { getVoucherAnalytics } from './analytics'
 
 const VoucherTypeEnum = z.enum([
   'BOGO',
@@ -128,6 +129,16 @@ export async function voucherRoutes(app: FastifyInstance) {
   app.get(`${prefix}/:id`, async (req: FastifyRequest, reply) => {
     const { id } = z.object({ id: z.string() }).parse(req.params)
     return reply.send(await getVoucher(app.prisma, req.user.sub, id))
+  })
+
+  // Slice E: per-voucher analytics (read-only). Authed under the same merchant
+  // session as the rest of the module; the service verifies the voucher belongs to
+  // the caller's merchant (VOUCHER_NOT_FOUND on a cross-tenant / missing id) and
+  // aggregates over the eligible, cleanliness-filtered VoucherRedemption rows. Placed
+  // before the generic PATCH `:id` so its static `/analytics` suffix is unambiguous.
+  app.get(`${prefix}/:id/analytics`, async (req: FastifyRequest, reply) => {
+    const { id } = z.object({ id: z.string() }).parse(req.params)
+    return reply.send(await getVoucherAnalytics(app.prisma, req.user.sub, id))
   })
 
   app.patch(`${prefix}/:id`, async (req: FastifyRequest, reply) => {

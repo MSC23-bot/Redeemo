@@ -175,7 +175,9 @@ function eligibleFrom(
 
 // --- Shared row coercion -----------------------------------------------------
 
-function num(v: unknown): number {
+// Exported so the per-voucher analytics service (voucher/analytics.ts) coerces
+// bigint/Decimal/number identically, sharing ONE coercion rule (no drift).
+export function num(v: unknown): number {
   // bigint (COUNT), Prisma.Decimal (SUM), or number: coerce uniformly.
   return v == null ? 0 : Number(v)
 }
@@ -190,7 +192,9 @@ function num(v: unknown): number {
 // timezone. This double conversion is session-TZ-independent and DST-correct.
 //
 // `redemptionAlias` is a SQL identifier (not user input), embedded via Prisma.raw.
-function londonTs(redemptionAlias: string = ELIGIBILITY_ALIASES.redemption): Prisma.Sql {
+// Exported so per-voucher analytics buckets `redeemedAt` in Europe/London through
+// the SAME session-TZ-independent double conversion (no drift from Insights).
+export function londonTs(redemptionAlias: string = ELIGIBILITY_ALIASES.redemption): Prisma.Sql {
   const col = Prisma.raw(`${redemptionAlias}."redeemedAt"`)
   return Prisma.sql`(${col} AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/London'`
 }
@@ -409,8 +413,8 @@ export async function getTrend(
   }
 }
 
-/** Format a DATE_TRUNC month bucket as `YYYY-MM-01`. */
-function monthLabel(bucket: Date): string {
+/** Format a DATE_TRUNC month bucket as `YYYY-MM-01`. Exported for per-voucher analytics reuse. */
+export function monthLabel(bucket: Date): string {
   // The bucket comes back as a Date; read its UTC year/month (DATE_TRUNC at
   // TIME ZONE yields a wall-clock timestamp the driver surfaces as a Date).
   const y = bucket.getUTCFullYear()
@@ -588,8 +592,12 @@ const DAYPART_COUNT = DAYPART_LABELS.length // 6
  * Map a raw cell count to an ordinal intensity band 0..3 RELATIVE to the busiest
  * cell. 0 = no activity; 1..3 are low/mid/high thirds of the non-zero range. This
  * never exposes the raw count: only the band reaches the payload.
+ *
+ * Exported so per-voucher analytics maps its when-used slots through the EXACT SAME
+ * ordinal-band privacy cut (never a looser per-slot percentage). Mirroring this one
+ * function keeps the re-identification discipline single-sourced.
  */
-function intensityBand(count: number, peak: number): number {
+export function intensityBand(count: number, peak: number): number {
   if (count <= 0 || peak <= 0) return 0
   const ratio = count / peak
   if (ratio > 2 / 3) return 3
@@ -604,8 +612,11 @@ function intensityBand(count: number, peak: number): number {
  * SQL expression. End-hour bounds + indices are compile-time numbers from DAYPARTS
  * embedded as literals (never user input). Produces, for the locked dayparts:
  * CASE WHEN h < 7 THEN 0 WHEN h < 12 THEN 1 ... WHEN h < 22 THEN 4 ELSE 5 END.
+ *
+ * Exported so per-voucher analytics buckets its time-of-day slots from the SAME
+ * single daypart source of truth (DAYPARTS in london.ts) as Insights busy-times.
  */
-function daypartCaseSql(hourExpr: Prisma.Sql): Prisma.Sql {
+export function daypartCaseSql(hourExpr: Prisma.Sql): Prisma.Sql {
   const whens = DAYPARTS.slice(0, -1).map(
     (d, i) => Prisma.sql`WHEN ${hourExpr} < ${Prisma.raw(String(d.endHour))} THEN ${Prisma.raw(String(i))}`,
   )
