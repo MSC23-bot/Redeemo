@@ -1,121 +1,111 @@
 'use client'
 
-import { useId, useState } from 'react'
+import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { isLeadCaptureLive } from '@/lib/prelaunch'
-import { apiFetch } from '@/lib/api'
+import { isMarketplaceLive } from '@/lib/prelaunch'
 
 const EASE = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
-type Status = 'idle' | 'loading' | 'success' | 'error'
+/**
+ * The founding-member ticket (owner 2026-07-08): pre-launch, creating an
+ * account IS the waitlist. No email form: the section is the offer itself,
+ * shaped as the product's own object: a voucher with a tear-line stub. The
+ * stub carries the claim CTA into /register.
+ *
+ * The 3-months-free launch incentive is owner-directed copy; the fulfilment
+ * mechanism (marking the founding cohort, granting the free period, the
+ * profile badge) is an Admin Panel follow-up recorded in
+ * docs/deferrals/open-register.md (§FOUND.1). Section disappears at launch.
+ */
+
+const PERKS = [
+  'Three months of full membership, free at launch',
+  'Founding member badge on your profile',
+  'First to know when we reach your town',
+]
+
+function Tick() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="flex-shrink-0 mt-[3px]">
+      <circle cx="8" cy="8" r="7.25" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" />
+      <path d="M5 8.2 L7.2 10.4 L11 6" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
 
 export function WaitlistSection() {
-  const emailId = useId()
-  const postcodeId = useId()
-  const [email, setEmail] = useState('')
-  const [postcode, setPostcode] = useState('')
-  const [status, setStatus] = useState<Status>('idle')
-
-  // Flag-gated dark: the site only renders this section once lead capture is
-  // switched on. The persistence contract for this endpoint (ConsumerWaitlist
-  // model + retention/consent handling) is owner decision D1 in
-  // docs/superpowers/plans/2026-07-06-prelaunch-website-conversion-rebaseline.md
-  // and has not been approved yet, so /api/v1/public/waitlist does not exist
-  // in the backend at the time this section was written.
-  if (!isLeadCaptureLive()) return null
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setStatus('loading')
-    try {
-      await apiFetch('/api/v1/public/waitlist', {
-        method: 'POST',
-        body: JSON.stringify({ email, postcode: postcode || undefined }),
-      })
-      setStatus('success')
-    } catch {
-      setStatus('error')
-    }
-  }
+  // At launch the founding window has closed; Pricing and the app CTAs take over.
+  if (isMarketplaceLive()) return null
 
   return (
-    <section id="waitlist" style={{ background: '#FAFAF8' }} className="py-20 md:py-24 px-6">
-      <div className="max-w-[560px] mx-auto">
+    <section id="waitlist" style={{ background: '#FAFAF8' }} className="py-20 md:py-28 px-6">
+      <div className="max-w-[1020px] mx-auto">
         <motion.div
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.5, ease: EASE }}
-          className="rounded-2xl border border-[#EDE8E8] bg-white p-8 md:p-10 text-center"
+          viewport={{ once: true, margin: '-80px' }}
+          transition={{ duration: 0.6, ease: EASE }}
+          style={{ filter: 'drop-shadow(0 24px 48px rgba(190,10,3,0.22))' }}
         >
-          <span className="inline-block text-[11px] font-bold tracking-[0.18em] uppercase text-[#E20C04] mb-4">
-            Get first access
-          </span>
-          <h2
-            className="font-display text-[#010C35] leading-[1.15] mb-3"
-            style={{ fontSize: 'clamp(24px, 3vw, 34px)', letterSpacing: '-0.3px' }}
+          <div
+            className="relative overflow-hidden rounded-[28px] grid md:grid-cols-[1fr_340px]"
+            style={{ background: '#BE0A03 radial-gradient(130% 320% at 20% 0%, #F24E2C 0%, #BE0A03 100%)' }}
           >
-            Be first when Redeemo goes live near you.
-          </h2>
-          <p className="text-[15px] text-[#4B5563] leading-[1.7] mb-8">
-            Founding members get first access when we launch in their area.
-          </p>
+            {/* Die-cut notches where the stub tears off (desktop) */}
+            <div aria-hidden="true" className="hidden md:block absolute w-6 h-6 rounded-full -top-3 right-[328px]" style={{ background: '#FAFAF8' }} />
+            <div aria-hidden="true" className="hidden md:block absolute w-6 h-6 rounded-full -bottom-3 right-[328px]" style={{ background: '#FAFAF8' }} />
 
-          {status === 'success' ? (
-            <p role="status" aria-live="polite" className="text-[15px] font-semibold text-[#16A34A]">
-              You&apos;re on the list. We&apos;ll email you before launch.
-            </p>
-          ) : (
-            <form onSubmit={handleSubmit} className="text-left" noValidate>
-              <div className="mb-4">
-                <label htmlFor={emailId} className="block text-[13px] font-semibold text-[#010C35] mb-1.5">
-                  Email
-                </label>
-                <input
-                  id={emailId}
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full rounded-xl border border-[#D1CBC3] bg-white px-4 py-3 text-[14px] text-[#010C35] outline-none transition-colors focus:border-[#E20C04] focus-visible:ring-2 focus-visible:ring-[#E20C04]/30"
-                />
-              </div>
-              <div className="mb-5">
-                <label htmlFor={postcodeId} className="block text-[13px] font-semibold text-[#010C35] mb-1.5">
-                  Postcode <span className="font-normal text-[#9CA3AF]">(optional)</span>
-                </label>
-                <input
-                  id={postcodeId}
-                  type="text"
-                  autoComplete="postal-code"
-                  value={postcode}
-                  onChange={(e) => setPostcode(e.target.value)}
-                  placeholder="Postcode (optional)"
-                  className="w-full rounded-xl border border-[#D1CBC3] bg-white px-4 py-3 text-[14px] text-[#010C35] outline-none transition-colors focus:border-[#E20C04] focus-visible:ring-2 focus-visible:ring-[#E20C04]/30"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={status === 'loading'}
-                className="w-full text-center font-semibold text-[14px] text-white py-3 rounded-xl transition-opacity hover:opacity-90 disabled:opacity-60"
-                style={{ background: 'var(--brand-gradient)' }}
+            {/* Main: the offer */}
+            <div className="px-8 py-10 md:px-12 md:py-12">
+              <p className="text-[11.5px] font-bold tracking-[0.2em] uppercase text-white/65 mb-4">Founding member offer</p>
+              <h2
+                className="font-display text-white leading-[1.1] mb-4"
+                style={{ fontSize: 'clamp(28px, 3.2vw, 42px)', letterSpacing: '-0.6px', textWrap: 'balance' }}
               >
-                {status === 'loading' ? 'Joining…' : 'Join the waitlist'}
-              </button>
-
-              <p aria-live="polite" className="mt-3 min-h-[18px] text-[13px] text-[#DC2626]">
-                {status === 'error' && 'Something went wrong. Try again in a moment.'}
+                Join before launch. Three months on us.
+              </h2>
+              <p className="text-[15px] text-white/85 leading-[1.7] max-w-[440px] mb-7" style={{ textWrap: 'pretty' }}>
+                Create your free account today and your place is saved as a
+                founding member: full membership, every voucher included, free
+                for your first three months when Redeemo goes live.
               </p>
+              <ul className="flex flex-col gap-2.5 list-none p-0 m-0">
+                {PERKS.map((perk) => (
+                  <li key={perk} className="flex items-start gap-2.5 text-[14px] text-white/95 leading-[1.55]">
+                    <Tick />
+                    {perk}
+                  </li>
+                ))}
+              </ul>
+            </div>
 
-              <p className="mt-3 text-[12px] text-[#9CA3AF] leading-[1.6]">
-                We&apos;ll only email you about Redeemo&apos;s launch. No marketing lists, unsubscribe anytime.
+            {/* Stub: tear here, claim it */}
+            <div className="relative px-8 py-10 md:py-12 flex flex-col items-center justify-center text-center border-t-2 md:border-t-0 md:border-l-2 border-dashed border-white/35">
+              <p className="font-display text-white leading-none mb-1" style={{ fontSize: '46px', letterSpacing: '-1px' }}>
+                3 months
               </p>
-            </form>
-          )}
+              <p className="text-[12px] font-bold tracking-[0.18em] uppercase text-white/70 mb-7">Free at launch</p>
+              <Link
+                href="/register"
+                className="inline-flex items-center gap-2 bg-white text-[#BE0A03] font-bold text-[15px] px-7 py-3.5 rounded-xl no-underline hover:opacity-90 transition-opacity"
+              >
+                Create free account
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
+              </Link>
+              <p className="mt-4 text-[12px] text-white/60">Free to join · no card needed · takes a minute</p>
+            </div>
+          </div>
         </motion.div>
+
+        {/* Where the rollout starts: quiet, at the point of conversion */}
+        <p className="mt-6 text-center text-[13px] text-[#6B7280] leading-[1.6]">
+          Rolling out first in Huddersfield and the surrounding areas, then more
+          towns and cities across the UK. Join now and we will tell you the
+          moment we reach yours.
+        </p>
       </div>
     </section>
   )

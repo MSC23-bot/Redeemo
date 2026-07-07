@@ -11,6 +11,7 @@ import { AppCtaFooterSection } from '@/components/landing/AppCtaFooterSection'
 import { RibbonBand } from '@/components/landing/RibbonBand'
 import { VoucherTypesRail } from '@/components/landing/VoucherTypesRail'
 import { WhatIsRedeemoSection } from '@/components/landing/WhatIsRedeemoSection'
+import { LaunchLocalityToast } from '@/components/landing/LaunchLocalityToast'
 import { isMarketplaceLive } from '@/lib/prelaunch'
 
 export default function HomePage() {
@@ -38,6 +39,8 @@ export default function HomePage() {
       <WaitlistSection />
       <ForBusinessesBridgeSection />
       <AppCtaFooterSection />
+      {/* Quiet rollout note: starts in Huddersfield; dismissible, session-scoped */}
+      <LaunchLocalityToast />
     </>
   )
 }

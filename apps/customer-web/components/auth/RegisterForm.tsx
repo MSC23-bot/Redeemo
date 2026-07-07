@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Eye, EyeOff, ArrowLeft, CheckCircle2, Check, MapPin, Loader2, X } from 'lucide-react'
 import { authApi, profileApi, ApiError } from '@/lib/api'
 import { saveTokens, saveUser } from '@/lib/auth'
+import { isMarketplaceLive } from '@/lib/prelaunch'
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
 
@@ -375,11 +376,15 @@ export function RegisterForm() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.22, duration: 0.4, ease }}
         >
-          <h2 className="font-display text-[32px] text-navy leading-tight mb-2">You&apos;re in.</h2>
+          <h2 className="font-display text-[32px] text-navy leading-tight mb-2">
+            {isMarketplaceLive() ? "You're in." : "You're a founding member."}
+          </h2>
           <p className="text-[15px] text-navy/50 leading-relaxed max-w-[340px] mx-auto">
             We&apos;ve sent a verification link to{' '}
             <strong className="text-navy font-semibold">{email}</strong>.
-            Click it, then open the Redeemo app to verify your mobile number and finish setting up.
+            {isMarketplaceLive()
+              ? ' Click it, then open the Redeemo app to verify your mobile number and finish setting up.'
+              : ' Click it to secure your place. We will email you the moment Redeemo launches near you, and your first three months of membership are on us.'}
           </p>
           {partialSave && (
             <p

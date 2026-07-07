@@ -491,3 +491,33 @@ edited by this workstream.
   with ghost red numerals, whileInView stagger. Section ground is white; the
   ribbon above now bakes the cream-to-white handover along its fabric edge
   (bottomColor swap on the first RibbonBand mount).
+- Pre-launch conversion pivot (owner 2026-07-08: hero reads like live offers
+  that do not exist; CTAs must convert into the pre-launch waitlist;
+  registration is already built so USE it; founding incentive "maybe 3 months
+  free"; Huddersfield-first note without making a big deal of it; navbar
+  "Get the app" wrong pre-launch; store badges layout disliked):
+  (1) Hero: H1 now "Your whole town, at member prices." (no invented deals;
+  gradient phrase on its own line, no orphan). Sub rewritten around the
+  membership mechanic. Primary CTA "Get early access" -> /register with a
+  star-glyph incentive line ("Free to join. Founding members get 3 months of
+  membership free at launch."); secondary "See how Redeemo works". Store
+  badges removed pre-launch: a quiet two-line launch strip instead (pin +
+  "Starting in Huddersfield & surrounding areas, then across the UK"; small
+  platform glyphs + "The app arrives at launch: iOS & Android"). Badges
+  return when NEXT_PUBLIC_MARKETPLACE_LIVE flips.
+  (2) Navbar: "Get the app" -> "Got a business?" (/for-businesses) pre-launch;
+  primary CTA now always /register.
+  (3) WaitlistSection rebuilt as the FOUNDING TICKET: a red voucher with
+  die-cut notches + dashed perforation; offer + three perk ticks left, stub
+  right ("3 months / FREE AT LAUNCH" + "Create free account" -> /register).
+  No form: registration IS the waitlist (supersedes D1). Huddersfield
+  rollout line beneath.
+  (4) LaunchLocalityToast: dismissible bottom-left card, 2.6s delay,
+  session-remembered, landing only ("Starting in Huddersfield").
+  (5) RegisterForm success state pre-launch aware: "You're a founding
+  member." + launch-notification promise (no "open the app" before there is
+  an app). What-is H2 -> "Made for the places you actually go." (de-dup with
+  the new hero phrase).
+  Backend follow-up §FOUND.1 recorded in docs/deferrals/open-register.md:
+  cohort marking, grant mechanism, badge surface, admin tooling, locality
+  capture; pick up with the Admin Panel programme.

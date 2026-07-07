@@ -5,7 +5,7 @@ import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } fro
 import { useRef, useCallback } from 'react'
 import { PhoneDemo } from './PhoneDemo'
 import { HeroCollage } from './HeroCollage'
-import { isLeadCaptureLive, isMarketplaceLive } from '@/lib/prelaunch'
+import { isMarketplaceLive } from '@/lib/prelaunch'
 
 const EASE = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
@@ -20,7 +20,6 @@ export function HeroSection() {
   const sectionRef = useRef<HTMLElement>(null)
   const reduceMotion = useReducedMotion()
   const marketplaceLive = isMarketplaceLive()
-  const leadCaptureLive = isLeadCaptureLive()
 
   // Raw mouse position (0–100 as percentage of section)
   const rawX = useMotionValue(88)
@@ -49,15 +48,15 @@ export function HeroSection() {
     [rawX, rawY, reduceMotion],
   )
 
+  // Pre-launch, creating an account IS the waitlist (owner 2026-07-08):
+  // registration is live, and founding members claim the launch incentive.
   const primaryCta = marketplaceLive
     ? { href: '/register', label: "Start browsing. It's free." }
-    : leadCaptureLive
-      ? { href: '#waitlist', label: 'Join the waitlist' }
-      : { href: '/how-it-works', label: 'See how Redeemo works' }
+    : { href: '/register', label: 'Get early access' }
 
   const secondaryCta = marketplaceLive
     ? { href: '/subscribe', label: 'See plans' }
-    : { href: '/for-businesses', label: 'Got a business?' }
+    : { href: '/how-it-works', label: 'See how Redeemo works' }
 
   return (
     <section
@@ -109,9 +108,8 @@ export function HeroSection() {
               className="font-display text-[#010C35] leading-[1.06] mb-5 max-w-[620px]"
               style={{ fontSize: 'clamp(32px, 4.2vw, 56px)', letterSpacing: '-1px' }}
             >
-              Dinner for two, priced for one.{' '}
-              <span className="gradient-text">Half-price workouts.</span>{' '}
-              Free pastries with your coffee.
+              Your whole town,{' '}
+              <span className="gradient-text block">at member prices.</span>
             </motion.h1>
 
             {/* Sub */}
@@ -120,10 +118,11 @@ export function HeroSection() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, delay: 0.18 }}
               className="text-[16px] text-[#4B5563] leading-[1.65] mb-9 max-w-[490px]"
+              style={{ textWrap: 'pretty' }}
             >
-              Redeemo is a membership of independent places near you: restaurants,
-              cafes, gyms, salons. Every one includes member vouchers like these,
-              fresh each month, from £6.99. Browse free first.
+              Redeemo brings your local restaurants, cafes, gyms and salons into
+              one membership, each with exclusive vouchers that renew every
+              month. Browse everything free; redeem from £6.99 a month.
             </motion.p>
 
             {/* CTAs */}
@@ -153,6 +152,17 @@ export function HeroSection() {
               >
                 {secondaryCta.label}
               </Link>
+
+              {/* The founding offer rides directly under its CTA */}
+              {!marketplaceLive && (
+                <p className="basis-full text-[13px] text-[#6B7280] leading-[1.6] flex items-center gap-2">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="flex-shrink-0">
+                    <path d="M8 1.5 l1.8 3.9 4.2.5 -3.1 2.9.8 4.2 L8 10.9 4.3 13l.8-4.2 -3.1-2.9 4.2-.5 Z" fill="#E20C04" opacity="0.85" />
+                  </svg>
+                  Free to join. Founding members get 3 months of membership free
+                  at launch.
+                </p>
+              )}
             </motion.div>
 
             {/* Launch-safe facts */}
@@ -188,27 +198,42 @@ export function HeroSection() {
           </motion.div>
         </div>
 
-        {/* App availability strip */}
+        {/* Launch strip: where we start, and where the app fits. Quiet facts,
+            one line, no dead store badges before there is a store listing. */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.56 }}
-          className="mt-14 pt-8 border-t border-[#010C35]/10 flex flex-col sm:flex-row sm:items-center gap-4 lg:max-w-[48%] lg:pointer-events-auto"
+          className="mt-14 pt-7 border-t border-[#010C35]/10 lg:max-w-[48%] lg:pointer-events-auto"
         >
-          <p className="text-[11.5px] text-[#010C35]/55 uppercase tracking-[0.14em] font-semibold flex-shrink-0">
-            {marketplaceLive
-              ? 'Redeem in the app · Download free'
-              : 'The app arrives with launch · iOS & Android'}
-          </p>
-          <div className="flex gap-3 flex-wrap items-center">
-            <AppStoreBadge />
-            <GooglePlayBadge />
-            {!marketplaceLive && (
-              <span className="text-[11px] text-[#6B7280] font-semibold rounded-full border border-[#010C35]/12 px-3 py-1.5">
-                Coming at launch
+          {marketplaceLive ? (
+            <div className="flex gap-3 flex-wrap items-center">
+              <p className="text-[11.5px] text-[#010C35]/55 uppercase tracking-[0.14em] font-semibold">
+                Redeem in the app · Download free
+              </p>
+              <AppStoreBadge />
+              <GooglePlayBadge />
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] text-[#010C35]/60">
+              <span className="inline-flex items-center gap-2">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="flex-shrink-0">
+                  <path d="M8 1.5 a5 5 0 0 1 5 5 c0 3.6-5 8-5 8 s-5-4.4-5-8 a5 5 0 0 1 5-5 Z" stroke="#E20C04" strokeWidth="1.6" />
+                  <circle cx="8" cy="6.5" r="1.8" fill="#E20C04" />
+                </svg>
+                Starting in Huddersfield &amp; surrounding areas, then across the UK
               </span>
-            )}
-          </div>
+              <span className="inline-flex items-center gap-2 text-[#010C35]/45">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="flex-shrink-0">
+                  <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+                </svg>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="flex-shrink-0">
+                  <path d="M3.1 2.54C2.73 2.88 2.5 3.4 2.5 4.08v15.84c0 .68.23 1.2.6 1.54l.08.07 8.88-8.88v-.23L3.18 2.47zm11.93 9.67-2.96-2.96L3.8 1.97l10.45 6.06zm.95 0 2.82-1.64c.85-.49.85-1.28 0-1.77L14.27 6.8 11.3 9.77zM3.8 22.03l8.27-8.28 2.96-2.96L14.25 9.5z" />
+                </svg>
+                The app arrives at launch: iOS &amp; Android
+              </span>
+            </div>
+          )}
         </motion.div>
       </div>
     </section>

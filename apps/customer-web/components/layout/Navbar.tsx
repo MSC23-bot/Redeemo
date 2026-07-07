@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, ChevronDown, LayoutDashboard, PiggyBank, Heart, CreditCard, User, LogOut, Bell } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { isLeadCaptureLive, isMarketplaceLive } from '@/lib/prelaunch'
+import { isMarketplaceLive } from '@/lib/prelaunch'
 
 // Links shown to logged-out visitors. Marketplace routes are middleware-gated
 // pre-launch (they redirect home), so Discover only appears once live.
@@ -134,14 +134,13 @@ export function Navbar() {
 
   const firstName = user?.name ? getFirstName(user.name) : ''
 
-  // Pre-launch there is no app to send visitors to yet; point "Get the app" at the
-  // explainer page instead of a generic App Store link.
+  // Pre-launch there is no app to point at, so the secondary slot carries the
+  // merchant funnel instead (owner 2026-07-08); it returns to "Get the app"
+  // when the marketplace goes live.
   const marketplaceLive = isMarketplaceLive()
-  const getAppHref = marketplaceLive ? 'https://apps.apple.com' : '/how-it-works'
-  const getAppExternalProps = marketplaceLive ? { target: '_blank', rel: 'noreferrer' } : {}
-  // Pre-launch the primary CTA must not imply the marketplace is joinable today:
-  // it routes to the waitlist once lead capture is live, the teaching page until then.
-  const primaryCtaHref = marketplaceLive ? '/register' : isLeadCaptureLive() ? '/#waitlist' : '/how-it-works'
+  // Creating an account IS the waitlist (owner 2026-07-08): registration is
+  // live pre-launch and founding members claim the launch incentive.
+  const primaryCtaHref = '/register'
   const primaryCtaLabel = marketplaceLive ? 'Join free' : 'Get early access'
 
   return (
@@ -346,17 +345,25 @@ export function Navbar() {
                 >
                   Log in
                 </Link>
-                <a
-                  href={getAppHref}
-                  {...getAppExternalProps}
-                  className="text-[14px] font-medium text-white px-4 py-2 rounded-lg no-underline hover:opacity-80 transition-opacity"
-                  style={{
-                    background: '#010C35',
-                    boxShadow: isDark ? 'inset 0 0 0 1px rgba(255,255,255,0.20)' : '0 1px 3px rgba(1,12,53,0.18)',
-                  }}
-                >
-                  Get the app
-                </a>
+                {marketplaceLive ? (
+                  <a
+                    href="https://apps.apple.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[14px] font-medium text-white px-4 py-2 rounded-lg no-underline hover:opacity-80 transition-opacity"
+                    style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.20)' }}
+                  >
+                    Get the app
+                  </a>
+                ) : (
+                  <Link
+                    href="/for-businesses"
+                    className="text-[14px] font-medium text-white px-4 py-2 rounded-lg no-underline hover:opacity-80 transition-opacity"
+                    style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.20)' }}
+                  >
+                    Got a business?
+                  </Link>
+                )}
                 <Link
                   href={primaryCtaHref}
                   className="text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
@@ -461,15 +468,14 @@ export function Navbar() {
                       >
                         Log in
                       </Link>
-                      <a
-                        href={getAppHref}
-                        {...getAppExternalProps}
+                      <Link
+                        href={marketplaceLive ? 'https://apps.apple.com' : '/for-businesses'}
                         onClick={() => setMenuOpen(false)}
                         className="px-3 py-3 text-[14px] font-medium text-white text-center rounded-lg no-underline hover:opacity-80 transition-opacity"
                         style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.18)' }}
                       >
-                        Get the app
-                      </a>
+                        {marketplaceLive ? 'Get the app' : 'Got a business?'}
+                      </Link>
                       <Link
                         href={primaryCtaHref}
                         onClick={() => setMenuOpen(false)}

@@ -63,7 +63,7 @@ export function WhatIsRedeemoSection() {
             className="font-display text-[#010C35] leading-[1.08] mb-6"
             style={{ fontSize: 'clamp(32px, 3.6vw, 52px)', letterSpacing: '-0.8px' }}
           >
-            Your favourite places, at member prices.
+            Made for the places you actually go.
           </h2>
           <p className="text-[16.5px] text-[#4B5563] leading-[1.75] max-w-[520px] mb-4">
             Redeemo is a lifestyle savings app. Local businesses of every kind
