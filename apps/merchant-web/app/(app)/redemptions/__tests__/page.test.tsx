@@ -186,6 +186,35 @@ describe('RedemptionsPage (F1 log + filters)', () => {
   })
 })
 
+describe('RedemptionsPage info cards + awaiting banner (fidelity)', () => {
+  it('renders the Awaiting + Validated definition cards and NO Reversed card', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    expect(
+      screen.getByText(/the customer redeemed in the app and has a code/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/staff confirmed the code, by qr scan/i)).toBeInTheDocument()
+    // Reversed is backend-gated and must NOT appear anywhere on the surface.
+    expect(screen.queryByText(/reversed/i)).toBeNull()
+  })
+
+  it('shows the awaiting banner with a count when rows are awaiting validation', async () => {
+    listRedemptions.mockResolvedValue({ items: [ROW, VALIDATED_ROW], total: 2, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Free coffee')
+    expect(screen.getByText(/1 code is awaiting validation/i)).toBeInTheDocument()
+    expect(screen.getByText(/validate each one when staff confirm it/i)).toBeInTheDocument()
+  })
+
+  it('hides the awaiting banner when nothing is awaiting', async () => {
+    listRedemptions.mockResolvedValue({ items: [VALIDATED_ROW], total: 1, limit: 25, offset: 0 })
+    renderPage()
+    await screen.findByText('Lunch deal')
+    expect(screen.queryByText(/validate each one when staff confirm it/i)).toBeNull()
+  })
+})
+
 describe('RedemptionsPage range=today deep-link (shell wave Quick Action)', () => {
   it('SAME-PAGE Quick Action: an in-place transition to range=today REPLACES the filters and resets a non-zero offset', async () => {
     // Codex correction 2 (re-review hardening): firing the Quick Action while

@@ -50,6 +50,22 @@ export function voucherTypeChip(type: string): VoucherType {
   return CHIP_BY_TYPE[type] ?? 'discount'
 }
 
+// Per-type accent hex (mirrors the design-system Chip accent) used to tint the
+// detail-drawer voucher hero. Unknown types fall back to brand red.
+const ACCENT_BY_CHIP: Record<VoucherType, string> = {
+  bogo: '#7C3AED',
+  discount: '#E20C04',
+  freebie: '#16A34A',
+  spendsave: '#E84A00',
+  package: '#2563EB',
+  timelimited: '#D97706',
+  reusable: '#0D9488',
+}
+
+export function voucherTypeAccent(type: string): string {
+  return ACCENT_BY_CHIP[voucherTypeChip(type)] ?? '#E20C04'
+}
+
 // Human-readable voucher-type label. BOGO stays as the acronym; everything else
 // is sentence-cased from the SCREAMING_SNAKE enum.
 const LABEL_OVERRIDE: Record<string, string> = { BOGO: 'BOGO' }

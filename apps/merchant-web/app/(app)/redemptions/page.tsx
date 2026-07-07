@@ -14,10 +14,11 @@ import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { ScanLine, X } from '@/lib/icons'
+import { ScanLine, X, Info } from '@/lib/icons'
 import { RedemptionsTable } from '@/components/redemptions/RedemptionsTable'
 import { RedemptionFilters } from '@/components/redemptions/RedemptionFilters'
 import { RedemptionDetail } from '@/components/redemptions/RedemptionDetail'
+import { StatusPill } from '@/components/redemptions/StatusPill'
 import { useValidateDialog } from '@/components/redemptions/validateDialogContext'
 import {
   listRedemptions,
@@ -147,6 +148,10 @@ export default function RedemptionsPage() {
   const branchOptions = branches.data ?? []
   const hasPrev = offset > 0
   const hasNext = offset + PAGE_SIZE < total
+  // The awaiting-validation nudge counts the loaded rows on this page (there is
+  // no server-side status aggregate; a full cross-page count would need a
+  // backend total, which is out of scope for this presentation slice).
+  const awaitingCount = items.filter((r) => r.status === 'AWAITING_VALIDATION').length
 
   return (
     <div className="space-y-6">
@@ -161,7 +166,7 @@ export default function RedemptionsPage() {
           <Button variant="secondary" onClick={handleExport} disabled={exporting}>
             {exporting ? 'Exporting...' : 'Export CSV'}
           </Button>
-          <Button variant="gradient" onClick={openValidate}>
+          <Button variant="gradient" onClick={() => openValidate()}>
             <ScanLine size={16} /> Validate a code
           </Button>
         </div>
@@ -186,6 +191,40 @@ export default function RedemptionsPage() {
       ) : null}
 
       <RedemptionFilters filters={filters} branches={branchOptions} vouchers={voucherOptions.data ?? []} onChange={patchFilters} />
+
+      {/* Definition cards: what each status means (Reversed is intentionally
+          omitted; there is no reversed state in the schema). */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-2 rounded-xl border border-border bg-card p-4">
+          <StatusPill status="AWAITING_VALIDATION" />
+          <p className="text-sm text-muted-foreground">
+            The customer redeemed in the app and has a code. It has not been validated yet.
+          </p>
+        </div>
+        <div className="space-y-2 rounded-xl border border-border bg-card p-4">
+          <StatusPill status="VALIDATED" />
+          <p className="text-sm text-muted-foreground">
+            Staff confirmed the code, by QR scan in person or by entering the code, at the counter
+            or later.
+          </p>
+        </div>
+      </div>
+
+      {awaitingCount > 0 && (
+        <div
+          className="flex items-start gap-3 rounded-xl border px-4 py-3"
+          style={{ borderColor: 'rgba(1,12,53,0.12)', background: 'rgba(1,12,53,0.03)' }}
+        >
+          <Info size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-navy" />
+          <p className="text-sm text-foreground">
+            <span className="font-semibold">
+              {awaitingCount} {awaitingCount === 1 ? 'code is' : 'codes are'} awaiting validation.
+            </span>{' '}
+            Validate each one when staff confirm it, at the counter or later from a code your team
+            noted down.
+          </p>
+        </div>
+      )}
 
       {list.isLoading ? (
         <Card>

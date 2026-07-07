@@ -11,31 +11,16 @@
  */
 import * as React from 'react'
 import { Table, THead, TBody, TR, TH, TD, TableEmpty } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import { Chip } from '@/components/ui/chip'
+import { StatusPill } from '@/components/redemptions/StatusPill'
 import {
   formatRedemptionCode,
   formatRedeemedAt,
   formatSaving,
   voucherTypeChip,
   voucherTypeLabel,
-  statusLabel,
 } from '@/lib/redemptions/display'
 import type { RedemptionRow } from '@/lib/api/redemptions'
-
-function StatusPill({ status }: { status: RedemptionRow['status'] }) {
-  if (status === 'VALIDATED') {
-    return (
-      <span
-        className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide"
-        style={{ background: 'rgba(15,122,62,0.10)', color: 'var(--success)' }}
-      >
-        {statusLabel(status)}
-      </span>
-    )
-  }
-  return <Badge variant="caution">{statusLabel(status)}</Badge>
-}
 
 export function RedemptionsTable({
   rows,

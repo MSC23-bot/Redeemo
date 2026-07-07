@@ -13,7 +13,11 @@ import { ValidateCodeDialog } from './ValidateCodeDialog'
 
 export function ValidateDialogProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = React.useState(false)
-  const openValidate = React.useCallback(() => setOpen(true), [])
+  const [initialCode, setInitialCode] = React.useState('')
+  const openValidate = React.useCallback((code?: string) => {
+    setInitialCode(code ?? '')
+    setOpen(true)
+  }, [])
   const close = React.useCallback(() => setOpen(false), [])
 
   const value = React.useMemo(() => ({ openValidate }), [openValidate])
@@ -21,7 +25,7 @@ export function ValidateDialogProvider({ children }: { children: React.ReactNode
   return (
     <ValidateDialogContext.Provider value={value}>
       {children}
-      {open && <ValidateCodeDialog onClose={close} />}
+      {open && <ValidateCodeDialog onClose={close} initialCode={initialCode} />}
     </ValidateDialogContext.Provider>
   )
 }

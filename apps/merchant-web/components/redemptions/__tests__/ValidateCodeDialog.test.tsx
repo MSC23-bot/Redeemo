@@ -66,12 +66,16 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     expect((screen.getByLabelText(/redemption code/i) as HTMLInputElement).value).toBe('A7K2 P9X4')
   })
 
-  it('blocks a too-short code with a client format error and makes NO request', async () => {
+  it('blocks a too-short code with the dedicated "Check the code" warning and makes NO request', async () => {
     renderDialog()
     enterCode('A7K2')
     fireEvent.click(screen.getByRole('button', { name: /look up/i }))
-    expect(await screen.findByText(/8-character code/i)).toBeInTheDocument()
+    expect(await screen.findByText(/check the code/i)).toBeInTheDocument()
+    expect(screen.getByText(/two groups of four/i)).toBeInTheDocument()
     expect(lookupRedemptionByCode).not.toHaveBeenCalled()
+    // "Try another code" returns to a fresh entry step.
+    fireEvent.click(screen.getByRole('button', { name: /try another code/i }))
+    expect(screen.getByLabelText(/redemption code/i)).toBeInTheDocument()
   })
 
   it('looks up an awaiting code and shows the merchant-safe preview (no contact field)', async () => {
@@ -87,7 +91,7 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     expect(lookupRedemptionByCode).toHaveBeenCalledWith('A7K2P9X4')
   })
 
-  it('confirms an awaiting code: validates, shows success, invalidates the log', async () => {
+  it('confirms an awaiting code: validates, shows the success detail block, invalidates the log', async () => {
     lookupRedemptionByCode.mockResolvedValue(AWAITING)
     validateRedemptionCode.mockResolvedValue({ id: 'r1', isValidated: true })
     renderDialog()
@@ -95,11 +99,42 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     enterCode('A7K2P9X4')
     fireEvent.click(screen.getByRole('button', { name: /look up/i }))
     fireEvent.click(await screen.findByRole('button', { name: /confirm validation/i }))
-    expect(await screen.findByText(/is now validated/i)).toBeInTheDocument()
+    // Success step: "Validated for <customer>" + a When / Method detail block.
+    expect(await screen.findByText(/validated for sarah k\./i)).toBeInTheDocument()
+    expect(screen.getByText('Just now')).toBeInTheDocument()
+    expect(screen.getByText('Manual code entry')).toBeInTheDocument()
     expect(validateRedemptionCode).toHaveBeenCalledWith('A7K2P9X4')
     await waitFor(() =>
       expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['redemptions'] })),
     )
+  })
+
+  it('the success step offers "Validate another" that resets to a fresh entry step', async () => {
+    lookupRedemptionByCode.mockResolvedValue(AWAITING)
+    validateRedemptionCode.mockResolvedValue({ id: 'r1', isValidated: true })
+    renderDialog()
+    enterCode('A7K2P9X4')
+    fireEvent.click(screen.getByRole('button', { name: /look up/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /confirm validation/i }))
+    await screen.findByText(/validated for sarah k\./i)
+    // "Done" is a dismiss action; "Validate another" resets the flow.
+    expect(screen.getByRole('button', { name: /^done$/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /validate another/i }))
+    const input = screen.getByLabelText(/redemption code/i) as HTMLInputElement
+    expect(input).toBeInTheDocument()
+    expect(input.value).toBe('')
+  })
+
+  it('a not-found code routes to the dedicated "Check the code" warning state', async () => {
+    lookupRedemptionByCode.mockRejectedValue(
+      new ApiError(404, { error: { code: 'REDEMPTION_NOT_FOUND' } }),
+    )
+    renderDialog()
+    enterCode('A7K2P9X4')
+    fireEvent.click(screen.getByRole('button', { name: /look up/i }))
+    expect(await screen.findByText(/check the code/i)).toBeInTheDocument()
+    expect(screen.getByText(/no redemption found for that code/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /try another code/i })).toBeInTheDocument()
   })
 
   it('an already-validated code shows the details and NO confirm action', async () => {
