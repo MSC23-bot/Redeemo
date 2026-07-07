@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Topbar } from '../Topbar'
 import { ValidateDialogContext } from '@/components/redemptions/validateDialogContext'
+import { ValidateDialogProvider } from '@/components/redemptions/ValidateDialogProvider'
 
 // The Topbar mounts <NotificationBell> + <QuickActionsMenu> + <AccountMenu>,
 // which use next/navigation + React Query. Mock the router and stub the API
@@ -17,6 +18,13 @@ jest.mock('@/lib/api/notifications', () => ({
 }))
 jest.mock('@/lib/api/branch', () => ({
   listBranches: jest.fn(() => Promise.resolve([])),
+}))
+// The real ValidateDialogProvider mounts ValidateCodeDialog, which calls this
+// API client on submit. It is never invoked just by opening the entry step,
+// but stub it so the module resolves without hitting the network.
+jest.mock('@/lib/api/redemptions', () => ({
+  lookupRedemptionByCode: jest.fn(),
+  validateRedemptionCode: jest.fn(),
 }))
 
 function renderTopbar(ui: ReactElement) {
@@ -143,5 +151,27 @@ describe('Topbar', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /validate a code/i }))
     expect(openValidate).toHaveBeenCalledTimes(1)
+  })
+
+  // Regression for the staging-acceptance P1 crash: the topbar CTA used
+  // `onClick={openValidate}` directly, so React forwarded the click
+  // SyntheticEvent as the `code` argument and it landed in initialCode,
+  // which normalizeCode() then tried to run string ops on and threw. A mocked
+  // openValidate (see the test above) can never catch this - it never runs
+  // the real provider/dialog code path. This test wires up the REAL
+  // ValidateDialogProvider + ValidateCodeDialog, exactly as MerchantPortalShell
+  // does, so the click actually flows through openValidate's real
+  // implementation end to end.
+  it('clicking Validate a code opens the real dialog at the entry step with an empty input and does not crash (regression)', () => {
+    renderTopbar(
+      <ValidateDialogProvider>
+        <Topbar onMenu={() => {}} />
+      </ValidateDialogProvider>,
+    )
+    expect(() => {
+      fireEvent.click(screen.getByRole('button', { name: /validate a code/i }))
+    }).not.toThrow()
+    expect(screen.getByTestId('validate-code-dialog')).toBeInTheDocument()
+    expect((screen.getByLabelText(/redemption code/i) as HTMLInputElement).value).toBe('')
   })
 })

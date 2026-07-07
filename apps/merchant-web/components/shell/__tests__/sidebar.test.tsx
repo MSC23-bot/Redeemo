@@ -128,6 +128,33 @@ describe('Sidebar', () => {
     expect(screen.getByText('Home').closest('a')).toHaveAttribute('aria-current', 'page')
   })
 
+  // Regression for the staging-acceptance layout bug: the pinned block (My
+  // account / Help & support) must live OUTSIDE the scrollable nav region, as
+  // a sibling that always renders after it in the flex column, so it never
+  // scrolls away with the nav list and is never pushed off-screen by page
+  // height (the viewport-anchoring itself is the shell's job; this pins the
+  // internal structure that makes it possible).
+  it('renders the pinned block as a non-scrolling sibling after the scrollable nav region (structural pin)', () => {
+    render(<Sidebar role="OWNER" />)
+    const nav = screen.getByRole('navigation', { name: 'Primary' })
+    expect(nav.style.display).toBe('flex')
+    expect(nav.style.flexDirection).toBe('column')
+    expect(nav.style.height).toBe('100%')
+
+    const scrollRegion = screen.getByTestId('sidebar-scroll-region')
+    const pinned = screen.getByTestId('sidebar-pinned')
+    expect(scrollRegion.style.overflowY).toBe('auto')
+    expect(scrollRegion.style.flex).toBe('1 1 auto')
+    expect(pinned.style.flexShrink).toBe('0')
+    expect(pinned.style.overflowY).not.toBe('auto')
+
+    // Both live directly under <nav>, scroll region first, pinned second.
+    expect(Array.from(nav.children)).toEqual([scrollRegion, pinned])
+    // And the pinned items themselves render inside that block.
+    expect(pinned).toHaveTextContent('My account')
+    expect(pinned).toHaveTextContent('Help & support')
+  })
+
   // Shell wave: 72px icon-only rail.
   it('collapsed mode hides labels, group titles and status text but keeps icon links + a11y names', () => {
     render(<Sidebar collapsed role="OWNER" />)
