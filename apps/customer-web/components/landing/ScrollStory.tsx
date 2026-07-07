@@ -154,17 +154,9 @@ function StoryStage() {
   return (
     <div ref={trackRef} className="relative" style={{ height: '340vh' }}>
       <motion.div className="sticky top-0 h-screen overflow-hidden" style={{ background: bg }}>
-        {/* Ambient generated backdrops (Higgsfield Phase 2), one per chapter.
-            Washed toward the ground colour so the foreground always wins. */}
-        <ChapterBackdrop progress={scrollYProgress} band={[0, 0.04, 0.24, 0.31]} name="find-town">
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(255,249,245,0.94) 0%, rgba(255,249,245,0.72) 46%, rgba(255,249,245,0.30) 100%)' }} />
-        </ChapterBackdrop>
-        <ChapterBackdrop progress={scrollYProgress} band={[0.28, 0.35, 0.55, 0.62]} name="choose-fan">
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.82) 50%, rgba(255,255,255,0.55) 100%)' }} />
-        </ChapterBackdrop>
-        <ChapterBackdrop progress={scrollYProgress} band={[0.62, 0.74, 0.96, 1]} name="redeem-glow">
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(1,12,53,0.72) 0%, rgba(1,12,53,0.4) 55%, rgba(1,12,53,0.25) 100%)' }} />
-        </ChapterBackdrop>
+        {/* Backdrop ambience PARKED (owner 2026-07-07: wants the phone INSIDE
+            the generated film, not scenery behind the code phone). Assets kept
+            in public/app-motion for reference; reintroduce only per new brief. */}
         <div className="relative max-w-7xl mx-auto h-full px-6 grid grid-cols-[1fr_420px] gap-8 items-center">
 
           {/* Chapter text (stacked, crossfading) */}
