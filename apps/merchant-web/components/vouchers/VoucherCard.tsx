@@ -9,6 +9,7 @@ import {
   DISPLAY_STATE_BADGE,
   type VoucherDisplayState,
 } from '@/lib/voucher/displayState'
+import type { PendingVoucherEdit } from '@/lib/api/voucher'
 import { toChipType, voucherTypeLabel } from './typeChip'
 
 // Day-2 Vouchers B3: a single voucher card. Flagship cards are read-only/locked
@@ -39,6 +40,12 @@ export interface VoucherCardData {
   estimatedSaving: number
   redemptionCount: number
   isRmv?: boolean
+  // Voucher governed flows (2026-07-07): carried through so the list card can
+  // render an "awaiting review" treatment and the kebab (VoucherGovernedMenu)
+  // can prefill / gate a request without a second fetch.
+  description?: string | null
+  terms?: string | null
+  pendingEdit?: PendingVoucherEdit | null
 }
 
 function money(n: number): string {
@@ -109,17 +116,21 @@ export function VoucherCard({
         <p className="text-xs leading-relaxed text-[#2563EB]">{DISPLAY_STATE_LABEL['approved-waiting']}</p>
       ) : null}
 
+      {/* Voucher governed flows: an open (PENDING) request awaiting Redeemo
+          review, shown for both a flagship CHANGE and a custom END request. */}
+      {voucher.pendingEdit?.status === 'PENDING' ? (
+        <p data-testid="voucher-card-pending-note" className="text-xs leading-relaxed text-[#B45309]">
+          {voucher.pendingEdit.kind === 'CHANGE' ? 'Change awaiting review' : 'End request awaiting review'}
+        </p>
+      ) : null}
+
       <div className="mt-auto flex items-center justify-between gap-2 pt-1">
         <span className="text-[13px] text-[#6B7390]">
           {voucher.estimatedSaving > 0 ? `Saves about £${money(voucher.estimatedSaving)}` : 'Saving not set'}
           {' · '}
           {voucher.redemptionCount} {voucher.redemptionCount === 1 ? 'redemption' : 'redemptions'}
         </span>
-        {flagship ? (
-          <span className="text-xs font-medium text-[#8089A4]">Always live · edits go to review</span>
-        ) : (
-          actions ?? null
-        )}
+        {flagship ? actions ?? <span className="text-xs font-medium text-[#8089A4]">Always live · edits go to review</span> : actions ?? null}
       </div>
     </div>
   )

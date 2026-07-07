@@ -16,11 +16,12 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { listCustomVouchers, listFlagshipVouchers } from '@/lib/api/voucher'
+import { listCustomVouchers, listFlagshipVouchers, type PendingVoucherEdit } from '@/lib/api/voucher'
 import { useVoucherCapability } from '@/lib/voucher/useVoucherCapability'
 import { useVoucherCategoryName } from '@/lib/voucher/useVoucherCategoryName'
 import { VouchersList } from '@/components/vouchers/VouchersList'
 import type { VoucherCardData } from '@/components/vouchers/VoucherCard'
+import { VoucherGovernedMenu } from '@/components/vouchers/VoucherGovernedMenu'
 import { DayTwoBuilder } from '@/components/vouchers/builder/DayTwoBuilder'
 
 export default function VouchersPage() {
@@ -121,6 +122,17 @@ export default function VouchersPage() {
           canCreate={canManage}
           onCreate={() => setCreating(true)}
           onOpen={(id) => router.push(`/vouchers/${id}`)}
+          renderActions={(v) => (
+            <VoucherGovernedMenu
+              voucher={v}
+              canManage={canManage}
+              // Duplicate/Edit live on the detail page's builder mode; a
+              // ?duplicate=1 deep-link (mirrors this page's own ?create=1
+              // pattern) opens it there directly instead of requiring a
+              // second click once the merchant lands on the detail page.
+              onDuplicate={() => router.push(`/vouchers/${v.id}?duplicate=1`)}
+            />
+          )}
         />
       )}
     </div>
@@ -136,6 +148,9 @@ function toCardData(r: {
   estimatedSaving: number
   redemptionCount: number
   isRmv?: boolean
+  description?: string | null
+  terms?: string | null
+  pendingEdit?: PendingVoucherEdit | null
 }): VoucherCardData {
   return {
     id: r.id,
@@ -146,5 +161,8 @@ function toCardData(r: {
     estimatedSaving: r.estimatedSaving,
     redemptionCount: r.redemptionCount,
     isRmv: r.isRmv,
+    description: r.description,
+    terms: r.terms,
+    pendingEdit: r.pendingEdit,
   }
 }
