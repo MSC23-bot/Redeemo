@@ -20,7 +20,7 @@ export function InsiderContent() {
   return (
     <>
       {/* ── Editorial hero — navy with rose glow ── */}
-      <section className="relative overflow-hidden bg-[#010C35] py-20 md:py-28 px-6">
+      <section className="relative overflow-hidden bg-[#010C35] -mt-[80px] pt-[160px] pb-20 md:pt-[192px] md:pb-28 px-6">
         {/* Glow */}
         <div
           aria-hidden="true"

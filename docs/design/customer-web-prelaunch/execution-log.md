@@ -444,3 +444,17 @@ edited by this workstream.
   110px band reads correctly. Higgsfield cost 10cr actual (seeds + cutout);
   approval envelope now 28.12 of 30 spent, balance 32.38: no further
   generation without fresh approval.
+- Nav island (owner 2026-07-08: top bar "looks a bit odd... doesn't have to be
+  one long stripe"; scrolled glass bar fine but slightly bigger): the full-
+  bleed red header is retired. The brand colour now rides a floating island
+  (max-w-6xl, rounded-2xl, h-68) with a voucher die-cut notch carved into
+  each end (mask on a background-only layer so the account dropdown and menu
+  never clip; drop-shadow on a wrapper so the notches read in the
+  silhouette), red-tinted shadow, 1px inset top highlight. Links centred
+  (logo · links · actions); active underline white on red. Mobile menu
+  expands inside the island so the band grows like a long voucher. The
+  header zone is transparent, so page worlds extend behind it: landing hero
+  and the four navy marketing heroes (how-it-works, pricing, insider,
+  for-businesses) pull up -80px with compensated padding; red-on-navy at the
+  top of those pages replaces the old red-stripe-on-white band. Glass
+  quick-nav grown h-58 to h-64, logo 44 to 48, type 13.5 to 14.

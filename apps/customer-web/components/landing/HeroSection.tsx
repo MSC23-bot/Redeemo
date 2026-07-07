@@ -63,7 +63,7 @@ export function HeroSection() {
     <section
       ref={sectionRef}
       onMouseMove={handleMouseMove}
-      className="relative overflow-hidden px-6 pt-16 pb-14 md:pt-20 md:pb-20"
+      className="relative overflow-hidden px-6 -mt-[80px] pt-[144px] pb-14 md:pt-[160px] md:pb-20"
       style={{ background: '#FFF9F5' }}
     >
       {/* Cursor-following red glow (visible on mobile, where the film is off) */}

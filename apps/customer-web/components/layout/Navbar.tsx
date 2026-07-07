@@ -120,8 +120,10 @@ export function Navbar() {
 
   // Owner direction 2026-07-06: the top-of-page bar carries the primary brand
   // colour, so its inner chrome runs the on-colour (dark) theme permanently.
+  // Revised 2026-07-08: not "one long stripe": the brand colour rides a
+  // floating island with voucher die-cut notches at its ends, the same shape
+  // language as the glass quick-nav and the voucher cards.
   const isDark = true
-  const navBg = 'border-transparent'
 
   const navLinks = user ? NAV_LINKS_MEMBER : NAV_LINKS_PUBLIC
 
@@ -144,11 +146,33 @@ export function Navbar() {
 
   return (
     <>
-    <header
-      className={`relative z-40 border-b ${navBg}`}
-      style={{ background: '#BE0A03 radial-gradient(120% 420% at 70% 16%, #F24E2C 0%, #BE0A03 100%)' }}
-    >
-      <nav aria-label="Main" className="max-w-7xl mx-auto px-6 h-[84px] flex items-center gap-6">
+    <header className="relative z-40 px-3 md:px-6 pt-3">
+      <div className="relative max-w-6xl mx-auto">
+        {/* The voucher band: brand gradient with a die-cut notch carved into
+            each end, drop-shadow on a wrapper so the notches read in the
+            silhouette. Background only: the notch mask must never clip the
+            account dropdown or the light sweep of content above it. */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none"
+          style={{ filter: 'drop-shadow(0 14px 30px rgba(190,10,3,0.22))' }}
+        >
+          <div
+            className="h-full w-full rounded-2xl"
+            style={{
+              background: '#BE0A03 radial-gradient(140% 380% at 72% 10%, #F24E2C 0%, #BE0A03 100%)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22)',
+              maskImage:
+                'radial-gradient(circle at 0 50%, transparent 8.5px, black 9px), radial-gradient(circle at 100% 50%, transparent 8.5px, black 9px)',
+              WebkitMaskImage:
+                'radial-gradient(circle at 0 50%, transparent 8.5px, black 9px), radial-gradient(circle at 100% 50%, transparent 8.5px, black 9px)',
+              maskComposite: 'intersect',
+              WebkitMaskComposite: 'source-in',
+            }}
+          />
+        </div>
+
+        <nav aria-label="Main" className="relative px-5 md:px-7 h-[68px] flex items-center gap-6">
 
         {/* Logo */}
         <Link href="/" className="flex-shrink-0 no-underline">
@@ -157,13 +181,14 @@ export function Navbar() {
             alt="Redeemo"
             width={220}
             height={60}
-            className="h-[68px] w-auto transition-opacity duration-300"
+            className="h-[50px] w-auto transition-opacity duration-300"
             priority
           />
         </Link>
 
-        {/* Desktop nav links */}
-        <div className="hidden md:flex gap-0.5 flex-1">
+        {/* Desktop nav links, centred so the island reads balanced:
+            logo · links · actions rather than everything left-stacked */}
+        <div className="hidden md:flex gap-1 flex-1 justify-center">
           {navLinks.map(link => {
             const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
             return (
@@ -176,8 +201,8 @@ export function Navbar() {
                 {isActive && (
                   <motion.span
                     layoutId="nav-indicator"
-                    className="absolute inset-x-3 -bottom-[13px] h-[2px] rounded-full"
-                    style={{ background: 'var(--brand-gradient)' }}
+                    className="absolute inset-x-3 -bottom-[8px] h-[2px] rounded-full"
+                    style={{ background: 'rgba(255,255,255,0.9)' }}
                     transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                   />
                 )}
@@ -369,8 +394,7 @@ export function Navbar() {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.22, ease: 'easeInOut' }}
-            className="md:hidden overflow-hidden border-t border-white/[0.14]"
-            style={{ background: '#BE0A03 radial-gradient(120% 300% at 70% 0%, #F24E2C 0%, #BE0A03 100%)' }}
+            className="md:hidden overflow-hidden border-t border-white/[0.14] relative"
           >
             <div className="px-6 py-4 flex flex-col gap-1">
 
@@ -461,6 +485,7 @@ export function Navbar() {
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
     </header>
 
     {/* Glass quick-nav: slides in when scrolling UP mid-page; neutral so it
@@ -476,7 +501,7 @@ export function Navbar() {
         >
           <nav
             aria-label="Quick navigation"
-            className="max-w-6xl mx-auto flex items-center gap-5 px-4 md:px-6 h-[58px] rounded-2xl"
+            className="max-w-6xl mx-auto flex items-center gap-5 px-5 md:px-7 h-[64px] rounded-2xl"
             style={{
               background: 'rgba(255,249,245,0.90)',
               backdropFilter: 'blur(16px) saturate(1.5)',
@@ -486,7 +511,7 @@ export function Navbar() {
             }}
           >
             <Link href="/" className="flex-shrink-0 no-underline">
-              <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[44px] w-auto" />
+              <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[48px] w-auto" />
             </Link>
 
             <div className="hidden md:flex gap-0.5 flex-1">
@@ -496,7 +521,7 @@ export function Navbar() {
                   <Link
                     key={link.href}
                     href={link.href}
-                    className={`px-3 py-1.5 rounded-md text-[13.5px] font-medium transition-colors duration-150 no-underline ${
+                    className={`px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${
                       isActive ? 'text-[#E20C04]' : 'text-[#4B5563] hover:text-[#010C35]'
                     }`}
                   >
@@ -516,13 +541,13 @@ export function Navbar() {
                   <>
                     <Link
                       href="/login"
-                      className="hidden md:block text-[13.5px] font-medium text-[#4B5563] hover:text-[#010C35] no-underline transition-colors"
+                      className="hidden md:block text-[14px] font-medium text-[#4B5563] hover:text-[#010C35] no-underline transition-colors"
                     >
                       Log in
                     </Link>
                     <Link
                       href={primaryCtaHref}
-                      className="text-[13.5px] font-bold text-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
+                      className="text-[14px] font-bold text-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
                       style={{ background: 'var(--brand-gradient)' }}
                     >
                       {primaryCtaLabel}

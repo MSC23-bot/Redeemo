@@ -97,7 +97,7 @@ export function ForBusinessesContent() {
     <>
       {/* ── 1. Hero ── */}
       <section
-        className="relative overflow-hidden py-24 md:py-32 px-6"
+        className="relative overflow-hidden -mt-[80px] pt-[176px] pb-24 md:pt-[208px] md:pb-32 px-6"
         style={{ background: '#010C35' }}
       >
         <div
