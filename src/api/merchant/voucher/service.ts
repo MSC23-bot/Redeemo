@@ -237,9 +237,21 @@ export async function listVouchers(prisma: PrismaClient, adminId: string) {
       approvedAt: true,
       createdAt: true,
       _count: { select: { redemptions: true } },
+      // Voucher governed flows: surface the open request (at most one PENDING per
+      // voucher, app-enforced) so the UI can show "request pending" state.
+      // Curated summary only — no PII.
+      pendingEdits: {
+        where: { status: 'PENDING' },
+        take: 1,
+        select: { id: true, kind: true, status: true, reason: true, createdAt: true, proposedChanges: true },
+      },
     },
   })
-  return rows.map(({ _count, ...r }) => ({ ...r, redemptionCount: _count?.redemptions ?? 0 }))
+  return rows.map(({ _count, pendingEdits, ...r }) => ({
+    ...r,
+    redemptionCount: _count?.redemptions ?? 0,
+    pendingEdit: pendingEdits?.[0] ?? null,
+  }))
 }
 
 export async function getVoucher(
@@ -266,11 +278,17 @@ export async function getVoucher(
     include: {
       _count: { select: { redemptions: true } },
       availabilityWindows: { select: { dayOfWeek: true, openTime: true, closeTime: true } },
+      // Voucher governed flows: the open request summary (see listVouchers).
+      pendingEdits: {
+        where: { status: 'PENDING' },
+        take: 1,
+        select: { id: true, kind: true, status: true, reason: true, createdAt: true, proposedChanges: true },
+      },
     },
   })
   if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
-  const { _count, ...rest } = voucher
-  return { ...rest, redemptionCount: _count?.redemptions ?? 0 }
+  const { _count, pendingEdits, ...rest } = voucher
+  return { ...rest, redemptionCount: _count?.redemptions ?? 0, pendingEdit: pendingEdits?.[0] ?? null }
 }
 
 export async function createVoucher(
@@ -645,10 +663,24 @@ export async function listRmvVouchers(prisma: PrismaClient, adminId: string) {
   // off _count; rmvTemplate and every scalar are preserved on the row.
   const rows = await prisma.voucher.findMany({
     where: { merchantId, isRmv: true },
-    include: { rmvTemplate: true, _count: { select: { redemptions: true } } },
+    include: {
+      rmvTemplate: true,
+      _count: { select: { redemptions: true } },
+      // Voucher governed flows: a live flagship's open CHANGE request summary
+      // (see listVouchers). Additive include; rmvTemplate untouched.
+      pendingEdits: {
+        where: { status: 'PENDING' },
+        take: 1,
+        select: { id: true, kind: true, status: true, reason: true, createdAt: true, proposedChanges: true },
+      },
+    },
     orderBy: { createdAt: 'asc' },
   })
-  return rows.map(({ _count, ...r }) => ({ ...r, redemptionCount: _count?.redemptions ?? 0 }))
+  return rows.map(({ _count, pendingEdits, ...r }) => ({
+    ...r,
+    redemptionCount: _count?.redemptions ?? 0,
+    pendingEdit: pendingEdits?.[0] ?? null,
+  }))
 }
 
 /**
@@ -971,6 +1003,313 @@ export async function submitRmvVoucher(
     voucherId,
     ctx
   )
+}
+
+// ─── Voucher governed flows (2026-07-07, D1-D4) ─────────────────────────────
+//
+// The merchant WRITER half of the governed voucher lanes. All three lanes share
+// the module's write gating (resolveMerchantContext + assertCanManageVouchers)
+// and are tenant-scoped by merchantId on every voucher/edit lookup.
+//   - requestFlagshipVoucherChange: a LIVE (ACTIVE) flagship's fields go through
+//     review (VoucherPendingEdit kind CHANGE + AdminApproval VOUCHER_EDIT); the
+//     voucher stays ACTIVE while reviewed. Draft flagships keep the existing
+//     direct edit path (updateRmvVoucherCore) untouched.
+//   - requestVoucherEnd: a LIVE CUSTOM voucher's deactivation goes through review
+//     (kind END). D4: a flagship can NEVER be ended (rejected here AND re-rejected
+//     by the applier).
+//   - withdrawVoucherSubmission (D2): INSTANT self-service pull-back of a
+//     PENDING_APPROVAL custom submission (voucher -> DRAFT, the open VOUCHER
+//     approval -> WITHDRAWN). Works even if an admin has CLAIMED it (the row
+//     leaves the queue as WITHDRAWN, by design). Approved-waiting vouchers
+//     (approvalStatus APPROVED) were already reviewed and are NOT withdrawable.
+//   - withdrawVoucherPendingEdit: self-service withdraw of an own PENDING
+//     VoucherPendingEdit (mirrors withdrawMerchantEditRequest), atomically
+//     flipping its AdminApproval -> WITHDRAWN too.
+
+// The promotable TOP-LEVEL Voucher columns a governed CHANGE may propose. The
+// effective allow-list is this set INTERSECTED with the voucher's
+// RmvTemplate.allowedFields (the same source updateRmvVoucherCore reads). The
+// admin applier (editApplier.ts) re-applies its own copy of this set, so a
+// drift here can never widen what the applier writes.
+const VOUCHER_PROMOTABLE_FIELDS = ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl'] as const
+
+function assertGovernedReason(reason: unknown): asserts reason is string {
+  if (typeof reason !== 'string' || reason.trim().length === 0) {
+    throw new AppError('VOUCHER_EDIT_INVALID_FIELD')
+  }
+}
+
+/** One PENDING VoucherPendingEdit per voucher (ANY kind) — app-layer guard. */
+async function assertNoPendingVoucherEdit(
+  client: { voucherPendingEdit: { findFirst: (args: any) => Promise<unknown> } },
+  voucherId: string,
+): Promise<void> {
+  const existing = await client.voucherPendingEdit.findFirst({
+    where: { voucherId, status: 'PENDING' },
+    select: { id: true },
+  })
+  if (existing) throw new AppError('PENDING_EDIT_EXISTS')
+}
+
+/** Curated wire shape for a pending edit (writer returns + reads' summary). */
+const PENDING_EDIT_SELECT = {
+  id: true, kind: true, status: true, reason: true, createdAt: true, proposedChanges: true,
+} as const
+
+export async function requestFlagshipVoucherChange(
+  prisma: PrismaClient,
+  adminId: string,
+  voucherId: string,
+  proposedFields: Record<string, unknown>,
+  reason: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
+
+  assertGovernedReason(reason)
+
+  // Tenant-scoped flagship lookup (a cross-tenant / custom / missing id is a 404).
+  const voucher = await prisma.voucher.findFirst({
+    where: { id: voucherId, merchantId, isRmv: true },
+    include: { rmvTemplate: true },
+  })
+  if (!voucher) throw new AppError('RMV_NOT_FOUND')
+  // Only a LIVE flagship goes through the governed lane; draft flagships keep the
+  // existing direct edit path (updateRmvVoucherCore, DRAFT-only).
+  if (voucher.status !== 'ACTIVE') throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
+
+  // Allow-list: RmvTemplate.allowedFields (same source as updateRmvVoucherCore)
+  // INTERSECTED with the promotable top-level set. A proposed key outside the
+  // intersection is rejected (never silently widened).
+  const templateAllowed: string[] = Array.isArray(voucher.rmvTemplate?.allowedFields)
+    ? (voucher.rmvTemplate.allowedFields as string[])
+    : []
+  const allowed = VOUCHER_PROMOTABLE_FIELDS.filter(f => templateAllowed.includes(f))
+  const proposedKeys = Object.keys(proposedFields)
+  if (proposedKeys.some(k => !allowed.includes(k as (typeof VOUCHER_PROMOTABLE_FIELDS)[number]))) {
+    throw new AppError('RMV_FIELD_NOT_ALLOWED')
+  }
+  if (proposedKeys.length === 0) throw new AppError('VOUCHER_EDIT_INVALID_FIELD')
+
+  // Value validation (mirrors the #399 writer pattern + the submit bridge's
+  // robustness): strings must be strings (title additionally non-empty);
+  // estimatedSaving must be sane AND fit Decimal(10,2) — stored pre-rounded to
+  // scale 2 so the applier writes a value Postgres cannot re-round into overflow.
+  const filtered: Record<string, unknown> = {}
+  for (const k of proposedKeys) {
+    const v = proposedFields[k]
+    if (k === 'estimatedSaving') {
+      assertSavingSane(v)
+      assertSavingFitsColumn(v as number)
+      filtered[k] = Math.round((v as number) * 100) / 100
+    } else if (k === 'title') {
+      if (typeof v !== 'string' || v.trim().length === 0) throw new AppError('VOUCHER_EDIT_INVALID_FIELD')
+      filtered[k] = v
+    } else {
+      if (typeof v !== 'string') throw new AppError('VOUCHER_EDIT_INVALID_FIELD')
+      filtered[k] = v
+    }
+  }
+
+  await assertNoPendingVoucherEdit(prisma, voucherId)
+
+  // Atomic: staging row + approval-queue row + audit commit/roll back together.
+  // The voucher itself is UNTOUCHED (stays ACTIVE while reviewed).
+  return prisma.$transaction(async (tx) => {
+    const pendingEdit = await tx.voucherPendingEdit.create({
+      data: {
+        voucherId, merchantId, kind: 'CHANGE',
+        proposedChanges: filtered as Prisma.InputJsonValue,
+        reason, status: 'PENDING',
+      },
+      select: PENDING_EDIT_SELECT,
+    })
+    await tx.adminApproval.create({
+      data: {
+        type:          'VOUCHER_EDIT',
+        status:        'PENDING',
+        referenceId:   pendingEdit.id,
+        referenceType: 'voucher_pending_edit',
+        comment:       `Merchant requested changes to a live flagship voucher. Reason: ${reason}`,
+      },
+    })
+    await writeAuditLogTx(tx, {
+      entityId: merchantId, entityType: 'merchant', event: 'VOUCHER_EDIT_REQUEST_CREATED',
+      actorId: adminId, actorType: 'MERCHANT_ADMIN', reason,
+      metadata: { voucherId, pendingEditId: pendingEdit.id, kind: 'CHANGE', proposedKeys: Object.keys(filtered) },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return pendingEdit
+  })
+}
+
+export async function requestVoucherEnd(
+  prisma: PrismaClient,
+  adminId: string,
+  voucherId: string,
+  reason: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
+
+  assertGovernedReason(reason)
+
+  // Tenant-scoped lookup WITHOUT an isRmv filter so a flagship target gets the
+  // clear D4 rejection (not a generic 404).
+  const voucher = await prisma.voucher.findFirst({
+    where: { id: voucherId, merchantId },
+    select: { id: true, isRmv: true, status: true },
+  })
+  if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
+  // D4: request-to-end is CUSTOM-only. Flagship vouchers are onboarding-mandatory
+  // and can never be ended by the merchant.
+  if (voucher.isRmv) throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
+  if (voucher.status !== 'ACTIVE') throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
+
+  await assertNoPendingVoucherEdit(prisma, voucherId)
+
+  // Atomic. The voucher stays ACTIVE until an admin approves the END.
+  return prisma.$transaction(async (tx) => {
+    const pendingEdit = await tx.voucherPendingEdit.create({
+      // proposedChanges intentionally omitted (nullable column stays NULL):
+      // an END proposes no field values; the applier flips status only.
+      data: { voucherId, merchantId, kind: 'END', reason, status: 'PENDING' },
+      select: PENDING_EDIT_SELECT,
+    })
+    await tx.adminApproval.create({
+      data: {
+        type:          'VOUCHER_EDIT',
+        status:        'PENDING',
+        referenceId:   pendingEdit.id,
+        referenceType: 'voucher_pending_edit',
+        comment:       `Merchant requested to end a live custom voucher. Reason: ${reason}`,
+      },
+    })
+    await writeAuditLogTx(tx, {
+      entityId: merchantId, entityType: 'merchant', event: 'VOUCHER_EDIT_REQUEST_CREATED',
+      actorId: adminId, actorType: 'MERCHANT_ADMIN', reason,
+      metadata: { voucherId, pendingEditId: pendingEdit.id, kind: 'END' },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return pendingEdit
+  })
+}
+
+export async function withdrawVoucherSubmission(
+  prisma: PrismaClient,
+  adminId: string,
+  voucherId: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
+
+  const voucher = await prisma.voucher.findFirst({
+    where: { id: voucherId, merchantId },
+    select: { id: true, isRmv: true, status: true, approvalStatus: true },
+  })
+  if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
+  // Flagship submissions are onboarding-mandatory: never merchant-withdrawable.
+  if (voucher.isRmv) throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
+  if (voucher.status !== 'PENDING_APPROVAL') throw new AppError('VOUCHER_WITHDRAW_NOT_PENDING')
+  // Approved-waiting (status PENDING_APPROVAL + approvalStatus APPROVED, Model 1)
+  // was ALREADY reviewed — there is no open submission to pull back.
+  if (voucher.approvalStatus === 'APPROVED') throw new AppError('VOUCHER_WITHDRAW_NOT_PENDING')
+
+  // Atomic: voucher -> DRAFT + the open VOUCHER approval -> WITHDRAWN + audit.
+  // The approval row is resolved and validated BEFORE any write so a missing
+  // open row rolls back nothing. A CLAIMED row still withdraws (claim cleared,
+  // row leaves the queue as WITHDRAWN — by design, D2).
+  return prisma.$transaction(async (tx) => {
+    const approval = await tx.adminApproval.findFirst({
+      where: {
+        type: 'VOUCHER',
+        referenceId: voucherId,
+        status: { in: ['PENDING', 'CHANGES_REQUESTED'] },
+      },
+      select: { id: true },
+    })
+    if (!approval) throw new AppError('VOUCHER_WITHDRAW_NOT_PENDING')
+
+    const updated = await tx.voucher.update({
+      where: { id: voucherId },
+      data: { status: 'DRAFT' },
+    })
+    await tx.adminApproval.update({
+      where: { id: approval.id },
+      data: {
+        status: 'WITHDRAWN',
+        claimedById: null,
+        claimedAt: null,
+        actionedAt: new Date(),
+        comment: 'Merchant withdrew the submission',
+      },
+    })
+    await writeAuditLogTx(tx, {
+      entityId: merchantId, entityType: 'merchant', event: 'VOUCHER_SUBMISSION_WITHDRAWN',
+      actorId: adminId, actorType: 'MERCHANT_ADMIN',
+      before: { status: 'PENDING_APPROVAL' }, after: { status: 'DRAFT' },
+      metadata: { voucherId, approvalId: approval.id },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return updated
+  })
+}
+
+export async function withdrawVoucherPendingEdit(
+  prisma: PrismaClient,
+  adminId: string,
+  editId: string,
+  ctx: { ipAddress: string; userAgent: string }
+) {
+  const mctx = await resolveMerchantContext(prisma, adminId)
+  assertCanManageVouchers(mctx)
+  const { merchantId } = mctx
+
+  // Tenant-scoped; a cross-tenant / missing / non-PENDING edit is a 404
+  // (mirrors withdrawMerchantEditRequest).
+  const edit = await prisma.voucherPendingEdit.findFirst({ where: { id: editId, merchantId } })
+  if (!edit || edit.status !== 'PENDING') throw new AppError('PENDING_EDIT_NOT_FOUND')
+
+  // Atomic: edit -> WITHDRAWN + its AdminApproval -> WITHDRAWN + audit. (The
+  // sibling profile withdraw leaves its approval dangling — that dangling-row
+  // class is exactly what Option B B1 had to fix, so this lane closes both
+  // sides together.)
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.voucherPendingEdit.update({
+      where: { id: editId },
+      data: { status: 'WITHDRAWN', reviewedAt: new Date() },
+      select: PENDING_EDIT_SELECT,
+    })
+    const approval = await tx.adminApproval.findFirst({
+      where: { type: 'VOUCHER_EDIT', referenceId: editId, status: 'PENDING' },
+      select: { id: true },
+    })
+    if (approval) {
+      await tx.adminApproval.update({
+        where: { id: approval.id },
+        data: {
+          status: 'WITHDRAWN',
+          claimedById: null,
+          claimedAt: null,
+          actionedAt: new Date(),
+          comment: 'Merchant withdrew the request',
+        },
+      })
+    }
+    await writeAuditLogTx(tx, {
+      entityId: merchantId, entityType: 'merchant', event: 'VOUCHER_EDIT_REQUEST_WITHDRAWN',
+      actorId: adminId, actorType: 'MERCHANT_ADMIN',
+      metadata: { voucherId: edit.voucherId, pendingEditId: editId, kind: edit.kind },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return updated
+  })
 }
 
 export async function provisionRmvVouchers(

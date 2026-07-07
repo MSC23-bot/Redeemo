@@ -46,12 +46,25 @@ const BRANCH_LOCATION_SNAPSHOT_FIELDS = [
   'locationResolvedAt', 'locationConfidence',
 ] as const
 
-type EditKind = 'merchant' | 'branch'
+// Voucher governed flows (2026-07-07): the promotable TOP-LEVEL Voucher columns
+// a governed CHANGE may write. Re-declared here (not imported from the merchant
+// writer) for the same reason as the SENSITIVE lists above: the applier owns its
+// own allow-list, so writer drift can never widen what the applier writes.
+// Pinned by the stray-key-never-written test.
+const VOUCHER_EDITABLE_FIELDS = [
+  'title', 'description', 'estimatedSaving', 'terms', 'imageUrl',
+] as const
+
+// Decimal(10,2) column max (mirrors the merchant service's RMV_SAVING_COLUMN_MAX).
+const VOUCHER_SAVING_COLUMN_MAX = 100000000
+
+type EditKind = 'merchant' | 'branch' | 'voucher'
 
 /** Map an edit approval type to its kind. Returns null for non-edit types. */
 function editKindOf(type: string): EditKind | null {
   if (type === 'MERCHANT_IDENTITY_EDIT') return 'merchant'
   if (type === 'BRANCH_IDENTITY_EDIT') return 'branch'
+  if (type === 'VOUCHER_EDIT') return 'voucher'
   return null
 }
 
@@ -79,6 +92,39 @@ function pickAllowed(proposed: Record<string, unknown>, allow: readonly string[]
   const out: Record<string, unknown> = {}
   for (const key of allow) {
     if (key in proposed) out[key] = proposed[key]
+  }
+  return out
+}
+
+/**
+ * Voucher governed flows: build the update payload for a CHANGE apply. Two
+ * defence layers on top of pickAllowed (mirrors the submit-bridge robustness in
+ * merchant/voucher/service.ts):
+ *   - strings (title/description/terms/imageUrl) apply ONLY when the stored
+ *     value is a string (title additionally non-empty); a malformed value is
+ *     DROPPED so a poisoned staging row degrades gracefully, never a Prisma 500;
+ *   - estimatedSaving is customer-facing quantitative data, so a malformed /
+ *     overflowing value throws the clean SAVING_INVALID (never silently applied,
+ *     never a Postgres 22003). Rounded to scale 2 pre-write so Postgres cannot
+ *     re-round into overflow.
+ * A stray key (status / isRmv / merchantId / approvalStatus / ...) can NEVER be
+ * written: pickAllowed drops it before either layer runs.
+ */
+function buildVoucherApplied(proposed: Record<string, unknown>): Record<string, unknown> {
+  const picked = pickAllowed(proposed, VOUCHER_EDITABLE_FIELDS)
+  const out: Record<string, unknown> = {}
+  for (const field of ['title', 'description', 'terms', 'imageUrl'] as const) {
+    if (field in picked && typeof picked[field] === 'string') {
+      if (field === 'title' && (picked[field] as string).trim().length === 0) continue
+      out[field] = picked[field]
+    }
+  }
+  if ('estimatedSaving' in picked) {
+    const s = picked.estimatedSaving
+    if (typeof s !== 'number' || !Number.isFinite(s) || s <= 0) throw new AppError('SAVING_INVALID')
+    const rounded = Math.round(s * 100) / 100
+    if (rounded >= VOUCHER_SAVING_COLUMN_MAX) throw new AppError('SAVING_INVALID')
+    out.estimatedSaving = rounded
   }
   return out
 }
@@ -182,6 +228,72 @@ export async function approveEdit(
       return { merchantId: edit.merchantId }
     }
 
+    if (kind === 'voucher') {
+      // Voucher governed flows: apply a VoucherPendingEdit (kind CHANGE | END).
+      const edit = await tx.voucherPendingEdit.findUnique({ where: { id: approval.referenceId } })
+      if (!edit) throw new AppError('PENDING_EDIT_NOT_FOUND')
+      if (edit.status !== 'PENDING') throw new AppError('PENDING_EDIT_NOT_ACTIONABLE')
+
+      const voucher = await tx.voucher.findUnique({ where: { id: edit.voucherId } })
+      if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
+
+      let before: Record<string, unknown>
+      let after: Record<string, unknown>
+
+      if (edit.kind === 'END') {
+        // D4 PIN: an END may NEVER touch a flagship — re-verified here (the
+        // writer already rejects it) and thrown BEFORE any mutation.
+        if (voucher.isRmv) throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
+        // Re-verify the voucher is still LIVE at apply time (it may have been
+        // rejected/suspended/expired since the request was written).
+        if (voucher.status !== 'ACTIVE') throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
+        await tx.voucher.update({ where: { id: voucher.id }, data: { status: 'INACTIVE' } })
+        before = { status: voucher.status }
+        after = { status: 'INACTIVE' }
+      } else {
+        // kind CHANGE: re-verify a LIVE flagship (CHANGE is flagship-only).
+        if (!voucher.isRmv) throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
+        if (voucher.status !== 'ACTIVE') throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
+
+        const proposed = (edit.proposedChanges ?? {}) as Record<string, unknown>
+        // ONLY the allow-listed, type-valid fields are written — a stray key
+        // (status/isRmv/merchantId/...) smuggled into proposedChanges can NEVER
+        // reach the voucher row (pinned by test).
+        const applied = buildVoucherApplied(proposed)
+
+        before = {}
+        for (const key of Object.keys(applied)) {
+          before[key] = normaliseDecimal((voucher as unknown as Record<string, unknown>)[key]) ?? null
+        }
+        if (Object.keys(applied).length > 0) {
+          await tx.voucher.update({ where: { id: voucher.id }, data: applied })
+        }
+        after = applied
+      }
+
+      await tx.voucherPendingEdit.update({
+        where: { id: edit.id },
+        data: { status: 'APPROVED', reviewedBy: adminId, reviewedAt: now },
+      })
+      await tx.adminApproval.update({
+        where: { id: approvalId },
+        data: { status: 'APPROVED', adminUserId: adminId, actionedAt: now, claimedById: null, claimedAt: null },
+      })
+      await writeAuditLogTx(tx, {
+        entityId: edit.merchantId,
+        entityType: 'merchant',
+        event: 'VOUCHER_EDIT_APPROVED',
+        actorId: adminId,
+        actorType: 'ADMIN',
+        before,
+        after,
+        metadata: { voucherId: voucher.id, pendingEditId: edit.id, kind: edit.kind },
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      })
+      return { merchantId: edit.merchantId, voucherId: voucher.id, voucherEditKind: edit.kind as 'CHANGE' | 'END' }
+    }
+
     // kind === 'branch'
     const edit = await tx.branchPendingEdit.findUnique({ where: { id: approval.referenceId } })
     if (!edit) throw new AppError('PENDING_EDIT_NOT_FOUND')
@@ -270,21 +382,34 @@ export async function approveEdit(
   })
 
   // After commit (best-effort): notify the merchant owner the change is live.
+  // Voucher edits get voucher-flavoured copy + a voucher deep-link; the email
+  // template is reused (email delivery stays dark; the bell is the live signal).
   const owner = await getMerchantOwner(prisma, result.merchantId)
   if (owner) {
+    const voucherResult = 'voucherId' in result ? result : null
     await safeNotify(prisma, redis, {
       to: owner.email,
       recipientType: 'MERCHANT_ADMIN',
       recipientId: owner.adminId,
-      type: 'merchant_edit_applied',
+      type: voucherResult ? 'voucher_edit_applied' : 'merchant_edit_applied',
       email: { ...merchantEditAppliedEmail(), sender: 'merchant' },
-      inApp: {
-        notificationType: 'MERCHANT_VERIFICATION_UPDATE',
-        title: 'Your requested change is live',
-        body: 'The change you requested has been reviewed and applied to your Redeemo listing.',
-        referenceId: result.merchantId,
-        referenceType: 'merchant',
-      },
+      inApp: voucherResult
+        ? {
+            notificationType: 'VOUCHER_APPROVAL_UPDATE',
+            title: voucherResult.voucherEditKind === 'END' ? 'Your voucher has been ended' : 'Your voucher changes are live',
+            body: voucherResult.voucherEditKind === 'END'
+              ? 'Your request to end this voucher has been approved. It is no longer live.'
+              : 'The changes you requested have been reviewed and applied to your voucher.',
+            referenceId: voucherResult.voucherId,
+            referenceType: 'voucher',
+          }
+        : {
+            notificationType: 'MERCHANT_VERIFICATION_UPDATE',
+            title: 'Your requested change is live',
+            body: 'The change you requested has been reviewed and applied to your Redeemo listing.',
+            referenceId: result.merchantId,
+            referenceType: 'merchant',
+          },
       ip: ctx.ipAddress,
     })
   } else {
@@ -353,6 +478,38 @@ export async function rejectEdit(
       return { merchantId: edit.merchantId }
     }
 
+    if (kind === 'voucher') {
+      // Voucher governed flows: reject NEVER touches the voucher (a CHANGE
+      // leaves the live flagship as-is; an END leaves the custom voucher ACTIVE).
+      const edit = await tx.voucherPendingEdit.findUnique({
+        where: { id: approval.referenceId },
+        select: { id: true, status: true, merchantId: true, voucherId: true, kind: true },
+      })
+      if (!edit) throw new AppError('PENDING_EDIT_NOT_FOUND')
+      if (edit.status !== 'PENDING') throw new AppError('PENDING_EDIT_NOT_ACTIONABLE')
+
+      await tx.voucherPendingEdit.update({
+        where: { id: edit.id },
+        data: { status: 'REJECTED', reviewNote: reason, reviewedBy: adminId, reviewedAt: now },
+      })
+      await tx.adminApproval.update({
+        where: { id: approvalId },
+        data: { status: 'REJECTED', comment: reason, adminUserId: adminId, actionedAt: now, claimedById: null, claimedAt: null },
+      })
+      await writeAuditLogTx(tx, {
+        entityId: edit.merchantId,
+        entityType: 'merchant',
+        event: 'VOUCHER_EDIT_REJECTED',
+        actorId: adminId,
+        actorType: 'ADMIN',
+        reason,
+        metadata: { voucherId: edit.voucherId, pendingEditId: edit.id, kind: edit.kind },
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      })
+      return { merchantId: edit.merchantId, voucherId: edit.voucherId }
+    }
+
     // kind === 'branch'. Reject is safe for photo edits too: no mutation.
     const edit = await tx.branchPendingEdit.findUnique({
       where: { id: approval.referenceId },
@@ -384,19 +541,28 @@ export async function rejectEdit(
 
   const owner = await getMerchantOwner(prisma, result.merchantId)
   if (owner) {
+    const voucherResult = 'voucherId' in result ? result : null
     await safeNotify(prisma, redis, {
       to: owner.email,
       recipientType: 'MERCHANT_ADMIN',
       recipientId: owner.adminId,
-      type: 'merchant_edit_rejected',
+      type: voucherResult ? 'voucher_edit_rejected' : 'merchant_edit_rejected',
       email: { ...merchantEditRejectedEmail(reason), sender: 'merchant' },
-      inApp: {
-        notificationType: 'MERCHANT_VERIFICATION_UPDATE',
-        title: 'Update on your requested change',
-        body: 'We were unable to apply the change you requested. Open the portal for details.',
-        referenceId: result.merchantId,
-        referenceType: 'merchant',
-      },
+      inApp: voucherResult
+        ? {
+            notificationType: 'VOUCHER_APPROVAL_UPDATE',
+            title: 'Update on your voucher request',
+            body: 'We were unable to apply the request you made for this voucher. Open the portal for details.',
+            referenceId: voucherResult.voucherId,
+            referenceType: 'voucher',
+          }
+        : {
+            notificationType: 'MERCHANT_VERIFICATION_UPDATE',
+            title: 'Update on your requested change',
+            body: 'We were unable to apply the change you requested. Open the portal for details.',
+            referenceId: result.merchantId,
+            referenceType: 'merchant',
+          },
       ip: ctx.ipAddress,
     })
   } else {
@@ -425,6 +591,21 @@ export interface EditReviewContext {
   includesPhotos: boolean
   fields: EditReviewField[]
   photoChanges?: { add: string[]; remove: string[] }
+  // Voucher governed flows (kind === 'voucher' only): the request kind, the
+  // merchant's mandatory reason, and a curated voucher identity block so the
+  // reviewer can see WHAT is being changed/ended without a second fetch.
+  voucherId?: string
+  voucherEditKind?: 'CHANGE' | 'END'
+  reason?: string | null
+  voucher?: {
+    id: string
+    code: string
+    title: string
+    type: string
+    status: string
+    isRmv: boolean
+    estimatedSaving: number
+  } | null
 }
 
 /**
@@ -470,6 +651,57 @@ export async function getEditReviewContext(prisma: PrismaClient, approvalId: str
       status: edit.status,
       includesPhotos: false,
       fields,
+    }
+  }
+
+  if (kind === 'voucher') {
+    const edit = await prisma.voucherPendingEdit.findUnique({ where: { id: approval.referenceId } })
+    if (!edit) throw new AppError('PENDING_EDIT_NOT_FOUND')
+
+    const proposed = (edit.proposedChanges ?? {}) as Record<string, unknown>
+    const current = await prisma.voucher.findUnique({
+      where: { id: edit.voucherId },
+      select: {
+        id: true, code: true, title: true, type: true, status: true, isRmv: true,
+        description: true, terms: true, imageUrl: true, estimatedSaving: true,
+      },
+    })
+
+    // The current-vs-proposed field diff (CHANGE only; an END proposes no field
+    // values — the "diff" is the status flip, carried by voucherEditKind).
+    const fields: EditReviewField[] = edit.kind === 'CHANGE'
+      ? VOUCHER_EDITABLE_FIELDS
+          .filter((key) => key in proposed)
+          .map((key) => ({
+            field: key,
+            current: current ? normaliseDecimal((current as unknown as Record<string, unknown>)[key]) ?? null : null,
+            proposed: proposed[key],
+            // Every promotable voucher field is shown to customers.
+            isCustomerVisible: true,
+          }))
+      : []
+
+    return {
+      kind: 'voucher',
+      merchantId: edit.merchantId,
+      voucherId: edit.voucherId,
+      pendingEditId: edit.id,
+      status: edit.status,
+      includesPhotos: false,
+      fields,
+      voucherEditKind: edit.kind as 'CHANGE' | 'END',
+      reason: edit.reason,
+      voucher: current
+        ? {
+            id: current.id,
+            code: current.code,
+            title: current.title,
+            type: current.type as unknown as string,
+            status: current.status as unknown as string,
+            isRmv: current.isRmv,
+            estimatedSaving: Number(current.estimatedSaving),
+          }
+        : null,
     }
   }
 

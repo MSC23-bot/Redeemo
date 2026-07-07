@@ -138,6 +138,25 @@ export const ERROR_DEFINITIONS = {
   VOUCHER_NOT_EDITABLE:           { statusCode: 409, message: 'This voucher cannot be edited in its current state.' },
   VOUCHER_NOT_DELETABLE:          { statusCode: 409, message: 'Only draft vouchers can be deleted.' },
   VOUCHER_NOT_SUBMITTABLE:        { statusCode: 409, message: 'This voucher is not in a state that can be submitted for review.' },
+  // Voucher governed flows (2026-07-07). Additive code-only.
+  // VOUCHER_EDIT_NOT_ALLOWED: the governed request/apply targets a voucher of the
+  //   wrong kind or state — request-change needs a LIVE (ACTIVE) flagship
+  //   (isRmv:true); request-to-end needs a LIVE CUSTOM voucher (isRmv:false; D4:
+  //   a flagship can NEVER be ended by the merchant, and the applier re-rejects
+  //   it too); the applier also throws this when the voucher is no longer ACTIVE
+  //   at apply time.
+  // VOUCHER_WITHDRAW_NOT_PENDING: withdraw-submission targets a voucher that has
+  //   no open submission awaiting review (not PENDING_APPROVAL, already decided,
+  //   or approved-waiting — an approvalStatus:APPROVED voucher was reviewed, so
+  //   there is nothing to withdraw).
+  VOUCHER_EDIT_NOT_ALLOWED:       { statusCode: 409, message: 'This voucher is not eligible for this request in its current state.' },
+  VOUCHER_WITHDRAW_NOT_PENDING:   { statusCode: 409, message: 'This voucher has no submission awaiting review to withdraw.' },
+  // VOUCHER_EDIT_INVALID_FIELD: the governed request-change proposal failed value
+  //   validation (mirrors MERCHANT_EDIT_REQUEST_INVALID_FIELD for the voucher
+  //   lane): empty proposal, empty/non-string title, non-string text field, or a
+  //   missing/empty reason on a direct service call. A bad estimatedSaving keeps
+  //   the existing SAVING_INVALID.
+  VOUCHER_EDIT_INVALID_FIELD:     { statusCode: 400, message: 'One or more proposed voucher changes are invalid. Propose at least one editable field; the title cannot be empty and text fields must be text.' },
   RMV_NOT_FOUND:                  { statusCode: 404, message: 'RMV voucher not found.' },
   RMV_FIELD_NOT_ALLOWED:          { statusCode: 400, message: 'One or more fields cannot be edited on this RMV voucher.' },
   CATEGORY_CHANGE_BLOCKED:        { statusCode: 409, message: 'Category cannot be changed after RMV vouchers have been submitted. Contact support.' },

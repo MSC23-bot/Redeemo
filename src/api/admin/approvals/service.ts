@@ -265,13 +265,25 @@ export async function claimApproval(prisma: PrismaClient, id: string, adminId: s
     // BRANCH_IDENTITY_EDIT) must be resolved from the PendingEdit row. Disambiguate
     // by approval.type, NEVER by referenceType. Defaults to the onboarding shape.
     let entityId = approval.referenceId
-    let entityType: 'merchant' | 'branch' = 'merchant'
+    let entityType: 'merchant' | 'branch' | 'voucher' = 'merchant'
     if (approval.type === 'MERCHANT_IDENTITY_EDIT') {
       const edit = await tx.merchantPendingEdit.findUnique({
         where: { id: approval.referenceId },
         select: { merchantId: true },
       })
       if (edit) entityId = edit.merchantId
+    } else if (approval.type === 'VOUCHER_EDIT') {
+      // Voucher governed flows: the referenceId is a VoucherPendingEdit id, so
+      // the real audit target (the voucher) is resolved from the staging row —
+      // the same claim-audit entity fix Option B B1 made for the edit types.
+      const edit = await tx.voucherPendingEdit.findUnique({
+        where: { id: approval.referenceId },
+        select: { voucherId: true },
+      })
+      if (edit) {
+        entityId = edit.voucherId
+        entityType = 'voucher'
+      }
     } else if (approval.type === 'BRANCH_IDENTITY_EDIT') {
       const edit = await tx.branchPendingEdit.findUnique({
         where: { id: approval.referenceId },
@@ -340,13 +352,24 @@ export async function releaseApproval(prisma: PrismaClient, id: string, adminId:
     // a VOUCHER approval the referenceId is the Voucher id, so resolve the
     // owning merchantId (matching the voucherApprover DECISION audits).
     let entityId = approval.referenceId
-    let entityType: 'merchant' | 'branch' = 'merchant'
+    let entityType: 'merchant' | 'branch' | 'voucher' = 'merchant'
     if (approval.type === 'VOUCHER') {
       const voucher = await tx.voucher.findUnique({
         where: { id: approval.referenceId },
         select: { merchantId: true },
       })
       if (voucher) entityId = voucher.merchantId
+    } else if (approval.type === 'VOUCHER_EDIT') {
+      // Voucher governed flows: resolve the staging row to the real voucher
+      // (mirrors the claim-side resolution above).
+      const edit = await tx.voucherPendingEdit.findUnique({
+        where: { id: approval.referenceId },
+        select: { voucherId: true },
+      })
+      if (edit) {
+        entityId = edit.voucherId
+        entityType = 'voucher'
+      }
     } else if (approval.type === 'BRANCH_CREATE' || approval.type === 'BRANCH_CLOSE') {
       // Branches PR-5 (§6): the branch-lifecycle referenceId IS the branch id, so the
       // audit target is the branch — NOT the default entityType:'merchant'. No merchant

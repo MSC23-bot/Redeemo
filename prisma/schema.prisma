@@ -458,6 +458,7 @@ model Merchant {
   highlights           MerchantHighlight[]
   pendingEdits         MerchantPendingEdit[]
   branchPendingEdits   BranchPendingEdit[]
+  voucherPendingEdits  VoucherPendingEdit[]
 
   @@index([status])
   @@index([primaryCategoryId])
@@ -1035,6 +1036,12 @@ enum ApprovalStatus {
   APPROVED
   REJECTED
   CHANGES_REQUESTED // M3: admin requested changes; the merchant edits + resubmits (reopens the same approval)
+  // Voucher governed flows (D3, 2026-07-07): the merchant withdrew their own
+  // not-yet-actioned submission/request (self-service, no admin). Terminal:
+  // never claimable or actionable (the claim/action guards are status
+  // allow-lists, so WITHDRAWN is excluded by construction). Mirrors
+  // PendingEditStatus.WITHDRAWN.
+  WITHDRAWN
 }
 
 enum ValidationMethod {
@@ -1102,6 +1109,7 @@ model Voucher {
   favouritedBy        FavouriteVoucher[]
   rmvTemplate         RmvTemplate?                @relation(fields: [rmvTemplateId], references: [id])
   availabilityWindows VoucherAvailabilityWindow[]
+  pendingEdits        VoucherPendingEdit[]
 
   @@index([merchantId])
   @@index([status])
@@ -1125,6 +1133,47 @@ model VoucherAvailabilityWindow {
   voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
 
   @@index([voucherId])
+}
+
+// ─────────────────────────────────────────
+// VOUCHER PENDING EDIT (governed flows, 2026-07-07)
+// ─────────────────────────────────────────
+
+// Voucher governed flows D1: ONE shared staging record for BOTH governed voucher
+// lanes, discriminated by `kind`:
+//   CHANGE — a merchant-requested edit to a LIVE (ACTIVE) flagship (isRmv:true)
+//     voucher. `proposedChanges` holds ONLY keys from the voucher's
+//     RmvTemplate.allowedFields intersected with the promotable top-level set
+//     (title / description / estimatedSaving / terms / imageUrl); the applier
+//     re-applies its own allow-list (never blind-spread).
+//   END — a merchant request to end (deactivate) a LIVE CUSTOM (isRmv:false)
+//     voucher. `proposedChanges` is null; the applier flips ACTIVE -> INACTIVE.
+//     D4: flagship vouchers are NEVER endable (writer + applier both reject).
+// Mirrors MerchantPendingEdit / BranchPendingEdit; reviewed via
+// AdminApproval{type:VOUCHER_EDIT, referenceId: <this id>} + editApplier.
+enum VoucherEditKind {
+  CHANGE
+  END
+}
+
+model VoucherPendingEdit {
+  id              String            @id @default(uuid())
+  voucherId       String
+  merchantId      String
+  kind            VoucherEditKind
+  proposedChanges Json?
+  reason          String?
+  status          PendingEditStatus @default(PENDING)
+  reviewedBy      String?
+  reviewNote      String?
+  createdAt       DateTime          @default(now())
+  reviewedAt      DateTime?
+
+  voucher  Voucher  @relation(fields: [voucherId], references: [id])
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@index([voucherId, status])
+  @@index([merchantId, status])
 }
 
 // ─────────────────────────────────────────
@@ -1589,6 +1638,13 @@ enum ApprovalType {
   // give CREATE / CLOSE independently-testable apply arms.
   BRANCH_CREATE
   BRANCH_CLOSE
+  // Voucher governed flows (D1, 2026-07-07): ONE shared approval type for BOTH
+  // governed voucher lanes (flagship request-a-change + custom request-to-end).
+  // referenceId = VoucherPendingEdit.id (referenceType 'voucher_pending_edit');
+  // the editApplier dispatches on approval.type, then branches on
+  // VoucherPendingEdit.kind (CHANGE applies allow-listed fields to a live
+  // flagship; END flips a custom voucher ACTIVE -> INACTIVE).
+  VOUCHER_EDIT
 }
 
 enum NotificationRecipientType {

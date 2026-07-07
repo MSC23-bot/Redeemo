@@ -36,10 +36,15 @@ export async function adminApprovalRoutes(app: FastifyInstance) {
   app.get(prefix, { preHandler: [requireAdminCapability('approval:read')] }, async (req: any) => {
     const q = z
       .object({
+        // Voucher governed flows: VOUCHER_EDIT filterable in the queue; WITHDRAWN
+        // filterable so withdrawn rows can be listed (they are terminal — the
+        // claim/action guards never match them). (BRANCH_CREATE / BRANCH_CLOSE
+        // were already absent from this filter enum before this slice — a
+        // pre-existing gap, deliberately not widened here.)
         type: z
-          .enum(['MERCHANT_ONBOARDING', 'VOUCHER', 'MERCHANT_PROFILE_EDIT', 'MERCHANT_IDENTITY_EDIT', 'BRANCH_IDENTITY_EDIT'])
+          .enum(['MERCHANT_ONBOARDING', 'VOUCHER', 'MERCHANT_PROFILE_EDIT', 'MERCHANT_IDENTITY_EDIT', 'BRANCH_IDENTITY_EDIT', 'VOUCHER_EDIT'])
           .optional(),
-        status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CHANGES_REQUESTED']).optional(),
+        status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CHANGES_REQUESTED', 'WITHDRAWN']).optional(),
         claimedById: z.string().min(1).optional(),
         referenceId: z.string().min(1).optional(),
         olderThanMinutes: z.coerce.number().int().positive().optional(),
