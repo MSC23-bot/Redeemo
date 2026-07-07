@@ -9,10 +9,23 @@ import VoucherDetailPage from '@/app/(app)/vouchers/[id]/page'
 // customer PII or a redemption PIN.
 
 const getVoucher = jest.fn()
+const getVoucherAnalytics = jest.fn()
 jest.mock('@/lib/api/voucher', () => {
   const actual = jest.requireActual('@/lib/api/voucher')
-  return { ...actual, getVoucher: (id: string) => getVoucher(id) }
+  return {
+    ...actual,
+    getVoucher: (id: string) => getVoucher(id),
+    getVoucherAnalytics: (id: string) => getVoucherAnalytics(id),
+  }
 })
+
+// Slice E: the analytics section is page-gated on canViewInsights. A mutable holder
+// (mock-prefixed so the hoisted jest.mock factory may close over it) lets a test flip
+// the viewer between a canViewInsights OWNER/BM and a STAFF viewer.
+const mockInsightsCaps = { canViewInsights: false }
+jest.mock('@/lib/insights/useInsightsCapability', () => ({
+  useInsightsCapability: () => ({ canViewInsights: mockInsightsCaps.canViewInsights, ready: true }),
+}))
 
 const push = jest.fn()
 jest.mock('next/navigation', () => ({
@@ -65,6 +78,22 @@ function renderPage() {
 beforeEach(() => {
   push.mockReset()
   getVoucher.mockReset().mockResolvedValue(voucher())
+  // Default: STAFF-equivalent viewer (analytics hidden), so the existing render tests
+  // are unaffected by Slice E. The gate tests below flip it explicitly.
+  mockInsightsCaps.canViewInsights = false
+  getVoucherAnalytics.mockReset().mockResolvedValue({
+    voucherId: 'v1',
+    totals: { logged: 9, confirmed: 8, confirmedInPersonPct: 89, distinctCustomers: 7, estimatedSavingLogged: 36, estimatedSavingConfirmed: 32 },
+    lifecycle: { liveSince: '2026-06-19T10:00:00.000Z', liveSinceSource: 'approvedAt', daysLive: 18 },
+    trend: { months: [{ monthStartLondon: '2026-06-01', logged: 9, confirmed: 8 }] },
+    whenUsed: {
+      days: Array.from({ length: 7 }, (_, index) => ({ index, intensity: 0 })),
+      dayparts: Array.from({ length: 6 }, (_, index) => ({ index, intensity: 0 })),
+      busiestDay: null,
+      busiestDaypart: null,
+    },
+    whereUsed: { branches: [] },
+  })
 })
 
 describe('VoucherDetailPage render', () => {
@@ -201,5 +230,28 @@ describe('VoucherDetailPage concierge on the read view (B-3)', () => {
     renderPage()
     await screen.findAllByText('Free coffee with breakfast')
     expect(screen.getByText(/tighten the wording a little/i)).toBeInTheDocument()
+  })
+})
+
+// Slice E: the per-voucher analytics section is business-analytics data, gated the
+// same way as the Insights module. It renders ONLY for a canViewInsights viewer
+// (OWNER / BRANCH_MANAGER); a STAFF viewer never sees it and the endpoint is never
+// called. The backend independently enforces the same policy.
+describe('VoucherDetailPage analytics gating (Slice E)', () => {
+  it('renders the analytics section (and calls the endpoint) for a canViewInsights viewer', async () => {
+    mockInsightsCaps.canViewInsights = true
+    renderPage()
+    await screen.findAllByText('Free coffee with breakfast')
+    expect(await screen.findByTestId('voucher-analytics')).toBeInTheDocument()
+    expect(getVoucherAnalytics).toHaveBeenCalledWith('v1')
+  })
+
+  it('hides the analytics section (and never calls the endpoint) for a STAFF viewer', async () => {
+    mockInsightsCaps.canViewInsights = false
+    renderPage()
+    // The rest of the detail page still renders as normal.
+    await screen.findAllByText('Free coffee with breakfast')
+    expect(screen.queryByTestId('voucher-analytics')).toBeNull()
+    expect(getVoucherAnalytics).not.toHaveBeenCalled()
   })
 })

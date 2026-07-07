@@ -54,12 +54,16 @@ afterEach(() => {
 function makePrisma(opts: {
   voucher: { id: string; approvedAt: Date | null; publishedAt: Date | null } | null
   queryResults: unknown[][]
+  /** Merchant.status the analytics access gate (assertMerchantActive) reads. Defaults ACTIVE. */
+  merchantStatus?: string
 }) {
   const calls: any[] = []
   let i = 0
   return {
     calls,
     prisma: {
+      // assertMerchantActive selects Merchant.status; default ACTIVE so the happy path passes.
+      merchant: { findUnique: vi.fn().mockResolvedValue({ status: opts.merchantStatus ?? 'ACTIVE' }) },
       voucher: { findFirst: vi.fn().mockResolvedValue(opts.voucher) },
       $queryRaw: vi.fn((sql: any) => {
         calls.push(sql)
@@ -68,6 +72,9 @@ function makePrisma(opts: {
     } as any,
   }
 }
+
+const STAFF_CTX = { ...OWNER_CTX, role: 'STAFF' as const, allBranches: false, allowedBranchIds: ['b-1'] }
+const BM_CTX = { ...OWNER_CTX, role: 'BRANCH_MANAGER' as const }
 
 describe('bandSlots (privacy cut mirrors busy-times)', () => {
   it('maps counts to ordinal bands 0..3 relative to the peak; raw counts never surface', () => {
@@ -127,6 +134,41 @@ describe('getVoucherAnalytics', () => {
     expect(prisma.voucher.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'other-merchants-voucher', merchantId: 'merchant-1' } }),
     )
+  })
+
+  it('denies a STAFF viewer (INSUFFICIENT_PERMISSIONS), mirroring the Insights access policy', async () => {
+    mockResolve.mockResolvedValue(STAFF_CTX)
+    const { prisma } = makePrisma({ voucher: { id: 'v-1', approvedAt: null, publishedAt: null }, queryResults: [] })
+    await expect(getVoucherAnalytics(prisma, 'admin-1', 'v-1')).rejects.toMatchObject({
+      code: 'INSUFFICIENT_PERMISSIONS',
+    })
+    // The gate runs BEFORE the voucher lookup + any aggregation (no existence oracle).
+    expect(prisma.voucher.findFirst).not.toHaveBeenCalled()
+    expect(prisma.$queryRaw).not.toHaveBeenCalled()
+  })
+
+  it('denies a non-ACTIVE merchant (MERCHANT_NOT_ACTIVE), mirroring the Insights access policy', async () => {
+    mockResolve.mockResolvedValue(OWNER_CTX)
+    const { prisma } = makePrisma({
+      voucher: { id: 'v-1', approvedAt: null, publishedAt: null },
+      queryResults: [],
+      merchantStatus: 'PENDING_APPROVAL',
+    })
+    await expect(getVoucherAnalytics(prisma, 'admin-1', 'v-1')).rejects.toMatchObject({
+      code: 'MERCHANT_NOT_ACTIVE',
+    })
+    expect(prisma.voucher.findFirst).not.toHaveBeenCalled()
+    expect(prisma.$queryRaw).not.toHaveBeenCalled()
+  })
+
+  it('allows an OWNER/BRANCH_MANAGER on an ACTIVE merchant', async () => {
+    mockResolve.mockResolvedValue(BM_CTX)
+    const { prisma } = makePrisma({
+      voucher: { id: 'v-1', approvedAt: null, publishedAt: null },
+      queryResults: [[{ logged: 0n, confirmed: 0n, distinct: 0n, est_logged: null, est_confirmed: null }], [], [], [], []],
+    })
+    await expect(getVoucherAnalytics(prisma, 'admin-1', 'v-1')).resolves.toMatchObject({ voucherId: 'v-1' })
+    expect(prisma.$queryRaw).toHaveBeenCalled()
   })
 
   it('scopes every aggregation to the voucherId AND the cleanliness (isTestData) rule', async () => {

@@ -31,7 +31,7 @@ import {
   ELIGIBILITY_ALIASES,
   type InsightsBranchScope,
 } from '../insights/eligibility'
-import { insightsScope } from '../insights/scope'
+import { insightsScope, assertInsightsAccess, assertMerchantActive } from '../insights/scope'
 import { demoIncludeMerchantId } from '../insights/demo'
 import { busyPeakMinCount } from '../insights/gate'
 import {
@@ -189,12 +189,21 @@ export async function getVoucherAnalytics(
 ): Promise<VoucherAnalyticsResult> {
   const now = opts.now ?? new Date()
 
-  // 1. Resolve the caller's merchant from the SESSION (blocks SUSPENDED). Any active
-  //    member may read a voucher (MEMBER-READ, mirrors getVoucher); a scoped
-  //    BRANCH_MANAGER's analytics are limited to their branches by insightsScope below.
+  // 1. Resolve the caller's merchant from the SESSION (blocks SUSPENDED).
   const ctx = await resolveMerchantContext(prisma, adminId)
 
-  // 2. Cross-merchant isolation: the voucher MUST belong to this merchant. A missing /
+  // 2. Per-voucher analytics is the SAME business-analytics data class the Insights
+  //    module withholds from STAFF and from non-ACTIVE merchants, so it is gated by the
+  //    SAME policy, in the SAME order as src/api/merchant/insights/routes.ts's authorize():
+  //    assertMerchantActive (MERCHANT_NOT_ACTIVE unless status === 'ACTIVE') then
+  //    assertInsightsAccess (INSUFFICIENT_PERMISSIONS for STAFF). OWNER + BRANCH_MANAGER
+  //    on an ACTIVE merchant read it; a scoped BRANCH_MANAGER is further limited to their
+  //    branches by insightsScope below. Gated BEFORE the voucher lookup so a STAFF /
+  //    non-active caller never learns whether a given voucher id exists.
+  await assertMerchantActive(prisma, ctx.merchantId)
+  assertInsightsAccess(ctx)
+
+  // 3. Cross-merchant isolation: the voucher MUST belong to this merchant. A missing /
   //    cross-tenant voucher is VOUCHER_NOT_FOUND (never a cross-merchant read, never an
   //    existence oracle for a sibling merchant's voucher).
   const voucher = await prisma.voucher.findFirst({
@@ -207,7 +216,7 @@ export async function getVoucherAnalytics(
   const demoId = demoIncludeMerchantId(ctx.merchantId)
   const from = eligibleVoucherFrom(ctx.merchantId, scope, voucherId, demoId)
 
-  // 3. Totals: logged / confirmed / distinct customers / saving. One scan.
+  // 4. Totals: logged / confirmed / distinct customers / saving. One scan.
   const totalsRows = await prisma.$queryRaw<
     Array<{ logged: bigint; confirmed: bigint; distinct: bigint; est_logged: Prisma.Decimal | null; est_confirmed: Prisma.Decimal | null }>
   >(Prisma.sql`
@@ -223,7 +232,7 @@ export async function getVoucherAnalytics(
   const logged = num(t.logged)
   const confirmed = num(t.confirmed)
 
-  // 4. Trend: monthly logged + confirmed bucketed by redeemedAt in Europe/London.
+  // 5. Trend: monthly logged + confirmed bucketed by redeemedAt in Europe/London.
   const trendRows = await prisma.$queryRaw<Array<{ bucket: Date; logged: bigint; confirmed: bigint }>>(Prisma.sql`
     SELECT
       DATE_TRUNC('month', ${londonTs()}) AS bucket,
@@ -234,7 +243,7 @@ export async function getVoucherAnalytics(
     ORDER BY bucket ASC
   `)
 
-  // 5. When-used: raw counts per London day-of-week + per daypart (raw stays INTERNAL).
+  // 6. When-used: raw counts per London day-of-week + per daypart (raw stays INTERNAL).
   const dayRows = await prisma.$queryRaw<Array<{ day: number; cnt: bigint }>>(Prisma.sql`
     SELECT (EXTRACT(ISODOW FROM ${londonTs()})::int - 1) AS day, COUNT(*)::bigint AS cnt
     ${from}
@@ -246,7 +255,7 @@ export async function getVoucherAnalytics(
     GROUP BY daypart
   `)
 
-  // 6. Where-used: per-branch logged count + name (raw counts, mirrors getBranches).
+  // 7. Where-used: per-branch logged count + name (raw counts, mirrors getBranches).
   const branchRows = await prisma.$queryRaw<Array<{ branch_id: string; name: string; logged: bigint }>>(Prisma.sql`
     SELECT b.id AS branch_id, b.name AS name, COUNT(*)::bigint AS logged
     ${from}

@@ -33,6 +33,7 @@ import {
 } from '@/lib/api/voucher'
 import { isEditable, deriveDisplayState } from '@/lib/voucher/displayState'
 import { useVoucherCapability } from '@/lib/voucher/useVoucherCapability'
+import { useInsightsCapability } from '@/lib/insights/useInsightsCapability'
 import { useVoucherCategoryName } from '@/lib/voucher/useVoucherCategoryName'
 import { VoucherDetail } from '@/components/vouchers/VoucherDetail'
 import { ConciergeReadOnly } from '@/components/vouchers/ConciergeDiff'
@@ -48,6 +49,12 @@ export default function VoucherDetailPage() {
   const qc = useQueryClient()
   const id = params?.id ?? ''
   const { canManage } = useVoucherCapability()
+  // Per-voucher analytics is business-analytics data (same class as the Insights
+  // module), so the section is shown ONLY to a viewer with canViewInsights (OWNER /
+  // BRANCH_MANAGER). A STAFF viewer simply does not see it; the rest of the detail
+  // page is unchanged. Fail closed while the capability is loading. The backend
+  // independently enforces the same policy.
+  const { canViewInsights } = useInsightsCapability()
   const categoryName = useVoucherCategoryName()
 
   const [mode, setMode] = React.useState<Mode>('view')
@@ -209,9 +216,10 @@ export default function VoucherDetailPage() {
               ) : null
             }
           />
-          {/* Slice E: per-voucher analytics (read-only). Its own query, so a slow
-              or failing stats fetch never blocks the detail render above. */}
-          <VoucherAnalytics voucherId={voucher.id} />
+          {/* Slice E: per-voucher analytics (read-only), gated to canViewInsights
+              viewers (STAFF never sees it). Its own query, so a slow or failing (or
+              raced 403) stats fetch never blocks the detail render above. */}
+          {canViewInsights ? <VoucherAnalytics voucherId={voucher.id} /> : null}
         </>
       )}
 
