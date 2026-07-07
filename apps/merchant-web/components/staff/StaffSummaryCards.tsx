@@ -30,13 +30,14 @@ export interface StaffCounts {
 }
 
 /** Filled-navy allowance bar: how much of a cap (portal/app) is used. */
-function ProgressBar({ used, cap }: { used: number; cap: number }) {
+function ProgressBar({ used, cap, name }: { used: number; cap: number; name: string }) {
   const pct = cap > 0 ? Math.min(100, Math.max(0, (used / cap) * 100)) : 0
   const placesLeft = Math.max(0, cap - used)
   return (
     <div className="mt-2 space-y-1">
       <div
         role="progressbar"
+        aria-label={name}
         aria-valuenow={used}
         aria-valuemin={0}
         aria-valuemax={cap}
@@ -81,7 +82,12 @@ function SummaryCard({
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
           <p className="font-display text-2xl font-semibold text-foreground">{value}</p>
           <p className="text-sm text-muted-foreground">{sub}</p>
-          {progress && <ProgressBar used={progress.used} cap={progress.cap} />}
+          {progress && (
+            // Distinct accessible name per bar (built from the same values the card
+            // shows) so a screen reader can tell the Portal-users and App-users bars
+            // apart, e.g. "Portal users: 4 of 8 team members".
+            <ProgressBar used={progress.used} cap={progress.cap} name={`${label}: ${value} ${sub}`} />
+          )}
         </div>
       </div>
     </Card>

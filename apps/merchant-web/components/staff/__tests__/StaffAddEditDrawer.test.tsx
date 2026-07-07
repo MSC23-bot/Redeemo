@@ -161,21 +161,34 @@ describe('StaffAddEditDrawer (C4)', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/full name/i)
   })
 
-  it('the segmented Branches control toggles the same allBranches state both ways (visual change only)', () => {
+  it('the segmented Branches control is a native, keyboard-operable radio group and toggles the same allBranches state both ways', () => {
     const { onSubmit } = renderDrawer()
-    const allBtn = screen.getByRole('radio', { name: 'All branches' })
-    const specificBtn = screen.getByRole('radio', { name: 'Specific branches' })
-    expect(allBtn).toHaveAttribute('aria-checked', 'true')
-    expect(specificBtn).toHaveAttribute('aria-checked', 'false')
+    const allRadio = screen.getByRole('radio', { name: 'All branches' })
+    const specificRadio = screen.getByRole('radio', { name: 'Specific branches' })
 
-    fireEvent.click(specificBtn)
-    expect(specificBtn).toHaveAttribute('aria-checked', 'true')
-    expect(allBtn).toHaveAttribute('aria-checked', 'false')
+    // These are real native radio inputs (not role="radio" buttons), so keyboard
+    // arrow-key navigation + roving focus come for free from the platform.
+    expect(allRadio.tagName).toBe('INPUT')
+    expect(allRadio).toHaveAttribute('type', 'radio')
+    expect(specificRadio.tagName).toBe('INPUT')
+    expect(specificRadio).toHaveAttribute('type', 'radio')
 
-    // Toggling back to All branches works too (same underlying state both ways).
-    fireEvent.click(allBtn)
-    expect(allBtn).toHaveAttribute('aria-checked', 'true')
-    expect(specificBtn).toHaveAttribute('aria-checked', 'false')
+    // Initial state: All branches selected.
+    expect(allRadio).toBeChecked()
+    expect(specificRadio).not.toBeChecked()
+
+    // Selecting Specific branches updates state and reveals the branch picker.
+    fireEvent.click(specificRadio)
+    expect(specificRadio).toBeChecked()
+    expect(allRadio).not.toBeChecked()
+    expect(screen.getByLabelText('High Street')).toBeInTheDocument()
+
+    // Toggling back to All branches works too (same underlying state both ways),
+    // and the branch picker hides again.
+    fireEvent.click(allRadio)
+    expect(allRadio).toBeChecked()
+    expect(specificRadio).not.toBeChecked()
+    expect(screen.queryByLabelText('High Street')).toBeNull()
 
     fireEvent.change(screen.getByLabelText(/first name/i), { target: { value: 'New' } })
     fireEvent.change(screen.getByLabelText(/last name/i), { target: { value: 'Person' } })

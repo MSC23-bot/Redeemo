@@ -69,6 +69,19 @@ describe('StaffSummaryCards allowance progress bars', () => {
     render(<StaffSummaryCards counts={counts({ portalUsed: PORTAL_CAP })} />)
     expect(screen.getByText('0 places left')).toBeInTheDocument()
   })
+
+  it('gives each progress bar a DISTINCT accessible name (so a screen reader can tell them apart)', () => {
+    render(<StaffSummaryCards counts={counts({ portalUsed: 4, appUsed: 6 })} />)
+    // Each bar resolves by an accessible name that identifies which card it belongs to.
+    const portalBar = screen.getByRole('progressbar', { name: /portal users/i })
+    const appBar = screen.getByRole('progressbar', { name: /app users/i })
+    expect(portalBar).toBeInTheDocument()
+    expect(appBar).toBeInTheDocument()
+    // The names are distinct and built from the same values the card shows.
+    expect(portalBar).toHaveAccessibleName(`Portal users: 4 of ${PORTAL_CAP} team members`)
+    expect(appBar).toHaveAccessibleName(`App users: 6 of ${APP_CAP} validation logins`)
+    expect(portalBar).not.toBe(appBar)
+  })
 })
 
 describe('StaffSummaryCards allowance banner (unchanged behavior)', () => {

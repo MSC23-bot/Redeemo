@@ -363,7 +363,11 @@ export function StaffAddEditDrawer({
         </div>
 
         {/* Branches scope: a two-button segmented control (filled navy = selected),
-            wired to the same allBranches state as before (no behavior change). */}
+            backed by NATIVE radio inputs (visually-hidden `sr-only`, the <label> is
+            the visible segmented button). Native radios give correct keyboard
+            behaviour for free: Tab into the group, Arrow keys move + select, Space
+            selects. Wired to the same allBranches state as before (no behavior or
+            visual change). */}
         <div className="space-y-2">
           <p className={sectionLabel}>Branches</p>
           <div
@@ -371,35 +375,43 @@ export function StaffAddEditDrawer({
             aria-label="Branch scope"
             className={`grid gap-2 ${SPECIFIC_BRANCHES_ENABLED ? 'grid-cols-2' : 'grid-cols-1'}`}
           >
-            <button
-              type="button"
-              role="radio"
-              aria-checked={allBranches}
-              onClick={() => setAllBranches(true)}
-              className="rounded-[10px] px-4 py-2.5 text-sm font-semibold transition-colors"
+            <label
+              className="flex cursor-pointer items-center justify-center rounded-[10px] px-4 py-2.5 text-center text-sm font-semibold transition-colors has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 has-[:focus-visible]:ring-offset-2"
               style={
                 allBranches
                   ? { background: 'var(--navy)', color: 'var(--page)' }
                   : { background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border-subtle)' }
               }
             >
+              <input
+                type="radio"
+                name="branchScope"
+                value="all"
+                checked={allBranches}
+                onChange={() => setAllBranches(true)}
+                className="sr-only"
+              />
               All branches
-            </button>
+            </label>
             {SPECIFIC_BRANCHES_ENABLED && (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={!allBranches}
-                onClick={() => setAllBranches(false)}
-                className="rounded-[10px] px-4 py-2.5 text-sm font-semibold transition-colors"
+              <label
+                className="flex cursor-pointer items-center justify-center rounded-[10px] px-4 py-2.5 text-center text-sm font-semibold transition-colors has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50 has-[:focus-visible]:ring-offset-2"
                 style={
                   !allBranches
                     ? { background: 'var(--navy)', color: 'var(--page)' }
                     : { background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border-subtle)' }
                 }
               >
+                <input
+                  type="radio"
+                  name="branchScope"
+                  value="specific"
+                  checked={!allBranches}
+                  onChange={() => setAllBranches(false)}
+                  className="sr-only"
+                />
                 Specific branches
-              </button>
+              </label>
             )}
           </div>
           {SPECIFIC_BRANCHES_ENABLED && !allBranches && (
