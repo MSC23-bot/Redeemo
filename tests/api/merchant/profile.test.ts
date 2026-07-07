@@ -27,7 +27,15 @@ describe('merchant profile routes', () => {
       merchantPendingEdit: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
       branch: { count: vi.fn() },
       voucher: { count: vi.fn() },
-      adminApproval: { create: vi.fn().mockResolvedValue({}) },
+      adminApproval: {
+        create: vi.fn().mockResolvedValue({}),
+        // Hygiene fix (2026-07-07): withdrawMerchantEditRequest now looks up the
+        // linked MERCHANT_IDENTITY_EDIT approval inside the withdraw transaction.
+        // Default to "not found" so the pre-existing create-request tests (which
+        // never touch withdraw) are unaffected; the withdraw test below overrides.
+        findFirst: vi.fn().mockResolvedValue(null),
+        update: vi.fn().mockResolvedValue({}),
+      },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
       // B2.1: the simple-DIRECT path now runs inside a transaction (writeAuditLogTx
       // is transactional + actor-aware). $transaction passes the same mock as `tx`.
@@ -495,9 +503,13 @@ describe('merchant profile routes', () => {
     expect(JSON.parse(res.body)).toHaveLength(1)
   })
 
-  it('DELETE /api/v1/merchant/profile/edit-requests/:id withdraws pending edit', async () => {
+  it('DELETE /api/v1/merchant/profile/edit-requests/:id withdraws pending edit AND flips the linked AdminApproval -> WITHDRAWN atomically (claim cleared)', async () => {
     app.prisma.merchantPendingEdit.findFirst = vi.fn().mockResolvedValue({ id: 'pe1', merchantId: 'm1', status: 'PENDING' })
     app.prisma.merchantPendingEdit.update = vi.fn().mockResolvedValue({ id: 'pe1', status: 'WITHDRAWN' })
+    // Hygiene fix (2026-07-07): the linked MERCHANT_IDENTITY_EDIT approval row
+    // (referenceId = the pending-edit id) is found and flipped in the same
+    // transaction, mirroring withdrawVoucherPendingEdit's convention.
+    app.prisma.adminApproval.findFirst = vi.fn().mockResolvedValue({ id: 'appr1' })
 
     const res = await app.inject({
       method: 'DELETE',
@@ -507,7 +519,33 @@ describe('merchant profile routes', () => {
 
     expect(res.statusCode).toBe(200)
     expect(app.prisma.merchantPendingEdit.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'WITHDRAWN' }) })
+      expect.objectContaining({ where: { id: 'pe1' }, data: expect.objectContaining({ status: 'WITHDRAWN' }) })
     )
+    expect(app.prisma.adminApproval.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ type: 'MERCHANT_IDENTITY_EDIT', referenceId: 'pe1', status: 'PENDING' }),
+      })
+    )
+    const aUpd = (app.prisma.adminApproval.update as any).mock.calls[0][0]
+    expect(aUpd.where).toEqual({ id: 'appr1' })
+    expect(aUpd.data.status).toBe('WITHDRAWN')
+    expect(aUpd.data.claimedById).toBeNull()
+    expect(aUpd.data.claimedAt).toBeNull()
+    expect(app.prisma.$transaction).toHaveBeenCalled()
+  })
+
+  it('DELETE /api/v1/merchant/profile/edit-requests/:id still succeeds when no matching AdminApproval exists (historical dangling row, or already actioned)', async () => {
+    app.prisma.merchantPendingEdit.findFirst = vi.fn().mockResolvedValue({ id: 'pe1', merchantId: 'm1', status: 'PENDING' })
+    app.prisma.merchantPendingEdit.update = vi.fn().mockResolvedValue({ id: 'pe1', status: 'WITHDRAWN' })
+    app.prisma.adminApproval.findFirst = vi.fn().mockResolvedValue(null)
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/merchant/profile/edit-requests/pe1',
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(app.prisma.adminApproval.update).not.toHaveBeenCalled()
   })
 })

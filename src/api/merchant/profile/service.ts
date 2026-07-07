@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
-import { writeAuditLog, writeAuditLogTx, type AuditEvent } from '../../shared/audit'
+import { writeAuditLogTx, type AuditEvent } from '../../shared/audit'
 import { resolveAdminMerchant, resolveMerchantContext, isDraftWindow, resolveTopLevelCategoryId, type EditActor } from '../shared'
 import { handleCategoryChange } from '../voucher/service'
 
@@ -642,6 +642,16 @@ export async function listMerchantEditRequests(prisma: PrismaClient, adminId: st
   })
 }
 
+// Hygiene fix (2026-07-07, aligning with the voucher governed-flows lane,
+// #411): withdrawing a PENDING MerchantPendingEdit used to flip only the edit
+// row -> WITHDRAWN and leave its linked AdminApproval{MERCHANT_IDENTITY_EDIT}
+// PENDING forever (a dangling admin-queue row). This mirrors
+// withdrawVoucherPendingEdit's exact convention: edit -> WITHDRAWN AND its
+// AdminApproval (matched by type + referenceId=editId, status PENDING;
+// CHANGES_REQUESTED is onboarding/VOUCHER-only per editApplier.ts, so it never
+// applies to this type) -> WITHDRAWN with the claim cleared, atomically. The
+// approval lookup is optional (a historical row created before this fix, or
+// one already actioned, does not block the edit withdraw).
 export async function withdrawMerchantEditRequest(
   prisma: PrismaClient,
   adminId: string,
@@ -653,10 +663,33 @@ export async function withdrawMerchantEditRequest(
   if (!edit) throw new AppError('PENDING_EDIT_NOT_FOUND')
   if (edit.status !== 'PENDING') throw new AppError('PENDING_EDIT_NOT_FOUND')
 
-  const updated = await prisma.merchantPendingEdit.update({
-    where: { id: editId },
-    data: { status: 'WITHDRAWN', reviewedAt: new Date() },
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.merchantPendingEdit.update({
+      where: { id: editId },
+      data: { status: 'WITHDRAWN', reviewedAt: new Date() },
+    })
+    const approval = await tx.adminApproval.findFirst({
+      where: { type: 'MERCHANT_IDENTITY_EDIT', referenceId: editId, status: 'PENDING' },
+      select: { id: true },
+    })
+    if (approval) {
+      await tx.adminApproval.update({
+        where: { id: approval.id },
+        data: {
+          status: 'WITHDRAWN',
+          claimedById: null,
+          claimedAt: null,
+          actionedAt: new Date(),
+          comment: 'Merchant withdrew the request',
+        },
+      })
+    }
+    await writeAuditLogTx(tx, {
+      entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_EDIT_REQUEST_WITHDRAWN',
+      actorId: adminId, actorType: 'MERCHANT_ADMIN',
+      metadata: { pendingEditId: editId },
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    })
+    return updated
   })
-  writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_EDIT_REQUEST_WITHDRAWN', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent })
-  return updated
 }
