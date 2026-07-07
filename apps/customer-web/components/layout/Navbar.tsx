@@ -501,7 +501,7 @@ export function Navbar() {
         >
           <nav
             aria-label="Quick navigation"
-            className="max-w-6xl mx-auto flex items-center gap-5 px-5 md:px-7 h-[64px] rounded-2xl"
+            className="max-w-6xl mx-auto flex items-center gap-5 px-5 md:px-7 h-[70px] rounded-2xl"
             style={{
               background: 'rgba(255,249,245,0.90)',
               backdropFilter: 'blur(16px) saturate(1.5)',
@@ -511,10 +511,10 @@ export function Navbar() {
             }}
           >
             <Link href="/" className="flex-shrink-0 no-underline">
-              <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[48px] w-auto" />
+              <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[52px] w-auto" />
             </Link>
 
-            <div className="hidden md:flex gap-0.5 flex-1">
+            <div className="hidden md:flex gap-1 flex-1 justify-center">
               {navLinks.map(link => {
                 const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
                 return (

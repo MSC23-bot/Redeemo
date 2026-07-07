@@ -458,3 +458,7 @@ edited by this workstream.
   for-businesses) pull up -80px with compensated padding; red-on-navy at the
   top of those pages replaces the old red-stripe-on-white band. Glass
   quick-nav grown h-58 to h-64, logo 44 to 48, type 13.5 to 14.
+- Glass quick-nav v2 (owner: scale up a little; centre the links while
+  scrolling): bar h-64 to h-70, logo 48 to 52; the link group (How it works,
+  Pricing, Insider, For businesses) is now centred in the bar, matching the
+  top island's logo-links-actions composition.
