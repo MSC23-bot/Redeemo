@@ -258,3 +258,15 @@ edited by this workstream.
   glass quick-nav (cream blur, coloured logo, navy links, gradient CTA) slides
   in only while scrolling UP past 300px and hides again on scroll-down. Mobile
   glass pill = logo + primary CTA.
+- Ribbon v3 (owner 2026-07-07: seam break visible behind the band; entry/exit
+  width flat; nav reveal felt random): the ribbon is now an IN-FLOW divider
+  that owns the seam: it paints topColor above its top edge and bottomColor
+  below its bottom edge, so the section boundary follows the band's curve
+  (reference: the ribbon as horizon between light sky and dark ground). No
+  negative margins or overlays. Perspective taper (1.42x entry -> 0.6x exit)
+  plus the twist pinch; die-cut notch carved into the edge geometry (the
+  masked-circle version printed a grey dot over the shadow); contact shadow is
+  a blurred stroke along the lower edge (a filled-region shadow greyed the
+  whole cream seam). FoundingPromise glow origins moved inside the section
+  (they printed a step against the divider's flat navy). Glass quick-nav is
+  now simply present past the hero (hysteresis 480/340), no direction logic.

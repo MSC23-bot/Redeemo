@@ -81,22 +81,21 @@ export function Navbar() {
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
-  // Owner direction 2026-07-07: the red bar lives at the top only and scrolls
-  // away with the page (it clashed with section backgrounds when sticky). A
-  // neutral glass bar slides in when the visitor scrolls UP mid-page.
+  // Owner direction 2026-07-07 (revised): the red bar lives at the top only
+  // and scrolls away with the page (it clashed with section backgrounds when
+  // sticky). Once the visitor is past the hero, the neutral glass bar is
+  // simply there: no scroll-direction games, which read as flicker.
   const [floatVisible, setFloatVisible] = useState(false)
   const accountRef = useRef<HTMLDivElement>(null)
   const firstMobileLinkRef = useRef<HTMLAnchorElement>(null)
 
   useEffect(() => {
-    let lastY = window.scrollY
     const onScroll = () => {
+      // Hysteresis so the handoff never flickers at the threshold
       const y = window.scrollY
-      if (y < 300) setFloatVisible(false)
-      else if (y < lastY - 2) setFloatVisible(true)
-      else if (y > lastY + 2) setFloatVisible(false)
-      lastY = y
+      setFloatVisible(prev => (prev ? y > 340 : y > 480))
     }
+    onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])

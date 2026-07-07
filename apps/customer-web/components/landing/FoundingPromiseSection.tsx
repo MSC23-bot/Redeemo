@@ -54,13 +54,15 @@ export function FoundingPromiseSection() {
       className="relative overflow-hidden py-20 md:py-24 px-6"
       style={{ background: '#010C35' }}
     >
-      {/* Red radial glow, matching the testimonials treatment */}
+      {/* Red radial glow, matching the testimonials treatment. Origins sit
+          well inside the section: pressed against the top boundary they
+          printed a visible step against the ribbon divider's flat navy. */}
       <div
         aria-hidden="true"
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            'radial-gradient(600px circle at 0% -10%, rgba(226,12,4,0.2), transparent 54%), radial-gradient(420px circle at 100% 120%, rgba(200,50,0,0.14), transparent 50%)',
+            'radial-gradient(600px circle at 0% 48%, rgba(226,12,4,0.16), transparent 54%), radial-gradient(420px circle at 100% 120%, rgba(200,50,0,0.14), transparent 50%)',
         }}
       />
 

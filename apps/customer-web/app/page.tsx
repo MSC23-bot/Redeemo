@@ -15,15 +15,16 @@ export default function HomePage() {
   return (
     <>
       <HeroSection />
-      {/* The logo's voucher-ribbon motif flowing between sections (owner
-          direction 2026-07-07); two mounts only, restraint on purpose */}
-      <VoucherRibbon />
+      {/* The logo's voucher-ribbon motif as the section seam (owner direction
+          2026-07-07); two mounts only, restraint on purpose. The colours are
+          the adjoining sections' backgrounds: the ribbon IS the break. */}
+      <VoucherRibbon topColor="#FFF9F5" bottomColor="#FFF9F5" />
       <TrendingPreviewSection />
       {/* Scroll-driven find/choose/redeem story on desktop; static sections on
           mobile, reduced-motion, and for crawlers */}
       <ScrollStory />
       <HowItWorksSection />
-      <VoucherRibbon flip />
+      <VoucherRibbon flip topColor="#FAFAF8" bottomColor="#010C35" />
       {isMarketplaceLive() ? <TestimonialsSection /> : <FoundingPromiseSection />}
       <PricingSection />
       <WaitlistSection />
