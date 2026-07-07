@@ -57,4 +57,8 @@ export {
   Minus,
   FileText,
   Store,
+  Monitor,
+  Tablet,
+  ShieldCheck,
+  LogIn,
 } from 'lucide-react'
