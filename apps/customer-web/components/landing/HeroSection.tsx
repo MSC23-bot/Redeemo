@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import { useRef, useCallback } from 'react'
 import { PhoneDemo } from './PhoneDemo'
-import { HeroFilm } from './HeroFilm'
+import { HeroScene } from './HeroScene'
 import { isLeadCaptureLive, isMarketplaceLive } from '@/lib/prelaunch'
 
 const EASE = [0.22, 1, 0.36, 1] as [number, number, number, number]
@@ -73,15 +73,8 @@ export function HeroSection() {
         style={{ backgroundImage: glowBg }}
       />
 
-      {/* The owner-made hero film: full-bleed on desktop, phone centre-right,
-          left third clean for the text. Scroll push-in + cursor tilt live in
-          the component. Mobile keeps the code-rendered PhoneDemo below. */}
-      <div className="hidden lg:block absolute inset-0" aria-hidden="true">
-        <HeroFilm />
-      </div>
-
       <div className="relative max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,620px)_1fr] gap-14 lg:gap-8 items-center lg:min-h-[560px]">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,560px)_1fr] gap-14 lg:gap-16 items-center">
 
           {/* ── Left: Text ── */}
           <div>
@@ -175,15 +168,19 @@ export function HeroSection() {
             </motion.div>
           </div>
 
-          {/* ── Right: the product itself (mobile/tablet only; on desktop the
-                 film carries the phone) ── */}
+          {/* ── Right: the product itself. Code-built scene on desktop
+                 (crisp at any resolution); PhoneDemo on mobile/tablet ── */}
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.3, ease: EASE }}
-            className="flex justify-center lg:hidden"
           >
-            <PhoneDemo />
+            <div className="flex justify-center lg:hidden">
+              <PhoneDemo />
+            </div>
+            <div className="hidden lg:block">
+              <HeroScene />
+            </div>
           </motion.div>
         </div>
 

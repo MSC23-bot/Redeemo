@@ -287,3 +287,15 @@ edited by this workstream.
   screen shows AI-approximate UI (Manchester); real-screen DOM overlay
   deferred as the screen held stable; fictional voucher cards (green/purple)
   echo app category colours.
+- Hero film REJECTED on quality (owner, 2238px display: soft stretched 1080p
+  text, card/headline collisions at wide aspect ratios, jittery AI float).
+  Root lesson recorded: a fixed-resolution 16:9 video cannot be the full-bleed
+  hero of a responsive page. Replaced same-day by HeroScene: the owner's
+  approved composition rebuilt entirely in code: PhoneFrame with the REAL
+  Huddersfield home capture (DOM-sharp at any resolution), four die-cut
+  voucher cards (clip-path notches, brand palette, fictional demo merchants,
+  copy echoing hook G), SVG brand ribbon weaving behind, spring cursor
+  parallax by depth + idle float loops + scroll lift, launch-safe caption.
+  PhoneDemo remains the mobile hero; reduced-motion gets the static pose.
+  HeroFilm component + film assets retained unmounted (ambient reuse
+  candidates elsewhere). Verified at 1512 and 2238.
