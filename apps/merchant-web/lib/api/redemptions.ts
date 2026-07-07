@@ -28,7 +28,15 @@ export const redemptionRowSchema = z
   .object({
     id: z.string(),
     redemptionCode: z.string(),
-    voucher: z.object({ id: z.string(), title: z.string(), type: z.string() }),
+    // description / terms: additive A5 fields (public voucher copy for the
+    // detail drawer). nullish() so an older backend payload still parses.
+    voucher: z.object({
+      id: z.string(),
+      title: z.string(),
+      type: z.string(),
+      description: z.string().nullish(),
+      terms: z.string().nullish(),
+    }),
     branch: z.object({ id: z.string(), name: z.string() }),
     customerName: z.string(),
     redeemedAt: z.string(),
@@ -36,6 +44,11 @@ export const redemptionRowSchema = z
     validatedAt: z.string().nullable(),
     validationMethod: z.enum(['MANUAL', 'QR_SCAN']).nullable(),
     validatedByLabel: z.string().nullable(),
+    // A5 additive: the resolved validator display name (full staff name when a
+    // BranchUser validated; the generic portal label otherwise). nullish() so an
+    // older backend payload still parses; the drawer falls back to
+    // validatedByLabel when absent.
+    validatedBy: z.string().nullish(),
     // estimatedSaving is a Prisma Decimal => JSON STRING on the wire; coerce so a
     // real saving value (e.g. "5.00") parses instead of throwing (same class of bug
     // as branch latitude/longitude).

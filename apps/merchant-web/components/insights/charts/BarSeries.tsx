@@ -34,6 +34,13 @@ const VIEW_W = 720
 const PAD_TOP = 28
 const PAD_BOTTOM = 28
 const GAP_RATIO = 0.32 // proportion of each slot left as the inter-bar gap
+// Staging-acceptance A3: cap the per-bar width. Without a cap a 1-2 month series
+// gets a slot of 720/1 (or /2) logical units and the bar renders as a near
+// full-bleed block (with the height also at the relative max, the chart read as
+// ONE SOLID BLOCK). 64 units keeps a tiny series looking like a normal centered
+// bar while leaving a typical 8-12 month series (slot <= 90, bar <= 61.2)
+// untouched.
+const MAX_BAR_W = 64
 
 export function BarSeries({ data, className, height = 220 }: BarSeriesProps) {
   if (data.length === 0) {
@@ -50,7 +57,7 @@ export function BarSeries({ data, className, height = 220 }: BarSeriesProps) {
   const maxLogged = Math.max(...data.map((d) => d.logged), 1)
   const plotH = height - PAD_TOP - PAD_BOTTOM
   const slot = VIEW_W / data.length
-  const barW = slot * (1 - GAP_RATIO)
+  const barW = Math.min(slot * (1 - GAP_RATIO), MAX_BAR_W)
 
   const ariaLabel =
     `Redemption trend by month. ` +

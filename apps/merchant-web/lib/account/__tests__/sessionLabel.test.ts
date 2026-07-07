@@ -32,6 +32,31 @@ describe('formatSessionDeviceLabel', () => {
     )
   })
 
+  // Staging-acceptance A6: the fallback chain for a UA with no hardware token.
+  it('prefers a stored deviceName over "Unknown device" when the UA is unrecognisable', () => {
+    expect(
+      formatSessionDeviceLabel({ deviceType: 'web', deviceName: 'Front desk till', userAgent: 'weird-bot/1.0' }, false),
+    ).toBe('Front desk till')
+  })
+
+  it('labels common non-browser agents "API or script access"', () => {
+    expect(formatSessionDeviceLabel({ deviceType: 'web', deviceName: null, userAgent: 'curl/8.4.0' }, false)).toBe(
+      'API or script access',
+    )
+    expect(
+      formatSessionDeviceLabel({ deviceType: 'web', deviceName: null, userAgent: 'python-requests/2.31.0' }, false),
+    ).toBe('API or script access')
+    expect(formatSessionDeviceLabel({ deviceType: 'web', deviceName: null, userAgent: 'node' }, false)).toBe(
+      'API or script access',
+    )
+  })
+
+  it('never classifies a real browser UA as script access', () => {
+    expect(formatSessionDeviceLabel({ deviceType: 'web', deviceName: null, userAgent: MAC_CHROME }, false)).toBe(
+      'Mac · Chrome',
+    )
+  })
+
   it('prefers deviceName for a future non-web deviceType (forward-looking, unreachable with real data today)', () => {
     expect(
       formatSessionDeviceLabel({ deviceType: 'ios_app', deviceName: 'Staff app', userAgent: IPHONE_SAFARI }, false),
@@ -57,6 +82,17 @@ describe('formatSessionLastActive', () => {
   it('singularises "1 hour ago" / "1 day ago"', () => {
     expect(formatSessionLastActive('2026-07-06T11:00:00.000Z', false, now)).toBe('1 hour ago')
     expect(formatSessionLastActive('2026-07-05T12:00:00.000Z', false, now)).toBe('1 day ago')
+  })
+
+  // Staging-acceptance A6: beyond a week the label carries a TIME with the date
+  // ("26 Jun, 14:32", never a bare "26 Jun") so same-day sessions stay
+  // distinguishable. Time asserted as a pattern (local-timezone rendering).
+  it('shows date AND time beyond a week (same year)', () => {
+    expect(formatSessionLastActive('2026-06-26T12:00:00.000Z', false, now)).toMatch(/^26 Jun, \d{2}:\d{2}$/)
+  })
+
+  it('shows date, year AND time for an earlier year', () => {
+    expect(formatSessionLastActive('2025-06-26T12:00:00.000Z', false, now)).toMatch(/^26 Jun 2025, \d{2}:\d{2}$/)
   })
 })
 

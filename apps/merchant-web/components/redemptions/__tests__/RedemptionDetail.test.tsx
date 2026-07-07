@@ -139,6 +139,33 @@ describe('RedemptionDetail (F3 merchant-safe detail drawer)', () => {
     expect(within(screen.getByRole('dialog')).getByText('One free coffee.')).toBeInTheDocument()
   })
 
+  // Staging-acceptance A5: the extended backend payload (voucher description +
+  // terms + resolved validator name) renders in full.
+  it('renders description, terms checklist AND the validator name from the extended A5 payload', () => {
+    const extended = {
+      ...VALIDATED,
+      voucher: {
+        ...VALIDATED.voucher,
+        description: 'One free coffee, any size.',
+        terms: 'One per visit.\nShow the code at the counter.',
+      },
+      validatedBy: 'Jon Smith',
+    } as RedemptionRow
+    render(<RedemptionDetail row={extended} onClose={onClose} />)
+    const panel = screen.getByRole('dialog')
+    expect(within(panel).getByText('One free coffee, any size.')).toBeInTheDocument()
+    expect(within(panel).getAllByRole('listitem')).toHaveLength(2)
+    expect(within(panel).getByText('One per visit.')).toBeInTheDocument()
+    // The "By" row prefers the resolved validator name over the generic label.
+    expect(within(panel).getByText('Jon Smith')).toBeInTheDocument()
+    expect(within(panel).queryByText('Validated in the portal')).toBeNull()
+  })
+
+  it('falls back to the generic validatedByLabel when validatedBy is absent (older payload)', () => {
+    render(<RedemptionDetail row={VALIDATED} onClose={onClose} />)
+    expect(within(screen.getByRole('dialog')).getByText('Validated in the portal')).toBeInTheDocument()
+  })
+
   it('closes via the Close action', () => {
     render(<RedemptionDetail row={AWAITING} onClose={onClose} />)
     fireEvent.click(screen.getByRole('button', { name: /close/i }))

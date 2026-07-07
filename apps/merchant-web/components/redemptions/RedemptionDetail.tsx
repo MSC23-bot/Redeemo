@@ -131,14 +131,14 @@ export function RedemptionDetail({
     }
   }
 
-  // description / terms are optional passthrough fields (the curated redemption
-  // row does not always carry them); render only when present.
-  const voucher = row.voucher as RedemptionRow['voucher'] & {
-    description?: string | null
-    terms?: string | null
-  }
+  // description / terms are typed (nullish) A5 fields on the curated row now
+  // that the backend curated select carries them; render only when present.
+  const voucher = row.voucher
   const accent = voucherTypeAccent(voucher.type)
   const isAwaiting = row.status === 'AWAITING_VALIDATION'
+  // A5: prefer the resolved validator display name (full staff name); fall back
+  // to the existing generic label for an older payload.
+  const validatorName = row.validatedBy ?? row.validatedByLabel
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onKeyDown={handleKeyDown}>
@@ -250,7 +250,7 @@ export function RedemptionDetail({
                   </DetailRow>
                 )}
                 <DetailRow label="When">{formatRedeemedAt(row.validatedAt)}</DetailRow>
-                {row.validatedByLabel && <DetailRow label="By">{row.validatedByLabel}</DetailRow>}
+                {validatorName && <DetailRow label="By">{validatorName}</DetailRow>}
               </div>
             )}
           </div>

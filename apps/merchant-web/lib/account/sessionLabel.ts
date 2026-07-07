@@ -37,8 +37,27 @@ export function formatSessionDeviceLabel(session: {
   }
 
   const browser = browserToken(session.userAgent)
-  const device = isCurrent ? `This ${hardware ?? 'device'}` : hardware ?? (session.deviceName || 'Unknown device')
-  return browser ? `${device} · ${browser}` : device
+  if (isCurrent) {
+    const device = `This ${hardware ?? 'device'}`
+    return browser ? `${device} · ${browser}` : device
+  }
+  if (hardware) return browser ? `${hardware} · ${browser}` : hardware
+
+  // Staging-acceptance A6: the UA yielded no hardware token. Fall through
+  // progressively weaker but still-honest signals instead of a blanket
+  // "Unknown device" wall: (1) a stored deviceName, (2) a recognisable
+  // non-browser agent (curl / node / python and friends read as tooling, not a
+  // device), (3) only then the generic label.
+  if (session.deviceName) return browser ? `${session.deviceName} · ${browser}` : session.deviceName
+  if (isNonBrowserAgent(session.userAgent)) return 'API or script access'
+  return browser ? `Unknown device · ${browser}` : 'Unknown device'
+}
+
+// Common programmatic HTTP clients whose UAs carry none of the hardware/browser
+// tokens above. Only consulted AFTER the hardware token misses, so a real
+// browser UA can never fall into this bucket.
+function isNonBrowserAgent(ua: string): boolean {
+  return /curl|wget|python|node|axios|okhttp|go-http|java\/|libwww|httpie|postman|insomnia|undici/i.test(ua)
 }
 
 function hardwareToken(ua: string): string | null {
@@ -93,12 +112,21 @@ export function formatSessionLastActive(iso: string, isCurrent: boolean, now: Da
   const days = Math.floor(ms / DAY)
   if (days < 7) return `${days} ${days === 1 ? 'day' : 'days'} ago`
 
+  // Staging-acceptance A6: beyond a week the label is a date AND time
+  // ("26 Jun, 14:32"), never a bare date - several sessions created the same day
+  // were previously indistinguishable ("26 Jun" x5).
   const sameYear = then.getFullYear() === now.getFullYear()
-  return new Intl.DateTimeFormat('en-GB', {
+  const date = new Intl.DateTimeFormat('en-GB', {
     day: 'numeric',
     month: 'short',
     ...(sameYear ? {} : { year: 'numeric' }),
   }).format(then)
+  const time = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(then)
+  return `${date}, ${time}`
 }
 
 /**

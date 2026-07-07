@@ -16,6 +16,20 @@ jest.mock('@/lib/api/taxonomy', () => ({
   getOnboardingTaxonomy: () => getOnboardingTaxonomy(),
 }))
 
+// A4: the card derives the category-lock state from the flagship (RMV) list.
+// Default (set in beforeEach): DRAFT rows -> NOT locked, the change flow stays live.
+const listFlagshipVouchers = jest.fn()
+jest.mock('@/lib/api/voucher', () => ({
+  listFlagshipVouchers: () => listFlagshipVouchers(),
+}))
+
+function rmvRows(status: string) {
+  return [
+    { id: 'rmv1', status, title: 'Starter voucher one', type: 'DISCOUNT_PERCENT', isRmv: true },
+    { id: 'rmv2', status, title: 'Starter voucher two', type: 'FREEBIE', isRmv: true },
+  ]
+}
+
 // --- the M3 mutation hook ----------------------------------------------------
 const mutateAsync = jest.fn()
 let isPending = false
@@ -71,6 +85,7 @@ function renderCard(p: MerchantProfile) {
 
 beforeEach(() => {
   getOnboardingTaxonomy.mockReset().mockResolvedValue(taxonomy())
+  listFlagshipVouchers.mockReset().mockResolvedValue(rmvRows('DRAFT'))
   mutateAsync.mockReset()
   isPending = false
 })
@@ -91,6 +106,42 @@ describe('BusinessCategoryCard owner gating', () => {
   it('renders a live Change category button for an OWNER viewer once the taxonomy loads', async () => {
     renderCard(profile())
     await waitFor(() => expect(screen.getByTestId('business-category-change')).toBeEnabled())
+  })
+})
+
+// Staging-acceptance A4: the lock state is derived from the flagship (RMV)
+// statuses (the exact condition the backend's CATEGORY_CHANGE_BLOCKED uses), so a
+// locked category never offers an enabled button into an editable picker.
+describe('BusinessCategoryCard derived category lock (A4)', () => {
+  it('disables Change category and shows the locked explainer when an RMV is ACTIVE', async () => {
+    listFlagshipVouchers.mockReset().mockResolvedValue(rmvRows('ACTIVE'))
+    renderCard(profile())
+    await waitFor(() => expect(screen.getByTestId('business-category-locked-note')).toBeInTheDocument())
+    expect(screen.getByTestId('business-category-change')).toBeDisabled()
+    expect(screen.getByTestId('business-category-locked-note')).toHaveTextContent(/locked/i)
+    // A disabled button can never open the picker.
+    fireEvent.click(screen.getByTestId('business-category-change'))
+    expect(screen.queryByTestId('category-change-panel')).not.toBeInTheDocument()
+  })
+
+  it('disables Change category when an RMV is PENDING_APPROVAL (submitted, not yet live)', async () => {
+    listFlagshipVouchers.mockReset().mockResolvedValue(rmvRows('PENDING_APPROVAL'))
+    renderCard(profile())
+    await waitFor(() => expect(screen.getByTestId('business-category-locked-note')).toBeInTheDocument())
+    expect(screen.getByTestId('business-category-change')).toBeDisabled()
+  })
+
+  it('keeps the button live when the lock state is unknown (flagship fetch fails); the backend-driven blocked dialog stays the fallback', async () => {
+    listFlagshipVouchers.mockReset().mockRejectedValue(new Error('network'))
+    renderCard(profile())
+    await waitFor(() => expect(screen.getByTestId('business-category-change')).toBeEnabled())
+    expect(screen.queryByTestId('business-category-locked-note')).not.toBeInTheDocument()
+  })
+
+  it('keeps the button live with DRAFT-only RMVs (category still changeable)', async () => {
+    renderCard(profile())
+    await waitFor(() => expect(screen.getByTestId('business-category-change')).toBeEnabled())
+    expect(screen.queryByTestId('business-category-locked-note')).not.toBeInTheDocument()
   })
 })
 
