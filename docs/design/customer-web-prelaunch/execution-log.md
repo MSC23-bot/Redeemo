@@ -196,3 +196,24 @@ edited by this workstream.
   broken. Neither was a product defect; recorded so the lesson survives.
 - Owner phone flow: Expo restart -c, login customer@redeemo.com, branch PIN
   1234 everywhere (seed-encrypted). Higgsfield credits untouched (110).
+
+## 2026-07-07 (early hours, continued) · Real-asset cinema + Higgsfield Phase 1
+
+- Owner captured 27 app screens (incl. a slow-scroll home sequence + the full
+  redemption journey). Batch pipeline (PIL): clean 9:41 status bars, Dynamic
+  Island erased via anomaly-masked replacement, "Huddersfield" label patched
+  over the device-geocoded "Zone 69, Doha" (client-side reverse geocode; the
+  backend shim cannot reach it), photo-hero scrims. Six overlapping home
+  captures stitched into a 1320x7354 true-order page (signature matching).
+  Raw library (98MB) kept gitignored as source archive; ~4MB web derivatives
+  committed to public/app-shots.
+- ScrollStory v2 (PR #397 e73e912d): hero shows the real home screen + hook G;
+  Find scrolls the real stitched page inside the pinned phone; Choose shows the
+  real Old Foundry BOGO; Redeem plays the real keypad -> PIN-confirming journey
+  with the code-rendered navy finale. London-merchant assets excluded from the
+  story. Recap strip follows the cinema. Guard tests 30/30.
+- Higgsfield: owner authenticated the MCP; this session bridges to it via a
+  headless claude -p subprocess (71 tools confirmed; zero-credit probe). Owner
+  explicitly approved 12 credits; Phase 1 stills batch (12 images, image-tier
+  only, hard-capped) launched. Clip animation round will be a separate explicit
+  approval.
