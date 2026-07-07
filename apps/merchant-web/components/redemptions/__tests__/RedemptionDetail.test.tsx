@@ -48,12 +48,28 @@ describe('RedemptionDetail (F3 merchant-safe detail drawer)', () => {
     expect(within(panel).getByText('£3.50')).toBeInTheDocument()
   })
 
-  it('renders the voucher hero (title + type + saving) and a View voucher link', () => {
-    render(<RedemptionDetail row={AWAITING} onClose={onClose} />)
+  it('renders the voucher hero (title + type + saving); View voucher link for a full-nav viewer', () => {
+    render(<RedemptionDetail row={AWAITING} onClose={onClose} canViewVoucher />)
     const panel = screen.getByRole('dialog')
     expect(within(panel).getByText('Freebie')).toBeInTheDocument() // type chip
     const link = within(panel).getByRole('link', { name: /view voucher/i })
     expect(link).toHaveAttribute('href', '/vouchers/v1')
+  })
+
+  it('does NOT offer a View voucher link to a STAFF / unknown viewer (canViewVoucher false)', () => {
+    render(<RedemptionDetail row={AWAITING} onClose={onClose} canViewVoucher={false} />)
+    const panel = screen.getByRole('dialog')
+    expect(within(panel).queryByRole('link', { name: /view voucher/i })).toBeNull()
+    // The rest of the drawer still renders (hero + validate CTA).
+    expect(within(panel).getByText('Free coffee')).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: /validate this code/i })).toBeInTheDocument()
+  })
+
+  it('fails closed when canViewVoucher is omitted (no link)', () => {
+    render(<RedemptionDetail row={AWAITING} onClose={onClose} />)
+    expect(
+      within(screen.getByRole('dialog')).queryByRole('link', { name: /view voucher/i }),
+    ).toBeNull()
   })
 
   it('renders Voucher.terms as a tick checklist (newline-split, blob = one item)', () => {

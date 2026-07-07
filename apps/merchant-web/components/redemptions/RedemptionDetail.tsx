@@ -77,9 +77,15 @@ function TermsChecklist({ terms }: { terms: string }) {
 export function RedemptionDetail({
   row,
   onClose,
+  // Whether to offer the "View voucher" link. The /vouchers surface is OWNER /
+  // BRANCH_MANAGER only (STAFF sees Redemptions but not Vouchers), so a STAFF /
+  // null / unknown viewer must NOT be offered the link. Defaults false so the
+  // affordance fails closed if a caller forgets to pass it.
+  canViewVoucher = false,
 }: {
   row: RedemptionRow
   onClose: () => void
+  canViewVoucher?: boolean
 }) {
   const { openValidate } = useValidateDialog()
   const panelRef = React.useRef<HTMLDivElement>(null)
@@ -193,11 +199,13 @@ export function RedemptionDetail({
                 <p className="text-sm text-muted-foreground">{voucher.description}</p>
               )}
               {voucher.terms && <TermsChecklist terms={voucher.terms} />}
-              <Button variant="secondary" className="w-full" asChild>
-                <Link href={`/vouchers/${voucher.id}`}>
-                  <ExternalLink size={15} aria-hidden="true" /> View voucher
-                </Link>
-              </Button>
+              {canViewVoucher && (
+                <Button variant="secondary" className="w-full" asChild>
+                  <Link href={`/vouchers/${voucher.id}`}>
+                    <ExternalLink size={15} aria-hidden="true" /> View voucher
+                  </Link>
+                </Button>
+              )}
             </div>
           </div>
 

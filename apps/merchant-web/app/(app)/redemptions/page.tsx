@@ -28,8 +28,17 @@ import {
 } from '@/lib/api/redemptions'
 import { listBranches } from '@/lib/api/branch'
 import { listCustomVouchers, listFlagshipVouchers } from '@/lib/api/voucher'
+import { useSession } from '@/lib/auth/session'
+import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
 
 const PAGE_SIZE = 25
+
+// The /vouchers surface is OWNER / BRANCH_MANAGER only (mirrors FULL_NAV_ROLES in
+// components/shell/navItems.ts: /vouchers is NOT in the STAFF baseline). Redemptions
+// itself is baseline-accessible to STAFF, so the drawer's "View voucher" link must
+// be gated to full-nav viewers. Inlined (not imported from navItems) to avoid a
+// cross-PR edit; fail closed on an absent/unknown role.
+const FULL_NAV_ROLES = new Set(['OWNER', 'BRANCH_MANAGER'])
 
 // Today's LOCAL calendar date serialized as UTC midnight - the exact shape a
 // manual "From" pick produces (see RedemptionFilters), so display + query
@@ -44,6 +53,10 @@ function todayFromIso(): string {
 
 export default function RedemptionsPage() {
   const { openValidate } = useValidateDialog()
+  const session = useSession()
+  const profile = useMerchantProfile(session.isAuthenticated)
+  const viewerRole = profile.data?.viewerCapabilities?.role ?? null
+  const canViewVoucher = viewerRole !== null && FULL_NAV_ROLES.has(viewerRole)
   const searchParams = useSearchParams()
   // B-2: a /redemptions?voucherId=<id> deep-link (from the Voucher Detail "View
   // redemptions" link) seeds the filter so the log opens scoped to that voucher.
@@ -272,7 +285,13 @@ export default function RedemptionsPage() {
         </>
       )}
 
-      {selected && <RedemptionDetail row={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <RedemptionDetail
+          row={selected}
+          onClose={() => setSelected(null)}
+          canViewVoucher={canViewVoucher}
+        />
+      )}
     </div>
   )
 }
