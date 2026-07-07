@@ -15,11 +15,20 @@
  * admin-proposed corrections (merchantFields.adminProposed + adminNote) so the
  * merchant sees a proposed-vs-current diff and can apply the suggestions.
  *
+ * Voucher governed flows (2026-07-07): this SAME route/page now also renders a
+ * flagship (isRmv) voucher's detail. GET /vouchers/:id is CUSTOM-only (isRmv:
+ * false server-side) and there is no per-id RMV read (only the list, GET
+ * /vouchers/rmv) - so a flagship id is resolved by matching it against the
+ * (cached) flagship list instead of adding a new backend route or a sibling
+ * frontend route. A flagship voucher NEVER gets Edit/Submit/Delete; its only
+ * actions are the governed VoucherGovernedMenu (Request a change / Duplicate)
+ * plus the analytics section below, same as a custom voucher.
+ *
  * Privacy: only safe core voucher fields are shown. Never customer PII or a PIN.
  * The UI never sends status/approvalStatus (server-set).
  */
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,6 +38,7 @@ import {
   getVoucher,
   submitVoucher,
   deleteVoucher,
+  listFlagshipVouchers,
   type CustomVoucherDetail,
 } from '@/lib/api/voucher'
 import { isEditable, deriveDisplayState } from '@/lib/voucher/displayState'
@@ -40,12 +50,15 @@ import { ConciergeReadOnly } from '@/components/vouchers/ConciergeDiff'
 import { DuplicateAction } from '@/components/vouchers/DuplicateAction'
 import { DayTwoBuilder } from '@/components/vouchers/builder/DayTwoBuilder'
 import { VoucherAnalytics } from '@/components/vouchers/VoucherAnalytics'
+import { VoucherGovernedMenu } from '@/components/vouchers/VoucherGovernedMenu'
+import { PendingVoucherEditBanner } from '@/components/vouchers/PendingVoucherEditBanner'
 
 type Mode = 'view' | 'edit' | 'duplicate'
 
 export default function VoucherDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const qc = useQueryClient()
   const id = params?.id ?? ''
   const { canManage } = useVoucherCapability()
@@ -61,12 +74,52 @@ export default function VoucherDetailPage() {
   const [confirmingDelete, setConfirmingDelete] = React.useState(false)
   const [actionError, setActionError] = React.useState<string | null>(null)
 
+  // Voucher governed flows: try the flagship list first (see the module doc
+  // comment above). This query is CHEAP in the common case - the merchant
+  // usually arrives here from /vouchers, where ['flagshipVouchers'] is already
+  // warm in the cache (staleTime 30s), so this is a cache hit, not a second
+  // network round trip.
+  const flagshipList = useQuery({
+    queryKey: ['flagshipVouchers'],
+    queryFn: listFlagshipVouchers,
+    staleTime: 30_000,
+  })
+  const flagshipSettled = flagshipList.isSuccess || flagshipList.isError
+  const flagshipRow = flagshipList.data?.find((v) => v.id === id) ?? null
+  const isFlagship = !!flagshipRow
+
   const query = useQuery({
     queryKey: ['voucher', id],
     queryFn: () => getVoucher(id),
-    enabled: !!id,
+    enabled: !!id && flagshipSettled && !isFlagship,
     staleTime: 30_000,
   })
+
+  // Unify: a flagship row (list-row shape) is adapted into the CustomVoucherDetail
+  // shape VoucherDetail/the builder already know how to render (merchantFields /
+  // availabilityWindows / imageUrl are detail-only fields the flagship LIST read
+  // does not carry, so they are explicitly nulled rather than guessed).
+  const voucher: CustomVoucherDetail | undefined = isFlagship
+    ? flagshipRow
+      ? { ...flagshipRow, merchantFields: null, availabilityWindows: null, imageUrl: null }
+      : undefined
+    : query.data
+
+  // A ?duplicate=1 deep-link (from the Vouchers list kebab) opens the builder in
+  // duplicate mode directly, mirroring the list page's own ?create=1 pattern. A
+  // ref (not a `voucher` dependency) guards this to firing exactly ONCE: `voucher`
+  // is a freshly-derived object every render (spread/adapter), so depending on it
+  // directly would re-trigger duplicate mode on every later refetch, silently
+  // undoing a "Back to voucher" click.
+  const wantDuplicate = searchParams?.get('duplicate') === '1'
+  const duplicateHandledRef = React.useRef(false)
+  const hasVoucher = !!voucher
+  React.useEffect(() => {
+    if (wantDuplicate && hasVoucher && !duplicateHandledRef.current) {
+      duplicateHandledRef.current = true
+      setMode('duplicate')
+    }
+  }, [wantDuplicate, hasVoucher])
 
   const submit = useMutation({
     mutationFn: () => submitVoucher(id),
@@ -90,8 +143,6 @@ export default function VoucherDetailPage() {
       setActionError('We could not delete this voucher just now. Please try again.')
     },
   })
-
-  const voucher = query.data
 
   // Edit / Duplicate builder mode.
   if ((mode === 'edit' || mode === 'duplicate') && voucher) {
@@ -150,6 +201,13 @@ export default function VoucherDetailPage() {
     )
   }
 
+  // Combined loading/error across the flagship-lookup query + the (conditionally
+  // enabled) custom-read query, so the page shows ONE calm state regardless of
+  // which path resolves the voucher.
+  const isLoading = flagshipList.isLoading || (flagshipSettled && !isFlagship && query.isLoading)
+  const hasError =
+    flagshipList.isError || (flagshipSettled && !isFlagship && query.isError) || (flagshipSettled && !isLoading && !voucher)
+
   return (
     <div className="space-y-6">
       <button
@@ -160,17 +218,23 @@ export default function VoucherDetailPage() {
         <ArrowLeft size={16} /> Back to vouchers
       </button>
 
-      {query.isLoading ? (
+      {isLoading ? (
         <Card>
           <div role="status" aria-live="polite" className="px-6 text-sm text-muted-foreground">
             Loading this voucher...
           </div>
         </Card>
-      ) : query.isError || !voucher ? (
+      ) : hasError || !voucher ? (
         <Card>
           <div role="alert" className="space-y-3 px-6">
             <p className="text-sm text-foreground">We could not load this voucher.</p>
-            <Button variant="secondary" onClick={() => query.refetch()}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void flagshipList.refetch()
+                void query.refetch()
+              }}
+            >
               Try again
             </Button>
           </div>
@@ -184,23 +248,47 @@ export default function VoucherDetailPage() {
           ) : null}
           <VoucherDetail
             voucher={voucher}
+            flagship={isFlagship}
             actions={
               canManage ? (
-                <DetailActions
-                  voucher={voucher}
-                  submitting={submit.isPending}
-                  onEdit={() => setMode('edit')}
-                  onSubmit={() => submit.mutate()}
-                  onDelete={() => setConfirmingDelete(true)}
-                  onDuplicate={() => setMode('duplicate')}
-                />
+                isFlagship ? (
+                  <VoucherGovernedMenu
+                    voucher={voucher}
+                    canManage={canManage}
+                    showViewRedemptions={false}
+                    onDuplicate={() => setMode('duplicate')}
+                  />
+                ) : (
+                  <>
+                    <DetailActions
+                      voucher={voucher}
+                      submitting={submit.isPending}
+                      onEdit={() => setMode('edit')}
+                      onSubmit={() => submit.mutate()}
+                      onDelete={() => setConfirmingDelete(true)}
+                      onDuplicate={() => setMode('duplicate')}
+                    />
+                    {/* Governed-only items (Request to end / Withdraw submission);
+                        Duplicate/View-redemptions already render above/in the aside. */}
+                    <VoucherGovernedMenu
+                      voucher={voucher}
+                      canManage={canManage}
+                      showDuplicate={false}
+                      showViewRedemptions={false}
+                      onDuplicate={() => setMode('duplicate')}
+                    />
+                  </>
+                )
               ) : null
             }
-            // B-3: a CHANGES_REQUESTED voucher surfaces the concierge note +
-            // proposed-vs-current diff read-only on the detail page itself. The
-            // Apply action stays in the Edit builder.
+            // Voucher governed flows: an open (PENDING) request takes over this
+            // slot (either kind, flagship CHANGE or custom END); otherwise a
+            // CHANGES_REQUESTED custom voucher keeps the existing B-3 concierge
+            // note + proposed-vs-current diff (Apply stays in the Edit builder).
             changesBanner={
-              deriveDisplayState(voucher) === 'changes-requested' ? (
+              voucher.pendingEdit?.status === 'PENDING' ? (
+                <PendingVoucherEditBanner voucher={voucher} canManage={canManage} />
+              ) : deriveDisplayState(voucher) === 'changes-requested' ? (
                 <ConciergeReadOnly
                   proposed={voucher.merchantFields?.adminProposed ?? null}
                   note={voucher.merchantFields?.adminNote ?? null}
@@ -218,7 +306,8 @@ export default function VoucherDetailPage() {
           />
           {/* Slice E: per-voucher analytics (read-only), gated to canViewInsights
               viewers (STAFF never sees it). Its own query, so a slow or failing (or
-              raced 403) stats fetch never blocks the detail render above. */}
+              raced 403) stats fetch never blocks the detail render above. Works for
+              a flagship voucher too (the backend endpoint is isRmv-agnostic). */}
           {canViewInsights ? <VoucherAnalytics voucherId={voucher.id} /> : null}
         </>
       )}

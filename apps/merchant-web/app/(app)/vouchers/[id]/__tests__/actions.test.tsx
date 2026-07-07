@@ -12,6 +12,10 @@ const submitVoucher = jest.fn()
 const deleteVoucher = jest.fn()
 const createVoucher = jest.fn()
 const updateVoucher = jest.fn()
+// Voucher governed flows: the detail page now ALSO checks the (cached) flagship
+// list to resolve a flagship id (GET /vouchers/:id is custom-only). Every
+// existing test here uses a custom voucher, so this resolves empty by default.
+const listFlagshipVouchers = jest.fn()
 jest.mock('@/lib/api/voucher', () => {
   const actual = jest.requireActual('@/lib/api/voucher')
   return {
@@ -21,6 +25,7 @@ jest.mock('@/lib/api/voucher', () => {
     deleteVoucher: (id: string) => deleteVoucher(id),
     createVoucher: (b: unknown) => createVoucher(b),
     updateVoucher: (id: string, b: unknown) => updateVoucher(id, b),
+    listFlagshipVouchers: () => listFlagshipVouchers(),
   }
 })
 
@@ -29,6 +34,7 @@ const back = jest.fn()
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push, back }),
   useParams: () => ({ id: 'v1' }),
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 // Shell wave: the capability seam now reads the session profile; these tests pin
@@ -99,6 +105,7 @@ beforeEach(() => {
   deleteVoucher.mockReset().mockResolvedValue({ deleted: true })
   createVoucher.mockReset().mockResolvedValue(voucher({ id: 'copy1' }))
   updateVoucher.mockReset().mockResolvedValue(voucher({ id: 'v1' }))
+  listFlagshipVouchers.mockReset().mockResolvedValue([])
 })
 
 describe('VoucherDetail actions (DRAFT)', () => {
@@ -229,5 +236,41 @@ describe('VoucherDetail Duplicate (client-orchestrated)', () => {
     expect(payload).not.toHaveProperty('approvalStatus')
     expect(createVoucher).toHaveBeenCalledTimes(1)
     expect(updateVoucher).not.toHaveBeenCalled()
+  })
+})
+
+// Voucher governed flows (2026-07-07): a LIVE custom voucher's kebab offers
+// Request to end; an IN-REVIEW one offers Withdraw submission (hidden once
+// approved-waiting). Both are ADDITIVE alongside the existing flat actions
+// above (Edit/Submit/Delete only ever show for DRAFT; Duplicate is unaffected).
+describe('VoucherDetail governed actions (custom)', () => {
+  it('a LIVE voucher kebab offers Request to end, never Request a change', async () => {
+    getVoucher.mockResolvedValue(voucher({ status: 'ACTIVE', approvalStatus: 'APPROVED' }))
+    renderPage()
+    await screen.findAllByText('Free coffee with breakfast')
+    fireEvent.click(screen.getByRole('button', { name: /actions for/i }))
+    const menu = await screen.findByRole('menu')
+    expect(menu).toHaveTextContent(/request to end/i)
+    expect(menu).not.toHaveTextContent(/request a change/i)
+    // The kebab does not duplicate the flat Duplicate button already present.
+    expect(screen.getAllByRole('button', { name: /^duplicate$/i })).toHaveLength(1)
+  })
+
+  it('an IN-REVIEW voucher kebab offers Withdraw submission', async () => {
+    getVoucher.mockResolvedValue(voucher({ status: 'PENDING_APPROVAL', approvalStatus: 'PENDING' }))
+    renderPage()
+    await screen.findAllByText('Free coffee with breakfast')
+    fireEvent.click(screen.getByRole('button', { name: /actions for/i }))
+    expect(await screen.findByRole('menuitem', { name: /withdraw submission/i })).toBeInTheDocument()
+  })
+
+  it('an approved-waiting voucher kebab hides Withdraw submission', async () => {
+    getVoucher.mockResolvedValue(voucher({ status: 'PENDING_APPROVAL', approvalStatus: 'APPROVED' }))
+    renderPage()
+    await screen.findAllByText('Free coffee with breakfast')
+    // Nothing governed to show (approved-waiting has no eligible governed
+    // action, and the kebab's own Duplicate/View-redemptions are suppressed on
+    // the detail page) - so no second "Actions for" trigger renders at all.
+    expect(screen.queryByRole('button', { name: /actions for/i })).toBeNull()
   })
 })

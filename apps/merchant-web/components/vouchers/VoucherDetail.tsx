@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Chip } from '@/components/ui/chip'
-import { ExternalLink } from '@/lib/icons'
+import { ExternalLink, Lock } from '@/lib/icons'
 import {
   deriveDisplayState,
   DISPLAY_STATE_LABEL,
@@ -53,12 +53,19 @@ export function VoucherDetail({
   voucher,
   actions,
   changesBanner,
+  flagship = false,
 }: {
   voucher: CustomVoucherDetail
   /** B5 action buttons (Edit / Submit / Delete / Duplicate), state-gated by the parent. */
   actions?: React.ReactNode
-  /** B6 concierge proposed-vs-current banner (CHANGES_REQUESTED only). */
+  /** B6 concierge banner (CHANGES_REQUESTED) OR a governed-flow pending-edit banner. */
   changesBanner?: React.ReactNode
+  /**
+   * Voucher governed flows (2026-07-07): true for a flagship (isRmv) voucher.
+   * Adds the "Flagship" pill + a locked notice; NEVER changes which actions
+   * render (the parent page owns that - flagship never gets Edit/Submit/Delete).
+   */
+  flagship?: boolean
 }) {
   const state = deriveDisplayState(voucher)
   const colour = STATE_COLOUR[state]
@@ -78,6 +85,14 @@ export function VoucherDetail({
             >
               {state === 'approved-waiting' ? 'Approved, waiting' : labelShort(state)}
             </span>
+            {flagship ? (
+              <span
+                data-testid="voucher-detail-flagship-pill"
+                className="inline-flex items-center gap-1 rounded-full bg-[#F3F4F6] px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-[#6B7390]"
+              >
+                <Lock size={12} /> Flagship
+              </span>
+            ) : null}
           </div>
           <h1 className="font-display text-2xl font-semibold text-foreground">{voucher.title}</h1>
         </div>
@@ -96,6 +111,11 @@ export function VoucherDetail({
         {voucher.approvalComment ? (
           <p className="mt-2 text-[#4B5366]">
             <span className="font-semibold">From the reviewer:</span> {voucher.approvalComment}
+          </p>
+        ) : null}
+        {flagship ? (
+          <p data-testid="voucher-detail-locked-notice" className="mt-2 font-semibold" style={{ color: colour }}>
+            Always live: edits go to review, and this voucher cannot be deleted.
           </p>
         ) : null}
       </div>

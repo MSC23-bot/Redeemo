@@ -97,7 +97,7 @@ describe('VouchersPage list', () => {
     expect(screen.getByRole('status')).toBeInTheDocument()
   })
 
-  it('pins flagship vouchers at the top as read-only (no edit/delete)', async () => {
+  it('pins flagship vouchers at the top, never with an edit/delete affordance', async () => {
     listFlagshipVouchers.mockResolvedValue([
       row({ id: 'rmv1', title: 'Flagship BOGO', type: 'BOGO', isRmv: true }),
     ])
@@ -107,6 +107,78 @@ describe('VouchersPage list', () => {
     expect(within(flagship).getByText('Flagship BOGO')).toBeInTheDocument()
     // A flagship card carries no edit/delete affordance.
     expect(within(flagship).queryByRole('button', { name: /edit|delete/i })).toBeNull()
+  })
+
+  // Voucher governed flows (2026-07-07): flagship cards are now interactive.
+  describe('flagship interactivity', () => {
+    it('a flagship row click routes to /vouchers/[id], same as a custom row', async () => {
+      listFlagshipVouchers.mockResolvedValue([
+        row({ id: 'rmv1', title: 'Flagship BOGO', type: 'BOGO', isRmv: true }),
+      ])
+      listCustomVouchers.mockResolvedValue([])
+      renderPage()
+      const title = await screen.findByText('Flagship BOGO')
+      fireEvent.click(title.closest('[data-voucher-card]')!)
+      expect(push).toHaveBeenCalledWith('/vouchers/rmv1')
+    })
+
+    it('the flagship kebab offers Request a change / View redemptions / Duplicate, never Request to end/Edit/Delete', async () => {
+      listFlagshipVouchers.mockResolvedValue([
+        row({ id: 'rmv1', title: 'Flagship BOGO', type: 'BOGO', isRmv: true, status: 'ACTIVE', approvalStatus: 'APPROVED' }),
+      ])
+      listCustomVouchers.mockResolvedValue([])
+      renderPage()
+      await screen.findByText('Flagship BOGO')
+      fireEvent.click(screen.getByRole('button', { name: /actions for flagship bogo/i }))
+      const menu = await screen.findByRole('menu')
+      expect(within(menu).getByRole('menuitem', { name: /request a change/i })).toBeInTheDocument()
+      expect(within(menu).getByRole('menuitem', { name: /view redemptions/i })).toBeInTheDocument()
+      expect(within(menu).getByRole('menuitem', { name: /^duplicate$/i })).toBeInTheDocument()
+      expect(within(menu).queryByRole('menuitem', { name: /request to end/i })).toBeNull()
+      expect(within(menu).queryByRole('menuitem', { name: /^edit$/i })).toBeNull()
+      expect(within(menu).queryByRole('menuitem', { name: /^delete$/i })).toBeNull()
+    })
+
+    it('the flagship kebab Duplicate navigates to the detail page with ?duplicate=1', async () => {
+      listFlagshipVouchers.mockResolvedValue([
+        row({ id: 'rmv1', title: 'Flagship BOGO', type: 'BOGO', isRmv: true, status: 'ACTIVE', approvalStatus: 'APPROVED' }),
+      ])
+      listCustomVouchers.mockResolvedValue([])
+      renderPage()
+      await screen.findByText('Flagship BOGO')
+      fireEvent.click(screen.getByRole('button', { name: /actions for flagship bogo/i }))
+      fireEvent.click(await screen.findByRole('menuitem', { name: /^duplicate$/i }))
+      expect(push).toHaveBeenCalledWith('/vouchers/rmv1?duplicate=1')
+    })
+
+    it('a custom LIVE row kebab offers Request to end, never Request a change', async () => {
+      listFlagshipVouchers.mockResolvedValue([])
+      listCustomVouchers.mockResolvedValue([
+        row({ id: 'v1', title: 'Live BOGO', status: 'ACTIVE', approvalStatus: 'APPROVED' }),
+      ])
+      renderPage()
+      await screen.findByText('Live BOGO')
+      fireEvent.click(screen.getByRole('button', { name: /actions for live bogo/i }))
+      const menu = await screen.findByRole('menu')
+      expect(within(menu).getByRole('menuitem', { name: /request to end/i })).toBeInTheDocument()
+      expect(within(menu).queryByRole('menuitem', { name: /request a change/i })).toBeNull()
+    })
+
+    it('a custom card shows an "awaiting review" note when it has an open pending edit', async () => {
+      listFlagshipVouchers.mockResolvedValue([])
+      listCustomVouchers.mockResolvedValue([
+        row({
+          id: 'v1',
+          title: 'Live BOGO',
+          status: 'ACTIVE',
+          approvalStatus: 'APPROVED',
+          pendingEdit: { id: 'pe1', kind: 'END', status: 'PENDING', reason: 'x', createdAt: '2026-07-07T00:00:00.000Z', proposedChanges: null },
+        }),
+      ])
+      renderPage()
+      await screen.findByText('Live BOGO')
+      expect(screen.getByTestId('voucher-card-pending-note')).toHaveTextContent(/end request awaiting review/i)
+    })
   })
 
   it('renders the approved-waiting distinct label', async () => {

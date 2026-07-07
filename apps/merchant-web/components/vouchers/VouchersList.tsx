@@ -12,10 +12,15 @@ import {
 import { VoucherCard, type VoucherCardData } from './VoucherCard'
 import { VoucherStatusFilter } from './VoucherStatusFilter'
 
-// Day-2 Vouchers B3: the list body. Flagship vouchers pinned/locked at the top;
-// custom vouchers filtered client-side by the derived display state. The
-// per-row action menu is injected via renderActions (B5) so this component owns
-// no management logic.
+// Day-2 Vouchers B3: the list body. Flagship vouchers pinned at the top; custom
+// vouchers filtered client-side by the derived display state. The per-row
+// action menu is injected via renderActions (B5) so this component owns no
+// management logic.
+//
+// Voucher governed flows (2026-07-07): flagship cards are now interactive too
+// (clickable through to detail + the SAME renderActions kebab slot, gated by
+// VoucherGovernedMenu's own state/canManage logic) - they are never
+// directly editable/deletable, only reachable through the governed lane.
 
 export function VouchersList({
   flagship,
@@ -59,7 +64,7 @@ export function VouchersList({
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {flagship.map((v) => (
-              <VoucherCard key={v.id} voucher={v} flagship />
+              <VoucherCard key={v.id} voucher={v} flagship onOpen={onOpen} actions={renderActions?.(v)} />
             ))}
           </div>
         </section>

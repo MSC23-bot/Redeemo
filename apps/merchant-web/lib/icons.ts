@@ -61,4 +61,6 @@ export {
   Tablet,
   ShieldCheck,
   LogIn,
+  Undo2,
+  MessageSquarePlus,
 } from 'lucide-react'

@@ -124,10 +124,34 @@ export const availabilityWindowSchema = z.object({
 })
 export type AvailabilityWindow = z.infer<typeof availabilityWindowSchema>
 
+// ─── Voucher governed flows (2026-07-07, D1-D4) ─────────────────────────────
+//
+// One shared VoucherPendingEdit model + one AdminApproval type (VOUCHER_EDIT)
+// covers BOTH governed lanes: kind CHANGE (a live flagship's requested field
+// edits) and kind END (a live custom voucher's requested deactivation). Reads
+// (listVouchers / getVoucher / listRmvVouchers) surface AT MOST one PENDING row
+// per voucher as `pendingEdit`; a non-PENDING (WITHDRAWN/etc) row is never
+// surfaced by these read paths, so `status` here is effectively always PENDING
+// when present, but the field is typed generically for forward-compatibility.
+export const pendingVoucherEditSchema = z
+  .object({
+    id: z.string(),
+    kind: z.enum(['CHANGE', 'END']),
+    status: z.string(),
+    reason: z.string().nullish(),
+    createdAt: z.string(),
+    proposedChanges: z.record(z.string(), z.unknown()).nullish(),
+  })
+  .passthrough()
+export type PendingVoucherEdit = z.infer<typeof pendingVoucherEditSchema>
+
 // The curated LIST row shape (GET /vouchers). .passthrough() so a future backend
 // field cannot break this client; estimatedSaving is Decimal-on-the-wire so we
 // coerce to a number. redemptionCount is the per-voucher aggregate. The list does
-// NOT carry merchantFields/availabilityWindows (detail-only).
+// NOT carry merchantFields/availabilityWindows (detail-only). pendingEdit is the
+// open governed-flow request summary (null when there is none); this base schema
+// feeds the detail schema and the flagship row schema below, so adding it once
+// here covers all three reads.
 export const customVoucherListRowSchema = z
   .object({
     id: z.string(),
@@ -146,6 +170,7 @@ export const customVoucherListRowSchema = z
     approvedAt: z.string().nullish(),
     createdAt: z.string(),
     redemptionCount: z.number().default(0),
+    pendingEdit: pendingVoucherEditSchema.nullish(),
   })
   .passthrough()
 export type CustomVoucherListRow = z.infer<typeof customVoucherListRowSchema>
@@ -334,5 +359,74 @@ export type VoucherAnalytics = z.infer<typeof voucherAnalyticsSchema>
 export async function getVoucherAnalytics(id: string): Promise<VoucherAnalytics> {
   return voucherAnalyticsSchema.parse(
     await apiFetch(`/api/v1/merchant/vouchers/${id}/analytics`, { method: 'GET', auth: true }),
+  )
+}
+
+// ─── Voucher governed flows (2026-07-07): the writer client ─────────────────
+//
+// Owner decisions: a flagship (isRmv:true) voucher is interactive but never
+// directly editable/deletable - a LIVE flagship's field changes go through
+// governed review (requestFlagshipVoucherChange). A LIVE custom voucher's
+// deactivation goes through governed review (requestVoucherEnd); flagship can
+// NEVER be ended (the backend rejects with VOUCHER_EDIT_NOT_ALLOWED). An
+// in-review (PENDING_APPROVAL, not yet approved) custom submission can be
+// withdrawn INSTANTLY, self-service (withdrawVoucherSubmission); a not-yet-
+// reviewed governed request (either kind) can be withdrawn the same way
+// (withdrawVoucherPendingEdit). Contracts: PR #411 (unmerged; this frontend is
+// built against its contracts).
+
+// The proposable flagship fields (title/description/estimatedSaving/terms).
+// imageUrl is a valid backend key too, but the vouchers-6 structured form does
+// not offer an image field, so this client never sends it.
+export interface RequestFlagshipChangePayload {
+  reason: string
+  title?: string
+  description?: string
+  terms?: string
+  estimatedSaving?: number
+}
+
+export async function requestFlagshipVoucherChange(
+  id: string,
+  payload: RequestFlagshipChangePayload,
+): Promise<PendingVoucherEdit> {
+  return pendingVoucherEditSchema.parse(
+    await apiFetch(`/api/v1/merchant/vouchers/rmv/${id}/request-change`, {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify(payload),
+    }),
+  )
+}
+
+export async function requestVoucherEnd(id: string, reason: string): Promise<PendingVoucherEdit> {
+  return pendingVoucherEditSchema.parse(
+    await apiFetch(`/api/v1/merchant/vouchers/${id}/request-end`, {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ reason }),
+    }),
+  )
+}
+
+// The withdraw-submission response is the raw updated Voucher row (not the
+// curated list/detail shape) - only id/status are relied on here; the calling
+// page re-reads getVoucher/listVouchers afterwards for the full curated shape.
+const voucherWithdrawResultSchema = z.object({ id: z.string(), status: z.string() }).passthrough()
+
+export async function withdrawVoucherSubmission(
+  id: string,
+): Promise<z.infer<typeof voucherWithdrawResultSchema>> {
+  return voucherWithdrawResultSchema.parse(
+    await apiFetch(`/api/v1/merchant/vouchers/${id}/withdraw`, { method: 'POST', auth: true }),
+  )
+}
+
+export async function withdrawVoucherPendingEdit(editId: string): Promise<PendingVoucherEdit> {
+  return pendingVoucherEditSchema.parse(
+    await apiFetch(`/api/v1/merchant/vouchers/pending-edits/${editId}/withdraw`, {
+      method: 'POST',
+      auth: true,
+    }),
   )
 }

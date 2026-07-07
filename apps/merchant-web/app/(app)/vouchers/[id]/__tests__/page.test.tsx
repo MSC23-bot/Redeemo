@@ -10,12 +10,17 @@ import VoucherDetailPage from '@/app/(app)/vouchers/[id]/page'
 
 const getVoucher = jest.fn()
 const getVoucherAnalytics = jest.fn()
+// Voucher governed flows: the detail page now ALSO checks the (cached) flagship
+// list to resolve a flagship id (GET /vouchers/:id is custom-only). Every
+// existing test here uses a custom voucher, so this resolves empty by default.
+const listFlagshipVouchers = jest.fn()
 jest.mock('@/lib/api/voucher', () => {
   const actual = jest.requireActual('@/lib/api/voucher')
   return {
     ...actual,
     getVoucher: (id: string) => getVoucher(id),
     getVoucherAnalytics: (id: string) => getVoucherAnalytics(id),
+    listFlagshipVouchers: () => listFlagshipVouchers(),
   }
 })
 
@@ -31,6 +36,7 @@ const push = jest.fn()
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push, back: jest.fn() }),
   useParams: () => ({ id: 'v1' }),
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 // Shell wave: the capability seam now reads the session profile; these tests pin
@@ -78,6 +84,7 @@ function renderPage() {
 beforeEach(() => {
   push.mockReset()
   getVoucher.mockReset().mockResolvedValue(voucher())
+  listFlagshipVouchers.mockReset().mockResolvedValue([])
   // Default: STAFF-equivalent viewer (analytics hidden), so the existing render tests
   // are unaffected by Slice E. The gate tests below flip it explicitly.
   mockInsightsCaps.canViewInsights = false
