@@ -9,7 +9,7 @@
  */
 import * as React from 'react'
 import Link from 'next/link'
-import { ScanLine, Ticket, ArrowRight } from '@/lib/icons'
+import { ScanLine, LifeBuoy, ArrowRight } from '@/lib/icons'
 import type { MerchantProfile } from '@/lib/api/profile'
 import { greetingName, LiveBadge } from './shared'
 
@@ -30,11 +30,11 @@ const ACTIONS: QuickAction[] = [
     icon: <ScanLine size={18} />,
   },
   {
-    key: 'vouchers',
-    title: 'Vouchers',
-    body: 'Browse the vouchers your business has live on Redeemo.',
-    href: '/vouchers',
-    icon: <Ticket size={18} />,
+    key: 'help',
+    title: 'Help & support',
+    body: 'Find answers or contact the Redeemo team.',
+    href: '/help',
+    icon: <LifeBuoy size={18} />,
   },
 ]
 

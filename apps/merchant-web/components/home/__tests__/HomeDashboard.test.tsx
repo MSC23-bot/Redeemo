@@ -197,14 +197,25 @@ describe('HomeDashboard (Slice 1, reuse-only)', () => {
     } as Partial<MerchantProfile>)
     renderHome(staff)
 
-    expect(await screen.findByTestId('home-lean')).toBeInTheDocument()
+    const lean = await screen.findByTestId('home-lean')
     expect(screen.getByText(/your business is live/i)).toBeInTheDocument()
 
-    // No insights read is ever fired for STAFF.
+    // Baseline-only quick actions: /redemptions and /help; NEVER /vouchers (not in the
+    // fail-closed baseline nav set for a STAFF / unknown-role viewer).
+    const links = Array.from(lean.querySelectorAll('a')).map((a) => a.getAttribute('href'))
+    expect(links).toEqual(expect.arrayContaining(['/redemptions', '/help']))
+    expect(links).not.toContain('/vouchers')
+    expect(lean.querySelector('a[href="/vouchers"]')).toBeNull()
+
+    // The lean home is pure links: NO data fetch of any kind (no insights, no vouchers).
     await waitFor(() => expect(screen.queryByTestId('home-live-dashboard')).not.toBeInTheDocument())
     expect(mockOverview).not.toHaveBeenCalled()
     expect(mockTrend).not.toHaveBeenCalled()
     expect(mockBusy).not.toHaveBeenCalled()
+    expect(mockCustom).not.toHaveBeenCalled()
+    expect(mockFlagship).not.toHaveBeenCalled()
+    expect(mockRedemptions).not.toHaveBeenCalled()
+    expect(mockBranches).not.toHaveBeenCalled()
   })
 
   it('renders the just-started home (tips grid + placeholder, no charts-with-data) on zero all-time redemptions', async () => {
