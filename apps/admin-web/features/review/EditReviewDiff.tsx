@@ -20,7 +20,7 @@
 import { ImagePlus, ImageMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/features/shared/Badge'
-import type { EditReviewContext, EditReviewField } from '@/lib/api/editReview'
+import type { IdentityEditReviewContext, EditReviewField } from '@/lib/api/editReview'
 
 /** Render any diff value (string / number / null) as readable text. */
 function renderValue(value: unknown): string {
@@ -95,7 +95,7 @@ function PhotoChanges({ add, remove }: { add: string[]; remove: string[] }) {
 }
 
 interface EditReviewDiffProps {
-  context: EditReviewContext
+  context: IdentityEditReviewContext
   canApplyEdit: boolean
   onApprove: () => void
   onReject: () => void

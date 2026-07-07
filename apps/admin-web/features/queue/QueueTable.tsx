@@ -15,6 +15,10 @@ import type { BadgeTone } from '@/features/shared/Badge'
 // ── Derived display status ────────────────────────────────────────────────────
 
 function getDisplayStatus(approval: AdminApproval): string {
+  // Voucher governed-flows PR-B: WITHDRAWN is a distinct terminal state (the
+  // merchant withdrew before an admin acted) — never conflate with the
+  // amber "Submitted" / "Under review" states.
+  if (approval.status === 'WITHDRAWN') return 'Withdrawn'
   if (approval.status === 'CHANGES_REQUESTED') return 'Changes requested'
   if (approval.status === 'PENDING' && approval.claimedById != null) return 'Under review'
   return 'Submitted'
@@ -22,8 +26,19 @@ function getDisplayStatus(approval: AdminApproval): string {
 
 // ── Type label ────────────────────────────────────────────────────────────────
 
-function getTypeLabel(type: AdminApproval['type']): string {
-  const map: Record<AdminApproval['type'], string> = {
+// Voucher governed-flows PR-B: a VOUCHER_EDIT row's label depends on the
+// (optional) voucherEditKind carried on the row. The exact list-row shape from
+// sibling backend PR #411 is not fully specified — if the row does not carry
+// voucherEditKind, fall back to the generic label rather than guessing.
+function getVoucherEditTypeLabel(item: AdminApproval): string {
+  if (item.voucherEditKind === 'END') return 'Voucher end request'
+  if (item.voucherEditKind === 'CHANGE') return 'Voucher change request'
+  return 'Voucher edit request'
+}
+
+function getTypeLabel(item: AdminApproval): string {
+  if (item.type === 'VOUCHER_EDIT') return getVoucherEditTypeLabel(item)
+  const map: Record<Exclude<AdminApproval['type'], 'VOUCHER_EDIT'>, string> = {
     MERCHANT_ONBOARDING: 'Onboarding',
     VOUCHER: 'Voucher',
     MERCHANT_PROFILE_EDIT: 'Profile edit',
@@ -32,7 +47,7 @@ function getTypeLabel(type: AdminApproval['type']): string {
     BRANCH_CREATE: 'Branch: add',
     BRANCH_CLOSE: 'Branch: close',
   }
-  return map[type] ?? type
+  return map[item.type] ?? item.type
 }
 
 // Day-2 Vouchers PR-C: friendly customer-facing voucher-type label for the
@@ -116,11 +131,13 @@ function MerchantAvatar({ name }: { name: string }) {
 //   Submitted       -> warn (amber) — waiting for admin action
 //   Under review    -> info (blue)  — claimed and being reviewed
 //   Changes requested -> danger (red) — action required from merchant
+//   Withdrawn       -> neutral (grey) — a calm terminal state, not an error
 
 function getStatusBadgeTone(label: string): BadgeTone {
   if (label === 'Submitted') return 'warn'
   if (label === 'Under review') return 'info'
   if (label === 'Changes requested') return 'danger'
+  if (label === 'Withdrawn') return 'neutral'
   return 'neutral'
 }
 
@@ -163,8 +180,8 @@ function GoLiveHintBadge({ hint }: { hint: 'live-now' | 'waiting-for-go-live' })
 
 // ── Type badge ────────────────────────────────────────────────────────────────
 
-function TypeBadge({ type }: { type: AdminApproval['type'] }) {
-  return <Badge tone="neutral">{getTypeLabel(type)}</Badge>
+function TypeBadge({ item }: { item: AdminApproval }) {
+  return <Badge tone="neutral">{getTypeLabel(item)}</Badge>
 }
 
 // ── Table ─────────────────────────────────────────────────────────────────────
@@ -255,7 +272,7 @@ export function QueueTable({ items, currentAdminId }: QueueTableProps) {
 
                 {/* Type */}
                 <td className="px-4 py-3">
-                  <TypeBadge type={item.type} />
+                  <TypeBadge item={item} />
                 </td>
 
                 {/* Waiting + urgency */}

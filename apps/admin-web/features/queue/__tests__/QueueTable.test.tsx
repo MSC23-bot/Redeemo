@@ -264,6 +264,50 @@ describe('QueueTable type label', () => {
   })
 })
 
+// ── Voucher governed-flows PR-B: VOUCHER_EDIT row + WITHDRAWN status ──────────
+
+describe('QueueTable VOUCHER_EDIT type label', () => {
+  it('labels a VOUCHER_EDIT row with voucherEditKind CHANGE as "Voucher change request"', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ type: 'VOUCHER_EDIT', referenceId: 'voucher-1', referenceType: 'voucher', voucherEditKind: 'CHANGE' })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(screen.getByText('Voucher change request')).toBeInTheDocument()
+  })
+
+  it('labels a VOUCHER_EDIT row with voucherEditKind END as "Voucher end request"', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ type: 'VOUCHER_EDIT', referenceId: 'voucher-1', referenceType: 'voucher', voucherEditKind: 'END' })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(screen.getByText('Voucher end request')).toBeInTheDocument()
+  })
+
+  it('falls back to the generic "Voucher edit request" label when voucherEditKind is not carried on the row', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ type: 'VOUCHER_EDIT', referenceId: 'voucher-1', referenceType: 'voucher' })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(screen.getByText('Voucher edit request')).toBeInTheDocument()
+  })
+})
+
+describe('QueueTable WITHDRAWN status', () => {
+  it('shows the "Withdrawn" label (not an error tone) for a WITHDRAWN approval', () => {
+    render(<QueueTable items={[makeApproval({ status: 'WITHDRAWN' })]} currentAdminId={CURRENT_ADMIN} />)
+    const label = screen.getByText('Withdrawn')
+    expect(label).toBeInTheDocument()
+    // neutral tone: shares styling with the Badge default (no destructive/red classes)
+    expect(label.className).not.toMatch(/red/)
+  })
+})
+
 // ── Day-2 Vouchers PR-C: VOUCHER row enrichment ───────────────────────────────
 
 function makeVoucherApproval(overrides: Partial<AdminApproval> = {}): AdminApproval {

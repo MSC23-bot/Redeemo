@@ -9,6 +9,10 @@
  * EDIT_PHOTO_APPLY_NOT_SUPPORTED code is no longer thrown for a photo approve
  * (PR-3 closed it); its NamedGateBanner mapping stays defined for safety. Never
  * optimistically marks applied.
+ *
+ * Voucher governed-flows PR-B: also reused for VOUCHER_EDIT approve, with
+ * `title` / `consequenceCopy` overridden by the caller for CHANGE vs END copy
+ * (defaults below are unchanged for the identity-edit lane).
  */
 'use client'
 
@@ -18,13 +22,28 @@ import { NamedGateBanner } from './NamedGateBanner'
 import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 
+const DEFAULT_TITLE = 'Apply this change?'
+const DEFAULT_CONSEQUENCE_COPY =
+  'The requested fields are applied to the live listing and the merchant owner is emailed. ' +
+  'Only the fields shown in the diff are changed.'
+
 interface ApproveEditConfirmProps {
   approvalId: string
   onSuccess: () => void
   onCancel: () => void
+  /** Dialog title + aria-label. Defaults to "Apply this change?". */
+  title?: string
+  /** Consequence copy shown above the actions. Defaults to the identity-edit text. */
+  consequenceCopy?: string
 }
 
-export function ApproveEditConfirm({ approvalId, onSuccess, onCancel }: ApproveEditConfirmProps) {
+export function ApproveEditConfirm({
+  approvalId,
+  onSuccess,
+  onCancel,
+  title = DEFAULT_TITLE,
+  consequenceCopy = DEFAULT_CONSEQUENCE_COPY,
+}: ApproveEditConfirmProps) {
   const mutation = useApproveEdit(approvalId)
   const cancelRef = useRef<HTMLButtonElement>(null)
 
@@ -40,21 +59,20 @@ export function ApproveEditConfirm({ approvalId, onSuccess, onCancel }: ApproveE
 
   return (
     <Dialog
-      label="Apply this change?"
+      label={title}
       onClose={onCancel}
       scrimTestId="approve-edit-scrim"
       panelTestId="approve-edit-confirm-dialog"
       initialFocusRef={cancelRef}
     >
-      <h2 className="mb-3 text-base font-semibold text-foreground">Apply this change?</h2>
+      <h2 className="mb-3 text-base font-semibold text-foreground">{title}</h2>
 
       <p
         id="approve-edit-consequences-copy"
         className="text-sm text-foreground"
         data-testid="approve-edit-consequences-copy"
       >
-        The requested fields are applied to the live listing and the merchant owner is emailed.
-        Only the fields shown in the diff are changed.
+        {consequenceCopy}
       </p>
 
       {mutation.error && (

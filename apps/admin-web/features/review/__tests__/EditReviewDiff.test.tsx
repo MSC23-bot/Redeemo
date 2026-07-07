@@ -5,9 +5,9 @@
 import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { EditReviewDiff } from '../EditReviewDiff'
-import type { EditReviewContext } from '@/lib/api/editReview'
+import type { IdentityEditReviewContext } from '@/lib/api/editReview'
 
-function merchantContext(over: Partial<EditReviewContext> = {}): EditReviewContext {
+function merchantContext(over: Partial<IdentityEditReviewContext> = {}): IdentityEditReviewContext {
   return {
     kind: 'merchant',
     merchantId: 'm-1',
@@ -21,7 +21,7 @@ function merchantContext(over: Partial<EditReviewContext> = {}): EditReviewConte
   }
 }
 
-function branchPhotoContext(over: Partial<EditReviewContext> = {}): EditReviewContext {
+function branchPhotoContext(over: Partial<IdentityEditReviewContext> = {}): IdentityEditReviewContext {
   return {
     kind: 'branch',
     merchantId: 'm-1',
@@ -35,7 +35,7 @@ function branchPhotoContext(over: Partial<EditReviewContext> = {}): EditReviewCo
   }
 }
 
-function renderDiff(context: EditReviewContext, opts: { canApplyEdit?: boolean } = {}) {
+function renderDiff(context: IdentityEditReviewContext, opts: { canApplyEdit?: boolean } = {}) {
   const onApprove = jest.fn()
   const onReject = jest.fn()
   render(

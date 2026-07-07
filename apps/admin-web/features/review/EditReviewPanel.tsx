@@ -1,10 +1,16 @@
 'use client'
 
 /**
- * EditReviewPanel (Option B B1): self-contained edit-review surface for a
- * MERCHANT_IDENTITY_EDIT / BRANCH_IDENTITY_EDIT approval. Owns the field-diff
- * fetch + the Approve-edit / Reject-edit dialog state, so the queue review page
- * only has to branch on the approval type and mount this.
+ * EditReviewPanel (Option B B1 + Voucher governed-flows PR-B): self-contained
+ * edit-review surface for a MERCHANT_IDENTITY_EDIT / BRANCH_IDENTITY_EDIT /
+ * VOUCHER_EDIT approval. Owns the field-diff fetch + the Approve-edit /
+ * Reject-edit dialog state, so the queue review page only has to branch on the
+ * approval type and mount this.
+ *
+ * Dispatches on `data.kind`: 'merchant' | 'branch' render the original
+ * EditReviewDiff; 'voucher' renders VoucherEditReviewDiff (its own field shape
+ * and CHANGE/END treatment). Approve/Reject dialogs are shared (ApproveEditConfirm
+ * / RejectEditDialog) with copy overridden for the voucher case.
  *
  * Approve/Reject actions are gated on the approval:apply-edit capability.
  */
@@ -12,6 +18,7 @@ import { useState } from 'react'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { useEditReview } from '@/lib/review/useEditReview'
 import { EditReviewDiff } from './EditReviewDiff'
+import { VoucherEditReviewDiff } from './VoucherEditReviewDiff'
 import { ApproveEditConfirm } from './ApproveEditConfirm'
 import { RejectEditDialog } from './RejectEditDialog'
 
@@ -63,20 +70,40 @@ export function EditReviewPanel({ approvalId, canRead, canApplyEdit }: EditRevie
     )
   }
 
+  const isVoucherEdit = data.kind === 'voucher'
+  const isEndRequest = isVoucherEdit && data.voucherEditKind === 'END'
+
   return (
     <div className="space-y-6">
-      <EditReviewDiff
-        context={data}
-        canApplyEdit={canApplyEdit}
-        onApprove={() => setOpenDialog('approve')}
-        onReject={() => setOpenDialog('reject')}
-      />
+      {isVoucherEdit ? (
+        <VoucherEditReviewDiff
+          context={data}
+          canApplyEdit={canApplyEdit}
+          onApprove={() => setOpenDialog('approve')}
+          onReject={() => setOpenDialog('reject')}
+        />
+      ) : (
+        <EditReviewDiff
+          context={data}
+          canApplyEdit={canApplyEdit}
+          onApprove={() => setOpenDialog('approve')}
+          onReject={() => setOpenDialog('reject')}
+        />
+      )}
 
       {openDialog === 'approve' && (
         <ApproveEditConfirm
           approvalId={approvalId}
           onSuccess={handleDialogSuccess}
           onCancel={() => setOpenDialog(null)}
+          {...(isVoucherEdit
+            ? {
+                title: isEndRequest ? 'End this voucher?' : 'Apply this voucher change?',
+                consequenceCopy: isEndRequest
+                  ? 'This voucher will stop being available to customers. The merchant owner is emailed.'
+                  : 'The requested changes are applied to this voucher and the merchant owner is emailed. Only the fields shown in the diff are changed.',
+              }
+            : {})}
         />
       )}
       {openDialog === 'reject' && (
@@ -84,6 +111,17 @@ export function EditReviewPanel({ approvalId, canRead, canApplyEdit }: EditRevie
           approvalId={approvalId}
           onSuccess={handleDialogSuccess}
           onCancel={() => setOpenDialog(null)}
+          {...(isVoucherEdit
+            ? {
+                title: isEndRequest ? 'Reject end request' : 'Reject voucher change',
+                placeholder: isEndRequest
+                  ? 'Explain clearly why this voucher cannot be ended. The voucher stays live.'
+                  : 'Explain clearly why this change cannot be applied. The voucher will not change.',
+                helperCopy: isEndRequest
+                  ? 'The voucher stays live. This message is emailed to the merchant.'
+                  : 'The voucher is not changed. This message is emailed to the merchant.',
+              }
+            : {})}
         />
       )}
     </div>

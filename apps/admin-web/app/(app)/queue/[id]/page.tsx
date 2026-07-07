@@ -46,9 +46,12 @@ import { BranchLifecyclePanel } from '@/features/review/BranchLifecyclePanel'
 import { Button } from '@/components/ui/button'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'
 
-// Option B B1: the two merchant-requested identity-edit types route to the
-// edit-review surface instead of the generic non-onboarding notice.
-const EDIT_APPROVAL_TYPES = ['MERCHANT_IDENTITY_EDIT', 'BRANCH_IDENTITY_EDIT']
+// Option B B1 + Voucher governed-flows PR-B: the merchant-requested edit types
+// route to the edit-review surface instead of the generic non-onboarding notice.
+// VOUCHER_EDIT (a merchant voucher change/end request) reuses the same surface;
+// EditReviewPanel dispatches internally on `kind` to render the voucher-specific
+// diff/treatment.
+const EDIT_APPROVAL_TYPES = ['MERCHANT_IDENTITY_EDIT', 'BRANCH_IDENTITY_EDIT', 'VOUCHER_EDIT']
 
 // Branches PR-5 (D5): the two branch-lifecycle types route to the
 // branch-lifecycle review surface (CREATE go-live / CLOSE deactivate).
