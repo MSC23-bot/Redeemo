@@ -1,18 +1,8 @@
 'use client'
 
-import { motion, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue } from 'framer-motion'
+import { motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import { useRef } from 'react'
-
-/**
- * Keeps a scroll-linked value on the JS animation path. Chrome promotes
- * directly-bound scroll transforms to native ScrollTimeline animations, and
- * that promotion misbinds for these stacked layers (inline style froze at 1
- * while the native animation drove the computed value elsewhere). The spring
- * both defeats the promotion and softens the crossfades.
- */
-function useScrollLinked(value: MotionValue<number>) {
-  return useSpring(value, { stiffness: 320, damping: 40, mass: 0.5 })
-}
+import { useScrollLinked } from './scroll'
 import Image from 'next/image'
 import { CodeScreen, PhoneFrame } from './PhoneDemo'
 import { VoucherTypesSection } from './VoucherTypesSection'

@@ -225,3 +225,23 @@ edited by this workstream.
   toward ground colours so foreground always wins, videos play only while
   their band is visible, posters serve reduced-motion. Follow-ups: transcode/
   CDN for the 15MB of loops; mobile story variant.
+- Direction pivot (owner 2026-07-07): generated backdrops REJECTED as shipped
+  ("I meant the phone to be in the animation, not animation in the background").
+  ScrollStory ambience unmounted (assets retained in public/app-motion). New
+  plan: owner films the hero himself on higgsfield.ai with a director's kit
+  from this session (context block, prompts A/B/C, composition law: left third
+  clean); MP4s land in ~/Desktop/redeemo-hero-films for grading + mounting.
+- Hero start frame composed from real assets (PIL, 1920x1080, saved to
+  ~/Desktop/redeemo-hero-films/hero-start-frame.png): processed Huddersfield
+  home capture in a navy-bezel phone right-of-centre, brand-gradient perforated
+  voucher card kissing the bezel, six category-illustration objects (coffee,
+  lipstick, dumbbells, pizza, gift box, compass) with alpha-derived shadows,
+  cream ground + coral bloom, left third clean. Upload as the image-to-video
+  start frame so Higgsfield supplies motion only, not taste.
+- VoucherRibbon shipped: the logo's R-as-two-voucher-ribbons motif as a scroll
+  divider. Module-scope bezier geometry (sampled centreline, normal-offset
+  edges), die-cut notch mask, dashed tear line, brand-gradient fill, soft echo
+  band behind (the R's second ribbon), scroll-linked x-drift + light pulse via
+  the shared useScrollLinked spring (hoisted to components/landing/scroll.ts).
+  Two mounts only: hero seam + HowItWorks-to-navy seam. Reduced-motion renders
+  it static; aria-hidden, pointer-events-none. next build clean.
