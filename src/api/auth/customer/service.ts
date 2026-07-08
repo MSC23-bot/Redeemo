@@ -341,6 +341,39 @@ export async function refreshCustomerToken(
     throw new AppError(supersededByLogin ? 'SESSION_REPLACED' : 'REFRESH_TOKEN_INVALID')
   }
 
+  // H4: re-apply the login status gates on every refresh. A still-live refresh
+  // token must NOT keep minting access tokens after the account is
+  // suspended/deactivated/deleted — otherwise a compromised or offboarded account
+  // could keep refreshing for the full 90-day refresh TTL. On any non-ACTIVE
+  // status, revoke ALL of the account's sessions (so no device can obtain a new
+  // access token) and throw the same error the login path uses. The only residual
+  // is the current access token's remaining ≤15-minute TTL.
+  const account = await prisma.user.findUnique({
+    where: { id: data.entityId },
+    select: { status: true },
+  })
+  if (!account || account.status !== 'ACTIVE') {
+    // Audit FIRST so the status-driven denial is always recorded, THEN revoke ALL
+    // of this account's sessions (best-effort — a Redis blip must not turn the
+    // clean 4xx into a 500, and the refresh is denied regardless). A suspended/
+    // deleted account should lose every device.
+    writeAuditLog(prisma, {
+      entityId: data.entityId, entityType: 'customer', event: 'AUTH_REFRESH_DENIED_STATUS',
+      ipAddress: data.ipAddress, userAgent: data.userAgent,
+    })
+    // Isolate the two cleanups so a Redis outage on the session-key revoke cannot
+    // skip the DB UserSession-record revoke. Both best-effort: refresh is denied below.
+    try {
+      await revokeAllSessionsForEntity(redis, { role: 'customer', entityId: data.entityId })
+    } catch { /* best-effort */ }
+    try {
+      await revokeAllUserSessionRecords(prisma, { entityId: data.entityId, entityType: 'customer', reason: 'ACCOUNT_STATUS_CHANGED' })
+    } catch { /* best-effort */ }
+    if (account?.status === 'INACTIVE')  throw new AppError('ACCOUNT_INACTIVE')
+    if (account?.status === 'SUSPENDED') throw new AppError('ACCOUNT_SUSPENDED')
+    throw new AppError('INVALID_CREDENTIALS') // DELETED, or the row vanished
+  }
+
   const parsed = JSON.parse(stored)
   await redis.del(key)
 

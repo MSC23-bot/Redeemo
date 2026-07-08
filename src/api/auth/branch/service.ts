@@ -6,6 +6,7 @@ import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
 import {
   storeRefreshToken, revokeRefreshToken,
+  revokeAllSessionsForEntity, revokeAllUserSessionRecords,
   writeUserSession, revokeUserSessionRecord,
   getActiveMobileSessionId, setActiveMobileSession,
   validateRefreshToken,
@@ -162,6 +163,34 @@ export async function refreshBranchToken(
   if (!stored || !validateRefreshToken(stored, data.refreshToken)) {
     writeAuditLog(prisma, { entityId: data.entityId, entityType: 'branch', event: 'AUTH_REFRESH_FAILED', ipAddress: data.ipAddress, userAgent: data.userAgent })
     throw new AppError('REFRESH_TOKEN_INVALID')
+  }
+
+  // H4: re-apply the login status gates on refresh — branch user active AND parent
+  // merchant not suspended. Closing a branch (branchLifecycleApplier sets
+  // BranchUser.status = INACTIVE) or suspending the merchant must stop the branch
+  // staff's session, not let it keep refreshing for the 90-day refresh TTL. Revoke
+  // all of this branch user's sessions on denial (so no device can obtain a new
+  // access token); the current access token expires within its ≤15-minute TTL.
+  // Error precedence mirrors login (deactivated-user before merchant-suspended).
+  const branchUser = await prisma.branchUser.findUnique({
+    where: { id: data.entityId },
+    select: { status: true, branch: { select: { merchant: { select: { status: true } } } } },
+  })
+  const merchantStatus = branchUser?.branch?.merchant?.status
+  if (!branchUser || branchUser.status === 'INACTIVE' || merchantStatus === 'SUSPENDED') {
+    // Audit FIRST (always recorded), THEN revoke all sessions best-effort so a
+    // Redis blip cannot turn the clean 4xx into a 500; the refresh is denied below.
+    writeAuditLog(prisma, { entityId: data.entityId, entityType: 'branch', event: 'AUTH_REFRESH_DENIED_STATUS', ipAddress: data.ipAddress, userAgent: data.userAgent })
+    // Isolate the two cleanups so a Redis outage on the session-key revoke cannot
+    // skip the DB UserSession-record revoke. Both best-effort: refresh is denied below.
+    try {
+      await revokeAllSessionsForEntity(redis, { role: 'branch', entityId: data.entityId })
+    } catch { /* best-effort */ }
+    try {
+      await revokeAllUserSessionRecords(prisma, { entityId: data.entityId, entityType: 'branch', reason: 'ACCOUNT_STATUS_CHANGED' })
+    } catch { /* best-effort */ }
+    if (!branchUser || branchUser.status === 'INACTIVE') throw new AppError('BRANCH_USER_DEACTIVATED')
+    throw new AppError('MERCHANT_SUSPENDED')
   }
 
   const parsed = JSON.parse(stored)
