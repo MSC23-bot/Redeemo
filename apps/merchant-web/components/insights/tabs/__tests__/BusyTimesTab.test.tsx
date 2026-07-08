@@ -159,6 +159,21 @@ describe('BusyTimesTab', () => {
     expect(screen.getByText(/Loading/i)).toBeInTheDocument()
   })
 
+  // A9 follow-up: a layout-matching (chart/heatmap-shaped) skeleton bone, not bare
+  // text, inside the shared single role=status contract.
+  it('renders skeleton bones (not bare text) while busy times are in flight', () => {
+    mockGet.mockReturnValue(new Promise(() => {}))
+    renderTab()
+    const status = screen.getByRole('status')
+    expect(status.querySelectorAll('[data-testid="skeleton-bone"]').length).toBeGreaterThan(0)
+  })
+
+  it('replaces the skeleton with the real busy-times card once it resolves', async () => {
+    renderTab()
+    expect(await screen.findByTestId('busy-times-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('skeleton-bone')).not.toBeInTheDocument()
+  })
+
   it('does NOT render exact counts in intensity mode (default; bands only)', async () => {
     renderTab()
     await screen.findByTestId('busy-times-card')

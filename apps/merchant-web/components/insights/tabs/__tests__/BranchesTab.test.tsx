@@ -60,6 +60,21 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('BranchesTab', () => {
+  // A9 follow-up: layout-matching skeleton bones (not bare "Loading branches..."
+  // text), inside the shared single role=status contract.
+  it('renders skeleton bones (not bare text) while branches are in flight', () => {
+    mockGet.mockReturnValue(new Promise(() => {}))
+    renderTab()
+    const status = screen.getByRole('status')
+    expect(status.querySelectorAll('[data-testid="skeleton-bone"]').length).toBeGreaterThan(0)
+  })
+
+  it('replaces the skeleton with the real branch list once it resolves', async () => {
+    renderTab()
+    expect(await screen.findByTestId('branches-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('skeleton-bone')).not.toBeInTheDocument()
+  })
+
   it('ranks the branches by logged (descending) with the confirmed subset per row', async () => {
     renderTab()
     const list = await screen.findByTestId('branches-list')

@@ -292,6 +292,20 @@ describe('InsightsPage (B8 assembly + states + lifecycle)', () => {
     expect(status.querySelectorAll('[data-testid="skeleton-bone"]').length).toBeGreaterThan(0)
   })
 
+  // A9: the trend fetch must NOT be a waterfall behind overview - it depends only on
+  // filters, so it should fire as soon as the dashboard mounts, in parallel with
+  // overview/branchesQuery, rather than waiting for overview to resolve first.
+  it('fires the trend query in parallel with overview, not gated on overview resolving', async () => {
+    mockOverview.mockReturnValue(new Promise(() => {})) // overview never resolves
+    renderPage()
+    // Even though overview is still pending (the page shows InsightsLoading), the
+    // trend fetch has already been kicked off rather than waiting in the wings for a
+    // TrendChartCard that has not even mounted yet.
+    await Promise.resolve()
+    expect(mockTrend).toHaveBeenCalledTimes(1)
+    expect(mockTrend).toHaveBeenCalledWith({ period: 'this_month' })
+  })
+
   it('shows a friendly error with retry when the overview fails (non-lifecycle ApiError)', async () => {
     mockOverview.mockRejectedValue(new ApiError(500, { error: { code: 'INTERNAL', message: 'boom' } }))
     renderPage()

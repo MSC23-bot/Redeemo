@@ -174,6 +174,20 @@ describe('LoginSecurityCard sessions list', () => {
     expect(screen.getByText(/loading your sign-ins/i)).toBeInTheDocument()
   })
 
+  // A9 follow-up: layout-matching skeleton bones (icon + two-line rows, mirroring
+  // SessionsList's real row shape), not bare text, inside a single role=status region.
+  it('renders skeleton row bones (not bare text) while sessions are in flight', () => {
+    render(<LoginSecurityCard account={account()} sessions={undefined} sessionsLoading sessionsError={false} />)
+    const status = screen.getByRole('status')
+    expect(status.querySelectorAll('[data-testid="skeleton-bone"]').length).toBeGreaterThan(0)
+  })
+
+  it('replaces the skeleton with the real sessions list once it resolves', () => {
+    renderCard()
+    expect(screen.getAllByTestId('session-row')).toHaveLength(2)
+    expect(screen.queryByTestId('skeleton-bone')).not.toBeInTheDocument()
+  })
+
   it('shows an error state when sessions failed to load', () => {
     render(<LoginSecurityCard account={account()} sessions={undefined} sessionsLoading={false} sessionsError />)
     expect(screen.getByText(/could not load your recent sign-ins/i)).toBeInTheDocument()

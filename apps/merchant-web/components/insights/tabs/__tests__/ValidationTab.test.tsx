@@ -52,6 +52,21 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('ValidationTab', () => {
+  // A9 follow-up: layout-matching skeleton bones (not bare "Loading validation..."
+  // text), inside the shared single role=status contract.
+  it('renders skeleton bones (not bare text) while validation is in flight', () => {
+    mockGet.mockReturnValue(new Promise(() => {}))
+    renderTab()
+    const status = screen.getByRole('status')
+    expect(status.querySelectorAll('[data-testid="skeleton-bone"]').length).toBeGreaterThan(0)
+  })
+
+  it('replaces the skeleton with the real validation summary once it resolves', async () => {
+    renderTab()
+    expect(await screen.findByTestId('validation-summary')).toBeInTheDocument()
+    expect(screen.queryByTestId('skeleton-bone')).not.toBeInTheDocument()
+  })
+
   it('renders confirmed / awaiting totals + the completion rate as a percent', async () => {
     renderTab()
     const card = await screen.findByTestId('validation-summary')

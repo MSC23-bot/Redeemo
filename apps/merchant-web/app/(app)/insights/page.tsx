@@ -36,12 +36,13 @@
  */
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { Ticket, MapPin, Users, Clock, CircleCheck, Filter } from '@/lib/icons'
 import {
   getInsightsOverview,
   getInsightsTrend,
   type InsightsFilters,
+  type InsightsTrend,
 } from '@/lib/api/insights'
 import { listBranches } from '@/lib/api/branch'
 import { ApiError } from '@/lib/api/client'
@@ -205,6 +206,24 @@ function InsightsDashboard() {
     staleTime: 60_000,
   })
 
+  // A9: the trend query depends ONLY on `filters` (never on overview.data), so it is
+  // fired here ALONGSIDE overview/branchesQuery rather than deferred to a child
+  // component mounted after overview resolves. Previously TrendChartCard owned this
+  // useQuery itself, which meant it never even started until the overview fetch had
+  // already resolved and the tree re-rendered past the `overview.isLoading` gate below
+  // - a pure client-side waterfall with no data dependency to justify it. Hoisting it
+  // here means the trend request and the overview request race in parallel; the
+  // resolved query object is threaded down as a prop, and TrendChartCard keeps its own
+  // loading/error rendering. Worst case if overview turns out non-live/suspended/error
+  // (or the warming-up/filtered-empty/suspended branches below return early): one
+  // trend network call fires and its result is simply discarded, never rendered - the
+  // same acceptable trade-off already made for the analogous Home dashboard fetches.
+  const trend = useQuery({
+    queryKey: ['insights', 'trend', filters],
+    queryFn: () => getInsightsTrend(filters),
+    staleTime: 60_000,
+  })
+
   if (overview.isLoading) return <InsightsLoading />
 
   if (overview.isError) {
@@ -275,7 +294,7 @@ function InsightsDashboard() {
         <>
           <KpiCards overview={data} />
 
-          <TrendChartCard filters={filters} />
+          <TrendChartCard trend={trend} />
 
           <InsightsTabs filters={filters} />
 
@@ -337,15 +356,11 @@ function FilteredEmpty({ onClear }: { onClear: () => void }) {
   )
 }
 
-// --- the trend chart card (its own query so it has its own loading/error) -----
+// --- the trend chart card (presentational: the query is fired by the parent so it
+// races in parallel with overview/branchesQuery; this component keeps its own
+// loading/error rendering over the passed-down query result) ------------------
 
-function TrendChartCard({ filters }: { filters: InsightsFilters }) {
-  const trend = useQuery({
-    queryKey: ['insights', 'trend', filters],
-    queryFn: () => getInsightsTrend(filters),
-    staleTime: 60_000,
-  })
-
+function TrendChartCard({ trend }: { trend: UseQueryResult<InsightsTrend, Error> }) {
   if (trend.isLoading) {
     return (
       <LoadingStatus label="Loading the trend...">

@@ -28,6 +28,7 @@ import { Ticket, BarChart3 } from '@/lib/icons'
 import { getInsightsVouchers, type InsightsFilters } from '@/lib/api/insights'
 import { insightsVoucherTypeLabel } from '@/lib/insights/display'
 import { formatCount, formatGbp } from '@/lib/insights/format'
+import { LoadingStatus, SkeletonCard, SkeletonChartBlock } from '@/components/ui/skeleton'
 import { MetricInfo } from '../MetricInfo'
 import { ShareBar, type ShareSegment } from '../charts/ShareBar'
 
@@ -102,9 +103,14 @@ export function VouchersTab({ filters }: VouchersTabProps) {
 
   if (isLoading) {
     return (
-      <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Loading vouchers...
-      </div>
+      <LoadingStatus label="Loading vouchers...">
+        {/* Mirrors the real 2-up layout: the ranked "Top vouchers" list (a card with
+            several stacked rows) beside the "By voucher type" share bar (chart-shaped). */}
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <SkeletonCard lines={4} showIcon />
+          <SkeletonChartBlock />
+        </div>
+      </LoadingStatus>
     )
   }
 

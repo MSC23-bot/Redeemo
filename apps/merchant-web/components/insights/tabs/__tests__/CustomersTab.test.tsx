@@ -175,4 +175,19 @@ describe('CustomersTab', () => {
     renderTab()
     expect(screen.getByText(/Loading/i)).toBeInTheDocument()
   })
+
+  // A9 follow-up: layout-matching skeleton bones (not bare text), inside the shared
+  // single role=status contract.
+  it('renders skeleton bones (not bare text) while customers are in flight', () => {
+    mockGet.mockReturnValue(new Promise(() => {}))
+    renderTab()
+    const status = screen.getByRole('status')
+    expect(status.querySelectorAll('[data-testid="skeleton-bone"]').length).toBeGreaterThan(0)
+  })
+
+  it('replaces the skeleton with the real customer cards once they resolve', async () => {
+    renderTab()
+    expect(await screen.findByTestId('customers-new-returning')).toBeInTheDocument()
+    expect(screen.queryByTestId('skeleton-bone')).not.toBeInTheDocument()
+  })
 })

@@ -78,6 +78,21 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('VouchersTab', () => {
+  // A9 follow-up: layout-matching skeleton bones (not bare "Loading vouchers..."
+  // text), inside the shared single role=status contract.
+  it('renders skeleton bones (not bare text) while vouchers are in flight', () => {
+    mockGet.mockReturnValue(new Promise(() => {}))
+    renderTab()
+    const status = screen.getByRole('status')
+    expect(status.querySelectorAll('[data-testid="skeleton-bone"]').length).toBeGreaterThan(0)
+  })
+
+  it('replaces the skeleton with the real voucher cards once they resolve', async () => {
+    renderTab()
+    expect(await screen.findByTestId('top-vouchers-list')).toBeInTheDocument()
+    expect(screen.queryByTestId('skeleton-bone')).not.toBeInTheDocument()
+  })
+
   it('ranks the top vouchers by logged (descending) with the confirmed subset per row', async () => {
     renderTab()
     const list = await screen.findByTestId('top-vouchers-list')

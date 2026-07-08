@@ -30,6 +30,7 @@ import { UserPlus, Repeat } from '@/lib/icons'
 import { getInsightsCustomers, type InsightsFilters } from '@/lib/api/insights'
 import { formatCount, formatRatePercentValue, comparisonChip } from '@/lib/insights/format'
 import { REPEAT_RATE_EXPLAINER } from '@/lib/insights/display'
+import { LoadingStatus, SkeletonCard } from '@/components/ui/skeleton'
 import { MetricInfo } from '../MetricInfo'
 
 export interface CustomersTabProps {
@@ -54,9 +55,13 @@ export function CustomersTab({ filters }: CustomersTabProps) {
 
   if (isLoading) {
     return (
-      <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Loading customers...
-      </div>
+      <LoadingStatus label="Loading customers...">
+        {/* Two KPI-style cards side by side (new-vs-returning + repeat rate). */}
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <SkeletonCard lines={2} showIcon />
+          <SkeletonCard lines={2} showIcon />
+        </div>
+      </LoadingStatus>
     )
   }
 
