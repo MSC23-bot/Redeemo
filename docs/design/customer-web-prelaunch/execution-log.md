@@ -575,3 +575,18 @@ edited by this workstream.
   app's voucher-type tokens, owner-approved on the shelf); ScrollStory/
   HowItWorks repetition trim + social-proof element + hero artwork's
   "Manchester" label queued as owner decisions.
+- Ribbon v10 SLOPED FLOW + SPATIAL MOTION (owner 2026-07-08: the corkscrew
+  band still read as a straight line: it must enter one side higher and
+  leave the other lower; motion should read as the ribbon ROTATING, not
+  sliding left-right; side peeks too close to the seam bands, space them
+  out and make them smaller): tilt baked into the assets (flow-a -4.5deg so
+  it descends left to right; flow-b +3.5deg, descending the other way once
+  flipped), seam fills re-baked from the rotated alphas with carried-edge
+  handling for the corner columns. Motion is now spatial: the whole band
+  block (fills + image together, so the seam stays glued to the fabric)
+  turns in perspective: scroll-linked rotateX 9deg to -9deg plus a 1.6deg
+  roll, with reduced x drift; the block bleeds -9% vertically so the turn
+  never exposes a container edge. Peeks: removed from WhatIsRedeemo and
+  HowItWorks (both hugged a seam), remounted small and far from the bands:
+  Pricing top-left (200px) and AppCtaFooter top-right (220px), xl-gated,
+  beside centred content so they never crowd copy.

@@ -29,6 +29,7 @@ export function RibbonPeek({
 }: {
   side: 'left' | 'right'
   top: string
+  /** Keep small: the ribbon visits, it never competes with content */
   width?: number
   className?: string
 }) {
@@ -49,7 +50,7 @@ export function RibbonPeek({
     <div
       ref={ref}
       aria-hidden="true"
-      className={`hidden lg:block absolute pointer-events-none select-none ${side === 'right' ? 'right-0' : 'left-0'} ${className}`}
+      className={`hidden xl:block absolute pointer-events-none select-none ${side === 'right' ? 'right-0' : 'left-0'} ${className}`}
       style={{ top, width, height: Math.round((width * a.h) / a.w) }}
     >
       <motion.img

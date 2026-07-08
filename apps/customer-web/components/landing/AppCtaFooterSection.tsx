@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { AppStoreBadge, GooglePlayBadge } from './HeroSection'
 import { isMarketplaceLive } from '@/lib/prelaunch'
+import { RibbonPeek } from './RibbonPeek'
 
 const ease = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
@@ -15,6 +16,8 @@ export function AppCtaFooterSection() {
       className="relative overflow-hidden py-20 md:py-28 px-6 text-center"
       style={{ background: '#010C35' }}
     >
+      {/* The ribbon's last visit before the footer: far from both seams */}
+      <RibbonPeek side="right" top="10%" width={220} />
       {/* Rose-red glow: bottom-left anchor + upper-right warmth */}
       <div
         aria-hidden="true"

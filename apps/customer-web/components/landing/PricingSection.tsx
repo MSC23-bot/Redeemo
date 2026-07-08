@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { isMarketplaceLive } from '@/lib/prelaunch'
+import { RibbonPeek } from './RibbonPeek'
 
 type Plan = {
   name: string
@@ -162,7 +163,10 @@ export function PricingSection() {
   const plans = getPlans(marketplaceLive)
 
   return (
-    <section className="bg-white py-20 md:py-24 px-6">
+    <section className="relative overflow-hidden bg-white py-20 md:py-24 px-6">
+      {/* The brand ribbon visits: mid-way between the seam bands, small and
+          beside the centred headline so it never crowds content */}
+      <RibbonPeek side="left" top="3%" width={200} />
       <div className="max-w-7xl mx-auto">
 
         <motion.div

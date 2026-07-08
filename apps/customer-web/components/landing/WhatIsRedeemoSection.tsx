@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { RibbonPeek } from './RibbonPeek'
 
 /**
  * The definition section (owner direction 2026-07-08): a cold visitor has no
@@ -49,9 +48,6 @@ const rise = {
 export function WhatIsRedeemoSection() {
   return (
     <section className="relative overflow-hidden bg-white py-24 md:py-32 px-6" aria-label="What is Redeemo">
-      {/* The brand ribbon visits: a loop peeking in from the right, easing
-          in and out with scroll */}
-      <RibbonPeek side="right" top="4%" width={320} />
       <div className="relative max-w-7xl mx-auto grid lg:grid-cols-[1.05fr_0.95fr] gap-14 lg:gap-24 items-start">
 
         {/* The definition */}
