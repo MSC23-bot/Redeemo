@@ -81,7 +81,7 @@ closed by a later PR; confirm and then remove with a citation).
 | Phase 6 | Comms layer: email PIN delivery (Resend), FCM push, marketing comms | GATED: Phase 6 |
 | Subscription purchase | In-app subscribe flow (Apple IAP on iOS; Stripe or Play Billing on Android) | GATED: PROJECT-STATE §6 Apple IAP decision |
 | G1 items | CI integration gate, security lane, browser-smoke promotion to required, staging acceptance, seed strategy for 53 seed-dependent suites | See PROJECT-STATE §6/§8 (authoritative for these) |
-| Google Places quota hardening | Move Google API cost/abuse protection from the file-based daily-cap comment to a Redis `atomicLimiter` before merchant-facing production use (locked pre-production requirement, Codex Vol-1 ~L4789; `src/api/lib/googlePlaces.ts` has NO limiter today and the key is live on staging) | OPEN, pre-launch |
+| Google Places quota hardening | ~~Move Google API cost/abuse protection from the file-based daily-cap comment to a Redis `atomicLimiter` before merchant-facing production use~~ CLOSED by PR #318 (`49c132fe`, Branches PR-6): the merchant-facing search route (`POST /api/v1/merchant/location/search`) now routes through `consumeMerchantLocationSearch()` in `src/api/shared/merchantLocationLimiter.ts` — a multi-instance-safe atomic (`atomicLimiter`) Redis limiter with global/per-user/per-merchant/per-IP tiers — BEFORE the billable `searchPlaces()` call. `googlePlaces.ts`'s own file-based daily/monthly cap remains, unchanged, as the admin-CLI-shared ceiling (not the merchant-facing gate). | CLOSED 2026-06-25 (#318) |
 
 ## 4. Workspace / repo hygiene (was CLAUDE.md "Pending local-only artefacts"; live owner-gated)
 
@@ -145,8 +145,35 @@ SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
 - **§VG-MIGRATE** (platform/deploy): the `voucher_governed_flows` migration (`20260707135148`, adds `VoucherPendingEdit`/`ApprovalType.VOUCHER_EDIT`/`ApprovalStatus.WITHDRAWN`) is applied to the LOCAL dev DB only; two earlier migrations, `keyring_fingerprint` (`20260629000000`) and `maintenance_alert_types` (`20260702000000`), are ALSO still pending the same staging/prod `prisma migrate deploy`. None of the three is on the shared Neon staging/prod database. GATED: owner-approved deploy window (see `docs/PROJECT-STATE.md` §3/§4.4).
 - Detail: PRs #411 `ca1c6991` / #412 `350f941a` / #413 `381452f2`; the plan doc's as-built §7; `docs/PROJECT-STATE.md` §4.2 voucher-governed-flows-package paragraph (2026-07-07).
 
+**B2 address search - staging status (live note, 2026-07-08):** the merchant-portal branch
+address search (PR #318, `49c132fe`) is fully built and merged - server-side Places New Text
+Search via `searchPlaces()` + the Redis atomic limiter above, candidate-token flow, UI. A Fable
+diagnostic probe on 2026-07-08 confirmed the staging failure is a Google-side EXPIRED KEY (HTTP
+400, `error.status = 'INVALID_ARGUMENT'`, `details[].reason = 'API_KEY_INVALID'`, message "API
+key expired. Please renew the API key.") - not a code defect. Owner action required: renew the
+key in the Google Cloud Console and update the `GOOGLE_MAPS_API_KEY` Railway staging variable.
+No further code changes are needed for staging to work once the key is renewed. (Observability
+hardening landed alongside this note: `src/api/lib/googlePlaces.ts` now logs the Google error's
+HTTP status / `error.status` / `error.details[].reason` server-side on any non-429 failure, so a
+future expired/invalid/disabled key is visible in logs without needing a live probe.)
+
 ## Change log
 
+- **2026-07-08** · B2 address-search follow-ups (decision-free hardening + doc reconcile,
+  no owner action taken here): §3 "Google Places quota hardening" row CLOSED - stale, PR #318
+  (`49c132fe`, merged 2026-06-25) already added the multi-instance-safe Redis atomic limiter
+  (`consumeMerchantLocationSearch()` / `src/api/shared/merchantLocationLimiter.ts`) in front of
+  the merchant-facing search route; the file-based cap in `googlePlaces.ts` remains, unchanged,
+  as the separate admin-CLI-shared ceiling. New §5 live note: a Fable diagnostic probe (2026-07-08)
+  found the staging address-search failure is a Google-side EXPIRED `GOOGLE_MAPS_API_KEY` (HTTP
+  400, `API_KEY_INVALID`), not a code defect; owner action (renew key + Railway staging var
+  update) is tracked separately and NOT done by this entry. Also landed: `googlePlaces.ts` now
+  logs the Google error's HTTP status / `error.status` / `error.details[].reason` server-side on
+  every non-429 failure (observability only; the `GOOGLE_UNAVAILABLE` client contract is
+  unchanged); `.env.example` and `docs/operations/google-places-setup.md` corrected from stale
+  "Phase 1 / admin-CLI-only / future merchant self-service" framing to reflect the shipped
+  merchant-portal address search; the admin platform blueprint's `GOOGLE_PLACES_API_KEY` typo
+  corrected to the real `GOOGLE_MAPS_API_KEY` var name.
 - **2026-07-07b** · Voucher governed-flows package (#411-#413) reconciled: §5 headline list - "flagship read-only voucher detail" CLOSED (shipped #413 `381452f2`); the redemption-reversal item annotated still OPEN/NOT shipped by this package. The placeholder "Voucher governed flows D1-D5" bullet marked ACTIONED (request-change/request-to-end/withdraw SHIPPED; "run-again" was D5, out of scope). New follow-ups block opened: §VG-IDX (one-PENDING guard is app-level not DB-enforced, TRACK-not-build per Opus), §VG-RACE (withdraw-vs-approve last-writer-wins, admin wins, TRACK-not-build per Opus), §VG-RUNAGAIN (D5 "Run this again" owner-deferred, separate slice), §VG-MIGRATE (the new `voucher_governed_flows` migration plus the two earlier pending migrations `keyring_fingerprint` + `maintenance_alert_types` are all local-dev-only; staging/prod deploy is a separate owner-gated step). `docs/PROJECT-STATE.md` §4.2/§6/§8 and the Merchant Portal roadmap updated in the same PR.
 - **2026-07-07** · Merchant Portal fidelity wave (#401-#409) reconciled: §BP-ACC annotated **v1 SHIPPED** (backend #401 `3c01a1f0` + #403 `1c70080e`, page #405 `38201d4c`) - its change-email/phone-verification and notification-prefs/reports sub-items split out as new tracked rows §BP-ACC-EMAIL and §BP-ACC-PREFS (neither implies §BP-ACC v1 is incomplete; they were never in scope for v1). New rows opened for the Home dashboard (#406 `8f8877a4`): §HOME-NVR (legal-gated new-customers tile), §HOME-THRESH (live-just-started threshold owner-confirm), §HOME-DOCS (expiring-docs needs `MerchantDocument.expiryDate`). New row §VA-GRAN for per-voucher analytics (#408 `cc7549b4`) granularity/STAFF-deny confirm. New row §RDM-COUNT for Redemptions (#409 `73175c8b`) true awaiting-count/tabs. Voucher governed-flows decision packet (`docs/superpowers/plans/2026-07-07-voucher-governed-flows.md`) cross-referenced against the existing redemption-reversal row. §BP-ADJ1 + §BP-ADJ2 CLOSED: shipped by PR #399 (squash `70961cd0`, merged 2026-07-07 immediately before the wave; Opus-reviewed CLOSED/SHIP + Codex content-approved) - §BP-ADJ1 = role-gate the 7 registered/compliance fields on `getMerchantProfile` for non-OWNER|BRANCH_MANAGER viewers, §BP-ADJ2 = server-side `businessName` validation (`MERCHANT_EDIT_REQUEST_INVALID_FIELD` 400) preserving `tradingName:null` clears; rows annotated in place per the register's traceability convention. PROJECT-STATE §4.2/§8 updated in the same PR.
 - **2026-07-06** · Register created (documentation-architecture migration). Extracted from
