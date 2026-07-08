@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { AppStoreBadge, GooglePlayBadge } from './HeroSection'
 import { isMarketplaceLive } from '@/lib/prelaunch'
+import { RibbonPeek } from './RibbonPeek'
 
 const EASE = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
@@ -59,7 +60,9 @@ export function HowItWorksSection() {
   const marketplaceLive = isMarketplaceLive()
 
   return (
-    <section style={{ background: '#FAFAF8' }} className="py-20 md:py-24 px-6">
+    <section style={{ background: '#FAFAF8' }} className="relative overflow-hidden py-20 md:py-24 px-6">
+      {/* The brand ribbon visits from the left on its way to the seam below */}
+      <RibbonPeek side="left" top="18%" width={280} />
       <div className="max-w-7xl mx-auto">
 
         <motion.div

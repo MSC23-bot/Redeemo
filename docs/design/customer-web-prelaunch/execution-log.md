@@ -540,3 +540,21 @@ edited by this workstream.
   x +/-34 and y breathe +/-8. Seam A = variant a (cream to white), seam B =
   variant b flipped (light to navy): the navy handover now rides a genuine
   wave instead of a flat strip.
+- Ribbon v9 HI-RES + SITE-WIDE FLOW (owner 2026-07-08: the sheet-cropped
+  bands were not crisp at his display; feed the concept sheets to Higgsfield
+  and generate motion banners in that exact style; the ribbon should flow
+  through the site, peeking in on the sides, coming and going, not only at
+  breaks): four purpose-rendered assets generated with flux_2 using concept
+  sheet 01 as the style reference: two full-width bands (rhythmic corkscrew
+  wave = seam A; deep sweeping wave = seam B, chosen over a rejected
+  spiral-around-straight-band take) 4K-upscaled then background-removed, and
+  two side pieces (right R-curl; left loop, rerolled once after an awkward
+  notched-end render) background-removed at native res. Motion is code, not
+  baked video (the hero film precedent: baked motion goes soft; code motion
+  stays crisp): bands keep scroll drift + breathe; NEW RibbonPeek component
+  slides a loop in from the viewport edge as its host section crosses the
+  viewport and back out (useScrollLinked inset + rotate, lg-only,
+  pointer-transparent), mounted in WhatIsRedeemo (right) and HowItWorks
+  (left). Seam fills re-baked from the new alphas (160 pts, 6px tuck).
+  Higgsfield spend this batch: 14cr (6 generations, 2 4K upscales, 4
+  background removals); balance 32.38 -> 18.38, owner-directed.
