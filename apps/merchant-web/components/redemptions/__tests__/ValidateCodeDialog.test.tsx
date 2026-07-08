@@ -58,6 +58,13 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     renderDialog()
     expect(screen.getByLabelText(/redemption code/i)).toBeInTheDocument()
     expect(screen.getByText(/staff app/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^look up code$/i })).toBeInTheDocument()
+  })
+
+  it('the header close button dismisses the dialog (same onClose as scrim/Escape)', () => {
+    renderDialog()
+    fireEvent.click(screen.getByRole('button', { name: /^close$/i }))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('displays the code grouped 4+4 as the user types (normalised)', () => {
@@ -89,6 +96,9 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     expect(within(panel).getByText('High Street')).toBeInTheDocument()
     expect(panel.textContent ?? '').not.toMatch(/@|07\d{9}|\+44|Khan/)
     expect(lookupRedemptionByCode).toHaveBeenCalledWith('A7K2P9X4')
+    // Prototype fidelity: awaiting-match copy + "Not this person" reject action.
+    expect(screen.getByText(/check this is the customer in front of you/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /not this person/i })).toBeInTheDocument()
   })
 
   it('confirms an awaiting code: validates, shows the success detail block, invalidates the log', async () => {
@@ -98,7 +108,7 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     const invalidate = jest.spyOn(qc, 'invalidateQueries')
     enterCode('A7K2P9X4')
     fireEvent.click(screen.getByRole('button', { name: /look up/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /confirm validation/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /confirm redemption/i }))
     // Success step: "Validated for <customer>" + a When / Method detail block.
     expect(await screen.findByText(/validated for sarah k\./i)).toBeInTheDocument()
     expect(screen.getByText('Just now')).toBeInTheDocument()
@@ -115,7 +125,7 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     renderDialog()
     enterCode('A7K2P9X4')
     fireEvent.click(screen.getByRole('button', { name: /look up/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /confirm validation/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /confirm redemption/i }))
     await screen.findByText(/validated for sarah k\./i)
     // "Done" is a dismiss action; "Validate another" resets the flow.
     expect(screen.getByRole('button', { name: /^done$/i })).toBeInTheDocument()
@@ -144,7 +154,9 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     fireEvent.click(screen.getByRole('button', { name: /look up/i }))
     expect(await screen.findByText(/already validated/i)).toBeInTheDocument()
     expect(screen.getByText('Validated in the portal')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /confirm validation/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /confirm redemption/i })).not.toBeInTheDocument()
+    // Already-validated has nothing to "reject", so the secondary action stays "Back".
+    expect(screen.getByRole('button', { name: /^back$/i })).toBeInTheDocument()
   })
 
   it('maps REDEMPTION_NOT_FOUND to a clear message', async () => {
@@ -169,7 +181,7 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     renderDialog()
     enterCode('A7K2P9X4')
     fireEvent.click(screen.getByRole('button', { name: /look up/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /confirm validation/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /confirm redemption/i }))
     expect(await screen.findByText(/this branch is currently unavailable/i)).toBeInTheDocument()
   })
 
@@ -179,7 +191,7 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     renderDialog()
     enterCode('A7K2P9X4')
     fireEvent.click(screen.getByRole('button', { name: /look up/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /confirm validation/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /confirm redemption/i }))
     expect(await screen.findByText(/already validated/i)).toBeInTheDocument()
   })
 

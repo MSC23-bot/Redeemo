@@ -140,7 +140,7 @@ test.describe('validate-a-code (M3 F2): happy path two-step confirm', () => {
     const lookupRequest = page.waitForRequest(
       (req) => req.url().includes('/api/v1/merchant/redemptions/lookup') && req.url().includes('code=A7K2P9X4'),
     )
-    await dialog.getByRole('button', { name: 'Look up' }).click()
+    await dialog.getByRole('button', { name: 'Look up code' }).click()
     await lookupRequest
     expect(order).toEqual(['lookup'])
 
@@ -159,7 +159,7 @@ test.describe('validate-a-code (M3 F2): happy path two-step confirm', () => {
     const verifyRequest = page.waitForRequest(
       (req) => req.method() === 'POST' && req.url().includes('/api/v1/redemption/verify'),
     )
-    await dialog.getByRole('button', { name: 'Confirm validation' }).click()
+    await dialog.getByRole('button', { name: 'Confirm redemption' }).click()
     const req = await verifyRequest
     expect(JSON.parse(req.postData() ?? '{}')).toEqual({ code: 'A7K2P9X4', method: 'MANUAL' })
     // The two-step gate: verify only ever fires AFTER lookup, never before/instead.
@@ -200,11 +200,11 @@ test.describe('validate-a-code: already-validated path (no confirm step, no veri
 
     const dialog = page.getByRole('dialog', { name: 'Validate a code' })
     await dialog.getByLabel('Redemption code').fill('a7k2p9x4')
-    await dialog.getByRole('button', { name: 'Look up' }).click()
+    await dialog.getByRole('button', { name: 'Look up code' }).click()
 
     await expect(dialog.getByText('This code is already validated.')).toBeVisible()
     await expect(dialog.getByText('Validated in the portal')).toBeVisible()
-    await expect(dialog.getByRole('button', { name: 'Confirm validation' })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Confirm redemption' })).toHaveCount(0)
 
     await dialog.getByRole('button', { name: 'Done' }).click()
     await expect(page.getByRole('dialog', { name: 'Validate a code' })).toHaveCount(0)
@@ -238,7 +238,7 @@ test.describe('validate-a-code: not-found path (error copy, no verify POST)', ()
     await dialog.getByLabel('Redemption code').fill('zzzzzzzz')
 
     const lookupRequest = page.waitForRequest((req) => req.url().includes('/api/v1/merchant/redemptions/lookup'))
-    await dialog.getByRole('button', { name: 'Look up' }).click()
+    await dialog.getByRole('button', { name: 'Look up code' }).click()
     await lookupRequest
 
     await expect(dialog.getByText('No redemption found for that code. Check it and try again.')).toBeVisible()
@@ -262,7 +262,7 @@ test.describe('validate-a-code: client-side code-format guard blocks the network
     await page.locator('main').getByRole('button', { name: /validate a code/i }).click()
     const dialog = page.getByRole('dialog', { name: 'Validate a code' })
     await dialog.getByLabel('Redemption code').fill('a7k2')
-    await dialog.getByRole('button', { name: 'Look up' }).click()
+    await dialog.getByRole('button', { name: 'Look up code' }).click()
 
     await expect(dialog.getByText('Enter the 8-character code (letters and numbers).')).toBeVisible()
     // Give any accidental in-flight request a beat to have fired.
