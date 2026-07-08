@@ -21,6 +21,12 @@ export type AuditEvent =
   | 'AUTH_LOGOUT_REVOKE_PENDING'
   | 'AUTH_LOGOUT_REVOKE_UNAVAILABLE'
   | 'AUTH_REFRESH_REFUSED_REVOKED'
+  // H4 (2026-07-06 security audit): a refresh was refused because the account's
+  // status was re-checked and found suspended/deactivated/deleted (customer/branch/
+  // admin), and all of the account's sessions were revoked. String column, so this
+  // is a union-only literal with NO migration. Distinct from AUTH_REFRESH_FAILED
+  // (bad/expired token) so dashboards can track status-driven session termination.
+  | 'AUTH_REFRESH_DENIED_STATUS'
   // Distinct from AUTH_REFRESH_FAILED — fired when the previous mobile
   // session was deliberately superseded by a newer login on another
   // device (one-mobile-device-per-account rule). Lets the audit log

@@ -5,6 +5,7 @@ import { writeAuditLogTx } from '../../shared/audit'
 import { isBranchLocationConfirmed } from '../../shared/location'
 import { getMerchantOwner } from './service'
 import { notify } from '../../shared/notify'
+import { revokeAllSessionsForEntity, revokeAllUserSessionRecords } from '../../shared/session'
 import {
   branchCreateApprovedEmail,
   branchCreateRejectedEmail,
@@ -192,6 +193,13 @@ export async function approveBranchLifecycle(
     // softDeleteBranchCore-equivalent deactivation (run inline so the CLOSED flip,
     // the soft-delete, and the audit all commit atomically with the approval flip):
     // deactivate staff logins + set deletedAt + isActive=false + lifecycleStatus=CLOSED.
+    // Capture the ACTIVE staff being deactivated so their live sessions can be revoked
+    // AFTER commit (Redis is not transactional) — H4: a branch close must terminate
+    // branch-staff sessions, not leave them refreshing for the 90-day refresh TTL.
+    const closedStaff = await tx.branchUser.findMany({
+      where: { branchId: branch.id, status: 'ACTIVE' },
+      select: { id: true },
+    })
     await tx.branchUser.updateMany({ where: { branchId: branch.id }, data: { status: 'INACTIVE' } })
     await tx.branch.update({
       where: { id: branch.id },
@@ -217,10 +225,27 @@ export async function approveBranchLifecycle(
       kind: 'close' as const,
       merchantId: branch.merchantId,
       branchName: branch.name,
+      branchUserIds: closedStaff.map((s) => s.id),
     }
   })
 
   if ('alreadyDone' in result) return { approved: true as const, alreadyDone: true as const }
+
+  // H4: after commit, revoke the deactivated branch staff's live sessions
+  // (best-effort; mirrors deactivateBranchUser). The refresh-time branch status
+  // re-check already blocks re-auth (BranchUser.status = INACTIVE); revoking the
+  // refresh keys here ensures no device can obtain a new access token. The current
+  // access token expires within its ≤15-minute TTL.
+  if (result.kind === 'close') {
+    for (const branchUserId of result.branchUserIds) {
+      try {
+        await revokeAllSessionsForEntity(redis, { role: 'branch', entityId: branchUserId })
+        await revokeAllUserSessionRecords(prisma, { entityId: branchUserId, entityType: 'branch', reason: 'BRANCH_CLOSED' })
+      } catch {
+        /* best-effort: a revoke failure must not fail the (committed) approval */
+      }
+    }
+  }
 
   // After commit (best-effort): notify the merchant owner. branch-lifecycle is not
   // strictly a MERCHANT_VERIFICATION_UPDATE, but there is no branch-specific in-app

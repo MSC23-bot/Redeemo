@@ -190,6 +190,25 @@ export async function refreshAdminToken(
     throw new AppError('REFRESH_TOKEN_INVALID')
   }
 
+  // H4: re-check the admin is still active on every refresh. A deactivated admin
+  // (AdminUser.isActive = false — e.g. an offboarded employee) must NOT keep
+  // minting admin access tokens indefinitely via the 90-day refresh chain. Revoke
+  // all of this admin's sessions on denial (so no device can obtain a new access
+  // token); the current access token expires within its ≤15-minute TTL. (The
+  // re-fetched `admin` is also reused below for the adminRole claim — no second
+  // query.)
+  const admin = await prisma.adminUser.findUnique({ where: { id: data.entityId } })
+  if (!admin || !admin.isActive) {
+    // Audit FIRST (always recorded), THEN revoke all sessions best-effort so a
+    // Redis blip cannot turn the clean 4xx into a 500; the refresh is denied below.
+    writeAuditLog(prisma, { entityId: data.entityId, entityType: 'admin', event: 'AUTH_REFRESH_DENIED_STATUS', ipAddress: data.ipAddress, userAgent: data.userAgent })
+    try {
+      await revokeAllSessionsForEntity(redis, { role: 'admin', entityId: data.entityId })
+      await revokeAllUserSessionRecords(prisma, { entityId: data.entityId, entityType: 'admin', reason: 'ACCOUNT_STATUS_CHANGED' })
+    } catch { /* best-effort: the refresh is still denied below */ }
+    throw new AppError('ACCOUNT_SUSPENDED')
+  }
+
   const parsed = JSON.parse(stored)
   await redis.del(key)
   const newRefresh = generateRefreshToken()
@@ -203,10 +222,8 @@ export async function refreshAdminToken(
     where: { sessionId: data.sessionId }, data: { lastActiveAt: new Date() },
   })
 
-  const admin = await prisma.adminUser.findUnique({ where: { id: data.entityId } })
-
   const accessToken = app.jwt.admin.sign(
-    { sub: data.entityId, role: 'admin', adminRole: admin?.role, sessionId: data.sessionId },
+    { sub: data.entityId, role: 'admin', adminRole: admin.role, sessionId: data.sessionId },
     { expiresIn: ACCESS_TOKEN_TTL }
   )
 

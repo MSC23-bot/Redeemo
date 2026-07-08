@@ -148,6 +148,8 @@ describe('one-mobile-device enforcement — SESSION_REPLACED', () => {
     }))
     app.redis.del = vi.fn().mockResolvedValue(1)
     app.redis.set = vi.fn().mockResolvedValue('OK')
+    // H4: refresh now re-checks account status — an active user must be returned.
+    app.prisma.user.findUnique = vi.fn().mockResolvedValue({ status: 'ACTIVE' })
 
     const res = await app.inject({
       method: 'POST',
