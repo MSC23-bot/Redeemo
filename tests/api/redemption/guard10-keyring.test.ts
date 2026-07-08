@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { KeyNotAvailableError, EnvelopeParseError, GcmAuthError } from '../../../src/api/shared/keyring'
+import { makeRedemptionRedis } from './helpers/pinLimiterRedis'
 
 // Guard-10 hardening (spec §3.10, corrected per Codex re-review). The encryption module is
 // mocked so decrypt() can throw each error class on demand. The submitted PIN is compared
@@ -9,7 +10,8 @@ import { KeyNotAvailableError, EnvelopeParseError, GcmAuthError } from '../../..
 //   (b) EnvelopeParseError    → alert + AppError('REDEMPTION_PIN_UNREADABLE') — fail closed LOUDLY
 //   (c) GcmAuthError          → alert + AppError('REDEMPTION_PIN_UNREADABLE') — fail closed LOUDLY
 //                               (stored ciphertext failed authentication — NOT a wrong PIN;
-//                                NEVER silenced, NEVER increments the wrong-PIN counter)
+//                                NEVER silenced; the reserved rate-limit slot is REFUNDED so a
+//                                decrypt fault never ACCRUES toward the lockout counter)
 //   (d) any other throw       → alert + AppError('REDEMPTION_PIN_UNREADABLE') — fail closed LOUDLY
 // The ONLY silent INVALID_PIN path is a SUCCESSFUL decrypt whose plaintext != submitted PIN.
 //
@@ -34,13 +36,7 @@ const mockPrisma = () => ({
   $transaction:            vi.fn(),
 } as any)
 
-const mockRedis = () => ({
-  get:    vi.fn().mockResolvedValue(null),
-  incr:   vi.fn().mockResolvedValue(1),
-  expire: vi.fn().mockResolvedValue(1),
-  del:    vi.fn().mockResolvedValue(1),
-  ttl:    vi.fn().mockResolvedValue(900),
-} as any)
+const mockRedis = () => makeRedemptionRedis()
 
 const baseCtx = { ipAddress: '127.0.0.1', userAgent: 'test' }
 const happyVoucher = {
@@ -160,7 +156,7 @@ describe('Guard-10 three-bucket hardening', () => {
     ).rejects.toThrow('INVALID_PIN')
 
     expect(errorSpy).not.toHaveBeenCalled()
-    expect(redis.incr).toHaveBeenCalled()
+    expect(redis.eval).toHaveBeenCalled()
   })
 })
 
