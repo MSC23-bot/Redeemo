@@ -1,5 +1,9 @@
 .env
-.env.local
+.env.*
+# keep example env files tracked (they contain only placeholders)
+!.env.example
+!.env.*.example
+!*.env.example
 node_modules/
 dist/
 
