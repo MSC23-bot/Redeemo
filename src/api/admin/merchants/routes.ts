@@ -359,7 +359,13 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
 
     if (!fileBuffer || fileBuffer.length === 0) throw new AppError('FILE_REQUIRED')
     const policy = kindPolicy('document')
-    if (!mimetype || !(mimetype in policy.contentTypes)) throw new AppError('UNSUPPORTED_FILE_TYPE')
+    // Object.hasOwn (not `in`) — `in` walks the prototype chain, so a part with
+    // Content-Type: constructor (or __proto__, toString, …) would otherwise pass
+    // via an inherited Object.prototype key. Same bug class as PR #427's merchant
+    // documents route; fixed identically here for consistency (the shared
+    // storage.ts putObject guard already closes the exploit downstream, but the
+    // route-level check should not itself be misleadingly bypassable).
+    if (!mimetype || !Object.hasOwn(policy.contentTypes, mimetype)) throw new AppError('UNSUPPORTED_FILE_TYPE')
     if (fileBuffer.length > policy.maxBytes) throw new AppError('FILE_TOO_LARGE')
 
     return createMerchantDocument(

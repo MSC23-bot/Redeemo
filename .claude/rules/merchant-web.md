@@ -7,9 +7,12 @@ paths:
 
 - Dev port 3003. Full brand layer (customer-web fonts + prototype `tokens.css`), unlike the
   deliberately neutral admin-web.
-- Session model is BFF-lite: httpOnly cookie `redeemo_merchant_session` + Next route
-  handlers as the only backend callers; `assertSameOrigin` + `safeNext` on every handler.
-  Never move merchant tokens to localStorage.
+- Session model: the browser calls the backend DIRECTLY at `NEXT_PUBLIC_API_URL`
+  (`lib/api/client.ts` `apiFetch`) for all data endpoints, attaching an IN-MEMORY bearer
+  token (`lib/auth/tokenStore`; never localStorage). ONLY the auth lifecycle
+  (login/refresh/logout/OTP) routes through Next route handlers, which hold the httpOnly
+  refresh cookie and back the single 401-then-refresh-once hop; those handlers carry
+  `assertSameOrigin` + `safeNext`.
 - Tenant scoping is central: `resolveMerchantContext` (role/branch-scope aware) vs
   `resolveAdminMerchant` (owner-only, safe-deny). Every new backend route must go through
   the right resolver; the two app-root redemption routes have bespoke guards; IDOR checks

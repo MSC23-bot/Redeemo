@@ -177,6 +177,25 @@ describe('B4: admin merchant documents routes', () => {
     expect(putObjectMock).not.toHaveBeenCalled()
   })
 
+  // Opus adversarial review of PR #427 (merchant documents MVP) found the same
+  // bug class here: the route-level check used `mimetype in policy.contentTypes`,
+  // which walks the prototype chain, so a part with Content-Type: constructor
+  // (or __proto__) could pass via an inherited Object.prototype key. Fixed with
+  // Object.hasOwn; pin the bypass attempts as rejected with no write.
+  it.each(['constructor', '__proto__'])(
+    'POST 400 UNSUPPORTED_FILE_TYPE for a prototype-chain content-type "%s" (no write)',
+    async (bad) => {
+      const { body, contentType } = multipartPayload(
+        { documentType: 'BUSINESS_VERIFICATION_1', reason: 'r' },
+        { filename: 'd.pdf', contentType: bad, content: '%PDF-1.4 x' },
+      )
+      const res = await app.inject({ method: 'POST', url: listUrl, headers: { authorization: `Bearer ${signAdmin('SUPER_ADMIN')}`, 'content-type': contentType }, payload: body })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error.code).toBe('UNSUPPORTED_FILE_TYPE')
+      expect(putObjectMock).not.toHaveBeenCalled()
+    },
+  )
+
   it('POST 400 when reason is missing (validation)', async () => {
     const { body, contentType } = multipartPayload(
       { documentType: 'BUSINESS_VERIFICATION_1' },

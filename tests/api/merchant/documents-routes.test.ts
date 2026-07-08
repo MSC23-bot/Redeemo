@@ -261,6 +261,30 @@ describe('B3: merchant documents routes (self-serve, own-scope)', () => {
     expect(putObjectMock).not.toHaveBeenCalled()
   })
 
+  // Opus adversarial review of PR #427: the route-level allow-list check used
+  // `mimetype in policy.contentTypes`, which walks the prototype chain. A file
+  // part whose Content-Type equals an inherited Object.prototype key (e.g.
+  // "constructor", "__proto__") would otherwise pass the check via that
+  // inherited (truthy) value and reach putObject, bypassing the pdf/jpg/png
+  // allow-list. The fix uses Object.hasOwn — pin both bypass attempts as
+  // UNSUPPORTED_FILE_TYPE with NO write, alongside proof the legitimate types
+  // still pass (covered by the happy-path test above).
+  it.each(['constructor', '__proto__'])(
+    'POST 400 UNSUPPORTED_FILE_TYPE for a prototype-chain content-type "%s" (no write)',
+    async (bad) => {
+      const made = await buildAppFor('OWNER')
+      app = made.app
+      const { body, contentType } = multipartPayload(
+        { documentType: 'PRICE_LIST' },
+        { filename: 'd.pdf', contentType: bad, content: '%PDF-1.4 x' },
+      )
+      const res = await app.inject({ method: 'POST', url: listUrl, headers: { authorization: `Bearer ${made.token}`, 'content-type': contentType }, payload: body })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.body).error.code).toBe('UNSUPPORTED_FILE_TYPE')
+      expect(putObjectMock).not.toHaveBeenCalled()
+    },
+  )
+
   it('POST 400 FILE_REQUIRED for a non-multipart (JSON) body', async () => {
     const made = await buildAppFor('OWNER')
     app = made.app
