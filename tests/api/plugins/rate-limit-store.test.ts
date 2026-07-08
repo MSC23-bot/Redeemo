@@ -46,7 +46,11 @@ describe('rate-limit store wiring (F2)', () => {
 
     expect(opts.global).toBe(true)
     expect(opts.keyGenerator({ ip: '9.9.9.9' })).toBe('9.9.9.9')
-    expect(opts.max).toBe(100)            // prod global tier unchanged (RATE_LIMIT_RELAX unset in test)
+    // 300/min prod (raised from 100 on 2026-07-09): one active customer's
+    // legitimate burst (focus-invalidation fan-outs + map pans) reproducibly
+    // exhausted 100/min and 429'd the Savings month-tap queries. See the
+    // GLOBAL comment in src/api/plugins/rate-limit.ts before changing.
+    expect(opts.max).toBe(300)            // prod global tier (RATE_LIMIT_RELAX unset in test)
     expect(opts.timeWindow).toBe('1 minute')
   })
 })
