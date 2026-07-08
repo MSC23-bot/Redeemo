@@ -135,13 +135,17 @@ export async function presignPut(input: PresignPutInput): Promise<PresignPutResu
     throw new Error('[storage] invalid ownerId — must match [A-Za-z0-9_-]+ (no path separators)')
   }
 
-  const ext = policy.contentTypes[input.contentType]
-  if (!ext) {
+  // Object.hasOwn (not `in` / index-truthiness) so a content-type equal to an
+  // inherited Object.prototype key (`constructor`, `toString`, `__proto__`, …)
+  // can never be mistaken for an allow-listed entry — the prototype chain must
+  // never decide this check.
+  if (!Object.hasOwn(policy.contentTypes, input.contentType)) {
     throw new Error(
       `[storage] content-type "${input.contentType}" not allowed for kind "${input.kind}" ` +
         `(allowed: ${Object.keys(policy.contentTypes).join(', ')})`,
     )
   }
+  const ext = policy.contentTypes[input.contentType]
 
   if (!Number.isInteger(input.sizeBytes) || input.sizeBytes <= 0) {
     throw new Error('[storage] sizeBytes must be a positive integer')
@@ -213,13 +217,15 @@ export async function putObject(input: PutObjectInput): Promise<{ key: string }>
     throw new Error('[storage] invalid ownerId, must match [A-Za-z0-9_-]+ (no path separators)')
   }
 
-  const ext = policy.contentTypes[input.contentType]
-  if (!ext) {
+  // Object.hasOwn guard (see presignPut) — rejects a content-type that only
+  // "matches" via the prototype chain (e.g. "constructor", "__proto__").
+  if (!Object.hasOwn(policy.contentTypes, input.contentType)) {
     throw new Error(
       `[storage] content-type "${input.contentType}" not allowed for kind "${input.kind}" ` +
         `(allowed: ${Object.keys(policy.contentTypes).join(', ')})`,
     )
   }
+  const ext = policy.contentTypes[input.contentType]
 
   if (!Buffer.isBuffer(input.body) || input.body.length === 0) {
     throw new Error('[storage] body must be a non-empty Buffer')

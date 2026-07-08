@@ -11,6 +11,7 @@ import { merchantRedemptionRoutes } from './redemptions/routes'
 import { merchantNotificationRoutes } from './notifications/routes'
 import { staffRoutes } from './staff/routes'
 import { merchantInsightsRoutes } from './insights/routes'
+import { merchantDocumentRoutes } from './documents/routes'
 
 async function merchantManagementPlugin(app: FastifyInstance) {
   // Register all merchant management routes inside a scoped sub-plugin so that
@@ -29,6 +30,7 @@ async function merchantManagementPlugin(app: FastifyInstance) {
     await scoped.register(merchantNotificationRoutes)
     await scoped.register(staffRoutes)
     await scoped.register(merchantInsightsRoutes)
+    await scoped.register(merchantDocumentRoutes)
   })
 }
 

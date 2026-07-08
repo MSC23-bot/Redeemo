@@ -151,6 +151,19 @@ describe('storage — presignPut (enabled)', () => {
     expect(getSignedUrlMock).not.toHaveBeenCalled()
   })
 
+  it('PROTOTYPE-CHAIN SAFE: rejects a content-type that only "matches" via Object.prototype (constructor / __proto__ / toString)', async () => {
+    // The allow-list check must use an own-property guard, not `in` / index-truthiness
+    // against a plain object literal — otherwise a content-type equal to an inherited
+    // Object.prototype key resolves to a truthy value (e.g. the Object constructor)
+    // and bypasses the pdf/jpg/png allow-list.
+    for (const bad of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+      await expect(
+        storage.presignPut({ kind: 'document', ownerId: OWNER, contentType: bad, sizeBytes: 10 }),
+      ).rejects.toThrow(/content.?type/i)
+    }
+    expect(getSignedUrlMock).not.toHaveBeenCalled()
+  })
+
   it('rejects over-cap sizes per kind (photo > 5MB, document > 10MB)', async () => {
     await expect(
       storage.presignPut({ kind: 'photo', ownerId: OWNER, contentType: 'image/png', sizeBytes: 5 * 1024 * 1024 + 1 }),
@@ -313,6 +326,15 @@ describe('storage - putObject (B4 server-proxied upload)', () => {
     await expect(
       storage.putObject({ kind: 'document', ownerId: OWNER, contentType: 'image/webp', body: Buffer.from('x') }),
     ).rejects.toThrow(/content.?type/i)
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('PROTOTYPE-CHAIN SAFE: rejects a content-type that only "matches" via Object.prototype (no write)', async () => {
+    for (const bad of ['constructor', '__proto__', 'toString']) {
+      await expect(
+        storage.putObject({ kind: 'document', ownerId: OWNER, contentType: bad, body: Buffer.from('x') }),
+      ).rejects.toThrow(/content.?type/i)
+    }
     expect(sendMock).not.toHaveBeenCalled()
   })
 
