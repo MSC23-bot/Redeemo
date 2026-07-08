@@ -12,8 +12,12 @@
  * On a 401 for an authed request it does ONE refresh via the local BFF route
  * /api/merchant-auth/refresh (which reads the httpOnly cookie), then retries once.
  * The refresh is memoised into a module-level single-flight so concurrent 401s do
- * NOT each POST /refresh and race the single-use refresh-token rotation. If refresh
- * fails, the session is dead: clear the in-memory token + trigger a hard logout.
+ * NOT each POST /refresh and race the single-use refresh-token rotation. The
+ * session is treated as dead - clear the in-memory token + trigger a hard logout -
+ * both when the refresh call itself fails AND when the retried request STILL 401s
+ * despite a nominally successful refresh (a still-401 retry is refresh-once
+ * EXHAUSTED, not a fresh 401 to refresh again). Both are the SAME terminal
+ * condition; neither falls through to a plain, un-torn-down ApiError.
  *
  * Session cache-isolation CORE (T2): every call captures the session epoch
  * (lib/auth/sessionEpoch.ts) at entry and threads that SAME captured value through
@@ -204,30 +208,50 @@ async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Pr
 
   const res = await fetch(`${BASE}${path}`, { ...init, headers })
 
-  if (res.status === 401 && auth && !_isRetry) {
+  if (res.status === 401 && auth) {
     // Correction 1 (pre-refresh epoch gate): before an OLD 401 starts a refresh,
     // verify the request's captured epoch still equals the current session epoch. If
     // a session boundary landed during the original request, this 401 belongs to a
     // dead session - abort with SESSION_SWITCHED rather than refreshing under a new
     // session (and never touch the single-use refresh-token rotation on its behalf).
+    // This gate applies whether or not this is already the retry: a still-401 retry
+    // (below) reaches the SAME terminal path, and it too must not act on a stale epoch.
     assertEpoch(capturedEpoch)
-    const refreshed = await tryRefresh()
-    if (refreshed) {
-      // Correction 1 (pre-retry-dispatch epoch gate) + Correction 2 (cross-account
-      // write safety): re-verify the epoch BEFORE dispatching the retry. The retry
-      // attaches the CURRENT bearer token - which, after a mid-flight account switch,
-      // is a DIFFERENT merchant's token. Aborting here guarantees an old request's
-      // retry never leaves the browser under a new merchant's credentials. (Belt and
-      // suspenders with the transport guard below, which only fires AFTER the retry's
-      // network call has already gone out.)
-      assertEpoch(capturedEpoch)
-      return apiFetchResponse(path, { ...options, _isRetry: true, _epoch: capturedEpoch })
+    if (!_isRetry) {
+      const refreshed = await tryRefresh()
+      if (refreshed) {
+        // Correction 1 (pre-retry-dispatch epoch gate) + Correction 2 (cross-account
+        // write safety): re-verify the epoch BEFORE dispatching the retry. The retry
+        // attaches the CURRENT bearer token - which, after a mid-flight account switch,
+        // is a DIFFERENT merchant's token. Aborting here guarantees an old request's
+        // retry never leaves the browser under a new merchant's credentials. (Belt and
+        // suspenders with the transport guard below, which only fires AFTER the retry's
+        // network call has already gone out.)
+        assertEpoch(capturedEpoch)
+        return apiFetchResponse(path, { ...options, _isRetry: true, _epoch: capturedEpoch })
+      }
     }
-    // Session-side-effect epoch gate (Codex #3): a request that 401s, fails its
-    // refresh, and finds the epoch has moved belongs to a DEAD session - a new
-    // session is already live. It must not run any session-mutating side effect
-    // (setAccessToken(null) / triggerSessionLost()); only a current-epoch request
-    // may drive a hard logout.
+    // Terminal session-loss: reached either because the
+    // refresh-once attempt itself failed, OR because this request IS the retry and it
+    // STILL 401'd even though tryRefresh() reported success (observed on staging after
+    // a Redis region move: the BFF refresh route mints a fresh access token from the
+    // still-valid httpOnly cookie, but the backend independently rejects the request -
+    // e.g. a Redis-backed session/session-cache lookup the region move wiped - so the
+    // "refreshed" token is dead on arrival). Before this fix, a still-401 retry fell
+    // through past this block entirely (guarded by `!_isRetry` at the top) into the
+    // generic `!res.ok` branch below, which throws a plain ApiError WITHOUT ever
+    // calling setAccessToken(null) / triggerSessionLost() - leaving a stale bearer
+    // token in memory and no redirect. That is exactly the confusing half-logged-in
+    // shell (fail-closed baseline nav + "Something went wrong" content, no way back to
+    // sign-in) reported on staging. Both the failed-refresh case and this still-401-
+    // after-refresh case now route through the SAME existing hard-logout side effects,
+    // which SessionProvider (lib/auth/session.tsx) already wires to a full teardown +
+    // redirect to /sign-in - no new ad-hoc session-lost signal is introduced here.
+    //
+    // Session-side-effect epoch gate (Codex #3): a request that 401s here and finds the
+    // epoch has moved belongs to a DEAD session - a new session is already live. It
+    // must not run any session-mutating side effect (setAccessToken(null) /
+    // triggerSessionLost()); only a current-epoch request may drive a hard logout.
     assertEpoch(capturedEpoch)
     setAccessToken(null)
     triggerSessionLost()

@@ -86,6 +86,67 @@ describe('apiFetch (M1 Slice 1 BFF-lite client)', () => {
     expect(lost).toHaveBeenCalledTimes(1)
   })
 
+  // Regression pin for the staging half-logged-in-shell bug: a Redis-backed session
+  // check can independently reject a request even after the BFF refresh route mints a
+  // fresh access token from a still-valid httpOnly cookie (tryRefresh() reports
+  // success), so the RETRY itself still comes back 401. Refresh-once is now
+  // EXHAUSTED - this must be treated as terminal session loss exactly like a failed
+  // refresh, not fall through to a plain, un-torn-down ApiError.
+  it('hard-logout when the retry STILL 401s after a nominally successful refresh (refresh-once exhausted): clears the token and fires onSessionLost', async () => {
+    setAccessToken('expired')
+    const lost = jest.fn()
+    setOnSessionLost(lost)
+    let refreshCalls = 0
+    let profileCalls = 0
+    global.fetch = jest.fn(async (url: unknown) => {
+      if (String(url).endsWith('/api/merchant-auth/refresh')) {
+        refreshCalls += 1
+        return jsonRes(200, { accessToken: 'fresh-but-still-rejected' })
+      }
+      profileCalls += 1
+      // BOTH the original request and the retry (after the "successful" refresh)
+      // 401 - the backend rejects the freshly-minted token independently.
+      return jsonRes(401, { error: { code: 'SESSION_REVOKED' } })
+    }) as unknown as typeof fetch
+    await expect(apiFetch('/profile', { auth: true })).rejects.toBeInstanceOf(ApiError)
+    expect(refreshCalls).toBe(1) // still only ONE refresh attempt (no retry loop)
+    expect(profileCalls).toBe(2) // original + the one retry
+    expect(getAccessToken()).toBeNull() // stale token cleared - no half-logged-in state
+    expect(lost).toHaveBeenCalledTimes(1) // the SAME existing session-lost signal fired
+  })
+
+  // Transient-vs-terminal pin: a plain non-401 error (network blip / 5xx) must NEVER
+  // clear the token or fire the session-lost teardown - only a terminal 401 does.
+  it('a transient 500 (non-401) does NOT clear the token or fire onSessionLost', async () => {
+    setAccessToken('still-valid')
+    const lost = jest.fn()
+    setOnSessionLost(lost)
+    global.fetch = jest.fn(async () => jsonRes(500, { error: { code: 'INTERNAL' } })) as unknown as typeof fetch
+    await expect(apiFetch('/profile', { auth: true })).rejects.toMatchObject({ status: 500 })
+    expect(getAccessToken()).toBe('still-valid')
+    expect(lost).not.toHaveBeenCalled()
+  })
+
+  // Transient-vs-terminal pin: a 401 that recovers via the refresh-once retry (the
+  // retry itself succeeds) must NEVER clear the token or fire onSessionLost either -
+  // only a still-401 retry (above) is terminal.
+  it('a 401 that recovers on the refresh-once retry does NOT clear the token or fire onSessionLost', async () => {
+    setAccessToken('expired')
+    const lost = jest.fn()
+    setOnSessionLost(lost)
+    let profileCalls = 0
+    global.fetch = jest.fn(async (url: unknown) => {
+      const u = String(url)
+      if (u.endsWith('/api/merchant-auth/refresh')) return jsonRes(200, { accessToken: 'fresh' })
+      profileCalls += 1
+      return profileCalls === 1 ? jsonRes(401, {}) : jsonRes(200, { ok: 1 })
+    }) as unknown as typeof fetch
+    const r = await apiFetch<{ ok: number }>('/profile', { auth: true })
+    expect(r.ok).toBe(1)
+    expect(getAccessToken()).toBe('fresh')
+    expect(lost).not.toHaveBeenCalled()
+  })
+
   it('single-flight: two concurrent 401s share ONE refresh (single-use rotation safe)', async () => {
     setAccessToken('expired')
     let refreshCalls = 0
