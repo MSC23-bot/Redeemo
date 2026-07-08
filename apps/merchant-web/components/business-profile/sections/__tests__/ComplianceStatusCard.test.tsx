@@ -8,6 +8,16 @@ jest.mock('@/lib/api/onboarding', () => ({
   getContract: () => getContract(),
 }))
 
+// B3: DocumentsCard (inside ComplianceStatusCard) reads via documentsApi.list.
+// Mocked here the same way getContract is above, so THIS file's tests can pin
+// the card's role-gated rendering without re-testing the list/upload internals
+// (covered by DocumentsCard.test.tsx).
+const listDocuments = jest.fn()
+jest.mock('@/lib/api/documents', () => {
+  const actual = jest.requireActual('@/lib/api/documents')
+  return { ...actual, documentsApi: { ...actual.documentsApi, list: () => listDocuments() } }
+})
+
 function profile(over: Partial<MerchantProfile> = {}): MerchantProfile {
   return {
     id: 'm1',
@@ -30,6 +40,7 @@ function renderCard(p: MerchantProfile) {
 
 beforeEach(() => {
   getContract.mockReset()
+  listDocuments.mockReset().mockResolvedValue({ documents: [] })
 })
 
 describe('ComplianceStatusCard', () => {
@@ -64,10 +75,31 @@ describe('ComplianceStatusCard', () => {
     expect(screen.queryByTestId('agreement-modal')).not.toBeInTheDocument()
   })
 
-  it('renders only the honest Documents placeholder line', () => {
+  it('renders the Documents card and lists real documents (B3)', async () => {
+    listDocuments.mockResolvedValue({
+      documents: [
+        { id: 'doc-1', documentType: 'PRICE_LIST', uploadedAt: '2026-06-10T00:00:00.000Z', url: 'https://r2.example/signed', available: true },
+      ],
+    })
     renderCard(profile())
-    expect(screen.getByTestId('documents-placeholder')).toHaveTextContent(
-      /redeemo holds your documents\. we will ask here if we need something specific/i,
-    )
+    expect(await screen.findByTestId('documents-row-doc-1')).toHaveTextContent(/price list/i)
+    expect(screen.getByTestId('documents-open-doc-1')).toHaveAttribute('href', 'https://r2.example/signed')
+  })
+
+  it('shows an empty state when there are no documents', async () => {
+    renderCard(profile())
+    expect(await screen.findByTestId('documents-empty')).toHaveTextContent(/no documents uploaded yet/i)
+  })
+
+  it('shows the upload affordance for OWNER (D1)', async () => {
+    renderCard(profile({ viewerCapabilities: { canViewInsights: true, role: 'OWNER' } } as Partial<MerchantProfile>))
+    await screen.findByTestId('documents-empty')
+    expect(screen.getByTestId('documents-upload-trigger')).toBeInTheDocument()
+  })
+
+  it('hides the upload affordance for BRANCH_MANAGER (D1: view only)', async () => {
+    renderCard(profile({ viewerCapabilities: { canViewInsights: true, role: 'BRANCH_MANAGER' } } as Partial<MerchantProfile>))
+    await screen.findByTestId('documents-empty')
+    expect(screen.queryByTestId('documents-upload-trigger')).not.toBeInTheDocument()
   })
 })

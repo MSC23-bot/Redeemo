@@ -1,21 +1,20 @@
 'use client'
 
-// Business Profile M2: the "Compliance and status" card (prototype 01/03/04) - the
-// verification-state block, the merchant agreement summary + "View signed
-// agreement" modal trigger, and an HONEST Documents placeholder.
+// Business Profile M2 + B3: the "Compliance and status" card (prototype 01/03/04)
+// - the verification-state block, the merchant agreement summary + "View signed
+// agreement" modal trigger, and the Documents list/upload card.
 //
-// Documents (§BP-DOC, DEFERRED): the reference screenshots show a full
-// upload/replace/view document list. That is explicitly OUT of M2 scope per the
-// build brief - M2 does not invent a document list or wire any upload/request UI.
-// This card instead shows the same calm, honest placeholder line the brief
-// specifies. Do NOT add upload/list affordances here without a dedicated
-// §BP-DOC slice.
+// Documents (B3 - Merchant Documents MVP, Option 1, SHIPPED): M2 shipped an
+// honest placeholder here ("Redeemo holds your documents..."); B3 replaces it
+// with the real list + OWNER-only upload affordance (DocumentsCard), reusing the
+// existing storage/backend patterns (D1-D4 owner decisions, 2026-07-08).
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
 import { useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { AgreementModal } from '@/components/business-profile/sections/AgreementModal'
+import { DocumentsCard } from '@/components/business-profile/sections/DocumentsCard'
 import { deriveStatusPill } from '@/lib/auth/lifecycle'
 import { resolveVerificationBadge } from '@/lib/business-profile/verificationBadge'
 import { formatDateLabel, signatureMethodPhrase } from '@/lib/business-profile/format'
@@ -96,17 +95,7 @@ export function ComplianceStatusCard({ profile }: { profile: MerchantProfile }) 
         </div>
       </div>
 
-      <div className="space-y-3 border-t border-border px-6 pt-4">
-        <div className="flex items-start gap-2.5">
-          <FileText size={16} aria-hidden style={{ color: 'var(--text-tertiary)', marginTop: 2 }} />
-          <div className="space-y-0.5">
-            <p className="text-sm font-semibold text-foreground">Documents</p>
-            <p className="text-sm text-muted-foreground" data-testid="documents-placeholder">
-              Redeemo holds your documents. We will ask here if we need something specific.
-            </p>
-          </div>
-        </div>
-      </div>
+      <DocumentsCard profile={profile} />
 
       {agreementOpen ? <AgreementModal profile={profile} onClose={() => setAgreementOpen(false)} /> : null}
     </Card>

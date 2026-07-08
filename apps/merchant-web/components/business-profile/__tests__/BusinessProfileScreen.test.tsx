@@ -1,12 +1,12 @@
 /**
- * Business Profile M2: the read-shell orchestrator. Pins:
+ * Business Profile M2 + B3: the read-shell orchestrator. Pins:
  *   - all 5 section cards + the hero render from a mocked profile
  *   - the hero verification badge is status-aware (derives off
  *     deriveStatusPill, same source as the sidebar StatusPill)
  *   - the pending-edit banner shows only when a PENDING row exists
  *   - ownerContact + agreement render on the Business contact / Compliance cards
- *   - the Documents section is the HONEST placeholder line only - no invented
- *     document list, no upload/replace/view affordances (§BP-DOC deferred)
+ *   - the Documents section (B3, SHIPPED) renders the real list/upload card;
+ *     without viewerCapabilities the upload trigger fails closed (hidden)
  */
 import { render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -18,6 +18,14 @@ const getOnboardingTaxonomy = jest.fn()
 jest.mock('@/lib/api/taxonomy', () => ({
   getOnboardingTaxonomy: () => getOnboardingTaxonomy(),
 }))
+
+// B3: DocumentsCard reads via documentsApi.list - mocked here (mirrors the
+// getOnboardingTaxonomy mock above) so this shell test never issues a real fetch.
+const listDocuments = jest.fn()
+jest.mock('@/lib/api/documents', () => {
+  const actual = jest.requireActual('@/lib/api/documents')
+  return { ...actual, documentsApi: { ...actual.documentsApi, list: () => listDocuments() } }
+})
 
 function taxonomy() {
   return {
@@ -86,6 +94,7 @@ function renderScreen(p: MerchantProfile) {
 
 beforeEach(() => {
   getOnboardingTaxonomy.mockReset().mockResolvedValue(taxonomy())
+  listDocuments.mockReset().mockResolvedValue({ documents: [] })
 })
 
 describe('BusinessProfileScreen', () => {
@@ -148,15 +157,10 @@ describe('BusinessProfileScreen', () => {
     expect(within(card).getByText(/have not signed the merchant agreement yet/i)).toBeInTheDocument()
   })
 
-  it('renders ONLY the honest Documents placeholder line - no invented document list or upload UI', () => {
+  it('renders the Documents card (B3) with an empty state and no upload trigger for a viewer with no viewerCapabilities (fail closed)', async () => {
     renderScreen(profile())
-    const placeholder = screen.getByTestId('documents-placeholder')
-    expect(placeholder).toHaveTextContent(/redeemo holds your documents/i)
-    // No document rows, no upload/replace/view affordances anywhere on the screen.
-    expect(screen.queryByText(/add a document/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/certificate of incorporation/i)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /replace/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^view$/i })).not.toBeInTheDocument()
+    expect(await screen.findByTestId('documents-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('documents-upload-trigger')).not.toBeInTheDocument()
   })
 
   // Business Profile M4: the Public identity Edit affordance is now a LIVE
