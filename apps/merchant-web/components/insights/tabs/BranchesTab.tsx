@@ -24,6 +24,7 @@ import { useQuery } from '@tanstack/react-query'
 import { MapPin } from '@/lib/icons'
 import { getInsightsBranches, type InsightsFilters } from '@/lib/api/insights'
 import { formatCount, formatGbp } from '@/lib/insights/format'
+import { LoadingStatus, SkeletonCard } from '@/components/ui/skeleton'
 import { MetricInfo } from '../MetricInfo'
 
 export interface BranchesTabProps {
@@ -39,9 +40,11 @@ export function BranchesTab({ filters }: BranchesTabProps) {
 
   if (isLoading) {
     return (
-      <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Loading branches...
-      </div>
+      <LoadingStatus label="Loading branches...">
+        {/* One wide ranked-list card (the real branches-card is a single card with a
+            row per branch); a few lines stand in for the branch rows. */}
+        <SkeletonCard lines={5} showIcon />
+      </LoadingStatus>
     )
   }
 

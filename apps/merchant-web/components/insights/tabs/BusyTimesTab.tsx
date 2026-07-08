@@ -23,6 +23,7 @@ import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Clock } from '@/lib/icons'
 import { getInsightsBusyTimes, type InsightsFilters } from '@/lib/api/insights'
+import { LoadingStatus, SkeletonChartBlock } from '@/components/ui/skeleton'
 import { Heatmap } from '../charts/Heatmap'
 import { MetricInfo } from '../MetricInfo'
 
@@ -152,9 +153,10 @@ export function BusyTimesTab({ filters }: BusyTimesTabProps) {
 
   if (isLoading) {
     return (
-      <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Loading busy times...
-      </div>
+      <LoadingStatus label="Loading busy times...">
+        {/* Chart-shaped block standing in for the heatmap grid. */}
+        <SkeletonChartBlock />
+      </LoadingStatus>
     )
   }
 

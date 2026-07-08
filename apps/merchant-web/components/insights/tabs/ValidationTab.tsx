@@ -21,6 +21,7 @@ import { CircleCheck, ScanLine } from '@/lib/icons'
 import { useQuery } from '@tanstack/react-query'
 import { getInsightsValidation, type InsightsFilters } from '@/lib/api/insights'
 import { formatCount, formatRateAsPercent } from '@/lib/insights/format'
+import { LoadingStatus, SkeletonCard } from '@/components/ui/skeleton'
 import { MetricInfo } from '../MetricInfo'
 
 export interface ValidationTabProps {
@@ -50,9 +51,14 @@ export function ValidationTab({ filters }: ValidationTabProps) {
 
   if (isLoading) {
     return (
-      <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Loading validation...
-      </div>
+      <LoadingStatus label="Loading validation...">
+        {/* Two cards side by side (the confirmed/awaiting summary + the adaptive
+            confirmation-method breakdown, which the real content sometimes hides). */}
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <SkeletonCard lines={3} showIcon />
+          <SkeletonCard lines={3} showIcon />
+        </div>
+      </LoadingStatus>
     )
   }
 
