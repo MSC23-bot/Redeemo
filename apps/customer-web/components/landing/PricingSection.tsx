@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { motion } from 'framer-motion'
-import { isLeadCaptureLive, isMarketplaceLive } from '@/lib/prelaunch'
+import { isMarketplaceLive } from '@/lib/prelaunch'
 
 type Plan = {
   name: string
@@ -17,17 +17,16 @@ type Plan = {
 }
 
 // Plan facts (price/features) never change pre-launch; only the CTA destination and
-// label do, since /register and /subscribe require a live marketplace to mean anything.
-function getPlans(marketplaceLive: boolean, leadCaptureLive: boolean): Plan[] {
-  const preLaunchRedeemHref = leadCaptureLive ? '#waitlist' : '/how-it-works'
-
+// label do. Pre-launch, /register IS the waitlist, so every CTA funnels there instead
+// of stopping at /how-it-works.
+function getPlans(marketplaceLive: boolean): Plan[] {
   return [
     {
       name: 'Free',
       price: '£0',
       body: 'Browse every merchant and voucher. No card needed.',
-      cta: marketplaceLive ? 'Start exploring' : 'See what’s included',
-      href: marketplaceLive ? '/register' : '/how-it-works',
+      cta: marketplaceLive ? 'Start exploring' : 'Create free account',
+      href: '/register',
       tone: 'neutral',
       features: [
         'Browse all merchants',
@@ -41,8 +40,8 @@ function getPlans(marketplaceLive: boolean, leadCaptureLive: boolean): Plan[] {
       price: '£6.99',
       priceSuffix: '/mo',
       body: 'Full voucher access. Cancel anytime.',
-      cta: marketplaceLive ? 'Get started' : 'Get first access',
-      href: marketplaceLive ? '/subscribe' : preLaunchRedeemHref,
+      cta: marketplaceLive ? 'Get started' : 'Get early access',
+      href: marketplaceLive ? '/subscribe' : '/register',
       tone: 'primary',
       features: [
         'Everything in Free',
@@ -57,8 +56,8 @@ function getPlans(marketplaceLive: boolean, leadCaptureLive: boolean): Plan[] {
       price: '£69.99',
       priceSuffix: '/yr',
       body: 'Two months free. Pay once, save all year.',
-      cta: marketplaceLive ? 'Best value' : 'Get first access',
-      href: marketplaceLive ? '/subscribe?plan=annual' : preLaunchRedeemHref,
+      cta: marketplaceLive ? 'Best value' : 'Get early access',
+      href: marketplaceLive ? '/subscribe?plan=annual' : '/register',
       tone: 'gold',
       badge: 'Best value',
       features: [
@@ -159,7 +158,8 @@ function PlanCard({ plan, delay }: { plan: Plan; delay: number }) {
 }
 
 export function PricingSection() {
-  const plans = getPlans(isMarketplaceLive(), isLeadCaptureLive())
+  const marketplaceLive = isMarketplaceLive()
+  const plans = getPlans(marketplaceLive)
 
   return (
     <section className="bg-white py-20 md:py-24 px-6">
@@ -176,10 +176,14 @@ export function PricingSection() {
             className="font-display text-[#010C35] leading-[1.1] mb-4"
             style={{ fontSize: 'clamp(28px, 3.5vw, 44px)', letterSpacing: '-0.3px' }}
           >
-            Start free. Upgrade when you&apos;re ready.
+            {marketplaceLive
+              ? "Start free. Upgrade when you're ready."
+              : 'This is what membership will cost.'}
           </h2>
           <p className="text-[15px] text-[#4B5563] leading-[1.7]">
-            If one voucher saves you more than £6.99, the month has paid for itself.
+            {marketplaceLive
+              ? 'If one voucher saves you more than £6.99, the month has paid for itself.'
+              : 'Founding members get their first 3 months free at launch: register now to lock it in.'}
           </p>
         </motion.div>
 
@@ -189,7 +193,7 @@ export function PricingSection() {
           ))}
         </div>
 
-        {isMarketplaceLive() && (
+        {marketplaceLive && (
           <motion.div
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}

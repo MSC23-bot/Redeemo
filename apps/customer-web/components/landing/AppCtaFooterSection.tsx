@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { AppStoreBadge, GooglePlayBadge } from './HeroSection'
 import { isMarketplaceLive } from '@/lib/prelaunch'
@@ -76,20 +77,36 @@ export function AppCtaFooterSection() {
             : 'Browse on the website today. The app and in-store redemption arrive when we go live near you.'}
         </motion.p>
 
-        {/* App store badges */}
+        {/* App store badges / pre-launch CTA */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.4, delay: 0.3 }}
-          className="flex gap-3 justify-center flex-wrap items-center"
+          className="flex flex-col items-center gap-3"
         >
-          <AppStoreBadge />
-          <GooglePlayBadge />
-          {!marketplaceLive && (
-            <span className="text-[11px] text-white/35 font-semibold rounded-full border border-white/12 px-3 py-1.5">
-              Coming at launch
-            </span>
+          {marketplaceLive ? (
+            <div className="flex gap-3 justify-center flex-wrap items-center">
+              <AppStoreBadge />
+              <GooglePlayBadge />
+            </div>
+          ) : (
+            <>
+              <Link
+                href="/register"
+                className="inline-flex items-center gap-2 text-white font-bold text-[15px] px-7 py-3.5 rounded-xl no-underline hover:opacity-90 transition-opacity"
+                style={{ background: 'var(--brand-gradient)' }}
+              >
+                Create free account
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
+              </Link>
+              <p className="text-[12px] text-white/35">
+                The app arrives at launch: iOS &amp; Android
+              </p>
+            </>
           )}
         </motion.div>
       </div>

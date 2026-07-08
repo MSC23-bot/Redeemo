@@ -558,3 +558,20 @@ edited by this workstream.
   (left). Seam fills re-baked from the new alphas (160 pts, 6px tuck).
   Higgsfield spend this batch: 14cr (6 generations, 2 4K upscales, 4
   background removals); balance 32.38 -> 18.38, owner-directed.
+- Conversion quick-wins from the Opus adversarial review (orchestration per
+  owner 2026-07-08: Fable adjudicates, Sonnet implements routine, Opus for
+  adversarial review): review found the funnel leaking to /how-it-works
+  (7 links vs 5 to /register; all three Pricing CTAs went to the info page;
+  the page ENDED on dead store badges). Applied (Sonnet implementation,
+  Fable-verified): Pricing pre-launch CTAs all route to /register (Free
+  "Create free account", Monthly/Annual "Get early access"), headline
+  reframed to the founding reality ("This is what membership will cost." +
+  3-months-free subline; "upgrade when you're ready" promised an upgrade
+  that cannot happen pre-launch); AppCtaFooter pre-launch ends on a "Create
+  free account" gradient CTA with the app line as text (badges return at
+  launch); "Get first access" label eliminated (one register verb pair
+  site-wide); Huddersfield toast arrives later (5.2s) and is compact on
+  mobile. ADJUDICATED NOT-DO: voucher-rail type colours stay (they are the
+  app's voucher-type tokens, owner-approved on the shelf); ScrollStory/
+  HowItWorks repetition trim + social-proof element + hero artwork's
+  "Manchester" label queued as owner decisions.

@@ -13,7 +13,7 @@ import { isMarketplaceLive } from '@/lib/prelaunch'
  */
 
 const DISMISS_KEY = 'redeemo-locality-note'
-const SHOW_AFTER_MS = 2600
+const SHOW_AFTER_MS = 5200
 
 export function LaunchLocalityToast() {
   const [visible, setVisible] = useState(false)
@@ -49,7 +49,7 @@ export function LaunchLocalityToast() {
           animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
           exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed bottom-5 left-5 z-50 w-[min(360px,calc(100vw-40px))] rounded-2xl bg-white p-5"
+          className="fixed bottom-5 left-5 z-50 w-[min(320px,calc(100vw-32px))] md:w-[min(360px,calc(100vw-40px))] rounded-2xl bg-white p-4 md:p-5"
           style={{ border: '1px solid rgba(1,12,53,0.1)', boxShadow: '0 20px 48px rgba(1,12,53,0.18)' }}
         >
           <button
@@ -75,7 +75,7 @@ export function LaunchLocalityToast() {
             </span>
             <div className="pr-4">
               <p className="text-[14px] font-bold text-[#010C35] mb-1">Starting in Huddersfield</p>
-              <p className="text-[13px] text-[#4B5563] leading-[1.6] mb-3">
+              <p className="text-[12.5px] md:text-[13px] text-[#4B5563] leading-[1.6] mb-3">
                 We are rolling out in Huddersfield and the surrounding areas
                 first, then expanding across the UK. Join now and we will tell
                 you the moment we reach your town.
