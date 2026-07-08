@@ -20,6 +20,13 @@ import { useQuery } from '@tanstack/react-query'
 import { getInsightsOverview } from '@/lib/api/insights'
 import { listCustomVouchers, listFlagshipVouchers } from '@/lib/api/voucher'
 import type { MerchantProfile } from '@/lib/api/profile'
+import {
+  LoadingStatus,
+  SkeletonKpiRow,
+  SkeletonChartBlock,
+  SkeletonCard,
+  SkeletonTable,
+} from '@/components/ui/skeleton'
 import { LeanLiveHome } from './LeanLiveHome'
 import { LiveDashboard } from './LiveDashboard'
 import { JustStartedHome } from './JustStartedHome'
@@ -45,9 +52,20 @@ function InsightsHome({ profile }: { profile: MerchantProfile }) {
 
   if (overview.isLoading) {
     return (
-      <div role="status" aria-live="polite" className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Loading your dashboard...
-      </div>
+      <LoadingStatus label="Loading your dashboard...">
+        <div className="flex flex-col gap-6">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <SkeletonChartBlock />
+            <SkeletonChartBlock />
+          </div>
+          <SkeletonKpiRow />
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <SkeletonCard lines={3} />
+            <SkeletonCard lines={3} />
+          </div>
+          <SkeletonTable rows={4} columns={3} />
+        </div>
+      </LoadingStatus>
     )
   }
 

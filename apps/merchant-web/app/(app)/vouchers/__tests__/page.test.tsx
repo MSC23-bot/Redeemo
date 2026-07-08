@@ -97,6 +97,24 @@ describe('VouchersPage list', () => {
     expect(screen.getByRole('status')).toBeInTheDocument()
   })
 
+  // A8: the loading state is now a layout-matching skeleton (card-shaped bones), not
+  // bare "Loading your vouchers..." text, while keeping the single role=status contract.
+  it('renders skeleton card bones (not bare text) while the lists are in flight', () => {
+    listCustomVouchers.mockReturnValue(new Promise(() => {}))
+    listFlagshipVouchers.mockReturnValue(new Promise(() => {}))
+    renderPage()
+    const status = screen.getByRole('status')
+    expect(status.querySelectorAll('[data-testid="skeleton-bone"]').length).toBeGreaterThan(0)
+  })
+
+  it('replaces the skeleton with real voucher rows once the lists resolve', async () => {
+    listFlagshipVouchers.mockResolvedValue([])
+    listCustomVouchers.mockResolvedValue([row({ title: 'Free coffee with breakfast' })])
+    renderPage()
+    expect(await screen.findByText('Free coffee with breakfast')).toBeInTheDocument()
+    expect(screen.queryByTestId('skeleton-bone')).not.toBeInTheDocument()
+  })
+
   it('pins flagship vouchers at the top, never with an edit/delete affordance', async () => {
     listFlagshipVouchers.mockResolvedValue([
       row({ id: 'rmv1', title: 'Flagship BOGO', type: 'BOGO', isRmv: true }),

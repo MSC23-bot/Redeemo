@@ -60,6 +60,7 @@ import { resolveScopeLabel } from '@/lib/insights/display'
 import { InsightsFilters as FilterBar, type BranchOption } from '@/components/insights/InsightsFilters'
 import { KpiCards } from '@/components/insights/KpiCards'
 import { TrendChart } from '@/components/insights/TrendChart'
+import { LoadingStatus, SkeletonChartBlock } from '@/components/ui/skeleton'
 import { ReportsCard } from '@/components/insights/ReportsCard'
 import {
   PageHeader,
@@ -347,13 +348,9 @@ function TrendChartCard({ filters }: { filters: InsightsFilters }) {
 
   if (trend.isLoading) {
     return (
-      <div
-        role="status"
-        className="rounded-2xl border bg-card p-5 text-sm shadow-sm"
-        style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-      >
-        Loading the trend...
-      </div>
+      <LoadingStatus label="Loading the trend...">
+        <SkeletonChartBlock />
+      </LoadingStatus>
     )
   }
   if (trend.isError || !trend.data) {

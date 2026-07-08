@@ -17,6 +17,7 @@ import { listRedemptions } from '@/lib/api/redemptions'
 import { listBranches } from '@/lib/api/branch'
 import type { MerchantProfile } from '@/lib/api/profile'
 import { TrendChart } from '@/components/insights/TrendChart'
+import { LoadingStatus, SkeletonChartBlock } from '@/components/ui/skeleton'
 import { WelcomeHeader, DAY_FULL } from './shared'
 import { HomeKpis } from './HomeKpis'
 import { BusiestDays } from './BusiestDays'
@@ -158,7 +159,9 @@ export function LiveDashboard({
       {/* Charts: redemptions over time + busiest days */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {trend.isLoading ? (
-          <ChartFallback label="Loading the trend..." />
+          <LoadingStatus label="Loading the trend...">
+            <SkeletonChartBlock />
+          </LoadingStatus>
         ) : trend.isError || !trend.data ? (
           <ChartFallback label="We could not load the trend just now." />
         ) : (
@@ -166,7 +169,9 @@ export function LiveDashboard({
         )}
 
         {busy.isLoading ? (
-          <ChartFallback label="Loading busiest days..." />
+          <LoadingStatus label="Loading busiest days...">
+            <SkeletonChartBlock />
+          </LoadingStatus>
         ) : busy.isError || !busy.data ? (
           <ChartFallback label="We could not load busiest days just now." />
         ) : (
