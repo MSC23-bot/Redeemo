@@ -21,7 +21,7 @@ export default function HomePage() {
       {/* The logo's voucher-ribbon motif as the section seam (owner direction
           2026-07-07); two mounts only, restraint on purpose. The colours are
           the adjoining sections' backgrounds: the ribbon IS the break. */}
-      <RibbonBand topColor="#FFF9F5" bottomColor="#FFFFFF" />
+      <RibbonBand variant="a" topColor="#FFF9F5" bottomColor="#FFFFFF" />
       {/* The definition: a cold visitor learns what Redeemo IS before the
           product cinema and social proof */}
       <WhatIsRedeemoSection />
@@ -33,7 +33,7 @@ export default function HomePage() {
           horizontally (desktop; mobile gets the static grid via ScrollStory) */}
       <VoucherTypesRail />
       <HowItWorksSection />
-      <RibbonBand flip topColor="#FAFAF8" bottomColor="#010C35" />
+      <RibbonBand variant="b" flip topColor="#FAFAF8" bottomColor="#010C35" />
       {isMarketplaceLive() ? <TestimonialsSection /> : <FoundingPromiseSection />}
       <PricingSection />
       <WaitlistSection />

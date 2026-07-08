@@ -521,3 +521,22 @@ edited by this workstream.
   Backend follow-up §FOUND.1 recorded in docs/deferrals/open-register.md:
   cohort marking, grant mechanism, badge surface, admin tooling, locality
   capture; pick up with the Admin Panel programme.
+- Ribbon v8 BRAND FORM (owner 2026-07-08: the satin fabric ribbon is NOT the
+  brand; supplied concept sheets show the voucher-style ribbon: thick matte
+  red band, visible edge thickness, die-cut notch at squared ends; "this is
+  our branding, do not defer from it"; second note: the divider must never
+  read as a straight line: it must flow, thickness variation/ties welcome):
+  concept sheets moved into the repo at
+  docs/design/customer-web-prelaunch/brand-ribbon/ (two byte-identical
+  Downloads duplicates removed). Two production bands cut from the sheets by
+  hue-key matte (redness > 45 excludes the red-tinted drop shadows),
+  largest-connected-component filter (drops neighbouring poses), edge
+  defringe by unpremultiplying against the sheet cream (kills the milky
+  fringe over navy), 2x Lanczos: flow-a (sheet 02 wave, fold at right) and
+  flow-b (sheet 01 deeper S-wave, notched both ends). RibbonBand rebuilt
+  with per-variant baked seam fills (160-pt alpha edges, 6px tuck) and
+  taller stages (150px mobile / 300px desktop) so the wave amplitude reads;
+  satin band.png + sheen removed (matte material); motion = scroll drift
+  x +/-34 and y breathe +/-8. Seam A = variant a (cream to white), seam B =
+  variant b flipped (light to navy): the navy handover now rides a genuine
+  wave instead of a flat strip.

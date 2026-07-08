@@ -5,73 +5,75 @@ import { useRef } from 'react'
 import { useScrollLinked } from './scroll'
 
 /**
- * The section-seam ribbon, final form (owner 2026-07-08): a real 3D satin
- * ribbon render (generated in the same visual language as the hero artwork,
- * cut out, brand-graded) instead of hand-drawn SVG, which never matched the
- * artwork's satin. The seam still follows the band: its true top and bottom
- * edges were sampled from the PNG's alpha and baked in as fill paths, so
- * topColor meets bottomColor exactly along the fabric. Decorative only.
+ * The section-seam ribbon, brand form (owner 2026-07-08): the voucher-style
+ * ribbon from the brand concept sheets (docs/design/customer-web-prelaunch/
+ * brand-ribbon/): a thick matte red band with visible edge thickness and the
+ * die-cut notch at its squared ends. NOT satin fabric, and never a straight
+ * strip: both variants carry a real wave with a fold. The seam still follows
+ * the band: its true top and bottom edges were sampled from each PNG's alpha
+ * and baked in as fill paths, so topColor meets bottomColor exactly along
+ * the ribbon. Decorative only.
  */
 
-const VIEW_W = 1280
-const VIEW_H = 249
-
-const TOP_FILL = 'M-120 -120 L1400 -120 L1400 61 L1272 61 L1264 60 L1256 60 L1248 59 L1240 58 L1232 57 L1224 56 L1216 56 L1208 55 L1200 55 L1192 54 L1184 54 L1176 53 L1168 53 L1160 52 L1152 52 L1144 51 L1136 50 L1128 49 L1120 48 L1112 48 L1104 47 L1096 46 L1088 45 L1080 44 L1072 43 L1064 42 L1056 41 L1048 40 L1040 39 L1032 38 L1024 37 L1016 36 L1008 35 L1000 34 L992 32 L984 31 L976 30 L968 28 L960 27 L952 24 L944 23 L936 21 L928 20 L920 18 L912 16 L904 14 L896 13 L888 12 L880 11 L872 10 L864 9 L856 9 L848 9 L840 9 L832 10 L824 11 L816 13 L808 15 L800 18 L792 19 L784 21 L776 22 L768 24 L760 25 L752 27 L744 28 L736 30 L728 31 L720 32 L712 33 L704 34 L696 36 L688 37 L680 38 L672 39 L664 39 L656 41 L648 42 L640 43 L632 44 L624 45 L616 46 L608 47 L600 48 L592 49 L584 50 L576 51 L568 52 L560 53 L552 54 L544 55 L536 57 L528 60 L520 64 L512 69 L504 75 L496 81 L488 82 L480 81 L472 81 L464 80 L456 79 L448 79 L440 78 L432 77 L424 77 L416 76 L408 75 L400 74 L392 73 L384 72 L376 71 L368 71 L360 70 L352 69 L344 69 L336 68 L328 67 L320 66 L312 65 L304 64 L296 64 L288 63 L280 63 L272 62 L264 62 L256 62 L248 62 L240 61 L232 61 L224 61 L216 61 L208 60 L200 60 L192 60 L184 60 L176 60 L168 59 L160 59 L152 59 L144 58 L136 58 L128 58 L120 57 L112 57 L104 56 L96 56 L88 55 L80 55 L72 55 L64 54 L56 54 L48 54 L40 53 L32 53 L24 52 L16 51 L8 50 L0 47 L-120 47 Z'
-const BOTTOM_FILL = 'M-120 221 L0 221 L8 222 L16 222 L24 222 L32 223 L40 223 L48 223 L56 223 L64 223 L72 223 L80 223 L88 223 L96 223 L104 224 L112 224 L120 225 L128 226 L136 226 L144 227 L152 228 L160 229 L168 230 L176 231 L184 232 L192 233 L200 234 L208 235 L216 236 L224 237 L232 238 L240 238 L248 238 L256 239 L264 239 L272 239 L280 238 L288 237 L296 236 L304 235 L312 234 L320 232 L328 230 L336 227 L344 224 L352 221 L360 219 L368 216 L376 214 L384 212 L392 210 L400 208 L408 206 L416 204 L424 203 L432 201 L440 199 L448 197 L456 195 L464 193 L472 191 L480 189 L488 187 L496 186 L504 184 L512 182 L520 180 L528 178 L536 177 L544 174 L552 173 L560 170 L568 169 L576 166 L584 164 L592 162 L600 161 L608 159 L616 157 L624 155 L632 156 L640 157 L648 158 L656 159 L664 160 L672 161 L680 162 L688 164 L696 165 L704 166 L712 167 L720 168 L728 169 L736 170 L744 172 L752 173 L760 174 L768 175 L776 176 L784 177 L792 178 L800 179 L808 180 L816 180 L824 181 L832 182 L840 183 L848 183 L856 184 L864 185 L872 185 L880 186 L888 186 L896 187 L904 187 L912 188 L920 188 L928 188 L936 188 L944 188 L952 189 L960 189 L968 189 L976 188 L984 188 L992 188 L1000 188 L1008 187 L1016 187 L1024 187 L1032 186 L1040 186 L1048 186 L1056 186 L1064 186 L1072 186 L1080 186 L1088 186 L1096 187 L1104 187 L1112 187 L1120 187 L1128 188 L1136 188 L1144 189 L1152 190 L1160 191 L1168 192 L1176 193 L1184 194 L1192 195 L1200 196 L1208 198 L1216 199 L1224 201 L1232 202 L1240 204 L1248 206 L1256 208 L1264 210 L1272 212 L1400 212 L1400 369 L-120 369 Z'
+const VARIANTS = {
+  // Concept sheet 02, top band: long graceful wave, fold at the right
+  a: {
+    src: '/ribbon/flow-a.png',
+    w: 1470,
+    h: 322,
+    top: 'M -140 -140 L -140 161 L 0 161 L 9 76 L 18 73 L 28 69 L 37 66 L 46 63 L 55 60 L 65 57 L 74 54 L 83 52 L 92 49 L 102 46 L 111 44 L 120 42 L 129 39 L 139 36 L 148 34 L 157 32 L 166 30 L 176 28 L 185 26 L 194 24 L 203 22 L 212 21 L 222 20 L 231 18 L 240 16 L 249 16 L 259 14 L 268 13 L 277 12 L 286 12 L 296 10 L 305 10 L 314 8 L 323 8 L 333 8 L 342 8 L 351 8 L 360 8 L 370 8 L 379 8 L 388 8 L 397 8 L 407 8 L 416 8 L 425 10 L 434 10 L 443 10 L 453 12 L 462 13 L 471 14 L 480 16 L 490 17 L 499 18 L 508 20 L 517 22 L 527 24 L 536 26 L 545 29 L 554 31 L 564 34 L 573 36 L 582 39 L 591 42 L 601 45 L 610 48 L 619 52 L 628 54 L 637 58 L 647 62 L 656 65 L 665 69 L 674 72 L 684 76 L 693 81 L 702 84 L 711 88 L 721 92 L 730 96 L 739 100 L 748 103 L 758 107 L 767 111 L 776 114 L 785 116 L 795 120 L 804 122 L 813 124 L 822 126 L 832 128 L 841 130 L 850 132 L 859 132 L 868 134 L 878 134 L 887 134 L 896 134 L 905 135 L 915 134 L 924 134 L 933 134 L 942 134 L 952 132 L 961 132 L 970 130 L 979 128 L 989 126 L 998 126 L 1007 123 L 1016 121 L 1026 118 L 1035 116 L 1044 114 L 1053 111 L 1062 108 L 1072 106 L 1081 103 L 1090 100 L 1099 97 L 1109 94 L 1118 91 L 1127 88 L 1136 86 L 1146 82 L 1155 80 L 1164 77 L 1173 74 L 1183 72 L 1192 69 L 1201 66 L 1210 64 L 1220 62 L 1229 60 L 1238 58 L 1247 56 L 1257 54 L 1266 52 L 1275 51 L 1284 50 L 1293 48 L 1303 47 L 1312 46 L 1321 46 L 1330 44 L 1340 44 L 1349 43 L 1358 42 L 1367 42 L 1377 42 L 1386 42 L 1395 42 L 1404 42 L 1414 42 L 1423 42 L 1432 44 L 1441 44 L 1451 44 L 1460 46 L 1469 161 L 1610 161 L 1610 -140 Z',
+    bottom: 'M -140 462 L -140 161 L 0 161 L 9 291 L 18 289 L 28 286 L 37 284 L 46 280 L 55 277 L 65 274 L 74 270 L 83 268 L 92 264 L 102 261 L 111 257 L 120 254 L 129 252 L 139 249 L 148 246 L 157 243 L 166 241 L 176 237 L 185 235 L 194 233 L 203 231 L 212 229 L 222 227 L 231 224 L 240 222 L 249 221 L 259 219 L 268 217 L 277 215 L 286 213 L 296 213 L 305 211 L 314 209 L 323 209 L 333 207 L 342 207 L 351 205 L 360 205 L 370 205 L 379 204 L 388 203 L 397 203 L 407 203 L 416 203 L 425 203 L 434 203 L 443 203 L 453 205 L 462 205 L 471 205 L 480 207 L 490 207 L 499 209 L 508 210 L 517 211 L 527 213 L 536 215 L 545 217 L 554 219 L 564 221 L 573 223 L 582 226 L 591 229 L 601 231 L 610 235 L 619 237 L 628 241 L 637 245 L 647 248 L 656 251 L 665 255 L 674 259 L 684 263 L 693 266 L 702 269 L 711 273 L 721 277 L 730 280 L 739 283 L 748 287 L 758 290 L 767 293 L 776 295 L 785 298 L 795 300 L 804 303 L 813 304 L 822 306 L 832 308 L 841 309 L 850 310 L 859 311 L 868 311 L 878 313 L 887 313 L 896 313 L 905 313 L 915 313 L 924 313 L 933 313 L 942 313 L 952 311 L 961 311 L 970 310 L 979 309 L 989 308 L 998 308 L 1007 309 L 1016 309 L 1026 309 L 1035 309 L 1044 309 L 1053 308 L 1062 308 L 1072 308 L 1081 308 L 1090 307 L 1099 307 L 1109 307 L 1118 307 L 1127 307 L 1136 307 L 1146 306 L 1155 305 L 1164 305 L 1173 304 L 1183 303 L 1192 303 L 1201 301 L 1210 301 L 1220 299 L 1229 299 L 1238 297 L 1247 296 L 1257 295 L 1266 293 L 1275 291 L 1284 290 L 1293 289 L 1303 287 L 1312 285 L 1321 283 L 1330 281 L 1340 278 L 1349 275 L 1358 273 L 1367 271 L 1377 268 L 1386 265 L 1395 262 L 1404 259 L 1414 256 L 1423 253 L 1432 249 L 1441 245 L 1451 239 L 1460 233 L 1469 161 L 1610 161 L 1610 462 Z',
+  },
+  // Concept sheet 01, top band: deeper S-wave, notched both ends
+  b: {
+    src: '/ribbon/flow-b.png',
+    w: 1362,
+    h: 266,
+    top: 'M -140 -140 L -140 133 L 0 133 L 9 44 L 17 42 L 26 40 L 34 39 L 43 38 L 51 36 L 60 34 L 68 33 L 77 32 L 86 30 L 94 28 L 103 27 L 111 26 L 120 24 L 128 24 L 137 22 L 146 20 L 154 20 L 163 18 L 171 18 L 180 16 L 188 16 L 197 14 L 205 14 L 214 14 L 223 12 L 231 12 L 240 12 L 248 10 L 257 10 L 265 10 L 274 10 L 282 9 L 291 8 L 300 8 L 308 8 L 317 8 L 325 8 L 334 8 L 342 8 L 351 8 L 360 8 L 368 10 L 377 10 L 385 10 L 394 10 L 402 10 L 411 12 L 419 12 L 428 14 L 437 14 L 445 15 L 454 16 L 462 18 L 471 18 L 479 20 L 488 22 L 496 22 L 505 24 L 514 26 L 522 28 L 531 30 L 539 32 L 548 34 L 556 36 L 565 38 L 574 40 L 582 42 L 591 46 L 599 48 L 608 50 L 616 53 L 625 56 L 633 59 L 642 62 L 651 65 L 659 68 L 668 70 L 676 73 L 685 76 L 693 79 L 702 82 L 710 85 L 719 88 L 728 91 L 736 94 L 745 97 L 753 100 L 762 102 L 770 104 L 779 107 L 787 110 L 796 112 L 805 114 L 813 116 L 822 118 L 830 120 L 839 122 L 847 123 L 856 124 L 865 126 L 873 128 L 882 128 L 890 130 L 899 130 L 907 130 L 916 130 L 924 130 L 933 130 L 942 130 L 950 130 L 959 130 L 967 128 L 976 128 L 984 126 L 993 124 L 1001 123 L 1010 122 L 1019 119 L 1027 117 L 1036 114 L 1044 112 L 1053 109 L 1061 106 L 1070 103 L 1079 99 L 1087 96 L 1096 93 L 1104 90 L 1113 86 L 1121 82 L 1130 78 L 1138 75 L 1147 71 L 1156 68 L 1164 64 L 1173 60 L 1181 57 L 1190 54 L 1198 51 L 1207 48 L 1215 45 L 1224 42 L 1233 39 L 1241 37 L 1250 34 L 1258 32 L 1267 30 L 1275 28 L 1284 27 L 1293 26 L 1301 24 L 1310 23 L 1318 22 L 1327 22 L 1335 20 L 1344 20 L 1352 20 L 1361 133 L 1502 133 L 1502 -140 Z',
+    bottom: 'M -140 406 L -140 133 L 0 133 L 9 186 L 17 185 L 26 185 L 34 184 L 43 183 L 51 185 L 60 185 L 68 185 L 77 184 L 86 176 L 94 174 L 103 172 L 111 170 L 120 168 L 128 168 L 137 166 L 146 164 L 154 163 L 163 162 L 171 160 L 180 158 L 188 157 L 197 156 L 205 154 L 214 152 L 223 151 L 231 149 L 240 148 L 248 147 L 257 146 L 265 145 L 274 143 L 282 143 L 291 141 L 300 141 L 308 140 L 317 139 L 325 139 L 334 137 L 342 137 L 351 137 L 360 137 L 368 136 L 377 135 L 385 135 L 394 135 L 402 135 L 411 135 L 419 135 L 428 136 L 437 137 L 445 137 L 454 137 L 462 137 L 471 139 L 479 139 L 488 141 L 496 141 L 505 143 L 514 145 L 522 146 L 531 147 L 539 149 L 548 151 L 556 153 L 565 155 L 574 158 L 582 160 L 591 163 L 599 165 L 608 168 L 616 171 L 625 173 L 633 177 L 642 180 L 651 183 L 659 187 L 668 190 L 676 193 L 685 197 L 693 199 L 702 203 L 710 206 L 719 210 L 728 213 L 736 216 L 745 219 L 753 223 L 762 225 L 770 228 L 779 231 L 787 233 L 796 237 L 805 239 L 813 241 L 822 244 L 830 246 L 839 249 L 847 250 L 856 251 L 865 253 L 873 254 L 882 255 L 890 255 L 899 256 L 907 257 L 916 257 L 924 257 L 933 257 L 942 257 L 950 257 L 959 255 L 967 255 L 976 253 L 984 253 L 993 251 L 1001 249 L 1010 247 L 1019 246 L 1027 244 L 1036 241 L 1044 239 L 1053 236 L 1061 233 L 1070 231 L 1079 227 L 1087 225 L 1096 221 L 1104 217 L 1113 214 L 1121 211 L 1130 207 L 1138 204 L 1147 200 L 1156 197 L 1164 193 L 1173 191 L 1181 188 L 1190 185 L 1198 183 L 1207 180 L 1215 178 L 1224 175 L 1233 173 L 1241 171 L 1250 171 L 1258 169 L 1267 167 L 1275 167 L 1284 166 L 1293 165 L 1301 165 L 1310 165 L 1318 165 L 1327 165 L 1335 165 L 1344 165 L 1352 167 L 1361 133 L 1502 133 L 1502 406 Z',
+  },
+} as const
 
 export function RibbonBand({
+  variant = 'a',
   flip = false,
   topColor,
   bottomColor,
 }: {
+  variant?: keyof typeof VARIANTS
   flip?: boolean
   topColor: string
   bottomColor: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const reduceMotion = useReducedMotion()
+  const v = VARIANTS[variant]
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] })
 
-  const x = useScrollLinked(useTransform(scrollYProgress, [0, 1], [-30, 30]))
-  const sheenNum = useScrollLinked(useTransform(scrollYProgress, [0, 1], [-30, 130]))
-  const sheenX = useTransform(sheenNum, (v) => `${v}%`)
+  // The band drifts sideways with scroll and breathes vertically: a floating
+  // object, not a printed stripe
+  const x = useScrollLinked(useTransform(scrollYProgress, [0, 1], [-34, 34]))
+  const y = useScrollLinked(useTransform(scrollYProgress, [0, 1], [8, -8]))
 
   return (
     <div
       ref={ref}
       aria-hidden="true"
-      className="relative pointer-events-none select-none h-[110px] md:h-[190px] overflow-hidden"
+      className="relative pointer-events-none select-none h-[150px] md:h-[300px] overflow-hidden"
       style={{ background: topColor }}
     >
       <motion.div
         className="absolute -inset-x-[3%] inset-y-0"
-        style={{ x: reduceMotion ? 0 : x, scaleX: flip ? -1 : 1 }}
+        style={{ x: reduceMotion ? 0 : x, y: reduceMotion ? 0 : y, scaleX: flip ? -1 : 1 }}
       >
-        {/* The seam follows the fabric: fills trace the band's real edges */}
-        <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
-          <path d={TOP_FILL} fill={topColor} />
-          <path d={BOTTOM_FILL} fill={bottomColor} />
+        {/* The seam follows the ribbon: fills trace the band's real edges */}
+        <svg viewBox={`0 0 ${v.w} ${v.h}`} preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
+          <path d={v.top} fill={topColor} />
+          <path d={v.bottom} fill={bottomColor} />
         </svg>
 
-        {/* The satin band itself */}
-        <img src="/ribbon/band.png" alt="" className="absolute inset-0 h-full w-full" style={{ objectFit: 'fill' }} />
-
-        {/* A soft light sweep along the fabric, clipped by its own alpha */}
-        {!reduceMotion && (
-          <motion.div
-            className="absolute inset-0"
-            style={{
-              WebkitMaskImage: 'url(/ribbon/band.png)',
-              maskImage: 'url(/ribbon/band.png)',
-              WebkitMaskSize: '100% 100%',
-              maskSize: '100% 100%',
-              background:
-                'linear-gradient(100deg, rgba(255,255,255,0) 40%, rgba(255,255,255,0.28) 50%, rgba(255,255,255,0) 60%)',
-              backgroundSize: '300% 100%',
-              backgroundPositionX: sheenX,
-            }}
-          />
-        )}
+        {/* The brand ribbon itself: matte, thick-edged, die-cut ends */}
+        <img src={v.src} alt="" className="absolute inset-0 h-full w-full" style={{ objectFit: 'fill' }} />
       </motion.div>
     </div>
   )
