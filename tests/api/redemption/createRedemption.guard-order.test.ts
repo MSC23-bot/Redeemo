@@ -16,6 +16,7 @@ vi.mock('../../../src/api/shared/encryption', () => ({
 }))
 
 import { createRedemption } from '../../../src/api/redemption/service'
+import { makeRedemptionRedis } from './helpers/pinLimiterRedis'
 
 const REAL_PIN = '1234'
 const WRONG_PIN = '0000'
@@ -70,15 +71,12 @@ function mockHappyPrisma() {
   } as any
 }
 
-function mockRedis() {
-  return {
-    get: vi.fn().mockResolvedValue(null),
-    incr: vi.fn().mockResolvedValue(1),
-    expire: vi.fn().mockResolvedValue(1),
-    del: vi.fn().mockResolvedValue(1),
-    ttl: vi.fn().mockResolvedValue(900),
-  } as any
-}
+// The PIN rate-limit gate now runs through the shared atomic consume() limiter,
+// which calls redis.eval(). "The counter was not touched" is therefore asserted
+// as "redis.eval was not called" (the gate was never reached); "the counter was
+// touched once" is "redis.eval called once". A correct PIN clears the counter via
+// redis.del (unchanged).
+const mockRedis = () => makeRedemptionRedis()
 
 describe('createRedemption — guard order (PIN oracle closed)', () => {
   beforeEach(() => {
@@ -88,7 +86,8 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
   // ── Eligibility errors must return BEFORE PIN compare ──────────────────
   // Pattern: configure ONE gate to fail, submit a WRONG_PIN, assert:
   //   (a) the eligibility error is thrown (not INVALID_PIN), AND
-  //   (b) redis.incr was never called (counter not incremented).
+  //   (b) redis.eval — the atomic rate-limit gate — was never reached (so the
+  //       failure counter was never touched).
 
   it('SUBSCRIPTION_REQUIRED returns before PIN compare (no counter increment)', async () => {
     const prisma = mockHappyPrisma()
@@ -99,8 +98,7 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
     ).rejects.toThrow('SUBSCRIPTION_REQUIRED')
 
-    expect(redis.incr).not.toHaveBeenCalled()
-    expect(redis.expire).not.toHaveBeenCalled()
+    expect(redis.eval).not.toHaveBeenCalled()
   })
 
   it('PHONE_NOT_VERIFIED returns before PIN compare (no counter increment)', async () => {
@@ -112,7 +110,7 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
     ).rejects.toThrow('PHONE_NOT_VERIFIED')
 
-    expect(redis.incr).not.toHaveBeenCalled()
+    expect(redis.eval).not.toHaveBeenCalled()
   })
 
   it('VOUCHER_NOT_FOUND (inactive) returns before PIN compare (no counter increment)', async () => {
@@ -129,7 +127,7 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
     ).rejects.toThrow('VOUCHER_NOT_FOUND')
 
-    expect(redis.incr).not.toHaveBeenCalled()
+    expect(redis.eval).not.toHaveBeenCalled()
   })
 
   it('BRANCH_MERCHANT_MISMATCH returns before PIN compare (no counter increment)', async () => {
@@ -146,7 +144,7 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
     ).rejects.toThrow('BRANCH_MERCHANT_MISMATCH')
 
-    expect(redis.incr).not.toHaveBeenCalled()
+    expect(redis.eval).not.toHaveBeenCalled()
   })
 
   it('ALREADY_REDEEMED returns before PIN compare (no counter increment)', async () => {
@@ -162,7 +160,7 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
     ).rejects.toThrow('ALREADY_REDEEMED')
 
-    expect(redis.incr).not.toHaveBeenCalled()
+    expect(redis.eval).not.toHaveBeenCalled()
   })
 
   it('PIN_NOT_CONFIGURED returns BEFORE rate-limit check (so a no-PIN branch cannot trip the counter)', async () => {
@@ -178,7 +176,7 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
     ).rejects.toThrow('PIN_NOT_CONFIGURED')
 
-    expect(redis.incr).not.toHaveBeenCalled()
+    expect(redis.eval).not.toHaveBeenCalled()
   })
 
   // ── INVALID_PIN ONLY runs once eligibility passes ──────────────────────
@@ -191,8 +189,7 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
     ).rejects.toThrow('INVALID_PIN')
 
-    expect(redis.incr).toHaveBeenCalledTimes(1)
-    expect(redis.expire).toHaveBeenCalledTimes(1)
+    expect(redis.eval).toHaveBeenCalledTimes(1)
   })
 
   it('successful redemption resets counter to zero', async () => {
@@ -204,8 +201,10 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
     )
 
     expect(result.redemptionCode).toBe('A7K2P9X4')
+    // Correct PIN reached the atomic gate exactly once (redis.eval) and cleared
+    // the whole failure counter (redis.del) — no failure is recorded.
     expect(redis.del).toHaveBeenCalled()
-    expect(redis.incr).not.toHaveBeenCalled()
+    expect(redis.eval).toHaveBeenCalledTimes(1)
   })
 
   // ── Expired voucher eligibility (server-side; cannot be bypassed by UI) ──
@@ -241,7 +240,7 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
     ).rejects.toThrow('VOUCHER_NOT_FOUND')
 
-    expect(redis.incr).not.toHaveBeenCalled()
+    expect(redis.eval).not.toHaveBeenCalled()
     expect(redis.expire).not.toHaveBeenCalled()
   })
 
@@ -292,7 +291,7 @@ describe('createRedemption — guard order (PIN oracle closed)', () => {
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: WRONG_PIN }, baseCtx)
     ).rejects.toThrow('BRANCH_UNAVAILABLE')
 
-    expect(redis.incr).not.toHaveBeenCalled()
+    expect(redis.eval).not.toHaveBeenCalled()
     expect(redis.expire).not.toHaveBeenCalled()
   })
 

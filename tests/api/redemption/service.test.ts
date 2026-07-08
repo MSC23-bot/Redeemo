@@ -15,6 +15,8 @@ import {
   getMyRedemption,
   listBranchRedemptions,
 } from '../../../src/api/redemption/service'
+import { RedisKey } from '../../../src/api/shared/redis-keys'
+import { makeRedemptionRedis } from './helpers/pinLimiterRedis'
 
 const mockPrisma = () => ({
   branch:                  { findUnique: vi.fn() },
@@ -27,13 +29,10 @@ const mockPrisma = () => ({
   $transaction:            vi.fn(),
 } as any)
 
-const mockRedis = () => ({
-  get:   vi.fn().mockResolvedValue(null),
-  incr:  vi.fn().mockResolvedValue(1),
-  expire: vi.fn().mockResolvedValue(1),
-  del:   vi.fn().mockResolvedValue(1),
-  ttl:   vi.fn().mockResolvedValue(900),
-} as any)
+// The PIN rate-limit gate runs through the shared atomic consume() limiter,
+// which calls redis.eval(). This fake backs eval()/get()/del() with one Map so
+// the counter behaves faithfully; seed `counts` to simulate an at-limit user.
+const mockRedis = () => makeRedemptionRedis()
 
 const baseCtx = { ipAddress: '127.0.0.1', userAgent: 'test' }
 
@@ -66,8 +65,8 @@ describe('createRedemption', () => {
 
   it('throws PIN_RATE_LIMIT_EXCEEDED when rate limit counter >= 5 (after eligibility passes)', async () => {
     const prisma = mockPrisma()
-    const redis = mockRedis()
-    redis.get.mockResolvedValueOnce('5')
+    // Seed the failure counter AT the limit so the atomic consume() gate blocks.
+    const redis = makeRedemptionRedis({ counts: { [RedisKey.pinFailCount('user-1', 'b1')]: '5' } })
     prisma.branch.findUnique.mockResolvedValue({ id: 'b1', merchantId: 'm1', isActive: true, redemptionPin: 'enc:9999' })
     prisma.subscription.findUnique.mockResolvedValue({ status: 'ACTIVE', cycleAnchorDate: happyAnchor })
     prisma.voucher.findUnique.mockResolvedValue(happyVoucher)
@@ -91,7 +90,7 @@ describe('createRedemption', () => {
       createRedemption(prisma, redis, 'user-1', { voucherId: 'v1', branchId: 'b1', pin: '1234' }, baseCtx)
     ).rejects.toThrow('INVALID_PIN')
 
-    expect(redis.incr).toHaveBeenCalled()
+    expect(redis.eval).toHaveBeenCalled()
   })
 
   it('throws SUBSCRIPTION_REQUIRED when subscription is not active', async () => {
@@ -241,11 +240,9 @@ describe('createRedemption', () => {
 
   it('PIN failure at branch A does not block at branch B', async () => {
     const prisma = mockPrisma()
-    const redis = mockRedis()
-    redis.get.mockImplementation((key: string) => {
-      if (key.includes('b-branch-a')) return Promise.resolve('5')
-      return Promise.resolve(null)
-    })
+    // Branch A's failure counter is AT the limit; branch B is a DIFFERENT consume
+    // key and must be unaffected — per-branch lockout isolation.
+    const redis = makeRedemptionRedis({ counts: { [RedisKey.pinFailCount('user-1', 'b-branch-a')]: '5' } })
 
     prisma.branch.findUnique.mockResolvedValue({ id: 'b-branch-b', merchantId: 'm1', isActive: true, redemptionPin: 'enc:1234' })
     const anchor = new Date(Date.UTC(2026, 0, 10))

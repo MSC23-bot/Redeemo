@@ -27,6 +27,7 @@ vi.mock('../../../src/api/shared/encryption', () => ({
 }))
 
 import { createRedemption } from '../../../src/api/redemption/service'
+import { makeRedemptionRedis } from './helpers/pinLimiterRedis'
 
 const REAL_PIN = '1234'
 const baseCtx = { ipAddress: '127.0.0.1', userAgent: 'test' }
@@ -179,15 +180,7 @@ function mockNonTimeLimitedPrisma() {
 
 const nonTLTxSpies: any = {}
 
-function mockRedis() {
-  return {
-    get:    vi.fn().mockResolvedValue(null),
-    incr:   vi.fn().mockResolvedValue(1),
-    expire: vi.fn().mockResolvedValue(1),
-    del:    vi.fn().mockResolvedValue(1),
-    ttl:    vi.fn().mockResolvedValue(900),
-  } as any
-}
+const mockRedis = () => makeRedemptionRedis()
 
 beforeEach(() => {
   vi.clearAllMocks()

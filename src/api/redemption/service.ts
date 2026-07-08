@@ -6,6 +6,7 @@ import { decrypt } from '../shared/encryption'
 import { classifyPinDecryptError } from '../shared/pinDecrypt'
 import { writeAuditLog } from '../shared/audit'
 import { RedisKey } from '../shared/redis-keys'
+import { consume } from '../shared/atomicLimiter'
 import { getCurrentCycleWindow } from '../subscription/cycle'
 import {
   getCurrentWindowOccurrence,
@@ -266,18 +267,31 @@ export async function createRedemption(
     throw new AppError('PIN_NOT_CONFIGURED')
   }
 
-  // 9. Rate limit — protects ONLY the PIN compare step below
+  // 9. Rate limit — protects ONLY the PIN compare step below (rate-limit BEFORE
+  // compare is the PIN-oracle defence: a locked-out caller must never reach the
+  // compare). ATOMIC reserve via the shared consume() limiter.
+  //
+  // consume() runs the INCR-and-check as ONE Lua round-trip, so N concurrent
+  // redeem requests serialise server-side and can NEVER overshoot the cap. The
+  // previous GET-check + late conditional INCR could overshoot: N concurrent
+  // attempts all read a stale count, all pass the `>= LIMIT` gate, and all reach
+  // the PIN compare in one window — H2 in the 2026-07-06 platform security audit
+  // (the brute-force ceiling on the shared 4-digit branch PIN was bypassable by a
+  // concurrent burst). Every attempt reserves one slot here; a CORRECT PIN clears
+  // the whole counter the moment it is verified (below, before the atomic claim),
+  // so only genuine failures count toward the 5/15-min lockout (unchanged product
+  // contract). consume() also
+  // sets the window TTL inside the atomic script, closing the old INCR/EXPIRE-split
+  // permanent-lockout-on-crash bug (audit L5).
   const failKey = RedisKey.pinFailCount(userId, data.branchId)
-  const failCount = await redis.get(failKey)
-  if (failCount !== null && parseInt(failCount, 10) >= PIN_FAIL_LIMIT) {
-    // Surface the precise lockout window remaining to the customer-app so
-    // PinEntrySheet can render an authoritative mm:ss countdown. Redis
-    // returns -1 (key has no TTL) or -2 (key missing) on edge cases —
-    // fall back to the full PIN_FAIL_WINDOW so the UI never displays a
-    // negative or stuck timer.
-    const ttl = await redis.ttl(failKey)
-    const retryAfter = ttl > 0 ? ttl : PIN_FAIL_WINDOW
-    throw new AppError('PIN_RATE_LIMIT_EXCEEDED', { retryAfter })
+  const gate = await consume(redis, {
+    abuserKeys: [{ key: failKey, limit: PIN_FAIL_LIMIT, windowSec: PIN_FAIL_WINDOW }],
+  })
+  if (!gate.ok) {
+    // consume() returns the blocking key's TTL (or its window on the Redis
+    // -1/-2 no-TTL edge) as retryAfter, so PinEntrySheet still renders an
+    // authoritative mm:ss countdown.
+    throw new AppError('PIN_RATE_LIMIT_EXCEEDED', { retryAfter: gate.retryAfter })
   }
 
   // 10. Timing-safe PIN comparison.
@@ -312,23 +326,49 @@ export async function createRedemption(
   } catch (err) {
     // ANY throw inside the compare block — a decrypt failure (key-unavailable / parse /
     // GCM-auth) OR an unexpected fault in the length-check / Buffer.from / timingSafeEqual —
-    // is a loud, controlled server/data fault: classifyPinDecryptError maps it to a
-    // controlled AppError and it throws BEFORE the wrong-PIN counter below, so it NEVER
-    // increments the lockout. (The genuine wrong PIN never reaches here: it is a successful
-    // decrypt whose plaintext is simply unequal → pinMatches=false → the counter path.)
+    // is a loud, controlled server/data fault, NEVER a wrong PIN. It must NOT accrue toward
+    // the lockout (locked Guard-10 invariant: a branch key/ciphertext fault silently locking
+    // a user out is the exact silent-outage failure R1 prevents). This attempt already
+    // RESERVED a slot in the step-9 consume(), so refund it (DECR undoes only THIS attempt's
+    // reservation, preserving any genuine prior failures; the impossible negative is floored).
+    // Best-effort: a failed refund must never mask the underlying fault.
+    try {
+      const v = await redis.decr(failKey)
+      if (v < 0) await redis.del(failKey)
+    } catch {
+      /* swallow — surface the real decrypt/data fault below, not a Redis refund error */
+    }
+    // classifyPinDecryptError maps the fault to a controlled AppError. The genuine wrong PIN
+    // never reaches here: it is a successful decrypt whose plaintext is simply unequal →
+    // pinMatches=false → the counter (reservation-kept) path below.
     throw classifyPinDecryptError(err, { branchId: branch.id, source: 'redemption' })
   }
 
   if (!pinMatches) {
-    const newCount = await redis.incr(failKey)
-    await redis.expire(failKey, PIN_FAIL_WINDOW)
-    // Surface remainingAttempts to the customer-app so the lockout-counter
-    // UI can show authoritative "X attempts remaining" copy. Clamped at 0
-    // — a counter overshoot (from a race or a stale Redis state) never
-    // produces a negative number.
-    const remainingAttempts = Math.max(0, PIN_FAIL_LIMIT - newCount)
+    // This attempt already reserved (and counted) its slot in the step-9
+    // consume(); a WRONG PIN keeps that reservation — it IS the recorded
+    // failure, so there is nothing more to increment here. Read the post-reserve
+    // count purely for the "X attempts remaining" UI: display-only, so a slightly
+    // stale read under a concurrent burst only ever UNDER-reports remaining
+    // (fails safe). Correctness of the 5-attempt cap lives entirely in the atomic
+    // consume() above, never in this read. A null read (shouldn't happen — the
+    // reserve just INCR'd the key) conservatively shows 0 remaining. Clamped at 0
+    // so a counter overshoot never yields a negative number.
+    const raw = await redis.get(failKey)
+    const count = raw !== null ? parseInt(raw, 10) : PIN_FAIL_LIMIT
+    const remainingAttempts = Math.max(0, PIN_FAIL_LIMIT - count)
     throw new AppError('INVALID_PIN', { remainingAttempts })
   }
+
+  // Correct PIN verified → clear the whole per-(user,branch) failure counter NOW,
+  // BEFORE the atomic claim below. A proven-correct PIN must never count toward the
+  // lockout even if the claim then throws (a concurrent ALREADY_REDEEMED /
+  // ALREADY_REDEEMED_THIS_WINDOW / REUSABLE_COOLDOWN_ACTIVE, or a transient DB
+  // error) — otherwise a legitimate user retrying during a race/outage would burn
+  // their own budget on correct entries. Clearing on a verified-correct PIN is safe
+  // for brute-force resistance: an attacker cannot reach this line without already
+  // knowing the PIN.
+  await redis.del(failKey)
 
   // 11. Atomic write — race-safe conditional claim with CROSS-TRANSACTION
   // retry.
@@ -530,9 +570,6 @@ export async function createRedemption(
       })
     }
   }
-
-  // 9. Reset fail counter on success
-  await redis.del(failKey)
 
   writeAuditLog(prisma, {
     entityId: userId, entityType: 'customer',
