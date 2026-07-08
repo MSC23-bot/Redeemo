@@ -14,6 +14,7 @@ import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { LoadingStatus, SkeletonTable } from '@/components/ui/skeleton'
 import { ScanLine, X, Info } from '@/lib/icons'
 import { RedemptionsTable } from '@/components/redemptions/RedemptionsTable'
 import { RedemptionFilters } from '@/components/redemptions/RedemptionFilters'
@@ -240,11 +241,9 @@ export default function RedemptionsPage() {
       )}
 
       {list.isLoading ? (
-        <Card>
-          <div role="status" aria-live="polite" className="px-6 text-sm text-muted-foreground">
-            Loading your redemptions...
-          </div>
-        </Card>
+        <LoadingStatus label="Loading your redemptions...">
+          <SkeletonTable rows={6} columns={7} />
+        </LoadingStatus>
       ) : list.isError ? (
         <Card>
           <div role="alert" className="space-y-3 px-6">

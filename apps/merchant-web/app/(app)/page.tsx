@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { LoadingStatus, SkeletonKpiRow, SkeletonChartBlock } from '@/components/ui/skeleton'
 import { StaircaseHub } from '@/components/onboarding/StaircaseHub'
 import { LifecycleHome } from '@/components/onboarding/LifecycleHome'
 import HomeDashboard from '@/components/home/HomeDashboard'
@@ -63,9 +64,12 @@ export default function HomePage() {
 
   if (profile.isLoading || !profile.data) {
     return (
-      <div role="status" aria-live="polite" className="text-sm text-muted-foreground">
-        Loading your account...
-      </div>
+      <LoadingStatus label="Loading your account...">
+        <div className="flex flex-col gap-6">
+          <SkeletonKpiRow />
+          <SkeletonChartBlock />
+        </div>
+      </LoadingStatus>
     )
   }
 

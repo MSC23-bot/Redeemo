@@ -20,6 +20,7 @@
  */
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { LoadingStatus, SkeletonCard } from '@/components/ui/skeleton'
 import { Lock } from '@/lib/icons'
 import { useSession } from '@/lib/auth/session'
 import { useMerchantProfile } from '@/lib/auth/useMerchantProfile'
@@ -73,11 +74,17 @@ export default function BusinessProfilePage() {
       </header>
 
       {profile.isLoading ? (
-        <Card>
-          <div role="status" aria-live="polite" className="px-6 text-sm text-muted-foreground">
-            Loading your business profile...
+        <LoadingStatus label="Loading your business profile...">
+          <div className="space-y-6">
+            <SkeletonCard lines={3} />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <SkeletonCard lines={3} />
+              <SkeletonCard lines={3} />
+            </div>
+            <SkeletonCard lines={2} />
+            <SkeletonCard lines={2} />
           </div>
-        </Card>
+        </LoadingStatus>
       ) : profile.isError || !profile.data ? (
         <Card>
           <div role="alert" className="space-y-3 px-6">

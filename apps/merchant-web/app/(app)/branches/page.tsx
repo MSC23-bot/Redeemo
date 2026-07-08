@@ -20,6 +20,7 @@
 import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { LoadingStatus, SkeletonCard, SkeletonTable } from '@/components/ui/skeleton'
 import { useBranches } from '@/lib/branches/useBranches'
 import { useBranchCapability } from '@/lib/branches/useBranchCapability'
 import { useSession } from '@/lib/auth/session'
@@ -56,11 +57,16 @@ export default function BranchesPage() {
       </header>
 
       {branches.isLoading ? (
-        <Card>
-          <div role="status" aria-live="polite" className="px-6 text-sm text-muted-foreground">
-            Loading your branches...
+        <LoadingStatus label="Loading your branches...">
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <SkeletonCard lines={1} showIcon />
+              <SkeletonCard lines={1} showIcon />
+              <SkeletonCard lines={1} showIcon />
+            </div>
+            <SkeletonTable rows={5} columns={5} />
           </div>
-        </Card>
+        </LoadingStatus>
       ) : branches.isError ? (
         <Card>
           <div role="alert" className="space-y-3 px-6">

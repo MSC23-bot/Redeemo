@@ -283,6 +283,15 @@ describe('InsightsPage (B8 assembly + states + lifecycle)', () => {
     expect(screen.getByText(/loading your insights|preparing your insights/i)).toBeInTheDocument()
   })
 
+  // A8: the page-level loading state is now a KPI-row + chart skeleton (not bare
+  // text), inside a single role=status region.
+  it('renders a KPI-row + chart skeleton (not bare text) while the overview is in flight', () => {
+    mockOverview.mockReturnValue(new Promise(() => {}))
+    renderPage()
+    const status = screen.getByRole('status')
+    expect(status.querySelectorAll('[data-testid="skeleton-bone"]').length).toBeGreaterThan(0)
+  })
+
   it('shows a friendly error with retry when the overview fails (non-lifecycle ApiError)', async () => {
     mockOverview.mockRejectedValue(new ApiError(500, { error: { code: 'INTERNAL', message: 'boom' } }))
     renderPage()

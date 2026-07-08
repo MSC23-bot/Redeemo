@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { listCustomVouchers, listFlagshipVouchers, type PendingVoucherEdit } from '@/lib/api/voucher'
+import { LoadingStatus, SkeletonCardList } from '@/components/ui/skeleton'
 import { useVoucherCapability } from '@/lib/voucher/useVoucherCapability'
 import { useVoucherCategoryName } from '@/lib/voucher/useVoucherCategoryName'
 import { VouchersList } from '@/components/vouchers/VouchersList'
@@ -101,11 +102,9 @@ export default function VouchersPage() {
       </header>
 
       {custom.isLoading || flagship.isLoading ? (
-        <Card>
-          <div role="status" aria-live="polite" className="px-6 text-sm text-muted-foreground">
-            Loading your vouchers...
-          </div>
-        </Card>
+        <LoadingStatus label="Loading your vouchers...">
+          <SkeletonCardList count={4} lines={2} />
+        </LoadingStatus>
       ) : custom.isError ? (
         <Card>
           <div role="alert" className="space-y-3 px-6">

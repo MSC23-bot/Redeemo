@@ -13,6 +13,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Clock, ArrowRight, Lock } from '@/lib/icons'
+import { LoadingStatus, SkeletonKpiRow, SkeletonChartBlock } from '@/components/ui/skeleton'
 
 /** The Insights page header (logged-primary sub-headline; never "honoured"). */
 export function PageHeader() {
@@ -137,19 +138,20 @@ export function InsightsWarmingUp() {
   )
 }
 
-/** The page-level loading state. */
+/** The page-level loading state: a skeleton matching the eventual KPI row + trend
+ * chart + tabbed-section layout, so the surface never flashes bare text while it
+ * still does not know whether it will land on the dashboard, the lock, or an
+ * empty state. */
 export function InsightsLoading() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader />
-      <div
-        role="status"
-        aria-live="polite"
-        className="text-sm"
-        style={{ color: 'var(--text-muted)' }}
-      >
-        Loading your insights...
-      </div>
+      <LoadingStatus label="Loading your insights...">
+        <div className="flex flex-col gap-6">
+          <SkeletonKpiRow />
+          <SkeletonChartBlock />
+        </div>
+      </LoadingStatus>
     </div>
   )
 }

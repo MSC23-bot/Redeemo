@@ -10,6 +10,7 @@
  */
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { LoadingStatus, SkeletonCardList } from '@/components/ui/skeleton'
 import { useSession } from '@/lib/auth/session'
 import { useMerchantAccount } from '@/lib/account/useMerchantAccount'
 import { useMerchantSessions } from '@/lib/account/useMerchantSessions'
@@ -31,11 +32,9 @@ export default function MyAccountPage() {
       </header>
 
       {account.isLoading ? (
-        <Card>
-          <div role="status" aria-live="polite" className="px-6 text-sm text-muted-foreground">
-            Loading your account...
-          </div>
-        </Card>
+        <LoadingStatus label="Loading your account...">
+          <SkeletonCardList count={4} lines={2} />
+        </LoadingStatus>
       ) : account.isError || !account.data ? (
         <Card>
           <div role="alert" className="space-y-3 px-6">
