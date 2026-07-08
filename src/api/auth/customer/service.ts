@@ -361,10 +361,14 @@ export async function refreshCustomerToken(
       entityId: data.entityId, entityType: 'customer', event: 'AUTH_REFRESH_DENIED_STATUS',
       ipAddress: data.ipAddress, userAgent: data.userAgent,
     })
+    // Isolate the two cleanups so a Redis outage on the session-key revoke cannot
+    // skip the DB UserSession-record revoke. Both best-effort: refresh is denied below.
     try {
       await revokeAllSessionsForEntity(redis, { role: 'customer', entityId: data.entityId })
+    } catch { /* best-effort */ }
+    try {
       await revokeAllUserSessionRecords(prisma, { entityId: data.entityId, entityType: 'customer', reason: 'ACCOUNT_STATUS_CHANGED' })
-    } catch { /* best-effort: the refresh is still denied below */ }
+    } catch { /* best-effort */ }
     if (account?.status === 'INACTIVE')  throw new AppError('ACCOUNT_INACTIVE')
     if (account?.status === 'SUSPENDED') throw new AppError('ACCOUNT_SUSPENDED')
     throw new AppError('INVALID_CREDENTIALS') // DELETED, or the row vanished

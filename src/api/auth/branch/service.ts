@@ -181,10 +181,14 @@ export async function refreshBranchToken(
     // Audit FIRST (always recorded), THEN revoke all sessions best-effort so a
     // Redis blip cannot turn the clean 4xx into a 500; the refresh is denied below.
     writeAuditLog(prisma, { entityId: data.entityId, entityType: 'branch', event: 'AUTH_REFRESH_DENIED_STATUS', ipAddress: data.ipAddress, userAgent: data.userAgent })
+    // Isolate the two cleanups so a Redis outage on the session-key revoke cannot
+    // skip the DB UserSession-record revoke. Both best-effort: refresh is denied below.
     try {
       await revokeAllSessionsForEntity(redis, { role: 'branch', entityId: data.entityId })
+    } catch { /* best-effort */ }
+    try {
       await revokeAllUserSessionRecords(prisma, { entityId: data.entityId, entityType: 'branch', reason: 'ACCOUNT_STATUS_CHANGED' })
-    } catch { /* best-effort: the refresh is still denied below */ }
+    } catch { /* best-effort */ }
     if (!branchUser || branchUser.status === 'INACTIVE') throw new AppError('BRANCH_USER_DEACTIVATED')
     throw new AppError('MERCHANT_SUSPENDED')
   }

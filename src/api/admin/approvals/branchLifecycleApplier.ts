@@ -238,12 +238,15 @@ export async function approveBranchLifecycle(
   // access token expires within its ≤15-minute TTL.
   if (result.kind === 'close') {
     for (const branchUserId of result.branchUserIds) {
+      // Isolate the two cleanups: a Redis outage on the session-key revoke must
+      // NOT skip the DB UserSession-record revoke (and vice-versa). Both are
+      // best-effort — a revoke failure must not fail the (committed) approval.
       try {
         await revokeAllSessionsForEntity(redis, { role: 'branch', entityId: branchUserId })
+      } catch { /* best-effort */ }
+      try {
         await revokeAllUserSessionRecords(prisma, { entityId: branchUserId, entityType: 'branch', reason: 'BRANCH_CLOSED' })
-      } catch {
-        /* best-effort: a revoke failure must not fail the (committed) approval */
-      }
+      } catch { /* best-effort */ }
     }
   }
 
