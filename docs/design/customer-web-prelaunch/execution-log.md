@@ -590,3 +590,12 @@ edited by this workstream.
   HowItWorks (both hugged a seam), remounted small and far from the bands:
   Pricing top-left (200px) and AppCtaFooter top-right (220px), xl-gated,
   beside centred content so they never crowd copy.
+- Ribbon v11 SCALE + CLIP FIX (owner 2026-07-08: bands clipped at top/sides/
+  bottom and far too big: the navy-break one especially; the side peeks are
+  the right size reference): the bands now float inside transparent-padded
+  assets (8% vertical + 80px horizontal margins) so no crest or corner can
+  ever touch a container edge, including mid-rotation; first over-correction
+  (50-60% padding) made the deep wave a thin streak and was rebalanced same
+  pass. Per-variant stage heights (corkscrew 230px, deep wave 280px desktop;
+  110/130 mobile) bring the visible band body to peek scale. Turn softened
+  (rotateX 6deg, roll 1.2deg, drift 22px).
