@@ -79,6 +79,38 @@ export type SearchPlacesResult =
         | 'LOCAL_MONTHLY_CAP_REACHED'
     }
 
+// Shape of a Google API JSON error body (Places API (New) uses the standard
+// google.rpc.Status envelope). All fields optional/defensive — we only ever
+// read this for observability, never to change behaviour.
+type GoogleErrorBody = {
+  error?: {
+    status?: string
+    message?: string
+    details?: Array<{ reason?: string }>
+  }
+}
+
+// Logs the diagnostic shape of a non-OK Google response so an expired /
+// invalid / disabled API key (or any other Google-side rejection) is visible
+// in server logs WITHOUT needing a live probe. Every non-429 Google failure
+// collapses to the single client-safe `GOOGLE_UNAVAILABLE` error below — this
+// log is the only place the real cause is recorded.
+//
+// CRITICAL: never log the API key, any header, or the request body. Only the
+// HTTP status and Google's own error envelope (status / reason / message) —
+// none of which can contain the key.
+function logGoogleErrorDiagnostics(httpStatus: number, body: unknown): void {
+  const err = (body as GoogleErrorBody | null)?.error
+  console.error('[googlePlaces] non-OK response from Places API (New) Text Search', {
+    httpStatus,
+    googleErrorStatus: err?.status ?? null,
+    googleErrorReasons: Array.isArray(err?.details)
+      ? err.details.map((d) => d?.reason).filter((r): r is string => typeof r === 'string')
+      : [],
+    googleErrorMessage: err?.message ?? null,
+  })
+}
+
 export type SearchPlacesOptions = {
   /**
    * Which subsystem is calling. Phase 1 is `admin_cli` only — merchant
@@ -221,7 +253,15 @@ export async function searchPlaces(
     })
 
     if (res.status === 429) return { ok: false, error: 'QUOTA_EXCEEDED' }
-    if (!res.ok) return { ok: false, error: 'GOOGLE_UNAVAILABLE' }
+    if (!res.ok) {
+      // Best-effort: Google's error responses are JSON, but stay defensive —
+      // a malformed/non-JSON body must never crash the wrapper or change the
+      // GOOGLE_UNAVAILABLE contract returned to the caller.
+      let errorBody: unknown = null
+      try { errorBody = await res.json() } catch { /* non-JSON body; nothing to log */ }
+      logGoogleErrorDiagnostics(res.status, errorBody)
+      return { ok: false, error: 'GOOGLE_UNAVAILABLE' }
+    }
 
     const json = await res.json() as {
       places?: Array<{

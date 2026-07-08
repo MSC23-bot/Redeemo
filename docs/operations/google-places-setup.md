@@ -1,46 +1,52 @@
-# Google Places — Setup Checklist (Phase 1 merchant-pin)
+# Google Places — Setup Checklist (admin pin confirmation + merchant address search)
 
 Owner-run setup. Done once per environment.
 
 ## What this key is for
 
-Used by `prisma/suggest-branch-pin.ts` to suggest a merchant branch's exact
-storefront pin via Google Places Text Search. The CLI requires explicit owner
-confirmation before flipping the branch's `locationConfidence` to
-`MANUALLY_CONFIRMED`. See:
+Two server-side callers share this key, both going through the
+`searchPlaces()` wrapper in `src/api/lib/googlePlaces.ts`:
 
-- Spec: `docs/superpowers/specs/2026-05-14-merchant-exact-pin-confirmation-design.md`
-- Plan: `docs/superpowers/plans/2026-05-14-merchant-exact-pin-confirmation.md`
+1. `prisma/suggest-branch-pin.ts` (owner-run CLI) suggests a merchant branch's
+   exact storefront pin via Google Places Text Search. The CLI requires
+   explicit owner confirmation before flipping the branch's
+   `locationConfidence` to `MANUALLY_CONFIRMED`. See:
+   - Spec: `docs/superpowers/specs/2026-05-14-merchant-exact-pin-confirmation-design.md`
+   - Plan: `docs/superpowers/plans/2026-05-14-merchant-exact-pin-confirmation.md`
+2. The merchant-portal branch address search (SHIPPED — PR #318, Branches
+   PR-6): `POST /api/v1/merchant/location/search`
+   (`src/api/merchant/location/service.ts`, `apps/merchant-web/components/branches/LocationLookupField.tsx`)
+   lets a merchant search a business name/address while adding or editing a
+   branch, and autofills the address fields from the Google candidate they
+   pick. It calls `searchPlaces(query, { source: 'merchant_portal' })` so its
+   usage lands in its own `bySource` bucket inside
+   `.cache/google-places-usage.json`, and sits behind its own Redis atomic
+   limiter (`src/api/shared/merchantLocationLimiter.ts`) before any billable
+   Google call. Lat/lng and the Google `placeId` never cross the wire to the
+   merchant client (candidate-token flow) — the precise pin still requires
+   separate admin confirmation via the CLI above; the merchant pick never
+   sets `MANUALLY_CONFIRMED` on its own.
 
-## Phase 1 intended call pattern
+## Call pattern
 
-**Admin / owner CLI only.** A Google Places call may originate ONLY from
-`prisma/suggest-branch-pin.ts` invoked manually by the owner / admin.
-
-NOT allowed in Phase 1:
+A Google Places call may originate ONLY from `prisma/suggest-branch-pin.ts`
+(admin CLI) or the merchant-portal address-search route above. NOT allowed
+anywhere else:
 
 - Customer search
 - Customer map
 - Customer postcode preview (PC2 / cold-open)
-- Merchant organic signup
-- Merchant branch creation
-- Merchant portal viewing / editing
+- Merchant profile viewing (outside the branches address-search flow)
 
 Organic and newly recruited merchants start at `POSTCODE_CENTROID`. The
-admin then runs the CLI to suggest and confirm their exact pin; only
-explicit confirmation flips the branch to `MANUALLY_CONFIRMED`.
-
-When merchant-portal self-service is eventually scoped, it will call
-`searchPlaces(query, { source: 'merchant_portal' })` so its usage lands
-in its own `bySource` bucket inside `.cache/google-places-usage.json`.
-Brainstorm-first per the Tier 3 standing rule before any merchant-side
-Google call ships.
+merchant may narrow their own address via the search above, but the admin
+still runs the CLI to suggest and confirm the EXACT pin; only that explicit
+confirmation flips the branch to `MANUALLY_CONFIRMED`.
 
 ## What this key is NOT for
 
-- NOT a customer-facing API call.
-- NOT used during postcode preview, PC2 onboarding, customer discovery, search,
-  map, or merchant profile.
+- NOT used during postcode preview, PC2 onboarding, customer discovery,
+  customer search, customer map, or merchant profile viewing.
 - NOT cached or pre-fetched in bulk.
 - NOT used to import opening hours / photos / ratings / phone / website.
 
@@ -117,8 +123,10 @@ State lives at `.cache/google-places-usage.json` (gitignored). Shape:
 - A live `fetch` attempt counts ONCE — even on transport failure — so retry
   storms can't escape the bound.
 - An attempt blocked by either cap does NOT increment (no double-count).
-- The `bySource` buckets future-proof source tracking. Phase 1 = `admin_cli`
-  only.
+- The `bySource` buckets track usage per caller: `admin_cli` (the CLI above)
+  and `merchant_portal` (the shipped branch address search, PR #318). Both
+  callers share the SAME daily/monthly totals — the caps are total across
+  sources, not per-source.
 
 To temporarily raise either cap for a one-off batch:
 

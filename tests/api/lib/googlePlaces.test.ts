@@ -89,6 +89,66 @@ describe('searchPlaces', () => {
     if (!result.ok) expect(result.error).toBe('QUOTA_EXCEEDED')
   })
 
+  // B2 follow-up — a Fable diagnostic probe (2026-07-08) found the staging
+  // GOOGLE_MAPS_API_KEY had expired (Google returns HTTP 400,
+  // error.status = 'INVALID_ARGUMENT', details[].reason = 'API_KEY_INVALID'),
+  // but every non-429 Google failure collapsed to GOOGLE_UNAVAILABLE with no
+  // server-side trace of *why*. These tests pin the observability fix:
+  // the diagnostic fields are logged, and the client-safe contract is
+  // unchanged.
+  it('logs Google error diagnostics (status/reason/message) on a non-OK, non-429 response and still returns GOOGLE_UNAVAILABLE', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        error: {
+          code: 400,
+          message: 'API key expired. Please renew the API key.',
+          status: 'INVALID_ARGUMENT',
+          details: [{ reason: 'API_KEY_INVALID', domain: 'googleapis.com' }],
+        },
+      }),
+    } as Response)
+
+    const result = await searchPlaces('Karaara')
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toBe('GOOGLE_UNAVAILABLE')
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[googlePlaces]'),
+      expect.objectContaining({
+        httpStatus: 400,
+        googleErrorStatus: 'INVALID_ARGUMENT',
+        googleErrorReasons: ['API_KEY_INVALID'],
+        googleErrorMessage: 'API key expired. Please renew the API key.',
+      }),
+    )
+
+    // Never log the API key itself.
+    const loggedArgs = errorSpy.mock.calls.flat().map((a) => JSON.stringify(a))
+    expect(loggedArgs.join(' ')).not.toContain('test-key')
+  })
+
+  it('does not crash and still returns GOOGLE_UNAVAILABLE when the non-OK response body is not valid JSON', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => { throw new Error('not json') },
+    } as unknown as Response)
+
+    const result = await searchPlaces('Karaara')
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toBe('GOOGLE_UNAVAILABLE')
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[googlePlaces]'),
+      expect.objectContaining({ httpStatus: 503, googleErrorStatus: null, googleErrorReasons: [], googleErrorMessage: null }),
+    )
+  })
+
   it('returns GOOGLE_UNAVAILABLE on network failure', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network'))
     const result = await searchPlaces('Karaara')
