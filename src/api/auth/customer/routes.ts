@@ -13,8 +13,17 @@ import {
 export async function customerAuthRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/customer/auth'
 
-  // Register
-  app.post(`${prefix}/register`, async (req, reply) => {
+  // Register — strict per-IP tier (5/hour prod). Security-audit item
+  // 2026-07-06 (§customer-register): without this, only the global
+  // backstop applied, allowing ~global-max accounts/min/IP (each an
+  // INSERT + token issue + queued verification email once EMAIL_ENABLED).
+  // Mirrors the merchant register tier; added alongside the 2026-07-09
+  // global-backstop raise (100→300/min) so that raise doesn't widen the
+  // registration-flood vector. Turnstile (the audit's second half) is a
+  // separate product decision for the app-side flow.
+  app.post(`${prefix}/register`, {
+    config: { rateLimit: routeRateLimit('register') },
+  }, async (req, reply) => {
     const body = z.object({
       email:             emailSchema,
       password:          passwordSchema,
