@@ -32,6 +32,7 @@ import {
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
 import { Badge } from '@/features/shared/Badge'
+import { LocationProvenanceBadge } from '@/features/shared/locationProvenance'
 import { Button } from '@/components/ui/button'
 import { EditMerchantWebsiteDialog } from '@/features/merchants/EditMerchantWebsiteDialog'
 import { EditBranchDialog } from '@/features/merchants/EditBranchDialog'
@@ -168,10 +169,12 @@ function BranchCard({
             <MapPin className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span>{addressSummary(branch) || 'No address on file'}</span>
           </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {branch.localityName ? `${branch.localityName} · ` : ''}
-            {branch.locationConfidence}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            {branch.localityName && (
+              <span className="text-xs text-muted-foreground">{branch.localityName}</span>
+            )}
+            <LocationProvenanceBadge confidence={branch.locationConfidence} />
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {canEdit && (
