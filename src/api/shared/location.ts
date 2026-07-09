@@ -9,20 +9,21 @@
 // go-live gate will read the same helper so visibility-classification and
 // go-live can never drift apart.
 //
-// IMPORTANT — this is the DISCOVERY/GO-LIVE confidence set, NOT the stricter
-// "exact position" rule. Map pins + exact-distance derivations stay
-// MANUALLY_CONFIRMED-only (see `exposeBranchPosition` / `hasExactPosition` in
-// customer/discovery/service.ts), preserving the PR #81 list-vs-map asymmetry
+// Branch Location Trust Slice 1 (spec 2026-07-09 §2.3) — customer exposure
+// widens by exactly one tier: `exposeBranchPosition` / `hasExactPosition` and
+// the Map in-area queries now expose real coordinates for CONFIRMED_LOCATION_SET
+// (MANUALLY_CONFIRMED + ADDRESS_GEOCODED). An ADDRESS_GEOCODED pin is the exact
+// Google-verified coordinate the merchant picked, cross-checked server-side, so
+// it is a real exact position. This SUPERSEDES (owner-approved) the earlier PR
+// #81 asymmetry that kept the map MANUALLY_CONFIRMED-only. The updated contract
 // (spec docs/superpowers/specs/2026-05-18-discovery-rebaseline-branch-first.md
-// §4.1.1):
+// §4.1.1, as amended by the 2026-07-09 trust spec §2.3):
 //   - MANUALLY_CONFIRMED → list + map, real coordinates
-//   - ADDRESS_GEOCODED   → list only, coordinates redacted from the map
-//   - POSTCODE_CENTROID  → list only, coordinates redacted from the map
-//   - NEEDS_REVIEW       → excluded
-// That PR #81 contract remains authoritative. Any future decision to tighten
-// discovery visibility, hide POSTCODE_CENTROID from lists, or expose
-// ADDRESS_GEOCODED on the map is a SEPARATE product/spec decision
-// (Phase 2 Slice 1 M4 reconciliation, Option A — see slice spec §8).
+//   - ADDRESS_GEOCODED   → list + map, real coordinates (Slice 1)
+//   - POSTCODE_CENTROID  → list only, coordinates redacted from the map (L3 LOCK)
+//   - NEEDS_REVIEW       → excluded from the map; redacted (L3 LOCK)
+// LOCKED (spec L3): POSTCODE_CENTROID + NEEDS_REVIEW branches NEVER expose
+// lat/lng to customers — never present a fake-exact pin.
 
 /**
  * `LocationConfidence` enum values that mark a branch's location as confirmed

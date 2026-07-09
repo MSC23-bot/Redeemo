@@ -1,9 +1,11 @@
-import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useRef, useState, useCallback, useMemo } from 'react'
 import { View, ScrollView, StyleSheet, useWindowDimensions } from 'react-native'
+import { useFocusEffect } from 'expo-router'
 import { spacing } from '@/design-system'
 import { FadeInDown } from '@/design-system/motion/FadeIn'
 import { FeaturedHeroCard } from './FeaturedHeroCard'
 import { DotIndicator } from '@/features/shared/DotIndicator'
+import { scrollActivity } from '@/design-system/motion/scrollActivity'
 import type { HomeRail } from '@/lib/api/discovery'
 import { RailHeader } from './RailHeader'
 
@@ -25,7 +27,12 @@ type Props = {
   onFavourite?: (id: string) => void
 }
 
-export function FeaturedCarousel({ rail, onBranchPress }: Props) {
+// Perf batch 1 (2026-07-09) — React.memo'd: HomeScreen now passes a stable
+// (useCallback) `onBranchPress` and the `rail` reference only changes when
+// the feed's featuredRail itself changes, so this carousel (and its own
+// 10s auto-advance timer — see Task 2) skips re-rendering on unrelated
+// HomeScreen state churn.
+export const FeaturedCarousel = React.memo(function FeaturedCarousel({ rail, onBranchPress }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
   const scrollRef = useRef<ScrollView>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -39,6 +46,13 @@ export function FeaturedCarousel({ rail, onBranchPress }: Props) {
   const startAutoScroll = useCallback(() => {
     if (branches.length <= 1) return
     timerRef.current = setInterval(() => {
+      // Perf batch 1 (2026-07-09) — skip this tick while the vertical Home
+      // feed is actively scrolling (module-level `scrollActivity` flag,
+      // flipped by HomeScreen's scroll handlers). Reading `.value` from JS
+      // inside a once-per-AUTO_SCROLL_INTERVAL callback is cheap (no
+      // per-frame work); it just stops the carousel fighting a mid-fling
+      // scroll with its own `scrollTo`.
+      if (scrollActivity.value === 1) return
       setActiveIndex((prev) => {
         const next = (prev + 1) % branches.length
         scrollRef.current?.scrollTo({
@@ -50,12 +64,21 @@ export function FeaturedCarousel({ rail, onBranchPress }: Props) {
     }, AUTO_SCROLL_INTERVAL)
   }, [branches.length, TILE_WIDTH])
 
-  useEffect(() => {
-    startAutoScroll()
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [startAutoScroll])
+  // Perf batch 1 (2026-07-09) — focus-gate the auto-advance timer.
+  // expo-router Tabs keep Home mounted across tab switches, so the previous
+  // plain `useEffect` (which only cleared on UNMOUNT) left this 10s interval
+  // running forever in the background once the user left the Home tab.
+  // `useFocusEffect` starts it fresh on every focus and fully clears it on
+  // blur, matching the pattern the Home suites already mock (see
+  // `HomeScreen.scrollReset.test.tsx`'s `expo-router` mock).
+  useFocusEffect(
+    useCallback(() => {
+      startAutoScroll()
+      return () => {
+        if (timerRef.current) clearInterval(timerRef.current)
+      }
+    }, [startAutoScroll])
+  )
 
   // PR #126 device-QA Halifax fixup (2026-05-23): determine whether the
   // Featured rail's NEARBY+CITY supply is genuinely IN the locality (every
@@ -145,7 +168,7 @@ export function FeaturedCarousel({ rail, onBranchPress }: Props) {
       )}
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   // Vertical rhythm now that Featured has no band — mirrors the old band padding.

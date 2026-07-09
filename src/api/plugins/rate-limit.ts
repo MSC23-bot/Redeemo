@@ -62,7 +62,19 @@ const TIERS = {
   postcodePreview:   { prod: { max: 30, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } },
 } as const
 
-const GLOBAL = { prod: { max: 100, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } }
+// Global backstop sizing (2026-07-09, Savings "Couldn't load <month>" fix).
+// 100/min/IP was reproducibly exceeded by ONE legitimate active customer:
+// React Query focus-invalidation fan-outs (['discovery'] refetches Home/Map/
+// Search/Category together), favourite-toggle invalidation storms, and Map
+// pan fetches all share the budget, so a browsing burst left 0 headroom and
+// the next Savings month-tap got 429s (client retries land inside the same
+// 60s window → hard error card). Repro: 110 concurrent GETs → 10×429, then
+// every monthly-detail call 429'd. 300/min (5 rps) still bounds abuse floods:
+// every sensitive endpoint keeps its own strict tier above, and this ceiling
+// also stops NAT/CGNAT-shared IPs collectively starving each other. If a
+// legit single user can hit 300/min, fix the client's chattiness first
+// (invalidation fan-outs), not this number.
+const GLOBAL = { prod: { max: 300, timeWindow: '1 minute' }, dev: { max: 600, timeWindow: '1 minute' } }
 
 export function routeRateLimit(tier: keyof typeof TIERS) {
   return RELAX ? TIERS[tier].dev : TIERS[tier].prod

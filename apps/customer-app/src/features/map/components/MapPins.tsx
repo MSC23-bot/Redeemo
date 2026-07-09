@@ -147,11 +147,12 @@ function MapPinMarker({
   }, [selected, branchLatitude, branchLongitude])
 
   // Defensive client-side null-coord filter (PR-3 plan §6.3).
-  // Backend `getInAreaBranches` is MANUALLY_CONFIRMED-only at the
-  // SQL predicate (service.ts:3555) — POSTCODE_CENTROID /
-  // NEEDS_REVIEW / ADDRESS_GEOCODED branches never leave the
-  // database on this route, so `branchLatitude` / `branchLongitude`
-  // arrive non-null in practice. This guard is belt-and-braces
+  // Backend `getInAreaBranches` is CONFIRMED_LOCATION_SET-only
+  // (MANUALLY_CONFIRMED + ADDRESS_GEOCODED; Branch Location Trust Slice 1
+  // spec 2026-07-09 §2.3) at the SQL predicate — POSTCODE_CENTROID /
+  // NEEDS_REVIEW branches never leave the database on this route, so
+  // `branchLatitude` / `branchLongitude` arrive non-null in practice.
+  // This guard is belt-and-braces
   // against (a) a future backend predicate regression, (b) a fixture
   // mistake injecting null-coord rows directly into <MapPins>,
   // (c) malformed wire data from a serialization bug.

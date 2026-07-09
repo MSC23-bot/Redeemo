@@ -1,7 +1,23 @@
 import React from 'react'
-import { render as rtlRender, fireEvent } from '@testing-library/react-native'
+import { render as rtlRender, fireEvent, act } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+// Perf batch 1 (2026-07-09) — FeaturedCarousel's auto-advance timer is now
+// focus-gated via `useFocusEffect` (expo-router). Same mock pattern as
+// `HomeScreen.scrollReset.test.tsx`: mount = focus (drives the callback via
+// a plain `useEffect`), unmount = blur (fires the returned cleanup) — the
+// same equivalence `useScrollActivity.test.tsx` already relies on.
+jest.mock('expo-router', () => {
+  const ReactInner = require('react') as typeof import('react')
+  return {
+    useFocusEffect: (cb: () => undefined | (() => void)) => {
+      ReactInner.useEffect(() => cb(), [cb])
+    },
+  }
+})
+
 import { FeaturedCarousel } from '@/features/home/components/FeaturedCarousel'
+import { scrollActivity } from '@/design-system/motion/scrollActivity'
 import type { HomeRail, HomeRailMeta } from '@/lib/api/discovery'
 import { makeBranchTile } from '../../../fixtures/branchTile'
 
@@ -206,5 +222,54 @@ describe('FeaturedCarousel (Phase C.6 — featuredRail envelope)', () => {
     // Sanity check — pressing the second tile fires the OTHER branch id.
     fireEvent.press(covelumTitles[1])
     expect(onBranchPress).toHaveBeenCalledWith('brn-covelum-colchester')
+  })
+
+  describe('perf batch 1 (2026-07-09) — focus-gate + scroll-pause the auto-advance timer', () => {
+    afterEach(() => {
+      scrollActivity.value = 0
+      jest.useRealTimers()
+    })
+
+    it('clears the auto-advance interval on blur/unmount (useFocusEffect focus-gate)', () => {
+      // Task 2 — expo-router Tabs keep Home mounted across tab switches, so
+      // the previous plain `useEffect` (clear-on-unmount only) left this
+      // timer running forever in the background once the user left Home.
+      // useFocusEffect must start exactly one interval on focus/mount and
+      // fully clear it on blur/unmount.
+      const setIntervalSpy = jest.spyOn(global, 'setInterval')
+      const clearIntervalSpy = jest.spyOn(global, 'clearInterval')
+
+      const { unmount } = render(
+        <FeaturedCarousel rail={makeRail(branches)} onBranchPress={jest.fn()} />,
+      )
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1)
+
+      unmount()
+      expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
+
+      setIntervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+    })
+
+    it('a tick during scrollActivity=1 (vertical Home feed scrolling) does not advance the carousel', () => {
+      jest.useFakeTimers()
+      scrollActivity.value = 0
+
+      const { toJSON } = render(
+        <FeaturedCarousel rail={makeRail(branches)} onBranchPress={jest.fn()} />,
+      )
+      const beforeScroll = toJSON()
+
+      // Vertical feed is mid-fling — the carousel must skip this tick
+      // entirely (no scrollTo / no activeIndex advance / no visible change).
+      scrollActivity.value = 1
+      act(() => { jest.advanceTimersByTime(10000) }) // AUTO_SCROLL_INTERVAL
+      expect(toJSON()).toEqual(beforeScroll)
+
+      // Feed scroll has stopped — the very next tick advances normally.
+      scrollActivity.value = 0
+      act(() => { jest.advanceTimersByTime(10000) })
+      expect(toJSON()).not.toEqual(beforeScroll)
+    })
   })
 })

@@ -15,6 +15,7 @@ import { Text } from '@/design-system/Text'
 import { color } from '@/design-system/tokens'
 import { lightHaptic } from '@/design-system/haptics'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
+import { useScrollActivity } from '@/design-system/motion/useScrollActivity'
 import { useSubscription } from '@/hooks/useSubscription'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useMerchantProfile } from '@/features/merchant/hooks/useMerchantProfile'
@@ -278,6 +279,15 @@ export function VoucherDetailScreen() {
       scrollY.value = e.contentOffset.y
     },
   })
+  // Perf batch 1 (2026-07-09) — reuse Home's scrollActivity mechanism here so
+  // looping animations (e.g. VoucherCardStatePill's PulseDot, if ever shown
+  // on this screen; HeroStatusBlock-adjacent pulse dots) pause while this
+  // screen's ScrollView is moving, exactly as they already do on Home.
+  // `onScroll` above stays the worklet driving the hero fade/handoff; these
+  // are separate JS begin/end props composed onto the same ScrollView below
+  // (this screen had none previously — the existing `useFocusEffect` above
+  // is a different one, for scroll-reset-on-focus, not scroll activity).
+  const scroll = useScrollActivity()
 
   // Scroll-reset on each fresh focus event. Round-6 fix #1 — when a
   // user opens a voucher, scrolls to mid-page, backs to Merchant
@@ -1532,6 +1542,10 @@ export function VoucherDetailScreen() {
         showsVerticalScrollIndicator={false}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
+        onScrollBeginDrag={scroll.onScrollBeginDrag}
+        onMomentumScrollBegin={scroll.onMomentumScrollBegin}
+        onScrollEndDrag={scroll.onScrollEndDrag}
+        onMomentumScrollEnd={scroll.onMomentumScrollEnd}
       >
         {/* ── Coupon stack ── */}
         <View style={styles.coupon}>

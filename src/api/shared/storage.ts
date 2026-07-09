@@ -6,6 +6,17 @@
 // is no legitimate Phase-0 caller; Phase 2 wires a route on top WITH capability/
 // ownership checks (the uploader must own the branch/merchant the key scopes to).
 //
+// Two-bucket split (owner decision 2026-07-09): documents and public media are
+// PHYSICALLY SEPARATE R2 buckets, not just a policy flag on one shared bucket.
+//   - `R2_BUCKET` — the PRIVATE bucket. Holds `document` kind only. Never has a
+//     public base URL pointed at it.
+//   - `R2_PUBLIC_BUCKET` — the PUBLIC bucket. Holds `logo` / `banner` / `photo`.
+//     `R2_PUBLIC_BASE_URL` is THIS bucket's public base URL (r2.dev / custom domain).
+// `bucketFor(kind)` is the single place that maps a kind to its bucket; every S3
+// op (presignPut / putObject / presignGet / deleteObject) routes through it, so
+// a document byte can never be written to, read from, or deleted from the public
+// bucket, and vice versa — even if the two buckets shared credentials/endpoint.
+//
 // Safety rails:
 //   - STORAGE_ENABLED gates presigning. Off (the default) ⇒ presign throws and
 //     the S3 client is never constructed, so a dark deploy boots without R2
@@ -105,7 +116,23 @@ function s3(): S3Client {
   return client
 }
 
-const bucket = (): string => requireSecret('R2_BUCKET')
+// The bucket a kind's objects live in. PRIVATE (document) → R2_BUCKET; PUBLIC
+// (logo/banner/photo) → R2_PUBLIC_BUCKET — physically separate buckets, so a
+// document object is NEVER reachable through the public bucket's URL/creds.
+// Every S3 op below routes through this (never reads R2_BUCKET/R2_PUBLIC_BUCKET
+// directly), so the routing rule lives in exactly one place.
+export function bucketFor(kind: StorageKind): string {
+  const policy = kindPolicy(kind) // throws on unknown kind
+  return policy.visibility === 'private' ? requireSecret('R2_BUCKET') : requireSecret('R2_PUBLIC_BUCKET')
+}
+
+// Derive the kind a (validated) key belongs to, purely to route deleteObject /
+// presignGet to the correct bucket. Callers must `assertValidKey(key)` first —
+// KEY_RE already pins the prefix to one of the four known kinds, so this cast
+// is safe and `bucketFor` still throws on anything that somehow isn't.
+function kindOfKey(key: string): StorageKind {
+  return key.split('/')[0] as StorageKind
+}
 
 export interface PresignPutInput {
   kind: StorageKind
@@ -166,7 +193,7 @@ export async function presignPut(input: PresignPutInput): Promise<PresignPutResu
   // a server-proxied upload).
   const url = await getSignedUrl(
     s3(),
-    new PutObjectCommand({ Bucket: bucket(), Key: key, ContentType: input.contentType }),
+    new PutObjectCommand({ Bucket: bucketFor(input.kind), Key: key, ContentType: input.contentType }),
     { expiresIn: PUT_URL_TTL_SECONDS },
   )
   return { url, key, expiresIn: PUT_URL_TTL_SECONDS }
@@ -179,14 +206,18 @@ export interface PresignGetResult {
 
 /**
  * Short-lived presigned GET for a private object (e.g. a verification document).
- * Throws if storage is disabled.
+ * Throws if storage is disabled. Routes to the SAME bucket the kind embedded in
+ * `key` writes to (bucketFor) — for the private `document` kind that is
+ * R2_BUCKET; this never reaches into the public bucket.
  */
 export async function presignGet(key: string): Promise<PresignGetResult> {
   assertStorageEnabled()
   assertValidKey(key) // reject malformed / traversal keys before signing
-  const url = await getSignedUrl(s3(), new GetObjectCommand({ Bucket: bucket(), Key: key }), {
-    expiresIn: GET_URL_TTL_SECONDS,
-  })
+  const url = await getSignedUrl(
+    s3(),
+    new GetObjectCommand({ Bucket: bucketFor(kindOfKey(key)), Key: key }),
+    { expiresIn: GET_URL_TTL_SECONDS },
+  )
   return { url, expiresIn: GET_URL_TTL_SECONDS }
 }
 
@@ -241,7 +272,7 @@ export async function putObject(input: PutObjectInput): Promise<{ key: string }>
 
   await s3().send(
     new PutObjectCommand({
-      Bucket: bucket(),
+      Bucket: bucketFor(input.kind),
       Key: key,
       Body: input.body,
       ContentType: input.contentType,
@@ -256,16 +287,21 @@ export async function putObject(input: PutObjectInput): Promise<{ key: string }>
  * (rejecting traversal / malformed keys) so a caller-shaped key can never delete
  * outside the scheme. Throws if storage is disabled. Callers treat this as
  * best-effort (a failed object delete must not fail the row delete it accompanies).
+ * Routes to the SAME bucket the kind embedded in `key` writes to (bucketFor), so
+ * a document is deleted from the private bucket and a photo/logo/banner from the
+ * public one — never the other bucket (orphan-cleanup correctness).
  */
 export async function deleteObject(key: string): Promise<void> {
   assertStorageEnabled()
   assertValidKey(key)
-  await s3().send(new DeleteObjectCommand({ Bucket: bucket(), Key: key }))
+  await s3().send(new DeleteObjectCommand({ Bucket: bucketFor(kindOfKey(key)), Key: key }))
 }
 
 /**
- * Compose the public CDN URL for a PUBLIC-kind object. Throws for a private
- * (document) key — those must be accessed via presignGet.
+ * Compose the public CDN URL for a PUBLIC-kind object — i.e. an object that
+ * lives in the PUBLIC bucket (R2_PUBLIC_BUCKET), whose public base URL is
+ * R2_PUBLIC_BASE_URL. Throws for a private (document) key — a document lives in
+ * the separate private bucket (R2_BUCKET) and must be accessed via presignGet.
  */
 export function publicUrl(key: string): string {
   assertValidKey(key) // full-shape check first — a traversal key can't sneak past the kind prefix
@@ -285,8 +321,11 @@ export function publicUrl(key: string): string {
 // post-base key tail (ownerId reuses the OWNER_ID_RE charset). Matching the WHOLE
 // tail rejects extra `/` segments, `..`, leading/trailing slashes, and a missing
 // extension — so a caller-supplied URL can never claim to be one of our objects
-// unless it actually parses back to our origin + scheme.
-const PUBLIC_KEY_RE = /^([a-z]+)\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.[A-Za-z0-9]+)$/
+// unless it actually parses back to our origin + scheme. The kind group is pinned
+// to the PUBLIC kinds only (logo|banner|photo) — document never lives behind the
+// public base URL, so a document-shaped public URL must fail to parse, not just
+// fail the caller's kind check.
+const PUBLIC_KEY_RE = /^(logo|banner|photo)\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.[A-Za-z0-9]+)$/
 
 /**
  * Parse a public object URL back to its `{ kind, ownerId }`. Returns null for

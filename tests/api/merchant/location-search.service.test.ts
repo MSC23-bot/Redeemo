@@ -83,7 +83,7 @@ describe('resolveLocationCandidate (candidate-token resolver)', () => {
     const token = candidates[0].candidateToken
 
     const resolved = await resolveLocationCandidate(redis, 'm1', token)
-    expect(resolved).toEqual({ placeId: 'p1', latitude: 51.1, longitude: -0.1 })
+    expect(resolved).toEqual({ placeId: 'p1', latitude: 51.1, longitude: -0.1, postcode: 'BA1 1AA' })
 
     // Single-use: a second resolve of the same token returns null (already consumed).
     const second = await resolveLocationCandidate(redis, 'm1', token)
@@ -94,12 +94,26 @@ describe('resolveLocationCandidate (candidate-token resolver)', () => {
     expect(await resolveLocationCandidate(redis, 'm1', 'no-such-token')).toBeNull()
   })
 
+  it('stashes the candidate postcode and returns it on resolve', async () => {
+    // Slice 1: the postcode parsed from the Google formattedAddress at stash time
+    // round-trips through Redis so the trust pipeline can cross-check it later.
+    searchPlacesMock.mockResolvedValueOnce({
+      ok: true,
+      candidates: [
+        { placeId: 'pg', name: 'Iron Forge Gym', formattedAddress: '3 Mill St, Huddersfield HD1 1AA, UK', latitude: 53.6, longitude: -1.78, types: [], googleMapsUrl: 'x' },
+      ],
+    })
+    const [cand] = await searchMerchantLocations(redis, { userId: 'u1', merchantId: 'm1', ip: null }, 'Iron Forge Gym')
+    const resolved = await resolveLocationCandidate(redis, 'm1', cand.candidateToken)
+    expect(resolved).toMatchObject({ postcode: 'HD1 1AA' })
+  })
+
   it('is scoped by merchantId — a token minted for m1 does not resolve under m2', async () => {
     const candidates = await searchMerchantLocations(redis, { userId: 'u1', merchantId: 'm1', ip: null }, 'A search query')
     const token = candidates[0].candidateToken
     expect(await resolveLocationCandidate(redis, 'm2', token)).toBeNull()
     // The legitimate merchant still resolves it.
-    expect(await resolveLocationCandidate(redis, 'm1', token)).toEqual({ placeId: 'p1', latitude: 51.1, longitude: -0.1 })
+    expect(await resolveLocationCandidate(redis, 'm1', token)).toEqual({ placeId: 'p1', latitude: 51.1, longitude: -0.1, postcode: 'BA1 1AA' })
   })
 
   it('peek (consume:false) does NOT delete the token', async () => {
@@ -118,7 +132,7 @@ describe('resolveLocationCandidate (candidate-token resolver)', () => {
     // The Redis stash DOES hold the secret (server-side only).
     const token = candidates[0].candidateToken
     const stashed = JSON.parse(redis.store.get(`merchant:m1:loccand:${token}`)!)
-    expect(stashed).toEqual({ placeId: 'p1', latitude: 51.1, longitude: -0.1 })
+    expect(stashed).toEqual({ placeId: 'p1', latitude: 51.1, longitude: -0.1, postcode: 'BA1 1AA' })
   })
 })
 

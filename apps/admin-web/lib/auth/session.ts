@@ -64,6 +64,10 @@ export type AdminCapability =
   // ONLY by SUPER_ADMIN (via the hasCapability short-circuit). Document VIEW uses
   // the lower `merchant:read`. Keep aligned with the backend src/api/admin/capability.ts.
   | 'merchant:manage-documents'
+  // D67: gates the read-only cross-merchant admin redemptions list. IS in
+  // ALL_SLICE1_CAPS (OPERATIONS + SUPER_ADMIN hold it). Keep aligned with the
+  // backend src/api/admin/capability.ts.
+  | 'redemption:read'
 
 export type AdminRole =
   | 'SUPER_ADMIN'
@@ -82,6 +86,7 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'approval:apply-edit',
   'merchant:edit',
   'merchant:submit',
+  'redemption:read',
 ]
 
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `hasCapability`, so

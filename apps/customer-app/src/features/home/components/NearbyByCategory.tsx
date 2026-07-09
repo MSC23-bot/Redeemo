@@ -35,7 +35,11 @@ type Props = {
  * (server-side filtering); the silent-hide path (`rail.meta === null`)
  * remains as a defensive guard.
  */
-export function NearbyByCategory({ rails, onBranchPress, onCategoryPress }: Props) {
+// Perf batch 1 (2026-07-09) — React.memo'd: HomeScreen now passes stable
+// (useCallback) `onBranchPress` / `onCategoryPress` and a stable `rails`
+// reference (from the React Query feed), so this section skips re-rendering
+// on unrelated HomeScreen state churn (e.g. the headerCollapsed flip).
+export const NearbyByCategory = React.memo(function NearbyByCategory({ rails, onBranchPress, onCategoryPress }: Props) {
   // Filter: per spec §6.3 the server omits empty categories from the
   // array entirely. The `meta === null` guard is defensive — silently
   // hide per-category if any future contract drift slips a null-meta
@@ -109,7 +113,7 @@ export function NearbyByCategory({ rails, onBranchPress, onCategoryPress }: Prop
       })}
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   headerRow: {

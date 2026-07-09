@@ -33,7 +33,11 @@ type Props = {
   onFavourite?:  (id: string) => void
 }
 
-export function TrendingSection({ rail, onBranchPress }: Props) {
+// Perf batch 1 (2026-07-09) — React.memo'd: HomeScreen passes a stable
+// (useCallback) `onBranchPress`, and `rail` only changes when the feed's
+// trendingRail itself changes, so this section skips re-rendering on
+// unrelated HomeScreen state churn.
+export const TrendingSection = React.memo(function TrendingSection({ rail, onBranchPress }: Props) {
   const branches = rail.branches
 
   if (!rail.meta || branches.length === 0) return null
@@ -82,4 +86,4 @@ export function TrendingSection({ rail, onBranchPress }: Props) {
       </ScrollView>
     </SectionBand>
   )
-}
+})

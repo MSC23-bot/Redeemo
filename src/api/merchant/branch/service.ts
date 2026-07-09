@@ -18,6 +18,7 @@ import { parsePublicUrl } from '../../shared/storage'
 import { resolvePostcode } from '../../lib/postcodeResolver'
 import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
 import { validateOpeningHours } from './openingHours'
+import { crossCheckGoogleLocation } from './locationTrust'
 import { uploadMerchantImage } from '../upload/service'
 import { enqueue, MAINTENANCE_QUEUE } from '../../queues'
 import { PROMOTE_PENDING_HOURS_JOB } from '../../queues/processors/promotePendingHours'
@@ -61,23 +62,40 @@ async function resolveBranchLocationFields(prisma: PrismaClient, postcode: strin
 const PIN_REGEX = /^\d{4}$/
 
 /**
- * Branches PR-6 (§4b) — Layer 2: the resolved Google location SUGGESTION that
- * rides along an address-apply as ADMIN-REVIEW METADATA ONLY.
- *
- * SECURITY INVARIANT (mini-spec §4b CRITICAL + the load-bearing lock): this is
- * NEVER applied to a Branch column and NEVER sets a CONFIRMED_LOCATION_SET
- * confidence. It is staged purely so the admin can confirm at the merchant's
- * suggested pin via the unchanged `confirmBranchLocation` -> MANUALLY_CONFIRMED
- * authority. The address change itself flows through the EXISTING lanes
- * unchanged (the postcode resolver stamps POSTCODE_CENTROID = non-confirmed =
- * non-discovery-visible). lat/lng + placeId are resolved server-side from the
+ * Branches PR-6 (§4b) Layer 2, as amended by Branch Location Trust Slice 1 + 1b
+ * (spec 2026-07-09): the resolved Google location SUGGESTION that rides along
+ * an address-apply. lat/lng + placeId are resolved server-side from the
  * candidate token (Layer 1's `resolveLocationCandidate`); they never cross the
- * wire from the client.
+ * wire from the client (invariant L1: unchanged).
+ *
+ * ALL THREE address-apply lanes now run the SAME cross-check pipeline (Slice 1b
+ * extended it from CREATE to both EDIT lanes): a PASS applies the pin as
+ * ADDRESS_GEOCODED + googlePlaceId (customer-visible), a FAIL keeps the
+ * POSTCODE_CENTROID coords + stamps NEEDS_REVIEW (L4). The audit metadata stages
+ * in BOTH outcomes.
+ *   - CREATE lane (`createBranchCore`): direct write (Slice 1).
+ *   - DRAFT-WINDOW DIRECT edit (`updateBranchSensitiveDirectCore`): direct write
+ *     (Slice 1b); runs the pipeline inline like create.
+ *   - REVIEWED-EDIT lane: the suggestion is staged into
+ *     `BranchPendingEdit.proposedChanges` at request time (with its postcode) and
+ *     the pipeline runs when the admin APPROVES (`editApplier.approveEdit`,
+ *     Slice 1b) — the applier consumes the SERVER-staged suggestion, never
+ *     client-supplied coords.
+ *   - `confirmBranchLocation` -> MANUALLY_CONFIRMED stays the only
+ *     human-confirm authority (L2).
  */
 export interface BranchLocationSuggestion {
   placeId: string
   latitude: number
   longitude: number
+  // Branch Location Trust Slice 1 (spec 2026-07-09): the postcode parsed from the
+  // Google formattedAddress at stash time, threaded through from
+  // resolveLocationCandidate. The trust pipeline cross-checks it against the
+  // merchant-entered postcode. Null when Google's address had no parseable UK
+  // postcode (read as a failed check). Slice 1b: this postcode is now persisted
+  // into the staged suggestion metadata so the reviewed-edit APPLY lane can run
+  // the same cross-check at admin-approval time.
+  postcode: string | null
 }
 
 /**
@@ -90,6 +108,13 @@ function locationSuggestionMetadata(suggestion: BranchLocationSuggestion) {
     placeId: suggestion.placeId,
     latitude: suggestion.latitude,
     longitude: suggestion.longitude,
+    // Branch Location Trust Slice 1b (spec 2026-07-09): carry the Google-parsed
+    // postcode through into the staged metadata. On the reviewed-edit APPLY lane
+    // the editApplier reads ONLY what was persisted in proposedChanges, so this is
+    // the postcode the apply-time cross-check compares against the new entered
+    // postcode. Null when Google's address had no parseable UK postcode (read as a
+    // failed postcode check -> NEEDS_REVIEW, exactly like the create lane).
+    postcode: suggestion.postcode,
     source: 'merchant_portal_google' as const,
   }
 }
@@ -242,11 +267,13 @@ export async function createBranchCore(
   data: Record<string, unknown>,
   ctx: { ipAddress: string; userAgent: string },
   stageForApproval = false,
-  // Branches PR-6 (§4b): an OPTIONAL resolved Google suggestion (server-held
-  // coords + placeId from the candidate token). Recorded in the BRANCH_CREATED
-  // audit metadata as ADMIN-REVIEW METADATA ONLY — NEVER applied to a Branch
-  // column, NEVER a confidence write. The address itself still lands at
-  // POSTCODE_CENTROID via resolveBranchLocationFields below.
+  // An OPTIONAL resolved Google suggestion (server-held coords + placeId from
+  // the candidate token). Slice 1 (spec 2026-07-09): on this CREATE lane it
+  // feeds the cross-check pipeline below: PASS applies the pin as
+  // ADDRESS_GEOCODED + googlePlaceId, FAIL keeps the POSTCODE_CENTROID coords
+  // from resolveBranchLocationFields + stamps NEEDS_REVIEW. It is ALSO always
+  // recorded in the BRANCH_CREATED audit metadata (both outcomes) so admins see
+  // provenance.
   locationSuggestion?: BranchLocationSuggestion,
 ) {
   // Auto-main counts only LIVE (non-pending), non-deleted branches: a PENDING_CREATE
@@ -263,6 +290,39 @@ export async function createBranchCore(
   const postcode = data.postcode as string | undefined
   if (!postcode) throw new AppError('POSTCODE_REQUIRED')
   const locationFields = await resolveBranchLocationFields(prisma, postcode)
+
+  // Branch Location Trust Slice 1 (spec 2026-07-09): auto-trust pipeline.
+  // SUPERSEDES the PR-6 "metadata only" invariant on the CREATE lane by owner
+  // direction: a Google-picked pin that passes BOTH cross-checks is APPLIED with
+  // ADDRESS_GEOCODED + googlePlaceId; any failure degrades to exactly the legacy
+  // behaviour (the postcode-centroid coords from resolveBranchLocationFields)
+  // PLUS a NEEDS_REVIEW stamp so the branch enters the admin exception queue (L4;
+  // no partial Google-coord application). The staged audit metadata
+  // (locationSuggestionMetadata) continues in BOTH outcomes so admins always see
+  // provenance. crossCheckGoogleLocation is the ONLY writer-authority for the
+  // ADDRESS_GEOCODED decision (L2).
+  let trustedLocation: { latitude: number; longitude: number; googlePlaceId: string } | null = null
+  let confidenceOverride: 'ADDRESS_GEOCODED' | 'NEEDS_REVIEW' | null = null
+  if (locationSuggestion) {
+    const verdict = crossCheckGoogleLocation({
+      googleLat:       locationSuggestion.latitude,
+      googleLng:       locationSuggestion.longitude,
+      googlePostcode:  locationSuggestion.postcode,
+      enteredPostcode: postcode,
+      centroidLat:     locationFields.latitude,
+      centroidLng:     locationFields.longitude,
+    })
+    if (verdict.trusted) {
+      trustedLocation = {
+        latitude:      locationSuggestion.latitude,
+        longitude:     locationSuggestion.longitude,
+        googlePlaceId: locationSuggestion.placeId,
+      }
+      confidenceOverride = 'ADDRESS_GEOCODED'
+    } else {
+      confidenceOverride = 'NEEDS_REVIEW'
+    }
+  }
 
   return prisma.$transaction(async (tx) => {
     const branch = await tx.branch.create({
@@ -290,16 +350,27 @@ export async function createBranchCore(
                             // postTown / ladDistrict / adminCounty / region /
                             // locationCountry / locationResolvedAt /
                             // locationConfidence = POSTCODE_CENTROID
+        // Branch Location Trust Slice 1: on a passed cross-check ONLY, overwrite
+        // the centroid coords with the exact Google pin + record googlePlaceId.
+        ...(trustedLocation ? {
+          latitude:      trustedLocation.latitude,
+          longitude:     trustedLocation.longitude,
+          googlePlaceId: trustedLocation.googlePlaceId,
+        } : {}),
+        // And override the POSTCODE_CENTROID snapshot with ADDRESS_GEOCODED (pass)
+        // or NEEDS_REVIEW (fail). Absent when no suggestion rode along.
+        ...(confidenceOverride ? { locationConfidence: confidenceOverride } : {}),
       },
       include: BRANCH_INCLUDE,
     })
     await writeAuditLogTx(tx, {
       entityId: branch.id, entityType: 'branch', event: 'BRANCH_CREATED',
       actorId: actor.id, actorType: actor.type, reason: actor.reason,
-      // Branches PR-6 (§4b): fold the Google suggestion into the existing
-      // BRANCH_CREATED audit metadata as admin-review metadata. No new audit row;
-      // no Branch column; no confidence write (locationConfidence is set ONLY by
-      // resolveBranchLocationFields above = POSTCODE_CENTROID).
+      // Fold the Google suggestion into the existing BRANCH_CREATED audit
+      // metadata (no new audit row). Slice 1: the suggestion is recorded here in
+      // BOTH cross-check outcomes; whether it was ALSO applied to the Branch
+      // (ADDRESS_GEOCODED pass) or exception-queued (NEEDS_REVIEW fail) is
+      // visible on the row's locationConfidence + googlePlaceId columns.
       metadata: {
         merchantId,
         staged: stageForApproval,
@@ -485,9 +556,12 @@ async function updateBranchSensitiveDirectCore(
   branchId: string,
   data: Record<string, unknown>,
   ctx: { ipAddress: string; userAgent: string },
-  // Branches PR-6 (§4b): the draft-window direct edit is a direct-write path like
-  // create — the Google suggestion is recorded in the BRANCH_UPDATED audit
-  // metadata only (no Branch column, no confidence write).
+  // Branch Location Trust Slice 1b (spec 2026-07-09): the draft-window direct edit
+  // is a direct-write path structurally identical to createBranchCore, so it runs
+  // the SAME auto-trust pipeline. A Google-picked pin that passes both cross-checks
+  // is APPLIED as ADDRESS_GEOCODED + googlePlaceId; any failure degrades to exactly
+  // the postcode-centroid snapshot plus a NEEDS_REVIEW stamp (L4). The suggestion
+  // is ALSO recorded in the BRANCH_UPDATED audit metadata in both outcomes.
   locationSuggestion?: BranchLocationSuggestion,
 ) {
   const branch = await resolveBranch(prisma, branchId, merchantId)
@@ -504,6 +578,39 @@ async function updateBranchSensitiveDirectCore(
   if (typeof safe.postcode === 'string' && safe.postcode.trim().length > 0) {
     const locationFields = await resolveBranchLocationFields(prisma, safe.postcode as string)
     Object.assign(safe, locationFields)
+  }
+
+  // Branch Location Trust Slice 1b — auto-trust pipeline (mirrors createBranchCore).
+  // GATED on a fresh postcode re-anchor: only a real postcode change produces the
+  // POSTCODE_CENTROID snapshot above, giving a NEW centroid to cross-check the
+  // Google pin against. A suggestion without a postcode change (no new centroid) is
+  // left as audit metadata only; the branch's existing location is untouched.
+  // crossCheckGoogleLocation stays the ONLY writer-authority for ADDRESS_GEOCODED
+  // (L2); a failure keeps the centroid coords + stamps NEEDS_REVIEW (L4, no partial
+  // Google-coord application).
+  if (
+    locationSuggestion &&
+    safe.locationConfidence === 'POSTCODE_CENTROID' &&
+    typeof safe.postcode === 'string' &&
+    typeof safe.latitude === 'number' &&
+    typeof safe.longitude === 'number'
+  ) {
+    const verdict = crossCheckGoogleLocation({
+      googleLat:       locationSuggestion.latitude,
+      googleLng:       locationSuggestion.longitude,
+      googlePostcode:  locationSuggestion.postcode,
+      enteredPostcode: safe.postcode,
+      centroidLat:     safe.latitude,
+      centroidLng:     safe.longitude,
+    })
+    if (verdict.trusted) {
+      safe.latitude           = locationSuggestion.latitude
+      safe.longitude          = locationSuggestion.longitude
+      safe.googlePlaceId      = locationSuggestion.placeId
+      safe.locationConfidence = 'ADDRESS_GEOCODED'
+    } else {
+      safe.locationConfidence = 'NEEDS_REVIEW'
+    }
   }
 
   const before: Record<string, unknown> = {}
@@ -526,8 +633,10 @@ async function updateBranchSensitiveDirectCore(
       reason: actor.reason,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
-      // Branches PR-6 (§4b): fold the Google suggestion into the existing
-      // BRANCH_UPDATED audit metadata (admin-review metadata only).
+      // Branch Location Trust Slice 1b: fold the Google suggestion into the existing
+      // BRANCH_UPDATED audit metadata in BOTH cross-check outcomes; whether it was
+      // ALSO applied (ADDRESS_GEOCODED pass) or exception-queued (NEEDS_REVIEW fail)
+      // is visible on the row's locationConfidence + googlePlaceId columns.
       metadata: {
         merchantId,
         ...(locationSuggestion ? { locationSuggestion: locationSuggestionMetadata(locationSuggestion) } : {}),
@@ -644,7 +753,8 @@ export async function updateBranch(
     // resolveMerchantContext + assertBranchAllowed, PENDING_EDIT_EXISTS guard, and
     // eager postcode resolution). BM-allowed for an assigned branch (D3 lists
     // branch-details review requests as a BM action). The Google suggestion (if
-    // any) rides into proposedChanges + audit as admin-review metadata.
+    // any) is STAGED into proposedChanges + audit here; the trust cross-check runs
+    // at admin-approve time in editApplier (Slice 1b), not at staging.
     return createBranchEditRequest(prisma, adminId, branchId, data, false, ctx, locationSuggestion)
   }
 
@@ -667,11 +777,13 @@ export async function createBranchEditRequest(
   proposedChanges: Record<string, unknown>,
   includesPhotos: boolean,
   ctx: { ipAddress: string; userAgent: string },
-  // Branches PR-6 (§4b): an OPTIONAL resolved Google suggestion staged as a
-  // metadata sub-key in proposedChanges (NOT an applicable Branch field — the
-  // editApplier's allow-lists never pick it up at apply time) PLUS the audit
-  // metadata. The address fields apply through this lane as normal; the postcode
-  // resolver still stamps POSTCODE_CENTROID. NEVER a confidence write.
+  // An OPTIONAL resolved Google suggestion staged as a metadata sub-key in
+  // proposedChanges (NOT an applicable Branch field — the editApplier's allow-lists
+  // never copy it verbatim into a column) PLUS the audit metadata. The address
+  // fields apply through this lane as normal; STAGING stamps the POSTCODE_CENTROID
+  // snapshot and writes no trust confidence. Branch Location Trust Slice 1b: the
+  // cross-check that may flip the branch to ADDRESS_GEOCODED / NEEDS_REVIEW runs at
+  // admin-approve time in editApplier, reading this staged suggestion.
   locationSuggestion?: BranchLocationSuggestion,
 ) {
   // Staff & Access PR-2 (D3): submitting a branch-details review request is a
@@ -713,14 +825,17 @@ export async function createBranchEditRequest(
     Object.assign(filtered, locationFields)
   }
 
-  // Branches PR-6 (§4b): stash the resolved Google suggestion as a metadata
-  // sub-key AFTER the SENSITIVE_FIELDS filter so it survives into proposedChanges
-  // (it is NOT a sensitive field, so the filter above would otherwise drop it).
-  // The key is deliberately not a Branch field name — editApplier.approveEdit
-  // applies ONLY BRANCH_SENSITIVE_FIELDS + BRANCH_LOCATION_SNAPSHOT_FIELDS via
-  // pickAllowed, so __locationSuggestion is NEVER written to a Branch column, and
+  // Stash the resolved Google suggestion as a metadata sub-key AFTER the
+  // SENSITIVE_FIELDS filter so it survives into proposedChanges (it is NOT a
+  // sensitive field, so the filter above would otherwise drop it). The key is
+  // deliberately not a Branch field name — editApplier.approveEdit applies ONLY
+  // BRANCH_SENSITIVE_FIELDS + BRANCH_LOCATION_SNAPSHOT_FIELDS via pickAllowed, so
+  // __locationSuggestion is NEVER copied verbatim into a Branch column, and
   // getEditReviewContext's diff (which iterates BRANCH_SENSITIVE_FIELDS) never
-  // surfaces it. Admin-review metadata only; NO confidence write.
+  // surfaces it. Branch Location Trust Slice 1b: the applier READS this staged
+  // sub-key (incl. its postcode) to run the cross-check at admin-approve time — a
+  // PASS then sets ADDRESS_GEOCODED + googlePlaceId, a FAIL stamps NEEDS_REVIEW.
+  // Staging itself writes NO confidence here (the snapshot stays POSTCODE_CENTROID).
   if (locationSuggestion) {
     filtered[LOCATION_SUGGESTION_KEY] = locationSuggestionMetadata(locationSuggestion)
   }
@@ -757,7 +872,9 @@ export async function createBranchEditRequest(
     metadata: {
       branchId,
       pendingEditId: pendingEdit.id,
-      // Branches PR-6 (§4b): admin-review metadata; no Branch column, no confidence write.
+      // Provenance for the reviewer. Slice 1b: the trust cross-check runs at
+      // admin-approve time (editApplier), not at staging; staging writes no
+      // confidence.
       ...(locationSuggestion ? { locationSuggestion: locationSuggestionMetadata(locationSuggestion) } : {}),
     },
   })

@@ -42,7 +42,11 @@ const GRADIENT_H = 92
 // the next card so the rail reads as scrollable.
 export const NEARBY_CARD_WIDTH = 300
 
-export function NearbyCard({
+// Perf batch 1 (2026-07-09) — React.memo'd so a scroll-driven parent
+// re-render (e.g. HomeScreen's headerCollapsed flip) doesn't recompute every
+// rail card; only a change to this card's own props does. Props shape is
+// unchanged — only referential stability of the callers' props changes.
+export const NearbyCard = React.memo(function NearbyCard({
   branch,
   onPress,
   width,
@@ -174,7 +178,7 @@ export function NearbyCard({
       </View>
     </PressableScale>
   )
-}
+})
 
 const styles = StyleSheet.create({
   card: {

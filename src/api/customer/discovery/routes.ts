@@ -249,14 +249,27 @@ export async function discoveryRoutes(app: FastifyInstance) {
   // resolution; invalid/missing tokens resolve to guest.
   app.get('/api/v1/customer/discovery/in-area', async (req: FastifyRequest, reply) => {
     const query = z.object({
-      minLat:     z.coerce.number().min(-90).max(90),
-      maxLat:     z.coerce.number().min(-90).max(90),
-      minLng:     z.coerce.number().min(-180).max(180),
-      maxLng:     z.coerce.number().min(-180).max(180),
-      categoryId: z.string().optional(),
-      lat:        z.coerce.number().optional(),
-      lng:        z.coerce.number().optional(),
-      limit:      z.coerce.number().int().min(1).max(200).default(50),
+      minLat:      z.coerce.number().min(-90).max(90),
+      maxLat:      z.coerce.number().min(-90).max(90),
+      minLng:      z.coerce.number().min(-180).max(180),
+      maxLng:      z.coerce.number().min(-180).max(180),
+      categoryId:  z.string().optional(),
+      lat:         z.coerce.number().optional(),
+      lng:         z.coerce.number().optional(),
+      limit:       z.coerce.number().int().min(1).max(200).default(50),
+      // Map in-area reliability slice — opt-in. Map only ever consumes
+      // `branches` + `meta` + `locationContext` (never the legacy
+      // `merchants` field), so a Map-only caller can skip the heavy
+      // UK-wide merchant findMany + ranking + enrichment entirely.
+      // Absent/false/0 preserves today's response shape exactly.
+      //
+      // Parsed EXPLICITLY (review fix, PR #434): z.coerce.boolean() runs
+      // Boolean(string) so the literal query string "false" coerced to
+      // TRUE. Only "1"/"true" opt in; "0"/"false"/absent stay legacy;
+      // anything else is a 400 (strict beats silently-legacy for a
+      // mode-switching param).
+      branchesOnly: z.enum(['1', 'true', '0', 'false']).optional()
+        .transform((v) => v === '1' || v === 'true'),
     }).parse(req.query)
     if (query.minLat > query.maxLat || query.minLng > query.maxLng) {
       return reply.status(400).send({ error: { code: 'INVALID_BBOX', message: 'minLat/minLng must be ≤ maxLat/maxLng' } })
@@ -278,6 +291,33 @@ export async function discoveryRoutes(app: FastifyInstance) {
     // the viewport up to `limit`). Consumers continue reading legacy until
     // Phase 2 surface PRs migrate individually.
     const bbox = { minLat: query.minLat, maxLat: query.maxLat, minLng: query.minLng, maxLng: query.maxLng }
+
+    // Map in-area reliability slice — `branchesOnly` opt-in. The Map
+    // client only ever reads `branches` + `meta` + `locationContext`
+    // (never the legacy `merchants` field — see mapDataView.ts), so this
+    // mode skips `getInAreaMerchants` (UK-wide merchant findMany + rank
+    // + enrich) entirely and answers from the branch arm alone.
+    if (query.branchesOnly) {
+      const [ctx, branchResult] = await Promise.all([
+        resolveLocationContext(app.prisma, userId, query.lat ?? null, query.lng ?? null),
+        getInAreaBranches(app.prisma, {
+          bbox,
+          categoryId: query.categoryId,
+          lat:        query.lat ?? null,
+          lng:        query.lng ?? null,
+          userId,
+          limit:      query.limit,
+          includeEmptyStateReason: true,
+        }),
+      ])
+      const locationContext = toLocationContextWire(ctx)
+      return reply.send({
+        branches: branchResult.branches,
+        meta:     branchResult.meta,
+        locationContext,
+      })
+    }
+
     const [ctx, merchantResult, branchResult] = await Promise.all([
       resolveLocationContext(app.prisma, userId, query.lat ?? null, query.lng ?? null),
       getInAreaMerchants(app.prisma, {
