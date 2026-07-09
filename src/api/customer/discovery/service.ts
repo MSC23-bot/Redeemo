@@ -4630,7 +4630,11 @@ export async function getInAreaBranches(
         isTestData:         false,
         lifecycleStatus:    { not: 'PENDING_CREATE' },
         merchant:           where.merchant,
-        locationConfidence: 'MANUALLY_CONFIRMED',
+        // Slice 1 composition (PR #435 on #434): the count's confidence filter
+        // must mirror the pin-exposure set exactly, else a category served only
+        // by ADDRESS_GEOCODED branches would show pins yet report no_uk_supply
+        // for an empty viewport.
+        locationConfidence: { in: [...CONFIRMED_LOCATION_SET] },
       },
     })
     emptyStateReason = ukWideCount === 0 ? 'no_uk_supply' : 'none'
