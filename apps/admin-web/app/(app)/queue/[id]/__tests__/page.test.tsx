@@ -1339,6 +1339,13 @@ function makeBranch(overrides: Partial<ReviewContext['branches'][number]> = {}):
     postcode: 'HD1 1AA',
     localityName: null,
     locationConfidence: 'ADDRESS_GEOCODED',
+    // Slice 2 additive admin-scope provenance fields. Supplied EXPLICITLY as null
+    // (not left to the Partial spread) so the fixture matches the wire contract:
+    // reviewBranchSchema requires number | null / string | null, never undefined.
+    latitude: null,
+    longitude: null,
+    googlePlaceId: null,
+    locationSuggestion: null,
     ...overrides,
   }
 }
