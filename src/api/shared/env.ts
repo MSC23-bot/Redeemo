@@ -81,12 +81,22 @@ export const FEATURE_GATED_SECRETS: ReadonlyArray<{
   secrets: readonly string[]
 }> = [
   { flag: 'EMAIL_ENABLED', enabledValue: 'true', secrets: ['RESEND_API_KEY'] },
-  // R2 storage (PR-0.5): the credentials + config the storage library needs to
-  // presign. R2_ACCOUNT_ID is documented but not gated (the endpoint embeds it).
+  // R2 storage (PR-0.5; two-bucket split owner decision 2026-07-09): the
+  // credentials + config the storage library needs to presign. R2_ACCOUNT_ID is
+  // documented but not gated (the endpoint embeds it). R2_BUCKET is the PRIVATE
+  // (documents) bucket; R2_PUBLIC_BUCKET is the PUBLIC (logo/banner/photo)
+  // bucket; R2_PUBLIC_BASE_URL is the public bucket's public base URL.
   {
     flag: 'STORAGE_ENABLED',
     enabledValue: 'true',
-    secrets: ['R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_ENDPOINT', 'R2_BUCKET', 'R2_PUBLIC_BASE_URL'],
+    secrets: [
+      'R2_ACCESS_KEY_ID',
+      'R2_SECRET_ACCESS_KEY',
+      'R2_ENDPOINT',
+      'R2_BUCKET',
+      'R2_PUBLIC_BUCKET',
+      'R2_PUBLIC_BASE_URL',
+    ],
   },
   // Cloudflare Turnstile (M1 Slice R, merchant self-serve registration captcha).
   // Default OFF: with CAPTCHA_ENABLED unset/false the verify helper skips (no

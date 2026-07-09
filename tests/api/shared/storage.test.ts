@@ -38,6 +38,7 @@ const R2_VARS = [
   'R2_SECRET_ACCESS_KEY',
   'R2_ENDPOINT',
   'R2_BUCKET',
+  'R2_PUBLIC_BUCKET',
   'R2_PUBLIC_BASE_URL',
 ] as const
 let saved: Record<string, string | undefined>
@@ -69,12 +70,20 @@ afterEach(() => {
   }
 })
 
+// Two-bucket split (owner decision 2026-07-09): R2_BUCKET is the PRIVATE
+// (documents) bucket; R2_PUBLIC_BUCKET is the PUBLIC (logo/banner/photo)
+// bucket. Deliberately DIFFERENT values so a routing bug (a public kind
+// signing against the private bucket name or vice versa) fails loudly.
+const PRIVATE_BUCKET = 'redeemo-test-private'
+const PUBLIC_BUCKET = 'redeemo-test-public'
+
 function enableStorage() {
   process.env.STORAGE_ENABLED = 'true'
   process.env.R2_ACCESS_KEY_ID = 'r2-access-key'
   process.env.R2_SECRET_ACCESS_KEY = 'r2-secret-key'
   process.env.R2_ENDPOINT = 'https://acct.r2.cloudflarestorage.com'
-  process.env.R2_BUCKET = 'redeemo-test'
+  process.env.R2_BUCKET = PRIVATE_BUCKET
+  process.env.R2_PUBLIC_BUCKET = PUBLIC_BUCKET
   process.env.R2_PUBLIC_BASE_URL = 'https://media.redeemo.co.uk'
 }
 
@@ -118,10 +127,28 @@ describe('storage — presignPut (enabled)', () => {
     expect(res.key).toMatch(new RegExp(`^logo/${OWNER}/[A-Za-z0-9_-]+\\.png$`))
     expect(res.expiresIn).toBeGreaterThan(0)
     expect(res.expiresIn).toBeLessThanOrEqual(600) // short-lived
-    // a PutObjectCommand was signed with bucket + key + content-type
+    // a PutObjectCommand was signed with bucket + key + content-type. logo is a
+    // PUBLIC kind, so it must sign against the PUBLIC bucket, not the private one.
     const [, putCmd, opts] = getSignedUrlMock.mock.calls[0]
-    expect(putCmd.input).toMatchObject({ Bucket: 'redeemo-test', Key: res.key, ContentType: 'image/png' })
+    expect(putCmd.input).toMatchObject({ Bucket: PUBLIC_BUCKET, Key: res.key, ContentType: 'image/png' })
     expect(opts).toMatchObject({ expiresIn: res.expiresIn })
+  })
+
+  it('BUCKET ROUTING: signs a document presignPut against the PRIVATE bucket, never the public one', async () => {
+    const res = await storage.presignPut({ kind: 'document', ownerId: OWNER, contentType: 'application/pdf', sizeBytes: 10 })
+    const [, putCmd] = getSignedUrlMock.mock.calls[0]
+    expect(putCmd.input.Bucket).toBe(PRIVATE_BUCKET)
+    expect(putCmd.input.Bucket).not.toBe(PUBLIC_BUCKET)
+    expect(res.key.startsWith('document/')).toBe(true)
+  })
+
+  it('BUCKET ROUTING: signs banner/photo presignPut against the PUBLIC bucket', async () => {
+    for (const kind of ['banner', 'photo'] as const) {
+      getSignedUrlMock.mockClear()
+      await storage.presignPut({ kind, ownerId: OWNER, contentType: 'image/png', sizeBytes: 10 })
+      const [, putCmd] = getSignedUrlMock.mock.calls[0]
+      expect(putCmd.input.Bucket).toBe(PUBLIC_BUCKET)
+    }
   })
 
   it('the random key component is unique per call (no reuse)', async () => {
@@ -212,13 +239,14 @@ describe('storage — presignPut (enabled)', () => {
 describe('storage — presignGet (private docs)', () => {
   beforeEach(enableStorage)
 
-  it('signs a GET with a short TTL', async () => {
+  it('signs a GET with a short TTL against the PRIVATE bucket', async () => {
     const res = await storage.presignGet('document/owner/abc.pdf')
     expect(res.url).toBe('https://r2.example/signed?sig=abc')
     expect(res.expiresIn).toBeGreaterThan(0)
     expect(res.expiresIn).toBeLessThanOrEqual(600)
     const [, getCmd, opts] = getSignedUrlMock.mock.calls[0]
-    expect(getCmd.input).toMatchObject({ Bucket: 'redeemo-test', Key: 'document/owner/abc.pdf' })
+    expect(getCmd.input).toMatchObject({ Bucket: PRIVATE_BUCKET, Key: 'document/owner/abc.pdf' })
+    expect(getCmd.input.Bucket).not.toBe(PUBLIC_BUCKET)
     expect(opts).toMatchObject({ expiresIn: res.expiresIn })
   })
 
@@ -292,19 +320,33 @@ describe('storage — parsePublicUrl (P1 add-URL ownership inverse of publicUrl)
 describe('storage - putObject (B4 server-proxied upload)', () => {
   beforeEach(enableStorage)
 
-  it('writes the object and returns a deterministic key; sends ContentLength = body.length', async () => {
+  it('writes the object and returns a deterministic key; sends ContentLength = body.length; PRIVATE bucket for document', async () => {
     const body = Buffer.from('%PDF-1.4 hello')
     const res = await storage.putObject({ kind: 'document', ownerId: OWNER, contentType: 'application/pdf', body })
     expect(res.key).toMatch(new RegExp(`^document/${OWNER}/[A-Za-z0-9_-]+\\.pdf$`))
     expect(sendMock).toHaveBeenCalledTimes(1)
     const cmd = sendMock.mock.calls[0][0]
     expect(cmd.input).toMatchObject({
-      Bucket: 'redeemo-test',
+      Bucket: PRIVATE_BUCKET,
       Key: res.key,
       Body: body,
       ContentType: 'application/pdf',
       ContentLength: body.length,
     })
+    // A document write must NEVER land in the public bucket.
+    expect(cmd.input.Bucket).not.toBe(PUBLIC_BUCKET)
+  })
+
+  it('BUCKET ROUTING: writes logo/banner/photo to the PUBLIC bucket, never the private one', async () => {
+    for (const kind of ['logo', 'banner', 'photo'] as const) {
+      sendMock.mockClear()
+      const body = Buffer.from('fake-image-bytes')
+      const res = await storage.putObject({ kind, ownerId: OWNER, contentType: 'image/png', body })
+      const cmd = sendMock.mock.calls[0][0]
+      expect(cmd.input.Bucket).toBe(PUBLIC_BUCKET)
+      expect(cmd.input.Bucket).not.toBe(PRIVATE_BUCKET)
+      expect(res.key.startsWith(`${kind}/`)).toBe(true)
+    }
   })
 
   it('HARD size enforcement: rejects a body over the 10MB document cap (no write)', async () => {
@@ -358,11 +400,22 @@ describe('storage - putObject (B4 server-proxied upload)', () => {
 describe('storage - deleteObject (B4)', () => {
   beforeEach(enableStorage)
 
-  it('deletes by key (sends a DeleteObjectCommand with bucket + key)', async () => {
+  it('deletes by key (sends a DeleteObjectCommand with bucket + key) — document deletes from the PRIVATE bucket', async () => {
     await storage.deleteObject('document/owner/abc.pdf')
     expect(sendMock).toHaveBeenCalledTimes(1)
     const cmd = sendMock.mock.calls[0][0]
-    expect(cmd.input).toMatchObject({ Bucket: 'redeemo-test', Key: 'document/owner/abc.pdf' })
+    expect(cmd.input).toMatchObject({ Bucket: PRIVATE_BUCKET, Key: 'document/owner/abc.pdf' })
+    expect(cmd.input.Bucket).not.toBe(PUBLIC_BUCKET)
+  })
+
+  it('BUCKET ROUTING: deletes a photo/logo/banner key from the PUBLIC bucket', async () => {
+    for (const kind of ['photo', 'logo', 'banner'] as const) {
+      sendMock.mockClear()
+      await storage.deleteObject(`${kind}/owner/abc.png`)
+      const cmd = sendMock.mock.calls[0][0]
+      expect(cmd.input.Bucket).toBe(PUBLIC_BUCKET)
+      expect(cmd.input.Bucket).not.toBe(PRIVATE_BUCKET)
+    }
   })
 
   it('rejects a malformed / traversal key before sending', async () => {
@@ -384,5 +437,54 @@ describe('storage — kind policies (introspectable)', () => {
     expect(photo.maxBytes).toBe(5 * 1024 * 1024)
     expect(photo.visibility).toBe('public')
     expect(Object.keys(photo.contentTypes)).toEqual(expect.arrayContaining(['image/jpeg', 'image/png', 'image/webp']))
+  })
+})
+
+describe('storage — bucketFor (two-bucket split, owner decision 2026-07-09)', () => {
+  beforeEach(enableStorage)
+
+  it('routes the private kind (document) to R2_BUCKET', () => {
+    expect(storage.bucketFor('document')).toBe(PRIVATE_BUCKET)
+  })
+
+  it('routes every public kind (logo/banner/photo) to R2_PUBLIC_BUCKET', () => {
+    expect(storage.bucketFor('logo')).toBe(PUBLIC_BUCKET)
+    expect(storage.bucketFor('banner')).toBe(PUBLIC_BUCKET)
+    expect(storage.bucketFor('photo')).toBe(PUBLIC_BUCKET)
+  })
+
+  it('throws on an unknown kind (same guard as kindPolicy)', () => {
+    // @ts-expect-error — exercising the runtime guard against a bad kind
+    expect(() => storage.bucketFor('avatar')).toThrow(/kind/i)
+  })
+
+  it('throws when R2_PUBLIC_BUCKET is not set, even if R2_BUCKET is (fails closed, not silently reusing R2_BUCKET)', () => {
+    delete process.env.R2_PUBLIC_BUCKET
+    expect(() => storage.bucketFor('logo')).toThrow(/R2_PUBLIC_BUCKET/)
+    // the private kind is unaffected
+    expect(storage.bucketFor('document')).toBe(PRIVATE_BUCKET)
+  })
+})
+
+describe('storage — private/public bucket isolation regression (a document must never reach the public bucket)', () => {
+  beforeEach(enableStorage)
+
+  it('a document key NEVER resolves via publicUrl, and publicUrl never reads R2_PUBLIC_BUCKET for it', () => {
+    expect(() => storage.publicUrl('document/owner/secret.pdf')).toThrow(/private|document|public/i)
+  })
+
+  it('an end-to-end document upload+delete never touches PUBLIC_BUCKET across any op', async () => {
+    const { key } = await storage.putObject({
+      kind: 'document',
+      ownerId: OWNER,
+      contentType: 'application/pdf',
+      body: Buffer.from('%PDF-1.4'),
+    })
+    await storage.presignGet(key)
+    await storage.deleteObject(key)
+    for (const call of [...sendMock.mock.calls, ...getSignedUrlMock.mock.calls]) {
+      const cmd = call.find((arg: any) => arg && typeof arg === 'object' && 'input' in arg)
+      if (cmd) expect(cmd.input.Bucket).toBe(PRIVATE_BUCKET)
+    }
   })
 })
