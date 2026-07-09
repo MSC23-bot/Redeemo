@@ -707,4 +707,105 @@ describe('discovery routes', () => {
     expect(res.statusCode).toBe(400)
     expect(getInAreaMerchants).not.toHaveBeenCalled()
   })
+
+  // Map in-area reliability slice — `branchesOnly` opt-in.
+  it('GET /api/v1/customer/discovery/in-area?branchesOnly=1 skips getInAreaMerchants and returns branch-arm meta', async () => {
+    vi.mocked(getInAreaBranches).mockResolvedValueOnce({
+      branches: [{ id: 'b1', name: 'Cafe' } as any],
+      meta: {
+        effectiveLocality: { id: 'loc-1', name: 'Brightlingsea' },
+        rungCounts: {} as any,
+        emptyStateReason: 'none',
+      },
+    } as any)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/discovery/in-area?minLat=51.4&maxLat=51.6&minLng=-0.2&maxLng=0&branchesOnly=1',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(getInAreaMerchants).not.toHaveBeenCalled()
+    expect(body.branches).toHaveLength(1)
+    expect(body.merchants).toBeUndefined()
+    expect(body.meta.emptyStateReason).toBe('none')
+    expect(body.meta.effectiveLocality.name).toBe('Brightlingsea')
+    expect(body).toHaveProperty('locationContext')
+    expect(getInAreaBranches).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ includeEmptyStateReason: true }),
+    )
+  })
+
+  it('GET /api/v1/customer/discovery/in-area without branchesOnly leaves the legacy shape untouched', async () => {
+    vi.mocked(getInAreaMerchants).mockResolvedValueOnce({
+      merchants: [{ id: 'm1', businessName: 'Cafe', supplyTier: 'NEARBY' }],
+      total:     1,
+      meta: {
+        resolvedArea: 'London', nearbyCount: 1, cityCount: 0, distantCount: 0,
+        emptyStateReason: 'none',
+      },
+    } as any)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/discovery/in-area?minLat=51.4&maxLat=51.6&minLng=-0.2&maxLng=0',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(getInAreaMerchants).toHaveBeenCalledOnce()
+    expect(body.merchants).toHaveLength(1)
+    expect(body.meta.resolvedArea).toBe('London')
+    expect(getInAreaBranches).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ includeEmptyStateReason: true }),
+    )
+  })
+
+  // Review fix (PR #434): z.coerce.boolean() ran Boolean("false") === true, so
+  // ?branchesOnly=false flipped the caller into branch-only mode. The explicit
+  // enum+transform parse must keep "false" (and "0") on the legacy shape.
+  it('GET /api/v1/customer/discovery/in-area?branchesOnly=false leaves the legacy shape untouched', async () => {
+    vi.mocked(getInAreaMerchants).mockResolvedValueOnce({
+      merchants: [{ id: 'm1', businessName: 'Cafe', supplyTier: 'NEARBY' }],
+      total:     1,
+      meta: {
+        resolvedArea: 'London', nearbyCount: 1, cityCount: 0, distantCount: 0,
+        emptyStateReason: 'none',
+      },
+    } as any)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/discovery/in-area?minLat=51.4&maxLat=51.6&minLng=-0.2&maxLng=0&branchesOnly=false',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(getInAreaMerchants).toHaveBeenCalledOnce()
+    expect(body.merchants).toHaveLength(1)
+    expect(body.meta.resolvedArea).toBe('London')
+  })
+
+  it('GET /api/v1/customer/discovery/in-area?branchesOnly=0 leaves the legacy shape untouched', async () => {
+    vi.mocked(getInAreaMerchants).mockResolvedValueOnce({
+      merchants: [],
+      total:     0,
+      meta: {
+        resolvedArea: 'London', nearbyCount: 0, cityCount: 0, distantCount: 0,
+        emptyStateReason: 'none',
+      },
+    } as any)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/discovery/in-area?minLat=51.4&maxLat=51.6&minLng=-0.2&maxLng=0&branchesOnly=0',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(getInAreaMerchants).toHaveBeenCalledOnce()
+    expect(res.json()).toHaveProperty('merchants')
+  })
 })

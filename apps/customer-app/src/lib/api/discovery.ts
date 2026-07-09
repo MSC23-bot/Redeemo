@@ -335,13 +335,21 @@ export type DiscoveryMeta = z.infer<typeof discoveryMetaSchema>
 // but the type stays compatible with the broader enum across discovery routes
 // for client uniformity.
 //
+// Map in-area reliability slice — `branchesOnly=1` mode answers from the
+// branch arm alone (no `getInAreaMerchants` call), so `resolvedArea` /
+// `nearbyCount` / `cityCount` / `distantCount` (merchant-arm-derived) are
+// absent on that response. Loosened to `.optional()`; Map itself never
+// reads them (see mapDataView.ts / MapScreen — only `emptyStateReason` and
+// `effectiveLocality` drive Map UI). Legacy (branchesOnly absent/false)
+// responses still emit all four; this widening is additive/back-compat.
+//
 // In-area's effectiveLocality describes the locality at the VIEWPORT CENTRE
 // (spec §5.7), NOT the user's saved area — pans-the-map contract.
 const inAreaMetaSchema = z.object({
-  resolvedArea:     z.string(),
-  nearbyCount:      z.number(),
-  cityCount:        z.number(),
-  distantCount:     z.number(),
+  resolvedArea:     z.string().optional(),
+  nearbyCount:      z.number().optional(),
+  cityCount:        z.number().optional(),
+  distantCount:     z.number().optional(),
   emptyStateReason: z.enum(['none', 'expanded_to_wider', 'no_uk_supply']),
   rungCounts:        rungCountsSchema.optional(),
   effectiveLocality: effectiveLocalitySchema.nullable().optional(),
@@ -517,16 +525,24 @@ export const discoveryApi = {
    * `getInAreaMerchants` to `getInAreaBranches` during PR-3 (Discovery
    * Rebaseline Phase 2.2) for naming consistency with the branch-first
    * surface migration. Endpoint URL unchanged.
+   *
+   * Map in-area reliability slice — `branchesOnly: 1` opts the caller into
+   * the branch-arm-only response (skips the backend's UK-wide merchant
+   * findMany + rank + enrich). Sent literally as `1` (not `true`/`false`)
+   * to sidestep the `z.coerce.boolean()` route-schema gotcha where the
+   * string `"false"` would coerce to `true`; this endpoint is opt-in-only
+   * so the param is either present-as-`1` or absent, never `false`.
    */
   async getInAreaBranches(opts: {
-    minLat:      number
-    maxLat:      number
-    minLng:      number
-    maxLng:      number
-    categoryId?: string
-    lat?:        number
-    lng?:        number
-    limit?:      number
+    minLat:       number
+    maxLat:       number
+    minLng:       number
+    maxLng:       number
+    categoryId?:  string
+    lat?:         number
+    lng?:         number
+    limit?:       number
+    branchesOnly?: 1
   }): Promise<InAreaResponse> {
     const qs = buildQuery(opts as Record<string, unknown>)
     const res = await api.get<unknown>(`/api/v1/customer/discovery/in-area${qs}`)
