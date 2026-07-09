@@ -100,6 +100,68 @@ describe('merchant:edit-identity is SUPER_ADMIN-only (B2.2)', () => {
   })
 })
 
+// ── OPERATIONS grant parity with the backend (own-your-own-knowledge pin) ──────
+//
+// The two capability layers deliberately do NOT share code (admin-web must not
+// depend on the API source tree), so the mirror is pinned against a literal copy
+// of the backend list. This is the load-bearing anti-drift assertion: if the
+// backend adds/removes an OPERATIONS cap, this test forces the same edit here.
+//
+// COPY LITERALLY from `ALL_SLICE1_CAPS` in src/api/admin/capability.ts. Keep the
+// order identical so a reviewer can diff the two lists by eye.
+const BACKEND_OPERATIONS_CAPS: AdminCapability[] = [
+  'merchant:create-draft',
+  'merchant:read',
+  'approval:read',
+  'approval:action',
+  'merchant:suspend',
+  'branch:confirm-location',
+  'approval:apply-edit',
+  'merchant:edit',
+  'merchant:submit',
+  'merchant:manage-vouchers',
+  'redemption:read',
+]
+
+// The SUPER_ADMIN-only caps: declared in the union but intentionally NOT in
+// ALL_SLICE1_CAPS, so OPERATIONS must NOT hold them (they resolve true only via
+// the SUPER_ADMIN superuser short-circuit). Copy from src/api/admin/capability.ts.
+const SUPER_ADMIN_ONLY_CAPS: AdminCapability[] = [
+  'merchant:edit-identity',
+  'merchant:edit-category',
+  'merchant:manage-branches',
+  'merchant:propose-edit',
+  'merchant:manage-documents',
+]
+
+describe('OPERATIONS grant mirrors the backend ALL_SLICE1_CAPS exactly', () => {
+  for (const cap of BACKEND_OPERATIONS_CAPS) {
+    it(`OPERATIONS holds ${cap}`, () => {
+      expect(hasCapability('OPERATIONS', cap)).toBe(true)
+    })
+  }
+
+  for (const cap of SUPER_ADMIN_ONLY_CAPS) {
+    it(`OPERATIONS does NOT hold the SUPER_ADMIN-only ${cap}`, () => {
+      expect(hasCapability('OPERATIONS', cap)).toBe(false)
+    })
+  }
+
+  it('the two lists partition the whole capability union (no cap unaccounted for)', () => {
+    const all = [...BACKEND_OPERATIONS_CAPS, ...SUPER_ADMIN_ONLY_CAPS]
+    // No duplicates and no overlap between the two lists.
+    expect(new Set(all).size).toBe(all.length)
+  })
+
+  it('merchant:manage-vouchers is OPERATIONS-held (mirror-drift regression pin)', () => {
+    // Regression pin for the chore/admin-s3-hygiene fix: the mirror previously
+    // omitted this cap that the backend ALL_SLICE1_CAPS already granted OPERATIONS.
+    expect(hasCapability('OPERATIONS', 'merchant:manage-vouchers')).toBe(true)
+    expect(hasCapability('SUPER_ADMIN', 'merchant:manage-vouchers')).toBe(true)
+    expect(hasCapability('FINANCE', 'merchant:manage-vouchers')).toBe(false)
+  })
+})
+
 // Option B B3: merchant:submit IS in ALL_SLICE1_CAPS, so OPERATIONS holds it.
 describe('merchant:submit is OPERATIONS-held (B3)', () => {
   it('SUPER_ADMIN holds it', () => {
