@@ -65,11 +65,19 @@ describe('A8b: VOUCHER queue enrichment in listApprovals', () => {
             { id: 'm-onb', businessName: 'Onb Co', status: 'PENDING_APPROVAL', onboardingStep: 'SUBMITTED', verificationStatus: 'PENDING', contractStatus: 'SIGNED' },
             { id: 'm-live', businessName: 'Live Co', status: 'ACTIVE' },
             { id: 'm-wait', businessName: 'Wait Co', status: 'PENDING_APPROVAL' },
+            { id: 'm-edit', businessName: 'Edit Co', status: 'ACTIVE' },
           ]
           return Promise.resolve(all.filter((m) => ids.includes(m.id)))
         }),
       },
       adminUser: { findMany: vi.fn().mockResolvedValue([]) },
+      // WF16: MERCHANT_IDENTITY_EDIT row 'appr-e' (referenceId 'pe-1') resolves
+      // its merchant via MerchantPendingEdit.merchantId.
+      merchantPendingEdit: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'pe-1', merchantId: 'm-edit' }]),
+      },
+      branchPendingEdit: { findMany: vi.fn().mockResolvedValue([]) },
+      branch: { findMany: vi.fn().mockResolvedValue([]) },
     } as any
   }
 
@@ -109,9 +117,11 @@ describe('A8b: VOUCHER queue enrichment in listApprovals', () => {
     expect(byId['appr-o'].voucher ?? null).toBeNull()
     expect(byId['appr-o'].goLiveHint ?? null).toBeNull()
 
-    // Edit row: no voucher/merchant enrichment.
+    // WF16: an identity-edit row now carries a merchant summary (resolved via
+    // MerchantPendingEdit.merchantId) instead of "Unknown merchant"; it still
+    // gets no voucher block (that stays VOUCHER-only).
     expect(byId['appr-e'].voucher ?? null).toBeNull()
-    expect(byId['appr-e'].merchant ?? null).toBeNull()
+    expect(byId['appr-e'].merchant).toEqual({ id: 'm-edit', businessName: 'Edit Co', status: 'ACTIVE' })
 
     // No PII / no redemptionPin leak in the serialised queue.
     expect(res.body).not.toMatch(/redemptionPin/i)
@@ -198,14 +208,31 @@ describe('governed flows: VOUCHER_EDIT queue rows carry voucherEditKind', () => 
         findMany: vi.fn().mockResolvedValue(rows),
       },
       voucher: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
-      merchant: { findMany: vi.fn().mockResolvedValue([]) },
+      merchant: {
+        findMany: vi.fn().mockImplementation((args: any) => {
+          const ids: string[] = args?.where?.id?.in ?? []
+          const all = [
+            { id: 'm-ve', businessName: 'Voucher Edit Co', status: 'ACTIVE' },
+            { id: 'm-me', businessName: 'Merchant Edit Co', status: 'ACTIVE' },
+          ]
+          return Promise.resolve(all.filter((m) => ids.includes(m.id)))
+        }),
+      },
       adminUser: { findMany: vi.fn().mockResolvedValue([]) },
+      // WF16: VoucherPendingEdit carries merchantId directly (schema.prisma),
+      // so the same batch that resolves kind also resolves the merchant.
       voucherPendingEdit: {
         findMany: vi.fn().mockResolvedValue([
-          { id: 'pe-change', kind: 'CHANGE' },
-          { id: 'pe-end', kind: 'END' },
+          { id: 'pe-change', kind: 'CHANGE', merchantId: 'm-ve' },
+          { id: 'pe-end', kind: 'END', merchantId: 'm-ve' },
         ]),
       },
+      // WF16: MERCHANT_IDENTITY_EDIT row 'appr-e' (referenceId 'pe-m').
+      merchantPendingEdit: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'pe-m', merchantId: 'm-me' }]),
+      },
+      branchPendingEdit: { findMany: vi.fn().mockResolvedValue([]) },
+      branch: { findMany: vi.fn().mockResolvedValue([]) },
     } as any
   }
 
@@ -236,12 +263,20 @@ describe('governed flows: VOUCHER_EDIT queue rows carry voucherEditKind', () => 
     // Non-VOUCHER_EDIT rows omit the key entirely (optional field).
     expect('voucherEditKind' in editRow).toBe(false)
 
+    // WF16: VOUCHER_EDIT rows now carry the resolved merchant too (via the
+    // same VoucherPendingEdit.merchantId column), and the identity-edit row
+    // carries its own merchant (via MerchantPendingEdit.merchantId) instead
+    // of "Unknown merchant".
+    expect(changeRow.merchant).toEqual({ id: 'm-ve', businessName: 'Voucher Edit Co', status: 'ACTIVE' })
+    expect(endRow.merchant).toEqual({ id: 'm-ve', businessName: 'Voucher Edit Co', status: 'ACTIVE' })
+    expect(editRow.merchant).toEqual({ id: 'm-me', businessName: 'Merchant Edit Co', status: 'ACTIVE' })
+
     // ONE batched findMany over exactly the page's VOUCHER_EDIT referenceIds,
-    // curated select (kind only) - no N+1, nothing else selected.
+    // curated select (kind + merchantId) - no N+1, nothing else selected.
     expect((app.prisma.voucherPendingEdit.findMany as any).mock.calls.length).toBe(1)
     const args = (app.prisma.voucherPendingEdit.findMany as any).mock.calls[0][0]
     expect(args.where).toEqual({ id: { in: ['pe-change', 'pe-end'] } })
-    expect(args.select).toEqual({ id: true, kind: true })
+    expect(args.select).toEqual({ id: true, kind: true, merchantId: true })
   })
 
   it('a VOUCHER_EDIT row whose staging row is missing carries voucherEditKind:null (never throws)', async () => {
@@ -255,5 +290,136 @@ describe('governed flows: VOUCHER_EDIT queue rows carry voucherEditKind', () => 
     const body = JSON.parse(res.body)
     const endRow = body.approvals.find((a: any) => a.id === 'appr-ve-end')
     expect(endRow.voucherEditKind).toBeNull()
+  })
+})
+
+// WF16 (acceptance-walk finding): every non-onboarding, non-VOUCHER approval
+// row rendered "Unknown merchant" in the queue (the frontend fallback in
+// QueueTable.tsx) because listApprovals never resolved a `merchant` block for
+// BRANCH_IDENTITY_EDIT / BRANCH_CREATE / BRANCH_CLOSE. Each of those types is
+// one hop from a merchant (BranchPendingEdit.merchantId; Branch.merchantId for
+// the lifecycle types, since their referenceId IS the branch id) — covered
+// here end-to-end through GET /admin/approvals. MERCHANT_PROFILE_EDIT is
+// deliberately left unresolved (no code path creates it; referenceId shape
+// unverified) and must keep merchant:null.
+describe('WF16: branch-edit + branch-lifecycle queue rows carry a merchant summary', () => {
+  let app: FastifyInstance
+  const signOps = () =>
+    (app.jwt as any).admin.sign(
+      { sub: 'admin-1', role: 'admin', adminRole: 'OPERATIONS', sessionId: 's1' },
+      { expiresIn: '1h' },
+    )
+
+  function makePrisma() {
+    const rows = [
+      {
+        id: 'appr-be', type: 'BRANCH_IDENTITY_EDIT', referenceId: 'bpe-1', referenceType: 'branch_pending_edit',
+        status: 'PENDING', adminUserId: null, comment: null,
+        submittedAt: new Date('2026-07-09T10:00:00.000Z'), actionedAt: null, claimedById: null, claimedAt: null,
+      },
+      {
+        id: 'appr-bc', type: 'BRANCH_CREATE', referenceId: 'branch-new', referenceType: 'branch',
+        status: 'PENDING', adminUserId: null, comment: null,
+        submittedAt: new Date('2026-07-09T10:01:00.000Z'), actionedAt: null, claimedById: null, claimedAt: null,
+      },
+      {
+        id: 'appr-bx', type: 'BRANCH_CLOSE', referenceId: 'branch-old', referenceType: 'branch',
+        status: 'PENDING', adminUserId: null, comment: null,
+        submittedAt: new Date('2026-07-09T10:02:00.000Z'), actionedAt: null, claimedById: null, claimedAt: null,
+      },
+      {
+        id: 'appr-pe', type: 'MERCHANT_PROFILE_EDIT', referenceId: 'whatever-1', referenceType: 'unknown',
+        status: 'PENDING', adminUserId: null, comment: null,
+        submittedAt: new Date('2026-07-09T10:03:00.000Z'), actionedAt: null, claimedById: null, claimedAt: null,
+      },
+    ]
+    return {
+      adminApproval: {
+        count: vi.fn().mockResolvedValue(rows.length),
+        findMany: vi.fn().mockResolvedValue(rows),
+      },
+      voucher: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
+      merchant: {
+        findMany: vi.fn().mockImplementation((args: any) => {
+          const ids: string[] = args?.where?.id?.in ?? []
+          const all = [
+            { id: 'm-branch-edit', businessName: 'Branch Edit Co', status: 'ACTIVE' },
+            { id: 'm-new', businessName: 'New Branch Co', status: 'ACTIVE' },
+            { id: 'm-old', businessName: 'Old Branch Co', status: 'ACTIVE' },
+          ]
+          return Promise.resolve(all.filter((m) => ids.includes(m.id)))
+        }),
+      },
+      adminUser: { findMany: vi.fn().mockResolvedValue([]) },
+      voucherPendingEdit: { findMany: vi.fn().mockResolvedValue([]) },
+      merchantPendingEdit: { findMany: vi.fn().mockResolvedValue([]) },
+      // WF16: BranchPendingEdit carries merchantId directly (schema.prisma).
+      branchPendingEdit: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'bpe-1', merchantId: 'm-branch-edit' }]),
+      },
+      // WF16: BRANCH_CREATE/BRANCH_CLOSE referenceId IS the branch id; Branch
+      // carries merchantId directly.
+      branch: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'branch-new', merchantId: 'm-new' },
+          { id: 'branch-old', merchantId: 'm-old' },
+        ]),
+      },
+    } as any
+  }
+
+  beforeEach(async () => {
+    app = await buildApp()
+    app.decorate('prisma', makePrisma())
+    app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue('OK') } as any)
+    await app.ready()
+  })
+  afterEach(async () => {
+    await app.close()
+  })
+
+  it('resolves merchant for BRANCH_IDENTITY_EDIT/BRANCH_CREATE/BRANCH_CLOSE; MERCHANT_PROFILE_EDIT stays null', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/approvals',
+      headers: { authorization: `Bearer ${signOps()}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    const byId = Object.fromEntries(body.approvals.map((a: any) => [a.id, a]))
+
+    expect(byId['appr-be'].merchant).toEqual({ id: 'm-branch-edit', businessName: 'Branch Edit Co', status: 'ACTIVE' })
+    expect(byId['appr-bc'].merchant).toEqual({ id: 'm-new', businessName: 'New Branch Co', status: 'ACTIVE' })
+    expect(byId['appr-bx'].merchant).toEqual({ id: 'm-old', businessName: 'Old Branch Co', status: 'ACTIVE' })
+    // MERCHANT_PROFILE_EDIT: no code path creates this type and its
+    // referenceId shape is unverified — it must keep the safe null, never a
+    // guessed resolution.
+    expect(byId['appr-pe'].merchant ?? null).toBeNull()
+
+    // No N+1: exactly one batched findMany per source, over exactly this
+    // page's referenceIds for that type.
+    expect((app.prisma.branchPendingEdit.findMany as any).mock.calls.length).toBe(1)
+    expect((app.prisma.branchPendingEdit.findMany as any).mock.calls[0][0]).toEqual({
+      where: { id: { in: ['bpe-1'] } },
+      select: { id: true, merchantId: true },
+    })
+    expect((app.prisma.branch.findMany as any).mock.calls.length).toBe(1)
+    expect((app.prisma.branch.findMany as any).mock.calls[0][0]).toEqual({
+      where: { id: { in: ['branch-new', 'branch-old'] } },
+      select: { id: true, merchantId: true },
+    })
+  })
+
+  it('a BRANCH_IDENTITY_EDIT row whose staging row is missing carries merchant:null (never throws)', async () => {
+    app.prisma.branchPendingEdit.findMany = vi.fn().mockResolvedValue([])
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/approvals',
+      headers: { authorization: `Bearer ${signOps()}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    const row = body.approvals.find((a: any) => a.id === 'appr-be')
+    expect(row.merchant ?? null).toBeNull()
   })
 })
