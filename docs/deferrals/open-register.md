@@ -108,8 +108,8 @@ voucher governed-flows package - see the new §5 follow-ups block below); struct
 (windows/cooldown/imageUrl); Staff & Access v1 deferrals (claim-supersession atomicity,
 cross-tenant existence, cap enforcement, a11y); merchant M1 a11y focus-on-error +
 OTP-lockout message; admin M2-M8 deferred lists; Option B B2+/B3/B4/B5 + photo-apply;
-`canManageVouchers` migration applied to LOCAL dev DB only (staging/prod need
-`prisma migrate deploy`); staging admin-OTP delivery UNVERIFIED; Karaara staging cleanup
+`canManageVouchers` migration now on staging too (56/56 verified 2026-07-09; production
+still unprovisioned); staging admin-OTP delivery UNVERIFIED; Karaara staging cleanup
 UNVERIFIED; automated monthly merchant statements (from the old §R4 architecture note) not
 yet tracked in any roadmap row: confirm placement; `GET /branches` payload still returns the
 encrypted `redemptionPin` field (UI never renders it; harden the payload before treating it
@@ -142,16 +142,15 @@ SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
 - **§VG-IDX** (Voucher governed flows): the one-PENDING-per-voucher guard in #411 `ca1c6991` is app-level (checked in the writer), not DB-enforced - a race could create a concurrent duplicate `VoucherPendingEdit` review row. No privilege gain; Opus-adjudicated TRACK-not-build. A partial-unique index (`voucherId` where `status='PENDING'`) is a later nicety, not a bug fix.
 - **§VG-RACE** (Voucher governed flows): a withdraw-submission racing an in-flight admin approve/reject is last-writer-wins, with the ADMIN decision winning if it lands first (consistent with the approved-waiting withdraw refusal already built into #411). Opus-adjudicated as-designed, TRACK-not-build, not an open bug.
 - **§VG-RUNAGAIN** (D5, Voucher governed flows): "Run this again" (re-activate/duplicate-to-draft a finished/expired voucher) was explicitly OUT OF SCOPE for the #411-#413 build (owner decision, `docs/superpowers/plans/2026-07-07-voucher-governed-flows.md` D5) - a separate later slice, not started.
-- **§VG-MIGRATE** (platform/deploy): the `voucher_governed_flows` migration (`20260707135148`, adds `VoucherPendingEdit`/`ApprovalType.VOUCHER_EDIT`/`ApprovalStatus.WITHDRAWN`) is applied to the LOCAL dev DB only; two earlier migrations, `keyring_fingerprint` (`20260629000000`) and `maintenance_alert_types` (`20260702000000`), are ALSO still pending the same staging/prod `prisma migrate deploy`. None of the three is on the shared Neon staging/prod database. GATED: owner-approved deploy window (see `docs/PROJECT-STATE.md` §3/§4.4).
+- **§VG-MIGRATE** (platform/deploy): **CLOSED for STAGING 2026-07-09.** `prisma migrate status` against the staging Neon DB (direct endpoint) verified 56/56 applied after the owner-approved enablement deploy (Railway deployment `28f3d75f` @ main `a5808113`): `voucher_governed_flows` (`20260707135148`), `keyring_fingerprint` (`20260629000000`), and `maintenance_alert_types` (`20260702000000`) are all on staging (they were among the 55 already applied pre-deploy), and `branch_google_place_id` (`20260709095646`) was applied that day. **Residual scope = PRODUCTION only:** no production environment/DB is provisioned yet; the production migration step stays owner-gated (see `docs/PROJECT-STATE.md` §3/§4.4).
 - Detail: PRs #411 `ca1c6991` / #412 `350f941a` / #413 `381452f2`; the plan doc's as-built §7; `docs/PROJECT-STATE.md` §4.2 voucher-governed-flows-package paragraph (2026-07-07).
 
-**B2 address search - staging status (live note, 2026-07-08):** the merchant-portal branch
+**B2 address search - staging status: RESOLVED (2026-07-09).** The merchant-portal branch
 address search (PR #318, `49c132fe`) is fully built and merged - server-side Places New Text
-Search via `searchPlaces()` + the Redis atomic limiter above, candidate-token flow, UI. A Fable
-diagnostic probe on 2026-07-08 confirmed the staging failure is a Google-side EXPIRED KEY (HTTP
-400, `error.status = 'INVALID_ARGUMENT'`, `details[].reason = 'API_KEY_INVALID'`, message "API
-key expired. Please renew the API key.") - not a code defect. Owner action required: renew the
-key in the Google Cloud Console and update the `GOOGLE_MAPS_API_KEY` Railway staging variable.
+Search via `searchPlaces()` + the Redis atomic limiter above, candidate-token flow, UI. The
+2026-07-08 staging failure was a Google-side EXPIRED KEY (not a code defect); the owner renewed
+the key, and a live staging probe on 2026-07-09 (after the `a5808113` enablement deploy)
+returned 3 candidates for a real query with no latitude/longitude leak. Working end to end.
 No further code changes are needed for staging to work once the key is renewed. (Observability
 hardening landed alongside this note: `src/api/lib/googlePlaces.ts` now logs the Google error's
 HTTP status / `error.status` / `error.details[].reason` server-side on any non-429 failure, so a
@@ -159,6 +158,17 @@ future expired/invalid/disabled key is visible in logs without needing a live pr
 
 ## Change log
 
+- **2026-07-09** · Staging enablement reconciliation (docs-only; records the owner-approved
+  2026-07-09 staging sequence, no status invented): §VG-MIGRATE CLOSED for STAGING (56/56
+  migrations verified on the staging Neon DB after the enablement deploy, Railway deployment
+  `28f3d75f` @ main `a5808113`; incl. `voucher_governed_flows`, `keyring_fingerprint`,
+  `maintenance_alert_types`, and the newly applied `branch_google_place_id`); residual
+  §VG-MIGRATE scope = production only (unprovisioned, owner-gated). §5 B2 address-search live
+  note flipped to RESOLVED (owner renewed the Google key; live staging probe 2026-07-09
+  returned 3 candidates, no coordinate leak). §5 headline `canManageVouchers` parenthetical
+  corrected (on staging now; production still the only gap). Storage (R2) is LIVE + VERIFIED
+  on staging per `docs/PROJECT-STATE.md` §4.4 (updated in the same PR). Module acceptance
+  statuses deliberately untouched: authenticated staging acceptance remains outstanding.
 - **2026-07-08** · B2 address-search follow-ups (decision-free hardening + doc reconcile,
   no owner action taken here): §3 "Google Places quota hardening" row CLOSED - stale, PR #318
   (`49c132fe`, merged 2026-06-25) already added the multi-instance-safe Redis atomic limiter
