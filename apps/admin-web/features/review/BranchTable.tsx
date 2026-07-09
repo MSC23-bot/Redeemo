@@ -1,20 +1,27 @@
+'use client'
+
 /**
  * BranchTable — read-only list of merchant branches.
  *
- * Shows each branch's name, address, location confidence, and active/main
- * status. Branch PINs are never shown here.
+ * Shows each branch's name, address, location provenance (Branch Location Trust
+ * Slice 2 badge), and active/main status. Branch PINs are never shown here.
  *
  * M6: when `canConfirmLocation` is true, each branch whose location is not yet
  * confirmed (POSTCODE_CENTROID / NEEDS_REVIEW) gets a "Confirm location" button
  * that calls `onConfirmLocation(branchId)`. Already-confirmed branches
  * (MANUALLY_CONFIRMED / ADDRESS_GEOCODED) show no button. The table stays
  * read-only otherwise (no PIN is ever rendered).
+ *
+ * Slice 2 (spec 2026-07-09 §2.4): provenance badges use the shared spec labels;
+ * when any branch is NEEDS_REVIEW a "Needs location review (N)" filter chip
+ * appears so the exception is discoverable in the list.
  */
+import { useMemo, useState } from 'react'
 import { Badge } from '@/features/shared/Badge'
+import { LocationProvenanceBadge } from '@/features/shared/locationProvenance'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { ReviewBranch } from '@/lib/api/review'
-import type { BadgeTone } from '@/features/shared/Badge'
 
 interface BranchTableProps {
   branches: ReviewBranch[]
@@ -29,24 +36,6 @@ function isLocationUnconfirmed(confidence: string): boolean {
   return confidence === 'POSTCODE_CENTROID' || confidence === 'NEEDS_REVIEW'
 }
 
-function locationConfidenceTone(confidence: string): BadgeTone {
-  if (confidence === 'MANUALLY_CONFIRMED') return 'success'
-  if (confidence === 'ADDRESS_GEOCODED') return 'info'
-  if (confidence === 'POSTCODE_CENTROID') return 'warn'
-  return 'neutral'
-}
-
-function locationConfidenceLabel(confidence: string): string {
-  const map: Record<string, string> = {
-    MANUALLY_CONFIRMED: 'Confirmed',
-    ADDRESS_GEOCODED: 'Geocoded',
-    POSTCODE_CENTROID: 'Postcode centroid',
-    NEEDS_REVIEW: 'Needs review',
-    UNKNOWN: 'Unknown',
-  }
-  return map[confidence] ?? confidence
-}
-
 function formatAddress(branch: ReviewBranch): string {
   const parts = [
     branch.addressLine1,
@@ -57,11 +46,27 @@ function formatAddress(branch: ReviewBranch): string {
   return parts.join(', ')
 }
 
+type LocationFilter = 'all' | 'needsReview'
+
 export function BranchTable({
   branches,
   canConfirmLocation = false,
   onConfirmLocation,
 }: BranchTableProps) {
+  const [filter, setFilter] = useState<LocationFilter>('all')
+
+  const needsReviewCount = useMemo(
+    () => branches.filter((b) => b.locationConfidence === 'NEEDS_REVIEW').length,
+    [branches],
+  )
+  const visibleBranches = useMemo(
+    () =>
+      filter === 'needsReview'
+        ? branches.filter((b) => b.locationConfidence === 'NEEDS_REVIEW')
+        : branches,
+    [branches, filter],
+  )
+
   if (branches.length === 0) {
     return (
       <section aria-labelledby="branches-heading" data-testid="branch-table">
@@ -77,9 +82,58 @@ export function BranchTable({
 
   return (
     <section aria-labelledby="branches-heading" data-testid="branch-table">
-      <h2 id="branches-heading" className="text-sm font-semibold text-foreground mb-3">
-        Branches ({branches.length})
-      </h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 id="branches-heading" className="text-sm font-semibold text-foreground">
+          Branches ({branches.length})
+        </h2>
+
+        {/* Slice 2: NEEDS_REVIEW discoverability. The filter chip only appears when
+            there is at least one branch to review, matching the queue chip style. */}
+        {needsReviewCount > 0 && (
+          <div role="tablist" aria-label="Filter branches by location review" className="flex gap-2">
+            <button
+              role="tab"
+              type="button"
+              aria-selected={filter === 'all'}
+              onClick={() => setFilter('all')}
+              data-testid="branch-filter-all"
+              className={cn(
+                'inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                filter === 'all'
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground',
+              )}
+            >
+              All branches
+            </button>
+            <button
+              role="tab"
+              type="button"
+              aria-selected={filter === 'needsReview'}
+              onClick={() => setFilter('needsReview')}
+              data-testid="branch-filter-needs-review"
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                filter === 'needsReview'
+                  ? 'border-amber-400 bg-amber-100 text-amber-800'
+                  : 'border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground',
+              )}
+            >
+              Needs location review
+              <span
+                className={cn(
+                  'inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-xs leading-none',
+                  filter === 'needsReview' ? 'bg-amber-200 text-amber-900' : 'bg-secondary text-muted-foreground',
+                )}
+              >
+                {needsReviewCount}
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <table className="w-full text-sm">
@@ -100,7 +154,7 @@ export function BranchTable({
             </tr>
           </thead>
           <tbody>
-            {branches.map((branch, idx) => (
+            {visibleBranches.map((branch, idx) => (
               <tr
                 key={branch.id}
                 className={cn(
@@ -126,9 +180,7 @@ export function BranchTable({
 
                 <td className="px-4 py-3">
                   <div className="flex flex-col items-start gap-2">
-                    <Badge tone={locationConfidenceTone(branch.locationConfidence)}>
-                      {locationConfidenceLabel(branch.locationConfidence)}
-                    </Badge>
+                    <LocationProvenanceBadge confidence={branch.locationConfidence} />
                     {canConfirmLocation &&
                       isLocationUnconfirmed(branch.locationConfidence) &&
                       onConfirmLocation && (

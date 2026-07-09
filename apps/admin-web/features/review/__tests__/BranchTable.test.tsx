@@ -18,6 +18,10 @@ function makeBranch(overrides: Partial<ReviewBranch> = {}): ReviewBranch {
     postcode: 'HD1 1AA',
     localityName: null,
     locationConfidence: 'ADDRESS_GEOCODED',
+    latitude: 53.6458,
+    longitude: -1.785,
+    googlePlaceId: 'place-123',
+    locationSuggestion: null,
     ...overrides,
   }
 }
@@ -48,19 +52,19 @@ describe('BranchTable', () => {
     expect(screen.queryByText('Main')).not.toBeInTheDocument()
   })
 
-  it('shows "Confirmed" badge for MANUALLY_CONFIRMED location', () => {
+  it('shows "Human-confirmed" badge for MANUALLY_CONFIRMED location', () => {
     render(<BranchTable branches={[makeBranch({ locationConfidence: 'MANUALLY_CONFIRMED' })]} />)
-    expect(screen.getByText('Confirmed')).toBeInTheDocument()
+    expect(screen.getByText('Human-confirmed')).toBeInTheDocument()
   })
 
-  it('shows "Geocoded" badge for ADDRESS_GEOCODED location', () => {
+  it('shows "Google-verified (unreviewed)" badge for ADDRESS_GEOCODED location', () => {
     render(<BranchTable branches={[makeBranch({ locationConfidence: 'ADDRESS_GEOCODED' })]} />)
-    expect(screen.getByText('Geocoded')).toBeInTheDocument()
+    expect(screen.getByText('Google-verified (unreviewed)')).toBeInTheDocument()
   })
 
-  it('shows "Postcode centroid" badge for POSTCODE_CENTROID location', () => {
+  it('shows "Approximate (postcode)" badge for POSTCODE_CENTROID location', () => {
     render(<BranchTable branches={[makeBranch({ locationConfidence: 'POSTCODE_CENTROID' })]} />)
-    expect(screen.getByText('Postcode centroid')).toBeInTheDocument()
+    expect(screen.getByText('Approximate (postcode)')).toBeInTheDocument()
   })
 
   it('shows "Active" / "Inactive" status badge', () => {
@@ -172,5 +176,56 @@ describe('BranchTable confirm-location', () => {
       />
     )
     expect(screen.getByText('Branch PINs are never shown here.')).toBeInTheDocument()
+  })
+})
+
+// ── Slice 2: NEEDS_REVIEW discoverability filter ──────────────────────────────
+
+describe('BranchTable NEEDS_REVIEW filter', () => {
+  it('hides the filter chip when no branch is NEEDS_REVIEW', () => {
+    render(
+      <BranchTable
+        branches={[
+          makeBranch({ id: 'br-1', locationConfidence: 'ADDRESS_GEOCODED' }),
+          makeBranch({ id: 'br-2', locationConfidence: 'MANUALLY_CONFIRMED', isMainBranch: false }),
+        ]}
+      />
+    )
+    expect(screen.queryByTestId('branch-filter-needs-review')).not.toBeInTheDocument()
+  })
+
+  it('shows the filter chip with the NEEDS_REVIEW count', () => {
+    render(
+      <BranchTable
+        branches={[
+          makeBranch({ id: 'br-1', locationConfidence: 'ADDRESS_GEOCODED' }),
+          makeBranch({ id: 'br-2', name: 'Needs One', locationConfidence: 'NEEDS_REVIEW', isMainBranch: false }),
+          makeBranch({ id: 'br-3', name: 'Needs Two', locationConfidence: 'NEEDS_REVIEW', isMainBranch: false }),
+        ]}
+      />
+    )
+    const chip = screen.getByTestId('branch-filter-needs-review')
+    expect(chip).toBeInTheDocument()
+    expect(chip).toHaveTextContent('2')
+  })
+
+  it('filters the table to NEEDS_REVIEW branches when the chip is selected', () => {
+    render(
+      <BranchTable
+        branches={[
+          makeBranch({ id: 'br-1', name: 'Trusted Main', locationConfidence: 'ADDRESS_GEOCODED' }),
+          makeBranch({ id: 'br-2', name: 'Needs One', locationConfidence: 'NEEDS_REVIEW', isMainBranch: false }),
+        ]}
+      />
+    )
+    // Both shown initially.
+    expect(screen.getByText('Trusted Main')).toBeInTheDocument()
+    expect(screen.getByText('Needs One')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('branch-filter-needs-review'))
+
+    // Only the NEEDS_REVIEW branch remains.
+    expect(screen.queryByText('Trusted Main')).not.toBeInTheDocument()
+    expect(screen.getByText('Needs One')).toBeInTheDocument()
   })
 })

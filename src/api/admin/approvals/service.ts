@@ -8,6 +8,15 @@ import { merchantChangesRequestedEmail, merchantRejectedEmail, merchantLiveEmail
 import { computeOnboardingChecklist } from '../../merchant/onboarding/service'
 import { isBranchLocationConfirmed } from '../../shared/location'
 import { presignGet } from '../../shared/storage'
+import {
+  serializeReviewBranch,
+  parseStagedSuggestion,
+  parsePendingEditSuggestion,
+  reviewBranchSelect,
+  STAGED_SUGGESTION_AUDIT_EVENTS,
+  type StagedSuggestionAuditEvent,
+  type ReviewLocationSuggestion,
+} from './reviewBranchSerializer'
 
 // Phase 2 Slice 1 M3 — the AdminApproval actioner (review loop; NO approve/
 // go-live — that is M5). Every state-changing action is atomic + idempotent and
@@ -879,22 +888,12 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
       },
     }),
 
-    // Branches — redemptionPin MUST NOT be selected; filter soft-deleted
+    // Branches — redemptionPin MUST NOT be selected; filter soft-deleted. The
+    // projection is the test-pinned reviewBranchSelect (co-located with the DTO);
+    // redemptionPin is DELIBERATELY absent there (see its doc-comment + test).
     prisma.branch.findMany({
       where: { merchantId, deletedAt: null },
-      select: {
-        id: true,
-        name: true,
-        isMainBranch: true,
-        isActive: true,
-        addressLine1: true,
-        addressLine2: true,
-        city: true,
-        postcode: true,
-        localityName: true,
-        locationConfidence: true,
-        // redemptionPin is intentionally omitted — NEVER expose it
-      },
+      select: reviewBranchSelect,
     }),
 
     // Vouchers (all types — RMV + custom)
@@ -942,6 +941,59 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
   const adminById = new Map(
     adminUsers.map((a: { id: string; firstName: string; lastName: string }) => [a.id, `${a.firstName} ${a.lastName}`]),
   )
+
+  // Branch Location Trust Slice 2 (lead-adjudicated widening): surface the
+  // RELEVANT (freshest) staged Google suggestion per branch, from ANY of the
+  // three Slice 1/1b lanes:
+  //   - an OPEN (PENDING) BranchPendingEdit's proposedChanges.__locationSuggestion
+  //     — the suggestion an admin is ABOUT to approve (reviewed-edit lane), OR
+  //   - audit metadata.locationSuggestion on BRANCH_CREATED (create lane) or
+  //     BRANCH_UPDATED (draft-window direct edit lane — the lane that stamps
+  //     NEEDS_REVIEW immediately, so its suggestion IS the exception context).
+  // Precedence: pending-edit WINS over the audit rows (it is the newer intent);
+  // among audit rows the LATEST parseable one wins across BOTH events, so an
+  // edit-time suggestion supersedes a stale create-time one after an address
+  // change; null when none. A malformed blob is skipped, never a crash. This is
+  // what the NEEDS_REVIEW exception context shows (suggested pin vs current
+  // centroid), plus a source discriminator so the panel can say which it is.
+  const branchIds = branches.map((b: { id: string }) => b.id)
+  const pendingSuggestionByBranchId = new Map<string, ReviewLocationSuggestion>()
+  const auditSuggestionByBranchId = new Map<string, ReviewLocationSuggestion>()
+  if (branchIds.length > 0) {
+    const [pendingEdits, auditRows] = await Promise.all([
+      // OPEN edits only (PENDING): the change an admin is about to approve.
+      prisma.branchPendingEdit.findMany({
+        where: { branchId: { in: branchIds }, status: 'PENDING' },
+        select: { branchId: true, proposedChanges: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.auditLog.findMany({
+        where: {
+          entityType: 'branch',
+          entityId: { in: branchIds },
+          event: { in: Object.keys(STAGED_SUGGESTION_AUDIT_EVENTS) },
+        },
+        select: { entityId: true, event: true, metadata: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ])
+    for (const edit of pendingEdits) {
+      if (pendingSuggestionByBranchId.has(edit.branchId)) continue // keep the latest only
+      const parsed = parsePendingEditSuggestion(edit.proposedChanges)
+      if (parsed) pendingSuggestionByBranchId.set(edit.branchId, parsed)
+    }
+    for (const row of auditRows) {
+      if (auditSuggestionByBranchId.has(row.entityId)) continue // keep the latest only
+      const parsed = parseStagedSuggestion(
+        row.metadata,
+        STAGED_SUGGESTION_AUDIT_EVENTS[row.event as StagedSuggestionAuditEvent],
+      )
+      if (parsed) auditSuggestionByBranchId.set(row.entityId, parsed)
+    }
+  }
+  // Precedence resolver: pending-edit suggestion beats the audit-staged ones.
+  const suggestionForBranch = (branchId: string): ReviewLocationSuggestion | null =>
+    pendingSuggestionByBranchId.get(branchId) ?? auditSuggestionByBranchId.get(branchId) ?? null
 
   // 5. Presign each document's GET URL inside a try/catch.
   //    The raw fileUrl (R2 key) is NEVER included in the output — even on failure.
@@ -1002,7 +1054,9 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
           phone: owner.merchantAdmin.phone ?? undefined,
         }
       : null,
-    branches,
+    branches: branches.map((b: Parameters<typeof serializeReviewBranch>[0]) =>
+      serializeReviewBranch(b, suggestionForBranch(b.id)),
+    ),
     vouchers: vouchers.map((v) => ({
       id: v.id,
       title: v.title,

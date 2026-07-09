@@ -27,6 +27,7 @@ import type { ReviewApproval } from '@/lib/api/review'
 import { MerchantHeader } from '@/features/review/MerchantHeader'
 import { ProfileCard } from '@/features/review/ProfileCard'
 import { BranchTable } from '@/features/review/BranchTable'
+import { LocationTrustPanel } from '@/features/review/LocationTrustPanel'
 import { DocumentList } from '@/features/review/DocumentList'
 import { VoucherList } from '@/features/review/VoucherList'
 import { ChecklistSummary } from '@/features/review/ChecklistSummary'
@@ -334,6 +335,28 @@ export default function ReviewPage({ params }: ReviewPageProps) {
                 canConfirmLocation={can('branch:confirm-location')}
                 onConfirmLocation={(branchId) => setConfirmLocationBranchId(branchId)}
               />
+              {/* Slice 2: location provenance at the approval glance. Panels for the
+                  main branch (the go-live location gate) + any NEEDS_REVIEW branch
+                  (the exception context), so an admin can act in one glance. */}
+              {(() => {
+                const panelBranches = data.branches.filter(
+                  (b) => b.isMainBranch || b.locationConfidence === 'NEEDS_REVIEW',
+                )
+                if (panelBranches.length === 0) return null
+                return (
+                  <section aria-label="Branch location provenance" className="space-y-3" data-testid="location-trust-panels">
+                    <h2 className="text-sm font-semibold text-foreground">Location provenance</h2>
+                    {panelBranches.map((branch) => (
+                      <LocationTrustPanel
+                        key={branch.id}
+                        branch={branch}
+                        canCorrectLocation={can('branch:confirm-location')}
+                        onCorrectLocation={(branchId) => setConfirmLocationBranchId(branchId)}
+                      />
+                    ))}
+                  </section>
+                )
+              })()}
               <DocumentList documents={data.documents} />
               {data.thinAreas && <ThinAreaFlags thinAreas={data.thinAreas} />}
               <ActivityTimeline merchantId={data.merchant.id} />
