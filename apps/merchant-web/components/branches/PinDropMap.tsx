@@ -109,7 +109,6 @@ export function PinDropMap({
   React.useEffect(() => {
     const cleanup = loadPreview()
     return cleanup
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadPreview])
 
   const radiusPx = params ? radiusMetresToPixels(LOCATION_TRUST_RADIUS_METRES, params) : 0
@@ -319,6 +318,9 @@ export function PinDropMap({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element -- an ephemeral
+            client-generated blob: URL (see loadPreview); next/image's optimizer
+            is for static/remote assets, not one-off blobs. */}
         <img
           src={preview.src}
           alt="Map centred on your postcode area"

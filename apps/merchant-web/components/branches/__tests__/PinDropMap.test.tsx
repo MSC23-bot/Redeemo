@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { PinDropMap } from '@/components/branches/PinDropMap'
 import { ApiError } from '@/lib/api/client'
 import type { Branch } from '@/lib/api/branch'
