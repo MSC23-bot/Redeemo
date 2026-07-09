@@ -48,14 +48,14 @@ closed by a later PR; confirm and then remove with a citation).
 | §HC tail | Home visual system non-blocking follow-ups: Family & Kids real glyphs; AllCategories token pass; `category-illustrations/` ~16 MB LFS/CDN; NearbyByCategory pool watch (raise `NEARBY_MERCHANT_POOL_TAKE` 60 → ~120 if dense markets under-fill); low-end Android / iPhone SE QA watch; shared `<SavingBlock>` + `useScrollPausedLoop` extraction | OPEN, Tier 1 batch |
 | Profile Sub-PR 2 | Backend for GetHelpModal + RequestMerchantSheet stubs (SupportTicket + MerchantRequest models, routes, hooks; flip the 3 stub pins) | GATED: user/QA traction; Tier 3 brainstorm-first |
 | Profile Polish Batch | Subscription card redesign, skeletons, bottom-sheet refresh, Delete Account placement, Redemption History surface | GATED: owner direction; Tier 2 brainstorm-first |
-| Profile Sub-PR 1 minors | Import `Interest` type; hoist `formatDate` Intl instance; GetHelpModal test comment; dead `dob` mock; loading skeleton | OPEN, Tier 1 |
+| Profile Sub-PR 1 minors | Import `Interest` type; hoist `formatDate` Intl instance; GetHelpModal test comment; dead `dob` mock. Loading-skeleton item CLOSED 2026-07-09 by PR #433 (`ccf9baa1`, `ProfileSkeleton`) | OPEN, Tier 1 |
 | Merchant-profile opens | Tap-target a11y; seed enrichment; `closesAt` device-local removal; discovery card ratings via `contextBranchId` | OPEN, Tier 1 |
 | Plan 3 | PC3 interests → real `Category` migration | GATED: owner ("leave until more stable"); sequence after Plan 4 M5 |
 | Plan 4 M5 | Location-model cleanup | GATED on §CU.1 (converges into one cleanup PR) |
 | EAS config | `eas.json` / `app.config.ts` / expo-build-properties port | OPEN (deliberately not ported in Profile Sub-PR 1) |
 | Node upgrade | Customer-app toolchain Node 20.19.4 → newer LTS | GATED on re-verifying jest-expo |
 | Seed-email hygiene | `admin@`/`customer@`/`staff@` seed addresses use unowned `redeemo.com` | OPEN, platform-wide follow-up |
-| Checklist-only customer-app tail | Additional open follow-ups tracked ONLY in the Customer App Codex checklist (read-only; reconciled 2026-07-06): §CE-§CK Search follow-ups (filters, sorting, recent searches, empty-state illustrations, heart migration, pagination, tactile polish); §BY/§CA/§CC/§DJ/§DK cross-surface copy + pill + ranking-audit items; §DB/§DC/§DD/§DE/§DI Home follow-ups; Map polish bucket + §CZ category/filter correctness (owner-deferred to the Map rebase pass); Category FilterSheet redesign + copy-mismatch bug; Savings redemption-history pagination end-state bug + sticky-header redesign; QA-seed Stage 3 coordinate verification; pg SSL-semantics warning; stale-generated-Prisma-client dev note; Profile-scope navigation-architecture concern | OPEN in the checklist; promote rows here as they become active |
+| Checklist-only customer-app tail | Additional open follow-ups tracked ONLY in the Customer App Codex checklist (read-only; reconciled 2026-07-06): §CE-§CK Search follow-ups (filters, sorting, recent searches, empty-state illustrations, heart migration, pagination, tactile polish); §BY/§CA/§CC/§DJ/§DK cross-surface copy + pill + ranking-audit items; §DB/§DC/§DD/§DE/§DI Home follow-ups; Map polish bucket (a narrower Map in-area reliability slice - deterministic candidate pool, opt-in `branchesOnly` fast path, client bbox-quantized caching - SHIPPED 2026-07-09 via PR #434 `3e20bbeb`, plan `docs/superpowers/plans/2026-07-09-map-in-area-reliability-slice.md`; the bucket itself - clustering, category-differentiated pins, region accumulation, `AbortSignal` - stays OPEN) + §CZ category/filter correctness (owner-deferred to the Map rebase pass); Category FilterSheet redesign + copy-mismatch bug; Savings redemption-history pagination end-state bug + sticky-header redesign; QA-seed Stage 3 coordinate verification; pg SSL-semantics warning; stale-generated-Prisma-client dev note; Profile-scope navigation-architecture concern | OPEN in the checklist; promote rows here as they become active |
 | Savings ROI copy semantics | "You've saved £X, Y× your subscription": calendar-month vs billing-cycle comparison + annual-plan denomination | OPEN: needs owner product decision |
 | Lifecycle nudges | Post-redemption "rate this merchant" delayed notification (timing/scheduler/dedup) + subscription-renewal notification (copy/event-source/destination) | OPEN: needs owner product decisions; Phase-6-adjacent |
 
@@ -145,6 +145,14 @@ SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
 - **§VG-MIGRATE** (platform/deploy): the `voucher_governed_flows` migration (`20260707135148`, adds `VoucherPendingEdit`/`ApprovalType.VOUCHER_EDIT`/`ApprovalStatus.WITHDRAWN`) is applied to the LOCAL dev DB only; two earlier migrations, `keyring_fingerprint` (`20260629000000`) and `maintenance_alert_types` (`20260702000000`), are ALSO still pending the same staging/prod `prisma migrate deploy`. None of the three is on the shared Neon staging/prod database. GATED: owner-approved deploy window (see `docs/PROJECT-STATE.md` §3/§4.4).
 - Detail: PRs #411 `ca1c6991` / #412 `350f941a` / #413 `381452f2`; the plan doc's as-built §7; `docs/PROJECT-STATE.md` §4.2 voucher-governed-flows-package paragraph (2026-07-07).
 
+**Branch Location Trust follow-ups (OPENED 2026-07-09 on the #435 merge; do not forget):**
+- **§LOC-1B** (Slice 1b) - the same auto-trust pipeline (postcode-match + centroid-radius cross-check → `ADDRESS_GEOCODED`) needs to run on the reviewed-edit APPLY lane (`editApplier`), not just branch CREATE, so an address change proposed via the merchant edit-request flow gets the same treatment. GATED: sequence after Slice 1 soak.
+- **§LOC-2** (Slice 2) - admin approval mini-map + provenance badges ("Google-verified (unreviewed)" / "Human-confirmed" / "Needs review") + `NEEDS_REVIEW` queue surfacing on the admin approval screen, per spec §2 point 4. GATED: admin-web build slot.
+- **§LOC-3** (Slice 3) - merchant-portal pin-drop for merchants with no matching Google listing, constrained to within the entered-postcode area (outside the area → `NEEDS_REVIEW`), per spec §2 point 5. GATED: merchant-web + backend build slot.
+- **§LOC-4** (Slice 4) - one-time backfill script re-matching existing non-confirmed branches against Google Places by name + address, auto-upgrading on the same cross-checks and queuing the rest for review, per spec §2 point 6. GATED: owner-approved run (billable Google API calls).
+- **§LOC-MIGRATE** (platform/deploy) - the `branch_google_place_id` migration (`20260709095646`, adds `Branch.googlePlaceId`) is applied to the LOCAL dev DB only; it joins the three already-pending migrations (`keyring_fingerprint`, `maintenance_alert_types`, `voucher_governed_flows` - see §VG-MIGRATE above) awaiting the same staging/prod `prisma migrate deploy`. None of the four is on the shared Neon staging/prod database. GATED: owner-approved deploy window (see `docs/PROJECT-STATE.md` §3/§4.4/§6).
+- Detail: PR #435 `92d0b2bd`; spec `docs/superpowers/specs/2026-07-09-branch-location-trust-model.md`; plan `docs/superpowers/plans/2026-07-09-branch-location-trust-slice-1.md`; `docs/PROJECT-STATE.md` §4.2 Branch Location Trust Slice 1 paragraph + §6 RESOLVED note (2026-07-09).
+
 **B2 address search - staging status (live note, 2026-07-08):** the merchant-portal branch
 address search (PR #318, `49c132fe`) is fully built and merged - server-side Places New Text
 Search via `searchPlaces()` + the Redis atomic limiter above, candidate-token flow, UI. A Fable
@@ -159,6 +167,24 @@ future expired/invalid/disabled key is visible in logs without needing a live pr
 
 ## Change log
 
+- **2026-07-09** · Consolidated merge-bookkeeping pass (branch `docs/2026-07-09-merge-bookkeeping`)
+  for four merged PRs + one in-flight: §1 "Profile Sub-PR 1 minors" row annotated - the
+  loading-skeleton item CLOSED by PR #433 (`ccf9baa1`, `ProfileSkeleton`), the other four
+  minors stay OPEN. §1 "Checklist-only customer-app tail" row annotated - the Map in-area
+  reliability slice (deterministic candidate pool, `branchesOnly` fast path, bbox-quantized
+  client caching) SHIPPED via PR #434 (`3e20bbeb`, plan
+  `docs/superpowers/plans/2026-07-09-map-in-area-reliability-slice.md`); the broader Map
+  polish bucket stays OPEN. New §5 follow-ups block opened for Branch Location Trust Slice 1
+  (PR #435 `92d0b2bd`, spec `docs/superpowers/specs/2026-07-09-branch-location-trust-model.md`,
+  owner-APPROVED 2026-07-09): §LOC-1B (reviewed-edit APPLY-lane trust pipeline, Slice 1b),
+  §LOC-2 (admin mini-map + provenance badges, Slice 2), §LOC-3 (merchant pin-drop, Slice 3),
+  §LOC-4 (owner-gated Google backfill, Slice 4), §LOC-MIGRATE (the new
+  `branch_google_place_id` migration joins the three already-pending migrations, all
+  local-dev-only). PR #432 (`6987e32d`, Savings 429 fix + customer-register `register` tier)
+  recorded in `docs/PROJECT-STATE.md` §4.1 only - no register row change needed. PR #436
+  (customer-app scroll-jank perf batch 1) is IN-FLIGHT (Codex-reviewed no findings, not yet
+  merged) and is NOT recorded as closing anything here. `docs/PROJECT-STATE.md` §3/§4.1/§4.2/
+  §4.4/§6 updated in the same PR.
 - **2026-07-08** · B2 address-search follow-ups (decision-free hardening + doc reconcile,
   no owner action taken here): §3 "Google Places quota hardening" row CLOSED - stale, PR #318
   (`49c132fe`, merged 2026-06-25) already added the multi-instance-safe Redis atomic limiter
