@@ -25,6 +25,22 @@ jest.mock('@/lib/api/location', () => ({
   searchLocation: (...args: unknown[]) => searchLocation(...args),
 }))
 
+// --- Slice 3: PinDropMap is mounted for the chained pin-drop step. Stub it so
+// this file only asserts the CHAINING (which branch, which callbacks), not the
+// map's own internals (covered by PinDropMap.test.tsx). ---------------------
+jest.mock('@/components/branches/PinDropMap', () => ({
+  PinDropMap: ({ branch, onDone, onCancel }: { branch: { id: string }; onDone: () => void; onCancel: () => void }) => (
+    <div data-testid="pin-drop-map-stub" data-branch-id={branch.id}>
+      <button type="button" onClick={onDone}>
+        stub-done
+      </button>
+      <button type="button" onClick={onCancel}>
+        stub-cancel
+      </button>
+    </div>
+  ),
+}))
+
 const onClose = jest.fn()
 
 beforeEach(() => {
@@ -162,5 +178,57 @@ describe('AddBranchModal PR-6 location lookup', () => {
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
     await waitFor(() => expect(createMutateAsync).toHaveBeenCalled())
     expect(createMutateAsync.mock.calls[0][0]).not.toHaveProperty('candidateToken')
+  })
+})
+
+describe('AddBranchModal Slice 3 create-then-drop chain', () => {
+  it('chains straight into the pin-drop step for a POSTCODE_CENTROID branch, without navigating yet', async () => {
+    createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'POSTCODE_CENTROID' })
+    render(<AddBranchModal onClose={onClose} />)
+    fillRequired()
+    fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
+
+    const stub = await screen.findByTestId('pin-drop-map-stub')
+    expect(stub.dataset.branchId).toBe('b-new')
+    expect(push).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('chains into the pin-drop step for a NEEDS_REVIEW branch (a Google pick that failed the cross-check)', async () => {
+    createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'NEEDS_REVIEW' })
+    render(<AddBranchModal onClose={onClose} />)
+    fillRequired()
+    fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
+    expect(await screen.findByTestId('pin-drop-map-stub')).toBeInTheDocument()
+  })
+
+  it('skips the pin-drop step and navigates straight through for an ADDRESS_GEOCODED branch (Google pick passed)', async () => {
+    createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'ADDRESS_GEOCODED' })
+    render(<AddBranchModal onClose={onClose} />)
+    fillRequired()
+    fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/branches/b-new'))
+    expect(onClose).toHaveBeenCalled()
+    expect(screen.queryByTestId('pin-drop-map-stub')).not.toBeInTheDocument()
+  })
+
+  it('navigates to the branch page when the merchant completes the pin-drop step (Done)', async () => {
+    createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'POSTCODE_CENTROID' })
+    render(<AddBranchModal onClose={onClose} />)
+    fillRequired()
+    fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
+    fireEvent.click(await screen.findByText('stub-done'))
+    expect(push).toHaveBeenCalledWith('/branches/b-new')
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('still navigates to the branch page when the merchant skips the pin-drop step (Cancel) - the branch already exists', async () => {
+    createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'POSTCODE_CENTROID' })
+    render(<AddBranchModal onClose={onClose} />)
+    fillRequired()
+    fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
+    fireEvent.click(await screen.findByText('stub-cancel'))
+    expect(push).toHaveBeenCalledWith('/branches/b-new')
+    expect(onClose).toHaveBeenCalled()
   })
 })
