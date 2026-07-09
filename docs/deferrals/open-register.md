@@ -152,20 +152,25 @@ SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
 - **§LOC-MIGRATE** (platform/deploy) - PRODUCTION-only as of 2026-07-09: the `branch_google_place_id` migration (`20260709095646`, adds `Branch.googlePlaceId`) and the three earlier migrations (`keyring_fingerprint`, `maintenance_alert_types`, `voucher_governed_flows` - §VG-MIGRATE above) are verified APPLIED on dev + staging (both 56/56, direct-SQL cross-check 2026-07-09; staging apply landed with the storage-enablement deploy `28f3d75f`, approved SHA `a5808113`). Only the `production` Neon branch still lacks all four. GATED: owner-approved production deploy window (see `docs/PROJECT-STATE.md` §3 cross-check table + §4.4/§6).
 - Detail: PR #435 `92d0b2bd`; spec `docs/superpowers/specs/2026-07-09-branch-location-trust-model.md`; plan `docs/superpowers/plans/2026-07-09-branch-location-trust-slice-1.md`; `docs/PROJECT-STATE.md` §4.2 Branch Location Trust Slice 1 paragraph + §6 RESOLVED note (2026-07-09).
 
-**B2 address search - staging status (live note, 2026-07-08):** the merchant-portal branch
+**B2 address search - staging status: RESOLVED (2026-07-09).** The merchant-portal branch
 address search (PR #318, `49c132fe`) is fully built and merged - server-side Places New Text
-Search via `searchPlaces()` + the Redis atomic limiter above, candidate-token flow, UI. A Fable
-diagnostic probe on 2026-07-08 confirmed the staging failure is a Google-side EXPIRED KEY (HTTP
-400, `error.status = 'INVALID_ARGUMENT'`, `details[].reason = 'API_KEY_INVALID'`, message "API
-key expired. Please renew the API key.") - not a code defect. Owner action required: renew the
-key in the Google Cloud Console and update the `GOOGLE_MAPS_API_KEY` Railway staging variable.
-No further code changes are needed for staging to work once the key is renewed. (Observability
-hardening landed alongside this note: `src/api/lib/googlePlaces.ts` now logs the Google error's
-HTTP status / `error.status` / `error.details[].reason` server-side on any non-429 failure, so a
-future expired/invalid/disabled key is visible in logs without needing a live probe.)
+Search via `searchPlaces()` + the Redis atomic limiter above, candidate-token flow, UI. The
+2026-07-08 staging failure was a Google-side EXPIRED KEY (HTTP 400, `API_KEY_INVALID`), not a
+code defect. The owner renewed the key and updated the Railway staging variable; a live
+staging probe on 2026-07-09 (after the `a5808113` enablement deploy, deployment `28f3d75f`)
+returned 3 candidates for a real query with no latitude/longitude leak. Working end to end;
+no open action. (Observability hardening from the 2026-07-08 note remains in place:
+`src/api/lib/googlePlaces.ts` logs the Google error's HTTP status / `error.status` /
+`error.details[].reason` server-side on any non-429 failure, so a future expired/invalid/
+disabled key is visible in logs without needing a live probe.)
 
 ## Change log
 
+- **2026-07-09b** · §5 B2 address-search live note flipped to RESOLVED: the owner renewed the
+  expired Google key + Railway staging variable, and a live staging probe on 2026-07-09
+  (post-`a5808113` enablement deploy, deployment `28f3d75f`) returned 3 candidates with no
+  coordinate leak. Salvaged from superseded PR #440 per Codex review (the migration/storage
+  corrections in #440 were dropped: #438's per-branch cross-check table is the source of truth).
 - **2026-07-09** · Consolidated merge-bookkeeping pass (branch `docs/2026-07-09-merge-bookkeeping`)
   for the day's merged PRs (updated same day as #436/#439 landed): §1 "Profile Sub-PR 1 minors" row annotated - the
   loading-skeleton item CLOSED by PR #433 (`ccf9baa1`, `ProfileSkeleton`), the other four
