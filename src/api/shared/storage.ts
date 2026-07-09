@@ -321,8 +321,11 @@ export function publicUrl(key: string): string {
 // post-base key tail (ownerId reuses the OWNER_ID_RE charset). Matching the WHOLE
 // tail rejects extra `/` segments, `..`, leading/trailing slashes, and a missing
 // extension — so a caller-supplied URL can never claim to be one of our objects
-// unless it actually parses back to our origin + scheme.
-const PUBLIC_KEY_RE = /^([a-z]+)\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.[A-Za-z0-9]+)$/
+// unless it actually parses back to our origin + scheme. The kind group is pinned
+// to the PUBLIC kinds only (logo|banner|photo) — document never lives behind the
+// public base URL, so a document-shaped public URL must fail to parse, not just
+// fail the caller's kind check.
+const PUBLIC_KEY_RE = /^(logo|banner|photo)\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.[A-Za-z0-9]+)$/
 
 /**
  * Parse a public object URL back to its `{ kind, ownerId }`. Returns null for

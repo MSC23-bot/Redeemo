@@ -295,6 +295,10 @@ describe('storage — parsePublicUrl (P1 add-URL ownership inverse of publicUrl)
     expect(storage.parsePublicUrl('https://media.redeemo.co.uk/banner/o/x.jpg')).toEqual({ kind: 'banner', ownerId: 'o' })
   })
 
+  it('REJECTS a document-shaped public URL — kind is pinned to logo|banner|photo, not any lowercase word', () => {
+    expect(storage.parsePublicUrl(`https://media.redeemo.co.uk/document/${OWNER}/abcdef0123456789.pdf`)).toBeNull()
+  })
+
   it('returns null for an EXTERNAL origin', () => {
     expect(storage.parsePublicUrl('https://evil.com/photo/o/x.png')).toBeNull()
   })
