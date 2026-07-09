@@ -266,3 +266,30 @@ Unchanged from the original plan and **non-blocking**. The app is React Native/E
 ## 13. What this does NOT change
 
 No public launch; legal-content sign-off gate unchanged. No custom domains / DNS changes (DNS migration to Cloudflare is already done; `redeemo.co.uk` still serves the old AWS site; Zoho MX untouched). No live email/Stripe/Twilio. No marketplace exposure. **No AWS changes.** Access control is **Vercel Deployment Protection** (a dashboard setting, no code) — the previously-floated Basic-Auth middleware is **superseded**, so the only code touch that could arise is the §12 `eas.json` env block (customer-app follow-up), flagged and only on your go-ahead.
+
+---
+
+## 14. Deploy-verification rule + the 2026-07-09 worktree artifact anomaly (LOCKED lesson)
+
+**Rule (mandatory for every staging deploy that adds or changes routes):** verify the NEW
+route directly, not just `/health`. Probe the new route unauthenticated and compare with a
+sibling route as control: 401/403 = the code shipped; a Fastify
+`{"message":"Route GET:... not found"}` 404 = the artifact does NOT contain the code, even
+if the build succeeded and the healthcheck passed. Build-success + healthcheck is NOT proof
+the intended code is running.
+
+**Incident that produced the rule (2026-07-09, D67 deploy):**
+- `railway up --service Web --environment staging --ci` from the agent worktree
+  `.claude/worktrees/deploy-clean` (HEAD cleanly detached at main `f9cc9652`, D67 code
+  present on disk, `git status` clean) produced deployment `6f540979-e0bc-4291-a6b0-40cc2793a3a3`:
+  built, healthcheck PASSED, but `GET /api/v1/admin/redemptions` returned route-not-found 404
+  while sibling admin routes returned 401. The uploaded tarball evidently lacked the new
+  source; prime suspect is CLI file indexing around a git worktree's `.git` POINTER FILE.
+  Root cause not fully proven; an earlier same-day worktree `railway up` had worked, so treat
+  every worktree `railway up` as unverified until probed.
+- **Accepted fix and now the preferred deploy path:** Railway dashboard command palette
+  (Cmd+K) → "Deploy latest commit" on the Web service. Builds from the connected GitHub
+  `main` tip and stamps `commitHash` into the deployment metadata (which `railway up`
+  omits). The accepted staging deployment is `c6d04078-e6fa-4075-b925-0799166d8d5e` @
+  `f9cc9652` (owner-accepted 2026-07-09); the bad artifact `6f540979` was superseded and
+  removed.
