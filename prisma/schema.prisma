@@ -563,6 +563,11 @@ model Branch {
   locationResolvedAt DateTime?
   locationConfidence LocationConfidence @default(POSTCODE_CENTROID)
 
+  // Branch Location Trust Slice 1 (spec 2026-07-09): provenance of an
+  // ADDRESS_GEOCODED pin: the Google Place the merchant picked. Null for
+  // manual/centroid locations. Never exposed to customers.
+  googlePlaceId      String?
+
   // Branches PR-5 (D5): branch lifecycle staging axis. SEPARATE from `isActive`
   // (the merchant's reversible open/closed suspend toggle) and `deletedAt` (the
   // permanent soft-delete marker) — the three never collapse onto one flag.
