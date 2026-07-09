@@ -83,10 +83,30 @@ export type EffectiveLocality = z.infer<typeof effectiveLocalitySchema>
 // discipline — Discovery code imports from `@/lib/api/discovery`,
 // Merchant Profile code imports from `@/lib/api/merchant`.
 
-const branchLocationConfidenceSchema = z.enum([
-  'MANUALLY_CONFIRMED', 'POSTCODE_CENTROID', 'NEEDS_REVIEW', 'ADDRESS_GEOCODED',
-])
-export type BranchLocationConfidence = z.infer<typeof branchLocationConfidenceSchema>
+// Forward-compat hardening: parse as an OPEN `z.string()` (not a closed `z.enum`)
+// so a future backend confidence value does NOT make already-installed app builds
+// reject the whole discovery payload. Backend enum values today are
+// MANUALLY_CONFIRMED / POSTCODE_CENTROID / NEEDS_REVIEW / ADDRESS_GEOCODED, with the
+// planned MERCHANT_CONFIRMED joining the customer-visible confirmed set. App builds
+// ship through the store on a slow cadence; the backend ships in hours, so a closed
+// enum here is a release-ordering hazard: a MERCHANT_CONFIRMED branch reaching an
+// older build would degrade the feed. This tolerance MUST be in the field ahead of
+// the backend enum addition. Matches the `z.string()` idiom already used for the same
+// field in `favourites.ts`. See the Slice 3 addendum §3.3 (option A, recommended):
+// docs/superpowers/specs/2026-07-09-loc-slice-3-pin-drop-addendum.md
+// No customer-app consumer branches on this value (redaction of position happens
+// upstream on the backend), so widening the parse type has no UI risk.
+const branchLocationConfidenceSchema = z.string()
+// Known-value union preserved for editor hints / documentation while the parser
+// tolerates any string. `(string & {})` keeps autocomplete for the known values
+// without rejecting unknown future ones.
+export type BranchLocationConfidence =
+  | 'MANUALLY_CONFIRMED'
+  | 'POSTCODE_CENTROID'
+  | 'NEEDS_REVIEW'
+  | 'ADDRESS_GEOCODED'
+  | 'MERCHANT_CONFIRMED'
+  | (string & {})
 
 const branchTileCategorySummarySchema = z.object({
   id:               z.string(),
@@ -128,7 +148,7 @@ const branchTileMerchantGroupingSchema = z.object({
   totalEstimatedSaving: z.coerce.number().nullable(),
 }).strict()
 
-const branchTileSchema = z.object({
+export const branchTileSchema = z.object({
   id:                       z.string(),                          // branch.id — load-bearing for tile key + navigation
   branchName:               z.string(),
   branchLocalityId:         z.string().nullable(),
