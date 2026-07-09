@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { router } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ProfileHeader } from '../components/ProfileHeader'
+import { ProfileSkeleton } from '../components/ProfileSkeleton'
 import { ProfileSectionCard } from '../components/ProfileSectionCard'
 import { ProfileRow } from '../components/ProfileRow'
 import { PersonalInfoSheet } from '../components/PersonalInfoSheet'
@@ -86,7 +87,7 @@ export function ProfileScreen() {
     return `${names[0]}, ${names[1]} +${names.length - 2}`
   }, [profile?.interests])
 
-  if (profileLoading || !profile) return null
+  if (profileLoading || !profile) return <ProfileSkeleton />
 
   const sub = subscription
   const priceSuffix = sub?.plan.billingInterval === 'ANNUAL' ? '/yr' : '/mo'

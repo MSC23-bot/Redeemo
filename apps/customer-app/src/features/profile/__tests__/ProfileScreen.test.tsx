@@ -188,4 +188,25 @@ describe('ProfileScreen', () => {
     renderWithClient(<ProfileScreen />)
     expect(screen.getByText(/Monthly Plan/i)).toBeTruthy()
   })
+
+  // Profile Sub-PR 1 minors (docs/deferrals/open-register.md) — the loading
+  // branch previously rendered `null` (a blank screen) while `useMe()` was
+  // pending. It now renders `<ProfileSkeleton>` instead; testID is the
+  // canonical jest hook, the accessibility label is preserved so screen
+  // readers still announce the loading state.
+  it('shows the ProfileSkeleton while the profile query is pending', () => {
+    const { useMe } = require('@/hooks/useMe')
+    ;(useMe as jest.Mock).mockReturnValueOnce({ data: undefined, isLoading: true })
+    renderWithClient(<ProfileScreen />)
+    expect(screen.getByTestId('profile-skeleton')).toBeTruthy()
+    expect(screen.getByLabelText('Loading your profile')).toBeTruthy()
+    // Real content must not render alongside the skeleton.
+    expect(screen.queryByText('My Account')).toBeNull()
+  })
+
+  it('renders the real content (not the skeleton) once the profile has loaded', () => {
+    renderWithClient(<ProfileScreen />)
+    expect(screen.queryByTestId('profile-skeleton')).toBeNull()
+    expect(screen.getByText('My Account')).toBeTruthy()
+  })
 })
