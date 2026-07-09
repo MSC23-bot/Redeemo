@@ -6,7 +6,7 @@ import {
 } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { haversineMetres } from '../../shared/haversine'
-import { isBranchLocationConfirmed } from '../../shared/location'
+import { isBranchLocationConfirmed, CONFIRMED_LOCATION_SET } from '../../shared/location'
 import { isOpenNow } from '../../shared/isOpenNow'
 import { resolveProfileCity } from '../../lib/userCity'
 import { getCurrentCycleWindow } from '../../subscription/cycle'
@@ -47,9 +47,8 @@ import { findNearestLocality } from '../../lib/nearestLocality'
 
 /**
  * Plan 4 M1 PR #81 review — server-side enforcement that approximate branch
- * coordinates (POSTCODE_CENTROID, NEEDS_REVIEW, anything other than
- * MANUALLY_CONFIRMED) MUST NOT reach the customer-app as exact positions.
- * Owner-locked 2026-05-14:
+ * coordinates (POSTCODE_CENTROID, NEEDS_REVIEW) MUST NOT reach the customer-app
+ * as exact positions. Owner-locked 2026-05-14:
  *
  *   The important product principle is: we should not present postcode-
  *   centroid coordinates as an exact merchant location. Exact branch
@@ -58,13 +57,19 @@ import { findNearestLocality } from '../../lib/nearestLocality'
  *   customer-app from accidentally treating approximate coordinates as
  *   exact.
  *
+ * Branch Location Trust Slice 1 (spec 2026-07-09 §2.3): the exposure set
+ * widens by exactly one tier to CONFIRMED_LOCATION_SET (MANUALLY_CONFIRMED +
+ * ADDRESS_GEOCODED) — an ADDRESS_GEOCODED pin is the exact Google-verified
+ * coordinate the merchant picked, cross-checked server-side, so it is a real
+ * exact position. POSTCODE_CENTROID + NEEDS_REVIEW stay fully redacted (LOCKED,
+ * L3: never present a fake-exact pin).
+ *
  * `exposeBranchPosition` is called at every customer-facing serialization
- * point. For non-MANUALLY_CONFIRMED branches it nulls latitude / longitude
- * on the response and exposes `locationConfidence` so the customer-app
- * can surface "exact location pending confirmation" UI in a follow-up PR.
- * Existing client-side null-checks on lat/lng (distance-sort, map-pin,
- * "get directions") degrade gracefully — those paths already skip rows
- * with null coords.
+ * point. For non-confirmed branches it nulls latitude / longitude on the
+ * response and exposes `locationConfidence` so the customer-app can surface
+ * "exact location pending confirmation" UI. Existing client-side null-checks
+ * on lat/lng (distance-sort, map-pin, "get directions") degrade gracefully —
+ * those paths already skip rows with null coords.
  */
 export function exposeBranchPosition<B extends {
   locationConfidence?: string | null
@@ -72,7 +77,7 @@ export function exposeBranchPosition<B extends {
   longitude: unknown
 }>(b: B): { latitude: number | null; longitude: number | null; locationConfidence: string } {
   const confidence = b.locationConfidence ?? 'POSTCODE_CENTROID'
-  if (confidence !== 'MANUALLY_CONFIRMED') {
+  if (!isBranchLocationConfirmed(b)) {
     return { latitude: null, longitude: null, locationConfidence: confidence }
   }
   return {
@@ -85,18 +90,22 @@ export function exposeBranchPosition<B extends {
 /**
  * Companion gate for SERVER-SIDE computations that consume branch lat/lng
  * (distance calculations, "near me" sorting, etc.). Returns true only when
- * the branch is MANUALLY_CONFIRMED AND has non-null coordinates — i.e.
- * when the position can be used as an exact reference point. Pre-fix,
- * distance was computed against POSTCODE_CENTROID branches' centroids,
- * which is approximate by ~100-500m and shouldn't be presented as
- * precise distance to the user.
+ * the branch is in CONFIRMED_LOCATION_SET (MANUALLY_CONFIRMED + ADDRESS_GEOCODED)
+ * AND has non-null coordinates — i.e. when the position can be used as an exact
+ * reference point. Pre-fix, distance was computed against POSTCODE_CENTROID
+ * branches' centroids, which is approximate by ~100-500m and shouldn't be
+ * presented as precise distance to the user.
+ *
+ * Branch Location Trust Slice 1 (spec 2026-07-09 §2.3): widened by one tier to
+ * match `exposeBranchPosition` — an ADDRESS_GEOCODED pin is exact enough for
+ * distance. POSTCODE_CENTROID + NEEDS_REVIEW stay excluded (L3).
  */
 function hasExactPosition(b: {
   locationConfidence?: string | null
   latitude: unknown
   longitude: unknown
 }): boolean {
-  return b.locationConfidence === 'MANUALLY_CONFIRMED'
+  return isBranchLocationConfirmed(b)
     && b.latitude !== null && b.longitude !== null
 }
 
@@ -2858,14 +2867,17 @@ export async function searchMerchants(
   if (minLat !== undefined && maxLat !== undefined && minLng !== undefined && maxLng !== undefined) {
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
-      // PR #81 review B2 — bbox filter must require MANUALLY_CONFIRMED.
-      // Without this, a merchant with only POSTCODE_CENTROID branches in
-      // the bbox would surface on the map with an exact-pin position.
+      // PR #81 review B2 — bbox filter must require a CONFIRMED_LOCATION_SET
+      // position. Without this, a merchant with only POSTCODE_CENTROID branches
+      // in the bbox would surface on the map with an exact-pin position.
+      // Branch Location Trust Slice 1 (spec 2026-07-09 §2.3): widened by one
+      // tier to MANUALLY_CONFIRMED + ADDRESS_GEOCODED; POSTCODE_CENTROID +
+      // NEEDS_REVIEW stay excluded (L3).
       { branches: { some: {
         isActive: true,
         isTestData: false,
         lifecycleStatus: { not: 'PENDING_CREATE' }, // Branches PR-5 (§5)
-        locationConfidence: 'MANUALLY_CONFIRMED',
+        locationConfidence: { in: [...CONFIRMED_LOCATION_SET] },
         latitude:  { gte: minLat, lte: maxLat },
         longitude: { gte: minLng, lte: maxLng },
       }}},
@@ -3575,14 +3587,16 @@ export async function searchBranches(
   }
 
   // Bounding box — branch-direct (not via merchant.branches). Per the redaction
-  // contract (PR #81) only MANUALLY_CONFIRMED branches can be filtered by exact
-  // coords; approximate branches surface in the non-rankable tail instead and
-  // are filtered out of the bbox match by definition.
+  // contract (PR #81) only CONFIRMED_LOCATION_SET branches can be filtered by
+  // exact coords; approximate branches surface in the non-rankable tail instead
+  // and are filtered out of the bbox match by definition. Branch Location Trust
+  // Slice 1 (spec 2026-07-09 §2.3): widened by one tier to MANUALLY_CONFIRMED +
+  // ADDRESS_GEOCODED; POSTCODE_CENTROID + NEEDS_REVIEW stay excluded (L3).
   if (minLat !== undefined && maxLat !== undefined && minLng !== undefined && maxLng !== undefined) {
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       {
-        locationConfidence: 'MANUALLY_CONFIRMED',
+        locationConfidence: { in: [...CONFIRMED_LOCATION_SET] },
         latitude:  { gte: minLat, lte: maxLat },
         longitude: { gte: minLng, lte: maxLng },
       },
@@ -3845,9 +3859,10 @@ export async function searchBranches(
     : []
 
   // Per-branch distance for the fallback tail.  Computed when the branch
-  // has exact coordinates (MANUALLY_CONFIRMED gate per PR #81 redaction).
-  // Mirrors the haversine the existing rank path applies; the result is
-  // metres from the caller's effLoc.
+  // has exact coordinates (CONFIRMED_LOCATION_SET gate per PR #81 redaction;
+  // Branch Location Trust Slice 1 spec 2026-07-09 §2.3 widened it by one tier
+  // to MANUALLY_CONFIRMED + ADDRESS_GEOCODED). Mirrors the haversine the
+  // existing rank path applies; the result is metres from the caller's effLoc.
   //
   // Owner device-QA bug (PR #112, 2026-05-19): the original §7.5 path set
   // `distance: null` on every fallback tile, leaving the customer-app
@@ -3858,7 +3873,7 @@ export async function searchBranches(
   // chip + distance line.
   function fallbackDistanceFor(b: typeof rankable[number]): number | null {
     if (!effLoc) return null
-    if (b.locationConfidence !== 'MANUALLY_CONFIRMED') return null
+    if (!isBranchLocationConfirmed(b)) return null
     if (b.latitude === null || b.longitude === null) return null
     return haversineMetres(effLoc.lat, effLoc.lng, Number(b.latitude), Number(b.longitude))
   }
@@ -4398,18 +4413,19 @@ export async function getInAreaMerchants(
 // version per the §AT cleanup note.
 //
 // **Critical list-vs-map asymmetry (Spec §4.1.1):**
-//   Map endpoint accepts MANUALLY_CONFIRMED branches ONLY. Unlike
-//   `searchBranches` (which unions MANUALLY_CONFIRMED + ADDRESS_GEOCODED in
-//   the rankable half and surfaces POSTCODE_CENTROID + NEEDS_REVIEW as a
-//   non-rankable tail), Map pins require exact coordinates by definition.
-//   Pinning at a non-exact coord would silently relax PR #81's redaction
-//   contract (`exposeBranchPosition` nulls lat/lng for non-exact branches,
-//   so non-exact tiles would emit null coords and render as zero pins
-//   anyway — but excluding them server-side keeps the contract explicit
-//   and `totalBranches` honest).
+//   Map endpoint accepts CONFIRMED_LOCATION_SET branches ONLY. Branch Location
+//   Trust Slice 1 (spec 2026-07-09 §2.3) widened the Map by one tier to match
+//   both MANUALLY_CONFIRMED + ADDRESS_GEOCODED (same as `searchBranches`'
+//   rankable half). Unlike `searchBranches` (which additionally surfaces
+//   POSTCODE_CENTROID + NEEDS_REVIEW as a non-rankable tail), Map pins require
+//   exact coordinates by definition. Pinning at a non-exact coord would
+//   silently relax PR #81's redaction contract (`exposeBranchPosition` nulls
+//   lat/lng for non-exact branches, so non-exact tiles would emit null coords
+//   and render as zero pins anyway — but excluding them server-side keeps the
+//   contract explicit and `totalBranches` honest).
 //
 // Pipeline:
-//   1. Predicate: isActive=true + merchant ACTIVE + MANUALLY_CONFIRMED only +
+//   1. Predicate: isActive=true + merchant ACTIVE + CONFIRMED_LOCATION_SET only +
 //      bbox bounds on the branch row itself.
 //   2. Fetch candidates (lite select for ranking).
 //   3. Derive viewport-centred effLoc from the bbox centre (mirrors
@@ -4451,12 +4467,14 @@ export async function getInAreaBranches(
 }> {
   const { bbox, categoryId, lat, lng, userId, limit } = params
 
-  // ── 1. Branch-level predicate — MANUALLY_CONFIRMED ONLY (PR #81 redaction
-  //    contract + Spec §4.1.1 list-vs-map asymmetry).
+  // ── 1. Branch-level predicate — CONFIRMED_LOCATION_SET ONLY (PR #81 redaction
+  //    contract + Spec §4.1.1 list-vs-map asymmetry; Branch Location Trust
+  //    Slice 1 spec 2026-07-09 §2.3 widened it by one tier to MANUALLY_CONFIRMED
+  //    + ADDRESS_GEOCODED).
   const where: Prisma.BranchWhereInput = {
     isActive: true,
     isTestData: false,
-    lifecycleStatus: { not: 'PENDING_CREATE' }, // Branches PR-5 (§5): explicit (MANUALLY_CONFIRMED below already excludes a POSTCODE_CENTROID pending branch, but make it explicit)
+    lifecycleStatus: { not: 'PENDING_CREATE' }, // Branches PR-5 (§5): explicit (the CONFIRMED_LOCATION_SET filter below already excludes a POSTCODE_CENTROID pending branch, but make it explicit)
     merchant: {
       status: MerchantStatus.ACTIVE,
       isTestData: false,
@@ -4467,7 +4485,7 @@ export async function getInAreaBranches(
           ] }
         : {}),
     },
-    locationConfidence: 'MANUALLY_CONFIRMED',
+    locationConfidence: { in: [...CONFIRMED_LOCATION_SET] },
     latitude:  { gte: bbox.minLat, lte: bbox.maxLat, not: null },
     longitude: { gte: bbox.minLng, lte: bbox.maxLng, not: null },
   }
@@ -4791,9 +4809,10 @@ export async function getCampaignMerchants(
  *
  * No ranking pass — campaigns are curatorial. Each input row passes
  * `supplyRung: null, proximityBand: null`. Distance is computed via
- * `haversineMetres` ONLY when the user has GPS AND the branch is
- * MANUALLY_CONFIRMED (matches the Home fan-out distance gate at
- * service.ts:1239-1243 + the `hasExactPosition` redaction contract).
+ * `haversineMetres` ONLY when the user has GPS AND the branch is in
+ * CONFIRMED_LOCATION_SET (matches the Home fan-out distance gate + the
+ * `hasExactPosition` redaction contract; Branch Location Trust Slice 1 spec
+ * 2026-07-09 §2.3 widened it by one tier to MANUALLY_CONFIRMED + ADDRESS_GEOCODED).
  *
  * Coexists with `getCampaignMerchants` through Phase 1+2; Phase 3 drops the
  * merchant-themed variant.

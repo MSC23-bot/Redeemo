@@ -44,7 +44,7 @@ vi.mock('../../../src/api/lib/userCity', () => ({
 }))
 
 // ── Real service under test ───────────────────────────────────────────────────
-import { searchMerchants, listActiveCategories, getInAreaMerchants } from '../../../src/api/customer/discovery/service'
+import { searchMerchants, listActiveCategories, getInAreaMerchants, exposeBranchPosition } from '../../../src/api/customer/discovery/service'
 import { PrismaClient } from '../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 
@@ -508,5 +508,40 @@ describe('getInAreaMerchants — bbox + ranking pipeline', () => {
     })
 
     expect(prisma.category.findUnique).not.toHaveBeenCalled()
+  })
+})
+
+// Branch Location Trust Slice 1 (spec 2026-07-09 §2.3) — customer exposure
+// widens by exactly one tier. exposeBranchPosition now exposes real coords for
+// CONFIRMED_LOCATION_SET (MANUALLY_CONFIRMED + ADDRESS_GEOCODED); POSTCODE_CENTROID
+// + NEEDS_REVIEW stay fully redacted (L3 LOCK: never a fake-exact pin).
+describe('exposeBranchPosition — location-trust redaction gate', () => {
+  it('exposes coordinates for ADDRESS_GEOCODED branches', () => {
+    const out = exposeBranchPosition({ locationConfidence: 'ADDRESS_GEOCODED', latitude: 53.6, longitude: -1.8 })
+    expect(out.latitude).toBeCloseTo(53.6)
+    expect(out.longitude).toBeCloseTo(-1.8)
+    expect(out.locationConfidence).toBe('ADDRESS_GEOCODED')
+  })
+
+  it('still exposes coordinates for MANUALLY_CONFIRMED branches', () => {
+    const out = exposeBranchPosition({ locationConfidence: 'MANUALLY_CONFIRMED', latitude: 53.6, longitude: -1.8 })
+    expect(out.latitude).toBeCloseTo(53.6)
+    expect(out.longitude).toBeCloseTo(-1.8)
+  })
+
+  it('still redacts POSTCODE_CENTROID and NEEDS_REVIEW (L3 LOCK)', () => {
+    for (const c of ['POSTCODE_CENTROID', 'NEEDS_REVIEW']) {
+      const out = exposeBranchPosition({ locationConfidence: c, latitude: 53.6, longitude: -1.8 })
+      expect(out.latitude).toBeNull()
+      expect(out.longitude).toBeNull()
+      expect(out.locationConfidence).toBe(c)
+    }
+  })
+
+  it('redacts a null/absent confidence (defaults to POSTCODE_CENTROID)', () => {
+    const out = exposeBranchPosition({ locationConfidence: null, latitude: 53.6, longitude: -1.8 })
+    expect(out.latitude).toBeNull()
+    expect(out.longitude).toBeNull()
+    expect(out.locationConfidence).toBe('POSTCODE_CENTROID')
   })
 })
