@@ -946,9 +946,9 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
   // RELEVANT (freshest) staged Google suggestion per branch, from ANY of the
   // three Slice 1/1b lanes:
   //   - an OPEN (PENDING) BranchPendingEdit's proposedChanges.__locationSuggestion
-  //     — the suggestion an admin is ABOUT to approve (reviewed-edit lane), OR
+  //     (the suggestion an admin is ABOUT to approve; reviewed-edit lane), OR
   //   - audit metadata.locationSuggestion on BRANCH_CREATED (create lane) or
-  //     BRANCH_UPDATED (draft-window direct edit lane — the lane that stamps
+  //     BRANCH_UPDATED (draft-window direct edit lane; the lane that stamps
   //     NEEDS_REVIEW immediately, so its suggestion IS the exception context).
   // Precedence: pending-edit WINS over the audit rows (it is the newer intent);
   // among audit rows the LATEST parseable one wins across BOTH events, so an
