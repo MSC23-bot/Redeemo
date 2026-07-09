@@ -20,7 +20,6 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { ShieldCheck, Loader2, ArrowLeft } from 'lucide-react'
 import { authApi } from '@/lib/api/auth'
 import { ApiError } from '@/lib/api/client'
-import { setSession, decodeAdminJwt } from '@/lib/auth/session'
 import { useSession } from '@/lib/auth/useSession'
 import { Button } from '@/components/ui/button'
 import {
@@ -100,11 +99,18 @@ function LoginForm() {
     setError(null)
     setSubmitting(true)
     try {
+      // authApi.login now goes through the same-origin BFF route
+      // (/api/admin-auth/login); a recognised-device response short-circuits
+      // straight to tokens, handled defensively below, but admin login is
+      // OTP-first so this is normally always OTP_REQUIRED.
       const res = await authApi.login(email.trim(), password)
-      if (res.status === 'OTP_REQUIRED') {
+      if ('status' in res && res.status === 'OTP_REQUIRED') {
         setChallenge(res.sessionChallenge)
         setCode('')
         setStep('otp')
+      } else if ('accessToken' in res) {
+        session.setSession(res.accessToken, res.meta)
+        router.replace(next)
       }
     } catch (err) {
       setError(messageFor(err, 'credentials'))
@@ -118,25 +124,13 @@ function LoginForm() {
     setError(null)
     setSubmitting(true)
     try {
+      // H5 migration: authApi.verifyOtp goes through the BFF route
+      // (/api/admin-auth/otp-verify), which parks the refresh token in the
+      // httpOnly session cookie server-side and returns ONLY the access token
+      // + the already-decoded session meta — no localStorage, no refresh
+      // token ever reaching the browser.
       const res = await authApi.verifyOtp(challenge, code.trim())
-      // Decode the access token to capture the entityId + sessionId the refresh
-      // endpoint needs; fall back to the admin record for role/email.
-      const decoded = decodeAdminJwt(res.accessToken)
-      if (!decoded) {
-        setError('Sign-in succeeded but the session was malformed. Please try again.')
-        return
-      }
-      setSession({
-        accessToken: res.accessToken,
-        refreshToken: res.refreshToken,
-        meta: {
-          entityId: decoded.sub,
-          sessionId: decoded.sessionId,
-          adminRole: res.admin.adminRole,
-          email: res.admin.email,
-        },
-      })
-      session.refresh()
+      session.setSession(res.accessToken, res.meta)
       router.replace(next)
     } catch (err) {
       setError(messageFor(err, 'otp'))

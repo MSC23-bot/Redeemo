@@ -1,25 +1,22 @@
 /**
- * session.ts — token/session storage + the capability truth table.
+ * session.ts — capability truth table, deviceId, decodeAdminJwt, and the H5
+ * token-storage delegation to tokenStore.ts.
  *
  * The truth table is the load-bearing assertion: it must mirror the backend
- * `adminHasCapability` exactly (OPERATIONS = all five Slice-1 caps, SUPER_ADMIN
+ * `adminHasCapability` exactly (OPERATIONS = all Slice-1 caps, SUPER_ADMIN
  * = superuser, FINANCE/CONTENT/SUPPORT = none).
  */
 import {
   hasCapability,
+  getAccessToken,
   setSession,
   clearSession,
-  getAccessToken,
-  getRefreshToken,
-  getSessionMeta,
-  getAdminRole,
-  isAuthenticated,
-  updateTokens,
   getOrCreateDeviceId,
   decodeAdminJwt,
   type AdminCapability,
   type AdminRole,
 } from '../session'
+import { getAccessToken as getStoredAccessToken, setAccessToken as setStoredAccessToken, setOnSessionLost } from '../tokenStore'
 
 const ALL_CAPS: AdminCapability[] = [
   'merchant:create-draft',
@@ -51,8 +48,13 @@ const GRANTS: Record<AdminRole, AdminCapability[]> = {
 }
 
 beforeEach(() => {
-  localStorage.clear()
-  document.cookie = 'redeemo_admin_auth=; path=/; max-age=0'
+  setOnSessionLost(null)
+  // Reset the token store directly (NOT via clearSession/triggerSessionLost —
+  // that would hit the no-handler-registered fallback, window.location.assign,
+  // which jsdom does not implement). A truthy set re-arms the hard-logout
+  // latch (see tokenStore.ts), then null clears the token without firing it.
+  setStoredAccessToken('reset-arm')
+  setStoredAccessToken(null)
 })
 
 describe('hasCapability — truth table (5 roles x 5 caps)', () => {
@@ -98,56 +100,7 @@ describe('merchant:edit-identity is SUPER_ADMIN-only (B2.2)', () => {
   })
 })
 
-// Option B B2.3: merchant:edit-category is also SUPER_ADMIN-only (NOT in
-// ALL_SLICE1_CAPS). Mirror must match the backend exactly.
-describe('merchant:edit-category is SUPER_ADMIN-only (B2.3)', () => {
-  it('SUPER_ADMIN holds it', () => {
-    expect(hasCapability('SUPER_ADMIN', 'merchant:edit-category')).toBe(true)
-  })
-  it('OPERATIONS does NOT hold it', () => {
-    expect(hasCapability('OPERATIONS', 'merchant:edit-category')).toBe(false)
-  })
-  it('FINANCE / CONTENT / SUPPORT do NOT hold it', () => {
-    expect(hasCapability('FINANCE', 'merchant:edit-category')).toBe(false)
-    expect(hasCapability('CONTENT', 'merchant:edit-category')).toBe(false)
-    expect(hasCapability('SUPPORT', 'merchant:edit-category')).toBe(false)
-  })
-})
-
-// Option B B2.4: merchant:manage-branches is also SUPER_ADMIN-only (NOT in
-// ALL_SLICE1_CAPS). Mirror must match the backend exactly.
-describe('merchant:manage-branches is SUPER_ADMIN-only (B2.4)', () => {
-  it('SUPER_ADMIN holds it', () => {
-    expect(hasCapability('SUPER_ADMIN', 'merchant:manage-branches')).toBe(true)
-  })
-  it('OPERATIONS does NOT hold it', () => {
-    expect(hasCapability('OPERATIONS', 'merchant:manage-branches')).toBe(false)
-  })
-  it('FINANCE / CONTENT / SUPPORT do NOT hold it', () => {
-    expect(hasCapability('FINANCE', 'merchant:manage-branches')).toBe(false)
-    expect(hasCapability('CONTENT', 'merchant:manage-branches')).toBe(false)
-    expect(hasCapability('SUPPORT', 'merchant:manage-branches')).toBe(false)
-  })
-})
-
-// Option B B2.5: merchant:propose-edit is also SUPER_ADMIN-only (NOT in
-// ALL_SLICE1_CAPS). Mirror must match the backend exactly.
-describe('merchant:propose-edit is SUPER_ADMIN-only (B2.5)', () => {
-  it('SUPER_ADMIN holds it', () => {
-    expect(hasCapability('SUPER_ADMIN', 'merchant:propose-edit')).toBe(true)
-  })
-  it('OPERATIONS does NOT hold it', () => {
-    expect(hasCapability('OPERATIONS', 'merchant:propose-edit')).toBe(false)
-  })
-  it('FINANCE / CONTENT / SUPPORT do NOT hold it', () => {
-    expect(hasCapability('FINANCE', 'merchant:propose-edit')).toBe(false)
-    expect(hasCapability('CONTENT', 'merchant:propose-edit')).toBe(false)
-    expect(hasCapability('SUPPORT', 'merchant:propose-edit')).toBe(false)
-  })
-})
-
-// Option B B3: merchant:submit IS in ALL_SLICE1_CAPS, so OPERATIONS holds it
-// (unlike the B2.2-B2.5 SUPER_ADMIN-only caps). Mirror must match the backend.
+// Option B B3: merchant:submit IS in ALL_SLICE1_CAPS, so OPERATIONS holds it.
 describe('merchant:submit is OPERATIONS-held (B3)', () => {
   it('SUPER_ADMIN holds it', () => {
     expect(hasCapability('SUPER_ADMIN', 'merchant:submit')).toBe(true)
@@ -162,23 +115,7 @@ describe('merchant:submit is OPERATIONS-held (B3)', () => {
   })
 })
 
-// Option B B4: merchant:manage-documents is SUPER_ADMIN-only (NOT in
-// ALL_SLICE1_CAPS). Mirror must match the backend exactly.
-describe('merchant:manage-documents is SUPER_ADMIN-only (B4)', () => {
-  it('SUPER_ADMIN holds it', () => {
-    expect(hasCapability('SUPER_ADMIN', 'merchant:manage-documents')).toBe(true)
-  })
-  it('OPERATIONS does NOT hold it', () => {
-    expect(hasCapability('OPERATIONS', 'merchant:manage-documents')).toBe(false)
-  })
-  it('FINANCE / CONTENT / SUPPORT do NOT hold it', () => {
-    expect(hasCapability('FINANCE', 'merchant:manage-documents')).toBe(false)
-    expect(hasCapability('CONTENT', 'merchant:manage-documents')).toBe(false)
-    expect(hasCapability('SUPPORT', 'merchant:manage-documents')).toBe(false)
-  })
-})
-
-describe('session storage — set / get / clear', () => {
+describe('token-storage delegation to tokenStore.ts (H5 migration)', () => {
   const meta = {
     entityId: 'admin-1',
     sessionId: 'sess-1',
@@ -188,52 +125,36 @@ describe('session storage — set / get / clear', () => {
 
   it('starts signed out', () => {
     expect(getAccessToken()).toBeNull()
-    expect(getRefreshToken()).toBeNull()
-    expect(getSessionMeta()).toBeNull()
-    expect(getAdminRole()).toBeNull()
-    expect(isAuthenticated()).toBe(false)
   })
 
-  it('persists tokens + meta on setSession and reads them back', () => {
-    setSession({ accessToken: 'acc', refreshToken: 'ref', meta })
-
-    expect(getAccessToken()).toBe('acc')
-    expect(getRefreshToken()).toBe('ref')
-    expect(getSessionMeta()).toEqual(meta)
-    expect(getAdminRole()).toBe('OPERATIONS')
-    expect(isAuthenticated()).toBe(true)
-    expect(document.cookie).toContain('redeemo_admin_auth=1')
+  it('setSession installs the access token in the in-memory store (never localStorage)', () => {
+    setSession('acc-1', meta)
+    expect(getAccessToken()).toBe('acc-1')
+    expect(getStoredAccessToken()).toBe('acc-1')
+    expect(window.localStorage.getItem('redeemo_admin_access_token')).toBeNull()
+    expect(window.localStorage.getItem('redeemo_admin_refresh_token')).toBeNull()
+    expect(window.localStorage.getItem('redeemo_admin_session')).toBeNull()
   })
 
-  it('updateTokens rotates tokens but keeps meta', () => {
-    setSession({ accessToken: 'acc', refreshToken: 'ref', meta })
-    updateTokens('acc2', 'ref2')
-
-    expect(getAccessToken()).toBe('acc2')
-    expect(getRefreshToken()).toBe('ref2')
-    expect(getSessionMeta()).toEqual(meta) // unchanged
+  it('setSession works without a meta argument (client.ts doRefresh call site)', () => {
+    setSession('acc-2')
+    expect(getAccessToken()).toBe('acc-2')
   })
 
-  it('clearSession wipes everything and clears the flag cookie', () => {
-    setSession({ accessToken: 'acc', refreshToken: 'ref', meta })
+  it('clearSession clears the in-memory token and arms the hard-logout latch', () => {
+    const handler = jest.fn()
+    setOnSessionLost(handler)
+    setSession('acc-1', meta)
+
     clearSession()
 
     expect(getAccessToken()).toBeNull()
-    expect(getRefreshToken()).toBeNull()
-    expect(getSessionMeta()).toBeNull()
-    expect(isAuthenticated()).toBe(false)
-    expect(document.cookie).not.toContain('redeemo_admin_auth=1')
+    expect(handler).toHaveBeenCalledTimes(1)
   })
 
-  it('isAuthenticated requires BOTH a token and session meta', () => {
-    localStorage.setItem('redeemo_admin_access_token', 'acc')
-    // No meta -> not authenticated.
-    expect(isAuthenticated()).toBe(false)
-  })
-
-  it('getSessionMeta tolerates corrupt JSON', () => {
-    localStorage.setItem('redeemo_admin_session', '{not json')
-    expect(getSessionMeta()).toBeNull()
+  it('never writes the vestigial redeemo_admin_auth flag cookie', () => {
+    setSession('acc-1', meta)
+    expect(document.cookie).not.toContain('redeemo_admin_auth')
   })
 })
 

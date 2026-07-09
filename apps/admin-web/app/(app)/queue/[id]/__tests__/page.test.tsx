@@ -238,13 +238,16 @@ function mockSession(opts: {
   role?: 'OPERATIONS' | 'SUPER_ADMIN'
 } = {}) {
   mockedUseSession.mockReturnValue({
+    accessToken: 'test-access-token',
     ready: opts.ready ?? true,
     isAuthenticated: true,
     role: opts.role ?? 'OPERATIONS',
     email: 'ops@redeemo.co.uk',
     adminId: opts.adminId ?? 'admin-me',
     can: opts.can ?? (() => true),
+    setSession: jest.fn(),
     refresh: jest.fn(),
+    signOut: jest.fn(),
   })
 }
 

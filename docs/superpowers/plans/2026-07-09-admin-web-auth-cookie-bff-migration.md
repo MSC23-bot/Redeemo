@@ -80,6 +80,26 @@ All call `assertSameOrigin(req)` first (403 `CROSS_ORIGIN_BLOCKED` on cross-orig
 ## 5. Middleware changes (ADD — admin-web has none today)
 - New `apps/admin-web/middleware.ts` mirroring merchant-web: gate all `(app)` routes on `req.cookies.has('redeemo_admin_session')` (presence only — httpOnly means middleware can't validate contents); redirect to `/login?next=<path>` before paint when absent. Matcher excludes `(auth)` pages, `/api/**`, and static assets. This also closes audit **L7** (admin-web had no route-gate middleware). Keep the existing `admin-shell` client render-guard as defence-in-depth (belt + suspenders), or simplify it to trust the middleware — decide in Task 6 (default: keep it, it's harmless).
 
+## 5b. APPROVED GUARDRAILS (Codex, plan review @ 0a83592b) — MUST implement
+
+**G1 — refresh-on-mount / bootstrap (the load-critical one).** Access tokens are memory-only, so a
+page reload starts with NO access token even when the httpOnly session cookie is valid. The app MUST
+attempt exactly one BFF refresh from the cookie on mount BEFORE deciding the admin is signed out.
+Implementation: port merchant-web's `lib/auth/session.tsx` SessionProvider — on mount, call the BFF
+`refresh` route once; while that is in flight the shell renders a "booting" state (NOT signed-out);
+only when the bootstrap refresh FAILS (no cookie / backend refuses) does it treat the admin as
+signed-out and redirect. `admin-shell`'s `ready` gate must mean "bootstrap refresh settled", not merely
+"mounted", so middleware allowing the page (cookie present) never races the client into a wrong `/login`
+bounce. Pin with a test: cookie-valid + no in-memory token + reload → one BFF refresh → shell renders
+(no bounce); bootstrap refresh fails → redirect to `/login`.
+
+**G2 — logout matches the real backend contract.** `POST /api/v1/admin/auth/logout` is
+`authenticateAdmin` (bearer-authed) — NOT cookie/body-only. The BFF `logout` route MUST forward the
+captured in-memory access token as `Authorization: Bearer <token>` when present, run the backend revoke
+as bounded best-effort (short timeout, swallow failure), and ALWAYS `clearSessionCookie()` regardless of
+the backend result. Do not assume a cookie/body-only logout. Pin with a test: logout forwards the bearer
+when present; backend failure/timeout still clears the cookie and returns ok.
+
 ## 6. Logout / refresh / 401 handling
 - **Login/OTP:** `login/page.tsx` calls the BFF `login`/`otp-verify` routes instead of the direct backend `authApi`; on success it sets only the in-memory access token from the BFF response (no localStorage). `safeNextPath()` guard unchanged.
 - **Refresh (401):** `client.ts doRefresh()` becomes `fetch('/api/admin-auth/refresh', { method: 'POST' })` — no body, no bearer; on `{accessToken}` → `setAccessToken`; on failure → `clearSession()` + `redirectToLogin()` (unchanged). The single-flight `tryRefresh()` wrapper stays.

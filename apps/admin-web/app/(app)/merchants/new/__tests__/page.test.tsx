@@ -34,13 +34,16 @@ const mockedUseSession = useSession as jest.MockedFunction<typeof useSession>
 
 function mockSession(opts: { ready?: boolean; can?: (cap: string) => boolean } = {}) {
   mockedUseSession.mockReturnValue({
+    accessToken: 'test-access-token',
     ready: opts.ready ?? true,
     isAuthenticated: true,
     role: 'OPERATIONS',
     email: 'ops@redeemo.co.uk',
     adminId: 'admin-me',
     can: opts.can ?? (() => true),
+    setSession: jest.fn(),
     refresh: jest.fn(),
+    signOut: jest.fn(),
   })
 }
 

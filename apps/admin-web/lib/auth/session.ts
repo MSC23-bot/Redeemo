@@ -1,12 +1,15 @@
 /**
  * Admin session storage + capability logic.
  *
- * Mirrors the customer-web token pattern (localStorage tokens + a flag cookie),
- * adapted for the admin auth contract:
- *   - access + refresh tokens
- *   - a `{ entityId, sessionId }` record needed by the refresh endpoint
- *     (`POST /admin/auth/refresh` body is `{ refreshToken, sessionId, entityId }`)
- *   - the admin role, used for capability checks
+ * H5 migration (security audit): mirrors the merchant-web BFF-lite token
+ * pattern, adapted for the admin auth contract. The access token lives ONLY in
+ * memory (tokenStore.ts); the refresh token + `{ entityId, sessionId }` record
+ * the refresh endpoint needs (`POST /admin/auth/refresh` body is
+ * `{ refreshToken, sessionId, entityId }`) live server-side in an httpOnly
+ * cookie set by the BFF route handlers (app/api/admin-auth/**) and are never
+ * readable by page JS. The admin role, used for capability checks, is decoded
+ * fresh from the access token's own claims (`decodeAdminJwt`) by the
+ * SessionProvider on every install rather than persisted here.
  *
  * `hasCapability` is a deliberate, self-contained MIRROR of the backend
  * `adminHasCapability` in `src/api/admin/capability.ts`. We copy the literal
@@ -108,14 +111,22 @@ export function hasCapability(
 }
 
 // ── Token + session storage ───────────────────────────────────────────────────
+//
+// H5 migration (security audit): the refresh token no longer lives in
+// localStorage (XSS -> durable session theft). The access token now lives ONLY
+// in memory (tokenStore.ts); the long-lived refresh material lives server-side
+// in an httpOnly cookie set by the BFF route handlers
+// (app/api/admin-auth/**/route.ts) and is never readable by page JS. These
+// thin wrappers keep the historical `session.ts` call sites (lib/api/client.ts,
+// the SessionProvider in useSession.ts) stable while delegating the actual
+// storage to tokenStore. The vestigial non-httpOnly `redeemo_admin_auth` flag
+// cookie is removed: the new httpOnly session cookie's PRESENCE is what
+// middleware.ts gates on instead.
+import { getAccessToken as getStoredAccessToken, setAccessToken, triggerSessionLost } from './tokenStore'
 
-const ACCESS_KEY = 'redeemo_admin_access_token'
-const REFRESH_KEY = 'redeemo_admin_refresh_token'
-const SESSION_KEY = 'redeemo_admin_session'
 const DEVICE_KEY = 'redeemo_admin_device_id'
-const FLAG_COOKIE = 'redeemo_admin_auth'
 
-/** The bits of the session needed to refresh + render the shell. */
+/** The bits of the session the SessionProvider needs to render/gate the shell. */
 export type AdminSessionMeta = {
   entityId: string
   sessionId: string
@@ -124,67 +135,30 @@ export type AdminSessionMeta = {
 }
 
 export function getAccessToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem(ACCESS_KEY)
-}
-
-export function getRefreshToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return localStorage.getItem(REFRESH_KEY)
-}
-
-export function getSessionMeta(): AdminSessionMeta | null {
-  if (typeof window === 'undefined') return null
-  const raw = localStorage.getItem(SESSION_KEY)
-  if (!raw) return null
-  try {
-    return JSON.parse(raw) as AdminSessionMeta
-  } catch {
-    return null
-  }
-}
-
-/** The signed-in admin role, or null when signed out. */
-export function getAdminRole(): AdminRole | null {
-  return getSessionMeta()?.adminRole ?? null
-}
-
-export function isAuthenticated(): boolean {
-  return getAccessToken() != null && getSessionMeta() != null
+  return getStoredAccessToken()
 }
 
 /**
- * Persist a fresh session after OTP verification. Stores both tokens plus the
- * meta the refresh endpoint requires, and sets a non-sensitive flag cookie.
+ * Install a fresh access token after login/OTP-verify or a refresh. `meta` is
+ * accepted for call-site symmetry with the BFF response shape but is NOT
+ * persisted here: the SessionProvider (lib/auth/useSession.ts) is the single
+ * place that derives role/adminId/email for React state (re-decoded fresh from
+ * the token claims on every install via `decodeAdminJwt`), so there is exactly
+ * one source of truth for those fields.
  */
-export function setSession(params: {
-  accessToken: string
-  refreshToken: string
-  meta: AdminSessionMeta
-}): void {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(ACCESS_KEY, params.accessToken)
-  localStorage.setItem(REFRESH_KEY, params.refreshToken)
-  localStorage.setItem(SESSION_KEY, JSON.stringify(params.meta))
-  document.cookie = `${FLAG_COOKIE}=1; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`
+export function setSession(accessToken: string, meta?: AdminSessionMeta): void {
+  void meta // accepted for call-site symmetry only; see doc comment above.
+  setAccessToken(accessToken)
 }
 
 /**
- * Replace just the rotating tokens after a refresh, keeping the session meta
- * (entityId / sessionId / role / email) intact.
+ * Clear the in-memory access token and arm the hard-logout latch (tokenStore's
+ * `triggerSessionLost`). The httpOnly refresh cookie itself is cleared
+ * server-side by the BFF `/api/admin-auth/logout` route, not here.
  */
-export function updateTokens(accessToken: string, refreshToken: string): void {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(ACCESS_KEY, accessToken)
-  localStorage.setItem(REFRESH_KEY, refreshToken)
-}
-
 export function clearSession(): void {
-  if (typeof window === 'undefined') return
-  localStorage.removeItem(ACCESS_KEY)
-  localStorage.removeItem(REFRESH_KEY)
-  localStorage.removeItem(SESSION_KEY)
-  document.cookie = `${FLAG_COOKIE}=; path=/; max-age=0; SameSite=Lax`
+  setAccessToken(null)
+  triggerSessionLost()
 }
 
 /**

@@ -3,11 +3,16 @@
 /**
  * Protected admin shell.
  *
- * Guards the (app) route group: while the session is still resolving from
- * localStorage it shows a quiet loading state; once resolved, an unauthenticated
- * visitor is redirected to /login and an authenticated one sees the header
- * ("Redeemo Admin", the signed-in role badge, a Logout button) over the calm
- * brand surface, then the page content.
+ * Guards the (app) route group: `middleware.ts` gates on the httpOnly session
+ * cookie's PRESENCE before this ever paints, but the cookie carries no access
+ * token (httpOnly means middleware cannot mint one), so the shell's own
+ * `ready` gate here means "the bootstrap refresh-on-mount settled" (G1,
+ * lib/auth/useSession.ts), not merely "mounted" — while that first BFF refresh
+ * is in flight it shows a quiet loading state; once it settles, an
+ * unauthenticated visitor (no valid cookie / refresh failed) is redirected to
+ * /login and an authenticated one sees the header ("Redeemo Admin", the
+ * signed-in role badge, a Logout button) over the calm brand surface, then the
+ * page content.
  *
  * The nav is capability-aware by construction: NAV_ITEMS are filtered by
  * `can(cap)` so future actioner screens light up automatically per role. M1 ships
@@ -17,8 +22,7 @@ import { useEffect, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { ShieldCheck, LogOut, Loader2 } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
-import { authApi } from '@/lib/api/auth'
-import { clearSession, type AdminCapability } from '@/lib/auth/session'
+import { type AdminCapability } from '@/lib/auth/session'
 import { Button } from '@/components/ui/button'
 import { NotificationBell } from '@/components/notification-bell'
 
@@ -41,28 +45,26 @@ function RoleBadge({ role }: { role: string }) {
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const router = useRouter()
-  const { ready, isAuthenticated, role, can } = useSession()
+  const { ready, isAuthenticated, role, can, signOut } = useSession()
 
   // This effect and the not-ready/not-authenticated render guard below are an
   // intentional pair, not redundant: the effect performs the navigation to
   // /login, while the render guard returns a placeholder so protected chrome
   // never flashes before the redirect lands. Removing either would either skip
-  // the redirect or briefly expose protected content — keep both.
+  // the redirect or briefly expose protected content — keep both. `ready` only
+  // flips once the G1 bootstrap refresh-on-mount has settled (see the module
+  // doc comment above), so this never fires before that has been tried.
   useEffect(() => {
     if (ready && !isAuthenticated) {
       router.replace('/login')
     }
   }, [ready, isAuthenticated, router])
 
+  // signOut (G2) forwards the captured bearer to the BFF logout route, awaits
+  // its bounded cookie-clearing response, then clears local state and
+  // navigates to /login — see lib/auth/useSession.ts.
   async function onLogout() {
-    try {
-      await authApi.logout()
-    } catch {
-      // Best-effort: even if the server call fails, clear locally and leave.
-    } finally {
-      clearSession()
-      router.replace('/login')
-    }
+    await signOut()
   }
 
   // Still reading storage, or about to bounce to /login: show a calm placeholder

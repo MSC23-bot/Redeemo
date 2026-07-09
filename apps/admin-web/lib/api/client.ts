@@ -7,29 +7,28 @@
  *   - throws a typed `ApiError` from the `{ error: { code, message, statusCode } }`
  *     shape (also tolerates a flat `{ code, message }`)
  *
- * Admin-specific addition: on a 401 for an authed request it attempts a single
- * token refresh, and on success retries the original request once. If refresh
- * fails (or there is no session to refresh) it clears the session and redirects
- * to /login. The refresh call itself is never retried (no refresh-on-refresh),
- * so this can never loop.
+ * H5 migration: on a 401 for an authed request it attempts a single refresh via
+ * the same-origin BFF route `/api/admin-auth/refresh` (which reads the httpOnly
+ * session cookie — no body, no bearer), and on success retries the original
+ * request once. If refresh fails (or there is no session to refresh) it clears
+ * the session and redirects to /login. The refresh call itself is never
+ * retried (no refresh-on-refresh), so this can never loop.
  *
  * Concurrency: the refresh token is single-use — the backend rotates it
  * (deletes the old, stores a new one) on every `/refresh`. If two authed
- * requests 401 at once and each POSTed `/refresh` with the same stored token,
- * the second would fail against the now-rotated token and spuriously clear a
- * still-valid session. So the in-flight refresh is memoised into a module-level
- * singleton (`tryRefresh`): concurrent callers all await ONE refresh promise.
+ * requests 401 at once and each hit the BFF refresh route, the second would
+ * race the single-use rotation and spuriously clear a still-valid session. So
+ * the in-flight refresh is memoised into a module-level singleton
+ * (`tryRefresh`): concurrent callers all await ONE refresh promise.
  */
-import {
-  getAccessToken,
-  getRefreshToken,
-  getSessionMeta,
-  updateTokens,
-  clearSession,
-} from '@/lib/auth/session'
-import { refreshResponseSchema } from './auth'
+import { getAccessToken, setSession, clearSession } from '@/lib/auth/session'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
+
+// Bound the BFF refresh so a stalled backend can never hang the G1
+// refresh-on-mount: without this, `ready` in the SessionProvider would never
+// flip and the admin shell would sit on its loader indefinitely.
+const REFRESH_TIMEOUT_MS = 8000
 
 export class ApiError extends Error {
   public status: number
@@ -82,38 +81,30 @@ function redirectToLogin(): void {
 }
 
 /**
- * Perform a single refresh using the stored refresh token + session meta.
- * Returns true and rotates the stored tokens on success; returns false on any
- * failure (no session, invalid token, network/HTTP error, contract drift).
- * Never throws.
- *
- * The response is validated with `refreshResponseSchema` — the SAME schema
- * `auth.ts` exports — so the `/refresh` payload is validated in exactly one
- * place rather than hand-checked here.
+ * Perform a single refresh via the same-origin BFF route (cookie carries the
+ * refresh material server-side; no body, no bearer sent from the browser).
+ * Returns true and installs the fresh in-memory access token on success;
+ * returns false on any failure (no session cookie, invalid token,
+ * network/HTTP error, contract drift). Never throws.
  */
 async function doRefresh(): Promise<boolean> {
-  const refreshToken = getRefreshToken()
-  const meta = getSessionMeta()
-  if (!refreshToken || !meta) return false
-
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS)
   try {
-    const res = await fetch(`${BASE}/api/v1/admin/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        refreshToken,
-        sessionId: meta.sessionId,
-        entityId: meta.entityId,
-      }),
-    })
+    const res = await fetch('/api/admin-auth/refresh', { method: 'POST', signal: controller.signal })
     if (!res.ok) return false
-    const raw = await res.json().catch(() => null)
-    const parsed = refreshResponseSchema.safeParse(raw)
-    if (!parsed.success) return false
-    updateTokens(parsed.data.accessToken, parsed.data.refreshToken)
-    return true
-  } catch {
+    const data = (await res.json().catch(() => null)) as { accessToken?: string } | null
+    if (data?.accessToken && typeof data.accessToken === 'string') {
+      setSession(data.accessToken)
+      return true
+    }
     return false
+  } catch {
+    // Aborted (timeout), network error, or contract drift -> treat as a failed
+    // refresh so the caller hard-logs-out rather than hanging.
+    return false
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -132,6 +123,11 @@ function tryRefresh(): Promise<boolean> {
     })
   }
   return refreshInFlight
+}
+
+/** Single-flight refresh, exposed for the SessionProvider (refresh-on-mount + manual). */
+export function refreshSession(): Promise<boolean> {
+  return tryRefresh()
 }
 
 export async function apiFetch<T>(
@@ -161,6 +157,17 @@ export async function apiFetch<T>(
       return apiFetch<T>(path, { ...options, _isRetry: true })
     }
     // Refresh failed -> session is dead. Clear and bounce to login.
+    clearSession()
+    redirectToLogin()
+    const body = await res.json().catch(() => null)
+    throw new ApiError(401, body)
+  }
+
+  if (res.status === 401 && auth && _isRetry) {
+    // The request was retried with a token we JUST refreshed and it still 401s:
+    // the session is genuinely dead (e.g. the account was suspended between the
+    // refresh and this call). Fire the documented hard-logout rather than
+    // surfacing a bare error, matching the non-retry path above.
     clearSession()
     redirectToLogin()
     const body = await res.json().catch(() => null)
