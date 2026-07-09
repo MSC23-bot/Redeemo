@@ -116,3 +116,30 @@
 - L1-L4: no customer-scope serializer touched; coords exposed ONLY on the admin review read; no gate changed; no wire-shape change. L3 (customer redaction) untouched.
 - Map approach: coordinate display + external Google Maps link (CSP blocks embedded maps; documented above). If the lead wants a true embedded mini-map, that is a separate CSP-loosening decision.
 - Task D: the correction path is the EXISTING `ConfirmLocationDialog`/`confirmBranchLocation`; the panel deep-links to it, nothing rebuilt.
+
+---
+
+## As-shipped addendum — review corrections (2026-07-09, post-`f0070b86`)
+
+Two review-driven corrections on `feat/branch-location-trust-slice-2` after the first CI run.
+
+### Correction 1 — admin-web CI typecheck fix (blocking)
+
+- **Root cause:** the M6 `makeBranch` fixture in `apps/admin-web/app/(app)/queue/[id]/__tests__/page.test.tsx` supplied `latitude`/`longitude`/`googlePlaceId`/`locationSuggestion` ONLY via its `...overrides` spread (a `Partial<ReviewContext['branches'][number]>`), so those four fields typed as `X | undefined`. `reviewBranchSchema` deliberately requires `number | null` / `string | null` / suggestion-or-null (the serializer always emits them), so `undefined` is not assignable → `tsc --noEmit` TS2322 at line 1331. CI reports the first incompatible field (`latitude`); `longitude`/`googlePlaceId`/`locationSuggestion` would have failed serially.
+- **Fix (root cause, not schema loosening):** the base literal now supplies explicit `null`s for all four fields, matching the wire contract. Schema strictness preserved.
+- **Fixture audit:** grepped all admin-web branch fixtures feeding the review schema. Only this ONE fixture had the gap; `BranchTable.test.tsx`, `LocationTrustPanel.test.tsx`, and `lib/api/__tests__/review.test.ts` already carry explicit values. So exactly **1 fixture** needed fixing.
+
+### Correction 2 — widen the staged-suggestion read (lead-adjudicated)
+
+- **Writer/reader shape check:** both lanes stage the SAME flat blob via `locationSuggestionMetadata` (`{ placeId, latitude, longitude, postcode, source }`): the create lane under `AuditLog.metadata.locationSuggestion` (BRANCH_CREATED), the reviewed-edit lane under `BranchPendingEdit.proposedChanges.__locationSuggestion` (Slice 1b, key `__locationSuggestion`, confirmed against `merchant/branch/service.ts` + `editApplier.applyLocationTrust` and the `location-suggestion-apply` test).
+- **Read (backend `getReviewContext` + `reviewBranchSerializer.ts`):** now surfaces the RELEVANT (freshest) staged suggestion per branch. Precedence: an OPEN (`status: 'PENDING'`) `BranchPendingEdit`'s `proposedChanges.__locationSuggestion` WINS over the BRANCH_CREATED audit metadata; fall back to the audit; null when neither. Each lane reads the latest PARSEABLE row; a malformed blob is treated as absent (validated exactly like `applyLocationTrust`: non-object / missing-or-empty `placeId` / non-finite coords → null, never a throw). New `parsePendingEditSuggestion` reader mirrors `parseStagedSuggestion`.
+- **Source discriminator:** `ReviewLocationSuggestion` now carries `source: 'pending_edit' | 'branch_created_audit'` (backend + `reviewLocationSuggestionSchema` in admin-web). `LocationTrustPanel` renders a short source line (`Source: staged with the merchant's pending edit request.` / `Source: staged when the branch was created.`), house copy, no em-dashes.
+- **Security cross-check (admin-only widening; nothing else moved):**
+  - Admin-only coordinate exposure preserved: only `getReviewContext`/`reviewBranchSerializer.ts` (ADMIN scope) touched; no customer-scope serializer touched (L1-L4 hold; L3 customer redaction untouched).
+  - `redemptionPin` never selected: the branch `select` is now the pinned `reviewBranchSelect` constant (co-located with the DTO); `redemptionPin` deliberately absent, pinned by the `reviewBranchSelect NEVER selects redemptionPin` + exact-key-set unit tests, plus the serializer's `never emits a redemptionPin field` DTO test.
+  - External link safety: `LocationTrustPanel`'s "Open in Google Maps" link keeps `target="_blank"` + `rel="noopener noreferrer"` with an api=1 query; unchanged and re-verified by the existing panel link test.
+
+### Verification (exact numbers)
+
+- Backend: `tsc --noEmit` clean; `npm run test:unit` = **239 files / 2955 tests** pass (serializer suite = 12).
+- admin-web: `npm run typecheck` (`tsc --noEmit`) clean (the CI failure); `npx jest` = **69 suites / 963 tests** pass; `npm run build` (`next build`) PASSES.

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   serializeReviewBranch,
   parseStagedSuggestion,
+  parsePendingEditSuggestion,
+  reviewBranchSelect,
   type ReviewBranchRow,
 } from '../../../../src/api/admin/approvals/reviewBranchSerializer'
 
@@ -46,18 +48,20 @@ describe('serializeReviewBranch', () => {
     expect(out.googlePlaceId).toBeNull()
   })
 
-  it('attaches a staged suggestion when supplied', () => {
+  it('attaches a staged suggestion (with its source) when supplied', () => {
     const out = serializeReviewBranch(baseRow, {
       placeId: 'place-999',
       latitude: 53.7,
       longitude: -1.8,
       postcode: 'HD2 2BB',
+      source: 'pending_edit',
     })
     expect(out.locationSuggestion).toEqual({
       placeId: 'place-999',
       latitude: 53.7,
       longitude: -1.8,
       postcode: 'HD2 2BB',
+      source: 'pending_edit',
     })
   })
 
@@ -67,8 +71,33 @@ describe('serializeReviewBranch', () => {
   })
 })
 
+describe('reviewBranchSelect (Prisma projection)', () => {
+  it('NEVER selects redemptionPin (the encrypted PIN stays out of admin reads)', () => {
+    // Security seam: the encrypted Branch.redemptionPin is revealed only via the
+    // guarded PIN routes, never in a list/read payload. This pins the projection.
+    expect('redemptionPin' in reviewBranchSelect).toBe(false)
+  })
+
+  it('selects exactly the DTO fields (no accidental sensitive-column drift)', () => {
+    // The select must be the DTO field-set minus locationSuggestion (which is not a
+    // Branch column but assembled from the staged-suggestion lanes). Any NEW key
+    // here is a deliberate choice a reviewer must see — especially a sensitive one.
+    expect(Object.keys(reviewBranchSelect).sort()).toEqual(
+      [
+        'id', 'name', 'isMainBranch', 'isActive', 'addressLine1', 'addressLine2',
+        'city', 'postcode', 'localityName', 'locationConfidence',
+        'latitude', 'longitude', 'googlePlaceId',
+      ].sort(),
+    )
+    // Positive: the admin-scope provenance fields ARE selected.
+    expect(reviewBranchSelect.latitude).toBe(true)
+    expect(reviewBranchSelect.longitude).toBe(true)
+    expect(reviewBranchSelect.googlePlaceId).toBe(true)
+  })
+})
+
 describe('parseStagedSuggestion', () => {
-  it('extracts the flat suggestion from BRANCH_CREATED audit metadata', () => {
+  it('extracts the flat suggestion from BRANCH_CREATED audit metadata (tagged branch_created_audit)', () => {
     const metadata = {
       merchantId: 'm-1',
       staged: true,
@@ -85,6 +114,7 @@ describe('parseStagedSuggestion', () => {
       latitude: 53.7,
       longitude: -1.8,
       postcode: 'HD2 2BB',
+      source: 'branch_created_audit',
     })
   })
 
@@ -102,6 +132,7 @@ describe('parseStagedSuggestion', () => {
       latitude: 53.7,
       longitude: -1.8,
       postcode: null,
+      source: 'branch_created_audit',
     })
   })
 
@@ -111,8 +142,54 @@ describe('parseStagedSuggestion', () => {
     expect(parseStagedSuggestion({})).toBeNull()
     expect(parseStagedSuggestion({ locationSuggestion: null })).toBeNull()
     expect(parseStagedSuggestion({ locationSuggestion: { latitude: 1, longitude: 2 } })).toBeNull()
+    expect(parseStagedSuggestion({ locationSuggestion: { placeId: '', latitude: 1, longitude: 2 } })).toBeNull()
     expect(
       parseStagedSuggestion({ locationSuggestion: { placeId: 'p', latitude: 'x', longitude: 2 } }),
+    ).toBeNull()
+  })
+})
+
+describe('parsePendingEditSuggestion', () => {
+  it('extracts the suggestion from proposedChanges.__locationSuggestion (tagged pending_edit)', () => {
+    // Mirrors the Slice 1b writer shape (branch/service.ts locationSuggestionMetadata).
+    const proposedChanges = {
+      addressLine1: 'New address',
+      postcode: 'HD1 2PY',
+      locationConfidence: 'POSTCODE_CENTROID',
+      __locationSuggestion: {
+        placeId: 'place-google-1',
+        latitude: 53.6463,
+        longitude: -1.7809,
+        postcode: 'HD1 2PY',
+        source: 'merchant_portal_google',
+      },
+    }
+    expect(parsePendingEditSuggestion(proposedChanges)).toEqual({
+      placeId: 'place-google-1',
+      latitude: 53.6463,
+      longitude: -1.7809,
+      postcode: 'HD1 2PY',
+      source: 'pending_edit',
+    })
+  })
+
+  it('returns null when no suggestion sub-key is staged (identity-only / photo edit)', () => {
+    expect(parsePendingEditSuggestion(null)).toBeNull()
+    expect(parsePendingEditSuggestion(undefined)).toBeNull()
+    expect(parsePendingEditSuggestion({})).toBeNull()
+    expect(parsePendingEditSuggestion({ addressLine1: 'x' })).toBeNull()
+    expect(parsePendingEditSuggestion({ __locationSuggestion: null })).toBeNull()
+  })
+
+  it('degrades gracefully on a malformed blob (never a partial suggestion, never a throw)', () => {
+    // Same defensive posture as editApplier.applyLocationTrust: missing placeId,
+    // empty placeId, or non-finite coords all mean "no suggestion".
+    expect(parsePendingEditSuggestion({ __locationSuggestion: { latitude: 1, longitude: 2 } })).toBeNull()
+    expect(
+      parsePendingEditSuggestion({ __locationSuggestion: { placeId: '', latitude: 1, longitude: 2 } }),
+    ).toBeNull()
+    expect(
+      parsePendingEditSuggestion({ __locationSuggestion: { placeId: 'p', latitude: 'nope', longitude: 2 } }),
     ).toBeNull()
   })
 })

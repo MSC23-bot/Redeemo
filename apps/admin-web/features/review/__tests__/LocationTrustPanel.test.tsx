@@ -63,7 +63,13 @@ describe('LocationTrustPanel', () => {
           latitude: 53.6,
           longitude: -1.8,
           googlePlaceId: null,
-          locationSuggestion: { placeId: 'place-999', latitude: 53.7, longitude: -1.9, postcode: 'HD2 2BB' },
+          locationSuggestion: {
+            placeId: 'place-999',
+            latitude: 53.7,
+            longitude: -1.9,
+            postcode: 'HD2 2BB',
+            source: 'branch_created_audit',
+          },
         })}
       />,
     )
@@ -72,6 +78,33 @@ describe('LocationTrustPanel', () => {
     expect(screen.getByTestId('location-suggestion-coords-br-1')).toHaveTextContent('53.70000, -1.90000')
     expect(screen.getByTestId('location-suggestion-open-maps-br-1')).toBeInTheDocument()
     expect(screen.getByText('HD2 2BB')).toBeInTheDocument()
+    // The source line tells the reviewer which staged blob this suggestion is from.
+    expect(screen.getByTestId('location-suggestion-source-br-1')).toHaveTextContent(
+      'Source: staged when the branch was created.',
+    )
+  })
+
+  it('names the pending-edit source when the surfaced suggestion is from an open edit', () => {
+    render(
+      <LocationTrustPanel
+        branch={makeBranch({
+          locationConfidence: 'NEEDS_REVIEW',
+          latitude: 53.6,
+          longitude: -1.8,
+          googlePlaceId: null,
+          locationSuggestion: {
+            placeId: 'place-999',
+            latitude: 53.7,
+            longitude: -1.9,
+            postcode: 'HD2 2BB',
+            source: 'pending_edit',
+          },
+        })}
+      />,
+    )
+    expect(screen.getByTestId('location-suggestion-source-br-1')).toHaveTextContent(
+      "Source: staged with the merchant's pending edit request.",
+    )
   })
 
   it('renders NEEDS_REVIEW framing gracefully when no suggestion is staged', () => {

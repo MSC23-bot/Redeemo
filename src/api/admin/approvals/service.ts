@@ -11,6 +11,8 @@ import { presignGet } from '../../shared/storage'
 import {
   serializeReviewBranch,
   parseStagedSuggestion,
+  parsePendingEditSuggestion,
+  reviewBranchSelect,
   type ReviewLocationSuggestion,
 } from './reviewBranchSerializer'
 
@@ -884,29 +886,12 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
       },
     }),
 
-    // Branches — redemptionPin MUST NOT be selected; filter soft-deleted
+    // Branches — redemptionPin MUST NOT be selected; filter soft-deleted. The
+    // projection is the test-pinned reviewBranchSelect (co-located with the DTO);
+    // redemptionPin is DELIBERATELY absent there (see its doc-comment + test).
     prisma.branch.findMany({
       where: { merchantId, deletedAt: null },
-      select: {
-        id: true,
-        name: true,
-        isMainBranch: true,
-        isActive: true,
-        addressLine1: true,
-        addressLine2: true,
-        city: true,
-        postcode: true,
-        localityName: true,
-        locationConfidence: true,
-        // Branch Location Trust Slice 2 (spec 2026-07-09 §2.4): admin-scope
-        // provenance fields for the approval mini-panel. Admin reads are NOT
-        // customer-redacted (L3 governs customer exposure only), so the exact
-        // pin + its googlePlaceId provenance are allowed here.
-        latitude: true,
-        longitude: true,
-        googlePlaceId: true,
-        // redemptionPin is intentionally omitted — NEVER expose it
-      },
+      select: reviewBranchSelect,
     }),
 
     // Vouchers (all types — RMV + custom)
@@ -955,25 +940,47 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
     adminUsers.map((a: { id: string; firstName: string; lastName: string }) => [a.id, `${a.firstName} ${a.lastName}`]),
   )
 
-  // Branch Location Trust Slice 2: pull the staged Google suggestion for each
-  // branch from its BRANCH_CREATED audit metadata (the create/edit lanes stash it
-  // under metadata.locationSuggestion). This is what the NEEDS_REVIEW exception
-  // context on the approval screen shows (suggested pin vs current centroid). Read
-  // the LATEST audit row per branch that carries a parseable suggestion.
+  // Branch Location Trust Slice 2 (lead-adjudicated widening): surface the
+  // RELEVANT (freshest) staged Google suggestion per branch, from EITHER lane:
+  //   - an OPEN (PENDING) BranchPendingEdit's proposedChanges.__locationSuggestion
+  //     — the suggestion an admin is ABOUT to approve (Slice 1b writer), OR
+  //   - the BRANCH_CREATED audit metadata.locationSuggestion (create lane).
+  // Precedence: pending-edit WINS over the create-audit (it is the newer intent);
+  // fall back to the audit; null when neither. Each lane reads the LATEST row that
+  // carries a PARSEABLE suggestion (a malformed blob is skipped, never a crash).
+  // This is what the NEEDS_REVIEW exception context shows (suggested pin vs current
+  // centroid), plus a source discriminator so the panel can say which it is.
   const branchIds = branches.map((b: { id: string }) => b.id)
-  const suggestionByBranchId = new Map<string, ReviewLocationSuggestion>()
+  const pendingSuggestionByBranchId = new Map<string, ReviewLocationSuggestion>()
+  const auditSuggestionByBranchId = new Map<string, ReviewLocationSuggestion>()
   if (branchIds.length > 0) {
-    const auditRows = await prisma.auditLog.findMany({
-      where: { entityType: 'branch', entityId: { in: branchIds }, event: 'BRANCH_CREATED' },
-      select: { entityId: true, metadata: true },
-      orderBy: { createdAt: 'desc' },
-    })
+    const [pendingEdits, auditRows] = await Promise.all([
+      // OPEN edits only (PENDING): the change an admin is about to approve.
+      prisma.branchPendingEdit.findMany({
+        where: { branchId: { in: branchIds }, status: 'PENDING' },
+        select: { branchId: true, proposedChanges: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.auditLog.findMany({
+        where: { entityType: 'branch', entityId: { in: branchIds }, event: 'BRANCH_CREATED' },
+        select: { entityId: true, metadata: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ])
+    for (const edit of pendingEdits) {
+      if (pendingSuggestionByBranchId.has(edit.branchId)) continue // keep the latest only
+      const parsed = parsePendingEditSuggestion(edit.proposedChanges)
+      if (parsed) pendingSuggestionByBranchId.set(edit.branchId, parsed)
+    }
     for (const row of auditRows) {
-      if (suggestionByBranchId.has(row.entityId)) continue // keep the latest only
+      if (auditSuggestionByBranchId.has(row.entityId)) continue // keep the latest only
       const parsed = parseStagedSuggestion(row.metadata)
-      if (parsed) suggestionByBranchId.set(row.entityId, parsed)
+      if (parsed) auditSuggestionByBranchId.set(row.entityId, parsed)
     }
   }
+  // Precedence resolver: pending-edit suggestion beats the branch-created audit.
+  const suggestionForBranch = (branchId: string): ReviewLocationSuggestion | null =>
+    pendingSuggestionByBranchId.get(branchId) ?? auditSuggestionByBranchId.get(branchId) ?? null
 
   // 5. Presign each document's GET URL inside a try/catch.
   //    The raw fileUrl (R2 key) is NEVER included in the output — even on failure.
@@ -1035,7 +1042,7 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
         }
       : null,
     branches: branches.map((b: Parameters<typeof serializeReviewBranch>[0]) =>
-      serializeReviewBranch(b, suggestionByBranchId.get(b.id) ?? null),
+      serializeReviewBranch(b, suggestionForBranch(b.id)),
     ),
     vouchers: vouchers.map((v) => ({
       id: v.id,

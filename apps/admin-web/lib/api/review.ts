@@ -79,11 +79,14 @@ export const reviewOwnerSchema = z.object({
 // Branch Location Trust Slice 2 (spec 2026-07-09 §2.4): the staged Google
 // suggestion the merchant picked at create/edit, surfaced for NEEDS_REVIEW
 // exception context (suggested pin vs the current centroid). Admin-scope only.
+// `source` discriminates WHICH staged blob was surfaced (lead-adjudicated read
+// widening): an OPEN pending-edit suggestion wins over the branch-created audit.
 export const reviewLocationSuggestionSchema = z.object({
   placeId: z.string(),
   latitude: z.number(),
   longitude: z.number(),
   postcode: z.string().nullable(),
+  source: z.enum(['pending_edit', 'branch_created_audit']),
 })
 
 export const reviewBranchSchema = z.object({

@@ -38,6 +38,17 @@ function formatCoord(lat: number, lng: number): string {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
 }
 
+/**
+ * Short, factual line telling the reviewer WHICH staged suggestion they are
+ * seeing. `pending_edit` is the change an admin is about to approve (it wins over
+ * the create-time record); `branch_created_audit` is the create-time suggestion.
+ */
+function suggestionSourceLine(source: 'pending_edit' | 'branch_created_audit'): string {
+  return source === 'pending_edit'
+    ? "Source: staged with the merchant's pending edit request."
+    : 'Source: staged when the branch was created.'
+}
+
 /** External Google Maps deep-link for a coordinate pair (opens in a new tab). */
 function googleMapsUrl(lat: number, lng: number): string {
   return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
@@ -121,6 +132,7 @@ export function LocationTrustPanel({
             </span>
           </p>
           {suggestion ? (
+            <>
             <dl className="mt-2 grid grid-cols-1 gap-1 text-xs sm:grid-cols-[auto_1fr] sm:gap-x-3">
               <dt className="text-muted-foreground">Current (centroid)</dt>
               <dd className="font-mono text-foreground">
@@ -146,6 +158,13 @@ export function LocationTrustPanel({
                 </>
               )}
             </dl>
+            <p
+              className="mt-1.5 text-xs text-muted-foreground"
+              data-testid={`location-suggestion-source-${branch.id}`}
+            >
+              {suggestionSourceLine(suggestion.source)}
+            </p>
+            </>
           ) : (
             <p className="mt-2 text-xs text-muted-foreground">
               No staged Google suggestion is on file for this branch.
