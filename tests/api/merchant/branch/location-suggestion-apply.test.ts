@@ -146,7 +146,7 @@ describe('createBranch — Branch Location Trust Slice 1 (direct-write, cross-ch
     const auditCall = prisma.auditLog.create.mock.calls.find((c: any) => c[0].data.event === 'BRANCH_CREATED')
     expect(auditCall).toBeDefined()
     expect(auditCall[0].data.metadata.locationSuggestion).toEqual({
-      placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809, source: 'merchant_portal_google',
+      placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809, postcode: 'HD1 2PY', source: 'merchant_portal_google',
     })
   })
 
@@ -235,7 +235,7 @@ describe('createBranchEditRequest — Branches PR-6 location suggestion (reviewe
     expect(proposed.locationConfidence).not.toBe('MANUALLY_CONFIRMED')
     // The suggestion rides under the metadata sub-key (NOT a Branch field).
     expect(proposed.__locationSuggestion).toEqual({
-      placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809, source: 'merchant_portal_google',
+      placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809, postcode: 'HD1 2PY', source: 'merchant_portal_google',
     })
 
     // The BRANCH_EDIT_REQUEST_CREATED audit also carries the suggestion.

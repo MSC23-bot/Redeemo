@@ -85,10 +85,11 @@ export interface BranchLocationSuggestion {
   longitude: number
   // Branch Location Trust Slice 1 (spec 2026-07-09): the postcode parsed from the
   // Google formattedAddress at stash time, threaded through from
-  // resolveLocationCandidate. The create-lane trust pipeline cross-checks it
-  // against the merchant-entered postcode. Null when Google's address had no
-  // parseable UK postcode (read as a failed check). The edit lane still stages
-  // this suggestion as admin-review metadata only until Slice 1b.
+  // resolveLocationCandidate. The trust pipeline cross-checks it against the
+  // merchant-entered postcode. Null when Google's address had no parseable UK
+  // postcode (read as a failed check). Slice 1b: this postcode is now persisted
+  // into the staged suggestion metadata so the reviewed-edit APPLY lane can run
+  // the same cross-check at admin-approval time.
   postcode: string | null
 }
 
@@ -102,6 +103,13 @@ function locationSuggestionMetadata(suggestion: BranchLocationSuggestion) {
     placeId: suggestion.placeId,
     latitude: suggestion.latitude,
     longitude: suggestion.longitude,
+    // Branch Location Trust Slice 1b (spec 2026-07-09): carry the Google-parsed
+    // postcode through into the staged metadata. On the reviewed-edit APPLY lane
+    // the editApplier reads ONLY what was persisted in proposedChanges, so this is
+    // the postcode the apply-time cross-check compares against the new entered
+    // postcode. Null when Google's address had no parseable UK postcode (read as a
+    // failed postcode check -> NEEDS_REVIEW, exactly like the create lane).
+    postcode: suggestion.postcode,
     source: 'merchant_portal_google' as const,
   }
 }
