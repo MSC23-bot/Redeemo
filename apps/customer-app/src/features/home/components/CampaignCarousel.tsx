@@ -1,9 +1,11 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react'
+import React, { useRef, useState, useCallback } from 'react'
 import { View, ScrollView, Dimensions, TouchableOpacity, StyleSheet } from 'react-native'
+import { useFocusEffect } from 'expo-router'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Image } from 'expo-image'
 import { Text, color, spacing, radius } from '@/design-system'
 import { DotIndicator } from '@/features/shared/DotIndicator'
+import { scrollActivity } from '@/design-system/motion/scrollActivity'
 
 const SCREEN_WIDTH = Dimensions.get('window').width
 const BANNER_WIDTH = SCREEN_WIDTH - 36
@@ -71,6 +73,13 @@ export const CampaignCarousel = React.memo(function CampaignCarousel({ campaigns
   const startAutoScroll = useCallback(() => {
     if (campaigns.length <= 1) return
     timerRef.current = setInterval(() => {
+      // Perf batch 1 (2026-07-09) — skip this tick while the vertical Home
+      // feed is actively scrolling (module-level `scrollActivity` flag,
+      // flipped by HomeScreen's scroll handlers). This carousel's own
+      // onScrollBeginDrag below already cancels the timer for its OWN
+      // horizontal drag; this guard additionally stops it firing mid-fling
+      // on the outer vertical feed scroll.
+      if (scrollActivity.value === 1) return
       setActiveIndex((prev) => {
         const next = (prev + 1) % campaigns.length
         scrollRef.current?.scrollTo({
@@ -82,12 +91,20 @@ export const CampaignCarousel = React.memo(function CampaignCarousel({ campaigns
     }, AUTO_SCROLL_INTERVAL)
   }, [campaigns.length])
 
-  useEffect(() => {
-    startAutoScroll()
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [startAutoScroll])
+  // Perf batch 1 (2026-07-09) — focus-gate the auto-advance timer.
+  // expo-router Tabs keep Home mounted across tab switches, so the previous
+  // plain `useEffect` (which only cleared on UNMOUNT) left this 12s interval
+  // running forever in the background once the user left the Home tab.
+  // `useFocusEffect` starts it fresh on every focus and fully clears it on
+  // blur.
+  useFocusEffect(
+    useCallback(() => {
+      startAutoScroll()
+      return () => {
+        if (timerRef.current) clearInterval(timerRef.current)
+      }
+    }, [startAutoScroll])
+  )
 
   if (campaigns.length === 0) return null
 
