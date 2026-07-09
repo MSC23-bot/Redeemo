@@ -107,9 +107,15 @@ describe('getInAreaBranches — includeEmptyStateReason (branchesOnly route mode
       bbox: BBOX, userId: null, limit: 50, includeEmptyStateReason: true,
     })
     expect(result.meta.emptyStateReason).toBe('no_uk_supply')
+    // Slice 1 composition (PR #435 on #434): the count's confidence filter
+    // mirrors the pin-exposure set (CONFIRMED_LOCATION_SET), not
+    // MANUALLY_CONFIRMED-only, so ADDRESS_GEOCODED-only categories report
+    // viewport_empty rather than no_uk_supply.
     expect(prisma.branch.count).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ locationConfidence: 'MANUALLY_CONFIRMED' }),
+        where: expect.objectContaining({
+          locationConfidence: { in: ['MANUALLY_CONFIRMED', 'ADDRESS_GEOCODED'] },
+        }),
       }),
     )
     // The UK-wide count must NOT carry the viewport bbox constraint.

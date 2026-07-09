@@ -3,9 +3,18 @@
 // Branches PR-6 (§4a / §4b / §4d / §4e) — Layer 1: the merchant-side Google
 // location search + candidate-token stash. The merchant searches a business name
 // / address, picks a Google Text Search result, and the UI autofills the address
-// fields. The precise pin stays admin-confirmed (security correction §7): the
-// merchant pick NEVER sets a CONFIRMED_LOCATION_SET confidence, and lat/lng + the
-// placeId NEVER cross the wire in either direction.
+// fields. lat/lng + the placeId NEVER cross the wire in either direction (trust
+// spec 2026-07-09 invariant L1: unchanged).
+//
+// What the pick MAY set (Branch Location Trust Slice 1, spec 2026-07-09,
+// supersedes the PR-6 §7 "never a confirmed confidence" rule by owner direction):
+//   - CREATE lane: the resolved suggestion feeds the server-side cross-check
+//     pipeline (crossCheckGoogleLocation); a PASS auto-trusts the pin as
+//     ADDRESS_GEOCODED (customer-visible), a FAIL degrades to POSTCODE_CENTROID
+//     coords + a NEEDS_REVIEW stamp.
+//   - REVIEWED-EDIT lane: still admin-review metadata only, until Slice 1b.
+//   - MANUALLY_CONFIRMED remains writable ONLY by the admin's
+//     confirmBranchLocation (the only human-confirm path).
 //
 // The candidate-token flow keeps the coords server-side:
 //   - On search, each Google candidate's { placeId, latitude, longitude } is
@@ -53,6 +62,10 @@ export interface ResolvedLocationCandidate {
   placeId: string
   latitude: number
   longitude: number
+  /** Slice 1: postcode parsed from the Google formattedAddress at stash time
+   *  (parseFormattedAddress). Null when Google's address had no parseable UK
+   *  postcode: the trust pipeline treats null as a failed postcode check. */
+  postcode: string | null
 }
 
 /**
@@ -136,10 +149,14 @@ export async function searchMerchantLocations(
   const out: MerchantLocationCandidate[] = []
   for (const c of result.candidates) {
     const candidateToken = generateSecureToken(16)
+    // Parse once and reuse for both the server-side stash (trust pipeline) and
+    // the client-safe DTO (autofill). The postcode NEVER leaks coords/placeId.
+    const addressParts = parseFormattedAddress(c.formattedAddress)
     const stash: ResolvedLocationCandidate = {
       placeId: c.placeId,
       latitude: c.latitude,
       longitude: c.longitude,
+      postcode: addressParts.postcode,
     }
     await redis.set(
       RedisKey.merchantLocationCandidate(ctx.merchantId, candidateToken),
@@ -151,7 +168,7 @@ export async function searchMerchantLocations(
       candidateToken,
       name: c.name,
       formattedAddress: c.formattedAddress,
-      addressParts: parseFormattedAddress(c.formattedAddress),
+      addressParts,
     })
   }
   return out
@@ -199,6 +216,11 @@ export async function resolveLocationCandidate(
     return null
   }
 
+  // Slice 1: accept string-or-null with a back-compat default. An in-flight
+  // pre-deploy stash entry lacks the postcode field; treat it as null (which the
+  // trust pipeline reads as a failed postcode check, degrading to NEEDS_REVIEW).
+  const postcode = typeof obj.postcode === 'string' ? obj.postcode : null
+
   if (consumeToken) await redis.del(key)
-  return { placeId: obj.placeId, latitude: obj.latitude, longitude: obj.longitude }
+  return { placeId: obj.placeId, latitude: obj.latitude, longitude: obj.longitude, postcode }
 }

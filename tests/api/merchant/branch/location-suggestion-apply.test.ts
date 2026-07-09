@@ -1,14 +1,20 @@
 // tests/api/merchant/branch/location-suggestion-apply.test.ts
 //
-// Branches PR-6 (§4b) — Layer 2: an OPTIONAL candidateToken on the branch
-// address-apply paths resolves (server-side, Redis-only) to a Google suggestion
-// that is staged as ADMIN-REVIEW METADATA ONLY — never a Branch column, never a
-// CONFIRMED_LOCATION_SET confidence write. The address itself flows through the
-// existing lanes unchanged (resolveBranchLocationFields stamps POSTCODE_CENTROID).
+// Branches PR-6 (§4b) Layer 2, as amended by Branch Location Trust Slice 1
+// (spec 2026-07-09): an OPTIONAL candidateToken on the branch address-apply
+// paths resolves (server-side, Redis-only) to a Google suggestion. The lanes
+// now SPLIT:
+//   - CREATE lane: the suggestion feeds the cross-check pipeline: PASS applies
+//     the pin as ADDRESS_GEOCODED + googlePlaceId (customer-visible), FAIL keeps
+//     POSTCODE_CENTROID coords + stamps NEEDS_REVIEW (L4). Audit metadata is
+//     staged in both outcomes.
+//   - REVIEWED-EDIT lane: STILL admin-review metadata only (no Branch column,
+//     no confidence write) until Slice 1b.
 //
-// THE LOAD-BEARING SECURITY INVARIANT under test: a merchant's Google pick must
-// NEVER make the branch discovery-visible / go-live-eligible. Only the admin's
-// confirmBranchLocation -> MANUALLY_CONFIRMED can.
+// THE LOAD-BEARING SECURITY INVARIANTS under test: the reviewed-edit lane never
+// applies a suggestion (editApplier allow-list); ADDRESS_GEOCODED is set only by
+// the server-side cross-check (L2); MANUALLY_CONFIRMED is set only by the
+// admin's confirmBranchLocation (the only human-confirm path).
 //
 // Mocked-prisma unit tests against the service + a mocked approveEdit to PROVE
 // the editApplier allow-list never applies the suggestion sub-key as a column,
@@ -51,7 +57,12 @@ const MERCHANT_ID = 'merchant-1'
 const BRANCH_ID = 'branch-1'
 const CTX = { ipAddress: '127.0.0.1', userAgent: 'vitest' }
 
-const SUGGESTION: BranchLocationSuggestion = { placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809 }
+// Branch Location Trust Slice 1: the suggestion now carries the parsed postcode.
+// Here it MATCHES the VALID_HD1_RESPONSE postcode ('HD1 2PY') and its coords equal
+// the resolver centroid, so the CREATE-lane cross-check passes (ADDRESS_GEOCODED).
+// The reviewed EDIT lane (createBranchEditRequest) still ignores it and stages the
+// suggestion as admin-review metadata only (unchanged until Slice 1b).
+const SUGGESTION: BranchLocationSuggestion = { placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809, postcode: 'HD1 2PY' }
 
 const VALID_HD1_RESPONSE = {
   status: 200,
@@ -105,12 +116,16 @@ function buildPrismaMock() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CREATE (direct-write) — suggestion lands in BRANCH_CREATED audit metadata only.
+// CREATE (direct-write) — Slice 1 trust pipeline: cross-check decides
+// ADDRESS_GEOCODED (pass) vs NEEDS_REVIEW (fail); audit metadata in both.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('createBranch — Branches PR-6 location suggestion (direct-write)', () => {
+describe('createBranch — Branch Location Trust Slice 1 (direct-write, cross-check PASS)', () => {
   beforeEach(() => { vi.restoreAllMocks() })
 
-  it('saves the branch at POSTCODE_CENTROID (NOT a CONFIRMED value) with the Google suggestion in the BRANCH_CREATED audit', async () => {
+  it('applies the Google pin as ADDRESS_GEOCODED + googlePlaceId and keeps the suggestion in the BRANCH_CREATED audit when cross-checks pass', async () => {
+    // Slice 1 SUPERSEDES the PR-6 "metadata only" create-lane invariant (owner
+    // direction): SUGGESTION here matches the entered postcode and centroid, so
+    // the cross-check passes and the branch is auto-trusted (customer-visible).
     vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => VALID_HD1_RESPONSE } as Response)
     const prisma = buildPrismaMock()
 
@@ -118,18 +133,16 @@ describe('createBranch — Branches PR-6 location suggestion (direct-write)', ()
       name: 'Karaara', addressLine1: '11 Cross Church Street', city: 'Huddersfield', postcode: 'HD1 2PY',
     }, CTX, SUGGESTION)
 
-    // Branch saved at POSTCODE_CENTROID — never a CONFIRMED_LOCATION_SET value.
+    // Cross-check passes (postcode match + pin within radius) -> ADDRESS_GEOCODED.
     const created = prisma.branch.create.mock.calls[0][0].data
-    expect(created.locationConfidence).toBe('POSTCODE_CENTROID')
+    expect(created.locationConfidence).toBe('ADDRESS_GEOCODED')
     expect(created.locationConfidence).not.toBe('MANUALLY_CONFIRMED')
-    expect(created.locationConfidence).not.toBe('ADDRESS_GEOCODED')
-    expect(branch.locationConfidence).toBe('POSTCODE_CENTROID')
+    expect(created.locationConfidence).not.toBe('POSTCODE_CENTROID')
+    expect(created.googlePlaceId).toBe('place-google-1')
+    expect(branch.locationConfidence).toBe('ADDRESS_GEOCODED')
 
-    // The branch row carries NO placeId column (no schema).
-    expect(created).not.toHaveProperty('placeId')
-    expect(created).not.toHaveProperty('googlePlaceId')
-
-    // The Google suggestion is in the BRANCH_CREATED audit metadata.
+    // Provenance in BOTH outcomes: the Google suggestion is ALSO retained in the
+    // BRANCH_CREATED audit metadata.
     const auditCall = prisma.auditLog.create.mock.calls.find((c: any) => c[0].data.event === 'BRANCH_CREATED')
     expect(auditCall).toBeDefined()
     expect(auditCall[0].data.metadata.locationSuggestion).toEqual({
@@ -149,6 +162,54 @@ describe('createBranch — Branches PR-6 location suggestion (direct-write)', ()
     expect(auditCall[0].data.metadata).not.toHaveProperty('locationSuggestion')
     // The branch still saved at POSTCODE_CENTROID (address-only apply).
     expect(prisma.branch.create.mock.calls[0][0].data.locationConfidence).toBe('POSTCODE_CENTROID')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CREATE trust pipeline (Slice 1 §2.2) — the pass / fail / no-suggestion matrix.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('createBranch — Branch Location Trust Slice 1 pipeline', () => {
+  beforeEach(() => { vi.restoreAllMocks() })
+
+  const BODY = { name: 'Iron Forge', addressLine1: '3 Mill St', city: 'Huddersfield', postcode: 'HD1 2PY' }
+
+  it('applies the Google pin + ADDRESS_GEOCODED + googlePlaceId when cross-checks pass', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => VALID_HD1_RESPONSE } as Response)
+    const prisma = buildPrismaMock()
+    // Suggestion postcode === body.postcode; the pin sits ~240m from the HD1
+    // centroid (VALID_HD1_RESPONSE) which is inside the 1km sanity radius.
+    await createBranch(prisma, ADMIN_ID, BODY, CTX, {
+      placeId: 'place-123', latitude: 53.6460, longitude: -1.7845, postcode: 'HD1 2PY',
+    })
+    const created = prisma.branch.create.mock.calls[0][0].data
+    expect(created.locationConfidence).toBe('ADDRESS_GEOCODED')
+    expect(created.googlePlaceId).toBe('place-123')
+    // The exact Google pin overwrote the centroid coords.
+    expect(created.latitude).toBeCloseTo(53.6460, 4)
+    expect(created.longitude).toBeCloseTo(-1.7845, 4)
+  })
+
+  it('stamps NEEDS_REVIEW and keeps centroid coords on postcode mismatch', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => VALID_HD1_RESPONSE } as Response)
+    const prisma = buildPrismaMock()
+    await createBranch(prisma, ADMIN_ID, BODY, CTX, {
+      placeId: 'place-123', latitude: 53.6460, longitude: -1.7845, postcode: 'ZZ9 9ZZ',
+    })
+    const created = prisma.branch.create.mock.calls[0][0].data
+    expect(created.locationConfidence).toBe('NEEDS_REVIEW')
+    // No partial Google-coord application (L4): coords remain the resolver centroid.
+    expect(created).not.toHaveProperty('googlePlaceId')
+    expect(created.latitude).toBeCloseTo(53.6463, 4)
+    expect(created.longitude).toBeCloseTo(-1.7809, 4)
+  })
+
+  it('keeps POSTCODE_CENTROID untouched when no suggestion rides along', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => VALID_HD1_RESPONSE } as Response)
+    const prisma = buildPrismaMock()
+    await createBranch(prisma, ADMIN_ID, BODY, CTX /* no suggestion */)
+    const created = prisma.branch.create.mock.calls[0][0].data
+    expect(created.locationConfidence).toBe('POSTCODE_CENTROID')
+    expect(created).not.toHaveProperty('googlePlaceId')
   })
 })
 
@@ -325,10 +386,13 @@ describe('POST /api/v1/merchant/branches — candidateToken route resolution', (
 
   afterEach(async () => { if (app) await app.close() })
 
-  it('resolves a valid candidateToken to admin-review metadata; branch stays POSTCODE_CENTROID, no fresh Google call', async () => {
+  it('resolves a valid candidateToken with no parseable postcode: degrades to NEEDS_REVIEW (L4), stages the suggestion as audit metadata, no fresh Google call', async () => {
     searchPlacesMock.mockReset()
     const redisStore = new Map<string, string>()
-    // Pre-seed the Layer 1 stash for merchant-1 + token "tok-1".
+    // Pre-seed the Layer 1 stash for merchant-1 + token "tok-1". Slice 1: this
+    // legacy-shaped stash has NO postcode field, so resolveLocationCandidate reads
+    // postcode: null and the create-lane cross-check fails (missing_postcode) ->
+    // the branch degrades to NEEDS_REVIEW keeping the centroid coords (L4).
     redisStore.set(`merchant:${MERCHANT_ID}:loccand:tok-1`, JSON.stringify({ placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809 }))
 
     app = await buildApp()
@@ -344,9 +408,11 @@ describe('POST /api/v1/merchant/branches — candidateToken route resolution', (
     })
     expect(res.statusCode).toBe(201)
 
-    // Branch saved at POSTCODE_CENTROID (NOT confirmed).
+    // Branch stamped NEEDS_REVIEW (NOT confirmed, NOT trusted); centroid coords kept.
     const created = (app as any).prisma.branch.create.mock.calls[0][0].data
-    expect(created.locationConfidence).toBe('POSTCODE_CENTROID')
+    expect(created.locationConfidence).toBe('NEEDS_REVIEW')
+    // Failed cross-check applies NO Google coords/placeId (L4: no partial apply).
+    expect(created).not.toHaveProperty('googlePlaceId')
     // candidateToken was popped at the route — it never reached the branch row.
     expect(created).not.toHaveProperty('candidateToken')
     expect(created).not.toHaveProperty('placeId')

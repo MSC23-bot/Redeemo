@@ -52,8 +52,10 @@ const favouriteBranchItemSchema = z.object({
   city:                z.string().nullable(),
   postcode:            z.string().nullable(),
   // Position is redacted upstream when locationConfidence is
-  // POSTCODE_CENTROID / NEEDS_REVIEW / ADDRESS_GEOCODED (Plan 4 M1 PR #81
-  // lock; mirrors the contract on `exposeBranchPosition`).
+  // POSTCODE_CENTROID / NEEDS_REVIEW (Plan 4 M1 PR #81 lock; mirrors the
+  // contract on `exposeBranchPosition`). Branch Location Trust Slice 1 (spec
+  // 2026-07-09 §2.3) widened exposure by one tier, so ADDRESS_GEOCODED now
+  // arrives with real coords alongside MANUALLY_CONFIRMED.
   latitude:            z.number().nullable(),
   longitude:           z.number().nullable(),
   locationConfidence:  z.string(),
