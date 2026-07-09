@@ -22,6 +22,7 @@ import {
   useSendBranchPin,
   useStageBranchHours,
   useCancelPendingHours,
+  useDropBranchPin,
 } from '../useBranches'
 
 const api = {
@@ -35,6 +36,7 @@ const api = {
   sendBranchPin: jest.fn(),
   stageBranchHours: jest.fn(),
   cancelPendingHours: jest.fn(),
+  dropBranchPin: jest.fn(),
 }
 jest.mock('@/lib/api/branch', () => ({
   listBranches: (...a: unknown[]) => api.listBranches(...a),
@@ -47,6 +49,7 @@ jest.mock('@/lib/api/branch', () => ({
   sendBranchPin: (...a: unknown[]) => api.sendBranchPin(...a),
   stageBranchHours: (...a: unknown[]) => api.stageBranchHours(...a),
   cancelPendingHours: (...a: unknown[]) => api.cancelPendingHours(...a),
+  dropBranchPin: (...a: unknown[]) => api.dropBranchPin(...a),
 }))
 
 function wrapper(qc: QueryClient) {
@@ -203,5 +206,34 @@ describe('branch mutations invalidate [branches] + [branch, id]', () => {
     })
     expect(api.cancelPendingHours).toHaveBeenCalledWith('b1')
     expectBothInvalidations(invalidate, 'b1')
+  })
+
+  it('useDropBranchPin POSTs { latitude, longitude }, seeds the branch cache, and invalidates', async () => {
+    const updated = { id: 'b1', locationConfidence: 'MERCHANT_CONFIRMED', latitude: 52.2, longitude: 0.12 }
+    api.dropBranchPin.mockResolvedValue(updated)
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const setQueryData = jest.spyOn(qc, 'setQueryData')
+    const { result } = renderHook(() => useDropBranchPin(), { wrapper: wrapper(qc) })
+    await act(async () => {
+      await result.current.mutateAsync({ id: 'b1', latitude: 52.2, longitude: 0.12 })
+    })
+    expect(api.dropBranchPin).toHaveBeenCalledWith('b1', { latitude: 52.2, longitude: 0.12 })
+    expect(setQueryData).toHaveBeenCalledWith(['branch', 'b1'], updated)
+    expectBothInvalidations(invalidate, 'b1')
+  })
+
+  it('useDropBranchPin propagates a rejection (e.g. BRANCH_LOCATION_ALREADY_CONFIRMED) without invalidating', async () => {
+    const err = new Error('already confirmed')
+    api.dropBranchPin.mockRejectedValue(err)
+    const qc = freshClient()
+    const invalidate = jest.spyOn(qc, 'invalidateQueries')
+    const { result } = renderHook(() => useDropBranchPin(), { wrapper: wrapper(qc) })
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({ id: 'b1', latitude: 52.2, longitude: 0.12 }),
+      ).rejects.toBe(err)
+    })
+    expect(invalidate).not.toHaveBeenCalled()
   })
 })
