@@ -64,6 +64,11 @@ export type AdminCapability =
   // ONLY by SUPER_ADMIN (via the hasCapability short-circuit). Document VIEW uses
   // the lower `merchant:read`. Keep aligned with the backend src/api/admin/capability.ts.
   | 'merchant:manage-documents'
+  // Option B B5.1: gates admin RMV co-build on behalf (edit allowedFields + submit
+  // the mandatory RMV vouchers during onboarding). An operational onboarding-
+  // completion helper (like merchant:submit), so it IS in ALL_SLICE1_CAPS
+  // (OPERATIONS holds it). Keep aligned with the backend src/api/admin/capability.ts.
+  | 'merchant:manage-vouchers'
   // D67: gates the read-only cross-merchant admin redemptions list. IS in
   // ALL_SLICE1_CAPS (OPERATIONS + SUPER_ADMIN hold it). Keep aligned with the
   // backend src/api/admin/capability.ts.
@@ -86,6 +91,7 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'approval:apply-edit',
   'merchant:edit',
   'merchant:submit',
+  'merchant:manage-vouchers',
   'redemption:read',
 ]
 

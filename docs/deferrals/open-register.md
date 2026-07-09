@@ -110,9 +110,14 @@ cross-tenant existence, cap enforcement, a11y); merchant M1 a11y focus-on-error 
 OTP-lockout message; admin M2-M8 deferred lists; Option B B2+/B3/B4/B5 + photo-apply;
 `canManageVouchers` migration (`20260622223003`) verified APPLIED on dev + staging + production (direct-SQL check 2026-07-09; the older local-dev-only claim here was stale); staging admin-OTP delivery UNVERIFIED; Karaara staging cleanup
 UNVERIFIED; automated monthly merchant statements (from the old §R4 architecture note) not
-yet tracked in any roadmap row: confirm placement; `GET /branches` payload still returns the
-encrypted `redemptionPin` field (UI never renders it; harden the payload before treating it
-as a curated contract); optional #389 defence-in-depth follow-up (re-gate non-401/JSON-parse
+yet tracked in any roadmap row: confirm placement; `GET /branches` `redemptionPin`-in-payload
+row **CLOSED 2026-07-09** (chore/admin-s3-hygiene): the merchant branch wire exits already strip
+the AES ciphertext via the `toMerchantBranch` serializer (shipped 2026-07-05, PR #377 chain) and
+emit only the derived `redemptionPinSet` boolean, so the ciphertext never leaves the API; this PR
+re-verified no merchant-web/admin-web consumer reads `redemptionPin` from those payloads and added
+a full-DB-row closure pin to `tests/api/merchant/branch/wire-hygiene.test.ts` alongside the
+existing list/read/patch/create wire pins (the guarded `GET /branches/:id/pin` reveal route is the
+only legitimate exit and is untouched); optional #389 defence-in-depth follow-up (re-gate non-401/JSON-parse
 throw paths; assessed non-security); cuisine-aware specialty filtering open product question
 (cuisine selection does not narrow the specialty pool; Codex Vol-1 ~L11137); AdminRole enum
 drift vs locked Q6b (shipped SUPER_ADMIN/OPERATIONS/FINANCE/CONTENT/SUPPORT; locked plan was
@@ -183,6 +188,15 @@ no open action. (Observability hardening from the 2026-07-08 note remains in pla
 disabled key is visible in logs without needing a live probe.)
 
 ## Change log
+
+- **2026-07-09e** · S3 hygiene (chore/admin-s3-hygiene): **§5 `GET /branches` `redemptionPin`
+  row CLOSED** - the payload was already hardened by the `toMerchantBranch` serializer (PR #377
+  chain, 2026-07-05); this pass re-verified no web consumer reads it and added a full-DB-row
+  closure test-pin. Same PR also fixed the admin-web capability-mirror drift (added
+  `merchant:manage-vouchers` to the OPERATIONS mirror to match backend `ALL_SLICE1_CAPS`, with a
+  literal-list parity test) and two stale-copy/comment fixes (admin-shell nav doc comment; a
+  storage-dark static-copy audit found none - the one `STORAGE_NOT_ENABLED` string is a
+  runtime-driven degrade keyed on a backend error code, correct as-is).
 
 - **2026-07-09d** · Admin S1 merges recorded: **§LOC-2 flipped to MERGED** (PR #444 squash
   `0d137eed`, owner-approved head `697573e5`; Codex-reviewed; the review round added the
