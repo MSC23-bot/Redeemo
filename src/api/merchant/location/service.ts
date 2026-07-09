@@ -53,6 +53,10 @@ export interface ResolvedLocationCandidate {
   placeId: string
   latitude: number
   longitude: number
+  /** Slice 1: postcode parsed from the Google formattedAddress at stash time
+   *  (parseFormattedAddress). Null when Google's address had no parseable UK
+   *  postcode: the trust pipeline treats null as a failed postcode check. */
+  postcode: string | null
 }
 
 /**
@@ -136,10 +140,14 @@ export async function searchMerchantLocations(
   const out: MerchantLocationCandidate[] = []
   for (const c of result.candidates) {
     const candidateToken = generateSecureToken(16)
+    // Parse once and reuse for both the server-side stash (trust pipeline) and
+    // the client-safe DTO (autofill). The postcode NEVER leaks coords/placeId.
+    const addressParts = parseFormattedAddress(c.formattedAddress)
     const stash: ResolvedLocationCandidate = {
       placeId: c.placeId,
       latitude: c.latitude,
       longitude: c.longitude,
+      postcode: addressParts.postcode,
     }
     await redis.set(
       RedisKey.merchantLocationCandidate(ctx.merchantId, candidateToken),
@@ -151,7 +159,7 @@ export async function searchMerchantLocations(
       candidateToken,
       name: c.name,
       formattedAddress: c.formattedAddress,
-      addressParts: parseFormattedAddress(c.formattedAddress),
+      addressParts,
     })
   }
   return out
@@ -199,6 +207,11 @@ export async function resolveLocationCandidate(
     return null
   }
 
+  // Slice 1: accept string-or-null with a back-compat default. An in-flight
+  // pre-deploy stash entry lacks the postcode field; treat it as null (which the
+  // trust pipeline reads as a failed postcode check, degrading to NEEDS_REVIEW).
+  const postcode = typeof obj.postcode === 'string' ? obj.postcode : null
+
   if (consumeToken) await redis.del(key)
-  return { placeId: obj.placeId, latitude: obj.latitude, longitude: obj.longitude }
+  return { placeId: obj.placeId, latitude: obj.latitude, longitude: obj.longitude, postcode }
 }
