@@ -4542,8 +4542,9 @@ export async function getInAreaBranches(
   )
 
   // ── 4. Rank the candidates via rankBranchesV3.
-  //    All candidates are MANUALLY_CONFIRMED by predicate, so there is no
-  //    non-rankable tail (unlike searchBranches). categoryIntent defaults to
+  //    All candidates are customer-visible confirmed locations by predicate
+  //    (CONFIRMED_LOCATION_SET: MANUALLY_CONFIRMED + ADDRESS_GEOCODED), so
+  //    there is no non-rankable tail (unlike searchBranches). categoryIntent defaults to
   //    MIXED (safe per ranking.ts when no category is provided);
   //    ladderProfile is 'MIXED_NORMAL' for Map per spec §5.7.
   let rankedTiles: RankedBranchTile[] = []
@@ -4620,8 +4621,9 @@ export async function getInAreaBranches(
   // ── 6. Optional standalone `emptyStateReason` (branchesOnly route mode
   //    only — see param docblock). Mirrors the "no UK-wide supply for this
   //    filter" semantics of `getInAreaMerchants`'s `totalSupply` check, but
-  //    branch-first: count active MANUALLY_CONFIRMED branches for the same
-  //    merchant/category predicate with NO bbox constraint.
+  //    branch-first: count active CONFIRMED_LOCATION_SET branches (the same
+  //    customer-visible set the pins use) for the same merchant/category
+  //    predicate with NO bbox constraint.
   let emptyStateReason: 'none' | 'no_uk_supply' | undefined
   if (params.includeEmptyStateReason) {
     const ukWideCount = await prisma.branch.count({
