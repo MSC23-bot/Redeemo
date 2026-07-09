@@ -29,13 +29,16 @@ const mockedUseRedemptions = useRedemptions as jest.MockedFunction<typeof useRed
 
 function mockSession(overrides: { can?: (cap: string) => boolean }) {
   mockedUseSession.mockReturnValue({
+    accessToken: 'test-access-token',
     ready: true,
     isAuthenticated: true,
     role: 'OPERATIONS',
     email: 'ops@redeemo.co.uk',
     adminId: 'admin-me',
     can: overrides.can ?? (() => true),
+    setSession: jest.fn(),
     refresh: jest.fn(),
+    signOut: jest.fn(),
   })
 }
 
@@ -108,13 +111,16 @@ describe('RedemptionsPage capability gate', () => {
 
   it('shows the loader (not forbidden) while session is not yet ready', () => {
     mockedUseSession.mockReturnValue({
+      accessToken: null,
       ready: false,
       isAuthenticated: false,
       role: null,
       email: null,
       adminId: null,
       can: () => false,
+      setSession: jest.fn(),
       refresh: jest.fn(),
+      signOut: jest.fn(),
     })
     mockRedemptions()
 
