@@ -48,14 +48,14 @@ closed by a later PR; confirm and then remove with a citation).
 | §HC tail | Home visual system non-blocking follow-ups: Family & Kids real glyphs; AllCategories token pass; `category-illustrations/` ~16 MB LFS/CDN; NearbyByCategory pool watch (raise `NEARBY_MERCHANT_POOL_TAKE` 60 → ~120 if dense markets under-fill); low-end Android / iPhone SE QA watch; shared `<SavingBlock>` + `useScrollPausedLoop` extraction | OPEN, Tier 1 batch |
 | Profile Sub-PR 2 | Backend for GetHelpModal + RequestMerchantSheet stubs (SupportTicket + MerchantRequest models, routes, hooks; flip the 3 stub pins) | GATED: user/QA traction; Tier 3 brainstorm-first |
 | Profile Polish Batch | Subscription card redesign, skeletons, bottom-sheet refresh, Delete Account placement, Redemption History surface | GATED: owner direction; Tier 2 brainstorm-first |
-| Profile Sub-PR 1 minors | Import `Interest` type; hoist `formatDate` Intl instance; GetHelpModal test comment; dead `dob` mock; loading skeleton | OPEN, Tier 1 |
+| Profile Sub-PR 1 minors | Import `Interest` type; hoist `formatDate` Intl instance; GetHelpModal test comment; dead `dob` mock. Loading-skeleton item CLOSED 2026-07-09 by PR #433 (`ccf9baa1`, `ProfileSkeleton`) | OPEN, Tier 1 |
 | Merchant-profile opens | Tap-target a11y; seed enrichment; `closesAt` device-local removal; discovery card ratings via `contextBranchId` | OPEN, Tier 1 |
 | Plan 3 | PC3 interests → real `Category` migration | GATED: owner ("leave until more stable"); sequence after Plan 4 M5 |
 | Plan 4 M5 | Location-model cleanup | GATED on §CU.1 (converges into one cleanup PR) |
 | EAS config | `eas.json` / `app.config.ts` / expo-build-properties port | OPEN (deliberately not ported in Profile Sub-PR 1) |
 | Node upgrade | Customer-app toolchain Node 20.19.4 → newer LTS | GATED on re-verifying jest-expo |
 | Seed-email hygiene | `admin@`/`customer@`/`staff@` seed addresses use unowned `redeemo.com` | OPEN, platform-wide follow-up |
-| Checklist-only customer-app tail | Additional open follow-ups tracked ONLY in the Customer App Codex checklist (read-only; reconciled 2026-07-06): §CE-§CK Search follow-ups (filters, sorting, recent searches, empty-state illustrations, heart migration, pagination, tactile polish); §BY/§CA/§CC/§DJ/§DK cross-surface copy + pill + ranking-audit items; §DB/§DC/§DD/§DE/§DI Home follow-ups; Map polish bucket + §CZ category/filter correctness (owner-deferred to the Map rebase pass); Category FilterSheet redesign + copy-mismatch bug; Savings redemption-history pagination end-state bug + sticky-header redesign; QA-seed Stage 3 coordinate verification; pg SSL-semantics warning; stale-generated-Prisma-client dev note; Profile-scope navigation-architecture concern | OPEN in the checklist; promote rows here as they become active |
+| Checklist-only customer-app tail | Additional open follow-ups tracked ONLY in the Customer App Codex checklist (read-only; reconciled 2026-07-06): §CE-§CK Search follow-ups (filters, sorting, recent searches, empty-state illustrations, heart migration, pagination, tactile polish); §BY/§CA/§CC/§DJ/§DK cross-surface copy + pill + ranking-audit items; §DB/§DC/§DD/§DE/§DI Home follow-ups; Map polish bucket (a narrower Map in-area reliability slice - deterministic candidate pool, opt-in `branchesOnly` fast path, client bbox-quantized caching - SHIPPED 2026-07-09 via PR #434 `3e20bbeb`, plan `docs/superpowers/plans/2026-07-09-map-in-area-reliability-slice.md`; the bucket itself - clustering, category-differentiated pins, region accumulation, `AbortSignal` - stays OPEN) + §CZ category/filter correctness (owner-deferred to the Map rebase pass); Category FilterSheet redesign + copy-mismatch bug; Savings redemption-history pagination end-state bug + sticky-header redesign; QA-seed Stage 3 coordinate verification; pg SSL-semantics warning; stale-generated-Prisma-client dev note; Profile-scope navigation-architecture concern | OPEN in the checklist; promote rows here as they become active |
 | Savings ROI copy semantics | "You've saved £X, Y× your subscription": calendar-month vs billing-cycle comparison + annual-plan denomination | OPEN: needs owner product decision |
 | Lifecycle nudges | Post-redemption "rate this merchant" delayed notification (timing/scheduler/dedup) + subscription-renewal notification (copy/event-source/destination) | OPEN: needs owner product decisions; Phase-6-adjacent |
 
@@ -108,8 +108,7 @@ voucher governed-flows package - see the new §5 follow-ups block below); struct
 (windows/cooldown/imageUrl); Staff & Access v1 deferrals (claim-supersession atomicity,
 cross-tenant existence, cap enforcement, a11y); merchant M1 a11y focus-on-error +
 OTP-lockout message; admin M2-M8 deferred lists; Option B B2+/B3/B4/B5 + photo-apply;
-`canManageVouchers` migration applied to LOCAL dev DB only (staging/prod need
-`prisma migrate deploy`); staging admin-OTP delivery UNVERIFIED; Karaara staging cleanup
+`canManageVouchers` migration (`20260622223003`) verified APPLIED on dev + staging + production (direct-SQL check 2026-07-09; the older local-dev-only claim here was stale); staging admin-OTP delivery UNVERIFIED; Karaara staging cleanup
 UNVERIFIED; automated monthly merchant statements (from the old §R4 architecture note) not
 yet tracked in any roadmap row: confirm placement; `GET /branches` payload still returns the
 encrypted `redemptionPin` field (UI never renders it; harden the payload before treating it
@@ -142,8 +141,16 @@ SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
 - **§VG-IDX** (Voucher governed flows): the one-PENDING-per-voucher guard in #411 `ca1c6991` is app-level (checked in the writer), not DB-enforced - a race could create a concurrent duplicate `VoucherPendingEdit` review row. No privilege gain; Opus-adjudicated TRACK-not-build. A partial-unique index (`voucherId` where `status='PENDING'`) is a later nicety, not a bug fix.
 - **§VG-RACE** (Voucher governed flows): a withdraw-submission racing an in-flight admin approve/reject is last-writer-wins, with the ADMIN decision winning if it lands first (consistent with the approved-waiting withdraw refusal already built into #411). Opus-adjudicated as-designed, TRACK-not-build, not an open bug.
 - **§VG-RUNAGAIN** (D5, Voucher governed flows): "Run this again" (re-activate/duplicate-to-draft a finished/expired voucher) was explicitly OUT OF SCOPE for the #411-#413 build (owner decision, `docs/superpowers/plans/2026-07-07-voucher-governed-flows.md` D5) - a separate later slice, not started.
-- **§VG-MIGRATE** (platform/deploy): the `voucher_governed_flows` migration (`20260707135148`, adds `VoucherPendingEdit`/`ApprovalType.VOUCHER_EDIT`/`ApprovalStatus.WITHDRAWN`) is applied to the LOCAL dev DB only; two earlier migrations, `keyring_fingerprint` (`20260629000000`) and `maintenance_alert_types` (`20260702000000`), are ALSO still pending the same staging/prod `prisma migrate deploy`. None of the three is on the shared Neon staging/prod database. GATED: owner-approved deploy window (see `docs/PROJECT-STATE.md` §3/§4.4).
+- **§VG-MIGRATE** (platform/deploy): PRODUCTION-only as of 2026-07-09 - the `voucher_governed_flows` migration (`20260707135148`, adds `VoucherPendingEdit`/`ApprovalType.VOUCHER_EDIT`/`ApprovalStatus.WITHDRAWN`) plus `keyring_fingerprint` (`20260629000000`) and `maintenance_alert_types` (`20260702000000`) are verified APPLIED on dev + staging (direct-SQL cross-check 2026-07-09); only the `production` Neon branch lacks them. GATED: owner-approved production deploy window (see `docs/PROJECT-STATE.md` §3 cross-check table).
 - Detail: PRs #411 `ca1c6991` / #412 `350f941a` / #413 `381452f2`; the plan doc's as-built §7; `docs/PROJECT-STATE.md` §4.2 voucher-governed-flows-package paragraph (2026-07-07).
+
+**Branch Location Trust follow-ups (OPENED 2026-07-09 on the #435 merge; do not forget):**
+- **§LOC-1B** (Slice 1b) - CLOSED 2026-07-09 by PR #439 (`cef158a9`): the auto-trust pipeline now runs on BOTH edit lanes (reviewed-edit APPLY via a defensive `applyLocationTrust` in `editApplier` + draft-window direct sensitive edit), gated on a fresh postcode re-anchor; suggestion metadata staged in both outcomes; plan `docs/superpowers/plans/2026-07-09-branch-location-trust-slice-1b.md`.
+- **§LOC-2** (Slice 2) - admin approval mini-map + provenance badges ("Google-verified (unreviewed)" / "Human-confirmed" / "Needs review") + `NEEDS_REVIEW` queue surfacing on the admin approval screen, per spec §2 point 4. GATED: admin-web build slot.
+- **§LOC-3** (Slice 3) - merchant-portal pin-drop for merchants with no matching Google listing, constrained to within the entered-postcode area (outside the area → `NEEDS_REVIEW`), per spec §2 point 5. GATED: merchant-web + backend build slot.
+- **§LOC-4** (Slice 4) - one-time backfill script re-matching existing non-confirmed branches against Google Places by name + address, auto-upgrading on the same cross-checks and queuing the rest for review, per spec §2 point 6. GATED: owner-approved run (billable Google API calls).
+- **§LOC-MIGRATE** (platform/deploy) - PRODUCTION-only as of 2026-07-09: the `branch_google_place_id` migration (`20260709095646`, adds `Branch.googlePlaceId`) and the three earlier migrations (`keyring_fingerprint`, `maintenance_alert_types`, `voucher_governed_flows` - §VG-MIGRATE above) are verified APPLIED on dev + staging (both 56/56, direct-SQL cross-check 2026-07-09; staging apply landed with the storage-enablement deploy `28f3d75f`, approved SHA `a5808113`). Only the `production` Neon branch still lacks all four. GATED: owner-approved production deploy window (see `docs/PROJECT-STATE.md` §3 cross-check table + §4.4/§6).
+- Detail: PR #435 `92d0b2bd`; spec `docs/superpowers/specs/2026-07-09-branch-location-trust-model.md`; plan `docs/superpowers/plans/2026-07-09-branch-location-trust-slice-1.md`; `docs/PROJECT-STATE.md` §4.2 Branch Location Trust Slice 1 paragraph + §6 RESOLVED note (2026-07-09).
 
 **B2 address search - staging status (live note, 2026-07-08):** the merchant-portal branch
 address search (PR #318, `49c132fe`) is fully built and merged - server-side Places New Text
@@ -159,6 +166,24 @@ future expired/invalid/disabled key is visible in logs without needing a live pr
 
 ## Change log
 
+- **2026-07-09** · Consolidated merge-bookkeeping pass (branch `docs/2026-07-09-merge-bookkeeping`)
+  for the day's merged PRs (updated same day as #436/#439 landed): §1 "Profile Sub-PR 1 minors" row annotated - the
+  loading-skeleton item CLOSED by PR #433 (`ccf9baa1`, `ProfileSkeleton`), the other four
+  minors stay OPEN. §1 "Checklist-only customer-app tail" row annotated - the Map in-area
+  reliability slice (deterministic candidate pool, `branchesOnly` fast path, bbox-quantized
+  client caching) SHIPPED via PR #434 (`3e20bbeb`, plan
+  `docs/superpowers/plans/2026-07-09-map-in-area-reliability-slice.md`); the broader Map
+  polish bucket stays OPEN. New §5 follow-ups block opened for Branch Location Trust Slice 1
+  (PR #435 `92d0b2bd`, spec `docs/superpowers/specs/2026-07-09-branch-location-trust-model.md`,
+  owner-APPROVED 2026-07-09): §LOC-1B (reviewed-edit APPLY-lane trust pipeline, Slice 1b - CLOSED same day by PR #439 `cef158a9`, which covers BOTH edit lanes),
+  §LOC-2 (admin mini-map + provenance badges, Slice 2), §LOC-3 (merchant pin-drop, Slice 3),
+  §LOC-4 (owner-gated Google backfill, Slice 4), §LOC-MIGRATE (migration state verified by
+  direct SQL 2026-07-09: dev + staging carry all four recent migrations, production-only
+  gate remains). PR #432 (`6987e32d`, Savings 429 fix + customer-register `register` tier)
+  recorded in `docs/PROJECT-STATE.md` §4.1 only - no register row change needed. PR #436
+  (customer-app scroll-jank perf batch 1) MERGED same day (`75ef7d41`); PR #439 (Slice 1b,
+  `cef158a9`) MERGED same day, closing §LOC-1B. `docs/PROJECT-STATE.md` §3/§4.1/§4.2/
+  §4.4/§6 updated in the same PR.
 - **2026-07-08** · B2 address-search follow-ups (decision-free hardening + doc reconcile,
   no owner action taken here): §3 "Google Places quota hardening" row CLOSED - stale, PR #318
   (`49c132fe`, merged 2026-06-25) already added the multi-instance-safe Redis atomic limiter
