@@ -461,9 +461,13 @@ describe('POST /api/v1/merchant/branches — candidateToken route resolution', (
     expect(searchPlacesMock).not.toHaveBeenCalled()
   })
 
-  it('PATCH draft-window sensitive address edit with candidateToken: direct write at POSTCODE_CENTROID; suggestion in BRANCH_UPDATED audit; token consumed', async () => {
+  it('PATCH draft-window sensitive address edit, legacy stash (no postcode): Slice 1b pipeline degrades to NEEDS_REVIEW; suggestion in BRANCH_UPDATED audit; token consumed', async () => {
     searchPlacesMock.mockReset()
     const redisStore = new Map<string, string>()
+    // Legacy-shaped stash (NO postcode field) -> resolveLocationCandidate reads
+    // postcode null -> the Slice 1b draft-window pipeline fails the postcode check
+    // (missing_postcode) and degrades to NEEDS_REVIEW keeping the centroid coords
+    // (L4), exactly like the create-lane route test above.
     redisStore.set(`merchant:${MERCHANT_ID}:loccand:tok-patch`, JSON.stringify({ placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809 }))
 
     app = await buildApp()
@@ -487,15 +491,55 @@ describe('POST /api/v1/merchant/branches — candidateToken route resolution', (
     expect((app as any).prisma.branchPendingEdit.create).not.toHaveBeenCalled()
     const written = (app as any).prisma.branch.update.mock.calls[0][0].data
     expect(written.addressLine1).toBe('New address')
-    expect(written.locationConfidence).toBe('POSTCODE_CENTROID')
+    // Failed cross-check (missing_postcode) -> NEEDS_REVIEW, no partial Google apply.
+    expect(written.locationConfidence).toBe('NEEDS_REVIEW')
+    expect(written).not.toHaveProperty('googlePlaceId')
     expect(written).not.toHaveProperty('candidateToken')
     expect(written).not.toHaveProperty('placeId')
 
-    // Suggestion staged in the BRANCH_UPDATED audit metadata.
+    // Suggestion staged in the BRANCH_UPDATED audit metadata (both outcomes).
     const auditCall = (app as any).prisma.auditLog.create.mock.calls.find((c: any) => c[0].data.event === 'BRANCH_UPDATED')
     expect(auditCall[0].data.metadata.locationSuggestion).toMatchObject({ placeId: 'place-google-1', source: 'merchant_portal_google' })
 
     expect(redisStore.has(`merchant:${MERCHANT_ID}:loccand:tok-patch`)).toBe(false)
+    expect(searchPlacesMock).not.toHaveBeenCalled()
+  })
+
+  it('PATCH draft-window sensitive address edit, stash postcode matches + pin within radius: Slice 1b auto-trusts ADDRESS_GEOCODED + googlePlaceId', async () => {
+    searchPlacesMock.mockReset()
+    const redisStore = new Map<string, string>()
+    // Slice 1b stash carrying the Google postcode (matches the entered HD1 2PY) and
+    // a pin equal to the resolver centroid -> the draft-window pipeline auto-trusts.
+    redisStore.set(`merchant:${MERCHANT_ID}:loccand:tok-patch-ok`, JSON.stringify({ placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809, postcode: 'HD1 2PY' }))
+
+    app = await buildApp()
+    decorateBaseline(app, redisStore)
+    ;(app as any).prisma.merchant.findUnique = vi.fn().mockResolvedValue({ status: 'REGISTERED', onboardingStep: 'BUSINESS_DETAILS' })
+    ;(app as any).prisma.branch.update = vi.fn().mockImplementation(({ data }: any) => ({ id: BRANCH_ID, ...data, pendingEdits: [], openingHours: [], amenities: [], photos: [] }))
+    await app.ready()
+    mockPostcodesIo()
+    token = (app.jwt as any).merchant.sign({ sub: ADMIN_ID, role: 'merchant', deviceId: 'd1', sessionId: 's1' }, { expiresIn: '1h' })
+
+    const res = await app.inject({
+      method: 'PATCH', url: `/api/v1/merchant/branches/${BRANCH_ID}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { addressLine1: 'New address', postcode: 'HD1 2PY', candidateToken: 'tok-patch-ok' },
+    })
+    expect(res.statusCode).toBe(200)
+
+    expect((app as any).prisma.branchPendingEdit.create).not.toHaveBeenCalled()
+    const written = (app as any).prisma.branch.update.mock.calls[0][0].data
+    // Cross-check passed -> the exact Google pin is applied + ADDRESS_GEOCODED.
+    expect(written.locationConfidence).toBe('ADDRESS_GEOCODED')
+    expect(written.googlePlaceId).toBe('place-google-1')
+    expect(Number(written.latitude)).toBeCloseTo(53.6463, 4)
+    expect(Number(written.longitude)).toBeCloseTo(-1.7809, 4)
+    // The suggestion sub-key / raw candidate never reaches a Branch column.
+    expect(written).not.toHaveProperty('candidateToken')
+    expect(written).not.toHaveProperty('placeId')
+    expect(written).not.toHaveProperty('source')
+
+    expect(redisStore.has(`merchant:${MERCHANT_ID}:loccand:tok-patch-ok`)).toBe(false)
     expect(searchPlacesMock).not.toHaveBeenCalled()
   })
 

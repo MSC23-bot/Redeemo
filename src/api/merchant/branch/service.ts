@@ -551,10 +551,12 @@ async function updateBranchSensitiveDirectCore(
   branchId: string,
   data: Record<string, unknown>,
   ctx: { ipAddress: string; userAgent: string },
-  // Branches PR-6 (§4b): the draft-window direct edit is a direct-write path like
-  // create — the Google suggestion is recorded in the BRANCH_UPDATED audit
-  // metadata only (no Branch column, no confidence write) until Slice 1b
-  // extends the create-lane trust pipeline to this edit lane.
+  // Branch Location Trust Slice 1b (spec 2026-07-09): the draft-window direct edit
+  // is a direct-write path structurally identical to createBranchCore, so it runs
+  // the SAME auto-trust pipeline. A Google-picked pin that passes both cross-checks
+  // is APPLIED as ADDRESS_GEOCODED + googlePlaceId; any failure degrades to exactly
+  // the postcode-centroid snapshot plus a NEEDS_REVIEW stamp (L4). The suggestion
+  // is ALSO recorded in the BRANCH_UPDATED audit metadata in both outcomes.
   locationSuggestion?: BranchLocationSuggestion,
 ) {
   const branch = await resolveBranch(prisma, branchId, merchantId)
@@ -571,6 +573,39 @@ async function updateBranchSensitiveDirectCore(
   if (typeof safe.postcode === 'string' && safe.postcode.trim().length > 0) {
     const locationFields = await resolveBranchLocationFields(prisma, safe.postcode as string)
     Object.assign(safe, locationFields)
+  }
+
+  // Branch Location Trust Slice 1b — auto-trust pipeline (mirrors createBranchCore).
+  // GATED on a fresh postcode re-anchor: only a real postcode change produces the
+  // POSTCODE_CENTROID snapshot above, giving a NEW centroid to cross-check the
+  // Google pin against. A suggestion without a postcode change (no new centroid) is
+  // left as audit metadata only; the branch's existing location is untouched.
+  // crossCheckGoogleLocation stays the ONLY writer-authority for ADDRESS_GEOCODED
+  // (L2); a failure keeps the centroid coords + stamps NEEDS_REVIEW (L4, no partial
+  // Google-coord application).
+  if (
+    locationSuggestion &&
+    safe.locationConfidence === 'POSTCODE_CENTROID' &&
+    typeof safe.postcode === 'string' &&
+    typeof safe.latitude === 'number' &&
+    typeof safe.longitude === 'number'
+  ) {
+    const verdict = crossCheckGoogleLocation({
+      googleLat:       locationSuggestion.latitude,
+      googleLng:       locationSuggestion.longitude,
+      googlePostcode:  locationSuggestion.postcode,
+      enteredPostcode: safe.postcode,
+      centroidLat:     safe.latitude,
+      centroidLng:     safe.longitude,
+    })
+    if (verdict.trusted) {
+      safe.latitude           = locationSuggestion.latitude
+      safe.longitude          = locationSuggestion.longitude
+      safe.googlePlaceId      = locationSuggestion.placeId
+      safe.locationConfidence = 'ADDRESS_GEOCODED'
+    } else {
+      safe.locationConfidence = 'NEEDS_REVIEW'
+    }
   }
 
   const before: Record<string, unknown> = {}
@@ -593,9 +628,10 @@ async function updateBranchSensitiveDirectCore(
       reason: actor.reason,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
-      // Branches PR-6 (§4b): fold the Google suggestion into the existing
-      // BRANCH_UPDATED audit metadata (admin-review metadata only on this edit
-      // lane until Slice 1b).
+      // Branch Location Trust Slice 1b: fold the Google suggestion into the existing
+      // BRANCH_UPDATED audit metadata in BOTH cross-check outcomes; whether it was
+      // ALSO applied (ADDRESS_GEOCODED pass) or exception-queued (NEEDS_REVIEW fail)
+      // is visible on the row's locationConfidence + googlePlaceId columns.
       metadata: {
         merchantId,
         ...(locationSuggestion ? { locationSuggestion: locationSuggestionMetadata(locationSuggestion) } : {}),
