@@ -80,7 +80,25 @@ export async function resolveAdminMerchant(
   // flows still read them directly — those are untouched in M1 and rerouted in
   // M6, where the column is dropped (D-1 contract step).
   const membership = await getOwnerMembership(prisma, adminId)
-  if (!membership) throw new AppError('INVALID_CREDENTIALS')
+  if (!membership) {
+    // WF8 (2026-07): a valid non-owner caller (BRANCH_MANAGER/STAFF) must NEVER be
+    // told INVALID_CREDENTIALS here. This resolver is intentionally owner-only
+    // (safe-deny-by-construction — see the PR-A block below), but INVALID_CREDENTIALS
+    // is an AUTHENTICATION code (401), and merchant-web's apiFetch treats ANY 401 as
+    // a dead/expired session: it refreshes once, and on a still-401 tears the whole
+    // portal down to /sign-in (apps/merchant-web/lib/api/client.ts). A real
+    // BRANCH_MANAGER/STAFF token hitting an owner-only endpoint is an AUTHORIZATION
+    // failure (they ARE who they say they are, just not allowed here) — that is
+    // INSUFFICIENT_PERMISSIONS (403), which the client surfaces as an ordinary,
+    // non-fatal API error instead of a session-loss teardown. Confirmed on staging:
+    // GET /merchant/onboarding/status and /checklist 401'd for BM/STAFF and threw
+    // them out of the Home page, which fetches both unconditionally. Only a caller
+    // with NO active membership at all (an unknown/invalid token subject) keeps the
+    // 401 — that really is an authentication failure.
+    const active = await getActiveMembership(prisma, adminId)
+    if (active) throw new AppError('INSUFFICIENT_PERMISSIONS')
+    throw new AppError('INVALID_CREDENTIALS')
+  }
   // SEC-M2 (M6a): block a SUSPENDED merchant from ALL management endpoints (this
   // helper gates every merchant-management read/write). Lenient by design — only
   // an EXPLICITLY suspended merchant throws; a missing/ACTIVE merchant (incl. a
@@ -113,12 +131,14 @@ export async function resolveTargetMerchantForAdmin(
 // ─────────────────────────────────────────────────────────────────────────────
 // Staff & Access (v1) PR-A — role-aware resolver + guards (§4.1, §4.2).
 //
-// `resolveAdminMerchant` (above) is left BYTE-UNCHANGED: it resolves the OWNER
-// membership only and denies non-owners by construction (the safe-default-deny
-// pattern). Routes that intentionally admit non-owners migrate to
-// `resolveMerchantContext` + an explicit guard in PR-B. In PR-A nothing consumes
-// these yet (no route migrated, non-owner login NOT live), so adding them cannot
-// change any live behaviour.
+// `resolveAdminMerchant` (above) still resolves the OWNER membership only and
+// denies non-owners by construction (the safe-default-deny pattern: it never
+// resolves a merchantId for a non-owner caller). WF8 (2026-07) changed ONLY the
+// error code a denied non-owner receives (INSUFFICIENT_PERMISSIONS/403 when they
+// hold an active non-owner membership, INVALID_CREDENTIALS/401 when they hold no
+// membership at all) — the deny-by-construction property itself is unchanged.
+// Routes that intentionally admit non-owners migrate to `resolveMerchantContext` +
+// an explicit guard in PR-B.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type MerchantContext = {

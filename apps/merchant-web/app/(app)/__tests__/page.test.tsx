@@ -30,10 +30,19 @@ let mockStatus: { status: string | null; comment: string | null; actionedAt: str
   actionedAt: null,
 }
 let mockRmvCount = 0
+// WF8: when set, getOnboardingChecklist/getOnboardingStatus resolve to `null`
+// instead of real data - mirroring lib/api/onboarding.ts's actual contract, which
+// catches the owner-only 403 INSUFFICIENT_PERMISSIONS a BRANCH_MANAGER/STAFF
+// viewer gets from the backend and resolves it to `null` rather than throwing (see
+// that file's own unit tests for the catch itself). This lets the page-level tests
+// below prove the PAGE renders ordinary Home content - never an error UI or a
+// redirect - when the viewer is denied these owner-only reads (the actual WF8
+// symptom was being kicked to /sign-in).
+let mockOnboardingReadsDenied = false
 const submitOnboarding = jest.fn()
 jest.mock('@/lib/api/onboarding', () => ({
-  getOnboardingChecklist: () => Promise.resolve(mockChecklist),
-  getOnboardingStatus: () => Promise.resolve(mockStatus),
+  getOnboardingChecklist: () => Promise.resolve(mockOnboardingReadsDenied ? null : mockChecklist),
+  getOnboardingStatus: () => Promise.resolve(mockOnboardingReadsDenied ? null : mockStatus),
   countActiveRmvVouchers: () => Promise.resolve(mockRmvCount),
   submitOnboarding: () => submitOnboarding(),
 }))
@@ -63,6 +72,7 @@ beforeEach(() => {
   mockChecklist = { branch_created: false, contract_signed: false, rmv_configured: false, all_complete: false }
   mockStatus = { status: null, comment: null, actionedAt: null }
   mockRmvCount = 0
+  mockOnboardingReadsDenied = false
 })
 
 describe('HomePage (M2 F1 staircase hub + lifecycle homes)', () => {
@@ -141,6 +151,36 @@ describe('HomePage (M2 F1 staircase hub + lifecycle homes)', () => {
     mockProfile = { data: { ...FRESH_PROFILE, status: 'ACTIVE', onboardingStep: 'LIVE' }, isLoading: false }
     renderPage()
     expect(await screen.findByText(/your business is live/i)).toBeInTheDocument()
+  })
+
+  // WF8 regression: a non-owner (BRANCH_MANAGER/STAFF) whose token is valid but who
+  // is denied the two owner-only onboarding reads (INSUFFICIENT_PERMISSIONS, 403)
+  // must still see their normal live Home - never an error screen, and never a
+  // redirect (the original bug: merchant-web's client treated the OLD 401 for this
+  // case as session-loss and tore the portal down to /sign-in).
+  it('renders the live Home for a live-business profile even when both onboarding reads are denied with 403 (WF8)', async () => {
+    mockOnboardingReadsDenied = true
+    mockProfile = { data: { ...FRESH_PROFILE, status: 'ACTIVE', onboardingStep: 'LIVE' }, isLoading: false }
+    renderPage()
+
+    expect(await screen.findByText(/your business is live/i)).toBeInTheDocument()
+    expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/we could not load your account/i)).not.toBeInTheDocument()
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  // WF8 edge case: a non-owner viewing a merchant still in setup/changes must NOT
+  // see the staircase hub with false zeroed-out step data (they cannot act on
+  // Submit anyway, and showing "0 of N complete" would misrepresent real owner
+  // progress). They see a calm read-only notice instead.
+  it('renders a read-only setup notice (not the staircase hub) for a non-owner denied both onboarding reads', async () => {
+    mockOnboardingReadsDenied = true
+    mockProfile = { data: FRESH_PROFILE, isLoading: false }
+    renderPage()
+
+    expect(await screen.findByText(/still being set up/i)).toBeInTheDocument()
+    expect(screen.queryByText(/get your business live/i)).not.toBeInTheDocument()
+    expect(push).not.toHaveBeenCalled()
   })
 
   it('submits onboarding from the confirm modal when all steps are done', async () => {

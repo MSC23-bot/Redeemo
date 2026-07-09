@@ -52,6 +52,12 @@ function buildPrismaMock(branchOverrides: Record<string, unknown> = {}, membersh
           ? { id: 'mm1', merchantId: MERCHANT_ID, merchantAdminId: ADMIN_ID, merchant: { status: 'ACTIVE', businessName: 'Acme' } }
           : membership,
       ),
+      // WF8: when getOwnerMembership (findFirst) resolves null, resolveAdminMerchant
+      // now falls back to getActiveMembership (findMany) to pick INSUFFICIENT_PERMISSIONS
+      // (real non-owner membership) vs INVALID_CREDENTIALS (no membership at all). The
+      // "no OWNER membership" test below passes `membership: null` to simulate a caller
+      // with NO membership whatsoever, so findMany defaults to empty.
+      findMany: vi.fn().mockResolvedValue([]),
     },
     branch: {
       findFirst: vi.fn().mockResolvedValue({
