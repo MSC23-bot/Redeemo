@@ -261,8 +261,15 @@ export async function discoveryRoutes(app: FastifyInstance) {
       // `branches` + `meta` + `locationContext` (never the legacy
       // `merchants` field), so a Map-only caller can skip the heavy
       // UK-wide merchant findMany + ranking + enrichment entirely.
-      // Absent/false preserves today's response shape exactly.
-      branchesOnly: z.coerce.boolean().optional(),
+      // Absent/false/0 preserves today's response shape exactly.
+      //
+      // Parsed EXPLICITLY (review fix, PR #434): z.coerce.boolean() runs
+      // Boolean(string) so the literal query string "false" coerced to
+      // TRUE. Only "1"/"true" opt in; "0"/"false"/absent stay legacy;
+      // anything else is a 400 (strict beats silently-legacy for a
+      // mode-switching param).
+      branchesOnly: z.enum(['1', 'true', '0', 'false']).optional()
+        .transform((v) => v === '1' || v === 'true'),
     }).parse(req.query)
     if (query.minLat > query.maxLat || query.minLng > query.maxLng) {
       return reply.status(400).send({ error: { code: 'INVALID_BBOX', message: 'minLat/minLng must be ≤ maxLat/maxLng' } })
