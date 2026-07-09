@@ -101,6 +101,20 @@ export const ERROR_DEFINITIONS = {
   MERCHANT_NOT_FOUND:             { statusCode: 404, message: 'Merchant not found.' },
   BRANCH_NOT_FOUND:               { statusCode: 404, message: 'Branch not found.' },
   BRANCH_UNAVAILABLE:             { statusCode: 404, message: 'This branch is no longer available.' },
+  // Branch Location Trust Slice 3 (pin-drop addendum §5.2 / D-L5, APPROVED
+  // 2026-07-09): the merchant pin-drop endpoint is admitted ONLY for a branch
+  // whose location is not yet confirmed (locationConfidence POSTCODE_CENTROID or
+  // NEEDS_REVIEW). A branch already at a confirmed tier (ADDRESS_GEOCODED /
+  // MANUALLY_CONFIRMED / MERCHANT_CONFIRMED) is rejected here so a merchant can
+  // never overwrite a verified pin with a self-asserted one (no-downgrade rule);
+  // correcting a wrong verified pin stays an admin action.
+  BRANCH_LOCATION_ALREADY_CONFIRMED: { statusCode: 409, message: 'This branch location is already confirmed and cannot be replaced with a self-set pin.' },
+  // Branch Location Trust Slice 3: the backend-proxied static map preview is DARK
+  // by default (mirrors STORAGE_ENABLED / EMAIL_ENABLED). When the Google Static
+  // Maps key is not configured the endpoint fails closed with this typed error and
+  // NEVER constructs a provider request. Also returned when the local usage cap is
+  // reached (cost circuit-breaker).
+  MAP_PREVIEW_NOT_ENABLED:        { statusCode: 503, message: 'Map preview is not available right now. Please try again later.' },
   PHOTO_LIMIT_REACHED:            { statusCode: 409, message: 'This branch has reached its photo limit. Remove a photo before adding another.' },
   // Branches PR-3 (instant photo-removal). Additive code-only (no schema).
   // BRANCH_PHOTO_NOT_FOUND: the targeted BranchPhoto id is not on this branch

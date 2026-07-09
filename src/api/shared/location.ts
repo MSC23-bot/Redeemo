@@ -20,10 +20,21 @@
 // §4.1.1, as amended by the 2026-07-09 trust spec §2.3):
 //   - MANUALLY_CONFIRMED → list + map, real coordinates
 //   - ADDRESS_GEOCODED   → list + map, real coordinates (Slice 1)
+//   - MERCHANT_CONFIRMED → list + map, real coordinates (Slice 3; see below)
 //   - POSTCODE_CENTROID  → list only, coordinates redacted from the map (L3 LOCK)
 //   - NEEDS_REVIEW       → excluded from the map; redacted (L3 LOCK)
 // LOCKED (spec L3): POSTCODE_CENTROID + NEEDS_REVIEW branches NEVER expose
 // lat/lng to customers — never present a fake-exact pin.
+//
+// Branch Location Trust Slice 3 (spec 2026-07-09 pin-drop addendum §2, APPROVED):
+// customer exposure widens by ONE more tier, MERCHANT_CONFIRMED — a merchant
+// self-asserted pin, verified server-side to sit within the postcode-area sanity
+// radius. It is the WEAKEST member of the confirmed set (a single radius check,
+// no Google geocode or postcode-string cross-check), but it IS a real exact
+// coordinate the merchant deliberately placed within their own postcode area, so
+// it is a genuine (if lower-trust) position and joins the customer-visible set.
+// It is written by exactly one authority (the pin-drop endpoint, dropBranchPin).
+// L3 is UNCHANGED: POSTCODE_CENTROID + NEEDS_REVIEW still never expose lat/lng.
 
 /**
  * `LocationConfidence` enum values that mark a branch's location as confirmed
@@ -31,7 +42,7 @@
  * doubles as both a runtime membership source and — where needed later — a
  * Prisma `{ in: [...] }` value.
  */
-export const CONFIRMED_LOCATION_SET = ['MANUALLY_CONFIRMED', 'ADDRESS_GEOCODED'] as const
+export const CONFIRMED_LOCATION_SET = ['MANUALLY_CONFIRMED', 'ADDRESS_GEOCODED', 'MERCHANT_CONFIRMED'] as const
 
 export type ConfirmedLocationConfidence = (typeof CONFIRMED_LOCATION_SET)[number]
 

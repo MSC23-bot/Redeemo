@@ -101,7 +101,7 @@ type RankBranchRow = {
   latitude:           unknown
   longitude:          unknown
   isActive:           boolean
-  locationConfidence: 'MANUALLY_CONFIRMED' | 'ADDRESS_GEOCODED' | 'POSTCODE_CENTROID' | 'NEEDS_REVIEW'
+  locationConfidence: 'MANUALLY_CONFIRMED' | 'ADDRESS_GEOCODED' | 'MERCHANT_CONFIRMED' | 'POSTCODE_CENTROID' | 'NEEDS_REVIEW'
   localityId:         string | null
   localityName:       string | null
   postTown:           string | null

@@ -280,7 +280,7 @@ type BranchForClassification = {
   latitude: number | null
   longitude: number | null
   isActive: boolean
-  locationConfidence: 'MANUALLY_CONFIRMED' | 'ADDRESS_GEOCODED' | 'POSTCODE_CENTROID' | 'NEEDS_REVIEW'
+  locationConfidence: 'MANUALLY_CONFIRMED' | 'ADDRESS_GEOCODED' | 'MERCHANT_CONFIRMED' | 'POSTCODE_CENTROID' | 'NEEDS_REVIEW'
   localityId: string | null
   postTown: string | null
   ladDistrict: string | null
@@ -405,7 +405,7 @@ export type RankableBranch = {
   latitude: number | null
   longitude: number | null
   isActive: boolean
-  locationConfidence: 'MANUALLY_CONFIRMED' | 'ADDRESS_GEOCODED' | 'POSTCODE_CENTROID' | 'NEEDS_REVIEW'
+  locationConfidence: 'MANUALLY_CONFIRMED' | 'ADDRESS_GEOCODED' | 'MERCHANT_CONFIRMED' | 'POSTCODE_CENTROID' | 'NEEDS_REVIEW'
   localityId: string | null
   postTown: string | null
   ladDistrict: string | null

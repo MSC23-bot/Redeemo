@@ -168,8 +168,13 @@ export const branchSchema = z
     about: z.string().nullish(),
     logoUrl: z.string().nullish(),
     bannerUrl: z.string().nullish(),
+    // Branch Location Trust Slice 3 (pin-drop addendum): forward-compat zod
+    // tolerance for the new MERCHANT_CONFIRMED value so a merchant-set-pin branch
+    // parses cleanly. The LocationCard confidence-badge treatment + the pin-drop
+    // UI itself land in PR-2 (merchant-web); this PR-1 change is the parse
+    // tolerance only.
     locationConfidence: z
-      .enum(['MANUALLY_CONFIRMED', 'ADDRESS_GEOCODED', 'POSTCODE_CENTROID', 'NEEDS_REVIEW'])
+      .enum(['MANUALLY_CONFIRMED', 'ADDRESS_GEOCODED', 'MERCHANT_CONFIRMED', 'POSTCODE_CENTROID', 'NEEDS_REVIEW'])
       .nullish(),
     isActive: z.boolean().optional(),
     // Branches PR-7 (§3 / §6): the per-branch redemption-alerts opt-in (default false).

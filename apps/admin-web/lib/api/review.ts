@@ -81,12 +81,15 @@ export const reviewOwnerSchema = z.object({
 // exception context (suggested pin vs the current centroid). Admin-scope only.
 // `source` discriminates WHICH staged blob was surfaced (lead-adjudicated read
 // widening): an OPEN pending-edit suggestion wins over the branch-created audit.
+// Branch Location Trust Slice 3 (pin-drop addendum): `placeId` is nullable (a
+// merchant_pin_drop suggestion has no Google place) and `source` gains
+// 'merchant_pin_drop'. Mirrors the backend ReviewLocationSuggestion DTO.
 export const reviewLocationSuggestionSchema = z.object({
-  placeId: z.string(),
+  placeId: z.string().nullable(),
   latitude: z.number(),
   longitude: z.number(),
   postcode: z.string().nullable(),
-  source: z.enum(['pending_edit', 'branch_created_audit', 'branch_updated_audit']),
+  source: z.enum(['pending_edit', 'branch_created_audit', 'branch_updated_audit', 'merchant_pin_drop']),
 })
 
 export const reviewBranchSchema = z.object({

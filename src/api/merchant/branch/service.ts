@@ -16,9 +16,10 @@ import { encrypt, decrypt } from '../../shared/encryption'
 import { classifyPinDecryptError } from '../../shared/pinDecrypt'
 import { parsePublicUrl } from '../../shared/storage'
 import { resolvePostcode } from '../../lib/postcodeResolver'
+import { fetchStaticMap } from '../../lib/googleStaticMap'
 import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
 import { validateOpeningHours } from './openingHours'
-import { crossCheckGoogleLocation } from './locationTrust'
+import { crossCheckGoogleLocation, pinWithinPostcodeArea } from './locationTrust'
 import { uploadMerchantImage } from '../upload/service'
 import { enqueue, MAINTENANCE_QUEUE } from '../../queues'
 import { PROMOTE_PENDING_HOURS_JOB } from '../../queues/processors/promotePendingHours'
@@ -116,6 +117,30 @@ function locationSuggestionMetadata(suggestion: BranchLocationSuggestion) {
     // failed postcode check -> NEEDS_REVIEW, exactly like the create lane).
     postcode: suggestion.postcode,
     source: 'merchant_portal_google' as const,
+  }
+}
+
+/**
+ * Branch Location Trust Slice 3 (spec 2026-07-09 pin-drop addendum, APPROVED): the
+ * audit/metadata block staged from a merchant pin-drop that FAILED the radius
+ * check. Same FLAT shape the Google-suggestion metadata uses (so getReviewContext
+ * / reviewBranchSerializer surface it through the SAME lane), with two deliberate
+ * differences: `placeId` is null (a pin-drop has no Google place; the serializer
+ * tolerates a null placeId for this source) and `source` is 'merchant_pin_drop'
+ * so the admin panel can tell a self-set out-of-area pin apart from a Google pick.
+ * `postcode` is the merchant's entered postcode (the area the pin should have been
+ * inside), for the reviewer's context.
+ */
+function merchantPinDropSuggestionMetadata(
+  pin: { latitude: number; longitude: number },
+  postcode: string,
+) {
+  return {
+    placeId: null,
+    latitude: pin.latitude,
+    longitude: pin.longitude,
+    postcode,
+    source: 'merchant_pin_drop' as const,
   }
 }
 
@@ -482,6 +507,174 @@ export async function cancelPendingCreate(
   })
 
   return { ok: true as const }
+}
+
+/**
+ * Branch Location Trust Slice 3 (spec 2026-07-09 pin-drop addendum, APPROVED) — the
+ * merchant pin-drop core, and the SOLE writer-authority of MERCHANT_CONFIRMED (the
+ * L2 analogue for the new tier). A no-Google-listing merchant asserts an exact pin
+ * for an EXISTING branch; the server independently re-resolves the branch's
+ * postcode centroid and admits the pin as the branch's exact coordinate
+ * (MERCHANT_CONFIRMED) ONLY when it lies within LOCATION_TRUST_RADIUS_METRES of
+ * that centroid. Outside the radius the pin is NOT applied: the branch is stamped
+ * NEEDS_REVIEW (the L4 degrade shape) and the dropped pin is staged as an
+ * admin-review suggestion (source 'merchant_pin_drop'), reusing the same
+ * locationSuggestion metadata lane the Google FAIL path uses.
+ *
+ * Auth: OWNER-only (resolveAdminMerchant). This v1 brief tightens the addendum
+ * §1.1 "OWNER or assigned BRANCH_MANAGER" recommendation to OWNER-only; a merchant
+ * asserting the business's canonical map location is an owner-grade action. The
+ * SEC-M2 suspended-merchant guard is preserved by resolveAdminMerchant.
+ *
+ * Invariants:
+ *   - L1 (amended, Slice 3): this is the ONLY path that accepts client-supplied
+ *     coordinates; they are zod-bounded at the route and never trusted as
+ *     confirmed until the server-side radius check passes.
+ *   - L2 (analogue): MERCHANT_CONFIRMED is written here and NOWHERE else.
+ *   - L4: a FAIL keeps the branch's existing (POSTCODE_CENTROID) coordinates and
+ *     stamps NEEDS_REVIEW; the pin is never partially applied.
+ *   - D-L5 no-downgrade: admitted ONLY for a POSTCODE_CENTROID / NEEDS_REVIEW
+ *     branch; an already-confirmed branch is rejected before any postcodes.io call.
+ * Both outcomes write a BRANCH_UPDATED audit row (actor MERCHANT_ADMIN) carrying
+ * the pin + the outcome, so every self-set pin is auditable forever.
+ */
+export async function dropBranchPin(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+  pin: { latitude: number; longitude: number },
+  ctx: { ipAddress: string; userAgent: string },
+) {
+  // OWNER-only. resolveAdminMerchant denies a non-owner by construction
+  // (getOwnerMembership -> null -> INVALID_CREDENTIALS) and keeps the SEC-M2
+  // suspended-merchant guard. Do NOT migrate to assertCanManageBranch in v1.
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  const branch = await resolveBranch(prisma, branchId, merchantId)
+
+  // D-L5 no-downgrade eligibility gate, BEFORE any postcodes.io call or tx: the
+  // pin-drop is admitted ONLY for a branch whose location is not yet confirmed. A
+  // branch already at a confirmed tier (ADDRESS_GEOCODED / MANUALLY_CONFIRMED /
+  // MERCHANT_CONFIRMED) is rejected here so a merchant can never overwrite a
+  // verified pin (or re-place their own confirmed pin) with a self-asserted one.
+  if (
+    branch.locationConfidence !== 'POSTCODE_CENTROID' &&
+    branch.locationConfidence !== 'NEEDS_REVIEW'
+  ) {
+    throw new AppError('BRANCH_LOCATION_ALREADY_CONFIRMED')
+  }
+
+  // Re-resolve the branch's postcode CENTROID server-side. The branch's OWN stored
+  // lat/lng cannot be reused as the centroid (it may already be an exact pin), so
+  // resolvePostcode gives the authoritative postcode-area centroid to radius-check
+  // against. Resolver failure maps to POSTCODE_NOT_FOUND / GAZETTEER_UNAVAILABLE
+  // BEFORE opening a tx (mirrors resolveBranchLocationFields).
+  const resolved = await resolvePostcode(branch.postcode)
+  if (!resolved.ok) throw new AppError(resolved.error)
+
+  // Radius-only cross-check (Slice 3 L2 analogue): the SOLE basis for the
+  // MERCHANT_CONFIRMED decision. No postcode-string check (a pin-drop has no
+  // Google place).
+  const verdict = pinWithinPostcodeArea({
+    pinLat:      pin.latitude,
+    pinLng:      pin.longitude,
+    centroidLat: resolved.snapshot.latitude,
+    centroidLng: resolved.snapshot.longitude,
+  })
+
+  return prisma.$transaction(async (tx) => {
+    if (verdict.within) {
+      // PASS: apply the merchant pin as the branch's exact coordinate with
+      // MERCHANT_CONFIRMED. googlePlaceId is explicitly nulled (there is no Google
+      // place). THIS IS THE ONLY SITE THAT WRITES MERCHANT_CONFIRMED.
+      const before = {
+        latitude:           branch.latitude,
+        longitude:          branch.longitude,
+        locationConfidence: branch.locationConfidence,
+        googlePlaceId:      branch.googlePlaceId,
+      }
+      const after = {
+        latitude:           pin.latitude,
+        longitude:          pin.longitude,
+        locationConfidence: 'MERCHANT_CONFIRMED' as const,
+        googlePlaceId:      null,
+      }
+      const updated = await tx.branch.update({
+        where: { id: branchId },
+        data: after,
+        include: BRANCH_INCLUDE,
+      })
+      await writeAuditLogTx(tx, {
+        entityId: branchId, entityType: 'branch', event: 'BRANCH_UPDATED',
+        actorId: adminId, actorType: 'MERCHANT_ADMIN',
+        before, after,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+        metadata: {
+          merchantId,
+          pinDrop: { outcome: 'merchant_confirmed', latitude: pin.latitude, longitude: pin.longitude },
+        },
+      })
+      return toMerchantBranch(updated)
+    }
+
+    // FAIL (radius_exceeded, or a defensively-handled missing_centroid). Do NOT
+    // apply the pin coordinates: the branch keeps its existing POSTCODE_CENTROID
+    // coordinates and is stamped NEEDS_REVIEW (L4). Stage the dropped pin as an
+    // admin-review suggestion (source 'merchant_pin_drop') via the SAME
+    // locationSuggestion metadata lane the Google FAIL path uses, so
+    // getReviewContext surfaces it as the exception context (suggested pin vs the
+    // current centroid).
+    const before = { locationConfidence: branch.locationConfidence }
+    const after  = { locationConfidence: 'NEEDS_REVIEW' as const }
+    const updated = await tx.branch.update({
+      where: { id: branchId },
+      data: after,
+      include: BRANCH_INCLUDE,
+    })
+    await writeAuditLogTx(tx, {
+      entityId: branchId, entityType: 'branch', event: 'BRANCH_UPDATED',
+      actorId: adminId, actorType: 'MERCHANT_ADMIN',
+      before, after,
+      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+      metadata: {
+        merchantId,
+        pinDrop: { outcome: 'needs_review', reason: verdict.reason, latitude: pin.latitude, longitude: pin.longitude },
+        locationSuggestion: merchantPinDropSuggestionMetadata(pin, branch.postcode),
+      },
+    })
+    return toMerchantBranch(updated)
+  })
+}
+
+/**
+ * Branch Location Trust Slice 3 (spec 2026-07-09 pin-drop addendum §7 option (d),
+ * APPROVED) — the backend-proxied static-map preview for the merchant pin-drop UI.
+ * OWNER-only read (resolveAdminMerchant; keeps the SEC-M2 suspended guard). The
+ * preview is ALWAYS centred on the branch's OWN re-resolved postcode centroid, the
+ * SAME centroid dropBranchPin radius-checks against, so the fixed viewport and the
+ * shaded 1 km disc the merchant-web overlays cannot lie about the admitted area.
+ *
+ * The provider call is DARK by default (fetchStaticMap returns API_KEY_MISSING
+ * when no key is configured) and usage-capped; every not-ok provider outcome
+ * (dark / cap / quota / transport) collapses to the single typed
+ * MAP_PREVIEW_NOT_ENABLED so no provider detail (and never the key) leaks to the
+ * client. Returns the image bytes + content-type; the route streams them SAME-
+ * ORIGIN so merchant-web needs no CSP change and the key stays server-side.
+ */
+export async function getBranchMapPreview(
+  prisma: PrismaClient,
+  adminId: string,
+  branchId: string,
+): Promise<{ contentType: string; body: Buffer }> {
+  const { merchantId } = await resolveAdminMerchant(prisma, adminId)
+  const branch = await resolveBranch(prisma, branchId, merchantId)
+  const resolved = await resolvePostcode(branch.postcode)
+  if (!resolved.ok) throw new AppError(resolved.error)
+  const result = await fetchStaticMap({
+    centerLat: resolved.snapshot.latitude,
+    centerLng: resolved.snapshot.longitude,
+  })
+  if (!result.ok) throw new AppError('MAP_PREVIEW_NOT_ENABLED')
+  return { contentType: result.contentType, body: result.body }
 }
 
 /**

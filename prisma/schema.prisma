@@ -1868,6 +1868,15 @@ enum LocationConfidence {
   ADDRESS_GEOCODED
   POSTCODE_CENTROID
   NEEDS_REVIEW
+  // Branch Location Trust Slice 3 (spec 2026-07-09 pin-drop addendum, APPROVED):
+  // a merchant self-asserted pin, verified server-side to sit within the
+  // postcode-area sanity radius (LOCATION_TRUST_RADIUS_METRES). It is the WEAKEST
+  // member of the customer-visible confirmed set (CONFIRMED_LOCATION_SET): the
+  // Google path has two independent signals (geocode + postcode match) plus the
+  // radius; a pin-drop has only the radius. googlePlaceId stays null (there is no
+  // Google place). Sole writer-authority: the pin-drop endpoint (dropBranchPin);
+  // labelled "Merchant-set pin" in the admin panel, never "verified".
+  MERCHANT_CONFIRMED
 }
 
 // Branches PR-5 (D5): the branch lifecycle staging axis (status-on-Branch).

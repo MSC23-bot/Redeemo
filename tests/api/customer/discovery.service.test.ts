@@ -529,7 +529,16 @@ describe('exposeBranchPosition — location-trust redaction gate', () => {
     expect(out.longitude).toBeCloseTo(-1.8)
   })
 
-  it('still redacts POSTCODE_CENTROID and NEEDS_REVIEW (L3 LOCK)', () => {
+  // Branch Location Trust Slice 3 (pin-drop addendum §2): MERCHANT_CONFIRMED joins
+  // the customer-visible set (weakest tier, but a real exact merchant-set pin).
+  it('exposes coordinates for MERCHANT_CONFIRMED branches (Slice 3)', () => {
+    const out = exposeBranchPosition({ locationConfidence: 'MERCHANT_CONFIRMED', latitude: 53.6, longitude: -1.8 })
+    expect(out.latitude).toBeCloseTo(53.6)
+    expect(out.longitude).toBeCloseTo(-1.8)
+    expect(out.locationConfidence).toBe('MERCHANT_CONFIRMED')
+  })
+
+  it('still redacts POSTCODE_CENTROID and NEEDS_REVIEW (L3 LOCK, unchanged by Slice 3)', () => {
     for (const c of ['POSTCODE_CENTROID', 'NEEDS_REVIEW']) {
       const out = exposeBranchPosition({ locationConfidence: c, latitude: 53.6, longitude: -1.8 })
       expect(out.latitude).toBeNull()

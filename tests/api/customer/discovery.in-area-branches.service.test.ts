@@ -110,11 +110,13 @@ describe('getInAreaBranches — includeEmptyStateReason (branchesOnly route mode
     // Slice 1 composition (PR #435 on #434): the count's confidence filter
     // mirrors the pin-exposure set (CONFIRMED_LOCATION_SET), not
     // MANUALLY_CONFIRMED-only, so ADDRESS_GEOCODED-only categories report
-    // viewport_empty rather than no_uk_supply.
+    // viewport_empty rather than no_uk_supply. Slice 3 (pin-drop addendum §2)
+    // widens the set by one tier: MERCHANT_CONFIRMED joins it via the shared
+    // constant, so the filter widens automatically with no per-site literal edit.
     expect(prisma.branch.count).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          locationConfidence: { in: ['MANUALLY_CONFIRMED', 'ADDRESS_GEOCODED'] },
+          locationConfidence: { in: ['MANUALLY_CONFIRMED', 'ADDRESS_GEOCODED', 'MERCHANT_CONFIRMED'] },
         }),
       }),
     )
