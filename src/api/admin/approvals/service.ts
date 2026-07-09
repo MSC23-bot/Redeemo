@@ -8,6 +8,11 @@ import { merchantChangesRequestedEmail, merchantRejectedEmail, merchantLiveEmail
 import { computeOnboardingChecklist } from '../../merchant/onboarding/service'
 import { isBranchLocationConfirmed } from '../../shared/location'
 import { presignGet } from '../../shared/storage'
+import {
+  serializeReviewBranch,
+  parseStagedSuggestion,
+  type ReviewLocationSuggestion,
+} from './reviewBranchSerializer'
 
 // Phase 2 Slice 1 M3 — the AdminApproval actioner (review loop; NO approve/
 // go-live — that is M5). Every state-changing action is atomic + idempotent and
@@ -893,6 +898,13 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
         postcode: true,
         localityName: true,
         locationConfidence: true,
+        // Branch Location Trust Slice 2 (spec 2026-07-09 §2.4): admin-scope
+        // provenance fields for the approval mini-panel. Admin reads are NOT
+        // customer-redacted (L3 governs customer exposure only), so the exact
+        // pin + its googlePlaceId provenance are allowed here.
+        latitude: true,
+        longitude: true,
+        googlePlaceId: true,
         // redemptionPin is intentionally omitted — NEVER expose it
       },
     }),
@@ -942,6 +954,26 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
   const adminById = new Map(
     adminUsers.map((a: { id: string; firstName: string; lastName: string }) => [a.id, `${a.firstName} ${a.lastName}`]),
   )
+
+  // Branch Location Trust Slice 2: pull the staged Google suggestion for each
+  // branch from its BRANCH_CREATED audit metadata (the create/edit lanes stash it
+  // under metadata.locationSuggestion). This is what the NEEDS_REVIEW exception
+  // context on the approval screen shows (suggested pin vs current centroid). Read
+  // the LATEST audit row per branch that carries a parseable suggestion.
+  const branchIds = branches.map((b: { id: string }) => b.id)
+  const suggestionByBranchId = new Map<string, ReviewLocationSuggestion>()
+  if (branchIds.length > 0) {
+    const auditRows = await prisma.auditLog.findMany({
+      where: { entityType: 'branch', entityId: { in: branchIds }, event: 'BRANCH_CREATED' },
+      select: { entityId: true, metadata: true },
+      orderBy: { createdAt: 'desc' },
+    })
+    for (const row of auditRows) {
+      if (suggestionByBranchId.has(row.entityId)) continue // keep the latest only
+      const parsed = parseStagedSuggestion(row.metadata)
+      if (parsed) suggestionByBranchId.set(row.entityId, parsed)
+    }
+  }
 
   // 5. Presign each document's GET URL inside a try/catch.
   //    The raw fileUrl (R2 key) is NEVER included in the output — even on failure.
@@ -1002,7 +1034,9 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
           phone: owner.merchantAdmin.phone ?? undefined,
         }
       : null,
-    branches,
+    branches: branches.map((b: Parameters<typeof serializeReviewBranch>[0]) =>
+      serializeReviewBranch(b, suggestionByBranchId.get(b.id) ?? null),
+    ),
     vouchers: vouchers.map((v) => ({
       id: v.id,
       title: v.title,
