@@ -86,7 +86,7 @@ export const reviewLocationSuggestionSchema = z.object({
   latitude: z.number(),
   longitude: z.number(),
   postcode: z.string().nullable(),
-  source: z.enum(['pending_edit', 'branch_created_audit']),
+  source: z.enum(['pending_edit', 'branch_created_audit', 'branch_updated_audit']),
 })
 
 export const reviewBranchSchema = z.object({

@@ -11,10 +11,34 @@
 /**
  * Which staged blob the surfaced suggestion came from. Precedence (freshest wins)
  * is decided in getReviewContext: an OPEN BranchPendingEdit's staged suggestion
- * (the one an admin is about to approve) beats the BRANCH_CREATED audit metadata.
- * The panel renders a short source line so the reviewer knows which they see.
+ * (the one an admin is about to approve) beats the audit metadata; among audit
+ * rows the latest parseable one wins across BOTH events (a draft-window edit
+ * suggestion supersedes a stale create-time one after an address change). The
+ * panel renders a short source line so the reviewer knows which they see.
  */
-export type ReviewLocationSuggestionSource = 'pending_edit' | 'branch_created_audit'
+export type ReviewLocationSuggestionSource =
+  | 'pending_edit'
+  | 'branch_created_audit'
+  | 'branch_updated_audit'
+
+/**
+ * The AuditLog events (entityType 'branch', entityId = branchId) whose metadata
+ * can carry a staged Google suggestion, mapped to the source tag the surfaced
+ * suggestion is labelled with. These are the two lanes whose cross-check runs
+ * BEFORE the admin sees the branch on the onboarding review screen:
+ *   - BRANCH_CREATED — create lane (Slice 1);
+ *   - BRANCH_UPDATED — draft-window direct edit lane (Slice 1b), which stamps
+ *     NEEDS_REVIEW immediately on a failed cross-check, so its suggestion is
+ *     exactly the exception context this panel exists to show.
+ * The reviewed-edit lane is NOT an audit read: its staged blob lives on the OPEN
+ * BranchPendingEdit (parsePendingEditSuggestion) and wins precedence when present.
+ */
+export const STAGED_SUGGESTION_AUDIT_EVENTS = {
+  BRANCH_CREATED: 'branch_created_audit',
+  BRANCH_UPDATED: 'branch_updated_audit',
+} as const satisfies Record<string, ReviewLocationSuggestionSource>
+
+export type StagedSuggestionAuditEvent = keyof typeof STAGED_SUGGESTION_AUDIT_EVENTS
 
 /** The flat staged-Google-suggestion shape the admin review context exposes. */
 export interface ReviewLocationSuggestion {
@@ -134,15 +158,21 @@ function parseSuggestionBlob(
 }
 
 /**
- * Parse the staged Google suggestion out of a BRANCH_CREATED AuditLog `metadata`
- * JSON blob. The create lane stashes it under `metadata.locationSuggestion`.
- * Tagged `source: 'branch_created_audit'`. Defensive: any shape mismatch → null.
+ * Parse the staged Google suggestion out of a BRANCH_CREATED / BRANCH_UPDATED
+ * AuditLog `metadata` JSON blob. Both audit lanes stash it under
+ * `metadata.locationSuggestion` (same writer: locationSuggestionMetadata). The
+ * caller passes the source tag matching the row's event (see
+ * STAGED_SUGGESTION_AUDIT_EVENTS); defaults to the create-lane tag. Defensive:
+ * any shape mismatch → null.
  */
-export function parseStagedSuggestion(metadata: unknown): ReviewLocationSuggestion | null {
+export function parseStagedSuggestion(
+  metadata: unknown,
+  source: Extract<ReviewLocationSuggestionSource, `${string}_audit`> = 'branch_created_audit',
+): ReviewLocationSuggestion | null {
   if (metadata === null || typeof metadata !== 'object') return null
   return parseSuggestionBlob(
     (metadata as Record<string, unknown>).locationSuggestion,
-    'branch_created_audit',
+    source,
   )
 }
 

@@ -41,12 +41,16 @@ function formatCoord(lat: number, lng: number): string {
 /**
  * Short, factual line telling the reviewer WHICH staged suggestion they are
  * seeing. `pending_edit` is the change an admin is about to approve (it wins over
- * the create-time record); `branch_created_audit` is the create-time suggestion.
+ * the audit records); `branch_created_audit` is the create-time suggestion;
+ * `branch_updated_audit` came with a draft-window direct address edit (the lane
+ * that stamps NEEDS_REVIEW immediately on a failed cross-check).
  */
-function suggestionSourceLine(source: 'pending_edit' | 'branch_created_audit'): string {
-  return source === 'pending_edit'
-    ? "Source: staged with the merchant's pending edit request."
-    : 'Source: staged when the branch was created.'
+function suggestionSourceLine(
+  source: 'pending_edit' | 'branch_created_audit' | 'branch_updated_audit',
+): string {
+  if (source === 'pending_edit') return "Source: staged with the merchant's pending edit request."
+  if (source === 'branch_updated_audit') return 'Source: staged with a merchant address edit (draft window).'
+  return 'Source: staged when the branch was created.'
 }
 
 /** External Google Maps deep-link for a coordinate pair (opens in a new tab). */

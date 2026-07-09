@@ -107,6 +107,29 @@ describe('LocationTrustPanel', () => {
     )
   })
 
+  it('names the draft-window edit source when the suggestion came from BRANCH_UPDATED audit', () => {
+    render(
+      <LocationTrustPanel
+        branch={makeBranch({
+          locationConfidence: 'NEEDS_REVIEW',
+          latitude: 53.6,
+          longitude: -1.8,
+          googlePlaceId: null,
+          locationSuggestion: {
+            placeId: 'place-555',
+            latitude: 53.71,
+            longitude: -1.91,
+            postcode: 'HD3 3CC',
+            source: 'branch_updated_audit',
+          },
+        })}
+      />,
+    )
+    expect(screen.getByTestId('location-suggestion-source-br-1')).toHaveTextContent(
+      'Source: staged with a merchant address edit (draft window).',
+    )
+  })
+
   it('renders NEEDS_REVIEW framing gracefully when no suggestion is staged', () => {
     render(
       <LocationTrustPanel

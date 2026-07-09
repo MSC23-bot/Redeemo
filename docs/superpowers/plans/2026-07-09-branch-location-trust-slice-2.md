@@ -143,3 +143,22 @@ Two review-driven corrections on `feat/branch-location-trust-slice-2` after the 
 
 - Backend: `tsc --noEmit` clean; `npm run test:unit` = **239 files / 2955 tests** pass (serializer suite = 12).
 - admin-web: `npm run typecheck` (`tsc --noEmit`) clean (the CI failure); `npx jest` = **69 suites / 963 tests** pass; `npm run build` (`next build`) PASSES.
+
+### Correction 3 — third lane: BRANCH_UPDATED audit read (lead-adjudicated, same review round)
+
+- **Gap:** Slice 1b runs the trust pipeline on THREE lanes, not two. The draft-window DIRECT edit
+  (`updateBranch` direct path) applies the cross-check immediately and records its suggestion on the
+  `BRANCH_UPDATED` audit row: it is the lane that stamps `NEEDS_REVIEW` in place, and a merchant editing a
+  branch address during onboarding then submitting lands on exactly the review screen this panel ships on.
+  Reading only `BRANCH_CREATED` audit rows missed that suggestion, or worse surfaced a STALE create-time
+  suggestion for a superseded address.
+- **Fix:** the audit read now covers `BRANCH_CREATED` + `BRANCH_UPDATED` via the exported, test-pinned
+  `STAGED_SUGGESTION_AUDIT_EVENTS` map (event → source tag); latest parseable row wins across BOTH events,
+  so an edit-time suggestion supersedes a create-time one. New source value `branch_updated_audit` flows
+  through `reviewLocationSuggestionSchema` and gets its own `LocationTrustPanel` source line ("Source:
+  staged with a merchant address edit (draft window)."). Precedence unchanged: an OPEN pending edit still
+  wins over both audit sources.
+- **Final lane coverage (all three Slice 1/1b writers):** create (`BRANCH_CREATED` audit) ·
+  draft-window direct edit (`BRANCH_UPDATED` audit) · reviewed edit (OPEN `BranchPendingEdit`,
+  precedence-winning). Post-apply live-merchant `NEEDS_REVIEW` discoverability (a queue-level surfacing)
+  remains out of Slice-2 scope as recorded in the Inventory notes.

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   serializeReviewBranch,
   parseStagedSuggestion,
+  STAGED_SUGGESTION_AUDIT_EVENTS,
   parsePendingEditSuggestion,
   reviewBranchSelect,
   type ReviewBranchRow,
@@ -191,5 +192,33 @@ describe('parsePendingEditSuggestion', () => {
     expect(
       parsePendingEditSuggestion({ __locationSuggestion: { placeId: 'p', latitude: 'nope', longitude: 2 } }),
     ).toBeNull()
+  })
+})
+
+describe('STAGED_SUGGESTION_AUDIT_EVENTS', () => {
+  it('pins the two audit suggestion lanes and their source tags', () => {
+    // BRANCH_CREATED = create lane (Slice 1); BRANCH_UPDATED = draft-window direct
+    // edit lane (Slice 1b, stamps NEEDS_REVIEW immediately on a failed cross-check).
+    // The reviewed-edit lane is NOT an audit read: it surfaces via the OPEN
+    // BranchPendingEdit (parsePendingEditSuggestion) and wins precedence.
+    expect(STAGED_SUGGESTION_AUDIT_EVENTS).toEqual({
+      BRANCH_CREATED: 'branch_created_audit',
+      BRANCH_UPDATED: 'branch_updated_audit',
+    })
+  })
+
+  it('parseStagedSuggestion tags the caller-supplied audit source', () => {
+    const metadata = {
+      locationSuggestion: { placeId: 'place-77', latitude: 53.7, longitude: -1.8, postcode: 'HD2 2BB' },
+    }
+    expect(parseStagedSuggestion(metadata, 'branch_updated_audit')).toEqual({
+      placeId: 'place-77',
+      latitude: 53.7,
+      longitude: -1.8,
+      postcode: 'HD2 2BB',
+      source: 'branch_updated_audit',
+    })
+    // Default stays the create-lane tag (back-compat with existing call sites).
+    expect(parseStagedSuggestion(metadata)?.source).toBe('branch_created_audit')
   })
 })

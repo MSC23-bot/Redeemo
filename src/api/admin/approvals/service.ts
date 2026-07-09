@@ -13,6 +13,8 @@ import {
   parseStagedSuggestion,
   parsePendingEditSuggestion,
   reviewBranchSelect,
+  STAGED_SUGGESTION_AUDIT_EVENTS,
+  type StagedSuggestionAuditEvent,
   type ReviewLocationSuggestion,
 } from './reviewBranchSerializer'
 
@@ -941,14 +943,18 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
   )
 
   // Branch Location Trust Slice 2 (lead-adjudicated widening): surface the
-  // RELEVANT (freshest) staged Google suggestion per branch, from EITHER lane:
+  // RELEVANT (freshest) staged Google suggestion per branch, from ANY of the
+  // three Slice 1/1b lanes:
   //   - an OPEN (PENDING) BranchPendingEdit's proposedChanges.__locationSuggestion
-  //     — the suggestion an admin is ABOUT to approve (Slice 1b writer), OR
-  //   - the BRANCH_CREATED audit metadata.locationSuggestion (create lane).
-  // Precedence: pending-edit WINS over the create-audit (it is the newer intent);
-  // fall back to the audit; null when neither. Each lane reads the LATEST row that
-  // carries a PARSEABLE suggestion (a malformed blob is skipped, never a crash).
-  // This is what the NEEDS_REVIEW exception context shows (suggested pin vs current
+  //     — the suggestion an admin is ABOUT to approve (reviewed-edit lane), OR
+  //   - audit metadata.locationSuggestion on BRANCH_CREATED (create lane) or
+  //     BRANCH_UPDATED (draft-window direct edit lane — the lane that stamps
+  //     NEEDS_REVIEW immediately, so its suggestion IS the exception context).
+  // Precedence: pending-edit WINS over the audit rows (it is the newer intent);
+  // among audit rows the LATEST parseable one wins across BOTH events, so an
+  // edit-time suggestion supersedes a stale create-time one after an address
+  // change; null when none. A malformed blob is skipped, never a crash. This is
+  // what the NEEDS_REVIEW exception context shows (suggested pin vs current
   // centroid), plus a source discriminator so the panel can say which it is.
   const branchIds = branches.map((b: { id: string }) => b.id)
   const pendingSuggestionByBranchId = new Map<string, ReviewLocationSuggestion>()
@@ -962,8 +968,12 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
         orderBy: { createdAt: 'desc' },
       }),
       prisma.auditLog.findMany({
-        where: { entityType: 'branch', entityId: { in: branchIds }, event: 'BRANCH_CREATED' },
-        select: { entityId: true, metadata: true },
+        where: {
+          entityType: 'branch',
+          entityId: { in: branchIds },
+          event: { in: Object.keys(STAGED_SUGGESTION_AUDIT_EVENTS) },
+        },
+        select: { entityId: true, event: true, metadata: true },
         orderBy: { createdAt: 'desc' },
       }),
     ])
@@ -974,11 +984,14 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
     }
     for (const row of auditRows) {
       if (auditSuggestionByBranchId.has(row.entityId)) continue // keep the latest only
-      const parsed = parseStagedSuggestion(row.metadata)
+      const parsed = parseStagedSuggestion(
+        row.metadata,
+        STAGED_SUGGESTION_AUDIT_EVENTS[row.event as StagedSuggestionAuditEvent],
+      )
       if (parsed) auditSuggestionByBranchId.set(row.entityId, parsed)
     }
   }
-  // Precedence resolver: pending-edit suggestion beats the branch-created audit.
+  // Precedence resolver: pending-edit suggestion beats the audit-staged ones.
   const suggestionForBranch = (branchId: string): ReviewLocationSuggestion | null =>
     pendingSuggestionByBranchId.get(branchId) ?? auditSuggestionByBranchId.get(branchId) ?? null
 
