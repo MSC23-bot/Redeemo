@@ -15,8 +15,12 @@
  * page content.
  *
  * The nav is capability-aware by construction: NAV_ITEMS are filtered by
- * `can(cap)` so future actioner screens light up automatically per role. M1 ships
- * no actioner items, so the filtered list is empty and no nav renders yet.
+ * `can(cap)` so each item shows only for roles that hold its capability, and new
+ * actioner screens light up automatically per role as they land. The current
+ * items are Approval queue (`approval:read`), Merchants (`merchant:read`), and
+ * Redemptions (`redemption:read`). The filter is fail-closed: a role that lacks
+ * an item's capability never sees it (and the backend 403 is the enforcement
+ * backstop), so a role with none of these capabilities renders no nav.
  */
 import { useEffect, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
