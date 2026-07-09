@@ -176,6 +176,20 @@ Dispatch an Opus reviewer (model: opus) with this diff and the security seams ab
 
 ---
 
+## Owner decisions accepted (2026-07-10)
+
+The owner reviewed the flags and locked the following for v1 (recorded verbatim so
+implementation needs no re-confirmation):
+
+- Conservative PII posture CONFIRMED: OPERATIONS (and SUPER_ADMIN) see name, email,
+  and subscription state; NO phone; NO MRR/revenue tile.
+- `EXPIRED` is included as a real subscription state (full set: none · trialling ·
+  active · past_due · cancelled · expired; `cancelAtPeriodEnd` as a modifier flag).
+- Test-account badging stays EMAIL-DERIVED (existing QA-email helper); no
+  `User.isTestData` column is added in this slice.
+- If implementation uncovers a genuine schema need, STOP and return it as an
+  owner-gated decision (do not ship a migration inside this slice).
+
 ## FLAGS FOR OWNER
 
 **FLAG 1 — `User` has no `isTestData` column; the test/real distinction is email-derived.** Unlike the D67 redemptions view (which filters `VoucherRedemption.isTestData`), the Members directory cannot column-filter test customers. The plan reuses the existing `isQaAccountEmail` helper (`QA_ACCOUNT_EMAILS = ['customer@redeemo.com']`, `QA_ACCOUNT_EMAIL_DOMAINS = ['redeemo.dev']`) to compute a per-row `isTestAccount` badge and an `includeTest` filter (default ON, like D67). This is NOT a schema change (no `User.isTestData` column is added). Consequence: any test/QA customer NOT matching those email patterns will not be badged or excluded. If the owner wants a first-class `User.isTestData` flag, that is a schema change and this slice becomes BLOCKED-ON-OWNER for that sub-part; the email-derived approach is the no-migration default and is what the plan proceeds with.
