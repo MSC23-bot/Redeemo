@@ -1,20 +1,21 @@
 // tests/api/merchant/branch/location-suggestion-apply.test.ts
 //
-// Branches PR-6 (§4b) Layer 2, as amended by Branch Location Trust Slice 1
+// Branches PR-6 (§4b) Layer 2, as amended by Branch Location Trust Slice 1 + 1b
 // (spec 2026-07-09): an OPTIONAL candidateToken on the branch address-apply
-// paths resolves (server-side, Redis-only) to a Google suggestion. The lanes
-// now SPLIT:
-//   - CREATE lane: the suggestion feeds the cross-check pipeline: PASS applies
-//     the pin as ADDRESS_GEOCODED + googlePlaceId (customer-visible), FAIL keeps
-//     POSTCODE_CENTROID coords + stamps NEEDS_REVIEW (L4). Audit metadata is
-//     staged in both outcomes.
-//   - REVIEWED-EDIT lane: STILL admin-review metadata only (no Branch column,
-//     no confidence write) until Slice 1b.
+// paths resolves (server-side, Redis-only) to a Google suggestion. ALL three
+// address-apply lanes now run the SAME cross-check pipeline:
+//   - CREATE lane (direct write, Slice 1): the suggestion feeds the cross-check:
+//     PASS applies the pin as ADDRESS_GEOCODED + googlePlaceId (customer-visible),
+//     FAIL keeps POSTCODE_CENTROID coords + stamps NEEDS_REVIEW (L4).
+//   - DRAFT-WINDOW DIRECT edit (Slice 1b): same pipeline inline, like create.
+//   - REVIEWED-EDIT lane (Slice 1b): the suggestion (with its postcode) is staged
+//     into proposedChanges at request time; the cross-check runs when the admin
+//     APPROVES (editApplier.approveEdit). Audit metadata stages in all outcomes.
 //
 // THE LOAD-BEARING SECURITY INVARIANTS under test: the reviewed-edit lane never
-// applies a suggestion (editApplier allow-list); ADDRESS_GEOCODED is set only by
-// the server-side cross-check (L2); MANUALLY_CONFIRMED is set only by the
-// admin's confirmBranchLocation (the only human-confirm path).
+// copies the raw suggestion sub-key into a Branch column (editApplier allow-list);
+// ADDRESS_GEOCODED is set only by the server-side cross-check (L2); MANUALLY_CONFIRMED
+// is set only by the admin's confirmBranchLocation (the only human-confirm path).
 //
 // Mocked-prisma unit tests against the service + a mocked approveEdit to PROVE
 // the editApplier allow-list never applies the suggestion sub-key as a column,
@@ -57,11 +58,11 @@ const MERCHANT_ID = 'merchant-1'
 const BRANCH_ID = 'branch-1'
 const CTX = { ipAddress: '127.0.0.1', userAgent: 'vitest' }
 
-// Branch Location Trust Slice 1: the suggestion now carries the parsed postcode.
+// Branch Location Trust Slice 1: the suggestion carries the parsed postcode.
 // Here it MATCHES the VALID_HD1_RESPONSE postcode ('HD1 2PY') and its coords equal
-// the resolver centroid, so the CREATE-lane cross-check passes (ADDRESS_GEOCODED).
-// The reviewed EDIT lane (createBranchEditRequest) still ignores it and stages the
-// suggestion as admin-review metadata only (unchanged until Slice 1b).
+// the resolver centroid, so a cross-check passes (ADDRESS_GEOCODED). Slice 1b: the
+// reviewed EDIT lane STAGES this suggestion (postcode included) into proposedChanges;
+// the cross-check runs at admin-approve time (see the approveEdit matrix below).
 const SUGGESTION: BranchLocationSuggestion = { placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809, postcode: 'HD1 2PY' }
 
 const VALID_HD1_RESPONSE = {
@@ -255,10 +256,14 @@ describe('createBranchEditRequest — Branches PR-6 location suggestion (reviewe
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// editApplier allow-list PROOF — the suggestion sub-key is NEVER applied as a
-// Branch column, and confidence is never bumped to a CONFIRMED value on approve.
+// editApplier reviewed-edit APPLY lane (Slice 1b): the staged __locationSuggestion
+// now feeds crossCheckGoogleLocation at admin-approve time. PASS auto-trusts the
+// pin (ADDRESS_GEOCODED + googlePlaceId); FAIL degrades to NEEDS_REVIEW keeping the
+// centroid coords (L4). Load-bearing allow-list PROOF stays: the raw suggestion
+// sub-key is NEVER copied as a Branch column (only the pipeline's controlled
+// googlePlaceId is added). MANUALLY_CONFIRMED is never reachable from this apply (L2).
 // ─────────────────────────────────────────────────────────────────────────────
-describe('approveEdit — Branches PR-6 __locationSuggestion sub-key is NOT applied as a column', () => {
+describe('approveEdit — Branch Location Trust Slice 1b reviewed-edit apply pipeline', () => {
   function buildApplierPrismaMock(proposedChanges: Record<string, unknown>) {
     const branchUpdate = vi.fn().mockResolvedValue({ id: BRANCH_ID })
     const mock: any = {
@@ -273,7 +278,7 @@ describe('approveEdit — Branches PR-6 __locationSuggestion sub-key is NOT appl
       branch: {
         findUnique: vi.fn().mockResolvedValue({
           id: BRANCH_ID, addressLine1: '1 Old St', city: 'Old', postcode: 'EC1A 1BB',
-          latitude: 51.5, longitude: -0.1, locationConfidence: 'POSTCODE_CENTROID',
+          latitude: 51.5, longitude: -0.1, locationConfidence: 'POSTCODE_CENTROID', googlePlaceId: null,
         }),
         update: branchUpdate,
       },
@@ -285,14 +290,21 @@ describe('approveEdit — Branches PR-6 __locationSuggestion sub-key is NOT appl
     return { mock, branchUpdate }
   }
 
-  it('applies the address fields + snapshot but NOT __locationSuggestion, and never writes a CONFIRMED confidence', async () => {
+  // A staged address-change snapshot (postcode-centroid resolved at request time)
+  // PLUS the __locationSuggestion sub-key. The centroid = VALID_HD1_RESPONSE.
+  const STAGED_SNAPSHOT = {
+    addressLine1: 'New address',
+    postcode: 'HD1 2PY',
+    latitude: 53.6463, longitude: -1.7809,
+    locationConfidence: 'POSTCODE_CENTROID' as const,
+    localityId: 'locality-resolved-1',
+  }
+
+  it('cross-check PASS -> ADDRESS_GEOCODED + googlePlaceId + the Google pin; raw suggestion never a column', async () => {
     const proposedChanges = {
-      addressLine1: 'New address',
-      postcode: 'HD1 2PY',
-      latitude: 53.6463, longitude: -1.7809,
-      locationConfidence: 'POSTCODE_CENTROID', // the eager snapshot — never confirmed
-      localityId: 'locality-resolved-1',
-      __locationSuggestion: { placeId: 'place-google-1', latitude: 53.6463, longitude: -1.7809, source: 'merchant_portal_google' },
+      ...STAGED_SNAPSHOT,
+      // Pin ~240m from the HD1 centroid, postcode matches -> auto-trusted.
+      __locationSuggestion: { placeId: 'place-google-1', latitude: 53.6460, longitude: -1.7845, postcode: 'HD1 2PY', source: 'merchant_portal_google' },
     }
     const { mock, branchUpdate } = buildApplierPrismaMock(proposedChanges)
 
@@ -300,17 +312,83 @@ describe('approveEdit — Branches PR-6 __locationSuggestion sub-key is NOT appl
 
     expect(branchUpdate).toHaveBeenCalledOnce()
     const applied = branchUpdate.mock.calls[0][0].data
-    // The address + snapshot fields are applied verbatim.
     expect(applied.addressLine1).toBe('New address')
-    expect(applied.locationConfidence).toBe('POSTCODE_CENTROID')
-    // The suggestion sub-key is NEVER written as a Branch column.
+    // Auto-trusted: the exact Google pin overwrote the centroid coords.
+    expect(applied.locationConfidence).toBe('ADDRESS_GEOCODED')
+    expect(applied.googlePlaceId).toBe('place-google-1')
+    expect(applied.latitude).toBeCloseTo(53.6460, 4)
+    expect(applied.longitude).toBeCloseTo(-1.7845, 4)
+    // The raw suggestion sub-key is NEVER written as a Branch column (allow-list).
     expect(applied).not.toHaveProperty('__locationSuggestion')
     expect(applied).not.toHaveProperty('placeId')
-    expect(applied).not.toHaveProperty('googlePlaceId')
     expect(applied).not.toHaveProperty('source')
-    // Confidence is never a CONFIRMED value from this apply.
     expect(applied.locationConfidence).not.toBe('MANUALLY_CONFIRMED')
+  })
+
+  it('cross-check FAIL (postcode mismatch) -> NEEDS_REVIEW, centroid coords kept, no googlePlaceId (L4)', async () => {
+    const proposedChanges = {
+      ...STAGED_SNAPSHOT,
+      __locationSuggestion: { placeId: 'place-google-1', latitude: 53.6460, longitude: -1.7845, postcode: 'ZZ9 9ZZ', source: 'merchant_portal_google' },
+    }
+    const { mock, branchUpdate } = buildApplierPrismaMock(proposedChanges)
+
+    await approveEdit(mock, {} as any, 'appr-1', ADMIN_ID, CTX)
+
+    const applied = branchUpdate.mock.calls[0][0].data
+    expect(applied.locationConfidence).toBe('NEEDS_REVIEW')
+    // No partial Google-coord application: coords remain the staged centroid.
+    expect(applied.latitude).toBeCloseTo(53.6463, 4)
+    expect(applied.longitude).toBeCloseTo(-1.7809, 4)
+    expect(applied).not.toHaveProperty('googlePlaceId')
+    expect(applied).not.toHaveProperty('__locationSuggestion')
+  })
+
+  it('staged suggestion with a null/absent postcode -> NEEDS_REVIEW (missing_postcode), like the create lane', async () => {
+    const proposedChanges = {
+      ...STAGED_SNAPSHOT,
+      // Legacy / pre-1b staged suggestion: no postcode field.
+      __locationSuggestion: { placeId: 'place-google-1', latitude: 53.6460, longitude: -1.7845, source: 'merchant_portal_google' },
+    }
+    const { mock, branchUpdate } = buildApplierPrismaMock(proposedChanges)
+
+    await approveEdit(mock, {} as any, 'appr-1', ADMIN_ID, CTX)
+
+    const applied = branchUpdate.mock.calls[0][0].data
+    expect(applied.locationConfidence).toBe('NEEDS_REVIEW')
+    expect(applied).not.toHaveProperty('googlePlaceId')
+  })
+
+  it('no staged suggestion -> POSTCODE_CENTROID applied verbatim (today\'s behaviour, untouched)', async () => {
+    const proposedChanges = { ...STAGED_SNAPSHOT } // no __locationSuggestion
+    const { mock, branchUpdate } = buildApplierPrismaMock(proposedChanges)
+
+    await approveEdit(mock, {} as any, 'appr-1', ADMIN_ID, CTX)
+
+    const applied = branchUpdate.mock.calls[0][0].data
+    expect(applied.locationConfidence).toBe('POSTCODE_CENTROID')
+    expect(applied).not.toHaveProperty('googlePlaceId')
     expect(applied.locationConfidence).not.toBe('ADDRESS_GEOCODED')
+    expect(applied.locationConfidence).not.toBe('MANUALLY_CONFIRMED')
+  })
+
+  it('suggestion present but NO postcode change (no fresh centroid) -> pipeline skipped; confidence untouched', async () => {
+    // An identity-only edit (name) that carries a stray suggestion but changes no
+    // postcode: there is no NEW centroid to cross-check, so the branch location is
+    // left alone (never silently downgraded to NEEDS_REVIEW).
+    const proposedChanges = {
+      name: 'Renamed Branch',
+      __locationSuggestion: { placeId: 'place-google-1', latitude: 53.6460, longitude: -1.7845, postcode: 'HD1 2PY', source: 'merchant_portal_google' },
+    }
+    const { mock, branchUpdate } = buildApplierPrismaMock(proposedChanges)
+
+    await approveEdit(mock, {} as any, 'appr-1', ADMIN_ID, CTX)
+
+    const applied = branchUpdate.mock.calls[0][0].data
+    expect(applied.name).toBe('Renamed Branch')
+    // No location snapshot in the edit -> confidence not written at all here.
+    expect(applied).not.toHaveProperty('locationConfidence')
+    expect(applied).not.toHaveProperty('googlePlaceId')
+    expect(applied).not.toHaveProperty('__locationSuggestion')
   })
 })
 

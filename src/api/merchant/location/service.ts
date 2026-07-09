@@ -6,13 +6,15 @@
 // fields. lat/lng + the placeId NEVER cross the wire in either direction (trust
 // spec 2026-07-09 invariant L1: unchanged).
 //
-// What the pick MAY set (Branch Location Trust Slice 1, spec 2026-07-09,
+// What the pick MAY set (Branch Location Trust Slice 1 + 1b, spec 2026-07-09,
 // supersedes the PR-6 §7 "never a confirmed confidence" rule by owner direction):
-//   - CREATE lane: the resolved suggestion feeds the server-side cross-check
-//     pipeline (crossCheckGoogleLocation); a PASS auto-trusts the pin as
-//     ADDRESS_GEOCODED (customer-visible), a FAIL degrades to POSTCODE_CENTROID
-//     coords + a NEEDS_REVIEW stamp.
-//   - REVIEWED-EDIT lane: still admin-review metadata only, until Slice 1b.
+//   - ALL address-apply lanes (CREATE, draft-window direct edit, and the
+//     reviewed-edit APPLY lane) feed the resolved suggestion through the same
+//     server-side cross-check pipeline (crossCheckGoogleLocation); a PASS
+//     auto-trusts the pin as ADDRESS_GEOCODED (customer-visible), a FAIL degrades
+//     to POSTCODE_CENTROID coords + a NEEDS_REVIEW stamp. On the reviewed-edit lane
+//     the suggestion is staged into proposedChanges and the cross-check runs at
+//     admin-approve time (editApplier, Slice 1b).
 //   - MANUALLY_CONFIRMED remains writable ONLY by the admin's
 //     confirmBranchLocation (the only human-confirm path).
 //

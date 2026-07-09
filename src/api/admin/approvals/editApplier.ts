@@ -5,6 +5,7 @@ import { writeAuditLogTx } from '../../shared/audit'
 import { getMerchantOwner } from './service'
 import { notify } from '../../shared/notify'
 import { merchantEditAppliedEmail, merchantEditRejectedEmail } from '../../shared/merchantEmails'
+import { crossCheckGoogleLocation } from '../../merchant/branch/locationTrust'
 
 // Option B B1: the admin pending-edit APPLIER. Makes the previously-dead
 // MERCHANT_IDENTITY_EDIT / BRANCH_IDENTITY_EDIT AdminApproval rows actionable.
@@ -45,6 +46,15 @@ const BRANCH_LOCATION_SNAPSHOT_FIELDS = [
   'ladDistrict', 'adminCounty', 'region', 'locationCountry',
   'locationResolvedAt', 'locationConfidence',
 ] as const
+
+// Branch Location Trust Slice 1b (spec 2026-07-09): the proposedChanges sub-key
+// under which the merchant-picked Google suggestion is staged by
+// createBranchEditRequest (branch/service.ts LOCATION_SUGGESTION_KEY). Re-declared
+// here (not imported) for the same own-your-own-knowledge discipline as the
+// allow-lists above: a drift between writer and reader is FAIL-SAFE — the applier
+// simply stops finding the suggestion and degrades to the legacy metadata-only
+// apply, never an accidental ADDRESS_GEOCODED. Pinned by the suggestion-apply test.
+const LOCATION_SUGGESTION_KEY = '__locationSuggestion' as const
 
 // Voucher governed flows (2026-07-07): the promotable TOP-LEVEL Voucher columns
 // a governed CHANGE may write. Re-declared here (not imported from the merchant
@@ -147,6 +157,67 @@ function parsePhotoChanges(proposed: Record<string, unknown>): { addUrls: string
     ? (proposed.remove as unknown[]).filter((id): id is string => typeof id === 'string' && id.length > 0)
     : []
   return { addUrls, removeIds }
+}
+
+/**
+ * Branch Location Trust Slice 1b (spec 2026-07-09): run the auto-trust cross-check
+ * on the reviewed-edit APPLY lane and mutate the branch update payload `applied`
+ * in place. Only acts when:
+ *   - a server-staged Google suggestion (`rawSuggestion`) with valid coords + a
+ *     placeId is present (a malformed / poisoned blob is ignored — graceful
+ *     degrade, never a crash, never an accidental ADDRESS_GEOCODED), AND
+ *   - `applied` carries a FRESH postcode re-anchor snapshot (locationConfidence
+ *     POSTCODE_CENTROID + a string postcode + finite centroid coords). A NEW
+ *     postcode is required: without it there is no new centroid to cross-check, so
+ *     the branch location is left untouched (never a silent NEEDS_REVIEW downgrade).
+ * PASS -> the exact Google pin + googlePlaceId + ADDRESS_GEOCODED overwrite the
+ * centroid snapshot. FAIL -> keep the centroid coords, stamp NEEDS_REVIEW (L4).
+ * The raw suggestion sub-key itself is NEVER written as a column (only the
+ * controlled googlePlaceId is added); crossCheckGoogleLocation is the ONLY
+ * ADDRESS_GEOCODED writer-authority (L2).
+ */
+function applyLocationTrust(applied: Record<string, unknown>, rawSuggestion: unknown): void {
+  if (rawSuggestion === null || typeof rawSuggestion !== 'object') return
+  const s = rawSuggestion as Record<string, unknown>
+  const googleLat = s.latitude
+  const googleLng = s.longitude
+  const placeId = s.placeId
+  if (
+    typeof googleLat !== 'number' || !Number.isFinite(googleLat) ||
+    typeof googleLng !== 'number' || !Number.isFinite(googleLng) ||
+    typeof placeId !== 'string' || placeId.length === 0
+  ) {
+    return
+  }
+
+  // Require a fresh postcode re-anchor snapshot: a NEW postcode + NEW centroid.
+  const centroidLat = applied.latitude
+  const centroidLng = applied.longitude
+  if (
+    applied.locationConfidence !== 'POSTCODE_CENTROID' ||
+    typeof applied.postcode !== 'string' ||
+    typeof centroidLat !== 'number' || !Number.isFinite(centroidLat) ||
+    typeof centroidLng !== 'number' || !Number.isFinite(centroidLng)
+  ) {
+    return
+  }
+
+  const verdict = crossCheckGoogleLocation({
+    googleLat,
+    googleLng,
+    googlePostcode:  typeof s.postcode === 'string' ? s.postcode : null,
+    enteredPostcode: applied.postcode,
+    centroidLat,
+    centroidLng,
+  })
+  if (verdict.trusted) {
+    applied.latitude           = googleLat
+    applied.longitude          = googleLng
+    applied.googlePlaceId      = placeId
+    applied.locationConfidence = 'ADDRESS_GEOCODED'
+  } else {
+    applied.locationConfidence = 'NEEDS_REVIEW'
+  }
 }
 
 /**
@@ -309,6 +380,19 @@ export async function approveEdit(
       ...pickAllowed(proposed, BRANCH_SENSITIVE_FIELDS),
       ...pickAllowed(proposed, BRANCH_LOCATION_SNAPSHOT_FIELDS),
     }
+
+    // Branch Location Trust Slice 1b (spec 2026-07-09) — reviewed-edit APPLY lane.
+    // When the reviewed edit carries a server-staged Google suggestion AND a fresh
+    // postcode re-anchor snapshot (the "NEW postcode + NEW centroid" case), run the
+    // SAME cross-check the create/draft-direct lanes run. A PASS applies the exact
+    // Google pin (ADDRESS_GEOCODED + googlePlaceId); any FAIL keeps the staged
+    // postcode-centroid coords and stamps NEEDS_REVIEW (L4, no partial application).
+    // crossCheckGoogleLocation stays the ONLY writer-authority for ADDRESS_GEOCODED
+    // (L2); MANUALLY_CONFIRMED is never reachable here. The raw suggestion sub-key is
+    // NEVER copied as a Branch column (pickAllowed excludes it; only the pipeline's
+    // controlled googlePlaceId is added) — L1: the applier consumes the SERVER-staged
+    // suggestion, never client-supplied coordinates.
+    applyLocationTrust(applied, proposed[LOCATION_SUGGESTION_KEY])
 
     const current = await tx.branch.findUnique({ where: { id: edit.branchId } })
     if (!current) throw new AppError('BRANCH_NOT_FOUND')

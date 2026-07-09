@@ -62,20 +62,25 @@ async function resolveBranchLocationFields(prisma: PrismaClient, postcode: strin
 const PIN_REGEX = /^\d{4}$/
 
 /**
- * Branches PR-6 (§4b) Layer 2, as amended by Branch Location Trust Slice 1
+ * Branches PR-6 (§4b) Layer 2, as amended by Branch Location Trust Slice 1 + 1b
  * (spec 2026-07-09): the resolved Google location SUGGESTION that rides along
  * an address-apply. lat/lng + placeId are resolved server-side from the
  * candidate token (Layer 1's `resolveLocationCandidate`); they never cross the
  * wire from the client (invariant L1: unchanged).
  *
- * LANE SPLIT (the PR-6 "metadata only" rule now applies to ONE lane, not both):
- *   - CREATE lane (`createBranchCore`): the suggestion feeds the cross-check
- *     pipeline; a PASS applies the pin as ADDRESS_GEOCODED + googlePlaceId
- *     (customer-visible), a FAIL keeps POSTCODE_CENTROID coords + stamps
- *     NEEDS_REVIEW (L4). The audit metadata stages in BOTH outcomes.
- *   - REVIEWED-EDIT lane (`stageBranchEditRequest` and friends): STILL
- *     admin-review metadata only: no Branch column, no confidence write,
- *     until Slice 1b extends the pipeline there.
+ * ALL THREE address-apply lanes now run the SAME cross-check pipeline (Slice 1b
+ * extended it from CREATE to both EDIT lanes): a PASS applies the pin as
+ * ADDRESS_GEOCODED + googlePlaceId (customer-visible), a FAIL keeps the
+ * POSTCODE_CENTROID coords + stamps NEEDS_REVIEW (L4). The audit metadata stages
+ * in BOTH outcomes.
+ *   - CREATE lane (`createBranchCore`): direct write (Slice 1).
+ *   - DRAFT-WINDOW DIRECT edit (`updateBranchSensitiveDirectCore`): direct write
+ *     (Slice 1b); runs the pipeline inline like create.
+ *   - REVIEWED-EDIT lane: the suggestion is staged into
+ *     `BranchPendingEdit.proposedChanges` at request time (with its postcode) and
+ *     the pipeline runs when the admin APPROVES (`editApplier.approveEdit`,
+ *     Slice 1b) — the applier consumes the SERVER-staged suggestion, never
+ *     client-supplied coords.
  *   - `confirmBranchLocation` -> MANUALLY_CONFIRMED stays the only
  *     human-confirm authority (L2).
  */
@@ -748,8 +753,8 @@ export async function updateBranch(
     // resolveMerchantContext + assertBranchAllowed, PENDING_EDIT_EXISTS guard, and
     // eager postcode resolution). BM-allowed for an assigned branch (D3 lists
     // branch-details review requests as a BM action). The Google suggestion (if
-    // any) rides into proposedChanges + audit as admin-review metadata (edit
-    // lane stays metadata-only until Slice 1b).
+    // any) is STAGED into proposedChanges + audit here; the trust cross-check runs
+    // at admin-approve time in editApplier (Slice 1b), not at staging.
     return createBranchEditRequest(prisma, adminId, branchId, data, false, ctx, locationSuggestion)
   }
 
@@ -772,11 +777,13 @@ export async function createBranchEditRequest(
   proposedChanges: Record<string, unknown>,
   includesPhotos: boolean,
   ctx: { ipAddress: string; userAgent: string },
-  // Branches PR-6 (§4b): an OPTIONAL resolved Google suggestion staged as a
-  // metadata sub-key in proposedChanges (NOT an applicable Branch field — the
-  // editApplier's allow-lists never pick it up at apply time) PLUS the audit
-  // metadata. The address fields apply through this lane as normal; the postcode
-  // resolver still stamps POSTCODE_CENTROID. NEVER a confidence write.
+  // An OPTIONAL resolved Google suggestion staged as a metadata sub-key in
+  // proposedChanges (NOT an applicable Branch field — the editApplier's allow-lists
+  // never copy it verbatim into a column) PLUS the audit metadata. The address
+  // fields apply through this lane as normal; STAGING stamps the POSTCODE_CENTROID
+  // snapshot and writes no trust confidence. Branch Location Trust Slice 1b: the
+  // cross-check that may flip the branch to ADDRESS_GEOCODED / NEEDS_REVIEW runs at
+  // admin-approve time in editApplier, reading this staged suggestion.
   locationSuggestion?: BranchLocationSuggestion,
 ) {
   // Staff & Access PR-2 (D3): submitting a branch-details review request is a
@@ -818,15 +825,17 @@ export async function createBranchEditRequest(
     Object.assign(filtered, locationFields)
   }
 
-  // Branches PR-6 (§4b): stash the resolved Google suggestion as a metadata
-  // sub-key AFTER the SENSITIVE_FIELDS filter so it survives into proposedChanges
-  // (it is NOT a sensitive field, so the filter above would otherwise drop it).
-  // The key is deliberately not a Branch field name — editApplier.approveEdit
-  // applies ONLY BRANCH_SENSITIVE_FIELDS + BRANCH_LOCATION_SNAPSHOT_FIELDS via
-  // pickAllowed, so __locationSuggestion is NEVER written to a Branch column, and
+  // Stash the resolved Google suggestion as a metadata sub-key AFTER the
+  // SENSITIVE_FIELDS filter so it survives into proposedChanges (it is NOT a
+  // sensitive field, so the filter above would otherwise drop it). The key is
+  // deliberately not a Branch field name — editApplier.approveEdit applies ONLY
+  // BRANCH_SENSITIVE_FIELDS + BRANCH_LOCATION_SNAPSHOT_FIELDS via pickAllowed, so
+  // __locationSuggestion is NEVER copied verbatim into a Branch column, and
   // getEditReviewContext's diff (which iterates BRANCH_SENSITIVE_FIELDS) never
-  // surfaces it. Admin-review metadata only on this edit lane (no confidence
-  // write) until Slice 1b.
+  // surfaces it. Branch Location Trust Slice 1b: the applier READS this staged
+  // sub-key (incl. its postcode) to run the cross-check at admin-approve time — a
+  // PASS then sets ADDRESS_GEOCODED + googlePlaceId, a FAIL stamps NEEDS_REVIEW.
+  // Staging itself writes NO confidence here (the snapshot stays POSTCODE_CENTROID).
   if (locationSuggestion) {
     filtered[LOCATION_SUGGESTION_KEY] = locationSuggestionMetadata(locationSuggestion)
   }
@@ -863,8 +872,9 @@ export async function createBranchEditRequest(
     metadata: {
       branchId,
       pendingEditId: pendingEdit.id,
-      // Branches PR-6 (§4b): admin-review metadata; no Branch column, no
-      // confidence write on this edit lane until Slice 1b.
+      // Provenance for the reviewer. Slice 1b: the trust cross-check runs at
+      // admin-approve time (editApplier), not at staging; staging writes no
+      // confidence.
       ...(locationSuggestion ? { locationSuggestion: locationSuggestionMetadata(locationSuggestion) } : {}),
     },
   })
