@@ -130,6 +130,33 @@ describe('LocationTrustPanel', () => {
     )
   })
 
+  it('names + labels a merchant_pin_drop suggestion as a merchant pin, not Google (Slice 3, null placeId)', () => {
+    render(
+      <LocationTrustPanel
+        branch={makeBranch({
+          locationConfidence: 'NEEDS_REVIEW',
+          latitude: 53.6,
+          longitude: -1.8,
+          googlePlaceId: null,
+          locationSuggestion: {
+            placeId: null,
+            latitude: 53.75,
+            longitude: -1.95,
+            postcode: 'HD1 1AA',
+            source: 'merchant_pin_drop',
+          },
+        })}
+      />,
+    )
+    expect(screen.getByTestId('location-suggestion-source-br-1')).toHaveTextContent(
+      'Source: a merchant-set map pin that landed outside the postcode area.',
+    )
+    // Never mislabelled as Google.
+    expect(screen.getByText('Suggested (merchant pin)')).toBeInTheDocument()
+    expect(screen.getByText('Entered postcode')).toBeInTheDocument()
+    expect(screen.queryByText('Suggested (Google)')).not.toBeInTheDocument()
+  })
+
   it('renders NEEDS_REVIEW framing gracefully when no suggestion is staged', () => {
     render(
       <LocationTrustPanel

@@ -114,6 +114,30 @@ describe('reviewContextSchema', () => {
     const bad = { ...ctx, approval: { ...ctx.approval, id: undefined } } as any
     expect(() => reviewContextSchema.parse(bad)).toThrow()
   })
+
+  it('parses a MERCHANT_CONFIRMED branch with a null-placeId merchant_pin_drop suggestion (Slice 3)', () => {
+    const ctx = makeContext()
+    ctx.branches[0].locationConfidence = 'MERCHANT_CONFIRMED'
+    // A merchant pin-drop FAIL surfaces a suggestion with placeId null + the
+    // merchant_pin_drop source; the schema must accept both.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(ctx.branches[0] as any).locationSuggestion = {
+      placeId: null,
+      latitude: 53.9,
+      longitude: -1.9,
+      postcode: 'HD1 1AA',
+      source: 'merchant_pin_drop',
+    }
+    const parsed = reviewContextSchema.parse(ctx)
+    expect(parsed.branches[0].locationConfidence).toBe('MERCHANT_CONFIRMED')
+    expect(parsed.branches[0].locationSuggestion).toEqual({
+      placeId: null,
+      latitude: 53.9,
+      longitude: -1.9,
+      postcode: 'HD1 1AA',
+      source: 'merchant_pin_drop',
+    })
+  })
 })
 
 // ── reviewApi.get ─────────────────────────────────────────────────────────────

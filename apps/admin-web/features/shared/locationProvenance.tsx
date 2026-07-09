@@ -6,9 +6,17 @@
  * spec copy:
  *   ADDRESS_GEOCODED   -> "Google-verified (unreviewed)"  (info)
  *   MANUALLY_CONFIRMED -> "Human-confirmed"               (success)
+ *   MERCHANT_CONFIRMED -> "Merchant-set pin"              (neutral, weak)
  *   NEEDS_REVIEW       -> "Needs review"                  (warn, attention)
  *   POSTCODE_CENTROID  -> "Approximate (postcode)"        (warn)
  * Any unknown value falls back to the raw string with a neutral tone.
+ *
+ * Branch Location Trust Slice 3 (pin-drop addendum, APPROVED 2026-07-09 / D-L7):
+ * MERCHANT_CONFIRMED is a merchant self-asserted pin, verified only within the
+ * postcode-area sanity radius (one signal, entirely merchant-supplied). It is the
+ * WEAKEST member of the customer-visible confirmed set, so its label is
+ * deliberately "Merchant-set pin" in a NEUTRAL (weak) tone: it satisfies the
+ * go-live location gate but must NEVER read as "verified".
  *
  * Tones reuse the admin-panel's deliberately-neutral semantic Badge palette
  * (see .claude/rules/admin-web.md — no brand fonts/colours on this surface).
@@ -28,6 +36,7 @@ export interface LocationProvenance {
 const PROVENANCE: Record<string, LocationProvenance> = {
   ADDRESS_GEOCODED: { label: 'Google-verified (unreviewed)', tone: 'info', Icon: MapPinned },
   MANUALLY_CONFIRMED: { label: 'Human-confirmed', tone: 'success', Icon: ShieldCheck },
+  MERCHANT_CONFIRMED: { label: 'Merchant-set pin', tone: 'neutral', Icon: MapPin },
   NEEDS_REVIEW: { label: 'Needs review', tone: 'warn', Icon: AlertTriangle },
   POSTCODE_CENTROID: { label: 'Approximate (postcode)', tone: 'warn', Icon: MapPin },
 }
@@ -49,11 +58,15 @@ export function locationProvenanceTone(confidence: string): BadgeTone {
 
 /**
  * A location is "trusted" (customer-visible pin + satisfies the go-live location
- * gate) for MANUALLY_CONFIRMED + ADDRESS_GEOCODED — mirrors the backend
- * CONFIRMED_LOCATION_SET. UI signal only; the backend gate is the authority.
+ * gate) for MANUALLY_CONFIRMED + ADDRESS_GEOCODED + MERCHANT_CONFIRMED — mirrors
+ * the backend CONFIRMED_LOCATION_SET. UI signal only; the backend gate is the
+ * authority. MERCHANT_CONFIRMED is the weakest member (a merchant-set pin) but it
+ * IS customer-visible and satisfies the go-live location gate.
  */
 export function isLocationTrusted(confidence: string): boolean {
-  return confidence === 'MANUALLY_CONFIRMED' || confidence === 'ADDRESS_GEOCODED'
+  return confidence === 'MANUALLY_CONFIRMED'
+    || confidence === 'ADDRESS_GEOCODED'
+    || confidence === 'MERCHANT_CONFIRMED'
 }
 
 /** A location still needing an admin correction before it can go live. */

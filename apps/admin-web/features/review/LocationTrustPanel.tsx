@@ -43,13 +43,16 @@ function formatCoord(lat: number, lng: number): string {
  * seeing. `pending_edit` is the change an admin is about to approve (it wins over
  * the audit records); `branch_created_audit` is the create-time suggestion;
  * `branch_updated_audit` came with a draft-window direct address edit (the lane
- * that stamps NEEDS_REVIEW immediately on a failed cross-check).
+ * that stamps NEEDS_REVIEW immediately on a failed cross-check). Branch Location
+ * Trust Slice 3: `merchant_pin_drop` is a merchant self-set map pin that landed
+ * OUTSIDE their postcode area (there is no Google place).
  */
 function suggestionSourceLine(
-  source: 'pending_edit' | 'branch_created_audit' | 'branch_updated_audit',
+  source: 'pending_edit' | 'branch_created_audit' | 'branch_updated_audit' | 'merchant_pin_drop',
 ): string {
   if (source === 'pending_edit') return "Source: staged with the merchant's pending edit request."
   if (source === 'branch_updated_audit') return 'Source: staged with a merchant address edit (draft window).'
+  if (source === 'merchant_pin_drop') return 'Source: a merchant-set map pin that landed outside the postcode area.'
   return 'Source: staged when the branch was created.'
 }
 
@@ -131,8 +134,9 @@ export function LocationTrustPanel({
           <p className="flex items-start gap-1.5 text-xs font-medium text-amber-800">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <span>
-              Google&apos;s pin did not cross-check against the entered postcode; this branch
-              stayed on its postcode-area centroid and is queued for review.
+              {suggestion?.source === 'merchant_pin_drop'
+                ? "The merchant's map pin landed outside their entered postcode area; this branch stayed on its postcode-area centroid and is queued for review."
+                : "Google's pin did not cross-check against the entered postcode; this branch stayed on its postcode-area centroid and is queued for review."}
             </span>
           </p>
           {suggestion ? (
@@ -144,7 +148,9 @@ export function LocationTrustPanel({
                   ? formatCoord(branch.latitude as number, branch.longitude as number)
                   : 'unresolved'}
               </dd>
-              <dt className="text-muted-foreground">Suggested (Google)</dt>
+              <dt className="text-muted-foreground">
+                {suggestion.source === 'merchant_pin_drop' ? 'Suggested (merchant pin)' : 'Suggested (Google)'}
+              </dt>
               <dd className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="font-mono text-foreground" data-testid={`location-suggestion-coords-${branch.id}`}>
                   {formatCoord(suggestion.latitude, suggestion.longitude)}
@@ -157,7 +163,9 @@ export function LocationTrustPanel({
               </dd>
               {suggestion.postcode && (
                 <>
-                  <dt className="text-muted-foreground">Google postcode</dt>
+                  <dt className="text-muted-foreground">
+                    {suggestion.source === 'merchant_pin_drop' ? 'Entered postcode' : 'Google postcode'}
+                  </dt>
                   <dd className="font-mono text-foreground">{suggestion.postcode}</dd>
                 </>
               )}
