@@ -195,6 +195,78 @@ describe('parsePendingEditSuggestion', () => {
   })
 })
 
+// Branch Location Trust Slice 3 (pin-drop addendum §2.4 touchpoint 8): a merchant
+// pin-drop FAIL stages a suggestion with NO Google place (placeId null) and its
+// OWN source marker. The blob's source wins over the audit-event-derived source,
+// and the null placeId is tolerated ONLY for this source.
+describe('merchant_pin_drop suggestion (Slice 3)', () => {
+  it('parses a null-placeId pin-drop suggestion from BRANCH_UPDATED audit metadata', () => {
+    const metadata = {
+      merchantId: 'm-1',
+      pinDrop: { outcome: 'needs_review', reason: 'radius_exceeded', latitude: 53.9, longitude: -1.9 },
+      locationSuggestion: {
+        placeId: null,
+        latitude: 53.9,
+        longitude: -1.9,
+        postcode: 'HD1 1AA',
+        source: 'merchant_pin_drop',
+      },
+    }
+    // Even though the caller passes the BRANCH_UPDATED audit source, the blob's own
+    // source ('merchant_pin_drop') takes precedence and the null placeId survives.
+    expect(parseStagedSuggestion(metadata, 'branch_updated_audit')).toEqual({
+      placeId: null,
+      latitude: 53.9,
+      longitude: -1.9,
+      postcode: 'HD1 1AA',
+      source: 'merchant_pin_drop',
+    })
+  })
+
+  it('tolerates an ABSENT placeId for a merchant_pin_drop blob (still requires coords)', () => {
+    const metadata = {
+      locationSuggestion: { latitude: 53.9, longitude: -1.9, postcode: 'HD1 1AA', source: 'merchant_pin_drop' },
+    }
+    expect(parseStagedSuggestion(metadata, 'branch_updated_audit')).toEqual({
+      placeId: null,
+      latitude: 53.9,
+      longitude: -1.9,
+      postcode: 'HD1 1AA',
+      source: 'merchant_pin_drop',
+    })
+  })
+
+  it('STILL requires a non-empty placeId for a non-pin-drop (Google) suggestion', () => {
+    // Regression guard: the null-placeId tolerance is scoped to merchant_pin_drop.
+    expect(parseStagedSuggestion({
+      locationSuggestion: { placeId: null, latitude: 53.9, longitude: -1.9, source: 'merchant_portal_google' },
+    })).toBeNull()
+  })
+
+  it('rejects a merchant_pin_drop blob with missing coords (never a partial)', () => {
+    expect(parseStagedSuggestion({
+      locationSuggestion: { placeId: null, source: 'merchant_pin_drop' },
+    }, 'branch_updated_audit')).toBeNull()
+  })
+
+  it('serializes a null-placeId merchant_pin_drop suggestion onto the DTO', () => {
+    const out = serializeReviewBranch(baseRow, {
+      placeId: null,
+      latitude: 53.9,
+      longitude: -1.9,
+      postcode: 'HD1 1AA',
+      source: 'merchant_pin_drop',
+    })
+    expect(out.locationSuggestion).toEqual({
+      placeId: null,
+      latitude: 53.9,
+      longitude: -1.9,
+      postcode: 'HD1 1AA',
+      source: 'merchant_pin_drop',
+    })
+  })
+})
+
 describe('STAGED_SUGGESTION_AUDIT_EVENTS', () => {
   it('pins the two audit suggestion lanes and their source tags', () => {
     // BRANCH_CREATED = create lane (Slice 1); BRANCH_UPDATED = draft-window direct

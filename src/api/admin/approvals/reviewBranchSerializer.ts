@@ -20,6 +20,14 @@ export type ReviewLocationSuggestionSource =
   | 'pending_edit'
   | 'branch_created_audit'
   | 'branch_updated_audit'
+  // Branch Location Trust Slice 3 (spec 2026-07-09 pin-drop addendum §2.4 touchpoint 8,
+  // APPROVED): a merchant pin-drop that FAILED the radius check stages its dropped pin
+  // on the BRANCH_UPDATED audit metadata with its OWN source marker. Unlike the other
+  // sources (which describe WHERE the blob was staged), this one describes WHAT it is:
+  // a self-set pin with NO Google place (placeId null). The blob's own `source` field
+  // takes precedence over the audit-event-derived source so the panel can label it
+  // "Merchant-set pin", never "verified".
+  | 'merchant_pin_drop'
 
 /**
  * The AuditLog events (entityType 'branch', entityId = branchId) whose metadata
@@ -40,14 +48,17 @@ export const STAGED_SUGGESTION_AUDIT_EVENTS = {
 
 export type StagedSuggestionAuditEvent = keyof typeof STAGED_SUGGESTION_AUDIT_EVENTS
 
-/** The flat staged-Google-suggestion shape the admin review context exposes. */
+/** The flat staged-suggestion shape the admin review context exposes. */
 export interface ReviewLocationSuggestion {
-  placeId: string
+  // Slice 3: nullable. A Google pick always carries a placeId; a merchant_pin_drop
+  // suggestion has NO Google place, so placeId is null for that source only.
+  placeId: string | null
   latitude: number
   longitude: number
-  /** Postcode Google reported for the place; null when unparseable. */
+  /** Postcode context; null when unparseable. For a Google pick this is Google's
+   * reported postcode; for a merchant_pin_drop it is the merchant's entered postcode. */
   postcode: string | null
-  /** Provenance of the surfaced suggestion (pending edit vs branch-created audit). */
+  /** Provenance of the surfaced suggestion (pending edit / audit lane / merchant pin-drop). */
   source: ReviewLocationSuggestionSource
 }
 
@@ -147,13 +158,26 @@ function parseSuggestionBlob(
 ): ReviewLocationSuggestion | null {
   if (blob === null || typeof blob !== 'object') return null
   const s = blob as Record<string, unknown>
-  const placeId = s.placeId
   const latitude = toNumberOrNull(s.latitude)
   const longitude = toNumberOrNull(s.longitude)
-  if (typeof placeId !== 'string' || placeId.length === 0 || latitude === null || longitude === null) {
-    return null
-  }
+  // Coordinates are required for EVERY suggestion (a suggestion with no pin is
+  // meaningless); non-finite / missing → treat as absent, never a partial.
+  if (latitude === null || longitude === null) return null
   const postcode = typeof s.postcode === 'string' ? s.postcode : null
+
+  // Branch Location Trust Slice 3: a merchant pin-drop FAIL stages a suggestion
+  // with NO Google place. The blob's OWN `source` marks it; tolerate a null
+  // placeId for this source and surface the merchant_pin_drop provenance
+  // (overriding the audit-event-derived source, since the blob knows its own
+  // kind). This is the only source for which placeId may be null.
+  if (s.source === 'merchant_pin_drop') {
+    const placeId = typeof s.placeId === 'string' && s.placeId.length > 0 ? s.placeId : null
+    return { placeId, latitude, longitude, postcode, source: 'merchant_pin_drop' }
+  }
+
+  // Every other suggestion is a Google pick and MUST carry a non-empty placeId.
+  const placeId = s.placeId
+  if (typeof placeId !== 'string' || placeId.length === 0) return null
   return { placeId, latitude, longitude, postcode, source }
 }
 
