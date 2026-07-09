@@ -508,7 +508,14 @@ function ExploreCategoriesCard({ w, onPress, collapseSignal, demoToken }: { w: n
   )
 }
 
-export function HomeCategoryGrid({ onCategoryPress, collapseSignal, demoToken }: { onCategoryPress?: (slug: string) => void; collapseSignal?: SharedValue<number>; demoToken?: number }) {
+// Perf batch 1 (2026-07-09) — React.memo'd: HomeScreen passes a stable
+// (useCallback) `onCategoryPress`; `collapseSignal` is a Reanimated shared
+// value (stable identity across renders — mutated via `.value`, never
+// reassigned) and `demoToken` only bumps on load-complete / pull-to-refresh.
+// So this grid (six illustrated cards + the Explore-capsule chip cluster)
+// skips re-rendering on unrelated HomeScreen state churn (e.g. the
+// headerCollapsed flip).
+export const HomeCategoryGrid = React.memo(function HomeCategoryGrid({ onCategoryPress, collapseSignal, demoToken }: { onCategoryPress?: (slug: string) => void; collapseSignal?: SharedValue<number>; demoToken?: number }) {
   const { width } = useWindowDimensions()
   const tileW = (width - H_PAD * 2 - GAP) / 2
   const tileH = tileW / ASPECT
@@ -530,7 +537,7 @@ export function HomeCategoryGrid({ onCategoryPress, collapseSignal, demoToken }:
       </View>
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   // ── Explore all categories affordance ──

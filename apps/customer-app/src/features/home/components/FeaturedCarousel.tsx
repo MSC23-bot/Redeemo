@@ -25,7 +25,12 @@ type Props = {
   onFavourite?: (id: string) => void
 }
 
-export function FeaturedCarousel({ rail, onBranchPress }: Props) {
+// Perf batch 1 (2026-07-09) — React.memo'd: HomeScreen now passes a stable
+// (useCallback) `onBranchPress` and the `rail` reference only changes when
+// the feed's featuredRail itself changes, so this carousel (and its own
+// 10s auto-advance timer — see Task 2) skips re-rendering on unrelated
+// HomeScreen state churn.
+export const FeaturedCarousel = React.memo(function FeaturedCarousel({ rail, onBranchPress }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
   const scrollRef = useRef<ScrollView>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -145,7 +150,7 @@ export function FeaturedCarousel({ rail, onBranchPress }: Props) {
       )}
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   // Vertical rhythm now that Featured has no band — mirrors the old band padding.

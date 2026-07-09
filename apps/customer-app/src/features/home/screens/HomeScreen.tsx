@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, RefreshControl, StyleSheet, Alert } from 'react-native'
 import Animated, { useSharedValue, useAnimatedRef, useScrollViewOffset, useAnimatedStyle, useAnimatedReaction, runOnJS } from 'react-native-reanimated' // sticky-header scroll offset + Explore-capsule collapse signal
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -209,7 +209,11 @@ export function HomeScreen() {
   // The carousels pass branch.id into onBranchPress directly (Phase 2.5
   // dropped the interim branchToMerchantTile adapter); the per-rail
   // lookup below finds the parent merchant.id for the route path.
-  const routeToBranch = (
+  // Perf batch 1 (2026-07-09) — `useCallback`-wrapped so it's a referentially
+  // stable function to pass as a dep into the per-rail press handlers below
+  // (only `router` is captured, and expo-router hands back a stable router
+  // object, so this settles to one identity for the screen's lifetime).
+  const routeToBranch = useCallback((
     branchId: string,
     branches: { id: string; merchant: { id: string } }[],
   ) => {
@@ -226,7 +230,7 @@ export function HomeScreen() {
       return
     }
     router.push(`/merchant/${match.merchant.id}?branch=${branchId}&from=home` as any)
-  }
+  }, [router])
 
   // Memoise the flattened NearbyByCategory branch list so tile taps don't
   // rebuild it on every press (closes the code-quality reviewer's Important
@@ -241,8 +245,61 @@ export function HomeScreen() {
     () => (feed?.nearbyByCategoryRails ?? []).flatMap((r) => r.branches),
     [feed?.nearbyByCategoryRails],
   )
-  const onNearbyBranchPress = (branchId: string) =>
-    routeToBranch(branchId, allNearbyBranches)
+  // Perf batch 1 — stable across a `headerCollapsed` flip: only changes when
+  // `routeToBranch` or the flattened nearby-branch list itself changes (i.e.
+  // when the feed's nearby rails change), so <NearbyByCategory> (React.memo'd)
+  // doesn't re-render on unrelated HomeScreen state churn.
+  const onNearbyBranchPress = useCallback(
+    (branchId: string) => routeToBranch(branchId, allNearbyBranches),
+    [routeToBranch, allNearbyBranches],
+  )
+  // Perf batch 1 — one stable handler per rail, each depending only on that
+  // rail's own branch array (not the whole `feed` object), so a re-render
+  // that leaves a rail's branches unchanged never re-renders that rail's
+  // memoized carousel/section component.
+  const onFeaturedBranchPress = useCallback(
+    (branchId: string) => routeToBranch(branchId, feed?.featuredRail?.branches ?? []),
+    [routeToBranch, feed?.featuredRail?.branches],
+  )
+  const onTrendingBranchPress = useCallback(
+    (branchId: string) => routeToBranch(branchId, feed?.trendingRail?.branches ?? []),
+    [routeToBranch, feed?.trendingRail?.branches],
+  )
+  const onPopularBranchPress = useCallback(
+    (branchId: string) => routeToBranch(branchId, feed?.popularRail?.branches ?? []),
+    [routeToBranch, feed?.popularRail?.branches],
+  )
+  // Stable no-op — campaigns don't route anywhere yet; kept as a stable
+  // identity so <CampaignCarousel> (React.memo'd) never re-renders because
+  // of a fresh inline-arrow prop identity.
+  const onCampaignPress = useCallback((_id: string) => {}, [])
+  // Perf batch 1 — stabilised so <HomeCategoryGrid> (React.memo'd) doesn't
+  // re-render on unrelated HomeScreen state churn; only changes when the
+  // categories list or router identity changes.
+  const onCategoryPress = useCallback((slug: string) => {
+    // Curated cards carry a canonical slug (not a display name), mapped
+    // to the backend Category by slug so a rename / casing / localization
+    // change can't silently misroute (resolveCategoryRoute is pure +
+    // unit-tested). Unresolved (not loaded yet, or no match) intentionally
+    // routes to the all-categories list with a dev warning rather than
+    // pretending the specific category opened.
+    const target = resolveCategoryRoute(slug, categoriesData?.categories)
+    if (target.kind === 'category') {
+      router.push({ pathname: '/category/[id]', params: { id: target.id } })
+      return
+    }
+    if (target.reason === 'unresolved' && __DEV__) {
+      console.warn(`[HomeScreen] category slug "${target.slug}" not resolvable — routing to /categories`)
+    }
+    router.push('/categories' as any)
+  }, [categoriesData?.categories, router])
+  // Perf batch 1 — stable identity for <NearbyByCategory>'s "See all" /
+  // header-tap route (separate from onCategoryPress above, which routes the
+  // curated top-level cards + resolves a slug rather than an id).
+  const onNearbyCategoryPress = useCallback(
+    (id: string) => router.push(`/category/${id}` as any),
+    [router],
+  )
 
   // Spec §8.7 + §8.8 — dedup-managed fallback components.
   //
@@ -401,7 +458,7 @@ export function HomeScreen() {
           <FadeIn duration={200}>
             <CampaignCarousel
               campaigns={feed?.campaigns ?? []}
-              onCampaignPress={(_id) => {}}
+              onCampaignPress={onCampaignPress}
             />
           </FadeIn>
         )}
@@ -410,23 +467,7 @@ export function HomeScreen() {
         <HomeCategoryGrid
           demoToken={demoToken}
           collapseSignal={exploreCollapse}
-          onCategoryPress={(slug) => {
-            // Curated cards carry a canonical slug (not a display name), mapped
-            // to the backend Category by slug so a rename / casing / localization
-            // change can't silently misroute (resolveCategoryRoute is pure +
-            // unit-tested). Unresolved (not loaded yet, or no match) intentionally
-            // routes to the all-categories list with a dev warning rather than
-            // pretending the specific category opened.
-            const target = resolveCategoryRoute(slug, categoriesData?.categories)
-            if (target.kind === 'category') {
-              router.push({ pathname: '/category/[id]', params: { id: target.id } })
-              return
-            }
-            if (target.reason === 'unresolved' && __DEV__) {
-              console.warn(`[HomeScreen] category slug "${target.slug}" not resolvable — routing to /categories`)
-            }
-            router.push('/categories' as any)
-          }}
+          onCategoryPress={onCategoryPress}
         />
 
         {isLoading ? (
@@ -438,7 +479,7 @@ export function HomeScreen() {
           feed?.featuredRail?.meta && (
             <FeaturedCarousel
               rail={feed.featuredRail}
-              onBranchPress={(branchId) => routeToBranch(branchId, feed.featuredRail?.branches ?? [])}
+              onBranchPress={onFeaturedBranchPress}
             />
           )
         )}
@@ -452,13 +493,13 @@ export function HomeScreen() {
         {feed?.trendingRail?.meta && (
           <TrendingSection
             rail={feed.trendingRail}
-            onBranchPress={(branchId) => routeToBranch(branchId, feed.trendingRail?.branches ?? [])}
+            onBranchPress={onTrendingBranchPress}
           />
         )}
         {!feed?.trendingRail?.meta && feed?.popularRail?.meta && (
           <PopularSection
             rail={feed.popularRail}
-            onBranchPress={(branchId) => routeToBranch(branchId, feed.popularRail?.branches ?? [])}
+            onBranchPress={onPopularBranchPress}
           />
         )}
 
@@ -469,7 +510,7 @@ export function HomeScreen() {
           <NearbyByCategory
             rails={feed!.nearbyByCategoryRails!}
             onBranchPress={onNearbyBranchPress}
-            onCategoryPress={(id) => router.push(`/category/${id}` as any)}
+            onCategoryPress={onNearbyCategoryPress}
           />
         )}
         {showNearbySectionEmpty && (

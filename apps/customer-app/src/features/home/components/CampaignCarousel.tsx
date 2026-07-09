@@ -43,7 +43,12 @@ type Props = {
   onCampaignPress: (id: string) => void
 }
 
-export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
+// Perf batch 1 (2026-07-09) — React.memo'd: HomeScreen passes a stable
+// (useCallback) `onCampaignPress`, and `campaigns` only changes when the
+// feed's campaigns list itself changes, so this carousel (and its own 12s
+// auto-advance timer — see Task 2) skips re-rendering on unrelated
+// HomeScreen state churn.
+export const CampaignCarousel = React.memo(function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
   // PR #123 fixup-1 (2026-05-22) — §CN onError fallback.
   // When expo-image fails to load (network error, host CDN issue, etc.),
@@ -281,4 +286,4 @@ export function CampaignCarousel({ campaigns, onCampaignPress }: Props) {
       )}
     </View>
   )
-}
+})
