@@ -23,8 +23,14 @@ const proximityBandSchema = z.enum([
 ])
 export type ProximityBand = z.infer<typeof proximityBandSchema>
 
+// Slice 3 (spec 2026-07-09 pin-drop addendum, APPROVED): MERCHANT_CONFIRMED joins as a
+// first-class wire value. This backend contract pin stays a CLOSED enum on purpose:
+// unlike the customer-app parser (open z.string(): store-cadence forward-compat, PR
+// #451), this schema and the emitter ship atomically, so an unexpected value in our
+// OWN output is a bug worth failing loudly on.
 const locationConfidenceSchema = z.enum([
   'MANUALLY_CONFIRMED', 'POSTCODE_CENTROID', 'NEEDS_REVIEW', 'ADDRESS_GEOCODED',
+  'MERCHANT_CONFIRMED',
 ])
 
 const categorySummarySchema = z.object({

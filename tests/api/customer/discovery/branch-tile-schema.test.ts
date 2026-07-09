@@ -86,6 +86,7 @@ describe('branchTileSchema', () => {
 
   it.each([
     'MANUALLY_CONFIRMED', 'POSTCODE_CENTROID', 'NEEDS_REVIEW', 'ADDRESS_GEOCODED',
+    'MERCHANT_CONFIRMED', // Slice 3: first-class wire value (closed-enum posture kept)
   ] as const)('accepts branchLocationConfidence=%s', (lc) => {
     expect(() => branchTileSchema.parse({ ...validTile, branchLocationConfidence: lc })).not.toThrow()
   })
