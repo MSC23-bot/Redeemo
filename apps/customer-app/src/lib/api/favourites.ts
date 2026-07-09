@@ -58,6 +58,11 @@ const favouriteBranchItemSchema = z.object({
   // arrives with real coords alongside MANUALLY_CONFIRMED.
   latitude:            z.number().nullable(),
   longitude:           z.number().nullable(),
+  // Parsed as an OPEN `z.string()` (not a closed `z.enum`) on purpose: a future
+  // backend confidence value (e.g. the planned MERCHANT_CONFIRMED) must not make
+  // already-installed app builds reject the payload. This is the sibling of the
+  // discovery.ts forward-compat hardening; see the Slice 3 addendum §3.3 (option A):
+  // docs/superpowers/specs/2026-07-09-loc-slice-3-pin-drop-addendum.md
   locationConfidence:  z.string(),
   merchant:            favouriteBranchMerchantSchema,
   voucherCount:        z.number(),
