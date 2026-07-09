@@ -49,10 +49,12 @@ const createBranchBody = z.object({
   logoUrl:      z.string().optional(),
   bannerUrl:    z.string().optional(),
   about:        z.string().optional(),
-  // Branches PR-6 (§4b): an OPTIONAL Layer 1 candidate token. The client submits
-  // ONLY the token (NOT lat/lng, NOT placeId); the route resolves it server-side
-  // to admin-review metadata. Absent/expired -> the address still saves, no
-  // suggestion staged.
+  // An OPTIONAL Layer 1 candidate token. The client submits ONLY the token (NOT
+  // lat/lng, NOT placeId); the route resolves it server-side (L1). Slice 1
+  // (spec 2026-07-09): on this CREATE body the resolved suggestion feeds the
+  // cross-check pipeline (auto-trust to ADDRESS_GEOCODED on pass; NEEDS_REVIEW
+  // on fail). Absent/expired -> the address still saves at POSTCODE_CENTROID,
+  // no suggestion staged.
   candidateToken: z.string().optional(),
 })
 
@@ -132,9 +134,10 @@ export async function branchRoutes(app: FastifyInstance) {
   // a BRANCH_CREATE approval (customer-invisible until an admin approves).
   app.post(prefix, async (req: FastifyRequest, reply) => {
     const { candidateToken, ...body } = createBranchBody.parse(req.body)
-    // Branches PR-6 (§4b): resolve the token (if any) to admin-review metadata. The
-    // address fields in `body` apply as today; the suggestion is staged in the
-    // BRANCH_CREATED audit only. NO confidence write.
+    // Resolve the token (if any) server-side. Slice 1 (spec 2026-07-09): on this
+    // CREATE lane the suggestion feeds createBranchCore's cross-check pipeline
+    // (ADDRESS_GEOCODED on pass; NEEDS_REVIEW on fail) and is always folded into
+    // the BRANCH_CREATED audit metadata for admin provenance.
     const locationSuggestion = await resolveTokenSuggestion(req, candidateToken)
     const branch = await createBranch(app.prisma, req.user.sub, body, {
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',

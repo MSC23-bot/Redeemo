@@ -3,9 +3,18 @@
 // Branches PR-6 (§4a / §4b / §4d / §4e) — Layer 1: the merchant-side Google
 // location search + candidate-token stash. The merchant searches a business name
 // / address, picks a Google Text Search result, and the UI autofills the address
-// fields. The precise pin stays admin-confirmed (security correction §7): the
-// merchant pick NEVER sets a CONFIRMED_LOCATION_SET confidence, and lat/lng + the
-// placeId NEVER cross the wire in either direction.
+// fields. lat/lng + the placeId NEVER cross the wire in either direction (trust
+// spec 2026-07-09 invariant L1: unchanged).
+//
+// What the pick MAY set (Branch Location Trust Slice 1, spec 2026-07-09,
+// supersedes the PR-6 §7 "never a confirmed confidence" rule by owner direction):
+//   - CREATE lane: the resolved suggestion feeds the server-side cross-check
+//     pipeline (crossCheckGoogleLocation); a PASS auto-trusts the pin as
+//     ADDRESS_GEOCODED (customer-visible), a FAIL degrades to POSTCODE_CENTROID
+//     coords + a NEEDS_REVIEW stamp.
+//   - REVIEWED-EDIT lane: still admin-review metadata only, until Slice 1b.
+//   - MANUALLY_CONFIRMED remains writable ONLY by the admin's
+//     confirmBranchLocation (the only human-confirm path).
 //
 // The candidate-token flow keeps the coords server-side:
 //   - On search, each Google candidate's { placeId, latitude, longitude } is

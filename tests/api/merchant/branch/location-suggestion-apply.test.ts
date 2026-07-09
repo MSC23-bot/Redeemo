@@ -1,14 +1,20 @@
 // tests/api/merchant/branch/location-suggestion-apply.test.ts
 //
-// Branches PR-6 (§4b) — Layer 2: an OPTIONAL candidateToken on the branch
-// address-apply paths resolves (server-side, Redis-only) to a Google suggestion
-// that is staged as ADMIN-REVIEW METADATA ONLY — never a Branch column, never a
-// CONFIRMED_LOCATION_SET confidence write. The address itself flows through the
-// existing lanes unchanged (resolveBranchLocationFields stamps POSTCODE_CENTROID).
+// Branches PR-6 (§4b) Layer 2, as amended by Branch Location Trust Slice 1
+// (spec 2026-07-09): an OPTIONAL candidateToken on the branch address-apply
+// paths resolves (server-side, Redis-only) to a Google suggestion. The lanes
+// now SPLIT:
+//   - CREATE lane: the suggestion feeds the cross-check pipeline: PASS applies
+//     the pin as ADDRESS_GEOCODED + googlePlaceId (customer-visible), FAIL keeps
+//     POSTCODE_CENTROID coords + stamps NEEDS_REVIEW (L4). Audit metadata is
+//     staged in both outcomes.
+//   - REVIEWED-EDIT lane: STILL admin-review metadata only (no Branch column,
+//     no confidence write) until Slice 1b.
 //
-// THE LOAD-BEARING SECURITY INVARIANT under test: a merchant's Google pick must
-// NEVER make the branch discovery-visible / go-live-eligible. Only the admin's
-// confirmBranchLocation -> MANUALLY_CONFIRMED can.
+// THE LOAD-BEARING SECURITY INVARIANTS under test: the reviewed-edit lane never
+// applies a suggestion (editApplier allow-list); ADDRESS_GEOCODED is set only by
+// the server-side cross-check (L2); MANUALLY_CONFIRMED is set only by the
+// admin's confirmBranchLocation (the only human-confirm path).
 //
 // Mocked-prisma unit tests against the service + a mocked approveEdit to PROVE
 // the editApplier allow-list never applies the suggestion sub-key as a column,
@@ -110,7 +116,8 @@ function buildPrismaMock() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CREATE (direct-write) — suggestion lands in BRANCH_CREATED audit metadata only.
+// CREATE (direct-write) — Slice 1 trust pipeline: cross-check decides
+// ADDRESS_GEOCODED (pass) vs NEEDS_REVIEW (fail); audit metadata in both.
 // ─────────────────────────────────────────────────────────────────────────────
 describe('createBranch — Branch Location Trust Slice 1 (direct-write, cross-check PASS)', () => {
   beforeEach(() => { vi.restoreAllMocks() })
