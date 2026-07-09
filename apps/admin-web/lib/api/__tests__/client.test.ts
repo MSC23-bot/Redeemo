@@ -1,17 +1,14 @@
 /**
- * client.ts — bearer attachment + the 401 refresh-once-retry contract.
+ * client.ts — bearer attachment + the 401 refresh-once-retry contract (H5
+ * migration: refresh now goes through the same-origin BFF route
+ * `/api/admin-auth/refresh`, no body, no bearer — the httpOnly cookie carries
+ * the refresh material server-side).
  *
- * fetch is mocked; session helpers are the real localStorage-backed ones.
+ * fetch is mocked; session/tokenStore helpers are the real in-memory ones.
  */
 import { apiFetch, ApiError } from '../client'
-import { setSession, getAccessToken, type AdminRole } from '@/lib/auth/session'
-
-const META = {
-  entityId: 'admin-1',
-  sessionId: 'sess-1',
-  adminRole: 'OPERATIONS' as AdminRole,
-  email: 'ops@redeemo.co.uk',
-}
+import { setSession, getAccessToken } from '@/lib/auth/session'
+import { setAccessToken as setStoredAccessToken, setOnSessionLost } from '@/lib/auth/tokenStore'
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -25,7 +22,13 @@ let fetchMock: jest.Mock
 let assignMock: jest.Mock
 
 beforeEach(() => {
-  localStorage.clear()
+  setOnSessionLost(null)
+  // Reset the token store directly rather than via clearSession() (which would
+  // fire tokenStore's no-handler-registered fallback, window.location.assign,
+  // against jsdom's real navigation — not what these tests are about). A
+  // truthy set re-arms the hard-logout latch, then null clears the token.
+  setStoredAccessToken('reset-arm')
+  setStoredAccessToken(null)
   fetchMock = jest.fn()
   global.fetch = fetchMock as unknown as typeof fetch
 
@@ -50,7 +53,7 @@ describe('apiFetch — basics', () => {
   })
 
   it('attaches the bearer token when auth: true', async () => {
-    setSession({ accessToken: 'ACCESS-1', refreshToken: 'ref-1', meta: META })
+    setSession('ACCESS-1')
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: 1 }))
 
     await apiFetch('/api/v1/admin/thing', { auth: true })
@@ -60,7 +63,7 @@ describe('apiFetch — basics', () => {
   })
 
   it('does NOT attach a bearer when auth is omitted', async () => {
-    setSession({ accessToken: 'ACCESS-1', refreshToken: 'ref-1', meta: META })
+    setSession('ACCESS-1')
     fetchMock.mockResolvedValueOnce(jsonResponse(200, {}))
 
     await apiFetch('/api/v1/public')
@@ -81,17 +84,15 @@ describe('apiFetch — basics', () => {
   })
 })
 
-describe('apiFetch — 401 refresh-once-retry', () => {
-  it('on 401 refreshes once, rotates tokens, and retries the original request', async () => {
-    setSession({ accessToken: 'OLD', refreshToken: 'REF-OLD', meta: META })
+describe('apiFetch — 401 refresh-once-retry via the BFF route', () => {
+  it('on 401 refreshes once via /api/admin-auth/refresh (no body, no bearer) and retries the original request', async () => {
+    setSession('OLD')
 
     fetchMock
       // 1) original request -> 401
       .mockResolvedValueOnce(jsonResponse(401, { error: { code: 'TOKEN_EXPIRED' } }))
-      // 2) refresh -> new tokens
-      .mockResolvedValueOnce(
-        jsonResponse(200, { accessToken: 'NEW', refreshToken: 'REF-NEW' })
-      )
+      // 2) BFF refresh -> new access token
+      .mockResolvedValueOnce(jsonResponse(200, { accessToken: 'NEW' }))
       // 3) retried original -> success
       .mockResolvedValueOnce(jsonResponse(200, { data: 'ok' }))
 
@@ -100,18 +101,12 @@ describe('apiFetch — 401 refresh-once-retry', () => {
     expect(out).toEqual({ data: 'ok' })
     expect(fetchMock).toHaveBeenCalledTimes(3)
 
-    // The refresh call hit the admin refresh endpoint with the stored meta.
-    expect(fetchMock.mock.calls[1][0]).toBe(
-      'http://localhost:3000/api/v1/admin/auth/refresh'
-    )
-    const refreshBody = JSON.parse(
-      (fetchMock.mock.calls[1][1] as RequestInit).body as string
-    )
-    expect(refreshBody).toEqual({
-      refreshToken: 'REF-OLD',
-      sessionId: 'sess-1',
-      entityId: 'admin-1',
-    })
+    // The refresh call hit the SAME-ORIGIN BFF route, not the backend directly.
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/admin-auth/refresh')
+    const refreshInit = fetchMock.mock.calls[1][1] as RequestInit
+    expect(refreshInit.method).toBe('POST')
+    expect(refreshInit.body).toBeUndefined() // no body — the httpOnly cookie carries the material
+    expect((refreshInit.headers as Headers | undefined)?.get?.('Authorization')).toBeFalsy() // no bearer sent
 
     // The retried request carried the NEW access token.
     const retryHeaders = (fetchMock.mock.calls[2][1] as RequestInit).headers as Headers
@@ -124,13 +119,36 @@ describe('apiFetch — 401 refresh-once-retry', () => {
     expect(assignMock).not.toHaveBeenCalled()
   })
 
-  it('clears the session and redirects to /login when refresh fails', async () => {
-    setSession({ accessToken: 'OLD', refreshToken: 'REF-OLD', meta: META })
+  it('hard-logs-out when the retried request STILL 401s after a successful refresh', async () => {
+    // The token was refreshed successfully, but the very next call with the
+    // fresh token still 401s (e.g. the account was suspended mid-session). The
+    // session is genuinely dead -> clear + redirect, not a bare thrown error.
+    setSession('OLD')
 
     fetchMock
       // 1) original -> 401
       .mockResolvedValueOnce(jsonResponse(401, { error: { code: 'TOKEN_EXPIRED' } }))
-      // 2) refresh -> 401 (failure)
+      // 2) BFF refresh -> new access token (success)
+      .mockResolvedValueOnce(jsonResponse(200, { accessToken: 'NEW' }))
+      // 3) retried original with NEW -> STILL 401
+      .mockResolvedValueOnce(jsonResponse(401, { error: { code: 'ACCOUNT_SUSPENDED' } }))
+
+    await expect(apiFetch('/api/v1/admin/thing', { auth: true })).rejects.toBeInstanceOf(
+      ApiError
+    )
+
+    expect(fetchMock).toHaveBeenCalledTimes(3) // original, refresh, retry — no fourth refresh
+    expect(getAccessToken()).toBeNull() // session cleared
+    expect(assignMock).toHaveBeenCalledWith('/login?next=%2Fqueue%2Fabc')
+  })
+
+  it('clears the session and redirects to /login when the BFF refresh fails', async () => {
+    setSession('OLD')
+
+    fetchMock
+      // 1) original -> 401
+      .mockResolvedValueOnce(jsonResponse(401, { error: { code: 'TOKEN_EXPIRED' } }))
+      // 2) BFF refresh -> 401 (no cookie / dead session)
       .mockResolvedValueOnce(jsonResponse(401, { error: { code: 'REFRESH_TOKEN_INVALID' } }))
 
     await expect(apiFetch('/api/v1/admin/thing', { auth: true })).rejects.toBeInstanceOf(
@@ -143,16 +161,15 @@ describe('apiFetch — 401 refresh-once-retry', () => {
     expect(assignMock).toHaveBeenCalledWith('/login?next=%2Fqueue%2Fabc')
   })
 
-  it('does not attempt refresh when there is no session (avoids a loop)', async () => {
-    // No setSession -> no refresh token / meta.
-    fetchMock.mockResolvedValueOnce(jsonResponse(401, { error: { code: 'TOKEN_EXPIRED' } }))
+  it('clears the session when the BFF refresh responds 200 but omits accessToken (contract drift)', async () => {
+    setSession('OLD')
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(401, { error: { code: 'TOKEN_EXPIRED' } }))
+      .mockResolvedValueOnce(jsonResponse(200, {}))
 
-    await expect(apiFetch('/api/v1/admin/thing', { auth: true })).rejects.toBeInstanceOf(
-      ApiError
-    )
-
-    expect(fetchMock).toHaveBeenCalledTimes(1) // only the original; no refresh call
-    expect(assignMock).toHaveBeenCalledWith('/login?next=%2Fqueue%2Fabc')
+    await expect(apiFetch('/api/v1/admin/thing', { auth: true })).rejects.toBeInstanceOf(ApiError)
+    expect(getAccessToken()).toBeNull()
+    expect(assignMock).toHaveBeenCalled()
   })
 
   it('captures pathname + search in ?next= when redirecting to login', async () => {
@@ -188,7 +205,7 @@ describe('apiFetch — 401 refresh-once-retry', () => {
   })
 
   it('does not refresh on a 401 for an unauthenticated (auth: false) request', async () => {
-    setSession({ accessToken: 'OLD', refreshToken: 'REF-OLD', meta: META })
+    setSession('OLD')
     fetchMock.mockResolvedValueOnce(jsonResponse(401, { error: { code: 'NOPE' } }))
 
     await expect(apiFetch('/api/v1/public')).rejects.toBeInstanceOf(ApiError)
@@ -198,19 +215,17 @@ describe('apiFetch — 401 refresh-once-retry', () => {
   })
 
   it('coalesces concurrent 401s into a SINGLE refresh (no single-use-token race)', async () => {
-    setSession({ accessToken: 'OLD', refreshToken: 'REF-OLD', meta: META })
+    setSession('OLD')
 
     // URL-aware mock (concurrent awaits make strict call ordering
     // nondeterministic): every authed request 401s the first time it is seen
     // with the OLD token, then succeeds once the bearer is the NEW token; the
-    // refresh endpoint succeeds exactly once and rotates the stored tokens.
+    // BFF refresh route succeeds exactly once and installs the new token.
     let refreshCalls = 0
     fetchMock.mockImplementation((url: string, init: RequestInit) => {
-      if (url.endsWith('/api/v1/admin/auth/refresh')) {
+      if (url === '/api/admin-auth/refresh') {
         refreshCalls += 1
-        return Promise.resolve(
-          jsonResponse(200, { accessToken: 'NEW', refreshToken: 'REF-NEW' })
-        )
+        return Promise.resolve(jsonResponse(200, { accessToken: 'NEW' }))
       }
       const auth = (init.headers as Headers).get('Authorization')
       if (auth === 'Bearer NEW') {
@@ -229,11 +244,9 @@ describe('apiFetch — 401 refresh-once-retry', () => {
     expect(a).toEqual({ data: 'ok' })
     expect(b).toEqual({ data: 'ok' })
 
-    // The crux: the single-use refresh token was POSTed exactly once.
+    // The crux: the single-use refresh token was hit exactly once.
     expect(refreshCalls).toBe(1)
-    const refreshHits = fetchMock.mock.calls.filter(
-      (c) => (c[0] as string).endsWith('/api/v1/admin/auth/refresh')
-    )
+    const refreshHits = fetchMock.mock.calls.filter((c) => c[0] === '/api/admin-auth/refresh')
     expect(refreshHits).toHaveLength(1)
 
     // Neither concurrent call cleared the session or redirected.

@@ -19,5 +19,14 @@ paths:
   failures degrade to `available:false`, never 500.
 - Review/timeline payloads: `CommunicationLog.payload` and `branch_pin` audit rows are never
   selected; comms timeline is owner-scoped.
-- Auth is challenge-bound HMAC email OTP with a two-step login; session in localStorage
-  with a capability mirror (admin-web only; merchant-web deliberately differs).
+- Auth is challenge-bound HMAC email OTP with a two-step login. Session model (H5 migration,
+  security audit): the access token lives ONLY in memory (`lib/auth/tokenStore.ts`, never
+  localStorage); the refresh token lives server-side in an httpOnly + Secure(prod) +
+  SameSite=Lax cookie (`redeemo_admin_session`) that page JS cannot read. The auth lifecycle
+  (login/otp-verify/refresh/logout) routes through same-origin BFF handlers under
+  `app/api/admin-auth/**`, each guarded by `assertSameOrigin`; all DATA calls go DIRECT to the
+  backend with the in-memory bearer (`lib/api/client.ts`). `middleware.ts` gates `(app)` pages
+  on cookie PRESENCE only (redirect-before-paint); the client `SessionProvider` does the real
+  validation via a single refresh-on-mount (a reload has no in-memory token, so it must refresh
+  once from the cookie before treating the admin as signed out). The role/capability mirror is
+  decoded fresh from the access-token claims on every install, never persisted.

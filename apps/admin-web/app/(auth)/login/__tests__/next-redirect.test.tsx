@@ -7,7 +7,8 @@
  * non-path values all fall back to `/`.
  *
  * `useSearchParams` is mocked via a mutable holder so each test sets its own
- * `next` value; authApi is mocked; setSession is the real localStorage impl.
+ * `next` value; authApi is mocked; the G1 refresh-on-mount is mocked to
+ * resolve `false` so the provider settles deterministically.
  */
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -31,26 +32,18 @@ jest.mock('@/lib/api/auth', () => ({
   authApi: {
     login: jest.fn(),
     verifyOtp: jest.fn(),
+    logout: jest.fn(),
   },
 }))
 
+jest.mock('@/lib/api/client', () => {
+  const actual = jest.requireActual('@/lib/api/client')
+  return { ...actual, refreshSession: jest.fn(async () => false) }
+})
+
 const mockedAuth = authApi as jest.Mocked<typeof authApi>
 
-// A structurally valid admin JWT so decodeAdminJwt returns the claims.
-function makeAccessToken(): string {
-  const b64 = (obj: unknown) =>
-    Buffer.from(JSON.stringify(obj))
-      .toString('base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-  return `${b64({ alg: 'HS256' })}.${b64({
-    sub: 'admin-1',
-    sessionId: 'sess-1',
-    adminRole: 'OPERATIONS',
-    role: 'admin',
-  })}.sig`
-}
+const META = { entityId: 'admin-1', sessionId: 'sess-1', adminRole: 'OPERATIONS' as const, email: 'ops@redeemo.co.uk' }
 
 function renderLogin() {
   return render(
@@ -72,17 +65,12 @@ async function signInThroughOtp(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: /continue/i }))
   await screen.findByLabelText('Verification code')
 
-  mockedAuth.verifyOtp.mockResolvedValueOnce({
-    accessToken: makeAccessToken(),
-    refreshToken: 'refresh-1',
-    admin: { id: 'admin-1', email: 'ops@redeemo.co.uk', adminRole: 'OPERATIONS' },
-  })
+  mockedAuth.verifyOtp.mockResolvedValueOnce({ accessToken: 'access-tok', meta: META })
   await user.type(screen.getByLabelText('Verification code'), '123456')
   await user.click(screen.getByRole('button', { name: /verify and sign in/i }))
 }
 
 beforeEach(() => {
-  localStorage.clear()
   replaceMock.mockReset()
   nextParam = null
 })

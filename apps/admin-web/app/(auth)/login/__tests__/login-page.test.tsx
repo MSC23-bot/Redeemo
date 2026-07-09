@@ -1,10 +1,12 @@
 /**
- * Login page — the two-step flow.
+ * Login page — the two-step flow (H5 migration: authApi goes through the
+ * same-origin BFF routes; session state lives in the SessionProvider's
+ * in-memory token, never localStorage).
  *
- * authApi is mocked (we are testing the page's orchestration, not the network);
- * next/navigation's router is mocked to assert routing on success. setSession is
- * the real localStorage-backed implementation, so a successful verify must leave
- * a readable session behind.
+ * authApi is mocked (we are testing the page's orchestration, not the
+ * network); next/navigation's router is mocked to assert routing on success;
+ * lib/api/client's refreshSession is mocked so the provider's G1
+ * refresh-on-mount resolves immediately and deterministically.
  */
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -12,7 +14,7 @@ import LoginPage from '../page'
 import { SessionProvider } from '@/lib/auth/useSession'
 import { ApiError } from '@/lib/api/client'
 import { authApi } from '@/lib/api/auth'
-import { getSessionMeta, getAccessToken } from '@/lib/auth/session'
+import { getAccessToken } from '@/lib/auth/tokenStore'
 
 // --- Mocks ---------------------------------------------------------------------
 
@@ -27,26 +29,21 @@ jest.mock('@/lib/api/auth', () => ({
   authApi: {
     login: jest.fn(),
     verifyOtp: jest.fn(),
+    logout: jest.fn(),
   },
 }))
 
+// The provider's G1 refresh-on-mount calls this; resolve `false` so mount
+// settles quickly to "signed out, ready" without a token, independent of the
+// login flow under test.
+jest.mock('@/lib/api/client', () => {
+  const actual = jest.requireActual('@/lib/api/client')
+  return { ...actual, refreshSession: jest.fn(async () => false) }
+})
+
 const mockedAuth = authApi as jest.Mocked<typeof authApi>
 
-// A structurally valid admin JWT so decodeAdminJwt returns the claims.
-function makeAccessToken(): string {
-  const b64 = (obj: unknown) =>
-    Buffer.from(JSON.stringify(obj))
-      .toString('base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-  return `${b64({ alg: 'HS256' })}.${b64({
-    sub: 'admin-1',
-    sessionId: 'sess-1',
-    adminRole: 'OPERATIONS',
-    role: 'admin',
-  })}.sig`
-}
+const META = { entityId: 'admin-1', sessionId: 'sess-1', adminRole: 'OPERATIONS' as const, email: 'ops@redeemo.co.uk' }
 
 function renderLogin() {
   return render(
@@ -57,7 +54,6 @@ function renderLogin() {
 }
 
 beforeEach(() => {
-  localStorage.clear()
   replaceMock.mockReset()
 })
 
@@ -114,15 +110,11 @@ describe('LoginPage — step 2 (OTP)', () => {
     await screen.findByLabelText('Verification code')
   }
 
-  it('stores the session and routes to / on a successful verify', async () => {
+  it('installs the in-memory access token and routes to / on a successful verify', async () => {
     const user = userEvent.setup()
     await reachOtpStep(user)
 
-    mockedAuth.verifyOtp.mockResolvedValueOnce({
-      accessToken: makeAccessToken(),
-      refreshToken: 'refresh-1',
-      admin: { id: 'admin-1', email: 'ops@redeemo.co.uk', adminRole: 'OPERATIONS' },
-    })
+    mockedAuth.verifyOtp.mockResolvedValueOnce({ accessToken: 'access-tok', meta: META })
 
     await user.type(screen.getByLabelText('Verification code'), '123456')
     await user.click(screen.getByRole('button', { name: /verify and sign in/i }))
@@ -130,14 +122,8 @@ describe('LoginPage — step 2 (OTP)', () => {
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith('/'))
 
     expect(mockedAuth.verifyOtp).toHaveBeenCalledWith('chal-123', '123456')
-    // Session persisted with the decoded entityId/sessionId + role/email.
-    expect(getAccessToken()).not.toBeNull()
-    expect(getSessionMeta()).toEqual({
-      entityId: 'admin-1',
-      sessionId: 'sess-1',
-      adminRole: 'OPERATIONS',
-      email: 'ops@redeemo.co.uk',
-    })
+    // Token installed in memory (never localStorage — no reads of it here).
+    expect(getAccessToken()).toBe('access-tok')
   })
 
   it('shows an expired-code error and does not route', async () => {
@@ -153,7 +139,6 @@ describe('LoginPage — step 2 (OTP)', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/has expired/i)
     expect(replaceMock).not.toHaveBeenCalled()
-    expect(getAccessToken()).toBeNull()
   })
 
   it('shows an invalid-code error for OTP_INVALID', async () => {

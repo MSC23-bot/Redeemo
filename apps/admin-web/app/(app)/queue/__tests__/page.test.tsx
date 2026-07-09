@@ -50,13 +50,16 @@ function mockSession(overrides: {
   adminId?: string | null
 }) {
   mockedUseSession.mockReturnValue({
+    accessToken: 'test-access-token',
     ready: true,
     isAuthenticated: true,
     role: 'OPERATIONS',
     email: 'ops@redeemo.co.uk',
     adminId: overrides.adminId ?? 'admin-me',
     can: overrides.can ?? (() => true),
+    setSession: jest.fn(),
     refresh: jest.fn(),
+    signOut: jest.fn(),
   })
 }
 
@@ -117,13 +120,16 @@ describe('QueuePage capability gate', () => {
 
   it('shows the loader (not forbidden) while session is not yet ready', () => {
     mockedUseSession.mockReturnValue({
+      accessToken: null,
       ready: false,
       isAuthenticated: false,
       role: null,
       email: null,
       adminId: null,
       can: () => false,
+      setSession: jest.fn(),
       refresh: jest.fn(),
+      signOut: jest.fn(),
     })
     mockQueue()
 
@@ -136,13 +142,16 @@ describe('QueuePage capability gate', () => {
 
   it('calls useQueue with enabled:false when the session is not yet ready', () => {
     mockedUseSession.mockReturnValue({
+      accessToken: null,
       ready: false,
       isAuthenticated: false,
       role: null,
       email: null,
       adminId: null,
       can: () => false,
+      setSession: jest.fn(),
       refresh: jest.fn(),
+      signOut: jest.fn(),
     })
     mockQueue()
 
