@@ -60,6 +60,19 @@ const TIERS = {
   // 2026-05-14 from PR #81 review (Codex + self-review converged on this
   // as a must-fix-before-prod alongside the resolver AbortSignal timeout).
   postcodePreview:   { prod: { max: 30, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } },
+  // Branch pin-drop tier (Branch Location Trust Slice 3, spec 2026-07-09 pin-drop
+  // addendum §4.3 / D-L4) — protects POST /api/v1/merchant/branches/:id/pin-drop,
+  // the OWNER-only merchant map pin-drop WRITE. Each request issues a
+  // resolvePostcode (postcodes.io) call to obtain the centroid, so it shares the
+  // postcodes.io-budget concern that postcodePreview guards; it is ALSO a durable
+  // state-changing write, so the tier is deliberately TIGHTER. A merchant sets a
+  // pin once per branch with occasional re-adjustment; legitimate cadence is a
+  // handful per session. 10/min/merchant in prod is far above that and bounds both
+  // postcodes.io spend and self-placement fuzzing. Keyed per MERCHANT/user
+  // (req.user.sub via the route's keyGenerator override — see branch/routes.ts),
+  // NOT per IP, so a NAT/CGNAT-shared office cannot collectively starve. The
+  // global 300/min backstop still applies on top.
+  branchPinDrop:     { prod: { max: 10, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } },
 } as const
 
 // Global backstop sizing (2026-07-09, Savings "Couldn't load <month>" fix).

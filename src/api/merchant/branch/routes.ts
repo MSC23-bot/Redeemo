@@ -5,12 +5,15 @@ import { AppError } from '../../shared/errors'
 import { isStorageEnabled } from '../../shared/storage'
 import { resolveMerchantContext, assertCanManageBranch } from '../shared'
 import { resolveLocationCandidate } from '../location/service'
+import { routeRateLimit } from '../../plugins/rate-limit'
 import type { BranchLocationSuggestion } from './service'
 import {
   listBranches,
   getBranch,
   createBranch,
   cancelPendingCreate,
+  dropBranchPin,
+  getBranchMapPreview,
   requestBranchClose,
   withdrawBranchClose,
   updateBranch,
@@ -69,6 +72,16 @@ const updateBranchBody = z.object({
   // route boundary; never reaches a Branch column or proposedChanges as a field.
   candidateToken: z.string().optional(),
 }).passthrough() // allow extra keys — service ignores them
+
+// Branch Location Trust Slice 3 (spec 2026-07-09 pin-drop addendum §4.2): the
+// merchant pin-drop body. lat/lng are zod-bounded to the UK box as a cheap first
+// filter; the AUTHORITATIVE gate is the server-side radius check against the
+// branch's postcode centroid (dropBranchPin), so these bounds are deliberately
+// generous. z.number() already rejects NaN / non-finite.
+const pinDropBody = z.object({
+  latitude:  z.number().gte(49).lte(61),
+  longitude: z.number().gte(-8.7).lte(2.0),
+})
 
 const openingHoursBody = z.object({
   hours: z.array(z.object({
@@ -202,6 +215,74 @@ export async function branchRoutes(app: FastifyInstance) {
       ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
     }, locationSuggestion)
     return reply.send(branch)
+  })
+
+  // POST /api/v1/merchant/branches/:id/pin-drop — merchant map pin-drop.
+  //
+  // ============================ INVARIANT L1 (amended, Slice 3) ================
+  // Branch Location Trust Slice 3 (spec 2026-07-09 pin-drop addendum §4.1,
+  // APPROVED 2026-07-09). THIS ROUTE IS THE ONLY SANCTIONED WIRE PATH THAT
+  // ACCEPTS CLIENT-SUPPLIED COORDINATES. The Google candidate-token flow remains
+  // the only wire path for Google place coordinates + placeId; clients NEVER send
+  // a placeId, and NEVER send coordinates on any branch create/edit body (those
+  // bodies drop lat/lng). The SINGLE exception is this endpoint, which accepts a
+  // zod-bounded { latitude, longitude }. The server does NOT trust those
+  // coordinates as confirmed: dropBranchPin independently re-resolves the branch's
+  // postcode centroid and admits the pin as MERCHANT_CONFIRMED ONLY when it lies
+  // within LOCATION_TRUST_RADIUS_METRES of that centroid; otherwise the pin is
+  // staged as an admin suggestion and the branch is stamped NEEDS_REVIEW (the L4
+  // degrade). No other endpoint accepts client coordinates.
+  // ============================================================================
+  //
+  // Auth: OWNER-only (dropBranchPin -> resolveAdminMerchant; keeps the SEC-M2
+  // suspended guard). Rate-limited by the per-user `branchPinDrop` tier (10/min
+  // prod). `hook: 'preHandler'` is LOAD-BEARING: @fastify/rate-limit defaults to
+  // the onRequest hook, which fires BEFORE the merchant-auth preHandler, so
+  // without this override the limiter would see req.user === undefined and fall
+  // back to IP keying, defeating the per-merchant guarantee on shared-NAT offices.
+  // Forcing preHandler puts the limiter AFTER auth so req.user.sub is populated
+  // (mirrors the redemptionPolling precedent). Pinned by a route-config test.
+  app.post(`${prefix}/:id/pin-drop`, {
+    config: {
+      rateLimit: {
+        ...routeRateLimit('branchPinDrop'),
+        hook: 'preHandler',
+        keyGenerator: (req: FastifyRequest) => req.user?.sub ?? req.ip,
+      },
+    },
+  }, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const { latitude, longitude } = pinDropBody.parse(req.body)
+    const branch = await dropBranchPin(app.prisma, req.user.sub, id, { latitude, longitude }, {
+      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
+    })
+    return reply.send(branch)
+  })
+
+  // GET /api/v1/merchant/branches/:id/map-preview — backend-proxied Google Static
+  // Maps image for the pin-drop UI (Branch Location Trust Slice 3, addendum §7
+  // option (d)). OWNER-only (getBranchMapPreview -> resolveAdminMerchant). The
+  // provider call is DARK by default (no key -> MAP_PREVIEW_NOT_ENABLED, never a
+  // constructed request) and usage-capped; the Google key stays SERVER-SIDE and
+  // is NEVER in the response (the body is image BYTES only), so merchant-web
+  // consumes it same-origin with NO CSP change. Shares the per-user branchPinDrop
+  // rate-limit tier (each preview also issues a postcodes.io centroid resolve).
+  // `hook: 'preHandler'` keeps the limiter per-merchant (see the pin-drop route).
+  app.get(`${prefix}/:id/map-preview`, {
+    config: {
+      rateLimit: {
+        ...routeRateLimit('branchPinDrop'),
+        hook: 'preHandler',
+        keyGenerator: (req: FastifyRequest) => req.user?.sub ?? req.ip,
+      },
+    },
+  }, async (req: FastifyRequest, reply) => {
+    const { id } = idParam.parse(req.params)
+    const { contentType, body } = await getBranchMapPreview(app.prisma, req.user.sub, id)
+    return reply
+      .header('content-type', contentType)
+      .header('cache-control', 'private, max-age=300')
+      .send(body)
   })
 
   // POST /api/v1/merchant/branches/:id/edit-request — create sensitive edit request
