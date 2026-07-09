@@ -41,6 +41,12 @@ export function ComplianceStatusCard({ profile }: { profile: MerchantProfile }) 
 
   const agreement = profile.agreement ?? null
   const acceptedDate = formatDateLabel(agreement?.acceptedAt)
+  // WF3 fix: the signed-copy and the "View signed agreement" button must derive
+  // from the SAME condition, or a live merchant with a genuinely-signed contract
+  // (or a transient absent-data read) can show contradictory copy: the unsigned
+  // sentence AND a working "view it" button at once. `isSigned` is the single
+  // source of truth both affordances below key off.
+  const isSigned = Boolean(agreement && acceptedDate)
 
   return (
     <Card className="gap-4" data-testid="business-profile-compliance-card">
@@ -75,23 +81,25 @@ export function ComplianceStatusCard({ profile }: { profile: MerchantProfile }) 
             <FileText size={17} aria-hidden style={{ color: 'var(--text-tertiary)' }} />
             <p className="text-sm font-semibold text-foreground">Merchant agreement</p>
           </div>
-          {agreement && acceptedDate ? (
+          {isSigned ? (
             <p className="text-sm text-muted-foreground">
-              Accepted version {agreement.acceptedVersion} on {acceptedDate}{' '}
-              {signatureMethodPhrase(agreement.signatureMethod)}. This is the current version.
+              Accepted version {agreement!.acceptedVersion} on {acceptedDate}{' '}
+              {signatureMethodPhrase(agreement!.signatureMethod)}. This is the current version.
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">You have not signed the merchant agreement yet.</p>
           )}
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => setAgreementOpen(true)}
-            data-testid="view-signed-agreement"
-          >
-            <ExternalLink size={14} aria-hidden /> View signed agreement
-          </Button>
+          {isSigned ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setAgreementOpen(true)}
+              data-testid="view-signed-agreement"
+            >
+              <ExternalLink size={14} aria-hidden /> View signed agreement
+            </Button>
+          ) : null}
         </div>
       </div>
 

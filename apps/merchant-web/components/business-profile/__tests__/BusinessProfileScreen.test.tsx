@@ -155,6 +155,9 @@ describe('BusinessProfileScreen', () => {
     renderScreen(profile({ agreement: null }))
     const card = screen.getByTestId('business-profile-compliance-card')
     expect(within(card).getByText(/have not signed the merchant agreement yet/i)).toBeInTheDocument()
+    // WF3: the unsigned copy and the "View signed agreement" button must never
+    // render together - there is nothing signed to view.
+    expect(within(card).queryByTestId('view-signed-agreement')).not.toBeInTheDocument()
   })
 
   it('renders the Documents card (B3) with an empty state and no upload trigger for a viewer with no viewerCapabilities (fail closed)', async () => {

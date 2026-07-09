@@ -30,6 +30,17 @@ const MAX_BYTES: Record<UploadKind, number> = {
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg']
 const ACCEPT_ATTR = 'image/png,image/jpeg'
 
+// WF5 (staging acceptance walk): these backend codes (src/api/shared/errors.ts)
+// already carry a message that states the actual requirement (dimensions,
+// size, type, unreadable file) - surface it verbatim instead of the generic
+// "Upload failed" fallback so the merchant knows what to fix.
+const SURFACEABLE_UPLOAD_ERROR_CODES = new Set([
+  'IMAGE_DIMENSIONS_INVALID',
+  'IMAGE_TOO_LARGE',
+  'UNSUPPORTED_FILE_TYPE',
+  'IMAGE_UNREADABLE',
+])
+
 interface FileUploadProps {
   kind: UploadKind
   /** Accessible label for the control. */
@@ -99,11 +110,15 @@ export function FileUpload({ kind, label, hint, onUploaded, className, id }: Fil
       // Honest degrade when the storage capability is dark (feature-flagged off):
       // the control stays visible but explains itself instead of a generic failure.
       // Duck-typed (not instanceof) so partial client mocks in tests stay valid.
-      const code = (err as { code?: unknown } | null | undefined)?.code
+      const typed = err as { code?: unknown; message?: unknown } | null | undefined
+      const code = typed?.code
+      const backendMessage = typeof typed?.message === 'string' ? typed.message : null
       setError(
         code === 'STORAGE_NOT_ENABLED'
           ? 'Image upload is not available yet. You can add a photo later.'
-          : 'Upload failed. Please try again.',
+          : typeof code === 'string' && SURFACEABLE_UPLOAD_ERROR_CODES.has(code) && backendMessage
+            ? backendMessage
+            : 'Upload failed. Please try again.',
       )
     } finally {
       // Reset the native input value so re-selecting the EXACT same file refires

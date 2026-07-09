@@ -32,6 +32,19 @@ describe('staff display constants', () => {
       expect(text).not.toMatch(/[—–]/)
     }
   })
+
+  // WF9 (staging acceptance walk): the invite dialog told owners a Branch manager
+  // "Cannot edit business details, branches, or branch PINs" - wrong about
+  // branches + PINs. The shipped boundary (getBranchPin: OWNER or ASSIGNED
+  // BRANCH_MANAGER) grants an assigned BM branch edits + PIN reveal/change/send
+  // for their OWN branches. Copy must say so, and must not claim they cannot.
+  it('ROLE_DETAIL for BRANCH_MANAGER states the real branch/PIN capability, not a blanket denial', () => {
+    const detail = ROLE_DETAIL.BRANCH_MANAGER
+    expect(detail.can.some((line) => /assigned branch/i.test(line) && /branch pin/i.test(line))).toBe(true)
+    const cannotText = detail.cannot.join(' ')
+    expect(cannotText).not.toMatch(/branches, or branch pins/i)
+    expect(cannotText).toMatch(/business details/i)
+  })
 })
 
 describe('branchCoverageLabel', () => {
