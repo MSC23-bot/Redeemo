@@ -5,6 +5,7 @@
 import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import RedemptionsPage from '../page'
+import type { AdminRedemptionRow } from '@/lib/api/redemptions'
 
 // ── Mock useSession ───────────────────────────────────────────────────────────
 
@@ -38,10 +39,13 @@ function mockSession(overrides: { can?: (cap: string) => boolean }) {
   })
 }
 
-function row(overrides: Partial<ReturnType<typeof baseRow>> = {}) {
+function row(overrides: Partial<AdminRedemptionRow> = {}) {
   return { ...baseRow(), ...overrides }
 }
-function baseRow() {
+// Typed against the real row type so overrides accept the full status union
+// (a `ReturnType<typeof baseRow>` fixture would narrow `status` to the
+// literal and reject 'VALIDATED' overrides).
+function baseRow(): AdminRedemptionRow {
   return {
     id: 'r1',
     redemptionCode: 'A7K2P9X4',
@@ -50,7 +54,7 @@ function baseRow() {
     merchant: { id: 'm1', businessName: 'Acme Coffee' },
     customerName: 'Sarah K.',
     redeemedAt: '2026-07-01T10:00:00.000Z',
-    status: 'AWAITING_VALIDATION' as const,
+    status: 'AWAITING_VALIDATION',
     validatedAt: null,
     validationMethod: null,
     validatedByLabel: null,
