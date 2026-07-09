@@ -100,3 +100,21 @@ NOT touched: `confirmBranchLocation` stays the sole `MANUALLY_CONFIRMED` authori
 - L1: no route/DTO/wire change. Task 1 enriches a SERVER-side persisted metadata blob only; the client still sends `candidateToken`.
 - L4: every outcome is a single in-memory mutation of the update payload followed by one `branch.update` inside the pre-existing transaction. No partial coord writes.
 - The apply lane never re-resolves the postcode or re-calls Google: it cross-checks the request-time centroid snapshot against the request-time Google postcode, both already persisted.
+
+---
+
+## As shipped (2026-07-09)
+
+Branch `feat/branch-location-trust-slice-1b` off `main` @ 92d0b2bd. No PR, no merge.
+
+| Commit | Task |
+|---|---|
+| `491ca6fe` | Plan doc |
+| `69c64dfc` | Task 1 — carry the Google postcode in the staged suggestion metadata (enabling) |
+| `8b9157ad` | Task 2 — draft-window direct branch edit runs the pipeline |
+| `6b4286bd` | Task 3 — reviewed-edit apply lane (editApplier) runs the pipeline + comment sweep |
+
+- No schema change: Slice 1 already shipped `Branch.googlePlaceId` + the `NEEDS_REVIEW` enum value.
+- `crossCheckGoogleLocation` reused verbatim; three call sites now (create, draft-window direct, reviewed-edit apply). L1-L4 preserved (see the invariants section above).
+- Verification: `npx tsc --noEmit` clean; `npm run test:unit` = 238 files / 2932 tests passing. Every suggestion-apply, redaction, and unit editApplier test green. The `edit-applier.integration.test.ts` suite (Neon-mutating, integration lane) was NOT run per house rules; its branch/photo cases carry no `__locationSuggestion` so the gated pipeline never fires for them (verbatim apply unchanged).
+- Follow-up at eventual merge: flip the relevant PROJECT-STATE line + Merchant Portal roadmap entry, and record the slice-table 1b row as shipped (not done on this branch since it is not merged).
