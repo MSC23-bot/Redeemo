@@ -25,7 +25,11 @@ import { formatDistanceCompact, formatGbpCompact } from '@/design-system/utils/f
  */
 const BANNER_H = 164
 
-export function FeaturedHeroCard({
+// Perf batch 1 (2026-07-09) — React.memo'd so a scroll-driven parent
+// re-render (e.g. HomeScreen's headerCollapsed flip) doesn't recompute every
+// rail card; only a change to this card's own props does. Props shape is
+// unchanged — only referential stability of the callers' props changes.
+export const FeaturedHeroCard = React.memo(function FeaturedHeroCard({
   branch,
   onPress,
   width,
@@ -191,7 +195,7 @@ export function FeaturedHeroCard({
       </View>
     </PressableScale>
   )
-}
+})
 
 const styles = StyleSheet.create({
   card: {

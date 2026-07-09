@@ -608,6 +608,42 @@ describe('VoucherCard — Gate J revised TIME_LIMITED state pill (M4c)', () => {
       s && (s as { minHeight?: number }).minHeight === 144)
     expect(minHeightEntry).toBeTruthy()
   })
+
+  describe('perf batch 1 (2026-07-09) — scroll-aware pulse-dot', () => {
+    // `useAnimatedReaction` is a no-op under the jest mock (tests/setup.ts),
+    // so the pulse-dot's freeze-while-scrolling behaviour can't be observed
+    // via rendered opacity in a unit test — the same constraint the existing
+    // `pulsing-dot.test.tsx` suite works within. Pin the reaction's
+    // PRESENCE instead: PulseDot must register a `useAnimatedReaction` whose
+    // selector reads exactly the shared `scrollActivity` flag (mirrors
+    // `src/design-system/motion/PulsingDot.tsx`'s pattern, which every other
+    // looping animation on Home already uses).
+    it('wires the pulse-dot to the shared scrollActivity flag via useAnimatedReaction', () => {
+      const Reanimated = require('react-native-reanimated')
+      const { scrollActivity } = require('@/design-system/motion/scrollActivity')
+      const reactionSpy = jest.spyOn(Reanimated, 'useAnimatedReaction')
+
+      renderPill(
+        { currentWindow: { startsAt: '2026-05-11T10:00:00Z', endsAt: '2026-05-11T14:00:00Z' } },
+        new Date('2026-05-11T10:00:00Z'),
+      )
+
+      expect(reactionSpy).toHaveBeenCalled()
+      // At least one registered reaction's selector must read scrollActivity
+      // itself (not some unrelated shared value) — set a sentinel, invoke
+      // each selector, and confirm one of them echoes it back.
+      const sentinel = 42
+      const prevValue = scrollActivity.value
+      scrollActivity.value = sentinel
+      const readsScrollActivity = reactionSpy.mock.calls.some(
+        ([selector]) => (selector as () => unknown)() === sentinel,
+      )
+      scrollActivity.value = prevValue
+      expect(readsScrollActivity).toBe(true)
+
+      reactionSpy.mockRestore()
+    })
+  })
 })
 
 // ── M5 REUSABLE pill states (Task 11) ────────────────────────────────

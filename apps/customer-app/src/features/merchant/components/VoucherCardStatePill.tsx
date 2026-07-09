@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { View, StyleSheet } from 'react-native'
 import Animated, {
   Easing,
   cancelAnimation,
+  useAnimatedReaction,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -11,6 +12,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { Text } from '@/design-system/Text'
+import { scrollActivity } from '@/design-system/motion/scrollActivity'
 import type { MerchantVoucher } from '@/lib/api/merchant'
 import {
   formatClockTime, formatClockHour12, formatDurationCompact, formatDayName,
@@ -332,26 +334,40 @@ function Pill({ testID, textStyle, copy, unavail, children }: PillProps) {
  * Loop runs entirely on the native UI thread (no JS-bridge crossings per
  * frame). Respects `useReducedMotion` — when on, dot stays static at full
  * opacity (no animation registered).
+ *
+ * Perf batch 1 (2026-07-09) — additionally PAUSES while the host screen's
+ * ScrollView is moving, reacting to the same module-level `scrollActivity`
+ * flag Home / Merchant Profile / Voucher Detail already drive (mirrors
+ * `src/design-system/motion/PulsingDot.tsx`'s `useAnimatedReaction` pattern:
+ * cancel + snap back to the resting opacity, THEN re-arm the loop, so a
+ * scroll-frozen mid-pulse value can't collapse the next `withRepeat` cycle
+ * to ~no movement). The opacity range (0.4-1), the per-half-cycle duration
+ * (speedMs/2, ease-in-out) and the reduced-motion behaviour are unchanged
+ * from the previous `useEffect`-driven loop — only the pause-during-scroll
+ * behaviour is new.
  */
 function PulseDot({ color, speedMs }: { color: string; speedMs: number }) {
   const reducedMotion = useReducedMotion()
   const opacity = useSharedValue(1)
 
-  useEffect(() => {
-    if (reducedMotion) {
-      opacity.value = 1
-      return
-    }
-    opacity.value = withRepeat(
-      withSequence(
-        withTiming(0.4, { duration: speedMs / 2, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1,   { duration: speedMs / 2, easing: Easing.inOut(Easing.ease) }),
-      ),
-      -1,
-      false,
-    )
-    return () => cancelAnimation(opacity)
-  }, [opacity, speedMs, reducedMotion])
+  useAnimatedReaction(
+    () => scrollActivity.value,
+    (scrolling) => {
+      cancelAnimation(opacity)
+      opacity.value = 1 // resting pose before (re)starting — see header note
+      if (!reducedMotion && scrolling === 0) {
+        opacity.value = withRepeat(
+          withSequence(
+            withTiming(0.4, { duration: speedMs / 2, easing: Easing.inOut(Easing.ease) }),
+            withTiming(1,   { duration: speedMs / 2, easing: Easing.inOut(Easing.ease) }),
+          ),
+          -1,
+          false,
+        )
+      }
+    },
+    [reducedMotion, speedMs],
+  )
 
   const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }))
 
