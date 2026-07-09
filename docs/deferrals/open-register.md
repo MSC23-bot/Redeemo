@@ -152,6 +152,24 @@ SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
 - **§LOC-MIGRATE** (platform/deploy) - PRODUCTION-only as of 2026-07-09: the `branch_google_place_id` migration (`20260709095646`, adds `Branch.googlePlaceId`) and the three earlier migrations (`keyring_fingerprint`, `maintenance_alert_types`, `voucher_governed_flows` - §VG-MIGRATE above) are verified APPLIED on dev + staging (both 56/56, direct-SQL cross-check 2026-07-09; staging apply landed with the storage-enablement deploy `28f3d75f`, approved SHA `a5808113`). Only the `production` Neon branch still lacks all four. GATED: owner-approved production deploy window (see `docs/PROJECT-STATE.md` §3 cross-check table + §4.4/§6).
 - Detail: PR #435 `92d0b2bd`; spec `docs/superpowers/specs/2026-07-09-branch-location-trust-model.md`; plan `docs/superpowers/plans/2026-07-09-branch-location-trust-slice-1.md`; `docs/PROJECT-STATE.md` §4.2 Branch Location Trust Slice 1 paragraph + §6 RESOLVED note (2026-07-09).
 
+**§ADM-LOGIN (OPENED 2026-07-09, staging acceptance-walk gate):** the staging
+`admin@redeemo.com` password does NOT match the documented seed credential (login returns
+`INVALID_CREDENTIALS` = bcrypt mismatch; account exists, `isActive=true`, `SUPER_ADMIN`).
+Investigated read-only 2026-07-09, no reset performed, no hash/secret exposed: dev DB matches
+the seed credential; the staging `passwordHash` was last updated **2026-06-26T19:13Z**,
+consistent with a completed password-reset flow (reset emails SENT 2026-06-25 12:44 +
+2026-06-26 22:13 while staging sandbox email was live; failed logins from an owner-range IP
+22:06-22:10 that evening; an `admin_otp` email SENT 22:17 implies one correct-password login
+attempt AFTER the reset; `lastLoginAt` is NULL, so no fully completed admin session is
+recorded). Owner states they did not change it: the reset was most likely completed during a
+2026-06-26 admin session (possibly Codex-assisted). Not attack-shaped: reset links went to the
+sandbox-allowlisted inbox and all IPs are owner-range. Also noted: `m5-actor-*@example.com`
+AdminUser rows = June integration-test leakage into the staging DB (pre-dates the test-DB
+isolation split). **OWNER DECISION:** either supply the current staging admin password, or
+approve a one-time reset (worker is offline, so the reset email queues in `CommunicationLog`
+and the link can be extracted without any real email; set it back to the documented seed value
+or an owner-chosen one). Blocks the acceptance walk's ADMIN lane (incl. live D67 verification).
+
 **B2 address search - staging status: RESOLVED (2026-07-09).** The merchant-portal branch
 address search (PR #318, `49c132fe`) is fully built and merged - server-side Places New Text
 Search via `searchPlaces()` + the Redis atomic limiter above, candidate-token flow, UI. The
@@ -166,6 +184,14 @@ disabled key is visible in logs without needing a live probe.)
 
 ## Change log
 
+- **2026-07-09c** · Acceptance-walk prep: new §5 row **§ADM-LOGIN** (staging admin credential
+  drifted from seed via a 2026-06-26 completed password-reset; read-only investigation
+  recorded; owner decision required; blocks the walk's ADMIN lane). D67 SHIPPED + DEPLOYED
+  (PR #441 `09af1cfa`; staging deployment `c6d04078` @ `f9cc9652`); PROJECT-STATE §6 D67 row
+  RESOLVED in the same PR. Deploy-verification rule (probe new routes, not just health) added
+  to the staging runbook §14 after the `railway up` worktree stale-artifact anomaly
+  (`6f540979`, superseded). Acceptance-walk plan:
+  `docs/superpowers/plans/2026-07-09-merchant-portal-staging-acceptance-walk.md`.
 - **2026-07-09b** · §5 B2 address-search live note flipped to RESOLVED: the owner renewed the
   expired Google key + Railway staging variable, and a live staging probe on 2026-07-09
   (post-`a5808113` enablement deploy, deployment `28f3d75f`) returned 3 candidates with no
