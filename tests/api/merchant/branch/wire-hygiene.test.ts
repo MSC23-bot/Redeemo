@@ -73,6 +73,21 @@ describe('toMerchantBranch', () => {
       openingHours: [{ id: 'h1' }], redemptionPinSet: true,
     })
   })
+
+  // Open-register closure pin (chore/admin-s3-hygiene, 2026-07-09): the merchant
+  // GET /branches serializer must NEVER emit the redemptionPin key for a FULL DB
+  // row shape (BRANCH_INCLUDE selects every branch scalar, so the raw row DOES
+  // carry the ciphertext; toMerchantBranch is the single strip point on the wire
+  // exit). Object.keys is the belt-and-braces guard so a future field add cannot
+  // silently re-surface it. The guarded reveal route (GET /pin) is the ONLY
+  // legitimate redemptionPin exit and is unaffected (see section 4 below).
+  it('a full DB-shaped branch row never leaves with the redemptionPin key', () => {
+    const out = toMerchantBranch(baseBranchRow())
+    expect(Object.keys(out)).not.toContain('redemptionPin')
+    expect((out as { redemptionPinSet: boolean }).redemptionPinSet).toBe(true)
+    // The distinctive ciphertext must not survive anywhere in the serialized row.
+    expect(JSON.stringify(out)).not.toContain(CIPHERTEXT)
+  })
 })
 
 // ── 2. Real Fastify-request pins ────────────────────────────────────────────
