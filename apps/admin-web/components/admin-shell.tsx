@@ -29,6 +29,8 @@ type NavItem = { label: string; href: string; cap: AdminCapability }
 const NAV_ITEMS: NavItem[] = [
   { label: 'Approval queue', href: '/queue', cap: 'approval:read' },
   { label: 'Merchants', href: '/merchants', cap: 'merchant:read' },
+  // D67: read-only cross-merchant redemptions list.
+  { label: 'Redemptions', href: '/redemptions', cap: 'redemption:read' },
 ]
 
 function RoleBadge({ role }: { role: string }) {

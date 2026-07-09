@@ -83,6 +83,11 @@ export type AdminCapability =
   // PUBLIC custom offers) is a higher product/legal bar and may warrant a SEPARATE
   // capability/tier; do not assume it reuses this one.
   | 'merchant:manage-vouchers'
+  // D67: gates the read-only cross-merchant admin redemptions list (GET
+  // /admin/redemptions). Distinct from `merchant:read` (the merchants
+  // directory) so a redemption-visibility role need not also hold the
+  // merchant-directory read. OPERATIONS + SUPER_ADMIN hold it.
+  | 'redemption:read'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
@@ -95,6 +100,7 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:edit',
   'merchant:submit',
   'merchant:manage-vouchers',
+  'redemption:read',
 ]
 
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `adminHasCapability`
