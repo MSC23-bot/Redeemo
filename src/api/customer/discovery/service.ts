@@ -4432,12 +4432,21 @@ export async function getInAreaBranches(
     lng?: number | null
     userId: string | null
     limit: number
+    // Map in-area reliability (`branchesOnly` route mode) — the branch arm
+    // does not otherwise know whether the viewport is empty because there
+    // is genuinely no UK-wide supply for the active filter vs. just this
+    // viewport. Only compute it (one extra cheap, indexed count query)
+    // when the caller actually needs a standalone meta envelope; the
+    // legacy path derives `emptyStateReason` from `getInAreaMerchants`
+    // instead and never sets this flag, so its query cost is unchanged.
+    includeEmptyStateReason?: boolean
   },
 ): Promise<{
   branches: BranchTile[]
   meta: {
     effectiveLocality: { id: string; name: string } | null
     rungCounts: Record<keyof typeof EMPTY_RUNG_COUNTS, number>
+    emptyStateReason?: 'none' | 'no_uk_supply'
   }
 }> {
   const { bbox, categoryId, lat, lng, userId, limit } = params
@@ -4465,6 +4474,20 @@ export async function getInAreaBranches(
 
   // ── 2. Fetch candidate branches (lite select for ranking; full enrichment
   //    runs on the page slice via enrichBranchTiles).
+  //
+  //    Map in-area reliability fix: candidates used to be fetched with
+  //    `take: limit` and no `orderBy`, i.e. the SAME cap later applied to
+  //    the RANKED output was also applied to the pre-rank candidate pool.
+  //    In a dense viewport (more matching branches than `limit`) Postgres
+  //    returns an arbitrary slice of rows for an unordered `take`, so
+  //    `rankBranchesV3` never even saw the branches it would have ranked
+  //    highest — the visible pins would flicker in/out nondeterministically
+  //    between otherwise-identical requests for the same viewport. Fetch a
+  //    larger, deterministically-ordered candidate pool instead so ranking
+  //    always sees the full in-viewport set (up to the cap); the caller's
+  //    `limit` is still enforced AFTER ranking via `targetCount`/`hardCap`
+  //    below (step 4).
+  const CANDIDATE_CAP = Math.max(limit * 4, 200)
   const candidateBranches = await prisma.branch.findMany({
     where,
     select: {
@@ -4485,7 +4508,8 @@ export async function getInAreaBranches(
         select: { id: true, businessName: true },
       },
     },
-    take: limit,
+    orderBy: { id: 'asc' }, // deterministic tiebreak — same viewport always yields the same candidate pool
+    take: CANDIDATE_CAP,
   })
 
   // ── 3. Resolve viewport-centred effLoc (mirrors getInAreaMerchants:2856-2860).
@@ -4575,6 +4599,25 @@ export async function getInAreaBranches(
     },
   )
 
+  // ── 6. Optional standalone `emptyStateReason` (branchesOnly route mode
+  //    only — see param docblock). Mirrors the "no UK-wide supply for this
+  //    filter" semantics of `getInAreaMerchants`'s `totalSupply` check, but
+  //    branch-first: count active MANUALLY_CONFIRMED branches for the same
+  //    merchant/category predicate with NO bbox constraint.
+  let emptyStateReason: 'none' | 'no_uk_supply' | undefined
+  if (params.includeEmptyStateReason) {
+    const ukWideCount = await prisma.branch.count({
+      where: {
+        isActive:           true,
+        isTestData:         false,
+        lifecycleStatus:    { not: 'PENDING_CREATE' },
+        merchant:           where.merchant,
+        locationConfidence: 'MANUALLY_CONFIRMED',
+      },
+    })
+    emptyStateReason = ukWideCount === 0 ? 'no_uk_supply' : 'none'
+  }
+
   return {
     branches,
     meta: {
@@ -4582,6 +4625,7 @@ export async function getInAreaBranches(
         ? { id: viewportEffLoc.locality.id, name: viewportEffLoc.locality.name }
         : null,
       rungCounts,
+      ...(emptyStateReason !== undefined ? { emptyStateReason } : {}),
     },
   }
 }

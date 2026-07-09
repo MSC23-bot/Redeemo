@@ -106,3 +106,42 @@ describe('useInAreaBranches — pan/zoom keep-previous behaviour (§AY)', () => 
     expect(result.current.data).toBeUndefined()
   })
 })
+
+describe('useInAreaBranches — Map in-area reliability slice', () => {
+  beforeEach(() => { (discoveryApi.getInAreaBranches as jest.Mock).mockReset() })
+
+  it('passes branchesOnly:1 and a quantized bbox to the API client', async () => {
+    (discoveryApi.getInAreaBranches as jest.Mock).mockResolvedValue(responseA)
+    const wrapper = makeWrapper()
+    const rawBbox = { minLat: 53.60001, maxLat: 53.69999, minLng: -1.85001, maxLng: -1.75001 }
+    const { result } = renderHook(() => useInAreaBranches(rawBbox), { wrapper })
+
+    await waitFor(() => expect(result.current.data?.branches?.[0]?.id).toBe('a'))
+
+    expect(discoveryApi.getInAreaBranches).toHaveBeenCalledWith(
+      expect.objectContaining({
+        minLat: 53.6, maxLat: 53.7, minLng: -1.851, maxLng: -1.75,
+        branchesOnly: 1,
+      }),
+    )
+  })
+
+  it('two raw bboxes in the same quantized grid cell share a cache entry (no second fetch)', async () => {
+    (discoveryApi.getInAreaBranches as jest.Mock).mockResolvedValue(responseA)
+    const wrapper = makeWrapper()
+    const bboxNear1 = { minLat: 53.6001, maxLat: 53.6501, minLng: -1.8001, maxLng: -1.7501 }
+    const bboxNear2 = { minLat: 53.6002, maxLat: 53.6502, minLng: -1.8002, maxLng: -1.7502 }
+
+    const { rerender } = renderHook(
+      ({ bbox }: { bbox: typeof bboxNear1 }) => useInAreaBranches(bbox),
+      { wrapper, initialProps: { bbox: bboxNear1 } },
+    )
+    await waitFor(() => expect(discoveryApi.getInAreaBranches).toHaveBeenCalledTimes(1))
+
+    // Pan by a sub-grid-cell amount — quantized bbox is identical, so this
+    // must be a cache hit (no additional network call) rather than a
+    // brand-new React Query key.
+    rerender({ bbox: bboxNear2 })
+    await waitFor(() => expect(discoveryApi.getInAreaBranches).toHaveBeenCalledTimes(1))
+  })
+})
