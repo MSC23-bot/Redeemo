@@ -18,6 +18,7 @@ import { parsePublicUrl } from '../../shared/storage'
 import { resolvePostcode } from '../../lib/postcodeResolver'
 import { findOrCreateLocality } from '../../lib/findOrCreateLocality'
 import { validateOpeningHours } from './openingHours'
+import { crossCheckGoogleLocation } from './locationTrust'
 import { uploadMerchantImage } from '../upload/service'
 import { enqueue, MAINTENANCE_QUEUE } from '../../queues'
 import { PROMOTE_PENDING_HOURS_JOB } from '../../queues/processors/promotePendingHours'
@@ -78,6 +79,13 @@ export interface BranchLocationSuggestion {
   placeId: string
   latitude: number
   longitude: number
+  // Branch Location Trust Slice 1 (spec 2026-07-09): the postcode parsed from the
+  // Google formattedAddress at stash time, threaded through from
+  // resolveLocationCandidate. The create-lane trust pipeline cross-checks it
+  // against the merchant-entered postcode. Null when Google's address had no
+  // parseable UK postcode (read as a failed check). The edit lane still stages
+  // this suggestion as admin-review metadata only until Slice 1b.
+  postcode: string | null
 }
 
 /**
@@ -264,6 +272,39 @@ export async function createBranchCore(
   if (!postcode) throw new AppError('POSTCODE_REQUIRED')
   const locationFields = await resolveBranchLocationFields(prisma, postcode)
 
+  // Branch Location Trust Slice 1 (spec 2026-07-09): auto-trust pipeline.
+  // SUPERSEDES the PR-6 "metadata only" invariant on the CREATE lane by owner
+  // direction: a Google-picked pin that passes BOTH cross-checks is APPLIED with
+  // ADDRESS_GEOCODED + googlePlaceId; any failure degrades to exactly the legacy
+  // behaviour (the postcode-centroid coords from resolveBranchLocationFields)
+  // PLUS a NEEDS_REVIEW stamp so the branch enters the admin exception queue (L4;
+  // no partial Google-coord application). The staged audit metadata
+  // (locationSuggestionMetadata) continues in BOTH outcomes so admins always see
+  // provenance. crossCheckGoogleLocation is the ONLY writer-authority for the
+  // ADDRESS_GEOCODED decision (L2).
+  let trustedLocation: { latitude: number; longitude: number; googlePlaceId: string } | null = null
+  let confidenceOverride: 'ADDRESS_GEOCODED' | 'NEEDS_REVIEW' | null = null
+  if (locationSuggestion) {
+    const verdict = crossCheckGoogleLocation({
+      googleLat:       locationSuggestion.latitude,
+      googleLng:       locationSuggestion.longitude,
+      googlePostcode:  locationSuggestion.postcode,
+      enteredPostcode: postcode,
+      centroidLat:     locationFields.latitude,
+      centroidLng:     locationFields.longitude,
+    })
+    if (verdict.trusted) {
+      trustedLocation = {
+        latitude:      locationSuggestion.latitude,
+        longitude:     locationSuggestion.longitude,
+        googlePlaceId: locationSuggestion.placeId,
+      }
+      confidenceOverride = 'ADDRESS_GEOCODED'
+    } else {
+      confidenceOverride = 'NEEDS_REVIEW'
+    }
+  }
+
   return prisma.$transaction(async (tx) => {
     const branch = await tx.branch.create({
       data: {
@@ -290,6 +331,16 @@ export async function createBranchCore(
                             // postTown / ladDistrict / adminCounty / region /
                             // locationCountry / locationResolvedAt /
                             // locationConfidence = POSTCODE_CENTROID
+        // Branch Location Trust Slice 1: on a passed cross-check ONLY, overwrite
+        // the centroid coords with the exact Google pin + record googlePlaceId.
+        ...(trustedLocation ? {
+          latitude:      trustedLocation.latitude,
+          longitude:     trustedLocation.longitude,
+          googlePlaceId: trustedLocation.googlePlaceId,
+        } : {}),
+        // And override the POSTCODE_CENTROID snapshot with ADDRESS_GEOCODED (pass)
+        // or NEEDS_REVIEW (fail). Absent when no suggestion rode along.
+        ...(confidenceOverride ? { locationConfidence: confidenceOverride } : {}),
       },
       include: BRANCH_INCLUDE,
     })
