@@ -11,6 +11,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated'
 import { useMotionScale } from '@/design-system/useMotionScale'
+import { useScrollActivity } from '@/design-system/motion/useScrollActivity'
 import { LinearGradient } from 'expo-linear-gradient'
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router'
 import { Text, color } from '@/design-system'
@@ -140,6 +141,19 @@ export function MerchantProfileScreen({ id }: Props) {
       return () => { isFocusedRef.current = false }
     }, [])
   )
+
+  // Perf batch 1 (2026-07-09) — reuse Home's scrollActivity mechanism here so
+  // looping animations (e.g. VoucherCardStatePill's PulseDot on the Vouchers
+  // tab) pause while this screen's ScrollView is moving, exactly as they
+  // already do on Home. Called early (deliberately BEFORE the §BD-2 tab-reset
+  // `useFocusEffect` below) so its own internal `useFocusEffect` registers
+  // first — the tab-reset test harness
+  // (`merchant-profile-tab-reset-on-focus.test.tsx`) captures the LAST
+  // `useFocusEffect` callback registered per render to simulate a re-focus,
+  // and must keep resolving to the tab-reset effect, not this one. The
+  // returned handlers are spread onto the ScrollView further below (separate
+  // JS begin/end props; `scrollHandler`'s worklet `onScroll` is unrelated).
+  const scroll = useScrollActivity()
 
   // URL ↔ branch selection (P2.3). `branchId` from `?branch=`; `select`
   // pushes a new branch via router.replace; `reconcile` aligns the URL
@@ -895,6 +909,10 @@ export function MerchantProfileScreen({ id }: Props) {
           showsVerticalScrollIndicator={false}
           onScroll={scrollHandler}
           scrollEventThrottle={16}
+          onScrollBeginDrag={scroll.onScrollBeginDrag}
+          onMomentumScrollBegin={scroll.onMomentumScrollBegin}
+          onScrollEndDrag={scroll.onScrollEndDrag}
+          onMomentumScrollEnd={scroll.onMomentumScrollEnd}
         >
         <View onLayout={handleSbbLayout}>
           <SuspendedBranchBanner
