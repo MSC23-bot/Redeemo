@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { emailSchema } from '../../shared/schemas'
 import { requireAdminCapability } from '../capability'
-import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants, getMerchantDetail, listAdminCategories, listAdminRmvVouchers } from './service'
+import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants, getMerchantDetail, listAdminCategories, listAdminRmvVouchers, listAdminCustomVouchers, listAdminStaff } from './service'
 import { updateRmvVoucherCore, submitRmvVoucherCore } from '../../merchant/voucher/service'
 import { issueMerchantClaim } from '../../auth/merchant/service'
 import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
@@ -410,6 +410,30 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
     const id = idParam(req)
     await resolveTargetMerchantForAdmin(app.prisma, id)
     return listAdminRmvVouchers(app.prisma, id)
+  })
+
+  // Merchant 360 A4-read: the merchant's CUSTOM (RCV) vouchers, for the Vouchers-
+  // tab custom section (read-only; B5.2 mutations stay unbuilt). Gated
+  // `merchant:read` (VIEW), the same interim OD4 gating as the RMV read + the
+  // documents read: no new capability. The service select is a TIGHT curated
+  // roster (no customer PII, no redemption rows, no secrets) — see
+  // listAdminCustomVouchers. Distinct path from the RMV read above.
+  app.get(`${prefix}/:id/vouchers`, { preHandler: [requireAdminCapability('merchant:read')] }, async (req: any) => {
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+    return listAdminCustomVouchers(app.prisma, id)
+  })
+
+  // Merchant 360 A4-read: the merchant's staff roster (portal members + branch app
+  // logins), for the read-only Staff tab (D44 mutations are Phase C / OD4-gated).
+  // Gated `merchant:read` (VIEW) — the interim OD4 decision (staff-read gates on
+  // the existing merchant:read, not a net-new staff capability). The service
+  // NEVER selects a passwordHash, the branch redemptionPin, OTP, sessions, or any
+  // token — see listAdminStaff.
+  app.get(`${prefix}/:id/staff`, { preHandler: [requireAdminCapability('merchant:read')] }, async (req: any) => {
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+    return listAdminStaff(app.prisma, id)
   })
 
   // Edit: update a DRAFT RMV's template-allowed fields on the merchant's behalf.

@@ -114,8 +114,20 @@ export async function getMerchantDetail(prisma: PrismaClient, merchantId: string
       onboardingStep: true,
       websiteUrl: true,
       // B3: contractStatus feeds the submit-readiness checklist (contract_signed).
-      // Read here and consumed below; NOT spread into the response.
+      // Read here and consumed below; NOT spread into the response at top level.
+      // A4: contractStatus is ALSO surfaced (with the dates + signature) inside the
+      // curated `agreement` block below; the top-level field stays absent.
       contractStatus: true,
+      // A4 (agreement/contract block): the contract window dates live on Merchant;
+      // the signature method + signedAt live on the MerchantContract relation
+      // (nullable one-to-one). Curated select on the relation — no ipAddress,
+      // tcVersion, or zohoSignRequestId (operator-irrelevant / integration ids).
+      contractStartDate: true,
+      contractEndDate: true,
+      contract: { select: { signatureMethod: true, signedAt: true } },
+      // A4 (header stat strip + Overview documents count): a trivial _count. No
+      // document rows / storage keys are read here — just the aggregate.
+      _count: { select: { documents: true } },
       // B2.2: registered-identity fields, read-only on this merchant:read payload.
       vatNumber: true,
       companyNumber: true,
@@ -165,7 +177,74 @@ export async function getMerchantDetail(prisma: PrismaClient, merchantId: string
     where: { merchantId, status: 'PENDING' }, select: { id: true },
   })
 
-  const { primaryCategory, branches, contractStatus, ...rest } = merchant
+  // A4 additive enrichment (owner contact + header counts). Batched in one
+  // Promise.all so the extra reads do not add serial latency. All are curated /
+  // aggregate reads — no secrets, no customer PII:
+  //   - ownerMembership: the primary account owner, via the EXACT select pattern
+  //     getReviewContext uses (active OWNER membership -> merchantAdmin). Admin
+  //     reads are not customer-redacted, but stay curated: name / email / phone /
+  //     emailVerified only — never the owner's passwordHash / OTP / login fields.
+  //   - ownerCount: how many ACTIVE owners exist (the spec's "+N more owners" case).
+  //   - activeVoucherCount: header "Active vouchers" stat.
+  //   - totalRedemptions: header "Redemptions" stat. VoucherRedemption has NO
+  //     merchantId column (backend-api rule) — join via branch.merchantId.
+  const [ownerMembership, ownerCount, activeVoucherCount, totalRedemptions] = await Promise.all([
+    prisma.merchantMembership.findFirst({
+      where: { merchantId, role: 'OWNER', status: 'ACTIVE' },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        merchantAdmin: {
+          select: { firstName: true, lastName: true, email: true, phone: true, emailVerified: true },
+        },
+      },
+    }),
+    prisma.merchantMembership.count({ where: { merchantId, role: 'OWNER', status: 'ACTIVE' } }),
+    prisma.voucher.count({ where: { merchantId, status: 'ACTIVE' } }),
+    prisma.voucherRedemption.count({ where: { branch: { merchantId } } }),
+  ])
+
+  const {
+    primaryCategory,
+    branches,
+    contractStatus,
+    contractStartDate,
+    contractEndDate,
+    contract,
+    _count,
+    ...rest
+  } = merchant
+
+  // A4 owner contact (curated): the primary owner + a count for the multi-owner
+  // hint. `null` when no active owner membership exists (e.g. a bare draft).
+  const oa = ownerMembership?.merchantAdmin
+  const owner = oa
+    ? {
+        name: `${oa.firstName} ${oa.lastName}`.trim(),
+        email: oa.email,
+        phone: oa.phone,
+        emailVerified: oa.emailVerified,
+      }
+    : null
+
+  // A4 agreement/contract block (curated): the lifecycle status + window dates
+  // (from Merchant) + the signature method / signedAt (from the contract relation,
+  // null when unsigned). No ipAddress / tcVersion / zohoSignRequestId.
+  const agreement = {
+    contractStatus,
+    contractStartDate,
+    contractEndDate,
+    signatureMethod: contract?.signatureMethod ?? null,
+    signedAt: contract?.signedAt ?? null,
+  }
+
+  // A4 header stat strip: cheap scoped counts. `branches` is the already-fetched
+  // (deletedAt:null) array, so its length is the live branch count with no extra
+  // query.
+  const headerCounts = {
+    branches: branches.length,
+    activeVouchers: activeVoucherCount,
+    totalRedemptions,
+  }
 
   // B3: onboarding submit readiness, surfaced so the admin UI can show the
   // checklist + gate the submit-on-behalf affordance WITHOUT a failed round-trip.
@@ -199,9 +278,154 @@ export async function getMerchantDetail(prisma: PrismaClient, merchantId: string
       hasPendingIdentityEdit: pendingIdentityEdit !== null,
       submitChecklist,
       canSubmitOnBehalf,
+      // A4 additive enrichment (all curated, no secrets / no customer PII):
+      owner,
+      ownerCount,
+      agreement,
+      headerCounts,
+      documentsCount: _count.documents,
     },
     branches,
   }
+}
+
+/**
+ * Merchant 360 A4-read: a merchant's CUSTOM (RCV) vouchers, for the admin
+ * Vouchers-tab custom section. Gated `merchant:read` at the route. Distinct from
+ * `listAdminRmvVouchers` (RMV co-build): this is a READ-ONLY roster of the
+ * non-mandatory vouchers, so the admin can see what a merchant offers.
+ *
+ * REDACTION: a TIGHT curated select — id / code / title / type / lifecycle +
+ * approval status / estimatedSaving / expiry / createdAt only, plus a minimal
+ * pending-edit summary (id / kind / status of the at-most-one OPEN
+ * VoucherPendingEdit, mirroring the merchant `listVouchers` exposure but WITHOUT
+ * its proposedChanges / reason blob). NO customer data, NO redemption rows, no
+ * merchantFields, no secrets (vouchers carry none; the redemptionPin lives on
+ * Branch). `estimatedSaving` is a Prisma Decimal (serialises as a string) — coerce
+ * to Number so the wire type matches the client's `number` (the documented Decimal
+ * rule). Ordered createdAt desc (newest first), matching the merchant list.
+ */
+export async function listAdminCustomVouchers(prisma: PrismaClient, merchantId: string) {
+  const rows = await prisma.voucher.findMany({
+    where: { merchantId, isRmv: false },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      code: true,
+      title: true,
+      type: true,
+      status: true,
+      approvalStatus: true,
+      estimatedSaving: true,
+      expiryDate: true,
+      createdAt: true,
+      // Curated pending-edit SUMMARY only (at most one OPEN edit per voucher,
+      // app-enforced): id / kind / status. The proposedChanges / reason blob is
+      // deliberately NOT selected here (this is a read-only roster, not the edit
+      // console).
+      pendingEdits: {
+        where: { status: 'PENDING' },
+        take: 1,
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, kind: true, status: true },
+      },
+    },
+  })
+  return {
+    vouchers: rows.map((v) => ({
+      id: v.id,
+      code: v.code,
+      title: v.title,
+      type: v.type,
+      status: v.status,
+      approvalStatus: v.approvalStatus,
+      estimatedSaving: Number(v.estimatedSaving),
+      expiryDate: v.expiryDate,
+      createdAt: v.createdAt,
+      pendingEdit: v.pendingEdits[0] ?? null,
+    })),
+  }
+}
+
+/**
+ * Merchant 360 A4-read: a merchant's staff roster (portal members + branch app
+ * logins), for the admin Staff tab (read-only v1; D44 mutations are Phase C /
+ * OD4-gated). Gated `merchant:read` at the route.
+ *
+ * REDACTION (critical): staff identities carry credentials — this read NEVER
+ * selects a passwordHash (both MerchantAdmin and BranchUser have one), the branch
+ * `redemptionPin`, OTP fields, session data, or any token. Two curated arrays:
+ *   - `members`: MerchantMembership rows (portal access). Per member: membership id,
+ *     the person's name / email (from MerchantAdmin), role, membership status,
+ *     allBranches + the resolved branch scopes (id + name), canManageVouchers, the
+ *     owner's emailVerified flag, and appAccess:false (portal identities do not use
+ *     the mobile app).
+ *   - `appLogins`: BranchUser rows (mobile scan-and-validate logins). Per login:
+ *     id, name, email, status, its branch (id + name), and appAccess:true.
+ * Soft-deleted branches are excluded from scope resolution + app-login grouping.
+ */
+export async function listAdminStaff(prisma: PrismaClient, merchantId: string) {
+  const [memberships, branchUsers] = await Promise.all([
+    prisma.merchantMembership.findMany({
+      where: { merchantId },
+      orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        allBranches: true,
+        canManageVouchers: true,
+        // Curated person fields ONLY — NEVER passwordHash / otp / login fields.
+        merchantAdmin: {
+          select: { firstName: true, lastName: true, email: true, emailVerified: true },
+        },
+        // Branch scopes for a non-allBranches member (BRANCH_MANAGER). Curated to
+        // id + name; soft-deleted branches excluded.
+        branches: {
+          where: { branch: { deletedAt: null } },
+          select: { branch: { select: { id: true, name: true } } },
+        },
+      },
+    }),
+    prisma.branchUser.findMany({
+      where: { branch: { merchantId, deletedAt: null } },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        status: true,
+        // passwordHash is DELIBERATELY absent. The branch redemptionPin lives on
+        // Branch and is never joined here.
+        branch: { select: { id: true, name: true } },
+      },
+    }),
+  ])
+
+  const members = memberships.map((m) => ({
+    id: m.id,
+    name: m.merchantAdmin ? `${m.merchantAdmin.firstName} ${m.merchantAdmin.lastName}`.trim() : '',
+    email: m.merchantAdmin?.email ?? '',
+    role: m.role,
+    status: m.status,
+    allBranches: m.allBranches,
+    canManageVouchers: m.canManageVouchers,
+    emailVerified: m.merchantAdmin?.emailVerified ?? false,
+    branchScopes: m.branches.map((b) => ({ id: b.branch.id, name: b.branch.name })),
+    appAccess: false,
+  }))
+
+  const appLogins = branchUsers.map((u) => ({
+    id: u.id,
+    name: `${u.firstName} ${u.lastName}`.trim(),
+    email: u.email,
+    status: u.status,
+    branch: { id: u.branch.id, name: u.branch.name },
+    appAccess: true,
+  }))
+
+  return { members, appLogins }
 }
 
 /**
