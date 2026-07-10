@@ -369,6 +369,21 @@ export function MapScreen(_props: Props) {
     setQueryBbox(regionToBbox(nextRegion))
   }, [])
 
+  // Map Phase 2 Slice S3 — cluster tap zooms the camera in ONE step
+  // (halves both deltas), centred on the cluster's centroid, splitting
+  // it into its member pins/sub-clusters. Reuses the existing
+  // `animateAndQuery` helper (same mechanism as `handleCitySelect` /
+  // `handleRecentre`) rather than introducing a new camera-animation
+  // path.
+  const handleClusterPress = useCallback((cluster: { latitude: number; longitude: number; branchIds: string[] }) => {
+    animateAndQuery({
+      latitude:       cluster.latitude,
+      longitude:      cluster.longitude,
+      latitudeDelta:  region.latitudeDelta / 2,
+      longitudeDelta: region.longitudeDelta / 2,
+    })
+  }, [animateAndQuery, region.latitudeDelta, region.longitudeDelta])
+
   const handleEnableLocation = useCallback(async () => {
     setLocationPermissionDismissed(true)
     await locationState.requestPermission()
@@ -770,6 +785,8 @@ export function MapScreen(_props: Props) {
           branches={branches}
           selectedId={selectedBranchId}
           onPress={handleBranchPress}
+          region={region}
+          onClusterPress={handleClusterPress}
         />
       </MapView>
 
