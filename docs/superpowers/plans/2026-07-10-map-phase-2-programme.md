@@ -1,0 +1,117 @@
+# Map Phase 2 Programme — Discovery + Plan (owner-commissioned 2026-07-10)
+
+**Status:** APPROVED-TO-PLAN by owner 2026-07-10 ("make the Map tab feel complete end-to-end").
+Slices execute per the boundaries below; S0 pre-authorised as clearly safe.
+**Lead:** Fable 5 (planning/adjudication/gates) · Sonnet max-effort implementation · Opus 4.8
+for location/privacy/API-risk review. **Hard boundaries:** no schema migrations, provider
+changes, production changes, or billable API/backfill runs without explicit owner approval;
+backend needs are proposed, never worked around.
+
+## 1. Current state (verified by two-agent discovery on main @ b641fa0f)
+
+BUILT: branch-first pins (react-native-maps, native providers) with category `pinColour` +
+letter glyph; category pills (top-level only); bottom carousel using the shared BranchTile
+(has FavouriteHeart); list bottom-sheet (custom weaker rows, NO heart); UK_CITIES location
+search (city recentre only, locked no-q); 3 empty states; deterministic in-area results +
+`branchesOnly` fast path + 3dp bbox-quantized cache (120s) + keepPreviousData (all PR #434);
+location-trust integration complete: pins now surface MANUALLY_CONFIRMED + ADDRESS_GEOCODED
++ MERCHANT_CONFIRMED (`CONFIRMED_LOCATION_SET`), POSTCODE_CENTROID/NEEDS_REVIEW stay
+redacted (L3 lock), `googlePlaceId` never exposed to customers (verified).
+
+MISSING/BROKEN (full list; nothing narrowed):
+- **BUG (live):** FilterSheet voucher-type values are display strings ('Discount', 'Freebie',
+  'Spend & Save', 'Package Deal') sent verbatim into the backend enum filter: only 'BOGO'
+  matches; the rest silently return zero results (FilterSheet.tsx:52 + service enum filter).
+- **BUG (live):** `searchBranches` accepts-and-silently-ignores SEVEN params (`amenityIds`,
+  `tagIds`, `openNow`, `featured`, `topRated`, `sortBy`, `maxDistanceMiles`): §BX.1-§BX.7.
+  Map + Category render `branches[]`, so those FilterSheet controls have zero server effect.
+- Pins vanish briefly on pan-back (no cross-viewport region accumulation; cache keys on the
+  quantized viewport only): the owner's twice-reported felt pain.
+- No request cancellation anywhere (api client has no AbortSignal); filtered-map path lacks
+  bbox quantization + uses 30s staleTime (parity gap vs 120s unfiltered path); no map
+  focus/blur lifecycle; no discovery rate tier; no server-side caching.
+- No clustering; circle+letter pins instead of the spec §7.2 teardrop + category icon
+  (schema already carries `Category.pinIcon`, unused; no parent-fallback for null
+  subcategory `pinColour`/`pinIcon`); no drop animation; no selected pulse ring.
+- Carousel↔pin sync is one-way (swipe does not move selection/camera); no swipe-down
+  dismiss; list sheet lacks sort selector, hearts, and shared-tile parity.
+- SearchScreen has NO FilterSheet at all (reverse inconsistency); `tagIds` fully honoured by
+  the backend but unreachable from any UI; `region` scope dropped client-side.
+- Design evidence located: spec §7 (2026-04-17) + 10 HTML pin/filter mockups at
+  `.superpowers/brainstorm/29364-1776892625/content/` (pin anatomy, logo/label chips,
+  category pills, cluster/legend states, tap behaviours, basemap styles).
+
+## 2. Recommended end-state experience
+
+Pins: teardrop/pill pins coloured by category with the category's white SVG `pinIcon`
+(parent-fallback when the subcategory's is null); label chip appears at high zoom
+(mockup `pin-refined` + `pin-label-variants` direction); selected pin scales + pulse ring;
+staggered drop-in on first load; clusters (navy circle + count, tap to zoom) past a density
+threshold. Panning: pins from every visited area persist and render instantly from a
+client region cache while refreshing quietly; in-flight requests cancel on supersede.
+Cards: carousel card at full Home-card richness (aggregate savings block included); list
+rows become shared BranchTiles (hearts included) with a sort selector; swiping the carousel
+moves the selected pin and pans the camera; swipe-down dismisses. Filters: one FilterSheet
+across Map/Category/Search whose every control provably filters the rendered branches
+(voucher types mapped to real enums; amenities/open-now/sort honoured server-side);
+category pills gain subcategory drill-down; tags surfaced where product decides.
+Coherence: identical tiles, hearts, savings language, and filter semantics as
+Home/Search/Favourites; trust tiers remain the only exposure gate.
+
+## 3. Implementation slices (ordered)
+
+| # | Slice | Scope | Surface | Safety |
+|---|---|---|---|---|
+| S0 | Filter truth quick fixes: voucher-type label→enum mapping (+ display mapping test); bbox quantization + 120s staleTime parity for the filtered map path | none→small | customer-app only | SAFE: pre-authorised, starts now |
+| S1 | `searchBranches` honours the seven ignored params (§BX.1-§BX.7 closure); route/service tests per param; Category + Map inherit for free | query logic only, NO schema | backend | Safe to build; normal PR gates; Opus review on the query composition |
+| S2 | Feel: client region-accumulation cache (quantized-tile union render + background refresh + TTL/memory cap); AbortSignal in the api client + react-query cancellation wiring (map first); map focus/blur pause; camera-pan + two-way carousel sync; swipe-down dismiss | none | customer-app (+api client) | Safe after S1 lands |
+| S3 | Pin system v2: teardrop/pill + category icon pins (use existing `pinColour`/`pinIcon`, read-time parent-fallback: no migration), label-chip zoom behaviour, selected pulse ring, drop-in animation, marker perf discipline; client-side clustering (supercluster-style, no provider change) | additive read-time fallback only | customer-app (+tiny backend read) | Needs owner DESIGN pick (D1) first |
+| S4 | Cards + list: carousel card parity with Home language; MapListView → shared BranchTile rows (hearts); sort selector; half-sheet resize audit | none | customer-app | Safe after S1 |
+| S5 | Filter/search coherence: FilterSheet on SearchScreen (D2), subcategory drill on pills, tags surfacing (D3), `region` scope re-add or retire (D4) | none | customer-app | After owner D2-D4 |
+| S6 | Platform (propose-only): discovery rate tier, server in-area caching, pin-only lite endpoint, gazetteer LocationSearch, marker native-image migration | TBD | backend | PROPOSED, not scheduled; needs measurement first |
+
+## 4. Decision register
+
+OWNER decisions: **D1** pin visual direction: pick from the 10 mockups (lead recommends
+`pin-refined` icon-in-pill + `pin-label-variants` zoom chips + spec §7.3 navy clusters);
+**D2** FilterSheet on SearchScreen (recommend yes, for one coherent system); **D3** which
+tag types surface to customers (backend ready; product call); **D4** `region` scope: re-add
+to clients or retire the enum value. NO provider/billable/schema decisions are required by
+S0-S5 (Mapbox exploration from the mockups is explicitly NOT proposed; staying on
+react-native-maps).
+LEAD-adjudicated (recorded): clustering is client-side only; `pinIcon` parent-fallback is
+read-time (no migration); `MerchantCategory.isPrimary` duplicate-field cleanup is deferred
+hygiene (tracked, not in this programme); LocationSearch stays UK_CITIES until S6.
+DESIGN input needed: D1 mockup pick; card-parity visual QA on device (S4).
+
+## 5. Acceptance criteria ("Map Phase 2 complete")
+
+1. Pan Huddersfield→London→back: Huddersfield pins render instantly from cache (no blank
+   beat), refresh quietly. 2. Every FilterSheet control changes the rendered branches
+   (proven by per-param tests + device QA). 3. Pins are category-recognisable at a glance
+   (icon + colour) and cluster in dense viewports. 4. Carousel swipe moves selection +
+   camera; list rows carry hearts; savings language matches Home. 5. No regression to the
+   trust exposure gates (redaction tests stay green). 6. Filter semantics identical across
+   Map/Category/Search. 7. Owner device sign-off on feel (dev build acceptable; production
+   build for the perf verdict).
+
+## 6. Cross-check: audit findings + owner goals → slices
+
+| Item | Covered by |
+|---|---|
+| Pins missing (confidence gate) | DONE (trust slices 1-3) |
+| Pins vanish/change on pan-back | DONE (determinism, #434) + S2 (accumulation) |
+| Slow loads (merchant-wide query) | DONE (#434) + S2 (cancel) + S6 (cache/lite endpoint) |
+| Raw float bbox / cache misses | DONE (#434) + S0 (filtered-path parity) |
+| Clustering | S3 |
+| Richer category pins / mockups | S3 (D1) |
+| Region accumulation | S2 |
+| Cancellation | S2 |
+| §CZ.1 category filter under-returns / §CZ.2 distance recompute | S1 / S2 |
+| §BX.1-§BX.7 ignored params | S1 |
+| Voucher-type filter silent-zero bug | S0 |
+| Carousel sync / swipe dismiss / camera pan | S2 |
+| List-view hearts + sort + tile parity | S4 |
+| Filters/search coherence + tags + subcategories | S5 (D2-D4) |
+| Goal: coherent with Home/favourites/trust | S3/S4 + criteria 5-6 |
+| Deferred beyond programme | S6 items; gazetteer; Mapbox (not proposed) |
