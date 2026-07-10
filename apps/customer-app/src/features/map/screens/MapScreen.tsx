@@ -10,6 +10,7 @@ import { useMe } from '@/hooks/useMe'
 import { useCategories } from '@/hooks/useCategories'
 import { useSearch } from '@/hooks/useSearch'
 import { useInAreaBranches, type BoundingBox } from '../hooks/useInAreaBranches'
+import { quantizeBbox } from '../utils/bboxQuantize'
 import { MapCategoryPills } from '../components/MapCategoryPills'
 import { LocationPermission } from '../components/LocationPermission'
 import { MapEmptyArea, type MapEmptyCase } from '../components/MapEmptyArea'
@@ -201,14 +202,22 @@ export function MapScreen(_props: Props) {
     !hasNonScopeFilters,
   )
 
+  // Map Phase 2 S0 — quantize BEFORE building the /search params, mirroring
+  // `useInAreaBranches` (bboxQuantize.ts). Pre-fix this branch sent the RAW
+  // continuous camera bbox into `useSearch`'s query key: panning back to an
+  // already-seen filtered viewport always missed the cache (fresh key every
+  // render) even though the unfiltered in-area path hit it. Quantizing here
+  // brings the filtered path to parity with the unfiltered one.
+  const quantizedQueryBbox = queryBbox !== null ? quantizeBbox(queryBbox) : null
+
   const searchResultQuery = useSearch(
     {
-      ...(queryBbox
+      ...(quantizedQueryBbox
         ? {
-            minLat: queryBbox.minLat,
-            maxLat: queryBbox.maxLat,
-            minLng: queryBbox.minLng,
-            maxLng: queryBbox.maxLng,
+            minLat: quantizedQueryBbox.minLat,
+            maxLat: quantizedQueryBbox.maxLat,
+            minLng: quantizedQueryBbox.minLng,
+            maxLng: quantizedQueryBbox.maxLng,
           }
         : {}),
       ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
@@ -221,11 +230,22 @@ export function MapScreen(_props: Props) {
         : {}),
     },
     hasNonScopeFilters && queryBbox !== null,
-    // §AY — pan/zoom anti-flicker for the filtered Map-bbox-mode path.
-    // useInAreaBranches already applies the same behaviour at the hook
-    // level. Opt-in here so other useSearch consumers (Search /
-    // Category screens) keep their default clear-on-key-change semantics.
-    { keepPreviousData: true },
+    {
+      // §AY — pan/zoom anti-flicker for the filtered Map-bbox-mode path.
+      // useInAreaBranches already applies the same behaviour at the hook
+      // level. Opt-in here so other useSearch consumers (Search /
+      // Category screens) keep their default clear-on-key-change semantics.
+      keepPreviousData: true,
+      // Map Phase 2 S0 — raised from the hook's 30s default to 120s,
+      // matching `useInAreaBranches`'s staleTime. Viewport voucher-type/
+      // amenity/sort supply does not change minute-to-minute; combined
+      // with the quantization above, a pan-away-and-back within the
+      // window is now a cache hit on the filtered path too, instead of
+      // only on the unfiltered one. Search/Category screens are
+      // unaffected — this is a per-call override, not a hook default
+      // change (see useSearch.ts).
+      staleTime: 120 * 1000,
+    },
   )
 
   const data      = hasNonScopeFilters ? searchResultQuery.data      : inAreaQuery.data

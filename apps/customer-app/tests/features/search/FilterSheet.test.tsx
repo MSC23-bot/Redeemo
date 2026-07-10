@@ -1,6 +1,6 @@
 import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
-import { FilterSheet, FilterState } from '@/features/search/components/FilterSheet'
+import { FilterSheet, FilterState, VOUCHER_TYPE_CHIPS } from '@/features/search/components/FilterSheet'
 
 // Categories fixture: 2 top-levels + 2 subcategories of Food & Drink
 jest.mock('@/hooks/useCategories', () => ({
@@ -193,5 +193,103 @@ describe('FilterSheet', () => {
     )
     expect(queryByText(/Distance/i)).toBeNull()
     expect(queryByText(/Min\.?\s?Savings/i)).toBeNull()
+  })
+
+  // Map Phase 2 S0 — voucher-type label→enum mapping (live bug fix).
+  // Pins the exact chip → backend-enum mapping table so a future edit
+  // can't silently reintroduce a display-string / enum mismatch.
+  describe('voucher-type label→enum mapping', () => {
+    it('pins the exact chip → backend VoucherType enum values', () => {
+      expect(VOUCHER_TYPE_CHIPS).toEqual([
+        { label: 'BOGO',         values: ['BOGO'] },
+        { label: 'Discount',     values: ['DISCOUNT_FIXED', 'DISCOUNT_PERCENT'] },
+        { label: 'Freebie',      values: ['FREEBIE'] },
+        { label: 'Spend & Save', values: ['SPEND_AND_SAVE'] },
+        { label: 'Package Deal', values: ['PACKAGE_DEAL'] },
+        { label: 'Time-Limited', values: ['TIME_LIMITED'] },
+        { label: 'Reusable',     values: ['REUSABLE'] },
+      ])
+    })
+
+    it('renders a chip for every mapping-table label', () => {
+      const { getByText } = render(
+        <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={jest.fn()} onDismiss={jest.fn()} />,
+      )
+      for (const chip of VOUCHER_TYPE_CHIPS) {
+        expect(getByText(chip.label)).toBeTruthy()
+      }
+    })
+
+    it('selecting the "Discount" chip sends BOTH DISCOUNT_FIXED and DISCOUNT_PERCENT in onApply (real backend enum, not the display string)', () => {
+      const onApply = jest.fn()
+      const { getByText } = render(
+        <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
+      )
+      fireEvent.press(getByText('Discount'))
+      fireEvent.press(getByText('Show 42 results'))
+      expect(onApply).toHaveBeenCalledWith(
+        expect.objectContaining({ voucherTypes: ['DISCOUNT_FIXED', 'DISCOUNT_PERCENT'] }),
+      )
+    })
+
+    it('selecting a single-value chip (BOGO) sends only its enum value', () => {
+      const onApply = jest.fn()
+      const { getByText } = render(
+        <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
+      )
+      fireEvent.press(getByText('BOGO'))
+      fireEvent.press(getByText('Show 42 results'))
+      expect(onApply).toHaveBeenCalledWith(
+        expect.objectContaining({ voucherTypes: ['BOGO'] }),
+      )
+    })
+
+    it('deselecting "Discount" removes BOTH enum values together (all-or-nothing toggle)', () => {
+      const onApply = jest.fn()
+      const startFilters: FilterState = {
+        ...defaultFilters,
+        voucherTypes: ['DISCOUNT_FIXED', 'DISCOUNT_PERCENT'],
+      }
+      const { getByText } = render(
+        <FilterSheet visible filters={startFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
+      )
+      fireEvent.press(getByText('Discount'))
+      fireEvent.press(getByText('Show 42 results'))
+      expect(onApply).toHaveBeenCalledWith(
+        expect.objectContaining({ voucherTypes: [] }),
+      )
+    })
+
+    it('Discount chip shows selected (active styling) only when BOTH enum values are present', () => {
+      // Partial state (only one of the two Discount values present) should
+      // NOT read as "Discount selected" — `every` requires both.
+      const partialFilters: FilterState = { ...defaultFilters, voucherTypes: ['DISCOUNT_FIXED'] }
+      const onApply = jest.fn()
+      const { getByText } = render(
+        <FilterSheet visible filters={partialFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
+      )
+      // Tapping Discount from a partial state should complete the group
+      // (both DISCOUNT_FIXED and DISCOUNT_PERCENT end up present), not
+      // clear it — confirms the `active` check is `every`, not `some`.
+      fireEvent.press(getByText('Discount'))
+      fireEvent.press(getByText('Show 42 results'))
+      expect(onApply).toHaveBeenCalledWith(
+        expect.objectContaining({ voucherTypes: ['DISCOUNT_FIXED', 'DISCOUNT_PERCENT'] }),
+      )
+    })
+
+    it('selecting multiple chips accumulates enum values across groups', () => {
+      const onApply = jest.fn()
+      const { getByText } = render(
+        <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
+      )
+      fireEvent.press(getByText('BOGO'))
+      fireEvent.press(getByText('Time-Limited'))
+      fireEvent.press(getByText('Reusable'))
+      fireEvent.press(getByText('Show 42 results'))
+      expect(onApply).toHaveBeenCalledWith(
+        expect.objectContaining({ voucherTypes: ['BOGO', 'TIME_LIMITED', 'REUSABLE'] }),
+      )
+    })
   })
 })
