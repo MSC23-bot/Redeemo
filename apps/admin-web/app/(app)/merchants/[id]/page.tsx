@@ -1,29 +1,30 @@
 'use client'
 
 /**
- * Merchant 360 workspace: /merchants/[id] (slice A1).
+ * Merchant 360 workspace: /merchants/[id] (slices A1 + A2).
  *
  * Converts the old flat merchant detail page into a tabbed workspace over the
- * SAME `GET /api/v1/admin/merchants/:id` payload (no backend changes in A1):
+ * SAME `GET /api/v1/admin/merchants/:id` payload (no backend changes):
  *
  *   - A workspace header (logo, name, lifecycle + verification pills, a branches
  *     stat, and the lifecycle action moved in from the directory flow).
- *   - A URL-addressable tab bar (`?tab=`, default Overview). Two tabs render real
- *     content in A1 (Overview, Business identity); the rest are honest
+ *   - A URL-addressable tab bar (`?tab=`, default Overview). Overview + Business
+ *     identity render real content (A1); Branches, Documents, and Activity render
+ *     the rehomed branch/document/timeline surfaces (A2). The rest are honest
  *     placeholders that name why they are not built (later slice / net-new
  *     endpoint / net-new schema / DPIA gate / provider gate).
  *
  * Gating is unchanged: the whole page fail-closes on `merchant:read`, and every
- * edit / lifecycle affordance keeps its exact existing capability. The edit and
- * lifecycle dialogs are the existing components, mounted at page level keyed by
- * the open intent; on success they invalidate this merchant's detail (re-read)
- * and the directory. Backend `requireAdminCapability` stays the enforcement; the
- * client gate is UX.
+ * edit / lifecycle / branch / document / activity affordance keeps its exact
+ * existing capability (`merchant:edit`, `merchant:manage-branches`,
+ * `merchant:manage-documents`, `approval:read` for the timeline read). The edit,
+ * lifecycle, branch, and document dialogs are the existing components, mounted at
+ * page level (or self-managed by the rehomed card) keyed by the open intent; on
+ * success they invalidate this merchant's detail (re-read) and the directory.
+ * Backend `requireAdminCapability` stays the enforcement; the client gate is UX.
  *
- * Slice boundary: Branches, Documents, Vouchers, Redemptions, Activity, Staff,
- * Notes, Performance, Insights, and Commercial arrive in later slices (A2-A4),
- * so their tabs render placeholders here rather than the shipped branch/document
- * management, which is temporarily reachable only after those slices land.
+ * Slice boundary: Vouchers, Redemptions, Staff, Notes, Performance, Insights, and
+ * Commercial arrive in later slices (A3-A4), so their tabs render placeholders.
  */
 import { Suspense, useState } from 'react'
 import Link from 'next/link'
@@ -35,6 +36,9 @@ import { EditMerchantWebsiteDialog } from '@/features/merchants/EditMerchantWebs
 import { EditMerchantIdentityDialog } from '@/features/merchants/EditMerchantIdentityDialog'
 import { ProposeMerchantEditDialog } from '@/features/merchants/ProposeMerchantEditDialog'
 import { EditCategoryDialog } from '@/features/merchants/EditCategoryDialog'
+import { EditBranchDialog } from '@/features/merchants/EditBranchDialog'
+import { AddBranchDialog } from '@/features/merchants/AddBranchDialog'
+import { DeleteBranchConfirm } from '@/features/merchants/DeleteBranchConfirm'
 import { SubmitMerchantDialog } from '@/features/merchants/SubmitMerchantDialog'
 import { SuspendDialog } from '@/features/merchants/SuspendDialog'
 import { ReactivateConfirm } from '@/features/merchants/ReactivateConfirm'
@@ -42,8 +46,12 @@ import { MerchantWorkspaceHeader } from '@/features/merchants/m360/MerchantWorks
 import { MerchantWorkspaceTabBar } from '@/features/merchants/m360/MerchantWorkspaceTabBar'
 import { OverviewTab } from '@/features/merchants/m360/OverviewTab'
 import { BusinessIdentityTab } from '@/features/merchants/m360/BusinessIdentityTab'
+import { BranchesTab } from '@/features/merchants/m360/BranchesTab'
+import { DocumentsTab } from '@/features/merchants/m360/DocumentsTab'
+import { ActivityTab } from '@/features/merchants/m360/ActivityTab'
 import { PlaceholderTab } from '@/features/merchants/m360/PlaceholderTab'
 import { resolveM360Tab } from '@/features/merchants/m360/tabs'
+import type { BranchDetail } from '@/lib/api/merchants'
 
 // ── States ────────────────────────────────────────────────────────────────────
 
@@ -97,6 +105,9 @@ type OpenDialog =
   | { kind: 'identity' }
   | { kind: 'propose-edit' }
   | { kind: 'category' }
+  | { kind: 'branch'; branch: BranchDetail }
+  | { kind: 'add-branch' }
+  | { kind: 'delete-branch'; branch: BranchDetail }
   | { kind: 'submit' }
   | { kind: 'suspend' }
   | { kind: 'reactivate' }
@@ -117,6 +128,16 @@ function MerchantWorkspace() {
   const canEditCategory = can('merchant:edit-category')
   const canProposeEdit = can('merchant:propose-edit')
   const canSubmit = can('merchant:submit')
+  // Branch create/delete are SUPER_ADMIN-only (merchant:manage-branches);
+  // per-branch direct edit gates on merchant:edit (canEdit above).
+  const canManageBranches = can('merchant:manage-branches')
+  // Document upload/delete on behalf are SUPER_ADMIN-only
+  // (merchant:manage-documents); view is gated on merchant:read (the page).
+  const canManageDocuments = can('merchant:manage-documents')
+  // The activity timeline read is enforced on approval:read by the backend, so
+  // the Activity tab fail-closes on that capability (a merchant:read-only admin
+  // must not fire the request).
+  const canReadActivity = can('approval:read')
   // Lifecycle (suspend/reactivate) gates on merchant:suspend, exactly as the
   // directory flow does.
   const canLifecycle = can('merchant:suspend')
@@ -201,9 +222,30 @@ function MerchantWorkspace() {
             />
           )}
 
-          {activeTab !== 'overview' && activeTab !== 'identity' && (
-            <PlaceholderTab tabKey={activeTab} />
+          {activeTab === 'branches' && (
+            <BranchesTab
+              data={data}
+              canEdit={canEdit}
+              canManageBranches={canManageBranches}
+              onAddBranch={() => setDialog({ kind: 'add-branch' })}
+              onEditBranch={(branch) => setDialog({ kind: 'branch', branch })}
+              onDeleteBranch={(branch) => setDialog({ kind: 'delete-branch', branch })}
+            />
           )}
+
+          {activeTab === 'documents' && (
+            <DocumentsTab merchantId={data.merchant.id} canManageDocuments={canManageDocuments} />
+          )}
+
+          {activeTab === 'activity' && (
+            <ActivityTab merchantId={data.merchant.id} canReadActivity={canReadActivity} />
+          )}
+
+          {activeTab !== 'overview' &&
+            activeTab !== 'identity' &&
+            activeTab !== 'branches' &&
+            activeTab !== 'documents' &&
+            activeTab !== 'activity' && <PlaceholderTab tabKey={activeTab} />}
         </>
       )}
 
@@ -241,6 +283,36 @@ function MerchantWorkspace() {
         <EditCategoryDialog
           merchantId={data.merchant.id}
           currentCategoryId={data.merchant.primaryCategoryId}
+          onSuccess={onDialogSuccess}
+          onCancel={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'branch' && data && (
+        <EditBranchDialog
+          branchId={dialog.branch.id}
+          merchantId={data.merchant.id}
+          current={{
+            phone: dialog.branch.phone,
+            email: dialog.branch.email,
+            websiteUrl: dialog.branch.websiteUrl,
+            isActive: dialog.branch.isActive,
+          }}
+          onSuccess={onDialogSuccess}
+          onCancel={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'add-branch' && data && (
+        <AddBranchDialog
+          merchantId={data.merchant.id}
+          onSuccess={onDialogSuccess}
+          onCancel={closeDialog}
+        />
+      )}
+      {dialog?.kind === 'delete-branch' && data && (
+        <DeleteBranchConfirm
+          branchId={dialog.branch.id}
+          branchName={dialog.branch.name}
+          merchantId={data.merchant.id}
           onSuccess={onDialogSuccess}
           onCancel={closeDialog}
         />

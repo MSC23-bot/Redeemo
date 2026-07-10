@@ -19,9 +19,18 @@ import { useTimeline } from '@/lib/timeline/useTimeline'
 import { ActionRow } from './ActionRow'
 import { EmailRow } from './EmailRow'
 
+/**
+ * Optional view filter over the merged feed. `all` (default) preserves the
+ * original behaviour; `comms` shows only the owner lifecycle emails; `actions`
+ * shows only the merchant lifecycle action rows. The feed is a discriminated
+ * union (`kind: 'email' | 'action'`), so the split is a trivial predicate.
+ */
+export type TimelineFilter = 'all' | 'comms' | 'actions'
+
 interface ActivityTimelineProps {
   merchantId: string
   enabled?: boolean
+  filter?: TimelineFilter
 }
 
 function TimelineShell({ children }: { children: React.ReactNode }) {
@@ -35,7 +44,11 @@ function TimelineShell({ children }: { children: React.ReactNode }) {
   )
 }
 
-export function ActivityTimeline({ merchantId, enabled = true }: ActivityTimelineProps) {
+export function ActivityTimeline({
+  merchantId,
+  enabled = true,
+  filter = 'all',
+}: ActivityTimelineProps) {
   const { data, isLoading, isError, refetch } = useTimeline(merchantId, enabled)
 
   if (isLoading) {
@@ -76,6 +89,13 @@ export function ActivityTimeline({ merchantId, enabled = true }: ActivityTimelin
 
   const { items, emailsResolvedViaOwner } = data
 
+  // View filter over the already-sorted feed (default `all` = no change).
+  const visibleItems = items.filter((item) => {
+    if (filter === 'comms') return item.kind === 'email'
+    if (filter === 'actions') return item.kind === 'action'
+    return true
+  })
+
   // Owner-resolution disclosure (locked D1): never imply a perfect
   // merchant-specific correspondence history.
   const ownerLabel = emailsResolvedViaOwner ? (
@@ -91,12 +111,20 @@ export function ActivityTimeline({ merchantId, enabled = true }: ActivityTimelin
     </p>
   )
 
-  if (items.length === 0) {
+  if (visibleItems.length === 0) {
+    // Distinguish a genuinely empty feed from a filtered-out view so the
+    // operator is not misled into thinking there is no history at all.
+    const emptyCopy =
+      items.length === 0
+        ? 'No activity recorded yet.'
+        : filter === 'comms'
+          ? 'No communications in this view.'
+          : 'No actions in this view.'
     return (
       <TimelineShell>
         <div className="rounded-lg border border-border bg-card px-6 py-8 text-center">
           <p className="text-sm text-muted-foreground" data-testid="timeline-empty">
-            No activity recorded yet.
+            {emptyCopy}
           </p>
         </div>
         {ownerLabel}
@@ -108,7 +136,7 @@ export function ActivityTimeline({ merchantId, enabled = true }: ActivityTimelin
     <TimelineShell>
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <ul role="list" className="divide-y divide-border">
-          {items.map((item) =>
+          {visibleItems.map((item) =>
             item.kind === 'action' ? (
               <ActionRow key={`action-${item.id}`} item={item} />
             ) : (
