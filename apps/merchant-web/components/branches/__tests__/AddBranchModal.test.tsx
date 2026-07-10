@@ -67,7 +67,7 @@ function fillRequired() {
 
 describe('AddBranchModal', () => {
   it('renders the create form with the manual-address fields and NO lat/lng input', () => {
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     expect(screen.getByRole('heading', { name: /add a branch/i })).toBeInTheDocument()
     expect(screen.getByLabelText('Branch name')).toBeInTheDocument()
     expect(screen.getByLabelText('Address line 1')).toBeInTheDocument()
@@ -78,7 +78,7 @@ describe('AddBranchModal', () => {
   })
 
   it('validates the required fields before submitting (no network on empty form)', () => {
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
     expect(createMutateAsync).not.toHaveBeenCalled()
     expect(screen.getByTestId('add-branch-name-error')).toBeInTheDocument()
@@ -86,7 +86,7 @@ describe('AddBranchModal', () => {
   })
 
   it('calls useCreateBranch with the trimmed manual-address body (no lat/lng)', async () => {
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fillRequired()
     fireEvent.change(screen.getByLabelText(/branch phone/i), { target: { value: '01223 000000' } })
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
@@ -104,7 +104,7 @@ describe('AddBranchModal', () => {
   })
 
   it('navigates to the new branch detail page and closes on success', async () => {
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fillRequired()
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
     await waitFor(() => expect(push).toHaveBeenCalledWith('/branches/b-new'))
@@ -113,7 +113,7 @@ describe('AddBranchModal', () => {
 
   it('shows the postcode lookup error inline and stays open (POSTCODE_NOT_FOUND)', async () => {
     createMutateAsync.mockRejectedValue(new ApiError(400, { error: { code: 'POSTCODE_NOT_FOUND' } }))
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fillRequired()
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
     expect(await screen.findByTestId('add-branch-postcode-lookup-error')).toBeInTheDocument()
@@ -123,7 +123,7 @@ describe('AddBranchModal', () => {
 
   it('shows a calm modal-level error on a generic failure and stays open', async () => {
     createMutateAsync.mockRejectedValue(new ApiError(500, { error: { code: 'INTERNAL' } }))
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fillRequired()
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
     expect(await screen.findByTestId('add-branch-modal-error')).toBeInTheDocument()
@@ -133,7 +133,7 @@ describe('AddBranchModal', () => {
 
 describe('AddBranchModal PR-6 location lookup', () => {
   it('renders the lookup field and no map/pin/coordinate input', () => {
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     expect(screen.getByTestId('location-lookup')).toBeInTheDocument()
     expect(screen.queryByLabelText(/latitude|longitude/i)).not.toBeInTheDocument()
     expect(document.querySelector('iframe')).toBeNull()
@@ -141,7 +141,7 @@ describe('AddBranchModal PR-6 location lookup', () => {
 
   it('autofills the address fields from a Google pick', async () => {
     searchLocation.mockResolvedValue([PICK_CANDIDATE])
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'old foundry' } })
     fireEvent.click(await screen.findByTestId('location-lookup-result'))
 
@@ -152,7 +152,7 @@ describe('AddBranchModal PR-6 location lookup', () => {
 
   it('carries the candidateToken (never lat/lng) on the create body after a pick', async () => {
     searchLocation.mockResolvedValue([PICK_CANDIDATE])
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fireEvent.change(screen.getByLabelText('Branch name'), { target: { value: 'Old Foundry' } })
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'old foundry' } })
     fireEvent.click(await screen.findByTestId('location-lookup-result'))
@@ -168,7 +168,7 @@ describe('AddBranchModal PR-6 location lookup', () => {
 
   it('drops the candidateToken when the merchant hand-edits an address field after a pick', async () => {
     searchLocation.mockResolvedValue([PICK_CANDIDATE])
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fireEvent.change(screen.getByLabelText('Branch name'), { target: { value: 'Old Foundry' } })
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'old foundry' } })
     fireEvent.click(await screen.findByTestId('location-lookup-result'))
@@ -184,7 +184,7 @@ describe('AddBranchModal PR-6 location lookup', () => {
 describe('AddBranchModal Slice 3 create-then-drop chain', () => {
   it('chains straight into the pin-drop step for a POSTCODE_CENTROID branch, without navigating yet', async () => {
     createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'POSTCODE_CENTROID' })
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fillRequired()
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
 
@@ -196,7 +196,7 @@ describe('AddBranchModal Slice 3 create-then-drop chain', () => {
 
   it('chains into the pin-drop step for a NEEDS_REVIEW branch (a Google pick that failed the cross-check)', async () => {
     createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'NEEDS_REVIEW' })
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fillRequired()
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
     expect(await screen.findByTestId('pin-drop-map-stub')).toBeInTheDocument()
@@ -204,7 +204,7 @@ describe('AddBranchModal Slice 3 create-then-drop chain', () => {
 
   it('skips the pin-drop step and navigates straight through for an ADDRESS_GEOCODED branch (Google pick passed)', async () => {
     createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'ADDRESS_GEOCODED' })
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fillRequired()
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
     await waitFor(() => expect(push).toHaveBeenCalledWith('/branches/b-new'))
@@ -214,7 +214,7 @@ describe('AddBranchModal Slice 3 create-then-drop chain', () => {
 
   it('navigates to the branch page when the merchant completes the pin-drop step (Done)', async () => {
     createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'POSTCODE_CENTROID' })
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fillRequired()
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
     fireEvent.click(await screen.findByText('stub-done'))
@@ -224,11 +224,21 @@ describe('AddBranchModal Slice 3 create-then-drop chain', () => {
 
   it('still navigates to the branch page when the merchant skips the pin-drop step (Cancel) - the branch already exists', async () => {
     createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'POSTCODE_CENTROID' })
-    render(<AddBranchModal onClose={onClose} />)
+    render(<AddBranchModal onClose={onClose} canDropPin />)
     fillRequired()
     fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
     fireEvent.click(await screen.findByText('stub-cancel'))
     expect(push).toHaveBeenCalledWith('/branches/b-new')
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('SKIPS the pin-drop chain and navigates straight through when canDropPin is false, even for POSTCODE_CENTROID (pin-drop is OWNER-only, addendum §9.3)', async () => {
+    createMutateAsync.mockResolvedValue({ id: 'b-new', locationConfidence: 'POSTCODE_CENTROID' })
+    render(<AddBranchModal onClose={onClose} canDropPin={false} />)
+    fillRequired()
+    fireEvent.click(screen.getByRole('button', { name: /add branch/i }))
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/branches/b-new'))
+    expect(onClose).toHaveBeenCalled()
+    expect(screen.queryByTestId('pin-drop-map-stub')).not.toBeInTheDocument()
   })
 })

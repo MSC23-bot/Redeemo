@@ -23,6 +23,14 @@
 // (Google pick passed) skips straight to navigation, same as before -
 // D-L5 already means pin-drop would be rejected on an already-confirmed branch.
 //
+// The chained pin-drop step is gated on `canDropPin` (OWNER-only, addendum §9.3:
+// the pin-drop + map-preview endpoints are OWNER-only, tightened from the §1.1
+// "OWNER or assigned BM" recommendation). Create itself is already OWNER-only by
+// route (BranchesOverview only mounts this modal for an owner), so this gate is
+// belt-and-braces + explicit: a non-owner never reaches the pin-drop chain and
+// navigates straight to the new branch page. Widening it back is a deliberate
+// two-sided change (relax the backend resolver AND this gate).
+//
 // Error UX: the modal STAYS OPEN on every error and "Add branch" re-enables.
 // POSTCODE_NOT_FOUND shows inline under the Postcode field; GAZETTEER_UNAVAILABLE shows
 // a modal-level alert; everything else is a calm generic modal-level message.
@@ -53,7 +61,14 @@ interface FieldErrors {
   postcode?: string
 }
 
-export function AddBranchModal({ onClose }: { onClose: () => void }) {
+export function AddBranchModal({
+  onClose,
+  canDropPin,
+}: {
+  onClose: () => void
+  /** OWNER-only gate for the chained pin-drop step (addendum §9.3). Non-owners navigate straight through. */
+  canDropPin: boolean
+}) {
   const router = useRouter()
   const create = useCreateBranch()
 
@@ -153,8 +168,9 @@ export function AddBranchModal({ onClose }: { onClose: () => void }) {
       // pick (POSTCODE_CENTROID) or that failed the cross-check (NEEDS_REVIEW)
       // gets an immediate pin-drop offer, chained into this same modal, before
       // we navigate away. An ADDRESS_GEOCODED branch (Google pick passed) skips
-      // straight to navigation.
-      if (PIN_DROP_ELIGIBLE.has(branch.locationConfidence ?? '')) {
+      // straight to navigation. The pin-drop step is OWNER-only (addendum §9.3),
+      // so a non-owner (`canDropPin` false) always navigates straight through.
+      if (canDropPin && PIN_DROP_ELIGIBLE.has(branch.locationConfidence ?? '')) {
         setCreatedBranch(branch)
         return
       }

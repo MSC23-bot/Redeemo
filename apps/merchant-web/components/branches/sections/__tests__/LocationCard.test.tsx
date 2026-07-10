@@ -74,19 +74,19 @@ beforeEach(() => {
 
 describe('LocationCard confidence badge', () => {
   it('shows a green "Location confirmed" badge when MANUALLY_CONFIRMED', () => {
-    render(<LocationCard branch={branch({ locationConfidence: 'MANUALLY_CONFIRMED' })} canManage />)
+    render(<LocationCard branch={branch({ locationConfidence: 'MANUALLY_CONFIRMED' })} canManage canDropPin />)
     expect(screen.getByText(/^location confirmed$/i)).toBeInTheDocument()
     expect(screen.queryByText(/awaiting location check/i)).not.toBeInTheDocument()
   })
 
   it('shows a green "Location confirmed" badge when ADDRESS_GEOCODED (fixes the pre-existing gap)', () => {
-    render(<LocationCard branch={branch({ locationConfidence: 'ADDRESS_GEOCODED' })} canManage />)
+    render(<LocationCard branch={branch({ locationConfidence: 'ADDRESS_GEOCODED' })} canManage canDropPin />)
     expect(screen.getByText(/^location confirmed$/i)).toBeInTheDocument()
     expect(screen.queryByText(/awaiting location check/i)).not.toBeInTheDocument()
   })
 
   it('shows a green "Merchant-set pin" badge when MERCHANT_CONFIRMED (never "verified")', () => {
-    render(<LocationCard branch={branch({ locationConfidence: 'MERCHANT_CONFIRMED' })} canManage />)
+    render(<LocationCard branch={branch({ locationConfidence: 'MERCHANT_CONFIRMED' })} canManage canDropPin />)
     expect(screen.getByText(/merchant-set pin/i)).toBeInTheDocument()
     expect(screen.queryByText(/^location confirmed$/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/awaiting location check/i)).not.toBeInTheDocument()
@@ -95,7 +95,7 @@ describe('LocationCard confidence badge', () => {
 
   it('shows an orange "Awaiting location check" badge for POSTCODE_CENTROID / NEEDS_REVIEW / null', () => {
     for (const conf of ['POSTCODE_CENTROID', 'NEEDS_REVIEW', null] as const) {
-      const { unmount } = render(<LocationCard branch={branch({ locationConfidence: conf })} canManage />)
+      const { unmount } = render(<LocationCard branch={branch({ locationConfidence: conf })} canManage canDropPin />)
       expect(screen.getByText(/awaiting location check/i)).toBeInTheDocument()
       expect(screen.queryByText(/^location confirmed$/i)).not.toBeInTheDocument()
       expect(screen.queryByText(/merchant-set pin/i)).not.toBeInTheDocument()
@@ -106,31 +106,31 @@ describe('LocationCard confidence badge', () => {
 
 describe('LocationCard privacy + no-network', () => {
   it('renders the formatted address', () => {
-    render(<LocationCard branch={branch()} canManage />)
+    render(<LocationCard branch={branch()} canManage canDropPin />)
     expect(screen.getByText(/12 High Street/)).toBeInTheDocument()
   })
 
   it('never renders the lat/lng coordinates', () => {
-    render(<LocationCard branch={branch({ latitude: 52.2053, longitude: 0.1218 })} canManage />)
+    render(<LocationCard branch={branch({ latitude: 52.2053, longitude: 0.1218 })} canManage canDropPin />)
     expect(screen.queryByText(/52\.2053/)).not.toBeInTheDocument()
     expect(screen.queryByText(/0\.1218/)).not.toBeInTheDocument()
   })
 
   it('makes no network call (no apiFetch, no fetch / Google call)', () => {
-    render(<LocationCard branch={branch()} canManage />)
+    render(<LocationCard branch={branch()} canManage canDropPin />)
     expect(apiFetch).not.toHaveBeenCalled()
     expect(global.fetch).not.toHaveBeenCalled()
   })
 
   it('renders the static "worked out from the address" copy for a non-merchant-set pin', () => {
-    render(<LocationCard branch={branch()} canManage />)
+    render(<LocationCard branch={branch()} canManage canDropPin />)
     expect(
       screen.getByText(/worked out from the address\. you did not enter coordinates\./i),
     ).toBeInTheDocument()
   })
 
   it('renders "you set this pin" copy for a MERCHANT_CONFIRMED branch', () => {
-    render(<LocationCard branch={branch({ locationConfidence: 'MERCHANT_CONFIRMED' })} canManage />)
+    render(<LocationCard branch={branch({ locationConfidence: 'MERCHANT_CONFIRMED' })} canManage canDropPin />)
     expect(screen.getByText(/you set this pin on the map\./i)).toBeInTheDocument()
     expect(screen.queryByText(/worked out from the address/i)).not.toBeInTheDocument()
   })
@@ -138,7 +138,7 @@ describe('LocationCard privacy + no-network', () => {
 
 describe('LocationCard active update-location affordance (PR-6)', () => {
   it('shows an ACTIVE (enabled) "Update location" control for the owner', () => {
-    render(<LocationCard branch={branch()} canManage />)
+    render(<LocationCard branch={branch()} canManage canDropPin />)
     const btn = screen.getByTestId('location-update-button')
     expect(btn).toBeEnabled()
     // The card itself fires no network on render.
@@ -147,14 +147,14 @@ describe('LocationCard active update-location affordance (PR-6)', () => {
   })
 
   it('opens the reviewed edit modal (which carries the lookup) on click', () => {
-    render(<LocationCard branch={branch()} canManage />)
+    render(<LocationCard branch={branch()} canManage canDropPin />)
     expect(screen.queryByTestId('branch-details-edit-modal')).not.toBeInTheDocument()
     fireEvent.click(screen.getByTestId('location-update-button'))
     expect(screen.getByTestId('branch-details-edit-modal')).toBeInTheDocument()
   })
 
   it('does NOT show the control for a non-owner (UX gate; the backend is the boundary)', () => {
-    render(<LocationCard branch={branch()} canManage={false} />)
+    render(<LocationCard branch={branch()} canManage={false} canDropPin={false} />)
     expect(screen.queryByTestId('location-update-button')).not.toBeInTheDocument()
   })
 
@@ -162,37 +162,53 @@ describe('LocationCard active update-location affordance (PR-6)', () => {
     const b = branch({
       pendingEdits: [{ id: 'e1', status: 'PENDING', includesPhotos: false }],
     })
-    render(<LocationCard branch={b} canManage />)
+    render(<LocationCard branch={b} canManage canDropPin />)
     expect(screen.getByTestId('location-update-button')).toBeDisabled()
   })
 })
 
 describe('LocationCard pin-drop entry point (Slice 3)', () => {
-  it('shows "Set your location pin" for a POSTCODE_CENTROID branch when canManage', () => {
-    render(<LocationCard branch={branch({ locationConfidence: 'POSTCODE_CENTROID' })} canManage />)
+  // The pin-drop entry point is gated on the OWNER-only `canDropPin` (addendum
+  // §9.3: the pin-drop + map-preview endpoints are OWNER-only, tightened from
+  // the §1.1 "OWNER or assigned BM" recommendation), NOT the BM-eligible
+  // `canManage`. These cases pin that separation so a future accidental re-gate
+  // to `canManage` (which over-shows the control to an assigned Branch Manager
+  // who then only gets backend denials) is caught here.
+  it('shows "Set your location pin" for a POSTCODE_CENTROID branch when canDropPin (OWNER)', () => {
+    render(<LocationCard branch={branch({ locationConfidence: 'POSTCODE_CENTROID' })} canManage canDropPin />)
     expect(screen.getByTestId('pin-drop-entry-button')).toBeInTheDocument()
   })
 
-  it('shows "Set your location pin" for a NEEDS_REVIEW branch when canManage', () => {
-    render(<LocationCard branch={branch({ locationConfidence: 'NEEDS_REVIEW' })} canManage />)
+  it('shows "Set your location pin" for a NEEDS_REVIEW branch when canDropPin (OWNER)', () => {
+    render(<LocationCard branch={branch({ locationConfidence: 'NEEDS_REVIEW' })} canManage canDropPin />)
     expect(screen.getByTestId('pin-drop-entry-button')).toBeInTheDocument()
   })
 
   it('does NOT show the pin-drop entry point for an already-confirmed branch (D-L5 no-downgrade)', () => {
     for (const conf of ['MANUALLY_CONFIRMED', 'ADDRESS_GEOCODED', 'MERCHANT_CONFIRMED'] as const) {
-      const { unmount } = render(<LocationCard branch={branch({ locationConfidence: conf })} canManage />)
+      const { unmount } = render(<LocationCard branch={branch({ locationConfidence: conf })} canManage canDropPin />)
       expect(screen.queryByTestId('pin-drop-entry-button')).not.toBeInTheDocument()
       unmount()
     }
   })
 
-  it('does NOT show the pin-drop entry point for a non-owner (UX gate)', () => {
-    render(<LocationCard branch={branch({ locationConfidence: 'POSTCODE_CENTROID' })} canManage={false} />)
+  it('does NOT show the pin-drop entry point for an assigned BRANCH_MANAGER on a live POSTCODE_CENTROID branch (canManage true, canDropPin false) - the exact over-show this gate prevents', () => {
+    // The Codex finding: a BM has canManage=true (reviewed edit lane) but the
+    // pin-drop endpoints are OWNER-only, so canDropPin=false. The entry point
+    // must stay hidden even though `canManage` is true.
+    render(<LocationCard branch={branch({ locationConfidence: 'POSTCODE_CENTROID' })} canManage canDropPin={false} />)
+    expect(screen.queryByTestId('pin-drop-entry-button')).not.toBeInTheDocument()
+    // The reviewed "Update location" lane stays available to the BM (canManage).
+    expect(screen.getByTestId('location-update-button')).toBeInTheDocument()
+  })
+
+  it('does NOT show the pin-drop entry point when neither capability is granted (STAFF)', () => {
+    render(<LocationCard branch={branch({ locationConfidence: 'POSTCODE_CENTROID' })} canManage={false} canDropPin={false} />)
     expect(screen.queryByTestId('pin-drop-entry-button')).not.toBeInTheDocument()
   })
 
   it('opens the pin-drop dialog (mounting PinDropMap) on click, and closes on done/cancel', () => {
-    render(<LocationCard branch={branch({ locationConfidence: 'POSTCODE_CENTROID' })} canManage />)
+    render(<LocationCard branch={branch({ locationConfidence: 'POSTCODE_CENTROID' })} canManage canDropPin />)
     expect(screen.queryByTestId('pin-drop-map-stub')).not.toBeInTheDocument()
     fireEvent.click(screen.getByTestId('pin-drop-entry-button'))
     expect(screen.getByTestId('pin-drop-dialog')).toBeInTheDocument()

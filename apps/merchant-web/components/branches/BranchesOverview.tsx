@@ -116,7 +116,10 @@ export function BranchesOverview({
         )}
       </Card>
 
-      {addOpen ? <AddBranchModal onClose={() => setAddOpen(false)} /> : null}
+      {/* The modal is already only mounted for an owner; pass the OWNER-grade
+          `canDropPin` explicitly so the chained pin-drop step's OWNER-only gate
+          (addendum §9.3) is consistent with the LocationCard entry point. */}
+      {addOpen ? <AddBranchModal onClose={() => setAddOpen(false)} canDropPin={isOwner} /> : null}
     </div>
   )
 }

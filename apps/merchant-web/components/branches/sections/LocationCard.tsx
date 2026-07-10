@@ -20,11 +20,19 @@
 // NEEDS_REVIEW branches (D-L5 no-downgrade mirror: a verified pin is never
 // reachable here), which opens PinDropMap for the merchant-drop flow.
 //
-// Gate: `canManage` (UX gate only - the backend denies STAFF on the search + apply
-// regardless). D-BM1: the per-branch capability signal is LIVE - an assigned
-// Branch Manager sees this entry point on LIVE merchants; draft-window identity
-// edits stay owner-only via the canEditIdentity composite threaded by BranchDetail.
-// (Closes the recorded "BM-sees-lookup needs the client role/branch signal" follow-up.)
+// TWO DISTINCT UX GATES (the backend is the real boundary in both cases):
+//   - `canManage` gates the reviewed "Update location" edit lane. Per D-BM1 this
+//     is LIVE for an assigned Branch Manager on a live merchant (the search +
+//     apply route runs through assertCanManageBranch); draft-window identity
+//     edits stay owner-only via the canEditIdentity composite BranchDetail threads.
+//   - `canDropPin` gates the "Set your location pin" merchant-drop entry point.
+//     The pin-drop + map-preview endpoints are OWNER-only (addendum §9.3: this
+//     brief deliberately TIGHTENED the §1.1 "OWNER or assigned BRANCH_MANAGER"
+//     recommendation to OWNER-only for v1). Gating this control on `canManage`
+//     therefore over-shows it to an assigned BM, who would then hit backend
+//     denials (repeated 401s can even trigger the session-lost redirect), so it
+//     is gated on the OWNER-grade `canDropPin` instead. Widening it back is a
+//     deliberate TWO-SIDED change (relax the backend resolver AND this gate).
 //
 // House style: brand tokens, no em-dashes, SVG icons not emojis.
 import * as React from 'react'
@@ -42,7 +50,17 @@ function val(v: string | null | undefined): string {
   return (v ?? '').trim()
 }
 
-export function LocationCard({ branch, canManage }: { branch: Branch; canManage: boolean }) {
+export function LocationCard({
+  branch,
+  canManage,
+  canDropPin,
+}: {
+  branch: Branch
+  /** UX gate for the reviewed "Update location" edit lane (OWNER or assigned BM per D-BM1). */
+  canManage: boolean
+  /** UX gate for the OWNER-only merchant pin-drop entry point (addendum §9.3). */
+  canDropPin: boolean
+}) {
   const [editOpen, setEditOpen] = React.useState(false)
   const [pinDropOpen, setPinDropOpen] = React.useState(false)
   const confirmed = CONFIRMED_CONFIDENCE.has(branch.locationConfidence ?? '')
@@ -131,10 +149,13 @@ export function LocationCard({ branch, canManage }: { branch: Branch; canManage:
         ) : null}
 
         {/* Branch Location Trust Slice 3: the merchant pin-drop entry point.
-            Shown ONLY when the branch is not yet confirmed (POSTCODE_CENTROID /
-            NEEDS_REVIEW) - D-L5 no-downgrade; the backend rejects any other state
-            with BRANCH_LOCATION_ALREADY_CONFIRMED regardless of this UX gate. */}
-        {canManage && pinDropEligible ? (
+            Gated on `canDropPin` (OWNER-only, addendum §9.3) - NOT `canManage`,
+            which is BM-true and would over-show the control to an assigned Branch
+            Manager who then only gets backend denials. Shown ONLY when the branch
+            is not yet confirmed (POSTCODE_CENTROID / NEEDS_REVIEW) - D-L5
+            no-downgrade; the backend rejects any other state with
+            BRANCH_LOCATION_ALREADY_CONFIRMED regardless of this UX gate. */}
+        {canDropPin && pinDropEligible ? (
           <div className="pt-1">
             <button
               type="button"
