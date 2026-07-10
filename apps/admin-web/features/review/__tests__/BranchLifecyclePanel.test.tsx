@@ -316,3 +316,29 @@ describe('BranchLifecyclePanel never renders a redemptionPin', () => {
     expect(container.textContent ?? '').not.toMatch(/\bpin\b/i)
   })
 })
+
+// ── B2: per-type review body alignment (approval-queue-spec.md §D.4) ────────
+
+describe('BranchLifecyclePanel B2 body alignment', () => {
+  it('shows the "Read only" tag and the on-behalf banner for a CREATE review', () => {
+    mockReview({ data: makeContext() })
+    renderPanel()
+    expect(screen.getByTestId('read-only-tag')).toBeInTheDocument()
+    expect(screen.getByTestId('on-behalf-banner')).toHaveTextContent(
+      'written to the audit trail'
+    )
+  })
+
+  it('shows the "Read only" tag and the on-behalf banner for a CLOSE review', () => {
+    mockReview({
+      data: makeContext({
+        kind: 'close',
+        closeReason: 'Relocating.',
+        branch: { ...makeContext().branch, lifecycleStatus: 'PENDING_CLOSE', isActive: true },
+      }),
+    })
+    renderPanel()
+    expect(screen.getByTestId('read-only-tag')).toBeInTheDocument()
+    expect(screen.getByTestId('on-behalf-banner')).toBeInTheDocument()
+  })
+})

@@ -125,3 +125,29 @@ describe('EditReviewDiff photo edits (Branches PR-3)', () => {
     expect(screen.getByTestId('edit-reject-btn')).toBeDisabled()
   })
 })
+
+// ── B2: per-type review body alignment (approval-queue-spec.md §D.3) ────────
+
+describe('EditReviewDiff B2 body alignment', () => {
+  it('shows the "Read only" tag and the on-behalf propose-lane banner', () => {
+    renderDiff(merchantContext())
+    expect(screen.getByTestId('read-only-tag')).toBeInTheDocument()
+    expect(screen.getByTestId('on-behalf-banner')).toHaveTextContent(
+      'not merchant sign-off and not four-eyes'
+    )
+  })
+
+  it('shows a friendly sentence-case status label, not the raw enum value', () => {
+    renderDiff(merchantContext({ status: 'PENDING' }))
+    expect(screen.getByTestId('edit-review-diff')).toHaveTextContent('Pending')
+    expect(screen.getByTestId('edit-review-diff')).not.toHaveTextContent('PENDING')
+  })
+
+  it('labels an APPROVED edit "Approved" (success tone), not the raw "APPROVED"', () => {
+    renderDiff(merchantContext({ status: 'APPROVED' }))
+    const badge = screen.getByText('Approved')
+    expect(badge).toBeInTheDocument()
+    expect(badge.className).toMatch(/green/)
+    expect(screen.queryByText('APPROVED')).not.toBeInTheDocument()
+  })
+})

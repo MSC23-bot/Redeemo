@@ -23,6 +23,8 @@ import { Badge } from '@/features/shared/Badge'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { NamedGateBanner } from './NamedGateBanner'
+import { OnBehalfBanner, ReadOnlyTag } from './OnBehalfBanner'
+import { approvalStatusLabel, approvalStatusTone } from '@/lib/ui/adminTones'
 
 // ── Display helpers ───────────────────────────────────────────────────────────
 
@@ -154,22 +156,42 @@ export function VoucherReviewPanel({ approvalId, canRead, canAction }: VoucherRe
   return (
     <div className="space-y-6" data-testid="voucher-review-panel">
       <div className="rounded-lg border border-border bg-card p-6">
-        {/* Header */}
+        {/* Header. Subtitle mirrors approval-queue-spec.md §D.2's compound
+            "{merchant} · Custom voucher (RCV) · dedicated voucher-approval
+            lane" string; the primary pill is now the voucher's APPROVAL
+            status (spec: "grey Pending pill"), not its own lifecycle status —
+            the lifecycle badge (Active/Draft/etc) moves to a secondary
+            position alongside the type chip, so the two axes read distinctly
+            (mirrors the queue list's two-pill Status column). */}
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Voucher submission
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Voucher submission
+              </p>
+              <ReadOnlyTag />
+            </div>
             <h2 className="mt-0.5 text-lg font-semibold text-foreground">{voucher.title}</h2>
-            {merchant && (
-              <p className="mt-1 text-sm text-muted-foreground">{merchant.businessName}</p>
-            )}
+            <p className="mt-1 text-sm text-muted-foreground" data-testid="voucher-review-subtitle">
+              {merchant ? `${merchant.businessName} · ` : ''}Custom voucher (RCV) · dedicated
+              voucher-approval lane
+            </p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <Badge tone="neutral">{voucherTypeLabel(voucher.type)}</Badge>
-            <Badge tone="info">{statusLabel(voucher.status)}</Badge>
+            <Badge tone={approvalStatusTone(voucher.approvalStatus)}>
+              {approvalStatusLabel(voucher.approvalStatus)}
+            </Badge>
+            <div className="flex items-center gap-1.5">
+              <Badge tone="neutral">{voucherTypeLabel(voucher.type)}</Badge>
+              <Badge tone="info">{statusLabel(voucher.status)}</Badge>
+            </div>
           </div>
         </div>
+
+        <OnBehalfBanner>
+          Deciding this voucher&apos;s approval status. This is the voucher review lane, separate
+          from any onboarding go-live gate.
+        </OnBehalfBanner>
 
         {askHelp && (
           <p
@@ -250,6 +272,9 @@ export function VoucherReviewPanel({ approvalId, canRead, canAction }: VoucherRe
           <p className="mt-2 text-sm font-medium text-primary">
             Save {formatSaving(voucher.estimatedSaving)}
           </p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            How the voucher will appear to customers.
+          </p>
         </div>
 
         {/* Existing concierge proposal (a CHANGES_REQUESTED voucher carries the
@@ -276,9 +301,22 @@ export function VoucherReviewPanel({ approvalId, canRead, canAction }: VoucherRe
         ) : null}
       </div>
 
-      {/* Action bar: gated on approval:action. Hidden entirely without the cap. */}
+      {/* Action bar: gated on approval:action. Hidden entirely without the cap.
+          Per approval-queue-spec.md §C.2's per-surface action matrix, Request
+          changes is the de-emphasised FALLBACK for a voucher (only for items
+          the merchant must supply) — a link-styled button + tooltip, not a
+          bordered button competing with Reject/Approve. */}
       {canAction && (
-        <div className="flex flex-wrap justify-end gap-3" data-testid="voucher-review-actions">
+        <div className="flex flex-wrap items-center justify-end gap-3" data-testid="voucher-review-actions">
+          <Button
+            type="button"
+            variant="link"
+            onClick={() => setOpenDialog('request-changes')}
+            title="Fallback: only for items the merchant must supply."
+            data-testid="voucher-request-changes-btn"
+          >
+            Request changes (needs merchant)
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -289,18 +327,10 @@ export function VoucherReviewPanel({ approvalId, canRead, canAction }: VoucherRe
           </Button>
           <Button
             type="button"
-            variant="outline"
-            onClick={() => setOpenDialog('request-changes')}
-            data-testid="voucher-request-changes-btn"
-          >
-            Request changes
-          </Button>
-          <Button
-            type="button"
             onClick={() => setOpenDialog('approve')}
             data-testid="voucher-approve-btn"
           >
-            Approve
+            Approve voucher
           </Button>
         </div>
       )}

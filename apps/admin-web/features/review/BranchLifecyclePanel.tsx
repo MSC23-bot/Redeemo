@@ -32,6 +32,7 @@ import type { BranchLifecycleReviewContext, BranchLifecycleReviewBranch } from '
 import { ApproveBranchLifecycleConfirm } from './ApproveBranchLifecycleConfirm'
 import { RejectBranchLifecycleDialog } from './RejectBranchLifecycleDialog'
 import { BranchLifecycleConfirmLocationDialog } from './BranchLifecycleConfirmLocationDialog'
+import { OnBehalfBanner, ReadOnlyTag } from './OnBehalfBanner'
 
 interface BranchLifecyclePanelProps {
   approvalId: string
@@ -209,9 +210,12 @@ function BranchLifecycleCard({
     <div className="rounded-lg border border-border bg-card p-6" data-testid="branch-lifecycle-card">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-base font-semibold text-foreground">
-            {isCreate ? 'New branch request' : 'Branch close request'}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-foreground">
+              {isCreate ? 'New branch request' : 'Branch close request'}
+            </h2>
+            <ReadOnlyTag />
+          </div>
           <p className="mt-0.5 text-sm text-muted-foreground" data-testid="branch-lifecycle-merchant-name">
             {merchant.businessName}
           </p>
@@ -222,6 +226,11 @@ function BranchLifecycleCard({
           </Badge>
         </span>
       </div>
+
+      <OnBehalfBanner>
+        Acting on behalf of the merchant. Every action needs a reason and is written to the audit
+        trail.
+      </OnBehalfBanner>
 
       {/* Branch detail */}
       <div className="divide-y divide-border rounded-md border border-border" data-testid="branch-lifecycle-detail">
