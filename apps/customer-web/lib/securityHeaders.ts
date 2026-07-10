@@ -72,6 +72,7 @@ export function buildContentSecurityPolicy(opts: SecurityHeaderOptions): string 
     'blob:', // client-side image previews (e.g. avatar upload via createObjectURL)
     'https://*.r2.cloudflarestorage.com', // R2 — merchant/profile images (prod)
     'https://*.amazonaws.com', // S3 — merchant/profile images (prod)
+    'https://*.r2.dev', // R2 public bucket: merchant logo/banner/photo public URLs (PR #437 two-bucket split)
     'https://images.unsplash.com', // seed/demo only — droppable post seed-scrub
     'https://placehold.co', // seed/demo only — droppable post seed-scrub
   ]
