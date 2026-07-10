@@ -62,6 +62,7 @@ export const RENDERED_M360_TABS: readonly M360TabKey[] = [
   'redemptions',
   'documents',
   'activity',
+  'staff',
 ]
 
 /**
@@ -76,7 +77,7 @@ export function resolveM360Tab(raw: string | null | undefined): M360TabKey {
 
 type PlaceholderKey = Exclude<
   M360TabKey,
-  'overview' | 'identity' | 'branches' | 'vouchers' | 'redemptions' | 'documents' | 'activity'
+  'overview' | 'identity' | 'branches' | 'vouchers' | 'redemptions' | 'documents' | 'activity' | 'staff'
 >
 
 export interface PlaceholderCopy {
@@ -92,7 +93,6 @@ export interface PlaceholderCopy {
  * fabricated data is ever shown.
  */
 export const M360_PLACEHOLDER_COPY: Record<PlaceholderKey, PlaceholderCopy> = {
-  staff: { title: 'Staff and access', body: 'Coming in a later slice.' },
   notes: {
     title: 'Notes',
     body: 'Internal operator notes need the MerchantNote model, which is not built yet (net-new schema). Nothing is shown here until it lands.',

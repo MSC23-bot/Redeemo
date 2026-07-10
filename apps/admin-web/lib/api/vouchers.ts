@@ -37,6 +37,37 @@ export const listAdminRmvResponseSchema = z.object({
 })
 export type ListAdminRmvResponse = z.infer<typeof listAdminRmvResponseSchema>
 
+// ── A4: custom (RCV) voucher roster (read-only) ──────────────────────────────────
+
+// The curated pending-edit summary the backend exposes (at most one OPEN edit
+// per voucher). `kind` is CHANGE | END; drift-tolerant string keeps the mirror
+// resilient if a new kind lands before this is updated.
+export const adminVoucherPendingEditSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  status: z.string(),
+})
+
+export const adminCustomVoucherSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  title: z.string(),
+  type: z.string(),
+  status: z.string(),
+  approvalStatus: z.string(),
+  estimatedSaving: z.number(),
+  // ISO strings over the wire; null when unset.
+  expiryDate: z.string().nullable(),
+  createdAt: z.string(),
+  pendingEdit: adminVoucherPendingEditSchema.nullable(),
+})
+export type AdminCustomVoucher = z.infer<typeof adminCustomVoucherSchema>
+
+export const listAdminCustomResponseSchema = z.object({
+  vouchers: z.array(adminCustomVoucherSchema),
+})
+export type ListAdminCustomResponse = z.infer<typeof listAdminCustomResponseSchema>
+
 // ── API calls ──────────────────────────────────────────────────────────────────
 
 export const adminVouchersApi = {
@@ -47,6 +78,18 @@ export const adminVouchersApi = {
       { auth: true }
     )
     return listAdminRmvResponseSchema.parse(raw)
+  },
+
+  /**
+   * A4: read the merchant's custom (RCV) vouchers for the read-only Vouchers-tab
+   * custom section. `merchant:read`-gated; no mutations (B5.2 stays unbuilt).
+   */
+  listCustom: async (merchantId: string): Promise<ListAdminCustomResponse> => {
+    const raw = await apiFetch<unknown>(
+      `/api/v1/admin/merchants/${merchantId}/vouchers`,
+      { auth: true }
+    )
+    return listAdminCustomResponseSchema.parse(raw)
   },
 
   /**

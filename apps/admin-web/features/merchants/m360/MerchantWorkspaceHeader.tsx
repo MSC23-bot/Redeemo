@@ -15,10 +15,10 @@
  *   ACTIVE/SUSPENDED, no cap  -> a lock chip naming the capability
  *   any other lifecycle       -> no action (Pending / Draft / Registered / etc.)
  *
- * A minimal stat strip shows the Branches count (derived from the existing
- * detail payload). The richer counts (active vouchers, redemptions, rating) are
- * a net-new backend read and arrive in a later slice, so they are not shown here
- * rather than rendered as fabricated zeros.
+ * The stat strip shows Branches / Active vouchers / Redemptions, all from the A4
+ * `headerCounts` read (real, not fabricated). Rating stays off the strip: it needs
+ * a net-new reviews aggregation, so it is honestly absent rather than shown as an
+ * empty star.
  */
 import { Lock } from 'lucide-react'
 import { Badge } from '@/features/shared/Badge'
@@ -38,6 +38,8 @@ interface MerchantWorkspaceHeaderProps {
   verificationStatus: string
   logoUrl: string | null
   branchCount: number
+  activeVouchers: number
+  totalRedemptions: number
   canLifecycle: boolean
   onSuspend: () => void
   onReactivate: () => void
@@ -58,6 +60,8 @@ export function MerchantWorkspaceHeader({
   verificationStatus,
   logoUrl,
   branchCount,
+  activeVouchers,
+  totalRedemptions,
   canLifecycle,
   onSuspend,
   onReactivate,
@@ -137,11 +141,19 @@ export function MerchantWorkspaceHeader({
         </div>
       </div>
 
-      {/* Stat strip (Branches only in A1; richer counts are a later slice) */}
+      {/* Stat strip (A4 real counts: Branches / Active vouchers / Redemptions) */}
       <dl className="mt-5 flex flex-wrap gap-8 border-t border-border pt-4">
         <div data-testid="workspace-stat-branches">
           <dt className="text-xs text-muted-foreground">Branches</dt>
           <dd className="text-lg font-semibold text-foreground">{branchCount}</dd>
+        </div>
+        <div data-testid="workspace-stat-active-vouchers">
+          <dt className="text-xs text-muted-foreground">Active vouchers</dt>
+          <dd className="text-lg font-semibold text-foreground">{activeVouchers}</dd>
+        </div>
+        <div data-testid="workspace-stat-redemptions">
+          <dt className="text-xs text-muted-foreground">Redemptions</dt>
+          <dd className="text-lg font-semibold text-foreground">{totalRedemptions}</dd>
         </div>
       </dl>
     </header>

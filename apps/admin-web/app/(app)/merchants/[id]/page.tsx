@@ -51,6 +51,7 @@ import { VouchersTab } from '@/features/merchants/m360/VouchersTab'
 import { RedemptionsTab } from '@/features/merchants/m360/RedemptionsTab'
 import { DocumentsTab } from '@/features/merchants/m360/DocumentsTab'
 import { ActivityTab } from '@/features/merchants/m360/ActivityTab'
+import { StaffTab } from '@/features/merchants/m360/StaffTab'
 import { PlaceholderTab } from '@/features/merchants/m360/PlaceholderTab'
 import { resolveM360Tab } from '@/features/merchants/m360/tabs'
 import type { BranchDetail } from '@/lib/api/merchants'
@@ -202,7 +203,9 @@ function MerchantWorkspace() {
             status={data.merchant.status}
             verificationStatus={data.merchant.verificationStatus}
             logoUrl={data.merchant.logoUrl}
-            branchCount={data.branches.length}
+            branchCount={data.merchant.headerCounts?.branches ?? data.branches.length}
+            activeVouchers={data.merchant.headerCounts?.activeVouchers ?? 0}
+            totalRedemptions={data.merchant.headerCounts?.totalRedemptions ?? 0}
             canLifecycle={canLifecycle}
             onSuspend={() => setDialog({ kind: 'suspend' })}
             onReactivate={() => setDialog({ kind: 'reactivate' })}
@@ -259,13 +262,16 @@ function MerchantWorkspace() {
             <ActivityTab merchantId={data.merchant.id} canReadActivity={canReadActivity} />
           )}
 
+          {activeTab === 'staff' && <StaffTab merchantId={data.merchant.id} />}
+
           {activeTab !== 'overview' &&
             activeTab !== 'identity' &&
             activeTab !== 'branches' &&
             activeTab !== 'vouchers' &&
             activeTab !== 'redemptions' &&
             activeTab !== 'documents' &&
-            activeTab !== 'activity' && <PlaceholderTab tabKey={activeTab} />}
+            activeTab !== 'activity' &&
+            activeTab !== 'staff' && <PlaceholderTab tabKey={activeTab} />}
         </>
       )}
 

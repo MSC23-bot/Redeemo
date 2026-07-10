@@ -9,8 +9,9 @@
  * merchant:manage-vouchers, and wired to the two existing-but-unconsumed co-build
  * routes); non-DRAFT flagships are read-only with a status pill. The advisory
  * value meter and category value benchmark (D41) are NOT in this slice (they need
- * cross-merchant aggregation). CUSTOM (RCV) vouchers have no admin read yet, so
- * they show an honest "arrives in the next slice" note, never fabricated data.
+ * cross-merchant aggregation). CUSTOM (RCV) vouchers now render a real read-only
+ * section from the A4 custom-voucher read (status + approval pills, saving,
+ * expiry, an open-request hint). No custom-voucher mutations: B5.2 stays unbuilt.
  *
  * View is gated by the page (merchant:read); this tab never fires a write the role
  * lacks (merchant:manage-vouchers), and the backend requireAdminCapability stays
@@ -19,11 +20,12 @@
 import { useState } from 'react'
 import { Loader2, AlertCircle, Lock, Pencil, Send } from 'lucide-react'
 import { useAdminRmvVouchers } from '@/lib/vouchers/useAdminRmvVouchers'
+import { useAdminCustomVouchers } from '@/lib/vouchers/useAdminCustomVouchers'
 import { RmvCoBuildDialog } from './RmvCoBuildDialog'
 import { SubmitRmvDialog } from './SubmitRmvDialog'
 import { Badge } from '@/features/shared/Badge'
 import type { BadgeTone } from '@/features/shared/Badge'
-import type { AdminRmvVoucher } from '@/lib/api/vouchers'
+import type { AdminRmvVoucher, AdminCustomVoucher } from '@/lib/api/vouchers'
 
 const gbpFmt = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' })
 
@@ -48,6 +50,28 @@ function statusPill(status: string): { label: string; tone: BadgeTone } {
       return { label: words.charAt(0).toUpperCase() + words.slice(1), tone: 'neutral' }
     }
   }
+}
+
+function approvalPill(approvalStatus: string): { label: string; tone: BadgeTone } {
+  switch (approvalStatus) {
+    case 'APPROVED':
+      return { label: 'Approved', tone: 'success' }
+    case 'PENDING':
+      return { label: 'Pending', tone: 'warn' }
+    case 'REJECTED':
+      return { label: 'Rejected', tone: 'danger' }
+    default: {
+      const words = approvalStatus.toLowerCase().replace(/_/g, ' ')
+      return { label: words.charAt(0).toUpperCase() + words.slice(1), tone: 'neutral' }
+    }
+  }
+}
+
+const dateFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+function formatDate(iso: string | null): string {
+  if (!iso) return 'No expiry'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? 'No expiry' : dateFmt.format(d)
 }
 
 // The effective (staged) title/saving: the merchant's staged merchantFields value
@@ -209,17 +233,8 @@ export function VouchersTab({ merchantId, canManageVouchers }: VouchersTabProps)
         </ul>
       )}
 
-      {/* CUSTOM (RCV): honest not-built note, no fabricated data */}
-      <div
-        className="rounded-lg border border-dashed border-border bg-card px-4 py-4"
-        data-testid="vouchers-custom-note"
-      >
-        <h3 className="text-sm font-medium text-foreground">Custom vouchers (RCV)</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          A read for the merchant&apos;s custom vouchers is not built yet, so none are shown here.
-          The custom-voucher list arrives in the next slice.
-        </p>
-      </div>
+      {/* CUSTOM (RCV): real read-only section (A4). No mutations (B5.2 unbuilt). */}
+      <CustomVouchersSection merchantId={merchantId} />
 
       {/* Dialogs */}
       {dialog?.kind === 'edit' && (
@@ -239,5 +254,86 @@ export function VouchersTab({ merchantId, canManageVouchers }: VouchersTabProps)
         />
       )}
     </div>
+  )
+}
+
+// ── Custom (RCV) vouchers: read-only roster (A4) ──────────────────────────────────
+
+function CustomVoucherCard({ v }: { v: AdminCustomVoucher }) {
+  const status = statusPill(v.status)
+  const approval = approvalPill(v.approvalStatus)
+  return (
+    <li
+      key={v.id}
+      data-testid={`rcv-card-${v.id}`}
+      className="rounded-lg border border-border bg-card p-4"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="info">{typeLabel(v.type)}</Badge>
+            <span className="font-mono text-xs text-muted-foreground">{v.code}</span>
+            <span className="rounded-full border border-border bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+              Custom (RCV)
+            </span>
+          </div>
+          <p className="mt-2 text-sm font-medium text-foreground">{v.title}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Saves about {gbpFmt.format(v.estimatedSaving)} · Expires {formatDate(v.expiryDate)}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5" data-testid={`rcv-status-${v.id}`}>
+          <Badge tone={status.tone}>{status.label}</Badge>
+          <Badge tone={approval.tone}>{approval.label}</Badge>
+        </div>
+      </div>
+      {v.pendingEdit && (
+        <p className="mt-3 text-xs text-muted-foreground" data-testid={`rcv-pending-${v.id}`}>
+          {v.pendingEdit.kind === 'END' ? 'End request' : 'Change request'} awaiting review.
+        </p>
+      )}
+    </li>
+  )
+}
+
+function CustomVouchersSection({ merchantId }: { merchantId: string }) {
+  const { data, isLoading, isError, refetch } = useAdminCustomVouchers(merchantId, { enabled: true })
+
+  return (
+    <section className="space-y-3" data-testid="vouchers-custom">
+      <h3 className="text-sm font-semibold text-foreground">Custom vouchers (RCV)</h3>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8" data-testid="vouchers-custom-loading">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" aria-label="Loading" />
+        </div>
+      ) : isError || !data ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-6 text-center">
+          <p className="mb-3 text-sm text-destructive">Could not load custom vouchers.</p>
+          <button
+            type="button"
+            onClick={refetch}
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      ) : data.vouchers.length === 0 ? (
+        <div
+          className="rounded-lg border border-dashed border-border bg-card px-4 py-6 text-center"
+          data-testid="vouchers-custom-empty"
+        >
+          <p className="text-sm text-muted-foreground">
+            This merchant has no custom vouchers. Only the two mandatory flagship vouchers are set up.
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {data.vouchers.map((v) => (
+            <CustomVoucherCard key={v.id} v={v} />
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
