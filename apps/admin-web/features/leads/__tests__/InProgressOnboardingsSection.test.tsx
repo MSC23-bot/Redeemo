@@ -38,6 +38,7 @@ describe('InProgressOnboardingsSection', () => {
         isError={false}
         onRetry={jest.fn()}
         displayCap={10}
+        canAssist
       />
     )
     expect(screen.getByLabelText(/loading in-progress onboardings/i)).toBeInTheDocument()
@@ -53,6 +54,7 @@ describe('InProgressOnboardingsSection', () => {
         isError
         onRetry={onRetry}
         displayCap={10}
+        canAssist
       />
     )
     expect(screen.getByTestId('leads-in-progress-error')).toBeInTheDocument()
@@ -69,6 +71,7 @@ describe('InProgressOnboardingsSection', () => {
         isError={false}
         onRetry={jest.fn()}
         displayCap={10}
+        canAssist
       />
     )
     expect(screen.getByTestId('leads-in-progress-empty')).toHaveTextContent(/no draft or in-review/i)
@@ -84,6 +87,7 @@ describe('InProgressOnboardingsSection', () => {
         isError={false}
         onRetry={jest.fn()}
         displayCap={10}
+        canAssist
       />
     )
 
@@ -97,6 +101,37 @@ describe('InProgressOnboardingsSection', () => {
     expect(continueLink).toHaveAttribute('href', '/merchants/m-1')
   })
 
+  it('offers a per-row "Start assisted onboarding" resume link into the C2 wizard when canAssist', () => {
+    render(
+      <InProgressOnboardingsSection
+        items={[makeMerchant({ id: 'm-1' })]}
+        total={1}
+        isLoading={false}
+        isError={false}
+        onRetry={jest.fn()}
+        displayCap={10}
+        canAssist
+      />
+    )
+    expect(screen.getByTestId('leads-resume-assisted-m-1')).toHaveAttribute('href', '/leads/assisted/m-1')
+  })
+
+  it('hides the assisted resume link when canAssist is false (never a dead link)', () => {
+    render(
+      <InProgressOnboardingsSection
+        items={[makeMerchant({ id: 'm-1' })]}
+        total={1}
+        isLoading={false}
+        isError={false}
+        onRetry={jest.fn()}
+        displayCap={10}
+        canAssist={false}
+      />
+    )
+    expect(screen.queryByTestId('leads-resume-assisted-m-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('leads-continue-m-1')).toBeInTheDocument()
+  })
+
   it('shows the count in the section heading when total is known', () => {
     render(
       <InProgressOnboardingsSection
@@ -106,6 +141,7 @@ describe('InProgressOnboardingsSection', () => {
         isError={false}
         onRetry={jest.fn()}
         displayCap={10}
+        canAssist
       />
     )
     expect(screen.getByText('In-progress onboardings · 3')).toBeInTheDocument()
@@ -121,6 +157,7 @@ describe('InProgressOnboardingsSection', () => {
         isError={false}
         onRetry={jest.fn()}
         displayCap={2}
+        canAssist
       />
     )
     expect(screen.queryByTestId('leads-in-progress-more')).not.toBeInTheDocument()
@@ -133,6 +170,7 @@ describe('InProgressOnboardingsSection', () => {
         isError={false}
         onRetry={jest.fn()}
         displayCap={2}
+        canAssist
       />
     )
     expect(screen.getByTestId('leads-in-progress-more')).toHaveTextContent('Showing the 2 most recent of 5')

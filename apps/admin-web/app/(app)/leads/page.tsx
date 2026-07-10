@@ -16,7 +16,8 @@
  *     (a) InboundPointerCard : a read-only pointer at the self-serve queue,
  *         with a real awaiting-review count (existing approvals read).
  *     (b) CreateDraftCard : routes to the EXISTING /merchants/new form.
- *     (c) AssistedOnboardingCard : honestly gated: arrives with C2.
+ *     (c) AssistedOnboardingCard (C2) : routes to /merchants/new to begin the
+ *         assisted stepper on a real draft; resume per-row from SECTION 2.
  *   SECTION 2 "In-progress onboardings": draft/incomplete merchants (existing
  *     merchants directory read, pre-live statuses), each linking into
  *     Merchant 360 to continue.
@@ -30,9 +31,11 @@
  * affordances rather than a blanket forbidden page:
  *   - the live count fetch needs `approval:read` (mirrors the queue's own gate)
  *   - the "Create a draft" CTA needs `merchant:create-draft`
- *   - "Assisted onboarding" is unconditionally locked (C2 is not built; no
- *     `merchant:assisted-onboard` capability exists in the mirror yet, so one
- *     is not invented here)
+ *   - "Assisted onboarding" (C2) also gates on `merchant:create-draft` (no
+ *     dedicated `merchant:assisted-onboard` capability exists in the mirror, so
+ *     the closest real capability for bringing a merchant on directly is used;
+ *     it is not invented here). The wizard page additionally fail-closes on
+ *     `merchant:read`, and every in-wizard action gates on its own capability.
  * Backend `requireAdminCapability` on the underlying reads stays the
  * enforcement; this is UI gating only.
  */
@@ -123,7 +126,7 @@ export default function LeadsHubPage() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <CreateDraftCard canCreateDraft={canCreateDraft} />
-          <AssistedOnboardingCard />
+          <AssistedOnboardingCard canAssist={canCreateDraft} />
         </div>
       </section>
 
@@ -136,6 +139,7 @@ export default function LeadsHubPage() {
           isError={inProgress.isError}
           onRetry={inProgress.refetch}
           displayCap={IN_PROGRESS_DISPLAY_CAP}
+          canAssist={canCreateDraft}
         />
       </section>
 

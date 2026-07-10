@@ -6,10 +6,12 @@
  * REGISTERED, PENDING_APPROVAL : see lib/leads/useInProgressOnboardings.ts),
  * each row linking straight into Merchant 360 to continue the application.
  *
- * This is a REAL read (the merchants directory, status-filtered), not the
- * prototype's assisted-onboarding-wizard-step resume list (C2, not built):
- * there is no `onResume`/wizard-step here, just "open this merchant in 360
- * and carry on" : matching what actually exists today.
+ * This is a REAL read (the merchants directory, status-filtered). Each row
+ * offers two continuations: open the merchant in Merchant 360, or resume the
+ * C2 assisted onboarding stepper on it (`/leads/assisted/[id]`). The assisted
+ * resume link is capability-gated (`canAssist`, mirroring the create-draft
+ * capability); the wizard itself DERIVES the resume step from the merchant's
+ * real state, so no wizard-step pointer is stored here.
  */
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
@@ -26,6 +28,8 @@ export interface InProgressOnboardingsSectionProps {
   isError: boolean
   onRetry: () => void
   displayCap: number
+  /** Gates the per-row "Start assisted onboarding" resume link (C2). */
+  canAssist: boolean
 }
 
 export function InProgressOnboardingsSection({
@@ -35,6 +39,7 @@ export function InProgressOnboardingsSection({
   isError,
   onRetry,
   displayCap,
+  canAssist,
 }: InProgressOnboardingsSectionProps) {
   return (
     <>
@@ -88,11 +93,20 @@ export function InProgressOnboardingsSection({
                   Created {formatCreatedDate(m.createdAt)}
                 </p>
               </div>
-              <Link href={`/merchants/${m.id}`} data-testid={`leads-continue-${m.id}`}>
-                <Button type="button" size="sm">
-                  Continue in Merchant 360
-                </Button>
-              </Link>
+              <div className="flex flex-wrap items-center gap-2">
+                {canAssist && (
+                  <Link href={`/leads/assisted/${m.id}`} data-testid={`leads-resume-assisted-${m.id}`}>
+                    <Button type="button" size="sm" variant="outline">
+                      Start assisted onboarding
+                    </Button>
+                  </Link>
+                )}
+                <Link href={`/merchants/${m.id}`} data-testid={`leads-continue-${m.id}`}>
+                  <Button type="button" size="sm">
+                    Continue in Merchant 360
+                  </Button>
+                </Link>
+              </div>
             </div>
           ))}
         </div>
