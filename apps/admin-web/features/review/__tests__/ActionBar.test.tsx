@@ -131,10 +131,13 @@ describe('ActionBar terminal states', () => {
 // ── Unclaimed PENDING ─────────────────────────────────────────────────────────
 
 describe('ActionBar unclaimed PENDING', () => {
-  it('renders "Claim and review" button only', () => {
+  it('renders "Claim to act" button only, with the spec-aligned exclusivity hint', () => {
     renderBar({ approval: makeApproval({ claimedBy: null }) })
     expect(screen.getByTestId('action-bar-unclaimed')).toBeInTheDocument()
-    expect(screen.getByTestId('action-bar-claim-btn')).toHaveTextContent('Claim and review')
+    expect(screen.getByTestId('action-bar-unclaimed')).toHaveTextContent(
+      'Claim this item to take action. Claims are exclusive to one operator.'
+    )
+    expect(screen.getByTestId('action-bar-claim-btn')).toHaveTextContent('Claim to act')
     expect(screen.queryByTestId('action-bar-approve-btn')).not.toBeInTheDocument()
     expect(screen.queryByTestId('action-bar-reject-btn')).not.toBeInTheDocument()
     expect(screen.queryByTestId('action-bar-request-changes-btn')).not.toBeInTheDocument()
@@ -153,12 +156,15 @@ describe('ActionBar unclaimed PENDING', () => {
 describe('ActionBar claimed-by-me PENDING', () => {
   const approval = makeApproval({ claimedBy: { id: 'admin-me', name: 'Me Admin' } })
 
-  it('renders the full action bar with 3 buttons', () => {
+  it('renders the full action bar with 3 ENABLED buttons + the honesty-lock hint', () => {
     renderBar({ approval })
     expect(screen.getByTestId('action-bar-claimed-by-me')).toBeInTheDocument()
-    expect(screen.getByTestId('action-bar-request-changes-btn')).toBeInTheDocument()
-    expect(screen.getByTestId('action-bar-reject-btn')).toBeInTheDocument()
-    expect(screen.getByTestId('action-bar-approve-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('action-bar-claimed-by-me')).toHaveTextContent(
+      'You claimed this. A single operator can claim and approve today; a separate countersigner is not yet enforced.'
+    )
+    expect(screen.getByTestId('action-bar-request-changes-btn')).toBeEnabled()
+    expect(screen.getByTestId('action-bar-reject-btn')).toBeEnabled()
+    expect(screen.getByTestId('action-bar-approve-btn')).toBeEnabled()
   })
 
   it('does NOT render the Claim button', () => {
@@ -203,27 +209,69 @@ describe('ActionBar claimed-by-me PENDING', () => {
 // ── Claimed by other — OPERATIONS ────────────────────────────────────────────
 
 describe('ActionBar claimed-by-other OPERATIONS', () => {
-  const approval = makeApproval({ claimedBy: { id: 'admin-other', name: 'Dana Reviewer' } })
+  // A fixed past claimedAt: however many hours/days have since elapsed, the
+  // rendered copy should read "... {age} ago." — the exact figure isn't
+  // asserted (formatWaiting is covered by its own unit tests), just the shape.
+  const approval = makeApproval({
+    claimedBy: { id: 'admin-other', name: 'Dana Reviewer' },
+    claimedAt: '2026-06-10T07:00:00.000Z',
+  })
 
   it('renders the read-only note with the claimer name', () => {
     renderBar({ approval, role: 'OPERATIONS' })
     expect(screen.getByTestId('action-bar-claimed-by-other')).toBeInTheDocument()
     expect(screen.getByTestId('action-bar-claimer-name')).toHaveTextContent('Dana Reviewer')
+    expect(screen.getByTestId('action-bar-claimed-by-other')).toHaveTextContent(
+      'Only the claimer or a Super Admin can release it; you cannot act or steal the claim.'
+    )
   })
 
-  it('does NOT render action buttons (no Claim, no Force-release, no Approve/Reject/RequestChanges)', () => {
+  it('does NOT render the Claim or Force-release buttons (not the claimer, not a Super Admin)', () => {
     renderBar({ approval, role: 'OPERATIONS' })
     expect(screen.queryByTestId('action-bar-claim-btn')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('action-bar-approve-btn')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('action-bar-reject-btn')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('action-bar-request-changes-btn')).not.toBeInTheDocument()
     expect(screen.queryByTestId('action-bar-force-release-btn')).not.toBeInTheDocument()
+  })
+
+  it('renders Approve/Reject/Request-changes DISABLED (spec §C.1: visible, not actionable)', () => {
+    renderBar({ approval, role: 'OPERATIONS' })
+    expect(screen.getByTestId('action-bar-approve-btn')).toBeDisabled()
+    expect(screen.getByTestId('action-bar-reject-btn')).toBeDisabled()
+    expect(screen.getByTestId('action-bar-request-changes-btn')).toBeDisabled()
+  })
+
+  it('clicking a disabled action button does not fire its handler', () => {
+    const onApprove = jest.fn()
+    const onReject = jest.fn()
+    const onRequestChanges = jest.fn()
+    renderBar({ approval, role: 'OPERATIONS', onApprove, onReject, onRequestChanges })
+    fireEvent.click(screen.getByTestId('action-bar-approve-btn'))
+    fireEvent.click(screen.getByTestId('action-bar-reject-btn'))
+    fireEvent.click(screen.getByTestId('action-bar-request-changes-btn'))
+    expect(onApprove).not.toHaveBeenCalled()
+    expect(onReject).not.toHaveBeenCalled()
+    expect(onRequestChanges).not.toHaveBeenCalled()
   })
 
   it('shows "another admin" when the claimer name is null', () => {
     const approvalNullName = makeApproval({ claimedBy: { id: 'admin-other', name: null } })
     renderBar({ approval: approvalNullName, role: 'OPERATIONS' })
     expect(screen.getByTestId('action-bar-claimer-name')).toHaveTextContent('another admin')
+  })
+
+  it('shows "{age} ago" when claimedAt is present, and omits it gracefully when null', () => {
+    const { unmount } = renderBar({ approval, role: 'OPERATIONS' })
+    expect(screen.getByTestId('action-bar-claimed-by-other')).toHaveTextContent(/ago\./)
+    unmount()
+
+    const approvalNoClaimedAt = makeApproval({
+      claimedBy: { id: 'admin-other', name: 'Dana Reviewer' },
+      claimedAt: null,
+    })
+    renderBar({ approval: approvalNoClaimedAt, role: 'OPERATIONS' })
+    // No "ago" clause, but the rest of the sentence still reads cleanly.
+    expect(screen.getByTestId('action-bar-claimed-by-other')).toHaveTextContent(
+      'Claimed by Dana Reviewer. Only the claimer or a Super Admin can release it'
+    )
   })
 })
 
@@ -232,10 +280,10 @@ describe('ActionBar claimed-by-other OPERATIONS', () => {
 describe('ActionBar claimed-by-other SUPER_ADMIN', () => {
   const approval = makeApproval({ claimedBy: { id: 'admin-other', name: 'Dana Reviewer' } })
 
-  it('renders the read-only note AND a Force-release button', () => {
+  it('renders the read-only note AND a Force-release button (functional, not disabled)', () => {
     renderBar({ approval, role: 'SUPER_ADMIN' })
     expect(screen.getByTestId('action-bar-claimed-by-other')).toBeInTheDocument()
-    expect(screen.getByTestId('action-bar-force-release-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('action-bar-force-release-btn')).toBeEnabled()
   })
 
   it('calls release.mutate when Force-release is clicked', () => {
@@ -245,10 +293,10 @@ describe('ActionBar claimed-by-other SUPER_ADMIN', () => {
     expect(release.mutate).toHaveBeenCalledTimes(1)
   })
 
-  it('does NOT render the full action bar buttons (Approve/Reject/RequestChanges)', () => {
+  it('renders Approve/Reject/Request-changes DISABLED (same visible-not-actionable treatment as OPERATIONS)', () => {
     renderBar({ approval, role: 'SUPER_ADMIN' })
-    expect(screen.queryByTestId('action-bar-approve-btn')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('action-bar-reject-btn')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('action-bar-request-changes-btn')).not.toBeInTheDocument()
+    expect(screen.getByTestId('action-bar-approve-btn')).toBeDisabled()
+    expect(screen.getByTestId('action-bar-reject-btn')).toBeDisabled()
+    expect(screen.getByTestId('action-bar-request-changes-btn')).toBeDisabled()
   })
 })

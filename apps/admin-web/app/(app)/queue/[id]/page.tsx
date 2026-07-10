@@ -23,6 +23,7 @@ import { useReview } from '@/lib/review/useReview'
 import { useClaim, useRelease } from '@/lib/review/useReviewActions'
 import { Badge } from '@/features/shared/Badge'
 import type { BadgeTone } from '@/features/shared/Badge'
+import { courtOf, COURT_TONE } from '@/lib/ui/adminTones'
 import type { ReviewApproval } from '@/lib/api/review'
 import { MerchantHeader } from '@/features/review/MerchantHeader'
 import { ProfileCard } from '@/features/review/ProfileCard'
@@ -141,20 +142,27 @@ function MerchantUnavailableNotice() {
 
 // ── Claim-state badge ─────────────────────────────────────────────────────────
 
+// B2: tone sourced from the SAME court mapping the queue list's Court pill
+// uses (`lib/ui/adminTones.ts`), so "your court" reads success/green here
+// exactly as it does in the queue — the LABEL stays this page's own
+// personalised text (it names the actual claimer), which `COURT_LABEL` does
+// not carry, so only the tone lookup is shared, not the string.
 function claimBadge(
   approval: ReviewApproval,
   adminId: string | null
 ): { tone: BadgeTone; label: string } {
+  const court = courtOf({ status: approval.status, claimedById: approval.claimedBy?.id ?? null }, adminId)
+  const tone = COURT_TONE[court]
   if (approval.status === 'CHANGES_REQUESTED') {
-    return { tone: 'warn', label: 'Waiting on merchant' }
+    return { tone, label: 'Waiting on merchant' }
   }
   if (approval.claimedBy?.id === adminId) {
-    return { tone: 'info', label: 'Claimed by you' }
+    return { tone, label: 'Claimed by you' }
   }
   if (approval.claimedBy != null) {
-    return { tone: 'info', label: `Claimed by ${approval.claimedBy.name ?? 'an admin'}` }
+    return { tone, label: `Claimed by ${approval.claimedBy.name ?? 'an admin'}` }
   }
-  return { tone: 'neutral', label: 'Unclaimed' }
+  return { tone, label: 'Unclaimed' }
 }
 
 function ClaimStateBadge({
@@ -381,9 +389,17 @@ export default function ReviewPage({ params }: ReviewPageProps) {
             </div>
           </div>
 
-          {/* ActionBar — full width, below the two-column grid */}
+          {/* ActionBar — full width, below the two-column grid. B2: made visually
+              sticky (approval-queue-spec.md §A.2 "sticky action bar at the pane
+              foot") so it stays reachable while the detail body above scrolls;
+              `bg-card` keeps it opaque over scrolled-past content, `shadow-lg`
+              gives it the lifted, "always there" foot-of-pane weight the spec
+              calls for. This page is not (yet) the spec's full split-pane shell
+              (a left "Review queue" rail) — out of scope for this slice — so
+              `sticky bottom-0` against the page's own scroll is the faithful
+              approximation within the existing layout. */}
           <div
-            className="rounded-lg border border-border bg-card overflow-hidden"
+            className="sticky bottom-0 z-10 rounded-lg border border-border bg-card shadow-lg overflow-hidden"
             data-testid="action-bar-container"
           >
             <ActionBar
