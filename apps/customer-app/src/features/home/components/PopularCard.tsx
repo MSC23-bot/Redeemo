@@ -9,6 +9,7 @@ import { BannerTopRight } from './BannerTopRight'
 import { LiveStatusDot } from './LiveStatusDot'
 import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import { formatDistanceCompact, formatGbpCompact } from '@/design-system/utils/formatters'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 
 /**
  * Popular / Trending discovery card (2026-06-03 premium pass).
@@ -56,9 +57,10 @@ export const PopularCard = React.memo(function PopularCard({
   const showSave = save !== null && save > 0
   const count = branch.merchant.voucherCount
   const countLabel = count === 1 ? '1 voucher' : `${count} vouchers`
+  const displayName = merchantDisplayName(branch.merchant)
   const a11y = locality
-    ? `${branch.merchant.businessName}, ${descriptor}, ${locality}`
-    : `${branch.merchant.businessName}, ${descriptor}`
+    ? `${displayName}, ${descriptor}, ${locality}`
+    : `${displayName}, ${descriptor}`
 
   return (
     <PressableScale
@@ -108,7 +110,7 @@ export const PopularCard = React.memo(function PopularCard({
           />
         ) : (
           <View style={[styles.logo, { backgroundColor: color.navy }]}>
-            <Text style={styles.logoInitial}>{branch.merchant.businessName.charAt(0)}</Text>
+            <Text style={styles.logoInitial}>{displayName.charAt(0)}</Text>
           </View>
         )}
       </View>
@@ -125,7 +127,7 @@ export const PopularCard = React.memo(function PopularCard({
         </View>
 
         {/* Identity block — name → subcategory → location. */}
-        <Text style={styles.name} numberOfLines={1}>{branch.merchant.businessName}</Text>
+        <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
         {descriptor ? <Text style={styles.descriptor} numberOfLines={1}>{descriptor}</Text> : null}
         {/* Location — only the LOCALITY flexes/truncates; the distance stays
             pinned (never lost on long localities). */}

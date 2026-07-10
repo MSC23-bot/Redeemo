@@ -306,7 +306,7 @@ export async function listFavouriteVouchers(
             select: { dayOfWeek: true, openTime: true, closeTime: true },
           },
           merchant: {
-            select: { id: true, businessName: true, logoUrl: true, status: true },
+            select: { id: true, businessName: true, tradingName: true, logoUrl: true, status: true },
           },
         },
       },

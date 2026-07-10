@@ -56,6 +56,7 @@ type Row = {
     merchant: {
       id:           string
       businessName: string
+      tradingName?: string | null
       logoUrl:      string | null
       primaryCategory?: { id: string; name: string } | null
     }
@@ -130,6 +131,7 @@ function row(
   merchantName: string,
   estimatedSaving: number,
   voucherType: string = 'BOGO',
+  tradingName: string | null = null,
 ): Row {
   return {
     estimatedSaving,
@@ -139,6 +141,7 @@ function row(
       merchant: {
         id:           merchantId,
         businessName: merchantName,
+        tradingName,
         logoUrl:      null,
         primaryCategory: { id: 'cat-food', name: 'Food & Drink' },
       },
@@ -210,6 +213,36 @@ describe('savings.service — Revision 2 byBranch aggregation', () => {
       saving:     8.00,
       count:      1,
     })
+  })
+
+  // Trading-name fallback pin (Kraft Store defect fix): `merchantName`
+  // on byBranch rows must prefer a non-blank `tradingName` over the
+  // legal `businessName`. Server-side resolution: no customer-app
+  // schema/wire-shape change needed for this field.
+  it('getSavingsSummary: byBranch merchantName prefers a non-blank tradingName over businessName', async () => {
+    const rows = [
+      row('br-1', 'Branch One', 'm1', 'The Kraft Store Pvt Ltd', 10.00, 'BOGO', 'The Kraft Store'),
+    ]
+    const prisma = makePrismaWithRows(rows)
+    const result = await getSavingsSummary(prisma, 'user-1')
+
+    expect(result.byBranch[0]?.merchantName).toBe('The Kraft Store')
+  })
+
+  it('getSavingsSummary: byBranch merchantName falls back to businessName when tradingName is null', async () => {
+    const rows = [row('br-1', 'Branch One', 'm1', 'The Kraft Store Pvt Ltd', 10.00, 'BOGO', null)]
+    const prisma = makePrismaWithRows(rows)
+    const result = await getSavingsSummary(prisma, 'user-1')
+
+    expect(result.byBranch[0]?.merchantName).toBe('The Kraft Store Pvt Ltd')
+  })
+
+  it('getSavingsSummary: byBranch merchantName falls back to businessName when tradingName is blank/whitespace', async () => {
+    const rows = [row('br-1', 'Branch One', 'm1', 'The Kraft Store Pvt Ltd', 10.00, 'BOGO', '   ')]
+    const prisma = makePrismaWithRows(rows)
+    const result = await getSavingsSummary(prisma, 'user-1')
+
+    expect(result.byBranch[0]?.merchantName).toBe('The Kraft Store Pvt Ltd')
   })
 
   // §Voucher type handling rule (Revision 2 spec amendment): REUSABLE
@@ -306,6 +339,25 @@ describe('savings.service — Revision 2 byBranch aggregation', () => {
       })
     })
 
+    // Trading-name fallback pin: mirrors the getSavingsSummary pin above.
+    it('byBranch merchantName prefers a non-blank tradingName over businessName', async () => {
+      const rows = [
+        row('br-1', 'Branch One', 'm1', 'The Kraft Store Pvt Ltd', 10.00, 'BOGO', 'The Kraft Store'),
+      ]
+      const prisma = makePrismaWithRows(rows)
+      const result = await getMonthlyDetail(prisma, 'user-1', '2026-04')
+
+      expect(result.byBranch[0]?.merchantName).toBe('The Kraft Store')
+    })
+
+    it('byBranch merchantName falls back to businessName when tradingName is null', async () => {
+      const rows = [row('br-1', 'Branch One', 'm1', 'The Kraft Store Pvt Ltd', 10.00, 'BOGO', null)]
+      const prisma = makePrismaWithRows(rows)
+      const result = await getMonthlyDetail(prisma, 'user-1', '2026-04')
+
+      expect(result.byBranch[0]?.merchantName).toBe('The Kraft Store Pvt Ltd')
+    })
+
     it('response shape does NOT include legacy byMerchant field', async () => {
       const rows = [row('br-x', 'Branch X', 'm1', 'Merchant', 5.00)]
       const prisma = makePrismaWithRows(rows)
@@ -352,7 +404,7 @@ describe('savings.service — getSavingsRedemptions response shape (hotfix pin)'
     estimatedSaving: number
     isValidated: boolean
     validatedAt: Date | null
-    voucher: { id: string; title: string; type: string; merchant: { id: string; businessName: string; logoUrl: string | null } }
+    voucher: { id: string; title: string; type: string; merchant: { id: string; businessName: string; tradingName?: string | null; logoUrl: string | null } }
     branch: { id: string; name: string }
   }>) {
     const prisma = new (PrismaClient as any)()
@@ -396,6 +448,57 @@ describe('savings.service — getSavingsRedemptions response shape (hotfix pin)'
     // response — customer-app Zod would silently drop it (passthrough)
     // but a future contract-strict mode could reject the row.
     expect((r.voucher as any).type).toBeUndefined()
+  })
+
+  // Trading-name fallback pin (Kraft Store defect fix): the response
+  // `merchant.businessName` field carries the resolved display name:
+  // trading name when set (non-blank), else the legal business name.
+  // Server-side resolution: the customer-app schema field name is
+  // UNCHANGED (`businessName`) so no client change was needed.
+  it('merchant.businessName prefers a non-blank tradingName over the legal businessName', async () => {
+    const prisma = makePrismaForRedemptions([
+      {
+        id: 'red-1',
+        redeemedAt: new Date('2026-05-15T10:00:00Z'),
+        estimatedSaving: 12.5,
+        isValidated: false,
+        validatedAt: null,
+        voucher: {
+          id: 'v-1',
+          title: 'Free filter coffee',
+          type: 'FREEBIE',
+          merchant: { id: 'kraft', businessName: 'The Kraft Store Pvt Ltd', tradingName: 'The Kraft Store', logoUrl: null },
+        },
+        branch: { id: 'br-1', name: 'Brightlingsea' },
+      },
+    ])
+
+    const result = await getSavingsRedemptions(prisma, 'user-1', { limit: 20, offset: 0 })
+
+    expect(result.redemptions[0]?.merchant.businessName).toBe('The Kraft Store')
+  })
+
+  it('merchant.businessName falls back to the legal businessName when tradingName is null', async () => {
+    const prisma = makePrismaForRedemptions([
+      {
+        id: 'red-1',
+        redeemedAt: new Date('2026-05-15T10:00:00Z'),
+        estimatedSaving: 12.5,
+        isValidated: false,
+        validatedAt: null,
+        voucher: {
+          id: 'v-1',
+          title: 'Free filter coffee',
+          type: 'FREEBIE',
+          merchant: { id: 'kraft', businessName: 'The Kraft Store Pvt Ltd', tradingName: null, logoUrl: null },
+        },
+        branch: { id: 'br-1', name: 'Brightlingsea' },
+      },
+    ])
+
+    const result = await getSavingsRedemptions(prisma, 'user-1', { limit: 20, offset: 0 })
+
+    expect(result.redemptions[0]?.merchant.businessName).toBe('The Kraft Store Pvt Ltd')
   })
 
   it('covers all 8 voucher types end-to-end (BOGO / FREEBIE / TIME_LIMITED / REUSABLE / DISCOUNT_FIXED / DISCOUNT_PERCENT / SPEND_AND_SAVE / PACKAGE_DEAL)', async () => {

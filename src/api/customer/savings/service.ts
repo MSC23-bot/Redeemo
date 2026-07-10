@@ -1,5 +1,19 @@
 import { PrismaClient } from '../../../../generated/prisma/client'
 
+/**
+ * Customer-facing Savings surfaces show the merchant's public TRADING
+ * name, never the registered legal `businessName`: mirrors
+ * `apps/customer-app/src/lib/merchantDisplayName.ts`. The Savings wire
+ * contract carries a single flat name string (`merchantName` on
+ * `byBranch` rows, `businessName` on redemption-history rows), so the
+ * fallback is resolved HERE, server-side, into that existing field:
+ * no new field, no customer-app schema change required.
+ */
+function resolveMerchantName(businessName: string, tradingName: string | null): string {
+  const t = tradingName?.trim()
+  return t && t.length > 0 ? t : businessName
+}
+
 /** Returns a UTC Date at the first millisecond of the given calendar month offset from now. */
 function monthWindow(now: Date, monthOffset: number): { label: string; start: Date; end: Date } {
   const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + monthOffset, 1))
@@ -64,7 +78,7 @@ export async function getSavingsSummary(prisma: PrismaClient, userId: string) {
       branch:  { select: { id: true, name: true } },
       voucher: {
         select: {
-          merchant: { select: { id: true, businessName: true, logoUrl: true } },
+          merchant: { select: { id: true, businessName: true, tradingName: true, logoUrl: true } },
         },
       },
     },
@@ -83,7 +97,7 @@ export async function getSavingsSummary(prisma: PrismaClient, userId: string) {
         branchId:        b.id,
         branchName:      b.name,
         merchantId:      m.id,
-        merchantName:    m.businessName,
+        merchantName:    resolveMerchantName(m.businessName, m.tradingName),
         merchantLogoUrl: m.logoUrl,
         saving:          0,
         count:           0,
@@ -191,7 +205,7 @@ export async function getSavingsRedemptions(
             // `apps/customer-app/src/lib/api/savings.ts` — that
             // rename happens in the response mapping below.
             type: true,
-            merchant: { select: { id: true, businessName: true, logoUrl: true } },
+            merchant: { select: { id: true, businessName: true, tradingName: true, logoUrl: true } },
           },
         },
         branch: { select: { id: true, name: true } },
@@ -208,7 +222,7 @@ export async function getSavingsRedemptions(
     validatedAt:     r.validatedAt,
     merchant: {
       id:           r.voucher.merchant.id,
-      businessName: r.voucher.merchant.businessName,
+      businessName: resolveMerchantName(r.voucher.merchant.businessName, r.voucher.merchant.tradingName),
       logoUrl:      r.voucher.merchant.logoUrl,
     },
     voucher: {
@@ -256,7 +270,7 @@ export async function getMonthlyDetail(
       branch:  { select: { id: true, name: true } },
       voucher: {
         select: {
-          merchant: { select: { id: true, businessName: true, logoUrl: true } },
+          merchant: { select: { id: true, businessName: true, tradingName: true, logoUrl: true } },
         },
       },
     },
@@ -275,7 +289,7 @@ export async function getMonthlyDetail(
         branchId:        b.id,
         branchName:      b.name,
         merchantId:      m.id,
-        merchantName:    m.businessName,
+        merchantName:    resolveMerchantName(m.businessName, m.tradingName),
         merchantLogoUrl: m.logoUrl,
         saving:          0,
         count:           0,

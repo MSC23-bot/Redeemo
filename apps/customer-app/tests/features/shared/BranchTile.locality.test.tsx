@@ -229,7 +229,10 @@ describe('BranchTile — §DH branch locality in info row', () => {
     const { getByText, getByLabelText } = render(<BranchTile branch={branch} onPress={() => {}} />)
     expect(getByText('Indian Restaurant')).toBeTruthy()        // descriptor line
     expect(getByText(/^Brightlingsea/)).toBeTruthy()           // where line leads with locality
-    expect(getByLabelText('Covelum Restaurant, Indian Restaurant, Brightlingsea')).toBeTruthy()
+    // Trading-name fix (Kraft Store defect): customer-facing surfaces show
+    // the public tradingName ('Covelum'), not the registered businessName
+    // ('Covelum Restaurant'): see `@/lib/merchantDisplayName`.
+    expect(getByLabelText('Covelum, Indian Restaurant, Brightlingsea')).toBeTruthy()
     // Batch 1B: proximity clause renders as a separate Text node with
     // semantic colour. Pin both the existence and the band-correct copy.
     expect(getByText('In your area')).toBeTruthy()

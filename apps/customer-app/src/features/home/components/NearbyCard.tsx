@@ -9,6 +9,7 @@ import { BannerTopRight } from './BannerTopRight'
 import { LiveStatusDot } from './LiveStatusDot'
 import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import { formatDistanceCompact, formatGbpCompact } from '@/design-system/utils/formatters'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 
 /**
  * Nearby-by-category card (2026-06-03 v4 — landscape, banner lockup).
@@ -63,9 +64,10 @@ export const NearbyCard = React.memo(function NearbyCard({
   const showSave = save !== null && save > 0
   const count = branch.merchant.voucherCount
   const countLabel = count === 1 ? '1 voucher' : `${count} vouchers`
+  const displayName = merchantDisplayName(branch.merchant)
   const a11y = locality
-    ? `${branch.merchant.businessName}, ${descriptor}, ${locality}`
-    : `${branch.merchant.businessName}, ${descriptor}`
+    ? `${displayName}, ${descriptor}, ${locality}`
+    : `${displayName}, ${descriptor}`
 
   return (
     <PressableScale
@@ -109,7 +111,7 @@ export const NearbyCard = React.memo(function NearbyCard({
         {/* Name — full width now the rating moved up top — in the dark gradient
             beside the logo. */}
         <Text testID="nearby-card-name" style={styles.name} numberOfLines={1}>
-          {branch.merchant.businessName}
+          {displayName}
         </Text>
       </View>
 
@@ -126,7 +128,7 @@ export const NearbyCard = React.memo(function NearbyCard({
           />
         ) : (
           <View style={[styles.logo, styles.logoFallback]}>
-            <Text style={styles.logoInitial}>{branch.merchant.businessName.charAt(0)}</Text>
+            <Text style={styles.logoInitial}>{displayName.charAt(0)}</Text>
           </View>
         )}
       </View>

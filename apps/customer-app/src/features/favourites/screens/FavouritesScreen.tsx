@@ -34,6 +34,7 @@ import { useFavouriteVouchers } from '../hooks/useFavouriteVouchers'
 import { useRemoveFavourite } from '../hooks/useRemoveFavourite'
 import { emitToast } from '@/design-system/motion/Toast'
 import type { FavouriteBranchItem, FavouriteVoucherItem } from '@/lib/api/favourites'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 
 // Wave 5 #4 (locked 2026-05-30) — matches the absolute bottom Tabs bar
 // height set in `app/(app)/_layout.tsx` (consistent with `HomeScreen`'s
@@ -94,7 +95,7 @@ export function FavouritesScreen(): React.ReactElement {
 
   const handleRemoveBranch = useCallback((row: FavouriteBranchItem) => {
     removeBranch.remove(row)
-    setUndoState({ message: `Removed ${row.merchant.businessName}`, entity: 'branch' })
+    setUndoState({ message: `Removed ${merchantDisplayName(row.merchant)}`, entity: 'branch' })
   }, [removeBranch])
 
   const handleRemoveVoucher = useCallback((row: FavouriteVoucherItem) => {

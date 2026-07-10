@@ -35,6 +35,7 @@ import { haversineMetres } from '@/design-system/utils/haversine'
 import { formatDistance } from '@/design-system/utils/formatters'
 import { useUserLocation } from '@/hooks/useLocation'
 import type { FavouriteBranchItem } from '@/lib/api/favourites'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 
 interface Props {
   row:       FavouriteBranchItem
@@ -95,9 +96,10 @@ export function BranchFavCard({ row, onPress, onRemove, testID }: Props): React.
       : styles.statusClosed
 
   // Use the explicit branch line ("Covelum — Brightlingsea") when it
-  // differs from the merchant name, falling back to the address line
-  // for single-branch merchants.
-  const branchSubtitle = name !== merchant.businessName
+  // differs from the merchant's public display name, falling back to
+  // the address line for single-branch merchants.
+  const displayName = merchantDisplayName(merchant)
+  const branchSubtitle = name !== displayName
     ? name
     : (addressLine1 ?? null)
 
@@ -129,7 +131,7 @@ export function BranchFavCard({ row, onPress, onRemove, testID }: Props): React.
       onPress={onPress}
       style={({ pressed }) => [styles.card, isUnavailable && styles.cardDim, pressed && styles.cardPressed]}
       accessibilityRole="button"
-      accessibilityLabel={`${merchant.businessName}${branchSubtitle ? `, ${branchSubtitle}` : ''}. ${statusLabel}. ${voucherCount} vouchers.`}
+      accessibilityLabel={`${displayName}${branchSubtitle ? `, ${branchSubtitle}` : ''}. ${statusLabel}. ${voucherCount} vouchers.`}
       testID={testID}
     >
       {/* Banner image OR brand-gradient fallback */}
@@ -155,7 +157,7 @@ export function BranchFavCard({ row, onPress, onRemove, testID }: Props): React.
             onPress={onRemove}
             style={({ pressed }) => [styles.removeBtn, pressed && styles.removeBtnPressed]}
             accessibilityRole="button"
-            accessibilityLabel={`Remove ${merchant.businessName} from favourites`}
+            accessibilityLabel={`Remove ${displayName} from favourites`}
             testID={testID ? `${testID}-remove` : 'branch-fav-card-remove'}
             hitSlop={8}
           >
@@ -171,7 +173,7 @@ export function BranchFavCard({ row, onPress, onRemove, testID }: Props): React.
         ) : (
           <View style={[styles.logo, styles.logoFallback]}>
             <Text variant="heading.md" style={styles.logoFallbackText}>
-              {merchant.businessName.charAt(0).toUpperCase()}
+              {displayName.charAt(0).toUpperCase()}
             </Text>
           </View>
         )}
@@ -180,7 +182,7 @@ export function BranchFavCard({ row, onPress, onRemove, testID }: Props): React.
       {/* Body — name, meta row, pills */}
       <View style={styles.body}>
         <Text variant="heading.md" numberOfLines={1} style={styles.merchantName}>
-          {merchant.businessName}
+          {displayName}
         </Text>
         {(cuisineOrCategory || areaLine || (avgRating && reviewCount > 0)) && (
           <View style={styles.metaRow}>

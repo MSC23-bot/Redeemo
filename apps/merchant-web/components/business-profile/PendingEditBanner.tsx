@@ -21,7 +21,7 @@ import type { MerchantProfile } from '@/lib/api/profile'
 // The SENSITIVE_FIELDS this banner knows how to label + diff (mirrors the backend
 // allow-list PublicIdentityEditModal submits from).
 const FIELD_LABELS: Record<string, string> = {
-  businessName: 'Business name',
+  businessName: 'Registered business name',
   tradingName: 'Trading name',
   description: 'Description',
   logoUrl: 'Logo image',

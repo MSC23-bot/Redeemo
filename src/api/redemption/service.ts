@@ -784,7 +784,7 @@ export async function getMyRedemption(
       // can render the merchant identity visually (matches the
       // savings-history row + savings TopPlaces row treatment).
       // Additive; existing callers ignore unknown fields.
-      voucher: { select: { id: true, title: true, type: true, description: true, terms: true, merchant: { select: { id: true, businessName: true, logoUrl: true } } } },
+      voucher: { select: { id: true, title: true, type: true, description: true, terms: true, merchant: { select: { id: true, businessName: true, tradingName: true, logoUrl: true } } } },
       branch:  { select: { id: true, name: true, addressLine1: true, city: true, postcode: true } },
     },
   })

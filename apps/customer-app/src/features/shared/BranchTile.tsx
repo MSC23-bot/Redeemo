@@ -9,6 +9,7 @@ import { FavouriteHeart } from '@/features/favourites/components/FavouriteHeart'
 import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import type { ProximityBand } from '@/lib/api/discovery'
 import { formatDistanceCompact, formatGbpCompact } from '@/design-system/utils/formatters'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 import { composeInfoLine, composeWhereLine } from './infoLine'
 
 // 2026-06-02 premium card v3 (impeccable + emil-design-eng craft pass).
@@ -114,9 +115,10 @@ export function BranchTile({
   const voucherCount = branch.merchant.voucherCount
   const countLabel = voucherCount === 1 ? '1 voucher' : `${voucherCount} vouchers`
 
+  const displayName = merchantDisplayName(branch.merchant)
   const accessibilityLabel = localityStr
-    ? `${branch.merchant.businessName}, ${labelText}, ${localityStr}`
-    : `${branch.merchant.businessName}, ${labelText}`
+    ? `${displayName}, ${labelText}, ${localityStr}`
+    : `${displayName}, ${labelText}`
 
   return (
     <PressableScale
@@ -195,7 +197,7 @@ export function BranchTile({
         ) : (
           <View style={[styles.logo, { width: logoSize, height: logoSize, backgroundColor: color.navy }]}>
             <Text style={{ color: '#FFF', fontSize: Math.round(logoSize * 0.4), fontFamily: 'Lato-Bold' }}>
-              {branch.merchant.businessName.charAt(0)}
+              {displayName.charAt(0)}
             </Text>
           </View>
         )}
@@ -204,7 +206,7 @@ export function BranchTile({
       {/* Content — fixed height per tier so cards in a rail match. */}
       <View style={[styles.content, { paddingTop: contentPaddingTop, minHeight: CONTENT_MIN_H[size] }]}>
         {/* Row 1 — name. */}
-        <Text style={styles.name} numberOfLines={1}>{branch.merchant.businessName}</Text>
+        <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
 
         {/* Row 2 — descriptor (left) + rating (right). */}
         <View style={styles.metaRow}>

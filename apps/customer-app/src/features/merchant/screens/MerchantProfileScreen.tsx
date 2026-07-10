@@ -45,6 +45,7 @@ import { branchShortName } from '../utils/branchShortName'
 import { sortMerchantVouchers } from '../utils/voucherCardSort'
 import { resolveBackNavigation } from '../utils/resolveBackNavigation'
 import { navigateBackTo } from '@/lib/routing/navigateBack'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 
 function buildBranchLine(branch: { city: string | null; name: string }): string | null {
   // Pass 1 fallback: city when available, else strip-prefix the branch name.
@@ -568,7 +569,7 @@ export function MerchantProfileScreen({ id }: Props) {
     // inline so recipients on either platform get a clickable link.
     const shareUrl = `https://redeemo.co.uk/merchants/${merchant.id}`
     await Share.share({
-      message: `Check out ${merchant.businessName} on Redeemo! ${shareUrl}`,
+      message: `Check out ${merchantDisplayName(merchant)} on Redeemo! ${shareUrl}`,
       url: shareUrl,
     })
   }, [merchant])
@@ -821,7 +822,7 @@ export function MerchantProfileScreen({ id }: Props) {
   if (merchant.selectedBranch === null) {
     return (
       <AllBranchesUnavailable
-        businessName={merchant.businessName}
+        businessName={merchantDisplayName(merchant)}
         bannerUrl={merchant.bannerUrl}
         logoUrl={merchant.logoUrl}
       />
@@ -952,7 +953,7 @@ export function MerchantProfileScreen({ id }: Props) {
             pointerEvents="none"
           />
           <MerchantHeadline
-            merchantName={merchant.businessName}
+            merchantName={merchantDisplayName(merchant)}
             logoUrl={sb.logoUrl ?? merchant.logoUrl}
             avgRating={sb.avgRating}
             reviewCount={sb.reviewCount}
@@ -1026,7 +1027,7 @@ export function MerchantProfileScreen({ id }: Props) {
           )}
           {activeTab === 'about' && (
             <AboutTab
-              businessName={merchant.businessName}
+              businessName={merchantDisplayName(merchant)}
               // Branch-scoped about / photos / amenities / hours win;
               // about falls back to the merchant-level description when
               // the branch hasn't customised its own copy.
@@ -1068,7 +1069,7 @@ export function MerchantProfileScreen({ id }: Props) {
           {activeTab === 'reviews' && (
             <ReviewsTab
               merchantId={merchant.id}
-              merchantName={merchant.businessName}
+              merchantName={merchantDisplayName(merchant)}
               currentBranchId={sb.id}
               currentBranchName={branchShortName(sb.name)}
               myReview={sb.myReview}
@@ -1150,7 +1151,7 @@ export function MerchantProfileScreen({ id }: Props) {
       <CollapsedHeader
         scrollY={scrollY}
         fadeEndY={Math.max(0, identityZoneEnd - tabPinPoint)}
-        merchantName={merchant.businessName}
+        merchantName={merchantDisplayName(merchant)}
         branchLine={isMultiBranch ? buildCollapsedBranchLine(sb) : null}
         logoUrl={sb.logoUrl ?? merchant.logoUrl}
       />
@@ -1183,7 +1184,7 @@ export function MerchantProfileScreen({ id }: Props) {
 
       <BranchSwitchToast
         branchName={toastBranchName}
-        merchantName={merchant.businessName}
+        merchantName={merchantDisplayName(merchant)}
         onDismiss={() => setToastBranchName(null)}
       />
     </View>
