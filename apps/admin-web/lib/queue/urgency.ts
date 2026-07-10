@@ -1,49 +1,35 @@
 /**
- * Urgency helpers for the approval queue.
+ * Waiting-age time math for the approval queue.
  *
- * Both functions are pure (accept an optional `now` param) so they are trivial
- * to unit-test without mocking Date.now().
+ * Pure functions (accept an optional `now` param) so they are trivial to
+ * unit-test without mocking Date.now(). Tone/colour derivation for the age
+ * pill lives in `lib/ui/adminTones.ts` (`ageToneForHours`) — this module is
+ * time math only, single responsibility.
+ *
+ * B1 (Approval Queue two-court fidelity): the display format changed from
+ * whole-unit prose ("2 days" / "under an hour") to the combined `{d}d {h}h`
+ * form the design spec's screenshots use ("2d 14h", "22h", "<1h"), which
+ * reads faster for triage at a glance. The old day-based `urgencyForAge`
+ * (3-day/5-day boundaries) is retired in favour of the spec's hour-based
+ * boundaries in `lib/ui/adminTones.ts` (`ageToneForHours`, >=12h/>=36h).
  */
 
-export type Urgency = 'neutral' | 'amber' | 'red'
-
-/**
- * Derives urgency from the age of a submission.
- *   < 3 days  -> neutral
- *   >= 3 days and < 5 days -> amber
- *   >= 5 days -> red
- */
-export function urgencyForAge(
-  submittedAtIso: string,
-  now: number = Date.now()
-): Urgency {
-  const daysWaiting = Math.floor((now - new Date(submittedAtIso).getTime()) / 86_400_000)
-  if (daysWaiting >= 5) return 'red'
-  if (daysWaiting >= 3) return 'amber'
-  return 'neutral'
+/** Whole hours elapsed since `submittedAtIso`. */
+export function hoursWaiting(submittedAtIso: string, now: number = Date.now()): number {
+  return Math.floor((now - new Date(submittedAtIso).getTime()) / 3_600_000)
 }
 
 /**
  * Human-readable waiting duration from submission to now.
- *   >= 1 day  -> "N day" / "N days"
- *   >= 1 hour -> "N hour" / "N hours"
- *   else      -> "under an hour"
+ *   >= 1 day  -> "{d}d {h}h" (remaining hours always shown, even if 0)
+ *   >= 1 hour -> "{h}h"
+ *   else      -> "<1h"
  */
-export function formatWaiting(
-  submittedAtIso: string,
-  now: number = Date.now()
-): string {
-  const ms = now - new Date(submittedAtIso).getTime()
-  const days = Math.floor(ms / 86_400_000)
-  if (days >= 1) return days === 1 ? '1 day' : `${days} days`
-  const hours = Math.floor(ms / 3_600_000)
-  if (hours >= 1) return hours === 1 ? '1 hour' : `${hours} hours`
-  return 'under an hour'
-}
-
-/** Tailwind class for urgency text colour. */
-export function urgencyTextClass(urgency: Urgency): string {
-  if (urgency === 'red') return 'text-destructive'
-  if (urgency === 'amber') return 'text-amber-600'
-  return 'text-muted-foreground'
+export function formatWaiting(submittedAtIso: string, now: number = Date.now()): string {
+  const hours = hoursWaiting(submittedAtIso, now)
+  if (hours < 1) return '<1h'
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  const remainder = hours % 24
+  return `${days}d ${remainder}h`
 }

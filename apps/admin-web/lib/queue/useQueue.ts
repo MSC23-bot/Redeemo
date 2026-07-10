@@ -11,6 +11,15 @@
  * Pass `enabled: false` to suppress the network request entirely (e.g. while
  * the session is not yet ready or the caller lacks the `approval:read` capability).
  * Defaults to `true` so the no-arg call behaves as before.
+ *
+ * B1 (Approval Queue two-court fidelity): this hook is unchanged at the fetch
+ * layer — courts are a pure presentation regrouping of the same PENDING +
+ * CHANGES_REQUESTED list (approval-queue-spec.md: "the underlying API filters
+ * are unchanged"). The old `counts` field (all/submitted/underReview/
+ * changesRequested — a StatusFilter-only shape) is retired here: court + type
+ * counts are now derived directly from `items` where they're consumed
+ * (`lib/ui/adminTones.ts` helpers), since the two-court page needs different
+ * groupings (per-tab, per-type) than the old single flat chip row did.
  */
 import { useQuery } from '@tanstack/react-query'
 import { approvalsApi } from '@/lib/api/approvals'
@@ -18,16 +27,8 @@ import type { AdminApproval } from '@/lib/api/approvals'
 
 export const QUEUE_KEY = ['admin-queue'] as const
 
-export type QueueCounts = {
-  all: number
-  submitted: number
-  underReview: number
-  changesRequested: number
-}
-
 export type UseQueueResult = {
   items: AdminApproval[]
-  counts: QueueCounts
   isLoading: boolean
   isError: boolean
   isFetching: boolean
@@ -58,20 +59,8 @@ export function useQueue(options?: { enabled?: boolean }): UseQueueResult {
 
   const items = query.data ?? []
 
-  const counts: QueueCounts = {
-    all: items.length,
-    submitted: items.filter(
-      (i) => i.status === 'PENDING' && i.claimedById == null
-    ).length,
-    underReview: items.filter(
-      (i) => i.status === 'PENDING' && i.claimedById != null
-    ).length,
-    changesRequested: items.filter((i) => i.status === 'CHANGES_REQUESTED').length,
-  }
-
   return {
     items,
-    counts,
     isLoading: query.isLoading,
     isError: query.isError,
     isFetching: query.isFetching,

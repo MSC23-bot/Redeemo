@@ -1,70 +1,29 @@
 /**
- * QueueTable — approval queue table.
+ * QueueTable — approval queue row treatments (B1: two-court fidelity).
  *
- * Columns: Merchant | Type | Waiting | Verification | Status | Owner
- * No action column. Each row navigates to /queue/<id> (the review screen, M4).
- * Actions remain M5.
+ * Renders BOTH a wide 7-column `<table>` (desktop) and a narrow card list
+ * (mobile) from the SAME `items` + `deriveRow` output, and lets CSS —
+ * `hidden md:block` / `md:hidden` — decide which is visible at a given
+ * viewport. This is the CP-1/CP-2 "replace, never stack" fix called out in
+ * approval-queue-spec.md §A.1: toggling via a stylesheet `display` rule can
+ * never leave both trees visible at once the way a JS-computed "isNarrow"
+ * flag (out of sync with the real viewport, or racing a resize) previously
+ * could.
+ *
+ * 7 columns per the design spec (§B.1): MERCHANT / TYPE / COURT / WAITING /
+ * VERIFICATION / STATUS / OWNER-CLAIM.
+ *
+ * No action column, no sort-by-click (query-level sort stays oldest-first
+ * server-side, per the existing M4/M5 contract — sortable headers are a
+ * prototype-only affordance not commissioned in this slice). Each row
+ * navigates to /queue/<id> (the review screen).
  */
 import Link from 'next/link'
-import { UrgencyBadge } from './UrgencyBadge'
 import { Badge } from '@/features/shared/Badge'
 import { cn } from '@/lib/utils'
+import { deriveRow, getVerificationLabel, getVerificationTone } from './rowHelpers'
 import type { AdminApproval } from '@/lib/api/approvals'
-import type { BadgeTone } from '@/features/shared/Badge'
-
-// ── Derived display status ────────────────────────────────────────────────────
-
-function getDisplayStatus(approval: AdminApproval): string {
-  // Voucher governed-flows PR-B: WITHDRAWN is a distinct terminal state (the
-  // merchant withdrew before an admin acted) — never conflate with the
-  // amber "Submitted" / "Under review" states.
-  if (approval.status === 'WITHDRAWN') return 'Withdrawn'
-  if (approval.status === 'CHANGES_REQUESTED') return 'Changes requested'
-  if (approval.status === 'PENDING' && approval.claimedById != null) return 'Under review'
-  return 'Submitted'
-}
-
-// ── Type label ────────────────────────────────────────────────────────────────
-
-// Voucher governed-flows PR-B: a VOUCHER_EDIT row's label depends on the
-// (optional) voucherEditKind carried on the row. The exact list-row shape from
-// sibling backend PR #411 is not fully specified — if the row does not carry
-// voucherEditKind, fall back to the generic label rather than guessing.
-function getVoucherEditTypeLabel(item: AdminApproval): string {
-  if (item.voucherEditKind === 'END') return 'Voucher end request'
-  if (item.voucherEditKind === 'CHANGE') return 'Voucher change request'
-  return 'Voucher edit request'
-}
-
-function getTypeLabel(item: AdminApproval): string {
-  if (item.type === 'VOUCHER_EDIT') return getVoucherEditTypeLabel(item)
-  const map: Record<Exclude<AdminApproval['type'], 'VOUCHER_EDIT'>, string> = {
-    MERCHANT_ONBOARDING: 'Onboarding',
-    VOUCHER: 'Voucher',
-    MERCHANT_PROFILE_EDIT: 'Profile edit',
-    MERCHANT_IDENTITY_EDIT: 'Identity edit',
-    BRANCH_IDENTITY_EDIT: 'Branch edit',
-    BRANCH_CREATE: 'Branch: add',
-    BRANCH_CLOSE: 'Branch: close',
-  }
-  return map[item.type] ?? item.type
-}
-
-// Day-2 Vouchers PR-C: friendly customer-facing voucher-type label for the
-// VOUCHER row's voucher summary.
-const VOUCHER_TYPE_LABELS: Record<string, string> = {
-  BOGO: 'BOGO',
-  DISCOUNT: 'Discount',
-  FREEBIE: 'Freebie',
-  SPEND_AND_SAVE: 'Spend and save',
-  PACKAGE_DEAL: 'Package deal',
-  TIME_LIMITED: 'Time limited',
-  REUSABLE: 'Reusable',
-}
-
-function voucherTypeLabel(type: string): string {
-  return VOUCHER_TYPE_LABELS[type] ?? type
-}
+import type { DerivedRow } from './rowHelpers'
 
 // ── Claim / owner cell ────────────────────────────────────────────────────────
 
@@ -76,9 +35,14 @@ function ClaimCell({
   currentAdminId: string | null
 }) {
   if (approval.status === 'CHANGES_REQUESTED') {
-    return (
-      <span className="text-sm text-muted-foreground italic">Waiting on merchant</span>
-    )
+    return <span className="text-sm text-muted-foreground italic">Waiting on merchant</span>
+  }
+  if (
+    approval.status === 'APPROVED' ||
+    approval.status === 'REJECTED' ||
+    approval.status === 'WITHDRAWN'
+  ) {
+    return <span className="text-sm text-muted-foreground italic">Closed</span>
   }
   if (approval.claimedById == null) {
     return <span className="text-sm text-muted-foreground italic">Unclaimed</span>
@@ -89,8 +53,7 @@ function ClaimCell({
   // Claimed by someone else: show their name (falls back to "another admin"
   // when the name could not be resolved) + check for staleness (> 24h).
   const isStale =
-    approval.claimedAt != null &&
-    Date.now() - new Date(approval.claimedAt).getTime() > 86_400_000
+    approval.claimedAt != null && Date.now() - new Date(approval.claimedAt).getTime() > 86_400_000
   const claimerName = approval.claimedBy?.name ?? 'another admin'
   return (
     <div className="flex items-center gap-1.5">
@@ -126,118 +89,136 @@ function MerchantAvatar({ name }: { name: string }) {
   )
 }
 
-// ── Status badge ──────────────────────────────────────────────────────────────
-// CORRECT M4 colour semantics (per the M4 spec):
-//   Submitted       -> warn (amber) — waiting for admin action
-//   Under review    -> info (blue)  — claimed and being reviewed
-//   Changes requested -> danger (red) — action required from merchant
-//   Withdrawn       -> neutral (grey) — a calm terminal state, not an error
+// ── Court pill (§E: pill w/ dot) ──────────────────────────────────────────────
 
-function getStatusBadgeTone(label: string): BadgeTone {
-  if (label === 'Submitted') return 'warn'
-  if (label === 'Under review') return 'info'
-  if (label === 'Changes requested') return 'danger'
-  if (label === 'Withdrawn') return 'neutral'
-  return 'neutral'
-}
-
-function StatusBadge({ label }: { label: string }) {
-  return <Badge tone={getStatusBadgeTone(label)}>{label}</Badge>
-}
-
-// ── Verification badge ────────────────────────────────────────────────────────
-// Sentence-case labels (Verified / Pending / Rejected) — not ALL_CAPS.
-
-function getVerificationLabel(status: string): string {
-  if (status === 'VERIFIED') return 'Verified'
-  if (status === 'REJECTED') return 'Rejected'
-  if (status === 'PENDING') return 'Pending'
-  return status
-}
-
-function getVerificationTone(status: string): BadgeTone {
-  if (status === 'VERIFIED') return 'success'
-  if (status === 'REJECTED') return 'danger'
-  if (status === 'PENDING') return 'warn'
-  return 'neutral'
-}
-
-function VerificationBadge({ status }: { status: string }) {
+function CourtPill({ row }: { row: DerivedRow }) {
   return (
-    <Badge tone={getVerificationTone(status)}>{getVerificationLabel(status)}</Badge>
+    <Badge tone={row.courtTone}>
+      <span className="mr-1 inline-block size-1.5 rounded-full bg-current" aria-hidden="true" />
+      {row.courtLabel}
+    </Badge>
   )
 }
 
-// ── Go-live hint (Day-2 Vouchers PR-C) ────────────────────────────────────────
-// A VOUCHER row carries a go-live hint instead of a merchant verification status.
+// ── Type chip ────────────────────────────────────────────────────────────────
 
-function GoLiveHintBadge({ hint }: { hint: 'live-now' | 'waiting-for-go-live' }) {
-  if (hint === 'live-now') {
-    return <Badge tone="success">Go live now</Badge>
-  }
-  return <Badge tone="warn">Waiting to go live</Badge>
+function TypeBadge({ row }: { row: DerivedRow }) {
+  return <Badge tone={row.typeTone}>{row.typeLabel}</Badge>
 }
 
-// ── Type badge ────────────────────────────────────────────────────────────────
+// ── Status badge ──────────────────────────────────────────────────────────────
 
-function TypeBadge({ item }: { item: AdminApproval }) {
-  return <Badge tone="neutral">{getTypeLabel(item)}</Badge>
+function StatusBadge({ row }: { row: DerivedRow }) {
+  return <Badge tone={row.statusTone}>{row.displayStatus}</Badge>
 }
 
-// ── Table ─────────────────────────────────────────────────────────────────────
+// ── Waiting cell (age pill + optional merchant-court / closed sub-line) ──────
 
-interface QueueTableProps {
-  items: AdminApproval[]
-  currentAdminId: string | null
+function WaitingCell({ row }: { row: DerivedRow }) {
+  return (
+    <div>
+      <Badge tone={row.waitingTone}>{row.waitingLabel}</Badge>
+      {row.waitingSubLine && (
+        <p className="mt-1 max-w-64 text-xs text-muted-foreground">{row.waitingSubLine}</p>
+      )}
+    </div>
+  )
 }
 
-export function QueueTable({ items, currentAdminId }: QueueTableProps) {
-  if (items.length === 0) {
-    return (
-      <div className="rounded-lg border border-border bg-card px-6 py-12 text-center">
-        <p className="text-sm text-muted-foreground">No items match this filter.</p>
-      </div>
+// ── Verification / go-live hint ───────────────────────────────────────────────
+// Day-2 Vouchers PR-C: a VOUCHER row carries a go-live hint instead of a
+// merchant verification status (the voucher-row merchant carries no
+// verificationStatus).
+
+function VerificationCell({ item }: { item: AdminApproval }) {
+  if (item.type === 'VOUCHER') {
+    if (!item.goLiveHint) return <span className="text-muted-foreground">-</span>
+    return item.goLiveHint === 'live-now' ? (
+      <Badge tone="success">Go live now</Badge>
+    ) : (
+      <Badge tone="warn">Waiting to go live</Badge>
     )
   }
-
+  if (!item.merchant?.verificationStatus) return <span className="text-muted-foreground">-</span>
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <Badge tone={getVerificationTone(item.merchant.verificationStatus)}>
+      {getVerificationLabel(item.merchant.verificationStatus)}
+    </Badge>
+  )
+}
+
+// ── Primary (merchant / voucher) cell content, shared by both views ─────────
+
+function PrimaryContent({ row }: { row: DerivedRow }) {
+  return (
+    <span className="min-w-0">
+      <span className="block truncate font-medium text-foreground">{row.primaryLabel}</span>
+      {row.primarySubLabel && (
+        <span className="block truncate text-xs text-muted-foreground">
+          {row.primarySubLabel}
+        </span>
+      )}
+    </span>
+  )
+}
+
+// ── Shared empty state ────────────────────────────────────────────────────────
+
+function EmptyState({ onClearFilter }: { onClearFilter?: () => void }) {
+  return (
+    <div className="rounded-lg border border-border bg-card px-6 py-12 text-center">
+      <p className="text-sm font-medium text-foreground">No items match</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Nothing is waiting under this filter. Approvals appear here as merchants submit them.
+      </p>
+      {onClearFilter && (
+        <button
+          type="button"
+          onClick={onClearFilter}
+          className="mt-3 text-sm font-medium text-primary hover:underline"
+        >
+          Clear filter
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Wide table (desktop) ──────────────────────────────────────────────────────
+
+const COLUMN_HEADERS = [
+  'Merchant',
+  'Type',
+  'Court',
+  'Waiting',
+  'Verification',
+  'Status',
+  'Owner / claim',
+]
+
+function WideTable({ items, currentAdminId }: RowsProps) {
+  return (
+    <div
+      data-testid="queue-wide-table"
+      className="hidden overflow-hidden rounded-lg border border-border bg-card md:block"
+    >
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-secondary/40">
-            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
-              Merchant
-            </th>
-            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
-              Type
-            </th>
-            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
-              Waiting
-            </th>
-            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
-              Verification
-            </th>
-            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
-              Status
-            </th>
-            <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
-              Owner
-            </th>
+            {COLUMN_HEADERS.map((header) => (
+              <th
+                key={header}
+                scope="col"
+                className="px-4 py-3 text-left text-xs font-medium text-muted-foreground"
+              >
+                {header}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {items.map((item, idx) => {
-            const businessName = item.merchant?.businessName ?? 'Unknown merchant'
-            const displayStatus = getDisplayStatus(item)
-
-            // Day-2 Vouchers PR-C: a VOUCHER row leads with the voucher title and
-            // shows the business name as a sub-line; the verification column shows
-            // the go-live hint instead of a merchant verification status (the
-            // voucher-row merchant carries no verificationStatus).
-            const isVoucherRow = item.type === 'VOUCHER'
-            const primaryLabel =
-              isVoucherRow && item.voucher ? item.voucher.title : businessName
-
+            const row = deriveRow(item, currentAdminId)
             return (
               <tr
                 key={item.id}
@@ -248,7 +229,6 @@ export function QueueTable({ items, currentAdminId }: QueueTableProps) {
                   'hover:bg-muted/40 transition-colors'
                 )}
               >
-                {/* Merchant / voucher: cell contains the row-level link */}
                 <td className="px-4 py-3">
                   <Link
                     href={`/queue/${item.id}`}
@@ -256,51 +236,27 @@ export function QueueTable({ items, currentAdminId }: QueueTableProps) {
                       'flex items-center gap-3',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm'
                     )}
-                    aria-label={`Review ${primaryLabel}`}
+                    aria-label={`Review ${row.primaryLabel}`}
                   >
-                    <MerchantAvatar name={businessName} />
-                    <span className="min-w-0">
-                      <span className="block font-medium text-foreground">{primaryLabel}</span>
-                      {isVoucherRow && item.voucher && (
-                        <span className="block text-xs text-muted-foreground">
-                          {businessName} · {voucherTypeLabel(item.voucher.type)}
-                        </span>
-                      )}
-                    </span>
+                    <MerchantAvatar name={row.businessName} />
+                    <PrimaryContent row={row} />
                   </Link>
                 </td>
-
-                {/* Type */}
                 <td className="px-4 py-3">
-                  <TypeBadge item={item} />
+                  <TypeBadge row={row} />
                 </td>
-
-                {/* Waiting + urgency */}
                 <td className="px-4 py-3">
-                  <UrgencyBadge submittedAtIso={item.submittedAt} />
+                  <CourtPill row={row} />
                 </td>
-
-                {/* Verification (onboarding) / go-live hint (voucher) */}
                 <td className="px-4 py-3">
-                  {isVoucherRow ? (
-                    item.goLiveHint ? (
-                      <GoLiveHintBadge hint={item.goLiveHint} />
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )
-                  ) : item.merchant?.verificationStatus ? (
-                    <VerificationBadge status={item.merchant.verificationStatus} />
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
+                  <WaitingCell row={row} />
                 </td>
-
-                {/* Status */}
                 <td className="px-4 py-3">
-                  <StatusBadge label={displayStatus} />
+                  <VerificationCell item={item} />
                 </td>
-
-                {/* Owner / claim state */}
+                <td className="px-4 py-3">
+                  <StatusBadge row={row} />
+                </td>
                 <td className="px-4 py-3">
                   <ClaimCell approval={item} currentAdminId={currentAdminId} />
                 </td>
@@ -310,5 +266,79 @@ export function QueueTable({ items, currentAdminId }: QueueTableProps) {
         </tbody>
       </table>
     </div>
+  )
+}
+
+// ── Narrow cards (mobile) ─────────────────────────────────────────────────────
+
+function NarrowCards({ items, currentAdminId }: RowsProps) {
+  return (
+    <div data-testid="queue-narrow-cards" className="flex flex-col gap-3 md:hidden">
+      {items.map((item) => {
+        const row = deriveRow(item, currentAdminId)
+        return (
+          <Link
+            key={item.id}
+            href={`/queue/${item.id}`}
+            data-testid={`queue-card-${item.id}`}
+            aria-label={`Review ${row.primaryLabel}`}
+            className={cn(
+              'block rounded-lg border border-border bg-card p-4',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+            )}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <MerchantAvatar name={row.businessName} />
+                <PrimaryContent row={row} />
+              </div>
+              <Badge tone={row.waitingTone} className="shrink-0">
+                {row.waitingLabel}
+              </Badge>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <TypeBadge row={row} />
+              <CourtPill row={row} />
+              <StatusBadge row={row} />
+            </div>
+
+            {row.waitingSubLine && (
+              <p className="mt-2 text-xs text-muted-foreground">{row.waitingSubLine}</p>
+            )}
+
+            <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+              <VerificationCell item={item} />
+              <ClaimCell approval={item} currentAdminId={currentAdminId} />
+            </div>
+          </Link>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Public component ──────────────────────────────────────────────────────────
+
+interface RowsProps {
+  items: AdminApproval[]
+  currentAdminId: string | null
+}
+
+interface QueueTableProps extends RowsProps {
+  /** Rendered as a "Clear filter" action inside the empty state, if provided. */
+  onClearFilter?: () => void
+}
+
+export function QueueTable({ items, currentAdminId, onClearFilter }: QueueTableProps) {
+  if (items.length === 0) {
+    return <EmptyState onClearFilter={onClearFilter} />
+  }
+
+  return (
+    <>
+      <WideTable items={items} currentAdminId={currentAdminId} />
+      <NarrowCards items={items} currentAdminId={currentAdminId} />
+    </>
   )
 }
