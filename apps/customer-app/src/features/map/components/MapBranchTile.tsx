@@ -164,6 +164,12 @@ export function MapBranchTile({
               onPress={onBranchPress}
               size="standard"
               width={TILE_WIDTH}
+              // Map Phase 2 S4 — carousel card parity with Home: aggregate
+              // saving ('Save £X across N vouchers') instead of the
+              // single-voucher "Save up to £X" line. Opt-in prop; Search/
+              // Category (the other <BranchTile> callers) don't pass it and
+              // keep their pre-S4 default rendering unchanged.
+              savingsDisplay="aggregate"
             />
           </View>
         ))}

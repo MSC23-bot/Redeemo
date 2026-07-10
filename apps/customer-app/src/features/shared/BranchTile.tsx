@@ -37,6 +37,15 @@ const BAND_META: Record<ProximityBand, { label: string; fg: string } | null> = {
   NEAREST_ON_REDEEMO: { label: 'Nearest match', fg: color.text.secondary },
 }
 
+// Map Phase 2 S4 — opt-in aggregate-savings variant. Search/Category never
+// pass this prop, so their render stays byte-for-byte identical to pre-S4
+// (default 'max' takes the ORIGINAL code path below, unchanged). 'aggregate'
+// adopts the Home-card language ('Save £X' + 'across N vouchers', stacked,
+// Mustica-green amount — see NearbyCard/PopularCard) driven by
+// merchant.totalEstimatedSaving instead of merchant.maxEstimatedSaving.
+// Only MapBranchTile (the Map carousel) opts in.
+type SavingsDisplay = 'max' | 'aggregate'
+
 type Props = {
   branch: BranchTileType
   onPress: (id: string) => void
@@ -45,6 +54,7 @@ type Props = {
   onClose?: () => void
   width?: number
   size?: CardSize
+  savingsDisplay?: SavingsDisplay
 }
 
 export function BranchTile({
@@ -59,7 +69,11 @@ export function BranchTile({
   // the pre-redesign card. Map passes 'standard' explicitly; Featured passes
   // 'hero'. No caller relies on a 'compact' default.
   size = 'standard',
+  // Default 'max' preserves the pre-S4 single-voucher "Save up to £X" line
+  // exactly. See the SavingsDisplay comment above.
+  savingsDisplay = 'max',
 }: Props) {
+  const isAggregateSavings = savingsDisplay === 'aggregate'
   const bannerHeight = BANNER_HEIGHT[size]
   const logoSize = LOGO_SIZE[size]
   const logoOverhang = Math.round(logoSize * 0.45)
@@ -78,7 +92,13 @@ export function BranchTile({
   const whereLine = composeWhereLine(info.locality, info.distance)
   const band = branch.proximityBand ? BAND_META[branch.proximityBand] : null
 
-  const saveAmount = branch.merchant.maxEstimatedSaving
+  // Map Phase 2 S4 — 'aggregate' reads totalEstimatedSaving (sum across the
+  // merchant's vouchers, matching Home's NearbyCard/PopularCard semantics);
+  // 'max' (default) keeps reading maxEstimatedSaving (a single voucher's
+  // best value), unchanged from pre-S4.
+  const saveAmount = isAggregateSavings
+    ? branch.merchant.totalEstimatedSaving
+    : branch.merchant.maxEstimatedSaving
   const showSave = saveAmount !== null && saveAmount > 0
   // formatGbpCompact keeps pence for sub-pound savings (£0.40, not a rounded
   // "£0") and drops them for whole pounds (£44). A positive saving below £0.50
@@ -212,7 +232,30 @@ export function BranchTile({
             tile used to reserve a blank minHeight gap here. */}
         {(showSave || voucherCount > 0 || band) && (
           <View style={styles.valueRow}>
-            {showSave || voucherCount > 0 ? (
+            {isAggregateSavings ? (
+              // Map Phase 2 S4 — aggregate variant: Home's stacked
+              // treatment ('Save' label over a prominent Mustica-green
+              // amount, 'across N vouchers' connected below it). Only
+              // reached when a caller explicitly opts in via
+              // savingsDisplay="aggregate"; the branch below (the
+              // original single-line "Save up to £X · N vouchers") is
+              // untouched and still the default path.
+              showSave || voucherCount > 0 ? (
+                <View style={styles.savingBlock} testID="branch-tile-value">
+                  {showSave ? <Text style={styles.savingLabel}>Save</Text> : null}
+                  <View style={styles.savingValueRow}>
+                    {showSave ? <Text style={styles.savingAmount}>{saveLabel}</Text> : null}
+                    {voucherCount > 0 ? (
+                      <Text style={styles.savingContext}>
+                        {showSave ? `across ${countLabel}` : `${countLabel} available`}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.valueSpacer} />
+              )
+            ) : showSave || voucherCount > 0 ? (
               <Text style={styles.value} numberOfLines={1} testID="branch-tile-value">
                 {saveLabel ? (
                   <>
@@ -312,4 +355,12 @@ const styles = StyleSheet.create({
   valueSep: { color: color.text.tertiary, fontFamily: 'Lato-Regular', fontSize: 13 },
   valueCount: { color: color.text.primary, fontFamily: 'Lato-SemiBold', fontSize: 13 },
   valueSpacer: { flex: 1 },
+  // Map Phase 2 S4 — aggregate-savings variant, mirrors NearbyCard/
+  // PopularCard's stacked "Save" language exactly (same font sizes/
+  // families/colour) so the Map carousel card reads identically to Home.
+  savingBlock: { flexShrink: 1, gap: 1 },
+  savingLabel: { fontSize: 13, lineHeight: 17, fontFamily: 'Lato-Medium', color: color.text.secondary },
+  savingValueRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 9, rowGap: 1 },
+  savingAmount: { fontSize: 20, lineHeight: 24, fontFamily: 'MusticaPro-Semibold', color: '#15803D', letterSpacing: -0.1 },
+  savingContext: { fontSize: 14, fontFamily: 'Lato-SemiBold', color: color.text.primary },
 })
