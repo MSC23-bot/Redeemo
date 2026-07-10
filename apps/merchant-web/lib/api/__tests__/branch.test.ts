@@ -20,10 +20,13 @@ import {
   cancelPendingCreate,
   requestBranchClose,
   withdrawBranchClose,
+  dropBranchPin,
+  fetchBranchMapPreview,
   branchSchema,
   branchPendingEditSchema,
   branchPendingHoursSchema,
 } from '@/lib/api/branch'
+import { ApiError } from '@/lib/api/client'
 import type { HoursPayloadRow } from '@/components/onboarding/branch/lib/hoursModel'
 
 // M2 F4: the branch-step API client. We assert the exact HTTP verbs/paths/bodies
@@ -31,12 +34,19 @@ import type { HoursPayloadRow } from '@/components/onboarding/branch/lib/hoursMo
 // amenities endpoint). apiFetch is mocked; the client must compose the right calls.
 
 const apiFetch = jest.fn()
-jest.mock('@/lib/api/client', () => ({
-  apiFetch: (...args: unknown[]) => apiFetch(...args),
-}))
+const apiFetchRaw = jest.fn()
+jest.mock('@/lib/api/client', () => {
+  const actual = jest.requireActual('@/lib/api/client')
+  return {
+    ...actual,
+    apiFetch: (...args: unknown[]) => apiFetch(...args),
+    apiFetchRaw: (...args: unknown[]) => apiFetchRaw(...args),
+  }
+})
 
 beforeEach(() => {
   apiFetch.mockReset().mockResolvedValue({})
+  apiFetchRaw.mockReset()
 })
 
 describe('lib/api/branch', () => {
@@ -737,5 +747,84 @@ describe('lib/api/branch (D-BM1 viewerCapabilities)', () => {
         pendingEdits: [],
       }),
     ).not.toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Branch Location Trust Slice 3 (pin-drop addendum, plan PR-2): dropBranchPin
+// + fetchBranchMapPreview. Direct authed browser->backend calls (this app's
+// convention - see the top-of-section comment in lib/api/branch.ts), never a
+// BFF proxy route. dropBranchPin ALWAYS resolves 200; PASS vs FAIL is read off
+// the returned branch's locationConfidence, never a distinct response shape.
+// ---------------------------------------------------------------------------
+
+describe('lib/api/branch (Slice 3 pin-drop)', () => {
+  it('dropBranchPin POSTs { latitude, longitude } to the pin-drop route with auth', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'b1',
+      name: 'Main',
+      locationConfidence: 'MERCHANT_CONFIRMED',
+      latitude: 52.2053,
+      longitude: 0.1218,
+    })
+    const branch = await dropBranchPin('b1', { latitude: 52.2053, longitude: 0.1218 })
+    expect(apiFetch).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/pin-drop', {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({ latitude: 52.2053, longitude: 0.1218 }),
+    })
+    expect(branch.locationConfidence).toBe('MERCHANT_CONFIRMED')
+  })
+
+  it('dropBranchPin PASS: returns MERCHANT_CONFIRMED with the dropped coordinates', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'b1',
+      name: 'Main',
+      locationConfidence: 'MERCHANT_CONFIRMED',
+      latitude: 52.2,
+      longitude: 0.12,
+    })
+    const branch = await dropBranchPin('b1', { latitude: 52.2, longitude: 0.12 })
+    expect(branch.locationConfidence).toBe('MERCHANT_CONFIRMED')
+    expect(branch.latitude).toBe(52.2)
+    expect(branch.longitude).toBe(0.12)
+  })
+
+  it('dropBranchPin FAIL: resolves 200 with NEEDS_REVIEW (no distinct error/response shape)', async () => {
+    apiFetch.mockResolvedValueOnce({
+      id: 'b1',
+      name: 'Main',
+      locationConfidence: 'NEEDS_REVIEW',
+      latitude: 52.0,
+      longitude: 0.0,
+    })
+    const branch = await dropBranchPin('b1', { latitude: 53.5, longitude: 1.5 })
+    expect(branch.locationConfidence).toBe('NEEDS_REVIEW')
+    // The branch keeps its EXISTING coords on a FAIL, not the dropped pin.
+    expect(branch.latitude).toBe(52.0)
+    expect(branch.longitude).toBe(0.0)
+  })
+
+  it('dropBranchPin propagates a rejection from apiFetch (e.g. BRANCH_LOCATION_ALREADY_CONFIRMED) unchanged', async () => {
+    const err = new ApiError(409, { error: { code: 'BRANCH_LOCATION_ALREADY_CONFIRMED' } })
+    apiFetch.mockRejectedValueOnce(err)
+    await expect(dropBranchPin('b1', { latitude: 52.2, longitude: 0.12 })).rejects.toBe(err)
+  })
+
+  it('fetchBranchMapPreview GETs the map-preview route with auth via apiFetchRaw and returns the blob', async () => {
+    const blob = new Blob(['fake-png-bytes'], { type: 'image/png' })
+    apiFetchRaw.mockResolvedValueOnce({ blob: async () => blob } as unknown as Response)
+    const result = await fetchBranchMapPreview('b1')
+    expect(apiFetchRaw).toHaveBeenCalledWith('/api/v1/merchant/branches/b1/map-preview', {
+      method: 'GET',
+      auth: true,
+    })
+    expect(result).toBe(blob)
+  })
+
+  it('fetchBranchMapPreview propagates a rejection from apiFetchRaw (e.g. MAP_PREVIEW_NOT_ENABLED) unchanged', async () => {
+    const err = new ApiError(503, { error: { code: 'MAP_PREVIEW_NOT_ENABLED' } })
+    apiFetchRaw.mockRejectedValueOnce(err)
+    await expect(fetchBranchMapPreview('b1')).rejects.toBe(err)
   })
 })

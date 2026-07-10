@@ -14,6 +14,23 @@
 // the single source of truth for the post-create state, so this modal only creates +
 // navigates; it does not itself decide what banner to show.
 //
+// Branch Location Trust Slice 3 (pin-drop addendum §5.1): the CREATE flow is a
+// two-step chain when the new branch was NOT auto-trusted by a Google pick. If
+// the created branch comes back POSTCODE_CENTROID / NEEDS_REVIEW (no Google
+// pick, or a pick that failed the cross-check), this modal offers the pin-drop
+// step immediately, before navigating away, so it feels like one flow rather
+// than a separate later trip to the branch page. An ADDRESS_GEOCODED branch
+// (Google pick passed) skips straight to navigation, same as before -
+// D-L5 already means pin-drop would be rejected on an already-confirmed branch.
+//
+// The chained pin-drop step is gated on `canDropPin` (OWNER-only, addendum §9.3:
+// the pin-drop + map-preview endpoints are OWNER-only, tightened from the §1.1
+// "OWNER or assigned BM" recommendation). Create itself is already OWNER-only by
+// route (BranchesOverview only mounts this modal for an owner), so this gate is
+// belt-and-braces + explicit: a non-owner never reaches the pin-drop chain and
+// navigates straight to the new branch page. Widening it back is a deliberate
+// two-sided change (relax the backend resolver AND this gate).
+//
 // Error UX: the modal STAYS OPEN on every error and "Add branch" re-enables.
 // POSTCODE_NOT_FOUND shows inline under the Postcode field; GAZETTEER_UNAVAILABLE shows
 // a modal-level alert; everything else is a calm generic modal-level message.
@@ -29,8 +46,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { Info, X } from '@/lib/icons'
 import { useCreateBranch } from '@/lib/branches/useBranches'
 import { ApiError } from '@/lib/api/client'
-import type { BranchCreateBody } from '@/lib/api/branch'
+import type { Branch, BranchCreateBody } from '@/lib/api/branch'
 import { LocationLookupField, type LocationPick } from '@/components/branches/LocationLookupField'
+import { PinDropMap } from '@/components/branches/PinDropMap'
+
+const PIN_DROP_ELIGIBLE = new Set(['POSTCODE_CENTROID', 'NEEDS_REVIEW'])
 
 const ABOUT_MAX = 600
 
@@ -41,7 +61,14 @@ interface FieldErrors {
   postcode?: string
 }
 
-export function AddBranchModal({ onClose }: { onClose: () => void }) {
+export function AddBranchModal({
+  onClose,
+  canDropPin,
+}: {
+  onClose: () => void
+  /** OWNER-only gate for the chained pin-drop step (addendum §9.3). Non-owners navigate straight through. */
+  canDropPin: boolean
+}) {
   const router = useRouter()
   const create = useCreateBranch()
 
@@ -63,6 +90,9 @@ export function AddBranchModal({ onClose }: { onClose: () => void }) {
   // admin-review metadata; NEVER lat/lng). Cleared on any manual address edit so a
   // stale token never rides along with a hand-typed address.
   const [candidateToken, setCandidateToken] = React.useState<string | null>(null)
+  // Slice 3: once create() succeeds on a not-yet-confirmed branch, we switch this
+  // modal to the pin-drop step instead of closing immediately.
+  const [createdBranch, setCreatedBranch] = React.useState<Branch | null>(null)
 
   function field(key: keyof typeof draft) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -118,6 +148,13 @@ export function AddBranchModal({ onClose }: { onClose: () => void }) {
     return b
   }
 
+  // The detail page resolves the post-create state (awaiting-approval banner for a
+  // PENDING_CREATE branch, normal layout for an instant first/main branch).
+  function finishAndNavigate(branchId: string) {
+    onClose()
+    router.push(`/branches/${branchId}`)
+  }
+
   async function submit() {
     setPostcodeError(null)
     setModalError(null)
@@ -127,10 +164,17 @@ export function AddBranchModal({ onClose }: { onClose: () => void }) {
 
     try {
       const branch = await create.mutateAsync(body())
-      onClose()
-      // The detail page resolves the post-create state (awaiting-approval banner for a
-      // PENDING_CREATE branch, normal layout for an instant first/main branch).
-      router.push(`/branches/${branch.id}`)
+      // Slice 3 (addendum §5.1): a branch that did NOT auto-trust via a Google
+      // pick (POSTCODE_CENTROID) or that failed the cross-check (NEEDS_REVIEW)
+      // gets an immediate pin-drop offer, chained into this same modal, before
+      // we navigate away. An ADDRESS_GEOCODED branch (Google pick passed) skips
+      // straight to navigation. The pin-drop step is OWNER-only (addendum §9.3),
+      // so a non-owner (`canDropPin` false) always navigates straight through.
+      if (canDropPin && PIN_DROP_ELIGIBLE.has(branch.locationConfidence ?? '')) {
+        setCreatedBranch(branch)
+        return
+      }
+      finishAndNavigate(branch.id)
     } catch (err) {
       const code = err instanceof ApiError ? err.code : undefined
       if (code === 'POSTCODE_NOT_FOUND') {
@@ -143,6 +187,44 @@ export function AddBranchModal({ onClose }: { onClose: () => void }) {
       }
       setModalError('We could not add this branch. Please try again.')
     }
+  }
+
+  // Slice 3: the chained pin-drop step, rendered instead of the create form once
+  // the branch exists. The merchant can set a pin now or skip and do it later
+  // from the branch's Location card (LocationCard offers the same entry point
+  // for any POSTCODE_CENTROID / NEEDS_REVIEW branch).
+  if (createdBranch) {
+    return (
+      <Dialog
+        label="Set your location pin"
+        onClose={() => finishAndNavigate(createdBranch.id)}
+        panelTestId="add-branch-pin-drop-modal"
+        scrimTestId="add-branch-pin-drop-scrim"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="font-display text-xl font-semibold text-foreground">Set your location pin</h2>
+          <button
+            type="button"
+            onClick={() => finishAndNavigate(createdBranch.id)}
+            aria-label="Close"
+            className="text-[#6B7390] hover:text-[#010C35]"
+          >
+            <X size={18} aria-hidden />
+          </button>
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Your branch is saved. Can&apos;t find your business on a map search? Drop a pin at your exact
+          spot now, or skip this and do it later from the branch page.
+        </p>
+        <div className="mt-4">
+          <PinDropMap
+            branch={createdBranch}
+            onDone={() => finishAndNavigate(createdBranch.id)}
+            onCancel={() => finishAndNavigate(createdBranch.id)}
+          />
+        </div>
+      </Dialog>
+    )
   }
 
   return (
