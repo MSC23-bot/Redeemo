@@ -44,12 +44,39 @@ const SORT_OPTIONS: { key: FilterState['sortBy']; label: string }[] = [
   { key: 'highest_saving', label: 'Highest Saving' },
 ]
 
-// Voucher type labels — unchanged from PR #4. The backend enum has 8 values
-// (BOGO, SPEND_AND_SAVE, DISCOUNT_AMOUNT, DISCOUNT_PERCENT, FREEBIE,
-// PACKAGE_DEAL, TIME_LIMITED, REUSABLE) but the client surfaces 5 user-
-// friendly groupings. Mapping these display labels to backend enum values
-// is a separate follow-up — out of PR B's locked scope.
-const VOUCHER_TYPES = ['BOGO', 'Discount', 'Freebie', 'Spend & Save', 'Package Deal']
+// Map Phase 2 S0 (2026-07-10) — voucher-type label→enum mapping.
+//
+// PR B shipped display-only strings ('BOGO', 'Discount', 'Freebie',
+// 'Spend & Save', 'Package Deal') straight into `FilterState.voucherTypes`,
+// which the backend then matched against `VoucherType` verbatim
+// (`prisma/schema.prisma`: BOGO, SPEND_AND_SAVE, DISCOUNT_FIXED,
+// DISCOUNT_PERCENT, FREEBIE, PACKAGE_DEAL, TIME_LIMITED, REUSABLE). Only
+// 'BOGO' happened to match; every other chip silently returned zero
+// results (live bug, Map Phase 2 programme plan §1).
+//
+// Each chip now carries the REAL enum value(s) it sends — `FilterState`'s
+// shape is unchanged (`voucherTypes: string[]`), it just now contains
+// enum values instead of display strings. 'Discount' is a single chip
+// that maps to BOTH DISCOUNT_FIXED and DISCOUNT_PERCENT (mirrors the
+// existing collapse in `voucherTypeLabel`/`productCopy.ts`, which also
+// treat the two as one user-facing "Discount" concept) — toggling it
+// adds/removes both values together.
+//
+// TIME_LIMITED and REUSABLE are real, filterable voucher types with no
+// owner-locked exclusion found in docs/memory — added as 'Time-Limited'
+// and 'Reusable' chips so every backend enum value is reachable from the
+// filter UI.
+export type VoucherTypeChip = { label: string; values: string[] }
+
+export const VOUCHER_TYPE_CHIPS: VoucherTypeChip[] = [
+  { label: 'BOGO',         values: ['BOGO'] },
+  { label: 'Discount',     values: ['DISCOUNT_FIXED', 'DISCOUNT_PERCENT'] },
+  { label: 'Freebie',      values: ['FREEBIE'] },
+  { label: 'Spend & Save', values: ['SPEND_AND_SAVE'] },
+  { label: 'Package Deal', values: ['PACKAGE_DEAL'] },
+  { label: 'Time-Limited', values: ['TIME_LIMITED'] },
+  { label: 'Reusable',     values: ['REUSABLE'] },
+]
 
 export function FilterSheet({ visible, filters, resultCount, onApply, onDismiss }: Props) {
   const [local, setLocal] = useState<FilterState>(filters)
@@ -113,14 +140,18 @@ export function FilterSheet({ visible, filters, resultCount, onApply, onDismiss 
     setLocal((prev) => ({ ...prev, sortBy: key }))
   }
 
-  function toggleVoucherType(type: string) {
+  // Toggles a chip's full `values` set together — a multi-value chip
+  // (e.g. Discount → DISCOUNT_FIXED + DISCOUNT_PERCENT) is either fully
+  // in `voucherTypes` or fully out, never half-applied. `active` reads
+  // "every value present" so a chip only shows selected once its whole
+  // group has landed.
+  function toggleVoucherType(chip: VoucherTypeChip) {
     setLocal((prev) => {
-      const has = prev.voucherTypes.includes(type)
+      const active = chip.values.every((v) => prev.voucherTypes.includes(v))
+      const withoutChip = prev.voucherTypes.filter((t) => !chip.values.includes(t))
       return {
         ...prev,
-        voucherTypes: has
-          ? prev.voucherTypes.filter((t) => t !== type)
-          : [...prev.voucherTypes, type],
+        voucherTypes: active ? withoutChip : [...withoutChip, ...chip.values],
       }
     })
   }
@@ -235,13 +266,13 @@ export function FilterSheet({ visible, filters, resultCount, onApply, onDismiss 
             Voucher Type
           </Text>
           <View style={styles.pillWrap}>
-            {VOUCHER_TYPES.map((type) => {
-              const active = local.voucherTypes.includes(type)
+            {VOUCHER_TYPE_CHIPS.map((chip) => {
+              const active = chip.values.every((v) => local.voucherTypes.includes(v))
               return (
-                <PressableScale key={type} onPress={() => toggleVoucherType(type)} hapticStyle="light">
+                <PressableScale key={chip.label} onPress={() => toggleVoucherType(chip)} hapticStyle="light">
                   <View style={[styles.pill, active && styles.pillActive]}>
                     <Text style={[styles.pillText, active && styles.pillTextActive]}>
-                      {type}
+                      {chip.label}
                     </Text>
                   </View>
                 </PressableScale>
