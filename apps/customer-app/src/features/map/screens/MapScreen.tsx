@@ -506,10 +506,24 @@ export function MapScreen(_props: Props) {
     return { lat, lng }
   })()
   const handleRecentre = useCallback(() => {
-    if (locationState.location) {
+    // Offshore fix (owner-reported from Doha, 2026-07-10): when the DEVICE's
+    // own GPS is outside the UK extent, re-centring to it is a visible no-op:
+    // the camera "moves" to where the user already is, the offshore banner
+    // stays, and its "Recentre to UK" CTA appears dead. For a non-UK GPS fix,
+    // skip the GPS branch entirely: prefer the saved-profile UK coords, else
+    // fall back to LONDON_REGION (the one recentre case where the London
+    // fallback is correct: the button's promise is literally "take me to the
+    // UK", so unlike the no-location case below, jumping to London cannot
+    // mask a prompt or surprise anyone).
+    const gps = locationState.location
+    const gpsIsOffshore =
+      gps !== null &&
+      (gps.lat < UK_EXTENT.minLat || gps.lat > UK_EXTENT.maxLat ||
+       gps.lng < UK_EXTENT.minLng || gps.lng > UK_EXTENT.maxLng)
+    if (gps && !gpsIsOffshore) {
       animateAndQuery({
-        latitude:       locationState.location.lat,
-        longitude:      locationState.location.lng,
+        latitude:       gps.lat,
+        longitude:      gps.lng,
         latitudeDelta:  0.05,
         longitudeDelta: 0.05,
       })
@@ -520,8 +534,11 @@ export function MapScreen(_props: Props) {
         latitudeDelta:  0.05,
         longitudeDelta: 0.05,
       })
+    } else if (gpsIsOffshore) {
+      // Non-UK GPS + no saved UK postcode: honour the CTA's promise anyway.
+      animateAndQuery(LONDON_REGION)
     }
-    // else: no-action — see comment above.
+    // else: no GPS at all and no profile coords: no-action — see comment above.
   }, [locationState.location, profileLatLng, animateAndQuery])
 
   const handleCitySelect = useCallback(
