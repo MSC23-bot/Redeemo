@@ -39,14 +39,28 @@ export function StaircaseHub({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-[30px] font-semibold leading-tight tracking-tight text-[#010C35]">
-          Welcome to Redeemo, {businessName}.
-        </h1>
-        <p className="mt-2.5 max-w-[62ch] text-[15px] leading-relaxed text-[#455373]">
-          List your business for free and start bringing new customers through the door. Complete a few short
-          steps and our team will review your business. Once we approve you, your business and vouchers appear to
-          customers on the Redeemo app and website. Until then, nothing you set up is public.
-        </p>
+        {state === 'changes' ? (
+          <>
+            <h1 className="font-display text-[30px] font-semibold leading-tight tracking-tight text-[#010C35]">
+              Welcome back, {businessName}.
+            </h1>
+            <p className="mt-2.5 max-w-[62ch] text-[15px] leading-relaxed text-[#455373]">
+              Your application needs a few updates before it can go live. Review the notes below, make the
+              changes, and resubmit: your previous work is saved.
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="font-display text-[30px] font-semibold leading-tight tracking-tight text-[#010C35]">
+              Welcome to Redeemo, {businessName}.
+            </h1>
+            <p className="mt-2.5 max-w-[62ch] text-[15px] leading-relaxed text-[#455373]">
+              List your business for free and start bringing new customers through the door. Complete a few short
+              steps and our team will review your business. Once we approve you, your business and vouchers appear to
+              customers on the Redeemo app and website. Until then, nothing you set up is public.
+            </p>
+          </>
+        )}
       </div>
 
       {state === 'changes' ? <ChangesBanner comment={status?.comment ?? null} /> : null}
@@ -113,11 +127,14 @@ export function StaircaseHub({
               >
                 <path d="M6 10.5h12v9H6ZM8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" />
               </svg>
-              <span className="text-[15px] font-bold">Nothing is public yet</span>
+              <span className="text-[15px] font-bold">
+                {state === 'changes' ? 'Still under review' : 'Nothing is public yet'}
+              </span>
             </div>
             <p className="mt-2.5 text-[13px] leading-relaxed text-[#C4C9DE]">
-              Customers cannot see your business, branches, or vouchers until our team approves you. Take your
-              time and save as you go.
+              {state === 'changes'
+                ? 'Customers still cannot see your business, branches, or vouchers. Make the requested changes and resubmit, and our team will take another look.'
+                : 'Customers cannot see your business, branches, or vouchers until our team approves you. Take your time and save as you go.'}
             </p>
           </div>
 

@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { LoadingStatus, SkeletonKpiRow, SkeletonChartBlock } from '@/components/ui/skeleton'
+import { useToast } from '@/components/ui/toast'
 import { StaircaseHub } from '@/components/onboarding/StaircaseHub'
 import { LifecycleHome } from '@/components/onboarding/LifecycleHome'
 import HomeDashboard from '@/components/home/HomeDashboard'
@@ -31,6 +32,7 @@ export default function HomePage() {
   const session = useSession()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { toast } = useToast()
   const profile = useMerchantProfile(session.isAuthenticated)
 
   // The onboarding reads. Fetched once the profile has loaded; they drive the hub
@@ -138,6 +140,10 @@ export default function HomePage() {
     setSubmitError(null)
     try {
       await submitOnboarding()
+      // Make the state change unmistakable before the page flips to the submitted
+      // home: the refetches below can take a moment, and a silent transition left
+      // the merchant unsure whether the click registered.
+      toast({ message: 'Application submitted for review.', variant: 'success' })
       // Refetch the lifecycle source + onboarding reads so the page flips to the
       // submitted home.
       await Promise.all([

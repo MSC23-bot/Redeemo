@@ -48,12 +48,15 @@ jest.mock('@/lib/api/onboarding', () => ({
 }))
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ToastProvider } from '@/components/ui/toast'
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <HomePage />
+      <ToastProvider>
+        <HomePage />
+      </ToastProvider>
     </QueryClientProvider>,
   )
 }
@@ -200,5 +203,8 @@ describe('HomePage (M2 F1 staircase hub + lifecycle homes)', () => {
     fireEvent.click(panel.querySelector('input[type="checkbox"]')!)
     fireEvent.click(panel.querySelector('button:last-of-type')!)
     await waitFor(() => expect(submitOnboarding).toHaveBeenCalledTimes(1))
+    // The transition to the submitted lifecycle state must be unmistakable, not
+    // just a silent refetch.
+    expect(await screen.findByText(/application submitted for review/i)).toBeInTheDocument()
   })
 })
