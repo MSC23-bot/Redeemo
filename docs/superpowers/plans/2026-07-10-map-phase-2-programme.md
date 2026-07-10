@@ -125,24 +125,43 @@ DESIGN input needed: D1 mockup pick; card-parity visual QA on device (S4).
 ## 7. S3 as-shipped addendum (2026-07-10, branch `feat/map-p2-s3-pins`)
 
 **Backend (tiny, additive, no schema change):** `BRANCH_TILE_SELECT` (service.ts) nests
-`parent: { pinColour, name }` under both `merchant.primaryCategory` and
+`parent: { pinColour }` under both `merchant.primaryCategory` and
 `merchant.categories.category`. `enrichBranchTile` resolves `pinColour` as
 own-value-else-parent-value-else-null for both the primary category and the derived
-`subcategory` field. A NEW additive wire field `topLevelName` (own name if already
-top-level, else the parent's name) was added beyond the D1/register scope: needed because
-the client glyph matcher (below) has to match against a TOP-LEVEL category name, and a
-subcategory's own name ("Pizza Restaurant") won't reliably contain a top-level keyword
-("food"/"drink"). `enrichBranchTile` + its `BranchSelectResult` type are now exported for
-direct unit testing (were previously module-private). 10 new backend unit tests.
+`subcategory` field. This is wire-safe: it only changes the VALUE of an existing nullable
+field, never adds a key. `enrichBranchTile` + its `BranchSelectResult` type are now exported
+for direct unit testing (were previously module-private). 6 backend unit tests.
+
+**CORRECTION (2026-07-10, lead review, release-safety blocker):** the branch as FIRST pushed
+also added a NEW wire field `topLevelName` to branch-tile category summaries (backend
+emission + both tile schemas). REVERTED before merge. Hazard: the CLIENT branch-tile schema
+(`apps/customer-app/src/lib/api/discovery.ts`) is `.strict()` on every INSTALLED build, so a
+new backend-emitted KEY makes existing builds reject the ENTIRE discovery payload the moment
+the backend deploys: instant and total, strictly worse than the MERCHANT_CONFIRMED
+enum-value case (a new enum VALUE degrades gradually and only needs tolerant parsing to be
+in the field first; an unknown KEY fails the whole parse immediately). **Standing rule
+recorded:** wire ADDITIONS to branch tiles require the same tolerance-first release
+sequencing as enum additions: ship the tolerant client parser through the app stores FIRST,
+add the backend emitter in a later release. For S3 the need was eliminated instead: the
+top-level category name is now resolved CLIENT-SIDE (`resolveTopLevelCategoryName` +
+`buildCategoryTreeIndex` in `categoryPinGlyph.ts`) by walking `parentId` over the category
+tree the app ALREADY loads via `useCategories` (the same data MapCategoryPills filters with
+`c.parentId === null`); `<MapPins>` memoizes the index from a new optional `categories` prop
+passed by MapScreen. Fallback ladder while the categories query loads (pins must never
+blank): a top-level primary category resolves from its own `parentId === null` without the
+index; a subcategory leaf degrades to its OWN name (default glyph) until the query lands and
+the next render upgrades the glyph; a missing/cyclic parent degrades the same way
+(walk-depth guard).
 
 **Client pin glyph:** `apps/customer-app/src/features/map/utils/categoryPinGlyph.ts` mirrors
 RailHeader's name-cascade matching approach (`'medical'` before `'health'`, etc.) but renders
 via the app's existing lucide icon system (Utensils/Scissors/Stethoscope/Dumbbell/Compass/
 ShoppingBag/Home/Plane/Baby/Car/PawPrint, default MapPin) rather than hand-authored SVG path
 data: lower maintenance risk, consistent with the locked customer-app rule that lucide icons
-import via the design-system `icons.ts` barrel. `Category.pinIcon` is NOT read (confirmed
-unused/null in seed); it remains the documented FUTURE admin-driven icon-key hook: no
-remote-icon pipeline was built.
+import via the design-system `icons.ts` barrel. It matches against the CLIENT-RESOLVED
+top-level category name (see the correction paragraph above). `Category.pinIcon` is NOT read
+(confirmed unused/null in seed); it remains the documented FUTURE admin-driven icon-key hook
+: no remote-icon pipeline was built.
 
 **Pin geometry:** outer marker container is 60×63 (constant across every state: selected,
 unselected, ring visible or not), engineered so the teardrop's tip lands exactly at
@@ -204,8 +223,10 @@ per-render bounds growth, violating the constant-outer-bounds contract.
 
 **MapScreen hunks (for S2 reconciliation: `feat/map-p2-s2-feel` is unmerged and also
 touches this file):** (1) new `handleClusterPress` callback (reuses `animateAndQuery`);
-(2) `<MapPins>` gets two new props, `region={region}` (pre-existing state) and
-`onClusterPress={handleClusterPress}`. No other MapScreen changes.
+(2) `<MapPins>` gets three new props, `region={region}` (pre-existing state),
+`onClusterPress={handleClusterPress}`, and `categories={categories}` (pre-existing
+useCategories-derived variable; added by the strict-schema correction above). No other
+MapScreen changes.
 
 **Test updates:** `CustomPin.test.tsx`'s shape-specific assertions (which searched for a
 `borderRadius>0 && width===height` View: the old circle) no longer apply to the SVG
@@ -213,7 +234,9 @@ teardrop and were rewritten to the equivalent v2 properties (the Path's own `fil
 teardrop wrapper's constant size): every invariant they protect stays covered, none deleted.
 `MapPins.test.tsx` (marker-level §BC/§BI tests) is untouched and fully green, confirming
 clustering/chips/drop-in don't disturb the locked marker contract. New coverage: 18 glyph-
-matcher tests, 13 clustering tests, 9 chip-gating tests, 3 new CustomPin ring/glyph tests.
+matcher tests + 10 client-side top-level-resolver tests (correction), 13 clustering tests,
+9 chip-gating tests, 3 new CustomPin ring/glyph tests; the 4 backend topLevelName wire tests
+from the first push were removed with the revert (6 pinColour fallback tests remain).
 
 **Verification:** customer-app full jest suite and backend `test:unit` + root tsc all green
 (exact counts in the branch's final commit / PR description). No PR opened per task scope :

@@ -5,7 +5,12 @@ import Svg, { Path, Circle } from 'react-native-svg'
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSpring } from 'react-native-reanimated'
 import { color, useMotionScale } from '@/design-system'
 import { BranchTile } from '@/lib/api/discovery'
-import { getCategoryPinGlyph } from '../utils/categoryPinGlyph'
+import {
+  getCategoryPinGlyph,
+  buildCategoryTreeIndex,
+  resolveTopLevelCategoryName,
+  type CategoryTreeNode,
+} from '../utils/categoryPinGlyph'
 import { clusterBranchPins, type ClusterPoint } from '../utils/mapClustering'
 import { selectChipCandidates } from '../utils/mapNameChipGate'
 import { MapClusterMarker } from './MapClusterMarker'
@@ -132,12 +137,21 @@ type Props = {
   branches:    BranchTile[]
   selectedId:  string | null
   onPress:     (branch: BranchTile) => void
-  // Map Phase 2 Slice S3 additions — both OPTIONAL with safe defaults
+  // Map Phase 2 Slice S3 additions — all OPTIONAL with safe defaults
   // so existing callers/tests that only pass branches/selectedId/onPress
   // keep working unchanged (no clustering/chips kick in without a real
-  // viewport region).
+  // viewport region; glyphs degrade to leaf-name matching without the
+  // category tree).
   region?:          Region
   onClusterPress?:  (cluster: { latitude: number; longitude: number; branchIds: string[] }) => void
+  // The full category list (top-levels + subcategories) from
+  // useCategories — S3 correction 2026-07-10: the pin glyph's top-level
+  // category name is resolved CLIENT-SIDE by walking parentId over this
+  // tree, NOT from a wire field (see categoryPinGlyph.ts header).
+  // Optional: while the categories query is loading (or for callers
+  // that don't pass it), glyph matching degrades to the branch's own
+  // leaf category name — pins never blank waiting on categories.
+  categories?:      CategoryTreeNode[]
 }
 
 // A reasonably tight default viewport used when the caller doesn't
@@ -175,17 +189,23 @@ function getPinColor(branch: BranchTile): string {
   return color.pin.default
 }
 
-// S3 — glyph selection reads the NEW `topLevelName` wire field (own
-// name if already top-level, else the parent's name; see the backend
-// addendum in service.ts `enrichBranchTile`). Falls through to the
-// category's own `name` for older cached data / test fixtures that
-// predate the field (still usually resolves correctly for top-level
-// categories, and falls to the default glyph otherwise via
-// `getCategoryPinGlyph`'s own null handling).
-function getPinGlyphName(branch: BranchTile): string | null {
-  const cat = branch.merchant.primaryCategory
-  if (!cat) return null
-  return cat.topLevelName ?? cat.name ?? null
+// S3 (corrected 2026-07-10) — glyph selection resolves the TOP-LEVEL
+// category name CLIENT-SIDE: `resolveTopLevelCategoryName` walks the
+// branch's `primaryCategory.parentId` through the category tree index
+// built from the `categories` prop (useCategories data). While that
+// query hasn't loaded (empty index), it degrades to the leaf's own
+// name — top-level primary categories still match correctly, and
+// subcategory leaves get the default glyph until the categories query
+// lands and the next render upgrades them. Pins never blank waiting.
+// (The original push resolved this via a new `topLevelName` wire field;
+// REVERTED — the installed builds' branch-tile schema is .strict(), so
+// a new backend key would instantly fail the whole discovery parse on
+// every existing build. See categoryPinGlyph.ts header.)
+function getPinGlyphName(
+  branch: BranchTile,
+  categoryIndex: ReadonlyMap<string, CategoryTreeNode>,
+): string | null {
+  return resolveTopLevelCategoryName(branch.merchant.primaryCategory, categoryIndex)
 }
 
 // ── Pulse ring safety note ──────────────────────────────────────────
@@ -301,6 +321,7 @@ export function CustomPin({
   selected,
   dropIn = false,
   dropInDelayMs = 0,
+  glyphName,
 }: {
   branch: BranchTile
   selected: boolean
@@ -309,9 +330,15 @@ export function CustomPin({
    *  the entrance choreography) unaffected. */
   dropIn?: boolean
   dropInDelayMs?: number
+  /** Resolved TOP-LEVEL category name for glyph selection — computed by
+   *  <MapPins> via the client-side category-tree walk (S3 correction:
+   *  never a wire field). Optional: direct renders (tests, future
+   *  consumers without the tree) degrade to the branch's own leaf
+   *  category name. */
+  glyphName?: string | null
 }) {
   const pinColor = getPinColor(branch)
-  const Glyph = getCategoryPinGlyph(getPinGlyphName(branch))
+  const Glyph = getCategoryPinGlyph(glyphName ?? branch.merchant.primaryCategory?.name ?? null)
   // §BF — outer marker bounds stay constant (CONTAINER_WIDTH ×
   // CONTAINER_HEIGHT). The inner teardrop uses transform: scale to
   // express the unselected visual size. Layout bounds don't change →
@@ -358,12 +385,14 @@ function MapPinMarker({
   onPress,
   dropIn,
   dropInDelayMs,
+  glyphName,
 }: {
   branch: BranchTile
   selected: boolean
   onPress: (b: BranchTile) => void
   dropIn: boolean
   dropInDelayMs: number
+  glyphName: string | null
 }) {
   const { branchLatitude, branchLongitude } = branch
   // Initial render captures the first bitmap (tracks=true). After the
@@ -397,7 +426,7 @@ function MapPinMarker({
       onPress={() => onPress(branch)}
       tracksViewChanges={tracks}
     >
-      <CustomPin branch={branch} selected={selected} dropIn={dropIn} dropInDelayMs={dropInDelayMs} />
+      <CustomPin branch={branch} selected={selected} dropIn={dropIn} dropInDelayMs={dropInDelayMs} glyphName={glyphName} />
     </Marker>
   )
 }
@@ -410,8 +439,16 @@ function MapPinMarker({
 const DROP_STAGGER_STEP_MS = 25
 const DROP_STAGGER_MAX_MS  = 300
 
-export function MapPins({ branches, selectedId, onPress, region, onClusterPress }: Props) {
+export function MapPins({ branches, selectedId, onPress, region, onClusterPress, categories }: Props) {
   const effectiveRegion = region ?? DEFAULT_REGION
+
+  // S3 correction — client-side category-tree index for the pin-glyph
+  // top-level resolution (see categoryPinGlyph.ts header). Memoized on
+  // the categories array identity; useCategories' 5-minute staleTime
+  // keeps that identity stable between fetches. Empty map while the
+  // categories query is loading — `resolveTopLevelCategoryName` then
+  // degrades to the leaf's own name, so pins never blank on it.
+  const categoryIndex = useMemo(() => buildCategoryTreeIndex(categories), [categories])
 
   // "Staggered drop-in on first viewport load" (spec §7.2) — captures
   // the branch-id → stagger-index map from the FIRST non-empty render
@@ -477,6 +514,7 @@ export function MapPins({ branches, selectedId, onPress, region, onClusterPress 
             onPress={onPress}
             dropIn={dropIn}
             dropInDelayMs={dropInDelayMs}
+            glyphName={getPinGlyphName(branch, categoryIndex)}
           />
         )
       })}

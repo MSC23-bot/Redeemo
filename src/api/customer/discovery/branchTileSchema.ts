@@ -33,6 +33,16 @@ const locationConfidenceSchema = z.enum([
   'MERCHANT_CONFIRMED',
 ])
 
+// S3 correction (2026-07-10): do NOT add new keys to this object without
+// tolerance-first release sequencing. The CLIENT mirror of this schema
+// (apps/customer-app/src/lib/api/discovery.ts) is .strict() on every
+// INSTALLED app build: a new backend-emitted key makes existing builds
+// reject the ENTIRE discovery payload the moment the backend deploys
+// (worse than a new enum VALUE, which only needs tolerant parsing to be
+// in the field first; an unknown KEY fails instantly and totally). The
+// S3 pin-glyph top-level-category need was solved CLIENT-SIDE instead:
+// the app already loads the full category tree with parentId via
+// useCategories (see apps/customer-app map utils/categoryPinGlyph.ts).
 const categorySummarySchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -41,10 +51,6 @@ const categorySummarySchema = z.object({
   descriptorSuffix: z.string().nullable().optional(),
   parentId: z.string().nullable(),
   intentType: z.enum(['LOCAL', 'DESTINATION', 'MIXED']).nullable().optional(),
-  // S3 (Map pin v2, 2026-07-10) — the TOP-LEVEL category name, read-time
-  // resolved (own name if already top-level, else the parent's name).
-  // Feeds the client pin-glyph matcher; see service.ts enrichBranchTile.
-  topLevelName: z.string().nullable().optional(),
 }).strict().nullable()
 
 const descriptorTagSummarySchema = z.object({

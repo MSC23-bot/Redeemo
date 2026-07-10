@@ -34,13 +34,80 @@ import {
 // FUTURE hook for an admin-driven icon key once that pipeline exists
 // (out of scope for this slice — no remote-icon pipeline is built).
 //
-// Matches against a TOP-LEVEL category name (branch.merchant
-// .primaryCategory.topLevelName — see the S3 backend addendum in
-// service.ts `enrichBranchTile`), NOT the raw subcategory name: a
-// subcategory like "Pizza Restaurant" won't reliably contain a
-// top-level keyword like "food"/"drink".
+// Matches against a TOP-LEVEL category name, NOT the raw subcategory
+// name: a subcategory like "Pizza Restaurant" won't reliably contain a
+// top-level keyword like "food"/"drink". The top-level name is resolved
+// CLIENT-SIDE via `resolveTopLevelCategoryName` below (a parentId walk
+// over the already-loaded category tree from useCategories; the same
+// data MapCategoryPills filters with `c.parentId === null`).
+//
+// S3 correction (2026-07-10): the top-level name must NOT come from a
+// new wire field on branch tiles. The installed builds' branch-tile
+// schema is .strict(), so a new backend-emitted key would instantly
+// fail the ENTIRE discovery payload parse on every existing build the
+// moment the backend deploys (see lib/api/discovery.ts,
+// branchTileCategorySummarySchema header comment).
 
 export type PinGlyphIcon = ComponentType<LucideProps>
+
+// Minimal structural shape shared by `Category` (the /categories list
+// rows) and the branch tile's `primaryCategory` summary — everything
+// the resolver needs, nothing more, so both sources satisfy it.
+export type CategoryTreeNode = {
+  id: string
+  name: string
+  parentId: string | null
+}
+
+/**
+ * Builds an id → node lookup for `resolveTopLevelCategoryName`.
+ * Memoize the result at the call site (the categories list is stable
+ * per useCategories' 5-minute staleTime; MapPins wraps this in a
+ * useMemo keyed on the categories array).
+ */
+export function buildCategoryTreeIndex(
+  categories: readonly CategoryTreeNode[] | undefined,
+): Map<string, CategoryTreeNode> {
+  const byId = new Map<string, CategoryTreeNode>()
+  for (const c of categories ?? []) byId.set(c.id, c)
+  return byId
+}
+
+// Defensive bound on the parentId walk. The taxonomy is two-level
+// today (top-level + subcategory), but a data mistake introducing a
+// parentId cycle must not hang the render loop.
+const MAX_TREE_WALK_DEPTH = 5
+
+/**
+ * Resolves the TOP-LEVEL category name for a leaf category by walking
+ * `parentId` through the category tree index.
+ *
+ * Fallback ladder (pins must never blank while categories load):
+ *   1. leaf.parentId === null → the leaf IS top-level → its own name.
+ *   2. Walk parentId up the index until a parentId-null ancestor →
+ *      that ancestor's name.
+ *   3. Index empty (categories query not loaded yet) or ancestor
+ *      missing → the leaf's OWN name (getCategoryPinGlyph then either
+ *      keyword-matches it — top-level names always do — or falls to
+ *      the default glyph for subcategory names, which is the correct
+ *      degraded behaviour until the categories query lands and the
+ *      next render upgrades the glyph).
+ *   4. No category at all → null (caller gets the default glyph).
+ */
+export function resolveTopLevelCategoryName(
+  leaf: CategoryTreeNode | null | undefined,
+  byId: ReadonlyMap<string, CategoryTreeNode>,
+): string | null {
+  if (!leaf) return null
+  let current: CategoryTreeNode = leaf
+  for (let depth = 0; depth < MAX_TREE_WALK_DEPTH; depth++) {
+    if (current.parentId === null) return current.name
+    const parent = byId.get(current.parentId)
+    if (!parent) return leaf.name // index not loaded / ancestor missing — degrade to the leaf's own name
+    current = parent
+  }
+  return leaf.name // cycle guard tripped — degrade rather than hang
+}
 
 type GlyphEntry = { match: (n: string) => boolean; icon: PinGlyphIcon }
 

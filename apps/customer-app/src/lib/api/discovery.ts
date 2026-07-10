@@ -108,6 +108,16 @@ export type BranchLocationConfidence =
   | 'MERCHANT_CONFIRMED'
   | (string & {})
 
+// S3 correction (2026-07-10): this object is .strict() on every INSTALLED
+// build, so the backend must never add a new key to branch-tile category
+// summaries without tolerance-first release sequencing (ship the tolerant
+// parser through the store FIRST, add the emitter later) — an unknown key
+// fails the ENTIRE discovery payload parse instantly on old builds; worse
+// than a new enum VALUE (the MERCHANT_CONFIRMED case above), which at
+// least degrades only the rows carrying it once parsing is tolerant. The
+// S3 pin-glyph top-level-category need is resolved CLIENT-SIDE from the
+// already-loaded category tree (useCategories → parentId walk) instead of
+// a new wire field. See features/map/utils/categoryPinGlyph.ts.
 const branchTileCategorySummarySchema = z.object({
   id:               z.string(),
   name:             z.string(),
@@ -116,13 +126,6 @@ const branchTileCategorySummarySchema = z.object({
   descriptorSuffix: z.string().nullable().optional(),
   parentId:         z.string().nullable(),
   intentType:       z.enum(['LOCAL', 'DESTINATION', 'MIXED']).nullable().optional(),
-  // Map Phase 2 Slice S3 (pin v2, 2026-07-10) — TOP-LEVEL category name,
-  // read-time resolved server-side (own name if already top-level, else
-  // the parent's name). Feeds <MapPins>'s pin-glyph matcher, which mirrors
-  // RailHeader's name-cascade approach (both match against a TOP-LEVEL
-  // name — a subcategory's own name, e.g. "Pizza Restaurant", won't
-  // reliably contain a top-level keyword like "food"/"drink").
-  topLevelName:     z.string().nullable().optional(),
 }).strict().nullable()
 
 const branchTileDescriptorTagSummarySchema = z.object({

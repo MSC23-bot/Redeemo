@@ -787,6 +787,12 @@ export function MapScreen(_props: Props) {
           onPress={handleBranchPress}
           region={region}
           onClusterPress={handleClusterPress}
+          // S3 correction — the pin glyph's top-level category resolves
+          // CLIENT-SIDE from this tree (parentId walk), never from a
+          // wire field on branch tiles (strict-schema hazard; see
+          // categoryPinGlyph.ts). Same useCategories data the pill row
+          // below already consumes.
+          categories={categories}
         />
       </MapView>
 
