@@ -92,13 +92,15 @@ export default function ContractPage() {
     }
   }
 
-  // Flip to the signed-confirmation state, refresh the lifecycle source + the
-  // onboarding reads so the hub re-derives the agreement step as done, then route
-  // back to the hub. This NEVER submits the business: the F1 hub Submit is the only
-  // path that POSTs /onboarding/submit.
+  // Flip to the signed-confirmation state and route back to the hub immediately;
+  // the lifecycle + onboarding-reads refresh is fired non-blocking so a stalled
+  // refetch can never leave the merchant stuck on this step after the contract has
+  // already been accepted server-side. The hub re-derives the agreement step as
+  // done once those queries resolve. This NEVER submits the business: the F1 hub
+  // Submit is the only path that POSTs /onboarding/submit.
   async function afterSigned() {
     setSigned(true)
-    await Promise.all([
+    void Promise.all([
       profile.refetch?.(),
       queryClient.invalidateQueries({ queryKey: ['onboardingChecklist'] }),
       queryClient.invalidateQueries({ queryKey: ['onboardingStatus'] }),

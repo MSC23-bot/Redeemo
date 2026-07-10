@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Topbar } from '../Topbar'
 import { ValidateDialogContext } from '@/components/redemptions/validateDialogContext'
 import { ValidateDialogProvider } from '@/components/redemptions/ValidateDialogProvider'
+import { ToastProvider } from '@/components/ui/toast'
 
 // The Topbar mounts <NotificationBell> + <QuickActionsMenu> + <AccountMenu>,
 // which use next/navigation + React Query. Mock the router and stub the API
@@ -183,9 +184,11 @@ describe('Topbar', () => {
   // implementation end to end.
   it('clicking Validate a code opens the real dialog at the entry step with an empty input and does not crash (regression)', () => {
     renderTopbar(
-      <ValidateDialogProvider>
-        <Topbar onMenu={() => {}} />
-      </ValidateDialogProvider>,
+      <ToastProvider>
+        <ValidateDialogProvider>
+          <Topbar onMenu={() => {}} />
+        </ValidateDialogProvider>
+      </ToastProvider>,
     )
     expect(() => {
       fireEvent.click(screen.getByRole('button', { name: /validate a code/i }))

@@ -26,6 +26,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Chip } from '@/components/ui/chip'
+import { useToast } from '@/components/ui/toast'
 import { CircleCheck, AlertTriangle, ScanLine, X } from '@/lib/icons'
 import { ApiError } from '@/lib/api/client'
 import { lookupRedemptionByCode, validateRedemptionCode, type RedemptionRow } from '@/lib/api/redemptions'
@@ -120,6 +121,7 @@ export function ValidateCodeDialog({
   initialCode?: string
 }) {
   const queryClient = useQueryClient()
+  const { toast } = useToast()
   const [step, setStep] = React.useState<Step>('entry')
   const [code, setCode] = React.useState(() => normalizeCode(initialCode))
   const [preview, setPreview] = React.useState<RedemptionRow | null>(null)
@@ -177,9 +179,14 @@ export function ValidateCodeDialog({
     setBusy(true)
     try {
       const res = (await validateRedemptionCode(normalized)) as ValidateResult
+      // The backend has already validated the code at this point, so the success
+      // step must show immediately: never make it wait on the log refetch below.
+      // A stalled invalidation used to leave the merchant staring at a spinner
+      // with no feedback even though validation had already succeeded.
       setResult(res ?? null)
-      await queryClient.invalidateQueries({ queryKey: ['redemptions'] })
       setStep('done')
+      toast({ message: 'Redemption validated.', variant: 'success' })
+      void queryClient.invalidateQueries({ queryKey: ['redemptions'] })
     } catch (err) {
       // Defensive: a race could have validated the code between lookup and
       // confirm. Re-show the already-validated preview instead of an error.

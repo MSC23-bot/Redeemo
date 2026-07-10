@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ValidateCodeDialog } from '../ValidateCodeDialog'
 import { ApiError } from '@/lib/api/client'
+import { ToastProvider } from '@/components/ui/toast'
 
 const lookupRedemptionByCode = jest.fn()
 const validateRedemptionCode = jest.fn()
@@ -38,7 +39,9 @@ function renderDialog() {
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <ValidateCodeDialog onClose={onClose} />
+      <ToastProvider>
+        <ValidateCodeDialog onClose={onClose} />
+      </ToastProvider>
     </QueryClientProvider>,
   )
 }
@@ -117,6 +120,25 @@ describe('ValidateCodeDialog (F2 two-step validate)', () => {
     await waitFor(() =>
       expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['redemptions'] })),
     )
+  })
+
+  it('reaches the success step (and toasts) WITHOUT waiting on a stalled log invalidation', async () => {
+    lookupRedemptionByCode.mockResolvedValue(AWAITING)
+    validateRedemptionCode.mockResolvedValue({ id: 'r1', isValidated: true })
+    renderDialog()
+    // Regression guard: a refetch that never resolves used to leave the merchant
+    // staring at a stuck "Validating..." button with no success screen and no
+    // toast, even though the backend had already validated the code.
+    const invalidate = jest.spyOn(qc, 'invalidateQueries').mockReturnValue(new Promise(() => {}))
+    enterCode('A7K2P9X4')
+    fireEvent.click(screen.getByRole('button', { name: /look up/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /confirm redemption/i }))
+    expect(await screen.findByText(/validated for sarah k\./i)).toBeInTheDocument()
+    // A success toast is the extra feedback signal alongside the done screen.
+    expect(await screen.findByRole('status')).toHaveTextContent(/redemption validated/i)
+    // The confirm busy flag cleared: the forward action is enabled, not stuck.
+    expect(screen.getByRole('button', { name: /validate another/i })).toBeEnabled()
+    expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ['redemptions'] }))
   })
 
   it('the success step offers "Validate another" that resets to a fresh entry step', async () => {
