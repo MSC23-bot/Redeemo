@@ -16,6 +16,8 @@ import {
   grantCapability,
   revokeCapability,
   deactivateAdmin,
+  createAdminAccount,
+  setAdminRole,
 } from '../../../src/api/admin/team/service'
 
 const ctx = { ipAddress: '127.0.0.1', userAgent: 'test' }
@@ -158,5 +160,31 @@ describe('deactivateAdmin — isActive=false + escape hatch', () => {
     const prisma = makePrisma(makeTx())
     await expect(deactivateAdmin(prisma, redis, ACTOR, ACTOR, ctx)).rejects.toThrow('ADMIN_SELF_ACTION_FORBIDDEN')
     expect(revokeAllSessionsForEntity).not.toHaveBeenCalled()
+  })
+})
+
+describe('FIELD interim assignment guard (S1; removed in S3)', () => {
+  const ctx = { ipAddress: '1.1.1.1', userAgent: 'test' }
+  it('createAdminAccount REJECTS role FIELD with FIELD_ROLE_NOT_YET_ASSIGNABLE (no DB write)', async () => {
+    const tx = { adminUser: { findUnique: vi.fn(), create: vi.fn() } }
+    const prisma = { adminUser: { findUnique: vi.fn() }, ...makePrisma(tx) }
+    await expect(
+      createAdminAccount(prisma as any, 'super-1', { email: 'r@redeemo.com', firstName: 'R', lastName: 'Ep', role: 'FIELD' }, ctx),
+    ).rejects.toThrow('FIELD_ROLE_NOT_YET_ASSIGNABLE')
+    expect(prisma.adminUser.findUnique).not.toHaveBeenCalled()
+    expect(tx.adminUser.create).not.toHaveBeenCalled()
+  })
+  it('createAdminAccount ALLOWS a non-FIELD assignable role past the guard (OPERATIONS reaches the email check)', async () => {
+    const prisma = { adminUser: { findUnique: vi.fn().mockResolvedValue({ id: 'existing' }) } } as any
+    await expect(
+      createAdminAccount(prisma, 'super-1', { email: 'o@redeemo.com', firstName: 'O', lastName: 'Ps', role: 'OPERATIONS' }, ctx),
+    ).rejects.toThrow('EMAIL_ALREADY_EXISTS')
+    expect(prisma.adminUser.findUnique).toHaveBeenCalled()
+  })
+  it('setAdminRole REJECTS role FIELD before any DB read', async () => {
+    const tx = { adminUser: { findUnique: vi.fn(), update: vi.fn() } }
+    const prisma = makePrisma(tx)
+    await expect(setAdminRole(prisma, 'super-1', 'target-1', 'FIELD' as any, ctx)).rejects.toThrow('FIELD_ROLE_NOT_YET_ASSIGNABLE')
+    expect(tx.adminUser.findUnique).not.toHaveBeenCalled()
   })
 })

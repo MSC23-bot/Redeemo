@@ -74,6 +74,8 @@ export const ERROR_DEFINITIONS = {
   GRANT_NOT_FOUND:                { statusCode: 404, message: 'No active grant of this capability exists for this admin.' },
   // Self-lockout guard: an admin cannot deactivate their own account.
   ADMIN_SELF_ACTION_FORBIDDEN:    { statusCode: 400, message: 'You cannot perform this action on your own account.' },
+  // S1 interim guard: FIELD not assignable until the S3 pre-live scope guard lands.
+  FIELD_ROLE_NOT_YET_ASSIGNABLE:  { statusCode: 409, message: 'The FIELD role cannot be assigned until pre-live scope enforcement is enabled.' },
   // Phase 2 Slice 1 M3: actioner.
   APPROVAL_NOT_FOUND:             { statusCode: 404, message: 'Approval not found.' },
   APPROVAL_ALREADY_CLAIMED:       { statusCode: 409, message: 'This approval is already being reviewed by another admin.' },
