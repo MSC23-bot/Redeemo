@@ -5,7 +5,7 @@ import { useIsFocused } from '@react-navigation/native'
 import MapView, { Region } from 'react-native-maps'
 import { List, Locate, SlidersHorizontal } from 'lucide-react-native'
 import { useRouter } from 'expo-router'
-import { Text, color, spacing, radius, elevation, layer } from '@/design-system'
+import { Text, color, spacing, radius, elevation, layer, useMotionScale } from '@/design-system'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useMe } from '@/hooks/useMe'
 import { useCategories } from '@/hooks/useCategories'
@@ -592,11 +592,27 @@ export function MapScreen(_props: Props) {
   // (e.g. user taps mid-refetch and the branch is already gone from the
   // new array) silently no-ops in production but logs in dev so the
   // race is observable during device QA.
+  //
+  // Map Phase 2 S2 Task 4 — `lastProgrammaticIndexRef` guards the
+  // pin-tap → carousel-autoscroll → onIndexChange feedback loop. A pin
+  // tap here sets BOTH `selectedBranchId` and `activeBranchIndex`;
+  // `<MapBranchTile>` reacts to the `activeIndex` prop change by
+  // scrolling its carousel to that card, and on settle fires
+  // `onIndexChange` with the index it landed on. `MapBranchTile`'s own
+  // `handleScroll` already no-ops when the computed index equals the
+  // `activeIndex` it was given, so this ref is defence-in-depth (not the
+  // only guard) — it records the index MapScreen just set
+  // programmatically so `handleCarouselIndexChange` can recognise an
+  // echo of THIS tap (rather than a genuine user swipe) and skip
+  // re-running the select/camera-pan side effects a second time.
+  const lastProgrammaticIndexRef = useRef<number | null>(null)
+
   const handleBranchPress = useCallback(
     (branch: BranchTileType) => {
       setSelectedBranchId(branch.id)
       const idx = branches.findIndex((b) => b.id === branch.id)
       if (idx !== -1) {
+        lastProgrammaticIndexRef.current = idx
         setActiveBranchIndex(idx)
       } else if (__DEV__) {
         // eslint-disable-next-line no-console
@@ -605,6 +621,76 @@ export function MapScreen(_props: Props) {
     },
     [branches],
   )
+
+  // Map Phase 2 S2 Task 4 — respects reduce-motion the same way
+  // PressableScale/BottomSheet do (`useMotionScale()` is the codebase's
+  // established gate: 1 = animate, 0 = skip straight to the end state).
+  // `animateToRegion`'s second arg is a duration in ms; 0 makes it an
+  // instant jump with no tween, which is the react-native-maps
+  // equivalent of "skip the animation".
+  const reduceMotionScale = useMotionScale()
+
+  // Centres the camera on a branch's pin, KEEPING the current zoom
+  // (only lat/lng move — `region.latitudeDelta`/`longitudeDelta` are
+  // carried over unchanged). Redaction-safe: branches with a redacted
+  // location (POSTCODE_CENTROID / NEEDS_REVIEW — L3 lock, branchLatitude/
+  // branchLongitude are null on the wire for those) simply don't move
+  // the camera, matching `<MapPins>`'s own null-coord guard.
+  //
+  // Intentionally does NOT touch `region`/`queryBbox` state directly —
+  // `mapRef.animateToRegion` fires the SAME native
+  // `onRegionChangeComplete` callback a manual pan does once the
+  // animation settles, so the existing 500ms-debounced fetch pipeline
+  // (and the region-accumulation cache's `region`-derived viewport)
+  // picks this up for free, with no special-casing needed here.
+  const animateCameraToBranch = useCallback(
+    (branch: BranchTileType) => {
+      const { branchLatitude, branchLongitude } = branch
+      if (branchLatitude == null || branchLongitude == null) return
+      const duration = reduceMotionScale === 0 ? 0 : 350
+      mapRef.current?.animateToRegion(
+        {
+          latitude:       branchLatitude,
+          longitude:      branchLongitude,
+          latitudeDelta:  region.latitudeDelta,
+          longitudeDelta: region.longitudeDelta,
+        },
+        duration,
+      )
+    },
+    [region.latitudeDelta, region.longitudeDelta, reduceMotionScale],
+  )
+
+  // Map Phase 2 S2 Task 4 (spec §7.5/§7.6) — two-way carousel sync.
+  // Carousel swipe now ALSO updates `selectedBranchId` (so `<MapPins>`
+  // highlights the newly-active pin) and pans the camera to centre it.
+  // Guarded against the pin-tap → autoscroll → onIndexChange echo via
+  // `lastProgrammaticIndexRef` (set in `handleBranchPress` above): when
+  // this fires with the SAME index MapScreen just set programmatically,
+  // it's the carousel settling from a pin tap, not a user swipe — the
+  // selection + camera already match that branch, so this is a no-op
+  // beyond clearing the guard and syncing `activeBranchIndex`.
+  const handleCarouselIndexChange = useCallback(
+    (index: number) => {
+      setActiveBranchIndex(index)
+      if (lastProgrammaticIndexRef.current === index) {
+        lastProgrammaticIndexRef.current = null
+        return
+      }
+      lastProgrammaticIndexRef.current = null
+      const branch = branches[index]
+      if (!branch) return
+      setSelectedBranchId(branch.id)
+      animateCameraToBranch(branch)
+    },
+    [branches, animateCameraToBranch],
+  )
+
+  // Swipe-down-to-dismiss (spec §7.6) and the existing X button both
+  // route through this single handler.
+  const handleCarouselDismiss = useCallback(() => {
+    setSelectedBranchId(null)
+  }, [])
 
   // Tap from carousel card or list row → navigate to Merchant Profile.
   // PR-3 Phase D — locked URL contract:
@@ -814,8 +900,8 @@ export function MapScreen(_props: Props) {
         <MapBranchTile
           branches={branches}
           activeIndex={activeBranchIndex}
-          onClose={() => setSelectedBranchId(null)}
-          onIndexChange={setActiveBranchIndex}
+          onClose={handleCarouselDismiss}
+          onIndexChange={handleCarouselIndexChange}
           onBranchPress={handleBranchNavigate}
         />
       )}
