@@ -1,10 +1,16 @@
 /**
- * /merchants/[id] detail page - capability gate, loading/error states, content
- * render (header + website card + branches), Edit affordance gating on
- * merchant:edit, and edit-dialog mounting.
+ * /merchants/[id] Merchant 360 workspace (slice A1).
  *
- * Mocks useSession, useMerchantDetail, useParams, next/link, and the two edit
- * dialogs (so we can detect whether they mount without their RQ mutations).
+ * Covers: the page-level merchant:read capability gate, loading/error states,
+ * the workspace header (identity + status pills + branches stat) and its
+ * lifecycle action gating, URL-addressable tab routing (?tab= round-trip,
+ * default Overview, unknown -> Overview), the Overview + Business identity tab
+ * content with every existing edit-affordance capability gate + dialog mount,
+ * and the honest not-built placeholder panels.
+ *
+ * The tab components (header, tab bar, Overview, Business identity, placeholder)
+ * render for real; only the leaf dialogs + the SubmitForReviewCard are mocked so
+ * we detect mounting without their React Query mutations.
  */
 import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -17,12 +23,17 @@ jest.mock('next/link', () => {
   return function MockLink({
     href,
     children,
+    // `scroll` is a real next/link prop but not a valid DOM attribute; drop it so
+    // the mocked <a> does not emit an unknown-prop warning.
+    scroll,
     ...rest
   }: {
     href: string
     children: React.ReactNode
+    scroll?: boolean
     [key: string]: unknown
   }) {
+    void scroll
     return (
       <a href={href} {...rest}>
         {children}
@@ -31,10 +42,15 @@ jest.mock('next/link', () => {
   }
 })
 
-// ── Mock useParams ────────────────────────────────────────────────────────────
+// ── Mock next/navigation (params + the ?tab= search param + pathname) ──────────
 
+// `mockSearch` is read by the useSearchParams mock at call time; each test sets
+// it (e.g. 'tab=identity') and afterEach resets it to '' (default -> Overview).
+let mockSearch = ''
 jest.mock('next/navigation', () => ({
   useParams: jest.fn(() => ({ id: 'm-1' })),
+  useSearchParams: () => new URLSearchParams(mockSearch),
+  usePathname: () => '/merchants/m-1',
 }))
 
 // ── Mock useSession ───────────────────────────────────────────────────────────
@@ -50,112 +66,42 @@ jest.mock('@/lib/merchants/useMerchantDetail', () => ({
   merchantDetailQueryKey: (id: string) => ['admin-merchant-detail', id],
 }))
 
-// ── Mock the edit dialogs ─────────────────────────────────────────────────────
+// ── Mock the leaf dialogs + submit card ────────────────────────────────────────
 
 jest.mock('@/features/merchants/EditMerchantWebsiteDialog', () => ({
-  EditMerchantWebsiteDialog: ({
-    merchantId,
-    onCancel,
-  }: {
-    merchantId: string
-    onCancel: () => void
-  }) => (
+  EditMerchantWebsiteDialog: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
     <div data-testid="edit-merchant-website-dialog-mock" data-merchant-id={merchantId}>
-      <button onClick={onCancel} data-testid="edit-website-dialog-cancel">
-        Cancel
-      </button>
-    </div>
-  ),
-}))
-
-jest.mock('@/features/merchants/EditBranchDialog', () => ({
-  EditBranchDialog: ({
-    branchId,
-    onCancel,
-  }: {
-    branchId: string
-    onCancel: () => void
-  }) => (
-    <div data-testid="edit-branch-dialog-mock" data-branch-id={branchId}>
-      <button onClick={onCancel} data-testid="edit-branch-dialog-cancel">
-        Cancel
-      </button>
+      <button onClick={onCancel} data-testid="edit-website-dialog-cancel">Cancel</button>
     </div>
   ),
 }))
 
 jest.mock('@/features/merchants/EditMerchantIdentityDialog', () => ({
-  EditMerchantIdentityDialog: ({
-    merchantId,
-    onCancel,
-  }: {
-    merchantId: string
-    onCancel: () => void
-  }) => (
+  EditMerchantIdentityDialog: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
     <div data-testid="edit-merchant-identity-dialog-mock" data-merchant-id={merchantId}>
-      <button onClick={onCancel} data-testid="edit-identity-dialog-cancel">
-        Cancel
-      </button>
+      <button onClick={onCancel} data-testid="edit-identity-dialog-cancel">Cancel</button>
     </div>
   ),
 }))
 
 jest.mock('@/features/merchants/ProposeMerchantEditDialog', () => ({
-  ProposeMerchantEditDialog: ({
-    merchantId,
-    onCancel,
-  }: {
-    merchantId: string
-    onCancel: () => void
-  }) => (
+  ProposeMerchantEditDialog: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
     <div data-testid="propose-merchant-edit-dialog-mock" data-merchant-id={merchantId}>
-      <button onClick={onCancel} data-testid="propose-edit-dialog-cancel">
-        Cancel
-      </button>
+      <button onClick={onCancel} data-testid="propose-edit-dialog-cancel">Cancel</button>
     </div>
   ),
 }))
 
 jest.mock('@/features/merchants/EditCategoryDialog', () => ({
-  EditCategoryDialog: ({
-    merchantId,
-    onCancel,
-  }: {
-    merchantId: string
-    onCancel: () => void
-  }) => (
+  EditCategoryDialog: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
     <div data-testid="edit-category-dialog-mock" data-merchant-id={merchantId}>
-      <button onClick={onCancel} data-testid="edit-category-dialog-cancel">
-        Cancel
-      </button>
-    </div>
-  ),
-}))
-
-jest.mock('@/features/merchants/AddBranchDialog', () => ({
-  AddBranchDialog: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
-    <div data-testid="add-branch-dialog-mock" data-merchant-id={merchantId}>
-      <button onClick={onCancel} data-testid="add-branch-dialog-cancel">Cancel</button>
-    </div>
-  ),
-}))
-
-jest.mock('@/features/merchants/DeleteBranchConfirm', () => ({
-  DeleteBranchConfirm: ({ branchId, onCancel }: { branchId: string; onCancel: () => void }) => (
-    <div data-testid="delete-branch-confirm-mock" data-branch-id={branchId}>
-      <button onClick={onCancel} data-testid="delete-branch-confirm-cancel">Cancel</button>
+      <button onClick={onCancel} data-testid="edit-category-dialog-cancel">Cancel</button>
     </div>
   ),
 }))
 
 jest.mock('@/features/merchants/SubmitForReviewCard', () => ({
-  SubmitForReviewCard: ({
-    onSubmit,
-    onboardingStep,
-  }: {
-    onSubmit: () => void
-    onboardingStep: string
-  }) => (
+  SubmitForReviewCard: ({ onSubmit, onboardingStep }: { onSubmit: () => void; onboardingStep: string }) => (
     <div data-testid="submit-for-review-card-mock" data-onboarding-step={onboardingStep}>
       <button onClick={onSubmit} data-testid="submit-card-trigger">Submit</button>
     </div>
@@ -182,9 +128,19 @@ jest.mock('@/features/merchants/SubmitMerchantDialog', () => ({
   ),
 }))
 
-jest.mock('@/features/merchants/MerchantDocumentsCard', () => ({
-  MerchantDocumentsCard: ({ merchantId, canManage }: { merchantId: string; canManage: boolean }) => (
-    <div data-testid="merchant-documents-card-mock" data-merchant-id={merchantId} data-can-manage={String(canManage)} />
+jest.mock('@/features/merchants/SuspendDialog', () => ({
+  SuspendDialog: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
+    <div data-testid="suspend-dialog-mock" data-merchant-id={merchantId}>
+      <button onClick={onCancel} data-testid="suspend-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
+jest.mock('@/features/merchants/ReactivateConfirm', () => ({
+  ReactivateConfirm: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
+    <div data-testid="reactivate-confirm-mock" data-merchant-id={merchantId}>
+      <button onClick={onCancel} data-testid="reactivate-confirm-cancel">Cancel</button>
+    </div>
   ),
 }))
 
@@ -238,8 +194,6 @@ function makeDetail(overrides: Partial<MerchantDetail> = {}): MerchantDetail {
       categoryLocked: false,
       description: 'We sell coffee',
       hasPendingIdentityEdit: false,
-      // B3: an ACTIVE/LIVE merchant is NOT submittable, so the submit card hides
-      // by default. Tests that exercise the card override status + canSubmitOnBehalf.
       submitChecklist: { branch_created: true, contract_signed: true, rmv_configured: true, all_complete: true },
       canSubmitOnBehalf: false,
     },
@@ -279,11 +233,14 @@ function makeDetail(overrides: Partial<MerchantDetail> = {}): MerchantDetail {
   }
 }
 
-afterEach(() => jest.clearAllMocks())
+afterEach(() => {
+  jest.clearAllMocks()
+  mockSearch = ''
+})
 
 // ── Capability gate ─────────────────────────────────────────────────────────
 
-describe('MerchantDetailPage capability gate', () => {
+describe('Merchant 360 capability gate', () => {
   it('shows the loader while session is not ready', () => {
     mockSession({ ready: false, can: () => false })
     mockDetail()
@@ -316,7 +273,7 @@ describe('MerchantDetailPage capability gate', () => {
 
 // ── Loading / error ───────────────────────────────────────────────────────────
 
-describe('MerchantDetailPage loading/error states', () => {
+describe('Merchant 360 loading/error states', () => {
   beforeEach(() => mockSession())
 
   it('shows loading state while isLoading is true', () => {
@@ -346,46 +303,26 @@ describe('MerchantDetailPage loading/error states', () => {
   })
 })
 
-// ── Full content render ─────────────────────────────────────────────────────
+// ── Workspace header ───────────────────────────────────────────────────────────
 
-describe('MerchantDetailPage content', () => {
+describe('Merchant 360 workspace header', () => {
   beforeEach(() => mockSession())
 
-  it('renders the header with business name, trading name, status + verification badges', () => {
+  it('renders the name, sub-line, status + verification pills, and branches stat', () => {
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    const header = screen.getByTestId('merchant-detail-header')
+    const header = screen.getByTestId('merchant-workspace-header')
     expect(header).toHaveTextContent('Acme Coffee')
     expect(header).toHaveTextContent('Trading as Acme')
     expect(header).toHaveTextContent('Active')
     expect(header).toHaveTextContent('Verified')
+    expect(screen.getByTestId('workspace-stat-branches')).toHaveTextContent('2')
   })
 
-  it('renders the website value', () => {
+  it('renders initials in the logo tile when there is no logo', () => {
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-website-value')).toHaveTextContent('https://acme.test')
-  })
-
-  it('shows "Not set" when the merchant has no website', () => {
-    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, websiteUrl: null } }) })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-website-value')).toHaveTextContent('Not set')
-  })
-
-  it('renders a card per branch with contact fields', () => {
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('branch-card-br-1')).toBeInTheDocument()
-    expect(screen.getByTestId('branch-phone-br-1')).toHaveTextContent('+447700900123')
-    expect(screen.getByTestId('branch-email-br-1')).toHaveTextContent('main@acme.test')
-    expect(screen.getByTestId('branch-website-br-1')).toHaveTextContent('Not set')
-  })
-
-  it('renders an empty branches state when there are no branches', () => {
-    mockDetail({ data: makeDetail({ branches: [] }) })
-    render(<MerchantDetailPage />)
-    expect(screen.getByText(/no branches yet/i)).toBeInTheDocument()
+    expect(screen.getByTestId('merchant-workspace-logo')).toHaveTextContent('AC')
   })
 
   it('renders the back link to /merchants', () => {
@@ -396,332 +333,157 @@ describe('MerchantDetailPage content', () => {
   })
 })
 
-// ── Edit affordance gating ────────────────────────────────────────────────────
+// ── Lifecycle action (header) ──────────────────────────────────────────────────
 
-describe('MerchantDetailPage edit affordance gating', () => {
-  it('shows the website Edit button + branch Edit button WITH merchant:edit', () => {
+describe('Merchant 360 lifecycle action', () => {
+  it('shows Suspend for an ACTIVE merchant with merchant:suspend and opens the dialog', () => {
     mockSession({ can: () => true })
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-website-edit')).toBeInTheDocument()
-    expect(screen.getByTestId('branch-edit-br-1')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('lifecycle-suspend-btn'))
+    expect(screen.getByTestId('suspend-dialog-mock')).toHaveAttribute('data-merchant-id', 'm-1')
   })
 
-  it('HIDES the Edit buttons for a merchant:read-only admin (no merchant:edit)', () => {
+  it('shows Reactivate for a SUSPENDED merchant with merchant:suspend and opens the dialog', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, status: 'SUSPENDED' } }) })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('lifecycle-suspend-btn')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('lifecycle-reactivate-btn'))
+    expect(screen.getByTestId('reactivate-confirm-mock')).toHaveAttribute('data-merchant-id', 'm-1')
+  })
+
+  it('shows a gated lock chip (no action button) for ACTIVE without merchant:suspend', () => {
     mockSession({ can: (cap) => cap === 'merchant:read' })
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    // The detail still renders (read), but no edit affordances.
-    expect(screen.getByTestId('merchant-detail-header')).toBeInTheDocument()
-    expect(screen.queryByTestId('merchant-website-edit')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('branch-edit-br-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('lifecycle-suspend-btn')).not.toBeInTheDocument()
+    expect(screen.getByTestId('lifecycle-gated')).toBeInTheDocument()
+  })
+
+  it('shows NO lifecycle action for a non-Active/non-Suspended lifecycle (PENDING_APPROVAL)', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, status: 'PENDING_APPROVAL' } }) })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('lifecycle-suspend-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('lifecycle-reactivate-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('lifecycle-gated')).not.toBeInTheDocument()
+  })
+
+  it('closes the suspend dialog on its Cancel', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('lifecycle-suspend-btn'))
+    fireEvent.click(screen.getByTestId('suspend-dialog-cancel'))
+    expect(screen.queryByTestId('suspend-dialog-mock')).not.toBeInTheDocument()
   })
 })
 
-// ── B2.2: Business registration card + identity-edit gating ───────────────────
+// ── Tab routing ────────────────────────────────────────────────────────────────
 
-describe('MerchantDetailPage business registration card (B2.2)', () => {
-  it('renders the identity card with read-only vat/company for a merchant:read admin', () => {
-    mockSession({ can: (cap) => cap === 'merchant:read' })
+describe('Merchant 360 tab routing', () => {
+  beforeEach(() => mockSession())
+
+  it('defaults to the Overview tab when no ?tab= is present', () => {
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-identity-card')).toBeInTheDocument()
-    expect(screen.getByTestId('merchant-vat-value')).toHaveTextContent('GB123456789')
-    expect(screen.getByTestId('merchant-company-value')).toHaveTextContent('12345678')
+    expect(screen.getByTestId('workspace-overview')).toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-identity')).not.toBeInTheDocument()
+    expect(screen.getByTestId('workspace-tab-overview')).toHaveAttribute('data-active', 'true')
   })
 
-  it('shows "Not set" when vat/company are null', () => {
-    mockSession({ can: () => true })
-    mockDetail({
-      data: makeDetail({
-        merchant: { ...makeDetail().merchant, vatNumber: null, companyNumber: null },
-      }),
-    })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-vat-value')).toHaveTextContent('Not set')
-    expect(screen.getByTestId('merchant-company-value')).toHaveTextContent('Not set')
-  })
-
-  it('shows the identity Edit button WITH merchant:edit-identity (SUPER_ADMIN)', () => {
-    mockSession({ can: () => true })
+  it('renders the Business identity tab when ?tab=identity', () => {
+    mockSearch = 'tab=identity'
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-identity-edit')).toBeInTheDocument()
+    expect(screen.getByTestId('workspace-identity')).toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-overview')).not.toBeInTheDocument()
+    expect(screen.getByTestId('workspace-tab-identity')).toHaveAttribute('data-active', 'true')
   })
 
-  it('HIDES the identity Edit button for an admin with merchant:read + merchant:edit but NOT merchant:edit-identity', () => {
-    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
+  it('falls back to Overview for an unknown ?tab= value', () => {
+    mockSearch = 'tab=not-a-real-tab'
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    // The card still renders read-only; the website Edit shows; identity Edit does NOT.
-    expect(screen.getByTestId('merchant-identity-card')).toBeInTheDocument()
-    expect(screen.getByTestId('merchant-website-edit')).toBeInTheDocument()
-    expect(screen.queryByTestId('merchant-identity-edit')).not.toBeInTheDocument()
+    expect(screen.getByTestId('workspace-overview')).toBeInTheDocument()
+    expect(screen.getByTestId('workspace-tab-overview')).toHaveAttribute('data-active', 'true')
   })
 
-  it('opens the identity dialog when the identity Edit is clicked', () => {
-    mockSession({ can: () => true })
+  it('renders every tab in the bar as a ?tab= addressable link (round-trip)', () => {
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('merchant-identity-edit'))
-    const dialog = screen.getByTestId('edit-merchant-identity-dialog-mock')
-    expect(dialog).toBeInTheDocument()
-    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
-  })
-
-  it('closes the identity dialog on its Cancel', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('merchant-identity-edit'))
-    fireEvent.click(screen.getByTestId('edit-identity-dialog-cancel'))
-    expect(screen.queryByTestId('edit-merchant-identity-dialog-mock')).not.toBeInTheDocument()
+    expect(screen.getByTestId('workspace-tab-identity')).toHaveAttribute(
+      'href',
+      '/merchants/m-1?tab=identity'
+    )
+    expect(screen.getByTestId('workspace-tab-branches')).toHaveAttribute(
+      'href',
+      '/merchants/m-1?tab=branches'
+    )
   })
 })
 
-// ── B2.3: Category card + edit gating + locked state ──────────────────────────
+// ── Placeholder honesty ────────────────────────────────────────────────────────
 
-describe('MerchantDetailPage category card (B2.3)', () => {
-  it('renders the category card with the current category for a merchant:read admin', () => {
-    mockSession({ can: (cap) => cap === 'merchant:read' })
+describe('Merchant 360 not-built placeholders', () => {
+  beforeEach(() => mockSession())
+
+  it('shows the "later slice" copy for a queued tab (Branches)', () => {
+    mockSearch = 'tab=branches'
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-category-card')).toBeInTheDocument()
-    expect(screen.getByTestId('merchant-category-value')).toHaveTextContent('Restaurants')
+    expect(screen.getByTestId('workspace-placeholder-branches')).toHaveTextContent(/later slice/i)
   })
 
-  it('shows "Not set" when the merchant has no category', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, category: null, primaryCategoryId: null } }) })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-category-value')).toHaveTextContent('Not set')
-  })
-
-  it('shows the category Edit button WITH merchant:edit-category and not locked', () => {
-    mockSession({ can: () => true })
+  it('shows the net-new-schema gated copy for Notes (MerchantNote)', () => {
+    mockSearch = 'tab=notes'
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-category-edit')).toBeInTheDocument()
+    expect(screen.getByTestId('workspace-placeholder-notes')).toHaveTextContent(/MerchantNote/)
   })
 
-  it('HIDES the category Edit button for an admin without merchant:edit-category', () => {
-    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
+  it('shows the aggregation gated copy for Performance', () => {
+    mockSearch = 'tab=performance'
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-category-card')).toBeInTheDocument()
-    expect(screen.queryByTestId('merchant-category-edit')).not.toBeInTheDocument()
+    expect(screen.getByTestId('workspace-placeholder-performance')).toHaveTextContent(/aggregat/i)
   })
 
-  it('HIDES the category Edit and shows the locked note when categoryLocked is true', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, categoryLocked: true } }) })
-    render(<MerchantDetailPage />)
-    expect(screen.queryByTestId('merchant-category-edit')).not.toBeInTheDocument()
-    expect(screen.getByTestId('merchant-category-locked-note')).toBeInTheDocument()
-  })
-
-  it('opens the category dialog when the category Edit is clicked', () => {
-    mockSession({ can: () => true })
+  it('shows the DPIA gated copy for Insights', () => {
+    mockSearch = 'tab=insights'
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('merchant-category-edit'))
-    const dialog = screen.getByTestId('edit-category-dialog-mock')
-    expect(dialog).toBeInTheDocument()
-    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
-  })
-
-  it('closes the category dialog on its Cancel', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('merchant-category-edit'))
-    fireEvent.click(screen.getByTestId('edit-category-dialog-cancel'))
-    expect(screen.queryByTestId('edit-category-dialog-mock')).not.toBeInTheDocument()
+    expect(screen.getByTestId('workspace-placeholder-insights')).toHaveTextContent(/DPIA/)
   })
 })
 
-// ── B2.4: branch create + delete affordances ──────────────────────────────────
+// ── Overview tab content ───────────────────────────────────────────────────────
 
-describe('MerchantDetailPage branch manage affordances (B2.4)', () => {
-  it('shows the Add branch button WITH merchant:manage-branches', () => {
-    mockSession({ can: () => true })
+describe('Merchant 360 Overview tab', () => {
+  beforeEach(() => mockSession())
+
+  it('renders category, website, and the branches count from the payload', () => {
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-add-branch')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-category')).toHaveTextContent('Restaurants')
+    expect(screen.getByTestId('overview-website')).toHaveTextContent('https://acme.test')
+    expect(screen.getByTestId('overview-branch-count')).toHaveTextContent('2')
   })
 
-  it('HIDES the Add branch button for an admin without merchant:manage-branches', () => {
-    mockSession({ can: (cap) => cap === 'merchant:read' })
+  it('links to the Business identity tab', () => {
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-branches-section')).toBeInTheDocument()
-    expect(screen.queryByTestId('merchant-add-branch')).not.toBeInTheDocument()
-  })
-
-  it('shows the Delete affordance on a NON-main branch but NOT the main branch', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('branch-delete-br-2')).toBeInTheDocument() // non-main
-    expect(screen.queryByTestId('branch-delete-br-1')).not.toBeInTheDocument() // main hidden
-  })
-
-  it('HIDES all Delete affordances for an admin without merchant:manage-branches', () => {
-    mockSession({ can: (cap) => cap === 'merchant:read' })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    expect(screen.queryByTestId('branch-delete-br-2')).not.toBeInTheDocument()
-  })
-
-  it('opens the AddBranchDialog when Add branch is clicked', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('merchant-add-branch'))
-    const dialog = screen.getByTestId('add-branch-dialog-mock')
-    expect(dialog).toBeInTheDocument()
-    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
-  })
-
-  it('opens the DeleteBranchConfirm with the branch id when Delete is clicked', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('branch-delete-br-2'))
-    const dialog = screen.getByTestId('delete-branch-confirm-mock')
-    expect(dialog).toBeInTheDocument()
-    expect(dialog).toHaveAttribute('data-branch-id', 'br-2')
-  })
-
-  it('closes the DeleteBranchConfirm on its Cancel', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('branch-delete-br-2'))
-    fireEvent.click(screen.getByTestId('delete-branch-confirm-cancel'))
-    expect(screen.queryByTestId('delete-branch-confirm-mock')).not.toBeInTheDocument()
+    expect(screen.getByTestId('overview-open-identity')).toHaveAttribute(
+      'href',
+      '/merchants/m-1?tab=identity'
+    )
   })
 })
 
-// ── B2.5: Business identity card + propose-edit gating + pending state ────────
+// ── Overview: submit-for-review card ───────────────────────────────────────────
 
-describe('MerchantDetailPage business identity card (B2.5)', () => {
-  it('renders the identity-fields card with businessName / tradingName / description', () => {
-    mockSession({ can: (cap) => cap === 'merchant:read' })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-identity-fields-card')).toBeInTheDocument()
-    expect(screen.getByTestId('merchant-business-name-value')).toHaveTextContent('Acme Coffee')
-    expect(screen.getByTestId('merchant-trading-name-value')).toHaveTextContent('Acme')
-    expect(screen.getByTestId('merchant-description-value')).toHaveTextContent('We sell coffee')
-  })
-
-  it('shows "Not set" for null tradingName / description', () => {
-    mockSession({ can: () => true })
-    mockDetail({
-      data: makeDetail({
-        merchant: { ...makeDetail().merchant, tradingName: null, description: null },
-      }),
-    })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-trading-name-value')).toHaveTextContent('Not set')
-    expect(screen.getByTestId('merchant-description-value')).toHaveTextContent('Not set')
-  })
-
-  it('shows the Propose changes button WITH merchant:propose-edit (SUPER_ADMIN)', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-identity-propose')).toBeInTheDocument()
-    expect(screen.getByTestId('merchant-identity-propose')).not.toBeDisabled()
-  })
-
-  it('HIDES the Propose changes button for an admin without merchant:propose-edit', () => {
-    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-identity-fields-card')).toBeInTheDocument()
-    expect(screen.queryByTestId('merchant-identity-propose')).not.toBeInTheDocument()
-  })
-
-  it('keeps the Propose button visible but DISABLED with a note when an edit is already pending', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, hasPendingIdentityEdit: true } }) })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-identity-propose')).toBeDisabled()
-    expect(screen.getByTestId('merchant-identity-pending-note')).toBeInTheDocument()
-  })
-
-  it('does NOT show the pending note when no edit is pending', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    expect(screen.queryByTestId('merchant-identity-pending-note')).not.toBeInTheDocument()
-  })
-
-  it('opens the propose dialog when Propose changes is clicked', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('merchant-identity-propose'))
-    const dialog = screen.getByTestId('propose-merchant-edit-dialog-mock')
-    expect(dialog).toBeInTheDocument()
-    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
-  })
-
-  it('closes the propose dialog on its Cancel', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('merchant-identity-propose'))
-    fireEvent.click(screen.getByTestId('propose-edit-dialog-cancel'))
-    expect(screen.queryByTestId('propose-merchant-edit-dialog-mock')).not.toBeInTheDocument()
-  })
-})
-
-// ── Edit dialog mounting ──────────────────────────────────────────────────────
-
-describe('MerchantDetailPage edit dialogs', () => {
-  beforeEach(() => mockSession({ can: () => true }))
-
-  it('opens the website dialog when the website Edit is clicked', () => {
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('merchant-website-edit'))
-    const dialog = screen.getByTestId('edit-merchant-website-dialog-mock')
-    expect(dialog).toBeInTheDocument()
-    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
-  })
-
-  it('closes the website dialog on its Cancel', () => {
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('merchant-website-edit'))
-    fireEvent.click(screen.getByTestId('edit-website-dialog-cancel'))
-    expect(screen.queryByTestId('edit-merchant-website-dialog-mock')).not.toBeInTheDocument()
-  })
-
-  it('opens the branch dialog with the branch id when a branch Edit is clicked', () => {
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('branch-edit-br-1'))
-    const dialog = screen.getByTestId('edit-branch-dialog-mock')
-    expect(dialog).toBeInTheDocument()
-    expect(dialog).toHaveAttribute('data-branch-id', 'br-1')
-  })
-
-  it('closes the branch dialog on its Cancel', () => {
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    fireEvent.click(screen.getByTestId('branch-edit-br-1'))
-    fireEvent.click(screen.getByTestId('edit-branch-dialog-cancel'))
-    expect(screen.queryByTestId('edit-branch-dialog-mock')).not.toBeInTheDocument()
-  })
-})
-
-// ── B3: Submit for review card + submit dialog ────────────────────────────────
-
-describe('MerchantDetailPage submit-for-review card (B3)', () => {
+describe('Merchant 360 submit-for-review card (Overview)', () => {
   function makeSubmittable(onboardingStep = 'REGISTERED'): MerchantDetail {
     const base = makeDetail()
     return makeDetail({
@@ -729,9 +491,9 @@ describe('MerchantDetailPage submit-for-review card (B3)', () => {
     })
   }
 
-  it('HIDES the card for a non-submittable merchant (canSubmitOnBehalf false), even with every cap', () => {
+  it('HIDES the card for a non-submittable merchant, even with every capability', () => {
     mockSession({ can: () => true })
-    mockDetail({ data: makeDetail() }) // ACTIVE/LIVE => canSubmitOnBehalf false
+    mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
     expect(screen.queryByTestId('submit-for-review-card-mock')).not.toBeInTheDocument()
   })
@@ -747,19 +509,8 @@ describe('MerchantDetailPage submit-for-review card (B3)', () => {
     mockSession({ can: (cap) => cap === 'merchant:read' })
     mockDetail({ data: makeSubmittable() })
     render(<MerchantDetailPage />)
-    // The detail still renders (read), but no submit card.
-    expect(screen.getByTestId('merchant-detail-header')).toBeInTheDocument()
+    expect(screen.getByTestId('merchant-workspace-header')).toBeInTheDocument()
     expect(screen.queryByTestId('submit-for-review-card-mock')).not.toBeInTheDocument()
-  })
-
-  it('renders the card BEFORE the Business identity card (placement)', () => {
-    mockSession({ can: () => true })
-    mockDetail({ data: makeSubmittable() })
-    render(<MerchantDetailPage />)
-    const card = screen.getByTestId('submit-for-review-card-mock')
-    const identity = screen.getByTestId('merchant-identity-fields-card')
-    // submit card precedes the identity card in document order.
-    expect(card.compareDocumentPosition(identity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('opens the SubmitMerchantDialog with the merchant id when the card triggers submit', () => {
@@ -767,9 +518,7 @@ describe('MerchantDetailPage submit-for-review card (B3)', () => {
     mockDetail({ data: makeSubmittable() })
     render(<MerchantDetailPage />)
     fireEvent.click(screen.getByTestId('submit-card-trigger'))
-    const dialog = screen.getByTestId('submit-merchant-dialog-mock')
-    expect(dialog).toBeInTheDocument()
-    expect(dialog).toHaveAttribute('data-merchant-id', 'm-1')
+    expect(screen.getByTestId('submit-merchant-dialog-mock')).toHaveAttribute('data-merchant-id', 'm-1')
   })
 
   it('passes isResubmit=true to the dialog when onboardingStep is NEEDS_CHANGES', () => {
@@ -798,27 +547,176 @@ describe('MerchantDetailPage submit-for-review card (B3)', () => {
   })
 })
 
-// ── B4: Documents card ────────────────────────────────────────────────────────
+// ── Business identity tab: read cards ──────────────────────────────────────────
 
-describe('MerchantDetailPage documents card (B4)', () => {
-  it('always mounts the documents card for a merchant:read admin (view)', () => {
+describe('Merchant 360 Business identity tab (read)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=identity'
+  })
+
+  it('renders the identity, website, registration, and category cards', () => {
     mockSession({ can: (cap) => cap === 'merchant:read' })
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-documents-card-mock')).toHaveAttribute('data-merchant-id', 'm-1')
+    expect(screen.getByTestId('merchant-identity-fields-card')).toBeInTheDocument()
+    expect(screen.getByTestId('merchant-business-name-value')).toHaveTextContent('Acme Coffee')
+    expect(screen.getByTestId('merchant-trading-name-value')).toHaveTextContent('Acme')
+    expect(screen.getByTestId('merchant-description-value')).toHaveTextContent('We sell coffee')
+    expect(screen.getByTestId('merchant-website-value')).toHaveTextContent('https://acme.test')
+    expect(screen.getByTestId('merchant-vat-value')).toHaveTextContent('GB123456789')
+    expect(screen.getByTestId('merchant-company-value')).toHaveTextContent('12345678')
+    expect(screen.getByTestId('merchant-category-value')).toHaveTextContent('Restaurants')
   })
 
-  it('passes canManage=true when the admin holds merchant:manage-documents', () => {
+  it('shows "Not set" for null website / vat / company / trading / description', () => {
+    mockSession({ can: () => true })
+    mockDetail({
+      data: makeDetail({
+        merchant: {
+          ...makeDetail().merchant,
+          websiteUrl: null,
+          vatNumber: null,
+          companyNumber: null,
+          tradingName: null,
+          description: null,
+        },
+      }),
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-website-value')).toHaveTextContent('Not set')
+    expect(screen.getByTestId('merchant-vat-value')).toHaveTextContent('Not set')
+    expect(screen.getByTestId('merchant-company-value')).toHaveTextContent('Not set')
+    expect(screen.getByTestId('merchant-trading-name-value')).toHaveTextContent('Not set')
+    expect(screen.getByTestId('merchant-description-value')).toHaveTextContent('Not set')
+  })
+})
+
+// ── Business identity tab: website edit ────────────────────────────────────────
+
+describe('Merchant 360 Business identity tab (website edit)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=identity'
+  })
+
+  it('shows the website Edit WITH merchant:edit and opens/closes the dialog', () => {
     mockSession({ can: () => true })
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-documents-card-mock')).toHaveAttribute('data-can-manage', 'true')
+    fireEvent.click(screen.getByTestId('merchant-website-edit'))
+    expect(screen.getByTestId('edit-merchant-website-dialog-mock')).toHaveAttribute('data-merchant-id', 'm-1')
+    fireEvent.click(screen.getByTestId('edit-website-dialog-cancel'))
+    expect(screen.queryByTestId('edit-merchant-website-dialog-mock')).not.toBeInTheDocument()
   })
 
-  it('passes canManage=false when the admin lacks merchant:manage-documents', () => {
+  it('HIDES the website Edit for a read-only admin (no merchant:edit)', () => {
     mockSession({ can: (cap) => cap === 'merchant:read' })
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('merchant-documents-card-mock')).toHaveAttribute('data-can-manage', 'false')
+    expect(screen.getByTestId('merchant-website-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-website-edit')).not.toBeInTheDocument()
+  })
+})
+
+// ── Business identity tab: registration edit (B2.2) ────────────────────────────
+
+describe('Merchant 360 Business identity tab (registration edit)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=identity'
+  })
+
+  it('shows the identity Edit WITH merchant:edit-identity and opens/closes the dialog', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('merchant-identity-edit'))
+    expect(screen.getByTestId('edit-merchant-identity-dialog-mock')).toHaveAttribute('data-merchant-id', 'm-1')
+    fireEvent.click(screen.getByTestId('edit-identity-dialog-cancel'))
+    expect(screen.queryByTestId('edit-merchant-identity-dialog-mock')).not.toBeInTheDocument()
+  })
+
+  it('HIDES the identity Edit for merchant:read + merchant:edit but NOT merchant:edit-identity', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-identity-card')).toBeInTheDocument()
+    expect(screen.getByTestId('merchant-website-edit')).toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-identity-edit')).not.toBeInTheDocument()
+  })
+})
+
+// ── Business identity tab: category edit (B2.3) ────────────────────────────────
+
+describe('Merchant 360 Business identity tab (category edit)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=identity'
+  })
+
+  it('shows the category Edit WITH merchant:edit-category and not locked; opens/closes', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('merchant-category-edit'))
+    expect(screen.getByTestId('edit-category-dialog-mock')).toHaveAttribute('data-merchant-id', 'm-1')
+    fireEvent.click(screen.getByTestId('edit-category-dialog-cancel'))
+    expect(screen.queryByTestId('edit-category-dialog-mock')).not.toBeInTheDocument()
+  })
+
+  it('HIDES the category Edit for an admin without merchant:edit-category', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-category-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-category-edit')).not.toBeInTheDocument()
+  })
+
+  it('HIDES the category Edit and shows the locked note when categoryLocked is true', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, categoryLocked: true } }) })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('merchant-category-edit')).not.toBeInTheDocument()
+    expect(screen.getByTestId('merchant-category-locked-note')).toBeInTheDocument()
+  })
+})
+
+// ── Business identity tab: propose-sensitive edit (B2.5) ────────────────────────
+
+describe('Merchant 360 Business identity tab (propose edit)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=identity'
+  })
+
+  it('shows the Propose changes button WITH merchant:propose-edit and opens/closes', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    const btn = screen.getByTestId('merchant-identity-propose')
+    expect(btn).not.toBeDisabled()
+    fireEvent.click(btn)
+    expect(screen.getByTestId('propose-merchant-edit-dialog-mock')).toHaveAttribute('data-merchant-id', 'm-1')
+    fireEvent.click(screen.getByTestId('propose-edit-dialog-cancel'))
+    expect(screen.queryByTestId('propose-merchant-edit-dialog-mock')).not.toBeInTheDocument()
+  })
+
+  it('HIDES the Propose changes button for an admin without merchant:propose-edit', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-identity-fields-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-identity-propose')).not.toBeInTheDocument()
+  })
+
+  it('keeps the Propose button visible but DISABLED with a note when an edit is already pending', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail({ merchant: { ...makeDetail().merchant, hasPendingIdentityEdit: true } }) })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-identity-propose')).toBeDisabled()
+    expect(screen.getByTestId('merchant-identity-pending-note')).toBeInTheDocument()
+  })
+
+  it('does NOT show the pending note when no edit is pending', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('merchant-identity-pending-note')).not.toBeInTheDocument()
   })
 })
