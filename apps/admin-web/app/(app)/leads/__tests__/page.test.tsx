@@ -220,14 +220,24 @@ describe('LeadsHubPage section composition', () => {
     expect(screen.queryByTestId('leads-create-draft-link')).not.toBeInTheDocument()
   })
 
-  it('the assisted-onboarding card is unconditionally locked (C2 not built), regardless of capability', () => {
+  it('the assisted-onboarding card (C2) is a live CTA when merchant:create-draft is held', () => {
     mockSession({ can: () => true })
     mockAwaiting()
     mockInProgress()
     render(<LeadsHubPage />)
 
+    expect(screen.getByTestId('leads-assisted-link')).toHaveAttribute('href', '/merchants/new')
+    expect(screen.queryByTestId('leads-assisted-button-disabled')).not.toBeInTheDocument()
+  })
+
+  it('the assisted-onboarding card is honestly locked without merchant:create-draft', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockAwaiting()
+    mockInProgress()
+    render(<LeadsHubPage />)
+
     expect(screen.getByTestId('leads-assisted-button-disabled')).toBeDisabled()
-    expect(screen.getByTestId('leads-assisted-locked')).toHaveTextContent(/not built yet/i)
+    expect(screen.getByTestId('leads-assisted-locked')).toHaveTextContent('Needs merchant:create-draft')
   })
 
   it('the prospect pipeline section is an honest gated placeholder : no kanban, no lead CRUD', () => {

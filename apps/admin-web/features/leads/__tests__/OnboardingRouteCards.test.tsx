@@ -38,17 +38,30 @@ describe('CreateDraftCard', () => {
 })
 
 describe('AssistedOnboardingCard', () => {
-  it('is unconditionally locked (C2 not built) with a disabled button, never a live CTA', () => {
-    render(<AssistedOnboardingCard />)
+  it('renders a live "Start assisted onboarding" CTA to the create-draft form when canAssist', () => {
+    render(<AssistedOnboardingCard canAssist />)
 
+    const link = screen.getByTestId('leads-assisted-link')
+    expect(link).toHaveAttribute('href', '/merchants/new')
+    expect(screen.queryByTestId('leads-assisted-button-disabled')).not.toBeInTheDocument()
+  })
+
+  it('renders a disabled button + locked note (never a dead link) when the capability is absent', () => {
+    render(<AssistedOnboardingCard canAssist={false} />)
+
+    expect(screen.queryByTestId('leads-assisted-link')).not.toBeInTheDocument()
     const button = screen.getByTestId('leads-assisted-button-disabled')
     expect(button).toBeDisabled()
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
-    expect(screen.getByTestId('leads-assisted-locked')).toHaveTextContent(/not built yet/i)
+    expect(screen.getByTestId('leads-assisted-locked')).toHaveTextContent('Needs merchant:create-draft')
+  })
+
+  it('explains the create-draft-first begin path and honest step gating', () => {
+    render(<AssistedOnboardingCard canAssist />)
+    expect(screen.getByTestId('leads-assisted-begin-note')).toHaveTextContent(/create the draft to begin/i)
   })
 
   it('shows the Net-new badge', () => {
-    render(<AssistedOnboardingCard />)
+    render(<AssistedOnboardingCard canAssist />)
     expect(screen.getByText('Net-new')).toBeInTheDocument()
   })
 })
