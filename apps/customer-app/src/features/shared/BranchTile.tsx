@@ -19,10 +19,17 @@ import { composeInfoLine, composeWhereLine } from './infoLine'
 // right-hand side carrying open / rating / proximity, and a single prominent
 // value line (the saving is the data). Confident name, refined weights, calm
 // rhythm. NAME size is constant across tiers (owner direction).
+// Map Phase 2 S4 Task 2 — 'compact' had ZERO callers pre-S4 (grep-verified),
+// so its exact geometry was free to tune without any Search/Category
+// blast radius. MapListView (the shared-tile list row) is its first
+// consumer: a shorter banner/logo than 'standard' keeps rows scannable in
+// a vertical scrolling list while still carrying the full card (banner,
+// logo, heart, name, descriptor, rating, open status, value line) — richer
+// parity than the old bespoke BranchRow, at the cost of row density.
 type CardSize = 'compact' | 'standard' | 'hero'
-const BANNER_HEIGHT:  Record<CardSize, number> = { compact: 96, standard: 104, hero: 132 }
-const LOGO_SIZE:      Record<CardSize, number> = { compact: 48, standard: 52,  hero: 58 }
-const CONTENT_MIN_H:  Record<CardSize, number> = { compact: 130, standard: 132, hero: 136 }
+const BANNER_HEIGHT:  Record<CardSize, number> = { compact: 72, standard: 104, hero: 132 }
+const LOGO_SIZE:      Record<CardSize, number> = { compact: 40, standard: 52,  hero: 58 }
+const CONTENT_MIN_H:  Record<CardSize, number> = { compact: 96,  standard: 132, hero: 136 }
 
 function formatDistance(metres: number | null): string {
   return formatDistanceCompact(metres) ?? ''

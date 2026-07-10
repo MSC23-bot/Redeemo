@@ -1,16 +1,44 @@
 // PR-3 Phase C — MapListView half-sheet consumes BranchTile[] and
 // each row is branch-keyed.  Two branches of the same merchant
 // render as TWO distinct rows (Covelum bug closure on the list
-// surface).  Fold 2 (PR-3 plan §1.5) — row thumbnail colour reads
-// `branch.merchant.primaryCategory.pinColour` first; palette fallback
-// only when the backend field is null.  Distance is now miles-only
-// via the shared `formatDistance` helper from PR #112 fixup-6
-// (locked: "always miles, never metres").
+// surface).
+//
+// Map Phase 2 S4 Task 2 (2026-07-11) — the bespoke `BranchRow` (coloured
+// category thumb, no heart) is replaced by the SHARED
+// `<BranchTile size="compact">`, matching Home/Category/Map-carousel. This
+// intentionally changes some row-level presentation details that the
+// pre-S4 tests pinned to BranchRow's OWN implementation:
+//   - Row thumbnail: was a 52×52 category-coloured letter circle
+//     (`getCategoryColor`); now `<BranchTile>`'s own banner + straddling
+//     logo (real image, or a navy initials square) — the Fold-2 pinColour
+//     thumbnail tests below are superseded by BranchTile's own image
+//     tests (`BranchTile.image.test.tsx`) and are REMOVED here, not
+//     silently dropped: this file's replacement coverage is the new
+//     "logo/heart parity" describe block.
+//   - Distance copy: was the long-form `formatDistance` ("X.X miles
+//     away"); `<BranchTile>` uses the compact `formatDistanceCompact`
+//     ("X.X mi") — same as every other BranchTile consumer (Home,
+//     Category, Map carousel). Updated below, not removed: this file
+//     still pins that Map's list rows show A distance string, just in
+//     the shared-tile compact format now.
+// Every invariant NOT about BranchRow's bespoke visuals (header, count,
+// branch-first cardinality, tap-through) is preserved unchanged.
 
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render as rtlRender, fireEvent } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MapListView } from '@/features/map/components/MapListView'
 import { makeBranchTile } from '../../fixtures/branchTile'
+
+// `<BranchTile>` renders `<FavouriteHeart>` which calls `useFavourite()` →
+// `useQueryClient()` — every render needs a `<QueryClientProvider>` in
+// the tree (matches BranchTile's own test files).
+function render(node: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  return rtlRender(<QueryClientProvider client={qc}>{node}</QueryClientProvider>)
+}
+
+const noopSort = { sortBy: 'relevance' as const, onSortByChange: jest.fn() }
 
 const mockBranches = [
   makeBranchTile({
@@ -55,6 +83,7 @@ describe('MapListView', () => {
         total={2}
         onDismiss={jest.fn()}
         onBranchPress={jest.fn()}
+        {...noopSort}
       />,
     )
     expect(getByText('Nearby Merchants')).toBeTruthy()
@@ -68,6 +97,7 @@ describe('MapListView', () => {
         total={2}
         onDismiss={jest.fn()}
         onBranchPress={jest.fn()}
+        {...noopSort}
       />,
     )
     expect(getByText('2')).toBeTruthy()
@@ -81,6 +111,7 @@ describe('MapListView', () => {
         total={2}
         onDismiss={jest.fn()}
         onBranchPress={jest.fn()}
+        {...noopSort}
       />,
     )
     expect(getByText('Bella Italia')).toBeTruthy()
@@ -93,6 +124,8 @@ describe('MapListView', () => {
   // Two branches of the same merchant must render as TWO distinct
   // rows. Pre-Phase-C the list collapsed to merchant identity → only
   // one Covelum row showed. Phase C: each branch gets its own row.
+  // Still true post-S4 (BranchTile has no merchant-level dedup; FlatList
+  // keys on branch.id, unchanged).
   // ──────────────────────────────────────────────────────────────────────
 
   it('§M: two branches of the same merchant render two distinct list rows', () => {
@@ -131,125 +164,88 @@ describe('MapListView', () => {
         total={2}
         onDismiss={jest.fn()}
         onBranchPress={jest.fn()}
+        {...noopSort}
       />,
     )
     // Both rows surface the same merchant name (Covelum Restaurant)
     // but render as distinct row elements — pinned by querying
-    // accessibilityLabel which BranchRow sets per-row.
+    // accessibilityLabel which <BranchTile> sets per-row (prefixed
+    // match: BranchTile appends ", <descriptor>[, <locality>]").
     expect(getAllByText('Covelum Restaurant')).toHaveLength(2)
-    expect(getAllByLabelText('Covelum Restaurant')).toHaveLength(2)
+    expect(getAllByLabelText(/^Covelum Restaurant/)).toHaveLength(2)
   })
 
   // ──────────────────────────────────────────────────────────────────────
-  // Fold 2 — backend pinColour read on the row thumbnail.
+  // Map Phase 2 S4 Task 2 — logo/heart parity via the shared BranchTile.
+  // Replaces the removed Fold-2 pinColour-thumbnail tests: the list row
+  // no longer has a category-coloured thumb at all, it has BranchTile's
+  // own logo/heart treatment, verified here.
   // ──────────────────────────────────────────────────────────────────────
 
-  function findThumbBackgroundColor(views: any[]): string | undefined {
-    const flatten = (style: any): any => {
-      if (!style) return {}
-      if (Array.isArray(style)) return Object.assign({}, ...style.filter(Boolean).map(flatten))
-      return style
-    }
-    return views
-      .map(v => flatten(v.props.style))
-      .filter(s => s.width === 52 && s.height === 52) // BranchRow.thumb dimensions
-      .map(s => s.backgroundColor as string | undefined)
-      .find(c => typeof c === 'string')
-  }
-
-  it('Fold 2: row thumbnail uses backend pinColour when set on branch.merchant.primaryCategory', () => {
+  it('brings FavouriteHeart to the list (branch-level, entity="branch") — absent pre-S4', () => {
     const tile = makeBranchTile({
       id:              'brn-pets',
       branchLatitude:  51.5,
       branchLongitude: -0.1,
-      merchant: {
-        id:           'm-pets',
-        businessName: 'Pet Palace',
-        primaryCategory: {
-          id:        'cat-pets',
-          name:      'Pets & Animals',
-          pinColour: '#5C6BC0', // Indigo — explicit backend value
-          pinIcon:   null,
-          parentId:  null,
-        },
-      },
+      isFavourited:    true,
+      merchant: { id: 'm-pets', businessName: 'Pet Palace' },
     })
-    const { View } = require('react-native')
-    const { UNSAFE_getAllByType } = render(
-      <MapListView
-        visible
-        branches={[tile]}
-        total={1}
-        onDismiss={jest.fn()}
-        onBranchPress={jest.fn()}
-      />,
+    const { getByTestId } = render(
+      <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
     )
-    expect(findThumbBackgroundColor(UNSAFE_getAllByType(View))).toBe('#5C6BC0')
+    expect(getByTestId('branch-tile-brn-pets-heart')).toBeTruthy()
   })
 
-  it('Fold 2: row thumbnail falls back to hardcoded palette when backend pinColour is null (Big-Four backward-compat)', () => {
+  it('logo falls back to the shared navy initials block when merchant.logoUrl is null', () => {
     const tile = makeBranchTile({
-      id:              'brn-food',
+      id:              'brn-pets',
       branchLatitude:  51.5,
       branchLongitude: -0.1,
-      merchant: {
-        id:           'm-food',
-        businessName: 'Curry House',
-        primaryCategory: {
-          id:        'cat-food',
-          name:      'Food & Drink',
-          pinColour: null, // backend null → palette fallback
-          pinIcon:   null,
-          parentId:  null,
-        },
-      },
+      merchant: { id: 'm-pets', businessName: 'Pet Palace', logoUrl: null },
     })
-    const { View } = require('react-native')
-    const { UNSAFE_getAllByType } = render(
-      <MapListView
-        visible
-        branches={[tile]}
-        total={1}
-        onDismiss={jest.fn()}
-        onBranchPress={jest.fn()}
-      />,
+    const { getByText, queryByTestId } = render(
+      <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
     )
-    // Food & Drink palette fallback = '#E65100'
-    expect(findThumbBackgroundColor(UNSAFE_getAllByType(View))).toBe('#E65100')
+    expect(queryByTestId('branch-tile-logo-image')).toBeNull()
+    expect(getByText('P')).toBeTruthy()
+  })
+
+  it('logo uses the real merchant.logoUrl image when set', () => {
+    const tile = makeBranchTile({
+      id:              'brn-pets',
+      branchLatitude:  51.5,
+      branchLongitude: -0.1,
+      merchant: { id: 'm-pets', businessName: 'Pet Palace', logoUrl: 'https://example.com/logo.png' },
+    })
+    const { getByTestId } = render(
+      <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
+    )
+    expect(getByTestId('branch-tile-logo-image').props.source).toEqual([{ uri: 'https://example.com/logo.png' }])
   })
 
   // ──────────────────────────────────────────────────────────────────────
-  // Shared formatDistance: miles-only, NEVER metres or 'm' suffix
-  // (PR #112 fixup-6 lock — "always miles, never metres").
+  // Distance — now the shared BranchTile compact formatter ("X.X mi"),
+  // matching Home/Category/Map-carousel. (Was the long-form "X.X miles
+  // away" via BranchRow's own `formatDistance` import pre-S4.)
   // ──────────────────────────────────────────────────────────────────────
 
-  it('distance is rendered in miles only — sub-1km still uses miles, never the bare metres suffix', () => {
+  it('distance is rendered via the shared compact formatter ("X.X mi")', () => {
     const tile = makeBranchTile({
       id:              'brn-close',
       branchLatitude:  51.5,
       branchLongitude: -0.1,
-      distance:        276, // ~0.2 miles — previously rendered as "276m"
+      distance:        276, // ~0.2 miles
       merchant:        { id: 'm-close', businessName: 'Just Round The Corner' },
     })
     const { getByText, queryByText } = render(
-      <MapListView
-        visible
-        branches={[tile]}
-        total={1}
-        onDismiss={jest.fn()}
-        onBranchPress={jest.fn()}
-      />,
+      <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
     )
-    // Shared formatter: 276m → '0.2 miles away'
-    expect(getByText(/0\.2 miles away/)).toBeTruthy()
-    // Negative pin: the old MapListView local formatter would have
-    // emitted "276m" — that must NEVER appear in the rendered output.
+    expect(getByText(/0\.2 mi/)).toBeTruthy()
+    expect(queryByText(/miles away/)).toBeNull()
     expect(queryByText(/276m/)).toBeNull()
-    // Defensive: also no bare " mi" suffix from the old mixed-unit formatter.
-    expect(queryByText(/ mi$/)).toBeNull()
   })
 
-  it('distance is rendered in miles for >1km too (no regression on the existing path)', () => {
+  it('distance is rendered for >1 mile too (no regression on the existing path)', () => {
     const tile = makeBranchTile({
       id:              'brn-far',
       branchLatitude:  51.5,
@@ -258,14 +254,63 @@ describe('MapListView', () => {
       merchant:        { id: 'm-far', businessName: 'Across Town' },
     })
     const { getByText } = render(
+      <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
+    )
+    expect(getByText(/5\.1 mi/)).toBeTruthy()
+  })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Task 3 — sort selector, wired to the same FilterState.sortBy source.
+  // ──────────────────────────────────────────────────────────────────────
+
+  it('renders the sort selector with the four FilterState.sortBy options', () => {
+    const { getByLabelText } = render(
       <MapListView
         visible
-        branches={[tile]}
-        total={1}
+        branches={mockBranches}
+        total={2}
         onDismiss={jest.fn()}
         onBranchPress={jest.fn()}
+        sortBy="relevance"
+        onSortByChange={jest.fn()}
       />,
     )
-    expect(getByText(/5\.1 miles away/)).toBeTruthy()
+    expect(getByLabelText('Sort by Relevance')).toBeTruthy()
+    expect(getByLabelText('Sort by Nearest')).toBeTruthy()
+    expect(getByLabelText('Sort by Top Rated')).toBeTruthy()
+    expect(getByLabelText('Sort by Highest Saving')).toBeTruthy()
+  })
+
+  it("tapping a sort option calls onSortByChange with that option's key", () => {
+    const onSortByChange = jest.fn()
+    const { getByLabelText } = render(
+      <MapListView
+        visible
+        branches={mockBranches}
+        total={2}
+        onDismiss={jest.fn()}
+        onBranchPress={jest.fn()}
+        sortBy="relevance"
+        onSortByChange={onSortByChange}
+      />,
+    )
+    fireEvent.press(getByLabelText('Sort by Highest Saving'))
+    expect(onSortByChange).toHaveBeenCalledWith('highest_saving')
+  })
+
+  it('marks the active sort option as selected (accessibilityState)', () => {
+    const { getByLabelText } = render(
+      <MapListView
+        visible
+        branches={mockBranches}
+        total={2}
+        onDismiss={jest.fn()}
+        onBranchPress={jest.fn()}
+        sortBy="top_rated"
+        onSortByChange={jest.fn()}
+      />,
+    )
+    expect(getByLabelText('Sort by Top Rated').props.accessibilityState).toEqual({ selected: true })
+    expect(getByLabelText('Sort by Relevance').props.accessibilityState).toEqual({ selected: false })
   })
 })
