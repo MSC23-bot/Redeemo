@@ -36,6 +36,7 @@ type HookCall = {
   bbox:    BBox | null
   params:  Record<string, unknown>
   enabled: boolean
+  options?: Record<string, unknown>
 }
 
 // Module-level capture buffers — reset in beforeEach.
@@ -71,8 +72,12 @@ jest.mock('@/features/map/hooks/useInAreaBranches', () => ({
 }))
 
 jest.mock('@/hooks/useSearch', () => ({
-  useSearch: (params: Record<string, unknown>, enabled: boolean = true) => {
-    mockSearchCalls.push({ bbox: null, params, enabled })
+  useSearch: (
+    params:  Record<string, unknown>,
+    enabled: boolean = true,
+    options: Record<string, unknown> = {},
+  ) => {
+    mockSearchCalls.push({ bbox: null, params, enabled, options })
     return {
       data:      enabled ? mockState.searchData : undefined,
       isLoading: enabled ? mockState.searchLoading : false,
@@ -269,6 +274,104 @@ describe('MapScreen', () => {
       expect(lastSearch.params.maxLat).toEqual(expect.any(Number))
       expect(lastSearch.params.minLng).toEqual(expect.any(Number))
       expect(lastSearch.params.maxLng).toEqual(expect.any(Number))
+    })
+
+    // Map Phase 2 S0 (Task A integration) — the voucher-type label→enum
+    // mapping bug lived at the FilterSheet↔MapScreen boundary: MapScreen
+    // passes `filters.voucherTypes` straight through into the /search
+    // params, so a display-string leak there would silently zero out
+    // results even with FilterSheet itself fixed.
+    it('selecting the "Discount" chip sends BOTH DISCOUNT_FIXED and DISCOUNT_PERCENT enum values into the /search params', () => {
+      const { getByText, getByLabelText } = render(<MapScreen />, { wrapper })
+
+      fireEvent.press(getByLabelText('Open filters'))
+      fireEvent.press(getByText('Discount'))
+      fireEvent.press(getByText(/Show \d+ results/))
+
+      const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
+      expect(lastSearch.enabled).toBe(true)
+      expect(lastSearch.params.voucherTypes).toEqual(['DISCOUNT_FIXED', 'DISCOUNT_PERCENT'])
+    })
+  })
+
+  // ─── Filtered-path bbox quantization + staleTime parity (Map Phase 2 S0 Task B) ─
+  describe('filtered-path (/search) bbox quantization + staleTime parity', () => {
+    it('sends a QUANTIZED bbox into /search params, not the raw camera bbox', () => {
+      jest.useFakeTimers()
+      try {
+        const { getByText, getByLabelText } = render(<MapScreen />, { wrapper })
+
+        // Pan to a bbox with plenty of sub-quantization-grid precision.
+        act(() => {
+          mockOnRegionChangeComplete!({
+            latitude: 53.48081234, longitude: -2.24261234, latitudeDelta: 0.05, longitudeDelta: 0.05,
+          })
+        })
+        act(() => { jest.advanceTimersByTime(500) })
+
+        // Flip to the /search path via a non-scope filter.
+        fireEvent.press(getByLabelText('Open filters'))
+        fireEvent.press(getByText('Nearest'))
+        fireEvent.press(getByText(/Show \d+ results/))
+
+        const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
+        expect(lastSearch.enabled).toBe(true)
+        // quantizeBbox floors mins / ceils maxs to 3dp — the raw camera
+        // bbox (min lat 53.45581234) must NOT appear verbatim.
+        expect(lastSearch.params.minLat).toBe(Math.floor(53.45581234 * 1000) / 1000)
+        expect(lastSearch.params.maxLat).toBe(Math.ceil(53.50581234 * 1000) / 1000)
+        expect(lastSearch.params.minLng).toBe(Math.floor(-2.26761234 * 1000) / 1000)
+        expect(lastSearch.params.maxLng).toBe(Math.ceil(-2.21761234 * 1000) / 1000)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+
+    it('two pans that land in the same quantization cell send the SAME bbox to /search (cache-hit parity with the unfiltered path)', () => {
+      jest.useFakeTimers()
+      try {
+        const { getByText, getByLabelText } = render(<MapScreen />, { wrapper })
+
+        fireEvent.press(getByLabelText('Open filters'))
+        fireEvent.press(getByText('Nearest'))
+        fireEvent.press(getByText(/Show \d+ results/))
+
+        act(() => {
+          mockOnRegionChangeComplete!({
+            latitude: 53.480812, longitude: -2.242612, latitudeDelta: 0.001, longitudeDelta: 0.001,
+          })
+        })
+        act(() => { jest.advanceTimersByTime(500) })
+        const firstBbox = mockSearchCalls[mockSearchCalls.length - 1]!.params
+
+        act(() => {
+          mockOnRegionChangeComplete!({
+            latitude: 53.480819, longitude: -2.242619, latitudeDelta: 0.001, longitudeDelta: 0.001,
+          })
+        })
+        act(() => { jest.advanceTimersByTime(500) })
+        const secondBbox = mockSearchCalls[mockSearchCalls.length - 1]!.params
+
+        expect(secondBbox.minLat).toBe(firstBbox.minLat)
+        expect(secondBbox.maxLat).toBe(firstBbox.maxLat)
+        expect(secondBbox.minLng).toBe(firstBbox.minLng)
+        expect(secondBbox.maxLng).toBe(firstBbox.maxLng)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+
+    it('passes a 120s staleTime override into useSearch for the filtered Map path (parity with useInAreaBranches)', () => {
+      const { getByText, getByLabelText } = render(<MapScreen />, { wrapper })
+
+      fireEvent.press(getByLabelText('Open filters'))
+      fireEvent.press(getByText('Nearest'))
+      fireEvent.press(getByText(/Show \d+ results/))
+
+      const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
+      expect(lastSearch.enabled).toBe(true)
+      expect(lastSearch.options?.staleTime).toBe(120 * 1000)
+      expect(lastSearch.options?.keepPreviousData).toBe(true)
     })
   })
 

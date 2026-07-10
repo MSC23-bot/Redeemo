@@ -9,7 +9,7 @@ import React from 'react'
 import { renderHook, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { discoveryApi } from '@/lib/api/discovery'
-import { useSearch } from '@/hooks/useSearch'
+import { useSearch, searchQueryKey } from '@/hooks/useSearch'
 import { makeBranchTile } from '../fixtures/branchTile'
 
 jest.spyOn(discoveryApi, 'searchMerchants')
@@ -77,5 +77,41 @@ describe('useSearch — keepPreviousData opt-in (§AY)', () => {
 
     resolveB(responseB)
     await waitFor(() => expect(result.current.data?.branches?.[0]?.merchant?.id).toBe('b'))
+  })
+})
+
+// Map Phase 2 S0 — per-call `staleTime` override so the Map's filtered
+// bbox-mode path can match `useInAreaBranches`'s 120s without changing
+// SearchScreen / CategoryResultsScreen's default 30s.
+describe('useSearch — staleTime option (Map Phase 2 S0)', () => {
+  beforeEach(() => { (discoveryApi.searchMerchants as jest.Mock).mockReset() })
+
+  it('defaults to 30s staleTime when no override is passed (Search/Category semantics unchanged)', async () => {
+    (discoveryApi.searchMerchants as jest.Mock).mockResolvedValueOnce(responseA)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    const params = { q: 'first', limit: 30 }
+    const { result } = renderHook(() => useSearch(params), { wrapper })
+    await waitFor(() => expect(result.current.data).toBeDefined())
+
+    const query = qc.getQueryCache().find({ queryKey: searchQueryKey(params) })
+    expect(query?.options.staleTime).toBe(30 * 1000)
+  })
+
+  it('honours a per-call staleTime override — 120s, matching useInAreaBranches, for MapScreen\'s filtered path', async () => {
+    (discoveryApi.searchMerchants as jest.Mock).mockResolvedValueOnce(responseA)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    const params = { q: 'first', limit: 30 }
+    const { result } = renderHook(
+      () => useSearch(params, true, { keepPreviousData: true, staleTime: 120 * 1000 }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.data).toBeDefined())
+
+    const query = qc.getQueryCache().find({ queryKey: searchQueryKey(params) })
+    expect(query?.options.staleTime).toBe(120 * 1000)
   })
 })
