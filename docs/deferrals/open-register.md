@@ -158,23 +158,47 @@ SUPER_ADMIN/ADMIN/OPERATIONS/SALES-later): confirm-or-correct.
 - **§LOC-MIGRATE** (platform/deploy) - PRODUCTION-only as of 2026-07-09: the `branch_google_place_id` migration (`20260709095646`, adds `Branch.googlePlaceId`) and the three earlier migrations (`keyring_fingerprint`, `maintenance_alert_types`, `voucher_governed_flows` - §VG-MIGRATE above) are verified APPLIED on dev + staging (both 56/56, direct-SQL cross-check 2026-07-09; staging apply landed with the storage-enablement deploy `28f3d75f`, approved SHA `a5808113`). Only the `production` Neon branch still lacks all four. GATED: owner-approved production deploy window (see `docs/PROJECT-STATE.md` §3 cross-check table + §4.4/§6).
 - Detail: PR #435 `92d0b2bd`; spec `docs/superpowers/specs/2026-07-09-branch-location-trust-model.md`; plan `docs/superpowers/plans/2026-07-09-branch-location-trust-slice-1.md`; `docs/PROJECT-STATE.md` §4.2 Branch Location Trust Slice 1 paragraph + §6 RESOLVED note (2026-07-09).
 
-**§ADM-LOGIN (OPENED 2026-07-09, staging acceptance-walk gate):** the staging
-`admin@redeemo.com` password does NOT match the documented seed credential (login returns
-`INVALID_CREDENTIALS` = bcrypt mismatch; account exists, `isActive=true`, `SUPER_ADMIN`).
-Investigated read-only 2026-07-09, no reset performed, no hash/secret exposed: dev DB matches
-the seed credential; the staging `passwordHash` was last updated **2026-06-26T19:13Z**,
-consistent with a completed password-reset flow (reset emails SENT 2026-06-25 12:44 +
-2026-06-26 22:13 while staging sandbox email was live; failed logins from an owner-range IP
-22:06-22:10 that evening; an `admin_otp` email SENT 22:17 implies one correct-password login
-attempt AFTER the reset; `lastLoginAt` is NULL, so no fully completed admin session is
-recorded). Owner states they did not change it: the reset was most likely completed during a
-2026-06-26 admin session (possibly Codex-assisted). Not attack-shaped: reset links went to the
-sandbox-allowlisted inbox and all IPs are owner-range. Also noted: `m5-actor-*@example.com`
-AdminUser rows = June integration-test leakage into the staging DB (pre-dates the test-DB
-isolation split). **OWNER DECISION:** either supply the current staging admin password, or
-approve a one-time reset (worker is offline, so the reset email queues in `CommunicationLog`
-and the link can be extracted without any real email; set it back to the documented seed value
-or an owner-chosen one). Blocks the acceptance walk's ADMIN lane (incl. live D67 verification).
+**§ADM-LOGIN: CLOSED 2026-07-09 (owner-approved one-time staging reset).** The staging
+`admin@redeemo.com` password had drifted from the documented seed via a completed 2026-06-26
+password-reset flow (owner-range IPs, sandbox-allowlisted inbox, not attack-shaped; full
+read-only investigation preserved in the acceptance-walk doc §7 pre-walk actions). Resolution:
+forgot-password flow → reset link extracted from the QUEUED `CommunicationLog` row (token never
+displayed, deleted after use) → **password restored to the documented seed value; staging-only;
+production untouched; no other account modified**. Verified end to end (login + OTP + session +
+the authenticated D67 read). Residual noted item: `m5-actor-*@example.com` AdminUser rows =
+June integration-test leakage into the staging DB (pre-dates the test-DB isolation split);
+harmless, cleanup optional.
+
+**Acceptance-walk WF ledger (walk 2026-07-09; fix packet merged + re-probed 2026-07-10;
+evidence of record = `docs/superpowers/plans/2026-07-09-merchant-portal-staging-acceptance-walk.md`).
+CLOSED by the packet:** WF8 (#457 `d890bdb4`, live re-probe PASS both roles) · WF16 core
+(#455 `54ba50df`) · WF3/WF9/WF5 + WF1 END-guard (#456 `aff601e8`) · WF0 (13/13 seeded PINs
+re-encrypted 2026-07-10, before-state preserved) · WF2 (classified DESIGN: the locked
+Insights eligibility spec excludes test merchants; not a defect). **Ratified (owner
+2026-07-10):** WF11 device-trust intended · WF12/WF13 staff read-only voucher/branch views
+intended (read-only only) · WF18 no-claim identity edits (kept as a policy note: claim-to-act
+remains the onboarding-queue rule) · WF19 queue-only edit-request discovery. **OPEN rows from
+the walk:**
+- **§WF10/14 (copy):** replace the BM/STAFF staff-page "You can see your team..." copy with
+  honest owner-only wording (owner accepted the honest-copy direction over a roster grant).
+- **§WF15 (polish):** admin /redemptions search filters only on Enter with no affordance/hint.
+- **§WF17 (gap):** no activity/comms timeline section on the admin merchant detail page.
+- **§WF16-residual:** `MERCHANT_PROFILE_EDIT` rows stay unresolved-by-design in the queue
+  merchant-name enrichment (no code path creates that type; add an arm if one ever does).
+- **§WF1-backfill (optional):** link legacy `isMandatory` seed vouchers to RmvTemplates
+  (the END-guard already closes the hazard; backfill only if flagship-lane testing on seeded
+  merchants is wanted).
+- **§WF4 (polish, seed/CSP):** seed profile images on external hosts violate img-src CSP.
+- **§WF6 (polish):** ~1s reduced-nav flash while /profile loads.
+- **§WF7 (polish):** Home "first redemption on its way" ignores awaiting-validation rows.
+- **§457-nits (Opus, TRACK):** multi-membership denial surfaces 400 `MULTI_MEMBERSHIP_UNSUPPORTED`
+  (state not live); denied non-owner Home loads cost one extra DB read (shell could skip
+  onboarding fetches for non-owners).
+- **§RESEND-KEY (OWNER ACTION, blocks staging email):** the staging `RESEND_API_KEY` is
+  INVALID (Resend API 400, found 2026-07-10). Rotate in the Resend dashboard, update the
+  Railway worker variable, then re-run the windowed sandbox test per
+  `docs/runbooks/2026-07-10-staging-email-worker-enablement.md` (worker env is otherwise
+  ready: `WORKER_DATABASE_POOL_MAX=5` + `MAINTENANCE_MODE=disabled` now set; backlog clean).
 
 **B2 address search - staging status: RESOLVED (2026-07-09).** The merchant-portal branch
 address search (PR #318, `49c132fe`) is fully built and merged - server-side Places New Text
@@ -190,6 +214,15 @@ disabled key is visible in logs without needing a live probe.)
 
 ## Change log
 
+- **2026-07-10** · Acceptance-walk reconciliation: §ADM-LOGIN flipped CLOSED (owner-approved
+  staging-only reset back to the documented seed, production untouched; investigation preserved
+  in the walk doc). New §5 WF-ledger block: packet-closed items (WF8/#457, WF16/#455,
+  WF3+WF9+WF5+WF1-guard/#456, WF0 sweep, WF2 classified design), owner ratifications
+  (WF11, WF12/13, WF18, WF19), and open rows §WF10/14 copy, §WF15, §WF17, §WF16-residual,
+  §WF1-backfill, §WF4, §WF6, §WF7, §457-nits, plus **§RESEND-KEY owner action** (staging
+  Resend API key INVALID; blocks the email window re-run). PROJECT-STATE §3/§4.2/§4.4/§6 +
+  the Merchant roadmap banner updated in the same PR; the §3 migration table gains the
+  Slice 3 enum column (staging 57/57 as of 2026-07-10, production still five behind).
 - **2026-07-09e** · S3 hygiene (chore/admin-s3-hygiene): **§5 `GET /branches` `redemptionPin`
   row CLOSED** - the payload was already hardened by the `toMerchantBranch` serializer (PR #377
   chain, 2026-07-05); this pass re-verified no web consumer reads it and added a full-DB-row
