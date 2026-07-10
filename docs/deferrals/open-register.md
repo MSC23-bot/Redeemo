@@ -194,11 +194,21 @@ the walk:**
 - **§457-nits (Opus, TRACK):** multi-membership denial surfaces 400 `MULTI_MEMBERSHIP_UNSUPPORTED`
   (state not live); denied non-owner Home loads cost one extra DB read (shell could skip
   onboarding fetches for non-owners).
-- **§RESEND-KEY (OWNER ACTION, blocks staging email):** the staging `RESEND_API_KEY` is
-  INVALID (Resend API 400, found 2026-07-10). Rotate in the Resend dashboard, update the
-  Railway worker variable, then re-run the windowed sandbox test per
-  `docs/runbooks/2026-07-10-staging-email-worker-enablement.md` (worker env is otherwise
-  ready: `WORKER_DATABASE_POOL_MAX=5` + `MAINTENANCE_MODE=disabled` now set; backlog clean).
+- **§RESEND-KEY: RESOLVED 2026-07-10 (second email window PASSED).** The owner rotated the
+  key (first attempt landed on Web; the worker copy sat STAGED until a worker deploy applied
+  it); live probe then HTTP 200 (value never printed), and merchant OTP + password reset +
+  staff invite/claim ALL delivered SENT-with-externalId, rewritten to `admin@redeemo.co.uk`
+  only, owner-confirmed in the inbox; 0 SMS; queue empty; worker stopped again (windowed).
+  Full record: `docs/runbooks/2026-07-10-staging-email-worker-enablement.md` §2b. Optional
+  owner tidy-up: revoke the old invalid `staging-new` key in Resend.
+- **§EMAIL-OTP-RECIPE (standing operational note):** while the worker is LIVE, delivered
+  CommunicationLog rows have payloads NULLed on send (correct security behaviour), so the
+  read-the-code-from-DB recipe only works while the worker is OFF; during windows,
+  codes/claim links come from the allowlist inbox.
+- **§EMAIL-DARK-LABEL (small fix, cosmetic):** the invite API returns
+  `inviteDelivery: "EMAIL_DARK"` (and the portal shows the "email delivery is not live yet"
+  banner) based on the WEB service's `EMAIL_ENABLED=false`, while the WORKER actually sends
+  during windows. Align the flag posture or derive the label from delivery outcome.
 
 **B2 address search - staging status: RESOLVED (2026-07-09).** The merchant-portal branch
 address search (PR #318, `49c132fe`) is fully built and merged - server-side Places New Text

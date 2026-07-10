@@ -1,9 +1,9 @@
 # Staging email/worker enablement (sandbox mode)
 
-**Status: FIRST WINDOW ATTEMPTED 2026-07-10 (owner-approved, windowed posture). Infra and
-sandbox rails PASSED; delivery was blocked ONLY by an invalid staging `RESEND_API_KEY`
-(since rotated by the owner). This document is the operator record of that window plus the
-retry procedure. Production email remains untouched and owner-gated.**
+**Status: VERIFIED WORKING END-TO-END. The second window PASSED on 2026-07-10 (§2b):
+staging sandbox email delivers for real. The worker stays OFF between windows (windowed
+posture, owner decision). Production email remains untouched and owner-gated. §4 is the
+standing procedure for any future window.**
 
 ## 1. Goal
 
@@ -37,13 +37,36 @@ posture: none of that is touched here).
   (Web, then Worker). **The WORKER variable is the one that matters for sending: the API
   never sends; verify the worker has the new key BY NAME before any retry.**
 
-## 3. Verdict of the first window
+## 2b. Second window: PASSED (2026-07-10, ~13:45-14:00Z)
 
-Everything except the provider credential is PROVEN: env posture, fail-closed rails,
-allowlist rewrite, queue processing, terminal-failure policy, no-SMS, windowed
-start/stop. The ONLY unverified link is Resend accepting the send with the rotated key.
+- Key rotation had a twist worth remembering: the owner's first rotated key landed on the
+  WEB service by mistake, and the second attempt sat as a STAGED variable change on the
+  worker: `railway run` and the running worker kept seeing the OLD key until a worker
+  deploy applied it. **Railway variable edits are staged until a deploy applies them.**
+- After the apply: live Resend probe from the worker env returned **HTTP 200 (send
+  accepted)**: the key value was never printed or inspected at any point.
+- All three product flows then delivered end to end, each `CommunicationLog` row flipping
+  QUEUED→SENT **with a Resend externalId**: merchant login OTP · customer password reset ·
+  staff invite (claim link; labelled acceptance-test invitee walk-email@redeemo.test).
+- Every recipient was rewritten to `admin@redeemo.co.uk` (allowlist) and the **owner
+  confirmed inbox receipt**: including reading the delivered OTP back to complete a real
+  owner login, the strongest possible end-to-end proof.
+- Negatives held: **0 SMS sent; queue empty afterwards**; no non-allowlist delivery.
+- Worker **stopped** (deployment removed) at window end: windowed posture preserved.
 
-## 4. Retry procedure (next window, ~15 min)
+## 3. Standing facts learned (apply to every future window)
+
+- **The DB OTP-extraction recipe does not work while the worker is live:** delivered rows
+  have their payloads NULLed on send (correct security behaviour: codes and links are not
+  retained after delivery). During windows, codes/links come from the allowlist inbox only.
+- **Cosmetic Web/worker config split:** invite responses say `inviteDelivery: "EMAIL_DARK"`
+  because the WEB service's `EMAIL_ENABLED=false` drives that label while the WORKER does
+  the sending: during windows the email still delivers despite the label (and the portal's
+  "email delivery is not live yet" banner). Tracked in the open register.
+- Optional owner tidy-up: revoke the old invalid Resend key (`staging-new`) in the Resend
+  dashboard so exactly one active staging key exists.
+
+## 4. Standing window procedure (~15 min; as executed successfully in §2b)
 
 - R1 (read-only) Verify by NAME that the WORKER service has `RESEND_API_KEY` set (do not
   print or inspect the value) and that the sandbox trio (`EMAIL_ENABLED` /
@@ -65,7 +88,7 @@ start/stop. The ONLY unverified link is Resend accepting the send with the rotat
   emails queued while the worker is DOWN only send after the next window's fresh jobs:
   a future always-on posture should enable maintenance with the documented values).
 
-## 5. Risks, costs, rollback (unchanged from the first window)
+## 5. Risks, costs, rollback
 
 - Real-recipient leakage: prevented by the sandbox rewrite (now verified live) + the
   fail-closed empty-allowlist rule.
