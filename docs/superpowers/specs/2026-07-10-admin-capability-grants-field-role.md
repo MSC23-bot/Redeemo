@@ -180,13 +180,18 @@ Enforcement points unchanged in shape:
 - `merchant:create-draft` — start an assisted onboarding from a converted lead.
 - `merchant:read` — read the merchants directory / a merchant detail they are onboarding.
 - The assisted-wizard on-behalf capabilities, SCOPED TO PRE-LIVE MERCHANTS ONLY:
-  `merchant:edit`, `merchant:submit`, `merchant:manage-vouchers` (the RMV co-build /
-  onboarding-completion helpers). See §4.2 for scope enforcement.
+  `merchant:edit`, `merchant:submit`, `merchant:manage-branches`,
+  `merchant:manage-documents`, `merchant:manage-vouchers`. See §4.2 for scope enforcement.
+  (OWNER-RECONCILED 2026-07-10: the union set. An earlier draft of this section excluded
+  `merchant:manage-branches` + `merchant:manage-documents` as SUPER_ADMIN-only, but the
+  assisted-onboarding wizard's branch and document steps functionally require them, and the
+  §4.2 server-side pre-live guard: not capability removal: is the safety boundary. Owner
+  approved the union so FIELD completes assisted onboarding end-to-end for pre-live
+  merchants. Shipped baseline is test-pinned in tests/api/admin/capability-effective.test.ts.)
 
 FIELD does NOT hold `approval:action` in the baseline. NO approval capability is in the FIELD
-baseline. Approval is grant-only (§5). FIELD also does NOT hold the higher-bar
-SUPER_ADMIN-only on-behalf caps (`merchant:edit-identity`, `merchant:edit-category`,
-`merchant:manage-branches`, `merchant:manage-documents`, `merchant:propose-edit`), nor
+baseline. Approval is grant-only (§5). FIELD also does NOT hold the SUPER_ADMIN-only caps
+(`merchant:edit-identity`, `merchant:edit-category`, `merchant:propose-edit`), nor
 `merchant:suspend`, `redemption:read`, `approval:read`, or `approval:apply-edit`.
 
 RECOMMENDATION (flagged §7): FIELD does NOT get `redemption:read`. A rep has no operational
