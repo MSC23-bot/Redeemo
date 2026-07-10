@@ -1,23 +1,34 @@
 'use client'
 
 /**
- * Approval queue page.
+ * Approval queue page (B1: two-court fidelity).
  *
- * Gated on the `approval:read` capability. Renders the work list (PENDING +
- * CHANGES_REQUESTED) with client-side status filter chips, urgency indicators,
- * and a manual refresh button. Auto-polls every 45 seconds.
+ * Gated on the `approval:read` capability. Renders one PENDING +
+ * CHANGES_REQUESTED work list, grouped by two "courts" — Needs you / Awaiting
+ * merchant — plus a History affordance for terminal-status approvals
+ * (APPROVED / REJECTED / WITHDRAWN). Courts are a PRESENTATION grouping over
+ * the existing status filter semantics: `useQueue`'s fetch (and its 45s poll)
+ * is unchanged; History is a separate, lazily-fetched, unpolled read (an
+ * archive view, not a live work list). Type chips (the 4 spec groups folded
+ * from the real ApprovalType set) compose with whichever court is active, and
+ * reset to "all" whenever the court tab changes.
  */
 import { useState } from 'react'
 import Link from 'next/link'
 import { ClipboardList, Loader2, AlertCircle, UserPlus } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useQueue } from '@/lib/queue/useQueue'
-import { StatusFilter } from '@/features/queue/StatusFilter'
+import { useQueueHistory } from '@/lib/queue/useQueueHistory'
+import { CourtTabs } from '@/features/queue/CourtTabs'
+import { TypeChips } from '@/features/queue/TypeChips'
 import { QueueTable } from '@/features/queue/QueueTable'
 import { LastUpdated } from '@/features/queue/LastUpdated'
 import { RefreshButton } from '@/features/queue/RefreshButton'
 import { Button } from '@/components/ui/button'
-import type { StatusFilterValue } from '@/features/queue/StatusFilter'
+import { inAwaitingMerchantTab, inNeedsYouTab, typeGroupOf } from '@/lib/ui/adminTones'
+import type { CourtTabCounts } from '@/features/queue/CourtTabs'
+import type { TypeChipCounts, TypeFilterValue } from '@/features/queue/TypeChips'
+import type { CourtTabKey } from '@/lib/ui/adminTones'
 import type { AdminApproval } from '@/lib/api/approvals'
 
 // ── Forbidden state ───────────────────────────────────────────────────────────
@@ -51,10 +62,7 @@ function LoadingState() {
 function ErrorState({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-10 text-center">
-      <AlertCircle
-        className="mx-auto mb-3 size-6 text-destructive"
-        aria-hidden="true"
-      />
+      <AlertCircle className="mx-auto mb-3 size-6 text-destructive" aria-hidden="true" />
       <p className="mb-4 text-sm text-destructive">
         Could not load the approval queue. Check your connection and try again.
       </p>
@@ -69,17 +77,26 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
   )
 }
 
-// ── Filter helper ─────────────────────────────────────────────────────────────
+// ── Type-chip counts, scoped to whatever row set is passed in ────────────────
 
-function filterItems(items: AdminApproval[], active: StatusFilterValue): AdminApproval[] {
+function computeTypeCounts(items: AdminApproval[] | undefined): TypeChipCounts | undefined {
+  if (items === undefined) return undefined
+  const counts: TypeChipCounts = {
+    all: items.length,
+    onboarding: 0,
+    voucher: 0,
+    merchantEdit: 0,
+    branchLifecycle: 0,
+  }
+  for (const item of items) {
+    counts[typeGroupOf(item.type)] += 1
+  }
+  return counts
+}
+
+function filterByType(items: AdminApproval[], active: TypeFilterValue): AdminApproval[] {
   if (active === 'all') return items
-  if (active === 'submitted')
-    return items.filter((i) => i.status === 'PENDING' && i.claimedById == null)
-  if (active === 'underReview')
-    return items.filter((i) => i.status === 'PENDING' && i.claimedById != null)
-  if (active === 'changesRequested')
-    return items.filter((i) => i.status === 'CHANGES_REQUESTED')
-  return items
+  return items.filter((i) => typeGroupOf(i.type) === active)
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -87,9 +104,14 @@ function filterItems(items: AdminApproval[], active: StatusFilterValue): AdminAp
 export default function QueuePage() {
   const { ready, can, adminId } = useSession()
   const canRead = ready && can('approval:read')
-  const { items, counts, isLoading, isError, isFetching, refetch, dataUpdatedAt } =
-    useQueue({ enabled: canRead })
-  const [activeFilter, setActiveFilter] = useState<StatusFilterValue>('all')
+  const { items, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useQueue({
+    enabled: canRead,
+  })
+
+  const [activeCourt, setActiveCourt] = useState<CourtTabKey>('needs')
+  const [activeType, setActiveType] = useState<TypeFilterValue>('all')
+
+  const history = useQueueHistory({ enabled: canRead && activeCourt === 'history' })
 
   if (!ready) {
     return <LoadingState />
@@ -99,7 +121,34 @@ export default function QueuePage() {
     return <ForbiddenState />
   }
 
-  const filtered = filterItems(items, activeFilter)
+  function handleCourtChange(court: CourtTabKey) {
+    setActiveCourt(court)
+    // approval-queue-spec.md §A.1 pt.3: selecting a court tab resets the type filter.
+    setActiveType('all')
+  }
+
+  const needsItems = items.filter(inNeedsYouTab)
+  const merchantItems = items.filter(inAwaitingMerchantTab)
+
+  const courtCounts: CourtTabCounts = {
+    needs: isLoading ? undefined : needsItems.length,
+    merchant: isLoading ? undefined : merchantItems.length,
+    history: history.hasLoaded ? history.items.length : undefined,
+  }
+
+  const activeCourtItems =
+    activeCourt === 'needs' ? needsItems : activeCourt === 'merchant' ? merchantItems : history.items
+
+  // History is loading/erroring independently of the live queue: the two
+  // fetches are unrelated (one polls, one is a lazy archive read), so the
+  // page's loading/error/retry all scope to whichever data source backs the
+  // active court.
+  const isCourtLoading = activeCourt === 'history' ? !history.hasLoaded && history.isLoading : isLoading
+  const isCourtError = activeCourt === 'history' ? history.isError : isError
+  const retryActiveCourt = activeCourt === 'history' ? history.refetch : refetch
+
+  const typeCounts = computeTypeCounts(isCourtLoading ? undefined : activeCourtItems)
+  const filteredItems = filterByType(activeCourtItems, activeType)
 
   return (
     <div className="space-y-6">
@@ -113,7 +162,8 @@ export default function QueuePage() {
             <h1 className="text-xl font-semibold text-foreground">Approval queue</h1>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Pending merchant onboarding and voucher submissions
+            One list across onboarding, voucher, merchant-edit and branch-lifecycle approvals.
+            Oldest first; you judge priority, there is no countdown.
           </p>
         </div>
 
@@ -131,21 +181,30 @@ export default function QueuePage() {
         </div>
       </div>
 
-      {/* Status filter chips — counts are hidden (skeleton) until the first fetch
-          lands so we never flash 0/0/0/0 on initial load. */}
-      <StatusFilter
-        active={activeFilter}
-        counts={isLoading ? undefined : counts}
-        onChange={setActiveFilter}
-      />
+      {/* Two-court tabs + History */}
+      <CourtTabs active={activeCourt} counts={courtCounts} onChange={handleCourtChange} />
+
+      {/* Type chips — composed with whichever court is active. */}
+      <TypeChips active={activeType} counts={typeCounts} onChange={setActiveType} />
 
       {/* Content */}
-      {isLoading ? (
+      {isCourtLoading ? (
         <LoadingState />
-      ) : isError ? (
-        <ErrorState onRetry={refetch} />
+      ) : isCourtError ? (
+        <ErrorState onRetry={retryActiveCourt} />
       ) : (
-        <QueueTable items={filtered} currentAdminId={adminId} />
+        <QueueTable
+          items={filteredItems}
+          currentAdminId={adminId}
+          onClearFilter={activeType !== 'all' ? () => setActiveType('all') : undefined}
+        />
+      )}
+
+      {filteredItems.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Read and triage only. Selecting a row opens it in Review / Actioner; no actions are
+          taken here.
+        </p>
       )}
     </div>
   )
