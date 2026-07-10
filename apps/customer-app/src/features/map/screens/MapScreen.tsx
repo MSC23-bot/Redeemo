@@ -613,6 +613,13 @@ export function MapScreen(_props: Props) {
     setSearchQuery('')
   }, [])
 
+  // Map Phase 2 S4 Task 3 — MapListView's sort selector writes through the
+  // SAME `filters.sortBy` the FilterSheet reads/writes (single source of
+  // truth, per the task brief). No separate list-only sort state.
+  const handleSortByChange = useCallback((sortBy: FilterState['sortBy']) => {
+    setFilters((prev) => ({ ...prev, sortBy }))
+  }, [])
+
   // ─── Branch tile handlers ─────────────────────────────────────────────────
   // PR-3 Phase C — both the pin layer and the carousel/list layer are
   // now branch-keyed.  Phase B's `handleMerchantPress` (orphaned after
@@ -986,6 +993,8 @@ export function MapScreen(_props: Props) {
         total={total}
         onDismiss={() => setShowListView(false)}
         onBranchPress={handleBranchNavigate}
+        sortBy={filters.sortBy}
+        onSortByChange={handleSortByChange}
       />
 
       <FilterSheet

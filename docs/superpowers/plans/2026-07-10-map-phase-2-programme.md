@@ -66,7 +66,7 @@ Home/Search/Favourites; trust tiers remain the only exposure gate.
 | S1 | `searchBranches` honours the seven ignored params (§BX.1-§BX.7 closure); route/service tests per param; Category + Map inherit for free | query logic only, NO schema | backend | Safe to build; normal PR gates; Opus review on the query composition |
 | S2 | Feel: client region-accumulation cache (quantized-tile union render + background refresh + TTL/memory cap); AbortSignal in the api client + react-query cancellation wiring (map first); map focus/blur pause; camera-pan + two-way carousel sync; swipe-down dismiss | none | customer-app (+api client) | Safe after S1 lands |
 | S3 | Pin system v2: teardrop/pill + category icon pins (use existing `pinColour`/`pinIcon`, read-time parent-fallback: no migration), label-chip zoom behaviour, selected pulse ring, drop-in animation, marker perf discipline; client-side clustering (supercluster-style, no provider change) | additive read-time fallback only | customer-app (+tiny backend read) | **SHIPPED** (branch `feat/map-p2-s3-pins`): see §7 as-shipped addendum |
-| S4 | Cards + list: carousel card parity with Home language; MapListView → shared BranchTile rows (hearts); sort selector; half-sheet resize audit | none | customer-app | Safe after S1 |
+| S4 | Cards + list: carousel card parity with Home language; MapListView → shared BranchTile rows (hearts); sort selector; half-sheet resize audit | none | customer-app | **SHIPPED** (branch `feat/map-p2-s4-cards`): see §8 as-shipped addendum |
 | S5 | Filter/search coherence: FilterSheet on SearchScreen (D2), subcategory drill on pills, tags surfacing (D3), `region` scope re-add or retire (D4) | none | customer-app | After owner D2-D4 |
 | S6 | Platform (propose-only): discovery rate tier, server in-area caching, pin-only lite endpoint, gazetteer LocationSearch, marker native-image migration | TBD | backend | PROPOSED, not scheduled; needs measurement first |
 
@@ -241,3 +241,115 @@ from the first push were removed with the revert (6 pinColour fallback tests rem
 **Verification:** customer-app full jest suite and backend `test:unit` + root tsc all green
 (exact counts in the branch's final commit / PR description). No PR opened per task scope :
 branch pushed for lead review.
+
+## 8. S4 as-shipped addendum (2026-07-11, branch `feat/map-p2-s4-cards`)
+
+**Hard guardrail honoured:** `BranchTile` is shared with Search (via `CategoryResultsScreen`)
+and Category, both LOCKED test-pinned surfaces. Every enrichment below is opt-in via a new
+prop with a default that reproduces the pre-S4 render exactly; the full Search + Favourites
+jest suites (174 tests) ran green with zero changes required, and a dedicated regression test
+(`BranchTile.aggregateSavings.test.tsx`) pins the default path against a fixture where
+`maxEstimatedSaving` and `totalEstimatedSaving` deliberately differ, so a regression that
+accidentally read the wrong field would fail immediately.
+
+**Task 1 — carousel card parity.** `BranchTile` gains `savingsDisplay?: 'max' | 'aggregate'`
+(default `'max'`, byte-identical to pre-S4). `'aggregate'` reads
+`merchant.totalEstimatedSaving`/`voucherCount` instead of `merchant.maxEstimatedSaving`, and
+renders Home's stacked treatment from `NearbyCard`/`PopularCard` verbatim: a small "Save"
+label, a Mustica-green amount (`#15803D`, `MusticaPro-Semibold`, same font sizes as the Home
+cards), and "across N vouchers" (or "N vouchers available" when there's no positive saving —
+same null/zero handling as Home: `save !== null && save > 0`). Only `MapBranchTile` (the Map
+carousel) passes `savingsDisplay="aggregate"`; the proximity-band chip (a Map-only concept
+Home cards don't have) still renders alongside it on the same row.
+
+**Task 2 — MapListView rows.** The bespoke `BranchRow` (a 52×52 category-coloured letter
+thumb, no heart, no logo, `formatDistance`'s long-form "X.X miles away") is replaced by the
+shared `<BranchTile size="compact">`. This is a genuine behaviour change on Map's list
+surface, not merely additive: the row now carries a real banner + straddling logo (or the
+tile's own navy-initials fallback), `FavouriteHeart` (branch-level, `entity="branch"`,
+reusing the tile's already-wired heart — no new heart plumbing), and the compact distance
+formatter ("X.X mi", matching every other `BranchTile` consumer). `BranchTile`'s `'compact'`
+size tier had ZERO callers anywhere in the codebase pre-S4 (grep-verified) — its exact banner/
+logo geometry (`BANNER_HEIGHT`/`LOGO_SIZE`/`CONTENT_MIN_H`) was free to tune down (72/40/96,
+from the placeholder 96/48/130) specifically for list-row density, with no blast radius on
+`'standard'` (Search/Category/Map-carousel) or `'hero'`. Row tap is unchanged:
+`BranchTile.onPress` is already `(id: string) => void`, so `onBranchPress` wires straight
+through with no adapter — same `?branch=${id}&from=map` contract as before.
+`MapListView.test.tsx` was rewritten in place: the header/count/branch-first-cardinality
+(§M) invariants are preserved unchanged; the two Fold-2 pinColour-thumbnail tests are
+superseded (there is no bespoke thumb left to pin — coverage moves to `BranchTile`'s own
+image tests plus new logo/heart-parity assertions in this file) and were replaced, not
+silently dropped; the distance assertions were updated to the new compact format with an
+explicit comment explaining why.
+
+**Task 3 — sort selector (spec §7.8: "sort selector (red text)").** New
+`MapListSortSelector.tsx` renders the four `FilterState.sortBy` options (`relevance` /
+`nearest` / `top_rated` / `highest_saving`, re-exported from `FilterSheet.SORT_OPTIONS` as
+the single label source) with the active option in `color.brandRose` (`#E20C04`, the locked
+red token). `MapListView` takes `sortBy`/`onSortByChange` props; `MapScreen` supplies
+`filters.sortBy` and a new `handleSortByChange` that patches the SAME `filters` state object
+the `FilterSheet` reads/writes — there is no separate list-only sort state to drift out of
+sync. Since S1 shipped, `sortBy` genuinely re-orders the server-side result set for both the
+`/search` and `/discovery/in-area` hybrid-hook arms; this selector does no client-side
+re-ordering.
+
+**Task 4 — half-sheet drag-to-resize audit.** The task brief cited "§CK item 12"; the actual
+deferred-followups entry matching this description is **§CK.9** ("Drag-to-resize half-sheet
+on `MapListView` … Audit at pickup whether the shared `<BottomSheet>` already supports
+drag-to-resize; if not, extend it") — §CK.12 in the live register is the unrelated
+non-MANUALLY_CONFIRMED-branches product decision. Noted here for the record; the audit below
+answers §CK.9's actual question.
+
+Audited `src/design-system/motion/BottomSheet.tsx`. Finding: **NOT a small, safe addition —
+deferred, not implemented.** Reasoning:
+
+1. `BottomSheet` has exactly ONE detent today: a single `ty` shared value that animates
+   between `0` (open, sheet's natural content height — the sheet has no fixed height, it
+   already sizes to its children) and `500` (fully off-screen). The existing `Gesture.Pan()`
+   only ever composes a binary decision at release — dismiss (`onDismiss()`) past
+   `DISMISS_DISTANCE`/`DISMISS_VELOCITY`, or spring back to the SAME single open position.
+   There is no second "half-open" resting state to drag between; "drag-to-resize" would mean
+   building a genuinely new two-detent (or N-detent) state machine, not exposing a hidden
+   capability that already exists.
+2. `BottomSheet` is shared by 21 other call sites across the app (grep-verified), including
+   several LOCKED test-pinned surfaces per `.claude/rules/customer-app.md`: `PinEntrySheet`
+   (redemption/Show-to-Staff flow), multiple Merchant Profile sheets (`HoursPreviewSheet`,
+   `DirectionsSheet`, `ContactSheet`, `WriteReviewSheet`, `BranchPickerSheet`), and several
+   Profile-tab sheets (`ChangePasswordSheet`, `SubscriptionManagementSheet`,
+   `PersonalInfoSheet`, `DeleteAccountFlow`, `AddressSheet`, `InterestsSheet`). Any change to
+   the component's shared gesture/animation core carries real regression risk across those
+   surfaces unless it is strictly opt-in (a new prop, default off) — itself a bigger, riskier
+   change than "small addition" describes, and one that would need its own dedicated
+   device-QA pass per detent (this codebase's established precedent for tuning gesture/
+   animation timings — see the S3 addendum's pulse-ring discussion of the §BI 250ms-unsafe /
+   1000ms-safe finding — is that these numbers are NOT guessable from first principles).
+3. What it would actually take: (a) an opt-in `detents`/`snapPoints`-style prop on
+   `BottomSheet` (default: today's single-detent behaviour, unchanged for the 21 existing
+   callers); (b) measuring each detent's target height (content `onLayout`, since sheets size
+   to content today — a fixed "half height" is meaningless without knowing what fits at that
+   height per consumer); (c) extending `dragGesture.onEnd` from today's binary
+   dismiss-or-springback to a genuine nearest-detent snap (by position AND velocity, mirroring
+   how `MapBranchTile`'s own swipe-down-dismiss and `CustomPin`'s selection-freeze logic were
+   each hand-tuned against real thresholds); (d) re-verifying the existing keyboard-avoidance
+   `paddingBottom`/`keyboardHeight` logic against a partial-height detent (untested combination
+   today); (e) a dedicated test pass proving the 21 existing non-Map callers are unaffected
+   (an opt-in default makes this provable by inspection, but still needs device QA for the
+   Map-specific gesture feel). None of this fits inside a Tier-1/S4-scope change; it's its own
+   Tier-2 slice with a device-QA-gated interaction design, consistent with the deferred-
+   register's own classification of §CK.9 as Tier-1 *polish* pickup work, not something to
+   improvise mid-S4. **Revisit trigger:** a dedicated pickup of §CK.9 (or the broader §CK
+   Tier-2 Map design-polish bundle per the deferred-followups index's pickup-path #2), ideally
+   alongside product input on which two heights the half-sheet should actually snap between.
+
+**Test updates:** `BranchTile.aggregateSavings.test.tsx` (new, 8 tests) covers both the
+default-unchanged guardrail and the new aggregate variant's null/zero/singular/proximity
+cases. `MapListView.test.tsx` rewritten in place (13 tests: 3 unchanged header/count/name
+pins, 1 unchanged §M cardinality pin with a widened accessibility-label regex, 3 new logo/
+heart-parity tests, 2 updated distance-format tests, 3 new sort-selector tests) plus 2 removed
+Fold-2 pinColour tests (superseded, see Task 2 above). No changes needed to
+`BranchTile.premium.test.tsx`, `BranchTile.image.test.tsx`, or any Search/Category test file.
+
+**Verification:** map + search + category + favourites subsets green
+(24 map suites / 205 tests; 21 search+favourites suites / 174 tests), full customer-app suite
+result recorded in the branch's final commit. Backend untouched (customer-app-only slice, no
+backend rebuild/test run needed). No PR opened per task scope: branch pushed for lead review.

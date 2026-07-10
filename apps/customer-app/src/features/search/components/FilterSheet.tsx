@@ -37,7 +37,10 @@ type Props = {
   onDismiss:   () => void
 }
 
-const SORT_OPTIONS: { key: FilterState['sortBy']; label: string }[] = [
+// Map Phase 2 S4 Task 3 — exported so MapListView's sort selector (spec
+// §7.8) shares this exact list/label set instead of maintaining a second
+// copy that could drift from FilterSheet's own options.
+export const SORT_OPTIONS: { key: FilterState['sortBy']; label: string }[] = [
   { key: 'relevance',      label: 'Relevance' },
   { key: 'nearest',        label: 'Nearest' },
   { key: 'top_rated',      label: 'Top Rated' },
