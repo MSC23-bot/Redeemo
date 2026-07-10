@@ -124,6 +124,15 @@ export interface WizardDerivation {
     canSubmitOnBehalf: boolean
     /** the merchant has been submitted at least once (past REGISTERED). */
     submitted: boolean
+    /**
+     * The review team bounced this application back for changes (verified
+     * backend contract: status PENDING_APPROVAL AND onboardingStep
+     * NEEDS_CHANGES; the same condition the merchant resubmit gate uses).
+     * Distinct from `submitted` (which is already true here): a needsChanges
+     * merchant is NOT sitting in the approval queue, it needs the operator to
+     * fix the application and resubmit it.
+     */
+    needsChanges: boolean
     /** the merchant is live. */
     live: boolean
   }
@@ -156,6 +165,11 @@ export function deriveWizardState(detail: MerchantDetail): WizardDerivation {
   const status = m.status
   const submitted = status !== 'REGISTERED' && status !== 'DELETED'
   const live = status === 'ACTIVE'
+  // needsChanges: the exact verified backend contract for a bounced-with-
+  // request-changes merchant. It is a SUBSET of `submitted` (PENDING_APPROVAL
+  // is never REGISTERED/DELETED), so it must be checked ahead of "submitted"
+  // wherever the two would otherwise disagree on how to present step 8.
+  const needsChanges = status === 'PENDING_APPROVAL' && m.onboardingStep === 'NEEDS_CHANGES'
 
   const statuses: Record<WizardStepId, WizardStepStatus> = {
     category: categorySet ? 'complete' : 'incomplete',
@@ -170,8 +184,11 @@ export function deriveWizardState(detail: MerchantDetail): WizardDerivation {
     // OD6: no admin contract-signing route. Complete only reflects the REAL gate
     // (the owner signed via the portal/claim path); otherwise honestly gated.
     contract: contractSigned ? 'complete' : 'gated',
-    // Go-live review is complete once the merchant has actually been submitted.
-    review: submitted ? 'complete' : 'incomplete',
+    // Go-live review is complete once the merchant has actually been submitted
+    // AND is not sitting in the changes-requested state: needsChanges keeps
+    // the rail (and the resume landing) reading "needs attention", because the
+    // operator still has to fix the application and resubmit it.
+    review: submitted && !needsChanges ? 'complete' : 'incomplete',
     // Handover follows go-live; complete once the merchant is live.
     handover: live ? 'complete' : 'gated',
   }
@@ -191,6 +208,7 @@ export function deriveWizardState(detail: MerchantDetail): WizardDerivation {
       allGatesComplete,
       canSubmitOnBehalf,
       submitted,
+      needsChanges,
       live,
     },
   }
@@ -204,7 +222,9 @@ export function deriveWizardState(detail: MerchantDetail): WizardDerivation {
  *   - no branch              -> step 3 (Branches)
  *   - no RMV                 -> step 4 (Vouchers)
  *   - not yet submitted      -> step 8 (Go-live review: submit, or see the gate)
- *   - submitted, not live    -> step 8 (review shows the in-queue state)
+ *   - submitted, not live    -> step 8 (review shows the in-queue OR the
+ *                               needs-changes/resubmit state; needsChanges is
+ *                               a subset of submitted, so it lands here too)
  *   - live                   -> step 9 (Handover)
  */
 function deriveResumeStep(f: {

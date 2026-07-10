@@ -92,7 +92,9 @@ jest.mock('@/features/merchants/DeleteBranchConfirm', () => ({
   DeleteBranchConfirm: () => <div data-testid="mock-delete-branch-dialog" />,
 }))
 jest.mock('@/features/merchants/SubmitMerchantDialog', () => ({
-  SubmitMerchantDialog: () => <div data-testid="mock-submit-dialog" />,
+  SubmitMerchantDialog: ({ isResubmit }: { isResubmit: boolean }) => (
+    <div data-testid="mock-submit-dialog" data-is-resubmit={String(isResubmit)} />
+  ),
 }))
 
 import { useSession } from '@/lib/auth/useSession'
@@ -144,6 +146,7 @@ function makeChecklist(o: Partial<SubmitChecklist> = {}): SubmitChecklist {
 
 function makeDetail(opts: {
   status?: string
+  onboardingStep?: string
   category?: string | null
   primaryCategoryId?: string | null
   branches?: BranchDetail[]
@@ -157,7 +160,7 @@ function makeDetail(opts: {
       tradingName: 'Southville Sourdough',
       status: opts.status ?? 'REGISTERED',
       verificationStatus: 'NOT_SUBMITTED',
-      onboardingStep: 'REGISTERED',
+      onboardingStep: opts.onboardingStep ?? 'REGISTERED',
       websiteUrl: null,
       vatNumber: null,
       companyNumber: null,
@@ -413,6 +416,108 @@ describe('AssistedWizard go-live review', () => {
     expect(screen.getByTestId('assisted-review-submitted')).toBeInTheDocument()
     expect(screen.getByTestId('assisted-review-submitted')).toHaveTextContent(/approval queue/i)
     expect(screen.queryByTestId('merchant-submit-card')).not.toBeInTheDocument()
+  })
+})
+
+// ── NEEDS_CHANGES resubmit path + state-aware copy (adversarial-review F1/N2) ────
+
+describe('AssistedWizard go-live review · NEEDS_CHANGES resubmit (F1)', () => {
+  function needsChangesDetail() {
+    return makeDetail({
+      status: 'PENDING_APPROVAL',
+      onboardingStep: 'NEEDS_CHANGES',
+      category: 'Food and drink',
+      branches: [makeBranch()],
+      checklist: { branch_created: true, rmv_configured: true, contract_signed: true },
+    })
+  }
+
+  it('shows the changes-requested note and the submit card in resubmit mode, not the queued copy', () => {
+    mockSearch = 'step=8'
+    mockSession(() => true)
+    mockDetail({ data: needsChangesDetail() })
+    render(<AssistedOnboardingPage />)
+
+    expect(screen.getByTestId('assisted-review-needs-changes')).toHaveTextContent(
+      /changes requested by the review team: update the application and resubmit/i
+    )
+    expect(screen.queryByTestId('assisted-review-submitted')).not.toBeInTheDocument()
+
+    const card = screen.getByTestId('merchant-submit-card')
+    expect(card).toBeInTheDocument()
+    expect(card).toHaveTextContent(/resubmit for review/i)
+
+    // The rail marks review as needing attention, not complete (F1).
+    expect(screen.getByTestId('assisted-rail-step-8')).toHaveAttribute('data-status', 'incomplete')
+
+    // The dialog opened from the resubmit card carries isResubmit=true (was
+    // dead code before this fix: the card never rendered for NEEDS_CHANGES).
+    fireEvent.click(screen.getByTestId('merchant-submit-button'))
+    expect(screen.getByTestId('mock-submit-dialog')).toHaveAttribute('data-is-resubmit', 'true')
+  })
+
+  it('without merchant:submit, shows the changes-requested note plus the readonly gates, no submit card', () => {
+    mockSearch = 'step=8'
+    mockSession((cap) => cap !== 'merchant:submit')
+    mockDetail({ data: needsChangesDetail() })
+    render(<AssistedOnboardingPage />)
+
+    expect(screen.getByTestId('assisted-review-needs-changes')).toBeInTheDocument()
+    expect(screen.getByTestId('assisted-review-submit-gated')).toBeInTheDocument()
+    expect(screen.getByTestId('assisted-review-checklist-readonly')).toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-submit-card')).not.toBeInTheDocument()
+  })
+
+  it('a plain PENDING_APPROVAL merchant (no NEEDS_CHANGES) keeps the queued copy with no resubmit affordance', () => {
+    mockSearch = 'step=8'
+    mockSession(() => true)
+    mockDetail({
+      data: makeDetail({
+        status: 'PENDING_APPROVAL',
+        category: 'Food and drink',
+        branches: [makeBranch()],
+        checklist: { branch_created: true, rmv_configured: true, contract_signed: true },
+      }),
+    })
+    render(<AssistedOnboardingPage />)
+
+    expect(screen.getByTestId('assisted-review-submitted')).toHaveTextContent(/approval queue/i)
+    expect(screen.queryByTestId('assisted-review-needs-changes')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-submit-card')).not.toBeInTheDocument()
+    expect(screen.getByTestId('assisted-rail-step-8')).toHaveAttribute('data-status', 'complete')
+  })
+})
+
+// ── State-aware step-8 copy for suspended/inactive (adversarial-review N2) ───────
+
+describe('AssistedWizard go-live review · suspended/inactive copy (N2)', () => {
+  it('a SUSPENDED merchant gets neutral suspended copy, not "approval queue" language', () => {
+    mockSearch = 'step=8'
+    mockSession()
+    mockDetail({ data: makeDetail({ status: 'SUSPENDED' }) })
+    render(<AssistedOnboardingPage />)
+    const card = screen.getByTestId('assisted-review-submitted')
+    expect(card).toHaveTextContent(/suspended/i)
+    expect(card).not.toHaveTextContent(/approval queue/i)
+  })
+
+  it('an INACTIVE merchant gets neutral inactive copy, not "approval queue" language', () => {
+    mockSearch = 'step=8'
+    mockSession()
+    mockDetail({ data: makeDetail({ status: 'INACTIVE' }) })
+    render(<AssistedOnboardingPage />)
+    const card = screen.getByTestId('assisted-review-submitted')
+    expect(card).toHaveTextContent(/inactive/i)
+    expect(card).not.toHaveTextContent(/approval queue/i)
+  })
+
+  it('a live merchant still gets the "This merchant is live" copy at step 8 (unchanged)', () => {
+    mockSearch = 'step=8'
+    mockSession()
+    mockDetail({ data: makeDetail({ status: 'ACTIVE' }) })
+    render(<AssistedOnboardingPage />)
+    const card = screen.getByTestId('assisted-review-submitted')
+    expect(card).toHaveTextContent(/this merchant is live/i)
   })
 })
 

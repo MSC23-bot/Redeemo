@@ -34,6 +34,7 @@ import {
   ShieldCheck,
   Info,
   ArrowRight,
+  AlertCircle,
   CheckCircle2,
   Mail,
   Phone,
@@ -507,6 +508,60 @@ export function Step7Contract({ derivation }: { derivation: WizardDerivation }) 
 
 // ── Step 8 · Go-live review ──────────────────────────────────────────────────────
 
+/**
+ * State-aware copy for the "already actioned, not needing changes" card:
+ * live / genuinely queued (PENDING_APPROVAL without NEEDS_CHANGES) / suspended
+ * / inactive. NEEDS_CHANGES is NOT handled here: it renders its own distinct
+ * "Changes requested" branch in Step8Review, because it is not a queued state
+ * and "in the approval queue" would be dishonest for it (adversarial-review
+ * F1/N2).
+ */
+function reviewSubmittedCopy(
+  status: string,
+  live: boolean
+): { heading: string; body: string; positive: boolean } {
+  if (live) {
+    return {
+      heading: 'This merchant is live',
+      body: 'The merchant has been approved and is live. Continue to handover.',
+      positive: true,
+    }
+  }
+  if (status === 'SUSPENDED') {
+    return {
+      heading: 'This merchant is suspended',
+      body: 'The account is suspended, so there is nothing to action in the go-live review. Reactivate the merchant first if onboarding needs to continue.',
+      positive: false,
+    }
+  }
+  if (status === 'INACTIVE') {
+    return {
+      heading: 'This merchant is inactive',
+      body: 'The account is inactive, so there is nothing to action in the go-live review.',
+      positive: false,
+    }
+  }
+  // PENDING_APPROVAL without NEEDS_CHANGES: genuinely queued.
+  return {
+    heading: 'Submitted for review',
+    body: 'The application is in the approval queue. An admin actioner reviews and approves it separately.',
+    positive: true,
+  }
+}
+
+/** Read-only fallback when the operator lacks merchant:submit (first-submit or resubmit). */
+function SubmitCapabilityGatedNote({ data }: { data: MerchantDetail }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4" data-testid="assisted-review-submit-gated">
+      <p className="text-sm text-muted-foreground">
+        Submitting on the merchant&apos;s behalf needs the merchant:submit capability, which your
+        role does not hold. The gates below still show the real go-live readiness.
+      </p>
+      <SubmitChecklistReadonly data={data} />
+    </div>
+  )
+}
+
 export function Step8Review({
   data,
   caps,
@@ -520,6 +575,8 @@ export function Step8Review({
 }) {
   const { merchant } = data
   const { facts } = derivation
+  const submittedCopy = reviewSubmittedCopy(merchant.status, facts.live)
+
   return (
     <div className="space-y-5" data-testid="assisted-step-review">
       <StepHeading
@@ -528,22 +585,51 @@ export function Step8Review({
         intro="The real go-live gates. Submitting queues the merchant into the approval queue; an admin actioner approves it separately. Submitting does not take the merchant live by itself."
       />
 
-      {facts.submitted ? (
+      {facts.needsChanges ? (
+        // NEEDS_CHANGES is bounced-for-changes, not queued: the submit card
+        // reappears in resubmit mode (its own onboardingStep-driven copy) so
+        // the operator can actually fix and resubmit, instead of the dead-end
+        // "in the approval queue" copy (adversarial-review F1).
+        <div className="space-y-3">
+          <div
+            className="rounded-lg border border-amber-200 bg-amber-50 p-4"
+            data-testid="assisted-review-needs-changes"
+          >
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 size-5 shrink-0 text-amber-700" aria-hidden="true" />
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Changes requested</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Changes requested by the review team: update the application and resubmit.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {caps.canSubmit ? (
+            <SubmitForReviewCard
+              onboardingStep={merchant.onboardingStep}
+              submitChecklist={merchant.submitChecklist}
+              onSubmit={cb.onSubmitForReview}
+            />
+          ) : (
+            <SubmitCapabilityGatedNote data={data} />
+          )}
+        </div>
+      ) : facts.submitted ? (
         <div
           className="rounded-lg border border-border bg-secondary/30 p-4"
           data-testid="assisted-review-submitted"
         >
           <div className="flex items-start gap-3">
-            <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" />
+            {submittedCopy.positive ? (
+              <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" />
+            ) : (
+              <Info className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            )}
             <div>
-              <h2 className="text-sm font-semibold text-foreground">
-                {facts.live ? 'This merchant is live' : 'Submitted for review'}
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {facts.live
-                  ? 'The merchant has been approved and is live. Continue to handover.'
-                  : 'The application is in the approval queue. An admin actioner reviews and approves it separately.'}
-              </p>
+              <h2 className="text-sm font-semibold text-foreground">{submittedCopy.heading}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{submittedCopy.body}</p>
             </div>
           </div>
         </div>
@@ -554,16 +640,7 @@ export function Step8Review({
           onSubmit={cb.onSubmitForReview}
         />
       ) : (
-        <div
-          className="rounded-lg border border-border bg-card p-4"
-          data-testid="assisted-review-submit-gated"
-        >
-          <p className="text-sm text-muted-foreground">
-            Submitting on the merchant&apos;s behalf needs the merchant:submit capability, which your
-            role does not hold. The gates below still show the real go-live readiness.
-          </p>
-          <SubmitChecklistReadonly data={data} />
-        </div>
+        <SubmitCapabilityGatedNote data={data} />
       )}
 
       <p className="text-xs text-muted-foreground" data-testid="assisted-review-gate-note">

@@ -49,6 +49,7 @@ function makeChecklist(overrides: Partial<SubmitChecklist> = {}): SubmitChecklis
 
 function makeDetail(opts: {
   status?: string
+  onboardingStep?: string
   category?: string | null
   primaryCategoryId?: string | null
   description?: string | null
@@ -66,7 +67,7 @@ function makeDetail(opts: {
       tradingName: 'Southville Sourdough',
       status: opts.status ?? 'REGISTERED',
       verificationStatus: 'NOT_SUBMITTED',
-      onboardingStep: 'REGISTERED',
+      onboardingStep: opts.onboardingStep ?? 'REGISTERED',
       websiteUrl: opts.websiteUrl ?? null,
       vatNumber: null,
       companyNumber: null,
@@ -172,6 +173,17 @@ describe('deriveWizardState resume landing', () => {
     expect(deriveWizardState(d).resumeStep).toBe(8)
   })
 
+  it('a NEEDS_CHANGES merchant (bounced for changes) lands on step 8, not an earlier step (F1)', () => {
+    const d = makeDetail({
+      category: 'Food and drink',
+      branches: [makeBranch()],
+      checklist: { branch_created: true, rmv_configured: true, contract_signed: true },
+      status: 'PENDING_APPROVAL',
+      onboardingStep: 'NEEDS_CHANGES',
+    })
+    expect(deriveWizardState(d).resumeStep).toBe(8)
+  })
+
   it('a live merchant lands on step 9 (handover)', () => {
     const d = makeDetail({
       category: 'Food and drink',
@@ -245,6 +257,11 @@ describe('deriveWizardState per-step statuses', () => {
     expect(deriveWizardState(makeDetail({ status: 'REGISTERED' })).statuses.review).toBe('incomplete')
   })
 
+  it('review reads incomplete/attention (not complete) for a NEEDS_CHANGES merchant (F1)', () => {
+    const d = makeDetail({ status: 'PENDING_APPROVAL', onboardingStep: 'NEEDS_CHANGES' })
+    expect(deriveWizardState(d).statuses.review).toBe('incomplete')
+  })
+
   it('handover is complete once live', () => {
     expect(deriveWizardState(makeDetail({ status: 'ACTIVE' })).statuses.handover).toBe('complete')
   })
@@ -266,5 +283,44 @@ describe('deriveWizardState per-step statuses', () => {
     expect(facts.documentsCount).toBe(1)
     expect(facts.submitted).toBe(true)
     expect(facts.live).toBe(false)
+  })
+})
+
+// ── needsChanges fact (adversarial-review F1) ────────────────────────────────
+//
+// Verified backend contract: a merchant bounced with request-changes has
+// status === 'PENDING_APPROVAL' AND onboardingStep === 'NEEDS_CHANGES' (the
+// same condition the merchant resubmit gate uses). needsChanges must be a
+// STRICT AND of both fields, and must stay false for every other status so it
+// never gets confused with the plain "submitted" fact.
+
+describe('deriveWizardState needsChanges fact', () => {
+  it('is true only for PENDING_APPROVAL + onboardingStep NEEDS_CHANGES', () => {
+    const d = makeDetail({ status: 'PENDING_APPROVAL', onboardingStep: 'NEEDS_CHANGES' })
+    expect(deriveWizardState(d).facts.needsChanges).toBe(true)
+  })
+
+  it('is false for plain PENDING_APPROVAL (onboardingStep not NEEDS_CHANGES)', () => {
+    const d = makeDetail({ status: 'PENDING_APPROVAL' })
+    expect(deriveWizardState(d).facts.needsChanges).toBe(false)
+  })
+
+  it('is false when onboardingStep is NEEDS_CHANGES but status is not PENDING_APPROVAL', () => {
+    // Defensive: the fact is a strict AND, not just an onboardingStep check.
+    const d = makeDetail({ status: 'REGISTERED', onboardingStep: 'NEEDS_CHANGES' })
+    expect(deriveWizardState(d).facts.needsChanges).toBe(false)
+  })
+
+  it('is false for ACTIVE, SUSPENDED, and INACTIVE', () => {
+    expect(deriveWizardState(makeDetail({ status: 'ACTIVE' })).facts.needsChanges).toBe(false)
+    expect(deriveWizardState(makeDetail({ status: 'SUSPENDED' })).facts.needsChanges).toBe(false)
+    expect(deriveWizardState(makeDetail({ status: 'INACTIVE' })).facts.needsChanges).toBe(false)
+  })
+
+  it('a needsChanges merchant is still submitted (needsChanges is a subset of submitted)', () => {
+    const d = makeDetail({ status: 'PENDING_APPROVAL', onboardingStep: 'NEEDS_CHANGES' })
+    const { facts } = deriveWizardState(d)
+    expect(facts.submitted).toBe(true)
+    expect(facts.needsChanges).toBe(true)
   })
 })
