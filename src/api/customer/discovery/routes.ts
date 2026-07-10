@@ -115,21 +115,20 @@ export async function discoveryRoutes(app: FastifyInstance) {
   // `merchants` + `total` response. Customer-app continues reading legacy
   // until Phase 2 surface PRs migrate consumers individually.
   //
-  // Phase 1 ignored-params disclosure (mirrors searchBranches docblock at
-  // service.ts ~line 2440-2470): Task 2.1.0 (Plan Rev 1.2 PR-2 entry gate)
-  // closed `scope` parity, so the user-facing scope cascade now cuts branch
-  // results identically to the merchant variant. The remaining seven ignored
-  // params (`maxDistanceMiles`, `amenityIds`, `tagIds`, `openNow`, `featured`,
-  // `topRated`, `sortBy`) stay deferred under deferred-followups §BX.1-§BX.7
-  // for Phase 2/3. They pass through here so the merchant variant honours
-  // them and the branch variant accepts-and-no-ops — keeps callers' query
-  // strings portable as more params get honoured incrementally.
+  // §BX.1-§BX.7 CLOSED (Map Phase 2 Slice S1, 2026-07-10 — see the
+  // searchBranches docblock in service.ts for the per-param detail): Task
+  // 2.1.0 previously closed `scope` parity; `maxDistanceMiles`, `amenityIds`,
+  // `tagIds`, `openNow`, `featured`, `topRated`, `sortBy` are now ALSO
+  // honoured by searchBranches, with identical semantics to the merchant
+  // variant (documented divergences: amenityIds is ALL-of on-the-branch,
+  // openNow reads the branch's own hours, sortBy=nearest is a genuine
+  // post-rank override). No route-layer change was needed — `params` was
+  // already spread straight through to both search functions.
   //
   // PR-2 gate (Spec/Plan): Search customer-app migration `scope` parity is
-  // now satisfied (Task 2.1.0). UI flip from `merchants` to `branches` is
-  // eligible without breaking the user-facing scope filter. Other filter
-  // parity is tracked explicitly in the Phase 1.5 plan amendment +
-  // deferred-followups §BX index.
+  // now satisfied (Task 2.1.0), and full filter parity is satisfied as of
+  // Map Phase 2 Slice S1. UI flip from `merchants` to `branches` is eligible
+  // without losing any FilterSheet control's server effect.
   app.get('/api/v1/customer/search', async (req: FastifyRequest, reply) => {
     const params = searchQuery.parse(req.query)
     const userId = await optionalUserId(req)
