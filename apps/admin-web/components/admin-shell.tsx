@@ -17,10 +17,11 @@
  * The nav is capability-aware by construction: NAV_ITEMS are filtered by
  * `can(cap)` so each item shows only for roles that hold its capability, and new
  * actioner screens light up automatically per role as they land. The current
- * items are Approval queue (`approval:read`), Merchants (`merchant:read`), and
- * Redemptions (`redemption:read`). The filter is fail-closed: a role that lacks
- * an item's capability never sees it (and the backend 403 is the enforcement
- * backstop), so a role with none of these capabilities renders no nav.
+ * items are Approval queue (`approval:read`), Merchants (`merchant:read`),
+ * Leads and onboarding (`merchant:create-draft`), and Redemptions
+ * (`redemption:read`). The filter is fail-closed: a role that lacks an item's
+ * capability never sees it (and the backend 403 is the enforcement backstop),
+ * so a role with none of these capabilities renders no nav.
  */
 import { useEffect, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
@@ -37,6 +38,11 @@ type NavItem = { label: string; href: string; cap: AdminCapability }
 const NAV_ITEMS: NavItem[] = [
   { label: 'Approval queue', href: '/queue', cap: 'approval:read' },
   { label: 'Merchants', href: '/merchants', cap: 'merchant:read' },
+  // C1: gated on merchant:create-draft (the hub's primary action capability),
+  // not the lower merchant:read bar the /leads PAGE itself uses: a role that
+  // can view merchants but not create a draft never sees this nav entry, even
+  // though it could still reach /leads directly and see it read-only.
+  { label: 'Leads and onboarding', href: '/leads', cap: 'merchant:create-draft' },
   // D67: read-only cross-merchant redemptions list.
   { label: 'Redemptions', href: '/redemptions', cap: 'redemption:read' },
 ]
