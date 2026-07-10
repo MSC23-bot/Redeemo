@@ -503,10 +503,19 @@ export const discoveryApi = {
   /**
    * GET /api/v1/customer/search — text/category/tag search with the post-
    * Plan-1.5 meta envelope. Backend requires q OR categoryId OR bbox.
+   *
+   * Map Phase 2 S2 — optional `reqOpts.signal` threads a caller's
+   * AbortSignal through to `api.get` (React Query passes one to every
+   * `queryFn` via `useSearch`). Only forwarded to `api.get` when actually
+   * present — omitting `reqOpts` entirely keeps the call at its original
+   * one-argument arity so existing direct callers (and their test
+   * assertions) are unaffected.
    */
-  async searchMerchants(params: SearchParams): Promise<SearchResponse> {
+  async searchMerchants(params: SearchParams, reqOpts?: { signal?: AbortSignal }): Promise<SearchResponse> {
     const qs = buildQuery(params as Record<string, unknown>)
-    const res = await api.get<unknown>(`/api/v1/customer/search${qs}`)
+    const res = reqOpts?.signal
+      ? await api.get<unknown>(`/api/v1/customer/search${qs}`, { signal: reqOpts.signal })
+      : await api.get<unknown>(`/api/v1/customer/search${qs}`)
     return searchResponseSchema.parse(res)
   },
 
@@ -552,6 +561,11 @@ export const discoveryApi = {
    * to sidestep the `z.coerce.boolean()` route-schema gotcha where the
    * string `"false"` would coerce to `true`; this endpoint is opt-in-only
    * so the param is either present-as-`1` or absent, never `false`.
+   *
+   * Map Phase 2 S2 — optional `reqOpts.signal` threads a caller's
+   * AbortSignal through to `api.get` (`useInAreaBranches`'s `queryFn`
+   * passes React Query's per-query signal). Only forwarded when present,
+   * matching `searchMerchants`'s arity-preserving pattern above.
    */
   async getInAreaBranches(opts: {
     minLat:       number
@@ -563,9 +577,11 @@ export const discoveryApi = {
     lng?:         number
     limit?:       number
     branchesOnly?: 1
-  }): Promise<InAreaResponse> {
+  }, reqOpts?: { signal?: AbortSignal }): Promise<InAreaResponse> {
     const qs = buildQuery(opts as Record<string, unknown>)
-    const res = await api.get<unknown>(`/api/v1/customer/discovery/in-area${qs}`)
+    const res = reqOpts?.signal
+      ? await api.get<unknown>(`/api/v1/customer/discovery/in-area${qs}`, { signal: reqOpts.signal })
+      : await api.get<unknown>(`/api/v1/customer/discovery/in-area${qs}`)
     return inAreaResponseSchema.parse(res)
   },
 

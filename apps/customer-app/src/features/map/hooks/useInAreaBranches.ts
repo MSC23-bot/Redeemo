@@ -47,7 +47,14 @@ export function useInAreaBranches(
     // (never the legacy `merchants` field, see mapDataView.ts), so it
     // opts into the branch-arm-only response and skips the backend's
     // UK-wide merchant findMany + rank + enrich.
-    queryFn:   () => discoveryApi.getInAreaBranches({ ...quantizedBbox!, ...params, branchesOnly: 1 }),
+    //
+    // Map Phase 2 S2 — `{ signal }` is React Query's per-query
+    // AbortSignal (aborted automatically when this query is superseded,
+    // e.g. a pan lands a new quantized bbox before the previous fetch
+    // resolves, or the query is disabled/unmounted). Threading it lets
+    // the in-flight request for a stale viewport actually cancel at the
+    // network layer instead of racing the new one to resolve.
+    queryFn:   ({ signal }) => discoveryApi.getInAreaBranches({ ...quantizedBbox!, ...params, branchesOnly: 1 }, { signal }),
     select:    r => r,
     enabled:   enabled && quantizedBbox !== null,
     // Map in-area reliability slice — raised from 30s to 120s. Viewport
