@@ -49,6 +49,45 @@ describe('adminVouchersApi.listRmv', () => {
   })
 })
 
+// ── A4: custom (RCV) voucher roster ──────────────────────────────────────────────
+
+const RCV = {
+  id: 'rcv-1',
+  code: 'RCV-001',
+  title: 'Free coffee Friday',
+  type: 'FREEBIE',
+  status: 'ACTIVE',
+  approvalStatus: 'APPROVED',
+  estimatedSaving: 3.5,
+  expiryDate: null,
+  createdAt: '2026-06-01T00:00:00.000Z',
+  pendingEdit: null,
+}
+
+describe('adminVouchersApi.listCustom (A4)', () => {
+  it('GET /admin/merchants/:id/vouchers with auth:true and parses the response', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ vouchers: [RCV] })
+    const result = await adminVouchersApi.listCustom('m-1')
+    expect(mockedApiFetch).toHaveBeenCalledWith('/api/v1/admin/merchants/m-1/vouchers', { auth: true })
+    expect(result.vouchers[0].code).toBe('RCV-001')
+    expect(result.vouchers[0].estimatedSaving).toBe(3.5)
+    expect(result.vouchers[0].pendingEdit).toBeNull()
+  })
+
+  it('parses a pending-edit summary when present', async () => {
+    mockedApiFetch.mockResolvedValueOnce({
+      vouchers: [{ ...RCV, pendingEdit: { id: 'pe-1', kind: 'CHANGE', status: 'PENDING' } }],
+    })
+    const result = await adminVouchersApi.listCustom('m-1')
+    expect(result.vouchers[0].pendingEdit).toEqual({ id: 'pe-1', kind: 'CHANGE', status: 'PENDING' })
+  })
+
+  it('throws when the response shape drifts (Zod)', async () => {
+    mockedApiFetch.mockResolvedValueOnce({ vouchers: [{ id: 'x' }] })
+    await expect(adminVouchersApi.listCustom('m-1')).rejects.toThrow()
+  })
+})
+
 describe('adminVouchersApi.editRmv', () => {
   it('PATCHes the rmv route with { fields, reason } and auth:true', async () => {
     mockedApiFetch.mockResolvedValueOnce({ id: 'v-rmv-1' })

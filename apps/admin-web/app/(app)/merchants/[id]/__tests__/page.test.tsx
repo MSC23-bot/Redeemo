@@ -220,6 +220,20 @@ jest.mock('@/lib/vouchers/useAdminRmvVouchers', () => ({
   adminRmvQueryKey: (id: string) => ['admin-merchant-rmv', id],
 }))
 
+// A4 Vouchers tab: mock the custom (RCV) read hook (network I/O). The
+// CustomVouchersSection renders for real.
+jest.mock('@/lib/vouchers/useAdminCustomVouchers', () => ({
+  useAdminCustomVouchers: jest.fn(),
+  adminCustomVoucherQueryKey: (id: string) => ['admin-merchant-custom-vouchers', id],
+}))
+
+// A4 Staff tab: mock the staff roster read hook (network I/O). The StaffTab
+// renders for real.
+jest.mock('@/lib/staff/useAdminStaff', () => ({
+  useAdminStaff: jest.fn(),
+  adminStaffQueryKey: (id: string) => ['admin-merchant-staff', id],
+}))
+
 jest.mock('@/features/merchants/m360/RmvCoBuildDialog', () => ({
   RmvCoBuildDialog: ({
     merchantId,
@@ -265,12 +279,38 @@ import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
 import type { UseMerchantDetailResult } from '@/lib/merchants/useMerchantDetail'
 import { useRedemptions } from '@/lib/redemptions/useRedemptions'
 import { useAdminRmvVouchers } from '@/lib/vouchers/useAdminRmvVouchers'
+import { useAdminCustomVouchers } from '@/lib/vouchers/useAdminCustomVouchers'
+import { useAdminStaff } from '@/lib/staff/useAdminStaff'
 import type { AdminRmvVoucher } from '@/lib/api/vouchers'
 
 const mockedUseSession = useSession as jest.MockedFunction<typeof useSession>
 const mockedUseMerchantDetail = useMerchantDetail as jest.MockedFunction<typeof useMerchantDetail>
 const mockedUseRedemptions = useRedemptions as jest.MockedFunction<typeof useRedemptions>
 const mockedUseAdminRmvVouchers = useAdminRmvVouchers as jest.MockedFunction<typeof useAdminRmvVouchers>
+const mockedUseAdminCustomVouchers = useAdminCustomVouchers as jest.MockedFunction<typeof useAdminCustomVouchers>
+const mockedUseAdminStaff = useAdminStaff as jest.MockedFunction<typeof useAdminStaff>
+
+function mockCustom(overrides: Partial<ReturnType<typeof useAdminCustomVouchers>> = {}) {
+  mockedUseAdminCustomVouchers.mockReturnValue({
+    data: { vouchers: [] },
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: jest.fn(),
+    ...overrides,
+  })
+}
+
+function mockStaff(overrides: Partial<ReturnType<typeof useAdminStaff>> = {}) {
+  mockedUseAdminStaff.mockReturnValue({
+    data: { members: [], appLogins: [] },
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: jest.fn(),
+    ...overrides,
+  })
+}
 
 function mockRedemptions(overrides: Partial<ReturnType<typeof useRedemptions>> = {}) {
   mockedUseRedemptions.mockReturnValue({
@@ -354,6 +394,23 @@ function makeDetail(overrides: Partial<MerchantDetail> = {}): MerchantDetail {
       hasPendingIdentityEdit: false,
       submitChecklist: { branch_created: true, contract_signed: true, rmv_configured: true, all_complete: true },
       canSubmitOnBehalf: false,
+      // A4 enrichment
+      owner: {
+        name: 'Marta Okafor',
+        email: 'marta@acme.test',
+        phone: '0117 496 0000',
+        emailVerified: true,
+      },
+      ownerCount: 1,
+      agreement: {
+        contractStatus: 'SIGNED',
+        contractStartDate: '2025-11-12T00:00:00.000Z',
+        contractEndDate: '2026-11-12T00:00:00.000Z',
+        signatureMethod: 'CLICK_TO_AGREE',
+        signedAt: '2025-11-12T00:00:00.000Z',
+      },
+      headerCounts: { branches: 2, activeVouchers: 5, totalRedemptions: 42 },
+      documentsCount: 3,
     },
     branches: [
       {
@@ -466,7 +523,7 @@ describe('Merchant 360 loading/error states', () => {
 describe('Merchant 360 workspace header', () => {
   beforeEach(() => mockSession())
 
-  it('renders the name, sub-line, status + verification pills, and branches stat', () => {
+  it('renders the name, sub-line, status + verification pills, and the A4 stat strip', () => {
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
     const header = screen.getByTestId('merchant-workspace-header')
@@ -474,7 +531,10 @@ describe('Merchant 360 workspace header', () => {
     expect(header).toHaveTextContent('Trading as Acme')
     expect(header).toHaveTextContent('Active')
     expect(header).toHaveTextContent('Verified')
+    // A4 real header counts (from headerCounts, not fabricated).
     expect(screen.getByTestId('workspace-stat-branches')).toHaveTextContent('2')
+    expect(screen.getByTestId('workspace-stat-active-vouchers')).toHaveTextContent('5')
+    expect(screen.getByTestId('workspace-stat-redemptions')).toHaveTextContent('42')
   })
 
   it('renders initials in the logo tile when there is no logo', () => {
@@ -587,13 +647,6 @@ describe('Merchant 360 tab routing', () => {
 describe('Merchant 360 not-built placeholders', () => {
   beforeEach(() => mockSession())
 
-  it('shows the "later slice" copy for a queued tab (Staff and access)', () => {
-    mockSearch = 'tab=staff'
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('workspace-placeholder-staff')).toHaveTextContent(/later slice/i)
-  })
-
   it('shows the net-new-schema gated copy for Notes (MerchantNote)', () => {
     mockSearch = 'tab=notes'
     mockDetail({ data: makeDetail() })
@@ -636,6 +689,56 @@ describe('Merchant 360 Overview tab', () => {
       'href',
       '/merchants/m-1?tab=identity'
     )
+  })
+
+  it('A4: shows the documents count and contract status', () => {
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('overview-documents-count')).toHaveTextContent('3')
+    expect(screen.getByTestId('overview-contract')).toHaveTextContent('Signed')
+  })
+
+  it('A4: shows the primary contact (owner) block with a verified-email indicator', () => {
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('overview-owner-name')).toHaveTextContent('Marta Okafor')
+    expect(screen.getByTestId('overview-owner-email')).toHaveTextContent('marta@acme.test')
+    expect(screen.getByTestId('overview-owner-verified')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-owner-phone')).toHaveTextContent('0117 496 0000')
+  })
+
+  it('A4: shows the multi-owner hint when ownerCount > 1', () => {
+    mockDetail({
+      data: makeDetail({
+        merchant: { ...makeDetail().merchant, ownerCount: 3 },
+      }),
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('overview-owner-more')).toHaveTextContent('+2 more owners')
+  })
+
+  it('A4: shows the empty owner state when there is no account owner', () => {
+    mockDetail({
+      data: makeDetail({
+        merchant: { ...makeDetail().merchant, owner: null, ownerCount: 0 },
+      }),
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('overview-owner-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('overview-owner-name')).not.toBeInTheDocument()
+  })
+
+  it('A4: shows "Not set" for a missing owner phone (optional field)', () => {
+    mockDetail({
+      data: makeDetail({
+        merchant: {
+          ...makeDetail().merchant,
+          owner: { name: 'Marta Okafor', email: 'marta@acme.test', phone: null, emailVerified: true },
+        },
+      }),
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('overview-owner-phone')).toHaveTextContent('Not set')
   })
 })
 
@@ -1115,6 +1218,7 @@ describe('Merchant 360 Vouchers tab (A3)', () => {
   beforeEach(() => {
     mockSearch = 'tab=vouchers'
     mockRmv()
+    mockCustom()
   })
 
   it('deep-links to the Vouchers module (not a placeholder) and renders a card per RMV', () => {
@@ -1136,11 +1240,41 @@ describe('Merchant 360 Vouchers tab (A3)', () => {
     expect(screen.getByTestId('vouchers-mandatory-count')).toHaveTextContent('Mandatory 2 / 2')
   })
 
-  it('shows the honest CUSTOM (RCV) not-built note, never fabricated data', () => {
+  it('renders the real CUSTOM (RCV) section (empty state) from the A4 read', () => {
     mockSession({ can: (cap) => cap === 'merchant:read' })
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('vouchers-custom-note')).toHaveTextContent(/next slice/i)
+    expect(screen.getByTestId('vouchers-custom')).toBeInTheDocument()
+    expect(screen.getByTestId('vouchers-custom-empty')).toBeInTheDocument()
+  })
+
+  it('renders a custom voucher card with status + approval pills from the A4 read', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    mockCustom({
+      data: {
+        vouchers: [
+          {
+            id: 'rcv-1',
+            code: 'RCV-001',
+            title: 'Free coffee Friday',
+            type: 'FREEBIE',
+            status: 'ACTIVE',
+            approvalStatus: 'APPROVED',
+            estimatedSaving: 3.5,
+            expiryDate: null,
+            createdAt: '2026-06-01T00:00:00.000Z',
+            pendingEdit: { id: 'pe-1', kind: 'CHANGE', status: 'PENDING' },
+          },
+        ],
+      },
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('rcv-card-rcv-1')).toBeInTheDocument()
+    expect(screen.getByTestId('rcv-status-rcv-1')).toHaveTextContent('Active')
+    expect(screen.getByTestId('rcv-status-rcv-1')).toHaveTextContent('Approved')
+    expect(screen.getByTestId('rcv-pending-rcv-1')).toHaveTextContent(/change request awaiting review/i)
+    expect(screen.queryByTestId('vouchers-custom-empty')).not.toBeInTheDocument()
   })
 
   it('shows Edit + Submit on a DRAFT flagship WITH merchant:manage-vouchers and opens/closes the dialogs', () => {
@@ -1181,5 +1315,99 @@ describe('Merchant 360 Vouchers tab (A3)', () => {
     expect(screen.queryByTestId('rmv-submit-v-rmv-1')).not.toBeInTheDocument()
     expect(screen.getByTestId('rmv-readonly-v-rmv-1')).toBeInTheDocument()
     expect(screen.getByTestId('rmv-status-v-rmv-1')).toHaveTextContent('Pending approval')
+  })
+})
+
+// ── A4: Staff tab ─────────────────────────────────────────────────────────────
+
+describe('Merchant 360 Staff tab (A4)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=staff'
+    mockStaff()
+  })
+
+  it('deep-links to the Staff module (not a placeholder) and renders the read-only note', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('workspace-staff')).toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-placeholder-staff')).not.toBeInTheDocument()
+    expect(screen.getByTestId('staff-readonly-note')).toBeInTheDocument()
+    expect(screen.getByTestId('workspace-tab-staff')).toHaveAttribute('data-active', 'true')
+  })
+
+  it('renders portal members with role + status badges and branch scope', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    mockStaff({
+      data: {
+        members: [
+          {
+            id: 'mm-1',
+            name: 'Marta Okafor',
+            email: 'marta@acme.test',
+            role: 'OWNER',
+            status: 'ACTIVE',
+            allBranches: true,
+            canManageVouchers: false,
+            emailVerified: true,
+            branchScopes: [],
+            appAccess: false,
+          },
+          {
+            id: 'mm-2',
+            name: 'Ben Ng',
+            email: 'ben@acme.test',
+            role: 'BRANCH_MANAGER',
+            status: 'ACTIVE',
+            allBranches: false,
+            canManageVouchers: true,
+            emailVerified: false,
+            branchScopes: [{ id: 'b-1', name: 'High Street' }],
+            appAccess: false,
+          },
+        ],
+        appLogins: [],
+      },
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('staff-member-mm-1')).toHaveTextContent('Owner')
+    expect(screen.getByTestId('staff-member-mm-1')).toHaveTextContent('Active')
+    expect(screen.getByTestId('staff-member-mm-2')).toHaveTextContent('Branch manager')
+    expect(screen.getByTestId('staff-member-scope-mm-2')).toHaveTextContent('High Street')
+    expect(screen.getByTestId('staff-member-scope-mm-2')).toHaveTextContent('Can manage vouchers')
+  })
+
+  it('renders branch app logins with an app-access indicator', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    mockStaff({
+      data: {
+        members: [],
+        appLogins: [
+          {
+            id: 'bu-1',
+            name: 'Sam Lee',
+            email: 'sam@acme.test',
+            status: 'ACTIVE',
+            branch: { id: 'b-1', name: 'High Street' },
+            appAccess: true,
+          },
+        ],
+      },
+    })
+    render(<MerchantDetailPage />)
+    const login = screen.getByTestId('staff-applogin-bu-1')
+    expect(login).toHaveTextContent('Sam Lee')
+    expect(login).toHaveTextContent('App access')
+    expect(login).toHaveTextContent('High Street')
+  })
+
+  it('shows empty states when there are no members or app logins', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('staff-members-empty')).toBeInTheDocument()
+    expect(screen.getByTestId('staff-applogins-empty')).toBeInTheDocument()
   })
 })
