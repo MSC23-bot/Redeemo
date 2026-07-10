@@ -1,11 +1,11 @@
 /**
  * Merchant 360 workspace tab model (spec: merchant-360-spec.md §A4).
  *
- * The workspace exposes URL-addressable tabs via `?tab=`. In slice A1 only two
- * tabs render real content: Overview and Business identity. Every other tab is
- * present in the bar but renders an honest placeholder panel (see
- * `placeholderCopy`) so the operator always sees the true state of the surface,
- * never fabricated data.
+ * The workspace exposes URL-addressable tabs via `?tab=`. Overview + Business
+ * identity render real content (A1); Branches, Documents, and Activity render
+ * real content (A2). Every remaining tab is present in the bar but renders an
+ * honest placeholder panel (see `M360_PLACEHOLDER_COPY`) so the operator always
+ * sees the true state of the surface, never fabricated data.
  *
  * The prototype's separate Comms + Audit tabs are collapsed into one "Activity"
  * tab for v1 (recorded divergence: both feeds already come from the per-merchant
@@ -49,8 +49,17 @@ export const M360_TABS: readonly M360TabDef[] = [
 
 export const DEFAULT_M360_TAB: M360TabKey = 'overview'
 
-/** The two tabs that render real content in slice A1. */
-export const A1_RENDERED_TABS: readonly M360TabKey[] = ['overview', 'identity']
+/**
+ * Tabs that render real, composed content (not a placeholder). A1 shipped
+ * Overview + Business identity; A2 adds Branches, Documents, and Activity.
+ */
+export const RENDERED_M360_TABS: readonly M360TabKey[] = [
+  'overview',
+  'identity',
+  'branches',
+  'documents',
+  'activity',
+]
 
 /**
  * Resolve the raw `?tab=` value to a known tab key. An unknown, missing, or
@@ -62,7 +71,10 @@ export function resolveM360Tab(raw: string | null | undefined): M360TabKey {
   return match ? match.key : DEFAULT_M360_TAB
 }
 
-type PlaceholderKey = Exclude<M360TabKey, 'overview' | 'identity'>
+type PlaceholderKey = Exclude<
+  M360TabKey,
+  'overview' | 'identity' | 'branches' | 'documents' | 'activity'
+>
 
 export interface PlaceholderCopy {
   title: string
@@ -77,11 +89,8 @@ export interface PlaceholderCopy {
  * fabricated data is ever shown.
  */
 export const M360_PLACEHOLDER_COPY: Record<PlaceholderKey, PlaceholderCopy> = {
-  branches: { title: 'Branches', body: 'Coming in a later slice.' },
   vouchers: { title: 'Vouchers', body: 'Coming in a later slice.' },
   redemptions: { title: 'Redemptions', body: 'Coming in a later slice.' },
-  documents: { title: 'Documents', body: 'Coming in a later slice.' },
-  activity: { title: 'Activity', body: 'Coming in a later slice.' },
   staff: { title: 'Staff and access', body: 'Coming in a later slice.' },
   notes: {
     title: 'Notes',

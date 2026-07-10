@@ -10,7 +10,10 @@ import { Info } from 'lucide-react'
 import { M360_PLACEHOLDER_COPY } from './tabs'
 import type { M360TabKey } from './tabs'
 
-type PlaceholderKey = Exclude<M360TabKey, 'overview' | 'identity'>
+type PlaceholderKey = Exclude<
+  M360TabKey,
+  'overview' | 'identity' | 'branches' | 'documents' | 'activity'
+>
 
 export function PlaceholderTab({ tabKey }: { tabKey: PlaceholderKey }) {
   const copy = M360_PLACEHOLDER_COPY[tabKey]

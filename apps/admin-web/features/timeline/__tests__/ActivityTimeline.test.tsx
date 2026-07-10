@@ -322,6 +322,44 @@ describe('ActivityTimeline owner-resolved label', () => {
   })
 })
 
+// ── View filter (A2: All / Comms / Actions) ──────────────────────────────────
+
+describe('ActivityTimeline view filter', () => {
+  const mixed = () => ({
+    items: [makeAction({ id: 'a1' }), makeEmail({ id: 'e1' })],
+    state: null,
+    emailsResolvedViaOwner: true,
+  })
+
+  it('defaults to showing both action and email rows (filter omitted)', () => {
+    mockTimeline(mixed())
+    render(<ActivityTimeline merchantId="m-1" />)
+    expect(screen.getByTestId('timeline-action-a1')).toBeInTheDocument()
+    expect(screen.getByTestId('timeline-email-e1')).toBeInTheDocument()
+  })
+
+  it('filter="comms" shows only email rows', () => {
+    mockTimeline(mixed())
+    render(<ActivityTimeline merchantId="m-1" filter="comms" />)
+    expect(screen.queryByTestId('timeline-action-a1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('timeline-email-e1')).toBeInTheDocument()
+  })
+
+  it('filter="actions" shows only action rows', () => {
+    mockTimeline(mixed())
+    render(<ActivityTimeline merchantId="m-1" filter="actions" />)
+    expect(screen.getByTestId('timeline-action-a1')).toBeInTheDocument()
+    expect(screen.queryByTestId('timeline-email-e1')).not.toBeInTheDocument()
+  })
+
+  it('shows a filtered-empty message (not the never-recorded copy) when the view filters everything out', () => {
+    mockTimeline({ items: [makeAction({ id: 'a1' })], state: null, emailsResolvedViaOwner: false })
+    render(<ActivityTimeline merchantId="m-1" filter="comms" />)
+    expect(screen.getByTestId('timeline-empty')).toHaveTextContent('No communications in this view.')
+    expect(screen.queryByText('No activity recorded yet.')).not.toBeInTheDocument()
+  })
+})
+
 // ── Sensitive-content absence ────────────────────────────────────────────────
 
 describe('ActivityTimeline sensitive-content absence', () => {

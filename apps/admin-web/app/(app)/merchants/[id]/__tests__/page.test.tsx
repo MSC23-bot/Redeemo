@@ -144,6 +144,65 @@ jest.mock('@/features/merchants/ReactivateConfirm', () => ({
   ),
 }))
 
+// ── A2 branch dialogs (leaf mocks) ─────────────────────────────────────────────
+
+jest.mock('@/features/merchants/EditBranchDialog', () => ({
+  EditBranchDialog: ({ branchId, onCancel }: { branchId: string; onCancel: () => void }) => (
+    <div data-testid="edit-branch-dialog-mock" data-branch-id={branchId}>
+      <button onClick={onCancel} data-testid="edit-branch-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
+jest.mock('@/features/merchants/AddBranchDialog', () => ({
+  AddBranchDialog: ({ merchantId, onCancel }: { merchantId: string; onCancel: () => void }) => (
+    <div data-testid="add-branch-dialog-mock" data-merchant-id={merchantId}>
+      <button onClick={onCancel} data-testid="add-branch-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
+jest.mock('@/features/merchants/DeleteBranchConfirm', () => ({
+  DeleteBranchConfirm: ({ branchId, onCancel }: { branchId: string; onCancel: () => void }) => (
+    <div data-testid="delete-branch-confirm-mock" data-branch-id={branchId}>
+      <button onClick={onCancel} data-testid="delete-branch-confirm-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
+// ── A2 Documents card + Activity timeline (leaf mocks; they do network I/O) ─────
+// The tab WRAPPERS (DocumentsTab, ActivityTab) render for real, so the canManage
+// passthrough and the approval:read gate are genuinely exercised here.
+
+jest.mock('@/features/merchants/MerchantDocumentsCard', () => ({
+  MerchantDocumentsCard: ({ merchantId, canManage }: { merchantId: string; canManage: boolean }) => (
+    <div
+      data-testid="merchant-documents-card-mock"
+      data-merchant-id={merchantId}
+      data-can-manage={String(canManage)}
+    />
+  ),
+}))
+
+jest.mock('@/features/timeline/ActivityTimeline', () => ({
+  ActivityTimeline: ({
+    merchantId,
+    enabled,
+    filter,
+  }: {
+    merchantId: string
+    enabled?: boolean
+    filter?: string
+  }) => (
+    <div
+      data-testid="activity-timeline-mock"
+      data-merchant-id={merchantId}
+      data-enabled={String(enabled)}
+      data-filter={filter}
+    />
+  ),
+}))
+
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
 import type { UseMerchantDetailResult } from '@/lib/merchants/useMerchantDetail'
@@ -429,11 +488,11 @@ describe('Merchant 360 tab routing', () => {
 describe('Merchant 360 not-built placeholders', () => {
   beforeEach(() => mockSession())
 
-  it('shows the "later slice" copy for a queued tab (Branches)', () => {
-    mockSearch = 'tab=branches'
+  it('shows the "later slice" copy for a queued tab (Vouchers)', () => {
+    mockSearch = 'tab=vouchers'
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('workspace-placeholder-branches')).toHaveTextContent(/later slice/i)
+    expect(screen.getByTestId('workspace-placeholder-vouchers')).toHaveTextContent(/later slice/i)
   })
 
   it('shows the net-new-schema gated copy for Notes (MerchantNote)', () => {
@@ -718,5 +777,156 @@ describe('Merchant 360 Business identity tab (propose edit)', () => {
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
     expect(screen.queryByTestId('merchant-identity-pending-note')).not.toBeInTheDocument()
+  })
+})
+
+// ── A2: Branches tab ────────────────────────────────────────────────────────────
+
+describe('Merchant 360 Branches tab (A2)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=branches'
+  })
+
+  it('deep-links to the Branches module (not a placeholder) and renders a card per branch', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('workspace-branches')).toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-placeholder-branches')).not.toBeInTheDocument()
+    expect(screen.getByTestId('branch-card-br-1')).toBeInTheDocument()
+    expect(screen.getByTestId('branch-card-br-2')).toBeInTheDocument()
+    // Provenance badge renders for real from the shared component.
+    expect(screen.getByTestId('workspace-tab-branches')).toHaveAttribute('data-active', 'true')
+  })
+
+  it('renders the empty state when the merchant has no branches', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail({ branches: [] }) })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-branches-empty')).toBeInTheDocument()
+  })
+
+  it('shows Add branch WITH merchant:manage-branches and opens the AddBranchDialog', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('merchant-add-branch'))
+    expect(screen.getByTestId('add-branch-dialog-mock')).toHaveAttribute('data-merchant-id', 'm-1')
+    fireEvent.click(screen.getByTestId('add-branch-dialog-cancel'))
+    expect(screen.queryByTestId('add-branch-dialog-mock')).not.toBeInTheDocument()
+  })
+
+  it('HIDES Add branch without merchant:manage-branches', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('workspace-branches')).toBeInTheDocument()
+    expect(screen.queryByTestId('merchant-add-branch')).not.toBeInTheDocument()
+  })
+
+  it('shows per-branch Edit WITH merchant:edit and opens the EditBranchDialog', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('branch-edit-br-2'))
+    expect(screen.getByTestId('edit-branch-dialog-mock')).toHaveAttribute('data-branch-id', 'br-2')
+    fireEvent.click(screen.getByTestId('edit-branch-dialog-cancel'))
+    expect(screen.queryByTestId('edit-branch-dialog-mock')).not.toBeInTheDocument()
+  })
+
+  it('HIDES per-branch Edit for a read-only admin (no merchant:edit)', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('branch-edit-br-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('branch-edit-br-2')).not.toBeInTheDocument()
+  })
+
+  it('shows Delete on a non-main branch WITH merchant:manage-branches and opens the confirm', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    // br-1 is the main branch: Delete is hidden even with the capability.
+    expect(screen.queryByTestId('branch-delete-br-1')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('branch-delete-br-2'))
+    expect(screen.getByTestId('delete-branch-confirm-mock')).toHaveAttribute('data-branch-id', 'br-2')
+    fireEvent.click(screen.getByTestId('delete-branch-confirm-cancel'))
+    expect(screen.queryByTestId('delete-branch-confirm-mock')).not.toBeInTheDocument()
+  })
+
+  it('HIDES per-branch Delete without merchant:manage-branches', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:edit' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('branch-delete-br-2')).not.toBeInTheDocument()
+  })
+})
+
+// ── A2: Documents tab ───────────────────────────────────────────────────────────
+
+describe('Merchant 360 Documents tab (A2)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=documents'
+  })
+
+  it('deep-links to the Documents module and passes canManage=true WITH merchant:manage-documents', () => {
+    mockSession({ can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('workspace-documents')).toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-placeholder-documents')).not.toBeInTheDocument()
+    const card = screen.getByTestId('merchant-documents-card-mock')
+    expect(card).toHaveAttribute('data-merchant-id', 'm-1')
+    expect(card).toHaveAttribute('data-can-manage', 'true')
+  })
+
+  it('passes canManage=false without merchant:manage-documents (view-only)', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-documents-card-mock')).toHaveAttribute(
+      'data-can-manage',
+      'false'
+    )
+  })
+})
+
+// ── A2: Activity tab ────────────────────────────────────────────────────────────
+
+describe('Merchant 360 Activity tab (A2)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=activity'
+  })
+
+  it('deep-links to the Activity module and renders the timeline (enabled) WITH approval:read', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'approval:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('workspace-activity')).toBeInTheDocument()
+    const timeline = screen.getByTestId('activity-timeline-mock')
+    expect(timeline).toHaveAttribute('data-merchant-id', 'm-1')
+    expect(timeline).toHaveAttribute('data-enabled', 'true')
+    expect(timeline).toHaveAttribute('data-filter', 'all')
+  })
+
+  it('changes the filter passed to the timeline when a filter chip is clicked', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'approval:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('activity-filter-comms'))
+    expect(screen.getByTestId('activity-timeline-mock')).toHaveAttribute('data-filter', 'comms')
+    fireEvent.click(screen.getByTestId('activity-filter-actions'))
+    expect(screen.getByTestId('activity-timeline-mock')).toHaveAttribute('data-filter', 'actions')
+  })
+
+  it('FAIL-CLOSED: shows the denied panel (naming approval:read) and does NOT render the timeline without approval:read', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    const denied = screen.getByTestId('workspace-activity-denied')
+    expect(denied).toBeInTheDocument()
+    expect(denied).toHaveTextContent(/approval:read/)
+    expect(screen.queryByTestId('activity-timeline-mock')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('activity-filter')).not.toBeInTheDocument()
   })
 })
