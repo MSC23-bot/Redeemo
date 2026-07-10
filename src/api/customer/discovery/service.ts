@@ -980,6 +980,16 @@ export const BRANCH_TILE_SELECT = {
         select: {
           id: true, name: true, pinColour: true, pinIcon: true,
           descriptorSuffix: true, parentId: true, intentType: true,
+          // S3 (Map pin v2, 2026-07-10) — parent's pinColour, read-time only
+          // (no schema change). `enrichBranchTile` falls through to this
+          // when the subcategory's own `pinColour` is null. LEAD-adjudicated
+          // per the programme decision register (D1 addendum). Wire-safe:
+          // this only changes the VALUE of the existing nullable `pinColour`
+          // field, never adds a key (the client tile schema is .strict() on
+          // installed builds — see branchTileSchema.ts header comment; the
+          // top-level-category name the pin-glyph matcher needs is resolved
+          // CLIENT-SIDE from the already-loaded category tree instead).
+          parent: { select: { pinColour: true } },
         },
       },
       primaryDescriptorTag: { select: { id: true, label: true } },
@@ -989,6 +999,9 @@ export const BRANCH_TILE_SELECT = {
             select: {
               id: true, name: true, parentId: true, pinColour: true,
               pinIcon: true, descriptorSuffix: true, intentType: true,
+              // S3 — same read-time parent-fallback for the derived
+              // `subcategory` tile field.
+              parent: { select: { pinColour: true } },
             },
           },
         },
@@ -1155,7 +1168,11 @@ export type EnrichBranchCtx = {
 
 // Internal: the typed shape returned by a Prisma findMany against
 // BRANCH_TILE_SELECT. We construct it via the const-typed select for accuracy.
-type BranchSelectResult = Prisma.BranchGetPayload<{ select: typeof BRANCH_TILE_SELECT }>
+//
+// Exported (S3, 2026-07-10) alongside `enrichBranchTile` (already exported
+// below at service.ts:1500) so the pinColour parent-fallback can be unit
+// tested directly against a constructed BranchSelectResult.
+export type BranchSelectResult = Prisma.BranchGetPayload<{ select: typeof BRANCH_TILE_SELECT }>
 
 function enrichBranchTile(
   branch: BranchSelectResult,
@@ -1261,7 +1278,18 @@ function enrichBranchTile(
         ? {
             id:               merchant.primaryCategory.id,
             name:             merchant.primaryCategory.name,
-            pinColour:        merchant.primaryCategory.pinColour ?? null,
+            // S3 (Map pin v2, 2026-07-10) — read-time parent-fallback: a
+            // subcategory with a null `pinColour` inherits its PARENT
+            // category's `pinColour` (queried via the `parent` select
+            // above). No schema change — see the programme decision
+            // register (docs/superpowers/plans/2026-07-10-map-phase-2-
+            // programme.md, D1 addendum). Final fallback to the client's
+            // hardcoded default palette still happens in <MapPins> when
+            // BOTH are null. NOTE (S3 correction): value-only change to an
+            // EXISTING nullable field — no new wire key may be added here;
+            // the client tile schema is .strict() on installed builds (see
+            // branchTileSchema.ts header comment).
+            pinColour:        merchant.primaryCategory.pinColour ?? merchant.primaryCategory.parent?.pinColour ?? null,
             pinIcon:          merchant.primaryCategory.pinIcon ?? null,
             descriptorSuffix: merchant.primaryCategory.descriptorSuffix ?? null,
             parentId:         merchant.primaryCategory.parentId,
@@ -1275,7 +1303,8 @@ function enrichBranchTile(
         ? {
             id:               subcategory.id,
             name:             subcategory.name,
-            pinColour:        subcategory.pinColour ?? null,
+            // S3 — same read-time parent-fallback as primaryCategory above.
+            pinColour:        subcategory.pinColour ?? subcategory.parent?.pinColour ?? null,
             pinIcon:          subcategory.pinIcon ?? null,
             descriptorSuffix: subcategory.descriptorSuffix ?? null,
             parentId:         subcategory.parentId,
