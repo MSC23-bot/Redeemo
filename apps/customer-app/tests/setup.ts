@@ -104,3 +104,18 @@ jest.mock('react-native-reanimated', () => {
     SlideOutUp:  (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
   }
 })
+
+// Map Phase 2 S2 Task 1 — the region-accumulation cache
+// (`regionAccumulationStore.ts`) is an intentional module-level
+// singleton (it must survive MapScreen remounts in production). Reset it
+// after every test so branch fixtures recorded by one test's render
+// never leak into the next test's accumulated-pins assertions.
+afterEach(() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('@/features/map/hooks/regionAccumulationStore').clearAccumulatedBranches()
+  } catch {
+    // Module not resolvable in this test file (no map code under test) —
+    // nothing to clear.
+  }
+})

@@ -1,6 +1,7 @@
 import { MutationCache, QueryClient } from '@tanstack/react-query'
 import { emitToast } from '@/design-system/motion/Toast'
 import { mapError } from '@/lib/errors'
+import { clearAccumulatedBranches } from '@/features/map/hooks/regionAccumulationStore'
 
 let queryClient: QueryClient | null = null
 
@@ -42,7 +43,14 @@ export function getQueryClient(): QueryClient {
  * Belt-and-braces: also clear the in-memory mutation cache so any in-flight
  * mutation doesn't write back into the now-cleared query cache after the
  * new user has signed in.
+ *
+ * Map Phase 2 S2 — the region-accumulation cache (`regionAccumulationStore`)
+ * lives OUTSIDE React Query's cache (it's a module-level Map, not a
+ * query), so `queryClient.clear()` alone would leave a previous user's
+ * remembered map pins sitting in memory for the next session. Hooked
+ * into the same sign-out/session-expiry lifecycle here for that reason.
  */
 export function clearAllQueries(): void {
   queryClient?.clear()
+  clearAccumulatedBranches()
 }

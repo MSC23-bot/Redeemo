@@ -11,6 +11,7 @@ import { useCategories } from '@/hooks/useCategories'
 import { useSearch } from '@/hooks/useSearch'
 import { useInAreaBranches, type BoundingBox } from '../hooks/useInAreaBranches'
 import { quantizeBbox } from '../utils/bboxQuantize'
+import { useAccumulatedBranches } from '../hooks/useAccumulatedBranches'
 import { MapCategoryPills } from '../components/MapCategoryPills'
 import { LocationPermission } from '../components/LocationPermission'
 import { MapEmptyArea, type MapEmptyCase } from '../components/MapEmptyArea'
@@ -265,7 +266,43 @@ export function MapScreen(_props: Props) {
   // resolves both arms cleanly: SearchResponse prefers branchMeta /
   // totalBranches; InAreaResponse falls through to meta /
   // branches.length.
-  const { branches, total, meta } = mapDataView(data)
+  const dataView = mapDataView(data)
+
+  // Map Phase 2 S2 Task 1 — region-accumulation cache (the pan-back fix).
+  //
+  // `useAccumulatedBranches` unions every remembered tile that intersects
+  // the CURRENT raw viewport with the live in-area query's branches, so
+  // panning back to a previously-visited area renders its pins instantly
+  // from the store while the live query refreshes quietly underneath.
+  //
+  // Honesty-rule lock: accumulation is scoped to the UNFILTERED in-area
+  // path ONLY (`enabled: !hasNonScopeFilters`). When a non-scope filter
+  // is active, the hybrid hook has already switched to `/search` and
+  // this call is a pure pass-through — `accumulatedBranches` degrades to
+  // `dataView.branches` (the live filtered result, unmixed) so a stale
+  // pin from a PREVIOUS unfiltered fetch can never render as if it
+  // matched the active filters.
+  //
+  // `inAreaBranches` reads `inAreaQuery.data` directly (not the hybrid
+  // `data`/`dataView`) so recording always sees the true in-area result
+  // regardless of which arm is currently active.
+  const inAreaBranches  = useMemo(() => mapDataView(inAreaQuery.data).branches, [inAreaQuery.data])
+  const rawViewportBbox = useMemo(() => regionToBbox(region), [region])
+  const accumulatedBranches = useAccumulatedBranches(
+    queryBbox,
+    rawViewportBbox,
+    inAreaBranches,
+    !hasNonScopeFilters,
+  )
+
+  const branches = hasNonScopeFilters ? dataView.branches : accumulatedBranches
+  // `mapDataView`'s `total` already falls back to `branches.length` for
+  // the unfiltered in-area arm (it doesn't paginate — see the helper's
+  // doc comment), so extending that same formula to the accumulated
+  // union keeps the "List (N)" count and empty-state gating consistent
+  // with what's actually rendered, remembered pins included.
+  const total = hasNonScopeFilters ? dataView.total : accumulatedBranches.length
+  const meta  = dataView.meta
 
   const categories = categoriesData?.categories ?? []
 
