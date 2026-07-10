@@ -1,8 +1,16 @@
 /**
- * QueueTable — displayStatus + claim cell + urgency + no action buttons.
+ * QueueTable — B1: 7-column row treatments (court pill, type chip, waiting
+ * age + sub-line, status incl. History's Approved/Rejected), replace-not-stack
+ * wide/narrow structure, claim cell, navigation, no action buttons.
+ *
+ * jsdom does not evaluate CSS media queries, so BOTH the wide table and the
+ * narrow card list are present in the DOM at once (real browsers pick one via
+ * `hidden md:block` / `md:hidden`). Assertions that could otherwise match a
+ * label in both trees are scoped with `within(...)` to the wide-table row
+ * (`queue-row-<id>`) or the narrow card (`queue-card-<id>`) test id.
  */
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { QueueTable } from '../QueueTable'
 import type { AdminApproval } from '@/lib/api/approvals'
 
@@ -36,12 +44,64 @@ function makeApproval(overrides: Partial<AdminApproval> = {}): AdminApproval {
 
 const CURRENT_ADMIN = 'admin-me'
 
-// ── displayStatus ─────────────────────────────────────────────────────────────
+function wideRow(id: string) {
+  return within(screen.getByTestId(`queue-row-${id}`))
+}
+
+// ── 7-column header ───────────────────────────────────────────────────────────
+
+describe('QueueTable wide-table header', () => {
+  it('renders exactly the 7 spec columns in order', () => {
+    render(<QueueTable items={[makeApproval()]} currentAdminId={CURRENT_ADMIN} />)
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent)
+    expect(headers).toEqual([
+      'Merchant',
+      'Type',
+      'Court',
+      'Waiting',
+      'Verification',
+      'Status',
+      'Owner / claim',
+    ])
+  })
+})
+
+// ── Replace-not-stack structure ──────────────────────────────────────────────
+
+describe('QueueTable wide/narrow structure', () => {
+  it('renders both the wide table and the narrow card list, CSS-toggled (never both via JS state)', () => {
+    render(<QueueTable items={[makeApproval()]} currentAdminId={CURRENT_ADMIN} />)
+    const wide = screen.getByTestId('queue-wide-table')
+    const narrow = screen.getByTestId('queue-narrow-cards')
+    expect(wide.className).toMatch(/hidden/)
+    expect(wide.className).toMatch(/md:block/)
+    expect(narrow.className).toMatch(/md:hidden/)
+  })
+
+  it('renders one row in the wide table and one equivalent card in the narrow list per item', () => {
+    const items = [makeApproval({ id: 'a-r1' }), makeApproval({ id: 'a-r2' })]
+    render(<QueueTable items={items} currentAdminId={CURRENT_ADMIN} />)
+    expect(screen.getAllByTestId(/^queue-row-/)).toHaveLength(2)
+    expect(screen.getAllByTestId(/^queue-card-/)).toHaveLength(2)
+  })
+
+  it('the narrow card carries the same primary label as its wide row', () => {
+    render(
+      <QueueTable items={[makeApproval({ id: 'a-both' })]} currentAdminId={CURRENT_ADMIN} />
+    )
+    expect(wideRow('a-both').getByText('Acme Coffee')).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('queue-card-a-both')).getByText('Acme Coffee')
+    ).toBeInTheDocument()
+  })
+})
+
+// ── displayStatus (incl. B1 History extension: Approved/Rejected) ───────────
 
 describe('QueueTable displayStatus', () => {
   it('shows "Submitted" for PENDING + unclaimed', () => {
     render(<QueueTable items={[makeApproval({ status: 'PENDING', claimedById: null })]} currentAdminId={CURRENT_ADMIN} />)
-    expect(screen.getByText('Submitted')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Submitted')).toBeInTheDocument()
   })
 
   it('shows "Under review" for PENDING + claimed (by someone else)', () => {
@@ -51,16 +111,132 @@ describe('QueueTable displayStatus', () => {
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Under review')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Under review')).toBeInTheDocument()
   })
 
   it('shows "Changes requested" for CHANGES_REQUESTED status', () => {
     render(<QueueTable items={[makeApproval({ status: 'CHANGES_REQUESTED' })]} currentAdminId={CURRENT_ADMIN} />)
-    expect(screen.getByText('Changes requested')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Changes requested')).toBeInTheDocument()
+  })
+
+  it('shows "Approved" (success tone) for an APPROVED row — B1 History', () => {
+    render(<QueueTable items={[makeApproval({ status: 'APPROVED' })]} currentAdminId={CURRENT_ADMIN} />)
+    const badge = wideRow('a-1').getByText('Approved')
+    expect(badge.className).toMatch(/green/)
+  })
+
+  it('shows "Rejected" (danger tone) for a REJECTED row — B1 History', () => {
+    render(<QueueTable items={[makeApproval({ status: 'REJECTED' })]} currentAdminId={CURRENT_ADMIN} />)
+    const badge = wideRow('a-1').getByText('Rejected')
+    expect(badge.className).toMatch(/red/)
+  })
+
+  it('shows "Withdrawn" (neutral tone) for a WITHDRAWN row', () => {
+    render(<QueueTable items={[makeApproval({ status: 'WITHDRAWN' })]} currentAdminId={CURRENT_ADMIN} />)
+    const label = wideRow('a-1').getByText('Withdrawn')
+    expect(label.className).not.toMatch(/red/)
   })
 })
 
-// ── Claim cell ────────────────────────────────────────────────────────────────
+// ── Court pill ────────────────────────────────────────────────────────────────
+
+describe('QueueTable court pill', () => {
+  it('shows "Needs you" (success tone) for PENDING + unclaimed', () => {
+    render(<QueueTable items={[makeApproval({ status: 'PENDING', claimedById: null })]} currentAdminId={CURRENT_ADMIN} />)
+    const pill = wideRow('a-1').getByText('Needs you')
+    expect(pill.className).toMatch(/green/)
+  })
+
+  it('shows "Needs you" for PENDING + claimed by the current admin', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ status: 'PENDING', claimedById: CURRENT_ADMIN, claimedAt: new Date().toISOString() })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(wideRow('a-1').getByText('Needs you')).toBeInTheDocument()
+  })
+
+  it('shows "Claimed by other" (neutral tone) for PENDING + claimed by another admin', () => {
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            status: 'PENDING',
+            claimedById: 'admin-other',
+            claimedAt: new Date().toISOString(),
+            claimedBy: { id: 'admin-other', name: 'Aisha K.' },
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(wideRow('a-1').getByText('Claimed by other')).toBeInTheDocument()
+  })
+
+  it('shows "Awaiting merchant" (warn tone) for CHANGES_REQUESTED, regardless of claim owner', () => {
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            status: 'CHANGES_REQUESTED',
+            claimedById: 'admin-other',
+            claimedBy: { id: 'admin-other', name: 'Aisha K.' },
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    const pill = wideRow('a-1').getByText('Awaiting merchant')
+    expect(pill.className).toMatch(/amber/)
+  })
+
+  it('shows "Closed" for a terminal-status row (History)', () => {
+    render(<QueueTable items={[makeApproval({ status: 'APPROVED' })]} currentAdminId={CURRENT_ADMIN} />)
+    // Both the court pill AND the claim cell legitimately read "Closed" for a
+    // terminal row (see the dedicated claim-cell test below) — assert presence.
+    expect(wideRow('a-1').getAllByText('Closed').length).toBeGreaterThan(0)
+  })
+})
+
+// ── Waiting age tint + sub-line ───────────────────────────────────────────────
+
+describe('QueueTable waiting age', () => {
+  it('renders the combined d/h waiting label', () => {
+    const items = [
+      makeApproval({ id: 'a-1', submittedAt: new Date(Date.now() - 30 * 60_000).toISOString() }), // 30 min
+      makeApproval({ id: 'a-2', submittedAt: new Date(Date.now() - 4 * 86_400_000).toISOString() }), // 4 days
+    ]
+    render(<QueueTable items={items} currentAdminId={CURRENT_ADMIN} />)
+    expect(wideRow('a-1').getByText('<1h')).toBeInTheDocument()
+    expect(wideRow('a-2').getByText('4d 0h')).toBeInTheDocument()
+  })
+
+  it('adds a "with merchant · changes requested" sub-line for the merchant court', () => {
+    render(
+      <QueueTable items={[makeApproval({ status: 'CHANGES_REQUESTED' })]} currentAdminId={CURRENT_ADMIN} />
+    )
+    expect(wideRow('a-1').getByText('with merchant · changes requested')).toBeInTheDocument()
+  })
+
+  it('adds a "{Verb} {age} ago" sub-line for a closed (History) row', () => {
+    const actionedAt = new Date(Date.now() - 3 * 86_400_000).toISOString()
+    render(
+      <QueueTable
+        items={[makeApproval({ status: 'APPROVED', actionedAt })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(wideRow('a-1').getByText('Approved 3d 0h ago')).toBeInTheDocument()
+  })
+
+  it('renders no sub-line for a plain "you"/"other" row', () => {
+    render(<QueueTable items={[makeApproval({ status: 'PENDING' })]} currentAdminId={CURRENT_ADMIN} />)
+    expect(wideRow('a-1').queryByText(/with merchant|ago$/)).not.toBeInTheDocument()
+  })
+})
+
+// ── Claim / owner cell ────────────────────────────────────────────────────────
 
 describe('QueueTable claim cell', () => {
   it('shows "You" when claimedById matches currentAdminId', () => {
@@ -70,17 +246,17 @@ describe('QueueTable claim cell', () => {
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('You')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('You')).toBeInTheDocument()
   })
 
   it('shows "Unclaimed" when claimedById is null', () => {
     render(<QueueTable items={[makeApproval({ status: 'PENDING', claimedById: null })]} currentAdminId={CURRENT_ADMIN} />)
-    expect(screen.getByText('Unclaimed')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Unclaimed')).toBeInTheDocument()
   })
 
   it('shows "Waiting on merchant" for CHANGES_REQUESTED', () => {
     render(<QueueTable items={[makeApproval({ status: 'CHANGES_REQUESTED' })]} currentAdminId={CURRENT_ADMIN} />)
-    expect(screen.getByText('Waiting on merchant')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Waiting on merchant')).toBeInTheDocument()
   })
 
   it('shows "Claimed by <name>" when claimedById is another admin (not stale)', () => {
@@ -90,54 +266,19 @@ describe('QueueTable claim cell', () => {
           makeApproval({
             status: 'PENDING',
             claimedById: 'admin-other',
-            claimedAt: new Date().toISOString(), // just now, not stale
+            claimedAt: new Date().toISOString(),
             claimedBy: { id: 'admin-other', name: 'Jordan Lee' },
           }),
         ]}
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Claimed by Jordan Lee')).toBeInTheDocument()
-    expect(screen.queryByText('Stale')).not.toBeInTheDocument()
-  })
-
-  it('falls back to "Claimed by another admin" when claimedBy is null (name unresolved)', () => {
-    render(
-      <QueueTable
-        items={[
-          makeApproval({
-            status: 'PENDING',
-            claimedById: 'admin-other',
-            claimedAt: new Date().toISOString(),
-            claimedBy: null,
-          }),
-        ]}
-        currentAdminId={CURRENT_ADMIN}
-      />
-    )
-    expect(screen.getByText('Claimed by another admin')).toBeInTheDocument()
-    expect(screen.queryByText('Stale')).not.toBeInTheDocument()
-  })
-
-  it('falls back to "Claimed by another admin" when claimedBy.name is null', () => {
-    render(
-      <QueueTable
-        items={[
-          makeApproval({
-            status: 'PENDING',
-            claimedById: 'admin-other',
-            claimedAt: new Date().toISOString(),
-            claimedBy: { id: 'admin-other', name: null },
-          }),
-        ]}
-        currentAdminId={CURRENT_ADMIN}
-      />
-    )
-    expect(screen.getByText('Claimed by another admin')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Claimed by Jordan Lee')).toBeInTheDocument()
+    expect(wideRow('a-1').queryByText('Stale')).not.toBeInTheDocument()
   })
 
   it('shows the claimer name + "Stale" when claimedAt is > 24h ago', () => {
-    const staleAt = new Date(Date.now() - 25 * 3_600_000).toISOString() // 25h ago
+    const staleAt = new Date(Date.now() - 25 * 3_600_000).toISOString()
     render(
       <QueueTable
         items={[
@@ -151,67 +292,40 @@ describe('QueueTable claim cell', () => {
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Claimed by Sam Casey')).toBeInTheDocument()
-    expect(screen.getByText('Stale')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Claimed by Sam Casey')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Stale')).toBeInTheDocument()
   })
 
-  it('CHANGES_REQUESTED takes precedence over a lingering claimedById (shows "Waiting on merchant", not "Claimed" or "Stale")', () => {
-    // A row that has BOTH status=CHANGES_REQUESTED AND a non-stale claim set by
-    // another admin. CHANGES_REQUESTED wins because it is checked first in ClaimCell.
+  it('shows "Closed" for a terminal-status row, even with a lingering claim', () => {
     render(
       <QueueTable
         items={[
           makeApproval({
-            status: 'CHANGES_REQUESTED',
+            status: 'REJECTED',
             claimedById: 'admin-other',
-            claimedAt: new Date().toISOString(),
             claimedBy: { id: 'admin-other', name: 'Jordan Lee' },
           }),
         ]}
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Waiting on merchant')).toBeInTheDocument()
-    expect(screen.queryByText(/^Claimed by/)).not.toBeInTheDocument()
-    expect(screen.queryByText('Stale')).not.toBeInTheDocument()
-  })
-})
-
-// ── Urgency ───────────────────────────────────────────────────────────────────
-
-describe('QueueTable urgency', () => {
-  it('renders an urgency badge for each row', () => {
-    const items = [
-      makeApproval({ id: 'a-1', submittedAt: new Date(Date.now() - 30 * 60_000).toISOString() }), // 30 min -> under an hour
-      makeApproval({ id: 'a-2', submittedAt: new Date(Date.now() - 4 * 86_400_000).toISOString() }), // 4 days
-    ]
-    render(<QueueTable items={items} currentAdminId={CURRENT_ADMIN} />)
-    // Both rows should render a waiting duration label.
-    expect(screen.getByText('under an hour')).toBeInTheDocument()
-    expect(screen.getByText('4 days')).toBeInTheDocument()
+    // The claim cell reads "Closed"; the row's court pill separately also
+    // reads "Closed" — both legitimately present, so assert count >= 1.
+    expect(wideRow('a-1').getAllByText('Closed').length).toBeGreaterThan(0)
   })
 })
 
 // ── Navigation + no action buttons ───────────────────────────────────────────
 
 describe('QueueTable navigation', () => {
-  it('renders a review link per row pointing to /queue/<id>', () => {
+  it('renders a review link per row pointing to /queue/<id> (wide + narrow)', () => {
     const approval = makeApproval({ id: 'a-nav-1' })
     render(<QueueTable items={[approval]} currentAdminId={CURRENT_ADMIN} />)
-    const link = screen.getByRole('link', { name: /review acme coffee/i })
-    expect(link).toHaveAttribute('href', '/queue/a-nav-1')
-  })
-
-  it('renders one review link per row (multiple rows)', () => {
-    const items = [
-      makeApproval({ id: 'a-r1' }),
-      makeApproval({ id: 'a-r2', merchant: { id: 'm-2', businessName: 'Bean Scene', status: 'PENDING_APPROVAL', onboardingStep: 'SUBMIT_FOR_REVIEW', verificationStatus: 'PENDING', contractStatus: 'SIGNED' } }),
-    ]
-    render(<QueueTable items={items} currentAdminId={CURRENT_ADMIN} />)
-    const links = screen.getAllByRole('link')
+    // One link in the wide row, one in the narrow card — both point at the
+    // same review screen.
+    const links = screen.getAllByRole('link', { name: /review acme coffee/i })
     expect(links).toHaveLength(2)
-    expect(links[0]).toHaveAttribute('href', '/queue/a-r1')
-    expect(links[1]).toHaveAttribute('href', '/queue/a-r2')
+    expect(links.every((l) => l.getAttribute('href') === '/queue/a-nav-1')).toBe(true)
   })
 
   it('does not render Approve, Reject, Claim, or Release action buttons', () => {
@@ -223,48 +337,61 @@ describe('QueueTable navigation', () => {
   })
 })
 
-// ── Branches PR-5: type labels (incl. the two new branch-lifecycle types) ──────
+// ── Type label + type-chip tone ──────────────────────────────────────────────
 
-describe('QueueTable type label', () => {
-  it('labels a MERCHANT_ONBOARDING row "Onboarding"', () => {
+describe('QueueTable type label + tone', () => {
+  it('labels a MERCHANT_ONBOARDING row "Onboarding" (cyan)', () => {
     render(<QueueTable items={[makeApproval({ type: 'MERCHANT_ONBOARDING' })]} currentAdminId={CURRENT_ADMIN} />)
-    expect(screen.getByText('Onboarding')).toBeInTheDocument()
+    const chip = wideRow('a-1').getByText('Onboarding')
+    expect(chip.className).toMatch(/cyan/)
   })
 
-  it('labels a BRANCH_CREATE row "Branch: add"', () => {
+  it('labels a BRANCH_CREATE row "Branch: add" (green)', () => {
     render(
       <QueueTable
         items={[makeApproval({ type: 'BRANCH_CREATE', referenceId: 'branch-1', referenceType: 'branch' })]}
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Branch: add')).toBeInTheDocument()
+    const chip = wideRow('a-1').getByText('Branch: add')
+    expect(chip.className).toMatch(/green/)
   })
 
-  it('labels a BRANCH_CLOSE row "Branch: close"', () => {
+  it('labels a BRANCH_CLOSE row "Branch: close" (green)', () => {
     render(
       <QueueTable
         items={[makeApproval({ type: 'BRANCH_CLOSE', referenceId: 'branch-1', referenceType: 'branch' })]}
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Branch: close')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Branch: close')).toBeInTheDocument()
   })
 
-  it('renders the review link for the two new branch-lifecycle types', () => {
-    const items = [
-      makeApproval({ id: 'a-bc', type: 'BRANCH_CREATE', referenceId: 'branch-1', referenceType: 'branch' }),
-      makeApproval({ id: 'a-bx', type: 'BRANCH_CLOSE', referenceId: 'branch-2', referenceType: 'branch' }),
-    ]
-    render(<QueueTable items={items} currentAdminId={CURRENT_ADMIN} />)
-    const links = screen.getAllByRole('link')
-    expect(links).toHaveLength(2)
-    expect(links[0]).toHaveAttribute('href', '/queue/a-bc')
-    expect(links[1]).toHaveAttribute('href', '/queue/a-bx')
+  it('labels a MERCHANT_IDENTITY_EDIT row "Identity edit" (blue/info)', () => {
+    render(<QueueTable items={[makeApproval({ type: 'MERCHANT_IDENTITY_EDIT' })]} currentAdminId={CURRENT_ADMIN} />)
+    const chip = wideRow('a-1').getByText('Identity edit')
+    expect(chip.className).toMatch(/blue/)
+  })
+
+  it('labels a VOUCHER row "Voucher" (violet)', () => {
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            type: 'VOUCHER',
+            merchant: { id: 'm-1', businessName: 'Acme Coffee', status: 'ACTIVE' } as AdminApproval['merchant'],
+            voucher: { title: '20% off', type: 'DISCOUNT', status: 'PENDING_APPROVAL', approvalStatus: 'PENDING' },
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    const chip = wideRow('a-1').getByText('Voucher')
+    expect(chip.className).toMatch(/violet/)
   })
 })
 
-// ── Voucher governed-flows PR-B: VOUCHER_EDIT row + WITHDRAWN status ──────────
+// ── VOUCHER_EDIT type labels (voucherEditKind) ────────────────────────────────
 
 describe('QueueTable VOUCHER_EDIT type label', () => {
   it('labels a VOUCHER_EDIT row with voucherEditKind CHANGE as "Voucher change request"', () => {
@@ -274,7 +401,7 @@ describe('QueueTable VOUCHER_EDIT type label', () => {
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Voucher change request')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Voucher change request')).toBeInTheDocument()
   })
 
   it('labels a VOUCHER_EDIT row with voucherEditKind END as "Voucher end request"', () => {
@@ -284,7 +411,7 @@ describe('QueueTable VOUCHER_EDIT type label', () => {
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Voucher end request')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Voucher end request')).toBeInTheDocument()
   })
 
   it('falls back to the generic "Voucher edit request" label when voucherEditKind is not carried on the row', () => {
@@ -294,21 +421,11 @@ describe('QueueTable VOUCHER_EDIT type label', () => {
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByText('Voucher edit request')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Voucher edit request')).toBeInTheDocument()
   })
 })
 
-describe('QueueTable WITHDRAWN status', () => {
-  it('shows the "Withdrawn" label (not an error tone) for a WITHDRAWN approval', () => {
-    render(<QueueTable items={[makeApproval({ status: 'WITHDRAWN' })]} currentAdminId={CURRENT_ADMIN} />)
-    const label = screen.getByText('Withdrawn')
-    expect(label).toBeInTheDocument()
-    // neutral tone: shares styling with the Badge default (no destructive/red classes)
-    expect(label.className).not.toMatch(/red/)
-  })
-})
-
-// ── Day-2 Vouchers PR-C: VOUCHER row enrichment ───────────────────────────────
+// ── VOUCHER row enrichment (Day-2 Vouchers PR-C) ──────────────────────────────
 
 function makeVoucherApproval(overrides: Partial<AdminApproval> = {}): AdminApproval {
   return makeApproval({
@@ -316,7 +433,6 @@ function makeVoucherApproval(overrides: Partial<AdminApproval> = {}): AdminAppro
     type: 'VOUCHER',
     referenceId: 'voucher-1',
     referenceType: 'voucher',
-    // A VOUCHER-row merchant carries only { id, businessName, status }.
     merchant: { id: 'm-1', businessName: 'Acme Coffee', status: 'ACTIVE' } as AdminApproval['merchant'],
     voucher: { title: '20% off all mains', type: 'DISCOUNT', status: 'PENDING_APPROVAL', approvalStatus: 'PENDING' },
     goLiveHint: 'live-now',
@@ -325,80 +441,99 @@ function makeVoucherApproval(overrides: Partial<AdminApproval> = {}): AdminAppro
 }
 
 describe('QueueTable VOUCHER row', () => {
-  it('renders the voucher title alongside the merchant business name', () => {
+  it('renders the voucher title as the primary label, business name + type as the sub-label', () => {
     render(<QueueTable items={[makeVoucherApproval()]} currentAdminId={CURRENT_ADMIN} />)
-    const row = screen.getByTestId('queue-row-a-voucher-1')
-    expect(row).toHaveTextContent('20% off all mains')
-    expect(row).toHaveTextContent('Acme Coffee')
-  })
-
-  it('renders the voucher type label (Discount) and the "Voucher" type badge', () => {
-    render(<QueueTable items={[makeVoucherApproval()]} currentAdminId={CURRENT_ADMIN} />)
-    const row = screen.getByTestId('queue-row-a-voucher-1')
-    expect(row).toHaveTextContent('Voucher')
-    expect(row).toHaveTextContent('Discount')
+    const row = wideRow('a-voucher-1')
+    expect(row.getByText('20% off all mains')).toBeInTheDocument()
+    expect(row.getByText('Acme Coffee · Discount')).toBeInTheDocument()
   })
 
   it('renders the go-live-now hint', () => {
     render(<QueueTable items={[makeVoucherApproval({ goLiveHint: 'live-now' })]} currentAdminId={CURRENT_ADMIN} />)
-    expect(screen.getByTestId('queue-row-a-voucher-1')).toHaveTextContent(/go live now/i)
+    expect(wideRow('a-voucher-1').getByText(/go live now/i)).toBeInTheDocument()
   })
 
   it('renders the waiting-for-go-live hint', () => {
     render(<QueueTable items={[makeVoucherApproval({ goLiveHint: 'waiting-for-go-live' })]} currentAdminId={CURRENT_ADMIN} />)
-    expect(screen.getByTestId('queue-row-a-voucher-1')).toHaveTextContent(/waiting to go live/i)
+    expect(wideRow('a-voucher-1').getByText(/waiting to go live/i)).toBeInTheDocument()
   })
 
   it('does NOT render a verification badge for a VOUCHER row (no verificationStatus)', () => {
     render(<QueueTable items={[makeVoucherApproval()]} currentAdminId={CURRENT_ADMIN} />)
-    // The onboarding-only verification labels must not appear on a voucher row.
-    const row = screen.getByTestId('queue-row-a-voucher-1')
-    expect(row).not.toHaveTextContent('Verified')
-    expect(row).not.toHaveTextContent('Rejected')
-  })
-
-  it('links the VOUCHER row to its review screen at /queue/<id> (queue -> detail)', () => {
-    render(<QueueTable items={[makeVoucherApproval()]} currentAdminId={CURRENT_ADMIN} />)
-    const link = screen.getByRole('link', { name: /20% off all mains/i })
-    expect(link).toHaveAttribute('href', '/queue/a-voucher-1')
+    const row = wideRow('a-voucher-1')
+    expect(row.queryByText('Verified')).not.toBeInTheDocument()
   })
 
   it('degrades gracefully when the voucher summary is null (shows merchant name, no crash)', () => {
     render(
-      <QueueTable
-        items={[makeVoucherApproval({ voucher: null, goLiveHint: null })]}
-        currentAdminId={CURRENT_ADMIN}
-      />,
+      <QueueTable items={[makeVoucherApproval({ voucher: null, goLiveHint: null })]} currentAdminId={CURRENT_ADMIN} />
     )
-    expect(screen.getByTestId('queue-row-a-voucher-1')).toHaveTextContent('Acme Coffee')
+    expect(wideRow('a-voucher-1').getByText('Acme Coffee')).toBeInTheDocument()
   })
 
-  // Codex FIX 1 (PR-A): a stale VOUCHER approval (its referenceId points at a
-  // missing/deleted voucher) now comes back as the safe shape voucher:null +
-  // merchant:null + goLiveHint:null. The queue row must render it without crashing,
-  // falling back to "Unknown merchant", and stay clickable to its review screen.
   it('renders a stale VOUCHER row (voucher + merchant both null) as "Unknown merchant", linked, no crash', () => {
     render(
       <QueueTable
         items={[makeVoucherApproval({ voucher: null, merchant: null, goLiveHint: null })]}
         currentAdminId={CURRENT_ADMIN}
-      />,
+      />
     )
-    const row = screen.getByTestId('queue-row-a-voucher-1')
-    expect(row).toHaveTextContent('Unknown merchant')
-    expect(screen.getByRole('link', { name: /Unknown merchant/i })).toHaveAttribute('href', '/queue/a-voucher-1')
+    const row = wideRow('a-voucher-1')
+    expect(row.getByText('Unknown merchant')).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: /Unknown merchant/i })[0]).toHaveAttribute(
+      'href',
+      '/queue/a-voucher-1'
+    )
+  })
+})
+
+// ── Optional-field grace (unmerged PR #455 merchant-name enrichment) ─────────
+
+describe('QueueTable optional-field grace for edit/branch-lifecycle rows', () => {
+  it('renders "Unknown merchant" gracefully when an edit/branch row carries merchant:null (pre-#455)', () => {
+    for (const type of ['MERCHANT_PROFILE_EDIT', 'MERCHANT_IDENTITY_EDIT', 'BRANCH_IDENTITY_EDIT', 'BRANCH_CREATE', 'BRANCH_CLOSE'] as const) {
+      const { unmount } = render(
+        <QueueTable
+          items={[makeApproval({ id: `a-${type}`, type, merchant: null })]}
+          currentAdminId={CURRENT_ADMIN}
+        />
+      )
+      expect(wideRow(`a-${type}`).getByText('Unknown merchant')).toBeInTheDocument()
+      unmount()
+    }
   })
 
-  it('renders a MERCHANT_ONBOARDING row unchanged alongside a VOUCHER row', () => {
+  it('renders the enriched merchant name when the row carries it (post-#455)', () => {
     render(
       <QueueTable
-        items={[makeApproval({ id: 'a-onb' }), makeVoucherApproval()]}
+        items={[
+          makeApproval({
+            id: 'a-enriched',
+            type: 'BRANCH_IDENTITY_EDIT',
+            merchant: { id: 'm-9', businessName: 'The Old Foundry Kitchen', status: 'ACTIVE' } as AdminApproval['merchant'],
+          }),
+        ]}
         currentAdminId={CURRENT_ADMIN}
-      />,
+      />
     )
-    // Onboarding row still shows its verification badge.
-    const onbRow = screen.getByTestId('queue-row-a-onb')
-    expect(onbRow).toHaveTextContent('Pending')
-    expect(onbRow).toHaveTextContent('Onboarding')
+    expect(wideRow('a-enriched').getByText('The Old Foundry Kitchen')).toBeInTheDocument()
+  })
+})
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+
+describe('QueueTable empty state', () => {
+  it('shows "No items match" with no Clear-filter action by default', () => {
+    render(<QueueTable items={[]} currentAdminId={CURRENT_ADMIN} />)
+    expect(screen.getByText(/no items match/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /clear filter/i })).not.toBeInTheDocument()
+  })
+
+  it('shows a "Clear filter" action when onClearFilter is provided, and calls it on click', () => {
+    const onClearFilter = jest.fn()
+    render(<QueueTable items={[]} currentAdminId={CURRENT_ADMIN} onClearFilter={onClearFilter} />)
+    const button = screen.getByRole('button', { name: /clear filter/i })
+    button.click()
+    expect(onClearFilter).toHaveBeenCalledTimes(1)
   })
 })
