@@ -3083,28 +3083,44 @@ export async function searchMerchants(
 // merchant variant. See line ~470 for the helper + the canonical tier ↔ rung
 // mapping that mirrors `mapRungToLegacyTier` at ladderProfiles.ts:110.
 //
-// Phase 1 params accepted but NOT honoured (the function signature mirrors
-// searchMerchants for surface parity; honouring is delegated to Phase 2/3
-// cleanup or follow-up work; rankBranchesV3 + the branch-first contract
-// intentionally simplify the Phase 1 surface). After Task 2.1.0 closed
-// `scope`, the remaining seven ignored params (tracked under
-// deferred-followups §BX.1-§BX.7) are:
-//   - maxDistanceMiles — would require a post-rank distance filter; deferred (§BX.1).
-//   - amenityIds       — branch-level amenity filter; deferred (§BX.2).
-//   - tagIds           — Tag.label filter; deferred Plan 4 M4 work (§BX.3).
-//   - openNow          — Europe/London current-time gate; deferred (§BX.4).
-//   - featured         — FeaturedMerchant overlay; deferred (§BX.5).
-//   - topRated         — quality-aware sort; deferred (§BX.6).
-//   - sortBy           — relevance / nearest / top_rated / highest_saving
-//                        override; deferred (§BX.7) — current sort is
-//                        rankBranchesV3's default per ladder profile.
+// §BX.1-§BX.7 CLOSED (Map Phase 2 Slice S1, 2026-07-10; plan
+// docs/superpowers/plans/2026-07-10-map-phase-2-programme.md). All seven
+// params below are now honoured; Category + Map inherit the fix for free
+// since both delegate to `searchBranches`. Kept as historical record of
+// what Phase 1 shipped without, plus WHERE each param is now implemented:
+//   - maxDistanceMiles — post-fetch filter on the candidate list (below,
+//     after the WHERE fetch), mirroring searchMerchants' hasExactPosition
+//     guard but scoped to the branch's OWN position (not "nearest exact
+//     branch under the merchant").
+//   - amenityIds       — WHERE clause, ALL-of on THIS branch (`amenities:
+//     { some: { amenityId } }` looped per id) — see the amenityIds block
+//     below for the deliberate divergence from the merchant arm's
+//     "any branch" ALL-of semantics.
+//   - tagIds           — WHERE clause via `merchant: { OR: [...] } }`,
+//     ANY-of across MerchantTag / MerchantHighlight / primaryDescriptorTagId
+//     — identical OR shape to searchMerchants (service.ts:2842-2853).
+//   - openNow          — post-fetch filter using the BRANCH's own
+//     BranchOpeningHours (more precise than the merchant arm's "any
+//     branch under the merchant is open" secondary query) via the same
+//     `isOpenNow` producer.
+//   - featured         — WHERE clause via `merchant: { featuredListings:
+//     { some: {...} } } }`, identical date-range gate to searchMerchants.
+//   - topRated         — pre-rank admission filter (avgRating >= 4.0 AND
+//     reviewCount >= 5, identical thresholds to searchMerchants) applied
+//     to the full candidate population (rankable AND non-rankable tail)
+//     before partition.
+//   - sortBy           — 'relevance' (default) leaves rankBranchesV3's
+//     ranking untouched; 'top_rated' / 'highest_saving' are full post-rank
+//     overrides across ALL rungs, mirroring searchMerchants' postSorted
+//     block (service.ts:2992-3009) exactly, including its 'top_rated'
+//     reviewCount>=3 threshold (looser than the `topRated` param's own
+//     admission gate). 'nearest' is a genuine post-rank distance-ascending
+//     override — see the divergence note at the sortBy block below for why
+//     this does NOT literally mirror searchMerchants' pre-rank 'nearest'
+//     sort (which has no observable effect in the merchant arm today).
 //
 // Route handlers that wire searchBranches alongside searchMerchants (Task 1.10)
-// should be aware of this parity gap. Two options for callers:
-//   (a) strip these params at the route layer when delegating to searchBranches.
-//   (b) accept them at the route and document the no-op for callers.
-// Recommended: (b) — accept-and-no-op keeps callers' tests portable across
-// Phase 1 / 2 / 3 as more params get honoured incrementally.
+// pass these params straight through now — no route-layer stripping needed.
 
 // Plan 4 M4.2 — Place detection.  Kill-switch per spec §11.3.  When true,
 // `searchBranches` looks up `q` against `Locality.name` (ILIKE-prefix) then
@@ -3323,7 +3339,8 @@ export async function searchBranches(
   }
 }> {
   const { q, categoryId, subcategoryId, lat, lng, minLat, maxLat, minLng, maxLng,
-          minSaving, voucherTypes, scope, limit, offset, userId } = params
+          minSaving, voucherTypes, amenityIds, tagIds, scope, openNow, featured,
+          topRated, sortBy, limit, offset, userId } = params
 
   // PR #112 fixup-6 (2026-05-20) — normalise the user query before matching.
   // Owner-locked: trim + collapse internal whitespace.  Trailing/internal
@@ -3586,6 +3603,57 @@ export async function searchBranches(
     ]
   }
 
+  // Map Phase 2 Slice S1 (§BX.2 closure, 2026-07-10) — amenityIds.
+  //
+  // Mirrors searchMerchants' per-amenityId AND loop (service.ts:2833-2840):
+  // ALL-of semantics (every requested amenityId must be satisfied). The
+  // merchant arm's loop requires "SOME branch under this merchant has
+  // amenity X" repeated per amenityId — which can spread the required
+  // amenities across DIFFERENT branches of the same merchant. Scoped one
+  // level down to a single branch (branches ARE the search unit here),
+  // "ALL-of" naturally collapses to "this branch carries every requested
+  // amenity" — a stricter but more precise branch-level reading of the
+  // same ALL-of intent, not a semantic change to what "amenityIds" means.
+  if (amenityIds && amenityIds.length > 0) {
+    for (const amenityId of amenityIds) {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : []),
+        { amenities: { some: { amenityId } } },
+      ]
+    }
+  }
+
+  // §BX.3 closure — tagIds. ANY-of across MerchantTag / MerchantHighlight /
+  // primaryDescriptorTagId, identical OR shape to searchMerchants
+  // (service.ts:2842-2853), scoped through the branch's merchant relation
+  // (tags are merchant-wide, not per-branch).
+  if (tagIds && tagIds.length > 0) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      {
+        merchant: {
+          OR: [
+            { tags:       { some: { tagId:          { in: tagIds } } } },
+            { highlights: { some: { highlightTagId: { in: tagIds } } } },
+            { primaryDescriptorTagId: { in: tagIds } },
+          ],
+        },
+      },
+    ]
+  }
+
+  // §BX.5 closure — featured. Mirrors searchMerchants (service.ts:2859-2865);
+  // FeaturedMerchant is merchant-wide, so the gate reaches through `merchant`.
+  if (featured) {
+    const featuredNow = new Date()
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      { merchant: { featuredListings: { some: {
+        isActive: true, startDate: { lte: featuredNow }, endDate: { gte: featuredNow },
+      }}}},
+    ]
+  }
+
   // Bounding box — branch-direct (not via merchant.branches). Per the redaction
   // contract (PR #81) only CONFIRMED_LOCATION_SET branches can be filtered by
   // exact coords; approximate branches surface in the non-rankable tail instead
@@ -3605,8 +3673,12 @@ export async function searchBranches(
 
   // ── 3. Fetch candidate branches (no take / skip — rank-then-paginate).
   //    Lite select for the ranking step; full BRANCH_TILE_SELECT runs in
-  //    enrichBranchTiles for the page slice only.
-  const candidateBranches = await prisma.branch.findMany({
+  //    enrichBranchTiles for the page slice only. `openingHours` is always
+  //    selected here (not conditionally on `openNow`) — folding it into
+  //    this one round-trip avoids both a second query (the merchant arm's
+  //    approach) AND a conditional-select TS union headache; the join is
+  //    cheap relative to the rest of this pipeline.
+  let candidateBranches = await prisma.branch.findMany({
     where,
     select: {
       id:                 true,
@@ -3622,11 +3694,87 @@ export async function searchBranches(
       adminCounty:        true,
       region:             true,
       locationCountry:    true,
+      openingHours: {
+        select: { dayOfWeek: true, openTime: true, closeTime: true, isClosed: true },
+        orderBy: OPENING_HOURS_ORDER_BY,
+      },
       merchant: {
         select: { id: true, businessName: true },
       },
     },
   })
+
+  // ── 3.5. Map Phase 2 Slice S1 — post-fetch candidate filters.
+  //
+  // openNow + maxDistanceMiles mirror searchMerchants' JS-side (not SQL)
+  // filtering (service.ts:2908-2946): both need per-row computation
+  // (isOpenNow's time-window walk; haversine distance) that isn't a plain
+  // SQL predicate. Applied here — BEFORE the rankable/nonRankable partition
+  // — so both halves (ranked AND the POSTCODE_CENTROID/NEEDS_REVIEW tail)
+  // respect the filters identically; a branch excluded here can never
+  // surface via either path.
+  if (openNow) {
+    // §BX.4 closure — divergence from the merchant arm (documented, not a
+    // bug): searchMerchants' openNow checks "does ANY branch under this
+    // merchant have opening hours reporting open" (service.ts:2921-2946) —
+    // an approximation, since a customer searching a specific branch tile
+    // doesn't care whether a DIFFERENT branch of the same merchant is
+    // open. The branch arm is more precise: it evaluates THIS branch's own
+    // BranchOpeningHours via the same canonical `isOpenNow` producer
+    // (src/api/shared/isOpenNow.ts) that already drives the wire
+    // `isOpenNow` display field on every branch tile.
+    candidateBranches = candidateBranches.filter(b => isOpenNow(b.openingHours))
+  }
+
+  if (params.maxDistanceMiles && lat !== undefined && lng !== undefined) {
+    // §BX.1 closure — mirrors searchMerchants' hasExactPosition guard
+    // (service.ts:2908-2918): a branch without an exact (CONFIRMED_LOCATION_SET)
+    // position is treated as out-of-range (excluded) rather than letting an
+    // approximate POSTCODE_CENTROID centroid pass the radius filter. Scoped
+    // to THIS branch's own position (the branch arm has no "nearest branch
+    // under the merchant" concept — each row already IS one branch).
+    const maxMetres = params.maxDistanceMiles * 1609.34
+    candidateBranches = candidateBranches.filter(b => {
+      if (!hasExactPosition(b)) return false
+      return haversineMetres(lat, lng, Number(b.latitude), Number(b.longitude)) <= maxMetres
+    })
+  }
+
+  // §BX.6 closure — pre-rank rating fetch. Needed by BOTH the `topRated`
+  // admission filter (below) and the `sortBy === 'top_rated'` post-rank
+  // override (§6.6 below). One groupBy across the (already
+  // openNow/maxDistanceMiles-filtered) candidate set — shape mirrors
+  // `computeRatingsByMerchant` (lib/ranking.ts:216) but keyed per-branch
+  // (branch-first cardinality; no merchant-level aggregation across
+  // sibling branches).
+  let ratingByBranchPreRank = new Map<string, { avg: number | null; count: number }>()
+  if (topRated || sortBy === 'top_rated') {
+    const idsForRating = candidateBranches.map(b => b.id)
+    if (idsForRating.length > 0) {
+      const ratingGroupsPreRank = await prisma.review.groupBy({
+        by:     ['branchId'],
+        where:  { branchId: { in: idsForRating }, isHidden: false },
+        _avg:   { rating: true },
+        _count: { id: true },
+      })
+      for (const g of ratingGroupsPreRank) {
+        if (g.branchId === null) continue
+        ratingByBranchPreRank.set(g.branchId, { avg: g._avg.rating ?? null, count: g._count.id })
+      }
+    }
+  }
+
+  if (topRated) {
+    // §BX.6 — mirrors searchMerchants' admission gate exactly (service.ts:
+    // 2971-2973): avgRating >= 4.0 AND reviewCount >= 5. Applied to the
+    // FULL candidate population (rankable AND non-rankable tail) before
+    // partition, so a non-top-rated branch can never surface via either
+    // path.
+    candidateBranches = candidateBranches.filter(b => {
+      const r = ratingByBranchPreRank.get(b.id)
+      return (r?.avg ?? 0) >= 4.0 && (r?.count ?? 0) >= 5
+    })
+  }
 
   // ── 4. Partition by locationConfidence (Spec §4.1.1). rankable =
   //    CONFIRMED_LOCATION_SET (shared M4 helper); nonRankable is its
@@ -3723,6 +3871,85 @@ export async function searchBranches(
   // simply because another branch/rung/scope gate ranks differently" —
   // applies to rank gate (bucket B), NOT user-selected scope (bucket A).
   const preScopeRankedIds = new Set(rankedTiles.map(t => t.id))
+
+  // ── 6.6. Map Phase 2 Slice S1 (§BX.7 closure, 2026-07-10) — sortBy
+  // post-rank override, applied BEFORE the scope cascade below (mirrors
+  // searchMerchants' ordering exactly: postSorted is computed from
+  // rankedTiles, THEN resolveScopeForRanking/resolveScopeForBranches runs —
+  // service.ts:2992-3012). 'relevance' (default/undefined) leaves
+  // rankBranchesV3's rung+distance/quality ordering untouched. All three
+  // overrides below are pure REORDERS (same Set of ids as `preScopeRankedIds`
+  // above) — never add/remove tiles, so applying them here vs. after
+  // `preScopeRankedIds` was captured makes no difference to bucket B.
+  //
+  // 'top_rated' / 'highest_saving' fully re-sort the ranked set across ALL
+  // rungs (rung grouping is NOT preserved) — qualifying tiles first
+  // (best-first), non-qualifying tiles keep their prior relative order
+  // appended after. Mirrors searchMerchants' postSorted block exactly
+  // (service.ts:2992-3009), including its 'top_rated' reviewCount>=3
+  // threshold — deliberately looser than the `topRated` PARAM's own
+  // reviewCount>=5 admission gate above; that inconsistency already exists
+  // in the merchant arm and is preserved here for parity, not introduced.
+  //
+  // Divergence note for 'nearest' (documented, not a bug): searchMerchants'
+  // `sortBy === 'nearest'` only pre-sorts the RAW merchant list BEFORE
+  // rankMerchants runs (service.ts:2894-2904) — but rankMerchants
+  // unconditionally re-sorts the NEARBY tier by distance and the
+  // CITY/DISTANT tiers by name/quality regardless of input order, so that
+  // pre-sort has NO observable effect on the merchant arm's output today.
+  // Mirroring that literally would ship a param that still does nothing —
+  // failing the programme's Acceptance Criteria #2 ("every FilterSheet
+  // control provably changes the rendered branches"). The branch arm
+  // instead implements 'nearest' as a genuine post-rank distance-ascending
+  // override, consistent with how 'top_rated' / 'highest_saving' already
+  // fully re-sort across rungs above.
+  if (sortBy === 'nearest') {
+    rankedTiles = [...rankedTiles].sort((a, b) => {
+      const da = a.distanceMetres ?? Number.POSITIVE_INFINITY
+      const db = b.distanceMetres ?? Number.POSITIVE_INFINITY
+      if (da !== db) return da - db
+      const nameCmp = a.businessName.localeCompare(b.businessName)
+      if (nameCmp !== 0) return nameCmp
+      return a.id.localeCompare(b.id)
+    })
+  } else if (sortBy === 'top_rated') {
+    const qualifiesTopRated = (id: string) => {
+      const r = ratingByBranchPreRank.get(id)
+      return (r?.avg ?? 0) >= 4.0 && (r?.count ?? 0) >= 3
+    }
+    rankedTiles = rankedTiles
+      .filter(t => qualifiesTopRated(t.id))
+      .sort((a, b) => (ratingByBranchPreRank.get(b.id)?.avg ?? 0) - (ratingByBranchPreRank.get(a.id)?.avg ?? 0))
+      .concat(rankedTiles.filter(t => !qualifiesTopRated(t.id)))
+  } else if (sortBy === 'highest_saving') {
+    // Vouchers are merchant-wide (not per-branch — CLAUDE.md §6 data-model
+    // spine), so "highest saving" for a branch tile reads its merchant's
+    // max ACTIVE+APPROVED voucher saving — same filter criteria as
+    // MERCHANT_TILE_SELECT.vouchers.where (service.ts:344) and the
+    // merchant arm's own highest_saving computation (service.ts:3001-3008).
+    const merchantIdsForSaving = Array.from(new Set(rankedTiles.map(t => t.merchantId)))
+    const maxSavingByMerchantId = new Map<string, number>()
+    if (merchantIdsForSaving.length > 0) {
+      const vouchersForSaving = await prisma.voucher.findMany({
+        where: {
+          merchantId:     { in: merchantIdsForSaving },
+          status:         VoucherStatus.ACTIVE,
+          approvalStatus: ApprovalStatus.APPROVED,
+          isTestData:     false,
+        },
+        select: { merchantId: true, estimatedSaving: true },
+      })
+      for (const v of vouchersForSaving) {
+        const saving = Number(v.estimatedSaving)
+        if (isNaN(saving)) continue
+        const prevMax = maxSavingByMerchantId.get(v.merchantId) ?? 0
+        if (saving > prevMax) maxSavingByMerchantId.set(v.merchantId, saving)
+      }
+    }
+    rankedTiles = [...rankedTiles].sort(
+      (a, b) => (maxSavingByMerchantId.get(b.merchantId) ?? 0) - (maxSavingByMerchantId.get(a.merchantId) ?? 0),
+    )
+  }
 
   // ── 6.5. Discovery Rebaseline Task 2.1.0 — scope cascade parity.
   //
