@@ -42,6 +42,26 @@ jest.mock('@/lib/api/client', () => ({
   apiFetch: (...a: unknown[]) => mockApiFetch(...a),
 }))
 
+// FileUpload now routes an image pick through ImageCropModal (crop-first flow)
+// before uploading. The crop step has its own suites
+// (components/ui/__tests__/ImageCropModal.test.tsx + lib/image/__tests__/
+// cropImage.test.ts); here it is replaced with an auto-confirm pass-through
+// (confirms with the same picked File on mount) so these parity tests keep
+// exercising the pick -> upload -> payload wiring without a canvas in jsdom.
+jest.mock('@/components/ui/ImageCropModal', () => {
+  const { useEffect } = jest.requireActual('react')
+  return {
+    ImageCropModal: ({ file, onConfirm }: { file: File; onConfirm: (f: File) => void }) => {
+      useEffect(() => {
+        onConfirm(file)
+        // Mount-only: the fake immediately "confirms" the crop.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [])
+      return null
+    },
+  }
+})
+
 function renderBuilder(props: Partial<ComponentProps<typeof DayTwoBuilder>> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const onDone = props.onDone ?? jest.fn()

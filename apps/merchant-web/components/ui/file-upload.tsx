@@ -3,20 +3,26 @@
 import * as React from 'react'
 import { cn } from '@/lib/utils'
 import { apiFetch } from '@/lib/api/client'
+import { ImageCropModal } from './ImageCropModal'
+import type { UploadKind } from '@/lib/uploads/imageRules'
 
 // FileUpload: click-to-upload image control for the onboarding flow (F3 logo/cover,
-// F4 branch banner/photo). It runs a CLIENT-SIDE type (PNG/JPG) + per-kind size
-// pre-check, then POSTs the file to the B5 server-proxied route
-// `POST /api/v1/merchant/uploads/:kind` via the shared API client (which attaches
-// the in-memory bearer token when `auth: true`, and leaves the Content-Type unset
-// for a FormData body so the browser sets the multipart boundary). On success the
-// backend returns `{ url }`; we surface the public URL via `onUploaded`.
+// F4 branch banner/photo). A picked image is first run through ImageCropModal (the
+// Kraft Store walkthrough finding: no preview + a hard IMAGE_DIMENSIONS_INVALID
+// rejection with no way to fix it) so the merchant can reframe it into the kind's
+// required aspect ratio; the CROPPED output is what gets pre-checked and POSTed to
+// the B5 server-proxied route `POST /api/v1/merchant/uploads/:kind` via the shared
+// API client (which attaches the in-memory bearer token when `auth: true`, and
+// leaves the Content-Type unset for a FormData body so the browser sets the
+// multipart boundary). On success the backend returns `{ url }`; we surface the
+// public URL via `onUploaded`, and show a small thumbnail preview of what was
+// saved.
 //
 // The client-side checks are a UX pre-filter only - the backend re-validates type,
 // size, AND dimensions server-side (it is the security boundary). The size caps
 // here mirror the backend per-kind caps so the user gets fast feedback.
 
-export type UploadKind = 'logo' | 'banner' | 'photo'
+export type { UploadKind }
 
 const MB = 1024 * 1024
 
@@ -65,45 +71,73 @@ export function FileUpload({ kind, label, hint, onUploaded, className, id }: Fil
   const [status, setStatus] = React.useState<Status>('idle')
   const [fileName, setFileName] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  // The just-picked, not-yet-cropped file. Set => the ImageCropModal is open.
+  const [pendingCropFile, setPendingCropFile] = React.useState<File | null>(null)
+  // Object URL for the CROPPED file that was actually uploaded, shown as a
+  // post-upload success thumbnail so the merchant can see what was saved.
+  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null)
 
-  async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // Revoke the preview object URL whenever it changes or the control unmounts.
+  React.useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    }
+  }, [previewUrl])
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.target
     const file = input.files?.[0]
+    // Reset immediately (not just on error/finally): the crop step is now an
+    // async detour (open modal -> confirm/cancel), so the native input must be
+    // clear right away for a re-pick of the SAME file to refire onChange,
+    // whether the merchant cancels the crop or a later upload attempt fails.
+    input.value = ''
     if (!file) return
 
     setError(null)
 
-    // Client-side type pre-check.
+    // Client-side type pre-check runs on the RAW picked file, before crop.
     if (!ACCEPTED_TYPES.includes(file.type)) {
       setStatus('error')
       setFileName(null)
       setError('Use a PNG or JPG image.')
-      // Reset so re-picking the same file refires onChange (see catch below).
-      input.value = ''
-      return
-    }
-    // Client-side size pre-check (mirrors the backend per-kind cap).
-    const cap = MAX_BYTES[kind]
-    if (file.size > cap) {
-      setStatus('error')
-      setFileName(null)
-      setError(`That file is too large. Keep it under ${humanMb(cap)}.`)
-      // Reset so re-picking the same file refires onChange (see catch below).
-      input.value = ''
       return
     }
 
-    setFileName(file.name)
+    // Open the crop step; the actual upload happens on crop confirm.
+    setPendingCropFile(file)
+  }
+
+  function handleCropCancel() {
+    setPendingCropFile(null)
+  }
+
+  async function handleCropConfirm(croppedFile: File) {
+    setPendingCropFile(null)
+    setError(null)
+
+    // Client-side size pre-check (mirrors the backend per-kind cap), now run
+    // against the CROPPED output rather than the original picked file.
+    const cap = MAX_BYTES[kind]
+    if (croppedFile.size > cap) {
+      setStatus('error')
+      setFileName(null)
+      setError(`That file is too large. Keep it under ${humanMb(cap)}.`)
+      return
+    }
+
+    setFileName(croppedFile.name)
     setStatus('uploading')
     try {
       const form = new FormData()
-      form.append('file', file)
+      form.append('file', croppedFile, croppedFile.name)
       const res = await apiFetch<{ url: string }>(`/api/v1/merchant/uploads/${kind}`, {
         method: 'POST',
         auth: true,
         body: form,
       })
       setStatus('done')
+      setPreviewUrl(URL.createObjectURL(croppedFile))
       onUploaded?.(res.url)
     } catch (err) {
       setStatus('error')
@@ -120,11 +154,6 @@ export function FileUpload({ kind, label, hint, onUploaded, className, id }: Fil
             ? backendMessage
             : 'Upload failed. Please try again.',
       )
-    } finally {
-      // Reset the native input value so re-selecting the EXACT same file refires
-      // onChange (the input does not emit a change for an identical value). Without
-      // this, a user could not retry the same file after a transient upload failure.
-      input.value = ''
     }
   }
 
@@ -164,6 +193,23 @@ export function FileUpload({ kind, label, hint, onUploaded, className, id }: Fil
         <span role="alert" className="text-xs font-medium text-[#B91C1C]">
           {error}
         </span>
+      ) : null}
+      {status === 'done' && previewUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- object URL preview, not an optimizable remote asset
+        <img
+          src={previewUrl}
+          alt=""
+          data-testid="file-upload-preview"
+          className="h-16 w-16 rounded-[10px] border border-[#D1D5DB] object-cover"
+        />
+      ) : null}
+      {pendingCropFile ? (
+        <ImageCropModal
+          file={pendingCropFile}
+          kind={kind}
+          onCancel={handleCropCancel}
+          onConfirm={handleCropConfirm}
+        />
       ) : null}
     </div>
   )
