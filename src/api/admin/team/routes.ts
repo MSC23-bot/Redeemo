@@ -3,12 +3,17 @@
 // `admin:manage-team`, which is held ONLY by SUPER_ADMIN (it is not in any role
 // baseline and not grantable), so the capability gate IS the SUPER_ADMIN gate.
 // `authenticateAdmin` is applied by the admin-management plugin scope.
+//
+// S2 addendum: GET (list) added as the roster read for the Team & Roles
+// admin-web screen. No list route existed under S1 — this is the one
+// permitted additive backend route for slice S2 (spec §6.2 / plan S2).
 
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { emailSchema } from '../../shared/schemas'
 import { requireAdminCapability } from '../capability'
 import {
+  listTeamAdmins,
   createAdminAccount,
   setAdminRole,
   deactivateAdmin,
@@ -29,6 +34,13 @@ export async function adminTeamRoutes(app: FastifyInstance) {
 
   const auditCtx = (req: any) => ({ ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' })
   const adminIdParam = (req: any) => z.object({ adminId: z.string().min(1) }).parse(req.params).adminId
+
+  // S2: list every admin account + its active capability grants (the Team &
+  // Roles roster read). No pagination — the admin roster is small. Curated
+  // select (never passwordHash); see listTeamAdmins for the exact shape.
+  app.get(prefix, gate, async () => {
+    return listTeamAdmins(app.prisma)
+  })
 
   // Create an admin account (email, name, base role). A random unusable password
   // is set; NO email is sent (email is a later slice). 409 on duplicate email.

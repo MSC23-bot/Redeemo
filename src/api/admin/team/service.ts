@@ -58,6 +58,45 @@ export async function getActiveGrantCapabilities(
 }
 
 /**
+ * S2: list every admin account with its active (non-revoked) capability grants,
+ * for the Team & Roles roster screen. A curated select — NEVER selects
+ * `passwordHash` (or any other secret). `name` is a computed "First Last"
+ * string, matching the convention used elsewhere for admin actor names
+ * (e.g. src/api/admin/approvals/service.ts, src/api/admin/timeline/service.ts)
+ * rather than shipping firstName/lastName separately. Newest account first.
+ */
+export async function listTeamAdmins(prisma: PrismaClient) {
+  const admins = await prisma.adminUser.findMany({
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      role: true,
+      isActive: true,
+      createdAt: true,
+      capabilityGrants: {
+        where: { revokedAt: null },
+        select: { capability: true },
+      },
+    },
+  })
+
+  return {
+    admins: admins.map((a: (typeof admins)[number]) => ({
+      id: a.id,
+      email: a.email,
+      name: `${a.firstName} ${a.lastName}`.trim(),
+      role: a.role,
+      isActive: a.isActive,
+      createdAt: a.createdAt,
+      activeGrants: a.capabilityGrants.map((g: { capability: string }) => g.capability),
+    })),
+  }
+}
+
+/**
  * Create an admin account. A random, unusable password is set (the account
  * bootstraps via the standard admin password-reset flow); NO email is sent here
  * (email delivery is a separate slice). Rejects a duplicate email (409).

@@ -13,6 +13,7 @@ vi.mock('../../../src/api/shared/session', () => ({
 }))
 
 import {
+  listTeamAdmins,
   grantCapability,
   revokeCapability,
   deactivateAdmin,
@@ -52,6 +53,77 @@ const redis = {} as any
 beforeEach(() => {
   revokeAllSessionsForEntity.mockClear()
   revokeAllUserSessionRecords.mockClear()
+})
+
+// S2 — the roster read. No transaction (a plain findMany), so this uses its
+// own prisma mock shape rather than makeTx/makePrisma.
+describe('listTeamAdmins — roster read (S2)', () => {
+  it('maps admins to the curated shape: id/email/name/role/isActive/createdAt/activeGrants', async () => {
+    const createdAt = new Date('2026-07-01T00:00:00.000Z')
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        id: 'super-1',
+        email: 'owner@redeemo.com',
+        firstName: 'Priya',
+        lastName: 'Owner',
+        role: 'SUPER_ADMIN',
+        isActive: true,
+        createdAt,
+        capabilityGrants: [],
+      },
+      {
+        id: TARGET,
+        email: 'f@r.com',
+        firstName: 'Field',
+        lastName: 'Rep',
+        role: 'FIELD',
+        isActive: true,
+        createdAt,
+        capabilityGrants: [{ capability: 'approval:action' }],
+      },
+    ])
+    const prisma = { adminUser: { findMany } } as any
+
+    const result = await listTeamAdmins(prisma)
+
+    expect(result).toEqual({
+      admins: [
+        { id: 'super-1', email: 'owner@redeemo.com', name: 'Priya Owner', role: 'SUPER_ADMIN', isActive: true, createdAt, activeGrants: [] },
+        { id: TARGET, email: 'f@r.com', name: 'Field Rep', role: 'FIELD', isActive: true, createdAt, activeGrants: ['approval:action'] },
+      ],
+    })
+  })
+
+  it('the underlying select NEVER includes passwordHash (curated select, wire-pin)', async () => {
+    const findMany = vi.fn().mockResolvedValue([])
+    const prisma = { adminUser: { findMany } } as any
+
+    await listTeamAdmins(prisma)
+
+    expect(findMany).toHaveBeenCalledOnce()
+    const call = findMany.mock.calls[0][0]
+    expect(call.select).toBeDefined()
+    expect(call.select.passwordHash).toBeUndefined()
+    // Explicit allow-list check: only these top-level keys are selected.
+    expect(Object.keys(call.select).sort()).toEqual(
+      ['capabilityGrants', 'createdAt', 'email', 'firstName', 'id', 'isActive', 'lastName', 'role'].sort(),
+    )
+  })
+
+  it('only reads ACTIVE (non-revoked) grants for the activeGrants list', async () => {
+    const findMany = vi.fn().mockResolvedValue([])
+    const prisma = { adminUser: { findMany } } as any
+
+    await listTeamAdmins(prisma)
+
+    const call = findMany.mock.calls[0][0]
+    expect(call.select.capabilityGrants.where).toEqual({ revokedAt: null })
+  })
+
+  it('returns an empty admins array when there are no admin accounts', async () => {
+    const prisma = { adminUser: { findMany: vi.fn().mockResolvedValue([]) } } as any
+    expect(await listTeamAdmins(prisma)).toEqual({ admins: [] })
+  })
 })
 
 describe('grantCapability — allow-list enforcement', () => {
