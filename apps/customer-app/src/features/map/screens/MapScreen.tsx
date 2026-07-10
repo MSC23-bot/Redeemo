@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { View, Pressable, StyleSheet } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { useIsFocused } from '@react-navigation/native'
 import MapView, { Region } from 'react-native-maps'
 import { List, Locate, SlidersHorizontal } from 'lucide-react-native'
 import { useRouter } from 'expo-router'
@@ -191,6 +192,17 @@ export function MapScreen(_props: Props) {
   // Use the live region for offshore detection so the UI reacts instantly.
   const offshore = regionIsOffshore(region)
 
+  // Map Phase 2 S2 Task 3 — focus lifecycle. Map's queries pause while the
+  // Map tab isn't focused (e.g. the user is on Home/Search/Savings/
+  // Profile): both hooks already take an `enabled` boolean, so gating is
+  // a pure AND against the existing scope/bbox conditions below — no
+  // change to either hook's signature. The MapView itself stays mounted
+  // (out of scope per the brief); `keepPreviousData` + the region-
+  // accumulation cache (Task 1) mean returning to the tab does not blank
+  // — React Query keeps serving the last-cached data for a disabled
+  // query, it just stops REFETCHING it while unfocused.
+  const isFocused = useIsFocused()
+
   // ─── Both queries always invoked (rules of hooks); `enabled` selects ──────
   const inAreaQuery = useInAreaBranches(
     queryBbox,
@@ -200,7 +212,7 @@ export function MapScreen(_props: Props) {
         ? { lat: locationState.location.lat, lng: locationState.location.lng }
         : {}),
     },
-    !hasNonScopeFilters,
+    !hasNonScopeFilters && isFocused,
   )
 
   // Map Phase 2 S0 — quantize BEFORE building the /search params, mirroring
@@ -230,7 +242,10 @@ export function MapScreen(_props: Props) {
         ? { lat: locationState.location.lat, lng: locationState.location.lng }
         : {}),
     },
-    hasNonScopeFilters && queryBbox !== null,
+    // Restack reconciliation (S0 x S2, 2026-07-10): keeps BOTH sides.
+    // S2's isFocused gate ANDs into enabled; S0's keepPreviousData +
+    // 120s staleTime per-call overrides ride in the options object.
+    hasNonScopeFilters && queryBbox !== null && isFocused,
     {
       // §AY — pan/zoom anti-flicker for the filtered Map-bbox-mode path.
       // useInAreaBranches already applies the same behaviour at the hook
