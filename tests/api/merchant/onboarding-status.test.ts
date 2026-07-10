@@ -11,7 +11,14 @@ import { getOnboardingStatus } from '../../../src/api/merchant/onboarding/servic
  */
 function mockPrisma(overrides: Partial<Record<string, any>> = {}) {
   return {
-    merchantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }) },
+    merchantMembership: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1' }),
+      // WF8: resolveAdminMerchant falls back to getActiveMembership (findMany) when
+      // getOwnerMembership returns null, to distinguish a real non-owner (403) from no
+      // membership at all (401). Default empty so the existing "no owner membership"
+      // pin below stays a genuine INVALID_CREDENTIALS.
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     merchant: { findUnique: vi.fn() },
     adminApproval: { findFirst: vi.fn() },
     ...overrides,
@@ -65,7 +72,12 @@ describe('getOnboardingStatus (service, M2 B4 / D8c)', () => {
   })
 
   it('throws INVALID_CREDENTIALS when the caller has no owner membership', async () => {
-    const prisma = mockPrisma({ merchantMembership: { findFirst: vi.fn().mockResolvedValue(null) } })
+    const prisma = mockPrisma({
+      // Note: this override REPLACES the whole merchantMembership object (shallow
+      // merge in mockPrisma), so findMany must be repeated here too — [] means no
+      // active membership at all, keeping this a genuine INVALID_CREDENTIALS (WF8).
+      merchantMembership: { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
+    })
     await expect(getOnboardingStatus(prisma, 'ma-unknown')).rejects.toThrow('INVALID_CREDENTIALS')
   })
 })
@@ -123,5 +135,39 @@ describe('GET /api/v1/merchant/onboarding/status (route, M2 B4 / D8c)', () => {
     const body = JSON.parse(res.body)
     expect(body.status).toBeNull()
     expect(body.comment).toBeNull()
+  })
+
+  // WF8 route-level coverage: a valid non-owner merchant token must get 403
+  // INSUFFICIENT_PERMISSIONS from this owner-only read, never 401 (a 401 here makes
+  // merchant-web's client treat the session as dead and tear the whole portal down
+  // to /sign-in - see apps/merchant-web/lib/api/client.ts).
+  it('returns 403 INSUFFICIENT_PERMISSIONS for a BRANCH_MANAGER token (not 401)', async () => {
+    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue(null)
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue([
+      { id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'BRANCH_MANAGER', allBranches: true, canManageVouchers: false, branches: [] },
+    ])
+
+    const res = await app.inject({
+      method: 'GET', url: '/api/v1/merchant/onboarding/status',
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+  })
+
+  it('returns 403 INSUFFICIENT_PERMISSIONS for a STAFF token (not 401)', async () => {
+    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue(null)
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue([
+      { id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'STAFF', allBranches: false, canManageVouchers: false, branches: [] },
+    ])
+
+    const res = await app.inject({
+      method: 'GET', url: '/api/v1/merchant/onboarding/status',
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
   })
 })

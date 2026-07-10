@@ -1,7 +1,16 @@
 import { getOnboardingChecklist, getOnboardingStatus, countActiveRmvVouchers, submitOnboarding } from '@/lib/api/onboarding'
 import * as client from '@/lib/api/client'
+import { ApiError } from '@/lib/api/client'
 
-jest.mock('@/lib/api/client')
+// WF8: only fake `apiFetch` - keep the REAL `ApiError` class. onboarding.ts's own
+// `err instanceof ApiError` check (for the INSUFFICIENT_PERMISSIONS catch) compares
+// against this same module's ApiError export, so a full automock (which replaces
+// ApiError with a mock constructor that never runs the real constructor body,
+// losing `.code`) would make that check always fail.
+jest.mock('@/lib/api/client', () => ({
+  ...jest.requireActual('@/lib/api/client'),
+  apiFetch: jest.fn(),
+}))
 const mockedFetch = client.apiFetch as jest.MockedFunction<typeof client.apiFetch>
 
 describe('onboarding API reads', () => {
@@ -35,6 +44,31 @@ describe('onboarding API reads', () => {
     mockedFetch.mockResolvedValueOnce({ status: null, comment: null, actionedAt: null })
     const empty = await getOnboardingStatus()
     expect(empty).toEqual({ status: null, comment: null, actionedAt: null })
+  })
+
+  // WF8: this owner-only read 403s with INSUFFICIENT_PERMISSIONS for a valid
+  // BRANCH_MANAGER/STAFF caller (src/api/merchant/shared.ts resolveAdminMerchant).
+  // That must resolve to `null` here, not throw - so app/(app)/page.tsx can treat
+  // "not applicable to this viewer" as data rather than an error (no react-query
+  // retry storm, no error UI).
+  it('getOnboardingChecklist resolves to null (not a throw) when denied INSUFFICIENT_PERMISSIONS', async () => {
+    mockedFetch.mockRejectedValueOnce(new ApiError(403, { error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'nope' } }))
+    await expect(getOnboardingChecklist()).resolves.toBeNull()
+  })
+
+  it('getOnboardingChecklist rethrows any OTHER failure unchanged (e.g. a real 500)', async () => {
+    mockedFetch.mockRejectedValueOnce(new ApiError(500, { error: { code: 'SOME_OTHER_ERROR', message: 'boom' } }))
+    await expect(getOnboardingChecklist()).rejects.toMatchObject({ code: 'SOME_OTHER_ERROR' })
+  })
+
+  it('getOnboardingStatus resolves to null (not a throw) when denied INSUFFICIENT_PERMISSIONS', async () => {
+    mockedFetch.mockRejectedValueOnce(new ApiError(403, { error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'nope' } }))
+    await expect(getOnboardingStatus()).resolves.toBeNull()
+  })
+
+  it('getOnboardingStatus rethrows any OTHER failure unchanged (e.g. a real 500)', async () => {
+    mockedFetch.mockRejectedValueOnce(new ApiError(500, { error: { code: 'SOME_OTHER_ERROR', message: 'boom' } }))
+    await expect(getOnboardingStatus()).rejects.toMatchObject({ code: 'SOME_OTHER_ERROR' })
   })
 
   it('countActiveRmvVouchers counts only PENDING_APPROVAL/ACTIVE rmv rows', async () => {

@@ -284,15 +284,20 @@ describe('branch write-route authorization matrix — Staff & Access PR-2 (D3)',
   it('BM -> create branch -> 403 (owner-only resolveAdminMerchant denies non-owner)', async () => {
     const made = await makeApp(bm()); app = made.app
     const res = await inject(made.app, made.token, 'POST', '/api/v1/merchant/branches', { name: 'New', addressLine1: '1 St', city: 'London', postcode: 'EC1A 1BB' })
-    // resolveAdminMerchant throws INVALID_CREDENTIALS for a non-owner (getOwnerMembership -> null).
-    expect(JSON.parse(res.body).error.code).toBe('INVALID_CREDENTIALS')
+    // WF8: resolveAdminMerchant throws INSUFFICIENT_PERMISSIONS (403) for a non-owner
+    // WHO HOLDS an active membership (getOwnerMembership -> null, getActiveMembership ->
+    // this BM row) — a real BM/STAFF token must never be told INVALID_CREDENTIALS (401),
+    // since merchant-web's client treats 401 as session-loss and tears the portal down.
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
   })
 
   it('BM -> close branch (DELETE) -> 403 (owner-only)', async () => {
     const made = await makeApp(bm()); app = made.app
     const res = await inject(made.app, made.token, 'DELETE', `/api/v1/merchant/branches/${ASSIGNED_BRANCH}`)
-    expect(res.statusCode).toBe(401)
-    expect(JSON.parse(res.body).error.code).toBe('INVALID_CREDENTIALS')
+    // WF8: same as above — a BM has an active membership, so this is 403 not 401.
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
   })
 
   // ── Draft-window sensitive-direct path stays OWNER-ONLY ─────────────────────

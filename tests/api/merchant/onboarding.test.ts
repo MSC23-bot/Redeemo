@@ -58,6 +58,43 @@ describe('merchant onboarding routes', () => {
     expect(body.all_complete).toBe(false)
   })
 
+  // WF8: a valid non-owner merchant token (BRANCH_MANAGER / STAFF) must get 403
+  // INSUFFICIENT_PERMISSIONS from this owner-only read, never 401 INVALID_CREDENTIALS
+  // - a 401 makes merchant-web's client treat the session as dead and tear the whole
+  // portal down to /sign-in (apps/merchant-web/lib/api/client.ts), which is exactly
+  // the bug this fix closes (resolveAdminMerchant in src/api/merchant/shared.ts).
+  it('GET /api/v1/merchant/onboarding/checklist returns 403 INSUFFICIENT_PERMISSIONS for a BRANCH_MANAGER token (not 401)', async () => {
+    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue(null)
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue([
+      { id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'BRANCH_MANAGER', allBranches: true, canManageVouchers: false, branches: [] },
+    ])
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/merchant/onboarding/checklist',
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+  })
+
+  it('GET /api/v1/merchant/onboarding/checklist returns 403 INSUFFICIENT_PERMISSIONS for a STAFF token (not 401)', async () => {
+    app.prisma.merchantMembership.findFirst = vi.fn().mockResolvedValue(null)
+    app.prisma.merchantMembership.findMany = vi.fn().mockResolvedValue([
+      { id: 'mm1', merchantId: 'm1', merchantAdminId: 'ma1', role: 'STAFF', allBranches: false, canManageVouchers: false, branches: [] },
+    ])
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/merchant/onboarding/checklist',
+      headers: { authorization: `Bearer ${merchantToken}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
+  })
+
   it('GET /api/v1/merchant/onboarding/contract returns contract text and version', async () => {
     const res = await app.inject({
       method: 'GET',

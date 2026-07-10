@@ -500,8 +500,10 @@ describe('Branches PR-3 §6b — instant photo-removal endpoint', () => {
     const made = await makeApp(bmNoMV()); app = made.app
     made.prismaMock.branchPhoto.findFirst = vi.fn().mockResolvedValue({ id: 'p1', url: 'https://cdn/x.png', moderationStatus: 'APPROVED' })
     const res = await inject(made.app, made.token, 'DELETE', delUrl(ASSIGNED_BRANCH, 'p1'))
-    // resolveAdminMerchant (owner-only) -> getOwnerMembership -> null -> INVALID_CREDENTIALS
-    expect(JSON.parse(res.body).error.code).toBe('INVALID_CREDENTIALS')
+    // WF8: resolveAdminMerchant (owner-only) -> getOwnerMembership -> null, but this BM
+    // holds an active membership -> getActiveMembership finds it -> INSUFFICIENT_PERMISSIONS
+    // (403), not INVALID_CREDENTIALS (401 would make merchant-web treat this as session-loss).
+    expect(JSON.parse(res.body).error.code).toBe('INSUFFICIENT_PERMISSIONS')
     expect(made.prismaMock.branchPhoto.delete).not.toHaveBeenCalled()
   })
 

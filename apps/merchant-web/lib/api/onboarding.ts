@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { apiFetch } from './client'
+import { ApiError, apiFetch } from './client'
 
 // M2 F1 onboarding reads. These back the client-derived staircase hub + the
 // changes-needed banner. Direct browser->backend authed reads (Bearer access
@@ -18,10 +18,24 @@ export const onboardingChecklistSchema = z
 
 export type OnboardingChecklist = z.infer<typeof onboardingChecklistSchema>
 
-export async function getOnboardingChecklist(): Promise<OnboardingChecklist> {
-  return onboardingChecklistSchema.parse(
-    await apiFetch('/api/v1/merchant/onboarding/checklist', { method: 'GET', auth: true }),
-  )
+// WF8: this read is OWNER-only server-side (resolveAdminMerchant in
+// src/api/merchant/shared.ts). A BRANCH_MANAGER / STAFF viewer gets
+// INSUFFICIENT_PERMISSIONS (403) - a valid, expected outcome for a non-owner, not a
+// broken request. Returning null (instead of throwing) lets the Home page
+// (app/(app)/page.tsx) treat "not applicable to this viewer" as data, not an error:
+// no react-query retry storm, no error UI, and the page falls through to the
+// correct non-owner home for the merchant's actual lifecycle state. Any OTHER
+// failure (network, 5xx, a genuinely expired session) rethrows unchanged so
+// react-query keeps its normal retry/error behaviour for those.
+export async function getOnboardingChecklist(): Promise<OnboardingChecklist | null> {
+  try {
+    return onboardingChecklistSchema.parse(
+      await apiFetch('/api/v1/merchant/onboarding/checklist', { method: 'GET', auth: true }),
+    )
+  } catch (err) {
+    if (err instanceof ApiError && err.code === 'INSUFFICIENT_PERMISSIONS') return null
+    throw err
+  }
 }
 
 // GET /api/v1/merchant/onboarding/status -> { status, comment, actionedAt } (the
@@ -38,10 +52,17 @@ export const onboardingStatusSchema = z
 
 export type OnboardingStatus = z.infer<typeof onboardingStatusSchema>
 
-export async function getOnboardingStatus(): Promise<OnboardingStatus> {
-  return onboardingStatusSchema.parse(
-    await apiFetch('/api/v1/merchant/onboarding/status', { method: 'GET', auth: true }),
-  )
+// WF8: same non-fatal-for-non-owners treatment as getOnboardingChecklist above -
+// see that function's comment for the full rationale.
+export async function getOnboardingStatus(): Promise<OnboardingStatus | null> {
+  try {
+    return onboardingStatusSchema.parse(
+      await apiFetch('/api/v1/merchant/onboarding/status', { method: 'GET', auth: true }),
+    )
+  } catch (err) {
+    if (err instanceof ApiError && err.code === 'INSUFFICIENT_PERMISSIONS') return null
+    throw err
+  }
 }
 
 // GET /api/v1/merchant/vouchers/rmv -> the merchant's flagship RMV rows. We only

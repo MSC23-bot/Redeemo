@@ -52,7 +52,15 @@ describe('M1 — MerchantMembership helpers (mocked)', () => {
     })
 
     it('throws INVALID_CREDENTIALS when the admin has no OWNER membership', async () => {
-      const prisma = { merchantMembership: { findFirst: vi.fn().mockResolvedValue(null) } } as any
+      // WF8: getOwnerMembership -> null falls back to getActiveMembership (findMany)
+      // to distinguish "wrong role" from "no one" — this "ghost" admin has NO active
+      // membership at all (findMany -> []), so this stays a genuine INVALID_CREDENTIALS.
+      const prisma = {
+        merchantMembership: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      } as any
       await expect(resolveAdminMerchant(prisma, 'ghost')).rejects.toThrow('INVALID_CREDENTIALS')
     })
   })
