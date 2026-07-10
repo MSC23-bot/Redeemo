@@ -20,6 +20,8 @@
 import { ImagePlus, ImageMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/features/shared/Badge'
+import { OnBehalfBanner, ReadOnlyTag } from './OnBehalfBanner'
+import { approvalStatusLabel, approvalStatusTone } from '@/lib/ui/adminTones'
 import type { IdentityEditReviewContext, EditReviewField } from '@/lib/api/editReview'
 
 /** Render any diff value (string / number / null) as readable text. */
@@ -113,11 +115,22 @@ export function EditReviewDiff({ context, canApplyEdit, onApprove, onReject }: E
       data-testid="edit-review-diff"
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-foreground">
-          {context.kind === 'merchant' ? 'Merchant identity edit' : 'Branch identity edit'}
-        </h2>
-        <Badge tone={isPending ? 'warn' : 'neutral'}>{context.status}</Badge>
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold text-foreground">
+            {context.kind === 'merchant' ? 'Merchant identity edit' : 'Branch identity edit'}
+          </h2>
+          <ReadOnlyTag />
+        </div>
+        {/* B2: a friendly sentence-case label (was the raw enum, e.g. "PENDING")
+            via the same approval-status mapping the queue's two-pill Status
+            column and VoucherReviewPanel's header pill use. */}
+        <Badge tone={approvalStatusTone(context.status)}>{approvalStatusLabel(context.status)}</Badge>
       </div>
+
+      <OnBehalfBanner>
+        Applying this on behalf of the merchant. This propose lane is admin self-review today: one
+        admin proposes, an admin approves. It is not merchant sign-off and not four-eyes.
+      </OnBehalfBanner>
 
       {/* Field diff */}
       {context.fields.length > 0 ? (

@@ -6,8 +6,18 @@
  * wide table and narrow card list both call, so the two views can never
  * silently drift from each other's row treatment.
  */
-import { ageToneForHours, courtOf, COURT_LABEL, COURT_TONE, typeChipTone } from '@/lib/ui/adminTones'
-import type { Court } from '@/lib/ui/adminTones'
+import {
+  ageToneForHours,
+  courtOf,
+  COURT_LABEL,
+  COURT_TONE,
+  typeChipTone,
+  approvalStatusLabel,
+  approvalStatusTone,
+  merchantLifecycle,
+  voucherLifecycle,
+} from '@/lib/ui/adminTones'
+import type { Court, StatusPill } from '@/lib/ui/adminTones'
 import { hoursWaiting, formatWaiting } from '@/lib/queue/urgency'
 import type { BadgeTone } from '@/features/shared/Badge'
 import type { AdminApproval } from '@/lib/api/approvals'
@@ -137,12 +147,45 @@ export function waitingSubLine(
 
 // ── Combined per-row derivation ─────────────────────────────────────────────
 
+// ── Two-pill Status (B2: approval-queue-spec.md §B.1 "Status" column) ──────
+//
+// `lifecyclePill` is null where the row does not genuinely carry a second,
+// independent entity-lifecycle signal (see lib/ui/adminTones.ts) — callers
+// render a single pill (`approvalPill`, the pre-existing claim-unaware
+// approval-status rendering) in that case. Never fabricated.
+
+export function deriveStatusPills(item: AdminApproval): {
+  lifecyclePill: StatusPill | null
+  approvalPill: StatusPill
+} {
+  const approvalPill: StatusPill = {
+    label: approvalStatusLabel(item.status),
+    tone: approvalStatusTone(item.status),
+  }
+  if (item.type === 'VOUCHER' && item.voucher) {
+    return {
+      lifecyclePill: voucherLifecycle(item.voucher.status, item.status, item.claimedById),
+      approvalPill,
+    }
+  }
+  if (item.merchant) {
+    return {
+      lifecyclePill: merchantLifecycle(item.merchant.status, item.status, item.claimedById),
+      approvalPill,
+    }
+  }
+  return { lifecyclePill: null, approvalPill }
+}
+
 export interface DerivedRow {
   court: Court
   courtLabel: string
   courtTone: BadgeTone
   displayStatus: string
   statusTone: BadgeTone
+  /** B2 two-pill Status: non-null only where the row carries a genuine second axis. */
+  lifecyclePill: StatusPill | null
+  approvalPill: StatusPill
   typeLabel: string
   typeTone: BadgeTone
   waitingLabel: string
@@ -160,6 +203,7 @@ export function deriveRow(item: AdminApproval, currentAdminId: string | null): D
   const businessName = item.merchant?.businessName ?? 'Unknown merchant'
   const isVoucherRow = item.type === 'VOUCHER'
   const displayStatus = getDisplayStatus(item)
+  const { lifecyclePill, approvalPill } = deriveStatusPills(item)
 
   return {
     court,
@@ -167,6 +211,8 @@ export function deriveRow(item: AdminApproval, currentAdminId: string | null): D
     courtTone: COURT_TONE[court],
     displayStatus,
     statusTone: getStatusBadgeTone(displayStatus),
+    lifecyclePill,
+    approvalPill,
     typeLabel: getTypeLabel(item),
     typeTone: typeChipTone(item.type),
     waitingLabel: waitingLabel(item),
@@ -182,4 +228,56 @@ export function deriveRow(item: AdminApproval, currentAdminId: string | null): D
         ? `${businessName} · ${voucherTypeLabel(item.voucher.type)}`
         : null,
   }
+}
+
+// ── Client-side sort (B2: approval-queue-spec.md §A.1 sortable headers) ────
+//
+// The spec's sortable columns are Merchant / Type / Waiting / Owner-claim
+// (Court / Verification / Status are NOT sortable). This sorts the ALREADY-
+// LOADED page of rows only — no API sort param, no new fetch, per the task
+// brief ("client-side sort of the loaded page"). The underlying list stays
+// oldest-first server-side (the M4/M5 contract) whenever no column is active.
+
+export type QueueSortColumn = 'merchant' | 'type' | 'waiting' | 'owner'
+export type QueueSortDirection = 'asc' | 'desc'
+
+/** Sort key for the Owner/claim column: unclaimed sorts first, then by claimer name. */
+function ownerSortKey(item: AdminApproval): string {
+  if (item.claimedBy?.name) return item.claimedBy.name.toLowerCase()
+  if (item.claimedById) return 'zzz-unnamed-claimer'
+  return ''
+}
+
+export function sortItems(
+  items: AdminApproval[],
+  currentAdminId: string | null,
+  column: QueueSortColumn | null,
+  direction: QueueSortDirection
+): AdminApproval[] {
+  if (column == null) return items
+  const factor = direction === 'asc' ? 1 : -1
+  const withKeys = items.map((item) => {
+    const row = deriveRow(item, currentAdminId)
+    let key: string | number
+    switch (column) {
+      case 'merchant':
+        key = row.primaryLabel.toLowerCase()
+        break
+      case 'type':
+        key = row.typeLabel.toLowerCase()
+        break
+      case 'waiting':
+        key = hoursWaiting(item.submittedAt)
+        break
+      case 'owner':
+        key = ownerSortKey(item)
+        break
+    }
+    return { item, key }
+  })
+  withKeys.sort((a, b) => {
+    if (typeof a.key === 'number' && typeof b.key === 'number') return (a.key - b.key) * factor
+    return String(a.key).localeCompare(String(b.key)) * factor
+  })
+  return withKeys.map((w) => w.item)
 }

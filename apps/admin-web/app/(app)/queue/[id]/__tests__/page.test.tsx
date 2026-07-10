@@ -1014,6 +1014,73 @@ describe('ReviewPage M5 ActionBar', () => {
     expect(screen.queryByTestId('action-bar-unclaimed')).not.toBeInTheDocument()
     expect(screen.queryByTestId('action-bar-claimed-by-me')).not.toBeInTheDocument()
   })
+
+  // B2: the ActionBar's mounting container is visually sticky (approval-queue-
+  // spec.md §A.2 "sticky action bar at the pane foot") so it stays reachable
+  // while the detail body scrolls, across all four claim states.
+  describe('B2 sticky positioning', () => {
+    it('the container is sticky in the unclaimed state', () => {
+      mockReview({ data: makeContext() })
+      renderPage()
+      expect(screen.getByTestId('action-bar-unclaimed')).toBeInTheDocument()
+      const container = screen.getByTestId('action-bar-container')
+      expect(container.className).toMatch(/sticky/)
+      expect(container.className).toMatch(/bottom-0/)
+    })
+
+    it('the container is sticky in the claimed-by-me state', () => {
+      mockReview({
+        data: makeContext({
+          approval: {
+            ...makeContext().approval,
+            claimedAt: '2026-06-10T10:00:00.000Z',
+            claimedBy: { id: 'admin-me', name: 'Me Admin' },
+          },
+        }),
+      })
+      renderPage()
+      expect(screen.getByTestId('action-bar-claimed-by-me')).toBeInTheDocument()
+      expect(screen.getByTestId('action-bar-container').className).toMatch(/sticky/)
+    })
+
+    it('the container is sticky in the claimed-by-other state', () => {
+      mockReview({
+        data: makeContext({
+          approval: {
+            ...makeContext().approval,
+            claimedAt: '2026-06-10T10:00:00.000Z',
+            claimedBy: { id: 'admin-other', name: 'Dana Reviewer' },
+          },
+        }),
+      })
+      renderPage()
+      expect(screen.getByTestId('action-bar-claimed-by-other')).toBeInTheDocument()
+      expect(screen.getByTestId('action-bar-container').className).toMatch(/sticky/)
+    })
+
+    it('the container is sticky in the SUPER_ADMIN force-release state', () => {
+      mockSession({ adminId: 'admin-me', role: 'SUPER_ADMIN' })
+      mockReview({
+        data: makeContext({
+          approval: {
+            ...makeContext().approval,
+            claimedAt: '2026-06-10T10:00:00.000Z',
+            claimedBy: { id: 'admin-other', name: 'Dana Reviewer' },
+          },
+        }),
+      })
+      renderPage()
+      expect(screen.getByTestId('action-bar-force-release-btn')).toBeInTheDocument()
+      expect(screen.getByTestId('action-bar-container').className).toMatch(/sticky/)
+    })
+
+    it('stays mounted (sticky container present) in the terminal APPROVED state', () => {
+      mockReview({ data: makeContext({ approval: { ...makeContext().approval, status: 'APPROVED' } }) })
+      renderPage()
+      expect(screen.getByTestId('action-bar-approved')).toBeInTheDocument()
+      expect(screen.getByTestId('action-bar-container').className).toMatch(/sticky/)
+    })
+  })
 })
 
 // ── M5: dialog opening ────────────────────────────────────────────────────────

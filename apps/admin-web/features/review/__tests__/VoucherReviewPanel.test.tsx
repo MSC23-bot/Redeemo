@@ -432,3 +432,61 @@ describe('VoucherReviewPanel request-changes dialog', () => {
     expect(submit).not.toBeDisabled()
   })
 })
+
+// ── B2: per-type review body alignment (approval-queue-spec.md §D.2) ────────
+
+describe('VoucherReviewPanel B2 body alignment', () => {
+  it('shows the "Read only" tag and the on-behalf lane-separation banner', () => {
+    mockReview({ data: makeContext() })
+    renderPanel()
+    expect(screen.getByTestId('read-only-tag')).toBeInTheDocument()
+    expect(screen.getByTestId('on-behalf-banner')).toHaveTextContent(
+      'separate from any onboarding go-live gate'
+    )
+  })
+
+  it('the subtitle reads "{merchant} · Custom voucher (RCV) · dedicated voucher-approval lane"', () => {
+    mockReview({ data: makeContext() })
+    renderPanel()
+    expect(screen.getByTestId('voucher-review-subtitle')).toHaveTextContent(
+      'Acme Coffee · Custom voucher (RCV) · dedicated voucher-approval lane'
+    )
+  })
+
+  it('the primary header pill is the APPROVAL status (not the voucher lifecycle status)', () => {
+    mockReview({
+      data: makeContext({
+        voucher: { ...makeContext().voucher, status: 'PENDING_APPROVAL', approvalStatus: 'CHANGES_REQUESTED' },
+      }),
+    })
+    renderPanel()
+    const panel = screen.getByTestId('voucher-review-panel')
+    // The approval-status pill reads the spec's friendly label...
+    expect(panel).toHaveTextContent('Changes requested')
+    // ...while the voucher's own lifecycle status still renders as a
+    // secondary badge (not dropped, just de-emphasised).
+    expect(panel).toHaveTextContent('Pending approval')
+  })
+
+  it('shows the "How the voucher will appear to customers." caption under the preview', () => {
+    mockReview({ data: makeContext() })
+    renderPanel()
+    expect(screen.getByTestId('voucher-customer-preview')).toHaveTextContent(
+      'How the voucher will appear to customers.'
+    )
+  })
+
+  it('labels the primary approve trigger "Approve voucher" (matches the dialog\'s own confirm label)', () => {
+    mockReview({ data: makeContext() })
+    renderPanel()
+    expect(screen.getByTestId('voucher-approve-btn')).toHaveTextContent('Approve voucher')
+  })
+
+  it('de-emphasises Request changes as the spec\'s fallback affordance (link-styled, with its tooltip)', () => {
+    mockReview({ data: makeContext() })
+    renderPanel()
+    const button = screen.getByTestId('voucher-request-changes-btn')
+    expect(button).toHaveAttribute('title', 'Fallback: only for items the merchant must supply.')
+    expect(button).toHaveTextContent('Request changes (needs merchant)')
+  })
+})
