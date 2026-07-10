@@ -1162,12 +1162,17 @@ export async function requestVoucherEnd(
   // clear D4 rejection (not a generic 404).
   const voucher = await prisma.voucher.findFirst({
     where: { id: voucherId, merchantId },
-    select: { id: true, isRmv: true, status: true },
+    select: { id: true, isRmv: true, isMandatory: true, status: true },
   })
   if (!voucher) throw new AppError('VOUCHER_NOT_FOUND')
   // D4: request-to-end is CUSTOM-only. Flagship vouchers are onboarding-mandatory
-  // and can never be ended by the merchant.
-  if (voucher.isRmv) throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
+  // and can never be ended by the merchant. WF1 (staging acceptance walk,
+  // defence-in-depth): legacy seed rows predating the RMV model can carry
+  // `isMandatory=true` with `isRmv=false` / `rmvTemplateId=null` - the isRmv
+  // check alone lets those slip through as "custom". Reject on EITHER flag so a
+  // mandatory voucher can never be ended regardless of which model it was
+  // seeded under.
+  if (voucher.isRmv || voucher.isMandatory) throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
   if (voucher.status !== 'ACTIVE') throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
 
   await assertNoPendingVoucherEdit(prisma, voucherId)

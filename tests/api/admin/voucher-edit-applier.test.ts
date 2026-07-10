@@ -159,6 +159,21 @@ describe('voucher-edit applier: approve END', () => {
     expect(tx.auditLog.create).not.toHaveBeenCalled()
   })
 
+  // WF1 (staging acceptance walk, defence-in-depth): legacy seed rows predate
+  // the RMV model and can carry isMandatory:true with isRmv:false. The
+  // isRmv-only re-check let those slip through. Re-verify isMandatory too.
+  it('WF1: an END that resolves to a legacy mandatory voucher (isMandatory:true, isRmv:false) is REJECTED before any mutation', async () => {
+    const { prisma, tx } = makeMocks({
+      edit: { ...endEdit, voucherId: 'legacy1' },
+      voucher: { ...liveCustom, id: 'legacy1', isRmv: false, isMandatory: true },
+    })
+    await expect(approveEdit(prisma, redis, 'appr1', 'admin-1', ctx)).rejects.toThrow('VOUCHER_EDIT_NOT_ALLOWED')
+    expect(tx.voucher.update).not.toHaveBeenCalled()
+    expect(tx.voucherPendingEdit.update).not.toHaveBeenCalled()
+    expect(tx.adminApproval.update).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
   it('an END on a no-longer-ACTIVE voucher is rejected', async () => {
     const { prisma, tx } = makeMocks({ edit: endEdit, voucher: { ...liveCustom, status: 'EXPIRED' } })
     await expect(approveEdit(prisma, redis, 'appr1', 'admin-1', ctx)).rejects.toThrow('VOUCHER_EDIT_NOT_ALLOWED')

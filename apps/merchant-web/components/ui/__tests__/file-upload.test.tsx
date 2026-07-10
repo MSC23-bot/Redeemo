@@ -81,6 +81,35 @@ describe('FileUpload', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument()
   })
 
+  // WF5 (staging acceptance walk): the backend's typed IMAGE_DIMENSIONS_INVALID
+  // 400 already states the minimum-dimension requirement in its message - surface
+  // it verbatim instead of the generic "Upload failed. Please try again."
+  it('surfaces the backend message for a typed IMAGE_DIMENSIONS_INVALID error', async () => {
+    apiFetchMock.mockRejectedValue(
+      Object.assign(new Error('The image dimensions are not allowed. Photos must be landscape (at least 1200x600).'), {
+        code: 'IMAGE_DIMENSIONS_INVALID',
+      }),
+    )
+    render(<FileUpload kind="photo" label="Photo" />)
+    const input = screen.getByLabelText(/Photo/i) as HTMLInputElement
+    await userEvent.upload(input, makeFile('photo.png', 'image/png', 100 * 1024))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /image dimensions are not allowed.*photos must be landscape.*1200x600/i,
+    )
+  })
+
+  // An unrecognised/unknown backend code must NOT leak a raw internal message -
+  // it still falls back to the generic copy.
+  it('falls back to the generic message for an unmapped error code', async () => {
+    apiFetchMock.mockRejectedValue(Object.assign(new Error('boom, internal detail'), { code: 'SOME_UNMAPPED_CODE' }))
+    render(<FileUpload kind="photo" label="Photo" />)
+    const input = screen.getByLabelText(/Photo/i) as HTMLInputElement
+    await userEvent.upload(input, makeFile('photo.png', 'image/png', 100 * 1024))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/upload failed\. please try again\./i)
+  })
+
   it('lets the user re-select the SAME file and retry after a failed upload', async () => {
     // First attempt fails (transient upload failure), second attempt with the
     // EXACT same file succeeds. The input value must be reset after each change

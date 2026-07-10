@@ -196,6 +196,21 @@ describe('governed writer: flagship request-change + custom request-end', () => 
     expect(app.prisma.adminApproval.create).not.toHaveBeenCalled()
   })
 
+  // WF1 (staging acceptance walk, defence-in-depth): legacy seed rows predate
+  // the RMV model and can carry isMandatory:true with isRmv:false /
+  // rmvTemplateId:null. The isRmv-only check let those slip through as
+  // "custom" and be endable. Reject on isMandatory too, even when isRmv:false.
+  it('WF1: request-end on a legacy mandatory voucher (isMandatory:true, isRmv:false) is REJECTED', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
+      id: 'legacy1', merchantId: 'm1', isRmv: false, isMandatory: true, status: 'ACTIVE',
+    })
+    const res = await requestEnd({ reason: 'r' }, 'legacy1')
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body).error.code).toBe('VOUCHER_EDIT_NOT_ALLOWED')
+    expect(app.prisma.voucherPendingEdit.create).not.toHaveBeenCalled()
+    expect(app.prisma.adminApproval.create).not.toHaveBeenCalled()
+  })
+
   it('request-end requires an ACTIVE voucher', async () => {
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({ ...activeCustom, status: 'DRAFT' })
     const res = await requestEnd({ reason: 'r' })
