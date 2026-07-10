@@ -147,4 +147,32 @@ describe('<MapScreen> locate-me fallback (§DF PR #128 R1-1)', () => {
     fireEvent.press(getByLabelText('Re-centre to my location'))
     expect(mockAnimateToRegion).not.toHaveBeenCalled()
   })
+
+  // Offshore fix (owner-reported from Doha, 2026-07-10): a device GPS fix
+  // OUTSIDE the UK extent must never be the recentre target: it made the
+  // offshore banner's "Recentre to UK" CTA a visible no-op (camera "moves"
+  // to where the user already is; banner never clears).
+  it('tap recentre with OFFSHORE GPS but WITH saved UK profile coords → animates to profile coords, not GPS', () => {
+    mockState.locationCoords = { lat: 25.2854, lng: 51.531, area: null, city: null } // Doha
+    mockState.meData = { latitude: 53.6458, longitude: -1.785 } // Huddersfield
+    const { getByLabelText } = render(<MapScreen />, { wrapper })
+    mockAnimateToRegion.mockClear()
+    fireEvent.press(getByLabelText('Re-centre to my location'))
+    expect(mockAnimateToRegion).toHaveBeenCalledTimes(1)
+    const [region] = mockAnimateToRegion.mock.calls[0]!
+    expect((region as any).latitude).toBeCloseTo(53.6458, 4)
+    expect((region as any).longitude).toBeCloseTo(-1.785, 4)
+  })
+
+  it('tap recentre with OFFSHORE GPS and NO profile coords → animates to LONDON fallback (the CTA promises the UK)', () => {
+    mockState.locationCoords = { lat: 25.2854, lng: 51.531, area: null, city: null } // Doha
+    mockState.meData = { latitude: null, longitude: null }
+    const { getByLabelText } = render(<MapScreen />, { wrapper })
+    mockAnimateToRegion.mockClear()
+    fireEvent.press(getByLabelText('Re-centre to my location'))
+    expect(mockAnimateToRegion).toHaveBeenCalledTimes(1)
+    const [region] = mockAnimateToRegion.mock.calls[0]!
+    expect((region as any).latitude).toBeCloseTo(51.5074, 3) // London
+    expect((region as any).longitude).toBeCloseTo(-0.1278, 3)
+  })
 })
