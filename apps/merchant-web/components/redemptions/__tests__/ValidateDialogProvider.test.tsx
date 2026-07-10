@@ -3,6 +3,7 @@ import * as React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ValidateDialogProvider } from '../ValidateDialogProvider'
 import { useValidateDialog } from '../validateDialogContext'
+import { ToastProvider } from '@/components/ui/toast'
 
 // ValidateCodeDialog (mounted by the provider once open) calls these on
 // submit; stub so the module resolves without hitting the network. Neither
@@ -23,9 +24,11 @@ function renderProvider() {
   let openValidate!: (code?: unknown) => void
   const utils = render(
     <QueryClientProvider client={qc}>
-      <ValidateDialogProvider>
-        <Consumer onReady={(fn) => (openValidate = fn)} />
-      </ValidateDialogProvider>
+      <ToastProvider>
+        <ValidateDialogProvider>
+          <Consumer onReady={(fn) => (openValidate = fn)} />
+        </ValidateDialogProvider>
+      </ToastProvider>
     </QueryClientProvider>,
   )
   return { ...utils, open: (code?: unknown) => act(() => openValidate(code)) }
