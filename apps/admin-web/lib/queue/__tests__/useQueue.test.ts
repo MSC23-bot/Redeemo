@@ -2,8 +2,10 @@
  * useQueue — React Query hook tests.
  *
  * Mocks approvalsApi.list to return distinct PENDING + CHANGES_REQUESTED sets.
- * Verifies two calls with the right statuses, the merged+sorted result,
- * the four counts, and the query options.
+ * Verifies two calls with the right statuses, the merged+sorted result, and
+ * the query options. B1: court/type counts are no longer derived inside this
+ * hook (see lib/ui/adminTones.ts + its own tests) — the old "counts" shape
+ * was StatusFilter-only and StatusFilter is retired by the two-court page.
  */
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -124,23 +126,6 @@ describe('useQueue', () => {
     const ids = result.current.items.map((i) => i.id)
     // CHANGES_REQUESTED (2026-06-11) is oldest, then PENDING_CLAIMED (2026-06-12), then PENDING_UNCLAIMED (2026-06-13)
     expect(ids).toEqual(['a-changes-requested', 'a-pending-claimed', 'a-pending-unclaimed'])
-  })
-
-  it('derives the four counts correctly', async () => {
-    mockedList
-      .mockResolvedValueOnce({ page: 1, pageSize: 100, total: 2, approvals: [PENDING_UNCLAIMED, PENDING_CLAIMED] })
-      .mockResolvedValueOnce({ page: 1, pageSize: 100, total: 1, approvals: [CHANGES_REQUESTED] })
-
-    const { result } = renderHook(() => useQueue(), { wrapper: makeWrapper() })
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-
-    expect(result.current.counts).toEqual({
-      all: 3,
-      submitted: 1,
-      underReview: 1,
-      changesRequested: 1,
-    })
   })
 
   it('has refetchInterval: 45000 and refetchIntervalInBackground: false', () => {

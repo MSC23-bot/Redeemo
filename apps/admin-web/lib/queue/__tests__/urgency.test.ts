@@ -1,11 +1,10 @@
 /**
- * urgency.ts — pure helper unit tests.
+ * urgency.ts — pure helper unit tests (B1: hoursWaiting + combined d/h format).
  *
  * All tests pass an explicit `now` to keep them deterministic.
  */
-import { urgencyForAge, formatWaiting } from '../urgency'
+import { hoursWaiting, formatWaiting } from '../urgency'
 
-// Helper: build a submittedAt ISO string that is `daysAgo` days before `now`.
 const DAY_MS = 86_400_000
 const HOUR_MS = 3_600_000
 
@@ -24,58 +23,53 @@ function minutesAgo(n: number, now: number) {
 // Fixed "now" for all tests.
 const NOW = new Date('2026-06-14T12:00:00.000Z').getTime()
 
-// ── urgencyForAge ─────────────────────────────────────────────────────────────
+// ── hoursWaiting ────────────────────────────────────────────────────────────
 
-describe('urgencyForAge', () => {
-  it('returns neutral for 2.9 days', () => {
-    const iso = new Date(NOW - 2.9 * DAY_MS).toISOString()
-    expect(urgencyForAge(iso, NOW)).toBe('neutral')
+describe('hoursWaiting', () => {
+  it('floors partial hours', () => {
+    expect(hoursWaiting(minutesAgo(90, NOW), NOW)).toBe(1)
   })
 
-  it('returns amber for exactly 3 days', () => {
-    expect(urgencyForAge(daysAgo(3, NOW), NOW)).toBe('amber')
+  it('returns 0 for a submission under an hour ago', () => {
+    expect(hoursWaiting(minutesAgo(45, NOW), NOW)).toBe(0)
+    expect(hoursWaiting(minutesAgo(0, NOW), NOW)).toBe(0)
   })
 
-  it('returns amber for 4 days', () => {
-    expect(urgencyForAge(daysAgo(4, NOW), NOW)).toBe('amber')
+  it('returns 24 for exactly 1 day', () => {
+    expect(hoursWaiting(daysAgo(1, NOW), NOW)).toBe(24)
   })
 
-  it('returns red for exactly 5 days', () => {
-    expect(urgencyForAge(daysAgo(5, NOW), NOW)).toBe('red')
-  })
-
-  it('returns red for 7 days', () => {
-    expect(urgencyForAge(daysAgo(7, NOW), NOW)).toBe('red')
-  })
-
-  it('returns neutral for same-day submission (0 days)', () => {
-    expect(urgencyForAge(minutesAgo(30, NOW), NOW)).toBe('neutral')
+  it('returns 168 for exactly 7 days', () => {
+    expect(hoursWaiting(daysAgo(7, NOW), NOW)).toBe(168)
   })
 })
 
 // ── formatWaiting ─────────────────────────────────────────────────────────────
 
 describe('formatWaiting', () => {
-  it('returns "1 day" for exactly 1 day', () => {
-    expect(formatWaiting(daysAgo(1, NOW), NOW)).toBe('1 day')
+  it('returns "<1h" for less than 60 minutes', () => {
+    expect(formatWaiting(minutesAgo(45, NOW), NOW)).toBe('<1h')
+    expect(formatWaiting(minutesAgo(0, NOW), NOW)).toBe('<1h')
   })
 
-  it('returns "N days" for multiple days', () => {
-    expect(formatWaiting(daysAgo(3, NOW), NOW)).toBe('3 days')
-    expect(formatWaiting(daysAgo(7, NOW), NOW)).toBe('7 days')
+  it('returns "{h}h" for 1-23 hours', () => {
+    expect(formatWaiting(hoursAgo(1, NOW), NOW)).toBe('1h')
+    expect(formatWaiting(hoursAgo(5, NOW), NOW)).toBe('5h')
+    expect(formatWaiting(hoursAgo(23, NOW), NOW)).toBe('23h')
   })
 
-  it('returns "1 hour" for exactly 1 hour', () => {
-    expect(formatWaiting(hoursAgo(1, NOW), NOW)).toBe('1 hour')
+  it('returns "{d}d {h}h" for exactly 1 day (0 remainder hours shown)', () => {
+    expect(formatWaiting(daysAgo(1, NOW), NOW)).toBe('1d 0h')
   })
 
-  it('returns "N hours" for multiple hours', () => {
-    expect(formatWaiting(hoursAgo(5, NOW), NOW)).toBe('5 hours')
-    expect(formatWaiting(hoursAgo(23, NOW), NOW)).toBe('23 hours')
+  it('returns "{d}d {h}h" combining full days and a hour remainder', () => {
+    // 2 days + 14 hours ago.
+    const iso = new Date(NOW - 2 * DAY_MS - 14 * HOUR_MS).toISOString()
+    expect(formatWaiting(iso, NOW)).toBe('2d 14h')
   })
 
-  it('returns "under an hour" for less than 60 minutes', () => {
-    expect(formatWaiting(minutesAgo(45, NOW), NOW)).toBe('under an hour')
-    expect(formatWaiting(minutesAgo(0, NOW), NOW)).toBe('under an hour')
+  it('returns "{d}d {h}h" for multiple whole days', () => {
+    expect(formatWaiting(daysAgo(3, NOW), NOW)).toBe('3d 0h')
+    expect(formatWaiting(daysAgo(7, NOW), NOW)).toBe('7d 0h')
   })
 })
