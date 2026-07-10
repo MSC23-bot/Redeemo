@@ -26,4 +26,16 @@ describe('ChangesBanner', () => {
     expect(screen.queryByText(/Free dessert voucher/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Proof of address/i)).not.toBeInTheDocument()
   })
+
+  it('always shows a "Manage your documents" link routing to /profile, even when the comment does not mention documents', () => {
+    render(<ChangesBanner comment="Please update your opening hours." />)
+    const link = screen.getByRole('link', { name: /manage your documents/i })
+    expect(link).toBeInTheDocument()
+    expect(link).toHaveAttribute('href', '/profile')
+  })
+
+  it('shows the documents link on the generic fallback too', () => {
+    render(<ChangesBanner comment={null} />)
+    expect(screen.getByRole('link', { name: /manage your documents/i })).toHaveAttribute('href', '/profile')
+  })
 })

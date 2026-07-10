@@ -103,4 +103,30 @@ describe('StaircaseHub', () => {
     expect(screen.queryByText(/merchant submitted for onboarding approval/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/a few changes are needed/i)).not.toBeInTheDocument()
   })
+
+  it('renders resubmission-appropriate headline/intro in the changes state, not the first-time welcome', () => {
+    render(
+      <StaircaseHub
+        {...baseProps()}
+        state="changes"
+        status={{ status: 'CHANGES_REQUESTED', comment: 'Add the dessert menu to the terms.', actionedAt: null }}
+      />,
+    )
+    expect(screen.getByText(/welcome back, roe cafe/i)).toBeInTheDocument()
+    expect(screen.getByText(/needs a few updates before it can go live/i)).toBeInTheDocument()
+    expect(screen.queryByText(/welcome to redeemo/i)).not.toBeInTheDocument()
+    // The side-column reassurance reflects review-in-progress, not first-time framing.
+    expect(screen.getByText(/still under review/i)).toBeInTheDocument()
+  })
+
+  it('keeps the setup-state headline/intro and reassurance card byte-identical (first-time copy)', () => {
+    render(<StaircaseHub {...baseProps()} />)
+    expect(screen.getByText(/welcome to redeemo, roe cafe/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/list your business for free and start bringing new customers through the door/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/nothing is public yet/i)).toBeInTheDocument()
+    expect(screen.queryByText(/welcome back/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/still under review/i)).not.toBeInTheDocument()
+  })
 })
