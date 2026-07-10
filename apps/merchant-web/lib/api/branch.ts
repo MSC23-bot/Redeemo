@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { apiFetch } from './client'
+import { apiFetch, apiFetchRaw } from './client'
 import type { HoursPayloadRow } from '@/components/onboarding/branch/lib/hoursModel'
 
 // M2 F4: the branch-step API client. Calls the REAL merged backend
@@ -556,4 +556,65 @@ export async function removeBranchPhoto(branchId: string, photoId: string): Prom
     method: 'DELETE',
     auth: true,
   })
+}
+
+// --- Pin-drop (Branch Location Trust Slice 3, pin-drop addendum) -----------
+// These two functions call the backend DIRECTLY (apiFetch / apiFetchRaw), the
+// same way every other function in this file does. They are NOT proxied
+// through a Next.js BFF route: this app's session model (lib/api/client.ts,
+// .claude/rules/merchant-web.md) reserves the local /api/merchant-auth/*
+// route handlers for the auth LIFECYCLE only (login/refresh/logout/OTP,
+// which hold the httpOnly refresh cookie); every data endpoint, including
+// this one, is a direct authed browser->backend call. No existing BFF route
+// in this app proxies binary data either, so a new one here would be an
+// unprecedented pattern with no CSP benefit: connect-src already allows the
+// backend origin (apiFetch already works today), and img-src does NOT allow
+// it, so the map-preview bytes are fetched via apiFetchRaw (never rendered
+// as a raw <img src="{backend origin}/...">) and converted to a same-origin
+// blob: URL by the caller (already CSP-'blob:'-allowed) - see PinDropMap.
+
+// POST /api/v1/merchant/branches/:id/pin-drop, body { latitude, longitude }
+// (spec addendum §4.2; the ONE endpoint this app ever sends coordinates to -
+// L1 amendment). OWNER-only; rate-limited per-user (branchPinDrop, 10/min
+// prod). ALWAYS resolves 200 with the UPDATED branch: there is no separate
+// FAIL response shape. PASS writes locationConfidence 'MERCHANT_CONFIRMED'
+// (coords = the dropped pin); FAIL stamps 'NEEDS_REVIEW' and keeps the
+// branch's EXISTING coords (the pin is staged for admin review instead). The
+// caller must read `locationConfidence` on the RETURNED branch to know which
+// outcome happened - see PinDropMap.submit(). Pre-flight guards throw a typed
+// ApiError instead: BRANCH_LOCATION_ALREADY_CONFIRMED (409, D-L5 no-downgrade
+// - the branch was not POSTCODE_CENTROID/NEEDS_REVIEW), POSTCODE_NOT_FOUND
+// (400), GAZETTEER_UNAVAILABLE (503), or a 429 (rate limit; apiFetch's
+// ApiError has no .code for the @fastify/rate-limit default body, so callers
+// must branch on `.status === 429`, not `.code`).
+export async function dropBranchPin(
+  branchId: string,
+  pin: { latitude: number; longitude: number },
+): Promise<Branch> {
+  const branch = await apiFetch(`/api/v1/merchant/branches/${branchId}/pin-drop`, {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify(pin),
+  })
+  return branchSchema.parse(branch)
+}
+
+// GET /api/v1/merchant/branches/:id/map-preview - a backend-proxied static-map
+// IMAGE (bytes only; typically image/png). The Google key stays server-side;
+// the image is fetched authed from the browser (same as any other merchant
+// data read) and never touches an external host, so there is no CSP change
+// (addendum §7 option (d)). Routed through apiFetchRaw, not a hand-rolled
+// fetch, so the download shares the FULL authed-fetch lifecycle (bearer
+// attach + refresh-once-on-401 + session-lost teardown), mirroring
+// downloadInsightsExport in lib/api/insights.ts. Throws a typed ApiError
+// ('MAP_PREVIEW_NOT_ENABLED', 503) when the provider is dark or usage-capped;
+// the caller falls back to a no-map explanation (PinDropMap never offers a
+// manual lat/lng input - coordinates only ever leave the client via the drag
+// interaction on this one surface).
+export async function fetchBranchMapPreview(branchId: string): Promise<Blob> {
+  const res = await apiFetchRaw(`/api/v1/merchant/branches/${branchId}/map-preview`, {
+    method: 'GET',
+    auth: true,
+  })
+  return res.blob()
 }

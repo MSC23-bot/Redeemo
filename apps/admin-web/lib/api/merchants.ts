@@ -131,6 +131,33 @@ export const submitChecklistSchema = z.object({
 })
 export type SubmitChecklist = z.infer<typeof submitChecklistSchema>
 
+// A4: the curated owner-contact block (primary account owner). No secrets.
+export const ownerContactSchema = z.object({
+  name: z.string(),
+  email: z.string(),
+  phone: z.string().nullable(),
+  emailVerified: z.boolean(),
+})
+export type OwnerContact = z.infer<typeof ownerContactSchema>
+
+// A4: the agreement/contract block. Dates are ISO strings over the wire.
+export const agreementSchema = z.object({
+  contractStatus: z.string(),
+  contractStartDate: z.string().nullable(),
+  contractEndDate: z.string().nullable(),
+  signatureMethod: z.string().nullable(),
+  signedAt: z.string().nullable(),
+})
+export type Agreement = z.infer<typeof agreementSchema>
+
+// A4: the workspace header stat strip counts.
+export const headerCountsSchema = z.object({
+  branches: z.number(),
+  activeVouchers: z.number(),
+  totalRedemptions: z.number(),
+})
+export type HeaderCounts = z.infer<typeof headerCountsSchema>
+
 /** The full merchant detail payload: the merchant record + its branches. */
 export const merchantDetailSchema = z.object({
   merchant: z.object({
@@ -163,6 +190,21 @@ export const merchantDetailSchema = z.object({
     // gates the whole Submit-for-review card. The backend always returns both.
     submitChecklist: submitChecklistSchema,
     canSubmitOnBehalf: z.boolean(),
+    // A4 additive enrichment. The backend always returns these; they are declared
+    // `.optional()` here purely so pre-A4 fixtures/mocks stay valid (drift
+    // tolerance, mirroring the `.or(z.string())` philosophy). Consumers read them
+    // defensively.
+    //   owner: the primary account owner (curated), null when no active owner.
+    owner: ownerContactSchema.nullable().optional(),
+    ownerCount: z.number().optional(),
+    //   agreement: contract status + window dates + signature (dates are ISO
+    //   strings over the wire; null when unset).
+    agreement: agreementSchema.optional(),
+    //   headerCounts: the workspace stat strip (branches / active vouchers /
+    //   redemptions).
+    headerCounts: headerCountsSchema.optional(),
+    //   documentsCount: trivial _count for the Overview documents line.
+    documentsCount: z.number().optional(),
   }),
   branches: z.array(branchDetailSchema),
 })

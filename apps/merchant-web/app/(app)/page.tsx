@@ -38,8 +38,13 @@ export default function HomePage() {
   // after a NEEDS_CHANGES round-trip re-derives correctly. The data is only
   // consumed by the hub/changes states; the read-only homes ignore it.
   const enabled = session.isAuthenticated && !!profile.data
-  const checklist = useQuery({ queryKey: ['onboardingChecklist'], queryFn: getOnboardingChecklist, enabled, staleTime: 30_000 })
-  const status = useQuery({ queryKey: ['onboardingStatus'], queryFn: getOnboardingStatus, enabled, staleTime: 30_000 })
+  // WF8: getOnboardingChecklist/getOnboardingStatus already catch the expected
+  // INSUFFICIENT_PERMISSIONS (403) case and resolve to null (see lib/api/onboarding.ts)
+  // rather than throwing, so this query never errors for a non-owner viewer -
+  // `retry: false` is belt-and-suspenders so a genuinely non-retryable auth outcome
+  // never triggers react-query's default retry/backoff regardless.
+  const checklist = useQuery({ queryKey: ['onboardingChecklist'], queryFn: getOnboardingChecklist, enabled, staleTime: 30_000, retry: false })
+  const status = useQuery({ queryKey: ['onboardingStatus'], queryFn: getOnboardingStatus, enabled, staleTime: 30_000, retry: false })
   const rmvCount = useQuery({ queryKey: ['rmvActiveCount'], queryFn: countActiveRmvVouchers, enabled, staleTime: 30_000 })
 
   const [submitting, setSubmitting] = useState(false)
@@ -87,6 +92,33 @@ export default function HomePage() {
   // canViewInsights (OWNER / BRANCH_MANAGER) and renders a lean live home for STAFF.
   if (state === 'live' || state === 'live_new') {
     return <HomeDashboard profile={profile.data} />
+  }
+
+  // setup / changes: a non-owner (BRANCH_MANAGER / STAFF) is denied BOTH onboarding
+  // reads with INSUFFICIENT_PERMISSIONS (WF8) - getOnboardingChecklist/
+  // getOnboardingStatus resolve that to `null` rather than throwing (see
+  // lib/api/onboarding.ts), which is distinct from `undefined` (still loading /
+  // disabled). The staircase hub needs REAL step-completion data - a non-owner must
+  // never be shown a false "0 of N complete" for steps the owner may have already
+  // finished, and cannot act on Submit anyway - so it activates ONLY once a genuine
+  // read has landed; a denied non-owner instead sees a calm read-only notice here.
+  // Untouched for the OWNER path: an owner's reads never resolve to null.
+  const onboardingReadsDeniedForViewer = checklist.data === null && status.data === null
+  if (onboardingReadsDeniedForViewer) {
+    return (
+      <div className="space-y-6">
+        <h1 className="font-display text-2xl font-semibold text-foreground">Welcome back, {businessName}</h1>
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-display text-lg">Your business is still being set up</CardTitle>
+            <CardDescription>
+              The business owner is completing onboarding. Check back once your business is live, or ask the
+              owner for an update.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    )
   }
 
   // setup / changes -> the staircase hub. Derive from the merged reads.

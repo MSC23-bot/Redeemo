@@ -1,21 +1,64 @@
 /**
- * adminTones — semantic -> BadgeTone mapping for the Approval Queue's
- * multi-tone operator-scanning language (court pills, type chips, age tints).
+ * adminTones: the small shared semantic -> BadgeTone token layer for the admin
+ * panel's operator-scanning language. Two consumers, one source of truth:
  *
- * This module maps DOMAIN concepts (claim/court membership, approval type,
- * waiting age) onto the small shared `BadgeTone` palette in
+ * 1. Merchant 360 (Phase A): merchant lifecycle + verification pills rendered
+ *    by the workspace header and merchant cards.
+ * 2. Approval Queue (Phase B): court pills, type chips, and waiting-age tints.
+ *
+ * This module maps DOMAIN concepts onto the small shared `BadgeTone` palette in
  * `features/shared/Badge`. It intentionally does not define any new CSS/hex
  * values itself: every tone referenced below already exists in Badge's
  * TONE_CLASSES. Keeping the mapping here (rather than inlined per-component)
  * is the "small shared token layer" called out in the Phase B build plan's
- * visual-direction note, so later Approval Queue slices (B2/B3) reuse the
- * same source of truth instead of re-deriving these groupings.
+ * visual-direction note.
  *
  * Design contract: docs/superpowers/specs/2026-07-10-admin-panel-module-specs/
- * approval-queue-spec.md §B.1 (court derivation) and §E (tone tables).
+ * approval-queue-spec.md §B.1 (court derivation) and §E (tone tables);
+ * merchant-360-spec.md (header pills).
+ *
+ * (Union of the #461 and #465 add/add versions, resolved at merge time as
+ * planned: both stacks created this module independently.)
  */
 import type { BadgeTone } from '@/features/shared/Badge'
 import type { AdminApproval } from '@/lib/api/approvals'
+
+// ── Merchant lifecycle + verification pills (Merchant 360) ─────────────────
+
+const STATUS_LABELS: Record<string, string> = {
+  ACTIVE: 'Active',
+  SUSPENDED: 'Suspended',
+  PENDING_APPROVAL: 'Pending approval',
+  REGISTERED: 'Registered',
+  INACTIVE: 'Inactive',
+  DELETED: 'Deleted',
+}
+
+export function merchantStatusLabel(status: string): string {
+  return STATUS_LABELS[status] ?? status
+}
+
+export function merchantStatusTone(status: string): BadgeTone {
+  if (status === 'ACTIVE') return 'success'
+  if (status === 'SUSPENDED') return 'danger'
+  if (status === 'PENDING_APPROVAL') return 'warn'
+  return 'neutral'
+}
+
+export function verificationLabel(status: string): string {
+  if (status === 'VERIFIED') return 'Verified'
+  if (status === 'REJECTED') return 'Rejected'
+  if (status === 'PENDING') return 'Pending'
+  if (status === 'NOT_SUBMITTED') return 'Not submitted'
+  return status
+}
+
+export function verificationTone(status: string): BadgeTone {
+  if (status === 'VERIFIED') return 'success'
+  if (status === 'REJECTED') return 'danger'
+  if (status === 'PENDING') return 'warn'
+  return 'neutral'
+}
 
 // ── Court ──────────────────────────────────────────────────────────────────
 //

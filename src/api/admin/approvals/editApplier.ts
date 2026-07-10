@@ -313,8 +313,12 @@ export async function approveEdit(
 
       if (edit.kind === 'END') {
         // D4 PIN: an END may NEVER touch a flagship — re-verified here (the
-        // writer already rejects it) and thrown BEFORE any mutation.
-        if (voucher.isRmv) throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
+        // writer already rejects it) and thrown BEFORE any mutation. WF1
+        // (staging acceptance walk, defence-in-depth): also reject a legacy
+        // isMandatory:true / isRmv:false row (mandatory seeded outside the RMV
+        // model) — mirrors the merchant writer's requestVoucherEnd guard so an
+        // approved-then-applied END can never touch a mandatory voucher either.
+        if (voucher.isRmv || voucher.isMandatory) throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')
         // Re-verify the voucher is still LIVE at apply time (it may have been
         // rejected/suspended/expired since the request was written).
         if (voucher.status !== 'ACTIVE') throw new AppError('VOUCHER_EDIT_NOT_ALLOWED')

@@ -19,6 +19,8 @@ import type { ListRedemptionsResponse, RedemptionStatusFilter } from '@/lib/api/
 export const REDEMPTIONS_LIST_KEY = ['admin-redemptions'] as const
 
 export type RedemptionsListFilters = {
+  /** Scope to a single merchant (Merchant 360 Redemptions tab, A3). */
+  merchantId?: string
   status?: RedemptionStatusFilter
   code?: string
   includeTest?: boolean

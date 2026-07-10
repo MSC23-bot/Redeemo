@@ -50,8 +50,10 @@ jest.mock('@/components/branches/sections/BranchDetailsCard', () => ({
   ),
 }))
 jest.mock('@/components/branches/sections/LocationCard', () => ({
-  LocationCard: ({ canManage }: { canManage: boolean }) => (
-    <div data-testid="stub-location" data-can-manage={String(canManage)} />
+  // Slice 3: the pin-drop entry point is gated on the OWNER-only `canDropPin`,
+  // threaded separately from the BM-eligible `canManage` (addendum §9.3).
+  LocationCard: ({ canManage, canDropPin }: { canManage: boolean; canDropPin: boolean }) => (
+    <div data-testid="stub-location" data-can-manage={String(canManage)} data-can-drop-pin={String(canDropPin)} />
   ),
 }))
 jest.mock('@/components/branches/sections/ContactCard', () => ({
@@ -117,6 +119,8 @@ describe('BranchDetail canManage/canEditIdentity threading', () => {
     expect(screen.getByTestId('stub-hours')).toHaveAttribute('data-can-manage', 'true')
     expect(screen.getByTestId('stub-pin')).toHaveAttribute('data-can-manage', 'true')
     expect(screen.getByTestId('stub-amenities')).toHaveAttribute('data-can-manage', 'true')
+    // Slice 3 (addendum §9.3): the OWNER-only pin-drop gate is TRUE for an owner.
+    expect(screen.getByTestId('stub-location')).toHaveAttribute('data-can-drop-pin', 'true')
   })
 
   it('assigned BM, LIVE (no draft window): managed sections true, identity sections ALSO true (BM-eligible edit-request lane)', () => {
@@ -124,6 +128,9 @@ describe('BranchDetail canManage/canEditIdentity threading', () => {
     expect(screen.getByTestId('stub-branch-details')).toHaveAttribute('data-can-manage', 'true')
     expect(screen.getByTestId('stub-location')).toHaveAttribute('data-can-manage', 'true')
     expect(screen.getByTestId('stub-contact')).toHaveAttribute('data-can-manage', 'true')
+    // Slice 3 (addendum §9.3): the OWNER-only pin-drop gate stays FALSE for a BM
+    // even though canManage is true - this is the exact over-show being prevented.
+    expect(screen.getByTestId('stub-location')).toHaveAttribute('data-can-drop-pin', 'false')
   })
 
   it('assigned BM, DRAFT WINDOW: identity sections (details/location) canManage=false; managed sections stay true', () => {
@@ -156,6 +163,9 @@ describe('BranchDetail canManage/canEditIdentity threading', () => {
     renderDetail({ isOwner: true, canManage: true, isDraftWindow: false, ready: false })
     expect(screen.getByTestId('stub-branch-details')).toHaveAttribute('data-can-manage', 'false')
     expect(screen.getByTestId('stub-contact')).toHaveAttribute('data-can-manage', 'false')
+    // The pin-drop gate is also ANDed with `ready`, so it does not flash on for an
+    // owner before the capability resolves.
+    expect(screen.getByTestId('stub-location')).toHaveAttribute('data-can-drop-pin', 'false')
   })
 
   it('the dual-prop sections (alerts, branding) receive canManage AND isOwner independently for an assigned BM', () => {

@@ -55,6 +55,12 @@ export function BranchDetail({
   // direct write during onboarding.
   const canEditIdentity = ready && canManage && (!isDraftWindow || isOwner)
   const managed = ready && canManage
+  // OWNER-grade gate for the LocationCard merchant pin-drop entry point. The
+  // pin-drop + map-preview endpoints are OWNER-only (addendum §9.3, tightened
+  // from the §1.1 "OWNER or assigned BM" recommendation), so this must derive
+  // from `isOwner`, NOT `canManage` (which is BM-true on a live branch and would
+  // over-show the control to a Branch Manager who then only gets backend denials).
+  const canDropPin = ready && isOwner
   return (
     <div className="space-y-5">
       <BranchHeader
@@ -75,8 +81,10 @@ export function BranchDetail({
       {/* F7: branch-details identity values (read-only) + reviewed edit modal + pending edits + withdraw. */}
       <BranchDetailsCard branch={branch} canManage={canEditIdentity} />
 
-      {/* F9: read-only location confidence badge + static (no-network) map stub + locked PR-6 lookup affordance. */}
-      <LocationCard branch={branch} canManage={canEditIdentity} />
+      {/* F9: read-only location confidence badge + static (no-network) map stub + locked PR-6 lookup affordance.
+          `canManage` gates the reviewed edit lane (BM-eligible); `canDropPin` gates the OWNER-only pin-drop
+          entry point separately (addendum §9.3). */}
+      <LocationCard branch={branch} canManage={canEditIdentity} canDropPin={canDropPin} />
 
       {/* F4: contact instant-save (phone / email / website). D-BM1: OWNER or assigned BM edits. */}
       <ContactCard branch={branch} canManage={managed} />

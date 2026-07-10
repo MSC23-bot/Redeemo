@@ -301,37 +301,40 @@ describe('Branches PR-5 — CLOSE lifecycle (real DB)', () => {
 })
 
 describe('Branches PR-5 — authz (OWNER-only) (real DB)', () => {
-  it('a BRANCH_MANAGER cannot create / close / cancel / withdraw (INVALID_CREDENTIALS via resolveAdminMerchant)', async () => {
+  it('a BRANCH_MANAGER cannot create / close / cancel / withdraw (INSUFFICIENT_PERMISSIONS via resolveAdminMerchant, WF8)', async () => {
     const bm = await makeAdmin('bm')
     await makeMembership(merchantId, bm, 'BRANCH_MANAGER', true)
     stubPostcode()
     const second = await prisma.branch.create({ data: branchData(merchantId, 'BM Target', false) })
 
-    // resolveAdminMerchant resolves only the OWNER membership -> a BM gets INVALID_CREDENTIALS.
+    // WF8: resolveAdminMerchant resolves only the OWNER membership, but a BM holds a
+    // real ACTIVE (non-owner) membership -> INSUFFICIENT_PERMISSIONS (403), not
+    // INVALID_CREDENTIALS (401 would make merchant-web treat a valid BM token as a
+    // dead session and tear the portal down — see src/api/merchant/shared.ts).
     await expect(createBranch(prisma, bm, { name: 'X', addressLine1: '1', city: 'Y', postcode: 'HD1 2PY' }, ctx)).rejects.toThrow(
-      expect.objectContaining({ code: 'INVALID_CREDENTIALS' }),
+      expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }),
     )
     await expect(requestBranchClose(prisma, bm, second.id, 'r', ctx)).rejects.toThrow(
-      expect.objectContaining({ code: 'INVALID_CREDENTIALS' }),
+      expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }),
     )
     await expect(cancelPendingCreate(prisma, bm, second.id, ctx)).rejects.toThrow(
-      expect.objectContaining({ code: 'INVALID_CREDENTIALS' }),
+      expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }),
     )
     await expect(withdrawBranchClose(prisma, bm, second.id, ctx)).rejects.toThrow(
-      expect.objectContaining({ code: 'INVALID_CREDENTIALS' }),
+      expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }),
     )
   })
 
-  it('a STAFF member cannot create / close (INVALID_CREDENTIALS)', async () => {
+  it('a STAFF member cannot create / close (INSUFFICIENT_PERMISSIONS, WF8)', async () => {
     const staff = await makeAdmin('staff')
     await makeMembership(merchantId, staff, 'STAFF', true)
     const second = await prisma.branch.create({ data: branchData(merchantId, 'Staff Target', false) })
     stubPostcode()
     await expect(createBranch(prisma, staff, { name: 'X', addressLine1: '1', city: 'Y', postcode: 'HD1 2PY' }, ctx)).rejects.toThrow(
-      expect.objectContaining({ code: 'INVALID_CREDENTIALS' }),
+      expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }),
     )
     await expect(requestBranchClose(prisma, staff, second.id, 'r', ctx)).rejects.toThrow(
-      expect.objectContaining({ code: 'INVALID_CREDENTIALS' }),
+      expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }),
     )
   })
 

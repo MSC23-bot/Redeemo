@@ -176,15 +176,105 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
   // queue can label "Voucher change request" vs "Voucher end request" without
   // opening the row. ONE findMany over the page's VOUCHER_EDIT referenceIds
   // (mirrors the voucher/merchant batches above - no N+1), curated select
-  // (kind only). Additive/optional on the row shape: other types omit it.
+  // (kind + merchantId — merchantId feeds the WF16 merchant-summary batch
+  // below, so no second query is needed for this type). Additive/optional on
+  // the row shape: other types omit voucherEditKind.
   const voucherEditIds = approvals.filter((a) => a.type === 'VOUCHER_EDIT').map((a) => a.referenceId)
   const voucherEditRows = voucherEditIds.length
     ? await prisma.voucherPendingEdit.findMany({
         where: { id: { in: voucherEditIds } },
-        select: { id: true, kind: true },
+        select: { id: true, kind: true, merchantId: true },
       })
     : []
   const voucherEditKindById = new Map(voucherEditRows.map((e) => [e.id, e.kind]))
+
+  // WF16 (acceptance-walk finding): every non-onboarding, non-VOUCHER row
+  // (identity-edit, branch-edit, branch-create/close) rendered "Unknown
+  // merchant" in the queue because listApprovals only ever resolved a
+  // `merchant` block for MERCHANT_ONBOARDING (referenceId IS the merchant id)
+  // and VOUCHER (referenceId -> Voucher.merchantId). Every remaining type is
+  // in fact ONE hop from a merchant too — verified against the actioner's own
+  // referenceId-resolution code (claimApproval/releaseApproval above,
+  // editApplier.ts, branchLifecycleApplier.ts) and the schema:
+  //   - MERCHANT_IDENTITY_EDIT: referenceId -> MerchantPendingEdit.id, which
+  //     carries merchantId as a direct column (schema.prisma MerchantPendingEdit).
+  //   - BRANCH_IDENTITY_EDIT: referenceId -> BranchPendingEdit.id, which ALSO
+  //     carries merchantId as a direct (denormalised) column alongside
+  //     branchId — no join through Branch required.
+  //   - VOUCHER_EDIT: referenceId -> VoucherPendingEdit.id, which likewise
+  //     carries merchantId directly; reuses the voucherEditRows batch above
+  //     (widened select) instead of a second query.
+  //   - BRANCH_CREATE / BRANCH_CLOSE: referenceId IS the branch id directly
+  //     (no PendingEdit indirection — see merchant/branch/service.ts's
+  //     createBranch/requestClose writers), so Branch.merchantId resolves it.
+  // MERCHANT_PROFILE_EDIT is deliberately left unresolved: no code path in
+  // this codebase creates that type (a reserved enum value only), so its
+  // referenceId shape is unverified — resolving it would be a guess. It keeps
+  // the pre-existing null merchant, same as an unrecognised type.
+  //
+  // Same no-N+1 batch idiom as the rest of this function: one findMany per
+  // distinct PendingEdit/Branch source (curated `{ id, merchantId }` selects),
+  // then ONE merchant findMany over the union of merchantIds these batches
+  // discover, merged with (but separate from) the existing onboarding/voucher
+  // merchant maps.
+  const identityEditIds = approvals.filter((a) => a.type === 'MERCHANT_IDENTITY_EDIT').map((a) => a.referenceId)
+  const identityEdits = identityEditIds.length
+    ? await prisma.merchantPendingEdit.findMany({
+        where: { id: { in: identityEditIds } },
+        select: { id: true, merchantId: true },
+      })
+    : []
+  const merchantIdByIdentityEditId = new Map(identityEdits.map((e) => [e.id, e.merchantId]))
+
+  const branchEditIds = approvals.filter((a) => a.type === 'BRANCH_IDENTITY_EDIT').map((a) => a.referenceId)
+  const branchEdits = branchEditIds.length
+    ? await prisma.branchPendingEdit.findMany({
+        where: { id: { in: branchEditIds } },
+        select: { id: true, merchantId: true },
+      })
+    : []
+  const merchantIdByBranchEditId = new Map(branchEdits.map((e) => [e.id, e.merchantId]))
+
+  const branchLifecycleIds = approvals
+    .filter((a) => a.type === 'BRANCH_CREATE' || a.type === 'BRANCH_CLOSE')
+    .map((a) => a.referenceId)
+  const lifecycleBranches = branchLifecycleIds.length
+    ? await prisma.branch.findMany({
+        where: { id: { in: branchLifecycleIds } },
+        select: { id: true, merchantId: true },
+      })
+    : []
+  const merchantIdByBranchId = new Map(lifecycleBranches.map((b) => [b.id, b.merchantId]))
+
+  const merchantIdByVoucherEditId = new Map(voucherEditRows.map((e) => [e.id, e.merchantId]))
+
+  // Resolve a row's merchantId across the four edit/lifecycle sources above.
+  // MERCHANT_ONBOARDING and VOUCHER are resolved separately (existing maps);
+  // MERCHANT_PROFILE_EDIT and any unrecognised type return null (see above).
+  function resolveEditMerchantId(a: (typeof approvals)[number]): string | null {
+    if (a.type === 'MERCHANT_IDENTITY_EDIT') return merchantIdByIdentityEditId.get(a.referenceId) ?? null
+    if (a.type === 'BRANCH_IDENTITY_EDIT') return merchantIdByBranchEditId.get(a.referenceId) ?? null
+    if (a.type === 'VOUCHER_EDIT') return merchantIdByVoucherEditId.get(a.referenceId) ?? null
+    if (a.type === 'BRANCH_CREATE' || a.type === 'BRANCH_CLOSE') return merchantIdByBranchId.get(a.referenceId) ?? null
+    return null
+  }
+
+  const editMerchantIds = Array.from(
+    new Set(
+      approvals
+        .map((a) => resolveEditMerchantId(a))
+        .filter((id): id is string => id != null),
+    ),
+  )
+  // Lean summary (mirrors the VOUCHER row's merchant shape): id/businessName/
+  // status only — these rows have no onboarding-specific fields to show.
+  const editMerchants = editMerchantIds.length
+    ? await prisma.merchant.findMany({
+        where: { id: { in: editMerchantIds } },
+        select: { id: true, businessName: true, status: true },
+      })
+    : []
+  const editMerchantById = new Map(editMerchants.map((m) => [m.id, m]))
 
   return {
     page,
@@ -192,8 +282,10 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     total,
     approvals: approvals.map((a) => {
       // Day-2 Vouchers A8b - VOUCHER rows get a voucher summary + merchant +
-      // goLiveHint; ONBOARDING rows keep the existing merchant block; all other
-      // rows (edit lanes) carry null for both.
+      // goLiveHint; ONBOARDING rows keep the existing merchant block; the
+      // WF16 fix above resolves `merchant` for every other recognised type too
+      // (identity-edit, branch-edit, branch-create/close); only
+      // MERCHANT_PROFILE_EDIT (and any future/unrecognised type) carries null.
       if (a.type === 'VOUCHER') {
         const claimedBy = a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null
         const v = voucherById.get(a.referenceId) ?? null
@@ -216,9 +308,15 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
           claimedBy,
         }
       }
+      const merchant = a.type === 'MERCHANT_ONBOARDING'
+        ? (merchantById.get(a.referenceId) ?? null)
+        : (() => {
+            const mid = resolveEditMerchantId(a)
+            return mid ? (editMerchantById.get(mid) ?? null) : null
+          })()
       return {
         ...a,
-        merchant: a.type === 'MERCHANT_ONBOARDING' ? (merchantById.get(a.referenceId) ?? null) : null,
+        merchant,
         claimedBy: a.claimedById ? { id: a.claimedById, name: claimerById.get(a.claimedById) ?? null } : null,
         // Voucher governed flows: VOUCHER_EDIT rows carry the request kind
         // (CHANGE | END) for the queue label; null when the staging row is

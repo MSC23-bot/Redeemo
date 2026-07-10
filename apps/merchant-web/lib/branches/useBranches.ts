@@ -25,6 +25,7 @@ import {
   stageBranchHours,
   cancelPendingHours,
   setRedemptionAlerts,
+  dropBranchPin,
   type Branch,
   type BranchCreateBody,
   type BranchUpdateBody,
@@ -245,6 +246,27 @@ export function useSetRedemptionAlerts(branchId: string) {
     // card's persisted value is fresh the instant it clears its optimistic state.
     // Without this, clearing the optimistic value falls back to the stale persisted
     // branch until the invalidate -> refetch round-trip lands, flickering the switch.
+    onSuccess: (branch) => {
+      qc.setQueryData(branchKey(branch.id), branch)
+      invalidate(branch.id)
+    },
+  })
+}
+
+// Branch Location Trust Slice 3 (pin-drop addendum): submit a merchant-dropped
+// pin. ALWAYS resolves with the updated branch (PASS -> MERCHANT_CONFIRMED,
+// FAIL -> NEEDS_REVIEW; PinDropMap reads locationConfidence on the result to
+// tell them apart, never a distinct mutation-error shape). Seeds the detail
+// cache with the returned branch before invalidating, mirroring
+// useSetRedemptionAlerts, so the LocationCard badge/entry-point reflect the
+// outcome the instant the dialog closes rather than flickering back to the
+// stale pre-submit value while the invalidate -> refetch round-trip lands.
+export function useDropBranchPin() {
+  const qc = useQueryClient()
+  const invalidate = useInvalidateBranch()
+  return useMutation({
+    mutationFn: ({ id, latitude, longitude }: { id: string; latitude: number; longitude: number }) =>
+      dropBranchPin(id, { latitude, longitude }),
     onSuccess: (branch) => {
       qc.setQueryData(branchKey(branch.id), branch)
       invalidate(branch.id)

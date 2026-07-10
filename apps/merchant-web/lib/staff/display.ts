@@ -39,10 +39,11 @@ export const ROLE_DETAIL: Record<MemberRole, RoleDetail> = {
       'View vouchers and see redemptions for their branches',
       'Validate redemption codes at their branches',
       'Manage vouchers across the business (only when you grant it)',
+      'Edit their assigned branches, including branch PINs',
     ],
     cannot: [
       'Manage the team or invite members',
-      'Edit business details, branches, or branch PINs',
+      'Edit business details',
     ],
   },
   STAFF: {

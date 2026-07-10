@@ -66,6 +66,27 @@ describe('ComplianceStatusCard', () => {
     expect(screen.getByTestId('agreement-modal')).toHaveTextContent(/accepted version 1\.2 on 14 May 2026/i)
   })
 
+  // WF3 (staging acceptance walk): a signed merchant must show the signed copy
+  // AND the View button together - never the unsigned copy alongside a working
+  // button, which is what the walk caught on a live merchant.
+  it('shows the signed copy and the View signed agreement button together when signed', () => {
+    renderCard(profile())
+    const card = screen.getByTestId('business-profile-compliance-card')
+    expect(within(card).getByText(/accepted version 1\.2 on 14 May 2026/i)).toBeInTheDocument()
+    expect(within(card).queryByText(/have not signed the merchant agreement yet/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('view-signed-agreement')).toBeInTheDocument()
+  })
+
+  // WF3: the flip side - a genuinely unsigned merchant shows the unsigned copy
+  // and NEVER the View button (there is nothing signed to view).
+  it('shows the unsigned copy and NO View signed agreement button when unsigned', () => {
+    renderCard(profile({ agreement: null }))
+    const card = screen.getByTestId('business-profile-compliance-card')
+    expect(within(card).getByText(/have not signed the merchant agreement yet/i)).toBeInTheDocument()
+    expect(within(card).queryByText(/accepted version/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('view-signed-agreement')).not.toBeInTheDocument()
+  })
+
   it('closes the agreement modal', async () => {
     getContract.mockResolvedValue({ version: '1.2', text: 'Body' })
     renderCard(profile())
