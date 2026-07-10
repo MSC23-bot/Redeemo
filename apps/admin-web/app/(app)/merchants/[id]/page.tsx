@@ -47,6 +47,8 @@ import { MerchantWorkspaceTabBar } from '@/features/merchants/m360/MerchantWorks
 import { OverviewTab } from '@/features/merchants/m360/OverviewTab'
 import { BusinessIdentityTab } from '@/features/merchants/m360/BusinessIdentityTab'
 import { BranchesTab } from '@/features/merchants/m360/BranchesTab'
+import { VouchersTab } from '@/features/merchants/m360/VouchersTab'
+import { RedemptionsTab } from '@/features/merchants/m360/RedemptionsTab'
 import { DocumentsTab } from '@/features/merchants/m360/DocumentsTab'
 import { ActivityTab } from '@/features/merchants/m360/ActivityTab'
 import { PlaceholderTab } from '@/features/merchants/m360/PlaceholderTab'
@@ -138,6 +140,14 @@ function MerchantWorkspace() {
   // the Activity tab fail-closes on that capability (a merchant:read-only admin
   // must not fire the request).
   const canReadActivity = can('approval:read')
+  // The per-merchant Redemptions tab reads the D67 list, enforced on
+  // redemption:read by the backend, so it fail-closes on that capability (a
+  // merchant:read-only admin must not fire the request).
+  const canReadRedemptions = can('redemption:read')
+  // RMV flagship co-build (edit + submit on behalf) gates on
+  // merchant:manage-vouchers (OPERATIONS+); the list view itself is the page's
+  // merchant:read gate.
+  const canManageVouchers = can('merchant:manage-vouchers')
   // Lifecycle (suspend/reactivate) gates on merchant:suspend, exactly as the
   // directory flow does.
   const canLifecycle = can('merchant:suspend')
@@ -233,6 +243,14 @@ function MerchantWorkspace() {
             />
           )}
 
+          {activeTab === 'vouchers' && (
+            <VouchersTab merchantId={data.merchant.id} canManageVouchers={canManageVouchers} />
+          )}
+
+          {activeTab === 'redemptions' && (
+            <RedemptionsTab merchantId={data.merchant.id} canReadRedemptions={canReadRedemptions} />
+          )}
+
           {activeTab === 'documents' && (
             <DocumentsTab merchantId={data.merchant.id} canManageDocuments={canManageDocuments} />
           )}
@@ -244,6 +262,8 @@ function MerchantWorkspace() {
           {activeTab !== 'overview' &&
             activeTab !== 'identity' &&
             activeTab !== 'branches' &&
+            activeTab !== 'vouchers' &&
+            activeTab !== 'redemptions' &&
             activeTab !== 'documents' &&
             activeTab !== 'activity' && <PlaceholderTab tabKey={activeTab} />}
         </>

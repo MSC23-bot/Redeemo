@@ -51,12 +51,15 @@ export const DEFAULT_M360_TAB: M360TabKey = 'overview'
 
 /**
  * Tabs that render real, composed content (not a placeholder). A1 shipped
- * Overview + Business identity; A2 adds Branches, Documents, and Activity.
+ * Overview + Business identity; A2 added Branches, Documents, and Activity; A3
+ * adds Redemptions (scoped D67 list) and Vouchers (RMV flagship co-build).
  */
 export const RENDERED_M360_TABS: readonly M360TabKey[] = [
   'overview',
   'identity',
   'branches',
+  'vouchers',
+  'redemptions',
   'documents',
   'activity',
 ]
@@ -73,7 +76,7 @@ export function resolveM360Tab(raw: string | null | undefined): M360TabKey {
 
 type PlaceholderKey = Exclude<
   M360TabKey,
-  'overview' | 'identity' | 'branches' | 'documents' | 'activity'
+  'overview' | 'identity' | 'branches' | 'vouchers' | 'redemptions' | 'documents' | 'activity'
 >
 
 export interface PlaceholderCopy {
@@ -89,8 +92,6 @@ export interface PlaceholderCopy {
  * fabricated data is ever shown.
  */
 export const M360_PLACEHOLDER_COPY: Record<PlaceholderKey, PlaceholderCopy> = {
-  vouchers: { title: 'Vouchers', body: 'Coming in a later slice.' },
-  redemptions: { title: 'Redemptions', body: 'Coming in a later slice.' },
   staff: { title: 'Staff and access', body: 'Coming in a later slice.' },
   notes: {
     title: 'Notes',

@@ -203,12 +203,111 @@ jest.mock('@/features/timeline/ActivityTimeline', () => ({
   ),
 }))
 
+// ── A3 Redemptions tab: mock the D67 list hook (network I/O). The RedemptionsTab
+// wrapper + the shared table/filter/pager render for real, so the merchantId
+// wire-pin + hideMerchantColumn + fail-closed gate are genuinely exercised.
+
+jest.mock('@/lib/redemptions/useRedemptions', () => ({
+  useRedemptions: jest.fn(),
+}))
+
+// ── A3 Vouchers tab: mock the admin RMV read hook + the two co-build dialogs
+// (leaves that own mutations). The VouchersTab wrapper renders for real, so the
+// DRAFT-only + capability gating of the edit/submit affordances is exercised.
+
+jest.mock('@/lib/vouchers/useAdminRmvVouchers', () => ({
+  useAdminRmvVouchers: jest.fn(),
+  adminRmvQueryKey: (id: string) => ['admin-merchant-rmv', id],
+}))
+
+jest.mock('@/features/merchants/m360/RmvCoBuildDialog', () => ({
+  RmvCoBuildDialog: ({
+    merchantId,
+    voucher,
+    onCancel,
+  }: {
+    merchantId: string
+    voucher: { id: string }
+    onCancel: () => void
+  }) => (
+    <div
+      data-testid="rmv-cobuild-dialog-mock"
+      data-merchant-id={merchantId}
+      data-voucher-id={voucher.id}
+    >
+      <button onClick={onCancel} data-testid="rmv-cobuild-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
+jest.mock('@/features/merchants/m360/SubmitRmvDialog', () => ({
+  SubmitRmvDialog: ({
+    merchantId,
+    voucher,
+    onCancel,
+  }: {
+    merchantId: string
+    voucher: { id: string }
+    onCancel: () => void
+  }) => (
+    <div
+      data-testid="submit-rmv-dialog-mock"
+      data-merchant-id={merchantId}
+      data-voucher-id={voucher.id}
+    >
+      <button onClick={onCancel} data-testid="submit-rmv-dialog-cancel">Cancel</button>
+    </div>
+  ),
+}))
+
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
 import type { UseMerchantDetailResult } from '@/lib/merchants/useMerchantDetail'
+import { useRedemptions } from '@/lib/redemptions/useRedemptions'
+import { useAdminRmvVouchers } from '@/lib/vouchers/useAdminRmvVouchers'
+import type { AdminRmvVoucher } from '@/lib/api/vouchers'
 
 const mockedUseSession = useSession as jest.MockedFunction<typeof useSession>
 const mockedUseMerchantDetail = useMerchantDetail as jest.MockedFunction<typeof useMerchantDetail>
+const mockedUseRedemptions = useRedemptions as jest.MockedFunction<typeof useRedemptions>
+const mockedUseAdminRmvVouchers = useAdminRmvVouchers as jest.MockedFunction<typeof useAdminRmvVouchers>
+
+function mockRedemptions(overrides: Partial<ReturnType<typeof useRedemptions>> = {}) {
+  mockedUseRedemptions.mockReturnValue({
+    data: { items: [], total: 0, limit: 25, offset: 0 },
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: jest.fn(),
+    ...overrides,
+  })
+}
+
+function makeRmvVoucher(overrides: Partial<AdminRmvVoucher> = {}): AdminRmvVoucher {
+  return {
+    id: 'v-rmv-1',
+    code: 'RMV-001',
+    title: 'Buy one, get one free',
+    type: 'BOGO',
+    estimatedSaving: 12,
+    status: 'DRAFT',
+    approvalStatus: 'PENDING',
+    merchantFields: {},
+    allowedFields: ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl', 'merchantFields'],
+    ...overrides,
+  }
+}
+
+function mockRmv(overrides: Partial<ReturnType<typeof useAdminRmvVouchers>> = {}) {
+  mockedUseAdminRmvVouchers.mockReturnValue({
+    data: { vouchers: [makeRmvVoucher()] },
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: jest.fn(),
+    ...overrides,
+  })
+}
 
 function mockSession(opts: { ready?: boolean; can?: (cap: string) => boolean } = {}) {
   mockedUseSession.mockReturnValue({
@@ -488,11 +587,11 @@ describe('Merchant 360 tab routing', () => {
 describe('Merchant 360 not-built placeholders', () => {
   beforeEach(() => mockSession())
 
-  it('shows the "later slice" copy for a queued tab (Vouchers)', () => {
-    mockSearch = 'tab=vouchers'
+  it('shows the "later slice" copy for a queued tab (Staff and access)', () => {
+    mockSearch = 'tab=staff'
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
-    expect(screen.getByTestId('workspace-placeholder-vouchers')).toHaveTextContent(/later slice/i)
+    expect(screen.getByTestId('workspace-placeholder-staff')).toHaveTextContent(/later slice/i)
   })
 
   it('shows the net-new-schema gated copy for Notes (MerchantNote)', () => {
@@ -928,5 +1027,159 @@ describe('Merchant 360 Activity tab (A2)', () => {
     expect(denied).toHaveTextContent(/approval:read/)
     expect(screen.queryByTestId('activity-timeline-mock')).not.toBeInTheDocument()
     expect(screen.queryByTestId('activity-filter')).not.toBeInTheDocument()
+  })
+})
+
+// ── A3: Redemptions tab ─────────────────────────────────────────────────────────
+
+describe('Merchant 360 Redemptions tab (A3)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=redemptions'
+    mockRedemptions()
+  })
+
+  it('deep-links to the Redemptions module (not a placeholder) WITH redemption:read', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'redemption:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('workspace-redemptions')).toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-placeholder-redemptions')).not.toBeInTheDocument()
+    expect(screen.getByTestId('workspace-tab-redemptions')).toHaveAttribute('data-active', 'true')
+  })
+
+  it('WIRE-PIN: always passes this merchant id to useRedemptions with enabled:true', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'redemption:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    const lastCall = mockedUseRedemptions.mock.calls[mockedUseRedemptions.mock.calls.length - 1]
+    expect(lastCall[0].merchantId).toBe('m-1')
+    expect(lastCall[1]).toEqual({ enabled: true })
+  })
+
+  it('hides the Merchant column (scoped view) but keeps the Voucher column', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'redemption:read' })
+    mockDetail({ data: makeDetail() })
+    mockRedemptions({
+      data: {
+        items: [
+          {
+            id: 'r1',
+            redemptionCode: 'A7K2P9X4',
+            voucher: { id: 'v1', title: 'Half-price pizza', type: 'BOGO' },
+            branch: { id: 'b1', name: 'Main Branch' },
+            merchant: { id: 'm-1', businessName: 'Acme Coffee' },
+            customerName: 'Sarah K.',
+            redeemedAt: '2026-07-01T10:00:00.000Z',
+            status: 'AWAITING_VALIDATION',
+            validatedAt: null,
+            validationMethod: null,
+            validatedByLabel: null,
+            estimatedSaving: 5,
+            isTestData: false,
+          },
+        ],
+        total: 1,
+        limit: 25,
+        offset: 0,
+      },
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByRole('columnheader', { name: 'Merchant' })).not.toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Voucher' })).toBeInTheDocument()
+  })
+
+  it('links out to the global redemptions page', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'redemption:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('redemptions-view-all-link')).toHaveAttribute('href', '/redemptions')
+  })
+
+  it('FAIL-CLOSED: shows the denied panel (naming redemption:read) and never fires the request', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    const denied = screen.getByTestId('workspace-redemptions-denied')
+    expect(denied).toBeInTheDocument()
+    expect(denied).toHaveTextContent(/redemption:read/)
+    expect(screen.queryByTestId('redemptions-view-all-link')).not.toBeInTheDocument()
+    const lastCall = mockedUseRedemptions.mock.calls[mockedUseRedemptions.mock.calls.length - 1]
+    expect(lastCall[0].merchantId).toBe('m-1')
+    expect(lastCall[1]).toEqual({ enabled: false })
+  })
+})
+
+// ── A3: Vouchers tab ─────────────────────────────────────────────────────────────
+
+describe('Merchant 360 Vouchers tab (A3)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=vouchers'
+    mockRmv()
+  })
+
+  it('deep-links to the Vouchers module (not a placeholder) and renders a card per RMV', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    mockRmv({
+      data: {
+        vouchers: [
+          makeRmvVoucher({ id: 'v-rmv-1' }),
+          makeRmvVoucher({ id: 'v-rmv-2', code: 'RMV-002', type: 'FREEBIE' }),
+        ],
+      },
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('workspace-vouchers')).toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-placeholder-vouchers')).not.toBeInTheDocument()
+    expect(screen.getByTestId('rmv-card-v-rmv-1')).toBeInTheDocument()
+    expect(screen.getByTestId('rmv-card-v-rmv-2')).toBeInTheDocument()
+    expect(screen.getByTestId('vouchers-mandatory-count')).toHaveTextContent('Mandatory 2 / 2')
+  })
+
+  it('shows the honest CUSTOM (RCV) not-built note, never fabricated data', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('vouchers-custom-note')).toHaveTextContent(/next slice/i)
+  })
+
+  it('shows Edit + Submit on a DRAFT flagship WITH merchant:manage-vouchers and opens/closes the dialogs', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:manage-vouchers' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    fireEvent.click(screen.getByTestId('rmv-edit-v-rmv-1'))
+    const editDialog = screen.getByTestId('rmv-cobuild-dialog-mock')
+    expect(editDialog).toHaveAttribute('data-merchant-id', 'm-1')
+    expect(editDialog).toHaveAttribute('data-voucher-id', 'v-rmv-1')
+    fireEvent.click(screen.getByTestId('rmv-cobuild-dialog-cancel'))
+    expect(screen.queryByTestId('rmv-cobuild-dialog-mock')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('rmv-submit-v-rmv-1'))
+    const submitDialog = screen.getByTestId('submit-rmv-dialog-mock')
+    expect(submitDialog).toHaveAttribute('data-voucher-id', 'v-rmv-1')
+    fireEvent.click(screen.getByTestId('submit-rmv-dialog-cancel'))
+    expect(screen.queryByTestId('submit-rmv-dialog-mock')).not.toBeInTheDocument()
+  })
+
+  it('HIDES Edit/Submit on a DRAFT flagship without merchant:manage-vouchers (shows a gated note)', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('rmv-edit-v-rmv-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('rmv-submit-v-rmv-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('rmv-gated-v-rmv-1')).toHaveTextContent(/merchant:manage-vouchers/)
+  })
+
+  it('a non-DRAFT flagship is read-only even WITH merchant:manage-vouchers', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' || cap === 'merchant:manage-vouchers' })
+    mockDetail({ data: makeDetail() })
+    mockRmv({
+      data: { vouchers: [makeRmvVoucher({ id: 'v-rmv-1', status: 'PENDING_APPROVAL' })] },
+    })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('rmv-edit-v-rmv-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('rmv-submit-v-rmv-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('rmv-readonly-v-rmv-1')).toBeInTheDocument()
+    expect(screen.getByTestId('rmv-status-v-rmv-1')).toHaveTextContent('Pending approval')
   })
 })

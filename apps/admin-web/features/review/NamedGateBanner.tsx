@@ -84,6 +84,14 @@ const CODE_MESSAGES: Record<string, string> = {
   VOUCHER_NOT_ACTIONABLE:
     'This voucher is not in a state that can be actioned. The page has refreshed.',
   VOUCHER_NOT_FOUND: 'This voucher could not be found. The page has refreshed.',
+  // Option B B5.1 (Merchant 360 A3): admin RMV co-build on behalf (edit + submit).
+  RMV_NOT_FOUND: 'This mandatory voucher could not be found. The list has refreshed.',
+  VOUCHER_NOT_EDITABLE:
+    'This voucher is no longer a draft, so it cannot be edited. The list has refreshed.',
+  VOUCHER_NOT_SUBMITTABLE:
+    'This voucher is no longer a draft, so it cannot be submitted. The list has refreshed.',
+  RMV_FIELD_NOT_ALLOWED:
+    'One of the fields cannot be edited on this voucher. The list has refreshed; try again.',
 }
 
 function getMessage(error: unknown): string {
