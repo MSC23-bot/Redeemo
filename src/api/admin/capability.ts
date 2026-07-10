@@ -114,19 +114,22 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'redemption:read',
 ]
 
-// Team & Roles S1: FIELD baseline (owner-locked launch set). Field reps capture
-// leads and drive assisted PRE-LIVE onboarding on a merchant's behalf. FIELD
-// holds NO approval capability (`approval:action` is grant-only, spec §5), NO
-// `redemption:read` (reps have no cross-merchant redemption need), NO
-// `merchant:suspend`, NO `admin:manage-team`, and NONE of the SUPER_ADMIN-only
-// edit-identity / edit-category caps. Pre-live scope enforcement for the
-// on-behalf caps is a SEPARATE server guard (spec §4.2, slice S3), not encoded
-// in this baseline.
+// Team & Roles S1: FIELD baseline (owner-locked UNION set, 2026-07-10: FIELD
+// must complete assisted onboarding END-TO-END for pre-live merchants,
+// including submit-for-review). Field reps capture leads and drive assisted
+// PRE-LIVE onboarding on a merchant's behalf. FIELD holds NO approval
+// capability (`approval:action` is grant-only, spec §5), NO `redemption:read`
+// (reps have no cross-merchant redemption need), NO `merchant:suspend`, NO
+// `admin:manage-team`, and NONE of the SUPER_ADMIN-only edit-identity /
+// edit-category caps. The safety boundary for the on-behalf caps is the
+// SERVER-SIDE pre-live scope guard (spec §4.2, slice S3): these powers apply
+// only to REGISTERED/PENDING_APPROVAL merchants, never live ones.
 const FIELD_CAPABILITIES: AdminCapability[] = [
   'lead:manage',
   'merchant:create-draft',
   'merchant:read',
   'merchant:edit',
+  'merchant:submit',
   'merchant:manage-branches',
   'merchant:manage-documents',
   'merchant:manage-vouchers',

@@ -31,12 +31,16 @@ describe('GRANTABLE_CAPABILITIES — launch curated set', () => {
 })
 
 describe('FIELD baseline (pinned)', () => {
-  // The exact owner-locked FIELD baseline. Pinning it prevents silent drift.
+  // The exact owner-locked FIELD baseline (UNION set, owner decision 2026-07-10:
+  // FIELD completes assisted onboarding end-to-end for pre-live merchants,
+  // including submit-for-review; safety boundary = the S3 server-side pre-live
+  // scope guard). Pinning it prevents silent drift.
   const EXPECTED_FIELD: AdminCapability[] = [
     'lead:manage',
     'merchant:create-draft',
     'merchant:read',
     'merchant:edit',
+    'merchant:submit',
     'merchant:manage-branches',
     'merchant:manage-documents',
     'merchant:manage-vouchers',
