@@ -10,7 +10,7 @@
  * (`queue-row-<id>`) or the narrow card (`queue-card-<id>`) test id.
  */
 import React from 'react'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import { QueueTable } from '../QueueTable'
 import type { AdminApproval } from '@/lib/api/approvals'
 
@@ -104,14 +104,17 @@ describe('QueueTable displayStatus', () => {
     expect(wideRow('a-1').getByText('Submitted')).toBeInTheDocument()
   })
 
-  it('shows "Under review" for PENDING + claimed (by someone else)', () => {
+  it('shows "In review" (B2 lifecycle pill) for PENDING + claimed (by someone else)', () => {
+    // B2: the claim-aware "In review" label now lives in the lifecycle pill
+    // (the approval pill is claim-unaware "Pending" — see the two-pill
+    // status describe block below for the split assertion).
     render(
       <QueueTable
         items={[makeApproval({ status: 'PENDING', claimedById: 'admin-other', claimedAt: new Date().toISOString() })]}
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(wideRow('a-1').getByText('Under review')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('In review')).toBeInTheDocument()
   })
 
   it('shows "Changes requested" for CHANGES_REQUESTED status', () => {
@@ -332,7 +335,12 @@ describe('QueueTable navigation', () => {
     render(<QueueTable items={[makeApproval()]} currentAdminId={CURRENT_ADMIN} />)
     expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /reject/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /claim/i })).not.toBeInTheDocument()
+    // Anchored to the START of the accessible name: a real claim action button
+    // always reads "Claim ..." (e.g. "Claim and review"). This is distinct
+    // from the B2 sortable "Owner / claim" column header button, whose name
+    // ends with (rather than starts with) the word "claim" — read-and-triage
+    // sorting, not an action.
+    expect(screen.queryByRole('button', { name: /^claim/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /release/i })).not.toBeInTheDocument()
   })
 })
@@ -535,5 +543,160 @@ describe('QueueTable empty state', () => {
     const button = screen.getByRole('button', { name: /clear filter/i })
     button.click()
     expect(onClearFilter).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── B2: two-pill Status column ────────────────────────────────────────────────
+
+describe('QueueTable two-pill status', () => {
+  it('shows a lifecycle pill AND an approval pill for a merchant-bearing row', () => {
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            // verificationStatus:'VERIFIED' (not the default 'PENDING') keeps
+            // "Pending" unique to the Status column's approval pill in this
+            // assertion — the Verification column would otherwise also read
+            // "Pending" and make the query ambiguous.
+            merchant: { ...makeApproval().merchant!, status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    const row = wideRow('a-1')
+    expect(row.getByText('Live')).toBeInTheDocument()
+    expect(row.getByText('Pending')).toBeInTheDocument()
+  })
+
+  it('the lifecycle pill for a VOUCHER row derives from voucher.status, not merchant.status', () => {
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            type: 'VOUCHER',
+            merchant: { id: 'm-1', businessName: 'Acme Coffee', status: 'ACTIVE' } as AdminApproval['merchant'],
+            voucher: { title: '20% off', type: 'DISCOUNT', status: 'DRAFT', approvalStatus: 'PENDING' },
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    const row = wideRow('a-1')
+    // The voucher is DRAFT even though its merchant is ACTIVE ("Live").
+    expect(row.getByText('Draft')).toBeInTheDocument()
+    expect(row.queryByText('Live')).not.toBeInTheDocument()
+  })
+
+  it('falls back to a single pill (no lifecycle pill) when merchant is null', () => {
+    render(<QueueTable items={[makeApproval({ merchant: null })]} currentAdminId={CURRENT_ADMIN} />)
+    const row = wideRow('a-1')
+    // Only the pre-existing single displayStatus pill renders — "Submitted"
+    // (the old claim-aware label), not the two-pill "Pending" approval label.
+    expect(row.getByText('Submitted')).toBeInTheDocument()
+    expect(row.queryByText('Pending')).not.toBeInTheDocument()
+  })
+
+  it('a SUSPENDED merchant shows "Suspended" (danger tone) as its lifecycle pill', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ merchant: { ...makeApproval().merchant!, status: 'SUSPENDED' } })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    const pill = wideRow('a-1').getByText('Suspended')
+    expect(pill.className).toMatch(/red/)
+  })
+})
+
+// ── B2: sortable column headers (client-side sort of the loaded page) ───────
+
+describe('QueueTable sortable headers', () => {
+  function sortableItems(): AdminApproval[] {
+    return [
+      makeApproval({
+        id: 'zeta',
+        merchant: { ...makeApproval().merchant!, businessName: 'Zeta Cafe' },
+        submittedAt: new Date(Date.now() - 1 * 3_600_000).toISOString(),
+      }),
+      makeApproval({
+        id: 'alpha',
+        merchant: { ...makeApproval().merchant!, businessName: 'Alpha Diner' },
+        submittedAt: new Date(Date.now() - 48 * 3_600_000).toISOString(),
+      }),
+    ]
+  }
+
+  function wideOrder() {
+    return screen
+      .getByTestId('queue-wide-table')
+      .querySelectorAll('tbody tr')
+  }
+
+  it('renders in the incoming (unsorted) order by default', () => {
+    render(<QueueTable items={sortableItems()} currentAdminId={CURRENT_ADMIN} />)
+    const rows = wideOrder()
+    expect(rows[0]).toHaveAttribute('data-testid', 'queue-row-zeta')
+    expect(rows[1]).toHaveAttribute('data-testid', 'queue-row-alpha')
+  })
+
+  it('sorts by Merchant ascending on first click, descending on second click', () => {
+    render(<QueueTable items={sortableItems()} currentAdminId={CURRENT_ADMIN} />)
+    const header = screen.getByTestId('queue-sort-merchant')
+
+    fireEvent.click(header)
+    let rows = wideOrder()
+    expect(rows[0]).toHaveAttribute('data-testid', 'queue-row-alpha') // Alpha < Zeta
+    expect(rows[1]).toHaveAttribute('data-testid', 'queue-row-zeta')
+    expect(header.closest('th')).toHaveAttribute('aria-sort', 'ascending')
+
+    fireEvent.click(header)
+    rows = wideOrder()
+    expect(rows[0]).toHaveAttribute('data-testid', 'queue-row-zeta')
+    expect(rows[1]).toHaveAttribute('data-testid', 'queue-row-alpha')
+    expect(header.closest('th')).toHaveAttribute('aria-sort', 'descending')
+  })
+
+  it('sorts by Waiting age: ascending = least time waited (newest) first', () => {
+    render(<QueueTable items={sortableItems()} currentAdminId={CURRENT_ADMIN} />)
+    fireEvent.click(screen.getByTestId('queue-sort-waiting'))
+    const rows = wideOrder()
+    // "zeta" was submitted 1h ago (waited least), "alpha" 48h ago (waited most).
+    expect(rows[0]).toHaveAttribute('data-testid', 'queue-row-zeta')
+    expect(rows[1]).toHaveAttribute('data-testid', 'queue-row-alpha')
+
+    // Second click (descending) flips to most time waited (oldest) first.
+    fireEvent.click(screen.getByTestId('queue-sort-waiting'))
+    const rowsDesc = wideOrder()
+    expect(rowsDesc[0]).toHaveAttribute('data-testid', 'queue-row-alpha')
+    expect(rowsDesc[1]).toHaveAttribute('data-testid', 'queue-row-zeta')
+  })
+
+  it('switching to a different sort column resets direction to ascending', () => {
+    render(<QueueTable items={sortableItems()} currentAdminId={CURRENT_ADMIN} />)
+    const merchantHeader = screen.getByTestId('queue-sort-merchant')
+    fireEvent.click(merchantHeader) // asc
+    fireEvent.click(merchantHeader) // desc
+    expect(merchantHeader.closest('th')).toHaveAttribute('aria-sort', 'descending')
+
+    fireEvent.click(screen.getByTestId('queue-sort-type'))
+    expect(merchantHeader.closest('th')).toHaveAttribute('aria-sort', 'none')
+    expect(screen.getByTestId('queue-sort-type').closest('th')).toHaveAttribute('aria-sort', 'ascending')
+  })
+
+  it('the narrow card list reflects the same sorted order as the wide table', () => {
+    render(<QueueTable items={sortableItems()} currentAdminId={CURRENT_ADMIN} />)
+    fireEvent.click(screen.getByTestId('queue-sort-merchant'))
+    const cards = screen.getByTestId('queue-narrow-cards').querySelectorAll('a')
+    expect(cards[0]).toHaveAttribute('data-testid', 'queue-card-alpha')
+    expect(cards[1]).toHaveAttribute('data-testid', 'queue-card-zeta')
+  })
+
+  it('Court, Verification, and Status headers are plain (not sortable buttons)', () => {
+    render(<QueueTable items={sortableItems()} currentAdminId={CURRENT_ADMIN} />)
+    for (const label of ['Court', 'Verification', 'Status']) {
+      const header = screen.getByRole('columnheader', { name: label })
+      expect(within(header).queryByRole('button')).not.toBeInTheDocument()
+    }
   })
 })

@@ -199,3 +199,102 @@ export function ageToneForHours(hours: number): BadgeTone {
   if (hours >= 12) return 'warn'
   return 'neutral'
 }
+
+// ── Two-pill Status (B2: queue-list Status column + review-body alignment) ──
+//
+// approval-queue-spec.md §E: "Two-pill Status = lifePill + apprPill. Lifecycle:
+// Live green / In review + Changes needed amber / Submitted cyan / Suspended
+// red / Inactive grey. Approval: Approved green / Pending grey / Changes
+// requested amber / Rejected red."
+//
+// The prototype's per-row `life`/`appr` fields are synthetic; the real data
+// model does not carry a uniform "lifecycle" concept for every approval row
+// (recorded gap in the B1 PR). What it DOES carry, honestly:
+//   - `approval.status` (PENDING/APPROVED/REJECTED/CHANGES_REQUESTED/
+//     WITHDRAWN) on every row — this is the "approval" pill, always available.
+//   - `merchant.status` (REGISTERED/PENDING_APPROVAL/ACTIVE/INACTIVE/
+//     SUSPENDED/DELETED) on rows that carry a merchant — a genuine second,
+//     independent axis: the merchant's own standing, distinct from this one
+//     approval's decision state (e.g. an ACTIVE merchant can still have a
+//     routine PENDING branch-edit approval sitting in the queue).
+//   - `voucher.status` (DRAFT/PENDING_APPROVAL/ACTIVE/INACTIVE/EXPIRED) on a
+//     VOUCHER-type row — the reviewed voucher's OWN lifecycle, a more precise
+//     second axis than the merchant's for that row (the voucher, not the
+//     merchant, is what's being decided).
+// So the lifecycle pill is genuinely available (and shown) only where one of
+// these entity-level fields exists; otherwise callers fall back to a single
+// pill (approval-status only) — never a fabricated lifecycle value.
+//
+// The claim-aware "In review" vs "Submitted" vs "Changes needed" split lives
+// ENTIRELY in the lifecycle pill; the approval pill is deliberately the pure,
+// claim-unaware rendering of `approval.status`, so the two pills read as two
+// distinct axes rather than double-signalling the same claim state.
+
+export interface StatusPill {
+  label: string
+  tone: BadgeTone
+}
+
+/** Friendly label for the raw ApprovalStatus enum — the "approval" pill. */
+export function approvalStatusLabel(status: string): string {
+  const map: Record<string, string> = {
+    PENDING: 'Pending',
+    APPROVED: 'Approved',
+    REJECTED: 'Rejected',
+    CHANGES_REQUESTED: 'Changes requested',
+    WITHDRAWN: 'Withdrawn',
+  }
+  return map[status] ?? status
+}
+
+/** approval-queue-spec.md §E: "Approval: Approved green / Pending grey / Changes requested amber / Rejected red." */
+export function approvalStatusTone(status: string): BadgeTone {
+  if (status === 'APPROVED') return 'success'
+  if (status === 'REJECTED') return 'danger'
+  if (status === 'CHANGES_REQUESTED') return 'warn'
+  return 'neutral' // PENDING + WITHDRAWN (not in the spec's vocabulary; a calm neutral default)
+}
+
+/**
+ * The claim-aware sub-state for an entity that is NOT yet live (still moving
+ * through this approval's own review). Shared by `merchantLifecycle` and
+ * `voucherLifecycle` so the claim-awareness lives in exactly one place.
+ */
+function pendingLifecycleSubstate(
+  approvalStatus: string,
+  claimedById: string | null
+): StatusPill {
+  if (approvalStatus === 'CHANGES_REQUESTED') return { label: 'Changes needed', tone: 'warn' }
+  if (claimedById != null) return { label: 'In review', tone: 'warn' }
+  return { label: 'Submitted', tone: 'cyan' }
+}
+
+/** The merchant's own lifecycle pill (independent of this approval's decision state). */
+export function merchantLifecycle(
+  merchantStatus: string,
+  approvalStatus: string,
+  claimedById: string | null
+): StatusPill {
+  if (merchantStatus === 'ACTIVE') return { label: 'Live', tone: 'success' }
+  if (merchantStatus === 'SUSPENDED') return { label: 'Suspended', tone: 'danger' }
+  if (merchantStatus === 'INACTIVE') return { label: 'Inactive', tone: 'neutral' }
+  // DELETED is not in the spec's vocabulary (the prototype never modelled a
+  // deleted merchant reaching the queue); an honest, calmly-toned addition.
+  if (merchantStatus === 'DELETED') return { label: 'Deleted', tone: 'neutral' }
+  // REGISTERED / PENDING_APPROVAL: still moving through onboarding.
+  return pendingLifecycleSubstate(approvalStatus, claimedById)
+}
+
+/** The voucher's own lifecycle pill (VOUCHER-type rows: more precise than the merchant's). */
+export function voucherLifecycle(
+  voucherStatus: string,
+  approvalStatus: string,
+  claimedById: string | null
+): StatusPill {
+  if (voucherStatus === 'ACTIVE') return { label: 'Live', tone: 'success' }
+  if (voucherStatus === 'INACTIVE') return { label: 'Inactive', tone: 'neutral' }
+  if (voucherStatus === 'EXPIRED') return { label: 'Expired', tone: 'neutral' }
+  if (voucherStatus === 'DRAFT') return { label: 'Draft', tone: 'neutral' }
+  // PENDING_APPROVAL: still moving through this voucher's own review.
+  return pendingLifecycleSubstate(approvalStatus, claimedById)
+}

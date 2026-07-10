@@ -15,6 +15,10 @@ import {
   typeChipTone,
   TYPE_GROUP_LABEL,
   ageToneForHours,
+  approvalStatusLabel,
+  approvalStatusTone,
+  merchantLifecycle,
+  voucherLifecycle,
 } from '../adminTones'
 import type { AdminApproval } from '@/lib/api/approvals'
 
@@ -139,5 +143,92 @@ describe('ageToneForHours', () => {
   it('is danger (red) at exactly 36h and beyond', () => {
     expect(ageToneForHours(36)).toBe('danger')
     expect(ageToneForHours(100)).toBe('danger')
+  })
+})
+
+// ── Two-pill Status (B2) ──────────────────────────────────────────────────
+
+describe('approvalStatusLabel + approvalStatusTone', () => {
+  it('maps every ApprovalStatus value to its spec-aligned label + tone', () => {
+    expect(approvalStatusLabel('PENDING')).toBe('Pending')
+    expect(approvalStatusTone('PENDING')).toBe('neutral')
+
+    expect(approvalStatusLabel('APPROVED')).toBe('Approved')
+    expect(approvalStatusTone('APPROVED')).toBe('success')
+
+    expect(approvalStatusLabel('REJECTED')).toBe('Rejected')
+    expect(approvalStatusTone('REJECTED')).toBe('danger')
+
+    expect(approvalStatusLabel('CHANGES_REQUESTED')).toBe('Changes requested')
+    expect(approvalStatusTone('CHANGES_REQUESTED')).toBe('warn')
+
+    expect(approvalStatusLabel('WITHDRAWN')).toBe('Withdrawn')
+    expect(approvalStatusTone('WITHDRAWN')).toBe('neutral')
+  })
+
+  it('passes an unknown status through as the label, neutral tone', () => {
+    expect(approvalStatusLabel('SOMETHING_NEW')).toBe('SOMETHING_NEW')
+    expect(approvalStatusTone('SOMETHING_NEW')).toBe('neutral')
+  })
+})
+
+describe('merchantLifecycle', () => {
+  it('is "Live" (success) for an ACTIVE merchant, regardless of this approval\'s own status', () => {
+    expect(merchantLifecycle('ACTIVE', 'PENDING', null)).toEqual({ label: 'Live', tone: 'success' })
+    expect(merchantLifecycle('ACTIVE', 'APPROVED', 'admin-1')).toEqual({ label: 'Live', tone: 'success' })
+  })
+
+  it('is "Suspended" (danger) for a SUSPENDED merchant', () => {
+    expect(merchantLifecycle('SUSPENDED', 'PENDING', null)).toEqual({ label: 'Suspended', tone: 'danger' })
+  })
+
+  it('is "Inactive" (neutral) for an INACTIVE merchant', () => {
+    expect(merchantLifecycle('INACTIVE', 'PENDING', null)).toEqual({ label: 'Inactive', tone: 'neutral' })
+  })
+
+  it('is "Deleted" (neutral) for a DELETED merchant', () => {
+    expect(merchantLifecycle('DELETED', 'PENDING', null)).toEqual({ label: 'Deleted', tone: 'neutral' })
+  })
+
+  it('is "Submitted" (cyan) for a not-yet-live merchant with an unclaimed PENDING approval', () => {
+    expect(merchantLifecycle('PENDING_APPROVAL', 'PENDING', null)).toEqual({ label: 'Submitted', tone: 'cyan' })
+    expect(merchantLifecycle('REGISTERED', 'PENDING', null)).toEqual({ label: 'Submitted', tone: 'cyan' })
+  })
+
+  it('is "In review" (warn) for a not-yet-live merchant whose approval is claimed', () => {
+    expect(merchantLifecycle('PENDING_APPROVAL', 'PENDING', 'admin-1')).toEqual({ label: 'In review', tone: 'warn' })
+  })
+
+  it('is "Changes needed" (warn) for a not-yet-live merchant awaiting merchant changes', () => {
+    expect(merchantLifecycle('PENDING_APPROVAL', 'CHANGES_REQUESTED', null)).toEqual({
+      label: 'Changes needed',
+      tone: 'warn',
+    })
+    // Claim state does not override the changes-needed signal.
+    expect(merchantLifecycle('PENDING_APPROVAL', 'CHANGES_REQUESTED', 'admin-1')).toEqual({
+      label: 'Changes needed',
+      tone: 'warn',
+    })
+  })
+})
+
+describe('voucherLifecycle', () => {
+  it('is "Live" (success) for an ACTIVE voucher', () => {
+    expect(voucherLifecycle('ACTIVE', 'APPROVED', null)).toEqual({ label: 'Live', tone: 'success' })
+  })
+
+  it('is "Inactive" / "Expired" / "Draft" (neutral) for the other settled lifecycles', () => {
+    expect(voucherLifecycle('INACTIVE', 'APPROVED', null)).toEqual({ label: 'Inactive', tone: 'neutral' })
+    expect(voucherLifecycle('EXPIRED', 'APPROVED', null)).toEqual({ label: 'Expired', tone: 'neutral' })
+    expect(voucherLifecycle('DRAFT', 'PENDING', null)).toEqual({ label: 'Draft', tone: 'neutral' })
+  })
+
+  it('shares the claim-aware pending sub-state with merchantLifecycle for PENDING_APPROVAL', () => {
+    expect(voucherLifecycle('PENDING_APPROVAL', 'PENDING', null)).toEqual({ label: 'Submitted', tone: 'cyan' })
+    expect(voucherLifecycle('PENDING_APPROVAL', 'PENDING', 'admin-1')).toEqual({ label: 'In review', tone: 'warn' })
+    expect(voucherLifecycle('PENDING_APPROVAL', 'CHANGES_REQUESTED', null)).toEqual({
+      label: 'Changes needed',
+      tone: 'warn',
+    })
   })
 })

@@ -1,5 +1,6 @@
 /**
- * QueueTable — approval queue row treatments (B1: two-court fidelity).
+ * QueueTable — approval queue row treatments (B1: two-court fidelity; B2:
+ * two-pill Status + sortable headers).
  *
  * Renders BOTH a wide 7-column `<table>` (desktop) and a narrow card list
  * (mobile) from the SAME `items` + `deriveRow` output, and lets CSS —
@@ -11,19 +12,25 @@
  * could.
  *
  * 7 columns per the design spec (§B.1): MERCHANT / TYPE / COURT / WAITING /
- * VERIFICATION / STATUS / OWNER-CLAIM.
+ * VERIFICATION / STATUS / OWNER-CLAIM. Status renders as TWO pills
+ * (lifecycle + approval) where the row carries a genuine second axis (see
+ * `deriveStatusPills`), else a single pill — never fabricated.
  *
- * No action column, no sort-by-click (query-level sort stays oldest-first
- * server-side, per the existing M4/M5 contract — sortable headers are a
- * prototype-only affordance not commissioned in this slice). Each row
- * navigates to /queue/<id> (the review screen).
+ * B2: Merchant / Type / Waiting / Owner-claim headers are sortable — a pure
+ * CLIENT-SIDE sort of the already-loaded page (approval-queue-spec.md §A.1;
+ * no new API sort param, the underlying fetch stays oldest-first server-side
+ * per the existing M4/M5 contract). Court / Verification / Status are not
+ * sortable, per spec. No action column. Each row navigates to /queue/<id>
+ * (the review screen).
  */
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import { Badge } from '@/features/shared/Badge'
 import { cn } from '@/lib/utils'
-import { deriveRow, getVerificationLabel, getVerificationTone } from './rowHelpers'
+import { deriveRow, getVerificationLabel, getVerificationTone, sortItems } from './rowHelpers'
 import type { AdminApproval } from '@/lib/api/approvals'
-import type { DerivedRow } from './rowHelpers'
+import type { DerivedRow, QueueSortColumn, QueueSortDirection } from './rowHelpers'
 
 // ── Claim / owner cell ────────────────────────────────────────────────────────
 
@@ -106,10 +113,23 @@ function TypeBadge({ row }: { row: DerivedRow }) {
   return <Badge tone={row.typeTone}>{row.typeLabel}</Badge>
 }
 
-// ── Status badge ──────────────────────────────────────────────────────────────
+// ── Status badge (B2: two pills where the row carries both) ─────────────────
+//
+// approval-queue-spec.md §B.1: "TWO pills side by side: lifecycle + approval."
+// Falls back to the pre-existing single pill (`row.displayStatus`) when the
+// row does not genuinely carry a second lifecycle axis (see
+// `deriveStatusPills` — never a fabricated lifecycle).
 
 function StatusBadge({ row }: { row: DerivedRow }) {
-  return <Badge tone={row.statusTone}>{row.displayStatus}</Badge>
+  if (row.lifecyclePill == null) {
+    return <Badge tone={row.statusTone}>{row.displayStatus}</Badge>
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Badge tone={row.lifecyclePill.tone}>{row.lifecyclePill.label}</Badge>
+      <Badge tone={row.approvalPill.tone}>{row.approvalPill.label}</Badge>
+    </div>
+  )
 }
 
 // ── Waiting cell (age pill + optional merchant-court / closed sub-line) ──────
@@ -185,18 +205,84 @@ function EmptyState({ onClearFilter }: { onClearFilter?: () => void }) {
 }
 
 // ── Wide table (desktop) ──────────────────────────────────────────────────────
+//
+// B2: Merchant / Type / Waiting / Owner-claim are sortable (spec §A.1); Court /
+// Verification / Status are not (config-driven so the sortable set stays a
+// single source of truth instead of a parallel array).
 
-const COLUMN_HEADERS = [
-  'Merchant',
-  'Type',
-  'Court',
-  'Waiting',
-  'Verification',
-  'Status',
-  'Owner / claim',
+interface ColumnConfig {
+  key: string
+  label: string
+  sortColumn: QueueSortColumn | null
+}
+
+const COLUMNS: ColumnConfig[] = [
+  { key: 'merchant', label: 'Merchant', sortColumn: 'merchant' },
+  { key: 'type', label: 'Type', sortColumn: 'type' },
+  { key: 'court', label: 'Court', sortColumn: null },
+  { key: 'waiting', label: 'Waiting', sortColumn: 'waiting' },
+  { key: 'verification', label: 'Verification', sortColumn: null },
+  { key: 'status', label: 'Status', sortColumn: null },
+  { key: 'owner', label: 'Owner / claim', sortColumn: 'owner' },
 ]
 
-function WideTable({ items, currentAdminId }: RowsProps) {
+function SortIcon({ active, direction }: { active: boolean; direction: QueueSortDirection }) {
+  if (!active) {
+    return <ArrowUpDown className="size-3 text-muted-foreground/50" aria-hidden="true" />
+  }
+  return direction === 'asc' ? (
+    <ArrowUp className="size-3 text-primary" aria-hidden="true" />
+  ) : (
+    <ArrowDown className="size-3 text-primary" aria-hidden="true" />
+  )
+}
+
+function SortableHeader({
+  column,
+  sortColumn,
+  sortDirection,
+  onSort,
+}: {
+  column: ColumnConfig
+  sortColumn: QueueSortColumn | null
+  sortDirection: QueueSortDirection
+  onSort: (column: QueueSortColumn) => void
+}) {
+  if (column.sortColumn == null) {
+    return (
+      <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+        {column.label}
+      </th>
+    )
+  }
+  const active = sortColumn === column.sortColumn
+  const ariaSort = active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'
+  return (
+    <th scope="col" className="px-4 py-3 text-left" aria-sort={ariaSort}>
+      <button
+        type="button"
+        onClick={() => onSort(column.sortColumn as QueueSortColumn)}
+        className={cn(
+          'flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors',
+          'hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm',
+          active && 'text-foreground'
+        )}
+        data-testid={`queue-sort-${column.key}`}
+      >
+        {column.label}
+        <SortIcon active={active} direction={sortDirection} />
+      </button>
+    </th>
+  )
+}
+
+interface WideTableProps extends RowsProps {
+  sortColumn: QueueSortColumn | null
+  sortDirection: QueueSortDirection
+  onSort: (column: QueueSortColumn) => void
+}
+
+function WideTable({ items, currentAdminId, sortColumn, sortDirection, onSort }: WideTableProps) {
   return (
     <div
       data-testid="queue-wide-table"
@@ -205,14 +291,14 @@ function WideTable({ items, currentAdminId }: RowsProps) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-secondary/40">
-            {COLUMN_HEADERS.map((header) => (
-              <th
-                key={header}
-                scope="col"
-                className="px-4 py-3 text-left text-xs font-medium text-muted-foreground"
-              >
-                {header}
-              </th>
+            {COLUMNS.map((column) => (
+              <SortableHeader
+                key={column.key}
+                column={column}
+                sortColumn={sortColumn}
+                sortDirection={sortDirection}
+                onSort={onSort}
+              />
             ))}
           </tr>
         </thead>
@@ -331,14 +417,41 @@ interface QueueTableProps extends RowsProps {
 }
 
 export function QueueTable({ items, currentAdminId, onClearFilter }: QueueTableProps) {
+  // B2: client-side sort of the loaded page only (no API sort param). Both
+  // the wide table and the narrow card list render from the SAME sorted
+  // array, so they never drift from each other; only the wide table exposes
+  // the clickable headers that drive it (the narrow view has no header row).
+  const [sortColumn, setSortColumn] = useState<QueueSortColumn | null>(null)
+  const [sortDirection, setSortDirection] = useState<QueueSortDirection>('asc')
+
+  const sortedItems = useMemo(
+    () => sortItems(items, currentAdminId, sortColumn, sortDirection),
+    [items, currentAdminId, sortColumn, sortDirection]
+  )
+
+  function handleSort(column: QueueSortColumn) {
+    if (column === sortColumn) {
+      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+  }
+
   if (items.length === 0) {
     return <EmptyState onClearFilter={onClearFilter} />
   }
 
   return (
     <>
-      <WideTable items={items} currentAdminId={currentAdminId} />
-      <NarrowCards items={items} currentAdminId={currentAdminId} />
+      <WideTable
+        items={sortedItems}
+        currentAdminId={currentAdminId}
+        sortColumn={sortColumn}
+        sortDirection={sortDirection}
+        onSort={handleSort}
+      />
+      <NarrowCards items={sortedItems} currentAdminId={currentAdminId} />
     </>
   )
 }

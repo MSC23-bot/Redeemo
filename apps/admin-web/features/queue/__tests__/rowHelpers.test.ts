@@ -10,6 +10,8 @@ import {
   getVerificationTone,
   waitingSubLine,
   deriveRow,
+  deriveStatusPills,
+  sortItems,
 } from '../rowHelpers'
 import type { AdminApproval } from '@/lib/api/approvals'
 
@@ -194,5 +196,106 @@ describe('deriveRow', () => {
     expect(row.court).toBe('closed')
     expect(row.waitingTone).toBe('neutral')
     expect(row.statusTone).toBe('success')
+  })
+})
+
+// ── deriveStatusPills (B2 two-pill Status) ───────────────────────────────────
+
+describe('deriveStatusPills', () => {
+  it('derives a lifecycle pill from merchant.status for a merchant-bearing row', () => {
+    const { lifecyclePill, approvalPill } = deriveStatusPills(
+      makeApproval({ status: 'PENDING', claimedById: null, merchant: { ...makeApproval().merchant!, status: 'ACTIVE' } })
+    )
+    expect(lifecyclePill).toEqual({ label: 'Live', tone: 'success' })
+    expect(approvalPill).toEqual({ label: 'Pending', tone: 'neutral' })
+  })
+
+  it('the approval pill is claim-unaware (PENDING+claimed still reads "Pending")', () => {
+    const { approvalPill } = deriveStatusPills(makeApproval({ status: 'PENDING', claimedById: 'admin-other' }))
+    expect(approvalPill).toEqual({ label: 'Pending', tone: 'neutral' })
+  })
+
+  it('derives a lifecycle pill from voucher.status (not merchant.status) for a VOUCHER row', () => {
+    const { lifecyclePill } = deriveStatusPills(
+      makeApproval({
+        type: 'VOUCHER',
+        status: 'PENDING',
+        merchant: { id: 'm-1', businessName: 'Acme Coffee', status: 'ACTIVE' } as AdminApproval['merchant'],
+        voucher: { title: '20% off', type: 'DISCOUNT', status: 'DRAFT', approvalStatus: 'PENDING' },
+      })
+    )
+    // The voucher is DRAFT even though the merchant is ACTIVE — the voucher's
+    // own lifecycle wins for a VOUCHER-type row.
+    expect(lifecyclePill).toEqual({ label: 'Draft', tone: 'neutral' })
+  })
+
+  it('has no lifecycle pill (honest single-pill fallback) when merchant is null', () => {
+    const { lifecyclePill, approvalPill } = deriveStatusPills(makeApproval({ merchant: null }))
+    expect(lifecyclePill).toBeNull()
+    expect(approvalPill.label).toBe('Pending')
+  })
+
+  it('lifecycle pill reflects CHANGES_REQUESTED as "Changes needed", approval pill as "Changes requested"', () => {
+    const { lifecyclePill, approvalPill } = deriveStatusPills(makeApproval({ status: 'CHANGES_REQUESTED' }))
+    expect(lifecyclePill).toEqual({ label: 'Changes needed', tone: 'warn' })
+    expect(approvalPill).toEqual({ label: 'Changes requested', tone: 'warn' })
+  })
+})
+
+// ── sortItems (B2 client-side sort) ───────────────────────────────────────────
+
+describe('sortItems', () => {
+  it('returns the items unchanged (same order) when column is null', () => {
+    const items = [makeApproval({ id: 'b' }), makeApproval({ id: 'a' })]
+    expect(sortItems(items, CURRENT_ADMIN, null, 'asc')).toEqual(items)
+  })
+
+  it('sorts by merchant name (primaryLabel) ascending and descending', () => {
+    const items = [
+      makeApproval({ id: '1', merchant: { ...makeApproval().merchant!, businessName: 'Zeta Cafe' } }),
+      makeApproval({ id: '2', merchant: { ...makeApproval().merchant!, businessName: 'Alpha Diner' } }),
+    ]
+    const asc = sortItems(items, CURRENT_ADMIN, 'merchant', 'asc')
+    expect(asc.map((i) => i.id)).toEqual(['2', '1'])
+    const desc = sortItems(items, CURRENT_ADMIN, 'merchant', 'desc')
+    expect(desc.map((i) => i.id)).toEqual(['1', '2'])
+  })
+
+  it('sorts by type label', () => {
+    const items = [
+      makeApproval({ id: '1', type: 'VOUCHER', voucher: { title: 'x', type: 'DISCOUNT', status: 'ACTIVE', approvalStatus: 'PENDING' } }),
+      makeApproval({ id: '2', type: 'MERCHANT_ONBOARDING' }),
+    ]
+    const asc = sortItems(items, CURRENT_ADMIN, 'type', 'asc')
+    // "Onboarding" < "Voucher" alphabetically.
+    expect(asc.map((i) => i.id)).toEqual(['2', '1'])
+  })
+
+  it('sorts by waiting age (oldest first ascending, newest first descending)', () => {
+    const items = [
+      makeApproval({ id: 'new', submittedAt: new Date(Date.now() - 1 * 3_600_000).toISOString() }),
+      makeApproval({ id: 'old', submittedAt: new Date(Date.now() - 48 * 3_600_000).toISOString() }),
+    ]
+    const asc = sortItems(items, CURRENT_ADMIN, 'waiting', 'asc')
+    expect(asc.map((i) => i.id)).toEqual(['new', 'old'])
+    const desc = sortItems(items, CURRENT_ADMIN, 'waiting', 'desc')
+    expect(desc.map((i) => i.id)).toEqual(['old', 'new'])
+  })
+
+  it('sorts by owner/claim: unclaimed first, then claimer name alphabetically', () => {
+    const items = [
+      makeApproval({ id: 'zed', claimedById: 'a2', claimedBy: { id: 'a2', name: 'Zed Reviewer' } }),
+      makeApproval({ id: 'unclaimed', claimedById: null, claimedBy: null }),
+      makeApproval({ id: 'amy', claimedById: 'a1', claimedBy: { id: 'a1', name: 'Amy Reviewer' } }),
+    ]
+    const asc = sortItems(items, CURRENT_ADMIN, 'owner', 'asc')
+    expect(asc.map((i) => i.id)).toEqual(['unclaimed', 'amy', 'zed'])
+  })
+
+  it('does not mutate the input array', () => {
+    const items = [makeApproval({ id: 'b' }), makeApproval({ id: 'a' })]
+    const original = [...items]
+    sortItems(items, CURRENT_ADMIN, 'merchant', 'asc')
+    expect(items).toEqual(original)
   })
 })
