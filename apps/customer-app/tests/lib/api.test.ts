@@ -167,6 +167,74 @@ describe('api client', () => {
     }
   })
 
+  // ── Map Phase 2 S2 — AbortSignal support ──────────────────────────────
+
+  it('api.get passes opts.signal through to fetch', async () => {
+    api.__setTokensForTests('A', 'R')
+    const calls: RequestInit[] = []
+    global.fetch = jest.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(init!)
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    const controller = new AbortController()
+    await api.get('/thing', { signal: controller.signal })
+    expect(calls[0]!.signal).toBe(controller.signal)
+  })
+
+  it('api.get omits signal from the fetch init when no opts are passed (backward compat)', async () => {
+    api.__setTokensForTests('A', 'R')
+    const calls: RequestInit[] = []
+    global.fetch = jest.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(init!)
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    await api.get('/thing')
+    expect(calls[0]!.signal).toBeUndefined()
+  })
+
+  it('an aborted fetch rejects with AbortError and does not touch the 401/refresh path', async () => {
+    api.__setTokensForTests('STALE', 'REFRESH', 'sess_x', 'user_x')
+    const controller = new AbortController()
+    controller.abort()
+    const abortError = new DOMException('Aborted', 'AbortError')
+    let fetchCalls = 0
+    global.fetch = jest.fn(async () => {
+      fetchCalls++
+      throw abortError
+    }) as unknown as typeof fetch
+
+    await expect(api.get('/thing', { signal: controller.signal })).rejects.toBe(abortError)
+    // Exactly one fetch call — the abort rejection must NOT trigger the
+    // refresh-token round-trip (which would be a second call to
+    // /auth/refresh) or any retry of the original request.
+    expect(fetchCalls).toBe(1)
+  })
+
+  it('an aborted fetch does not clear tokens or fire onSessionExpired', async () => {
+    api.__setTokensForTests('STALE', 'REFRESH', 'sess_x', 'user_x')
+    const abortError = new DOMException('Aborted', 'AbortError')
+    global.fetch = jest.fn(async () => { throw abortError }) as unknown as typeof fetch
+    const onSessionExpired = jest.fn()
+    api.onSessionExpired(onSessionExpired)
+
+    await expect(api.get('/thing', { signal: new AbortController().signal })).rejects.toBe(abortError)
+    expect(onSessionExpired).not.toHaveBeenCalled()
+
+    // A subsequent normal request still carries the ORIGINAL bearer token
+    // (tokens were not cleared by the abort).
+    const calls: RequestInit[] = []
+    global.fetch = jest.fn(async (_url: string, init?: RequestInit) => {
+      calls.push(init!)
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as unknown as typeof fetch
+    await api.get('/thing')
+    expect((calls[0]!.headers as Record<string, string>)['Authorization']).toBe('Bearer STALE')
+
+    // Reset the module-level subscriber so later tests in this file don't
+    // pick up a stale handler (onSessionExpired is single-subscriber).
+    api.onSessionExpired(() => {})
+  })
+
   it('mixed payload — field plus details fields both surface correctly', async () => {
     api.__setTokensForTests('A', 'R')
     global.fetch = jest.fn(async () =>

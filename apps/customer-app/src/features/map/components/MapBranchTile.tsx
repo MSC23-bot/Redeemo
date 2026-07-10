@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Animated,
   Dimensions,
+  PanResponder,
 } from 'react-native'
 import { X } from 'lucide-react-native'
 import { color, spacing, radius, elevation, layer, motion } from '@/design-system'
@@ -17,6 +18,28 @@ import {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 const TILE_WIDTH = SCREEN_WIDTH - spacing[4] * 2
+
+// Map Phase 2 S2 Task 4 (spec §7.6) — swipe-down-to-dismiss thresholds.
+// Either passing the drag distance OR the flick velocity dismisses;
+// both checked on release. Mirrors `BottomSheet.tsx`'s own
+// DISMISS_DISTANCE/DISMISS_VELOCITY pattern (kept a little shorter here
+// since the carousel card is a much smaller target than a full sheet).
+const DISMISS_DISTANCE = 80   // px dragged down from rest
+const DISMISS_VELOCITY = 0.8  // px/ms downward flick speed (PanResponder gestureState.vy units)
+
+// Extracted as plain, exported pure functions — `PanResponder`'s
+// `panHandlers` recompute gesture state internally from raw native touch
+// events (there's no way to inject a synthetic `gestureState` through
+// them for a unit test), so the actual claim/dismiss DECISIONS live here
+// where they're directly testable in isolation. The PanResponder config
+// below is a thin, otherwise-untested wrapper around these two.
+export function shouldClaimDismissGesture(gesture: { dy: number; dx: number }): boolean {
+  return gesture.dy > 8 && gesture.dy > Math.abs(gesture.dx) * 1.5
+}
+
+export function shouldDismissOnRelease(gesture: { dy: number; vy: number }): boolean {
+  return gesture.dy > DISMISS_DISTANCE || gesture.vy > DISMISS_VELOCITY
+}
 
 type Props = {
   branches: BranchTileType[]
@@ -44,6 +67,11 @@ export function MapBranchTile({
   onBranchPress,
 }: Props) {
   const translateY = useRef(new Animated.Value(300)).current
+  // Map Phase 2 S2 Task 4 — separate drag offset for swipe-down-to-
+  // dismiss, composed additively with the mount-in `translateY` above
+  // (see the container's `transform` below) so the two animations never
+  // fight over the same Animated.Value.
+  const dragY = useRef(new Animated.Value(0)).current
   const scrollRef = useRef<ScrollView>(null)
 
   // Slide in on mount
@@ -68,8 +96,44 @@ export function MapBranchTile({
     }
   }
 
+  // Map Phase 2 S2 Task 4 (spec §7.6) — swipe-down-to-dismiss. Bound to
+  // the OUTER container via a non-capturing PanResponder
+  // (`onMoveShouldSetPanResponder`, not `...Capture`) so the inner
+  // horizontal ScrollView (card paging) and the close-button Pressable
+  // both keep first refusal on touches; this only claims the gesture
+  // once movement is clearly downward-dominant (past a small threshold
+  // AND steeper than the horizontal component), so a normal card-swipe
+  // drag is never intercepted. Release past the distance/velocity
+  // threshold calls `onClose()` directly — same as the X button, no
+  // separate outro animation (removal from the tree already provides
+  // the "disappear", matching the X button's existing behaviour); below
+  // threshold springs back to rest.
+  const dismissResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_evt, gesture) => shouldClaimDismissGesture(gesture),
+      onPanResponderMove: (_evt, gesture) => {
+        if (gesture.dy > 0) dragY.setValue(gesture.dy)
+      },
+      onPanResponderRelease: (_evt, gesture) => {
+        if (shouldDismissOnRelease(gesture)) {
+          onClose()
+          return
+        }
+        Animated.spring(dragY, { toValue: 0, ...motion.spring.snappy, useNativeDriver: true }).start()
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(dragY, { toValue: 0, ...motion.spring.snappy, useNativeDriver: true }).start()
+      },
+    }),
+  ).current
+
   return (
-    <Animated.View style={[styles.container, { transform: [{ translateY }] }]}>
+    <Animated.View
+      testID="map-branch-tile-container"
+      style={[styles.container, { transform: [{ translateY: Animated.add(translateY, dragY) }] }]}
+      {...dismissResponder.panHandlers}
+    >
       {/* Close button */}
       <Pressable
         onPress={onClose}

@@ -28,7 +28,11 @@ export function useSearch(
 ) {
   return useQuery({
     queryKey: searchQueryKey(params),
-    queryFn:  () => discoveryApi.searchMerchants(params),
+    // Map Phase 2 S2 — thread React Query's per-query AbortSignal through
+    // to the client so a superseded search (Map filtered-bbox mode, or a
+    // fast-typing SearchScreen query) cancels its in-flight request
+    // rather than racing the next one to resolve.
+    queryFn:  ({ signal }) => discoveryApi.searchMerchants(params, { signal }),
     enabled,
     staleTime: options.staleTime ?? 30 * 1000,   // 30s default — search results refresh on type
     ...(options.keepPreviousData ? { placeholderData: keepPreviousData } : {}),

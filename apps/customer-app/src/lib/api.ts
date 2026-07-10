@@ -122,7 +122,28 @@ async function doFetch<T>(path: string, init: RequestInit = {}, retry = true): P
     headers['Content-Type'] = 'application/json'
   }
   if (tokens.access) headers['Authorization'] = `Bearer ${tokens.access}` as string
-  const res = await fetch(`${BASE_URL}${path}`, { ...init, headers })
+  // Map Phase 2 S2 — `init.signal` (when the caller passes one, e.g. React
+  // Query's per-query AbortSignal via `api.get(path, { signal })`) flows
+  // straight through to `fetch` via the RequestInit spread below; no other
+  // change needed for the happy path. The wrapping try/catch below exists
+  // ONLY to intercept the abort rejection before it can reach the 401/
+  // refresh branch.
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}${path}`, { ...init, headers })
+  } catch (err) {
+    // AbortError — the caller cancelled this request (e.g. a superseded
+    // Map pan/zoom cancelling the in-flight viewport fetch via React
+    // Query's per-query AbortSignal). Rethrow immediately: there is no
+    // `res` to read `res.status` from, so this MUST bypass the 401/
+    // refresh retry path below, and it MUST NOT be reinterpreted as a
+    // network failure or trigger any auth side-effect (no token clear,
+    // no `onSessionExpired`). React Query recognises an `AbortError`
+    // rejection (`isCancelledError`) and silently drops the result
+    // instead of surfacing it as a query error or retrying.
+    if (err instanceof Error && err.name === 'AbortError') throw err
+    throw err
+  }
 
   // Refresh + retry path — guarded on ALL three refresh-payload fields so
   // we never POST a partial body to the backend (would 400 → spurious
@@ -305,8 +326,18 @@ export function setTokens({ accessToken, refreshToken, sessionId, entityId }: Se
   tokens = { access: accessToken, refresh: refreshToken, sessionId, entityId }
 }
 
+export type ApiGetOpts = { signal?: AbortSignal }
+
 export const api = {
-  get:   <T>(path: string) => doFetch<T>(path, { method: 'GET' }),
+  // `opts` is optional and additive — every existing `api.get(path)`
+  // callsite across the app is untouched (`opts` defaults to `undefined`
+  // and no second argument is ever added to the underlying `fetch()`/
+  // `doFetch()` call unless a caller actually passes a signal). Map Phase
+  // 2 S2's `discoveryApi.getInAreaBranches` / `searchMerchants` are the
+  // first callers to pass `{ signal }` through from React Query's
+  // per-query AbortSignal.
+  get:   <T>(path: string, opts?: ApiGetOpts) =>
+    opts?.signal ? doFetch<T>(path, { method: 'GET', signal: opts.signal }) : doFetch<T>(path, { method: 'GET' }),
   post:  <T>(path: string, body: unknown) => doFetch<T>(path, { method: 'POST', body: JSON.stringify(body) }),
   patch: <T>(path: string, body: unknown) => doFetch<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   put:   <T>(path: string, body: unknown) => doFetch<T>(path, { method: 'PUT', body: JSON.stringify(body) }),

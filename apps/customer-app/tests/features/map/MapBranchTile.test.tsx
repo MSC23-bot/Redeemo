@@ -8,7 +8,7 @@
 import React from 'react'
 import { render as rtlRender, fireEvent } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MapBranchTile } from '@/features/map/components/MapBranchTile'
+import { MapBranchTile, shouldClaimDismissGesture, shouldDismissOnRelease } from '@/features/map/components/MapBranchTile'
 import { makeBranchTile } from '../../fixtures/branchTile'
 
 // Phase 3C.1g M2.7/M2.8 — MapBranchTile composes the shared `<BranchTile>`
@@ -227,5 +227,81 @@ describe('MapBranchTile', () => {
     // (merchant name). Defence-in-depth: assert single render so a future
     // regression that double-renders both chip + inline would fail loudly.
     expect(getAllByText('In your area')).toHaveLength(1)
+  })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Swipe-down-to-dismiss (Map Phase 2 S2 Task 4, spec §7.6).
+  //
+  // `PanResponder`'s `panHandlers` recompute gesture state internally
+  // from raw native touch events — there's no way to inject a synthetic
+  // gestureState through the rendered element's props for a unit test.
+  // The actual claim/dismiss DECISIONS are exported as plain pure
+  // functions from `MapBranchTile.tsx` (`shouldClaimDismissGesture` /
+  // `shouldDismissOnRelease`) specifically so they're testable in
+  // isolation; a lightweight render-level test below confirms the
+  // gesture is actually wired onto the container.
+  // ──────────────────────────────────────────────────────────────────────
+
+  describe('swipe-down-to-dismiss — gesture decision functions', () => {
+    it('shouldClaimDismissGesture: does NOT claim a mostly-horizontal drag (card-swipe shape)', () => {
+      expect(shouldClaimDismissGesture({ dy: 5, dx: 40 })).toBe(false)
+    })
+
+    it('shouldClaimDismissGesture: does NOT claim small jitter below the threshold', () => {
+      expect(shouldClaimDismissGesture({ dy: 3, dx: 0 })).toBe(false)
+    })
+
+    it('shouldClaimDismissGesture: claims a clearly downward-dominant drag', () => {
+      expect(shouldClaimDismissGesture({ dy: 30, dx: 2 })).toBe(true)
+    })
+
+    it('shouldClaimDismissGesture: does NOT claim a diagonal drag that is not steep enough', () => {
+      // dy > 8 passes, but dy is not > 1.5x |dx| (30 vs 1.5*25=37.5).
+      expect(shouldClaimDismissGesture({ dy: 30, dx: 25 })).toBe(false)
+    })
+
+    it('shouldDismissOnRelease: dismisses past the distance threshold', () => {
+      expect(shouldDismissOnRelease({ dy: 120, vy: 0 })).toBe(true)
+    })
+
+    it('shouldDismissOnRelease: dismisses on a fast flick even under the distance threshold', () => {
+      expect(shouldDismissOnRelease({ dy: 20, vy: 1.2 })).toBe(true)
+    })
+
+    it('shouldDismissOnRelease: does NOT dismiss below BOTH thresholds', () => {
+      expect(shouldDismissOnRelease({ dy: 30, vy: 0.1 })).toBe(false)
+    })
+  })
+
+  describe('swipe-down-to-dismiss — gesture wiring', () => {
+    it('the outer container carries the PanResponder gesture handlers', () => {
+      const { getByTestId } = render(
+        <MapBranchTile
+          branches={[mockBranchA]}
+          activeIndex={0}
+          onClose={jest.fn()}
+          onIndexChange={jest.fn()}
+          onBranchPress={jest.fn()}
+        />,
+      )
+      const container = getByTestId('map-branch-tile-container')
+      expect(typeof container.props.onMoveShouldSetResponder).toBe('function')
+      expect(typeof container.props.onResponderRelease).toBe('function')
+    })
+
+    it('the X close button still calls onClose directly (unchanged)', () => {
+      const onClose = jest.fn()
+      const { getByLabelText } = render(
+        <MapBranchTile
+          branches={[mockBranchA]}
+          activeIndex={0}
+          onClose={onClose}
+          onIndexChange={jest.fn()}
+          onBranchPress={jest.fn()}
+        />,
+      )
+      fireEvent.press(getByLabelText('Close merchant tile'))
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
   })
 })

@@ -104,3 +104,32 @@ jest.mock('react-native-reanimated', () => {
     SlideOutUp:  (() => { const c: any = {}; c.delay = () => c; c.duration = () => c; c.springify = () => c; c.damping = () => c; c.mass = () => c; return c })(),
   }
 })
+
+// Map Phase 2 S2 Task 3 — `useIsFocused` (`@react-navigation/native`) gates
+// Map's queries so they pause while the tab isn't focused. Screens under
+// test render standalone (no <NavigationContainer>), so the REAL hook
+// throws "Couldn't find a navigation object" at call time. Default the
+// mock to always-focused so every other screen's existing tests are
+// unaffected by this default; a test file that needs blur-state coverage
+// overrides this via its own file-scoped `jest.mock('@react-navigation/
+// native', ...)` — a per-file `jest.mock` call takes precedence over this
+// global one for that file only.
+jest.mock('@react-navigation/native', () => {
+  const actual = jest.requireActual('@react-navigation/native')
+  return { ...actual, useIsFocused: () => true }
+})
+
+// Map Phase 2 S2 Task 1 — the region-accumulation cache
+// (`regionAccumulationStore.ts`) is an intentional module-level
+// singleton (it must survive MapScreen remounts in production). Reset it
+// after every test so branch fixtures recorded by one test's render
+// never leak into the next test's accumulated-pins assertions.
+afterEach(() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('@/features/map/hooks/regionAccumulationStore').clearAccumulatedBranches()
+  } catch {
+    // Module not resolvable in this test file (no map code under test) —
+    // nothing to clear.
+  }
+})

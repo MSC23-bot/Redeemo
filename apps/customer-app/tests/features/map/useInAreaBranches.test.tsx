@@ -123,6 +123,9 @@ describe('useInAreaBranches — Map in-area reliability slice', () => {
         minLat: 53.6, maxLat: 53.7, minLng: -1.851, maxLng: -1.75,
         branchesOnly: 1,
       }),
+      // Map Phase 2 S2 — second arg carries React Query's per-query
+      // AbortSignal (see `useInAreaBranches.ts`'s `queryFn`).
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
   })
 
@@ -143,5 +146,43 @@ describe('useInAreaBranches — Map in-area reliability slice', () => {
     // brand-new React Query key.
     rerender({ bbox: bboxNear2 })
     await waitFor(() => expect(discoveryApi.getInAreaBranches).toHaveBeenCalledTimes(1))
+  })
+})
+
+// ─── Map Phase 2 S2 — request cancellation ─────────────────────────────────
+//
+// A superseded pan (new quantized bbox lands before the previous fetch
+// resolves) must ABORT the previous in-flight request rather than let it
+// race the new one to resolve. React Query wires this automatically via
+// the per-query AbortSignal threaded through `queryFn` in
+// `useInAreaBranches.ts` — this test pins that the signal supplied to
+// `discoveryApi.getInAreaBranches` for the FIRST (now-stale) bbox is
+// actually aborted once the second bbox supersedes it.
+describe('useInAreaBranches — request cancellation (Map Phase 2 S2)', () => {
+  beforeEach(() => { (discoveryApi.getInAreaBranches as jest.Mock).mockReset() })
+
+  it('aborts the in-flight request for a superseded bbox', async () => {
+    const capturedSignals: AbortSignal[] = []
+    ;(discoveryApi.getInAreaBranches as jest.Mock).mockImplementation(
+      (_opts: unknown, reqOpts: { signal: AbortSignal }) => {
+        capturedSignals.push(reqOpts.signal)
+        return new Promise(() => {}) // never resolves — we only care about abort state
+      },
+    )
+    const wrapper = makeWrapper()
+    const { rerender } = renderHook(
+      ({ bbox }: { bbox: typeof bboxA }) => useInAreaBranches(bbox),
+      { wrapper, initialProps: { bbox: bboxA } },
+    )
+    await waitFor(() => expect(capturedSignals.length).toBe(1))
+    expect(capturedSignals[0]!.aborted).toBe(false)
+
+    // Supersede with a new bbox before the first ever resolves.
+    rerender({ bbox: bboxB })
+    await waitFor(() => expect(capturedSignals.length).toBe(2))
+
+    // The FIRST request's signal is now aborted; the second is not.
+    expect(capturedSignals[0]!.aborted).toBe(true)
+    expect(capturedSignals[1]!.aborted).toBe(false)
   })
 })
