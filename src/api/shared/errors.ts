@@ -66,6 +66,14 @@ export const ERROR_DEFINITIONS = {
   LAST_OWNER_PROTECTED:           { statusCode: 409, message: 'This is the only owner of the merchant account and cannot be removed or deactivated.' },
   // Phase 2 Slice 1 M2: admin capability gate.
   ADMIN_CAPABILITY_DENIED:        { statusCode: 403, message: 'You do not have permission to perform this action.' },
+  // Team & Roles S1: SUPER_ADMIN team-management surface (admin:manage-team).
+  ADMIN_NOT_FOUND:                { statusCode: 404, message: 'Admin account not found.' },
+  // A capability grant was requested for a capability that is not on the
+  // server-side GRANTABLE_CAPABILITIES allow-list (privilege-escalation guard).
+  CAPABILITY_NOT_GRANTABLE:       { statusCode: 400, message: 'This capability cannot be granted.' },
+  GRANT_NOT_FOUND:                { statusCode: 404, message: 'No active grant of this capability exists for this admin.' },
+  // Self-lockout guard: an admin cannot deactivate their own account.
+  ADMIN_SELF_ACTION_FORBIDDEN:    { statusCode: 400, message: 'You cannot perform this action on your own account.' },
   // Phase 2 Slice 1 M3: actioner.
   APPROVAL_NOT_FOUND:             { statusCode: 404, message: 'Approval not found.' },
   APPROVAL_ALREADY_CLAIMED:       { statusCode: 409, message: 'This approval is already being reviewed by another admin.' },

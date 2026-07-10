@@ -6,6 +6,7 @@ import { adminBranchRoutes } from './branches/routes'
 import { adminNotificationRoutes } from './notifications/routes'
 import { adminTimelineRoutes } from './timeline/routes'
 import { adminRedemptionRoutes } from './redemptions/routes'
+import { adminTeamRoutes } from './team/routes'
 
 // Phase 2 Slice 1 M2 — admin-management surface. Mirrors merchant/plugin.ts:
 // a scoped sub-plugin applies the `authenticateAdmin` preHandler to all
@@ -24,6 +25,8 @@ async function adminManagementPlugin(app: FastifyInstance) {
     await scoped.register(adminNotificationRoutes)
     // D67: read-only cross-merchant admin redemptions list.
     await scoped.register(adminRedemptionRoutes)
+    // Team & Roles S1: SUPER_ADMIN-only account + capability-grant management.
+    await scoped.register(adminTeamRoutes)
   })
 }
 
