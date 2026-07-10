@@ -192,6 +192,8 @@ disabled key is visible in logs without needing a live probe.)
 
 ## Change log
 
+- **2026-07-10b** - New follow-up **§D67-DATA** (§3 Platform/Ops): staging D67 `/api/v1/admin/redemptions` returned **0 rows** on the 2026-07-10f post-deploy verification, whereas Codex saw **33 rows** on 2026-07-09. Endpoint is healthy (200, auth-gated, PII-safe shape, correct empty-list contract), so this is a STAGING-DATA question, not a code fault. OWNER-FLAGGED: understand why the row count changed before using D67 counts for any demo or acceptance evidence. Trigger to pick up: next staging data check / before the acceptance walk's redemption-visibility step. Not a deploy blocker.
+
 - **2026-07-10a** · Admin close-out: §LOC-2B row ADDED (folded from closed PR #446 with provenance). New row §ADM-DEFER records the owner direction: S4 Members read-only implementation + S5 Ops Home DEFERRED pending the merchant-recruitment phase (plan-of-record merged #449 `d99305e2`). The S3-hygiene register flip (PIN-payload row CLOSED) landed with #450 `86134e33`.
 
 - **2026-07-09e** · S3 hygiene (chore/admin-s3-hygiene): **§5 `GET /branches` `redemptionPin`
