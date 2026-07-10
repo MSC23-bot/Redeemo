@@ -70,6 +70,11 @@ check('img-src allows self, data:, blob:, and the R2/S3 avatar hosts', () => {
   assert.match(csp, /img-src[^;]*https:\/\/\*\.amazonaws\.com/)
 })
 
+check('img-src allows the R2 public bucket host (r2.dev) for public merchant logo/banner/photo URLs', () => {
+  const csp = buildContentSecurityPolicy(prod)
+  assert.match(csp, /img-src[^;]*https:\/\/\*\.r2\.dev/)
+})
+
 check('font-src is self only (self-hosted Mustica Pro + Lato)', () => {
   assert.match(buildContentSecurityPolicy(prod), /font-src 'self'/)
 })

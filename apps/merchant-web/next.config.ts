@@ -19,6 +19,10 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: '**.amazonaws.com',
       },
+      {
+        protocol: 'https',
+        hostname: '**.r2.dev',
+      },
     ],
   },
   // Blanket security headers on every route, set at the CDN/edge layer via

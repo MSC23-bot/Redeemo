@@ -51,6 +51,7 @@ export function buildContentSecurityPolicy(opts: SecurityHeaderOptions): string 
     'blob:',
     'https://*.r2.cloudflarestorage.com', // R2 — merchant/profile images (prod)
     'https://*.amazonaws.com', // S3 — merchant/profile images (prod)
+    'https://*.r2.dev', // R2 public bucket: merchant logoUrl/bannerUrl public URLs, rendered via raw <img> in MerchantWorkspaceHeader (PR #437 two-bucket split)
   ]
   const connectSrc = [
     "'self'",
