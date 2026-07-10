@@ -11,8 +11,21 @@
 > Grounded in this session's first-hand programme audit + corrections + the G1a discovery. A modification
 > date is never evidence of completeness; every status cites its evidence and is re-verified at each milestone.
 >
-> **"Merged v1" ≠ complete.** No Merchant surface is yet **authenticated-staging-accepted**. Completion
-> requires the Definition of Complete (§9).
+> **"Merged v1" ≠ complete.** Completion requires the Definition of Complete (§9).
+>
+> **STAGING ACCEPTANCE UPDATE (2026-07-10, supersedes the "no surface accepted" line that
+> previously stood here):** the authenticated staging acceptance walk ran 2026-07-09 across
+> all four roles (OWNER / BRANCH_MANAGER / STAFF / ADMIN) and its fix packet merged +
+> re-probed 2026-07-10. The staging-acceptance clause of §9 is now MET for: auth/session,
+> Redemptions + Validate-a-code, Branches, Business Profile v1, Staff & Access, Documents
+> MVP, My Account v1, Notifications shell, global shell, Home (OWNER 2026-07-09; BM/STAFF
+> 2026-07-10 post-WF8), Vouchers custom lanes, and the admin actioner's D67 + review→apply.
+> NOT accepted: Insights display (WF2 = eligibility design on test merchants) and the
+> flagship request-change lane on seeded merchants (WF1 data shape). Evidence + findings
+> ledger (WF0-WF19): `docs/superpowers/plans/2026-07-09-merchant-portal-staging-acceptance-walk.md`;
+> authoritative statuses: PROJECT-STATE §4.2 walk paragraph (2026-07-10c). Individual
+> completion-map rows below are NOT row-by-row re-stamped by this banner; read them together
+> with the walk paragraph.
 
 ---
 
