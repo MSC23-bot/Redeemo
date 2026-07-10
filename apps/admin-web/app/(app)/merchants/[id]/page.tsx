@@ -204,8 +204,8 @@ function MerchantWorkspace() {
             verificationStatus={data.merchant.verificationStatus}
             logoUrl={data.merchant.logoUrl}
             branchCount={data.merchant.headerCounts?.branches ?? data.branches.length}
-            activeVouchers={data.merchant.headerCounts?.activeVouchers ?? 0}
-            totalRedemptions={data.merchant.headerCounts?.totalRedemptions ?? 0}
+            activeVouchers={data.merchant.headerCounts?.activeVouchers}
+            totalRedemptions={data.merchant.headerCounts?.totalRedemptions}
             canLifecycle={canLifecycle}
             onSuspend={() => setDialog({ kind: 'suspend' })}
             onReactivate={() => setDialog({ kind: 'reactivate' })}

@@ -38,8 +38,9 @@ interface MerchantWorkspaceHeaderProps {
   verificationStatus: string
   logoUrl: string | null
   branchCount: number
-  activeVouchers: number
-  totalRedemptions: number
+  // undefined = count not supplied by this backend version: render a dash, never a fabricated 0
+  activeVouchers: number | undefined
+  totalRedemptions: number | undefined
   canLifecycle: boolean
   onSuspend: () => void
   onReactivate: () => void
@@ -149,11 +150,11 @@ export function MerchantWorkspaceHeader({
         </div>
         <div data-testid="workspace-stat-active-vouchers">
           <dt className="text-xs text-muted-foreground">Active vouchers</dt>
-          <dd className="text-lg font-semibold text-foreground">{activeVouchers}</dd>
+          <dd className="text-lg font-semibold text-foreground">{activeVouchers ?? '-'}</dd>
         </div>
         <div data-testid="workspace-stat-redemptions">
           <dt className="text-xs text-muted-foreground">Redemptions</dt>
-          <dd className="text-lg font-semibold text-foreground">{totalRedemptions}</dd>
+          <dd className="text-lg font-semibold text-foreground">{totalRedemptions ?? '-'}</dd>
         </div>
       </dl>
     </header>

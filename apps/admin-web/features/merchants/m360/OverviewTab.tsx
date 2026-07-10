@@ -88,7 +88,7 @@ export function OverviewTab({ data, canSubmit, onSubmitForReview }: OverviewTabP
             <div>
               <dt className="text-muted-foreground">Documents</dt>
               <dd className="mt-0.5 text-foreground" data-testid="overview-documents-count">
-                {merchant.documentsCount ?? 0}
+                {merchant.documentsCount ?? '-'}
               </dd>
             </div>
             <div>
