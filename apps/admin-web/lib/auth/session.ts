@@ -73,6 +73,16 @@ export type AdminCapability =
   // ALL_SLICE1_CAPS (OPERATIONS + SUPER_ADMIN hold it). Keep aligned with the
   // backend src/api/admin/capability.ts.
   | 'redemption:read'
+  // Team & Roles S1: FIELD baseline anchor. Create/update/progress merchant
+  // leads. NOT in ALL_SLICE1_CAPS (OPERATIONS does not hold it) — only FIELD's
+  // own baseline grants it. Keep aligned with the backend src/api/admin/capability.ts.
+  | 'lead:manage'
+  // Team & Roles S1: gates the entire Team & Roles surface (create admin
+  // account, set base role, deactivate, grant/revoke curated capabilities).
+  // NOT in ALL_SLICE1_CAPS and NOT in ANY role baseline (incl. FIELD /
+  // OPERATIONS), so under the SUPER_ADMIN short-circuit it is held ONLY by
+  // SUPER_ADMIN. Keep aligned with the backend src/api/admin/capability.ts.
+  | 'admin:manage-team'
 
 export type AdminRole =
   | 'SUPER_ADMIN'
@@ -80,6 +90,10 @@ export type AdminRole =
   | 'FINANCE'
   | 'CONTENT'
   | 'SUPPORT'
+  // Team & Roles S1/S3: field reps who create merchant leads and drive
+  // assisted pre-live onboarding. Baseline = FIELD_CAPABILITIES below; holds
+  // NO approval capability (approval:action is grant-only).
+  | 'FIELD'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
@@ -95,15 +109,48 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'redemption:read',
 ]
 
+// Team & Roles S1/S3: FIELD baseline (owner-locked UNION set — see spec
+// 2026-07-10-admin-capability-grants-field-role §4.1). FIELD holds NO approval
+// capability (approval:action is grant-only), NO redemption:read, NO
+// merchant:suspend, NO admin:manage-team, and none of the SUPER_ADMIN-only
+// edit-identity/edit-category caps. COPY LITERALLY from FIELD_CAPABILITIES in
+// src/api/admin/capability.ts — keep the order identical for an eyeball diff.
+const FIELD_CAPABILITIES: AdminCapability[] = [
+  'lead:manage',
+  'merchant:create-draft',
+  'merchant:read',
+  'merchant:edit',
+  'merchant:submit',
+  'merchant:manage-branches',
+  'merchant:manage-documents',
+  'merchant:manage-vouchers',
+]
+
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `hasCapability`, so
 // it implicitly holds every current and future capability). OPERATIONS runs the
-// merchant lifecycle and holds all Slice-1 caps. FINANCE/CONTENT/SUPPORT hold
-// none. Keep this aligned with ROLE_CAPABILITIES in the backend.
+// merchant lifecycle and holds all Slice-1 caps. FIELD holds the rep baseline
+// above. FINANCE/CONTENT/SUPPORT hold none. Keep this aligned with
+// ROLE_CAPABILITIES in the backend.
 const ROLE_CAPABILITIES: Record<string, AdminCapability[]> = {
   OPERATIONS: ALL_SLICE1_CAPS,
+  FIELD: FIELD_CAPABILITIES,
   FINANCE: [],
   CONTENT: [],
   SUPPORT: [],
+}
+
+// Team & Roles S1: the ONLY capabilities a SUPER_ADMIN may grant to another
+// admin via the Team & Roles surface (spec §6.2). Launch curated set = exactly
+// `approval:action`. Mirrors the backend server-side allow-list
+// (src/api/admin/capability.ts GRANTABLE_CAPABILITIES) — the grant TOGGLE in
+// the UI is driven by this list so it can never offer a non-curated capability;
+// the backend allow-list remains the real enforcement (this is UI gating only).
+export const GRANTABLE_CAPABILITIES = ['approval:action'] as const
+export type GrantableCapability = (typeof GRANTABLE_CAPABILITIES)[number]
+
+/** True iff `cap` is on the curated grantable allow-list. */
+export function isGrantableCapability(cap: string): cap is GrantableCapability {
+  return (GRANTABLE_CAPABILITIES as readonly string[]).includes(cap)
 }
 
 /**
@@ -111,6 +158,11 @@ const ROLE_CAPABILITIES: Record<string, AdminCapability[]> = {
  *   - no role               -> false
  *   - SUPER_ADMIN           -> true (superuser, every cap)
  *   - otherwise             -> membership in the role's grant list
+ *
+ * ROLE-ONLY: does not consult a `caps` claim. Retained for callers that only
+ * have a role (e.g. a pre-decode check) and as the legacy-token fallback
+ * inside `hasEffectiveCapability`. New capability-gated UI should prefer
+ * `hasEffectiveCapability`, which is grant-aware.
  */
 export function hasCapability(
   role: string | null | undefined,
@@ -119,6 +171,32 @@ export function hasCapability(
   if (!role) return false
   if (role === 'SUPER_ADMIN') return true
   return (ROLE_CAPABILITIES[role] ?? []).includes(cap)
+}
+
+/**
+ * Grant-aware capability check — the client mirror of the backend
+ * `adminHasEffectiveCapability` (src/api/admin/capability.ts). SUPER_ADMIN
+ * short-circuits (never routed through the grant table / caps claim).
+ * Otherwise membership is decided against the token's minted `caps` claim
+ * (role baseline UNION active grantable grants, computed server-side at sign
+ * time). `caps === undefined` means a LEGACY token minted before the `caps`
+ * claim existed: fall back to the role baseline so the rollout does not break
+ * an in-flight session. New tokens always carry an (at least empty) `caps`
+ * array, so this fallback can never mask a revoke.
+ *
+ * This is UI gating ONLY — the backend `requireAdminCapability` (grant-aware,
+ * same semantics) is the authoritative enforcement (two-layer rule,
+ * .claude/rules/admin-web.md).
+ */
+export function hasEffectiveCapability(
+  role: string | null | undefined,
+  caps: string[] | undefined,
+  cap: AdminCapability
+): boolean {
+  if (!role) return false
+  if (role === 'SUPER_ADMIN') return true
+  if (caps === undefined) return (ROLE_CAPABILITIES[role] ?? []).includes(cap)
+  return caps.includes(cap)
 }
 
 // ── Token + session storage ───────────────────────────────────────────────────
@@ -208,13 +286,19 @@ function generateUuid(): string {
 
 /**
  * Decode the (non-secret) payload of an admin access JWT to read the `sub`,
- * `sessionId`, and `adminRole` claims. No signature verification — we only read
- * claims that originated from a token we just received over TLS, to populate the
- * refresh contract. Returns null on any malformed input.
+ * `sessionId`, `adminRole`, and (Team & Roles S1) `caps` claims. No signature
+ * verification — we only read claims that originated from a token we just
+ * received over TLS, to populate the refresh contract and drive capability
+ * gating. Returns null on any malformed input or missing required claim.
+ *
+ * `caps` is OPTIONAL on the returned object: a legacy token minted before the
+ * `caps` claim existed decodes to `caps: undefined`, which `hasEffectiveCapability`
+ * treats as "fall back to the role baseline" (see its doc comment). A present
+ * `caps` array (even empty) is always used as-is.
  */
 export function decodeAdminJwt(
   token: string
-): { sub: string; sessionId: string; adminRole: string } | null {
+): { sub: string; sessionId: string; adminRole: string; caps?: string[] } | null {
   const parts = token.split('.')
   if (parts.length !== 3) return null
   try {
@@ -223,12 +307,17 @@ export function decodeAdminJwt(
       sub?: string
       sessionId?: string
       adminRole?: string
+      caps?: unknown
     }
     if (!payload.sub || !payload.sessionId || !payload.adminRole) return null
+    const caps = Array.isArray(payload.caps)
+      ? payload.caps.filter((c): c is string => typeof c === 'string')
+      : undefined
     return {
       sub: payload.sub,
       sessionId: payload.sessionId,
       adminRole: payload.adminRole,
+      caps,
     }
   } catch {
     return null

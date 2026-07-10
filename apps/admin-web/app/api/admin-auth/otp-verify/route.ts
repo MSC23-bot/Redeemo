@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertSameOrigin, backendPost, completeBffLogin } from '@/lib/auth/bff'
+import type { AdminRole } from '@/lib/auth/session'
 
 // POST /api/admin-auth/otp-verify -> backend /otp/verify. On success the
 // backend returns { accessToken, refreshToken, admin }; we park the refresh
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return completeBffLogin({
       accessToken: d.accessToken,
       refreshToken: d.refreshToken,
-      admin: d.admin as { id: string; email: string; adminRole: 'SUPER_ADMIN' | 'OPERATIONS' | 'FINANCE' | 'CONTENT' | 'SUPPORT' },
+      admin: d.admin as { id: string; email: string; adminRole: AdminRole },
     })
   }
   return NextResponse.json({ error: { code: 'UNEXPECTED_RESPONSE', message: 'Unexpected response from the server.' } }, { status: 502 })

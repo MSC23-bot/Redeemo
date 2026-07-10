@@ -36,7 +36,7 @@ import {
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { getAccessToken, setAccessToken, setOnSessionLost } from './tokenStore'
-import { decodeAdminJwt, hasCapability, type AdminCapability, type AdminRole, type AdminSessionMeta } from './session'
+import { decodeAdminJwt, hasEffectiveCapability, type AdminCapability, type AdminRole, type AdminSessionMeta } from './session'
 import { refreshSession } from '@/lib/api/client'
 import { authApi } from '@/lib/api/auth'
 
@@ -51,7 +51,7 @@ export interface SessionValue {
   /** false until the bootstrap refresh-on-mount settles (G1). */
   ready: boolean
   isAuthenticated: boolean
-  /** Capability check against the current role (mirror of the backend). */
+  /** Grant-aware capability check (mirror of the backend's requireAdminCapability). */
   can: (cap: AdminCapability) => boolean
   /** Called by the login screen after a successful login/OTP verify. */
   setSession: (accessToken: string, meta: AdminSessionMeta) => void
@@ -75,11 +75,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<AdminRole | null>(null)
   const [adminId, setAdminId] = useState<string | null>(null)
   const [email, setEmail] = useState<string | null>(null)
+  // Team & Roles S1: the token's `caps` claim (role baseline UNION active
+  // grantable grants, minted server-side). undefined for a legacy token (no
+  // claim) or when signed out; `hasEffectiveCapability` falls back to the role
+  // baseline in that case. Re-derived from the token on every install, same as
+  // role/adminId — never trusted from a stale param.
+  const [caps, setCaps] = useState<string[] | undefined>(undefined)
   const [ready, setReady] = useState(false)
 
   // Mirrors the in-memory token store into React state, and re-derives
-  // role/adminId from the token's OWN claims on every install (never trusted
-  // from a stale param) — see the module doc comment above.
+  // role/adminId/caps from the token's OWN claims on every install (never
+  // trusted from a stale param) — see the module doc comment above.
   const applyToken = useCallback((t: string | null) => {
     setAccessToken(t)
     setTok(t)
@@ -87,11 +93,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setRole(null)
       setAdminId(null)
       setEmail(null)
+      setCaps(undefined)
       return
     }
     const claims = decodeAdminJwt(t)
     setRole((claims?.adminRole as AdminRole) ?? null)
     setAdminId(claims?.sub ?? null)
+    setCaps(claims?.caps)
   }, [])
 
   const setSession = useCallback(
@@ -164,7 +172,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [applyToken])
 
-  const can = useCallback((cap: AdminCapability) => hasCapability(role, cap), [role])
+  // Grant-aware: prefers the token's `caps` claim when present (SUPER_ADMIN
+  // short-circuit, else caps-claim membership, else legacy role-baseline
+  // fallback) — mirrors the backend requireAdminCapability exactly. See
+  // hasEffectiveCapability's doc comment in session.ts.
+  const can = useCallback((cap: AdminCapability) => hasEffectiveCapability(role, caps, cap), [role, caps])
 
   const value: SessionValue = {
     accessToken,
