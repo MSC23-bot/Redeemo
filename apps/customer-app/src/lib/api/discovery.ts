@@ -116,6 +116,13 @@ const branchTileCategorySummarySchema = z.object({
   descriptorSuffix: z.string().nullable().optional(),
   parentId:         z.string().nullable(),
   intentType:       z.enum(['LOCAL', 'DESTINATION', 'MIXED']).nullable().optional(),
+  // Map Phase 2 Slice S3 (pin v2, 2026-07-10) — TOP-LEVEL category name,
+  // read-time resolved server-side (own name if already top-level, else
+  // the parent's name). Feeds <MapPins>'s pin-glyph matcher, which mirrors
+  // RailHeader's name-cascade approach (both match against a TOP-LEVEL
+  // name — a subcategory's own name, e.g. "Pizza Restaurant", won't
+  // reliably contain a top-level keyword like "food"/"drink").
+  topLevelName:     z.string().nullable().optional(),
 }).strict().nullable()
 
 const branchTileDescriptorTagSummarySchema = z.object({

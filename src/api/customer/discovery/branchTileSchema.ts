@@ -41,6 +41,10 @@ const categorySummarySchema = z.object({
   descriptorSuffix: z.string().nullable().optional(),
   parentId: z.string().nullable(),
   intentType: z.enum(['LOCAL', 'DESTINATION', 'MIXED']).nullable().optional(),
+  // S3 (Map pin v2, 2026-07-10) — the TOP-LEVEL category name, read-time
+  // resolved (own name if already top-level, else the parent's name).
+  // Feeds the client pin-glyph matcher; see service.ts enrichBranchTile.
+  topLevelName: z.string().nullable().optional(),
 }).strict().nullable()
 
 const descriptorTagSummarySchema = z.object({

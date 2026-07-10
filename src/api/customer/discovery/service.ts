@@ -980,6 +980,21 @@ export const BRANCH_TILE_SELECT = {
         select: {
           id: true, name: true, pinColour: true, pinIcon: true,
           descriptorSuffix: true, parentId: true, intentType: true,
+          // S3 (Map pin v2, 2026-07-10) — parent's pinColour + name, read-time
+          // only (no schema change). `pinColour` feeds `enrichBranchTile`'s
+          // fallback when the subcategory's own `pinColour` is null.
+          // `name` feeds the NEW `topLevelName` wire field: the client-side
+          // pin-glyph matcher mirrors RailHeader's name-cascade approach
+          // (src/features/home/components/RailHeader.tsx CATEGORY_ICONS),
+          // which matches against the TOP-LEVEL category name — a
+          // subcategory's own name ("Pizza Restaurant") won't reliably
+          // contain a top-level keyword ("food"/"drink"), so the client
+          // needs the parent's name, not just its colour. Both are
+          // LEAD-adjudicated per the programme decision register (D1
+          // addendum) — `Category.pinIcon` stays unused (believed null in
+          // seed); this is the documented future admin-driven hook, not a
+          // remote-icon pipeline.
+          parent: { select: { pinColour: true, name: true } },
         },
       },
       primaryDescriptorTag: { select: { id: true, label: true } },
@@ -989,6 +1004,9 @@ export const BRANCH_TILE_SELECT = {
             select: {
               id: true, name: true, parentId: true, pinColour: true,
               pinIcon: true, descriptorSuffix: true, intentType: true,
+              // S3 — same read-time parent-fallback for the derived
+              // `subcategory` tile field (service.ts:1182-1184).
+              parent: { select: { pinColour: true, name: true } },
             },
           },
         },
@@ -1155,7 +1173,11 @@ export type EnrichBranchCtx = {
 
 // Internal: the typed shape returned by a Prisma findMany against
 // BRANCH_TILE_SELECT. We construct it via the const-typed select for accuracy.
-type BranchSelectResult = Prisma.BranchGetPayload<{ select: typeof BRANCH_TILE_SELECT }>
+//
+// Exported (S3, 2026-07-10) alongside `enrichBranchTile` (already exported
+// below at service.ts:1500) so the pinColour parent-fallback can be unit
+// tested directly against a constructed BranchSelectResult.
+export type BranchSelectResult = Prisma.BranchGetPayload<{ select: typeof BRANCH_TILE_SELECT }>
 
 function enrichBranchTile(
   branch: BranchSelectResult,
@@ -1261,11 +1283,29 @@ function enrichBranchTile(
         ? {
             id:               merchant.primaryCategory.id,
             name:             merchant.primaryCategory.name,
-            pinColour:        merchant.primaryCategory.pinColour ?? null,
+            // S3 (Map pin v2, 2026-07-10) — read-time parent-fallback: a
+            // subcategory with a null `pinColour` inherits its PARENT
+            // category's `pinColour` (queried via the `parent` select
+            // above). No schema change — see the programme decision
+            // register (docs/superpowers/plans/2026-07-10-map-phase-2-
+            // programme.md, D1 addendum). Final fallback to the client's
+            // hardcoded default palette still happens in <MapPins> /
+            // <CustomPinV2> when BOTH are null.
+            pinColour:        merchant.primaryCategory.pinColour ?? merchant.primaryCategory.parent?.pinColour ?? null,
             pinIcon:          merchant.primaryCategory.pinIcon ?? null,
             descriptorSuffix: merchant.primaryCategory.descriptorSuffix ?? null,
             parentId:         merchant.primaryCategory.parentId,
             intentType:       merchant.primaryCategory.intentType ?? null,
+            // S3 — NEW additive wire field (2026-07-10). The TOP-LEVEL
+            // category name, resolved read-time: this category's own name
+            // when it IS top-level (parentId null), else its parent's name.
+            // Feeds the client pin-glyph matcher (mirrors RailHeader's
+            // name-cascade, which also matches against a top-level name).
+            // Does NOT replace `name` — other consumers (labels, thumbnail
+            // alt text) keep reading the category's own display name.
+            topLevelName:     merchant.primaryCategory.parentId === null
+              ? merchant.primaryCategory.name
+              : merchant.primaryCategory.parent?.name ?? null,
           }
         : null,
       primaryDescriptorTag: merchant.primaryDescriptorTag
@@ -1275,11 +1315,16 @@ function enrichBranchTile(
         ? {
             id:               subcategory.id,
             name:             subcategory.name,
-            pinColour:        subcategory.pinColour ?? null,
+            // S3 — same read-time parent-fallback as primaryCategory above.
+            pinColour:        subcategory.pinColour ?? subcategory.parent?.pinColour ?? null,
             pinIcon:          subcategory.pinIcon ?? null,
             descriptorSuffix: subcategory.descriptorSuffix ?? null,
             parentId:         subcategory.parentId,
             intentType:       subcategory.intentType ?? null,
+            // S3 — same topLevelName resolution as primaryCategory above.
+            topLevelName:     subcategory.parentId === null
+              ? subcategory.name
+              : subcategory.parent?.name ?? null,
           }
         : null,
       descriptor,
