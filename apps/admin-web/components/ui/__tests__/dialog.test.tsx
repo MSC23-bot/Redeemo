@@ -107,6 +107,44 @@ describe('Dialog focus trap', () => {
   })
 })
 
+describe('Dialog placement (B3: right-side drawer)', () => {
+  it('defaults to the centred card classes when placement is omitted (no regression for existing callers)', () => {
+    render(<TwoButtonDialog />)
+    const panel = screen.getByTestId('test-dialog')
+    expect(panel.className).toMatch(/max-w-lg/)
+    expect(panel.className).toMatch(/rounded-xl/)
+    expect(panel.parentElement?.className).toMatch(/items-center/)
+    expect(panel.parentElement?.className).toMatch(/justify-center/)
+  })
+
+  it('placement="right" renders a full-height right-edge panel instead of the centred card', () => {
+    render(
+      <Dialog label="Drawer" onClose={jest.fn()} panelTestId="right-dialog" scrimTestId="right-scrim" placement="right">
+        <button>Only</button>
+      </Dialog>
+    )
+    const panel = screen.getByTestId('right-dialog')
+    expect(panel.className).toMatch(/h-full/)
+    expect(panel.className).toMatch(/border-l/)
+    expect(panel.className).not.toMatch(/max-w-lg/)
+    expect(panel.parentElement?.className).toMatch(/justify-end/)
+    expect(panel.parentElement?.className).not.toMatch(/items-center/)
+  })
+
+  it('placement="right" keeps the same Escape/scrim/focus-trap behaviour', () => {
+    const onClose = jest.fn()
+    render(
+      <Dialog label="Drawer" onClose={onClose} panelTestId="right-dialog" scrimTestId="right-scrim" placement="right">
+        <button>Only</button>
+      </Dialog>
+    )
+    fireEvent.keyDown(screen.getByTestId('right-dialog'), { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByTestId('right-scrim'))
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('Dialog focus restore on close', () => {
   it('restores focus to the element that was focused before the dialog mounted', () => {
     // Render a trigger outside the dialog, focus it, then mount the dialog so the

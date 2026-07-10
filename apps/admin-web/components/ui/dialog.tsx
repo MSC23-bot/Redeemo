@@ -3,13 +3,21 @@
 /**
  * Dialog: shared modal primitive for the admin console.
  *
- * Renders the project's standard scrim + centred card and adds the two pieces
- * of modal accessibility the hand-rolled dialogs were missing:
+ * Renders the project's standard scrim + panel and adds the two pieces of
+ * modal accessibility the hand-rolled dialogs were missing:
  *   - a Tab focus-trap (Tab / Shift+Tab cycle within the panel, never escaping
  *     to the page behind the scrim), and
  *   - focus restoration to the trigger element when the dialog unmounts.
  * It also owns Escape-to-close and scrim-click-to-close, and moves focus into
  * the dialog on open (an explicit initialFocusRef, else the first focusable).
+ *
+ * `placement` (B3): 'center' (default, unchanged) renders the original centred
+ * card. 'right' renders a full-height right-edge slide-in panel (no internal
+ * padding; callers own their own header/body layout, matching the merchant-web
+ * redemption detail drawer's visual DNA) for surfaces like the read-only
+ * Redemptions detail drawer that need drawer placement WITHOUT hand-rolling the
+ * focus-trap/Escape/scrim logic above a second time. Every existing call site
+ * omits `placement` and is byte-identical to before.
  *
  * Parents conditionally MOUNT this (it is "open" whenever rendered); closing is
  * the parent unmounting it via onClose. The scrim/panel testids and aria-label
@@ -19,6 +27,19 @@ import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+type DialogPlacement = 'center' | 'right'
+
+const OUTER_CLASS: Record<DialogPlacement, string> = {
+  center: 'fixed inset-0 z-50 flex items-center justify-center',
+  right: 'fixed inset-0 z-50 flex justify-end',
+}
+
+const PANEL_CLASS: Record<DialogPlacement, string> = {
+  center: 'relative z-10 w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-xl',
+  right:
+    'relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-border bg-card shadow-xl',
+}
 
 interface DialogProps {
   /** Accessible name for the dialog (maps to aria-label on the panel). */
@@ -31,6 +52,8 @@ interface DialogProps {
   scrimTestId?: string
   /** Element to focus on open; defaults to the first focusable in the panel. */
   initialFocusRef?: RefObject<HTMLElement | null>
+  /** Centred card (default) or a right-edge slide-in drawer. */
+  placement?: DialogPlacement
   children: ReactNode
 }
 
@@ -40,6 +63,7 @@ export function Dialog({
   panelTestId,
   scrimTestId,
   initialFocusRef,
+  placement = 'center',
   children,
 }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -90,10 +114,7 @@ export function Dialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onKeyDown={handleKeyDown}
-    >
+    <div className={OUTER_CLASS[placement]} onKeyDown={handleKeyDown}>
       <div
         className="absolute inset-0 bg-black/40"
         aria-hidden="true"
@@ -105,7 +126,7 @@ export function Dialog({
         role="dialog"
         aria-label={label}
         aria-modal="true"
-        className="relative z-10 w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-xl"
+        className={PANEL_CLASS[placement]}
         data-testid={panelTestId}
       >
         {children}

@@ -39,3 +39,30 @@ export function voucherTypeLabel(type: string): string {
   const words = type.toLowerCase().replace(/_/g, ' ')
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
+
+// B3: quick-link targets into the Merchant 360 workspace. One place builds
+// these paths so the table's Merchant/Branch cells and the detail drawer's
+// "View merchant" affordance never drift from each other or from the M360
+// tab keys (features/merchants/m360/tabs.ts M360TabKey: 'redemptions' /
+// 'branches'). Landing on the Redemptions tab (not Overview) mirrors the
+// prototype's own convention for a redemption-sourced jump (cross-module-notes.md:
+// global search -> `m360Tab:'redemptions'`).
+export function merchantWorkspaceHref(merchantId: string): string {
+  return `/merchants/${merchantId}?tab=redemptions`
+}
+export function merchantBranchesHref(merchantId: string): string {
+  return `/merchants/${merchantId}?tab=branches`
+}
+
+// B3: validation-method label for the read-only detail drawer. Only the two
+// values the live validate-in-store route ever writes (src/api/redemption/
+// routes.ts: z.enum(['QR_SCAN', 'MANUAL'])) get a specific label; anything
+// else (null - e.g. a merchant-portal Quick Validate, which deliberately
+// stores no method - or an unrecognized/legacy value) degrades to a plain
+// dash rather than a fabricated label, matching this module's drift-resilient
+// stance elsewhere (voucherTypeLabel, statusLabel).
+export function validationMethodLabel(method: string | null): string {
+  if (method === 'QR_SCAN') return 'QR scan'
+  if (method === 'MANUAL') return 'Manual entry'
+  return '-'
+}
