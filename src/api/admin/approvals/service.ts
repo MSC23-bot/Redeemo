@@ -803,6 +803,20 @@ export async function approveApproval(
       data: { status: 'APPROVED', adminUserId: adminId, actionedAt: now, claimedById: null, claimedAt: null },
     })
 
+    // Team & Roles S1 (spec §5.2): derive self-approval. The draft-creator is the
+    // actorId on the durable MERCHANT_DRAFT_CREATED audit row for this merchant;
+    // when the approving admin IS that draft-creator, this go-live is a
+    // self-approval. Stamp the derived flag into the MERCHANT_GO_LIVE audit
+    // metadata so the oversight badge/filter (S4) is durable and filterable
+    // without a recompute. A self-serve merchant has no MERCHANT_DRAFT_CREATED
+    // actor to match, so selfOnboarded is false. Schema-free (pure derivation).
+    const draftRow = await tx.auditLog.findFirst({
+      where: { entityId: merchant.id, entityType: 'merchant', event: 'MERCHANT_DRAFT_CREATED' },
+      orderBy: { createdAt: 'desc' },
+      select: { actorId: true },
+    })
+    const selfOnboarded = draftRow?.actorId != null && draftRow.actorId === adminId
+
     await writeAuditLogTx(tx, {
       entityId: merchant.id,
       entityType: 'merchant',
@@ -824,6 +838,7 @@ export async function approveApproval(
         verificationStatus: merchant.verificationStatus,
       },
       after: { status: 'ACTIVE', onboardingStep: 'LIVE', verificationStatus: 'VERIFIED' },
+      metadata: { selfOnboarded },
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
     })
@@ -903,6 +918,37 @@ export async function approveApproval(
   }
 
   return { approved: true, alreadyLive: false as const, activatedCustoms: result.activatedCustoms }
+}
+
+/**
+ * Team & Roles S1 (spec §5.2/§5.3): derive whether a merchant's go-live was a
+ * SELF-approval (the approving admin also created the merchant's draft). Prefers
+ * the durable `selfOnboarded` stamp written onto the MERCHANT_GO_LIVE audit row
+ * at approve time; falls back to live derivation (actioner == the
+ * MERCHANT_DRAFT_CREATED actorId) for rows approved before the stamp existed.
+ * Returns false when the approval has not been actioned, or when there is no
+ * admin draft-creator (self-serve merchant). Schema-free; exported so S4's badge
+ * and SUPER_ADMIN filter reuse one derivation.
+ */
+export async function deriveSelfOnboarded(
+  prisma: PrismaClient,
+  merchantId: string,
+  actionedByAdminId: string | null | undefined,
+): Promise<boolean> {
+  if (!actionedByAdminId) return false
+  const goLive = await prisma.auditLog.findFirst({
+    where: { entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_GO_LIVE' },
+    orderBy: { createdAt: 'desc' },
+    select: { metadata: true },
+  })
+  const stamped = goLive?.metadata as { selfOnboarded?: unknown } | null
+  if (stamped && typeof stamped.selfOnboarded === 'boolean') return stamped.selfOnboarded
+  const draftRow = await prisma.auditLog.findFirst({
+    where: { entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_DRAFT_CREATED' },
+    orderBy: { createdAt: 'desc' },
+    select: { actorId: true },
+  })
+  return draftRow?.actorId != null && draftRow.actorId === actionedByAdminId
 }
 
 /**
@@ -1040,6 +1086,9 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
     adminUsers.map((a: { id: string; firstName: string; lastName: string }) => [a.id, `${a.firstName} ${a.lastName}`]),
   )
 
+  // Team & Roles S1: expose self-approval on the read so S4 can badge/filter.
+  const selfOnboarded = await deriveSelfOnboarded(prisma, merchantId, approval.adminUserId)
+
   // Branch Location Trust Slice 2 (lead-adjudicated widening): surface the
   // RELEVANT (freshest) staged Google suggestion per branch, from ANY of the
   // three Slice 1/1b lanes:
@@ -1122,6 +1171,9 @@ export async function getReviewContext(prisma: PrismaClient, id: string) {
       actionedBy: approval.adminUserId
         ? { id: approval.adminUserId, name: adminById.get(approval.adminUserId) ?? null }
         : null,
+      // Team & Roles S1 (spec §5.3): true when this go-live was self-approved
+      // (approver == draft-creator). Drives the S4 "Self-approved" badge/filter.
+      selfOnboarded,
     },
     merchant: merchant
       ? {
