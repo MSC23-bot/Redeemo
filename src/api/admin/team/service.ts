@@ -27,18 +27,13 @@ export function isAssignableRole(role: string): role is AssignableRole {
   return (ASSIGNABLE_ROLES as readonly string[]).includes(role)
 }
 
-// S1 INTERIM GUARD (adversarial-review Finding 1, 2026-07-10): the FIELD role's
-// on-behalf capabilities (edit/submit/manage-branches/manage-documents/manage-
-// vouchers) are confined to PRE-LIVE merchants only by the SERVER-SIDE scope guard
-// in slice S3 (spec §4.2). That guard is NOT in S1. Until S3 lands, a FIELD admin
-// would hold those caps against ANY merchant (incl. live), so FIELD must not be
-// ASSIGNABLE to a real account yet. Two natural gates already block it (the FIELD
-// enum value is unapplied on staging/prod DBs, and assignment is SUPER_ADMIN-only),
-// but this is the belt-and-braces code block. REMOVE this guard in S3 once
-// `requirePreLiveMerchant` is wired onto the FIELD on-behalf routes.
-function assertRoleAssignableNow(role: AssignableRole): void {
-  if (role === 'FIELD') throw new AppError('FIELD_ROLE_NOT_YET_ASSIGNABLE')
-}
+// S1 INTERIM GUARD REMOVED (S3, 2026-07-10): the belt-and-braces block that
+// rejected FIELD role assignment (FIELD_ROLE_NOT_YET_ASSIGNABLE) is gone now that
+// slice S3 provides the real safety mechanism — the SERVER-SIDE pre-live scope
+// guard `assertFieldPreLiveScope` (src/api/admin/prelive-scope.ts, spec §4.2),
+// wired onto every FIELD-reachable on-behalf mutation route. FIELD is now a fully
+// assignable base role; its on-behalf caps are confined to pre-live merchants at
+// the route, not by blocking assignment.
 
 interface ActorCtx {
   ipAddress: string
@@ -73,7 +68,6 @@ export async function createAdminAccount(
   input: { email: string; firstName: string; lastName: string; role: AssignableRole },
   ctx: ActorCtx,
 ) {
-  assertRoleAssignableNow(input.role)
   const existing = await prisma.adminUser.findUnique({ where: { email: input.email }, select: { id: true } })
   if (existing) throw new AppError('EMAIL_ALREADY_EXISTS')
 
@@ -117,7 +111,6 @@ export async function setAdminRole(
   role: AssignableRole,
   ctx: ActorCtx,
 ) {
-  assertRoleAssignableNow(role)
   return prisma.$transaction(async (tx: any) => {
     const target = await tx.adminUser.findUnique({ where: { id: targetAdminId }, select: { id: true, role: true } })
     if (!target) throw new AppError('ADMIN_NOT_FOUND')

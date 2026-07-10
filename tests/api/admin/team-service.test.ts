@@ -163,28 +163,36 @@ describe('deactivateAdmin — isActive=false + escape hatch', () => {
   })
 })
 
-describe('FIELD interim assignment guard (S1; removed in S3)', () => {
+// S3 (2026-07-10): the S1 interim "FIELD not yet assignable" guard is REMOVED —
+// FIELD is now a fully assignable base role (its on-behalf caps are confined to
+// pre-live merchants by the server-side scope guard, tested in prelive-scope.test.ts).
+// A FIELD-assignment happy-path pin lives below so the removal stays intentional.
+describe('FIELD role is assignable (S1 interim guard removed in S3)', () => {
   const ctx = { ipAddress: '1.1.1.1', userAgent: 'test' }
-  it('createAdminAccount REJECTS role FIELD with FIELD_ROLE_NOT_YET_ASSIGNABLE (no DB write)', async () => {
-    const tx = { adminUser: { findUnique: vi.fn(), create: vi.fn() } }
-    const prisma = { adminUser: { findUnique: vi.fn() }, ...makePrisma(tx) }
-    await expect(
-      createAdminAccount(prisma as any, 'super-1', { email: 'r@redeemo.com', firstName: 'R', lastName: 'Ep', role: 'FIELD' }, ctx),
-    ).rejects.toThrow('FIELD_ROLE_NOT_YET_ASSIGNABLE')
-    expect(prisma.adminUser.findUnique).not.toHaveBeenCalled()
-    expect(tx.adminUser.create).not.toHaveBeenCalled()
+
+  it('createAdminAccount assigns role FIELD (reaches the email/create path, no interim 409)', async () => {
+    const created = { id: 'new-field', email: 'rep@redeemo.com', firstName: 'R', lastName: 'Ep', role: 'FIELD', isActive: true, createdAt: new Date() }
+    const tx = {
+      adminUser: { create: vi.fn().mockResolvedValue(created) },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    }
+    const prisma = { adminUser: { findUnique: vi.fn().mockResolvedValue(null) }, ...makePrisma(tx) } as any
+    const result = await createAdminAccount(prisma, 'super-1', { email: 'rep@redeemo.com', firstName: 'R', lastName: 'Ep', role: 'FIELD' }, ctx)
+    expect(result.role).toBe('FIELD')
+    expect(tx.adminUser.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: 'FIELD' }) }))
   })
-  it('createAdminAccount ALLOWS a non-FIELD assignable role past the guard (OPERATIONS reaches the email check)', async () => {
-    const prisma = { adminUser: { findUnique: vi.fn().mockResolvedValue({ id: 'existing' }) } } as any
-    await expect(
-      createAdminAccount(prisma, 'super-1', { email: 'o@redeemo.com', firstName: 'O', lastName: 'Ps', role: 'OPERATIONS' }, ctx),
-    ).rejects.toThrow('EMAIL_ALREADY_EXISTS')
-    expect(prisma.adminUser.findUnique).toHaveBeenCalled()
-  })
-  it('setAdminRole REJECTS role FIELD before any DB read', async () => {
-    const tx = { adminUser: { findUnique: vi.fn(), update: vi.fn() } }
+
+  it('setAdminRole assigns role FIELD (reaches the update path, no interim 409)', async () => {
+    const tx = {
+      adminUser: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'target-1', role: 'SUPPORT' }),
+        update: vi.fn().mockResolvedValue({ id: 'target-1', email: 't@r.com', role: 'FIELD', isActive: true }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    }
     const prisma = makePrisma(tx)
-    await expect(setAdminRole(prisma, 'super-1', 'target-1', 'FIELD' as any, ctx)).rejects.toThrow('FIELD_ROLE_NOT_YET_ASSIGNABLE')
-    expect(tx.adminUser.findUnique).not.toHaveBeenCalled()
+    const updated = await setAdminRole(prisma, 'super-1', 'target-1', 'FIELD' as any, ctx)
+    expect(updated.role).toBe('FIELD')
+    expect(tx.adminUser.update).toHaveBeenCalledWith(expect.objectContaining({ data: { role: 'FIELD' } }))
   })
 })
