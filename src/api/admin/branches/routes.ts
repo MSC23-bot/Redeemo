@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { AppError } from '../../shared/errors'
 import { requireAdminCapability } from '../capability'
+import { assertFieldPreLiveScope } from '../prelive-scope'
 import { confirmBranchLocation } from './service'
 import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
 import { updateBranchDirectCore, softDeleteBranchCore } from '../../merchant/branch/service'
@@ -60,6 +61,9 @@ export async function adminBranchRoutes(app: FastifyInstance) {
       })
       if (!b) throw new AppError('BRANCH_NOT_FOUND')
       await resolveTargetMerchantForAdmin(app.prisma, b.merchantId)
+      // S3 defence-in-depth: a FIELD rep may edit a branch only for a PRE-LIVE
+      // merchant. The route resolved the owning merchantId from branchId above.
+      await assertFieldPreLiveScope(app.prisma, req.user.adminRole, b.merchantId)
 
       const data: Record<string, unknown> = {}
       if ('phone' in body) data.phone = body.phone
@@ -98,6 +102,9 @@ export async function adminBranchRoutes(app: FastifyInstance) {
       })
       if (!b) throw new AppError('BRANCH_NOT_FOUND')
       await resolveTargetMerchantForAdmin(app.prisma, b.merchantId)
+      // S3 defence-in-depth: a FIELD rep may delete a branch only for a PRE-LIVE
+      // merchant. The route resolved the owning merchantId from branchId above.
+      await assertFieldPreLiveScope(app.prisma, req.user.adminRole, b.merchantId)
 
       return softDeleteBranchCore(
         app.prisma,

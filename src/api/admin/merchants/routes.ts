@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { emailSchema } from '../../shared/schemas'
 import { requireAdminCapability } from '../capability'
+import { assertFieldPreLiveScope } from '../prelive-scope'
 import { createMerchantDraft, suspendMerchant, reactivateMerchant, listMerchants, getMerchantDetail, listAdminCategories, listAdminRmvVouchers, listAdminCustomVouchers, listAdminStaff } from './service'
 import { updateRmvVoucherCore, submitRmvVoucherCore } from '../../merchant/voucher/service'
 import { issueMerchantClaim } from '../../auth/merchant/service'
@@ -119,6 +120,8 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
 
     const id = idParam(req)
     await resolveTargetMerchantForAdmin(app.prisma, id)
+    // S3 defence-in-depth: a FIELD rep may edit only a PRE-LIVE merchant.
+    await assertFieldPreLiveScope(app.prisma, req.user.adminRole, id)
 
     const updates: Record<string, unknown> = {}
     if ('websiteUrl' in body) updates.websiteUrl = body.websiteUrl
@@ -227,6 +230,8 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
 
     const id = idParam(req)
     await resolveTargetMerchantForAdmin(app.prisma, id)
+    // S3 defence-in-depth: a FIELD rep may add a branch only for a PRE-LIVE merchant.
+    await assertFieldPreLiveScope(app.prisma, req.user.adminRole, id)
 
     const { reason, ...data } = body
     const branch = await createBranchCore(
@@ -285,6 +290,8 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
     const { reason } = z.object({ reason: z.string().trim().min(1) }).strict().parse(req.body)
     const id = idParam(req)
     await resolveTargetMerchantForAdmin(app.prisma, id)
+    // S3 defence-in-depth: a FIELD rep may submit only a PRE-LIVE merchant.
+    await assertFieldPreLiveScope(app.prisma, req.user.adminRole, id)
     const updated = await submitForApprovalCore(
       app.prisma,
       app.redis,
@@ -324,6 +331,8 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
     if (!isStorageEnabled()) throw new AppError('STORAGE_NOT_ENABLED')
     const id = idParam(req)
     await resolveTargetMerchantForAdmin(app.prisma, id)
+    // S3 defence-in-depth: a FIELD rep may upload documents only for a PRE-LIVE merchant.
+    await assertFieldPreLiveScope(app.prisma, req.user.adminRole, id)
 
     if (!req.isMultipart()) throw new AppError('FILE_REQUIRED')
 
@@ -392,6 +401,8 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       .parse(req.params)
     const { reason } = z.object({ reason: z.string().trim().min(1) }).strict().parse(req.body)
     await resolveTargetMerchantForAdmin(app.prisma, id)
+    // S3 defence-in-depth: a FIELD rep may delete documents only for a PRE-LIVE merchant.
+    await assertFieldPreLiveScope(app.prisma, req.user.adminRole, id)
     return deleteMerchantDocument(
       app.prisma,
       { merchantId: id, documentId, adminId: req.user.sub, reason },
@@ -455,6 +466,8 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       .strict()
       .parse(req.body)
     await resolveTargetMerchantForAdmin(app.prisma, id)
+    // S3 defence-in-depth: a FIELD rep may edit RMV vouchers only for a PRE-LIVE merchant.
+    await assertFieldPreLiveScope(app.prisma, req.user.adminRole, id)
     return updateRmvVoucherCore(
       app.prisma,
       { merchantId: id, actor: { type: 'ADMIN', id: req.user.sub, reason: body.reason } },
@@ -478,6 +491,8 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       .parse(req.params)
     const { reason } = z.object({ reason: z.string().trim().min(1) }).strict().parse(req.body)
     await resolveTargetMerchantForAdmin(app.prisma, id)
+    // S3 defence-in-depth: a FIELD rep may submit RMV vouchers only for a PRE-LIVE merchant.
+    await assertFieldPreLiveScope(app.prisma, req.user.adminRole, id)
     return submitRmvVoucherCore(
       app.prisma,
       { merchantId: id, actor: { type: 'ADMIN', id: req.user.sub, reason } },
