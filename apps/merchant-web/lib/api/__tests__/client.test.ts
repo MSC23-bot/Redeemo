@@ -1,7 +1,16 @@
 /**
  * @jest-environment node
  */
-import { apiFetch, apiFetchRaw, ApiError, refreshSession, resetRefreshInFlight } from '@/lib/api/client'
+import {
+  apiFetch,
+  apiFetchRaw,
+  ApiError,
+  refreshSession,
+  resetRefreshInFlight,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  UPLOAD_REQUEST_TIMEOUT_MS,
+  REQUEST_TIMEOUT_MESSAGE,
+} from '@/lib/api/client'
 import { getAccessToken, setAccessToken, setOnSessionLost } from '@/lib/auth/tokenStore'
 import { getSessionEpoch, bumpSessionEpoch } from '@/lib/auth/sessionEpoch'
 
@@ -705,5 +714,136 @@ describe('session epoch guard (T2) + single-flight self-ownership (T3/F1)', () =
     // promise's effect; this test isolates the single-flight-adoption behaviour only.)
     resolveOldRefresh?.(jsonRes(200, { accessToken: 'stale-should-not-apply' }))
     await oldRefreshPromise
+  })
+})
+
+// Request timeout (walkthrough finding 5): a network hang must never freeze a
+// caller's busy state forever. The client arms an AbortController timeout around
+// the data fetch ONLY (default 20s; 120s for FormData uploads; timeoutMs: 0 opts
+// out) and surfaces a typed ApiError { status: 0, code: 'REQUEST_TIMEOUT' } so
+// every existing error path handles it like any other ApiError.
+describe('request timeout (AbortController around the data fetch)', () => {
+  beforeEach(() => {
+    setAccessToken(null)
+    setOnSessionLost(null)
+    resetRefreshInFlight()
+    jest.restoreAllMocks()
+    jest.useFakeTimers()
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  // A never-resolving fetch that honours its AbortSignal exactly like the real
+  // fetch does: it rejects with an AbortError when the signal fires. This is what
+  // a hung network looks like to the client.
+  function hangingFetch() {
+    return jest.fn(
+      (_url: unknown, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('The operation was aborted.', 'AbortError')),
+          )
+        }),
+    )
+  }
+
+  it('a hanging fetch rejects with the typed REQUEST_TIMEOUT ApiError at exactly the default timeout', async () => {
+    global.fetch = hangingFetch() as unknown as typeof fetch
+    const p = apiFetch('/hang', {})
+    let settled = false
+    p.catch(() => {
+      settled = true
+    })
+    // One tick BEFORE the deadline: still pending (the timeout fires AT timeoutMs, not early).
+    await jest.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS - 1)
+    expect(settled).toBe(false)
+    await jest.advanceTimersByTimeAsync(1)
+    await expect(p).rejects.toMatchObject({
+      status: 0,
+      code: 'REQUEST_TIMEOUT',
+      message: REQUEST_TIMEOUT_MESSAGE,
+    })
+    await expect(p).rejects.toBeInstanceOf(ApiError)
+  })
+
+  it('a per-call timeoutMs override wins over the default', async () => {
+    global.fetch = hangingFetch() as unknown as typeof fetch
+    const p = apiFetch('/hang', { timeoutMs: 5_000 })
+    let settled = false
+    p.catch(() => {
+      settled = true
+    })
+    await jest.advanceTimersByTimeAsync(4_999)
+    expect(settled).toBe(false)
+    await jest.advanceTimersByTimeAsync(1)
+    await expect(p).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' })
+  })
+
+  it('timeoutMs: 0 opts out entirely: no timer is armed and the request may run indefinitely', async () => {
+    global.fetch = hangingFetch() as unknown as typeof fetch
+    const p = apiFetch('/genuinely-long-operation', { timeoutMs: 0 })
+    let settled = false
+    p.catch(() => {
+      settled = true
+    })
+    // Far past every default: still pending because no timeout exists for this call.
+    await jest.advanceTimersByTimeAsync(10 * UPLOAD_REQUEST_TIMEOUT_MS)
+    expect(settled).toBe(false)
+  })
+
+  it('a FormData (multipart upload) body gets the LONGER upload default, not the 20s one', async () => {
+    global.fetch = hangingFetch() as unknown as typeof fetch
+    const form = new FormData()
+    form.append('file', new Blob(['x']), 'x.png')
+    const p = apiFetch('/api/v1/merchant/uploads/logo', { method: 'POST', auth: true, body: form })
+    let settled = false
+    p.catch(() => {
+      settled = true
+    })
+    // Still pending at (and beyond) the ordinary default: uploads get 120s, not 20s.
+    await jest.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS)
+    expect(settled).toBe(false)
+    await jest.advanceTimersByTimeAsync(UPLOAD_REQUEST_TIMEOUT_MS - DEFAULT_REQUEST_TIMEOUT_MS)
+    await expect(p).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' })
+  })
+
+  it('the 401-refresh-once-retry path still works unchanged with timeouts active', async () => {
+    setAccessToken('expired')
+    let profileCalls = 0
+    global.fetch = jest.fn(async (url: unknown) => {
+      const u = String(url)
+      if (u.endsWith('/api/merchant-auth/refresh')) return jsonRes(200, { accessToken: 'fresh' })
+      profileCalls += 1
+      return profileCalls === 1 ? jsonRes(401, {}) : jsonRes(200, { ok: 1 })
+    }) as unknown as typeof fetch
+    const r = await apiFetch<{ ok: number }>('/profile', { auth: true })
+    expect(r.ok).toBe(1)
+    expect(getAccessToken()).toBe('fresh')
+    expect(profileCalls).toBe(2)
+  })
+
+  it('a HUNG refresh times out into the EXISTING failed-refresh teardown (token cleared, onSessionLost fired) instead of hanging forever', async () => {
+    setAccessToken('expired')
+    const lost = jest.fn()
+    setOnSessionLost(lost)
+    global.fetch = jest.fn((url: unknown, init?: RequestInit) => {
+      if (String(url).endsWith('/api/merchant-auth/refresh')) {
+        // The refresh itself hangs; only its own timeout can end it.
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('The operation was aborted.', 'AbortError')),
+          )
+        })
+      }
+      return Promise.resolve(jsonRes(401, { error: { code: 'SESSION_REVOKED' } }))
+    }) as unknown as typeof fetch
+    const p = apiFetch('/profile', { auth: true })
+    const assertion = expect(p).rejects.toMatchObject({ status: 401 })
+    await jest.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS)
+    await assertion
+    expect(getAccessToken()).toBeNull() // same terminal semantics as a failed refresh
+    expect(lost).toHaveBeenCalledTimes(1)
   })
 })

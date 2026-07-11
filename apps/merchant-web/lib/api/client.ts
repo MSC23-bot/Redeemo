@@ -36,6 +36,19 @@
  * epoch move can therefore never deliver stale data NOR throw a stale ApiError to a
  * caller; only same-epoch behaviour is preserved unchanged. `assertEpoch()` is the
  * single shared gate primitive so this logic is defined exactly once.
+ *
+ * Request timeout (walkthrough finding 5): every data fetch is wrapped in an
+ * AbortController timeout so a network hang can never freeze a caller's busy state
+ * forever. Default DEFAULT_REQUEST_TIMEOUT_MS (20s); FormData (multipart upload)
+ * bodies default to UPLOAD_REQUEST_TIMEOUT_MS (120s) because uploads on slow
+ * connections legitimately exceed 20s. Callers override per call via `timeoutMs`;
+ * 0 or a negative value opts out entirely (no timer armed). On timeout the caller
+ * receives a typed ApiError (status 0, code REQUEST_TIMEOUT) so every existing
+ * error path handles it like any other ApiError. The timeout wraps ONLY the fetch
+ * itself, never body consumption, and each attempt (original vs the 401 retry)
+ * arms its own fresh timer. The refresh fetch gets the same default timeout inside
+ * doRefresh's existing try/catch, so a hung refresh degrades to the EXISTING
+ * refresh-failed semantics (returns false) without touching the single-flight.
  */
 import { getAccessToken, setAccessToken, triggerSessionLost } from '@/lib/auth/tokenStore'
 import { getSessionEpoch } from '@/lib/auth/sessionEpoch'
@@ -81,6 +94,52 @@ async function guardStaleReject<T>(promise: Promise<T>, capturedEpoch: number): 
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
+/** Typed code for a request aborted by the client-side timeout below. */
+export const REQUEST_TIMEOUT_CODE = 'REQUEST_TIMEOUT'
+/** Human message carried by the timeout ApiError (also used by the friendly maps). */
+export const REQUEST_TIMEOUT_MESSAGE = 'The request timed out. Check your connection and try again.'
+/** Default per-request timeout for ordinary JSON calls. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000
+/** Default per-request timeout for multipart (FormData) uploads: slow connections need longer. */
+export const UPLOAD_REQUEST_TIMEOUT_MS = 120_000
+
+/** A synthetic ApiError (status 0, like SESSION_SWITCHED) raised when the timeout fires. */
+function requestTimeoutError(): ApiError {
+  return new ApiError(0, { code: REQUEST_TIMEOUT_CODE, message: REQUEST_TIMEOUT_MESSAGE })
+}
+
+/**
+ * fetch() wrapped in an AbortController timeout. `timeoutMs <= 0` opts out entirely
+ * (plain fetch, caller-provided signal honoured as-is). A caller-provided
+ * `init.signal` is forwarded onto the internal controller so an external abort
+ * still cancels the request; only OUR timer's abort is translated into the typed
+ * REQUEST_TIMEOUT ApiError (an external abort rethrows the caller's own reason
+ * unchanged). The timer is cleared as soon as the fetch settles, so body
+ * consumption after this resolves is never subject to the timeout.
+ */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  if (timeoutMs <= 0) return fetch(url, init)
+  const controller = new AbortController()
+  let timedOut = false
+  const outer = init.signal
+  if (outer) {
+    if (outer.aborted) controller.abort(outer.reason)
+    else outer.addEventListener('abort', () => controller.abort(outer.reason), { once: true })
+  }
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (err) {
+    if (timedOut) throw requestTimeoutError()
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export class ApiError extends Error {
   public status: number
   public statusCode: number
@@ -120,6 +179,15 @@ export type ApiFetchOptions = RequestInit & {
    * live when the request was first issued, not a fresh capture at retry time.
    */
   _epoch?: number
+  /**
+   * Per-request timeout in milliseconds. Semantics:
+   *   undefined      -> DEFAULT_REQUEST_TIMEOUT_MS (20s), or UPLOAD_REQUEST_TIMEOUT_MS
+   *                     (120s) when the body is FormData (multipart upload)
+   *   positive value -> that value
+   *   0 or negative  -> NO timeout (opt out for genuinely long operations)
+   * On timeout the call rejects with ApiError { status: 0, code: 'REQUEST_TIMEOUT' }.
+   */
+  timeoutMs?: number
 }
 
 /**
@@ -132,7 +200,10 @@ export type ApiFetchOptions = RequestInit & {
 async function doRefresh(): Promise<boolean> {
   const capturedEpoch = getSessionEpoch()
   try {
-    const res = await fetch('/api/merchant-auth/refresh', { method: 'POST' })
+    // Same default timeout as data fetches. On timeout fetchWithTimeout rejects and
+    // this catch returns false: EXACTLY the existing failed-refresh semantics, so a
+    // hung refresh can no longer hang every adopter of the single-flight forever.
+    const res = await fetchWithTimeout('/api/merchant-auth/refresh', { method: 'POST' }, DEFAULT_REQUEST_TIMEOUT_MS)
     if (!res.ok) return false
     const data = (await res.json().catch(() => null)) as { accessToken?: string } | null
     if (getSessionEpoch() !== capturedEpoch) return false
@@ -190,7 +261,7 @@ export function resetRefreshInFlight(): void {
 type FetchOutcome = { res: Response; capturedEpoch: number }
 
 async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Promise<FetchOutcome> {
-  const { auth = false, _isRetry = false, _epoch, ...init } = options
+  const { auth = false, _isRetry = false, _epoch, timeoutMs, ...init } = options
   // Capture ONCE at the original request's entry; the retry below threads this same
   // value through via `_epoch` rather than re-capturing (design spec §4.2 F2) - a
   // boundary landing between a successful refresh and the retry's own entry would
@@ -206,7 +277,23 @@ async function apiFetchResponse(path: string, options: ApiFetchOptions = {}): Pr
     if (token) headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const res = await fetch(`${BASE}${path}`, { ...init, headers })
+  // Timeout selection: explicit per-call value wins; otherwise multipart uploads get
+  // the longer default (slow-connection uploads legitimately exceed 20s), everything
+  // else the standard default. Each attempt (original vs the 401 retry below, which
+  // recurses with `...options` and therefore the same timeoutMs) arms a FRESH timer.
+  const effectiveTimeoutMs =
+    timeoutMs ?? (init.body instanceof FormData ? UPLOAD_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetchWithTimeout(`${BASE}${path}`, { ...init, headers }, effectiveTimeoutMs)
+  } catch (err) {
+    // Epoch gate on the timeout path only (behavior-preserving for every other fetch
+    // rejection, which propagates raw exactly as before): if a session boundary landed
+    // while this request was hanging, the dead session's timeout must surface as
+    // SESSION_SWITCHED, never as a stale REQUEST_TIMEOUT to the new session's caller.
+    if (err instanceof ApiError && err.code === REQUEST_TIMEOUT_CODE) assertEpoch(capturedEpoch)
+    throw err
+  }
 
   if (res.status === 401 && auth) {
     // Correction 1 (pre-refresh epoch gate): before an OLD 401 starts a refresh,
