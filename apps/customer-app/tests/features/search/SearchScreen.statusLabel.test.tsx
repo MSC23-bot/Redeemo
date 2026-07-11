@@ -73,6 +73,17 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({}),
 }))
 
+// Map Phase 2 S5a (D2) — SearchScreen now mounts a FilterSheet, which
+// calls useCategories() + useEligibleAmenities() internally. Mocked here
+// so this test doesn't trigger real network fetches.
+jest.mock('@/hooks/useCategories', () => ({
+  useCategories: () => ({ data: { categories: [] } }),
+}))
+
+jest.mock('@/hooks/useEligibleAmenities', () => ({
+  useEligibleAmenities: () => ({ data: { amenities: [] }, isLoading: false }),
+}))
+
 // Task 13 Round 1 item 2 — useMe is now the IDLE-STATE fallback for
 // the location envelope.  Mock it with a Huddersfield-profile shape so
 // the §LSL-Search-idle pin can assert the synthesized profile
