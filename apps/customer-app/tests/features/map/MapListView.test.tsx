@@ -75,7 +75,14 @@ const mockBranches = [
 ]
 
 describe('MapListView', () => {
-  it('renders "Nearby Merchants" header', () => {
+  // Map Phase 2 S5b Task 3 (owner feedback: "is this my area or
+  // everything?") — the header now states its own scope in the copy
+  // itself ("N places in this area") instead of a bare title + a
+  // separate count badge whose count wasn't tied to any stated scope.
+  // Relocates (not deletes) the pre-S5b "Nearby Merchants" header pin
+  // and the separate "renders branch-count badge" pin below — same
+  // invariant (the header communicates the total), new copy.
+  it('renders the scoped "N places in this area" header using the total prop', () => {
     const { getByText } = render(
       <MapListView
         visible
@@ -86,21 +93,21 @@ describe('MapListView', () => {
         {...noopSort}
       />,
     )
-    expect(getByText('Nearby Merchants')).toBeTruthy()
+    expect(getByText('2 places in this area')).toBeTruthy()
   })
 
-  it('renders branch-count badge', () => {
+  it('singularises to "1 place in this area" when total is 1', () => {
     const { getByText } = render(
       <MapListView
         visible
-        branches={mockBranches}
-        total={2}
+        branches={[mockBranches[0]!]}
+        total={1}
         onDismiss={jest.fn()}
         onBranchPress={jest.fn()}
         {...noopSort}
       />,
     )
-    expect(getByText('2')).toBeTruthy()
+    expect(getByText('1 place in this area')).toBeTruthy()
   })
 
   it('renders merchant names from branch.merchant.businessName', () => {
