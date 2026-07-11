@@ -142,6 +142,22 @@ export async function createAdminAccount(
   })
 }
 
+/**
+ * Last-SUPER_ADMIN lockout guard: the platform must always retain at least one
+ * ACTIVE SUPER_ADMIN (the only role that can reach the Team & Roles surface). A
+ * change that removes the target from the active-super set is rejected unless
+ * ANOTHER active SUPER_ADMIN exists. Applies to demotion (setAdminRole away from
+ * SUPER_ADMIN) and deactivation of a super. Self-demotion of the sole super is a
+ * subset of this. (Spec Screen 1.9 last-super guard; closes the S2-flagged gap.)
+ */
+async function assertNotLastActiveSuperAdmin(tx: any, targetRole: string, targetAdminId: string): Promise<void> {
+  if (targetRole !== 'SUPER_ADMIN') return
+  const otherActiveSupers = await tx.adminUser.count({
+    where: { role: 'SUPER_ADMIN', isActive: true, id: { not: targetAdminId } },
+  })
+  if (otherActiveSupers === 0) throw new AppError('LAST_SUPER_ADMIN_PROTECTED')
+}
+
 /** Set an admin's base role (any ASSIGNABLE_ROLE, including FIELD). */
 export async function setAdminRole(
   prisma: PrismaClient,
@@ -153,6 +169,7 @@ export async function setAdminRole(
   return prisma.$transaction(async (tx: any) => {
     const target = await tx.adminUser.findUnique({ where: { id: targetAdminId }, select: { id: true, role: true } })
     if (!target) throw new AppError('ADMIN_NOT_FOUND')
+    await assertNotLastActiveSuperAdmin(tx, target.role, targetAdminId)
 
     const updated = await tx.adminUser.update({
       where: { id: targetAdminId },
@@ -192,8 +209,9 @@ export async function deactivateAdmin(
   if (actorId === targetAdminId) throw new AppError('ADMIN_SELF_ACTION_FORBIDDEN')
 
   const result = await prisma.$transaction(async (tx: any) => {
-    const target = await tx.adminUser.findUnique({ where: { id: targetAdminId }, select: { id: true, isActive: true } })
+    const target = await tx.adminUser.findUnique({ where: { id: targetAdminId }, select: { id: true, role: true, isActive: true } })
     if (!target) throw new AppError('ADMIN_NOT_FOUND')
+    await assertNotLastActiveSuperAdmin(tx, target.role, targetAdminId)
 
     const updated = await tx.adminUser.update({
       where: { id: targetAdminId },

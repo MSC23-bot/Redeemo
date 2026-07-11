@@ -99,6 +99,8 @@ const CODE_MESSAGES: Record<string, string> = {
     'You cannot perform this action on your own account.',
   ADMIN_NOT_FOUND: 'This admin account no longer exists. The list has refreshed.',
   GRANT_NOT_FOUND: 'This capability grant no longer exists. The list has refreshed.',
+  LAST_SUPER_ADMIN_PROTECTED:
+    'The last active Super Admin cannot be demoted or deactivated. Promote another admin to Super Admin first.',
 }
 
 function getMessage(error: unknown, overrides?: Record<string, string>): string {

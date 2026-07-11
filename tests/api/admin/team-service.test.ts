@@ -268,3 +268,60 @@ describe('FIELD role is assignable (S1 interim guard removed in S3)', () => {
     expect(tx.adminUser.update).toHaveBeenCalledWith(expect.objectContaining({ data: { role: 'FIELD' } }))
   })
 })
+
+describe('last-SUPER_ADMIN lockout guard', () => {
+  const ctx = { ipAddress: '1.1.1.1', userAgent: 'test' }
+
+  it('setAdminRole REJECTS demoting the last active SUPER_ADMIN (LAST_SUPER_ADMIN_PROTECTED, 409)', async () => {
+    const tx = {
+      adminUser: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'super-solo', role: 'SUPER_ADMIN' }),
+        count: vi.fn().mockResolvedValue(0), // no OTHER active super
+        update: vi.fn(),
+      },
+      auditLog: { create: vi.fn() },
+    }
+    await expect(setAdminRole(makePrisma(tx), 'super-solo', 'super-solo', 'OPERATIONS' as any, ctx)).rejects.toThrow('LAST_SUPER_ADMIN_PROTECTED')
+    expect(tx.adminUser.update).not.toHaveBeenCalled()
+  })
+
+  it('setAdminRole ALLOWS demoting a SUPER_ADMIN when another active super exists', async () => {
+    const tx = {
+      adminUser: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'super-2', role: 'SUPER_ADMIN' }),
+        count: vi.fn().mockResolvedValue(1),
+        update: vi.fn().mockResolvedValue({ id: 'super-2', email: 's2@r.com', role: 'OPERATIONS', isActive: true }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    }
+    const r = await setAdminRole(makePrisma(tx), 'super-1', 'super-2', 'OPERATIONS' as any, ctx)
+    expect(r.role).toBe('OPERATIONS')
+  })
+
+  it('setAdminRole does NOT count supers when the target is not a SUPER_ADMIN', async () => {
+    const tx = {
+      adminUser: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'ops-1', role: 'OPERATIONS' }),
+        count: vi.fn(),
+        update: vi.fn().mockResolvedValue({ id: 'ops-1', email: 'o@r.com', role: 'FIELD', isActive: true }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    }
+    await setAdminRole(makePrisma(tx), 'super-1', 'ops-1', 'FIELD' as any, ctx)
+    expect(tx.adminUser.count).not.toHaveBeenCalled()
+  })
+
+  it('deactivateAdmin REJECTS deactivating the last active SUPER_ADMIN', async () => {
+    const tx = {
+      adminUser: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'super-2', role: 'SUPER_ADMIN', isActive: true }),
+        count: vi.fn().mockResolvedValue(0),
+        update: vi.fn(),
+      },
+      auditLog: { create: vi.fn() },
+    }
+    await expect(deactivateAdmin(makePrisma(tx), redis, 'super-1', 'super-2', ctx)).rejects.toThrow('LAST_SUPER_ADMIN_PROTECTED')
+    expect(tx.adminUser.update).not.toHaveBeenCalled()
+    expect(revokeAllSessionsForEntity).not.toHaveBeenCalled()
+  })
+})
