@@ -1,5 +1,17 @@
 // Plan 4 M3b follow-up — MapScreen renders the viewport locality badge
 // when meta.effectiveLocality is present and suppression rules allow.
+//
+// Map Phase 2 S5b Task 2 (D10 presentation supersession, 2026-07-11) —
+// the standalone <ViewportLocalityBadge> ("Map centred near {name}") was
+// folded into <MapLocationIndicator> alongside the identity chip, and
+// the RESTING (non-informative) copy shortened to "Near {name}" — see
+// MapLocationIndicator.tsx's header comment. This file's suppression
+// invariants (hidden when the locality is absent / the permission
+// overlay is up / the camera pans offshore) are UNCHANGED; only the
+// literal string assertions are relocated to the new copy. In every
+// fixture below, `useInAreaBranches`'s mock omits `locationContext`
+// entirely, so the identity portion is always `state.kind === 'hidden'`
+// and the composite renders its quiet viewport-only branch.
 
 import React from 'react'
 import { render, act } from '@testing-library/react-native'
@@ -115,30 +127,30 @@ describe('MapScreen — viewport locality badge (Plan 4 M3b)', () => {
     mockAnimateToRegion.mockClear()
   })
 
-  it('renders "Map centred near {name}" when meta.effectiveLocality is present', () => {
+  it('renders "Near {name}" when meta.effectiveLocality is present', () => {
     mockState.effectiveLocality = { id: 'loc-hud', name: 'Huddersfield' }
     const { getByText } = render(<MapScreen />, { wrapper })
-    expect(getByText('Map centred near Huddersfield')).toBeTruthy()
+    expect(getByText('Near Huddersfield')).toBeTruthy()
   })
 
   it('hides the badge when meta.effectiveLocality is absent', () => {
     mockState.effectiveLocality = null
     const { queryByText } = render(<MapScreen />, { wrapper })
-    expect(queryByText(/Map centred near/)).toBeNull()
+    expect(queryByText(/Near /)).toBeNull()
   })
 
   it('suppresses the badge while the LocationPermission overlay is showing', () => {
     mockState.effectiveLocality = { id: 'loc-hud', name: 'Huddersfield' }
     mockState.locationStatus = 'idle' // triggers the permission overlay
     const { queryByText } = render(<MapScreen />, { wrapper })
-    expect(queryByText(/Map centred near/)).toBeNull()
+    expect(queryByText(/Near /)).toBeNull()
   })
 
   it('suppresses the badge when the camera pans offshore', () => {
     mockState.effectiveLocality = { id: 'loc-hud', name: 'Huddersfield' }
     const { getByText, queryByText } = render(<MapScreen />, { wrapper })
     // confirm it's visible at the seeded UK region first
-    expect(getByText('Map centred near Huddersfield')).toBeTruthy()
+    expect(getByText('Near Huddersfield')).toBeTruthy()
 
     // Pan offshore (north Atlantic)
     expect(mockOnRegionChangeComplete).not.toBeNull()
@@ -147,6 +159,6 @@ describe('MapScreen — viewport locality badge (Plan 4 M3b)', () => {
         latitude: 30, longitude: -40, latitudeDelta: 0.5, longitudeDelta: 0.5,
       })
     })
-    expect(queryByText(/Map centred near/)).toBeNull()
+    expect(queryByText(/Near /)).toBeNull()
   })
 })
