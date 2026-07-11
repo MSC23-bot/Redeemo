@@ -1,3 +1,5 @@
+import { REQUEST_TIMEOUT_CODE, REQUEST_TIMEOUT_MESSAGE } from '@/lib/api/client'
+
 // Voucher governed flows (2026-07-07): a small shared map from the backend's
 // ApiError.code to a calm merchant-facing message, mirroring the existing
 // per-module inline maps (CloseBranchModal, PublicIdentityEditModal). Callers
@@ -14,6 +16,10 @@ const MESSAGES: Record<string, string> = {
   PENDING_EDIT_NOT_FOUND: 'That request could not be found. It may already have been reviewed.',
   RMV_NOT_FOUND: 'We could not find this flagship voucher.',
   VOUCHER_NOT_FOUND: 'We could not find this voucher.',
+  // Client-side request timeout: callers here pass a code + their own fallback (not
+  // err.message), so WITHOUT this entry a timeout would show the generic fallback
+  // instead of the honest connection message.
+  [REQUEST_TIMEOUT_CODE]: REQUEST_TIMEOUT_MESSAGE,
 }
 
 export function governedErrorMessage(code: string | undefined, fallback: string): string {

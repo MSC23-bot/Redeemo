@@ -1,4 +1,4 @@
-import { ApiError } from '@/lib/api/client'
+import { ApiError, REQUEST_TIMEOUT_CODE, REQUEST_TIMEOUT_MESSAGE } from '@/lib/api/client'
 
 // Staff & Access (v1) PR-C: map a thrown error from the staff endpoints to friendly
 // member-management copy. Falls back to the ApiError message, then a generic line.
@@ -15,6 +15,9 @@ const FRIENDLY: Record<string, string> = {
     'This branch has more than one app user, so we cannot safely change just one yet. Contact Redeemo.',
   BRANCH_USER_NOT_FOUND: 'There is no app user on this branch to update.',
   VALIDATION_ERROR: 'Please check the form and try again.',
+  // Client-side request timeout (the ApiError already carries this message; mapped
+  // explicitly so the friendly map stays the single visible inventory of codes).
+  [REQUEST_TIMEOUT_CODE]: REQUEST_TIMEOUT_MESSAGE,
 }
 
 export function staffErrorMessage(err: unknown): string {

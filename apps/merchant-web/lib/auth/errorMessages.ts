@@ -1,4 +1,4 @@
-import { ApiError } from '@/lib/api/client'
+import { ApiError, REQUEST_TIMEOUT_CODE, REQUEST_TIMEOUT_MESSAGE } from '@/lib/api/client'
 
 // M1 Slice 2: map a thrown error (typically ApiError) into a friendly screen message.
 // 429 is handled by STATUS first because the per-route edge rate-limiter returns the
@@ -23,6 +23,9 @@ const FRIENDLY: Record<string, string> = {
   // My Account (§BP-ACC) change-password.
   CURRENT_PASSWORD_INCORRECT: 'That current password is incorrect.',
   NEW_PASSWORD_SAME_AS_CURRENT: 'Choose a new password that is different from your current one.',
+  // Client-side request timeout (the ApiError already carries this message; mapped
+  // explicitly so the friendly map stays the single visible inventory of codes).
+  [REQUEST_TIMEOUT_CODE]: REQUEST_TIMEOUT_MESSAGE,
 }
 
 export interface AuthError {

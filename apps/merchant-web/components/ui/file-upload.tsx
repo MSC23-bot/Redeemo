@@ -45,6 +45,9 @@ const SURFACEABLE_UPLOAD_ERROR_CODES = new Set([
   'IMAGE_TOO_LARGE',
   'UNSUPPORTED_FILE_TYPE',
   'IMAGE_UNREADABLE',
+  // Client-side timeout (REQUEST_TIMEOUT_CODE in lib/api/client.ts): its ApiError
+  // message already tells the merchant to check their connection and retry.
+  'REQUEST_TIMEOUT',
 ])
 
 interface FileUploadProps {
