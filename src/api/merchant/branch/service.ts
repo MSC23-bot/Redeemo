@@ -1140,6 +1140,69 @@ export async function createBranchPhotoEditRequest(
     }
   }
 
+  // Owner decision 7-photos (walkthrough finding, 2026-07-11): onboarding first-
+  // branch photos get the SAME draft-window bypass logo/banner already have (M2
+  // B1 / D1, updateBranch ~line 927). While the merchant is REGISTERED or
+  // onboardingStep NEEDS_CHANGES, the branch is not yet live, so no customer can
+  // see it yet, and gating photos behind an admin approval only leaves them
+  // invisible with no protective benefit. Reuses the EXACT same isDraftWindow
+  // predicate + lifecycle read shape as updateBranch (status + onboardingStep).
+  // Live-business behaviour (below) is byte-unchanged: this is a NEW branch,
+  // not a rewrite of the governed lane.
+  const lifecycle = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { status: true, onboardingStep: true },
+  })
+  if (!lifecycle) throw new AppError('MERCHANT_NOT_FOUND')
+
+  if (isDraftWindow(lifecycle)) {
+    // Draft-window direct apply: write BranchPhoto rows DIRECTLY instead of
+    // staging a BranchPendingEdit + AdminApproval. Mirrors editApplier's
+    // branchPhoto.create shape EXACTLY (branchId, url, moderationStatus
+    // APPROVED, sortOrder) so an onboarding-added photo is indistinguishable
+    // from an admin-approved one once live. moderationStatus APPROVED is what
+    // makes it immediately customer-visible (the existing APPROVED-only display
+    // gate): that IS the intent, not a side effect.
+    return prisma.$transaction(async (tx) => {
+      let photosAdded: string[] = []
+      let photosRemoved: string[] = []
+
+      if (addUrls.length > 0) {
+        const max = await tx.branchPhoto.aggregate({
+          where: { branchId },
+          _max: { sortOrder: true },
+        })
+        let nextSort = (max._max.sortOrder ?? -1) + 1
+        for (const url of addUrls) {
+          await tx.branchPhoto.create({
+            data: { branchId, url, moderationStatus: 'APPROVED', sortOrder: nextSort },
+          })
+          nextSort += 1
+        }
+        photosAdded = addUrls
+      }
+
+      // Draft-window remove is ALSO direct (no live customer can see this branch
+      // yet, so there is nothing for an admin to protect by staging the delete).
+      if (removeIds.length > 0) {
+        await tx.branchPhoto.deleteMany({ where: { id: { in: removeIds }, branchId } })
+        photosRemoved = removeIds
+      }
+
+      await writeAuditLogTx(tx, {
+        entityId: merchantId, entityType: 'merchant',
+        event: 'BRANCH_PHOTOS_DRAFT_APPLIED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+        actorId: adminId, actorType: 'MERCHANT_ADMIN',
+        metadata: { branchId, photosAdded, photosRemoved },
+      })
+
+      // Discriminated from the governed-lane BranchPendingEdit response (which
+      // carries `status: 'PENDING'`) so the merchant-web client can tell
+      // "applied now" apart from "awaiting review" without guessing.
+      return { branchId, status: 'APPLIED' as const, photosAdded, photosRemoved }
+    })
+  }
+
   // Check for existing PENDING edit
   const existingEdit = await prisma.branchPendingEdit.findFirst({
     where: { branchId, status: 'PENDING' },
