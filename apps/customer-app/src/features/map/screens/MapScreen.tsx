@@ -29,18 +29,18 @@ import { FilterChipsRow } from '@/features/search/components/FilterChipsRow'
 import { FilterButtonBadge } from '@/features/search/components/FilterButtonBadge'
 import { nonScopeFilterCount } from '@/features/search/utils/filterState'
 import { useFilterPreviewCount, type FilterPreviewBaseParams } from '@/features/search/hooks/useFilterPreviewCount'
-import { ViewportLocalityBadge } from '@/design-system/components/ViewportLocalityBadge'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { useToast } from '@/design-system'
 import { geocodeCity } from '@/lib/geocoding'
 import type { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import { mapDataView } from '../utils/mapDataView'
-// §DF-v2-j Task 11 — chip-variant location identity affordance.  Mounted
-// at the TOP of the safe-area band (spec §8.3) ABOVE the SearchBar.
-// Visually + semantically distinct from <ViewportLocalityBadge> per D10
-// lock: chip = user-context identity (stays put as the map pans);
-// badge = viewport locality (updates with pan).
-import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
+// Map Phase 2 S5b Task 2 — consolidated top-of-map location indicator.
+// Mounted at the TOP of the safe-area band (spec §8.3), same slot the
+// pre-S5b <LocationStatusLabel variant="chip"> occupied. Replaces the
+// separate <LocationStatusLabel> + <ViewportLocalityBadge> pair with
+// ONE quiet composite pill; see MapLocationIndicator.tsx's header
+// comment for the full D10 presentation-supersession rationale.
+import { MapLocationIndicator } from '../components/MapLocationIndicator'
 
 const LONDON_REGION: Region = {
   latitude:       51.5074,
@@ -920,23 +920,26 @@ export function MapScreen(_props: Props) {
       </MapView>
 
       <SafeAreaView style={styles.topOverlay} pointerEvents="box-none">
-        {/* §DF-v2-j Task 11 — chip-variant <LocationStatusLabel> mounted
-            at the TOP of the safe-area band per spec §8.3.  Reads the
-            unified `data?.locationContext` envelope — both /search and
-            /discovery/in-area emit it (Tasks 4 + 5).  Stays put as the
-            map pans below (user-context identity, NOT viewport).
-            Hidden during onboarding overlay + interactive
-            LocationSearch dropdown to avoid visual conflict with the
-            primary input states; offshore camera does NOT suppress
-            the chip (user identity is still meaningful when the map
-            is over water — the chip points the user back to Your
-            Location).  D10 lock preserved: <ViewportLocalityBadge>
-            stays in its own row below this overlay region. */}
+        {/* Map Phase 2 S5b Task 2 — consolidated location indicator,
+            mounted at the TOP of the safe-area band (same slot the
+            pre-S5b <LocationStatusLabel variant="chip"> occupied per
+            spec §8.3). Reads the unified `data?.locationContext`
+            envelope (unchanged source) AND `meta?.effectiveLocality`
+            (unchanged source) — see MapLocationIndicator.tsx for the
+            full D10 presentation-supersession rationale: the two
+            underlying FACTS (user identity, viewport locality) are
+            still both present on the wire and both reachable; only the
+            ALWAYS-TWO-ROWS presentation is retired. Hidden during
+            onboarding overlay + interactive LocationSearch dropdown,
+            matching both predecessor chips' suppression rules. */}
         {!showLocationPermission && !showLocationSearch && (
           <View style={styles.statusLabelRow} pointerEvents="box-none">
-            <LocationStatusLabel
-              variant="chip"
+            <MapLocationIndicator
               locationContext={data?.locationContext}
+              viewportLocalityName={meta?.effectiveLocality?.name}
+              viewportCenter={{ lat: region.latitude, lng: region.longitude }}
+              ownLocation={locationState.location ?? profileLatLng}
+              offshore={offshore}
             />
           </View>
         )}
@@ -1006,16 +1009,6 @@ export function MapScreen(_props: Props) {
           />
         )}
 
-        {/* Plan 4 M3b follow-up — viewport locality badge. Renders
-            null when meta.effectiveLocality is absent. Suppressed
-            when the camera is offshore (the offshore message in
-            MapEmptyArea already covers that case) or while the
-            permission overlay is up (page is in onboarding mode). */}
-        {!offshore && !showLocationPermission && !showLocationSearch && (
-          <View style={styles.viewportLocalityRow} pointerEvents="box-none">
-            <ViewportLocalityBadge localityName={meta?.effectiveLocality?.name} />
-          </View>
-        )}
       </SafeAreaView>
 
       {/* Map Phase 2 S5b Task 1 — floating control cluster. All three
@@ -1168,10 +1161,6 @@ const styles = StyleSheet.create({
     paddingBottom: spacing[2],
   },
   locationBadgeContainer: {
-    paddingHorizontal: spacing[4] + 2,
-    paddingTop:        spacing[1],
-  },
-  viewportLocalityRow: {
     paddingHorizontal: spacing[4] + 2,
     paddingTop:        spacing[1],
   },
