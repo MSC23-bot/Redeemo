@@ -1,5 +1,5 @@
 import React from 'react'
-import { View, Pressable, StyleSheet } from 'react-native'
+import { View, Pressable, StyleSheet, type LayoutChangeEvent } from 'react-native'
 import { Text, color, spacing, radius, elevation, layer } from '@/design-system'
 import { GradientBrand } from '@/design-system/components/GradientBrand'
 
@@ -24,6 +24,12 @@ type Props = {
   onRecentre:      () => void
   onClearFilters?: () => void
   hasFilters?:     boolean
+  /**
+   * Map Phase 2 S5b Task 1 — reports the banner's rendered height so
+   * MapScreen can lift the floating control cluster clear of it.
+   * Optional: omitting it is a no-op (pre-S5b behaviour).
+   */
+  onLayout?:       (event: LayoutChangeEvent) => void
 }
 
 const COPY: Record<MapEmptyCase, { title: string; body: string; primaryCta: string }> = {
@@ -54,12 +60,13 @@ export function MapEmptyArea({
   onRecentre,
   onClearFilters,
   hasFilters = false,
+  onLayout,
 }: Props) {
   const copy = COPY[variant]
   const showClear = hasFilters && variant !== 'offshore' && onClearFilters !== undefined
 
   return (
-    <View style={styles.card} accessibilityLabel={`Empty state: ${copy.title}`}>
+    <View style={styles.card} accessibilityLabel={`Empty state: ${copy.title}`} onLayout={onLayout}>
       <Text variant="heading.sm" style={styles.title}>
         {copy.title}
       </Text>
