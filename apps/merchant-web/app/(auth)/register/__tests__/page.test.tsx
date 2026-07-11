@@ -80,6 +80,29 @@ describe('RegisterPage (M1 Slice 4)', () => {
     expect(mockPush).toHaveBeenCalledWith('/register/verify')
   })
 
+  it('normalizes before submit: email trimmed + lowercased; names and business name trimmed (case preserved)', async () => {
+    mockRegister.mockResolvedValue({ status: 'VERIFY_EMAIL_SENT', sessionChallenge: 'vch-1' })
+    render(<RegisterPage />)
+    fireEvent.change(screen.getByLabelText(/first name/i), { target: { value: '  Jane ' } })
+    fireEvent.change(screen.getByLabelText(/last name/i), { target: { value: ' Roe  ' } })
+    fireEvent.change(screen.getByLabelText(/business name/i), { target: { value: '  Roe Cafe ' } })
+    fireEvent.change(screen.getByLabelText(/work email/i), { target: { value: '  New@Merchant.TEST ' } })
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'ValidPass1!' } })
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByTestId('turnstile-stub'))
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }))
+    await waitFor(() =>
+      expect(mockRegister).toHaveBeenCalledWith(
+        expect.objectContaining({
+          firstName: 'Jane',
+          lastName: 'Roe',
+          businessName: 'Roe Cafe',
+          email: 'new@merchant.test',
+        }),
+      ),
+    )
+  })
+
   it('surfaces a captcha-failed error', async () => {
     mockRegister.mockRejectedValue(new ApiError(400, { error: { code: 'CAPTCHA_FAILED' } }))
     render(<RegisterPage />)

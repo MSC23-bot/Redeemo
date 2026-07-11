@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { buildApp } from '../../../src/api/app'
 import type { FastifyInstance } from 'fastify'
 import {
-  registerMerchant, verifyMerchantEmail, resendMerchantVerification,
+  registerMerchant, verifyMerchantEmail, resendMerchantVerification, loginMerchant,
 } from '../../../src/api/auth/merchant/service'
 import { RedisKey } from '../../../src/api/shared/redis-keys'
 
@@ -219,6 +219,101 @@ describe('registerMerchant: self-serve signup', () => {
     expect(stored.adminId).toBe('decoy')
     expect(stored.attempts).toBe(0)
     expect(notifySpy).not.toHaveBeenCalled() // no real verify email on the race-loss path
+  })
+})
+
+// ── Email normalization (transitional design) ──────────────────────────────────
+// Register-side ONLY: registerMerchant stores every NEW email trimmed + lowercased
+// so mixed-case re-registrations of one address cannot bypass the case-sensitive
+// duplicate check. Login stays EXACT-match so pre-existing mixed-case accounts
+// keep working until the backfill + lookup-normalization follow-up ships.
+describe('registerMerchant/loginMerchant: email normalization (transitional)', () => {
+  function freshMocks() {
+    const store: Record<string, string> = {}
+    const redis = {
+      get: vi.fn(async (k: string) => store[k] ?? null),
+      set: vi.fn(async (k: string, v: string, ..._r: unknown[]) => { store[k] = v; return 'OK' }),
+      del: vi.fn(async (k: string) => { delete store[k]; return 1 }),
+    }
+    const txCreates = {
+      merchant: { create: vi.fn(async (_args: any) => ({ id: 'm-new' })) },
+      merchantAdmin: { create: vi.fn(async (_args: any) => ({ id: 'ma-new' })) },
+      merchantMembership: { create: vi.fn(async (_args: any) => ({ id: 'mm-new' })) },
+      auditLog: { create: vi.fn(async (_args: any) => ({})) },
+    }
+    const prisma = {
+      merchantAdmin: { findUnique: vi.fn(async () => null) },
+      $transaction: vi.fn(async (fn: any) => fn(txCreates)),
+    }
+    return { redis, prisma, store, txCreates }
+  }
+
+  it('register stores a trimmed + lowercased email from mixed-case, padded input (lookup, create, and verify email all use the normalized address)', async () => {
+    const m = freshMocks()
+    const notify = await import('../../../src/api/shared/notify')
+    const notifySpy = vi.spyOn(notify, 'notify').mockResolvedValue({ queued: true, communicationLogId: 'log-1', enqueued: true })
+
+    await registerMerchant(m.prisma as any, m.redis as any, { ...REG_INPUT, email: '  Owner@Biz.Test ' })
+
+    // duplicate check ran against the NORMALIZED address
+    expect(m.prisma.merchantAdmin.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { email: 'owner@biz.test' } }),
+    )
+    // the created account stores the NORMALIZED address
+    const adminCreate = m.txCreates.merchantAdmin.create.mock.calls[0][0]
+    expect(adminCreate.data.email).toBe('owner@biz.test')
+    // the verify email goes to the NORMALIZED address
+    expect(notifySpy.mock.calls[0][2].to).toBe('owner@biz.test')
+  })
+
+  it('duplicate check catches a mixed-case re-registration of an already-normalized account (duplicate path, nothing created)', async () => {
+    const m = freshMocks()
+    // exact-match store simulation: the account exists ONLY under the lowercase key
+    m.prisma.merchantAdmin.findUnique = vi.fn(async (args: any) =>
+      args.where.email === 'owner@biz.test' ? { id: 'existing-1', emailVerified: true } : null,
+    ) as any
+    const notify = await import('../../../src/api/shared/notify')
+    const notifySpy = vi.spyOn(notify, 'notify').mockResolvedValue({ queued: true, communicationLogId: 'log-1', enqueued: true })
+
+    const res = await registerMerchant(m.prisma as any, m.redis as any, { ...REG_INPUT, email: 'OWNER@BIZ.TEST' })
+
+    // the mixed-case input hit the verified-duplicate path: nothing created,
+    // account-exists notice sent, generic response shape preserved
+    expect(res.status).toBe('VERIFY_EMAIL_SENT')
+    expect(m.prisma.$transaction).not.toHaveBeenCalled()
+    expect(notifySpy.mock.calls[0][2].type).toBe('merchant_account_exists')
+    expect(JSON.parse(m.store[RedisKey.merchantEmailVerify(res.sessionChallenge)]).adminId).toBe('decoy')
+  })
+
+  it('TRANSITIONAL PIN: a PRE-EXISTING account stored with mixed case still logs in with the exact original-cased string (login lookup is NOT normalized)', async () => {
+    const STORED_EMAIL = 'Owner@Biz.Test' // pre-normalization account, stored as typed
+    const admin = { id: 'ma-legacy', email: STORED_EMAIL, passwordHash: 'hash', otpVerifiedAt: null, status: 'ACTIVE', emailVerified: true }
+    // exact-match store simulation: findUnique resolves ONLY for the exact stored string
+    const prisma = {
+      merchantAdmin: { findUnique: vi.fn(async (args: any) => (args.where.email === STORED_EMAIL ? admin : null)) },
+      merchantMembership: { findMany: vi.fn(async () => [{ id: 'mm-1', merchantId: 'm1', merchantAdminId: 'ma-legacy', role: 'OWNER', allBranches: true, canManageVouchers: false, merchant: { status: 'ACTIVE', businessName: 'Legacy Co' }, branches: [] }]) },
+    }
+    const redis = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => 'OK'),
+      del: vi.fn(async () => 1),
+    }
+    const password = await import('../../../src/api/shared/password')
+    vi.spyOn(password, 'verifyPassword').mockResolvedValue(true)
+    const notify = await import('../../../src/api/shared/notify')
+    vi.spyOn(notify, 'notify').mockResolvedValue({ queued: true, communicationLogId: 'log-1', enqueued: true })
+
+    const res = await loginMerchant(prisma as any, redis as any, {} as any, {
+      email: STORED_EMAIL, password: 'MyPass123!', deviceId: 'd1', deviceType: 'web',
+      ipAddress: '1.2.3.4', userAgent: 'test',
+    })
+
+    // exact-cased login succeeds (reaches OTP, i.e. past the credential gate) and
+    // the lookup received the string EXACTLY as typed: pins the transitional design
+    expect(res.status).toBe('OTP_REQUIRED')
+    expect(prisma.merchantAdmin.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { email: STORED_EMAIL } }),
+    )
   })
 })
 

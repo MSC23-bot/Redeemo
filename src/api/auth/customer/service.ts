@@ -113,8 +113,15 @@ export async function registerCustomer(
     throw new AppError('PASSWORD_POLICY_VIOLATION')
   }
 
+  // Email normalization (transitional design, same as registerMerchant): every
+  // NEW account stores a trimmed + lowercased email so mixed-case re-registrations
+  // of the same address cannot bypass the case-sensitive duplicate check below.
+  // Login/forgot-password lookups deliberately stay exact-match for now; see the
+  // TRANSITIONAL comment in loginCustomer.
+  const email = data.email.trim().toLowerCase()
+
   const [emailExisting, phoneExisting] = await Promise.all([
-    prisma.user.findUnique({ where: { email: data.email } }),
+    prisma.user.findUnique({ where: { email } }),
     prisma.user.findUnique({ where: { phone: data.phone } }),
   ])
 
@@ -129,7 +136,7 @@ export async function registerCustomer(
   const passwordHash = await hashPassword(data.password)
   const user = await prisma.user.create({
     data: {
-      email:              data.email,
+      email,
       passwordHash,
       firstName:          data.firstName,
       lastName:           data.lastName,
@@ -262,6 +269,12 @@ export async function loginCustomer(
   app: any,
   data: { email: string; password: string } & LoginContext
 ): Promise<{ accessToken: string; refreshToken: string; user: AuthedUserSummary; sessionId: string }> {
+  // TRANSITIONAL (email normalization, 2026-07-11): this lookup is deliberately
+  // EXACT-match. registerCustomer now stores every NEW email trimmed + lowercased,
+  // but accounts created before that change may be stored with mixed case and must
+  // keep signing in with the exact string their owner types. Do NOT normalize this
+  // lookup (or the forgot-password one) until the backfill + lookup-normalization
+  // follow-up is decided and shipped.
   const user = await prisma.user.findUnique({ where: { email: data.email } })
 
   if (!user || !user.passwordHash) {

@@ -32,7 +32,9 @@ function SignInForm() {
     setLoading(true)
     try {
       const result = await authApi.login({
-        email,
+        // Trimmed + lowercased to match the normalized store for new accounts
+        // (backend login lookup stays exact-match during the transition).
+        email: email.trim().toLowerCase(),
         password,
         deviceId: getOrCreateDeviceId(),
         deviceType: 'web',

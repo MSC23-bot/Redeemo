@@ -66,8 +66,13 @@ describe('NearbyByCategory / NearbyCard — perf batch 1 memoization (Task 1)', 
 
     // Spy on the memo'd component's underlying render function
     // (`React.memo(fn)` returns `{ type: fn, ... }`) so we can count actual
-    // invocations without touching product code.
-    const nearbyCardRenderSpy = jest.spyOn(NearbyCardModule.NearbyCard, 'type')
+    // invocations without touching product code. The cast is needed because
+    // React's NamedExoticComponent type does not declare `type` as a callable
+    // property, so jest.spyOn's method-name inference resolves to `never`.
+    const nearbyCardRenderSpy = jest.spyOn(
+      NearbyCardModule.NearbyCard as unknown as { type: (props: unknown) => React.ReactElement },
+      'type',
+    )
 
     // Harness holds UNRELATED state (mirrors HomeScreen's headerCollapsed
     // boolean) that re-renders the tree but passes the exact same rails /

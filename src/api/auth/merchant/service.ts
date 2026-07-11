@@ -78,6 +78,12 @@ export async function loginMerchant(
   app: any,
   data: { email: string; password: string; deviceId: string; deviceType: string; deviceName?: string; ipAddress: string; userAgent: string }
 ): Promise<{ accessToken?: string; refreshToken?: string; merchant?: object; status?: string; sessionChallenge?: string }> {
+  // TRANSITIONAL (email normalization, 2026-07-11): this lookup is deliberately
+  // EXACT-match. registerMerchant now stores every NEW email trimmed + lowercased,
+  // but accounts created before that change may be stored with mixed case and must
+  // keep signing in with the exact string their owner types. Do NOT normalize this
+  // lookup (or the forgot-password one) until the backfill + lookup-normalization
+  // follow-up is decided and shipped.
   const admin = await prisma.merchantAdmin.findUnique({
     where: { email: data.email },
   })
@@ -802,6 +808,14 @@ export async function registerMerchant(
     deviceId: string; deviceType: string; turnstileToken: string; ipAddress: string; userAgent: string
   }
 ): Promise<{ status: 'VERIFY_EMAIL_SENT'; sessionChallenge: string }> {
+  // 0. Email normalization (transitional design): every NEW account stores a
+  //    trimmed + lowercased email so "Owner@Biz.com" and "owner@biz.com" cannot
+  //    become distinct accounts (MerchantAdmin.email findUnique is case-sensitive,
+  //    so the duplicate check below only works against a normalized store).
+  //    Login/forgot-password lookups deliberately stay exact-match for now; see
+  //    the TRANSITIONAL comment in loginMerchant.
+  const email = data.email.trim().toLowerCase()
+
   // 1. Human check (no network call / no-op when CAPTCHA_ENABLED is off).
   const { verifyTurnstile } = await import('../../shared/turnstile')
   if (!(await verifyTurnstile(data.turnstileToken, data.ipAddress))) throw new AppError('CAPTCHA_FAILED')
@@ -823,7 +837,7 @@ export async function registerMerchant(
     .digest('hex')
 
   const existing = await prisma.merchantAdmin.findUnique({
-    where: { email: data.email },
+    where: { email },
     select: { id: true, emailVerified: true },
   })
 
@@ -837,13 +851,13 @@ export async function registerMerchant(
       // throws INVALID_CREDENTIALS. (recipientId on the email is still the real id so
       // the notice + its CommunicationLog are correctly attributed.)
       await storeMerchantVerifyChallenge(redis, challenge, 'decoy', data.deviceId, data.deviceType, crypto.randomBytes(32).toString('hex'))
-      await sendMerchantAuthEmail(prisma, redis, { to: data.email, recipientId: existing.id, type: 'merchant_account_exists', email: merchantAccountExistsEmail(), ip: data.ipAddress })
+      await sendMerchantAuthEmail(prisma, redis, { to: email, recipientId: existing.id, type: 'merchant_account_exists', email: merchantAccountExistsEmail(), ip: data.ipAddress })
     } else {
       // Unverified existing account: RECOVER it. Re-issue a real verify challenge +
       // code to the same admin (observably identical to a fresh signup, so it leaks
       // nothing, and it un-bricks an abandoned / attempt-capped registration).
       await storeMerchantVerifyChallenge(redis, challenge, existing.id, data.deviceId, data.deviceType, codeHmac)
-      await sendMerchantAuthEmail(prisma, redis, { to: data.email, recipientId: existing.id, type: 'merchant_email_verify', email: merchantVerifyEmail(code), ip: data.ipAddress })
+      await sendMerchantAuthEmail(prisma, redis, { to: email, recipientId: existing.id, type: 'merchant_email_verify', email: merchantVerifyEmail(code), ip: data.ipAddress })
     }
     return { status: 'VERIFY_EMAIL_SENT', sessionChallenge: challenge }
   }
@@ -857,7 +871,7 @@ export async function registerMerchant(
       })
       const admin = await tx.merchantAdmin.create({
         data: {
-          email: data.email, firstName: data.firstName, lastName: data.lastName,
+          email, firstName: data.firstName, lastName: data.lastName,
           phone: data.mobile ?? null, phoneCountryCode: data.mobileCountryCode ?? null,
           passwordHash, mustChangePassword: false, emailVerified: false, status: 'ACTIVE',
         },
@@ -887,7 +901,7 @@ export async function registerMerchant(
   }
 
   await storeMerchantVerifyChallenge(redis, challenge, adminId, data.deviceId, data.deviceType, codeHmac)
-  await sendMerchantAuthEmail(prisma, redis, { to: data.email, recipientId: adminId, type: 'merchant_email_verify', email: merchantVerifyEmail(code), ip: data.ipAddress })
+  await sendMerchantAuthEmail(prisma, redis, { to: email, recipientId: adminId, type: 'merchant_email_verify', email: merchantVerifyEmail(code), ip: data.ipAddress })
 
   return { status: 'VERIFY_EMAIL_SENT', sessionChallenge: challenge }
 }

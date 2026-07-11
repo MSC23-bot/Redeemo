@@ -24,7 +24,8 @@ export default function ForgotPasswordPage() {
     setError(null)
     setLoading(true)
     try {
-      await authApi.forgotPassword({ email })
+      // Trimmed + lowercased to match the normalized store for new accounts.
+      await authApi.forgotPassword({ email: email.trim().toLowerCase() })
       setSent(true)
     } catch (err) {
       const er = authErrorMessage(err)
