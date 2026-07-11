@@ -67,7 +67,7 @@ Home/Search/Favourites; trust tiers remain the only exposure gate.
 | S2 | Feel: client region-accumulation cache (quantized-tile union render + background refresh + TTL/memory cap); AbortSignal in the api client + react-query cancellation wiring (map first); map focus/blur pause; camera-pan + two-way carousel sync; swipe-down dismiss | none | customer-app (+api client) | Safe after S1 lands |
 | S3 | Pin system v2: teardrop/pill + category icon pins (use existing `pinColour`/`pinIcon`, read-time parent-fallback: no migration), label-chip zoom behaviour, selected pulse ring, drop-in animation, marker perf discipline; client-side clustering (supercluster-style, no provider change) | additive read-time fallback only | customer-app (+tiny backend read) | **SHIPPED** (branch `feat/map-p2-s3-pins`): see §7 as-shipped addendum |
 | S4 | Cards + list: carousel card parity with Home language; MapListView → shared BranchTile rows (hearts); sort selector; half-sheet resize audit | none | customer-app | **SHIPPED** (branch `feat/map-p2-s4-cards`): see §8 as-shipped addendum |
-| S5 | Filter/search coherence: FilterSheet on SearchScreen (D2), subcategory drill on pills, tags surfacing (D3), `region` scope re-add or retire (D4) | none | customer-app | After owner D2-D4 |
+| S5 | Filter/search coherence: FilterSheet on SearchScreen (D2), subcategory drill on pills, tags surfacing (D3), `region` scope re-add or retire (D4) | none | customer-app | **S5a SHIPPED** (branch `feat/map-p2-s5a-filters`): see §9 as-shipped addendum. §D3 (tag surfacing) intentionally NOT in S5a scope: remains open, tracked for a later S5 pickup |
 | S6 | Platform (propose-only): discovery rate tier, server in-area caching, pin-only lite endpoint, gazetteer LocationSearch, marker native-image migration | TBD | backend | PROPOSED, not scheduled; needs measurement first |
 
 ## 4. Decision register
@@ -79,12 +79,13 @@ stroke-style category icon inside; selected pin grows one step (~42×54) + a bra
 ring (shipped static: see the S3 as-shipped addendum §7 for why); navy #010C35 44px cluster
 circles with 3px white border + white count; name chips at close zoom, density-gated. S3
 implements this (as-shipped addendum below records the exact shipped geometry/behaviour
-where it differs in specifics from the brief). **D2** FilterSheet on SearchScreen (recommend
-yes, for one coherent system); **D3** which
-tag types surface to customers (backend ready; product call); **D4** `region` scope: re-add
-to clients or retire the enum value. NO provider/billable/schema decisions are required by
-S0-S5 (Mapbox exploration from the mockups is explicitly NOT proposed; staying on
-react-native-maps).
+where it differs in specifics from the brief). **D2: RESOLVED** (yes: one coherent
+FilterSheet system; S5a ships it on SearchScreen, independent per-surface filter state; see
+§9). **D3** which tag types surface to customers (backend ready; product call): still OPEN,
+NOT in S5a scope. **D4: RESOLVED**: `region` retired from customer-facing scope UI; S5a
+audit found this was ALREADY fully satisfied by prior work (§9 records the evidence: no code
+change was needed). NO provider/billable/schema decisions are required by S0-S5 (Mapbox
+exploration from the mockups is explicitly NOT proposed; staying on react-native-maps).
 LEAD-adjudicated (recorded): clustering is client-side only; `pinIcon` parent-fallback is
 read-time (no migration); `MerchantCategory.isPrimary` duplicate-field cleanup is deferred
 hygiene (tracked, not in this programme); LocationSearch stays UK_CITIES until S6.
@@ -353,3 +354,179 @@ Fold-2 pinColour tests (superseded, see Task 2 above). No changes needed to
 (24 map suites / 205 tests; 21 search+favourites suites / 174 tests), full customer-app suite
 result recorded in the branch's final commit. Backend untouched (customer-app-only slice, no
 backend rebuild/test run needed). No PR opened per task scope: branch pushed for lead review.
+
+## 9. S5a as-shipped addendum (2026-07-11, branch `feat/map-p2-s5a-filters`)
+
+**Scope:** the filter system redesign: D2 (FilterSheet on SearchScreen, independent
+per-surface state), D4 (retire `region` from customer-facing scope UI: audit only, no code
+change needed), and GRILL Q4 (subcategory drill-down on `MapCategoryPills`). D3 (tag
+surfacing) is explicitly OUT of S5a scope and stays open for a later S5 pickup.
+
+**D4 evidence (audit, no change required):** grepped every client scope-pill surface
+(`ScopePillRow.tsx`, `SearchScreen.tsx`'s `effectiveScopeFromMetaCascadedScope`,
+`CategoryResultsScreen.tsx`) and the client `SearchParams` type
+(`src/lib/api/discovery.ts:472`). `ScopePillRow`'s `Scope` type is already the locked
+3-value `'nearby' | 'city' | 'platform'` with an explicit doc comment ("the backend `region`
+value is reserved-for-future and explicitly NOT exposed"); `SearchParams.scope` already
+excludes `'region'` with an inline comment to the same effect; `SearchScreen`'s cascaded-scope
+mapper already collapses the wire's `'region'` value into the `'city'` PILL (never a distinct
+pill). This was evidently done defensively in earlier Discovery-rebaseline work (Task 2.1.0
+scope parity) even though D4 itself wasn't formally resolved until now. Backend `discoveryMetaSchema.scope`
+enum keeps all four wire values (`nearby | city | region | platform`) unchanged: the backend
+enum stays, per the decision's own framing.
+
+**D2: FilterSheet comes to SearchScreen (`src/features/search/screens/SearchScreen.tsx`):**
+new independent `filters` / `filterVisible` / `filterDraft` state (NOT shared with Map's or
+Category's own state: only the `FilterSheet` COMPONENT and `FilterState` TYPE are shared).
+The screen's own `useSearch` call now also composes `categoryId` / `sortBy` / `voucherTypes`
+/ `amenityIds` / `openNow` from `filters` (previously only `q` / `lat` / `lng` / `scope`). A
+new filter icon button sits inline with `ScopePillRow` (same row, button anchored right,
+carries the active-filter count badge): placed only when `searchEnabled`.
+
+**Entry-point badge (owner design brief item 1):** `FilterButtonBadge` (new,
+`src/features/search/components/FilterButtonBadge.tsx`) replaces the boolean
+`filter-active-dot` `View` that only ever existed on Map with a small numbered circle
+(caps at "9+"), rendering `null` when the count is 0. Backing count comes from
+`nonScopeFilterCount` (new, `src/features/search/utils/filterState.ts`): a direct
+generalisation of MapScreen's pre-existing `hasNonScopeFilters` boolean into a number.
+Deliberately EXCLUDES `categoryId`: `MapScreen.test.tsx`'s locked "filter button active-dot"
+suite pins "does NOT show the active-dot when only categoryId is set" (category already has
+its own visible affordance: the active pill turns brand-rose), so the badge stays
+category-blind on all three surfaces for identical semantics (acceptance criterion 6). Same
+testID (`filter-active-dot`) preserved so the existing Map assertions needed zero rewrites.
+
+**The sheet (`FilterSheet.tsx` redesign):** new header row ("Filters" title + explicit close
+`X`, previously the sheet had no dismiss affordance beyond the shared `BottomSheet`'s
+grabber/tap-outside). Sections reordered to the brief's rhythm (Category/Subcategory stays
+first as the foundational selector, then Sort → Voucher Type → Open Now → Amenities, with
+`Divider`s between groups) and pill touch targets bumped to a 44pt `minHeight`. Footer is now
+Reset (ghost button, `RotateCcw` icon, ONLY resets the draft: does not call `onApply` or
+`onDismiss`) + the existing Apply button. New opt-in props, every one defaulting to
+byte-identical pre-S5a behaviour when omitted (verified: `FilterSheet.test.tsx`'s original 20
+tests pass unchanged): `baseFilters` (Reset's target, defaults to the new exported
+`EMPTY_FILTERS`: CategoryResultsScreen passes `{ ...EMPTY_FILTERS, categoryId: routeId }` so
+Reset can't filter the user out of the category page they're on), `liveCount` /
+`liveCountPending` (drives the Apply button's count; falls back to the existing `resultCount`
+prop when `undefined`/`null`), `onDraftChange` (fires on every draft change, including the
+initial sync, so a parent can mirror the draft into its own state).
+
+**Live result count (owner design brief item 2):** implemented, not fallen back to plain
+"Apply": reuses `useSearch` (no new endpoint) via a new shared hook,
+`useFilterPreviewCount` (`src/features/search/hooks/useFilterPreviewCount.ts`), debounced
+350ms. Deliberate architecture choice: the live-count `useSearch` call is NOT made inside
+`<FilterSheet>` itself: it is made by each SCREEN (Map / Search / CategoryResults), textually
+BEFORE that screen's own existing `useSearch`/`useCategoryMerchants` call, with the resolved
+count threaded down as the `liveCount` prop. Reason: `FilterSheet` mounts unconditionally as a
+child of all three screens regardless of sheet visibility (confirmed:
+`BottomSheet`'s `Modal` still executes its children's hooks), so a `useSearch` call living
+inside `FilterSheet` would be the LAST `useSearch` invocation captured on every render :
+directly colliding with `MapScreen.test.tsx`'s locked
+`mockSearchCalls[mockSearchCalls.length - 1]` hook-call-ordering assertions (used by the
+"hybrid hook switching" and "filtered-path bbox quantization + staleTime parity" suites).
+Keeping the preview call textually first in each screen's body preserves that ordering
+contract with zero rewrites to those pinned assertions. Each screen reports its FilterSheet's
+draft via the new `onDraftChange` prop into a local `filterDraft` state, which
+`useFilterPreviewCount` debounces and composes into `/search` params (categoryId / sortBy /
+voucherTypes / amenityIds / openNow from the draft; q / lat / lng / scope / bbox from a
+screen-supplied `baseParams`/`previewBaseParams`). Gated so the backend's own
+"q OR categoryId OR bbox" requirement is honoured (`hasQueryableContext`): e.g. opening
+Search's FilterSheet before typing anything correctly shows no live count and falls back to
+`resultCount` (0 in that case) rather than firing a request that would 400.
+
+**Applied-filters chips row (owner design brief item 3):** new `FilterChipsRow`
+(`src/features/search/components/FilterChipsRow.tsx`), backed by a diff-based
+`appliedFilterEntries`/`removeAppliedFilter` pair in `filterState.ts`: every FilterState field
+that differs from a `baseFilters` (defaults to `EMPTY_FILTERS`) becomes one removable chip
+(category/subcategory, sort, each voucher-type CHIP GROUP, each amenity, open-now), plus a
+"Clear all" affordance once 2+ chips are showing. Unlike the button badge, this INCLUDES
+category: it is a full audit trail of everything currently applied, not the narrower
+"non-scope" badge semantics. The `baseFilters` parameterisation is what lets
+CategoryResultsScreen show a chip ONLY for a genuine subcategory drill-down (never for the
+route category itself, which is already communicated by the page title). Mounted directly
+under `MapCategoryPills` on Map, inline with the header's filter button on Search, and under
+`ScopePillRow` on CategoryResultsScreen. Uses the existing `FadeInDown` motion primitive
+(`design-system/motion/FadeIn.tsx`) for its reveal: no new animation code.
+
+**Subcategory drill-down on `MapCategoryPills` (GRILL Q4):** tapping a top-level pill keeps
+its EXACT pre-existing behaviour (`onSelect(cat.id)`; MapScreen's `handleSelectCategory`
+still owns tap-same-clears / tap-different-promotes-from-subcategory toggle semantics,
+untouched). What's new: when the resulting `activeId` resolves (walking `parentId`) to a
+top-level with children, a second, visually lighter row (outlined pills, no elevation, smaller
+type) slides in beneath via `FadeInDown`: its subcategories plus an "All &lt;Parent&gt;" pill
+to widen back out. No separate expand/collapse state was needed: the row's visibility is
+purely derived from `activeId`, so selecting is the reveal trigger and clearing (`onSelect(null)`,
+including the "All categories" pill) closes it automatically: "map stays clean at rest" falls
+out of the derivation for free. `activeId` can be either a top-level id OR a subcategory id
+(same contract `FilterSheet.categoryId` already uses); the top-level ancestor is resolved by
+the same `parentId`-walk pattern FilterSheet's own drill-down uses, so a subcategory picked
+from EITHER surface keeps both in sync and both correctly key `useEligibleAmenities` off the
+resolved category: verified by a new `MapCategoryPills.test.tsx` test asserting a
+subcategory-id `activeId` still highlights the correct parent pill.
+
+**Shared-extraction summary (owner directive: "extract shared pieces rather than
+duplicating"):** `src/hooks/useDebouncedValue.ts` (new, generic; `SearchScreen`'s previously
+God-file-local `useDebounce` now delegates to it: zero behaviour change, confirmed by the
+full SearchScreen suite passing unchanged); `src/features/search/utils/filterState.ts`
+(`nonScopeFilterCount`, `appliedFilterEntries`, `removeAppliedFilter`: pure functions, no
+React); `src/features/search/hooks/useFilterPreviewCount.ts`; `src/features/search/components/
+FilterChipsRow.tsx` and `FilterButtonBadge.tsx`. `EMPTY_FILTERS` is now the single
+canonical "all clear" `FilterState` (exported from `FilterSheet.tsx`), replacing THREE
+independently-hand-written duplicates that previously lived one-per-screen (MapScreen's
+`DEFAULT_FILTERS`, CategoryResultsScreen's inline object literal ×2, SearchScreen had none :
+D2 is net-new there).
+
+**MapScreen hunks (for any future S6/S2 reconciliation):** (1) new imports :
+`useEligibleAmenities`, `EMPTY_FILTERS`, `FilterChipsRow`, `FilterButtonBadge`,
+`nonScopeFilterCount`, `useFilterPreviewCount`/`FilterPreviewBaseParams`; (2) local
+`DEFAULT_FILTERS` constant deleted, replaced by the imported `EMPTY_FILTERS` at both its call
+sites (`useState` initialiser, `handleClearFilters`); (3) new `filterDraft` state +
+`eligibleAmenitiesData` hook call (both declared AFTER the `filters` state: an initial
+placement before it hit a genuine `used-before-declaration` TS error, moved and fixed); (4) new
+`previewBaseParams` + `filterPreview = useFilterPreviewCount(...)` block inserted between
+`quantizedQueryBbox` and the screen's own `searchResultQuery = useSearch(...)` call (ordering
+is load-bearing: see the live-count architecture note above); (5) `<MapCategoryPills>` JSX
+unchanged (same three props); (6) new `<FilterChipsRow>` JSX directly beneath it; (7) filter
+button JSX: `SlidersHorizontal` unchanged, the inline `hasNonScopeFilters && <View
+testID="filter-active-dot" .../>` replaced by `<FilterButtonBadge count=
+{nonScopeFilterCount(filters)} />`; (8) `<FilterSheet>` JSX gains three new props
+(`liveCount`, `liveCountPending`, `onDraftChange`); (9) the now-dead `filterActiveDot`
+StyleSheet entry removed. No changes to bbox/pan/debounce/hybrid-hook-routing/carousel/pins
+logic.
+
+**Test updates:** `MapScreen.test.tsx`'s "tapping the same pill twice clears categoryId" test
+updated (`getByText` → `getAllByText(...)[0]` for the SECOND press): once a category is
+selected, its name now ALSO appears in the new `FilterChipsRow` chip beneath the pills
+(mirrors the exact "active pill renders its label twice" precedent `FilterSheet.test.tsx`
+already established for its own Category section); no other MapScreen assertion needed
+touching. `MapCategoryPills.tsx`'s "All &lt;Parent&gt;" pill text changed from two JSX
+children (`All {name}`) to one template-literal child (`` {`All ${name}`} ``): the
+two-children form let React Native Testing Library's `getByText` match the SECOND child in
+isolation, which incidentally equalled the parent's own bare name and collided with the
+top-level pill's `getByText`. New coverage: `FilterSheet.test.tsx` +8 tests (S5a redesign
+describe block: header/close, Reset with default + custom `baseFilters`, `liveCount` override
++ null-fallback, `onDraftChange`); `MapCategoryPills.test.tsx` (new, 9 tests); `filterState.test.ts`
+(new, 18 tests); `useFilterPreviewCount.test.tsx` (new, 9 tests); `useDebouncedValue.test.ts`
+(new, 4 tests); `FilterButtonBadge.test.tsx` (new, 5 tests); `FilterChipsRow.test.tsx` (new,
+7 tests). Six pre-existing `SearchScreen.*.test.tsx` files gained a `jest.mock` for
+`useCategories`/`useEligibleAmenities` (SearchScreen now calls both, for the FilterSheet +
+chips row) with no assertion changes.
+
+**Deviations from the task brief:** (1) the live-count query intentionally lives in each
+SCREEN, not inside `<FilterSheet>`: see the architecture note above; this is a structural
+deviation from the most literal reading of "FilterSheet... running the existing query with
+draft filters" but preserves the exact same user-visible outcome (a debounced live count on
+the Apply button) without breaking the locked Map hook-call-ordering tests. (2) D4 required no
+code change: already satisfied by prior Discovery-rebaseline work; recorded here as evidence
+rather than a diff. (3) D3 (tag surfacing) is explicitly out of scope, not attempted.
+
+**Verification:** map + search subsets (which contain every touched suite plus every new
+suite) fully green in one run: 50 suites / 437 tests. Full-suite runs on this machine flaked
+under parallel-worker resource contention (two overlapping full runs; 5s-timeout failures
+concentrated in suites this slice never touched: voucher, merchant, profile, home; individual
+suites reporting up to 1221s wall time); every touched suite that appeared in a contended
+failure list (`useFilterPreviewCount.test.tsx`, `MapScreen.focusLifecycle.test.tsx`,
+`SearchScreen.placeFallback.test.tsx`, `MapScreen.accumulation.test.tsx`,
+`MapScreen.carouselSync.test.tsx`, `SearchScreen.locality.test.tsx`) was re-run in isolation
+and passed cleanly: contention, not regression. CI runs the full matrix as the authoritative
+gate. Backend untouched (customer-app-only slice). No PR opened per task scope: branch pushed
+for lead review.
