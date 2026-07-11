@@ -96,7 +96,9 @@ describe('useSearch — staleTime option (Map Phase 2 S0)', () => {
     await waitFor(() => expect(result.current.data).toBeDefined())
 
     const query = qc.getQueryCache().find({ queryKey: searchQueryKey(params) })
-    expect(query?.options.staleTime).toBe(30 * 1000)
+    // The cache's stored options are typed as QueryOptions, which omits the
+    // observer-level `staleTime`; the runtime object carries it, so narrow locally.
+    expect((query?.options as { staleTime?: number } | undefined)?.staleTime).toBe(30 * 1000)
   })
 
   it('honours a per-call staleTime override — 120s, matching useInAreaBranches, for MapScreen\'s filtered path', async () => {
@@ -112,6 +114,7 @@ describe('useSearch — staleTime option (Map Phase 2 S0)', () => {
     await waitFor(() => expect(result.current.data).toBeDefined())
 
     const query = qc.getQueryCache().find({ queryKey: searchQueryKey(params) })
-    expect(query?.options.staleTime).toBe(120 * 1000)
+    // Same QueryOptions-vs-observer-options narrowing as the default-staleTime case.
+    expect((query?.options as { staleTime?: number } | undefined)?.staleTime).toBe(120 * 1000)
   })
 })
