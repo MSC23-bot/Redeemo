@@ -149,6 +149,35 @@ describe('NamedGateBanner code mapping', () => {
     )
   })
 
+  // Team & Roles S2.
+  it('maps CAPABILITY_NOT_GRANTABLE correctly', () => {
+    render(<NamedGateBanner error={makeApiError('CAPABILITY_NOT_GRANTABLE')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This capability cannot be granted from this screen.'
+    )
+  })
+
+  it('maps ADMIN_SELF_ACTION_FORBIDDEN correctly', () => {
+    render(<NamedGateBanner error={makeApiError('ADMIN_SELF_ACTION_FORBIDDEN')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'You cannot perform this action on your own account.'
+    )
+  })
+
+  it('maps ADMIN_NOT_FOUND correctly', () => {
+    render(<NamedGateBanner error={makeApiError('ADMIN_NOT_FOUND')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This admin account no longer exists. The list has refreshed.'
+    )
+  })
+
+  it('maps GRANT_NOT_FOUND correctly', () => {
+    render(<NamedGateBanner error={makeApiError('GRANT_NOT_FOUND')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This capability grant no longer exists. The list has refreshed.'
+    )
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)
@@ -166,6 +195,41 @@ describe('NamedGateBanner code mapping', () => {
     render(<NamedGateBanner error={null} />)
     expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
       'Something went wrong. Please try again.'
+    )
+  })
+})
+
+describe('NamedGateBanner overrides prop (Team & Roles S2)', () => {
+  it('uses the override copy for a code present in overrides, instead of the shared CODE_MESSAGES entry', () => {
+    render(
+      <NamedGateBanner
+        error={makeApiError('EMAIL_ALREADY_EXISTS')}
+        overrides={{ EMAIL_ALREADY_EXISTS: 'An account with this email already exists. Use a different email.' }}
+      />
+    )
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'An account with this email already exists. Use a different email.'
+    )
+    // The M6 owner-email-specific wording must NOT appear.
+    expect(screen.getByTestId('named-gate-banner')).not.toHaveTextContent('owner email')
+  })
+
+  it('falls back to CODE_MESSAGES for a code NOT present in overrides', () => {
+    render(
+      <NamedGateBanner
+        error={makeApiError('ADMIN_NOT_FOUND')}
+        overrides={{ EMAIL_ALREADY_EXISTS: 'Different email copy.' }}
+      />
+    )
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This admin account no longer exists. The list has refreshed.'
+    )
+  })
+
+  it('other (non-overridden) call sites are unaffected: EMAIL_ALREADY_EXISTS still reads the M6 copy with no overrides prop', () => {
+    render(<NamedGateBanner error={makeApiError('EMAIL_ALREADY_EXISTS')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'An account with this email already exists. Use a different owner email.'
     )
   })
 })

@@ -92,10 +92,22 @@ const CODE_MESSAGES: Record<string, string> = {
     'This voucher is no longer a draft, so it cannot be submitted. The list has refreshed.',
   RMV_FIELD_NOT_ALLOWED:
     'One of the fields cannot be edited on this voucher. The list has refreshed; try again.',
+  // Team & Roles S2: the SUPER_ADMIN-only account/role/grant management screen.
+  CAPABILITY_NOT_GRANTABLE:
+    'This capability cannot be granted from this screen.',
+  ADMIN_SELF_ACTION_FORBIDDEN:
+    'You cannot perform this action on your own account.',
+  ADMIN_NOT_FOUND: 'This admin account no longer exists. The list has refreshed.',
+  GRANT_NOT_FOUND: 'This capability grant no longer exists. The list has refreshed.',
+  LAST_SUPER_ADMIN_PROTECTED:
+    'The last active Super Admin cannot be demoted or deactivated. Promote another admin to Super Admin first.',
 }
 
-function getMessage(error: unknown): string {
+function getMessage(error: unknown, overrides?: Record<string, string>): string {
   if (error instanceof ApiError) {
+    if (error.code && overrides?.[error.code]) {
+      return overrides[error.code]
+    }
     if (error.code && CODE_MESSAGES[error.code]) {
       return CODE_MESSAGES[error.code]
     }
@@ -106,10 +118,17 @@ function getMessage(error: unknown): string {
 
 interface NamedGateBannerProps {
   error: unknown
+  /**
+   * Per-call-site copy overrides, keyed by error code. Lets a screen give a
+   * shared code (e.g. EMAIL_ALREADY_EXISTS) context-appropriate wording
+   * without changing its meaning for every other caller. Falls back to
+   * CODE_MESSAGES, then the raw ApiError message, when a code has no override.
+   */
+  overrides?: Record<string, string>
 }
 
-export function NamedGateBanner({ error }: NamedGateBannerProps) {
-  const message = getMessage(error)
+export function NamedGateBanner({ error, overrides }: NamedGateBannerProps) {
+  const message = getMessage(error, overrides)
 
   // For ONBOARDING_GATES_INCOMPLETE, list the specific unmet gates inside the banner
   // so the admin sees what blocked approval without closing the dialog.

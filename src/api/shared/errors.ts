@@ -74,6 +74,8 @@ export const ERROR_DEFINITIONS = {
   GRANT_NOT_FOUND:                { statusCode: 404, message: 'No active grant of this capability exists for this admin.' },
   // Self-lockout guard: an admin cannot deactivate their own account.
   ADMIN_SELF_ACTION_FORBIDDEN:    { statusCode: 400, message: 'You cannot perform this action on your own account.' },
+  // Last-super-admin lockout guard: the platform must keep >=1 active SUPER_ADMIN.
+  LAST_SUPER_ADMIN_PROTECTED:     { statusCode: 409, message: 'The last active Super Admin cannot be demoted or deactivated.' },
   // Team & Roles S3 (spec §4.2): FIELD pre-live scope guard. A FIELD rep's
   // on-behalf caps (edit / submit / manage-branches / manage-documents /
   // manage-vouchers) apply ONLY to pre-live merchants (REGISTERED /

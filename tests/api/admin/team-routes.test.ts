@@ -14,12 +14,62 @@ describe('Team & Roles routes — admin:manage-team (SUPER_ADMIN-only) gate', ()
     app = await buildApp()
     app.decorate('prisma', {
       $transaction: vi.fn().mockImplementation(async (cb: any) => cb((app as any).prisma)),
-      adminUser: { findUnique: vi.fn().mockResolvedValue(null) },
+      adminUser: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
     } as any)
     app.decorate('redis', { get: vi.fn(), set: vi.fn(), del: vi.fn(), keys: vi.fn().mockResolvedValue([]) } as any)
     await app.ready()
   })
   afterEach(async () => { await app.close() })
+
+  // S2 — the roster read (the one permitted additive route for slice S2).
+  describe('GET /admin/team — roster list', () => {
+    it('401 when unauthenticated', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/admin/team' })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('403 for a non-SUPER_ADMIN role (OPERATIONS) — same gate as every other team route', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/admin/team', headers: { authorization: `Bearer ${sign('OPERATIONS')}` } })
+      expect(res.statusCode).toBe(403)
+      expect(JSON.parse(res.body).error.code).toBe('ADMIN_CAPABILITY_DENIED')
+    })
+
+    it('403 for a FIELD admin EVEN WITH a granted approval:action', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/admin/team', headers: { authorization: `Bearer ${sign('FIELD', ['lead:manage', 'approval:action'])}` } })
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('SUPER_ADMIN passes the gate; 200 with an empty roster', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/admin/team', headers: { authorization: `Bearer ${sign('SUPER_ADMIN')}` } })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({ admins: [] })
+    })
+
+    it('wire-pin: the response body NEVER contains passwordHash, and shapes each row to id/email/name/role/isActive/createdAt/activeGrants', async () => {
+      ;(app as any).prisma.adminUser.findMany = vi.fn().mockResolvedValue([
+        {
+          id: 'a1',
+          email: 'a@b.com',
+          firstName: 'A',
+          lastName: 'B',
+          role: 'FIELD',
+          isActive: true,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          capabilityGrants: [{ capability: 'approval:action' }],
+          passwordHash: 'SHOULD_NEVER_LEAK_EVEN_IF_MOCK_INCLUDES_IT',
+        },
+      ])
+      const res = await app.inject({ method: 'GET', url: '/api/v1/admin/team', headers: { authorization: `Bearer ${sign('SUPER_ADMIN')}` } })
+      expect(res.statusCode).toBe(200)
+      expect(res.body).not.toContain('passwordHash')
+      expect(res.body).not.toContain('SHOULD_NEVER_LEAK')
+      expect(JSON.parse(res.body)).toEqual({
+        admins: [
+          { id: 'a1', email: 'a@b.com', name: 'A B', role: 'FIELD', isActive: true, createdAt: '2026-01-01T00:00:00.000Z', activeGrants: ['approval:action'] },
+        ],
+      })
+    })
+  })
 
   it('401 when unauthenticated (create account)', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/v1/admin/team', payload: { email: 'a@b.com', firstName: 'A', lastName: 'B', role: 'FIELD' } })

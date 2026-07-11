@@ -58,6 +58,45 @@ export async function getActiveGrantCapabilities(
 }
 
 /**
+ * S2: list every admin account with its active (non-revoked) capability grants,
+ * for the Team & Roles roster screen. A curated select — NEVER selects
+ * `passwordHash` (or any other secret). `name` is a computed "First Last"
+ * string, matching the convention used elsewhere for admin actor names
+ * (e.g. src/api/admin/approvals/service.ts, src/api/admin/timeline/service.ts)
+ * rather than shipping firstName/lastName separately. Newest account first.
+ */
+export async function listTeamAdmins(prisma: PrismaClient) {
+  const admins = await prisma.adminUser.findMany({
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      role: true,
+      isActive: true,
+      createdAt: true,
+      capabilityGrants: {
+        where: { revokedAt: null },
+        select: { capability: true },
+      },
+    },
+  })
+
+  return {
+    admins: admins.map((a: (typeof admins)[number]) => ({
+      id: a.id,
+      email: a.email,
+      name: `${a.firstName} ${a.lastName}`.trim(),
+      role: a.role,
+      isActive: a.isActive,
+      createdAt: a.createdAt,
+      activeGrants: a.capabilityGrants.map((g: { capability: string }) => g.capability),
+    })),
+  }
+}
+
+/**
  * Create an admin account. A random, unusable password is set (the account
  * bootstraps via the standard admin password-reset flow); NO email is sent here
  * (email delivery is a separate slice). Rejects a duplicate email (409).
@@ -103,6 +142,29 @@ export async function createAdminAccount(
   })
 }
 
+/**
+ * Last-SUPER_ADMIN lockout guard: the platform must always retain at least one
+ * ACTIVE SUPER_ADMIN (the only role that can reach the Team & Roles surface). A
+ * change that removes the target from the active-super set is rejected unless
+ * ANOTHER active SUPER_ADMIN exists. Applies to demotion (setAdminRole away from
+ * SUPER_ADMIN) and deactivation of a super. Self-demotion of the sole super is a
+ * subset of this. (Spec Screen 1.9 last-super guard; closes the S2-flagged gap.)
+ */
+async function assertNotLastActiveSuperAdmin(tx: any, targetRole: string, targetAdminId: string): Promise<void> {
+  if (targetRole !== 'SUPER_ADMIN') return
+  // Serialize every super-admin-set mutation on a fixed transaction-scoped
+  // advisory lock (matches the house pattern, redemption/service.ts). Without
+  // this the count()+update() is a READ COMMITTED TOCTOU: two supers demoting/
+  // deactivating each other concurrently could BOTH see one "other active super"
+  // and both commit, leaving zero active supers = team-management lockout. Every
+  // guarded path takes the SAME key, so they serialize and the count is honest.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('admin:super-admin-set'))`
+  const otherActiveSupers = await tx.adminUser.count({
+    where: { role: 'SUPER_ADMIN', isActive: true, id: { not: targetAdminId } },
+  })
+  if (otherActiveSupers === 0) throw new AppError('LAST_SUPER_ADMIN_PROTECTED')
+}
+
 /** Set an admin's base role (any ASSIGNABLE_ROLE, including FIELD). */
 export async function setAdminRole(
   prisma: PrismaClient,
@@ -114,6 +176,7 @@ export async function setAdminRole(
   return prisma.$transaction(async (tx: any) => {
     const target = await tx.adminUser.findUnique({ where: { id: targetAdminId }, select: { id: true, role: true } })
     if (!target) throw new AppError('ADMIN_NOT_FOUND')
+    await assertNotLastActiveSuperAdmin(tx, target.role, targetAdminId)
 
     const updated = await tx.adminUser.update({
       where: { id: targetAdminId },
@@ -153,8 +216,9 @@ export async function deactivateAdmin(
   if (actorId === targetAdminId) throw new AppError('ADMIN_SELF_ACTION_FORBIDDEN')
 
   const result = await prisma.$transaction(async (tx: any) => {
-    const target = await tx.adminUser.findUnique({ where: { id: targetAdminId }, select: { id: true, isActive: true } })
+    const target = await tx.adminUser.findUnique({ where: { id: targetAdminId }, select: { id: true, role: true, isActive: true } })
     if (!target) throw new AppError('ADMIN_NOT_FOUND')
+    await assertNotLastActiveSuperAdmin(tx, target.role, targetAdminId)
 
     const updated = await tx.adminUser.update({
       where: { id: targetAdminId },

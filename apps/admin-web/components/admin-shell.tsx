@@ -18,8 +18,10 @@
  * `can(cap)` so each item shows only for roles that hold its capability, and new
  * actioner screens light up automatically per role as they land. The current
  * items are Approval queue (`approval:read`), Merchants (`merchant:read`),
- * Leads and onboarding (`merchant:create-draft`), and Redemptions
- * (`redemption:read`). The filter is fail-closed: a role that lacks an item's
+ * Leads and onboarding (`merchant:create-draft`), Redemptions
+ * (`redemption:read`), and Team & roles (`admin:manage-team`, SUPER_ADMIN-only:
+ * that capability is not in any role baseline and not grantable). The filter is
+ * fail-closed: a role that lacks an item's
  * capability never sees it (and the backend 403 is the enforcement backstop),
  * so a role with none of these capabilities renders no nav.
  */
@@ -45,6 +47,10 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Leads and onboarding', href: '/leads', cap: 'merchant:create-draft' },
   // D67: read-only cross-merchant redemptions list.
   { label: 'Redemptions', href: '/redemptions', cap: 'redemption:read' },
+  // Team & Roles S2: hidden for everyone but SUPER_ADMIN (admin:manage-team
+  // is SUPER_ADMIN-only by omission from every role baseline and from the
+  // grantable allow-list).
+  { label: 'Team & roles', href: '/team', cap: 'admin:manage-team' },
 ]
 
 function RoleBadge({ role }: { role: string }) {

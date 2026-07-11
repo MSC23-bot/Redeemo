@@ -8,6 +8,9 @@
  */
 import {
   hasCapability,
+  hasEffectiveCapability,
+  isGrantableCapability,
+  GRANTABLE_CAPABILITIES,
   getAccessToken,
   setSession,
   clearSession,
@@ -39,9 +42,19 @@ const ALL_ROLES: AdminRole[] = [
 ]
 
 // Expected grant per role (must match src/api/admin/capability.ts).
+//
+// FIELD is NOT in ALL_ROLES below (the truth-table loop only exercises
+// SUPER_ADMIN/OPERATIONS/FINANCE/CONTENT/SUPPORT, unchanged by Team & Roles
+// S2), so this FIELD entry only exists to satisfy the Record<AdminRole, ...>
+// type now that AdminRole includes FIELD — it is never iterated here.
+// Computed (not hand-copied) so it can never silently drift from the real
+// FIELD baseline; the FIELD baseline itself is separately pinned exactly in
+// the "FIELD baseline (pinned, mirrors the backend exactly)" describe block
+// below.
 const GRANTS: Record<AdminRole, AdminCapability[]> = {
   SUPER_ADMIN: ALL_CAPS,
   OPERATIONS: ALL_CAPS,
+  FIELD: ALL_CAPS.filter((cap) => hasCapability('FIELD', cap)),
   FINANCE: [],
   CONTENT: [],
   SUPPORT: [],
@@ -177,6 +190,114 @@ describe('merchant:submit is OPERATIONS-held (B3)', () => {
   })
 })
 
+// ── Team & Roles S2: FIELD baseline + GRANTABLE_CAPABILITIES + hasEffectiveCapability ──
+//
+// Mirrors the backend tests/api/admin/capability-effective.test.ts pins
+// (spec 2026-07-10-admin-capability-grants-field-role §4.1, §3.2-3.3).
+
+describe('GRANTABLE_CAPABILITIES — launch curated set (mirror)', () => {
+  it('is EXACTLY [approval:action]', () => {
+    expect([...GRANTABLE_CAPABILITIES]).toEqual(['approval:action'])
+  })
+
+  it('admin:manage-team is NOT grantable (privilege-escalation guard)', () => {
+    expect(isGrantableCapability('admin:manage-team')).toBe(false)
+  })
+
+  it('merchant:suspend is NOT grantable', () => {
+    expect(isGrantableCapability('merchant:suspend')).toBe(false)
+  })
+
+  it('approval:action IS grantable', () => {
+    expect(isGrantableCapability('approval:action')).toBe(true)
+  })
+})
+
+describe('FIELD baseline (pinned, mirrors the backend exactly)', () => {
+  // COPY LITERALLY from EXPECTED_FIELD in
+  // tests/api/admin/capability-effective.test.ts.
+  const EXPECTED_FIELD: AdminCapability[] = [
+    'lead:manage',
+    'merchant:create-draft',
+    'merchant:read',
+    'merchant:edit',
+    'merchant:submit',
+    'merchant:manage-branches',
+    'merchant:manage-documents',
+    'merchant:manage-vouchers',
+  ]
+
+  it('FIELD holds exactly the expected baseline set (order-insensitive)', () => {
+    const held = EXPECTED_FIELD.filter((cap) => hasCapability('FIELD', cap))
+    expect([...held].sort()).toEqual([...EXPECTED_FIELD].sort())
+  })
+
+  it('FIELD baseline EXCLUDES approval:action and redemption:read', () => {
+    expect(hasCapability('FIELD', 'approval:action')).toBe(false)
+    expect(hasCapability('FIELD', 'redemption:read')).toBe(false)
+  })
+
+  it('FIELD baseline EXCLUDES merchant:suspend and admin:manage-team', () => {
+    expect(hasCapability('FIELD', 'merchant:suspend')).toBe(false)
+    expect(hasCapability('FIELD', 'admin:manage-team')).toBe(false)
+  })
+
+  it('FIELD baseline EXCLUDES the SUPER_ADMIN-only edit caps', () => {
+    expect(hasCapability('FIELD', 'merchant:edit-identity')).toBe(false)
+    expect(hasCapability('FIELD', 'merchant:edit-category')).toBe(false)
+  })
+
+  it('every OTHER declared capability is correctly absent from the FIELD baseline', () => {
+    const ALL_DECLARED: AdminCapability[] = [
+      'merchant:create-draft', 'merchant:read', 'approval:read', 'approval:action',
+      'merchant:suspend', 'branch:confirm-location', 'approval:apply-edit', 'merchant:edit',
+      'merchant:edit-identity', 'merchant:edit-category', 'merchant:manage-branches',
+      'merchant:propose-edit', 'merchant:submit', 'merchant:manage-documents',
+      'merchant:manage-vouchers', 'redemption:read', 'lead:manage', 'admin:manage-team',
+    ]
+    for (const cap of ALL_DECLARED) {
+      expect(hasCapability('FIELD', cap)).toBe(EXPECTED_FIELD.includes(cap))
+    }
+  })
+})
+
+describe('hasEffectiveCapability — grant-aware, caps-claim-preferring (mirrors backend adminHasEffectiveCapability)', () => {
+  it('no role -> false, regardless of caps', () => {
+    expect(hasEffectiveCapability(undefined, ['approval:action'], 'approval:action')).toBe(false)
+    expect(hasEffectiveCapability(null, undefined, 'approval:action')).toBe(false)
+  })
+
+  it('SUPER_ADMIN passes every capability check regardless of the caps claim', () => {
+    expect(hasEffectiveCapability('SUPER_ADMIN', undefined, 'admin:manage-team')).toBe(true)
+    expect(hasEffectiveCapability('SUPER_ADMIN', [], 'approval:action')).toBe(true)
+  })
+
+  it('a granted approval:action (present in the caps claim) resolves true for a FIELD account', () => {
+    expect(hasEffectiveCapability('FIELD', ['lead:manage', 'approval:action'], 'approval:action')).toBe(true)
+  })
+
+  it('denies when the caps claim is present but lacks the cap (revoke took effect on the next token)', () => {
+    // Same FIELD account, caps claim minted AFTER a revoke: approval:action absent.
+    expect(hasEffectiveCapability('FIELD', ['lead:manage', 'merchant:read'], 'approval:action')).toBe(false)
+  })
+
+  it('an empty (but present) caps array denies every capability except via SUPER_ADMIN', () => {
+    expect(hasEffectiveCapability('FIELD', [], 'lead:manage')).toBe(false)
+  })
+
+  it('legacy token (caps === undefined) falls back to the role baseline', () => {
+    expect(hasEffectiveCapability('OPERATIONS', undefined, 'merchant:suspend')).toBe(true)
+    expect(hasEffectiveCapability('SUPPORT', undefined, 'merchant:suspend')).toBe(false)
+  })
+
+  it('caps claim membership is authoritative even when it WIDENS beyond the FIELD baseline (a grant)', () => {
+    // admin:manage-team must never appear in a legitimately-minted caps array
+    // (server-side allow-list), but the client mirror trusts the claim as
+    // given — the allow-list boundary is the backend's job, not this check's.
+    expect(hasEffectiveCapability('FIELD', ['admin:manage-team'], 'admin:manage-team')).toBe(true)
+  })
+})
+
 describe('token-storage delegation to tokenStore.ts (H5 migration)', () => {
   const meta = {
     entityId: 'admin-1',
@@ -264,5 +385,42 @@ describe('decodeAdminJwt', () => {
   it('returns null on a malformed token', () => {
     expect(decodeAdminJwt('not.a.jwt.at.all')).toBeNull()
     expect(decodeAdminJwt('only-one-part')).toBeNull()
+  })
+
+  // Team & Roles S1: the `caps` claim (spec §3.3 Option A).
+  it('reads the caps claim from a well-formed token carrying it', () => {
+    const token = makeJwt({
+      sub: 'admin-9',
+      sessionId: 'sess-9',
+      adminRole: 'FIELD',
+      caps: ['lead:manage', 'merchant:read', 'approval:action'],
+    })
+    expect(decodeAdminJwt(token)).toEqual({
+      sub: 'admin-9',
+      sessionId: 'sess-9',
+      adminRole: 'FIELD',
+      caps: ['lead:manage', 'merchant:read', 'approval:action'],
+    })
+  })
+
+  it('decodes caps as undefined for a legacy token that carries no caps claim', () => {
+    const token = makeJwt({ sub: 'admin-9', sessionId: 'sess-9', adminRole: 'OPERATIONS' })
+    const decoded = decodeAdminJwt(token)
+    expect(decoded?.caps).toBeUndefined()
+  })
+
+  it('decodes an empty caps array as-is (not undefined) — a fully-revoked non-SUPER_ADMIN', () => {
+    const token = makeJwt({ sub: 'admin-9', sessionId: 'sess-9', adminRole: 'SUPPORT', caps: [] })
+    expect(decodeAdminJwt(token)?.caps).toEqual([])
+  })
+
+  it('ignores a malformed (non-array) caps claim rather than throwing', () => {
+    const token = makeJwt({ sub: 'admin-9', sessionId: 'sess-9', adminRole: 'SUPPORT', caps: 'not-an-array' })
+    expect(decodeAdminJwt(token)?.caps).toBeUndefined()
+  })
+
+  it('filters out non-string entries from a malformed caps array', () => {
+    const token = makeJwt({ sub: 'admin-9', sessionId: 'sess-9', adminRole: 'SUPPORT', caps: ['approval:action', 42, null] })
+    expect(decodeAdminJwt(token)?.caps).toEqual(['approval:action'])
   })
 })

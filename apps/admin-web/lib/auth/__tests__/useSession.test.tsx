@@ -37,6 +37,15 @@ function jwt(payload: object): string {
 
 const TOKEN_OPS = jwt({ sub: 'admin-1', sessionId: 'sess-1', adminRole: 'OPERATIONS' })
 
+const TOKEN_FIELD_UNGRANTED = jwt({
+  sub: 'field-1', sessionId: 'sess-f1', adminRole: 'FIELD',
+  caps: ['lead:manage', 'merchant:create-draft', 'merchant:read', 'merchant:edit', 'merchant:submit', 'merchant:manage-branches', 'merchant:manage-documents', 'merchant:manage-vouchers'],
+})
+const TOKEN_FIELD_GRANTED = jwt({
+  sub: 'field-1', sessionId: 'sess-f1', adminRole: 'FIELD',
+  caps: ['lead:manage', 'merchant:create-draft', 'merchant:read', 'merchant:edit', 'merchant:submit', 'merchant:manage-branches', 'merchant:manage-documents', 'merchant:manage-vouchers', 'approval:action'],
+})
+
 function Probe() {
   const s = useSession()
   return (
@@ -46,6 +55,8 @@ function Probe() {
       <span data-testid="role">{String(s.role)}</span>
       <span data-testid="adminId">{String(s.adminId)}</span>
       <span data-testid="can-approval-read">{String(s.can('approval:read'))}</span>
+      <span data-testid="can-approval-action">{String(s.can('approval:action'))}</span>
+      <span data-testid="can-admin-manage-team">{String(s.can('admin:manage-team'))}</span>
       <button onClick={() => s.signOut()}>out</button>
       <button
         onClick={() =>
@@ -53,6 +64,20 @@ function Probe() {
         }
       >
         login
+      </button>
+      <button
+        onClick={() =>
+          s.setSession(TOKEN_FIELD_UNGRANTED, { entityId: 'field-1', sessionId: 'sess-f1', adminRole: 'FIELD', email: 'rep@redeemo.co.uk' })
+        }
+      >
+        login-field-ungranted
+      </button>
+      <button
+        onClick={() =>
+          s.setSession(TOKEN_FIELD_GRANTED, { entityId: 'field-1', sessionId: 'sess-f1', adminRole: 'FIELD', email: 'rep@redeemo.co.uk' })
+        }
+      >
+        login-field-granted
       </button>
     </div>
   )
@@ -130,6 +155,54 @@ describe('SessionProvider (H5 migration)', () => {
     expect(screen.getByTestId('adminId').textContent).toBe('admin-1')
     expect(screen.getByTestId('can-approval-read').textContent).toBe('true') // OPERATIONS holds approval:read
     expect(getAccessToken()).toBe(TOKEN_OPS)
+  })
+
+  // ── Team & Roles S2: can() prefers the token's caps claim ──────────────
+
+  it('can() reads the caps claim: a granted approval:action resolves true for a FIELD account', async () => {
+    refreshSessionMock.mockResolvedValue(false)
+    renderProvider()
+    await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'))
+
+    act(() => {
+      fireEvent.click(screen.getByText('login-field-granted'))
+    })
+
+    expect(screen.getByTestId('role').textContent).toBe('FIELD')
+    expect(screen.getByTestId('can-approval-action').textContent).toBe('true')
+    // admin:manage-team is SUPER_ADMIN-only; a FIELD grant can never confer it.
+    expect(screen.getByTestId('can-admin-manage-team').textContent).toBe('false')
+  })
+
+  it('can() reads the caps claim: an UNGRANTED FIELD account has no approval:action', async () => {
+    refreshSessionMock.mockResolvedValue(false)
+    renderProvider()
+    await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'))
+
+    act(() => {
+      fireEvent.click(screen.getByText('login-field-ungranted'))
+    })
+
+    expect(screen.getByTestId('role').textContent).toBe('FIELD')
+    expect(screen.getByTestId('can-approval-action').textContent).toBe('false')
+  })
+
+  it('a revoke that takes effect on the NEXT token removes the capability (re-setSession with a fresh token lacking it)', async () => {
+    refreshSessionMock.mockResolvedValue(false)
+    renderProvider()
+    await waitFor(() => expect(screen.getByTestId('ready').textContent).toBe('true'))
+
+    // Granted first (simulates a token minted before the revoke)...
+    act(() => {
+      fireEvent.click(screen.getByText('login-field-granted'))
+    })
+    expect(screen.getByTestId('can-approval-action').textContent).toBe('true')
+
+    // ...then a fresh token (simulates the post-revoke refresh mint) no longer carries it.
+    act(() => {
+      fireEvent.click(screen.getByText('login-field-ungranted'))
+    })
+    expect(screen.getByTestId('can-approval-action').textContent).toBe('false')
   })
 
   // ── G2: signOut ─────────────────────────────────────────────────────────

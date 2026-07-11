@@ -31,7 +31,11 @@ const DEVICE_TYPE = 'web' as const
 
 // ── Response schemas ──────────────────────────────────────────────────────────
 
-const adminRoleSchema = z.enum(['SUPER_ADMIN', 'OPERATIONS', 'FINANCE', 'CONTENT', 'SUPPORT'])
+// Team & Roles S1/S3: includes FIELD (a fully assignable base role) so a rep
+// account's login/otp-verify response parses cleanly. FIELD login is gated on
+// email enablement elsewhere (#477) — this schema only needs to accept the
+// value, not enable the flow. Keep aligned with AdminRole in lib/auth/session.ts.
+const adminRoleSchema = z.enum(['SUPER_ADMIN', 'OPERATIONS', 'FINANCE', 'CONTENT', 'SUPPORT', 'FIELD'])
 
 const metaSchema = z.object({
   entityId: z.string().min(1),
