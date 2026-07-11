@@ -274,6 +274,7 @@ describe('last-SUPER_ADMIN lockout guard', () => {
 
   it('setAdminRole REJECTS demoting the last active SUPER_ADMIN (LAST_SUPER_ADMIN_PROTECTED, 409)', async () => {
     const tx = {
+      $executeRaw: vi.fn().mockResolvedValue(undefined),
       adminUser: {
         findUnique: vi.fn().mockResolvedValue({ id: 'super-solo', role: 'SUPER_ADMIN' }),
         count: vi.fn().mockResolvedValue(0), // no OTHER active super
@@ -282,11 +283,13 @@ describe('last-SUPER_ADMIN lockout guard', () => {
       auditLog: { create: vi.fn() },
     }
     await expect(setAdminRole(makePrisma(tx), 'super-solo', 'super-solo', 'OPERATIONS' as any, ctx)).rejects.toThrow('LAST_SUPER_ADMIN_PROTECTED')
+    expect(tx.$executeRaw).toHaveBeenCalled() // advisory lock taken before the count
     expect(tx.adminUser.update).not.toHaveBeenCalled()
   })
 
   it('setAdminRole ALLOWS demoting a SUPER_ADMIN when another active super exists', async () => {
     const tx = {
+      $executeRaw: vi.fn().mockResolvedValue(undefined),
       adminUser: {
         findUnique: vi.fn().mockResolvedValue({ id: 'super-2', role: 'SUPER_ADMIN' }),
         count: vi.fn().mockResolvedValue(1),
@@ -313,6 +316,7 @@ describe('last-SUPER_ADMIN lockout guard', () => {
 
   it('deactivateAdmin REJECTS deactivating the last active SUPER_ADMIN', async () => {
     const tx = {
+      $executeRaw: vi.fn().mockResolvedValue(undefined),
       adminUser: {
         findUnique: vi.fn().mockResolvedValue({ id: 'super-2', role: 'SUPER_ADMIN', isActive: true }),
         count: vi.fn().mockResolvedValue(0),

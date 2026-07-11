@@ -152,6 +152,13 @@ export async function createAdminAccount(
  */
 async function assertNotLastActiveSuperAdmin(tx: any, targetRole: string, targetAdminId: string): Promise<void> {
   if (targetRole !== 'SUPER_ADMIN') return
+  // Serialize every super-admin-set mutation on a fixed transaction-scoped
+  // advisory lock (matches the house pattern, redemption/service.ts). Without
+  // this the count()+update() is a READ COMMITTED TOCTOU: two supers demoting/
+  // deactivating each other concurrently could BOTH see one "other active super"
+  // and both commit, leaving zero active supers = team-management lockout. Every
+  // guarded path takes the SAME key, so they serialize and the count is honest.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('admin:super-admin-set'))`
   const otherActiveSupers = await tx.adminUser.count({
     where: { role: 'SUPER_ADMIN', isActive: true, id: { not: targetAdminId } },
   })
