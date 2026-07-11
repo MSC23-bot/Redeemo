@@ -8,6 +8,7 @@
  */
 import { Dot } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/notifications/relativeTime'
+import { SelfApprovedBadge } from '@/features/shared/SelfApprovedBadge'
 import type { TimelineActionItem } from '@/lib/api/timeline'
 
 const EVENT_LABELS: Record<string, string> = {
@@ -57,7 +58,12 @@ export function ActionRow({ item }: { item: TimelineActionItem }) {
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
-          <span className="text-sm font-medium text-foreground">{eventLabel(item.event)}</span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-sm font-medium text-foreground">{eventLabel(item.event)}</span>
+            {/* Team & Roles S4 (spec §5.3): ungated transparency badge — renders
+                for anyone who can see this timeline, no capability gate. */}
+            {item.selfOnboarded && <SelfApprovedBadge />}
+          </span>
           <time
             dateTime={item.at}
             className="shrink-0 text-xs text-muted-foreground"

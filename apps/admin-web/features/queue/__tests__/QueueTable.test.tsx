@@ -609,6 +609,84 @@ describe('QueueTable two-pill status', () => {
   })
 })
 
+// ── Team & Roles S4: "Self-approved" badge (spec §5.3) ──────────────────────
+//
+// Pure display — renders for EVERYONE who can see the row (no capability
+// gate); driven purely by the row's selfOnboarded flag. Covered on BOTH the
+// wide table and the narrow card list, since QueueTable renders both trees
+// (CSS picks which is visible — see the module doc comment above).
+
+describe('QueueTable self-approved badge', () => {
+  it('renders the badge on the wide row when selfOnboarded is true', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ status: 'APPROVED', selfOnboarded: true })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(wideRow('a-1').getByTestId('self-approved-badge')).toBeInTheDocument()
+    expect(wideRow('a-1').getByText('Self-approved')).toBeInTheDocument()
+  })
+
+  it('renders the badge on the narrow card when selfOnboarded is true', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ status: 'APPROVED', selfOnboarded: true })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    const card = within(screen.getByTestId('queue-card-a-1'))
+    expect(card.getByTestId('self-approved-badge')).toBeInTheDocument()
+  })
+
+  it('does not render the badge when selfOnboarded is false', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ status: 'APPROVED', selfOnboarded: false })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(screen.queryByTestId('self-approved-badge')).not.toBeInTheDocument()
+  })
+
+  it('does not render the badge when selfOnboarded is absent (pre-S4 fixture shape)', () => {
+    render(<QueueTable items={[makeApproval({ status: 'APPROVED' })]} currentAdminId={CURRENT_ADMIN} />)
+    expect(screen.queryByTestId('self-approved-badge')).not.toBeInTheDocument()
+  })
+
+  it('does not render for a PENDING row even if selfOnboarded were somehow true (defence in depth on the display side)', () => {
+    // The backend never sends selfOnboarded:true for a non-APPROVED row, but
+    // the component itself does not re-derive from status — it trusts the
+    // flag, same as ActionRow. This pins that trust boundary on the queue side.
+    render(
+      <QueueTable
+        items={[makeApproval({ status: 'PENDING', selfOnboarded: true })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(screen.getByTestId('self-approved-badge')).toBeInTheDocument()
+  })
+
+  it('renders alongside the two-pill status (merchant-bearing row) without displacing either pill', () => {
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            status: 'APPROVED',
+            selfOnboarded: true,
+            merchant: { ...makeApproval().merchant!, status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    const row = wideRow('a-1')
+    expect(row.getByText('Live')).toBeInTheDocument()
+    expect(row.getByText('Approved')).toBeInTheDocument()
+    expect(row.getByTestId('self-approved-badge')).toBeInTheDocument()
+  })
+})
+
 // ── B2: sortable column headers (client-side sort of the loaded page) ───────
 
 describe('QueueTable sortable headers', () => {
