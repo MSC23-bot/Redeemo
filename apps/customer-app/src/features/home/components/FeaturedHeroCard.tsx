@@ -9,6 +9,7 @@ import { FavouriteHeart } from '@/features/favourites/components/FavouriteHeart'
 import { LiveStatusDot } from './LiveStatusDot'
 import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import { formatDistanceCompact, formatGbpCompact } from '@/design-system/utils/formatters'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 
 /**
  * Featured editorial hero (2026-06-02 premium pass).
@@ -48,9 +49,10 @@ export const FeaturedHeroCard = React.memo(function FeaturedHeroCard({
   const showSave = save !== null && save > 0
   const count = branch.merchant.voucherCount
   const countLabel = count === 1 ? '1 voucher' : `${count} vouchers`
+  const displayName = merchantDisplayName(branch.merchant)
   const a11y = locality
-    ? `${branch.merchant.businessName}, ${descriptor}, ${locality}`
-    : `${branch.merchant.businessName}, ${descriptor}`
+    ? `${displayName}, ${descriptor}, ${locality}`
+    : `${displayName}, ${descriptor}`
 
   return (
     <PressableScale
@@ -119,13 +121,13 @@ export const FeaturedHeroCard = React.memo(function FeaturedHeroCard({
               />
             ) : (
               <View style={[styles.logo, { backgroundColor: color.navy }]}>
-                <Text style={styles.logoInitial}>{branch.merchant.businessName.charAt(0)}</Text>
+                <Text style={styles.logoInitial}>{displayName.charAt(0)}</Text>
               </View>
             )}
           </View>
           <View style={styles.lockupText}>
             <View style={styles.nameRow}>
-              <Text style={styles.name} numberOfLines={1}>{branch.merchant.businessName}</Text>
+              <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
               {branch.avgRating !== null && (
                 <View style={styles.bannerRating} testID="featured-hero-rating">
                   <Star size={14} color="#FBBF24" fill="#FBBF24" />

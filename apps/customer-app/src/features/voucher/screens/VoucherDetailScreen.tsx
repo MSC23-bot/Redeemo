@@ -53,6 +53,7 @@ import { useScreenshotGuard } from '../hooks/useScreenshotGuard'
 import { SCREENSHOT_GUARD_ENABLED } from '../hooks/screenshotGuardConfig'
 import type { RedeemResponse } from '@/lib/api/redemption'
 import { CTA_LABELS } from '../constants/productCopy'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 
 /**
  * VoucherDetailScreen — orchestrates the 12-state UI for a voucher's
@@ -1661,7 +1662,7 @@ export function VoucherDetailScreen() {
                   branchName={displayRedemption.branchName}
                   voucherType={voucher.type}
                   voucherTitle={voucher.title}
-                  merchantName={voucher.merchant.businessName}
+                  merchantName={merchantDisplayName(voucher.merchant)}
                   estimatedSaving={voucher.estimatedSaving}
                   isValidated={displayRedemption.isValidated}
                   isPresentationActive={isPresentationActive}
@@ -1891,7 +1892,7 @@ export function VoucherDetailScreen() {
         ) : null}
 
         <MerchantRow
-          merchantName={voucher.merchant.businessName}
+          merchantName={merchantDisplayName(voucher.merchant)}
           merchantLogoUrl={voucher.merchant.logoUrl}
           merchantDescriptor={merchantDescriptor}
           branchName={
@@ -2008,7 +2009,7 @@ export function VoucherDetailScreen() {
           (Reads displayBranch instead of selectedBranch so the logo
           tracks the URL/picker target, not stale selectedBranch.) */}
       <CollapsedHeader
-        merchantName={voucher.merchant.businessName}
+        merchantName={merchantDisplayName(voucher.merchant)}
         branchName={branchName}
         logoUrl={displayBranch?.logoUrl ?? voucher.merchant.logoUrl ?? null}
         insetTop={insets.top}
@@ -2093,7 +2094,7 @@ export function VoucherDetailScreen() {
       />
       <PinEntrySheet
         visible={pinSheetVisible}
-        merchantName={voucher?.merchant.businessName ?? ''}
+        merchantName={voucher ? merchantDisplayName(voucher.merchant) : ''}
         branchName={branchName}
         merchantLogoUrl={voucher?.merchant.logoUrl ?? null}
         isLoading={redeem.isPending}
@@ -2111,7 +2112,7 @@ export function VoucherDetailScreen() {
           estimatedSaving={successPopup.estimatedSaving}
           voucherType={voucher.type}
           voucherTitle={voucher.title}
-          merchantName={voucher.merchant.businessName}
+          merchantName={merchantDisplayName(voucher.merchant)}
           merchantLogoUrl={voucher.merchant.logoUrl ?? null}
           branchName={branchName}
           onShowToStaff={() => {
@@ -2211,7 +2212,7 @@ export function VoucherDetailScreen() {
           // contract (voucher id doesn't change while the modal is
           // open).
           voucherDescription={showToStaff.voucherDescription}
-          merchantName={voucher.merchant.businessName}
+          merchantName={merchantDisplayName(voucher.merchant)}
           merchantLogoUrl={showToStaff.merchantLogoUrl}
           branchName={showToStaff.branchName}
           customerName=""

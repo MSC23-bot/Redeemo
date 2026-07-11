@@ -47,6 +47,7 @@ import { ArrowRight, Trash2 } from '@/design-system/icons'
 import { voucherTypeLabel } from '@/features/voucher/utils/voucherTheme'
 import type { VoucherType } from '@/lib/api/voucher'
 import type { FavouriteVoucherItem } from '@/lib/api/favourites'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 
 interface Props {
   row:       FavouriteVoucherItem
@@ -103,13 +104,14 @@ export function VoucherFavCard({ row, onPress, onRemove, testID }: Props): React
   const typeLabelText = voucherTypeLabel(row.type as VoucherType)
 
   const showCta = !NO_CTA_BUCKETS.has(bucket)
+  const merchantName = merchantDisplayName(row.merchant)
 
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.card, isDimmed && styles.cardDim, pressed && styles.cardPressed]}
       accessibilityRole="button"
-      accessibilityLabel={`${row.title}. ${row.merchant.businessName}. ${label}.`}
+      accessibilityLabel={`${row.title}. ${merchantName}. ${label}.`}
       testID={testID}
     >
       <LinearGradient
@@ -158,12 +160,12 @@ export function VoucherFavCard({ row, onPress, onRemove, testID }: Props): React
                 testID={testID ? `${testID}-merchant-logo-fallback` : 'voucher-fav-card-merchant-logo-fallback'}
               >
                 <Text variant="label.md" style={{ color: typeFg }}>
-                  {row.merchant.businessName.charAt(0).toUpperCase()}
+                  {merchantName.charAt(0).toUpperCase()}
                 </Text>
               </View>
             )}
             <Text variant="body.sm" numberOfLines={1} style={styles.merchant}>
-              {row.merchant.businessName}
+              {merchantName}
             </Text>
           </View>
           <Text variant="display.sm" numberOfLines={2} style={[styles.title, { color: typeFg }]}>

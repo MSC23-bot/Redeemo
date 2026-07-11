@@ -120,7 +120,7 @@ export function PublicIdentityCard({ profile }: { profile: MerchantProfile }) {
         ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Business name" value={val(profile.businessName)} empty="No name set" />
+          <Field label="Registered business name" value={val(profile.businessName)} empty="No name set" />
           <Field label="Trading name" value={val(profile.tradingName)} empty="Same as business name" />
         </div>
 

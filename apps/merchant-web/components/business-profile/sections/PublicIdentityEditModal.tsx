@@ -201,7 +201,7 @@ export function PublicIdentityEditModal({
 
       <div className="mt-4 max-h-[60vh] space-y-4 overflow-y-auto pr-1">
         <div className="space-y-1.5">
-          <Label htmlFor="edit-public-identity-business-name">Business name</Label>
+          <Label htmlFor="edit-public-identity-business-name">Registered business name</Label>
           <Input
             id="edit-public-identity-business-name"
             value={draft.businessName}
@@ -217,6 +217,7 @@ export function PublicIdentityEditModal({
             value={draft.tradingName}
             onChange={field('tradingName')}
           />
+          <p className="text-xs text-muted-foreground">This is the name customers see in the Redeemo app.</p>
         </div>
 
         <div className="space-y-1.5">

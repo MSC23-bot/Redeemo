@@ -98,6 +98,11 @@ export type FavouriteBranchesResponse = z.infer<typeof favouriteBranchesResponse
 const favouriteVoucherMerchantSchema = z.object({
   id:           z.string(),
   businessName: z.string(),
+  // Public trading name: customer-facing surfaces prefer this over the
+  // registered `businessName` (see `@/lib/merchantDisplayName`).
+  // `.optional()` for backward compat with cached responses from before
+  // this field landed (same rationale as `totalEstimatedSaving` above).
+  tradingName:  z.string().nullable().optional(),
   logoUrl:      z.string().nullable(),
   status:       z.string(),
 })

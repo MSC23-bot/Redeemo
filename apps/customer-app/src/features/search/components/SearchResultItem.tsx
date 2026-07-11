@@ -6,6 +6,7 @@ import { formatDistance, formatGbp } from '@/design-system/utils/formatters'
 import { FavouriteHeart } from '@/features/favourites/components/FavouriteHeart'
 import { BranchTile } from '@/lib/api/discovery'
 import type { ProximityBand } from '@/lib/api/discovery'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 
 // Discovery Rebaseline PR-2 (Phase 2.1) — prop shape is `BranchTile`.
 // One tile per BRANCH (Covelum bug fix): multi-branch merchants render
@@ -116,8 +117,9 @@ function HighlightedName({ name, query }: { name: string; query: string }) {
 }
 
 export function SearchResultItem({ tile, query, onPress }: Props) {
-  // Primary identity: merchant business name (Spec §3.3).
-  const displayName = tile.merchant.businessName
+  // Primary identity: merchant public trading name, falling back to the
+  // registered business name (Spec §3.3).
+  const displayName = merchantDisplayName(tile.merchant)
   const distanceStr = formatDistance(tile.distance)
 
   // Secondary line: branch name + locality fallback chain

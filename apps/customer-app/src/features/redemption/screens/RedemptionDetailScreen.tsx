@@ -12,6 +12,7 @@ import { voucherTypeLabel } from '@/features/voucher/utils/voucherTheme'
 import { isPresentationActive } from '@/features/voucher/utils/presentationWindow'
 import { useMyRedemption } from '../hooks/useMyRedemption'
 import type { ValidationMethod } from '../hooks/useMyRedemption'
+import { merchantDisplayName } from '@/lib/merchantDisplayName'
 
 // §Savings Redemption Receipt — PR #105 device-QA round-8, 2026-05-18.
 //
@@ -174,6 +175,7 @@ export function RedemptionDetailScreen() {
   const addressLine = [r.branch.addressLine1, r.branch.city, r.branch.postcode]
     .filter(Boolean)
     .join(', ')
+  const merchantName = merchantDisplayName(r.voucher.merchant)
 
   // Locked copy per owner direction (round-5).  "Receipt only" lead
   // sets the screen's identity unambiguously: this surface is NOT
@@ -233,13 +235,13 @@ export function RedemptionDetailScreen() {
                   testID="redemption-detail-merchant-logo-fallback"
                 >
                   <Text style={[styles.merchantLogoInitial, { color: typeAccentColor }]}>
-                    {(r.voucher.merchant.businessName || '?').charAt(0).toUpperCase()}
+                    {(merchantName || '?').charAt(0).toUpperCase()}
                   </Text>
                 </View>
               )}
               <View style={styles.merchantBadgeText}>
                 <Text variant="body.sm" style={styles.merchantBadgeName} numberOfLines={1}>
-                  {r.voucher.merchant.businessName}
+                  {merchantName}
                 </Text>
                 <Text variant="body.sm" style={styles.merchantBadgeBranch} numberOfLines={1}>
                   {r.branch.name}

@@ -54,6 +54,11 @@ export const myRedemptionDetailSchema = z.object({
     merchant: z.object({
       id:           z.string(),
       businessName: z.string(),
+      // Public trading name: customer-facing surfaces prefer this
+      // over the registered `businessName` (see
+      // `@/lib/merchantDisplayName`). Nullable: not every merchant
+      // has set one.
+      tradingName:  z.string().nullable().optional(),
       // §Savings device-QA round-8 fixup 2026-05-18 — backend select
       // expanded to include `logoUrl` for the Redemption Receipt
       // visual identity.  Nullable: a merchant may not have uploaded
