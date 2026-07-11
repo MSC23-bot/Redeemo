@@ -122,6 +122,10 @@ describe('PR4: /admin/approvals?referenceId + claimedBy output', () => {
           { id: 'admin-claimer', firstName: 'Jordan', lastName: 'Lee' },
         ]),
       },
+      // Team & Roles S4: listApprovals batches self-approval resolution for
+      // MERCHANT_ONBOARDING rows (this fixture has one) via one
+      // auditLog.findMany call; no self-approval fixture here, so empty.
+      auditLog: { findMany: vi.fn().mockResolvedValue([]) },
     } as any)
     app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue('OK') } as any)
     await app.ready()
