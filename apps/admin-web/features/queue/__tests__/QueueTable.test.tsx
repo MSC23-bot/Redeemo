@@ -664,7 +664,9 @@ describe('QueueTable self-approved badge', () => {
         currentAdminId={CURRENT_ADMIN}
       />
     )
-    expect(screen.getByTestId('self-approved-badge')).toBeInTheDocument()
+    // Scoped to the wide row (badge renders in both wide + narrow trees), per
+    // the convention used by the sibling wide-row badge test above.
+    expect(wideRow('a-1').getByTestId('self-approved-badge')).toBeInTheDocument()
   })
 
   it('renders alongside the two-pill status (merchant-bearing row) without displacing either pill', () => {

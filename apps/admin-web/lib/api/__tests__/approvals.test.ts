@@ -199,4 +199,31 @@ describe('approvalsApi.list', () => {
 
     await expect(approvalsApi.list()).rejects.toThrow()
   })
+
+  it('parses selfOnboarded on an approval row and round-trips it (S4 self-approval transparency)', async () => {
+    const selfRow = { ...APPROVAL, id: 'approval-self', status: 'APPROVED', selfOnboarded: true }
+    const otherRow = { ...APPROVAL, id: 'approval-other', status: 'APPROVED', selfOnboarded: false }
+    mockedApiFetch.mockResolvedValueOnce({
+      ...LIST_RESPONSE,
+      total: 2,
+      approvals: [selfRow, otherRow],
+    })
+
+    const result = await approvalsApi.list()
+
+    expect(result.approvals[0].selfOnboarded).toBe(true)
+    expect(result.approvals[1].selfOnboarded).toBe(false)
+  })
+
+  it('treats a legacy row with no selfOnboarded field as parseable (undefined)', async () => {
+    // Back-compat: pre-S4 payloads omit the field; the schema is .optional().
+    const legacy = { ...APPROVAL }
+    delete (legacy as { selfOnboarded?: boolean }).selfOnboarded
+    mockedApiFetch.mockResolvedValueOnce({ ...LIST_RESPONSE, total: 1, approvals: [legacy] })
+
+    const result = await approvalsApi.list()
+
+    expect(result.approvals[0].selfOnboarded).toBeUndefined()
+  })
+
 })
