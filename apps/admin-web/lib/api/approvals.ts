@@ -79,6 +79,13 @@ export const approvalSchema = z.object({
   // is not fully specified — if the backend omits this field, the queue row
   // falls back to a generic "Voucher edit request" label rather than crashing).
   voucherEditKind: z.enum(['CHANGE', 'END']).nullable().optional(),
+  // Team & Roles S4 (spec §5.3): true only for a MERCHANT_ONBOARDING row that
+  // went live via a self-approval (the approving admin also created the
+  // merchant's draft). Optional (not `.default()`) so existing fixtures/tests
+  // that predate this field keep parsing unchanged; the backend always sends
+  // a concrete boolean on every row — `undefined` here only ever means "an
+  // older/unrelated payload shape", treated the same as false by callers.
+  selfOnboarded: z.boolean().optional(),
 })
 export type AdminApproval = z.infer<typeof approvalSchema>
 

@@ -78,6 +78,10 @@ describe('A8b: VOUCHER queue enrichment in listApprovals', () => {
       },
       branchPendingEdit: { findMany: vi.fn().mockResolvedValue([]) },
       branch: { findMany: vi.fn().mockResolvedValue([]) },
+      // Team & Roles S4: listApprovals batches self-approval resolution for
+      // MERCHANT_ONBOARDING rows via one auditLog.findMany; this suite has no
+      // self-approval fixture, so an empty result is the correct, neutral stub.
+      auditLog: { findMany: vi.fn().mockResolvedValue([]) },
     } as any
   }
 
@@ -233,6 +237,9 @@ describe('governed flows: VOUCHER_EDIT queue rows carry voucherEditKind', () => 
       },
       branchPendingEdit: { findMany: vi.fn().mockResolvedValue([]) },
       branch: { findMany: vi.fn().mockResolvedValue([]) },
+      // Team & Roles S4: no MERCHANT_ONBOARDING rows in this fixture, so the
+      // batch is never invoked — stub present only for shape safety.
+      auditLog: { findMany: vi.fn().mockResolvedValue([]) },
     } as any
   }
 
@@ -365,6 +372,9 @@ describe('WF16: branch-edit + branch-lifecycle queue rows carry a merchant summa
           { id: 'branch-old', merchantId: 'm-old' },
         ]),
       },
+      // Team & Roles S4: no MERCHANT_ONBOARDING rows in this fixture, so the
+      // batch is never invoked — stub present only for shape safety.
+      auditLog: { findMany: vi.fn().mockResolvedValue([]) },
     } as any
   }
 

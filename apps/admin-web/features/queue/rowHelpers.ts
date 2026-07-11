@@ -196,6 +196,13 @@ export interface DerivedRow {
   primaryLabel: string
   /** Voucher rows only: "{businessName} · {voucherType}" under the title. */
   primarySubLabel: string | null
+  /**
+   * Team & Roles S4 (spec §5.3): true when this row is a merchant go-live
+   * that was self-approved. Normalises the wire-optional `AdminApproval.
+   * selfOnboarded` (`boolean | undefined`) to a concrete boolean so every
+   * consumer can just check truthiness.
+   */
+  selfOnboarded: boolean
 }
 
 export function deriveRow(item: AdminApproval, currentAdminId: string | null): DerivedRow {
@@ -227,6 +234,7 @@ export function deriveRow(item: AdminApproval, currentAdminId: string | null): D
       isVoucherRow && item.voucher
         ? `${businessName} · ${voucherTypeLabel(item.voucher.type)}`
         : null,
+    selfOnboarded: item.selfOnboarded === true,
   }
 }
 

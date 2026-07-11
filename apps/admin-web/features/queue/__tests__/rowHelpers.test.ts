@@ -197,6 +197,23 @@ describe('deriveRow', () => {
     expect(row.waitingTone).toBe('neutral')
     expect(row.statusTone).toBe('success')
   })
+
+  // ── Team & Roles S4 (spec §5.3): selfOnboarded normalisation ──────────────
+
+  it('normalises selfOnboarded:true through to the derived row', () => {
+    const row = deriveRow(makeApproval({ status: 'APPROVED', selfOnboarded: true }), CURRENT_ADMIN)
+    expect(row.selfOnboarded).toBe(true)
+  })
+
+  it('normalises selfOnboarded:false through to the derived row', () => {
+    const row = deriveRow(makeApproval({ status: 'APPROVED', selfOnboarded: false }), CURRENT_ADMIN)
+    expect(row.selfOnboarded).toBe(false)
+  })
+
+  it('normalises a missing selfOnboarded (pre-S4 fixture shape) to false, not undefined', () => {
+    const row = deriveRow(makeApproval({ status: 'APPROVED' }), CURRENT_ADMIN)
+    expect(row.selfOnboarded).toBe(false)
+  })
 })
 
 // ── deriveStatusPills (B2 two-pill Status) ───────────────────────────────────

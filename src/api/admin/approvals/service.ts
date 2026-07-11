@@ -117,6 +117,53 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
     : []
   const merchantById = new Map(merchants.map((m) => [m.id, m]))
 
+  // Team & Roles S4 (spec §5.3): batch-resolve self-approval for every
+  // MERCHANT_ONBOARDING row on this page, so the queue History badge/filter
+  // never re-derive per row (no N+1 — mirrors the STAGED_SUGGESTION batch
+  // idiom in getReviewContext below: one findMany over two event types,
+  // precedence resolved in JS). Reads the SAME two rows `deriveSelfOnboarded`
+  // reads (the durable MERCHANT_GO_LIVE `metadata.selfOnboarded` stamp,
+  // falling back to the MERCHANT_DRAFT_CREATED actorId for pre-stamp rows).
+  //
+  // Deliberately scoped to APPROVED rows only (see `selfOnboardedFor` below):
+  // `deriveSelfOnboarded`'s single-row fallback compares WHOEVER actioned the
+  // approval (which for a REJECTED or CHANGES_REQUESTED row is the
+  // rejecter/reviewer, not an approver) against the draft creator. A merchant
+  // that was rejected by the same admin who drafted it never went live, so it
+  // must never carry a "Self-approved" badge — gating on status:APPROVED
+  // (which is exactly when a MERCHANT_GO_LIVE audit row is guaranteed to
+  // exist) keeps the list read correct without duplicating that risk here.
+  const goLiveStampByMerchantId = new Map<string, boolean>()
+  const draftCreatorByMerchantId = new Map<string, string>()
+  if (merchantIds.length > 0) {
+    const selfApprovalAuditRows = await prisma.auditLog.findMany({
+      where: {
+        entityType: 'merchant',
+        entityId: { in: merchantIds },
+        event: { in: ['MERCHANT_GO_LIVE', 'MERCHANT_DRAFT_CREATED'] },
+      },
+      select: { entityId: true, event: true, actorId: true, metadata: true },
+      orderBy: { createdAt: 'desc' },
+    })
+    for (const row of selfApprovalAuditRows) {
+      if (row.event === 'MERCHANT_GO_LIVE' && !goLiveStampByMerchantId.has(row.entityId)) {
+        const meta = row.metadata as { selfOnboarded?: unknown } | null
+        if (meta && typeof meta.selfOnboarded === 'boolean') {
+          goLiveStampByMerchantId.set(row.entityId, meta.selfOnboarded)
+        }
+      }
+      if (row.event === 'MERCHANT_DRAFT_CREATED' && !draftCreatorByMerchantId.has(row.entityId) && row.actorId) {
+        draftCreatorByMerchantId.set(row.entityId, row.actorId)
+      }
+    }
+  }
+  function selfOnboardedFor(a: (typeof approvals)[number]): boolean {
+    if (a.type !== 'MERCHANT_ONBOARDING' || a.status !== 'APPROVED' || !a.adminUserId) return false
+    const stamped = goLiveStampByMerchantId.get(a.referenceId)
+    if (stamped !== undefined) return stamped
+    return draftCreatorByMerchantId.get(a.referenceId) === a.adminUserId
+  }
+
   // Day-2 Vouchers A8b - VOUCHER queue enrichment (mirrors the onboarding
   // merchant-summary batch above). Collect the VOUCHER referenceIds, batch-load
   // the vouchers (curated select: id/title/type/status/approvalStatus/merchantId,
@@ -296,7 +343,7 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
         // null, so a reorder/refactor could have null-deref'd. The null branch never
         // touches flagshipLiveByMerchant.
         if (!v) {
-          return { ...a, merchant: null, voucher: null, goLiveHint: null, claimedBy }
+          return { ...a, merchant: null, voucher: null, goLiveHint: null, claimedBy, selfOnboarded: false }
         }
         const m = voucherMerchantById.get(v.merchantId) ?? null
         const goLive = !!m && m.status === 'ACTIVE' && (flagshipLiveByMerchant.get(v.merchantId) ?? false)
@@ -306,6 +353,9 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
           voucher: { title: v.title, type: v.type, status: v.status, approvalStatus: v.approvalStatus },
           goLiveHint: goLive ? ('live-now' as const) : ('waiting-for-go-live' as const),
           claimedBy,
+          // VOUCHER rows are never self-approved (the concept is merchant
+          // draft-creation vs go-live, not voucher review) — see selfOnboardedFor.
+          selfOnboarded: false,
         }
       }
       const merchant = a.type === 'MERCHANT_ONBOARDING'
@@ -324,6 +374,11 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
         ...(a.type === 'VOUCHER_EDIT'
           ? { voucherEditKind: voucherEditKindById.get(a.referenceId) ?? null }
           : {}),
+        // Team & Roles S4 (spec §5.3): true only for a MERCHANT_ONBOARDING row
+        // that went live via a self-approval (see selfOnboardedFor above);
+        // false for every other type/status, including a rejected/changes-
+        // requested onboarding row actioned by the merchant's own draft-creator.
+        selfOnboarded: selfOnboardedFor(a),
       }
     }),
   }

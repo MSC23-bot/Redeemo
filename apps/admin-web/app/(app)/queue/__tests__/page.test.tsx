@@ -54,12 +54,12 @@ const mockedUseQueueHistory = useQueueHistory as jest.MockedFunction<typeof useQ
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function mockSession(overrides: { can?: (cap: string) => boolean; adminId?: string | null }) {
+function mockSession(overrides: { can?: (cap: string) => boolean; adminId?: string | null; role?: string }) {
   mockedUseSession.mockReturnValue({
     accessToken: 'test-access-token',
     ready: true,
     isAuthenticated: true,
-    role: 'OPERATIONS',
+    role: (overrides.role ?? 'OPERATIONS') as never,
     email: 'ops@redeemo.co.uk',
     adminId: overrides.adminId ?? 'admin-me',
     can: overrides.can ?? (() => true),
@@ -559,5 +559,74 @@ describe('QueuePage age-tint rendering', () => {
     expect(neutralBadge.className).not.toMatch(/amber|red/)
     expect(warnBadge.className).toMatch(/amber/)
     expect(dangerBadge.className).toMatch(/red/)
+  })
+})
+
+
+// ── S4: Self-approved filter (SUPER_ADMIN-only, History court) ─────────────────
+
+describe('QueuePage self-approved filter (S4)', () => {
+  const SELF_ITEM = makeApproval({
+    id: 'a-self',
+    status: 'APPROVED',
+    actionedAt: hoursAgoIso(48),
+    selfOnboarded: true,
+    merchant: { id: 'm-self', businessName: 'Self Approved Co', status: 'ACTIVE' } as AdminApproval['merchant'],
+  })
+  const OTHER_ITEM = makeApproval({
+    id: 'a-other',
+    status: 'APPROVED',
+    actionedAt: hoursAgoIso(48),
+    selfOnboarded: false,
+    merchant: { id: 'm-other', businessName: 'Two Eyes Co', status: 'ACTIVE' } as AdminApproval['merchant'],
+  })
+
+  function renderHistoryAs(role: string) {
+    mockSession({ can: () => true, role })
+    mockQueue({ items: [] })
+    mockQueueHistory({ hasLoaded: true, items: [SELF_ITEM, OTHER_ITEM] })
+    render(<QueuePage />)
+    fireEvent.click(screen.getByRole('tab', { name: /history/i }))
+  }
+
+  it('shows the self-approved filter for SUPER_ADMIN on the History court', () => {
+    renderHistoryAs('SUPER_ADMIN')
+    expect(screen.getByTestId('self-approved-filter')).toBeInTheDocument()
+  })
+
+  it('HIDES the self-approved filter for OPERATIONS (non-super) even on History', () => {
+    renderHistoryAs('OPERATIONS')
+    expect(screen.queryByTestId('self-approved-filter')).not.toBeInTheDocument()
+  })
+
+  it('HIDES the self-approved filter for FIELD even on History', () => {
+    renderHistoryAs('FIELD')
+    expect(screen.queryByTestId('self-approved-filter')).not.toBeInTheDocument()
+  })
+
+  it('does NOT show the filter for SUPER_ADMIN on the default Needs-you court', () => {
+    mockSession({ can: () => true, role: 'SUPER_ADMIN' })
+    mockQueue({ items: [] })
+    mockQueueHistory({ hasLoaded: true, items: [SELF_ITEM, OTHER_ITEM] })
+    render(<QueuePage />)
+    expect(screen.queryByTestId('self-approved-filter')).not.toBeInTheDocument()
+  })
+
+  it('the badge is visible to a non-super on a self-approved history row (transparency, ungated)', () => {
+    renderHistoryAs('OPERATIONS')
+    expect(screen.getByTestId('queue-row-a-self')).toHaveTextContent(/self-approved/i)
+    expect(screen.getByTestId('queue-row-a-other')).not.toHaveTextContent(/self-approved/i)
+  })
+
+  it('toggling the filter narrows the rows to self-approved only (SUPER_ADMIN)', () => {
+    renderHistoryAs('SUPER_ADMIN')
+    // Both visible before toggling.
+    expect(screen.getByTestId('queue-row-a-self')).toBeInTheDocument()
+    expect(screen.getByTestId('queue-row-a-other')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('self-approved-filter'))
+
+    expect(screen.getByTestId('queue-row-a-self')).toBeInTheDocument()
+    expect(screen.queryByTestId('queue-row-a-other')).not.toBeInTheDocument()
   })
 })

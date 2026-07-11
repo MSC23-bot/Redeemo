@@ -31,6 +31,11 @@ export const timelineActionSchema = z.object({
   actorType: z.string().nullable(),
   actorName: z.string().nullable(),
   reason: z.string().nullable(),
+  // Team & Roles S4 (spec §5.3): true only on a MERCHANT_GO_LIVE row that was
+  // a self-approval. Optional (not `.default()`) so existing fixtures/tests
+  // that predate this field keep parsing unchanged; the backend always sends
+  // a concrete boolean on every action item.
+  selfOnboarded: z.boolean().optional(),
 })
 
 export const timelineEmailSchema = z.object({

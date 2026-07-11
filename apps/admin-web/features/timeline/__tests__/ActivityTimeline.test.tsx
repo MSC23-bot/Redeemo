@@ -246,6 +246,58 @@ describe('ActivityTimeline event labels', () => {
   })
 })
 
+// ── Team & Roles S4: "Self-approved" badge (spec §5.3) ──────────────────────
+
+describe('ActivityTimeline self-approved badge', () => {
+  it('renders the Self-approved badge on a MERCHANT_GO_LIVE row when selfOnboarded is true', () => {
+    mockTimeline({
+      items: [makeAction({ id: 'a1', event: 'MERCHANT_GO_LIVE', actorType: 'ADMIN', actorName: 'Jordan Lee', selfOnboarded: true })],
+      state: null,
+      emailsResolvedViaOwner: false,
+    })
+    renderTimeline()
+    expect(screen.getByTestId('timeline-action-a1')).toBeInTheDocument()
+    expect(screen.getByTestId('self-approved-badge')).toBeInTheDocument()
+    expect(screen.getByText('Self-approved')).toBeInTheDocument()
+  })
+
+  it('does not render the badge when selfOnboarded is false', () => {
+    mockTimeline({
+      items: [makeAction({ id: 'a1', event: 'MERCHANT_GO_LIVE', actorType: 'ADMIN', selfOnboarded: false })],
+      state: null,
+      emailsResolvedViaOwner: false,
+    })
+    renderTimeline()
+    expect(screen.queryByTestId('self-approved-badge')).not.toBeInTheDocument()
+  })
+
+  it('does not render the badge when selfOnboarded is absent (pre-S4 fixture shape)', () => {
+    mockTimeline({
+      items: [makeAction({ id: 'a1', event: 'MERCHANT_GO_LIVE', actorType: 'ADMIN' })],
+      state: null,
+      emailsResolvedViaOwner: false,
+    })
+    renderTimeline()
+    expect(screen.queryByTestId('self-approved-badge')).not.toBeInTheDocument()
+  })
+
+  it('renders purely from the selfOnboarded flag, with no independent event-type re-check', () => {
+    // The backend contract guarantees selfOnboarded is only ever true on a
+    // MERCHANT_GO_LIVE row (service.ts stamps every other row false), so
+    // ActionRow trusts the flag rather than re-deriving from item.event. This
+    // pins that trust boundary: a non-go-live row still shows the badge if
+    // (hypothetically) the backend sent selfOnboarded:true for it, proving the
+    // component itself does not silently mask a backend regression.
+    mockTimeline({
+      items: [makeAction({ id: 'a1', event: 'MERCHANT_DRAFT_CREATED', actorType: 'ADMIN', selfOnboarded: true })],
+      state: null,
+      emailsResolvedViaOwner: false,
+    })
+    renderTimeline()
+    expect(screen.getByTestId('self-approved-badge')).toBeInTheDocument()
+  })
+})
+
 // ── Delivery badges ──────────────────────────────────────────────────────────
 
 describe('ActivityTimeline delivery badges', () => {

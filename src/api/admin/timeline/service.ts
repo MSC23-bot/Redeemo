@@ -1,5 +1,5 @@
 import { PrismaClient } from '../../../../generated/prisma/client'
-import { getMerchantOwner } from '../approvals/service'
+import { getMerchantOwner, deriveSelfOnboarded } from '../approvals/service'
 
 // Phase 2 Slice 1 M7 — the merchant communication + activity timeline (READ
 // ONLY). It interleaves (a) merchant AuditLog actions and (b) the merchant
@@ -31,6 +31,13 @@ export type TimelineItem =
       actorType: string | null
       actorName: string | null // resolved admin "First Last", or null for non-admin/unresolved
       reason: string | null
+      // Team & Roles S4 (spec §5.3): true ONLY on the MERCHANT_GO_LIVE row when
+      // that go-live was a self-approval (the approving admin also created the
+      // merchant's draft). false on every other row, including a rejected/
+      // changes-requested action, so the badge can never mislabel a non-go-live
+      // action. Always present (never omitted) so the frontend renders it the
+      // same way it does the queue History row's field of the same name.
+      selfOnboarded: boolean
     }
   | {
       kind: 'email'
@@ -112,6 +119,18 @@ export async function getMerchantTimeline(prisma: PrismaClient, merchantId: stri
     adminUsers.map((a: { id: string; firstName: string; lastName: string }) => [a.id, `${a.firstName} ${a.lastName}`]),
   )
 
+  // 3b. Team & Roles S4 (spec §5.3): resolve self-approval for the
+  //     MERCHANT_GO_LIVE row, if this merchant has one. A merchant goes live
+  //     at most once (approveApproval's already-live branch is idempotent and
+  //     never writes a second MERCHANT_GO_LIVE row), so this is O(1) — not
+  //     per-row. Reuses the S1 derivation (durable metadata stamp, falling
+  //     back to a live actorId comparison for rows approved before the stamp
+  //     existed) so this can never drift from the queue History badge.
+  const goLiveRow = auditRows.find((row) => row.event === 'MERCHANT_GO_LIVE')
+  const goLiveSelfOnboarded = goLiveRow
+    ? await deriveSelfOnboarded(prisma, merchantId, goLiveRow.actorId)
+    : false
+
   // 4. Build action + email items, then merge and sort by `at` (the row
   //    timestamp) strictly descending. Each source is independently capped at
   //    50 above, so this is a recent-activity feed, not a strict global
@@ -124,6 +143,7 @@ export async function getMerchantTimeline(prisma: PrismaClient, merchantId: stri
     actorType: row.actorType ?? null,
     actorName: row.actorType === 'ADMIN' && row.actorId ? adminById.get(row.actorId) ?? null : null,
     reason: row.reason ?? null,
+    selfOnboarded: row.event === 'MERCHANT_GO_LIVE' ? goLiveSelfOnboarded : false,
   }))
 
   const emailItems: TimelineItem[] = emailRows.map((row) => ({

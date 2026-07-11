@@ -21,6 +21,7 @@ import { useQueue } from '@/lib/queue/useQueue'
 import { useQueueHistory } from '@/lib/queue/useQueueHistory'
 import { CourtTabs } from '@/features/queue/CourtTabs'
 import { TypeChips } from '@/features/queue/TypeChips'
+import { SelfApprovedFilter } from '@/features/queue/SelfApprovedFilter'
 import { QueueTable } from '@/features/queue/QueueTable'
 import { LastUpdated } from '@/features/queue/LastUpdated'
 import { RefreshButton } from '@/features/queue/RefreshButton'
@@ -102,7 +103,7 @@ function filterByType(items: AdminApproval[], active: TypeFilterValue): AdminApp
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function QueuePage() {
-  const { ready, can, adminId } = useSession()
+  const { ready, can, adminId, role } = useSession()
   const canRead = ready && can('approval:read')
   const { items, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useQueue({
     enabled: canRead,
@@ -110,6 +111,11 @@ export default function QueuePage() {
 
   const [activeCourt, setActiveCourt] = useState<CourtTabKey>('needs')
   const [activeType, setActiveType] = useState<TypeFilterValue>('all')
+  // Team & Roles S4 (spec §5.3, owner-locked 2026-07-10): a History-only
+  // narrowing to self-approved rows, visible ONLY to SUPER_ADMIN. This is a
+  // ROLE check (not a capability gate) — see SelfApprovedFilter's doc comment.
+  const [selfApprovedOnly, setSelfApprovedOnly] = useState(false)
+  const isSuperAdmin = role === 'SUPER_ADMIN'
 
   const history = useQueueHistory({ enabled: canRead && activeCourt === 'history' })
 
@@ -125,6 +131,10 @@ export default function QueuePage() {
     setActiveCourt(court)
     // approval-queue-spec.md §A.1 pt.3: selecting a court tab resets the type filter.
     setActiveType('all')
+    // The self-approved filter only applies to History; reset it on every
+    // court change so a value set while on History can never silently persist
+    // and narrow a court the control isn't even shown on.
+    setSelfApprovedOnly(false)
   }
 
   const needsItems = items.filter(inNeedsYouTab)
@@ -148,7 +158,22 @@ export default function QueuePage() {
   const retryActiveCourt = activeCourt === 'history' ? history.refetch : refetch
 
   const typeCounts = computeTypeCounts(isCourtLoading ? undefined : activeCourtItems)
-  const filteredItems = filterByType(activeCourtItems, activeType)
+  const showSelfApprovedFilter = activeCourt === 'history' && isSuperAdmin
+  const typeFilteredItems = filterByType(activeCourtItems, activeType)
+  // Team & Roles S4: client-side narrowing. The History set is already fully
+  // loaded up front (useQueueHistory fetches every terminal-status row for the
+  // archive view, not a paged live list), so a further boolean narrow needs no
+  // new backend filter param — adding one here would be additive but unneeded.
+  const filteredItems =
+    showSelfApprovedFilter && selfApprovedOnly
+      ? typeFilteredItems.filter((item) => item.selfOnboarded === true)
+      : typeFilteredItems
+  const isFilterActive = activeType !== 'all' || (showSelfApprovedFilter && selfApprovedOnly)
+
+  function clearFilters() {
+    setActiveType('all')
+    setSelfApprovedOnly(false)
+  }
 
   return (
     <div className="space-y-6">
@@ -184,8 +209,14 @@ export default function QueuePage() {
       {/* Two-court tabs + History */}
       <CourtTabs active={activeCourt} counts={courtCounts} onChange={handleCourtChange} />
 
-      {/* Type chips — composed with whichever court is active. */}
-      <TypeChips active={activeType} counts={typeCounts} onChange={setActiveType} />
+      {/* Type chips — composed with whichever court is active — plus the
+          SUPER_ADMIN-only self-approved filter when History is active. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <TypeChips active={activeType} counts={typeCounts} onChange={setActiveType} />
+        {showSelfApprovedFilter && (
+          <SelfApprovedFilter active={selfApprovedOnly} onChange={setSelfApprovedOnly} />
+        )}
+      </div>
 
       {/* Content */}
       {isCourtLoading ? (
@@ -196,7 +227,7 @@ export default function QueuePage() {
         <QueueTable
           items={filteredItems}
           currentAdminId={adminId}
-          onClearFilter={activeType !== 'all' ? () => setActiveType('all') : undefined}
+          onClearFilter={isFilterActive ? clearFilters : undefined}
         />
       )}
 

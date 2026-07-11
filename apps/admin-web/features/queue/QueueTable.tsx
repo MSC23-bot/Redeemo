@@ -27,6 +27,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import { Badge } from '@/features/shared/Badge'
+import { SelfApprovedBadge } from '@/features/shared/SelfApprovedBadge'
 import { cn } from '@/lib/utils'
 import { deriveRow, getVerificationLabel, getVerificationTone, sortItems } from './rowHelpers'
 import type { AdminApproval } from '@/lib/api/approvals'
@@ -121,13 +122,22 @@ function TypeBadge({ row }: { row: DerivedRow }) {
 // `deriveStatusPills` — never a fabricated lifecycle).
 
 function StatusBadge({ row }: { row: DerivedRow }) {
+  // Team & Roles S4 (spec §5.3): the "Self-approved" badge is pure,
+  // ungated display — it appends to whichever pill shape the row already
+  // carries (single or two-pill), never fabricating a third status.
   if (row.lifecyclePill == null) {
-    return <Badge tone={row.statusTone}>{row.displayStatus}</Badge>
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge tone={row.statusTone}>{row.displayStatus}</Badge>
+        {row.selfOnboarded && <SelfApprovedBadge />}
+      </div>
+    )
   }
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <Badge tone={row.lifecyclePill.tone}>{row.lifecyclePill.label}</Badge>
       <Badge tone={row.approvalPill.tone}>{row.approvalPill.label}</Badge>
+      {row.selfOnboarded && <SelfApprovedBadge />}
     </div>
   )
 }
