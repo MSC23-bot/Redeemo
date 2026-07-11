@@ -1,6 +1,6 @@
 import React from 'react'
 import { render, fireEvent } from '@testing-library/react-native'
-import { FilterSheet, FilterState, VOUCHER_TYPE_CHIPS } from '@/features/search/components/FilterSheet'
+import { FilterSheet, FilterState, VOUCHER_TYPE_CHIPS, EMPTY_FILTERS } from '@/features/search/components/FilterSheet'
 
 // Categories fixture: 2 top-levels + 2 subcategories of Food & Drink
 jest.mock('@/hooks/useCategories', () => ({
@@ -290,6 +290,125 @@ describe('FilterSheet', () => {
       expect(onApply).toHaveBeenCalledWith(
         expect.objectContaining({ voucherTypes: ['BOGO', 'TIME_LIMITED', 'REUSABLE'] }),
       )
+    })
+  })
+
+  // Map Phase 2 S5a — redesign additions: header close, Reset footer
+  // button, live-count override + fallback, draft-change reporting.
+  describe('S5a redesign', () => {
+    it('EMPTY_FILTERS is the canonical all-clear state', () => {
+      expect(EMPTY_FILTERS).toEqual({
+        categoryId:   null,
+        sortBy:       'relevance',
+        voucherTypes: [],
+        amenityIds:   [],
+        openNow:      false,
+      })
+    })
+
+    it('renders a header with a title and a close button that dismisses', () => {
+      const onDismiss = jest.fn()
+      const { getByText, getByLabelText } = render(
+        <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={jest.fn()} onDismiss={onDismiss} />,
+      )
+      expect(getByText('Filters')).toBeTruthy()
+      fireEvent.press(getByLabelText('Close filters'))
+      expect(onDismiss).toHaveBeenCalledTimes(1)
+    })
+
+    it('Reset returns the draft to EMPTY_FILTERS by default (does not call onApply or onDismiss)', () => {
+      const onApply = jest.fn()
+      const onDismiss = jest.fn()
+      const startFilters: FilterState = {
+        categoryId: 'c1', sortBy: 'nearest', voucherTypes: ['BOGO'], amenityIds: ['a1'], openNow: true,
+      }
+      const { getByText, getByLabelText } = render(
+        <FilterSheet visible filters={startFilters} resultCount={7} onApply={onApply} onDismiss={onDismiss} />,
+      )
+      fireEvent.press(getByLabelText('Reset filters'))
+      // Reset is draft-only — neither callback fires...
+      expect(onApply).not.toHaveBeenCalled()
+      expect(onDismiss).not.toHaveBeenCalled()
+      // ...but applying afterwards sends the reset (empty) state.
+      fireEvent.press(getByText('Show 7 results'))
+      expect(onApply).toHaveBeenCalledWith(EMPTY_FILTERS)
+    })
+
+    it('Reset returns the draft to a custom baseFilters when provided (CategoryResultsScreen contract)', () => {
+      const onApply = jest.fn()
+      const startFilters: FilterState = {
+        categoryId: 's1', sortBy: 'nearest', voucherTypes: [], amenityIds: [], openNow: true,
+      }
+      const baseFilters: FilterState = { ...EMPTY_FILTERS, categoryId: 'c1' }
+      const { getByText, getByLabelText } = render(
+        <FilterSheet
+          visible
+          filters={startFilters}
+          resultCount={7}
+          onApply={onApply}
+          onDismiss={jest.fn()}
+          baseFilters={baseFilters}
+        />,
+      )
+      fireEvent.press(getByLabelText('Reset filters'))
+      fireEvent.press(getByText('Show 7 results'))
+      // categoryId returns to the ROUTE category ('c1'), not null — Reset
+      // must not filter the user out of the category page they're on.
+      expect(onApply).toHaveBeenCalledWith(baseFilters)
+    })
+
+    it('shows resultCount when liveCount is not provided (unchanged default)', () => {
+      const { getByText } = render(
+        <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={jest.fn()} onDismiss={jest.fn()} />,
+      )
+      expect(getByText('Show 42 results')).toBeTruthy()
+    })
+
+    it('prefers liveCount over resultCount when provided', () => {
+      const { getByText, queryByText } = render(
+        <FilterSheet
+          visible
+          filters={defaultFilters}
+          resultCount={42}
+          onApply={jest.fn()}
+          onDismiss={jest.fn()}
+          liveCount={14}
+        />,
+      )
+      expect(getByText('Show 14 results')).toBeTruthy()
+      expect(queryByText('Show 42 results')).toBeNull()
+    })
+
+    it('falls back to resultCount when liveCount is explicitly null (no context to preview against yet)', () => {
+      const { getByText } = render(
+        <FilterSheet
+          visible
+          filters={defaultFilters}
+          resultCount={42}
+          onApply={jest.fn()}
+          onDismiss={jest.fn()}
+          liveCount={null}
+        />,
+      )
+      expect(getByText('Show 42 results')).toBeTruthy()
+    })
+
+    it('reports every draft change via onDraftChange, including the initial sync', () => {
+      const onDraftChange = jest.fn()
+      const { getByText } = render(
+        <FilterSheet
+          visible
+          filters={defaultFilters}
+          resultCount={42}
+          onApply={jest.fn()}
+          onDismiss={jest.fn()}
+          onDraftChange={onDraftChange}
+        />,
+      )
+      expect(onDraftChange).toHaveBeenCalledWith(defaultFilters)
+      onDraftChange.mockClear()
+      fireEvent.press(getByText('Nearest'))
+      expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ sortBy: 'nearest' }))
     })
   })
 })
