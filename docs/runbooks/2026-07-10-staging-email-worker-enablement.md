@@ -1,9 +1,10 @@
 # Staging email/worker enablement (sandbox mode)
 
-**Status: VERIFIED WORKING END-TO-END. The second window PASSED on 2026-07-10 (§2b):
-staging sandbox email delivers for real. The worker stays OFF between windows (windowed
-posture, owner decision). Production email remains untouched and owner-gated. §4 is the
-standing procedure for any future window.**
+**Status: VERIFIED WORKING END-TO-END; posture changed 2026-07-11 to ALWAYS-ON (§7).
+The windowed posture (§2-§5) is HISTORICAL: the staging worker now runs continuously with
+the maintenance scheduler enabled (owner decision 4, 2026-07-11). Production email remains
+untouched and owner-gated. §4 stays useful as the verification recipe if the worker is ever
+re-enabled after a stop.**
 
 ## 1. Goal
 
@@ -104,3 +105,45 @@ posture: none of that is touched here).
 - D-EM3 posture decision if always-on is ever wanted (incl. enabling maintenance config).
 - Production email enablement: fully out of scope; requires sender domain, SPF/DKIM/DMARC,
   monitored inboxes, bounce handling, and legal/comms posture.
+
+## 7. Posture change 2026-07-11: staging worker ALWAYS-ON (owner decision 4)
+
+Owner-approved always-on posture executed 2026-07-11 (staging only; production remains
+separately owner-gated). Deployment at main `abf6802d` (SUCCESS), Railway worker service,
+staging environment.
+
+Safeguards verified before deploy (all by NAME, no secret values inspected):
+
+- Sandbox trio unchanged: `EMAIL_ENABLED=true`, `EMAIL_SANDBOX=true`,
+  `EMAIL_SANDBOX_ALLOWLIST=admin@redeemo.co.uk`. `RESEND_API_KEY` present.
+  `WORKER_DATABASE_POOL_MAX=5`.
+- SMS risk assessed: the worker registers NO SMS processor (email + maintenance sweeps +
+  photo-moderation only; Twilio SMS is sent synchronously by the API service). Always-on
+  adds no standing SMS path. The standing caution is unchanged: do not exercise customer
+  phone flows on staging.
+- Backlog checked pre-deploy: exactly 2 QUEUED rows (`merchant_edit_applied`,
+  `branch_create_approved`), both benign notifications with no OTP/reset links.
+- Maintenance config: `MAINTENANCE_MODE=enabled` plus the 9 documented candidate values
+  from `.env.example` (F_idle 1800000 ms, F_active 5000 ms, Phase-B 200 items / 10000 ms,
+  statement 4000 ms / tx 8000 ms, all three sweeps enabled). Numerics remain the
+  documented CANDIDATE values; changing them is a reviewed step.
+
+First-run outcomes (the owner-required report):
+
+- Queue: both backlog rows flipped QUEUED to SENT with Resend externalIds within seconds
+  of boot; QUEUED count now 0.
+- Email: sandbox redirect confirmed live in worker logs (recipients rewritten to
+  `admin@redeemo.co.uk`); no non-allowlist delivery.
+- SMS: none sent; no SMS capability registered in the worker.
+- Maintenance: scheduler started (outbox + pending-hours + claim-stale all ENABLED);
+  sweeps running clean (`failedRows: 0`); no pending-hours rows awaited promotion
+  (4 PROMOTED / 1 CANCELLED, all terminal) and no stale claims existed.
+- Stability: no crash loop; zero error lines after multi-minute soak.
+
+Consequences now permanent on staging:
+
+- **The OTP-from-DB recipe is DEAD** (worker NULLs payloads on send): all OTPs, reset
+  links and claim links arrive at the allowlist inbox only.
+- The Neon staging branch stays awake (60 s floor sweeps): the CU-burn trade-off the
+  owner accepted with this decision.
+- Rollback remains one action: remove the worker deployment; emails queue harmlessly.
