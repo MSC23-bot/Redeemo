@@ -9,6 +9,7 @@ import { Text, color, spacing, radius, elevation, layer, useMotionScale } from '
 import { useUserLocation } from '@/hooks/useLocation'
 import { useMe } from '@/hooks/useMe'
 import { useCategories } from '@/hooks/useCategories'
+import { useEligibleAmenities } from '@/hooks/useEligibleAmenities'
 import { useSearch } from '@/hooks/useSearch'
 import { useInAreaBranches, type BoundingBox } from '../hooks/useInAreaBranches'
 import { quantizeBbox } from '../utils/bboxQuantize'
@@ -22,7 +23,11 @@ import { LocationSearch, UK_CITIES } from '../components/LocationSearch'
 import { LocationBadge } from '../components/LocationBadge'
 import { MapListView } from '../components/MapListView'
 import { SearchBar } from '@/features/search/components/SearchBar'
-import { FilterSheet, FilterState } from '@/features/search/components/FilterSheet'
+import { FilterSheet, FilterState, EMPTY_FILTERS } from '@/features/search/components/FilterSheet'
+import { FilterChipsRow } from '@/features/search/components/FilterChipsRow'
+import { FilterButtonBadge } from '@/features/search/components/FilterButtonBadge'
+import { nonScopeFilterCount } from '@/features/search/utils/filterState'
+import { useFilterPreviewCount, type FilterPreviewBaseParams } from '@/features/search/hooks/useFilterPreviewCount'
 import { ViewportLocalityBadge } from '@/design-system/components/ViewportLocalityBadge'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { useToast } from '@/design-system'
@@ -56,14 +61,6 @@ const UK_EXTENT = {
 // while a user is settling the map; we don't want to refetch on every
 // micro-adjust. Plan locked at 500ms (decision #6).
 const PAN_DEBOUNCE_MS = 500
-
-const DEFAULT_FILTERS: FilterState = {
-  categoryId:   null,
-  sortBy:       'relevance',
-  voucherTypes: [],
-  amenityIds:   [],
-  openNow:      false,
-}
 
 function regionToBbox(region: Region): BoundingBox {
   return {
@@ -155,8 +152,18 @@ export function MapScreen(_props: Props) {
   // Single source of truth shared between the FilterSheet and the category
   // pill row. `categoryId` here is the active filter — both surfaces write
   // through `setFilters`.
-  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS)
+  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS)
   const [filterVisible, setFilterVisible] = useState(false)
+  // Map Phase 2 S5a — eligible amenities for the CURRENTLY APPLIED
+  // category, so the applied-filters chips row can show real amenity
+  // names ("Wi-Fi") instead of raw UUIDs. Separate from FilterSheet's own
+  // internal `useEligibleAmenities(local.categoryId)` call (draft-scoped).
+  const { data: eligibleAmenitiesData } = useEligibleAmenities(filters.categoryId)
+  // Map Phase 2 S5a — the FilterSheet's DRAFT (unapplied) filters, reported
+  // up via its `onDraftChange` prop. Feeds `useFilterPreviewCount` below so
+  // the sheet's Apply button can show a live "Show N results" count that
+  // reflects what's being EDITED, not just what's currently applied.
+  const [filterDraft, setFilterDraft] = useState<FilterState>(filters)
 
   // ─── Search-text state (separate from filters) ─────────────────────────────
   // Drives the LocationSearch dropdown only. Currently NOT wired into the
@@ -222,6 +229,29 @@ export function MapScreen(_props: Props) {
   // render) even though the unfiltered in-area path hit it. Quantizing here
   // brings the filtered path to parity with the unfiltered one.
   const quantizedQueryBbox = queryBbox !== null ? quantizeBbox(queryBbox) : null
+
+  // Map Phase 2 S5a — live result-count preview for the FilterSheet's
+  // Apply button. MUST be called BEFORE `searchResultQuery` below: both
+  // resolve to `useSearch` under the hood, and `MapScreen.test.tsx`'s
+  // hybrid-hook-switching suite asserts against
+  // `mockSearchCalls[mockSearchCalls.length - 1]`, i.e. it expects
+  // MapScreen's own /search call to be the LAST `useSearch` invocation
+  // captured per render. Keeping this preview call textually first
+  // preserves that ordering (see useFilterPreviewCount's doc comment).
+  const previewBaseParams: FilterPreviewBaseParams = {
+    ...(quantizedQueryBbox
+      ? {
+          minLat: quantizedQueryBbox.minLat,
+          maxLat: quantizedQueryBbox.maxLat,
+          minLng: quantizedQueryBbox.minLng,
+          maxLng: quantizedQueryBbox.maxLng,
+        }
+      : {}),
+    ...(locationState.location
+      ? { lat: locationState.location.lat, lng: locationState.location.lng }
+      : {}),
+  }
+  const filterPreview = useFilterPreviewCount(filterVisible, previewBaseParams, filterDraft)
 
   const searchResultQuery = useSearch(
     {
@@ -609,7 +639,7 @@ export function MapScreen(_props: Props) {
   }, [])
 
   const handleClearFilters = useCallback(() => {
-    setFilters(DEFAULT_FILTERS)
+    setFilters(EMPTY_FILTERS)
     setSearchQuery('')
   }, [])
 
@@ -895,6 +925,18 @@ export function MapScreen(_props: Props) {
           />
         )}
 
+        {/* Map Phase 2 S5a — applied-filters chips row, directly under the
+            category pills (owner design brief item 3). Hidden entirely
+            when nothing differs from EMPTY_FILTERS. */}
+        {!showLocationSearch && (
+          <FilterChipsRow
+            filters={filters}
+            categories={categories}
+            amenities={eligibleAmenitiesData?.amenities ?? []}
+            onChange={setFilters}
+          />
+        )}
+
         {/* Plan 4 M3b follow-up — viewport locality badge. Renders
             null when meta.effectiveLocality is absent. Suppressed
             when the camera is offshore (the offshore message in
@@ -914,7 +956,7 @@ export function MapScreen(_props: Props) {
         style={styles.filterButton}
       >
         <SlidersHorizontal size={22} color={color.navy} />
-        {hasNonScopeFilters && <View testID="filter-active-dot" style={styles.filterActiveDot} />}
+        <FilterButtonBadge count={nonScopeFilterCount(filters)} />
       </Pressable>
 
       <Pressable
@@ -1003,6 +1045,9 @@ export function MapScreen(_props: Props) {
         resultCount={total}
         onApply={handleApplyFilters}
         onDismiss={() => setFilterVisible(false)}
+        liveCount={filterPreview.count}
+        liveCountPending={filterPreview.pending}
+        onDraftChange={setFilterDraft}
       />
     </View>
   )
@@ -1086,17 +1131,6 @@ const styles = StyleSheet.create({
     justifyContent:  'center',
     zIndex:          layer.sticky,
     ...elevation.md,
-  },
-  filterActiveDot: {
-    position:        'absolute',
-    top:             8,
-    right:           8,
-    width:           8,
-    height:          8,
-    borderRadius:    4,
-    backgroundColor: color.brandRose,
-    borderWidth:     1.5,
-    borderColor:     '#FFFFFF',
   },
   listToggleButton: {
     position:          'absolute',

@@ -405,10 +405,15 @@ describe('MapScreen', () => {
     })
 
     it('tapping the same pill twice clears categoryId (mirrors FilterSheet selectTopLevel)', () => {
-      const { getByText } = render(<MapScreen />, { wrapper })
+      const { getByText, getAllByText } = render(<MapScreen />, { wrapper })
 
       fireEvent.press(getByText('Food & Drink'))
-      fireEvent.press(getByText('Food & Drink'))
+      // Map Phase 2 S5a — once selected, the pill's label ALSO appears in
+      // the new applied-filters chip row beneath the pills (removable
+      // "Food & Drink ×" chip) — mirrors FilterSheet.test.tsx's own
+      // "active pill renders its label twice" precedent. Press the FIRST
+      // match (the pill itself, mounted before the chips row).
+      fireEvent.press(getAllByText('Food & Drink')[0]!)
 
       const last = mockInAreaCalls[mockInAreaCalls.length - 1]!
       expect(last.params.categoryId).toBeUndefined()
