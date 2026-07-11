@@ -59,6 +59,17 @@ describe('SignInPage (M1 Slice 2)', () => {
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/'))
   })
 
+  it('normalizes the email (trim + lowercase) before submit', async () => {
+    mockLogin.mockResolvedValue({ accessToken: 'at', merchant: { id: 'm', businessName: 'Co', approvalStatus: 'ACTIVE' } })
+    render(<SignInPage />)
+    fireEvent.change(screen.getByLabelText(/work email/i), { target: { value: '  Owner@Merchant.TEST ' } })
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'pw' } })
+    fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
+    await waitFor(() =>
+      expect(mockLogin).toHaveBeenCalledWith(expect.objectContaining({ email: 'owner@merchant.test' })),
+    )
+  })
+
   it('surfaces the friendly error message on a failed sign-in', async () => {
     mockLogin.mockRejectedValue(new ApiError(401, { error: { code: 'INVALID_CREDENTIALS' } }))
     render(<SignInPage />)

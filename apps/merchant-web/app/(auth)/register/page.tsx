@@ -44,14 +44,17 @@ export default function RegisterPage() {
     setError(null)
     setLoading(true)
     try {
+      // Normalize before submit: email is trimmed + lowercased (case/whitespace
+      // variants of one address must not become distinct accounts); names and the
+      // business name are trimmed only (case is meaningful there).
       const result = await authApi.register({
-        firstName,
-        lastName,
-        email,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim().toLowerCase(),
         mobile: mobile || undefined,
         mobileCountryCode: mobileCode || undefined,
         password,
-        businessName,
+        businessName: businessName.trim(),
         termsAccepted: true,
         turnstileToken: captchaToken,
         deviceId: getOrCreateDeviceId(),

@@ -35,6 +35,14 @@ describe('ForgotPasswordPage (M1 Slice 3, anti-enumeration)', () => {
     await waitFor(() => expect(screen.getByText(/if that email is registered/i)).toBeInTheDocument())
   })
 
+  it('normalizes the email (trim + lowercase) before submit', async () => {
+    mockForgot.mockResolvedValue({ message: 'ok' })
+    render(<ForgotPasswordPage />)
+    fireEvent.change(screen.getByLabelText(/work email/i), { target: { value: '  Owner@Merchant.TEST ' } })
+    fireEvent.click(screen.getByRole('button', { name: /send reset link/i }))
+    await waitFor(() => expect(mockForgot).toHaveBeenCalledWith({ email: 'owner@merchant.test' }))
+  })
+
   it('surfaces a rate-limit (429) instead of the confirmation', async () => {
     mockForgot.mockRejectedValue(new ApiError(429, { statusCode: 429, error: 'Too Many Requests' }))
     render(<ForgotPasswordPage />)
