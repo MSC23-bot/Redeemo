@@ -88,6 +88,17 @@ export type AdminCapability =
   // directory) so a redemption-visibility role need not also hold the
   // merchant-directory read. OPERATIONS + SUPER_ADMIN hold it.
   | 'redemption:read'
+  // Team & Roles S1: FIELD baseline anchor. Create/update/progress merchant
+  // leads. The MerchantLead pipeline routes are a sibling packet; this literal
+  // is declared here so ROLE_CAPABILITIES.FIELD can reference it now.
+  | 'lead:manage'
+  // Team & Roles S1: gates the entire Team & Roles surface (create admin
+  // account, set base role, deactivate, grant/revoke curated capabilities).
+  // Intentionally NOT in ALL_SLICE1_CAPS and NOT in ANY role baseline (incl.
+  // FIELD / OPERATIONS), so under the SUPER_ADMIN short-circuit it is held ONLY
+  // by SUPER_ADMIN. It is NOT in GRANTABLE_CAPABILITIES either, so no grant can
+  // ever confer it (privilege-escalation guard, spec §7 invariant 1).
+  | 'admin:manage-team'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
@@ -103,17 +114,85 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'redemption:read',
 ]
 
+// Team & Roles S1: FIELD baseline (owner-locked UNION set, 2026-07-10: FIELD
+// must complete assisted onboarding END-TO-END for pre-live merchants,
+// including submit-for-review). Field reps capture leads and drive assisted
+// PRE-LIVE onboarding on a merchant's behalf. FIELD holds NO approval
+// capability (`approval:action` is grant-only, spec §5), NO `redemption:read`
+// (reps have no cross-merchant redemption need), NO `merchant:suspend`, NO
+// `admin:manage-team`, and NONE of the SUPER_ADMIN-only edit-identity /
+// edit-category caps. The safety boundary for the on-behalf caps is the
+// SERVER-SIDE pre-live scope guard (spec §4.2, slice S3): these powers apply
+// only to REGISTERED/PENDING_APPROVAL merchants, never live ones.
+const FIELD_CAPABILITIES: AdminCapability[] = [
+  'lead:manage',
+  'merchant:create-draft',
+  'merchant:read',
+  'merchant:edit',
+  'merchant:submit',
+  'merchant:manage-branches',
+  'merchant:manage-documents',
+  'merchant:manage-vouchers',
+]
+
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `adminHasCapability`
 // so it implicitly holds every CURRENT and FUTURE capability without map
-// upkeep). OPERATIONS runs the merchant lifecycle. FINANCE/CONTENT/SUPPORT hold
-// none of the Slice-1 capabilities.
+// upkeep). OPERATIONS runs the merchant lifecycle. FIELD holds the rep baseline
+// above. FINANCE/CONTENT/SUPPORT hold none of the Slice-1 capabilities.
 const ROLE_CAPABILITIES: Record<string, AdminCapability[]> = {
   OPERATIONS: ALL_SLICE1_CAPS,
+  FIELD: FIELD_CAPABILITIES,
   FINANCE: [],
   CONTENT: [],
   SUPPORT: [],
 }
 
+// Team & Roles S1: the ONLY capabilities a SUPER_ADMIN may grant to another
+// admin via the Team & Roles surface (spec §6.2). Launch curated set = exactly
+// `approval:action`. This is a server-side allow-list, NOT free-form: an
+// operator can never grant `admin:manage-team` (privilege-escalation guard) or
+// any other capability off this list. Adding a capability here later is a config
+// change, not a schema change.
+export const GRANTABLE_CAPABILITIES = ['approval:action'] as const
+export type GrantableCapability = (typeof GRANTABLE_CAPABILITIES)[number]
+
+/** True iff `cap` is on the curated grantable allow-list. */
+export function isGrantableCapability(cap: string): cap is GrantableCapability {
+  return (GRANTABLE_CAPABILITIES as readonly string[]).includes(cap)
+}
+
+/**
+ * Effective capabilities for a NON-SUPER_ADMIN admin = role baseline UNION the
+ * admin's active (non-revoked) grants, with grants FILTERED to the grantable
+ * allow-list. Filtering here is defence in depth: even if a non-grantable
+ * capability somehow lands in the grant table, it is IGNORED and never becomes
+ * effective (spec §7 invariant 1). SUPER_ADMIN is intentionally NOT special-
+ * cased here: its authority rides the SUPER_ADMIN short-circuit in
+ * `adminHasEffectiveCapability`, and its computed `caps` claim is simply its
+ * (empty) baseline. Order is deterministic (baseline first, then new grants).
+ */
+export function resolveEffectiveCapabilities(
+  role: string | undefined,
+  activeGrantCaps: string[],
+): AdminCapability[] {
+  const baseline = role ? (ROLE_CAPABILITIES[role] ?? []) : []
+  const grantable = activeGrantCaps.filter(isGrantableCapability)
+  const seen = new Set<string>()
+  const out: AdminCapability[] = []
+  for (const cap of [...baseline, ...grantable]) {
+    if (seen.has(cap)) continue
+    seen.add(cap)
+    out.push(cap as AdminCapability)
+  }
+  return out
+}
+
+/**
+ * Role-only capability check (base role + SUPER_ADMIN short-circuit). Retained
+ * for callers that pre-date the per-account grant model and for the legacy-token
+ * fallback in `adminHasEffectiveCapability`. Grant-aware call sites must use
+ * `adminHasEffectiveCapability` / `requireAdminCapability`.
+ */
 export function adminHasCapability(role: string | undefined, cap: AdminCapability): boolean {
   if (!role) return false
   if (role === 'SUPER_ADMIN') return true
@@ -121,13 +200,35 @@ export function adminHasCapability(role: string | undefined, cap: AdminCapabilit
 }
 
 /**
+ * Grant-aware capability check. SUPER_ADMIN short-circuits (never routed through
+ * the grant table). Otherwise membership is decided against the token's minted
+ * `caps` claim (role baseline UNION active grantable grants, computed at sign
+ * time). `caps === undefined` means a LEGACY token minted before the `caps`
+ * claim existed: fall back to the role baseline so the rollout does not break
+ * in-flight sessions. New tokens always carry an (at least empty) `caps` array,
+ * so this fallback can never mask a revoke.
+ */
+export function adminHasEffectiveCapability(
+  role: string | undefined,
+  caps: string[] | undefined,
+  cap: AdminCapability,
+): boolean {
+  if (!role) return false
+  if (role === 'SUPER_ADMIN') return true
+  if (caps === undefined) return (ROLE_CAPABILITIES[role] ?? []).includes(cap)
+  return caps.includes(cap)
+}
+
+/**
  * Fastify preHandler that 403s an admin lacking `cap`. Must run AFTER
  * `authenticateAdmin` (the admin-management plugin applies that hook to the
- * whole scope, so `request.user.adminRole` is populated by the time this runs).
+ * whole scope, so `request.user.adminRole` + `request.user.caps` are populated
+ * by the time this runs). Grant-aware: consults the SUPER_ADMIN short-circuit
+ * (`adminRole` claim) OR membership in the token's `caps` claim.
  */
 export function requireAdminCapability(cap: AdminCapability) {
   return async function (request: any, reply: any) {
-    if (!adminHasCapability(request.user?.adminRole, cap)) {
+    if (!adminHasEffectiveCapability(request.user?.adminRole, request.user?.caps, cap)) {
       return reply.status(403).send({
         error: {
           code: 'ADMIN_CAPABILITY_DENIED',

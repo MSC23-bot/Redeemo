@@ -31,6 +31,9 @@ describe('H4 — refresh re-checks account status (customer / branch / admin)', 
       user:        { findUnique: vi.fn() },
       branchUser:  { findUnique: vi.fn() },
       adminUser:   { findUnique: vi.fn() },
+      // Team & Roles S1: admin refresh now recomputes the effective-cap `caps`
+      // claim from active grants for a non-super admin (no active grants here).
+      adminCapabilityGrant: { findMany: vi.fn().mockResolvedValue([]) },
       userSession: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findFirst: vi.fn().mockResolvedValue(null) },
       auditLog:    { create: vi.fn().mockResolvedValue({}) },
     } as any)

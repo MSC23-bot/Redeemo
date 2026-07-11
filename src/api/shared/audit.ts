@@ -185,6 +185,24 @@ export type AuditEvent =
   // String column, so these are union-only (no migration).
   | 'MERCHANT_SELF_REGISTERED'
   | 'MERCHANT_EMAIL_VERIFIED'
+  // Team & Roles S1: SUPER_ADMIN team-management actions on the AdminUser /
+  // AdminCapabilityGrant surface. `event` is a String column, so these are
+  // union-only literals with NO migration. entityType 'admin', entityId = the
+  // TARGET admin, actorId = the acting SUPER_ADMIN.
+  //   ADMIN_ACCOUNT_CREATED      — a new admin account was created.
+  //   ADMIN_ROLE_CHANGED         — an admin's base AdminRole was changed
+  //                                (before/after carry the old/new role).
+  //   ADMIN_ACCOUNT_DEACTIVATED  — an admin was deactivated (isActive=false +
+  //                                sessions revoked).
+  //   ADMIN_CAPABILITY_GRANTED   — a curated capability was granted (metadata
+  //                                carries the capability + grant id).
+  //   ADMIN_CAPABILITY_REVOKED   — an active grant was revoked (soft revokedAt +
+  //                                sessions revoked = the immediate escape hatch).
+  | 'ADMIN_ACCOUNT_CREATED'
+  | 'ADMIN_ROLE_CHANGED'
+  | 'ADMIN_ACCOUNT_DEACTIVATED'
+  | 'ADMIN_CAPABILITY_GRANTED'
+  | 'ADMIN_CAPABILITY_REVOKED'
 
 export interface AuditContext {
   entityId: string

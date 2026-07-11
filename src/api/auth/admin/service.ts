@@ -12,9 +12,24 @@ import {
   revokeAllSessionsForEntity, revokeAllUserSessionRecords,
 } from '../../shared/session'
 import { writeAuditLog } from '../../shared/audit'
+import { resolveEffectiveCapabilities } from '../../admin/capability'
+import { getActiveGrantCapabilities } from '../../admin/team/service'
 
 const OTP_CHALLENGE_TTL = 600
 const ACCESS_TOKEN_TTL  = '15m'
+
+// Team & Roles S1: compute the effective capability list embedded as the `caps`
+// claim in the 15m admin access token (spec §3.3 Option A). caps = role baseline
+// UNION active grantable grants. SUPER_ADMIN never consults the grant table (its
+// authority rides the short-circuit); we still mint its (empty) baseline so the
+// claim is always present. Called at BOTH mint points (login + every refresh),
+// so a grant/revoke takes effect within one access-token lifetime (<=15m).
+async function computeAdminCaps(prisma: PrismaClient, admin: { id: string; role: string }): Promise<string[]> {
+  const activeGrants = admin.role === 'SUPER_ADMIN'
+    ? []
+    : await getActiveGrantCapabilities(prisma, admin.id)
+  return resolveEffectiveCapabilities(admin.role, activeGrants)
+}
 
 // SEC F1: the admin OTP dev bypass is allowed ONLY in these explicit dev-like
 // envs. An allowlist (not `NODE_ENV !== 'production'`) so that an unset / typo'd /
@@ -162,8 +177,10 @@ export async function verifyAdminOtp(
     'EX', 3600
   )
 
+  const caps = await computeAdminCaps(prisma, admin)
+
   const accessToken = app.jwt.admin.sign(
-    { sub: admin.id, role: 'admin', adminRole: admin.role, sessionId },
+    { sub: admin.id, role: 'admin', adminRole: admin.role, caps, sessionId },
     { expiresIn: ACCESS_TOKEN_TTL }
   )
 
@@ -226,8 +243,12 @@ export async function refreshAdminToken(
     where: { sessionId: data.sessionId }, data: { lastActiveAt: new Date() },
   })
 
+  // Recompute effective caps on every refresh (spec §3.3): a grant added or
+  // revoked since the last mint takes effect here, within one access-token TTL.
+  const caps = await computeAdminCaps(prisma, admin)
+
   const accessToken = app.jwt.admin.sign(
-    { sub: data.entityId, role: 'admin', adminRole: admin.role, sessionId: data.sessionId },
+    { sub: data.entityId, role: 'admin', adminRole: admin.role, caps, sessionId: data.sessionId },
     { expiresIn: ACCESS_TOKEN_TTL }
   )
 

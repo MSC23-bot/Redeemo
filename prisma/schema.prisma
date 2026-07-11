@@ -93,6 +93,11 @@ enum AdminRole {
   FINANCE
   CONTENT
   SUPPORT
+  // Team & Roles S1: field reps who create merchant leads and drive assisted
+  // pre-live onboarding. Baseline capability set lives in
+  // src/api/admin/capability.ts (ROLE_CAPABILITIES.FIELD); it holds NO approval
+  // capability (approval:action is grant-only via AdminCapabilityGrant).
+  FIELD
 }
 
 // ─────────────────────────────────────────
@@ -365,7 +370,35 @@ model AdminUser {
 
   approvals AdminApproval[]
 
+  // Team & Roles S1: per-account capability grants (base-role UNION grants).
+  capabilityGrants AdminCapabilityGrant[]
+
   @@index([email])
+}
+
+// Team & Roles S1 (spec 2026-07-10-admin-capability-grants-field-role §3.1).
+// A per-account capability grant: base role UNION active grants = effective
+// caps. A grant is ACTIVE iff revokedAt IS NULL. Revocation is a soft update
+// (never a hard delete) so the grant history stays auditable; a re-grant after
+// revoke inserts a new row. `capability` is a plain String (not a DB enum),
+// matching the AdminCapability string-union convention, so new grantable caps
+// need no migration. `grantedById` / `revokedById` are bare ids (no FK,
+// matching AdminApproval.claimedById). Only capabilities in the server-side
+// GRANTABLE_CAPABILITIES allow-list may ever be granted (enforced at the route
+// AND ignored by effective-cap resolution as defence in depth).
+model AdminCapabilityGrant {
+  id           String    @id @default(uuid())
+  adminUserId  String
+  capability   String
+  grantedById  String
+  grantedAt    DateTime  @default(now())
+  revokedAt    DateTime?
+  revokedById  String?
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id])
+
+  @@index([adminUserId, revokedAt])
+  @@index([capability])
 }
 
 // ─────────────────────────────────────────
