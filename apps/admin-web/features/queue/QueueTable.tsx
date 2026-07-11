@@ -53,7 +53,16 @@ function ClaimCell({
     return <span className="text-sm text-muted-foreground italic">Closed</span>
   }
   if (approval.claimedById == null) {
-    return <span className="text-sm text-muted-foreground italic">Unclaimed</span>
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="text-sm text-muted-foreground italic">Unclaimed</span>
+        {approval.previousReviewerName && (
+          <span title={`Previously reviewed by ${approval.previousReviewerName}`}>
+            <Badge tone="neutral">Previously reviewed by {approval.previousReviewerName}</Badge>
+          </span>
+        )}
+      </div>
+    )
   }
   if (approval.claimedById === currentAdminId) {
     return <span className="text-sm font-medium text-foreground">You</span>
