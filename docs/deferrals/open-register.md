@@ -59,6 +59,13 @@ closed by a later PR; confirm and then remove with a citation).
 | Savings ROI copy semantics | "You've saved £X, Y× your subscription": calendar-month vs billing-cycle comparison + annual-plan denomination | OPEN: needs owner product decision |
 | Lifecycle nudges | Post-redemption "rate this merchant" delayed notification (timing/scheduler/dedup) + subscription-renewal notification (copy/event-source/destination) | OPEN: needs owner product decisions; Phase-6-adjacent |
 
+**Map Phase 2 wave follow-ups (OPENED 2026-07-13 on the S5a/S5b/W1/W1.1/W1.2 merge; do not forget):**
+- **§MAP-P2-CHATTY** - customer-app client chattiness: a profile-request storm was observed during session-bounce testing (30 identical `/customer/profile` requests within 1-second bursts, seen in local backend logs 2026-07-12), triggered by customer-web tabs plus session-replacement churn. Ties to the existing rate-limit/production-resilience thread (the §W checklist in the private deferred archive; see also the #432 429-fix paragraph in `docs/PROJECT-STATE.md` §4.1). OPEN: needs a request-dedup/debounce fix at the client focus/session-replacement seam.
+- **§MAP-P2-GEOCODE** - staging QA profile `staging-customer@redeemo.co.uk` uses test postcode `HD1 1AA`, which never geocoded (profile `lat`/`lng` NULL on staging), so the app cold-opens on the London fallback instead of the expected area. OPEN: needs a real-postcode re-save or a staging data fix.
+- **§MAP-P2-COPY** - location-indicator copy audit: the S5b composite chip (`MapLocationIndicator`, `feat/map-p2-s5b-chrome`) rendered "Near St James's · your location" while the map was actually on the LONDON FALLBACK with no GPS fix - the "your location" suffix reads as an identity claim it cannot back up in the fallback case. D10-family (location-indicator suffix semantics; see the S5b as-shipped addendum, `docs/superpowers/plans/2026-07-10-map-phase-2-programme.md` §10 Task 2). OPEN: needs a copy/state audit of the fallback branch.
+- **§MAP-P2-DEVCACHE** - `expo-dev-client` did not apply an updated Metro manifest `extra` (`devLocationOverride`) after a reload: suspected stale/cached manifest. Dev-tooling only (the §AU dev-location-override surface), LOW priority.
+- Detail: `docs/superpowers/plans/2026-07-12-map-walkthrough-fixes-and-visual-redesign.md`; `docs/PROJECT-STATE.md` §4.1 Map Phase 2 paragraph (2026-07-13).
+
 ## 2. Customer Website
 
 | ID | Item | Status / trigger |
@@ -236,6 +243,24 @@ disabled key is visible in logs without needing a live probe.)
 
 ## Change log
 
+- **2026-07-13** · Map Phase 2 wave merge bookkeeping (branch `docs/map-p2-wave-merge-bookkeeping`):
+  new §1 block **Map Phase 2 wave follow-ups** opened on the S5a/S5b/W1/W1.1/W1.2 merge
+  (#490 `9cc54bbd`, #493 `523fbc77`, #501 `08bda196`, #504 `040cc243`) - §MAP-P2-CHATTY
+  (customer-app profile-request storm on session bounce), §MAP-P2-GEOCODE (staging QA
+  postcode HD1 1AA never geocoded, London-fallback cold-open), §MAP-P2-COPY (location-
+  indicator "your location" suffix shown while on the London fallback with no GPS fix,
+  D10-family), §MAP-P2-DEVCACHE (expo-dev-client stale Metro manifest suspicion,
+  dev-tooling only, low priority). No pre-existing register row was found to be directly
+  closed by these four SHAs: the F1-F15 walkthrough findings they fix were discovered and
+  fixed within the same working session and were never externalized as their own register
+  rows before now (detail lives in the walkthrough plan instead). **Known stale item flagged,
+  not corrected by this entry** (out of this pass's SHA scope): §1 "Checklist-only
+  customer-app tail" row's Map polish bucket parenthetical still reads "clustering,
+  category-differentiated pins, region accumulation, AbortSignal - stays OPEN" as of
+  2026-07-09, but all four are now shipped via the programme's earlier S2/S3/S4 slices
+  (#474 `150440b6`, #476 `8b24d4f5`, #488 `e89799ee` - see `docs/PROJECT-STATE.md` §4.1's
+  Map Phase 2 paragraph); a follow-up pass should correct that row citing those SHAs.
+  `docs/PROJECT-STATE.md` §4.1 updated in the same PR with the full merge-wave record.
 - **2026-07-10** · Acceptance-walk reconciliation: §ADM-LOGIN flipped CLOSED (owner-approved
   staging-only reset back to the documented seed, production untouched; investigation preserved
   in the walk doc). New §5 WF-ledger block: packet-closed items (WF8/#457, WF16/#455,

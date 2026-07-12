@@ -103,6 +103,16 @@ was itself the pin (document each).
 
 ## 4. As-shipped addendum
 
+**Merged to `origin/main` 2026-07-13 (SHA-bound, in order):** #490 (`9cc54bbd`, S5a, parent
+programme plan) · #493 (`523fbc77`, S5b, restacked head `57969abb`, Codex anchor `300a63c5`) ·
+#501 (`08bda196`, W1+W1.1 combined squash, restacked `181e5090`, anchor `11155e93`) · #504
+(`040cc243`, W1.2 `react-native-maps` 1.20.1 -> 1.29.0, successor of #502 which GitHub
+auto-closed on stacked-base deletion, restacked `21f191a3`, anchor `ebd7c4fb`). Full citation
+record: `docs/PROJECT-STATE.md` §4.1 Map Phase 2 paragraph (2026-07-13). **W2 build started
+2026-07-13:** `feat/map-w2a-ticket-markers` (pins) and `feat/map-w2b-sheets-cards`
+(list/filter sheets + carousel card), owner-approved via the mockup board with edit rounds 1
+and 2 applied (see §2 above).
+
 ### W1 (2026-07-12, branch `feat/map-p2-w1-walkthrough-fixes`, stacked on `feat/map-p2-s5b-chrome`)
 
 Customer-app-only. Full customer-app jest green (324 suites / 3076 tests; map subset 27
