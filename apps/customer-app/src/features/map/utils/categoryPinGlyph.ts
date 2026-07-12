@@ -53,10 +53,18 @@ export type PinGlyphIcon = ComponentType<LucideProps>
 // Minimal structural shape shared by `Category` (the /categories list
 // rows) and the branch tile's `primaryCategory` summary — everything
 // the resolver needs, nothing more, so both sources satisfy it.
+//
+// Map P2 W1 (F7, 2026-07-12) — `pinColour` added (optional) so the pin
+// COLOUR can resolve the TOP-LEVEL category's colour client-side from
+// this same already-loaded tree, exactly as the GLYPH already resolves
+// the top-level NAME. Both `Category` (useCategories rows) and the
+// branch tile's category summary carry `pinColour`, so both still
+// satisfy this shape. See `resolveTopLevelPinColour` below.
 export type CategoryTreeNode = {
   id: string
   name: string
   parentId: string | null
+  pinColour?: string | null
 }
 
 /**
@@ -107,6 +115,49 @@ export function resolveTopLevelCategoryName(
     current = parent
   }
   return leaf.name // cycle guard tripped — degrade rather than hang
+}
+
+/**
+ * Map P2 W1 (F7, 2026-07-12) — resolves the TOP-LEVEL category's
+ * `pinColour` for a leaf category by walking `parentId` through the tree
+ * index, mirroring `resolveTopLevelCategoryName` above exactly.
+ *
+ * Why this exists: the backend read-path (`enrichBranchTile`, S3) already
+ * resolves a subcategory's `pinColour` as own-else-parent, so a fully
+ * up-to-date backend delivers the correct colour on the wire and this
+ * resolver never has to fire. But the map wave stacks on an as-yet-
+ * unmerged backend change; when the app runs against a backend WITHOUT
+ * that fallback, a subcategory-primary branch (e.g. "Cafe & Coffee",
+ * "Gift Shop") arrives with `pinColour: null` and every such pin renders
+ * the flat default red (walkthrough F7). Resolving the colour from the
+ * category tree the client ALREADY loads (`useCategories`) makes the pin
+ * colour correct regardless of backend deploy state — the SAME
+ * architecture S3 chose for the glyph, and deliberately NOT the forbidden
+ * "extend the client keyword list" workaround.
+ *
+ * Fallback ladder (parallels the name resolver):
+ *   1. leaf's OWN `pinColour` when set → use it (backend already did the
+ *      own-else-parent merge; this short-circuits when it worked).
+ *   2. else walk parentId up the index to the top-level ancestor and use
+ *      ITS `pinColour`.
+ *   3. else null (index not loaded, ancestor missing, or top-level has no
+ *      colour) → caller applies its own name-keyword / default fallback.
+ */
+export function resolveTopLevelPinColour(
+  leaf: CategoryTreeNode | null | undefined,
+  byId: ReadonlyMap<string, CategoryTreeNode>,
+): string | null {
+  if (!leaf) return null
+  if (leaf.pinColour) return leaf.pinColour
+  let current: CategoryTreeNode = leaf
+  for (let depth = 0; depth < MAX_TREE_WALK_DEPTH; depth++) {
+    if (current.parentId === null) return current.pinColour ?? null
+    const parent = byId.get(current.parentId)
+    if (!parent) return null // index not loaded / ancestor missing — caller degrades
+    if (parent.pinColour) return parent.pinColour
+    current = parent
+  }
+  return null // cycle guard tripped — degrade rather than hang
 }
 
 type GlyphEntry = { match: (n: string) => boolean; icon: PinGlyphIcon }
