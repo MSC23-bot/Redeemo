@@ -599,3 +599,17 @@ edited by this workstream.
   pass. Per-variant stage heights (corkscrew 230px, deep wave 280px desktop;
   110/130 mobile) bring the visible band body to peek scale. Turn softened
   (rotateX 6deg, roll 1.2deg, drift 22px).
+- Hero 3D (owner 2026-07-08: add 3D/WebGL elements to the hero): one element
+  done properly rather than many: the brand voucher band as a REAL-TIME
+  WebGL object (three + @react-three/fiber, new deps). HeroRibbon3D renders
+  a swept rectangular cross-section ribbon (~220 rings recomputed per frame,
+  duplicated verts per face so the edges stay crisp, matte MeshStandard red,
+  warm key + red rim lights) undulating and twisting through the hero space
+  BEHIND the artwork: the collage, frosted veil and floor fade all paint
+  above it, so the owner's art keeps top billing while the left side gains a
+  soft frosted red current under the copy and a crisp 3D fold emerges beside
+  the artwork on the right. Guards: dynamic import ssr:false, desktop-only
+  (lives inside HeroCollage's lg gate), skipped for reduced motion, dpr
+  capped 1.75, frameloop switches to 'never' whenever the hero is off
+  screen. Verified two live frames at 2238px: motion confirmed, headline
+  legibility intact behind the veil.
