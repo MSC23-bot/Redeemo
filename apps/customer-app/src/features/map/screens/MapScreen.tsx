@@ -342,6 +342,16 @@ export function MapScreen(_props: Props) {
   )
 
   const branches = hasNonScopeFilters ? dataView.branches : accumulatedBranches
+  // Map P2 W1 (F1) — `branches` is a fresh array reference on every
+  // region change (the accumulation store returns a new `Array.from(...)`
+  // each render). Callbacks that need the CURRENT branches but are passed
+  // down to memoized children (notably `handleBranchPress` → <MapPins>'s
+  // `onPress`) must NOT close over `branches` directly, or their identity
+  // would churn every pan and defeat the marker memoization that fixes
+  // the F1 pin-teleport. They read the latest array from this ref
+  // instead, keeping a stable `useCallback` identity (empty deps).
+  const branchesRef = useRef(branches)
+  branchesRef.current = branches
   // `mapDataView`'s `total` already falls back to `branches.length` for
   // the unfiltered in-area arm (it doesn't paginate — see the helper's
   // doc comment), so extending that same formula to the accumulated
@@ -677,10 +687,16 @@ export function MapScreen(_props: Props) {
   // re-running the select/camera-pan side effects a second time.
   const lastProgrammaticIndexRef = useRef<number | null>(null)
 
+  // Map P2 W1 (F1) — reads `branchesRef.current` (not the `branches`
+  // closure) so this callback keeps a STABLE identity across region
+  // changes. It is <MapPins>'s `onPress`; a churning identity here would
+  // re-render every memoized pin marker on every pan and reintroduce the
+  // F1 teleport. Behaviour is unchanged — it still resolves the tapped
+  // branch's index in the current array.
   const handleBranchPress = useCallback(
     (branch: BranchTileType) => {
       setSelectedBranchId(branch.id)
-      const idx = branches.findIndex((b) => b.id === branch.id)
+      const idx = branchesRef.current.findIndex((b) => b.id === branch.id)
       if (idx !== -1) {
         lastProgrammaticIndexRef.current = idx
         setActiveBranchIndex(idx)
@@ -689,7 +705,7 @@ export function MapScreen(_props: Props) {
         console.warn('[MapScreen] handleBranchPress: branch not in current array, activeBranchIndex unchanged', branch.id)
       }
     },
-    [branches],
+    [],
   )
 
   // Map Phase 2 S2 Task 4 — respects reduce-motion the same way

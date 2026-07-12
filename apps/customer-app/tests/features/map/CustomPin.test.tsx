@@ -325,3 +325,94 @@ describe('CustomPin — S5b voucher-count badge', () => {
     expect(withBadgeSize.height).toBe(withoutBadgeSize.height)
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────
+// Map P2 W1 (F2) — voucher badge hugs the teardrop head.
+//
+// Walkthrough finding F2: the badge was anchored at the container's bare
+// top-right corner (`right: 0, top: 0`) while the RESTING teardrop is
+// scaled down and pulled toward the wrapper centre — leaving a big gap so
+// the number read as detached. These pin that the badge is now positioned
+// (via `left`/`top`, not `right`) on the head's top-right shoulder and
+// stays ENTIRELY inside the constant 60x63 bounds (so it never re-enters
+// the chip zone above the pin and never grows the marker box).
+// ────────────────────────────────────────────────────────────────────────
+describe('CustomPin — F2 badge hugs the head', () => {
+  const CONTAINER_WIDTH = 60
+  const CONTAINER_HEIGHT = 63
+  const BADGE = 16
+  const styleOf = (el: any) =>
+    Array.isArray(el.props.style) ? Object.assign({}, ...el.props.style.filter(Boolean)) : el.props.style
+
+  it('is positioned by left/top (not the bare right/top corner) and sits inside the marker bounds', () => {
+    const tile = makeBranchTile({ id: 'brn-f2', merchant: { id: 'm1', businessName: 'X', voucherCount: 3 } })
+    const { getByTestId } = render(<CustomPin branch={tile} selected={false} />)
+    const s = styleOf(getByTestId('pin-voucher-badge-brn-f2'))
+    expect(s.right).toBeUndefined()
+    expect(typeof s.left).toBe('number')
+    expect(typeof s.top).toBe('number')
+    // Entirely inside the constant 60x63 bounds — no overflow, no growth.
+    expect(s.left).toBeGreaterThanOrEqual(0)
+    expect(s.top).toBeGreaterThanOrEqual(0)
+    expect(s.left + BADGE).toBeLessThanOrEqual(CONTAINER_WIDTH)
+    expect(s.top + BADGE).toBeLessThanOrEqual(CONTAINER_HEIGHT)
+  })
+
+  it('hugs the head top-right shoulder (right of centre, above the head centre) rather than the far container corner', () => {
+    const tile = makeBranchTile({ id: 'brn-f2b', merchant: { id: 'm1', businessName: 'X', voucherCount: 3 } })
+    const { getByTestId } = render(<CustomPin branch={tile} selected={false} />)
+    const s = styleOf(getByTestId('pin-voucher-badge-brn-f2b'))
+    const centerX = s.left + BADGE / 2
+    const centerY = s.top + BADGE / 2
+    // Head centre is at container x=30; the shoulder is to its RIGHT.
+    expect(centerX).toBeGreaterThan(30)
+    // ...and the badge sits pulled DOWN from the container's very top edge
+    // toward the (scaled) head, not floating at y≈8 in the old corner.
+    expect(centerY).toBeGreaterThan(BADGE / 2)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────
+// Map P2 W1 (F7) — tree-resolved pin colour reaches the teardrop.
+//
+// The tree walk itself is unit-tested in categoryPinGlyph.test.ts; here we
+// pin the plumbing: <MapPins> resolves the top-level colour and passes it
+// as the `pinColor` prop, which must win over the tree-free
+// `getPinColor(branch)` fallback so a subcategory-primary branch (backend
+// `pinColour: null`) renders its category colour instead of default red.
+// ────────────────────────────────────────────────────────────────────────
+describe('CustomPin — F7 pinColor prop', () => {
+  function findTeardropFill(root: ReturnType<typeof render>['UNSAFE_root'], branchId: string): string | undefined {
+    return root.findByProps({ testID: `pin-shape-${branchId}` }).props.fill
+  }
+
+  it('uses the provided pinColor prop (tree-resolved) even when the branch pinColour is null', () => {
+    const tile = makeBranchTile({
+      id: 'brn-sub',
+      merchant: {
+        id: 'm-sub',
+        businessName: 'Karaara',
+        // Subcategory primary with NO own colour (the exact F7 shape).
+        primaryCategory: { id: 'cat-cafe', name: 'Cafe & Coffee', pinColour: null, pinIcon: null, parentId: 'cat-food' },
+      },
+    })
+    const { UNSAFE_root } = render(<CustomPin branch={tile} selected={false} pinColor="#E65100" />)
+    expect(findTeardropFill(UNSAFE_root, 'brn-sub')).toBe('#E65100')
+  })
+
+  it('falls back to the tree-free getPinColor(branch) when no pinColor prop is given (default red for an unmatched subcategory)', () => {
+    const tile = makeBranchTile({
+      id: 'brn-sub2',
+      merchant: {
+        id: 'm-sub2',
+        businessName: 'Karaara',
+        primaryCategory: { id: 'cat-cafe', name: 'Cafe & Coffee', pinColour: null, pinIcon: null, parentId: 'cat-food' },
+      },
+    })
+    const { UNSAFE_root } = render(<CustomPin branch={tile} selected={false} />)
+    // Without the tree (direct render, no prop) the leaf name "Cafe &
+    // Coffee" matches no top-level keyword → default. This is exactly why
+    // the tree resolution in <MapPins> is needed on the real surface.
+    expect(findTeardropFill(UNSAFE_root, 'brn-sub2')).toBe(color.pin.default)
+  })
+})
