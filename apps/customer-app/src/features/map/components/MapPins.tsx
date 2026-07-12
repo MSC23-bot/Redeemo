@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native'
 import { Marker, type Region } from 'react-native-maps'
 import Svg, { Path, Circle } from 'react-native-svg'
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSpring } from 'react-native-reanimated'
-import { Text, color, useMotionScale } from '@/design-system'
+import { color, useMotionScale } from '@/design-system'
 import { BranchTile } from '@/lib/api/discovery'
 import {
   getCategoryPinGlyph,
@@ -104,68 +104,16 @@ const HEAD_CENTER_Y = TEARDROP_TOP + PIN_WIDTH / 2
 const GLYPH_SIZE = 16
 const INNER_SCALE_UNSELECTED = 0.81 // ≈ 34/42 — preserves the old visual feel, now applied to the teardrop
 
-// ── Voucher-count badge (Map Phase 2 S5b Task 4a) ──────────────────
+// ── Voucher-count badge: REMOVED (Map P2 W1.1 F14, owner decision W2-D6) ──
 //
-// Small white-keyline circle showing the branch's `voucherCount`
-// (capped "9+"). §BC/§BF/§BI constant-outer-bounds rule: the badge must
-// NOT grow the marker's declared CONTAINER_WIDTH × CONTAINER_HEIGHT
-// bounds (that's what makes the bitmap-freeze discipline safe — see the
-// file header). It sits as a sibling of the teardrop (not a child of
-// `teardropWrap`), so it stays a fixed on-screen size regardless of the
-// pin's selected/unselected inner scale — the badge communicates DATA
-// about the branch, not selection state, so it deliberately doesn't
-// participate in that transform.
-//
-// ── Map P2 W1 (F2, 2026-07-12) — hug the teardrop head ──────────────
-//
-// Walkthrough finding F2: the badge was anchored at the CONTAINER's own
-// top-right corner (`right: 0, top: 0` ≈ screen (52,8)), but the RESTING
-// (unselected) teardrop is scaled to INNER_SCALE_UNSELECTED about the
-// teardrop-wrapper's centre, which pulls the visible pin head DOWN and
-// slightly IN — leaving ~15-20pt of empty air between the head and the
-// badge, so the number read as a floating, unattached figure.
-//
-// Fix (interim — W2 replaces the pin visuals entirely, so this is a
-// minimal surgical geometry correction, not a redesign): anchor the
-// badge on the head's visible top-right SHOULDER, computed from the
-// ACTUAL scaled head geometry. The transform scales the wrapper about
-// its own centre, so the scaled head centre moves toward that centre;
-// the visible head radius shrinks by the same factor. We place the
-// badge just outside the 45deg shoulder of that scaled head. Everything
-// stays inside the already-allocated 60x63 bounds (see the assertion in
-// the constants below), so the constant-outer-bounds contract is
-// untouched.
-const VOUCHER_BADGE_SIZE = 16
-// Visible head radius in the RESTING (unselected) state — the teardrop's
-// intrinsic head radius (PIN_WIDTH / 2) shrunk by the inner scale.
-const HEAD_VISIBLE_RADIUS = (PIN_WIDTH / 2) * INNER_SCALE_UNSELECTED
-// The teardrop wrapper scales about its OWN centre; the head centre's Y
-// therefore moves toward the wrapper centre by the inner scale. (Its X
-// is unchanged — head centre X already equals the wrapper centre X.)
-const TEARDROP_WRAP_CENTER_Y = TEARDROP_TOP + PIN_HEIGHT / 2
-const SCALED_HEAD_CENTER_Y =
-  TEARDROP_WRAP_CENTER_Y + (HEAD_CENTER_Y - TEARDROP_WRAP_CENTER_Y) * INNER_SCALE_UNSELECTED
-// 45deg shoulder point of the scaled head, nudged outward by a quarter
-// badge so the badge overlaps only the head's top-right corner (the
-// conventional "badge on the corner of an icon" look).
-const SHOULDER_DIAG = Math.SQRT1_2 // cos/sin 45deg ≈ 0.7071
-const VOUCHER_BADGE_LEFT =
-  HEAD_CENTER_X + (HEAD_VISIBLE_RADIUS + VOUCHER_BADGE_SIZE * 0.25) * SHOULDER_DIAG - VOUCHER_BADGE_SIZE / 2
-const VOUCHER_BADGE_TOP =
-  SCALED_HEAD_CENTER_Y - (HEAD_VISIBLE_RADIUS + VOUCHER_BADGE_SIZE * 0.25) * SHOULDER_DIAG - VOUCHER_BADGE_SIZE / 2
-
-function formatVoucherBadgeCount(voucherCount: number): string {
-  return voucherCount > 9 ? '9+' : String(voucherCount)
-}
-
-function VoucherCountBadge({ voucherCount, id }: { voucherCount: number; id: string }) {
-  if (voucherCount <= 0) return null
-  return (
-    <View testID={`pin-voucher-badge-${id}`} style={styles.voucherBadge} pointerEvents="none">
-      <Text variant="label.md" style={styles.voucherBadgeText}>{formatVoucherBadgeCount(voucherCount)}</Text>
-    </View>
-  )
-}
+// The S5b Task 4a badge (small count circle at the pin's top-right, W1's
+// F2 repositioned it onto the head shoulder) is deleted per the owner's
+// round-2 W2 decision brought forward: pins carry NO count at all (no
+// stub, no badge, no bare number). The voucher count returns inside the
+// W2 close-zoom ticket lockup with an explanatory cue ("N vouchers" +
+// red ticket mark), never as a bare figure. Removing pin CONTENT does
+// not touch the §BF constant-outer-bounds contract: CONTAINER_WIDTH x
+// CONTAINER_HEIGHT and every remaining element's position are unchanged.
 
 /**
  * Builds a classic teardrop/map-pin silhouette in a `w`×`h` box: a
@@ -489,7 +437,8 @@ export function CustomPin({
             <Glyph size={GLYPH_SIZE} color="#FFFFFF" strokeWidth={2.5} />
           </View>
         </View>
-        <VoucherCountBadge id={branch.id} voucherCount={branch.merchant.voucherCount} />
+        {/* Voucher-count badge REMOVED here (W1.1 F14 / owner W2-D6) —
+            see the "Voucher-count badge: REMOVED" comment above. */}
       </Animated.View>
     </View>
   )
@@ -538,28 +487,29 @@ function MapPinMarkerBase({
   pinColor: string
 }) {
   const { branchLatitude, branchLongitude } = branch
-  const voucherCount = branch.merchant.voucherCount
   // Initial render captures the first bitmap (tracks=true). After the
   // capture settles, freeze for perf. The effect re-enables tracking
   // whenever the marker's VISIBLE CONTENT genuinely changes so the new
   // bitmap captures cleanly without an unmount/remount flicker on the
   // affected pin:
   //   - `selected` (§BC — the original selection-toggle resize case);
-  //   - Map P2 W1 (F1): `glyphName` / `pinColor` / `voucherCount` — these
-  //     upgrade after mount (the categories query lands and resolves the
-  //     top-level glyph/colour; a refetch changes the voucher badge), and
-  //     a frozen bitmap would otherwise keep showing the pre-upgrade
-  //     content. With the memo above these are the ONLY things that
-  //     re-render a pin, so re-opening the track window on exactly these
-  //     keeps the freeze bitmap honest without reintroducing pan-driven
-  //     churn.
+  //   - Map P2 W1 (F1): `glyphName` / `pinColor` — these upgrade after
+  //     mount (the categories query lands and resolves the top-level
+  //     glyph/colour), and a frozen bitmap would otherwise keep showing
+  //     the pre-upgrade content.
+  //   - Map P2 W1.1 (F13/F14): `voucherCount` DROPPED from this list —
+  //     the badge is removed (F14, owner W2-D6), so the count no longer
+  //     appears anywhere in this marker's bitmap. This dependency list
+  //     is kept deliberately IN LOCKSTEP with the memo comparator below:
+  //     the comparator's fields are exactly the ways this marker can
+  //     re-render, and each visual one re-opens the capture window here.
   const [tracks, setTracks] = useState(true)
   useEffect(() => {
     if (branchLatitude === null || branchLongitude === null) return
     setTracks(true)
     const t = setTimeout(() => setTracks(false), SELECTION_TRACK_MS)
     return () => clearTimeout(t)
-  }, [selected, branchLatitude, branchLongitude, glyphName, pinColor, voucherCount])
+  }, [selected, branchLatitude, branchLongitude, glyphName, pinColor])
 
   // Defensive client-side null-coord filter (PR-3 plan §6.3).
   // Backend `getInAreaBranches` is CONFIRMED_LOCATION_SET-only
@@ -585,12 +535,43 @@ function MapPinMarkerBase({
   )
 }
 
-// Map P2 W1 (F1) — default shallow prop compare is exactly right here:
-// every prop is either a stable object reference (`branch`, `onPress`) or
-// a value-stable primitive (`selected`, `dropIn`, `dropInDelayMs`,
-// `glyphName`, `pinColor`), so a pure region/pan/zoom re-render of
-// <MapPins> bails out of re-rendering an unchanged pin.
-const MapPinMarker = memo(MapPinMarkerBase)
+// Map P2 W1.1 (F13) — custom PRIMITIVE-FIELD comparator, hardening the
+// W1 memo. W1 used the default shallow compare, which leans on `branch`
+// OBJECT identity; the owner's re-test showed the residual teleport
+// because the accumulation store rebuilds branch objects when a tile
+// refreshes (same id, new reference), so an identity-based memo still
+// re-rendered frozen markers. The store now interns canonical branch
+// objects (fix layer 1, regionAccumulationStore.ts), and this comparator
+// is the belt-and-braces layer 2: compare exactly the fields that affect
+// this marker's BITMAP or TAP TARGET, so even an unavoidable fresh
+// reference with identical content cannot re-render a frozen pin.
+//
+// Compared fields (in lockstep with the track-reopen effect above):
+//   - branch.id                  (Marker identifier + key)
+//   - branch.branchLatitude/Longitude (coordinate)
+//   - selected                   (§BC resize/ring toggle)
+//   - glyphName / pinColor       (bitmap content)
+//   - dropIn / dropInDelayMs     (fixed per marker lifetime; cheap)
+//   - onPress                    (tap behaviour; stable via branchesRef)
+// NOT compared: the rest of the `branch` object — nothing else renders
+// inside this marker (the name/save-chip is a SEPARATE marker; the
+// voucher-count badge was removed in F14). A skipped re-render keeps the
+// OLD branch reference in the `onPress` closure; the handler only reads
+// `branch.id` (see MapScreen.handleBranchPress), so a content-equal
+// stale reference is harmless by contract.
+const MapPinMarker = memo(
+  MapPinMarkerBase,
+  (prev, next) =>
+    prev.branch.id === next.branch.id &&
+    prev.branch.branchLatitude === next.branch.branchLatitude &&
+    prev.branch.branchLongitude === next.branch.branchLongitude &&
+    prev.selected === next.selected &&
+    prev.glyphName === next.glyphName &&
+    prev.pinColor === next.pinColor &&
+    prev.dropIn === next.dropIn &&
+    prev.dropInDelayMs === next.dropInDelayMs &&
+    prev.onPress === next.onPress,
+)
 
 // Staggered drop-in constants (spec §7.2 "Drop animation: pinDrop
 // 500ms spring, staggered per pin"). Capped so the LAST staggered
@@ -750,33 +731,8 @@ const styles = StyleSheet.create({
     width:    RING_SIZE,
     height:   RING_SIZE,
   },
-  // Map Phase 2 S5b Task 4a + Map P2 W1 (F2) — voucher-count badge.
-  // Positioned on the RESTING teardrop head's top-right shoulder
-  // (`VOUCHER_BADGE_LEFT`/`VOUCHER_BADGE_TOP`, derived from the scaled
-  // head geometry above) rather than the container's bare corner, so it
-  // hugs the pin head instead of floating in the top-right dead space.
-  // Both coordinates stay ENTIRELY inside the constant CONTAINER_WIDTH ×
-  // CONTAINER_HEIGHT bounds — no bounds growth, so this never touches
-  // the §BF stable-dimensions contract.
-  voucherBadge: {
-    position:        'absolute',
-    left:            VOUCHER_BADGE_LEFT,
-    top:             VOUCHER_BADGE_TOP,
-    width:           VOUCHER_BADGE_SIZE,
-    height:          VOUCHER_BADGE_SIZE,
-    borderRadius:    VOUCHER_BADGE_SIZE / 2,
-    backgroundColor: color.brandRose,
-    borderWidth:     1.5,
-    borderColor:     '#FFFFFF',
-    alignItems:      'center',
-    justifyContent:  'center',
-  },
-  voucherBadgeText: {
-    color:      '#FFFFFF',
-    fontFamily: 'Lato-Bold',
-    fontSize:   9,
-    lineHeight: 11,
-  },
+  // voucherBadge / voucherBadgeText styles removed (W1.1 F14, owner
+  // W2-D6) along with the badge component itself.
   teardropWrap: {
     position: 'absolute',
     left:     TEARDROP_LEFT,
