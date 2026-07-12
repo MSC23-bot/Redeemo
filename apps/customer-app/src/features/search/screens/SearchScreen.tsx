@@ -1,10 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { View, FlatList, StyleSheet, Keyboard, TextInput } from 'react-native'
+import React, { useState, useRef } from 'react'
+import { View, FlatList, StyleSheet, Keyboard, TextInput, Pressable } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { SlidersHorizontal } from 'lucide-react-native'
 import { Text } from '@/design-system/Text'
+import { color } from '@/design-system'
 import { useSearch } from '@/hooks/useSearch'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useUserLocation } from '@/hooks/useLocation'
+import { useCategories } from '@/hooks/useCategories'
+import { useEligibleAmenities } from '@/hooks/useEligibleAmenities'
 // §DF-v2-j Task 10 — top-of-screen location identity affordance + the
 // canonical source for SearchEmptyState.savedAreaCity.  Both flow from
 // searchResponse.locationContext now; the previous useMe() derivation
@@ -28,19 +33,13 @@ import { TrendingSearches } from '../components/TrendingSearches'
 import { SearchResultItem } from '../components/SearchResultItem'
 import { SearchEmptyState } from '../components/SearchEmptyState'
 import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
+import { FilterSheet, FilterState, EMPTY_FILTERS } from '../components/FilterSheet'
+import { FilterChipsRow } from '../components/FilterChipsRow'
+import { FilterButtonBadge } from '../components/FilterButtonBadge'
+import { nonScopeFilterCount } from '../utils/filterState'
+import { useFilterPreviewCount } from '../hooks/useFilterPreviewCount'
 import { BranchTile } from '@/lib/api/discovery'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState<T>(value)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => setDebounced(value), delay)
-    return () => { if (timerRef.current) clearTimeout(timerRef.current) }
-  }, [value, delay])
-  return debounced
-}
 
 function ResultSkeleton() {
   return (
@@ -138,9 +137,21 @@ export function SearchScreen() {
   // `effectiveScope` = what's actually being shown (derived below from
   // branchMeta).  The pill highlight tracks effectiveScope, NOT requestedScope.
   const [requestedScope, setRequestedScope] = useState<Scope | undefined>(undefined)
-  const debouncedQuery = useDebounce(query, 300)
+  const debouncedQuery = useDebouncedValue(query, 300)
   const loc = useUserLocation()
   const { location } = loc
+
+  // ─── Filter state (Map Phase 2 S5a, D2) ────────────────────────────────
+  // FilterSheet comes to SearchScreen with INDEPENDENT per-surface filter
+  // state — this `filters` object is NOT shared with Map's or Category's
+  // own FilterState (each screen owns its own `useState`); only the
+  // FilterSheet COMPONENT and its FilterState TYPE are shared.
+  const [filters, setFilters]         = useState<FilterState>(EMPTY_FILTERS)
+  const [filterVisible, setFilterVisible] = useState(false)
+  const [filterDraft, setFilterDraft] = useState<FilterState>(filters)
+  const { data: categoriesData }        = useCategories()
+  const searchCategories                = categoriesData?.categories ?? []
+  const { data: eligibleAmenitiesData } = useEligibleAmenities(filters.categoryId)
   // §DF-v2-j Task 10 (2026-05-26) — `savedAreaCity` now derives from the
   // wire envelope (`data?.locationContext`) populated by the /search
   // route handler (Task 4).  The previous useMe() derivation
@@ -154,12 +165,33 @@ export function SearchScreen() {
   // Derivation lives AFTER the useSearch call below (depends on `data`).
 
   const searchEnabled = debouncedQuery.length >= 1
+
+  // Map Phase 2 S5a — live result-count preview for the FilterSheet's
+  // Apply button. Called BEFORE the screen's own `useSearch` below so
+  // the two calls stay in a stable, predictable order (mirrors the same
+  // discipline MapScreen follows — see useFilterPreviewCount's doc
+  // comment). SearchScreen's own suite doesn't track call order today,
+  // but keeping the pattern identical across all three FilterSheet call
+  // sites avoids surprises if that ever changes.
+  const previewBaseParams = {
+    q: debouncedQuery,
+    ...(location?.lat !== undefined ? { lat: location.lat } : {}),
+    ...(location?.lng !== undefined ? { lng: location.lng } : {}),
+    ...(requestedScope ? { scope: requestedScope } : {}),
+  }
+  const filterPreview = useFilterPreviewCount(filterVisible, previewBaseParams, filterDraft)
+
   const { data, isLoading } = useSearch(
     {
       q: debouncedQuery,
       ...(location?.lat !== undefined ? { lat: location.lat } : {}),
       ...(location?.lng !== undefined ? { lng: location.lng } : {}),
       ...(requestedScope ? { scope: requestedScope } : {}),
+      ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
+      ...(filters.sortBy !== 'relevance' ? { sortBy: filters.sortBy } : {}),
+      ...(filters.voucherTypes.length > 0 ? { voucherTypes: filters.voucherTypes } : {}),
+      ...(filters.amenityIds.length > 0 ? { amenityIds: filters.amenityIds } : {}),
+      ...(filters.openNow ? { openNow: filters.openNow } : {}),
       limit: 30,
     },
     searchEnabled
@@ -555,12 +587,39 @@ export function SearchScreen() {
           DIFFERENT place and we don't have in-place supply, those
           labels become misleading.  Pills come back as soon as there's
           any in-place supply OR the user clears the place search. */}
-      {searchEnabled && !placeFallback && (
-        <ScopePillRow
-          // Active pill = effectiveScope (what's displayed), not requestedScope.
-          selectedScope={effectiveScope}
-          onScopeChange={setRequestedScope}
-          {...(counts ? { counts } : {})}
+      {/* Map Phase 2 S5a (D2) — FilterSheet comes to SearchScreen. The
+          scope pill row and the filter icon button share one row so the
+          filter entry point reads as part of the same "refine your
+          results" control cluster, not a separate afterthought. */}
+      {searchEnabled && (
+        <View style={styles.controlsRow}>
+          {!placeFallback && (
+            <View style={styles.scopePillWrap}>
+              <ScopePillRow
+                // Active pill = effectiveScope (what's displayed), not requestedScope.
+                selectedScope={effectiveScope}
+                onScopeChange={setRequestedScope}
+                {...(counts ? { counts } : {})}
+              />
+            </View>
+          )}
+          <Pressable
+            onPress={() => setFilterVisible(true)}
+            accessibilityLabel="Open filters"
+            style={styles.filterIconButton}
+          >
+            <SlidersHorizontal size={20} color={color.navy} />
+            <FilterButtonBadge count={nonScopeFilterCount(filters)} />
+          </Pressable>
+        </View>
+      )}
+
+      {searchEnabled && (
+        <FilterChipsRow
+          filters={filters}
+          categories={searchCategories}
+          amenities={eligibleAmenitiesData?.amenities ?? []}
+          onChange={setFilters}
         />
       )}
 
@@ -632,6 +691,17 @@ export function SearchScreen() {
           }
         />
       )}
+
+      <FilterSheet
+        visible={filterVisible}
+        filters={filters}
+        resultCount={branches.length}
+        onApply={(next) => { setFilters(next); setFilterVisible(false) }}
+        onDismiss={() => setFilterVisible(false)}
+        liveCount={filterPreview.count}
+        liveCountPending={filterPreview.pending}
+        onDraftChange={setFilterDraft}
+      />
     </View>
   )
 }
@@ -640,6 +710,27 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFF9F5',
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    paddingRight:  10,
+  },
+  scopePillWrap: {
+    flex: 1,
+  },
+  filterIconButton: {
+    width:           36,
+    height:          36,
+    borderRadius:    18,
+    alignItems:      'center',
+    justifyContent:  'center',
+    backgroundColor: '#FFFFFF',
+    shadowColor:     '#010C35',
+    shadowOpacity:   0.06,
+    shadowRadius:    4,
+    shadowOffset:    { width: 0, height: 2 },
+    elevation:       1,
   },
   resultsHeader: {
     flexDirection:    'row',

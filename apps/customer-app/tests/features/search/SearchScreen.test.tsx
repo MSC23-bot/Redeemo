@@ -218,6 +218,26 @@ jest.mock('@/hooks/useLocation', () => ({
   }),
 }))
 
+// Map Phase 2 S5a (D2) — SearchScreen now mounts a FilterSheet (independent
+// per-surface filter state, shared FilterSheet component). Fixture mirrors
+// MapScreen.test.tsx / FilterSheet.test.tsx's shape so the "open filters"
+// suite below can exercise category selection + amenities.
+jest.mock('@/hooks/useCategories', () => ({
+  useCategories: () => ({
+    data: {
+      categories: [
+        { id: 'c1', name: 'Food & Drink', iconUrl: null, pinColour: '#E65100', pinIcon: null, parentId: null,  intentType: 'LOCAL' },
+        { id: 'c2', name: 'Beauty',       iconUrl: null, pinColour: '#E91E8C', pinIcon: null, parentId: null,  intentType: 'LOCAL' },
+        { id: 's1', name: 'Italian',      iconUrl: null, pinColour: null,      pinIcon: null, parentId: 'c1' },
+      ],
+    },
+  }),
+}))
+
+jest.mock('@/hooks/useEligibleAmenities', () => ({
+  useEligibleAmenities: () => ({ data: { amenities: [] }, isLoading: false }),
+}))
+
 const mockRouterPush = jest.fn()
 // PR #112 fixup-6 (2026-05-20) — Search now reads `useLocalSearchParams` to
 // restore the user's query when returning from a merchant via

@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { View, ScrollView, Switch, StyleSheet, TouchableOpacity } from 'react-native'
-import { X } from 'lucide-react-native'
+import { View, ScrollView, Switch, StyleSheet, TouchableOpacity, Pressable } from 'react-native'
+import { X, RotateCcw } from 'lucide-react-native'
 import { Text, color, spacing, radius } from '@/design-system'
 import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { PressableScale } from '@/design-system/motion/PressableScale'
 import { GradientBrand } from '@/design-system/components/GradientBrand'
+import { Divider } from '@/design-system/components/Divider'
 import { useCategories } from '@/hooks/useCategories'
 import { useEligibleAmenities } from '@/hooks/useEligibleAmenities'
 
 /**
- * FilterState — applied filters for SearchScreen / CategoryResultsScreen.
+ * FilterState — applied filters for SearchScreen / CategoryResultsScreen /
+ * MapScreen.
  *
  * `categoryId` is the canonical category being filtered to. It can be
  * either a top-level id OR a subcategory id; the backend treats both
@@ -29,12 +31,57 @@ export type FilterState = {
   openNow:       boolean
 }
 
+// Map Phase 2 S5a — the canonical "nothing applied" filter state. Was
+// previously duplicated as a local `DEFAULT_FILTERS` constant inside
+// MapScreen; centralised here so every surface (and the shared
+// filterState utils — nonScopeFilterCount / appliedFilterEntries) shares
+// ONE definition instead of three drifting copies. Also doubles as the
+// default RESET target (`baseFilters` prop, below) for surfaces that
+// don't need a narrower one (Map, Search). CategoryResultsScreen passes
+// its own `baseFilters` (route category + defaults) so Reset returns to
+// "just this category page", not out of it.
+export const EMPTY_FILTERS: FilterState = {
+  categoryId:   null,
+  sortBy:       'relevance',
+  voucherTypes: [],
+  amenityIds:   [],
+  openNow:      false,
+}
+
 type Props = {
   visible:     boolean
   filters:     FilterState
   resultCount: number
   onApply:     (filters: FilterState) => void
   onDismiss:   () => void
+  /**
+   * Map Phase 2 S5a — the filter state the Reset button returns the DRAFT
+   * to. Defaults to `EMPTY_FILTERS`. CategoryResultsScreen passes a
+   * category-scoped base (`{ ...EMPTY_FILTERS, categoryId: routeId }`) so
+   * Reset can't filter the user out of the category page they're on.
+   */
+  baseFilters?: FilterState
+  /**
+   * Map Phase 2 S5a — live result-count preview. The PARENT screen owns
+   * the debounced query (via `useFilterPreviewCount`, run against the
+   * screen's OWN `useSearch` call so hook-call ordering / test mocks stay
+   * exactly where each screen's existing suite expects them — see the
+   * hook's doc comment) and passes the resolved count down here. When
+   * `undefined`/`null` (no context to preview against yet, e.g. Search
+   * with an empty query, or the debounce hasn't settled) the Apply button
+   * falls back to `resultCount` — the currently-APPLIED count — so the
+   * button never shows a stale "0" or blank state.
+   */
+  liveCount?: number | null
+  /** True while the live-count preview query is in flight. */
+  liveCountPending?: boolean
+  /**
+   * Map Phase 2 S5a — fires on every draft change (including the initial
+   * sync from `filters`) so the parent can drive `useFilterPreviewCount`
+   * off the SAME draft the sheet is showing, without lifting the whole
+   * draft-state up permanently (Apply/Dismiss/Reset stay sheet-local).
+   */
+  onDraftChange?: (draft: FilterState) => void
 }
 
 // Map Phase 2 S4 Task 3 — exported so MapListView's sort selector (spec
@@ -81,7 +128,10 @@ export const VOUCHER_TYPE_CHIPS: VoucherTypeChip[] = [
   { label: 'Reusable',     values: ['REUSABLE'] },
 ]
 
-export function FilterSheet({ visible, filters, resultCount, onApply, onDismiss }: Props) {
+export function FilterSheet({
+  visible, filters, resultCount, onApply, onDismiss,
+  baseFilters, liveCount, liveCountPending, onDraftChange,
+}: Props) {
   const [local, setLocal] = useState<FilterState>(filters)
   const { data: categoriesData } = useCategories()
   const allCategories = categoriesData?.categories ?? []
@@ -91,6 +141,16 @@ export function FilterSheet({ visible, filters, resultCount, onApply, onDismiss 
   useEffect(() => {
     setLocal(filters)
   }, [filters])
+
+  // Map Phase 2 S5a — report every draft change upward (incl. the initial
+  // sync above) so the parent can run its debounced live-count preview
+  // off the same draft the sheet is showing. Cheap no-op when the parent
+  // doesn't pass a callback (opt-in — every existing FilterSheet call
+  // site keeps working unchanged).
+  useEffect(() => {
+    onDraftChange?.(local)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [local])
 
   // Resolve the active top-level for the subcategory drill-down panel.
   // local.categoryId can be either a top-level id OR a subcategory id —
@@ -175,8 +235,29 @@ export function FilterSheet({ visible, filters, resultCount, onApply, onDismiss 
     onApply(local)
   }
 
+  function handleReset() {
+    setLocal(baseFilters ?? EMPTY_FILTERS)
+  }
+
+  // Live-count fallback ladder: while the parent's debounced preview
+  // hasn't resolved yet (or the surface didn't opt in), show the
+  // currently-APPLIED count rather than nothing — never a stale "0" or a
+  // blank button.
+  const displayCount = liveCount ?? resultCount
+
   return (
     <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Filter results">
+      {/* Header — title + explicit close. The sheet previously relied
+          solely on the BottomSheet grabber / tap-outside to dismiss;
+          an explicit affordance is a small, safe addition (owner
+          "anchors, not a closed scope" directive). */}
+      <View style={styles.header}>
+        <Text variant="heading.md" style={styles.headerTitle}>Filters</Text>
+        <Pressable onPress={onDismiss} accessibilityLabel="Close filters" hitSlop={10} style={styles.closeButton}>
+          <X size={20} color={color.navy} />
+        </Pressable>
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -242,6 +323,8 @@ export function FilterSheet({ visible, filters, resultCount, onApply, onDismiss 
           </View>
         )}
 
+        <Divider />
+
         {/* Sort by section */}
         <View>
           <Text variant="label.eyebrow" color="secondary" style={styles.sectionLabel}>
@@ -284,11 +367,24 @@ export function FilterSheet({ visible, filters, resultCount, onApply, onDismiss 
           </View>
         </View>
 
+        {/* Open now section */}
+        <View style={styles.openNowRow}>
+          <Text variant="body.sm">Open Now</Text>
+          <Switch
+            value={local.openNow}
+            onValueChange={(val) => setLocal((prev) => ({ ...prev, openNow: val }))}
+            trackColor={{ true: color.success, false: color.border.default }}
+            thumbColor="#FFFFFF"
+            accessibilityLabel="Open now filter"
+          />
+        </View>
+
         {/* Amenities — hidden until a category is selected (decision #3).
             Pulls real Amenity.id UUIDs from /categories/:id/amenities so
             the filter can actually match merchants on the backend. */}
         {local.categoryId !== null && eligibleAmenities.length > 0 && (
           <View>
+            <Divider />
             <Text variant="label.eyebrow" color="secondary" style={styles.sectionLabel}>
               Amenities
             </Text>
@@ -308,35 +404,54 @@ export function FilterSheet({ visible, filters, resultCount, onApply, onDismiss 
             </View>
           </View>
         )}
+      </ScrollView>
 
-        {/* Open now section */}
-        <View style={styles.openNowRow}>
-          <Text variant="body.sm">Open Now</Text>
-          <Switch
-            value={local.openNow}
-            onValueChange={(val) => setLocal((prev) => ({ ...prev, openNow: val }))}
-            trackColor={{ true: '#10B981', false: '#D1D5DB' }}
-            thumbColor="#FFFFFF"
-            accessibilityLabel="Open now filter"
-          />
-        </View>
+      {/* Footer — Reset (draft-only, does not close the sheet) + Apply
+          (shows the live/fallback result count). Replaces the previous
+          Apply-only footer (owner design brief item 2). */}
+      <View style={styles.footer}>
+        <PressableScale onPress={handleReset} accessibilityLabel="Reset filters" hapticStyle="light" style={styles.resetButton}>
+          <RotateCcw size={16} color={color.text.secondary} />
+          <Text variant="label.lg" style={styles.resetButtonText}>Reset</Text>
+        </PressableScale>
 
-        {/* Apply button */}
-        <TouchableOpacity onPress={handleApply} activeOpacity={0.9} accessibilityLabel={`Show ${resultCount} results`}>
-          <GradientBrand style={styles.applyButton}>
+        <TouchableOpacity
+          onPress={handleApply}
+          activeOpacity={0.9}
+          style={styles.applyButtonWrap}
+          accessibilityLabel={`Show ${displayCount} results`}
+        >
+          <GradientBrand style={liveCountPending ? styles.applyButtonPendingCombined : styles.applyButton}>
             <Text variant="heading.sm" style={styles.applyButtonText}>
-              Show {resultCount} results
+              Show {displayCount} results
             </Text>
           </GradientBrand>
         </TouchableOpacity>
-      </ScrollView>
+      </View>
     </BottomSheet>
   )
 }
 
 const styles = StyleSheet.create({
+  header: {
+    flexDirection:    'row',
+    alignItems:       'center',
+    justifyContent:   'space-between',
+    marginBottom:     spacing[2],
+  },
+  headerTitle: {
+    color: color.navy,
+  },
+  closeButton: {
+    width:           32,
+    height:          32,
+    borderRadius:    16,
+    alignItems:      'center',
+    justifyContent:  'center',
+    backgroundColor: color.surface.neutral,
+  },
   scrollView: {
-    maxHeight: 500,
+    maxHeight: 460,
   },
   sectionLabel: {
     marginTop:    spacing[4],
@@ -357,7 +472,8 @@ const styles = StyleSheet.create({
     alignItems:       'center',
     borderRadius:     radius.pill,
     paddingHorizontal: spacing[4],
-    paddingVertical:  spacing[2],
+    paddingVertical:  spacing[3],
+    minHeight:        44,               // generous touch target (owner design brief item 2)
     backgroundColor:  color.surface.neutral,
   },
   pillActive: {
@@ -383,13 +499,45 @@ const styles = StyleSheet.create({
     justifyContent:   'space-between',
     marginTop:        spacing[4],
     marginBottom:     spacing[2],
+    minHeight:        44,
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           spacing[3],
+    marginTop:     spacing[4],
+  },
+  resetButton: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               spacing[1],
+    paddingHorizontal: spacing[3],
+    paddingVertical:   spacing[3],
+    minHeight:         48,
+  },
+  resetButtonText: {
+    color: color.text.secondary,
+  },
+  applyButtonWrap: {
+    flex: 1,
   },
   applyButton: {
     borderRadius:    radius.md,
-    marginTop:       spacing[5],
     paddingVertical: spacing[4],
     alignItems:      'center',
     justifyContent:  'center',
+  },
+  // Subtle dim while the live-count preview is in flight — a lightweight
+  // "this number is refreshing" cue without a spinner competing for
+  // attention on the primary CTA. A single merged object (not a style
+  // array) — `GradientBrand`'s `style` prop is typed `ViewStyle`, not
+  // `StyleProp<ViewStyle>`.
+  applyButtonPendingCombined: {
+    borderRadius:    radius.md,
+    paddingVertical: spacing[4],
+    alignItems:      'center',
+    justifyContent:  'center',
+    opacity:         0.85,
   },
   applyButtonText: {
     color:      '#FFFFFF',

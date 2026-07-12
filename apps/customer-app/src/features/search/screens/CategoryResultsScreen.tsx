@@ -6,12 +6,17 @@ import { Text, color, spacing } from '@/design-system'
 import { useSearch } from '@/hooks/useSearch'
 import { useCategories } from '@/hooks/useCategories'
 import { useCategoryMerchants } from '@/hooks/useCategoryMerchants'
+import { useEligibleAmenities } from '@/hooks/useEligibleAmenities'
 import { useUserLocation } from '@/hooks/useLocation'
 import { BranchTile } from '@/features/shared/BranchTile'
 import { ScopePillRow, type Scope } from '@/features/shared/ScopePillRow'
 import { EmptyStateMessage } from '@/features/shared/EmptyStateMessage'
 import { LocalityCaption } from '@/design-system/components/LocalityCaption'
-import { FilterSheet, FilterState } from '../components/FilterSheet'
+import { FilterSheet, FilterState, EMPTY_FILTERS } from '../components/FilterSheet'
+import { FilterChipsRow } from '../components/FilterChipsRow'
+import { FilterButtonBadge } from '../components/FilterButtonBadge'
+import { nonScopeFilterCount } from '../utils/filterState'
+import { useFilterPreviewCount } from '../hooks/useFilterPreviewCount'
 import { CategoryResultsSkeleton } from '../components/CategoryResultsSkeleton'
 
 /**
@@ -78,6 +83,17 @@ export function CategoryResultsScreen() {
     amenityIds:   [],
     openNow:      false,
   })
+  // Map Phase 2 S5a — draft filters (reported by FilterSheet's
+  // onDraftChange) feed the live result-count preview below.
+  const [filterDraft, setFilterDraft] = useState<FilterState>(filters)
+  // Map Phase 2 S5a — CategoryResultsScreen's Reset/Clear-all target is
+  // "just this category page", NOT the fully-empty state — Reset must
+  // not filter the user out of the category they're viewing. Recomputed
+  // whenever the route `id` changes, mirroring the effect below.
+  const baseFilters = useMemo<FilterState>(
+    () => ({ ...EMPTY_FILTERS, categoryId: id ?? null }),
+    [id],
+  )
 
   // PR #120 device-QA fix (2026-05-21) — sync filter state to the route
   // category on EVERY id change, not just on first mount.
@@ -100,12 +116,20 @@ export function CategoryResultsScreen() {
   // until the user explicitly applies a filter on the new category page.
   useEffect(() => {
     if (!id) return
-    setFilters((prev) => prev.categoryId === id ? prev : {
-      categoryId:   id,
-      sortBy:       'relevance',
-      voucherTypes: [],
-      amenityIds:   [],
-      openNow:      false,
+    setFilters((prev) => {
+      if (prev.categoryId === id) return prev
+      const next: FilterState = {
+        categoryId:   id,
+        sortBy:       'relevance',
+        voucherTypes: [],
+        amenityIds:   [],
+        openNow:      false,
+      }
+      // Draft mirrors the reset too — otherwise a stale draft from the
+      // PREVIOUS category page would briefly drive the live-count
+      // preview until the FilterSheet's own sync effect catches up.
+      setFilterDraft(next)
+      return next
     })
     // Reset scope on route change too — same rationale (Food's "Nearby"
     // selection shouldn't carry into Beauty).
@@ -129,6 +153,19 @@ export function CategoryResultsScreen() {
     (id !== undefined && filters.categoryId !== null && filters.categoryId !== id)
 
   const effectiveCategoryId = filters.categoryId ?? id
+
+  // Map Phase 2 S5a — live result-count preview for the FilterSheet's
+  // Apply button. Placed before `categoryQuery`/`searchQuery` for the
+  // same hook-call-ordering discipline MapScreen follows (see
+  // useFilterPreviewCount's doc comment) — this screen's own suite
+  // doesn't track call order today, but keeping the pattern identical
+  // across all three FilterSheet call sites avoids surprises later.
+  const previewBaseParams = {
+    ...(scope ? { scope } : {}),
+    ...(location ? { lat: location.lat, lng: location.lng } : {}),
+  }
+  const filterPreview = useFilterPreviewCount(filterVisible, previewBaseParams, filterDraft)
+  const { data: eligibleAmenitiesData } = useEligibleAmenities(filters.categoryId)
 
   const categoryQuery = useCategoryMerchants(
     hasNonScopeFilters ? null : effectiveCategoryId,    // null disables this query
@@ -222,6 +259,7 @@ export function CategoryResultsScreen() {
           accessibilityLabel="Open filters"
         >
           <SlidersHorizontal size={20} color={color.navy} />
+          <FilterButtonBadge count={nonScopeFilterCount(filters)} />
         </Pressable>
       </View>
 
@@ -230,6 +268,18 @@ export function CategoryResultsScreen() {
         selectedScope={scope}
         onScopeChange={setScope}
         {...(counts ? { counts } : {})}
+      />
+
+      {/* Map Phase 2 S5a — applied-filters chips row. `baseFilters` keeps
+          the route category out of the chip list (it's the page itself,
+          not a "filter" the user applied) — a chip appears only for a
+          genuine subcategory drill-down or any other non-default field. */}
+      <FilterChipsRow
+        filters={filters}
+        baseFilters={baseFilters}
+        categories={allCategories}
+        amenities={eligibleAmenitiesData?.amenities ?? []}
+        onChange={setFilters}
       />
 
       {/* Plan 4 M3b follow-up — locality caption. Renders null when
@@ -287,6 +337,10 @@ export function CategoryResultsScreen() {
         resultCount={total}
         onApply={handleApplyFilters}
         onDismiss={() => setFilterVisible(false)}
+        baseFilters={baseFilters}
+        liveCount={filterPreview.count}
+        liveCountPending={filterPreview.pending}
+        onDraftChange={setFilterDraft}
       />
     </View>
   )

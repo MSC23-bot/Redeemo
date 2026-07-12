@@ -71,6 +71,19 @@ jest.mock('@/hooks/useLocation', () => ({
   }),
 }))
 
+// Map Phase 2 S5a (D2) — SearchScreen now mounts a FilterSheet, which
+// calls useCategories() + useEligibleAmenities() internally. Mocked here
+// so these tests don't trigger real network fetches (none of them
+// exercise the FilterSheet itself; see SearchScreen.filterSheet.test.tsx
+// for that coverage).
+jest.mock('@/hooks/useCategories', () => ({
+  useCategories: () => ({ data: { categories: [] } }),
+}))
+
+jest.mock('@/hooks/useEligibleAmenities', () => ({
+  useEligibleAmenities: () => ({ data: { amenities: [] }, isLoading: false }),
+}))
+
 jest.mock('expo-router', () => ({
   useFocusEffect: jest.fn(),
   useRouter:            () => ({ push: jest.fn(), back: jest.fn() }),
