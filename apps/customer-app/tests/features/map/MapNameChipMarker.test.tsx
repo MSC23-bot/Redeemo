@@ -72,4 +72,51 @@ describe('MapNameChipMarker', () => {
     )
     expect(getByTestId('map-name-chip-save-brn1').props.children).toBe(' · Save £0.40')
   })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Map P2 W1 (F3 + F4) — chip tether geometry.
+  //
+  // The pin's outer marker box is a fixed 60x63 (MapPins CONTAINER_WIDTH x
+  // CONTAINER_HEIGHT), tip-anchored at the coordinate, so it occupies the
+  // 63px ABOVE the coordinate; the voucher-count badge lives INSIDE that
+  // box (≤24px from its top). Both the chip and the pin are bottom-
+  // anchored Markers at the SAME coordinate. These tests pin that the chip
+  // is (F4) tethered directly above the pin — centred, lifted clear of the
+  // 63px pin stack — and therefore (F3) can never re-enter the badge zone,
+  // which is strictly inside that stack.
+  // ──────────────────────────────────────────────────────────────────────
+  const PIN_STACK_HEIGHT = 63 // mirrors MapPins CONTAINER_HEIGHT
+
+  function chipOffsetTransform(testInstance: any): { translateX: number; translateY: number } {
+    const style = Array.isArray(testInstance.props.style)
+      ? Object.assign({}, ...testInstance.props.style.filter(Boolean))
+      : testInstance.props.style
+    const transform: any[] = style.transform ?? []
+    const tx = transform.find((t) => 'translateX' in t)?.translateX ?? 0
+    const ty = transform.find((t) => 'translateY' in t)?.translateY ?? 0
+    return { translateX: tx, translateY: ty }
+  }
+
+  it('F4: the chip is lifted entirely above the pin stack (tethered above the head, not floating beside it)', () => {
+    const { getByTestId } = render(
+      <MapNameChipMarker id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" dotColor="#E20C04" />,
+    )
+    const { translateY } = chipOffsetTransform(getByTestId('map-name-chip-brn1'))
+    // Bottom-anchored, so a negative translateY lifts it upward. Its whole
+    // box must clear the 63px pin stack (chip bottom sits ABOVE the pin's
+    // top edge), so |translateY| >= PIN_STACK_HEIGHT.
+    expect(translateY).toBeLessThanOrEqual(-PIN_STACK_HEIGHT)
+  })
+
+  it('F3: the chip is horizontally centred over the pin (translateX 0), so it never re-enters the top-right badge zone', () => {
+    const { getByTestId } = render(
+      <MapNameChipMarker id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" dotColor="#E20C04" />,
+    )
+    const { translateX, translateY } = chipOffsetTransform(getByTestId('map-name-chip-brn1'))
+    // The pre-W1 offset pushed the chip UP-AND-RIGHT (translateX 22,
+    // translateY -44) into the badge zone. Centred + lifted-clear means the
+    // chip box and the badge box (inside the 63px pin stack) are disjoint.
+    expect(translateX).toBe(0)
+    expect(translateY).toBeLessThan(-PIN_STACK_HEIGHT + 1) // strictly above the stack top
+  })
 })
