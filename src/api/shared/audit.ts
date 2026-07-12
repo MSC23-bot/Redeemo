@@ -76,6 +76,15 @@ export type AuditEvent =
   // ADMIN-actor before-snapshot carries the removed photo id + url so the deletion
   // is attributable; the row itself is gone (instant, customer-invisible).
   | 'BRANCH_PHOTO_REMOVED'
+  // Owner decision 7-photos (2026-07-11): the onboarding draft-window bypass for
+  // branch photos (mirrors the logo/banner M2 D1 bypass). `event` is a String
+  // column, so this is a union-only literal with NO migration. Fired when
+  // createBranchPhotoEditRequest writes BranchPhoto rows DIRECTLY (APPROVED) /
+  // removes them instead of staging a BranchPendingEdit + AdminApproval, because
+  // the merchant lifecycle is in the draft window (isDraftWindow: status
+  // REGISTERED or onboardingStep NEEDS_CHANGES): a not-yet-live branch has no
+  // admin-review reason to leave first-branch photos invisible.
+  | 'BRANCH_PHOTOS_DRAFT_APPLIED'
   // Branches PR-5 (D5): branch-lifecycle merchant actions. `event` is a String
   // column, so these are union-only literals with NO migration.
   //   BRANCH_CREATE_CANCELLED — merchant cancelled a pending-create branch (the

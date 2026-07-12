@@ -103,9 +103,18 @@ export function BrandingPhotosCard({ branch, canManage, isOwner }: { branch: Bra
     try {
       // 1. Upload the asset via the branch-scoped upload (no canManageVouchers).
       const { url } = await uploadBranchPhoto(branch.id, file)
-      // 2. Open the add-via-review request so admin can approve it to live.
-      await requestEdit.mutateAsync({ id: branch.id, addUrls: [url] })
-      toast({ message: 'Photo submitted for review.', variant: 'success' })
+      // 2. Submit the add. During onboarding (draft window: REGISTERED /
+      //    NEEDS_CHANGES) the backend applies it DIRECTLY as a live APPROVED
+      //    photo (status: 'APPLIED') instead of staging a review request, so a
+      //    not-yet-live branch's first photos are not honestly-falsely reported
+      //    as "in review" (owner decision, walkthrough finding 7-photos).
+      const result = await requestEdit.mutateAsync({ id: branch.id, addUrls: [url] })
+      const appliedDirectly =
+        !!result && typeof result === 'object' && (result as { status?: string }).status === 'APPLIED'
+      toast({
+        message: appliedDirectly ? 'Photo added.' : 'Photo submitted for review.',
+        variant: 'success',
+      })
     } catch (err) {
       // PENDING_EDIT_EXISTS: a change is already in review (cannot stack a second).
       if (err instanceof ApiError && err.code === 'PENDING_EDIT_EXISTS') {

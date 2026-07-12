@@ -22,7 +22,7 @@
 //   - the DIRECT branch fields (phone) work in BOTH windows
 //   - isDraftWindow boundary cases
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { AppError } from '../../../src/api/shared/errors'
 import { isDraftWindow } from '../../../src/api/merchant/shared'
 
@@ -32,7 +32,7 @@ vi.mock('../../../src/api/shared/encryption', () => ({
 }))
 
 import { updateMerchantProfile } from '../../../src/api/merchant/profile/service'
-import { updateBranch } from '../../../src/api/merchant/branch/service'
+import { updateBranch, createBranchPhotoEditRequest } from '../../../src/api/merchant/branch/service'
 
 const ADMIN_ID = 'admin-1'
 const MERCHANT_ID = 'merchant-1'
@@ -127,6 +127,18 @@ function buildPrismaMock(opts: { status: string; onboardingStep: string }) {
     },
     adminApproval: { create: vi.fn().mockResolvedValue({}) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
+    // Owner decision 7-photos: the branch-photo draft-window bypass reads/writes
+    // BranchPhoto directly (findMany for the remove-ownership check, aggregate for
+    // the next sortOrder, create/deleteMany for the direct apply). The governed
+    // lane (live merchant) never touches these; only branchPendingEdit/adminApproval.
+    branchPhoto: {
+      findMany: vi.fn().mockResolvedValue([]),
+      aggregate: vi.fn().mockResolvedValue({ _max: { sortOrder: null } }),
+      create: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => ({
+        id: 'branch-photo-1', ...data,
+      })),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     locality: {
       findUnique: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => ({
@@ -350,5 +362,99 @@ describe('B1 branch draft-window sensitive-field bypass', () => {
     expect(proposed.postcode).toBe('CO7 0UB')
     expect(proposed.latitude).toBe(51.81)
     expect(prisma.branch.update).not.toHaveBeenCalled()
+  })
+})
+
+// Owner decision 7-photos (walkthrough finding, 2026-07-11): logo/banner already
+// bypass the governed edit-request lane in the draft window (M2 D1, above); branch
+// PHOTOS did not, so a first, not-yet-live branch's onboarding photos sat invisible
+// until an admin acted. This gives photos the SAME isDraftWindow bypass. Mirrors the
+// "B1 branch draft-window sensitive-field bypass" describe block's structure/idioms.
+describe('7-photos: draft-window branch PHOTO bypass', () => {
+  const savedPublicBase = process.env.R2_PUBLIC_BASE_URL
+  const PHOTO_URL = 'https://cdn.example/photo/merchant-1/newphoto.png'
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    // parsePublicUrl's owned-upload check requires R2_PUBLIC_BASE_URL + a URL that
+    // inverts to { kind:'photo', ownerId: MERCHANT_ID }.
+    process.env.R2_PUBLIC_BASE_URL = 'https://cdn.example'
+  })
+
+  afterEach(() => {
+    if (savedPublicBase === undefined) delete process.env.R2_PUBLIC_BASE_URL
+    else process.env.R2_PUBLIC_BASE_URL = savedPublicBase
+  })
+
+  it.each([
+    ['REGISTERED (onboarding setup)', { status: 'REGISTERED', onboardingStep: 'REGISTERED' }],
+    ['NEEDS_CHANGES (admin asked for changes)', { status: 'PENDING_APPROVAL', onboardingStep: 'NEEDS_CHANGES' }],
+  ])(
+    '%s: photo add applies DIRECTLY as an APPROVED BranchPhoto, no BranchPendingEdit/AdminApproval',
+    async (_label, lifecycle) => {
+      const prisma = buildPrismaMock(lifecycle as { status: string; onboardingStep: string })
+
+      const result = await createBranchPhotoEditRequest(prisma, ADMIN_ID, BRANCH_ID, { add: [PHOTO_URL] }, CTX)
+
+      // Mirrors editApplier's branchPhoto.create shape EXACTLY: branchId, url,
+      // moderationStatus APPROVED, sortOrder.
+      expect(prisma.branchPhoto.create).toHaveBeenCalledOnce()
+      expect(prisma.branchPhoto.create).toHaveBeenCalledWith({
+        data: { branchId: BRANCH_ID, url: PHOTO_URL, moderationStatus: 'APPROVED', sortOrder: 0 },
+      })
+      // The governed lane is NOT touched.
+      expect(prisma.branchPendingEdit.create).not.toHaveBeenCalled()
+      expect(prisma.adminApproval.create).not.toHaveBeenCalled()
+      // The response is discriminable from the governed lane's PENDING BranchPendingEdit.
+      expect(result).toMatchObject({ status: 'APPLIED', branchId: BRANCH_ID, photosAdded: [PHOTO_URL] })
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            event: 'BRANCH_PHOTOS_DRAFT_APPLIED',
+            entityType: 'merchant',
+            entityId: MERCHANT_ID,
+          }),
+        }),
+      )
+    },
+  )
+
+  it('REGISTERED: photo remove ALSO applies directly (branchPhoto.deleteMany, no pending edit)', async () => {
+    const prisma = buildPrismaMock({ status: 'REGISTERED', onboardingStep: 'REGISTERED' })
+    prisma.branchPhoto.findMany = vi.fn().mockResolvedValue([{ id: 'p-owned' }])
+
+    const result = await createBranchPhotoEditRequest(prisma, ADMIN_ID, BRANCH_ID, { remove: ['p-owned'] }, CTX)
+
+    expect(prisma.branchPhoto.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['p-owned'] }, branchId: BRANCH_ID },
+    })
+    expect(prisma.branchPendingEdit.create).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ status: 'APPLIED', photosRemoved: ['p-owned'] })
+  })
+
+  it('live (ACTIVE): photo add STILL uses the governed lane (BranchPendingEdit + AdminApproval PENDING, no immediate BranchPhoto): UNCHANGED', async () => {
+    const prisma = buildPrismaMock({ status: 'ACTIVE', onboardingStep: 'LIVE' })
+
+    const result = await createBranchPhotoEditRequest(prisma, ADMIN_ID, BRANCH_ID, { add: [PHOTO_URL] }, CTX)
+
+    expect(prisma.branchPendingEdit.create).toHaveBeenCalledOnce()
+    expect(prisma.branchPendingEdit.create.mock.calls[0][0].data).toMatchObject({
+      branchId: BRANCH_ID,
+      includesPhotos: true,
+      status: 'PENDING',
+      proposedChanges: { add: [PHOTO_URL] },
+    })
+    expect(prisma.adminApproval.create).toHaveBeenCalledOnce()
+    expect(prisma.branchPhoto.create).not.toHaveBeenCalled()
+    expect((result as { status?: string }).status).toBe('PENDING')
+  })
+
+  it('live (ACTIVE): SUBMITTED / UNDER_REVIEW view-only window still routes through the governed lane too', async () => {
+    const prisma = buildPrismaMock({ status: 'PENDING_APPROVAL', onboardingStep: 'SUBMITTED' })
+
+    await createBranchPhotoEditRequest(prisma, ADMIN_ID, BRANCH_ID, { add: [PHOTO_URL] }, CTX)
+
+    expect(prisma.branchPendingEdit.create).toHaveBeenCalledOnce()
+    expect(prisma.branchPhoto.create).not.toHaveBeenCalled()
   })
 })
