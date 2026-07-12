@@ -223,19 +223,15 @@ export function HeroCollage() {
 
 /**
  * The same artwork for mobile (owner 2026-07-13: the phone-CSS demo was not
- * the hero image): the full collage sits beneath the copy, the voucher-card
- * layers keep their idle drift, and the live 3D ribbon flows behind it,
- * peeking out around the artwork's edges.
+ * the hero image): the full collage between the description and the CTAs,
+ * with the voucher-card layers on their idle drift. No 3D ribbon here
+ * (owner: behind the artwork it was too much going on): the ribbon's
+ * mobile home is the navy Redeemo Standard scene.
  */
 export function HeroCollageMobile() {
   const reduceMotion = useReducedMotion()
   return (
     <div className="relative" aria-hidden="true">
-      {!reduceMotion && (
-        <div className="absolute -inset-x-6 -top-14 -bottom-8 pointer-events-none">
-          <RibbonScene3D preset="hero" />
-        </div>
-      )}
       <div className="relative w-full" style={{ aspectRatio: `${IMG_W} / ${IMG_H}` }}>
         <Image
           src="/app-shots/hero-collage/base-v5.jpg"

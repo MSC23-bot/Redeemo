@@ -81,12 +81,14 @@ export function Navbar() {
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
-  // Owner direction 2026-07-13 (supersedes 2026-07-07's always-there bar):
-  // the glass bar COLLAPSES while scrolling down and returns on scroll-up,
-  // so it never covers pinned content (the journey chapter titles sat
-  // behind it on mobile). A 6px direction deadband keeps it from
-  // flickering on micro-scrolls, which was the original objection.
+  // Owner direction 2026-07-13 (round 2): "collapsed" means collapsed INTO
+  // a compact control, not gone. On mobile, once past the hero, a small
+  // glass pill (logo mark + hamburger) floats top-right and expands into a
+  // full menu on tap: it never covers pinned content. Desktop keeps the
+  // full glass bar, revealed on scroll-up with a 6px direction deadband.
   const [floatVisible, setFloatVisible] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const [floatMenuOpen, setFloatMenuOpen] = useState(false)
   const lastScrollY = useRef(0)
   const accountRef = useRef<HTMLDivElement>(null)
   const firstMobileLinkRef = useRef<HTMLAnchorElement>(null)
@@ -94,10 +96,12 @@ export function Navbar() {
   useEffect(() => {
     const onScroll = () => {
       const y = window.scrollY
+      setScrolled(y > 420)
       const dy = y - lastScrollY.current
       if (Math.abs(dy) < 6) return
       lastScrollY.current = y
       setFloatVisible(y > 420 && dy < 0)
+      setFloatMenuOpen(false)
     }
     onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
@@ -105,6 +109,8 @@ export function Navbar() {
   }, [])
 
   useEffect(() => { setMenuOpen(false) }, [floatVisible])
+
+  useEffect(() => { setFloatMenuOpen(false) }, [pathname])
 
   useEffect(() => { setMenuOpen(false); setAccountOpen(false) }, [pathname])
 
@@ -379,10 +385,20 @@ export function Navbar() {
           )}
         </div>
 
+        {/* Mobile: primary CTA rides in the island (owner 2026-07-13) */}
+        {!user && (
+          <Link
+            href={primaryCtaHref}
+            className="md:hidden ml-auto text-[13px] font-bold text-[#BE0A03] bg-white px-3.5 py-2 rounded-lg no-underline"
+          >
+            {primaryCtaLabel}
+          </Link>
+        )}
+
         {/* Mobile hamburger */}
         <button
           onClick={() => setMenuOpen(o => !o)}
-          className={`md:hidden ml-auto p-1.5 rounded-md transition-colors ${
+          className={`md:hidden ${user ? 'ml-auto' : ''} p-1.5 rounded-md transition-colors ${
             isDark ? 'text-white/70 hover:text-white' : 'text-[#4B5563] hover:text-[#010C35]'
           }`}
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
@@ -498,8 +514,112 @@ export function Navbar() {
       </div>
     </header>
 
-    {/* Glass quick-nav: slides in on scroll-UP mid-page and collapses away
-        while scrolling down (owner 2026-07-13); neutral so it never fights
+    {/* Mobile: the collapsed state is a compact glass pill (logo mark +
+        hamburger) that expands into a full menu on tap: premium, and it
+        never covers pinned content (owner 2026-07-13) */}
+    <AnimatePresence>
+      {scrolled && (
+        <motion.div
+          key="pill"
+          initial={{ y: -18, opacity: 0, scale: 0.94 }}
+          animate={{ y: 0, opacity: 1, scale: 1 }}
+          exit={{ y: -18, opacity: 0, scale: 0.94 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+          className="md:hidden fixed top-3 right-3 z-50"
+        >
+          <button
+            onClick={() => setFloatMenuOpen(o => !o)}
+            aria-label={floatMenuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={floatMenuOpen}
+            aria-controls="float-menu"
+            className="flex items-center gap-2.5 pl-3 pr-3.5 h-[46px] rounded-full border-none cursor-pointer"
+            style={{
+              background: 'rgba(255,249,245,0.92)',
+              backdropFilter: 'blur(16px) saturate(1.5)',
+              WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
+              boxShadow: '0 10px 32px rgba(1,12,53,0.16), inset 0 0 0 1px rgba(1,12,53,0.08)',
+            }}
+          >
+            <Image src="/logo-icon.svg" alt="" width={24} height={24} className="h-[22px] w-auto" />
+            <span className="w-px h-[18px] bg-[#010C35]/12" aria-hidden="true" />
+            {floatMenuOpen
+              ? <X size={19} strokeWidth={2} className="text-[#010C35]/80" />
+              : <Menu size={19} strokeWidth={2} className="text-[#010C35]/80" />}
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    <AnimatePresence>
+      {scrolled && floatMenuOpen && (
+        <motion.div
+          key="float-menu"
+          id="float-menu"
+          initial={{ opacity: 0, y: -10, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -10, scale: 0.97 }}
+          transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+          className="md:hidden fixed top-[62px] inset-x-3 z-50 origin-top-right rounded-2xl overflow-hidden"
+          style={{
+            background: 'rgba(255,249,245,0.96)',
+            backdropFilter: 'blur(20px) saturate(1.5)',
+            WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
+            boxShadow: '0 24px 60px rgba(1,12,53,0.2), inset 0 0 0 1px rgba(1,12,53,0.07)',
+          }}
+        >
+          <div className="p-4 flex flex-col gap-0.5">
+            {navLinks.map(link => {
+              const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setFloatMenuOpen(false)}
+                  className={`px-3 py-2.5 rounded-lg text-[15px] font-semibold no-underline transition-colors ${
+                    isActive ? 'text-[#E20C04] bg-[#E20C04]/[0.06]' : 'text-[#010C35]/80 hover:bg-[#010C35]/[0.04]'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              )
+            })}
+            <div className="my-2 border-t border-[#010C35]/8" />
+            <div className="flex items-center gap-3 px-1">
+              {user ? (
+                <Link
+                  href="/account"
+                  onClick={() => setFloatMenuOpen(false)}
+                  className="flex-1 text-center text-[14px] font-bold text-white px-4 py-2.5 rounded-xl no-underline"
+                  style={{ background: 'var(--brand-gradient)' }}
+                >
+                  Your account
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    onClick={() => setFloatMenuOpen(false)}
+                    className="text-[14px] font-semibold text-[#4B5563] no-underline px-2"
+                  >
+                    Log in
+                  </Link>
+                  <Link
+                    href={primaryCtaHref}
+                    onClick={() => setFloatMenuOpen(false)}
+                    className="flex-1 text-center text-[14px] font-bold text-white px-4 py-2.5 rounded-xl no-underline"
+                    style={{ background: 'var(--brand-gradient)', boxShadow: '0 4px 16px rgba(226,12,4,0.3)' }}
+                  >
+                    {primaryCtaLabel}
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* Desktop glass quick-nav: slides in on scroll-UP mid-page and
+        collapses away while scrolling down; neutral so it never fights
         whatever section background is behind it */}
     <AnimatePresence>
       {floatVisible && (
@@ -508,7 +628,7 @@ export function Navbar() {
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: -84, opacity: 0, scale: 0.98 }}
           transition={{ type: 'spring', stiffness: 380, damping: 34 }}
-          className="fixed top-3 inset-x-3 md:inset-x-6 z-50"
+          className="hidden md:block fixed top-3 inset-x-3 md:inset-x-6 z-50"
         >
           <nav
             aria-label="Quick navigation"

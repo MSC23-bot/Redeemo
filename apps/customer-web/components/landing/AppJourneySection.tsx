@@ -299,7 +299,7 @@ function Stage() {
           </div>
 
           {/* Chapter copy */}
-          <div className="relative min-h-[235px] lg:min-h-[420px] max-w-[560px] w-full">
+          <div className="relative min-h-[215px] lg:min-h-[420px] max-w-[560px] w-full">
             {CHAPTERS.map((c, i) => (
               <CopyLayer key={c.kicker} progress={scrollYProgress} index={i} chapter={c} />
             ))}
@@ -308,8 +308,12 @@ function Stage() {
           {/* The phone: upright, still, readable: all the life is on-screen.
               On mobile the whole phone (overlays, taps, confetti and all)
               scales down as one object via a transform. */}
-          <div className="relative self-center lg:justify-self-end w-[220px] h-[464px] lg:w-auto lg:h-auto">
-            <div className="origin-top-left scale-[0.61] lg:scale-100" style={{ width: PHONE_W + 20 }}>
+          {/* 0.55 with a 440px footprint: the whole stack must clear iOS
+              Safari's REAL small viewport (~740px with toolbars): at 0.61
+              the phone's bottom bezel hit the stage's overflow clip on
+              device (owner screenshot 2026-07-13) */}
+          <div className="relative self-center lg:justify-self-end w-[198px] h-[442px] lg:w-auto lg:h-auto">
+            <div className="origin-top-left scale-[0.55] lg:scale-100" style={{ width: PHONE_W + 20 }}>
             <div
               className="relative rounded-[50px] bg-[#10101c] p-[10px]"
               style={{
@@ -483,8 +487,8 @@ function Stage() {
             </div>
 
             {/* absolute on mobile: the scaled phone keeps its unscaled layout
-                height, so normal flow would land this ~300px too low */}
-            <p className="absolute -bottom-6 inset-x-0 lg:static lg:mt-4 text-center text-[9px] lg:text-[10px] text-[#010C35]/40">
+                height, so normal flow would land this ~340px too low */}
+            <p className="absolute bottom-0 inset-x-0 lg:static lg:mt-4 text-center text-[9px] lg:text-[10px] text-[#010C35]/40">
               App preview · example places, not live listings
             </p>
           </div>

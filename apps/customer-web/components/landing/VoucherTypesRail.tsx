@@ -254,6 +254,7 @@ function RailCard({
       className="relative flex-shrink-0 cursor-default snap-center"
       style={{ width, height, rotate: tilt ? (index % 2 ? 1.3 : -1.3) : 0 }}
       whileHover={{ rotate: 0, y: -10 }}
+      whileTap={{ rotate: 0, y: -8, scale: 1.02 }}
       transition={{ type: 'spring', stiffness: 260, damping: 22 }}
     >
       {/* Shadow on a wrapper so the die-cut notches read in the silhouette */}
@@ -328,6 +329,9 @@ const FOOTER_LINE =
 export function VoucherTypesRail() {
   const trackRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
+  const mTrackRef = useRef<HTMLDivElement>(null)
+  const mRowRef = useRef<HTMLDivElement>(null)
+  const touchingRef = useRef(false)
   const reduceMotion = useReducedMotion()
   const [viewW, setViewW] = useState(1440)
 
@@ -350,8 +354,38 @@ export function VoucherTypesRail() {
   const x = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.96], [0, endX]))
   const progress = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.96], [0, 1]))
 
-  // Reduced-motion visitors get the static VoucherTypesSection via ScrollStory.
-  if (reduceMotion) return null
+  // Mobile: the same pinned sweep (owner 2026-07-13), but driven through
+  // the row's native scrollLeft so a horizontal thumb-swipe still works:
+  // vertical scroll sweeps the shelf; a touch takes over; scroll re-syncs.
+  const { scrollYProgress: mScroll } = useScroll({ target: mTrackRef, offset: ['start start', 'end end'] })
+  const mProgress = useScrollLinked(useTransform(mScroll, [0.05, 0.95], [0, 1]))
+  useEffect(() => {
+    const row = mRowRef.current
+    if (!row) return
+    return mProgress.on('change', (p) => {
+      if (touchingRef.current) return
+      row.scrollLeft = p * (row.scrollWidth - row.clientWidth)
+    })
+  }, [mProgress])
+
+  // Reduced-motion visitors get a plain swipe carousel below.
+  if (reduceMotion) {
+    return (
+      <section aria-label="Voucher types" className="py-16" style={{ background: '#FFF9F5' }}>
+        <div className="mb-8">
+          <ShelfHeader />
+        </div>
+        <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 px-6 pb-6" style={{ scrollbarWidth: 'none' }}>
+          {TYPES.map((type, i) => (
+            <RailCard key={type.chip} type={type} index={i} width={318} height={330} tilt={false} />
+          ))}
+        </div>
+        <div className="px-6 mt-2">
+          <p className="text-[12px] text-[#6B7280] leading-[1.6]">Swipe for more · {FOOTER_LINE}</p>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <>
@@ -379,21 +413,30 @@ export function VoucherTypesRail() {
         </div>
       </section>
 
-      {/* Mobile: the same shelf as a native swipe carousel */}
-      <section aria-label="Voucher types" className="lg:hidden py-16" style={{ background: '#FFF9F5' }}>
-        <div className="mb-8">
-          <ShelfHeader />
-        </div>
-        <div
-          className="flex overflow-x-auto snap-x snap-mandatory gap-4 px-6 pb-6"
-          style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
-        >
-          {TYPES.map((type, i) => (
-            <RailCard key={type.chip} type={type} index={i} width={318} height={330} tilt={false} />
-          ))}
-        </div>
-        <div className="px-6 mt-2">
-          <p className="text-[12px] text-[#6B7280] leading-[1.6]">Swipe for more · {FOOTER_LINE}</p>
+      {/* Mobile: the SAME pinned sweep, tilts and all, plus native swipe */}
+      <section ref={mTrackRef} aria-label="Voucher types" className="relative lg:hidden" style={{ height: '240vh', background: '#FFF9F5' }}>
+        <div className="sticky top-0 h-[100svh] overflow-hidden flex flex-col justify-center">
+          <div className="mb-7">
+            <ShelfHeader />
+          </div>
+          <div
+            ref={mRowRef}
+            className="flex items-center overflow-x-auto gap-4 px-6 pt-3 pb-5"
+            style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
+            onTouchStart={() => { touchingRef.current = true }}
+            onTouchEnd={() => { window.setTimeout(() => { touchingRef.current = false }, 600) }}
+          >
+            {TYPES.map((type, i) => (
+              <RailCard key={type.chip} type={type} index={i} width={286} height={332} />
+            ))}
+          </div>
+          <div className="px-6 mt-5">
+            <div className="relative h-[3px]">
+              <div className="absolute inset-0 border-t-[3px] border-dotted border-[#010C35]/12" />
+              <motion.div className="absolute inset-y-0 left-0 w-full origin-left" style={{ scaleX: mProgress, background: 'var(--brand-gradient)' }} />
+            </div>
+            <p className="mt-3 text-[11.5px] text-[#6B7280] leading-[1.6]">{FOOTER_LINE}</p>
+          </div>
         </div>
       </section>
     </>

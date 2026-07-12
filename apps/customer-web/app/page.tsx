@@ -1,6 +1,5 @@
 import { HeroSection } from '@/components/landing/HeroSection'
 import { AppJourneySection } from '@/components/landing/AppJourneySection'
-import { HowItWorksSection } from '@/components/landing/HowItWorksSection'
 import { TrendingPreviewSection } from '@/components/landing/TrendingPreviewSection'
 import { TestimonialsSection } from '@/components/landing/TestimonialsSection'
 import { FoundingPromiseSection } from '@/components/landing/FoundingPromiseSection'
@@ -27,8 +26,10 @@ export default function HomePage() {
       <AppJourneySection />
       {/* The voucher shelf: vertical scroll sweeps the seven voucher types
           horizontally (desktop; mobile gets the static grid via ScrollStory) */}
+      {/* How-it-works section removed from the landing page (owner
+          2026-07-13: redundant against the journey cinema); the standalone
+          /how-it-works page remains for the hero's secondary CTA */}
       <VoucherTypesRail />
-      <HowItWorksSection />
       {isMarketplaceLive() ? <TestimonialsSection /> : <FoundingPromiseSection />}
       <PricingSection />
       <WaitlistSection />

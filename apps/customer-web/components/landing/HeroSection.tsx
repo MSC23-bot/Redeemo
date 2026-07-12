@@ -61,7 +61,7 @@ export function HeroSection() {
     <section
       ref={sectionRef}
       onMouseMove={handleMouseMove}
-      className="relative overflow-hidden px-6 -mt-[80px] pt-[144px] pb-14 md:pt-[160px] md:pb-20"
+      className="relative overflow-hidden px-6 -mt-[80px] pt-[118px] pb-14 md:pt-[160px] md:pb-20"
       style={{ background: '#FFF9F5' }}
     >
       {/* Cursor-following red glow (visible on mobile, where the film is off) */}
@@ -84,12 +84,13 @@ export function HeroSection() {
 
           {/* ── Left: Text ── */}
           <div className="lg:pointer-events-auto">
-            {/* Eyebrow */}
+            {/* Eyebrow (desktop only: on mobile it spent a full row saying
+                what the H1 already implies; owner 2026-07-13) */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4 }}
-              className="inline-flex items-center gap-2 mb-7 rounded-full border border-[#010C35]/10 bg-white px-4 py-2"
+              className="hidden lg:inline-flex items-center gap-2 mb-7 rounded-full border border-[#010C35]/10 bg-white px-4 py-2"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-[#E20C04] flex-shrink-0 animate-pulse" />
               <span className="text-[11px] font-bold tracking-[0.18em] uppercase text-[#010C35]/55">
@@ -123,6 +124,18 @@ export function HeroSection() {
               one membership, each with exclusive vouchers that renew every
               month. Browse everything free; redeem from £6.99 a month.
             </motion.p>
+
+            {/* Mobile: the artwork rides between the description and the
+                CTAs, full-bleed, so the action sits beneath the product
+                (owner 2026-07-13) */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.24, ease: EASE }}
+              className="lg:hidden -mx-6 mb-8"
+            >
+              <HeroCollageMobile />
+            </motion.div>
 
             {/* CTAs */}
             <motion.div
@@ -164,52 +177,27 @@ export function HeroSection() {
               )}
             </motion.div>
 
-            {/* Launch-safe facts (desktop: in the column; on mobile they
-                move BELOW the artwork so the visual rides the CTAs) */}
+            {/* Launch-safe facts: full-size in the desktop column, one
+                compact row on mobile */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.42 }}
-              className="hidden lg:flex items-center gap-7 flex-wrap"
+              className="flex items-center justify-between lg:justify-start gap-x-4 gap-y-2 lg:gap-7 flex-wrap"
             >
               {FACTS.map((s, i) => (
                 <div key={i} className="flex items-baseline gap-1.5">
                   <span
-                    className="font-display text-[#010C35] leading-none"
-                    style={{ fontSize: '22px', letterSpacing: '-0.3px' }}
+                    className="font-display text-[#010C35] leading-none text-[17px] lg:text-[22px]"
+                    style={{ letterSpacing: '-0.3px' }}
                   >
                     {s.value}
                   </span>
-                  <span className="text-[12px] text-[#6B7280] font-medium">{s.label}</span>
+                  <span className="text-[11px] lg:text-[12px] text-[#6B7280] font-medium">{s.label}</span>
                 </div>
               ))}
             </motion.div>
           </div>
-
-          {/* ── Right: the product itself. On desktop the collage sits behind
-                 the whole section; on mobile the SAME artwork rides straight
-                 after the CTAs, full-bleed for presence (owner 2026-07-13:
-                 it sat too low and too small) ── */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.3, ease: EASE }}
-            className="lg:hidden -mx-6 -mt-3"
-          >
-            <HeroCollageMobile />
-
-            {/* Compact proof points under the artwork */}
-            <div className="mt-5 px-6 flex items-center justify-between gap-x-4 gap-y-2 flex-wrap">
-              {FACTS.map((s, i) => (
-                <div key={i} className="flex items-baseline gap-1.5">
-                  <span className="font-display text-[#010C35] leading-none" style={{ fontSize: '17px', letterSpacing: '-0.2px' }}>
-                    {s.value}
-                  </span>
-                  <span className="text-[11px] text-[#6B7280] font-medium">{s.label}</span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
         </div>
 
         {/* Launch strip: where we start, and where the app fits. Desktop

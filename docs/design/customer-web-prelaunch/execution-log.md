@@ -760,3 +760,28 @@ edited by this workstream.
   titles (the reported cut-off): the stage additionally gets pt-6 on
   mobile. tsc clean; verified at 390x844 (hero art placement, facts row,
   journey title clear with nav collapsed, nav returns on scroll-up).
+- MOBILE ROUND 2 (owner 2026-07-13, simulator review): 1) HERO: artwork
+  moves BETWEEN the description and the CTAs (action beneath the product);
+  the launching-soon pill leaves mobile (space); the 3D ribbon leaves the
+  mobile hero entirely (too much going on behind the artwork: its mobile
+  home is the navy scene); facts stay as one compact row under the CTAs.
+  2) NAVBAR: "collapse" re-read as collapse-INTO-a-control: on mobile a
+  compact glass pill (logo mark + hamburger) floats top-right once past
+  the hero and expands into a premium glass menu (links, Log in, brand
+  CTA); the static island gains the Get-early-access CTA on mobile;
+  desktop keeps the full quick-nav on scroll-up. 3) JOURNEY CLIP: the
+  phone's bottom bezel was clipped straight across on device: iOS Safari's
+  real small viewport (~740-780px) is under the 844px test viewport, so
+  the copy+phone stack overflowed the stage's overflow-hidden. Phone scale
+  0.61 -> 0.55 (198x442 footprint), copy min-h 215, caption pinned inside
+  the footprint: verified at 390x780. 4) VOUCHER RAIL: mobile now runs the
+  SAME pinned sweep as desktop (240vh track, tilted cards, perforated
+  progress tear) driven through the row's native scrollLeft so horizontal
+  thumb-swipes still work (600ms touch grace before scroll re-syncs), plus
+  whileTap card lift; reduced-motion gets the plain carousel (fixes a
+  silent regression: the old reduced-motion path returned null since
+  ScrollStory's deletion). 5) NAVY RIBBON: small screens halve the path
+  span and thicken the band (x1.55) so it reads as a broad flow, not a
+  sliver. 6) The how-it-works section is REMOVED from the landing page at
+  all viewports (redundant against the journey cinema; the /how-it-works
+  route remains for the hero's secondary CTA). tsc clean.

@@ -2,7 +2,7 @@
 
 import { Canvas, useFrame } from '@react-three/fiber'
 import { useInView, useReducedMotion } from 'framer-motion'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 
 /**
@@ -168,7 +168,21 @@ export function RibbonScene3D({ preset }: { preset: keyof typeof PRESETS }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const inView = useInView(wrapRef, { margin: '200px' })
   const reduceMotion = useReducedMotion()
-  const p = PRESETS[preset]
+  // On small screens the band reads as a sliver (owner 2026-07-13): a
+  // narrow viewport shows a thin slice of a 30-unit-wide path. Shorten the
+  // span and thicken the band so it carries the same presence per pixel.
+  const [small, setSmall] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)')
+    const update = () => setSmall(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  const base = PRESETS[preset]
+  const p = small
+    ? { ...base, halfW: base.halfW * 1.55, span: base.span * 0.5, ampY: base.ampY * 1.2, zBase: base.zBase + 0.7 }
+    : base
 
   if (reduceMotion) return null
 
