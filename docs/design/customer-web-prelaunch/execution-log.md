@@ -653,3 +653,26 @@ edited by this workstream.
   home scroll stops where the baked tab bar meets the pinned overlay;
   profile scroll extended +39px so the baked tabs tuck exactly under the
   collapsed header (fade 0.48-0.58). ScrollStory.tsx removed.
+- APP JOURNEY REVISION (owner feedback 2026-07-13, all 11 points): phone
+  motion loses rotateY entirely (horizontal turn read as odd): vertical
+  rotateX tilt + lateral drift + breathe only, and the phone shrinks to
+  340px with the stage padded so it clears the navbar. 01 Find now OPENS on
+  the real Home screen (search bar, categories, launch-offer carousel:
+  home-top.jpg) before dissolving into the long strip scroll. 02 Choose
+  drops the collapsed-header overlay (it duplicated the baked tab row: the
+  capture strip is too short for an honest collapse, so the strip scrolls
+  naturally instead). All tap markers are brand red. 03 Know drops the
+  pan/zoom: the voucher detail sits full screen, tap on Redeem This
+  Voucher. 04 Redeem gains the missing beats: tap High Street, tap Confirm
+  & Enter PIN, PIN boxes enlarged to fully cover the baked red ring
+  (distortion fix), success sheet arrives with deterministic scroll-driven
+  CONFETTI (18 pieces), tap View voucher code, then the QR screen: and the
+  QR code card physically POPS OUT of the phone (qr-card.jpg crop, global-
+  progress bands so it retires before the savings chapter: tightened to
+  fade out by 0.796 after verification caught it lingering). 05 Keep score
+  stops at the Savings screen itself (savings-more.jpg retired from the
+  cinema): savings-top.jpg re-baked with ALL THREE numbers blanked so
+  TOTAL SAVED (£325.45), THIS MONTH (£96) and REDEMPTIONS (3) all count
+  up live; bar cover rects expanded so no red shows before the bars grow.
+  Static fallback updated to match (home-top opener, savings-top-full
+  closer). Verified at 2%/36%/78%/79.5%/88% scroll; tsc clean.
