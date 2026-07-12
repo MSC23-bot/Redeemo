@@ -39,13 +39,9 @@ const LAYERS = [
 
 function CardLayer({
   layer,
-  parX,
-  parY,
   reduceMotion,
 }: {
   layer: (typeof LAYERS)[number]
-  parX: MotionValue<number>
-  parY: MotionValue<number>
   reduceMotion: boolean
 }) {
   const [l, t, w, h] = layer.box
@@ -193,7 +189,7 @@ export function HeroCollage() {
           }}
         />
         {LAYERS.map((layer) => (
-          <CardLayer key={layer.key} layer={layer} parX={parX} parY={parY} reduceMotion={!!reduceMotion} />
+          <CardLayer key={layer.key} layer={layer} reduceMotion={!!reduceMotion} />
         ))}
 
       </motion.div>
@@ -221,6 +217,47 @@ export function HeroCollage() {
         className="absolute inset-x-0 bottom-0 h-32 pointer-events-none"
         style={{ background: 'linear-gradient(180deg, rgba(255,249,245,0) 0%, rgba(255,249,245,0.97) 100%)' }}
       />
+    </div>
+  )
+}
+
+/**
+ * The same artwork for mobile (owner 2026-07-13: the phone-CSS demo was not
+ * the hero image): the full collage sits beneath the copy, the voucher-card
+ * layers keep their idle drift, and the live 3D ribbon flows behind it,
+ * peeking out around the artwork's edges.
+ */
+export function HeroCollageMobile() {
+  const reduceMotion = useReducedMotion()
+  return (
+    <div className="relative" aria-hidden="true">
+      {!reduceMotion && (
+        <div className="absolute -inset-x-6 -top-14 -bottom-8 pointer-events-none">
+          <RibbonScene3D preset="hero" />
+        </div>
+      )}
+      <div className="relative w-full" style={{ aspectRatio: `${IMG_W} / ${IMG_H}` }}>
+        <Image
+          src="/app-shots/hero-collage/base-v5.jpg"
+          alt=""
+          fill
+          priority
+          unoptimized
+          className="object-fill"
+          style={{
+            // Feather the rectangle so the artwork's cream melts into the page
+            maskImage:
+              'linear-gradient(90deg, transparent 0, black 26px, black calc(100% - 26px), transparent 100%), linear-gradient(180deg, transparent 0, black 26px, black calc(100% - 26px), transparent 100%)',
+            WebkitMaskImage:
+              'linear-gradient(90deg, transparent 0, black 26px, black calc(100% - 26px), transparent 100%), linear-gradient(180deg, transparent 0, black 26px, black calc(100% - 26px), transparent 100%)',
+            maskComposite: 'intersect',
+            WebkitMaskComposite: 'source-in',
+          }}
+        />
+        {LAYERS.map((layer) => (
+          <CardLayer key={layer.key} layer={layer} reduceMotion={!!reduceMotion} />
+        ))}
+      </div>
     </div>
   )
 }

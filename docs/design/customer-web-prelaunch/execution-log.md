@@ -726,3 +726,23 @@ edited by this workstream.
   UP and May/Jun repainted DOWN to the same scale (Jul untouched: its
   baked height IS 86.45 at this scale); ?v=4. Ghost check on the erase
   zones: pure white. tsc clean; live chart verified at 99% scroll.
+- MOBILE REBASELINE (owner 2026-07-13, reviewing on the iOS simulator: the
+  scroll/3D experiences were all desktop-gated and mobile got static
+  fallbacks; the hero image was wrong; make mobile properly optimised and
+  visually impressive): 1) HERO: the CSS PhoneDemo mock is DELETED; mobile
+  now gets HeroCollageMobile: the owner's real artwork under the copy with
+  the four voucher-card layers idle-drifting and the live WebGL hero ribbon
+  flowing behind the artwork block (feathered edges melt it into the page
+  cream). 2) JOURNEY: the five-chapter cinema now runs at EVERY viewport;
+  on mobile the stage stacks compact copy over the phone, and the whole
+  phone (overlays, taps, PIN, confetti, count-ups) scales as one object via
+  a 0.61 transform inside a fixed-footprint wrapper (the caption pins
+  absolutely: the scaled phone keeps its unscaled layout height); sticky
+  stage uses 100svh against iOS toolbar jump; progress rail is desktop-
+  only; ch5's footnote line hides on mobile (it overlapped the phone and
+  repeats in Waitlist). StaticJourney remains for reduced-motion only.
+  3) RIBBONS: FoundingPromise's navy 3D scene un-gated from lg. Voucher
+  rail keeps its native swipe carousel on mobile (better touch UX than a
+  hijacked sweep). Verified at 390x844 (hero, ch1/ch4-dwell/ch5, founding
+  promise) and desktop 1440x900 regression (hero collage + journey grid
+  unchanged); tsc clean.

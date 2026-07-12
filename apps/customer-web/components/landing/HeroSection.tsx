@@ -3,8 +3,7 @@
 import Link from 'next/link'
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import { useRef, useCallback } from 'react'
-import { PhoneDemo } from './PhoneDemo'
-import { HeroCollage } from './HeroCollage'
+import { HeroCollage, HeroCollageMobile } from './HeroCollage'
 import { isMarketplaceLive } from '@/lib/prelaunch'
 
 const EASE = [0.22, 1, 0.36, 1] as [number, number, number, number]
@@ -186,15 +185,16 @@ export function HeroSection() {
             </motion.div>
           </div>
 
-          {/* ── Right: the product itself. On desktop the collage carries the
-                 phone; PhoneDemo remains the mobile/tablet hero ── */}
+          {/* ── Right: the product itself. On desktop the collage sits behind
+                 the whole section; on mobile the SAME artwork lands beneath
+                 the copy with its live card layers and the 3D ribbon ── */}
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.3, ease: EASE }}
-            className="flex justify-center lg:hidden"
+            className="lg:hidden -mx-3"
           >
-            <PhoneDemo />
+            <HeroCollageMobile />
           </motion.div>
         </div>
 

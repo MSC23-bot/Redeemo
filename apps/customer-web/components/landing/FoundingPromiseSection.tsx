@@ -70,8 +70,9 @@ export function FoundingPromiseSection() {
       />
 
       {/* The live 3D brand ribbon, slower and deeper here: red over navy is
-          the dramatic register the removed break band used to carry */}
-      <div className="hidden lg:block absolute inset-0 pointer-events-none" aria-hidden="true">
+          the dramatic register the removed break band used to carry.
+          Mobile included (owner 2026-07-13): the 3D must travel. */}
+      <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
         <RibbonScene3D preset="navy" />
       </div>
 

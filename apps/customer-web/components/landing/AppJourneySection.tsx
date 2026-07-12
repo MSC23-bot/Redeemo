@@ -287,25 +287,29 @@ function Stage() {
 
   return (
     <div ref={trackRef} className="relative" style={{ height: '780vh' }}>
-      <motion.div className="sticky top-0 h-screen overflow-hidden" style={{ background: bg }}>
-        <div className="relative max-w-7xl mx-auto h-full px-6 grid grid-cols-[64px_1fr_420px] gap-8 items-center">
+      {/* svh on mobile: iOS Safari's vh includes the collapsed toolbar */}
+      <motion.div className="sticky top-0 h-[100svh] lg:h-screen overflow-hidden" style={{ background: bg }}>
+        <div className="relative max-w-7xl mx-auto h-full px-6 flex flex-col justify-center gap-1 lg:grid lg:grid-cols-[64px_1fr_420px] lg:gap-8 lg:items-center">
 
-          {/* Progress rail */}
-          <div className="flex flex-col gap-7 select-none" aria-hidden="true">
+          {/* Progress rail (desktop only: mobile stacks copy over phone) */}
+          <div className="hidden lg:flex flex-col gap-7 select-none" aria-hidden="true">
             {RAIL.map((label, i) => (
               <RailItem key={label} progress={scrollYProgress} index={i} label={label} />
             ))}
           </div>
 
           {/* Chapter copy */}
-          <div className="relative min-h-[420px] max-w-[560px]">
+          <div className="relative min-h-[235px] lg:min-h-[420px] max-w-[560px] w-full">
             {CHAPTERS.map((c, i) => (
               <CopyLayer key={c.kicker} progress={scrollYProgress} index={i} chapter={c} />
             ))}
           </div>
 
-          {/* The phone: upright, still, readable: all the life is on-screen */}
-          <div className="justify-self-end relative">
+          {/* The phone: upright, still, readable: all the life is on-screen.
+              On mobile the whole phone (overlays, taps, confetti and all)
+              scales down as one object via a transform. */}
+          <div className="relative self-center lg:justify-self-end w-[220px] h-[464px] lg:w-auto lg:h-auto">
+            <div className="origin-top-left scale-[0.61] lg:scale-100" style={{ width: PHONE_W + 20 }}>
             <div
               className="relative rounded-[50px] bg-[#10101c] p-[10px]"
               style={{
@@ -476,8 +480,11 @@ function Stage() {
               {/* Notch */}
               <div className="absolute left-1/2 -translate-x-1/2 top-[19px] w-[96px] h-[23px] rounded-full bg-[#10101c]" />
             </div>
+            </div>
 
-            <p className="mt-4 text-center text-[10px] text-[#010C35]/40">
+            {/* absolute on mobile: the scaled phone keeps its unscaled layout
+                height, so normal flow would land this ~300px too low */}
+            <p className="absolute -bottom-6 inset-x-0 lg:static lg:mt-4 text-center text-[9px] lg:text-[10px] text-[#010C35]/40">
               App preview · example places, not live listings
             </p>
           </div>
@@ -511,13 +518,13 @@ function CopyLayer({ progress, index, chapter }: { progress: MotionValue<number>
   return (
     <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
       <motion.div style={{ opacity, y }}>
-        <p className="text-[12px] font-bold tracking-[0.2em] uppercase mb-5 text-[#E20C04]">{chapter.kicker}</p>
-        <h3 className="font-display text-[#010C35] leading-[1.08] mb-5" style={{ fontSize: 'clamp(32px, 3.4vw, 50px)', letterSpacing: '-0.7px' }}>
+        <p className="text-[11px] lg:text-[12px] font-bold tracking-[0.2em] uppercase mb-2 lg:mb-5 text-[#E20C04]">{chapter.kicker}</p>
+        <h3 className="font-display text-[#010C35] leading-[1.08] mb-2.5 lg:mb-5" style={{ fontSize: 'clamp(24px, 3.4vw, 50px)', letterSpacing: '-0.7px' }}>
           {chapter.title}
         </h3>
-        <p className="text-[16px] leading-[1.7] max-w-[460px] text-[#4B5563]">{chapter.body}</p>
+        <p className="text-[13.5px] lg:text-[16px] leading-[1.55] lg:leading-[1.7] max-w-[460px] text-[#4B5563]">{chapter.body}</p>
         {index === 4 && (
-          <div className="mt-8 flex items-center gap-4 flex-wrap">
+          <div className="mt-4 lg:mt-8 flex items-center gap-3 lg:gap-4 flex-wrap">
             <Link
               href="/register"
               className="inline-flex items-center gap-2 text-white font-bold text-[15px] px-6 py-3 rounded-xl no-underline hover:opacity-90 transition-opacity"
@@ -525,7 +532,7 @@ function CopyLayer({ progress, index, chapter }: { progress: MotionValue<number>
             >
               Create free account
             </Link>
-            <span className="text-[13px] text-[#6B7280]">Free to join · founding members get 3 months free at launch</span>
+            <span className="hidden lg:inline text-[13px] text-[#6B7280]">Free to join · founding members get 3 months free at launch</span>
           </div>
         )}
       </motion.div>
@@ -533,7 +540,7 @@ function CopyLayer({ progress, index, chapter }: { progress: MotionValue<number>
   )
 }
 
-/** Static fallback: mobile and reduced-motion visitors */
+/** Static fallback: reduced-motion visitors */
 function StaticJourney() {
   return (
     <section className="px-6 py-16" style={{ background: '#FFF9F5' }} aria-label="How the app works">
@@ -568,17 +575,9 @@ function StaticJourney() {
 }
 
 export function AppJourneySection() {
+  // The cinema runs at EVERY viewport (owner 2026-07-13: mobile must get
+  // the real animated journey, not stills); the static fallback is for
+  // reduced-motion visitors only.
   const reduceMotion = useReducedMotion()
-  return (
-    <>
-      {!reduceMotion && (
-        <div className="hidden lg:block">
-          <Stage />
-        </div>
-      )}
-      <div className={reduceMotion ? '' : 'lg:hidden'}>
-        <StaticJourney />
-      </div>
-    </>
-  )
+  return reduceMotion ? <StaticJourney /> : <Stage />
 }
