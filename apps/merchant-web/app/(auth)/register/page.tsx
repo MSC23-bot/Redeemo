@@ -42,7 +42,7 @@ export default function RegisterPage() {
       return
     }
     if (!passwordPolicyOk(password)) {
-      setError('Please meet all the password requirements below.')
+      setError(PASSWORD_HINT)
       return
     }
     setError(null)

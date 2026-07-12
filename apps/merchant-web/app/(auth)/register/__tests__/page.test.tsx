@@ -52,7 +52,7 @@ describe('RegisterPage (M1 Slice 4)', () => {
     fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'weak' } })
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: /create account/i }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/requirements/i))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/at least 8 characters/i))
     expect(mockRegister).not.toHaveBeenCalled()
   })
 
