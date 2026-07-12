@@ -102,12 +102,30 @@ Notes:
   `duplicateWarning` alongside the created row); `PATCH /admin/leads/:id` (edit fields / advance
   stage; LOST requires `lostReason`); `POST /admin/leads/:id/convert` (writes `convertedMerchantId`
   + stage=CONVERTED, then calls existing `createMerchantDraft`; single audited action).
+  Boolean query params (`overdue`, `includeTerminal`) parse the literal token
+  (`z.enum(['true','false']).transform`), NOT `z.coerce.boolean()`: `Boolean('false')` is truthy, so
+  a coerced `?overdue=false` would wrongly filter (F2 fix, mirrors the redemptions surface).
 - **Audit**: emit admin audit events for create / stage-change / lost / convert (reuse existing
-  admin audit emitter used by approvals).
-- **Anonymisation job** (`src/api/admin/leads/anonymise.ts`): idempotent sweep — for leads where
-  `(stage=LOST OR lastActivityAt < now-6mo) AND anonymisedAt IS NULL AND convertedMerchantId IS
-  NULL`, null the three contact fields and set `anonymisedAt`. Runs via the existing scheduled-job
-  mechanism (confirm: same scheduler as other periodic admin jobs). Audited with a count.
+  admin audit emitter used by approvals). Lead audit rows are **PII-FREE by design** (F1): a
+  LEAD_UPDATED row carries a before/after diff of only the CHANGED **non-PII** fields plus a
+  `metadata.changedFields` list of every changed field NAME; contact PII values
+  (contactName/contactEmail/contactPhone) never enter an audit row, because audit rows OUTLIVE the
+  lead's PII (the 6-month anonymisation below nulls the contact fields but retains the AuditLog).
+  Field names may appear in `changedFields`; values never do. LEAD_CONVERTED retains
+  `metadata.ownerEmail` (converted leads are exempt and that email lives on the merchant draft).
+- **Anonymisation sweep** (`src/api/queues/processors/leadAnonymiseSweep.ts`, sweep name
+  `lead-anonymise`, lock key `731_004`): idempotent, advisory-locked, bounded sweep on the
+  process-local maintenance scheduler (the same durable floor as outbox / pending-hours /
+  claim-stale, its own enable flag `MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED`), NOT a BullMQ
+  repeatable. Phase A (locked, DB clock) selects up to 200 rows WHERE
+  `anonymisedAt IS NULL AND convertedMerchantId IS NULL AND (stage=LOST OR lastActivityAt <
+  dbNow - 6 months)`. Phase B per row is one atomic transaction: a conditional CAS `updateMany`
+  re-checks the EXACT Phase-A snapshot (id + anonymisedAt still null + convertedMerchantId still
+  null + lastActivityAt unchanged + stage unchanged), so a **touched lead re-arms its 6-month
+  clock** and a **converted lead becomes exempt at CAS time** (both safely SKIP: no write, not a
+  failure). The winner nulls the three contact fields, stamps `anonymisedAt`, and writes a
+  PII-free `LEAD_ANONYMISED` audit row (actorType SYSTEM, `metadata.trigger` = `LOST` | `STALE`,
+  no nulled values snapshotted) in the SAME transaction.
 
 ## 5. Slices (each its own reviewed commit; one PR)
 

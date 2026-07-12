@@ -39,8 +39,12 @@ export async function adminLeadRoutes(app: FastifyInstance) {
         stage: z.enum(['LEAD', 'CONTACTED', 'VISIT_BOOKED', 'CONVERTED', 'LOST']).optional(),
         assignedRepId: z.string().min(1).optional(),
         source: SOURCE.optional(),
-        overdue: z.coerce.boolean().optional(),
-        includeTerminal: z.coerce.boolean().optional(),
+        // NOT z.coerce.boolean(): query values arrive as strings and
+        // Boolean('false') is TRUE, so ?overdue=false / ?includeTerminal=false
+        // would wrongly coerce to true. Parse the literal token instead; absent
+        // means false (the default board view: live pipeline, all due dates).
+        overdue: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
+        includeTerminal: z.enum(['true', 'false']).optional().transform((v) => v === 'true'),
       })
       .parse(req.query)
     return listLeads(app.prisma, q)

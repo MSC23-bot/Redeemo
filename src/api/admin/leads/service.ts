@@ -58,6 +58,32 @@ const LEAD_SELECT = {
   updatedAt: true,
 } as const
 
+// Non-PII lead fields eligible to appear as VALUES in a LEAD_UPDATED audit
+// diff. Contact PII (contactName / contactEmail / contactPhone) is deliberately
+// absent: audit rows OUTLIVE the lead's PII (OD1 anonymisation nulls the contact
+// fields at 6 months but the AuditLog row is retained), so a contact VALUE must
+// never enter an audit row. The PII field NAMES may still be reported in
+// metadata.changedFields (a field name is not a value).
+const AUDIT_DIFF_FIELDS = [
+  'businessName',
+  'categoryGuess',
+  'locationHint',
+  'source',
+  'stage',
+  'nextAction',
+  'dueDate',
+  'assignedRepId',
+  'lostReason',
+] as const
+const PII_FIELDS = ['contactName', 'contactEmail', 'contactPhone'] as const
+
+/** Value equality that treats two equal-instant Dates as equal (the before/after
+ *  reads are separate query results, so equal dueDates are distinct instances). */
+function sameLeadValue(a: unknown, b: unknown): boolean {
+  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime()
+  return a === b
+}
+
 export interface LeadListFilters {
   stage?: string
   assignedRepId?: string
@@ -213,6 +239,10 @@ export async function updateLead(
     if (input.stage === 'CONVERTED') throw new AppError('LEAD_STAGE_NOT_DIRECTLY_SETTABLE')
 
     const goingLost = input.stage === 'LOST'
+    const isLostNow = existing.stage === 'LOST'
+    // A lead moved OUT of LOST back into a live lane: its Lost reason no longer
+    // applies, so it is cleared (F3) and the clearing is noted in the audit diff.
+    const revivingFromLost = isLostNow && input.stage !== undefined && isPipelineLane(input.stage)
     // A reason is required to enter LOST; it may arrive in this same call or
     // already be present (re-affirming LOST). Empty/whitespace does not count.
     const effectiveLostReason = input.lostReason ?? existing.lostReason
@@ -233,7 +263,15 @@ export async function updateLead(
     if (input.stage !== undefined) {
       data.stage = input.stage as Prisma.MerchantLeadUpdateInput['stage']
     }
-    if (goingLost) data.lostReason = effectiveLostReason
+    if (goingLost) {
+      data.lostReason = effectiveLostReason
+    } else if (revivingFromLost) {
+      data.lostReason = null // F3: leaving LOST clears the now-irrelevant reason
+    } else if (input.lostReason !== undefined && isLostNow) {
+      // F4: a Lost lead that STAYS Lost can have its reason edited; previously
+      // this was silently dropped (lostReason only written when entering LOST).
+      data.lostReason = input.lostReason
+    }
 
     const updated = await tx.merchantLead.update({ where: { id: leadId }, data, select: LEAD_SELECT })
 
@@ -245,16 +283,41 @@ export async function updateLead(
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
       })
     } else if (movingStage) {
+      // Stage move (incl. LOST -> lane revival). lostReason is non-PII, so its
+      // clearing is recorded as a value in the diff when it changed.
+      const before: Record<string, unknown> = { stage: existing.stage }
+      const after: Record<string, unknown> = { stage: updated.stage }
+      if (!sameLeadValue(existing.lostReason, updated.lostReason)) {
+        before.lostReason = existing.lostReason
+        after.lostReason = updated.lostReason
+      }
       await writeAuditLogTx(tx, {
         entityId: leadId, entityType: 'lead', event: 'LEAD_STAGE_CHANGED', actorId, actorType: 'ADMIN',
-        before: { stage: existing.stage }, after: { stage: updated.stage },
+        before, after,
         metadata: { from: existing.stage, to: updated.stage },
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
       })
     } else {
+      // LEAD_UPDATED: a PII-FREE diff (F1). before/after carry ONLY the non-PII
+      // fields that actually changed; metadata.changedFields lists EVERY changed
+      // field name (PII names may appear here, values never do; see the
+      // AUDIT_DIFF_FIELDS / PII_FIELDS note above, OD1 anonymisation).
+      const before: Record<string, unknown> = {}
+      const after: Record<string, unknown> = {}
+      const changedFields: string[] = []
+      for (const key of [...AUDIT_DIFF_FIELDS, ...PII_FIELDS]) {
+        const b = (existing as Record<string, unknown>)[key]
+        const a = (updated as Record<string, unknown>)[key]
+        if (sameLeadValue(b, a)) continue
+        changedFields.push(key)
+        if (!(PII_FIELDS as readonly string[]).includes(key)) {
+          before[key] = b
+          after[key] = a
+        }
+      }
       await writeAuditLogTx(tx, {
         entityId: leadId, entityType: 'lead', event: 'LEAD_UPDATED', actorId, actorType: 'ADMIN',
-        before: existing, after: updated,
+        before, after, metadata: { changedFields },
         ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
       })
     }
