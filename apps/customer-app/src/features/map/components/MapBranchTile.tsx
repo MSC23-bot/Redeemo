@@ -205,12 +205,13 @@ export function MapBranchTile({
               onPress={onBranchPress}
               size="standard"
               width={CARD_WIDTH}
-              // Map Phase 2 S4 — carousel card parity with Home: aggregate
-              // saving ('Save £X across N vouchers') instead of the
-              // single-voucher "Save up to £X" line. Opt-in prop; Search/
-              // Category (the other <BranchTile> callers) don't pass it and
-              // keep their pre-S4 default rendering unchanged.
-              savingsDisplay="aggregate"
+              // Map Phase 2 W2b (F11, W2-D5) — opt-in carousel presentation
+              // (photo-first card: status pill, bridging logo, shared value
+              // line, brand-locked fallbacks). Delegates to
+              // <BranchCarouselCard>. Search / Category (the other
+              // <BranchTile> callers) don't pass `variant` and keep the
+              // default card render unchanged.
+              variant="mapCarousel"
             />
           </View>
         ))}

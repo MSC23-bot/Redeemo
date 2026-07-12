@@ -213,23 +213,28 @@ describe('MapBranchTile', () => {
     expect(onBranchPress).not.toHaveBeenCalledWith('m-covelum')
   })
 
-  // Plan 4 M3b — proves the inner shared BranchTile receives the
-  // proximityBand prop unaltered through the Map carousel wrapper.
-  // BranchTile's own chip-matrix test covers all band variants;
-  // this is the integration pin specifically for the Map render path.
-  it('surfaces the proximity chip on the selected map card (branch-level proximityBand)', () => {
+  // Map Phase 2 W2b (F11) — the carousel card is redesigned
+  // (<BranchCarouselCard>): its body reads name + "category · locality ·
+  // distance" + a single value line. The proximity-band clause ("In your
+  // area") is intentionally NOT part of the redesigned card, so the old
+  // proximity-chip pin is REPLACED (not silently dropped) by this
+  // meta-line assertion.
+  it('renders the redesigned card body: name + "category · locality · distance", no proximity clause', () => {
     const tile = makeBranchTile({
-      id:             'brn-near',
-      branchName:     'In Your Area',
-      branchLatitude: 51.5,
-      branchLongitude: -0.1,
-      proximityBand:  'IN_YOUR_AREA',
+      id:                 'brn-near',
+      branchName:         'Soho',
+      branchLocalityName: 'Soho',
+      branchLatitude:     51.5,
+      branchLongitude:    -0.1,
+      distance:           500,
+      proximityBand:      'IN_YOUR_AREA',
       merchant: {
-        id:           'm-near',
-        businessName: 'In Your Area Cafe',
+        id:              'm-near',
+        businessName:    'In Your Area Cafe',
+        primaryCategory: { id: 'c1', name: 'Food & Drink', pinColour: null, pinIcon: null, parentId: null },
       },
     })
-    const { getByText, getAllByText } = render(
+    const { getByText, queryByText } = render(
       <MapBranchTile
         branches={[tile]}
         activeIndex={0}
@@ -239,11 +244,10 @@ describe('MapBranchTile', () => {
       />,
     )
     expect(getByText('In Your Area Cafe')).toBeTruthy()
-    // Batch 1B: 'In your area' inline clause inside info-line Text node.
-    // Case-sensitive exact match still distinguishes from 'In Your Area Cafe'
-    // (merchant name). Defence-in-depth: assert single render so a future
-    // regression that double-renders both chip + inline would fail loudly.
-    expect(getAllByText('In your area')).toHaveLength(1)
+    // Meta line reflects the branch's category + locality (single node).
+    expect(getByText(/Food & Drink · Soho/)).toBeTruthy()
+    // The proximity-band clause is not part of the redesigned card.
+    expect(queryByText('In your area')).toBeNull()
   })
 
   // ──────────────────────────────────────────────────────────────────────

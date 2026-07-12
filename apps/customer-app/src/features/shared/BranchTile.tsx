@@ -11,6 +11,7 @@ import type { ProximityBand } from '@/lib/api/discovery'
 import { formatDistanceCompact, formatGbpCompact } from '@/design-system/utils/formatters'
 import { merchantDisplayName } from '@/lib/merchantDisplayName'
 import { composeInfoLine, composeWhereLine } from './infoLine'
+import { BranchCarouselCard } from './BranchCarouselCard'
 
 // 2026-06-02 premium card v3 (impeccable + emil-design-eng craft pass).
 //
@@ -54,6 +55,13 @@ const BAND_META: Record<ProximityBand, { label: string; fg: string } | null> = {
 // Only MapBranchTile (the Map carousel) opts in.
 type SavingsDisplay = 'max' | 'aggregate'
 
+// Map Phase 2 W2b (F11) — opt-in presentation switch. 'default' is the
+// pre-W2b card (Home / Search / Favourites / Category), byte-for-byte
+// unchanged. 'mapCarousel' delegates to <BranchCarouselCard> (photo-first
+// card with a status pill, bridging logo, and the shared value line). Only
+// the Map carousel opts in, so every other surface is unaffected.
+type BranchTileVariant = 'default' | 'mapCarousel'
+
 type Props = {
   branch: BranchTileType
   onPress: (id: string) => void
@@ -63,6 +71,7 @@ type Props = {
   width?: number
   size?: CardSize
   savingsDisplay?: SavingsDisplay
+  variant?: BranchTileVariant
 }
 
 export function BranchTile({
@@ -80,7 +89,20 @@ export function BranchTile({
   // Default 'max' preserves the pre-S4 single-voucher "Save up to £X" line
   // exactly. See the SavingsDisplay comment above.
   savingsDisplay = 'max',
+  variant = 'default',
 }: Props) {
+  // W2b opt-in carousel presentation. Early return keeps the default render
+  // path below completely untouched for every other surface.
+  if (variant === 'mapCarousel') {
+    return (
+      <BranchCarouselCard
+        branch={branch}
+        onPress={onPress}
+        {...(width !== undefined ? { width } : {})}
+      />
+    )
+  }
+
   const isAggregateSavings = savingsDisplay === 'aggregate'
   const bannerHeight = BANNER_HEIGHT[size]
   const logoSize = LOGO_SIZE[size]
