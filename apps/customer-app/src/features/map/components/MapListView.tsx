@@ -3,30 +3,28 @@ import { View, FlatList, StyleSheet } from 'react-native'
 import { Text, color, spacing } from '@/design-system'
 import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { FadeIn } from '@/design-system/motion/FadeIn'
-import { BranchTile } from '@/features/shared/BranchTile'
+import { MapLedgerRow } from './MapLedgerRow'
 import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import { FilterState } from '@/features/search/components/FilterSheet'
 import { MapListSortSelector } from './MapListSortSelector'
 
 /**
- * Map Phase 2 S4 Task 2 — the custom `BranchRow` (coloured letter thumb,
- * no heart, no logo) is replaced by the SHARED `<BranchTile size="compact">`
- * used everywhere else (Home rails, Map carousel, Category results). This
- * brings the list into parity with the rest of the app for free:
- *   - FavouriteHeart (branch-level, `entity="branch"`) — the list previously
- *     had NO heart at all.
- *   - Real merchant logo (or the shared navy-initial fallback), banner
- *     image, descriptor, rating, open/closed, distance, and saving —
- *     instead of the bespoke category-coloured letter thumb.
- * Branch-keyed identity (Phase C) is preserved as-is: `FlatList`'s
- * `keyExtractor` reads `item.id` (the BRANCH id), so two branches of the
- * same merchant still render as two distinct rows — `<BranchTile>` itself
- * has no merchant-level dedup logic to regress this.
+ * Map Phase 2 S4 Task 2 — the custom `BranchRow` was replaced by the shared
+ * `<BranchTile size="compact">` card.
  *
- * Row tap → `onBranchPress(branch.id)` is unchanged: `<BranchTile>`'s
- * `onPress` signature is already `(id: string) => void`, so it wires
- * straight through with no wrapper — MapScreen's `handleBranchNavigate`
- * still resolves branch id → the `?branch=${id}&from=map` URL contract.
+ * Map Phase 2 W2b (F9) — the card is in turn replaced by the compact
+ * `<MapLedgerRow>` (owner "generic and boring" feedback): a 44x44 logo
+ * tile, name + "category · distance · Open|Closed" meta line, and a
+ * right-hand value column (shared `<VoucherValue>` save capsule + voucher
+ * stub) with the branch-level heart at the row end. The row still animates
+ * in with a soft stagger (`FadeIn`, reduce-motion aware).
+ *
+ * Branch-keyed identity (Phase C) is preserved: `FlatList`'s `keyExtractor`
+ * reads `item.id` (the BRANCH id), so two branches of the same merchant
+ * still render as two distinct rows — `<MapLedgerRow>` has no
+ * merchant-level dedup. Row tap → `onBranchPress(branch.id)` is unchanged:
+ * MapScreen's `handleBranchNavigate` resolves branch id → the
+ * `?branch=${id}&from=map` URL contract.
  */
 
 type BranchRowProps = {
@@ -38,7 +36,7 @@ type BranchRowProps = {
 function MapListRow({ branch, index, onPress }: BranchRowProps) {
   return (
     <FadeIn delay={index * 40} y={8}>
-      <BranchTile branch={branch} onPress={onPress} size="compact" />
+      <MapLedgerRow branch={branch} onPress={onPress} />
     </FadeIn>
   )
 }

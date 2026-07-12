@@ -200,7 +200,7 @@ describe('MapListView', () => {
     const { getByTestId } = render(
       <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
     )
-    expect(getByTestId('branch-tile-brn-pets-heart')).toBeTruthy()
+    expect(getByTestId('map-ledger-brn-pets-heart')).toBeTruthy()
   })
 
   it('logo falls back to the shared navy initials block when merchant.logoUrl is null', () => {
@@ -213,7 +213,7 @@ describe('MapListView', () => {
     const { getByText, queryByTestId } = render(
       <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
     )
-    expect(queryByTestId('branch-tile-logo-image')).toBeNull()
+    expect(queryByTestId('map-ledger-logo-image')).toBeNull()
     expect(getByText('P')).toBeTruthy()
   })
 
@@ -227,7 +227,7 @@ describe('MapListView', () => {
     const { getByTestId } = render(
       <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
     )
-    expect(getByTestId('branch-tile-logo-image').props.source).toEqual([{ uri: 'https://example.com/logo.png' }])
+    expect(getByTestId('map-ledger-logo-image').props.source).toEqual([{ uri: 'https://example.com/logo.png' }])
   })
 
   // ──────────────────────────────────────────────────────────────────────
@@ -319,5 +319,64 @@ describe('MapListView', () => {
     )
     expect(getByLabelText('Sort by Top Rated').props.accessibilityState).toEqual({ selected: true })
     expect(getByLabelText('Sort by Relevance').props.accessibilityState).toEqual({ selected: false })
+  })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Map Phase 2 W2b (F9) — ledger rows (<MapLedgerRow>) replace the shared
+  // BranchTile compact card. The row now carries the shared <VoucherValue>
+  // (save capsule + voucher stub) and a "category · distance · Open|Closed"
+  // meta line. Branch-first cardinality + tap-through are unchanged (pinned
+  // above); these pin the new value + status presentation.
+  // ──────────────────────────────────────────────────────────────────────
+  it('each ledger row renders the shared value line (save capsule + voucher stub)', () => {
+    const { getByText, getAllByTestId } = render(
+      <MapListView
+        visible
+        branches={mockBranches}
+        total={2}
+        onDismiss={jest.fn()}
+        onBranchPress={jest.fn()}
+        {...noopSort}
+      />,
+    )
+    // Bella Italia (maxEstimatedSaving 20, 2 vouchers) + Nails (10, 1).
+    expect(getByText('Save up to £20')).toBeTruthy()
+    expect(getByText('2 vouchers')).toBeTruthy()
+    expect(getByText('Save up to £10')).toBeTruthy()
+    expect(getByText('1 voucher')).toBeTruthy()
+    expect(getAllByTestId('map-ledger-value')).toHaveLength(2)
+  })
+
+  it('segmented sort control shows the W2b display labels ("Top rated", "Best saving") while a11y labels stay canonical', () => {
+    const { getByText, getByLabelText } = render(
+      <MapListView
+        visible
+        branches={mockBranches}
+        total={2}
+        onDismiss={jest.fn()}
+        onBranchPress={jest.fn()}
+        sortBy="relevance"
+        onSortByChange={jest.fn()}
+      />,
+    )
+    // Visible display-only rename.
+    expect(getByText('Top rated')).toBeTruthy()
+    expect(getByText('Best saving')).toBeTruthy()
+    // Canonical accessibility labels (unchanged contract).
+    expect(getByLabelText('Sort by Highest Saving')).toBeTruthy()
+    expect(getByLabelText('Sort by Top Rated')).toBeTruthy()
+  })
+
+  it('ledger row meta shows the Open/Closed status word', () => {
+    const openTile = makeBranchTile({
+      id:          'brn-open',
+      isOpenNow:   true,
+      distance:    500,
+      merchant:    { id: 'm-open', businessName: 'Open Cafe' },
+    })
+    const { getByText } = render(
+      <MapListView visible branches={[openTile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
+    )
+    expect(getByText('Open')).toBeTruthy()
   })
 })
