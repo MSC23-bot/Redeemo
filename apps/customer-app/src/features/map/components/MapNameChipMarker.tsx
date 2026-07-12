@@ -30,29 +30,55 @@ import { formatGbpCompact } from '@/design-system/utils/formatters'
 // reason documented in MapClusterMarker.tsx.
 const CHIP_TRACK_MS = 1000
 
-// Map P2 W1 (F3 + F4, 2026-07-12) — chip tether geometry.
+// Map P2 W1 (F3 + F4) revised by W1.1 (F15, 2026-07-12) — chip tether
+// geometry.
 //
 // The chip is a SEPARATE Marker at the SAME coordinate as the pin, both
 // bottom-anchored (react-native-maps default `{x:0.5,y:1}`), so both are
 // horizontally centred on the coordinate and rise upward from it.
 //
-// The pre-W1 offset (`translateX: 22, translateY: -44`) pushed the chip
-// UP-AND-RIGHT, landing it squarely in the pin's top-right voucher-badge
-// zone (F3: the screenshot showed the red "2" badge sitting on top of
-// "Store" in "The Kraft Store"), and left it reading as detached from
-// the pin with no visual tether (F4).
+// History: the pre-W1 offset (`translateX: 22, translateY: -44`) pushed
+// the chip up-and-right into the pin's then-voucher-badge zone (F3) and
+// read as detached (F4). W1 centred it (`translateX: 0`) but lifted it
+// clear of the ENTIRE 63pt pin container: the container's upper band is
+// mostly pulse-ring headroom, so the owner still found the chip floating
+// (F15). The badge is now REMOVED (F14, owner W2-D6), so there is no
+// badge zone to clear at all.
 //
-// Fix: centre the chip over the pin (`translateX: 0`) and lift it to sit
-// JUST ABOVE the pin's fixed outer bounds with a small gap. `PIN_STACK_
-// HEIGHT` mirrors <MapPins>'s constant `CONTAINER_HEIGHT` (60x63 marker
-// box, tip-anchored at the coordinate) — a state-independent bound, so
-// the chip clears the pin head, the pulse ring AND the badge in every
-// selected/unselected state and for any name length (the pill is
-// centre-anchored, so it grows symmetrically and never drifts back over
-// the badge). Duplicated as a local constant (not imported) for the same
-// module-scope-decoupling reason CHIP_TRACK_MS is duplicated above.
-const PIN_STACK_HEIGHT   = 63
-const CHIP_GAP_ABOVE_PIN = 4
+// W1.1 fix: lift the chip so it sits JUST ABOVE the VISIBLE resting
+// (unselected) head top with a small pocket of air, derived from the
+// pin's actual scaled geometry (constants duplicated from MapPins.tsx
+// for the same module-scope-decoupling reason CHIP_TRACK_MS is
+// duplicated above).
+//
+// Derivation (container coords, y grows downward; the pin container is
+// 60x63 with the teardrop tip at the bottom-centre anchor):
+//   TEARDROP_TOP     = CONTAINER_HEIGHT - PIN_HEIGHT = 63 - 54 = 9
+//   wrapper centre y = TEARDROP_TOP + PIN_HEIGHT / 2 = 9 + 27  = 36
+//   (RN `transform: scale` scales a view about its OWN centre)
+//   unscaled head top y = TEARDROP_TOP = 9
+//   scaled head top y   = centre + (top - centre) * scale
+//                       = 36 + (9 - 36) * 0.81 = 14.13
+// The chip's BOTTOM sits CHIP_GAP_ABOVE_HEAD above that, at container
+// y = 14.13 - 6 = 8.13, which gives:
+//   - 6pt of visual air above the resting head (the F15 ask: ~4-6pt);
+//   - chip bottom still ABOVE the SELECTED (scale 1) head top (y = 9),
+//     so the chip never overlaps the teardrop itself in either state; it
+//     sits close to (fractionally over) the faint OUTER ring circle when
+//     selected, which the owner explicitly accepted;
+// so the lift from the anchor is CONTAINER_HEIGHT - 8.13 = 54.87.
+const PIN_CONTAINER_HEIGHT    = 63
+const PIN_HEIGHT              = 54
+const PIN_TEARDROP_TOP        = PIN_CONTAINER_HEIGHT - PIN_HEIGHT // 9
+const PIN_INNER_SCALE_RESTING = 0.81
+const PIN_WRAP_CENTER_Y       = PIN_TEARDROP_TOP + PIN_HEIGHT / 2 // 36
+// Exported for the F15 geometry tests (not part of the runtime API).
+export const PIN_SCALED_HEAD_TOP =
+  PIN_WRAP_CENTER_Y + (PIN_TEARDROP_TOP - PIN_WRAP_CENTER_Y) * PIN_INNER_SCALE_RESTING // 14.13
+export const PIN_SELECTED_HEAD_TOP = PIN_TEARDROP_TOP // scale 1: head top = teardrop top
+export const CHIP_GAP_ABOVE_HEAD = 6
+export const CHIP_LIFT = PIN_CONTAINER_HEIGHT - PIN_SCALED_HEAD_TOP + CHIP_GAP_ABOVE_HEAD // 54.87
+export const PIN_CONTAINER_HEIGHT_FOR_TESTS = PIN_CONTAINER_HEIGHT
 
 type Props = {
   id: string
@@ -134,14 +160,14 @@ function MapNameChipMarkerBase({ id, latitude, longitude, label, dotColor, maxEs
 export const MapNameChipMarker = memo(MapNameChipMarkerBase)
 
 const styles = StyleSheet.create({
-  // Map P2 W1 (F3 + F4) — centre the chip over the pin and lift it to
-  // sit just above the pin's fixed outer bounds (see the geometry note
-  // on PIN_STACK_HEIGHT above). Centred (translateX 0) so the pill grows
-  // symmetrically for any name length and never re-enters the top-right
-  // badge zone; lifted clear of the head/ring/badge so it reads as a
-  // label tethered directly above the pin.
+  // Map P2 W1.1 (F15) — centre the chip over the pin (translateX 0, so
+  // the pill grows symmetrically for any name length) and lift it so its
+  // bottom sits CHIP_GAP_ABOVE_HEAD above the VISIBLE resting head top
+  // (full derivation in the CHIP_LIFT comment above): a tight, tethered
+  // label directly above the pin head rather than floating in the
+  // container's ring-headroom band.
   offsetWrap: {
-    transform: [{ translateY: -(PIN_STACK_HEIGHT + CHIP_GAP_ABOVE_PIN) }],
+    transform: [{ translateY: -CHIP_LIFT }],
   },
   pill: {
     flexDirection:     'row',

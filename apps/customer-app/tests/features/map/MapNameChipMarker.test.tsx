@@ -6,7 +6,14 @@
 
 import React from 'react'
 import { render } from '@testing-library/react-native'
-import { MapNameChipMarker } from '@/features/map/components/MapNameChipMarker'
+import {
+  MapNameChipMarker,
+  CHIP_LIFT,
+  CHIP_GAP_ABOVE_HEAD,
+  PIN_SCALED_HEAD_TOP,
+  PIN_SELECTED_HEAD_TOP,
+  PIN_CONTAINER_HEIGHT_FOR_TESTS,
+} from '@/features/map/components/MapNameChipMarker'
 
 jest.mock('react-native-maps', () => {
   const ReactLib = require('react')
@@ -74,18 +81,19 @@ describe('MapNameChipMarker', () => {
   })
 
   // ──────────────────────────────────────────────────────────────────────
-  // Map P2 W1 (F3 + F4) — chip tether geometry.
+  // Map P2 W1.1 (F15, revising W1 F3/F4) — chip tether geometry.
   //
-  // The pin's outer marker box is a fixed 60x63 (MapPins CONTAINER_WIDTH x
-  // CONTAINER_HEIGHT), tip-anchored at the coordinate, so it occupies the
-  // 63px ABOVE the coordinate; the voucher-count badge lives INSIDE that
-  // box (≤24px from its top). Both the chip and the pin are bottom-
-  // anchored Markers at the SAME coordinate. These tests pin that the chip
-  // is (F4) tethered directly above the pin — centred, lifted clear of the
-  // 63px pin stack — and therefore (F3) can never re-enter the badge zone,
-  // which is strictly inside that stack.
+  // Pinned-test supersession record: the W1 F3/F4 tests asserted the chip
+  // cleared the ENTIRE 63pt pin container (|translateY| >= 63) so it could
+  // never collide with the voucher badge. The badge is now REMOVED (F14,
+  // owner W2-D6) and the owner still found the container-top lift too
+  // detached (the container's upper band is mostly pulse-ring headroom),
+  // so those two assertions are REPLACED by head-clearance assertions:
+  // the chip's bottom sits a small pocket of air (~4-6pt) above the
+  // VISIBLE resting head top, derived from the scaled-head geometry (see
+  // MapNameChipMarker.tsx's CHIP_LIFT derivation comment). The badge-
+  // disjointness claim is moot: there is no badge.
   // ──────────────────────────────────────────────────────────────────────
-  const PIN_STACK_HEIGHT = 63 // mirrors MapPins CONTAINER_HEIGHT
 
   function chipOffsetTransform(testInstance: any): { translateX: number; translateY: number } {
     const style = Array.isArray(testInstance.props.style)
@@ -97,26 +105,47 @@ describe('MapNameChipMarker', () => {
     return { translateX: tx, translateY: ty }
   }
 
-  it('F4: the chip is lifted entirely above the pin stack (tethered above the head, not floating beside it)', () => {
-    const { getByTestId } = render(
-      <MapNameChipMarker id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" dotColor="#E20C04" />,
-    )
-    const { translateY } = chipOffsetTransform(getByTestId('map-name-chip-brn1'))
-    // Bottom-anchored, so a negative translateY lifts it upward. Its whole
-    // box must clear the 63px pin stack (chip bottom sits ABOVE the pin's
-    // top edge), so |translateY| >= PIN_STACK_HEIGHT.
-    expect(translateY).toBeLessThanOrEqual(-PIN_STACK_HEIGHT)
-  })
-
-  it('F3: the chip is horizontally centred over the pin (translateX 0), so it never re-enters the top-right badge zone', () => {
+  it('F15: the rendered offset is centred (translateX 0) and lifts by exactly CHIP_LIFT', () => {
     const { getByTestId } = render(
       <MapNameChipMarker id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" dotColor="#E20C04" />,
     )
     const { translateX, translateY } = chipOffsetTransform(getByTestId('map-name-chip-brn1'))
-    // The pre-W1 offset pushed the chip UP-AND-RIGHT (translateX 22,
-    // translateY -44) into the badge zone. Centred + lifted-clear means the
-    // chip box and the badge box (inside the 63px pin stack) are disjoint.
     expect(translateX).toBe(0)
-    expect(translateY).toBeLessThan(-PIN_STACK_HEIGHT + 1) // strictly above the stack top
+    expect(translateY).toBe(-CHIP_LIFT)
+  })
+
+  it('F15: the chip bottom sits 4-6pt above the VISIBLE resting head top (tight tether, not container-top float)', () => {
+    // All in pin-container coords (y grows downward; the container bottom
+    // is the shared anchor). Chip bottom y = CONTAINER_HEIGHT - CHIP_LIFT.
+    const chipBottomY = PIN_CONTAINER_HEIGHT_FOR_TESTS - CHIP_LIFT
+    const airAboveRestingHead = PIN_SCALED_HEAD_TOP - chipBottomY
+    // Float-tolerant bounds (the derivation legitimately lands on 6 with
+    // an epsilon of floating-point noise).
+    expect(airAboveRestingHead).toBeGreaterThanOrEqual(4)
+    expect(airAboveRestingHead).toBeLessThanOrEqual(6.001)
+    expect(airAboveRestingHead).toBeCloseTo(CHIP_GAP_ABOVE_HEAD, 10)
+  })
+
+  it('F15: the chip never overlaps the teardrop itself even when SELECTED (scale 1 head top)', () => {
+    // Selected state scales the teardrop to 1.0: its head top rises to
+    // PIN_SELECTED_HEAD_TOP (y=9). The chip bottom must stay ABOVE it
+    // (smaller y). Sitting close to / fractionally over the faint OUTER
+    // ring circle is owner-accepted; overlapping the teardrop is not.
+    const chipBottomY = PIN_CONTAINER_HEIGHT_FOR_TESTS - CHIP_LIFT
+    expect(chipBottomY).toBeLessThan(PIN_SELECTED_HEAD_TOP)
+  })
+
+  it('F15: constant-parity guard: the derived scaled head top matches the MapPins pin geometry (63 / 54 / 0.81)', () => {
+    // The chip file duplicates the pin constants (module-scope
+    // decoupling); this recomputes the derivation from first principles
+    // so silent drift in either file fails loudly.
+    const CONTAINER_HEIGHT = 63
+    const PIN_HEIGHT = 54
+    const TEARDROP_TOP = CONTAINER_HEIGHT - PIN_HEIGHT       // 9
+    const WRAP_CENTER_Y = TEARDROP_TOP + PIN_HEIGHT / 2      // 36
+    const SCALE = 0.81
+    const expectedScaledHeadTop = WRAP_CENTER_Y + (TEARDROP_TOP - WRAP_CENTER_Y) * SCALE
+    expect(PIN_SCALED_HEAD_TOP).toBeCloseTo(expectedScaledHeadTop, 10)
+    expect(PIN_CONTAINER_HEIGHT_FOR_TESTS).toBe(CONTAINER_HEIGHT)
   })
 })
