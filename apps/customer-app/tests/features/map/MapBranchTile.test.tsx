@@ -6,10 +6,27 @@
 // branch identity naturally (no adapter required).
 
 import React from 'react'
+import { ScrollView } from 'react-native'
 import { render as rtlRender, fireEvent } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MapBranchTile, shouldClaimDismissGesture, shouldDismissOnRelease } from '@/features/map/components/MapBranchTile'
+import {
+  MapBranchTile,
+  shouldClaimDismissGesture,
+  shouldDismissOnRelease,
+  PAGE_INSET,
+  CARD_GAP,
+  CARD_PEEK,
+  CARD_WIDTH,
+  SNAP_INTERVAL,
+  CAROUSEL_SCREEN_WIDTH,
+} from '@/features/map/components/MapBranchTile'
 import { makeBranchTile } from '../../fixtures/branchTile'
+
+function flattenStyle(style: any): any {
+  if (!style) return {}
+  if (Array.isArray(style)) return Object.assign({}, ...style.filter(Boolean).map(flattenStyle))
+  return style
+}
 
 // Phase 3C.1g M2.7/M2.8 — MapBranchTile composes the shared `<BranchTile>`
 // which renders `<FavouriteHeart>`; the heart calls `useFavourite()` →
@@ -227,6 +244,70 @@ describe('MapBranchTile', () => {
     // (merchant name). Defence-in-depth: assert single render so a future
     // regression that double-renders both chip + inline would fail loudly.
     expect(getAllByText('In your area')).toHaveLength(1)
+  })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Map P2 W1 (F5) — carousel snap geometry.
+  //
+  // Walkthrough finding F5: the active card rendered left-clipped with the
+  // next card crammed at a tiny gap. These pins the corrected peek-
+  // carousel geometry: a single snap mechanism (snapToInterval, no
+  // pagingEnabled), an even inset, a consistent gap, and a modest peek
+  // that all sum to the screen width so the active card is always fully
+  // visible.
+  // ──────────────────────────────────────────────────────────────────────
+  describe('F5: peek-carousel snap geometry', () => {
+    it('the inset + card + gap + peek exactly tile the screen width (active card fully visible, next card peeks)', () => {
+      expect(PAGE_INSET + CARD_WIDTH + CARD_GAP + CARD_PEEK).toBe(CAROUSEL_SCREEN_WIDTH)
+      expect(CARD_WIDTH).toBeGreaterThan(0)
+      expect(CARD_PEEK).toBeGreaterThan(0)
+      expect(CARD_GAP).toBeGreaterThan(0)
+    })
+
+    it('snapToInterval is one card advance (card width + gap), in lockstep with the index math', () => {
+      expect(SNAP_INTERVAL).toBe(CARD_WIDTH + CARD_GAP)
+    })
+
+    it('the ScrollView uses a single snap mechanism: snapToInterval + start alignment, NOT pagingEnabled', () => {
+      const { UNSAFE_getByType } = render(
+        <MapBranchTile
+          branches={[mockBranchA, mockBranchB]}
+          activeIndex={0}
+          onClose={jest.fn()}
+          onIndexChange={jest.fn()}
+          onBranchPress={jest.fn()}
+        />,
+      )
+      const sv = UNSAFE_getByType(ScrollView)
+      expect(sv.props.snapToInterval).toBe(SNAP_INTERVAL)
+      expect(sv.props.snapToAlignment).toBe('start')
+      expect(sv.props.decelerationRate).toBe('fast')
+      // pagingEnabled was the conflicting second snap mechanism — gone.
+      expect(sv.props.pagingEnabled).toBeFalsy()
+      // The active card is inset via content padding, not container padding,
+      // so the ScrollView spans full width and the next card can peek.
+      expect(flattenStyle(sv.props.contentContainerStyle).paddingHorizontal).toBe(PAGE_INSET)
+    })
+
+    it('each card is CARD_WIDTH wide with a consistent trailing gap', () => {
+      const { UNSAFE_getByType } = render(
+        <MapBranchTile
+          branches={[mockBranchA, mockBranchB]}
+          activeIndex={0}
+          onClose={jest.fn()}
+          onIndexChange={jest.fn()}
+          onBranchPress={jest.fn()}
+        />,
+      )
+      const sv = UNSAFE_getByType(ScrollView)
+      const cardWrappers = React.Children.toArray(sv.props.children)
+      expect(cardWrappers).toHaveLength(2)
+      for (const wrapper of cardWrappers as any[]) {
+        const s = flattenStyle(wrapper.props.style)
+        expect(s.width).toBe(CARD_WIDTH)
+        expect(s.marginRight).toBe(CARD_GAP)
+      }
+    })
   })
 
   // ──────────────────────────────────────────────────────────────────────
