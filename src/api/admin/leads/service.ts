@@ -148,7 +148,7 @@ export interface CreateLeadResult {
 /**
  * Create a prospect. Warn-only dedupe: if an ACTIVE (non-terminal, non-anonymised)
  * lead shares a case-insensitive businessName and the same locationHint, a
- * warning is returned ALONGSIDE the created lead (never blocks — OD1).
+ * warning is returned ALONGSIDE the created lead (never blocks: OD1).
  */
 export async function createLead(
   prisma: PrismaClient,
@@ -216,7 +216,7 @@ export interface UpdateLeadInput {
   dueDate?: Date | null
   assignedRepId?: string | null
   // A lane move (LEAD / CONTACTED / VISIT_BOOKED) or LOST. CONVERTED is rejected
-  // here — it is reachable only via convertLead.
+  // here: it is reachable only via convertLead.
   stage?: string
   lostReason?: string
 }
@@ -384,7 +384,7 @@ export async function convertLead(
         jobTitle: input.jobTitle,
       }
       // Compose the draft into THIS transaction (no separate commit): if the
-      // stamp below fails, the draft rolls back with it — no orphan draft.
+      // stamp below fails, the draft rolls back with it: no orphan draft.
       const created = await createMerchantDraftInTx(tx, actorId, draftInput, ctx)
 
       // Null-guard the stamp: a concurrent writer that stamped between our read

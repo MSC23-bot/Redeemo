@@ -54,7 +54,7 @@ export async function adminLeadRoutes(app: FastifyInstance) {
     return listLeads(app.prisma, q)
   })
 
-  // Capture a prospect. Returns { lead, duplicateWarning } — dedupe never blocks.
+  // Capture a prospect. Returns { lead, duplicateWarning }: dedupe never blocks.
   app.post(prefix, gate, async (req: any, reply) => {
     const body = z
       .object({

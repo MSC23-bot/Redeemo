@@ -160,7 +160,7 @@ export type MaintenanceConfig =
        *  any 60-second polling (spec §8.2). */
       sweepPendingHoursEnabled: boolean
       sweepClaimStaleEnabled: boolean
-      /** MerchantLead 6-month anonymisation sweep (packet 2026-07-12) — its own
+      /** MerchantLead 6-month anonymisation sweep (packet 2026-07-12): its own
        *  enable flag / rollback switch, same convention as the sibling sweeps. */
       sweepLeadAnonymiseEnabled: boolean
     }

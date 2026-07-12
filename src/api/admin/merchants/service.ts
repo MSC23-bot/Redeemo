@@ -526,9 +526,9 @@ export interface CreateMerchantDraftResult {
 /**
  * The tx-composable BODY of createMerchantDraft: creates the Merchant (defaults
  * to status REGISTERED / verificationStatus NOT_SUBMITTED / onboardingStep
- * REGISTERED), the owner MerchantAdmin (no password — `mustChangePassword:
+ * REGISTERED), the owner MerchantAdmin (no password: `mustChangePassword:
  * true`), and the first OWNER MerchantMembership, then writes the transactional
- * audit — all on the caller-supplied `tx`. Extracted so a CALLER that already
+ * audit: all on the caller-supplied `tx`. Extracted so a CALLER that already
  * owns a transaction (convertLead: draft + lead-stamp + audits must commit or
  * roll back together, no orphan draft) can compose the draft into ITS
  * transaction rather than running a separate one. Callers own P2002 mapping
@@ -558,14 +558,14 @@ export async function createMerchantDraftInTx(
 
   const admin = await tx.merchantAdmin.create({
     data: {
-      // M6b (D-1): MerchantAdmin.merchantId is dropped — the OWNER membership
+      // M6b (D-1): MerchantAdmin.merchantId is dropped: the OWNER membership
       // created just below is the sole link from this admin to the merchant.
       email: input.ownerEmail,
       firstName: input.ownerFirstName,
       lastName: input.ownerLastName,
       jobTitle: input.jobTitle,
       mustChangePassword: true,
-      // passwordHash intentionally omitted — set by the owner via reset flow.
+      // passwordHash intentionally omitted: set by the owner via reset flow.
     },
     select: { id: true },
   })

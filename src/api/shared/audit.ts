@@ -205,12 +205,12 @@ export type AuditEvent =
   | 'ADMIN_CAPABILITY_REVOKED'
   // MerchantLead recruitment pipeline (packet 2026-07-12). `event` is a String
   // column, so these are union-only literals with NO migration.
-  //   LEAD_CREATED       — a prospect was captured (metadata: source, businessName).
-  //   LEAD_UPDATED       — non-stage field(s) edited (before/after diff).
-  //   LEAD_STAGE_CHANGED — pipeline stage moved (metadata: from/to).
-  //   LEAD_LOST          — stage set to LOST (metadata: lostReason; always audited).
-  //   LEAD_CONVERTED     — converted to a merchant draft (metadata: merchantId).
-  //   LEAD_ANONYMISED    — the scheduled job nulled contact PII (metadata: reason).
+  //   LEAD_CREATED       : a prospect was captured (metadata: source, businessName).
+  //   LEAD_UPDATED       : non-stage field(s) edited (before/after diff).
+  //   LEAD_STAGE_CHANGED : pipeline stage moved (metadata: from/to).
+  //   LEAD_LOST          : stage set to LOST (metadata: lostReason; always audited).
+  //   LEAD_CONVERTED     : converted to a merchant draft (metadata: merchantId).
+  //   LEAD_ANONYMISED    : the scheduled job nulled contact PII (metadata: reason).
   | 'LEAD_CREATED'
   | 'LEAD_UPDATED'
   | 'LEAD_STAGE_CHANGED'

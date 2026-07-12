@@ -188,7 +188,7 @@ describe('PR-D primary — real configuration validation (LOCKED safety floors o
 describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRegistration)', () => {
   it('registers EXACTLY the four sweeps with their correct Phase-B domains', () => {
     const reg = buildMaintenanceRegistration(untouchablePrisma(), enabledConfig(), stubSink())
-    expect(reg.sweeps).toHaveLength(4) // exactly — an omitted OR extra sweep fails
+    expect(reg.sweeps).toHaveLength(4) // exactly: an omitted OR extra sweep fails
     const byName = new Map(reg.sweeps.map((s) => [s.spec.name, s.spec]))
     expect([...byName.keys()].sort()).toEqual([
       'claim-stale',

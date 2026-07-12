@@ -76,7 +76,7 @@ export function leadStaleCutoff(dbNow: Date): Date {
 
 /** Audit trigger classification for a qualifying lead: every eligible row cleared
  *  the same 6-month clock, but the audit records WHY it was in the pipeline at
- *  anonymise time — a LOST lead is 'LOST', any live-lane lead is 'STALE'. */
+ *  anonymise time: a LOST lead is 'LOST', any live-lane lead is 'STALE'. */
 export function leadAnonymiseTrigger(row: Pick<AnonymiseLeadRow, 'stage'>): 'LOST' | 'STALE' {
   return row.stage === 'LOST' ? 'LOST' : 'STALE'
 }
@@ -108,7 +108,7 @@ export interface LeadAnonymiseTxBounds {
  * Phase A (locked, light, DB-only): runs on `tx` with the DB-authoritative
  * clock: select ONLY genuinely ELIGIBLE leads at the DATABASE level. Eligibility
  * = not yet anonymised, never converted, AND untouched for 6 months
- * (lastActivityAt < dbNow - 6 months) — a SINGLE clock predicate that covers
+ * (lastActivityAt < dbNow - 6 months): a SINGLE clock predicate that covers
  * Lost leads too (the move to LOST bumped lastActivityAt, so a Lost lead's clock
  * runs from its loss, preserving the revival window; OD1 review round 2). A
  * PARAMETERIZED raw query (tagged template: bound values, never interpolation)
