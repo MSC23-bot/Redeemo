@@ -689,14 +689,22 @@ export function MapPins({ branches, selectedId, onPress, region, onClusterPress,
         const branch = singleBranchesById.get(p.id)
         if (!branch) return null
         return (
+          // Map P2 W2a — the close-zoom label is now the TICKET LOCKUP
+          // (icon block + name + Save £X + "N vouchers" with a ticket mark).
+          // It is fed the SAME resolved category colour (`pinColor`) and
+          // top-level glyph name the pin uses, plus the voucher count (which
+          // appears ONLY here, never on the pin — W2-D2/D6). All primitive/
+          // value-stable, so its memo bail-out survives pan/zoom churn.
           <MapNameChipMarker
             key={`chip-${branch.id}`}
             id={branch.id}
             latitude={p.latitude}
             longitude={p.longitude}
             label={branch.branchName}
-            dotColor={resolvePinColorWithTree(branch, categoryIndex)}
+            pinColor={resolvePinColorWithTree(branch, categoryIndex)}
+            glyphName={getPinGlyphName(branch, categoryIndex)}
             maxEstimatedSaving={branch.merchant.maxEstimatedSaving}
+            voucherCount={branch.merchant.voucherCount}
           />
         )
       })}
