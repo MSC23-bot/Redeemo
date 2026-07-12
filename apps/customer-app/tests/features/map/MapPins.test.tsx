@@ -338,6 +338,59 @@ describe('MapPins (Map BranchTile contract)', () => {
     }
   })
 
+  // Map P2 W1.1 (F13) — belt-and-braces comparator hardening. The W1 memo
+  // used the default shallow compare (branch OBJECT identity); the owner's
+  // re-test showed the residual teleport because the accumulation store
+  // rebuilds branch objects when a tile refreshes (same id, NEW reference).
+  // The comparator now compares primitive fields, so even an unavoidable
+  // fresh reference with identical content cannot re-render a frozen pin.
+  it('F13: a rerender with content-identical CLONES of the branch objects (new references) does NOT re-render frozen markers', () => {
+    jest.useFakeTimers()
+    try {
+      const a = makeBranchTile({ id: 'a', branchLatitude: 51, branchLongitude: 0 })
+      const b = makeBranchTile({ id: 'b', branchLatitude: 52, branchLongitude: 1 })
+      const onPress = jest.fn()
+      const region = { latitude: 51.5, longitude: 0.5, latitudeDelta: 0.02, longitudeDelta: 0.02 }
+      const { rerender } = render(
+        <MapPins branches={[a, b]} selectedId={null} onPress={onPress} region={region} />,
+      )
+      act(() => { jest.advanceTimersByTime(1500) }) // settle past the §BI freeze
+      mockMarkerCalls.length = 0
+
+      // A tile refresh delivered freshly parsed objects: same ids, same
+      // content, NEW references (the exact F13 churn shape).
+      const aClone = makeBranchTile({ id: 'a', branchLatitude: 51, branchLongitude: 0 })
+      const bClone = makeBranchTile({ id: 'b', branchLatitude: 52, branchLongitude: 1 })
+      expect(aClone).not.toBe(a)
+      rerender(<MapPins branches={[aClone, bClone]} selectedId={null} onPress={onPress} region={region} />)
+
+      expect(mockMarkerCalls).toHaveLength(0)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('F13: a clone whose COORDINATE genuinely changed DOES re-render (comparator does not over-suppress)', () => {
+    jest.useFakeTimers()
+    try {
+      const a = makeBranchTile({ id: 'a', branchLatitude: 51, branchLongitude: 0 })
+      const onPress = jest.fn()
+      const region = { latitude: 51.5, longitude: 0.5, latitudeDelta: 0.02, longitudeDelta: 0.02 }
+      const { rerender } = render(
+        <MapPins branches={[a]} selectedId={null} onPress={onPress} region={region} />,
+      )
+      act(() => { jest.advanceTimersByTime(1500) })
+      mockMarkerCalls.length = 0
+
+      const aMoved = makeBranchTile({ id: 'a', branchLatitude: 51.001, branchLongitude: 0 })
+      rerender(<MapPins branches={[aMoved]} selectedId={null} onPress={onPress} region={region} />)
+      act(() => { jest.advanceTimersByTime(0) })
+      expect(mockMarkerCalls.some(c => c.identifier === 'a')).toBe(true)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('F1: a genuine selection change STILL re-renders the affected marker (memo does not over-suppress)', () => {
     jest.useFakeTimers()
     try {
