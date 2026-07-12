@@ -3,14 +3,17 @@ import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../../../src/api/app'
 
 // MerchantLead pipeline routes (packet 2026-07-12, OD1). Every route is gated on
-// `lead:manage` (FIELD baseline). The gate fires in a preHandler before the
-// service, so a small prisma mock suffices to prove fail-closed authz + the
-// schema-level validation. Also pins the F2 boolean-parse fix: ?overdue=false /
-// ?includeTerminal=false must parse to FALSE (z.coerce.boolean would flip them).
+// `lead:manage` (FIELD baseline); the CONVERT route additionally demands
+// `merchant:create-draft` (N4 defense-in-depth: convert mints a merchant draft).
+// The gate fires in a preHandler before the service, so a small prisma mock
+// suffices to prove fail-closed authz + the schema-level validation. Also pins
+// the F2 boolean-parse fix (?overdue=false / ?includeTerminal=false must parse
+// to FALSE) and the N2 empty-string-clears-to-null PATCH transform.
 
 describe('MerchantLead routes: lead:manage gate + schema validation', () => {
   let app: FastifyInstance
   let findMany: ReturnType<typeof vi.fn>
+  let leadUpdate: ReturnType<typeof vi.fn>
 
   const sign = (adminRole?: string, caps?: string[]) =>
     (app.jwt as any).admin.sign({ sub: 'admin-1', role: 'admin', adminRole, caps, sessionId: 's1' }, { expiresIn: '1h' })
@@ -26,11 +29,12 @@ describe('MerchantLead routes: lead:manage gate + schema validation', () => {
   beforeEach(async () => {
     app = await buildApp()
     findMany = vi.fn().mockResolvedValue([])
+    leadUpdate = vi.fn().mockResolvedValue(leadRow)
     const tx = {
       merchantLead: {
         findUnique: vi.fn().mockResolvedValue(leadRow),
         create: vi.fn().mockResolvedValue(leadRow),
-        update: vi.fn().mockResolvedValue(leadRow),
+        update: leadUpdate,
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
@@ -109,9 +113,34 @@ describe('MerchantLead routes: lead:manage gate + schema validation', () => {
     expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
   })
 
-  it('convert validates ownerEmail (400 with the cap ⇒ the gate was passed, then the body rejected)', async () => {
-    const res = await app.inject({ method: 'POST', url: '/api/v1/admin/leads/lead-1/convert', headers: { authorization: `Bearer ${sign('FIELD', ['lead:manage'])}` }, payload: { ownerFirstName: 'A', ownerLastName: 'B' } })
+  it('convert validates ownerEmail (400 with BOTH caps ⇒ both gates passed, then the body rejected)', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/v1/admin/leads/lead-1/convert', headers: { authorization: `Bearer ${sign('FIELD', ['lead:manage', 'merchant:create-draft'])}` }, payload: { ownerFirstName: 'A', ownerLastName: 'B' } })
     expect(res.statusCode).toBe(400)
     expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('N4: convert 403s for an admin holding lead:manage but NOT merchant:create-draft (dual-cap gate)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/leads/lead-1/convert',
+      headers: { authorization: `Bearer ${sign('FIELD', ['lead:manage'])}` }, // no merchant:create-draft
+      payload: { ownerEmail: 'a@b.com', ownerFirstName: 'A', ownerLastName: 'B' },
+    })
+    expect(res.statusCode).toBe(403)
+    expect(JSON.parse(res.body).error.code).toBe('ADMIN_CAPABILITY_DENIED')
+  })
+
+  it('N2: PATCH with an empty-string nullable field clears it to NULL (not stored as "")', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/admin/leads/lead-1',
+      headers: { authorization: `Bearer ${sign('FIELD', ['lead:manage'])}` },
+      payload: { categoryGuess: '', nextAction: '   ' }, // empty + whitespace-only both clear
+    })
+    expect(res.statusCode).toBe(200)
+    // The service receives null (clearing intent), never a bare "" / trimmed "".
+    const data = leadUpdate.mock.calls[0][0].data
+    expect(data.categoryGuess).toBeNull()
+    expect(data.nextAction).toBeNull()
   })
 })

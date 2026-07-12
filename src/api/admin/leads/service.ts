@@ -16,7 +16,7 @@ import { PrismaClient, Prisma } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
 import {
-  createMerchantDraft,
+  createMerchantDraftInTx,
   type CreateMerchantDraftInput,
   type CreateMerchantDraftResult,
 } from '../merchants/service'
@@ -117,6 +117,10 @@ export async function listLeads(prisma: PrismaClient, filters: LeadListFilters =
     where,
     orderBy: { lastActivityAt: 'desc' },
     select: LEAD_SELECT,
+    // v1 hard bound: the board is unpaginated, so cap the response so a large
+    // pipeline can't return an unbounded row set. Add proper pagination (a limit
+    // + offset param, mirroring the redemptions surface) when history grows.
+    take: 500,
   })
 }
 
@@ -344,12 +348,16 @@ export interface ConvertLeadResult {
 }
 
 /**
- * Convert a lead to a merchant draft. Draft-first ordering: createMerchantDraft
- * runs (its own atomic transaction, may throw EMAIL_ALREADY_EXISTS) BEFORE the
- * lead is stamped, so a failed draft never leaves a lead falsely marked
- * converted. Once the draft exists, the lead is stamped convertedMerchantId +
- * stage=CONVERTED and LEAD_CONVERTED is audited. Idempotency-guarded: a lead
- * already converted throws.
+ * Convert a lead to a merchant draft in ONE transaction: the draft creation, the
+ * lead stamp, and every audit row commit or roll back together, so a failed
+ * stamp can never leave an ORPHAN merchant draft behind (the earlier draft-first
+ * ordering created the draft in its own transaction and could orphan it if the
+ * stamp then failed). The transaction re-reads the lead and re-applies the
+ * guards (a concurrent convert could have stamped it since any earlier read),
+ * composes the draft via createMerchantDraftInTx on the SAME tx, then stamps the
+ * lead via a null-guarded updateMany (belt and braces: count 0 still throws
+ * LEAD_ALREADY_CONVERTED) and writes the PII-free LEAD_CONVERTED audit.
+ * Idempotency-guarded: a lead already converted throws.
  */
 export async function convertLead(
   prisma: PrismaClient,
@@ -358,37 +366,54 @@ export async function convertLead(
   input: ConvertLeadInput,
   ctx: ActorCtx,
 ): Promise<ConvertLeadResult> {
-  const lead = await prisma.merchantLead.findUnique({ where: { id: leadId }, select: LEAD_SELECT })
-  if (!lead) throw new AppError('LEAD_NOT_FOUND')
-  if (lead.anonymisedAt) throw new AppError('LEAD_ANONYMISED')
-  if (lead.convertedMerchantId) throw new AppError('LEAD_ALREADY_CONVERTED')
+  const draft = await prisma
+    .$transaction(async (tx) => {
+      // Re-read + re-guard INSIDE the transaction: the guards and the stamp share
+      // one atomic scope, and a concurrent convert cannot slip a draft past us.
+      const lead = await tx.merchantLead.findUnique({ where: { id: leadId }, select: LEAD_SELECT })
+      if (!lead) throw new AppError('LEAD_NOT_FOUND')
+      if (lead.anonymisedAt) throw new AppError('LEAD_ANONYMISED')
+      if (lead.convertedMerchantId) throw new AppError('LEAD_ALREADY_CONVERTED')
 
-  const draftInput: CreateMerchantDraftInput = {
-    businessName: lead.businessName,
-    tradingName: input.tradingName,
-    ownerEmail: input.ownerEmail,
-    ownerFirstName: input.ownerFirstName,
-    ownerLastName: input.ownerLastName,
-    jobTitle: input.jobTitle,
-  }
-  const draft = await createMerchantDraft(prisma, actorId, draftInput, ctx)
+      const draftInput: CreateMerchantDraftInput = {
+        businessName: lead.businessName,
+        tradingName: input.tradingName,
+        ownerEmail: input.ownerEmail,
+        ownerFirstName: input.ownerFirstName,
+        ownerLastName: input.ownerLastName,
+        jobTitle: input.jobTitle,
+      }
+      // Compose the draft into THIS transaction (no separate commit): if the
+      // stamp below fails, the draft rolls back with it — no orphan draft.
+      const created = await createMerchantDraftInTx(tx, actorId, draftInput, ctx)
 
-  await prisma.$transaction(async (tx) => {
-    // Re-guard inside the transaction: a concurrent convert could have stamped
-    // this lead between our read and here. updateMany with the null-guard makes
-    // the second writer a no-op rather than double-stamping.
-    const stamped = await tx.merchantLead.updateMany({
-      where: { id: leadId, convertedMerchantId: null },
-      data: { convertedMerchantId: draft.merchantId, stage: 'CONVERTED', lastActivityAt: new Date() },
+      // Null-guard the stamp: a concurrent writer that stamped between our read
+      // and here makes this a no-op (count 0), which we treat as a conflict.
+      const stamped = await tx.merchantLead.updateMany({
+        where: { id: leadId, convertedMerchantId: null },
+        data: { convertedMerchantId: created.merchantId, stage: 'CONVERTED', lastActivityAt: new Date() },
+      })
+      if (stamped.count === 0) throw new AppError('LEAD_ALREADY_CONVERTED')
+
+      // LEAD_CONVERTED audit is PII-FREE: only the non-PII merchantId is carried
+      // (metadata + the after diff); no owner contact detail (that lives on the
+      // merchant draft), so lead audit rows stay clean of PII that OUTLIVES the
+      // lead's own anonymisation.
+      await writeAuditLogTx(tx, {
+        entityId: leadId, entityType: 'lead', event: 'LEAD_CONVERTED', actorId, actorType: 'ADMIN',
+        before: { stage: lead.stage }, after: { stage: 'CONVERTED', merchantId: created.merchantId },
+        metadata: { merchantId: created.merchantId },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+      })
+      return created
     })
-    if (stamped.count === 0) throw new AppError('LEAD_ALREADY_CONVERTED')
-    await writeAuditLogTx(tx, {
-      entityId: leadId, entityType: 'lead', event: 'LEAD_CONVERTED', actorId, actorType: 'ADMIN',
-      before: { stage: lead.stage }, after: { stage: 'CONVERTED', merchantId: draft.merchantId },
-      metadata: { merchantId: draft.merchantId, ownerEmail: input.ownerEmail },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
+    .catch((e) => {
+      // P2002: a concurrent createMerchantDraft raced past the findUnique
+      // pre-check on the unique `email`. Map it to the same friendly 409
+      // createMerchantDraft returns, instead of an unhandled 500.
+      if ((e as { code?: string })?.code === 'P2002') throw new AppError('EMAIL_ALREADY_EXISTS')
+      throw e
     })
-  })
 
   return { draft, leadId, merchantId: draft.merchantId }
 }

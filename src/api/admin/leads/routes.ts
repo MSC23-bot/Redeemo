@@ -22,7 +22,11 @@ const SOURCE = z.enum([
 const PATCH_STAGE = z.enum(['LEAD', 'CONTACTED', 'VISIT_BOOKED', 'LOST'])
 
 const text = (max: number) => z.string().trim().min(1).max(max)
-const nullableText = (max: number) => z.string().trim().max(max).nullable()
+// Nullable free-text edit field: an empty/whitespace-only string carries CLEARING
+// intent, so it transforms to null (store null, never a bare "") to match the
+// service's null-means-cleared semantics.
+const nullableText = (max: number) =>
+  z.string().trim().max(max).nullable().transform((v) => (v === '' ? null : v))
 
 export async function adminLeadRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/admin/leads'
@@ -92,8 +96,19 @@ export async function adminLeadRoutes(app: FastifyInstance) {
   })
 
   // Convert to a merchant draft (creates the draft, stamps the lead). Owner
-  // details are supplied fresh (pre-filled from the lead in the UI).
-  app.post(`${prefix}/:leadId/convert`, gate, async (req: any, reply) => {
+  // details are supplied fresh (pre-filled from the lead in the UI). Gated on
+  // BOTH lead:manage AND merchant:create-draft (defense-in-depth): convert mints
+  // a merchant draft, so it demands the same capability as the direct draft
+  // route. Today every lead:manage holder also holds merchant:create-draft; this
+  // pins that invariant so a future capability split can't silently open a
+  // draft-minting side door.
+  const convertGate = {
+    preHandler: [
+      requireAdminCapability('lead:manage'),
+      requireAdminCapability('merchant:create-draft'),
+    ],
+  }
+  app.post(`${prefix}/:leadId/convert`, convertGate, async (req: any, reply) => {
     const body = z
       .object({
         ownerEmail: emailSchema,

@@ -1,16 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // MerchantLead recruitment pipeline service (packet 2026-07-12, OD1) with a
-// mocked Prisma. createMerchantDraft is mocked so convertLead's draft-first
-// ordering is observable without the merchants service. The load-bearing pins:
-// LEAD_UPDATED audit rows are PII-FREE (F1); LOST revival clears lostReason and
-// a Lost-stays-Lost reason edit is applied (F3/F4); dedupe is warn-only and
-// excludes terminal/anonymised leads; convertLead stamps via a null-guarded
-// updateMany after the draft exists.
+// mocked Prisma. createMerchantDraftInTx is mocked so convertLead's ATOMIC
+// convert (draft composed into the lead-stamp transaction, no orphan draft) is
+// observable without the merchants service. The load-bearing pins: LEAD_UPDATED
+// audit rows are PII-FREE (F1); LOST revival clears lostReason and a
+// Lost-stays-Lost reason edit is applied (F3/F4); dedupe is warn-only and
+// excludes terminal/anonymised leads; convertLead composes the draft on the SAME
+// tx and stamps via a null-guarded updateMany, and its LEAD_CONVERTED audit is
+// PII-free (N1: no ownerEmail).
 
-const createMerchantDraft = vi.fn()
+const createMerchantDraftInTx = vi.fn()
 vi.mock('../../../src/api/admin/merchants/service', () => ({
-  createMerchantDraft: (...a: unknown[]) => createMerchantDraft(...a),
+  createMerchantDraftInTx: (...a: unknown[]) => createMerchantDraftInTx(...a),
 }))
 
 import { createLead, updateLead, convertLead } from '../../../src/api/admin/leads/service'
@@ -75,7 +77,7 @@ function auditData(tx: any, call = 0) {
 }
 
 beforeEach(() => {
-  createMerchantDraft.mockReset()
+  createMerchantDraftInTx.mockReset()
 })
 
 describe('createLead: audit + warn-only dedupe', () => {
@@ -254,69 +256,111 @@ describe('updateLead: audit events', () => {
   })
 })
 
-describe('convertLead: draft-first, null-guarded stamp', () => {
-  it('creates the draft BEFORE stamping the lead (assert order)', async () => {
+describe('convertLead: atomic (draft-in-tx), null-guarded stamp', () => {
+  it('S3: composes the draft on the SAME tx (draft-in-tx), THEN stamps (assert order + tx identity)', async () => {
     const order: string[] = []
-    createMerchantDraft.mockImplementation(async () => {
+    createMerchantDraftInTx.mockImplementation(async () => {
       order.push('draft')
       return { merchantId: 'm-new' }
     })
     const tx = makeTx({
-      merchantLead: { updateMany: vi.fn().mockImplementation(async () => { order.push('stamp'); return { count: 1 } }) },
+      merchantLead: {
+        findUnique: vi.fn().mockResolvedValue(leadRow()),
+        updateMany: vi.fn().mockImplementation(async () => { order.push('stamp'); return { count: 1 } }),
+      },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
     })
-    const prisma = makePrisma(tx, { merchantLead: { findUnique: vi.fn().mockResolvedValue(leadRow()) } })
+    const prisma = makePrisma(tx)
     const res = await convertLead(prisma, ACTOR, LEAD_ID, {
       ownerEmail: 'jo@bloom.test', ownerFirstName: 'Jo', ownerLastName: 'Owner',
     }, ctx)
     expect(order).toEqual(['draft', 'stamp'])
+    // The draft is composed into THIS transaction: first arg is the tx client,
+    // and everything (draft + stamp + audit) runs inside ONE $transaction.
+    expect(prisma.$transaction).toHaveBeenCalledOnce()
+    expect(createMerchantDraftInTx.mock.calls[0][0]).toBe(tx)
     expect(res.merchantId).toBe('m-new')
   })
 
-  it('stamps via updateMany null-guard; count 0 throws LEAD_ALREADY_CONVERTED', async () => {
-    createMerchantDraft.mockResolvedValue({ merchantId: 'm-new' })
+  it('S3: a failed stamp (count 0) throws INSIDE the tx so the draft rolls back with it', async () => {
+    createMerchantDraftInTx.mockResolvedValue({ merchantId: 'm-new' })
+    // A $transaction that throws must NOT be treated as committed: this mock runs
+    // the callback and lets the throw propagate (a real tx would roll back).
     const tx = makeTx({
-      merchantLead: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      merchantLead: {
+        findUnique: vi.fn().mockResolvedValue(leadRow()),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
       auditLog: { create: vi.fn() },
     })
-    const prisma = makePrisma(tx, { merchantLead: { findUnique: vi.fn().mockResolvedValue(leadRow()) } })
+    const prisma = makePrisma(tx)
     await expect(
       convertLead(prisma, ACTOR, LEAD_ID, { ownerEmail: 'a@b.test', ownerFirstName: 'A', ownerLastName: 'B' }, ctx),
     ).rejects.toThrow('LEAD_ALREADY_CONVERTED')
+    // The draft WAS composed on the tx (so a rollback is what protects it), and
+    // the throw came AFTER, from within the same transaction callback.
+    expect(createMerchantDraftInTx.mock.calls[0][0]).toBe(tx)
     // The null-guard is present on the stamp.
     expect(tx.merchantLead.updateMany.mock.calls[0][0].where).toMatchObject({ id: LEAD_ID, convertedMerchantId: null })
+    // No audit row was written (the throw preceded it).
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
   })
 
-  it('an already-converted lead throws BEFORE any draft is created', async () => {
-    const prisma = makePrisma(makeTx(), {
+  it('an already-converted lead throws WITHOUT composing a draft (guard re-checked in-tx)', async () => {
+    const tx = makeTx({
       merchantLead: { findUnique: vi.fn().mockResolvedValue(leadRow({ convertedMerchantId: 'm-old' })) },
     })
+    const prisma = makePrisma(tx)
     await expect(
       convertLead(prisma, ACTOR, LEAD_ID, { ownerEmail: 'a@b.test', ownerFirstName: 'A', ownerLastName: 'B' }, ctx),
     ).rejects.toThrow('LEAD_ALREADY_CONVERTED')
-    expect(createMerchantDraft).not.toHaveBeenCalled()
+    expect(createMerchantDraftInTx).not.toHaveBeenCalled()
   })
 
   it('an anonymised lead refuses conversion (before any draft)', async () => {
-    const prisma = makePrisma(makeTx(), {
+    const tx = makeTx({
       merchantLead: { findUnique: vi.fn().mockResolvedValue(leadRow({ anonymisedAt: new Date() })) },
     })
+    const prisma = makePrisma(tx)
     await expect(
       convertLead(prisma, ACTOR, LEAD_ID, { ownerEmail: 'a@b.test', ownerFirstName: 'A', ownerLastName: 'B' }, ctx),
     ).rejects.toThrow('LEAD_ANONYMISED')
-    expect(createMerchantDraft).not.toHaveBeenCalled()
+    expect(createMerchantDraftInTx).not.toHaveBeenCalled()
   })
 
-  it('LEAD_CONVERTED audit carries the merchantId', async () => {
-    createMerchantDraft.mockResolvedValue({ merchantId: 'm-new' })
+  it('a missing lead throws LEAD_NOT_FOUND without composing a draft', async () => {
     const tx = makeTx({
-      merchantLead: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      merchantLead: { findUnique: vi.fn().mockResolvedValue(null) },
+    })
+    const prisma = makePrisma(tx)
+    await expect(
+      convertLead(prisma, ACTOR, LEAD_ID, { ownerEmail: 'a@b.test', ownerFirstName: 'A', ownerLastName: 'B' }, ctx),
+    ).rejects.toThrow('LEAD_NOT_FOUND')
+    expect(createMerchantDraftInTx).not.toHaveBeenCalled()
+  })
+
+  it('N1: LEAD_CONVERTED audit carries the merchantId and is PII-FREE (no ownerEmail / contact values)', async () => {
+    createMerchantDraftInTx.mockResolvedValue({ merchantId: 'm-new' })
+    const tx = makeTx({
+      merchantLead: {
+        findUnique: vi.fn().mockResolvedValue(leadRow()),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
     })
-    const prisma = makePrisma(tx, { merchantLead: { findUnique: vi.fn().mockResolvedValue(leadRow()) } })
+    const prisma = makePrisma(tx)
     await convertLead(prisma, ACTOR, LEAD_ID, { ownerEmail: 'jo@bloom.test', ownerFirstName: 'Jo', ownerLastName: 'Owner' }, ctx)
     const data = auditData(tx)
     expect(data.event).toBe('LEAD_CONVERTED')
     expect(data.metadata.merchantId).toBe('m-new')
+    // N1: ownerEmail is DROPPED from the metadata (merchantId suffices; the lead
+    // audit-rows-are-PII-free invariant is restored).
+    expect(data.metadata.ownerEmail).toBeUndefined()
+    // No owner/contact VALUE appears anywhere in the audit row.
+    const serialized = JSON.stringify(data)
+    expect(serialized).not.toContain('jo@bloom.test')
+    expect(serialized).not.toContain('Jo Owner')
+    expect(serialized).not.toContain('0700000000')
+    expect(serialized).not.toContain('ownerEmail')
   })
 })

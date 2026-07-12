@@ -30,7 +30,7 @@ locked OD1 decisions. This plan follows OD1 (the authority). Discrepancies resol
 |---|---|---|
 | Pipeline stages | `NEW->CONTACTED->QUALIFIED->ONBOARDING->WON->LOST` (6 kanban lanes) | Kanban lanes = **Lead / Contacted / Visit booked**; **Converted** and **Lost** are filterable STATES, not lanes |
 | Source | free-text `source String? // referral/inbound/event/cold` | `MerchantSource` enum: REP_VISIT, INBOUND_ENQUIRY, PHONE, SOCIAL, EMAIL_CAMPAIGN, CUSTOMER_REQUEST |
-| Retention/PII | none | 6-month auto-anonymise of Lost + stale-untouched leads (null contact name/phone/email; keep business name + category + location + outcome); converted leads keep merchant link; anonymise not delete; auditable scheduled job |
+| Retention/PII | none | 6-month auto-anonymise of Lost + stale-untouched leads, timed from lastActivityAt (a Lost lead's clock starts when it was marked lost, so the 6 months is a grace window that also preserves LOST-to-lane revival); null contact name/phone/email + nextAction (free-text PII vector); keep business name + category + location + outcome (lostReason); converted leads keep merchant link; anonymise not delete; auditable scheduled job |
 | Terminal naming | `WON` | `CONVERTED` (+ `convertedMerchantId` link) |
 | Lost | `lostReason String?` | Lost REQUIRES a reason and is audited |
 | Dedupe | not specified | warn-only (similar business name + postcode); never blocks |
@@ -80,7 +80,7 @@ model MerchantLead {
   @@index([stage])
   @@index([assignedRepId])
   @@index([dueDate])
-  @@index([stage, anonymisedAt])   // anonymisation sweep predicate
+  @@index([anonymisedAt, lastActivityAt])   // anonymisation sweep predicate (review round 2: matches the single-clock scan anonymisedAt IS NULL + lastActivityAt < cutoff; the earlier [stage, anonymisedAt] indexed a stage branch the predicate no longer uses)
 }
 ```
 
@@ -101,31 +101,49 @@ Notes:
   overdue, source, includeConverted/Lost); `POST /admin/leads` (create; warn-only dedupe returns a
   `duplicateWarning` alongside the created row); `PATCH /admin/leads/:id` (edit fields / advance
   stage; LOST requires `lostReason`); `POST /admin/leads/:id/convert` (writes `convertedMerchantId`
-  + stage=CONVERTED, then calls existing `createMerchantDraft`; single audited action).
+  + stage=CONVERTED, composing the existing draft-creation logic; single audited action).
+  Convert is ATOMIC (review round 2, S3): the draft, the lead stamp, and the audit rows run in
+  ONE `prisma.$transaction` via the extracted `createMerchantDraftInTx(tx, ...)` composable, so a
+  failed stamp rolls the draft back with it and no ORPHAN merchant draft can exist (the earlier
+  draft-first ordering created the draft in its own transaction and could orphan it on a stamp
+  failure). Convert is gated on BOTH `lead:manage` AND `merchant:create-draft` (review round 2,
+  N4 defense-in-depth): minting a draft demands the same capability as the direct draft route.
   Boolean query params (`overdue`, `includeTerminal`) parse the literal token
   (`z.enum(['true','false']).transform`), NOT `z.coerce.boolean()`: `Boolean('false')` is truthy, so
   a coerced `?overdue=false` would wrongly filter (F2 fix, mirrors the redemptions surface).
+  Nullable free-text PATCH fields transform an empty/whitespace string to `null` (review round 2,
+  N2 clearing semantics), never storing a bare `""`. `listLeads` is hard-bounded at `take: 500`
+  (review round 2, N3 v1 bound; add limit+offset pagination when history grows).
 - **Audit**: emit admin audit events for create / stage-change / lost / convert (reuse existing
   admin audit emitter used by approvals). Lead audit rows are **PII-FREE by design** (F1): a
   LEAD_UPDATED row carries a before/after diff of only the CHANGED **non-PII** fields plus a
   `metadata.changedFields` list of every changed field NAME; contact PII values
   (contactName/contactEmail/contactPhone) never enter an audit row, because audit rows OUTLIVE the
   lead's PII (the 6-month anonymisation below nulls the contact fields but retains the AuditLog).
-  Field names may appear in `changedFields`; values never do. LEAD_CONVERTED retains
-  `metadata.ownerEmail` (converted leads are exempt and that email lives on the merchant draft).
+  Field names may appear in `changedFields`; values never do. LEAD_CONVERTED carries only
+  `metadata.merchantId` (review round 2, N1: the earlier `metadata.ownerEmail` exemption is
+  DROPPED; merchantId suffices and the strict lead-audit-rows-are-PII-free invariant is restored).
 - **Anonymisation sweep** (`src/api/queues/processors/leadAnonymiseSweep.ts`, sweep name
   `lead-anonymise`, lock key `731_004`): idempotent, advisory-locked, bounded sweep on the
   process-local maintenance scheduler (the same durable floor as outbox / pending-hours /
   claim-stale, its own enable flag `MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED`), NOT a BullMQ
   repeatable. Phase A (locked, DB clock) selects up to 200 rows WHERE
-  `anonymisedAt IS NULL AND convertedMerchantId IS NULL AND (stage=LOST OR lastActivityAt <
-  dbNow - 6 months)`. Phase B per row is one atomic transaction: a conditional CAS `updateMany`
-  re-checks the EXACT Phase-A snapshot (id + anonymisedAt still null + convertedMerchantId still
-  null + lastActivityAt unchanged + stage unchanged), so a **touched lead re-arms its 6-month
-  clock** and a **converted lead becomes exempt at CAS time** (both safely SKIP: no write, not a
-  failure). The winner nulls the three contact fields, stamps `anonymisedAt`, and writes a
-  PII-free `LEAD_ANONYMISED` audit row (actorType SYSTEM, `metadata.trigger` = `LOST` | `STALE`,
-  no nulled values snapshotted) in the SAME transaction.
+  `anonymisedAt IS NULL AND convertedMerchantId IS NULL AND lastActivityAt < dbNow - 6 months`
+  (review round 2, S2/OD1: a SINGLE clock predicate. OD1's locked text anonymises Lost AND stale
+  leads AFTER 6 months; since marking a lead LOST bumps lastActivityAt, the clock covers Lost
+  leads too and its 6 months is a grace window preserving the LOST-to-lane revival affordance.
+  The earlier `stage=LOST OR ...` branch made Lost leads immediately eligible, which contradicted
+  OD1). Phase B per row is one atomic transaction: a conditional CAS `updateMany` re-checks the
+  EXACT Phase-A snapshot (id + anonymisedAt still null + convertedMerchantId still null +
+  lastActivityAt unchanged + stage unchanged), so a **touched lead re-arms its 6-month clock**
+  and a **converted lead becomes exempt at CAS time** (both safely SKIP: no write, not a
+  failure). The winner nulls the three contact fields AND `nextAction` (review round 2, S1:
+  nextAction is free text, a PII vector, useless post-anonymisation), RETAINS `lostReason` (OD1
+  keeps the outcome; operator guidance to keep personal data out of Lost reasons is an
+  owner-queue item, not a code control), stamps `anonymisedAt`, and writes a PII-free
+  `LEAD_ANONYMISED` audit row (actorType SYSTEM, `metadata.trigger` = `LOST` | `STALE`, the
+  classification distinguishes why the lead was in the pipeline; no nulled values snapshotted) in
+  the SAME transaction.
 
 ## 5. Slices (each its own reviewed commit; one PR)
 

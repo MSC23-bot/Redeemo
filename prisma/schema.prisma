@@ -2098,5 +2098,5 @@ model MerchantLead {
   @@index([stage])
   @@index([assignedRepId])
   @@index([dueDate])
-  @@index([stage, anonymisedAt])
+  @@index([anonymisedAt, lastActivityAt]) // anonymisation sweep predicate (anonymisedAt IS NULL + lastActivityAt < cutoff)
 }

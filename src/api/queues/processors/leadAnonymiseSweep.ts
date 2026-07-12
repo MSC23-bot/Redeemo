@@ -1,23 +1,31 @@
 // src/api/queues/processors/leadAnonymiseSweep.ts
 //
 // MerchantLead packet slice 3 (owner OD1, UK-GDPR): the 6-month contact-PII
-// anonymisation sweep. A prospect that is LOST, or STALE-untouched (its
-// lastActivityAt older than 6 months) and never converted, has its three
-// contact fields (contactName / contactEmail / contactPhone) NULLED and
+// anonymisation sweep. OD1 reading (Fable-adjudicated review round 2): Lost AND
+// stale-untouched leads anonymise 6 months AFTER their last activity. Every
+// service mutation bumps lastActivityAt (including the move to LOST), so a
+// SINGLE clock predicate (lastActivityAt < dbNow - 6 months) covers both cases:
+// a LOST lead anonymises 6 months after it was marked lost, which preserves the
+// LOST-to-lane revival affordance for that whole window (a rep can revive a
+// recently-lost lead before its PII goes). A qualifying lead that was never
+// converted has its three contact fields (contactName / contactEmail /
+// contactPhone) plus nextAction (free text, a PII vector) NULLED and
 // anonymisedAt stamped. businessName / categoryGuess / locationHint / outcome
-// are RETAINED (recruitment analytics survive without the PII). A CONVERTED
-// lead (convertedMerchantId set) is EXEMPT: its owner detail lives on the
-// merchant, not the lead. anonymise, never delete; idempotent; auditable.
+// (lostReason) are RETAINED (recruitment analytics + the Lost outcome survive
+// without the PII). A CONVERTED lead (convertedMerchantId set) is EXEMPT: its
+// owner detail lives on the merchant, not the lead. anonymise, never delete;
+// idempotent; auditable.
 //
 // Mirrors the claim-stale sweep's structure faithfully (spec §4.2), split into:
 //   Phase A (locked, light, DB-only, DB clock): the bounded ELIGIBLE scan
-//     (@@index([stage, anonymisedAt]); LIMIT 200) over rows WHERE anonymisedAt
-//     IS NULL AND convertedMerchantId IS NULL AND (stage = 'LOST' OR
-//     lastActivityAt < dbNow - 6 months). The FULL row snapshot (id, stage,
-//     lastActivityAt, convertedMerchantId, anonymisedAt) rides into Phase B for
-//     the CAS below. The 6-month cutoff is computed from the DB-authoritative
-//     dbNow and BOUND as a parameter (never interpolated), so worker clock skew
-//     cannot move the retention boundary.
+//     (@@index([anonymisedAt, lastActivityAt]); LIMIT 200) over rows WHERE
+//     anonymisedAt IS NULL AND convertedMerchantId IS NULL AND lastActivityAt <
+//     dbNow - 6 months. The FULL row snapshot (id, stage, lastActivityAt,
+//     convertedMerchantId, anonymisedAt) rides into Phase B for the CAS below;
+//     stage still rides along so the audit can classify the trigger (LOST vs
+//     STALE). The 6-month cutoff is computed from the DB-authoritative dbNow and
+//     BOUND as a parameter (never interpolated), so worker clock skew cannot
+//     move the retention boundary.
 //   Phase B (unlocked, idempotent, cooperatively budgeted): per row, ONE short
 //     bounded ATOMIC transaction:
 //     (1) a conditional compare-and-set updateMany null-guards on the EXACT
@@ -45,7 +53,8 @@ import {
 import type { MaintenanceConfig } from '../../shared/env'
 
 /** OD1 / UK-GDPR retention window: a non-converted lead's contact PII is
- *  anonymised once it is LOST, or untouched for this many months. */
+ *  anonymised once its lastActivityAt is this many months old (Lost leads too:
+ *  the move to LOST bumps lastActivityAt, so their clock starts at the loss). */
 export const LEAD_ANONYMISE_STALE_MONTHS = 6
 /** Bound per Phase-A scan so a backlog can't thundering-herd the CAS writes. */
 export const LEAD_ANONYMISE_BATCH = 200
@@ -65,8 +74,9 @@ export function leadStaleCutoff(dbNow: Date): Date {
   return cutoff
 }
 
-/** How this lead qualified: a LOST lead is LOST-triggered (stage wins even if it
- *  is also stale); anything else in the batch qualified by the stale clock. */
+/** Audit trigger classification for a qualifying lead: every eligible row cleared
+ *  the same 6-month clock, but the audit records WHY it was in the pipeline at
+ *  anonymise time — a LOST lead is 'LOST', any live-lane lead is 'STALE'. */
 export function leadAnonymiseTrigger(row: Pick<AnonymiseLeadRow, 'stage'>): 'LOST' | 'STALE' {
   return row.stage === 'LOST' ? 'LOST' : 'STALE'
 }
@@ -97,13 +107,16 @@ export interface LeadAnonymiseTxBounds {
 /**
  * Phase A (locked, light, DB-only): runs on `tx` with the DB-authoritative
  * clock: select ONLY genuinely ELIGIBLE leads at the DATABASE level. Eligibility
- * = not yet anonymised, never converted, AND (LOST OR untouched for 6 months).
- * A PARAMETERIZED raw query (tagged template: bound values, never
- * interpolation) on the SAME locked `tx`; the 6-month cutoff and the batch cap
- * are bound. The FULL snapshot (stage, lastActivityAt, convertedMerchantId,
- * anonymisedAt) rides along for the CAS. Deterministic ordering (lastActivityAt,
- * then id) drains the oldest eligible leads first; `full` derives from the
- * ELIGIBLE count only.
+ * = not yet anonymised, never converted, AND untouched for 6 months
+ * (lastActivityAt < dbNow - 6 months) — a SINGLE clock predicate that covers
+ * Lost leads too (the move to LOST bumped lastActivityAt, so a Lost lead's clock
+ * runs from its loss, preserving the revival window; OD1 review round 2). A
+ * PARAMETERIZED raw query (tagged template: bound values, never interpolation)
+ * on the SAME locked `tx`; the 6-month cutoff and the batch cap are bound. The
+ * FULL snapshot (stage, lastActivityAt, convertedMerchantId, anonymisedAt) rides
+ * along for the CAS and the trigger classification. Deterministic ordering
+ * (lastActivityAt, then id) drains the oldest eligible leads first; `full`
+ * derives from the ELIGIBLE count only.
  */
 export async function leadAnonymiseDbPhase(
   tx: Prisma.TransactionClient,
@@ -116,7 +129,7 @@ export async function leadAnonymiseDbPhase(
     FROM "MerchantLead"
     WHERE "anonymisedAt" IS NULL
       AND "convertedMerchantId" IS NULL
-      AND ("stage" = 'LOST' OR "lastActivityAt" < ${cutoff})
+      AND "lastActivityAt" < ${cutoff}
     ORDER BY "lastActivityAt" ASC, "id" ASC
     LIMIT ${LEAD_ANONYMISE_BATCH}
   `
@@ -129,8 +142,9 @@ export async function leadAnonymiseDbPhase(
  * Anonymise ONE lead atomically (the Phase-B row unit). One short bounded
  * interactive transaction:
  *
- *   (1) CAS: conditionally null the three contact fields + stamp anonymisedAt =
- *       dbNow WHERE the row still EXACTLY matches the Phase-A snapshot: id,
+ *   (1) CAS: conditionally null the three contact fields + nextAction + stamp
+ *       anonymisedAt = dbNow WHERE the row still EXACTLY matches the Phase-A
+ *       snapshot: id,
  *       anonymisedAt still null, convertedMerchantId still null, lastActivityAt
  *       unchanged, stage unchanged. Any interleaved touch (re-arms the clock),
  *       convert (becomes exempt), or a sibling anonymise makes the CAS match 0
@@ -164,7 +178,12 @@ export async function anonymiseOneLead(
           lastActivityAt: row.lastActivityAt,
           stage: row.stage as Prisma.MerchantLeadWhereInput['stage'],
         },
-        data: { contactName: null, contactEmail: null, contactPhone: null, anonymisedAt: dbNow },
+        // Null the three contact fields AND nextAction (free text, a PII vector
+        // that is useless post-anonymisation). lostReason is DELIBERATELY RETAINED
+        // (OD1 keeps the Lost outcome for recruitment analytics); operator guidance
+        // to keep personal data out of Lost reasons is an owner-queue item, not a
+        // code control here.
+        data: { contactName: null, contactEmail: null, contactPhone: null, nextAction: null, anonymisedAt: dbNow },
       })
       if (won.count === 0) return false // touched / converted / already anonymised: safe skip
 

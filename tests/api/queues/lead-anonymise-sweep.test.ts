@@ -1,12 +1,14 @@
 // Unit tests for the MerchantLead 6-month anonymisation sweep (packet
 // 2026-07-12, OD1), mirroring the claim-stale sweep's atomic Phase-B structure.
 // Proves: the Phase-A ELIGIBLE scan is a parameterized raw query carrying every
-// predicate (anonymisedAt/convertedMerchantId null + LOST-or-stale) IN SQL with
-// deterministic ordering + LIMIT 200, the DB-clock 6-month cutoff BOUND (never
-// interpolated), and the FULL snapshot selected for the CAS; and the Phase-B
-// ATOMIC row: one bounded transaction per row whose conditional CAS (exact
-// snapshot: id + anonymisedAt null + convertedMerchantId null + lastActivityAt
-// unchanged + stage unchanged) nulls the three contact fields, stamps
+// predicate (anonymisedAt/convertedMerchantId null + the SINGLE 6-month clock
+// predicate lastActivityAt < cutoff; S2/OD1-round-2: LOST no longer gets an
+// immediate free pass) IN SQL with deterministic ordering + LIMIT 200, the
+// DB-clock 6-month cutoff BOUND (never interpolated), and the FULL snapshot
+// selected for the CAS; and the Phase-B ATOMIC row: one bounded transaction per
+// row whose conditional CAS (exact snapshot: id + anonymisedAt null +
+// convertedMerchantId null + lastActivityAt unchanged + stage unchanged) nulls
+// the three contact fields + nextAction (S1; lostReason retained), stamps
 // anonymisedAt, then writes a PII-FREE LEAD_ANONYMISED audit row on the SAME tx.
 // A CAS loss (a touched lead re-armed its clock, or a converted lead became
 // exempt) is a safe skip (no write, not a failure); LOST vs STALE trigger is
@@ -112,7 +114,13 @@ describe('leadAnonymiseDbPhase: DB-level eligible scan (Phase A, locked, DB cloc
     const sql = strings.join('¶')
     expect(sql).toContain('"anonymisedAt" IS NULL')
     expect(sql).toContain('"convertedMerchantId" IS NULL')
-    expect(sql).toContain(`("stage" = 'LOST' OR "lastActivityAt" <`) // window cutoff (bound param)
+    // S2 (OD1 review round 2): a SINGLE clock predicate. LOST no longer gets an
+    // immediate free pass; a LOST lead anonymises 6 months after its last
+    // activity (the move to LOST bumped lastActivityAt), preserving the revival
+    // window. The stage='LOST' branch is GONE from the eligibility SQL.
+    expect(sql).toContain('"lastActivityAt" < ') // window cutoff (bound param)
+    expect(sql).not.toContain("'LOST'") // no stage-based immediate-eligibility branch
+    expect(sql).not.toContain('OR "lastActivityAt"')
     expect(sql).toContain('ORDER BY "lastActivityAt" ASC, "id" ASC') // deterministic: oldest eligible first
     expect(sql).toContain('LIMIT')
     // PARAMETERIZED: the cutoff Date + the batch cap are bound; the SQL text has neither.
@@ -157,7 +165,8 @@ describe('lead-anonymise Phase B: ONE atomic CAS + audit transaction per row', (
     expect(cfgStrings.join('¶')).toContain("set_config('statement_timeout'")
     expect(cfgValue).toBe(String(BOUNDS.statementTimeoutMs))
 
-    // The CAS carries the EXACT snapshot (all five conditions) and nulls PII + stamps.
+    // The CAS carries the EXACT snapshot (all five conditions) and nulls PII +
+    // nextAction (S1) + stamps. lostReason is NOT nulled (OD1 retains the outcome).
     expect(fake.txs[0].casCalls[0]).toEqual({
       where: {
         id: 'l1',
@@ -166,8 +175,10 @@ describe('lead-anonymise Phase B: ONE atomic CAS + audit transaction per row', (
         lastActivityAt: OLD,
         stage: 'LOST',
       },
-      data: { contactName: null, contactEmail: null, contactPhone: null, anonymisedAt: NOW },
+      data: { contactName: null, contactEmail: null, contactPhone: null, nextAction: null, anonymisedAt: NOW },
     })
+    // lostReason must NOT appear in the anonymise write (deliberately retained).
+    expect(fake.txs[0].casCalls[0].data).not.toHaveProperty('lostReason')
 
     // The audit row is written by the winner, ON THE TRANSACTION CLIENT, PII-free.
     expect(writeAuditLogTx).toHaveBeenCalledTimes(1)

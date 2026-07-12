@@ -43,4 +43,4 @@ CREATE INDEX "MerchantLead_assignedRepId_idx" ON "MerchantLead"("assignedRepId")
 CREATE INDEX "MerchantLead_dueDate_idx" ON "MerchantLead"("dueDate");
 
 -- CreateIndex
-CREATE INDEX "MerchantLead_stage_anonymisedAt_idx" ON "MerchantLead"("stage", "anonymisedAt");
+CREATE INDEX "MerchantLead_anonymisedAt_lastActivityAt_idx" ON "MerchantLead"("anonymisedAt", "lastActivityAt");
