@@ -39,6 +39,26 @@ import React from 'react'
 import { render } from '@testing-library/react-native'
 import { View } from 'react-native'
 import Svg from 'react-native-svg'
+
+// Map P2 W1.2 (react-native-maps 1.20.1 -> 1.29.0): importing the real
+// `react-native-maps` module now calls
+// `TurboModuleRegistry.getEnforcing('RNMapsAirModule')` at module scope
+// (New Architecture native module), which throws in jest where no native
+// binary exists. Every other map suite already mocks the package; this
+// file renders <CustomPin> directly and never needed the mock under
+// 1.20.1 (the bare import was inert then). The mock only has to keep the
+// MapPins module import from loading the real package: CustomPin itself
+// renders no Marker.
+jest.mock('react-native-maps', () => {
+  const ReactLib = require('react')
+  const { View: RNView } = require('react-native')
+  return {
+    __esModule: true,
+    default: (props: any) => ReactLib.createElement(RNView, props, props.children),
+    Marker: (props: any) => ReactLib.createElement(RNView, props, props.children),
+  }
+})
+
 import { CustomPin } from '@/features/map/components/MapPins'
 import { color } from '@/design-system'
 import { makeBranchTile } from '../../fixtures/branchTile'
