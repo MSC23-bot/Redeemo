@@ -36,8 +36,10 @@ type Props = {
   /** Stable (`useCallback`d in MapScreen) — its identity only changes on
    *  ZOOM (the camera-delta dependency), not on PAN, which is exactly what
    *  the memo comparator relies on. Optional so callers that don't wire
-   *  cluster taps (tests) can omit it. */
-  onPress?: (cluster: { latitude: number; longitude: number; branchIds: string[] }) => void
+   *  cluster taps (tests) can omit it; the explicit `| undefined` lets
+   *  <MapPins> pass its own possibly-undefined `onClusterPress` straight
+   *  through under exactOptionalPropertyTypes. */
+  onPress?: ((cluster: { latitude: number; longitude: number; branchIds: string[] }) => void) | undefined
 }
 
 // Map P2 W1 (F1, 2026-07-12) — memoized. Cluster markers freeze too

@@ -64,7 +64,12 @@ export type CategoryTreeNode = {
   id: string
   name: string
   parentId: string | null
-  pinColour?: string | null
+  // The explicit `| undefined` is load-bearing under this app's
+  // exactOptionalPropertyTypes tsconfig: the zod-derived category
+  // summaries type this field as `string | null | undefined`
+  // (`.nullable().optional()`), and without it those types are not
+  // assignable to this shape.
+  pinColour?: string | null | undefined
 }
 
 /**
