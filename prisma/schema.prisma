@@ -2042,3 +2042,61 @@ model KeyringFingerprint {
   bootedAt       DateTime @default(now())
   lastSeenAt     DateTime @updatedAt
 }
+
+// How a prospect first entered the recruitment pipeline. Owner-locked set
+// (grill-me 2026-07-10, OD1). CUSTOMER_REQUEST is the future intake from the
+// customer app's deferred "Request a merchant" entry point.
+enum MerchantSource {
+  REP_VISIT
+  INBOUND_ENQUIRY
+  PHONE
+  SOCIAL
+  EMAIL_CAMPAIGN
+  CUSTOMER_REQUEST
+}
+
+// Prospect pipeline position. LEAD/CONTACTED/VISIT_BOOKED are the three kanban
+// lanes; CONVERTED and LOST are terminal STATES surfaced as filters, not lanes
+// (OD1). LOST always carries a lostReason and is audited.
+enum LeadStage {
+  LEAD
+  CONTACTED
+  VISIT_BOOKED
+  CONVERTED
+  LOST
+}
+
+// Recruitment pipeline prospect. Net-new; the front half of onboarding before a
+// merchant draft exists. On convert, `convertedMerchantId` is stamped and the
+// existing create-draft flow runs. UK-GDPR: Lost or stale-untouched (no activity
+// for 6 months) leads are auto-anonymised by a scheduled job that nulls the three
+// contact fields and sets `anonymisedAt`, retaining businessName/category/location
+// /outcome for funnel analytics. Converted leads are exempt (they keep the link).
+// `assignedRepId` / `convertedMerchantId` are intentionally FK-free to keep this
+// packet additive within the bundled migration window; integrity is enforced in
+// the service layer.
+model MerchantLead {
+  id                  String         @id @default(uuid())
+  businessName        String
+  categoryGuess       String?
+  locationHint        String?
+  contactName         String?
+  contactEmail        String?
+  contactPhone        String?
+  source              MerchantSource?
+  stage               LeadStage      @default(LEAD)
+  nextAction          String?
+  dueDate             DateTime?
+  assignedRepId       String?
+  lostReason          String?
+  convertedMerchantId String?
+  lastActivityAt      DateTime       @default(now())
+  anonymisedAt        DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@index([stage])
+  @@index([assignedRepId])
+  @@index([dueDate])
+  @@index([stage, anonymisedAt])
+}
