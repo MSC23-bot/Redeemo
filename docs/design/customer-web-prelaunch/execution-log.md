@@ -692,3 +692,22 @@ edited by this workstream.
   right, Feb-Apr stubs included, and the Jul bar's true top (0.429, not
   0.48) is now covered. Verified at 17.6%/73.6%/86%/92% scroll; tsc clean;
   no hydration issues.
+- APP JOURNEY REVISION 3 (owner feedback 2026-07-13): the QR/redemption-code
+  screen now gets a LONG dwell (chapter four extended to the 0.84 boundary,
+  track 720vh -> 780vh, in-chapter beats compressed so the flow's
+  destination screen holds); the savings chapter no longer crossfades in:
+  it is a NEW flow, so the screen SLIDES UP over the QR screen (iOS-sheet
+  push with seam shadow) while the QR screen dims beneath: a visibly
+  different transition marking the flow break. Trend bars rebuilt as DOM
+  REPLICAS: the baked bars are blanked out of the capture and measured
+  replicas (positions by redness scan, colours sampled per bar) spring up
+  with overshoot: all six now visibly animate, Feb-Apr stubs included. The
+  Jul dot is static from screen arrival (owner: the delayed pop looked
+  odd; scan proved no dot is baked). Numbers made coherent (owner): this
+  month counts to GBP46 (was 96), top places re-set to GBP26/GBP12 and By
+  Category Beauty Salon to GBP26 (baked amounts blanked, DOM text in brand
+  green over them; fallback savings-top-full re-baked with Mustica/Lato
+  drawn values GBP46.00 + 23 + green rows). Assets referenced with ?v=3:
+  they were re-baked in place and Next's image optimizer served the stale
+  originals (which faked mid-slide bars + garbled amounts during
+  verification). Verified at 81.6%/85.5%/91.5%/94.5%/98.5%; tsc clean.

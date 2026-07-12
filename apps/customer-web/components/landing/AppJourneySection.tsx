@@ -20,8 +20,13 @@ import { useScrollLinked } from './scroll'
  * taps High Street then Confirm; the PIN boxes fully cover the baked ones;
  * the success moment RAINS confetti from the top of the phone screen and
  * taps View voucher code; nothing pops out of the phone (the QR pop-out
- * card was cut); the savings chapter counts all three numbers (redemptions
- * to 23), animates all six trend bars, and stays on one screen.
+ * card was cut); the QR screen gets a LONG dwell (it is the significant
+ * screen) and the savings screen arrives by SLIDING UP over it: a new flow
+ * gets a new transition, not the in-flow crossfade; the trend bars are DOM
+ * replicas of the (now blanked) baked bars so all six visibly spring up,
+ * Feb-Apr stubs included; the Jul dot is present from screen arrival; the
+ * numbers are coherent (this month GBP46 > top places 26+12, Beauty Salon
+ * 26 matches, redemptions 23, May visibly below Jul).
  *
  * The savings capture (800x1703) is slightly wider than the screen under
  * object-cover, so overlays aligned to its pixels must go through savX():
@@ -60,7 +65,7 @@ const CHAPTERS = [
     kicker: '05 · Keep score',
     title: 'Watch it add up.',
     body: 'Every redemption is logged: what you saved, where, and how the months are trending. One dinner voucher typically covers the month of membership. Everything after that is keeping score.',
-    still: '/app-shots/journey/savings-top-full.jpg',
+    still: '/app-shots/journey/savings-top-full.jpg?v=3',
   },
 ]
 
@@ -85,7 +90,11 @@ const PIN_KEYS: Record<string, [number, number]> = {
 const PIN_DIGITS = ['4', '7', '2', '9']
 const PIN_BOX_LEFTS = [0.198, 0.352, 0.506, 0.661]
 const PIN_BOX = { top: 0.409, w: 0.136, h: 0.08 }
-const KEY_TIMES = [0.36, 0.42, 0.48, 0.54]
+const KEY_TIMES = [0.32, 0.37, 0.42, 0.47]
+
+// Chapter boundaries in global progress. Chapter four runs long so the QR
+// screen (the significant one) holds before the savings flow slides in.
+const CH_BOUNDS = [0, 0.2, 0.4, 0.6, 0.84, 1]
 
 // Savings capture geometry: the 800x1703 image is cropped ~3.5px each side
 // by object-cover, so capture x-fractions must be remapped to the container
@@ -94,13 +103,22 @@ const SAV_SCALE = Math.max(PHONE_W / SAV_CAP.w, SCREEN_H / SAV_CAP.h)
 const SAV_OFF_X = (SAV_CAP.w * SAV_SCALE - PHONE_W) / 2
 const savX = (f: number) => (f * SAV_CAP.w * SAV_SCALE - SAV_OFF_X) / PHONE_W
 
-// Savings trend bars, MEASURED from the capture (redness scan 2026-07-13):
-// [x, w, topFrac] in capture fractions; all six animate, Feb-Apr included
-const BARS: Array<[number, number, number]> = [
-  [0.1263, 0.0612, 0.5655], [0.265, 0.0612, 0.5649], [0.4012, 0.0625, 0.5655],
-  [0.5387, 0.065, 0.4439], [0.6775, 0.0638, 0.4944], [0.815, 0.065, 0.4292],
+// Savings trend bars: the baked bars are BLANKED out of the capture and
+// these DOM replicas (measured by redness scan, colours sampled from the
+// original pixels) spring up in their place: a real growth the eye can see
+// even on the tiny Feb-Apr stubs. [x, w, h, colour] in capture fractions.
+const BAR_BASELINE = 0.5716
+const BAR_SPECS: Array<[number, number, number, string]> = [
+  [0.1263, 0.0612, 0.0058, '#FBE6E3'], [0.265, 0.0612, 0.0064, '#FBE6E3'],
+  [0.4012, 0.0625, 0.0058, '#FBE6E3'], [0.5387, 0.065, 0.1274, '#FACAC8'],
+  [0.6775, 0.0638, 0.0769, '#FACAC8'], [0.815, 0.065, 0.1421, '#E20B06'],
 ]
-const BAR_BASE = 0.5755
+
+// Top places / By category amounts: blanked in the capture, re-set here so
+// the maths reads true against GBP46 this month (owner 2026-07-13)
+const AMOUNT_ROWS: Array<{ yc: number; v: string }> = [
+  { yc: 0.7089, v: '£26.00' }, { yc: 0.7718, v: '£12.00' }, { yc: 0.9008, v: '£26.00' },
+]
 
 // Confetti: a deterministic rain from the top of the phone screen. Hash-based
 // pseudo-randoms keep SSR and client renders identical.
@@ -175,8 +193,8 @@ function Screen({ opacity, children, bg = '#FFF9F5' }: { opacity: MotionValue<nu
 }
 
 function ConfettiPiece({ local, p }: { local: MotionValue<number>; p: (typeof CONFETTI)[number] }) {
-  const t0 = 0.625 + p.delay
-  const t1 = t0 + 0.22
+  const t0 = 0.565 + p.delay
+  const t1 = t0 + 0.2
   const mid = (t0 + t1) / 2
   const y = useBand(local, [t0, t1], [0, p.fall])
   const x = useBand(local, [t0, mid, t1], [0, p.sway * 0.55, p.sway])
@@ -206,23 +224,29 @@ function Stage() {
 
   const bg = useTransform(
     scrollYProgress,
-    [0, 0.2, 0.4, 0.6, 0.8, 1],
+    CH_BOUNDS,
     ['#FFF9F5', '#FFFFFF', '#FFFFFF', '#FFF6F3', '#FFFFFF', '#FFF9F5'],
   )
 
-  // Chapter screen opacities (crossfade at each 0.2 boundary). The phone
+  // Chapter screen opacities (crossfades within the app flow). The phone
   // itself is completely still (owner 2026-07-13): the life is on-screen.
+  // Chapter five does NOT crossfade: it is a new flow, so it slides up
+  // over the QR screen instead (see ch5Y below).
   const op1 = useBand(scrollYProgress, [0, 0.185, 0.205], [1, 1, 0])
   const op2 = useBand(scrollYProgress, [0.185, 0.205, 0.385, 0.405], [0, 1, 1, 0])
   const op3 = useBand(scrollYProgress, [0.385, 0.405, 0.585, 0.605], [0, 1, 1, 0])
-  const op4 = useBand(scrollYProgress, [0.585, 0.605, 0.785, 0.805], [0, 1, 1, 0])
-  const op5 = useBand(scrollYProgress, [0.785, 0.805, 1], [0, 1, 1])
+  const op4 = useBand(scrollYProgress, [0.585, 0.605, 0.875, 0.895], [0, 1, 1, 0])
 
-  const L1 = useTransform(scrollYProgress, [0, 0.2], [0, 1])
-  const L2 = useTransform(scrollYProgress, [0.2, 0.4], [0, 1])
-  const L3 = useTransform(scrollYProgress, [0.4, 0.6], [0, 1])
-  const L4 = useTransform(scrollYProgress, [0.6, 0.8], [0, 1])
-  const L5 = useTransform(scrollYProgress, [0.8, 1], [0, 1])
+  const L1 = useTransform(scrollYProgress, [CH_BOUNDS[0], CH_BOUNDS[1]], [0, 1])
+  const L2 = useTransform(scrollYProgress, [CH_BOUNDS[1], CH_BOUNDS[2]], [0, 1])
+  const L3 = useTransform(scrollYProgress, [CH_BOUNDS[2], CH_BOUNDS[3]], [0, 1])
+  const L4 = useTransform(scrollYProgress, [CH_BOUNDS[3], CH_BOUNDS[4]], [0, 1])
+  const L5 = useTransform(scrollYProgress, [0.875, 1], [0, 1])
+
+  // The flow break: savings pushes up like a fresh app context while the
+  // QR screen dims beneath it
+  const ch5Y = useBand(scrollYProgress, [0.835, 0.875], [SCREEN_H, 0])
+  const qrDim = useBand(scrollYProgress, [0.835, 0.875], [0, 0.35])
 
   /* Chapter 1: the real home screen first, then the feed scroll */
   const homeTopOp = useBand(L1, [0.26, 0.34], [1, 0])
@@ -234,28 +258,31 @@ function Stage() {
   /* Chapter 3: full screen; the redeem button glows, then gets tapped */
   const redeemGlow = useBand(L3, [0.3, 0.55, 0.72, 0.95], [0, 1, 1, 0.5])
 
-  /* Chapter 4: High Street tap, Confirm tap, PIN, confetti success, QR */
-  const branchOp = useBand(L4, [0, 0.3, 0.34], [1, 1, 0])
-  const pinOp = useBand(L4, [0.3, 0.34, 0.6, 0.65], [0, 1, 1, 0])
-  const flash = useBand(L4, [0.6, 0.64, 0.69], [0, 0.55, 0])
-  const successOp = useBand(L4, [0.62, 0.67, 0.87, 0.9], [0, 1, 1, 0])
-  const successScale = useBand(L4, [0.62, 0.71], [0.93, 1])
-  const qrOp = useBand(L4, [0.86, 0.92, 1], [0, 1, 1])
-  const pinDigitOps = KEY_TIMES.map((t) => useBand(L4, [t + 0.015, t + 0.035], [0, 1]))
-  const keyFlashes = KEY_TIMES.map((t) => useBand(L4, [t - 0.015, t, t + 0.03], [0, 1, 0]))
+  /* Chapter 4: High Street tap, Confirm tap, PIN, confetti success, then a
+     LONG QR dwell: the flow's destination screen holds until the next flow
+     pushes in */
+  const branchOp = useBand(L4, [0, 0.26, 0.3], [1, 1, 0])
+  const pinOp = useBand(L4, [0.26, 0.3, 0.54, 0.59], [0, 1, 1, 0])
+  const flash = useBand(L4, [0.54, 0.58, 0.62], [0, 0.55, 0])
+  const successOp = useBand(L4, [0.56, 0.6, 0.78, 0.83], [0, 1, 1, 0])
+  const successScale = useBand(L4, [0.56, 0.64], [0.93, 1])
+  const qrOp = useBand(L4, [0.8, 0.85, 1], [0, 1, 1])
+  const pinDigitOps = KEY_TIMES.map((t) => useBand(L4, [t + 0.012, t + 0.03], [0, 1]))
+  const keyFlashes = KEY_TIMES.map((t) => useBand(L4, [t - 0.012, t, t + 0.025], [0, 1, 0]))
 
   /* Chapter 5: the ledger counts itself: total, month, redemptions, bars */
-  const totalNum = useBand(L5, [0.08, 0.48], [0, 325.45])
+  const totalNum = useBand(L5, [0.06, 0.46], [0, 325.45])
   const totalText = useTransform(totalNum, (v) => `£${v.toFixed(2)}`)
-  const monthNum = useBand(L5, [0.16, 0.5], [0, 96])
+  const monthNum = useBand(L5, [0.12, 0.5], [0, 46])
   const monthText = useTransform(monthNum, (v) => `£${v.toFixed(2)}`)
-  const redemptionsNum = useBand(L5, [0.26, 0.46], [0, 23])
+  const redemptionsNum = useBand(L5, [0.2, 0.48], [0, 23])
   const redemptionsText = useTransform(redemptionsNum, (v) => `${Math.round(v)}`)
-  const dotOp = useBand(L5, [0.58, 0.64], [0, 1])
-  const barsGrow = BARS.map((_, i) => useBand(L5, [0.12 + i * 0.055, 0.26 + i * 0.055], [1, 0]))
+  const barsGrow = BAR_SPECS.map(([, , h], i) =>
+    useBand(L5, [0.26 + i * 0.08, 0.36 + i * 0.08, 0.42 + i * 0.08], [0, h < 0.02 ? 2.4 : 1.12, 1]),
+  )
 
   return (
-    <div ref={trackRef} className="relative" style={{ height: '720vh' }}>
+    <div ref={trackRef} className="relative" style={{ height: '780vh' }}>
       <motion.div className="sticky top-0 h-screen overflow-hidden" style={{ background: bg }}>
         <div className="relative max-w-7xl mx-auto h-full px-6 grid grid-cols-[64px_1fr_420px] gap-8 items-center">
 
@@ -328,8 +355,8 @@ function Stage() {
                 <Screen opacity={op4} bg="#2a1a3e">
                   <motion.div className="absolute inset-0" style={{ opacity: branchOp }}>
                     <Image src="/app-shots/journey/branch-sheet.jpg" alt="" fill sizes="340px" className="object-cover object-top" />
-                    <Tap local={L4} at={[0.07, 0.17]} x="50%" y="79%" />
-                    <Tap local={L4} at={[0.2, 0.3]} x="50%" y="94.5%" />
+                    <Tap local={L4} at={[0.05, 0.14]} x="50%" y="79%" />
+                    <Tap local={L4} at={[0.16, 0.25]} x="50%" y="94.5%" />
                   </motion.div>
 
                   <motion.div className="absolute inset-0" style={{ opacity: pinOp }}>
@@ -369,7 +396,7 @@ function Stage() {
 
                   <motion.div className="absolute inset-0" style={{ opacity: successOp, scale: successScale }}>
                     <Image src="/app-shots/journey/success-sheet.jpg" alt="" fill sizes="340px" className="object-cover object-top" />
-                    <Tap local={L4} at={[0.77, 0.86]} x="50%" y="65.5%" />
+                    <Tap local={L4} at={[0.68, 0.77]} x="50%" y="65.5%" />
                   </motion.div>
                   {/* the success lands with a flash and brand confetti */}
                   <motion.div className="absolute inset-0 bg-white pointer-events-none" style={{ opacity: flash }} />
@@ -380,11 +407,19 @@ function Stage() {
                   <motion.div className="absolute inset-0" style={{ opacity: qrOp }}>
                     <Image src="/app-shots/journey/qr-screen.jpg" alt="" fill sizes="340px" className="object-cover object-top" />
                   </motion.div>
+                  {/* the redemption flow dims as the savings flow pushes in */}
+                  <motion.div className="absolute inset-0 bg-black pointer-events-none" style={{ opacity: qrDim }} />
                 </Screen>
 
-                {/* ── 05 Savings: one screen, counting itself up ── */}
-                <Screen opacity={op5} bg="#F8F7F5">
-                  <Image src="/app-shots/journey/savings-top.jpg" alt="" fill sizes="340px" className="object-cover object-top" />
+                {/* ── 05 Savings: a NEW flow, so it slides up over the QR
+                       screen instead of crossfading, then counts itself up ── */}
+                <motion.div
+                  className="absolute inset-0 overflow-hidden"
+                  style={{ y: ch5Y, background: '#F8F7F5', boxShadow: '0 -22px 48px rgba(1,12,53,0.4)' }}
+                >
+                  {/* ?v=3: the asset was re-baked in place (bars + amounts
+                      blanked); the query busts optimizer + browser caches */}
+                  <Image src="/app-shots/journey/savings-top.jpg?v=3" alt="" fill sizes="340px" className="object-cover object-top" />
                   <div className="absolute flex items-center" style={{ left: '4.8%', top: '13.9%', height: '5.6%' }}>
                     <motion.span className="font-display text-white leading-none" style={{ fontSize: 37, letterSpacing: '-0.8px' }}>
                       {totalText}
@@ -400,22 +435,36 @@ function Stage() {
                       {redemptionsText}
                     </motion.span>
                   </div>
-                  {BARS.map(([bx, bw, btop], i) => (
+                  {BAR_SPECS.map(([bx, bw, bh, colour], i) => (
                     <motion.div
                       key={i}
-                      className="absolute bg-white pointer-events-none"
+                      className="absolute pointer-events-none"
                       style={{
-                        left: `${savX(bx - 0.008) * 100}%`, width: `${(savX(bx + bw + 0.008) - savX(bx - 0.008)) * 100}%`,
-                        top: `${(btop - 0.006) * 100}%`, height: `${(BAR_BASE - btop + 0.006) * 100}%`,
-                        scaleY: barsGrow[i], transformOrigin: 'top',
+                        left: `${savX(bx) * 100}%`, width: `${(savX(bx + bw) - savX(bx)) * 100}%`,
+                        top: `${(BAR_BASELINE - bh) * 100}%`, height: `${bh * 100}%`,
+                        background: colour, borderRadius: '3px 3px 0 0',
+                        scaleY: barsGrow[i], transformOrigin: 'bottom',
                       }}
                     />
                   ))}
-                  <motion.div
-                    className="absolute w-2 h-2 rounded-full bg-[#E20C04]"
-                    style={{ left: '83.5%', top: '42.9%', opacity: dotOp }}
+                  {/* the current-month dot sits above the Jul bar from the
+                      moment the screen arrives (owner: no delayed pop-in) */}
+                  <div
+                    className="absolute w-2 h-2 -translate-x-1/2 rounded-full bg-[#E20C04]"
+                    style={{ left: `${savX(0.8475) * 100}%`, top: '41.6%' }}
                   />
-                </Screen>
+                  {/* Top places + By category amounts, re-set over the
+                      blanked capture so the sums read true against £46 */}
+                  {AMOUNT_ROWS.map((row) => (
+                    <div
+                      key={row.yc}
+                      className="absolute flex items-center justify-end"
+                      style={{ left: `${savX(0.7) * 100}%`, width: `${(savX(0.915) - savX(0.7)) * 100}%`, top: `${(row.yc - 0.012) * 100}%`, height: '2.4%' }}
+                    >
+                      <span className="font-body font-semibold" style={{ fontSize: 13, color: '#16A951' }}>{row.v}</span>
+                    </div>
+                  ))}
+                </motion.div>
               </div>
 
               {/* Notch */}
@@ -433,8 +482,8 @@ function Stage() {
 }
 
 function RailItem({ progress, index, label }: { progress: MotionValue<number>; index: number; label: string }) {
-  const a = index * 0.2
-  const b = (index + 1) * 0.2
+  const a = CH_BOUNDS[index]
+  const b = CH_BOUNDS[index + 1]
   const active = useBand(progress, [a - 0.02, a + 0.02, b - 0.02, b + 0.02], index === 0 ? [1, 1, 1, 0.28] : index === 4 ? [0.28, 1, 1, 1] : [0.28, 1, 1, 0.28])
   return (
     <motion.div className="flex items-center gap-2.5" style={{ opacity: active }}>
@@ -445,8 +494,8 @@ function RailItem({ progress, index, label }: { progress: MotionValue<number>; i
 }
 
 function CopyLayer({ progress, index, chapter }: { progress: MotionValue<number>; index: number; chapter: (typeof CHAPTERS)[number] }) {
-  const a = index * 0.2
-  const b = (index + 1) * 0.2
+  const a = CH_BOUNDS[index]
+  const b = CH_BOUNDS[index + 1]
   const opacity = useBand(
     progress,
     index === 0 ? [0, 0.15, b - 0.015] : index === 4 ? [a + 0.015, a + 0.05, 1] : [a + 0.015, a + 0.05, b - 0.05, b - 0.015],
