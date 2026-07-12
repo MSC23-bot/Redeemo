@@ -216,6 +216,7 @@ describe('buildOutboxSweep — the BoundedSweepSpec wiring', () => {
     sweepOutboxEnabled: true,
     sweepPendingHoursEnabled: true,
     sweepClaimStaleEnabled: true,
+    sweepLeadAnonymiseEnabled: true,
   }
 
   it('carries the sweep identity + the validated config values', () => {
@@ -254,6 +255,7 @@ describe('outboxSideEffects — PR-C correction: terminal-stop expiry-alert race
     sweepOutboxEnabled: true,
     sweepPendingHoursEnabled: true,
     sweepClaimStaleEnabled: true,
+    sweepLeadAnonymiseEnabled: true,
   }
 
   it('stop active when Phase B starts: the async alert launch NEVER begins; the synchronous redacted record still happens; no row starts', async () => {

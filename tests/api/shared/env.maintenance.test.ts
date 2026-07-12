@@ -17,6 +17,7 @@ const VALID: NodeJS.ProcessEnv = {
   MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'true',
   MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'true',
   MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
+  MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'true',
 }
 
 describe('resolveMaintenanceConfig — canonical MAINTENANCE_MODE startup policy', () => {
@@ -37,7 +38,20 @@ describe('resolveMaintenanceConfig — canonical MAINTENANCE_MODE startup policy
       sweepOutboxEnabled: true,
       sweepPendingHoursEnabled: true,
       sweepClaimStaleEnabled: true,
+      sweepLeadAnonymiseEnabled: true,
     })
+  })
+
+  it('the lead-anonymise enable flag is a REQUIRED bool when enabled (its own rollback switch)', () => {
+    const noLead = { ...VALID }
+    delete noLead.MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED
+    expect(() => resolveMaintenanceConfig(noLead)).toThrow(/MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED/)
+    expect(() =>
+      resolveMaintenanceConfig({ ...VALID, MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'yes' }),
+    ).toThrow(/exactly "true" or "false"/)
+    // Independent of the siblings (each flag is that sweep's rollback switch).
+    const cfg = resolveMaintenanceConfig({ ...VALID, MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'false' })
+    expect(cfg).toMatchObject({ sweepLeadAnonymiseEnabled: false, sweepClaimStaleEnabled: true })
   })
 
   it('PR-B: the pending-hours + claim-stale enable flags are REQUIRED bools when enabled, and parse independently', () => {

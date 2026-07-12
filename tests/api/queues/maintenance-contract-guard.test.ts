@@ -13,6 +13,7 @@ import { enqueue } from '../../../src/api/queues'
 import * as outboxModule from '../../../src/api/queues/processors/outboxReconciler'
 import * as pendingHoursModule from '../../../src/api/queues/processors/promotePendingHours'
 import * as claimStaleModule from '../../../src/api/queues/processors/claimStaleSweep'
+import * as leadAnonymiseModule from '../../../src/api/queues/processors/leadAnonymiseSweep'
 
 // Neon CU-burn PR-D: the maintenance CONTRACT GUARD (plan PR-D / Codex #7).
 // Three layers, in priority order:
@@ -80,6 +81,7 @@ function validEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
     MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'true',
     MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'true',
     MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
+    MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'true',
     ...overrides,
   } as NodeJS.ProcessEnv
 }
@@ -184,16 +186,22 @@ describe('PR-D primary — real configuration validation (LOCKED safety floors o
 })
 
 describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRegistration)', () => {
-  it('registers EXACTLY the three sweeps with their correct Phase-B domains', () => {
+  it('registers EXACTLY the four sweeps with their correct Phase-B domains', () => {
     const reg = buildMaintenanceRegistration(untouchablePrisma(), enabledConfig(), stubSink())
-    expect(reg.sweeps).toHaveLength(3) // exactly — an omitted OR extra sweep fails
+    expect(reg.sweeps).toHaveLength(4) // exactly — an omitted OR extra sweep fails
     const byName = new Map(reg.sweeps.map((s) => [s.spec.name, s.spec]))
-    expect([...byName.keys()].sort()).toEqual(['claim-stale', 'outbox-reconcile', 'pending-hours-promote'])
+    expect([...byName.keys()].sort()).toEqual([
+      'claim-stale',
+      'lead-anonymise',
+      'outbox-reconcile',
+      'pending-hours-promote',
+    ])
     expect(byName.get('outbox-reconcile')!.sideEffectDomain).toBe('REDIS')
     expect(byName.get('pending-hours-promote')!.sideEffectDomain).toBe('DATABASE')
     expect(byName.get('claim-stale')!.sideEffectDomain).toBe('DATABASE')
+    expect(byName.get('lead-anonymise')!.sideEffectDomain).toBe('DATABASE')
     // distinct advisory-lock identities
-    expect(new Set(reg.sweeps.map((s) => s.spec.lockKey)).size).toBe(3)
+    expect(new Set(reg.sweeps.map((s) => s.spec.lockKey)).size).toBe(4)
   })
 
   // PR-D correction round: each sweep's enable flag is tested INDEPENDENTLY in
@@ -214,6 +222,7 @@ describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRe
         MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'true',
         MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'false',
         MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'false',
+        MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'false',
       },
     },
     {
@@ -222,6 +231,7 @@ describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRe
         MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'false',
         MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'true',
         MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
+        MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'true',
       },
     },
     {
@@ -230,6 +240,7 @@ describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRe
         MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'false',
         MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'true',
         MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'false',
+        MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'false',
       },
     },
     {
@@ -238,6 +249,7 @@ describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRe
         MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'true',
         MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'false',
         MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
+        MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'true',
       },
     },
     {
@@ -246,6 +258,7 @@ describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRe
         MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'false',
         MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'false',
         MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
+        MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'false',
       },
     },
     {
@@ -254,6 +267,25 @@ describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRe
         MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'true',
         MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'true',
         MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'false',
+        MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'true',
+      },
+    },
+    {
+      label: 'lead-anonymise=true, others=false',
+      env: {
+        MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'false',
+        MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'false',
+        MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'false',
+        MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'true',
+      },
+    },
+    {
+      label: 'lead-anonymise=false, others=true',
+      env: {
+        MAINTENANCE_SWEEP_OUTBOX_ENABLED: 'true',
+        MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED: 'true',
+        MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED: 'true',
+        MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED: 'false',
       },
     },
   ]
@@ -268,11 +300,13 @@ describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRe
       expect(enabled.get('outbox-reconcile')).toBe(maintenance.sweepOutboxEnabled)
       expect(enabled.get('pending-hours-promote')).toBe(maintenance.sweepPendingHoursEnabled)
       expect(enabled.get('claim-stale')).toBe(maintenance.sweepClaimStaleEnabled)
+      expect(enabled.get('lead-anonymise')).toBe(maintenance.sweepLeadAnonymiseEnabled)
       // Sanity: the validated fields really carry this vector's raw values
       // (guards against the fixture and the resolver drifting together).
       expect(maintenance.sweepOutboxEnabled).toBe(env.MAINTENANCE_SWEEP_OUTBOX_ENABLED === 'true')
       expect(maintenance.sweepPendingHoursEnabled).toBe(env.MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED === 'true')
       expect(maintenance.sweepClaimStaleEnabled).toBe(env.MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED === 'true')
+      expect(maintenance.sweepLeadAnonymiseEnabled).toBe(env.MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED === 'true')
     },
   )
 
@@ -328,7 +362,7 @@ describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRe
     // untouchablePrisma throws on ANY property access — reaching the expects
     // below proves the factory only CAPTURED the reference.
     const reg = buildMaintenanceRegistration(untouchablePrisma(), enabledConfig(), sink)
-    expect(reg.sweeps).toHaveLength(3)
+    expect(reg.sweeps).toHaveLength(4)
     for (const fn of [sink.sweepRun, sink.sweepFailure, sink.sweepDegraded, sink.sweepRecovered, sink.stop]) {
       expect(fn).not.toHaveBeenCalled()
     }
@@ -344,7 +378,7 @@ describe('PR-D primary — the REAL maintenance registration (buildMaintenanceRe
   })
 
   it('no deleted BullMQ repeatable scheduler survives: processors export no schedule* function', () => {
-    for (const mod of [outboxModule, pendingHoursModule, claimStaleModule]) {
+    for (const mod of [outboxModule, pendingHoursModule, claimStaleModule, leadAnonymiseModule]) {
       expect(Object.keys(mod).filter((k) => /^schedule/i.test(k))).toEqual([])
     }
   })

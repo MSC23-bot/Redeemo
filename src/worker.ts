@@ -37,6 +37,7 @@ import { createAlertSink, type AlertSink } from './api/queues/maintenanceMetrics
 import { startEmailWorker } from './api/queues/processors/email'
 import { startReconcileWorker, buildOutboxSweep } from './api/queues/processors/outboxReconciler'
 import { buildClaimStaleSweep } from './api/queues/processors/claimStaleSweep'
+import { buildLeadAnonymiseSweep } from './api/queues/processors/leadAnonymiseSweep'
 import { buildPendingHoursSweep } from './api/queues/processors/promotePendingHours'
 import { startModerationWorker } from './api/queues/processors/moderation'
 import { runWorkerShutdown } from './workerShutdown'
@@ -115,6 +116,7 @@ export function buildMaintenanceRegistration(
       makeSweepRuntime(buildOutboxSweep(maintenance, sink), maintenance.sweepOutboxEnabled),
       makeSweepRuntime(buildPendingHoursSweep(prisma, maintenance), maintenance.sweepPendingHoursEnabled),
       makeSweepRuntime(buildClaimStaleSweep(prisma, maintenance), maintenance.sweepClaimStaleEnabled),
+      makeSweepRuntime(buildLeadAnonymiseSweep(prisma, maintenance), maintenance.sweepLeadAnonymiseEnabled),
     ],
   }
 }
@@ -223,7 +225,7 @@ async function main(): Promise<void> {
     const registration = buildMaintenanceRegistration(prisma, maintenance, alertSink)
     scheduler = startMaintenanceScheduler(prisma, registration.cfg, registration.sweeps)
     console.info(
-      `[worker] maintenance scheduler started (outbox ${maintenance.sweepOutboxEnabled ? 'ENABLED' : 'disabled'}, pending-hours ${maintenance.sweepPendingHoursEnabled ? 'ENABLED' : 'disabled'}, claim-stale ${maintenance.sweepClaimStaleEnabled ? 'ENABLED' : 'disabled'}; F_idle=${maintenance.floorIdleMs}ms, F_active=${maintenance.floorActiveMs}ms)`,
+      `[worker] maintenance scheduler started (outbox ${maintenance.sweepOutboxEnabled ? 'ENABLED' : 'disabled'}, pending-hours ${maintenance.sweepPendingHoursEnabled ? 'ENABLED' : 'disabled'}, claim-stale ${maintenance.sweepClaimStaleEnabled ? 'ENABLED' : 'disabled'}, lead-anonymise ${maintenance.sweepLeadAnonymiseEnabled ? 'ENABLED' : 'disabled'}; F_idle=${maintenance.floorIdleMs}ms, F_active=${maintenance.floorActiveMs}ms)`,
     )
   }
 
