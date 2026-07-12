@@ -1,5 +1,5 @@
 import { HeroSection } from '@/components/landing/HeroSection'
-import { ScrollStory } from '@/components/landing/ScrollStory'
+import { AppJourneySection } from '@/components/landing/AppJourneySection'
 import { HowItWorksSection } from '@/components/landing/HowItWorksSection'
 import { TrendingPreviewSection } from '@/components/landing/TrendingPreviewSection'
 import { TestimonialsSection } from '@/components/landing/TestimonialsSection'
@@ -22,9 +22,9 @@ export default function HomePage() {
           2026-07-12): the ribbon lives in the live 3D scenes and side peeks */}
       <WhatIsRedeemoSection />
       <TrendingPreviewSection />
-      {/* Scroll-driven find/choose/redeem story on desktop; static sections on
-          mobile, reduced-motion, and for crawlers */}
-      <ScrollStory />
+      {/* The app journey: five chapters through the real customer app
+          (Discovery, Merchant profile, Voucher detail, Redemption, Savings) */}
+      <AppJourneySection />
       {/* The voucher shelf: vertical scroll sweeps the seven voucher types
           horizontally (desktop; mobile gets the static grid via ScrollStory) */}
       <VoucherTypesRail />

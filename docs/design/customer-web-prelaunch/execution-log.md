@@ -626,3 +626,30 @@ edited by this workstream.
   component + flow-a/flow-b assets DELETED along with both page mounts:
   section seams are flat colour changes again; the ribbon motif now lives in
   the two live 3D scenes plus the two static side peeks (Pricing, footer).
+- APP JOURNEY SECTION (owner brief 2026-07-12, copy approved 2026-07-13):
+  ScrollStory replaced by AppJourneySection: a 720vh pinned cinema walking
+  the REAL app through five chapters with the owner's new captures
+  (Desktop/App Screenshots -> public/app-shots/journey, FINAL set + File 5
+  vouchers tab + File 8 branch sheet + File 9 PIN-with-keyboard). Chapter
+  choreography: 01 Find: stitched Home strip scrolls under a PINNED sticky
+  brand header + tab bar (both cropped from the strip so collapse/pinning
+  matches the app), ending on a visible tap; 02 Choose: profile strip
+  scrolls, the supplied Collapsed Header fades in exactly as the baked tab
+  row tucks beneath it, tap on the BOGO voucher; 03 Know: camera pans/zooms
+  across the voucher detail (SAVE roundel, terms ticks, chips) and the
+  Redeem button glows; 04 Redeem: branch-confirm tap, live PIN entry (clean
+  DOM boxes drawn over the capture fill digit by digit while the real
+  keyboard's keys flash), a white success flash into the success sheet, then
+  the staff QR screen rises in; 05 Keep score: the blanked TOTAL SAVED
+  counts up to £325.45 in Mustica over the capture, the six trend bars grow
+  via shrinking cover rects, the Jul dot pops, then the lower ledger slides
+  up with history rows revealed one by one. The phone turns in real 3D
+  perspective between chapters (rotateY keyframes + rotateX + drift), left
+  column carries the approved five-chapter copy with a Find/Choose/Know/
+  Redeem/Keep-score progress rail and a Create-free-account close on
+  chapter five. Every scroll-linked value goes through useScrollLinked.
+  Mobile + reduced motion get a static five-block fallback (same copy, one
+  still per chapter, register CTA). Geometry fixes from first verification:
+  home scroll stops where the baked tab bar meets the pinned overlay;
+  profile scroll extended +39px so the baked tabs tuck exactly under the
+  collapsed header (fade 0.48-0.58). ScrollStory.tsx removed.
