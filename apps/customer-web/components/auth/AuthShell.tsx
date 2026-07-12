@@ -10,10 +10,11 @@ type Props = {
 
 const ease = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
+// Launch-safe facts only: mechanics, never unverified scale claims.
 const STATS = [
-  { value: '2,000+', label: 'Merchants' },
   { value: '£6.99', label: 'Per month' },
   { value: 'One', label: 'Voucher per cycle' },
+  { value: '7', label: 'Voucher types' },
 ]
 
 export function AuthShell({ children, heading, subheading }: Props) {
@@ -67,8 +68,8 @@ export function AuthShell({ children, heading, subheading }: Props) {
               Local businesses,{' '}
               <span className="gradient-brand-text">exclusive to you.</span>
             </blockquote>
-            <p className="text-[13px] text-white/42 leading-[1.7]">
-              The UK&apos;s location-first voucher marketplace. One subscription. Hundreds of independent businesses.
+            <p className="text-[13px] text-white/55 leading-[1.7]">
+              Independent local places, each with member vouchers included. One membership covers them all.
             </p>
           </div>
 
@@ -91,18 +92,18 @@ export function AuthShell({ children, heading, subheading }: Props) {
             />
             <div className="flex items-start justify-between mb-4">
               <div>
-                <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-white/32 mb-1.5">
-                  Exclusive offer
+                <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-white/40 mb-1.5">
+                  Example offer
                 </p>
                 <p className="font-display text-white text-[17px] leading-tight">
-                  2 for 1 on all mains
+                  Buy one main, get one free
                 </p>
               </div>
               <div
                 className="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center text-white text-[15px] font-display"
                 style={{ background: 'var(--brand-gradient)' }}
               >
-                B
+                O
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -110,7 +111,7 @@ export function AuthShell({ children, heading, subheading }: Props) {
                 className="w-1.5 h-1.5 rounded-full bg-[#E20C04] flex-shrink-0"
                 aria-hidden="true"
               />
-              <p className="text-[12px] text-white/40">Bella Cucina · Manchester</p>
+              <p className="text-[12px] text-white/50">The Old Foundry Kitchen · example place</p>
             </div>
           </motion.div>
         </div>

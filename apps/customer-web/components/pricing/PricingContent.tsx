@@ -440,7 +440,7 @@ export function PricingContent() {
               <span className="gradient-text">a week.</span>
             </h2>
             <p className="text-[16px] text-white/48 leading-[1.72] max-w-[460px] mx-auto mb-10">
-              Most members save more than their subscription cost in a single redemption. The maths tends to work out very quickly.
+              If a single voucher saves you more than £6.99, the month has paid for itself. The maths is not complicated.
             </p>
           </motion.div>
 
@@ -455,7 +455,7 @@ export function PricingContent() {
             {[
               { value: '£6.99', label: 'per month' },
               { value: '£1.75', label: 'per week' },
-              { value: '200+', label: 'merchants' },
+              { value: '7', label: 'voucher types' },
             ].map((s, i) => (
               <div key={i} className="text-center">
                 <p

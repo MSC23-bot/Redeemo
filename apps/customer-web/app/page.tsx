@@ -1,21 +1,27 @@
 import { HeroSection } from '@/components/landing/HeroSection'
-import { VoucherTypesSection } from '@/components/landing/VoucherTypesSection'
-import { TrendingPreviewSection } from '@/components/landing/TrendingPreviewSection'
+import { ScrollStory } from '@/components/landing/ScrollStory'
 import { HowItWorksSection } from '@/components/landing/HowItWorksSection'
+import { TrendingPreviewSection } from '@/components/landing/TrendingPreviewSection'
 import { TestimonialsSection } from '@/components/landing/TestimonialsSection'
+import { FoundingPromiseSection } from '@/components/landing/FoundingPromiseSection'
 import { PricingSection } from '@/components/landing/PricingSection'
+import { WaitlistSection } from '@/components/landing/WaitlistSection'
 import { ForBusinessesBridgeSection } from '@/components/landing/ForBusinessesBridgeSection'
 import { AppCtaFooterSection } from '@/components/landing/AppCtaFooterSection'
+import { isMarketplaceLive } from '@/lib/prelaunch'
 
 export default function HomePage() {
   return (
     <>
       <HeroSection />
-      <VoucherTypesSection />
       <TrendingPreviewSection />
+      {/* Scroll-driven find/choose/redeem story on desktop; static sections on
+          mobile, reduced-motion, and for crawlers */}
+      <ScrollStory />
       <HowItWorksSection />
-      <TestimonialsSection />
+      {isMarketplaceLive() ? <TestimonialsSection /> : <FoundingPromiseSection />}
       <PricingSection />
+      <WaitlistSection />
       <ForBusinessesBridgeSection />
       <AppCtaFooterSection />
     </>

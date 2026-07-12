@@ -2,16 +2,19 @@
 
 import { motion } from 'framer-motion'
 import { AppStoreBadge, GooglePlayBadge } from './HeroSection'
+import { isMarketplaceLive } from '@/lib/prelaunch'
 
 const ease = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
 export function AppCtaFooterSection() {
+  const marketplaceLive = isMarketplaceLive()
+
   return (
     <section
       className="relative overflow-hidden py-20 md:py-28 px-6 text-center"
       style={{ background: '#010C35' }}
     >
-      {/* Rose-red glow — bottom-left anchor + upper-right warmth */}
+      {/* Rose-red glow: bottom-left anchor + upper-right warmth */}
       <div
         aria-hidden="true"
         className="absolute inset-0 pointer-events-none"
@@ -49,8 +52,15 @@ export function AppCtaFooterSection() {
           className="font-display text-white leading-[1.08] mb-4"
           style={{ fontSize: 'clamp(30px, 4vw, 52px)', letterSpacing: '-0.5px' }}
         >
-          Vouchers in your pocket.{' '}
-          <span className="gradient-text">Download free.</span>
+          {marketplaceLive ? (
+            <>
+              Vouchers in your pocket. <span className="gradient-text">Download free.</span>
+            </>
+          ) : (
+            <>
+              Vouchers in your pocket. <span className="gradient-text">Coming with launch.</span>
+            </>
+          )}
         </motion.h2>
 
         {/* Body */}
@@ -61,7 +71,9 @@ export function AppCtaFooterSection() {
           transition={{ duration: 0.5, delay: 0.2 }}
           className="text-[15px] text-white/48 leading-[1.72] mb-9 max-w-[420px] mx-auto"
         >
-          Browse and save on the website. Redeem your vouchers in-store with the app.
+          {marketplaceLive
+            ? 'Browse and save on the website. Redeem your vouchers in-store with the app.'
+            : 'Browse on the website today. The app and in-store redemption arrive when we go live near you.'}
         </motion.p>
 
         {/* App store badges */}
@@ -70,10 +82,15 @@ export function AppCtaFooterSection() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.4, delay: 0.3 }}
-          className="flex gap-3 justify-center flex-wrap"
+          className="flex gap-3 justify-center flex-wrap items-center"
         >
           <AppStoreBadge />
           <GooglePlayBadge />
+          {!marketplaceLive && (
+            <span className="text-[11px] text-white/35 font-semibold rounded-full border border-white/12 px-3 py-1.5">
+              Coming at launch
+            </span>
+          )}
         </motion.div>
       </div>
     </section>

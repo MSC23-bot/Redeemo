@@ -7,10 +7,12 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, ChevronDown, LayoutDashboard, PiggyBank, Heart, CreditCard, User, LogOut, Bell } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { isLeadCaptureLive, isMarketplaceLive } from '@/lib/prelaunch'
 
-// Links shown to logged-out visitors
+// Links shown to logged-out visitors. Marketplace routes are middleware-gated
+// pre-launch (they redirect home), so Discover only appears once live.
 const NAV_LINKS_PUBLIC = [
-  { href: '/discover',       label: 'Discover' },
+  ...(isMarketplaceLive() ? [{ href: '/discover', label: 'Discover' }] : []),
   { href: '/how-it-works',   label: 'How it works' },
   { href: '/pricing',        label: 'Pricing' },
   { href: '/insider',        label: 'Insider' },
@@ -19,7 +21,7 @@ const NAV_LINKS_PUBLIC = [
 
 // Links shown to signed-in members
 const NAV_LINKS_MEMBER = [
-  { href: '/discover',       label: 'Discover' },
+  ...(isMarketplaceLive() ? [{ href: '/discover', label: 'Discover' }] : []),
   { href: '/for-businesses', label: 'For businesses' },
   { href: '/insider',        label: 'Insider' },
 ]
@@ -105,10 +107,11 @@ export function Navbar() {
     if (menuOpen) firstMobileLinkRef.current?.focus()
   }, [menuOpen])
 
-  const isDark = scrolled || menuOpen
-  const navBg = isDark
-    ? 'bg-[#010C35] border-transparent'
-    : 'bg-white border-[#EDE8E8]'
+  // Owner direction 2026-07-06: the nav bar carries the primary brand colour
+  // at the top and while scrolled; all inner chrome therefore runs the
+  // on-colour (dark) theme permanently. `scrolled` still drives the shadow.
+  const isDark = true
+  const navBg = 'border-transparent'
 
   const navLinks = user ? NAV_LINKS_MEMBER : NAV_LINKS_PUBLIC
 
@@ -119,14 +122,27 @@ export function Navbar() {
 
   const firstName = user?.name ? getFirstName(user.name) : ''
 
+  // Pre-launch there is no app to send visitors to yet; point "Get the app" at the
+  // explainer page instead of a generic App Store link.
+  const marketplaceLive = isMarketplaceLive()
+  const getAppHref = marketplaceLive ? 'https://apps.apple.com' : '/how-it-works'
+  const getAppExternalProps = marketplaceLive ? { target: '_blank', rel: 'noreferrer' } : {}
+  // Pre-launch the primary CTA must not imply the marketplace is joinable today:
+  // it routes to the waitlist once lead capture is live, the teaching page until then.
+  const primaryCtaHref = marketplaceLive ? '/register' : isLeadCaptureLive() ? '/#waitlist' : '/how-it-works'
+  const primaryCtaLabel = marketplaceLive ? 'Join free' : 'Get early access'
+
   return (
-    <header className={`sticky top-0 z-50 border-b transition-colors duration-300 ${navBg}`}>
+    <header
+      className={`sticky top-0 z-50 border-b transition-shadow duration-300 ${navBg}`}
+      style={{ background: '#BE0A03 radial-gradient(120% 420% at 70% 16%, #F24E2C 0%, #BE0A03 100%)', boxShadow: scrolled ? '0 2px 18px rgba(190,10,3,0.30)' : 'none' }}
+    >
       <nav aria-label="Main" className="max-w-7xl mx-auto px-6 h-[84px] flex items-center gap-6">
 
         {/* Logo */}
         <Link href="/" className="flex-shrink-0 no-underline">
           <Image
-            src={isDark ? '/logo-dark.png' : '/logo-light.png'}
+            src="/logo-white.svg"
             alt="Redeemo"
             width={220}
             height={60}
@@ -295,9 +311,8 @@ export function Navbar() {
                   Log in
                 </Link>
                 <a
-                  href="https://apps.apple.com"
-                  target="_blank"
-                  rel="noreferrer"
+                  href={getAppHref}
+                  {...getAppExternalProps}
                   className="text-[14px] font-medium text-white px-4 py-2 rounded-lg no-underline hover:opacity-80 transition-opacity"
                   style={{
                     background: '#010C35',
@@ -307,11 +322,10 @@ export function Navbar() {
                   Get the app
                 </a>
                 <Link
-                  href="/register"
-                  className="text-[14px] font-semibold text-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
-                  style={{ background: 'var(--brand-gradient)' }}
+                  href={primaryCtaHref}
+                  className="text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
                 >
-                  Join free
+                  {primaryCtaLabel}
                 </Link>
               </>
             )
@@ -344,7 +358,8 @@ export function Navbar() {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.22, ease: 'easeInOut' }}
-            className="md:hidden overflow-hidden bg-[#010C35] border-t border-white/[0.06]"
+            className="md:hidden overflow-hidden border-t border-white/[0.14]"
+            style={{ background: '#BE0A03 radial-gradient(120% 300% at 70% 0%, #F24E2C 0%, #BE0A03 100%)' }}
           >
             <div className="px-6 py-4 flex flex-col gap-1">
 
@@ -412,9 +427,8 @@ export function Navbar() {
                         Log in
                       </Link>
                       <a
-                        href="https://apps.apple.com"
-                        target="_blank"
-                        rel="noreferrer"
+                        href={getAppHref}
+                        {...getAppExternalProps}
                         onClick={() => setMenuOpen(false)}
                         className="px-3 py-3 text-[14px] font-medium text-white text-center rounded-lg no-underline hover:opacity-80 transition-opacity"
                         style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.18)' }}
@@ -422,12 +436,11 @@ export function Navbar() {
                         Get the app
                       </a>
                       <Link
-                        href="/register"
+                        href={primaryCtaHref}
                         onClick={() => setMenuOpen(false)}
-                        className="px-3 py-3 text-[14px] font-semibold text-white text-center rounded-lg no-underline hover:opacity-90 transition-opacity"
-                        style={{ background: 'var(--brand-gradient)' }}
+                        className="px-3 py-3 text-[14px] font-bold text-[#BE0A03] bg-white text-center rounded-lg no-underline hover:opacity-90 transition-opacity"
                       >
-                        Join free
+                        {primaryCtaLabel}
                       </Link>
                     </>
                   )}

@@ -1,8 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import { motion } from 'framer-motion'
-import type { ReactNode } from 'react'
+import { PortalShowcaseSection } from './PortalShowcaseSection'
+import { MerchantInterestSection } from './MerchantInterestSection'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -74,59 +74,6 @@ const COMPARISONS = [
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
         <polyline points="9 12 11 14 15 10" />
-      </svg>
-    ),
-  },
-]
-
-type DashboardFeature = { title: string; body: string; icon: ReactNode }
-
-const DASHBOARD_FEATURES: DashboardFeature[] = [
-  {
-    title: 'Redemption analytics',
-    body: 'Total redemptions, by voucher, by date and time. See which offers are driving visits.',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <line x1="18" y1="20" x2="18" y2="10" />
-        <line x1="12" y1="20" x2="12" y2="4" />
-        <line x1="6" y1="20" x2="6" y2="14" />
-      </svg>
-    ),
-  },
-  {
-    title: 'Voucher management',
-    body: 'Create and manage your custom vouchers. Submit change requests for live offers from your dashboard.',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M20 12V8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v4a2 2 0 0 1 0 4v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4a2 2 0 0 1 0-4z" />
-        <line x1="13" y1="5" x2="13" y2="7" />
-        <line x1="13" y1="11" x2="13" y2="13" />
-        <line x1="13" y1="17" x2="13" y2="19" />
-      </svg>
-    ),
-  },
-  {
-    title: 'Branch management',
-    body: 'Manage multiple locations from one account. Per-branch redemption tracking and staff access.',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M3 21h18" />
-        <path d="M5 21V7l8-4v18" />
-        <path d="M19 21V11l-6-4" />
-        <line x1="9" y1="9" x2="9" y2="9.01" />
-        <line x1="9" y1="13" x2="9" y2="13.01" />
-      </svg>
-    ),
-  },
-  {
-    title: 'Redemption history',
-    body: 'Full log of every redemption. Filter by date, branch, or voucher. Export for your records.',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="8" y1="13" x2="16" y2="13" />
-        <line x1="8" y1="17" x2="13" y2="17" />
       </svg>
     ),
   },
@@ -217,8 +164,8 @@ export function ForBusinessesContent() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.34 }}
           >
-            <Link
-              href="/contact"
+            <a
+              href="#register-interest"
               className="inline-flex items-center gap-2 text-white font-bold text-[15px] px-7 py-3.5 rounded-xl no-underline hover:opacity-90 transition-opacity"
               style={{
                 background: 'var(--brand-gradient)',
@@ -229,7 +176,7 @@ export function ForBusinessesContent() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
               </svg>
-            </Link>
+            </a>
           </motion.div>
 
           {/* Stats strip */}
@@ -470,55 +417,8 @@ export function ForBusinessesContent() {
         </div>
       </section>
 
-      {/* ── 5. Dashboard features ── */}
-      <section style={{ background: '#FAFAF8' }} className="py-20 md:py-24 px-6">
-        <div className="max-w-6xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 14 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-60px' }}
-            transition={{ duration: 0.5, ease: ease() }}
-            className="mb-12"
-          >
-            <h2
-              className="font-display text-[#010C35] leading-[1.1] mb-3"
-              style={{ fontSize: 'clamp(28px, 3.5vw, 44px)', letterSpacing: '-0.3px' }}
-            >
-              Your business, fully visible.
-            </h2>
-            <p className="text-[15px] text-[#4B5563] leading-[1.65] max-w-[560px]">
-              The Redeemo merchant dashboard gives you a real-time view of everything that matters.
-            </p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            {DASHBOARD_FEATURES.map((f, i) => (
-              <motion.article
-                key={f.title}
-                initial={{ opacity: 0, y: 18 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-30px' }}
-                transition={{ duration: 0.42, delay: i * 0.08, ease: ease() }}
-                className="rounded-2xl border border-[#E5E0D8] bg-white p-6 md:p-7 flex gap-5 items-start hover:shadow-[0_6px_24px_rgba(1,12,53,0.07)] hover:border-[#010C35]/15 transition-all"
-              >
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 text-white"
-                  style={{ background: 'var(--brand-gradient)' }}
-                  aria-hidden="true"
-                >
-                  {f.icon}
-                </div>
-                <div className="min-w-0">
-                  <h3 className="font-display text-[16px] font-semibold text-[#010C35] leading-snug mb-1.5" style={{ letterSpacing: '-0.1px' }}>
-                    {f.title}
-                  </h3>
-                  <p className="text-[14px] text-[#4B5563] leading-[1.65]">{f.body}</p>
-                </div>
-              </motion.article>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* ── 5. Merchant Portal showcase (real screens, example data) ── */}
+      <PortalShowcaseSection />
 
       {/* ── 6. Getting started (dark, timeline) ── */}
       <section
@@ -605,7 +505,10 @@ export function ForBusinessesContent() {
         </div>
       </section>
 
-      {/* ── 7. Final CTA ── */}
+      {/* ── 7. Register interest (working journey; form flag-gated pending D1) ── */}
+      <MerchantInterestSection />
+
+      {/* ── 8. Final CTA ── */}
       <section
         className="relative overflow-hidden py-20 md:py-28 px-6"
         style={{ background: '#010C35' }}
@@ -647,8 +550,8 @@ export function ForBusinessesContent() {
             transition={{ duration: 0.4, delay: 0.16 }}
             className="flex gap-3 justify-center flex-wrap"
           >
-            <Link
-              href="/contact"
+            <a
+              href="#register-interest"
               className="inline-flex items-center gap-2 text-white font-bold text-[15px] px-7 py-3.5 rounded-xl no-underline hover:opacity-90 transition-opacity"
               style={{
                 background: 'var(--brand-gradient)',
@@ -659,7 +562,7 @@ export function ForBusinessesContent() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
               </svg>
-            </Link>
+            </a>
           </motion.div>
 
           <motion.p

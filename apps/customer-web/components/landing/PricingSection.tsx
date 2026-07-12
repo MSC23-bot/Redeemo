@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { motion } from 'framer-motion'
+import { isLeadCaptureLive, isMarketplaceLive } from '@/lib/prelaunch'
 
 type Plan = {
   name: string
@@ -15,53 +16,59 @@ type Plan = {
   features: string[]
 }
 
-const PLANS: Plan[] = [
-  {
-    name: 'Free',
-    price: '£0',
-    body: 'Browse every merchant and voucher. No card needed.',
-    cta: 'Start exploring',
-    href: '/register',
-    tone: 'neutral',
-    features: [
-      'Browse all merchants',
-      'View every voucher',
-      'Read member reviews',
-      'Save favourites',
-    ],
-  },
-  {
-    name: 'Monthly',
-    price: '£6.99',
-    priceSuffix: '/mo',
-    body: 'Full voucher access. Cancel anytime.',
-    cta: 'Get started',
-    href: '/subscribe',
-    tone: 'primary',
-    features: [
-      'Everything in Free',
-      'Redeem at all merchants',
-      'One voucher per merchant/cycle',
-      'Savings dashboard',
-      'Personalised recommendations',
-    ],
-  },
-  {
-    name: 'Annual',
-    price: '£69.99',
-    priceSuffix: '/yr',
-    body: 'Two months free. Pay once, save all year.',
-    cta: 'Best value',
-    href: '/subscribe?plan=annual',
-    tone: 'gold',
-    badge: 'Best value',
-    features: [
-      'Everything in Monthly',
-      '~2 months free vs monthly',
-      'Priority customer support',
-    ],
-  },
-]
+// Plan facts (price/features) never change pre-launch; only the CTA destination and
+// label do, since /register and /subscribe require a live marketplace to mean anything.
+function getPlans(marketplaceLive: boolean, leadCaptureLive: boolean): Plan[] {
+  const preLaunchRedeemHref = leadCaptureLive ? '#waitlist' : '/how-it-works'
+
+  return [
+    {
+      name: 'Free',
+      price: '£0',
+      body: 'Browse every merchant and voucher. No card needed.',
+      cta: marketplaceLive ? 'Start exploring' : 'See what’s included',
+      href: marketplaceLive ? '/register' : '/how-it-works',
+      tone: 'neutral',
+      features: [
+        'Browse all merchants',
+        'View every voucher',
+        'Read member reviews',
+        'Save favourites',
+      ],
+    },
+    {
+      name: 'Monthly',
+      price: '£6.99',
+      priceSuffix: '/mo',
+      body: 'Full voucher access. Cancel anytime.',
+      cta: marketplaceLive ? 'Get started' : 'Get first access',
+      href: marketplaceLive ? '/subscribe' : preLaunchRedeemHref,
+      tone: 'primary',
+      features: [
+        'Everything in Free',
+        'Redeem at all merchants',
+        'One voucher per merchant/cycle',
+        'Savings dashboard',
+        'Personalised recommendations',
+      ],
+    },
+    {
+      name: 'Annual',
+      price: '£69.99',
+      priceSuffix: '/yr',
+      body: 'Two months free. Pay once, save all year.',
+      cta: marketplaceLive ? 'Best value' : 'Get first access',
+      href: marketplaceLive ? '/subscribe?plan=annual' : preLaunchRedeemHref,
+      tone: 'gold',
+      badge: 'Best value',
+      features: [
+        'Everything in Monthly',
+        '~2 months free vs monthly',
+        'Priority customer support',
+      ],
+    },
+  ]
+}
 
 function CheckIcon({ color }: { color: string }) {
   return (
@@ -129,6 +136,7 @@ function PlanCard({ plan, delay }: { plan: Plan; delay: number }) {
 
       <Link
         href={plan.href}
+        aria-label={`${plan.cta}: ${plan.name} plan`}
         className={`mt-auto block text-center font-semibold text-[14px] py-3 rounded-xl no-underline transition-opacity hover:opacity-90 ${
           isPrimary
             ? 'text-white'
@@ -151,6 +159,8 @@ function PlanCard({ plan, delay }: { plan: Plan; delay: number }) {
 }
 
 export function PricingSection() {
+  const plans = getPlans(isMarketplaceLive(), isLeadCaptureLive())
+
   return (
     <section className="bg-white py-20 md:py-24 px-6">
       <div className="max-w-7xl mx-auto">
@@ -169,27 +179,29 @@ export function PricingSection() {
             Start free. Upgrade when you&apos;re ready.
           </h2>
           <p className="text-[15px] text-[#4B5563] leading-[1.7]">
-            Most members save more than their subscription in the first month.
+            If one voucher saves you more than £6.99, the month has paid for itself.
           </p>
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-[1040px] mx-auto items-start">
-          {PLANS.map((plan, i) => (
+          {plans.map((plan, i) => (
             <PlanCard key={plan.name} plan={plan} delay={i * 0.1} />
           ))}
         </div>
 
-        <motion.div
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.4, delay: 0.35 }}
-          className="text-center mt-10"
-        >
-          <Link href="/pricing" className="text-[14px] font-semibold text-[#E20C04] no-underline hover:underline">
-            Compare all plans &rarr;
-          </Link>
-        </motion.div>
+        {isMarketplaceLive() && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.4, delay: 0.35 }}
+            className="text-center mt-10"
+          >
+            <Link href="/pricing" className="text-[14px] font-semibold text-[#E20C04] no-underline hover:underline">
+              Compare all plans &rarr;
+            </Link>
+          </motion.div>
+        )}
       </div>
     </section>
   )

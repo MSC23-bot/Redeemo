@@ -65,7 +65,7 @@ closed by a later PR; confirm and then remove with a citation).
 |---|---|---|
 | §CU.1 | Branch-first migration (still consumes legacy `merchants` field); blocks Plan 4 M5 + Discovery Phase 3b backend cleanup | GATED: Tier 3 brainstorm-first |
 | §BW | Customer-web test infrastructure | OPEN (blocks §DF-web) |
-| Redesign | Pre-launch website redesign | GATED: owner sequencing 2026-06-09 (after Merchant Portal + Admin) |
+| Redesign | Pre-launch website redesign | IN PROGRESS: owner re-sequenced 2026-07-06 (direct brief; supersedes the 2026-06-09 sequencing for this workstream). Plan: `docs/superpowers/plans/2026-07-06-prelaunch-website-conversion-rebaseline.md`. Lead persistence (ConsumerWaitlist/MerchantLead) remains a separate open owner decision (D1 in that plan) |
 
 ## 3. Platform / Security / Ops
 
