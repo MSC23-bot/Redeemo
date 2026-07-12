@@ -201,14 +201,23 @@ the walk:**
   only, owner-confirmed in the inbox; 0 SMS; queue empty; worker stopped again (windowed).
   Full record: `docs/runbooks/2026-07-10-staging-email-worker-enablement.md` §2b. Optional
   owner tidy-up: revoke the old invalid `staging-new` key in Resend.
-- **§EMAIL-OTP-RECIPE (standing operational note):** while the worker is LIVE, delivered
-  CommunicationLog rows have payloads NULLed on send (correct security behaviour), so the
-  read-the-code-from-DB recipe only works while the worker is OFF; during windows,
-  codes/claim links come from the allowlist inbox.
-- **§EMAIL-DARK-LABEL (small fix, cosmetic):** the invite API returns
+- **§EMAIL-OTP-RECIPE (standing operational note; PERMANENT since 2026-07-11):** the
+  staging worker is ALWAYS-ON (owner decision 4), so delivered CommunicationLog rows have
+  payloads NULLed on send at all times and the read-the-code-from-DB recipe is dead for
+  good. Codes/claim links come from the allowlist inbox (`admin@redeemo.co.uk`) only.
+- **§EMAIL-DARK-LABEL (small fix; priority raised 2026-07-12):** the invite API returns
   `inviteDelivery: "EMAIL_DARK"` (and the portal shows the "email delivery is not live yet"
-  banner) based on the WEB service's `EMAIL_ENABLED=false`, while the WORKER actually sends
-  during windows. Align the flag posture or derive the label from delivery outcome.
+  banner) based on the WEB service's `EMAIL_ENABLED=false`, while the WORKER actually sends.
+  With the worker now ALWAYS-ON the label is wrong permanently, not just during windows.
+  Align the flag posture or derive the label from delivery outcome.
+- **§KRAFT-FU (Kraft-walkthrough follow-ups, opened 2026-07-12; the packet itself is
+  CLOSED: PROJECT-STATE change log 2026-07-12):** (a) gallery-photo crop parity: #484 wired
+  the crop modal into logo/banner via file-upload, but the BrandingPhotosCard gallery path
+  uploads uncropped; (b) email lookup normalization follow-up: #491 normalizes email on
+  REGISTER only (transitional); login/forgot lookups stay exact-match with TRANSITIONAL
+  comments pinning the contract; decide backfill + lookup-side normalization once mixed-case
+  rows matter (census 2026-07-11: zero mixed-case MerchantAdmin rows on staging/dev);
+  (c) fold §EMAIL-DARK-LABEL into the next merchant-web slice.
 
 **B2 address search - staging status: RESOLVED (2026-07-09).** The merchant-portal branch
 address search (PR #318, `49c132fe`) is fully built and merged - server-side Places New Text
