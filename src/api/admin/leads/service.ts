@@ -6,7 +6,8 @@
 // audited) or Convert it to a merchant draft (stamps convertedMerchantId and
 // runs the existing createMerchantDraft flow). Every mutation writes an AuditLog
 // row inside the same transaction. Contact PII on Lost/stale leads is anonymised
-// by the sibling scheduled job (anonymise.ts); this service never deletes.
+// by the sibling scheduled sweep (src/api/queues/processors/leadAnonymiseSweep.ts);
+// this service never deletes.
 //
 // Route-level gating on `lead:manage` (FIELD baseline + grantable path) is applied
 // in routes.ts; these functions assume the caller already passed that gate.

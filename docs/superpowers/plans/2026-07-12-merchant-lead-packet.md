@@ -141,6 +141,17 @@ Notes:
 Backend `npm run test:unit` ONLY. No integration suites (they mutate shared Neon). Migration is
 never applied here; schema validated via `npx prisma validate` + `generate`.
 
+## 6b. PRE-MERGE OPS STEP (owner-gated, blocking)
+
+`resolveMaintenanceConfig` fails the WORKER PROCESS at boot when any
+`MAINTENANCE_SWEEP_*_ENABLED` flag is absent while maintenance is enabled (deliberate
+fail-closed contract). The staging worker runs ALWAYS-ON, so BEFORE this packet merges the
+owner must set `MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED=false` on the staging worker
+environment (false, not true: the MerchantLead table does not exist until the bundled
+migration window; with the flag true the sweep would error each tick against a missing
+table). Flip to true only at migration-window activation. Production gets the same var
+whenever production maintenance workers are configured (separate future decision).
+
 ## 7. Boundaries preserved
 
 Create-only migration, unapplied to any shared DB until the owner's bundled window. No prod, no
