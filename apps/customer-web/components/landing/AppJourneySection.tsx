@@ -10,16 +10,22 @@ import { useScrollLinked } from './scroll'
  * The app journey (owner brief 2026-07-12; copy approved 2026-07-13; revision
  * round 2026-07-13): one pinned phone walks the real customer app through
  * five chapters: Discovery, Merchant profile, Voucher detail, Redemption,
- * Savings. Owner revisions applied: NO horizontal tilt (the screen must stay
- * fully readable: only gentle vertical tilt, sideways drift and breathing);
- * chapter one opens on the REAL home screen (search + categories) before the
- * feed scroll; no collapsed-header overlay in chapter two (the strip is too
- * short to collapse honestly, and the overlay duplicated the tab row); taps
- * are brand red; the voucher detail shows FULL SCREEN (no camera zooms) and
- * is tapped on Redeem; redemption taps High Street then Confirm; the PIN
- * boxes fully cover the baked ones; the success moment gets a confetti
- * burst and a tap on View voucher code; the QR card pops OUT of the phone;
- * the savings chapter counts all three numbers and stays on one screen.
+ * Savings. Owner revisions applied (rounds 2026-07-13): the phone is
+ * COMPLETELY STILL (any motion read as odd); chapter one opens on the REAL
+ * home screen (search + categories) before the feed scroll; no collapsed-
+ * header overlay in chapter two (the strip is too short to collapse
+ * honestly, and the overlay duplicated the tab row); taps are brand red and
+ * deliberately loud (pressing core + double ripple); the voucher detail
+ * shows FULL SCREEN (no camera zooms) and is tapped on Redeem; redemption
+ * taps High Street then Confirm; the PIN boxes fully cover the baked ones;
+ * the success moment RAINS confetti from the top of the phone screen and
+ * taps View voucher code; nothing pops out of the phone (the QR pop-out
+ * card was cut); the savings chapter counts all three numbers (redemptions
+ * to 23), animates all six trend bars, and stays on one screen.
+ *
+ * The savings capture (800x1703) is slightly wider than the screen under
+ * object-cover, so overlays aligned to its pixels must go through savX():
+ * raw fractions land ~1% left of the artwork and leak red at bar edges.
  *
  * All scroll-linked values go through useScrollLinked (Chrome ScrollTimeline
  * misbinds stacked layers otherwise; see components/landing/scroll.ts).
@@ -81,42 +87,80 @@ const PIN_BOX_LEFTS = [0.198, 0.352, 0.506, 0.661]
 const PIN_BOX = { top: 0.409, w: 0.136, h: 0.08 }
 const KEY_TIMES = [0.36, 0.42, 0.48, 0.54]
 
-// Savings trend bars (fractions of the 888x1890 capture): [x, w, topFrac]
-const BARS: Array<[number, number, number]> = [
-  [0.12, 0.07, 0.5575], [0.258, 0.07, 0.5575], [0.397, 0.07, 0.5575],
-  [0.535, 0.071, 0.437], [0.674, 0.07, 0.489], [0.812, 0.07, 0.48],
-]
-const BAR_BASE = 0.575
+// Savings capture geometry: the 800x1703 image is cropped ~3.5px each side
+// by object-cover, so capture x-fractions must be remapped to the container
+const SAV_CAP = { w: 800, h: 1703 }
+const SAV_SCALE = Math.max(PHONE_W / SAV_CAP.w, SCREEN_H / SAV_CAP.h)
+const SAV_OFF_X = (SAV_CAP.w * SAV_SCALE - PHONE_W) / 2
+const savX = (f: number) => (f * SAV_CAP.w * SAV_SCALE - SAV_OFF_X) / PHONE_W
 
-// Confetti: deterministic burst in brand colours (dx%, fall px, rotate, colour, size, delay)
-const CONFETTI: Array<[number, number, number, string, number, number]> = [
-  [-120, 210, 200, '#E20C04', 8, 0], [-92, 250, -160, '#E84A00', 7, 0.01], [-66, 190, 140, '#16A34A', 6, 0.02],
-  [-44, 260, -220, '#F5B301', 8, 0], [-20, 230, 180, '#2563EB', 7, 0.015], [4, 270, -140, '#E20C04', 9, 0.005],
-  [26, 220, 160, '#7C3AED', 6, 0.02], [50, 255, -190, '#16A34A', 8, 0.01], [74, 200, 150, '#E84A00', 7, 0],
-  [100, 245, -170, '#F5B301', 6, 0.015], [124, 215, 130, '#E20C04', 7, 0.02], [-105, 165, -120, '#2563EB', 6, 0.025],
-  [-58, 285, 210, '#E84A00', 6, 0.03], [12, 175, -150, '#16A34A', 7, 0.025], [64, 290, 170, '#E20C04', 6, 0.03],
-  [112, 180, -130, '#7C3AED', 7, 0.025], [-30, 300, 120, '#F5B301', 6, 0.035], [38, 195, -110, '#2563EB', 6, 0.035],
+// Savings trend bars, MEASURED from the capture (redness scan 2026-07-13):
+// [x, w, topFrac] in capture fractions; all six animate, Feb-Apr included
+const BARS: Array<[number, number, number]> = [
+  [0.1263, 0.0612, 0.5655], [0.265, 0.0612, 0.5649], [0.4012, 0.0625, 0.5655],
+  [0.5387, 0.065, 0.4439], [0.6775, 0.0638, 0.4944], [0.815, 0.065, 0.4292],
 ]
+const BAR_BASE = 0.5755
+
+// Confetti: a deterministic rain from the top of the phone screen. Hash-based
+// pseudo-randoms keep SSR and client renders identical.
+const CONFETTI_COLOURS = ['#E20C04', '#E84A00', '#F5B301', '#16A34A', '#2563EB', '#7C3AED', '#FF7A64']
+const CONFETTI = Array.from({ length: 42 }, (_, i) => {
+  const h = (n: number) => {
+    const s = Math.sin((i + 1) * n) * 10000
+    return s - Math.floor(s)
+  }
+  // Everything is rounded: full-precision floats in inline styles fail
+  // hydration (the browser serialises them shorter than React's strings)
+  const r2 = (v: number) => Math.round(v * 100) / 100
+  return {
+    x: r2(3 + h(12.9898) * 94),
+    sway: Math.round((h(78.233) - 0.5) * 90),
+    fall: Math.round(340 + h(43.317) * 380),
+    rot: Math.round((h(9.421) - 0.5) * 720),
+    colour: CONFETTI_COLOURS[i % CONFETTI_COLOURS.length],
+    size: r2(6 + h(27.61) * 6),
+    delay: r2(h(3.7) * 0.06),
+    round: i % 3 === 0,
+  }
+})
 
 function useBand(progress: MotionValue<number>, input: number[], output: number[]) {
   return useScrollLinked(useTransform(progress, input, output))
 }
 
-/** A visible fingertip in brand red: dot + expanding ring */
+/** A loud, unmissable fingertip in brand red: pressing core + double ripple */
 function Tap({ local, at, x, y }: { local: MotionValue<number>; at: [number, number]; x: string; y: string }) {
-  const mid = (at[0] + at[1]) / 2
-  const opacity = useBand(local, [at[0], at[0] + 0.015, mid, at[1]], [0, 1, 1, 0])
-  const ring = useBand(local, [at[0], at[1]], [0.5, 2.1])
-  const ringOpacity = useBand(local, [at[0], mid, at[1]], [0.6, 0.35, 0])
+  const span = at[1] - at[0]
+  const opacity = useBand(local, [at[0], at[0] + 0.012, at[1] - 0.012, at[1]], [0, 1, 1, 0])
+  // The core arrives, presses down, and springs back: a real tap, not a dot
+  const press = useBand(
+    local,
+    [at[0], at[0] + span * 0.25, at[0] + span * 0.45, at[0] + span * 0.65, at[1]],
+    [0.6, 1.08, 0.78, 1.05, 1],
+  )
+  const ring1 = useBand(local, [at[0] + span * 0.35, at[1]], [0.5, 2.9])
+  const ring1Op = useBand(local, [at[0] + span * 0.35, at[0] + span * 0.5, at[1]], [0, 0.8, 0])
+  const ring2 = useBand(local, [at[0] + span * 0.5, at[1]], [0.4, 3.9])
+  const ring2Op = useBand(local, [at[0] + span * 0.5, at[0] + span * 0.65, at[1]], [0, 0.55, 0])
   return (
     <div className="absolute pointer-events-none" style={{ left: x, top: y }}>
       <motion.div
-        className="absolute -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full"
-        style={{ opacity, background: 'rgba(226,12,4,0.5)', boxShadow: '0 2px 12px rgba(226,12,4,0.4), inset 0 0 0 1.5px rgba(255,255,255,0.85)' }}
+        className="absolute -translate-x-1/2 -translate-y-1/2 w-11 h-11 rounded-full"
+        style={{
+          opacity,
+          scale: press,
+          background: 'radial-gradient(circle, rgba(226,12,4,0.9) 0%, rgba(226,12,4,0.55) 55%, rgba(226,12,4,0.25) 100%)',
+          boxShadow: '0 4px 18px rgba(226,12,4,0.55), inset 0 0 0 2.5px rgba(255,255,255,0.95)',
+        }}
       />
       <motion.div
-        className="absolute -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full border-2 border-[#E20C04]"
-        style={{ opacity: ringOpacity, scale: ring }}
+        className="absolute -translate-x-1/2 -translate-y-1/2 w-11 h-11 rounded-full border-[3px] border-[#E20C04]"
+        style={{ opacity: ring1Op, scale: ring1 }}
+      />
+      <motion.div
+        className="absolute -translate-x-1/2 -translate-y-1/2 w-11 h-11 rounded-full border-2 border-[#E20C04]"
+        style={{ opacity: ring2Op, scale: ring2 }}
       />
     </div>
   )
@@ -131,17 +175,27 @@ function Screen({ opacity, children, bg = '#FFF9F5' }: { opacity: MotionValue<nu
 }
 
 function ConfettiPiece({ local, p }: { local: MotionValue<number>; p: (typeof CONFETTI)[number] }) {
-  const [dx, fall, rot, colour, size, delay] = p
-  const t0 = 0.635 + delay
-  const t1 = t0 + 0.17
-  const y = useBand(local, [t0, t1], [-30, fall])
-  const x = useBand(local, [t0, t1], [0, dx])
-  const rotate = useBand(local, [t0, t1], [0, rot])
-  const opacity = useBand(local, [t0, t0 + 0.02, t1 - 0.04, t1], [0, 1, 1, 0])
+  const t0 = 0.625 + p.delay
+  const t1 = t0 + 0.22
+  const mid = (t0 + t1) / 2
+  const y = useBand(local, [t0, t1], [0, p.fall])
+  const x = useBand(local, [t0, mid, t1], [0, p.sway * 0.55, p.sway])
+  const rotate = useBand(local, [t0, t1], [0, p.rot])
+  const opacity = useBand(local, [t0, t0 + 0.015, t1 - 0.05, t1], [0, 1, 1, 0])
   return (
     <motion.span
-      className="absolute rounded-[2px] pointer-events-none"
-      style={{ left: '50%', top: '36%', width: size, height: size * 0.6, background: colour, x, y, rotate, opacity }}
+      className={`absolute pointer-events-none ${p.round ? 'rounded-full' : 'rounded-[2px]'}`}
+      style={{
+        left: `${p.x}%`,
+        top: -14,
+        width: p.size,
+        height: p.round ? p.size : Math.round(p.size * 55) / 100,
+        background: p.colour,
+        x,
+        y,
+        rotate,
+        opacity,
+      }}
     />
   )
 }
@@ -156,13 +210,8 @@ function Stage() {
     ['#FFF9F5', '#FFFFFF', '#FFFFFF', '#FFF6F3', '#FFFFFF', '#FFF9F5'],
   )
 
-  // The phone never tilts sideways (owner): it drifts gently, nods forward
-  // and back, and breathes: the screen stays fully readable throughout
-  const rotX = useBand(scrollYProgress, [0, 0.2, 0.4, 0.6, 0.8, 1], [4, -2.5, 3.5, -2.5, 3, -2])
-  const driftX = useBand(scrollYProgress, [0, 0.2, 0.4, 0.6, 0.8, 1], [10, -10, 8, -9, 7, -6])
-  const phoneY = useBand(scrollYProgress, [0, 1], [14, -14])
-
-  // Chapter screen opacities (crossfade at each 0.2 boundary)
+  // Chapter screen opacities (crossfade at each 0.2 boundary). The phone
+  // itself is completely still (owner 2026-07-13): the life is on-screen.
   const op1 = useBand(scrollYProgress, [0, 0.185, 0.205], [1, 1, 0])
   const op2 = useBand(scrollYProgress, [0.185, 0.205, 0.385, 0.405], [0, 1, 1, 0])
   const op3 = useBand(scrollYProgress, [0.385, 0.405, 0.585, 0.605], [0, 1, 1, 0])
@@ -185,18 +234,13 @@ function Stage() {
   /* Chapter 3: full screen; the redeem button glows, then gets tapped */
   const redeemGlow = useBand(L3, [0.3, 0.55, 0.72, 0.95], [0, 1, 1, 0.5])
 
-  /* Chapter 4: High Street tap, Confirm tap, PIN, confetti success, QR pop */
+  /* Chapter 4: High Street tap, Confirm tap, PIN, confetti success, QR */
   const branchOp = useBand(L4, [0, 0.3, 0.34], [1, 1, 0])
   const pinOp = useBand(L4, [0.3, 0.34, 0.6, 0.65], [0, 1, 1, 0])
   const flash = useBand(L4, [0.6, 0.64, 0.69], [0, 0.55, 0])
   const successOp = useBand(L4, [0.62, 0.67, 0.87, 0.9], [0, 1, 1, 0])
   const successScale = useBand(L4, [0.62, 0.71], [0.93, 1])
   const qrOp = useBand(L4, [0.86, 0.92, 1], [0, 1, 1])
-  // The pop-out card lives OUTSIDE the gated screens, so it bands on the
-  // global progress and retires itself at the chapter boundary
-  const qrPopOp = useBand(scrollYProgress, [0.772, 0.782, 0.786, 0.796], [0, 1, 1, 0])
-  const qrPopScale = useBand(scrollYProgress, [0.772, 0.79], [0.82, 1.1])
-  const qrPopY = useBand(scrollYProgress, [0.772, 0.79], [26, 0])
   const pinDigitOps = KEY_TIMES.map((t) => useBand(L4, [t + 0.015, t + 0.035], [0, 1]))
   const keyFlashes = KEY_TIMES.map((t) => useBand(L4, [t - 0.015, t, t + 0.03], [0, 1, 0]))
 
@@ -205,10 +249,10 @@ function Stage() {
   const totalText = useTransform(totalNum, (v) => `£${v.toFixed(2)}`)
   const monthNum = useBand(L5, [0.16, 0.5], [0, 96])
   const monthText = useTransform(monthNum, (v) => `£${v.toFixed(2)}`)
-  const redemptionsNum = useBand(L5, [0.26, 0.46], [0, 3])
+  const redemptionsNum = useBand(L5, [0.26, 0.46], [0, 23])
   const redemptionsText = useTransform(redemptionsNum, (v) => `${Math.round(v)}`)
   const dotOp = useBand(L5, [0.58, 0.64], [0, 1])
-  const barsGrow = BARS.map((_, i) => useBand(L5, [0.14 + i * 0.05, 0.32 + i * 0.05], [1, 0]))
+  const barsGrow = BARS.map((_, i) => useBand(L5, [0.12 + i * 0.055, 0.26 + i * 0.055], [1, 0]))
 
   return (
     <div ref={trackRef} className="relative" style={{ height: '720vh' }}>
@@ -229,16 +273,12 @@ function Stage() {
             ))}
           </div>
 
-          {/* The phone: upright, readable, gently alive */}
-          <div className="justify-self-end relative" style={{ perspective: 1400 }}>
-            <motion.div
+          {/* The phone: upright, still, readable: all the life is on-screen */}
+          <div className="justify-self-end relative">
+            <div
               className="relative rounded-[50px] bg-[#10101c] p-[10px]"
               style={{
                 width: PHONE_W + 20,
-                rotateX: rotX,
-                x: driftX,
-                y: phoneY,
-                transformStyle: 'preserve-3d',
                 boxShadow: '0 36px 80px rgba(1,12,53,0.26), 0 8px 22px rgba(1,12,53,0.15), inset 0 0 0 2px rgba(255,255,255,0.06)',
               }}
             >
@@ -365,8 +405,8 @@ function Stage() {
                       key={i}
                       className="absolute bg-white pointer-events-none"
                       style={{
-                        left: `${(bx - 0.005) * 100}%`, width: `${(bw + 0.01) * 100}%`,
-                        top: `${(btop - 0.007) * 100}%`, height: `${(BAR_BASE - btop + 0.011) * 100}%`,
+                        left: `${savX(bx - 0.008) * 100}%`, width: `${(savX(bx + bw + 0.008) - savX(bx - 0.008)) * 100}%`,
+                        top: `${(btop - 0.006) * 100}%`, height: `${(BAR_BASE - btop + 0.006) * 100}%`,
                         scaleY: barsGrow[i], transformOrigin: 'top',
                       }}
                     />
@@ -380,21 +420,7 @@ function Stage() {
 
               {/* Notch */}
               <div className="absolute left-1/2 -translate-x-1/2 top-[19px] w-[96px] h-[23px] rounded-full bg-[#10101c]" />
-            </motion.div>
-
-            {/* The QR card steps out of the phone for its moment */}
-            <motion.div
-              className="absolute pointer-events-none rounded-2xl overflow-hidden"
-              style={{
-                left: '-9%', width: '118%', top: '30%',
-                opacity: qrPopOp,
-                scale: qrPopScale,
-                y: qrPopY,
-                boxShadow: '0 30px 70px rgba(20,8,60,0.45), 0 6px 18px rgba(20,8,60,0.3)',
-              }}
-            >
-              <Image src="/app-shots/journey/qr-card.jpg" alt="" width={700} height={689} className="w-full h-auto" />
-            </motion.div>
+            </div>
 
             <p className="mt-4 text-center text-[10px] text-[#010C35]/40">
               App preview · example places, not live listings

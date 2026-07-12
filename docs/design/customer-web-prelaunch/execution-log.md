@@ -676,3 +676,19 @@ edited by this workstream.
   up live; bar cover rects expanded so no red shows before the bars grow.
   Static fallback updated to match (home-top opener, savings-top-full
   closer). Verified at 2%/36%/78%/79.5%/88% scroll; tsc clean.
+- APP JOURNEY REVISION 2 (owner feedback 2026-07-13): the phone is now
+  COMPLETELY STILL (all tilt/drift/breathe removed: any motion read as
+  odd); tap markers rebuilt to be unmissable (44px pressing core with a
+  radial red fill, white rim, and a double expanding ripple); confetti
+  rebuilt as a 42-piece rain from the TOP of the phone screen (hash-based
+  deterministic values, rounded to 2dp: full-precision floats in inline
+  styles fail React hydration), falling with sway and spin across the full
+  width; the QR pop-out card is CUT (owner: nothing comes out of the
+  phone): qr-card.jpg deleted; redemptions now count to 23; trend bars
+  re-measured from the capture by redness scan and mapped through savX()
+  (the 800x1703 savings capture is cropped ~3.5px per side by object-cover,
+  which had left every overlay ~1% left of the artwork: the cause of the
+  red line on the right of the Jul bar). All six bars animate left to
+  right, Feb-Apr stubs included, and the Jul bar's true top (0.429, not
+  0.48) is now covered. Verified at 17.6%/73.6%/86%/92% scroll; tsc clean;
+  no hydration issues.
