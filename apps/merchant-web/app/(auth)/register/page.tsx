@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 import { AuthShell } from '@/components/auth/AuthShell'
 import { FormBanner } from '@/components/auth/FormBanner'
 import { PasswordField } from '@/components/auth/PasswordField'
-import { PasswordRequirements } from '@/components/auth/PasswordRequirements'
 import { TurnstileWidget } from '@/components/auth/TurnstileWidget'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +15,11 @@ import { getOrCreateDeviceId } from '@/lib/auth/deviceId'
 import { passwordPolicyOk } from '@/lib/auth/password'
 import { authErrorMessage } from '@/lib/auth/errorMessages'
 import { VERIFY_CHALLENGE_KEY } from '@/lib/auth/constants'
+
+// Owner decision (2026-07-11): registration shows a single inline validation
+// message instead of the 5-rule live checklist. Text mirrors the actual policy
+// in lib/auth/password.ts (passwordChecks/passwordPolicyOk); update both together.
+const PASSWORD_HINT = 'Use at least 8 characters, including an uppercase letter, a lowercase letter, a number, and a special character.'
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -38,7 +42,7 @@ export default function RegisterPage() {
       return
     }
     if (!passwordPolicyOk(password)) {
-      setError('Please meet all the password requirements below.')
+      setError(PASSWORD_HINT)
       return
     }
     setError(null)
@@ -126,8 +130,10 @@ export default function RegisterPage() {
         <div className="space-y-1.5">
           <Label htmlFor="password">Password</Label>
           <PasswordField id="password" value={password} onChange={setPassword} disabled={loading} />
+          {password.length > 0 && !passwordPolicyOk(password) ? (
+            <p className="text-xs text-[var(--danger)]">{PASSWORD_HINT}</p>
+          ) : null}
         </div>
-        <PasswordRequirements password={password} />
 
         <label className="flex items-start gap-2 text-sm text-muted-foreground">
           <input

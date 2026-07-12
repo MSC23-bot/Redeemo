@@ -52,8 +52,24 @@ describe('RegisterPage (M1 Slice 4)', () => {
     fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'weak' } })
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: /create account/i }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/requirements/i))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/at least 8 characters/i))
     expect(mockRegister).not.toHaveBeenCalled()
+  })
+
+  it('shows a single inline validation message for a non-empty, invalid password', () => {
+    render(<RegisterPage />)
+    // Pristine/empty: no nagging.
+    expect(screen.queryByText(/at least 8 characters/i)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'weak' } })
+    expect(screen.getByText(/at least 8 characters/i)).toBeInTheDocument()
+  })
+
+  it('hides the inline validation message once the password meets the policy', () => {
+    render(<RegisterPage />)
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'weak' } })
+    expect(screen.getByText(/at least 8 characters/i)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'ValidPass1!' } })
+    expect(screen.queryByText(/at least 8 characters/i)).not.toBeInTheDocument()
   })
 
   it('registers (with terms + captcha token) and routes to /register/verify, stashing the challenge', async () => {
