@@ -55,7 +55,7 @@ closed by a later PR; confirm and then remove with a citation).
 | EAS config | `eas.json` / `app.config.ts` / expo-build-properties port | OPEN (deliberately not ported in Profile Sub-PR 1) |
 | Node upgrade | Customer-app toolchain Node 20.19.4 → newer LTS | GATED on re-verifying jest-expo |
 | Seed-email hygiene | `admin@`/`customer@`/`staff@` seed addresses use unowned `redeemo.com` | OPEN, platform-wide follow-up |
-| Checklist-only customer-app tail | Additional open follow-ups tracked ONLY in the Customer App Codex checklist (read-only; reconciled 2026-07-06): §CE-§CK Search follow-ups (filters, sorting, recent searches, empty-state illustrations, heart migration, pagination, tactile polish); §BY/§CA/§CC/§DJ/§DK cross-surface copy + pill + ranking-audit items; §DB/§DC/§DD/§DE/§DI Home follow-ups; Map polish bucket (a narrower Map in-area reliability slice - deterministic candidate pool, opt-in `branchesOnly` fast path, client bbox-quantized caching - SHIPPED 2026-07-09 via PR #434 `3e20bbeb`, plan `docs/superpowers/plans/2026-07-09-map-in-area-reliability-slice.md`; the bucket itself - clustering, category-differentiated pins, region accumulation, `AbortSignal` - stays OPEN) + §CZ category/filter correctness (owner-deferred to the Map rebase pass); Category FilterSheet redesign + copy-mismatch bug; Savings redemption-history pagination end-state bug + sticky-header redesign; QA-seed Stage 3 coordinate verification; pg SSL-semantics warning; stale-generated-Prisma-client dev note; Profile-scope navigation-architecture concern | OPEN in the checklist; promote rows here as they become active |
+| Checklist-only customer-app tail | Additional open follow-ups tracked ONLY in the Customer App Codex checklist (read-only; reconciled 2026-07-06): §CE-§CK Search follow-ups (filters, sorting, recent searches, empty-state illustrations, heart migration, pagination, tactile polish); §BY/§CA/§CC/§DJ/§DK cross-surface copy + pill + ranking-audit items; §DB/§DC/§DD/§DE/§DI Home follow-ups; Map polish bucket (a narrower Map in-area reliability slice - deterministic candidate pool, opt-in `branchesOnly` fast path, client bbox-quantized caching - SHIPPED 2026-07-09 via PR #434 `3e20bbeb`, plan `docs/superpowers/plans/2026-07-09-map-in-area-reliability-slice.md`; the bucket itself CLOSED 2026-07-13, all four named items SHIPPED by the Map Phase 2 programme, SHA-bound squash-merges: region accumulation + `AbortSignal` cancellation via S2 PR #474 `150440b6`, clustering + category-differentiated pins via S3 PR #476 `8b24d4f5`, plus the S4 list/cards upgrade PR #488 `e89799ee`; as-shipped detail in `docs/superpowers/plans/2026-07-10-map-phase-2-programme.md` §7-§8) + §CZ category/filter correctness (owner-deferred to the Map rebase pass); Category FilterSheet redesign + copy-mismatch bug; Savings redemption-history pagination end-state bug + sticky-header redesign; QA-seed Stage 3 coordinate verification; pg SSL-semantics warning; stale-generated-Prisma-client dev note; Profile-scope navigation-architecture concern | OPEN in the checklist; promote rows here as they become active |
 | Savings ROI copy semantics | "You've saved £X, Y× your subscription": calendar-month vs billing-cycle comparison + annual-plan denomination | OPEN: needs owner product decision |
 | Lifecycle nudges | Post-redemption "rate this merchant" delayed notification (timing/scheduler/dedup) + subscription-renewal notification (copy/event-source/destination) | OPEN: needs owner product decisions; Phase-6-adjacent |
 
@@ -253,13 +253,14 @@ disabled key is visible in logs without needing a live probe.)
   dev-tooling only, low priority). No pre-existing register row was found to be directly
   closed by these four SHAs: the F1-F15 walkthrough findings they fix were discovered and
   fixed within the same working session and were never externalized as their own register
-  rows before now (detail lives in the walkthrough plan instead). **Known stale item flagged,
-  not corrected by this entry** (out of this pass's SHA scope): §1 "Checklist-only
-  customer-app tail" row's Map polish bucket parenthetical still reads "clustering,
-  category-differentiated pins, region accumulation, AbortSignal - stays OPEN" as of
-  2026-07-09, but all four are now shipped via the programme's earlier S2/S3/S4 slices
-  (#474 `150440b6`, #476 `8b24d4f5`, #488 `e89799ee` - see `docs/PROJECT-STATE.md` §4.1's
-  Map Phase 2 paragraph); a follow-up pass should correct that row citing those SHAs.
+  rows before now (detail lives in the walkthrough plan instead). **Stale row corrected
+  (lead-authorized widening on PR #505 review):** §1 "Checklist-only customer-app tail"
+  row's Map polish bucket parenthetical had read "clustering, category-differentiated pins,
+  region accumulation, AbortSignal - stays OPEN" (last touched 2026-07-09); the bucket is
+  now recorded CLOSED with claim-level citations - region accumulation + `AbortSignal`
+  cancellation SHIPPED via S2 PR #474 `150440b6`, clustering + category-differentiated pins
+  SHIPPED via S3 PR #476 `8b24d4f5`, plus the S4 list/cards upgrade PR #488 `e89799ee`
+  (see `docs/PROJECT-STATE.md` §4.1's Map Phase 2 paragraph).
   `docs/PROJECT-STATE.md` §4.1 updated in the same PR with the full merge-wave record.
 - **2026-07-10** · Acceptance-walk reconciliation: §ADM-LOGIN flipped CLOSED (owner-approved
   staging-only reset back to the documented seed, production untouched; investigation preserved
