@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native'
 import { Marker, type Region } from 'react-native-maps'
 import Svg, { Path, Circle } from 'react-native-svg'
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSpring } from 'react-native-reanimated'
-import { color, useMotionScale } from '@/design-system'
+import { Text, color, useMotionScale } from '@/design-system'
 import { BranchTile } from '@/lib/api/discovery'
 import {
   getCategoryPinGlyph,
@@ -102,6 +102,38 @@ const HEAD_CENTER_X = TEARDROP_LEFT + PIN_WIDTH / 2
 const HEAD_CENTER_Y = TEARDROP_TOP + PIN_WIDTH / 2
 const GLYPH_SIZE = 16
 const INNER_SCALE_UNSELECTED = 0.81 // ≈ 34/42 — preserves the old visual feel, now applied to the teardrop
+
+// ── Voucher-count badge (Map Phase 2 S5b Task 4a) ──────────────────
+//
+// Small white-keyline circle at the pin's top-right showing the
+// branch's `voucherCount` (capped "9+"). §BC/§BF/§BI constant-outer-
+// bounds rule: the badge must NOT grow the marker's declared
+// CONTAINER_WIDTH × CONTAINER_HEIGHT bounds (that's what makes the
+// bitmap-freeze discipline safe — see the file header). It doesn't
+// need to: the container is already 60px wide and the teardrop's own
+// right edge sits at `TEARDROP_LEFT + PIN_WIDTH` = 51px (9px short of
+// the container's right edge), so a badge anchored at the container's
+// OWN top-right corner (`right: 0, top: 0`) fits entirely inside
+// bounds that are ALREADY allocated — no growth, no overflow, no risk
+// to the native bitmap snapshot. It sits as a sibling of the teardrop
+// (not a child of `teardropWrap`), so it stays a fixed on-screen size
+// regardless of the pin's selected/unselected inner scale — the badge
+// communicates DATA about the branch, not selection state, so it
+// deliberately doesn't participate in that transform.
+const VOUCHER_BADGE_SIZE = 16
+
+function formatVoucherBadgeCount(voucherCount: number): string {
+  return voucherCount > 9 ? '9+' : String(voucherCount)
+}
+
+function VoucherCountBadge({ voucherCount, id }: { voucherCount: number; id: string }) {
+  if (voucherCount <= 0) return null
+  return (
+    <View testID={`pin-voucher-badge-${id}`} style={styles.voucherBadge} pointerEvents="none">
+      <Text variant="label.md" style={styles.voucherBadgeText}>{formatVoucherBadgeCount(voucherCount)}</Text>
+    </View>
+  )
+}
 
 /**
  * Builds a classic teardrop/map-pin silhouette in a `w`×`h` box: a
@@ -374,6 +406,7 @@ export function CustomPin({
             <Glyph size={GLYPH_SIZE} color="#FFFFFF" strokeWidth={2.5} />
           </View>
         </View>
+        <VoucherCountBadge id={branch.id} voucherCount={branch.merchant.voucherCount} />
       </Animated.View>
     </View>
   )
@@ -545,6 +578,7 @@ export function MapPins({ branches, selectedId, onPress, region, onClusterPress,
             longitude={p.longitude}
             label={branch.branchName}
             dotColor={getPinColor(branch)}
+            maxEstimatedSaving={branch.merchant.maxEstimatedSaving}
           />
         )
       })}
@@ -578,6 +612,30 @@ const styles = StyleSheet.create({
     top:      HEAD_CENTER_Y - RING_SIZE / 2,
     width:    RING_SIZE,
     height:   RING_SIZE,
+  },
+  // Map Phase 2 S5b Task 4a — voucher-count badge. Anchored to the
+  // CONTAINER's own top-right corner (`right: 0, top: 0`), which is
+  // ALREADY inside the constant CONTAINER_WIDTH × CONTAINER_HEIGHT
+  // bounds (see the VOUCHER_BADGE_SIZE comment above) — no bounds
+  // growth, so this never touches the §BF stable-dimensions contract.
+  voucherBadge: {
+    position:        'absolute',
+    right:           0,
+    top:             0,
+    width:           VOUCHER_BADGE_SIZE,
+    height:          VOUCHER_BADGE_SIZE,
+    borderRadius:    VOUCHER_BADGE_SIZE / 2,
+    backgroundColor: color.brandRose,
+    borderWidth:     1.5,
+    borderColor:     '#FFFFFF',
+    alignItems:      'center',
+    justifyContent:  'center',
+  },
+  voucherBadgeText: {
+    color:      '#FFFFFF',
+    fontFamily: 'Lato-Bold',
+    fontSize:   9,
+    lineHeight: 11,
   },
   teardropWrap: {
     position: 'absolute',

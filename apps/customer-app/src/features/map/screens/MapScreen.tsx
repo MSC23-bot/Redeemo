@@ -1,10 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { View, Pressable, StyleSheet } from 'react-native'
+import { View, Pressable, StyleSheet, type LayoutChangeEvent } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useIsFocused } from '@react-navigation/native'
 import MapView, { Region } from 'react-native-maps'
 import { List, Locate, SlidersHorizontal } from 'lucide-react-native'
 import { useRouter } from 'expo-router'
+import Reanimated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated'
 import { Text, color, spacing, radius, elevation, layer, useMotionScale } from '@/design-system'
 import { useUserLocation } from '@/hooks/useLocation'
 import { useMe } from '@/hooks/useMe'
@@ -28,18 +29,18 @@ import { FilterChipsRow } from '@/features/search/components/FilterChipsRow'
 import { FilterButtonBadge } from '@/features/search/components/FilterButtonBadge'
 import { nonScopeFilterCount } from '@/features/search/utils/filterState'
 import { useFilterPreviewCount, type FilterPreviewBaseParams } from '@/features/search/hooks/useFilterPreviewCount'
-import { ViewportLocalityBadge } from '@/design-system/components/ViewportLocalityBadge'
 import { RedeemoLoader } from '@/design-system/motion/RedeemoLoader'
 import { useToast } from '@/design-system'
 import { geocodeCity } from '@/lib/geocoding'
 import type { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import { mapDataView } from '../utils/mapDataView'
-// §DF-v2-j Task 11 — chip-variant location identity affordance.  Mounted
-// at the TOP of the safe-area band (spec §8.3) ABOVE the SearchBar.
-// Visually + semantically distinct from <ViewportLocalityBadge> per D10
-// lock: chip = user-context identity (stays put as the map pans);
-// badge = viewport locality (updates with pan).
-import { LocationStatusLabel } from '@/lib/location/LocationStatusLabel'
+// Map Phase 2 S5b Task 2 — consolidated top-of-map location indicator.
+// Mounted at the TOP of the safe-area band (spec §8.3), same slot the
+// pre-S5b <LocationStatusLabel variant="chip"> occupied. Replaces the
+// separate <LocationStatusLabel> + <ViewportLocalityBadge> pair with
+// ONE quiet composite pill; see MapLocationIndicator.tsx's header
+// comment for the full D10 presentation-supersession rationale.
+import { MapLocationIndicator } from '../components/MapLocationIndicator'
 
 const LONDON_REGION: Region = {
   latitude:       51.5074,
@@ -818,6 +819,74 @@ export function MapScreen(_props: Props) {
     filters.openNow ||
     searchQuery.length > 0
 
+  // ─── Map Phase 2 S5b Task 1 — controls float above bottom overlays ───────
+  //
+  // The floating control cluster (locate-me / filter / list buttons) was
+  // getting covered by whichever bottom overlay was visible: the
+  // carousel (<MapBranchTile>) or the empty-area banner
+  // (<MapEmptyArea>). Both overlays report their OWN rendered height via
+  // `onLayout` (real measurement, not a guessed constant — content
+  // height varies with dot-indicator visibility, empty-state copy
+  // length, dynamic type, etc.), and the cluster animates its bottom
+  // offset up just far enough to clear whichever one is showing.
+  //
+  // The list sheet (<MapListView>) is a different case: it's a
+  // near-full-height modal, so rather than compute a lift, the cluster
+  // simply fades out and stops accepting touches while it's open — it
+  // has its own dismiss (swipe/tap-outside/back), so hiding the
+  // controls underneath it is not a dead-end. Per the task brief this
+  // is an explicitly ACCEPTED trade-off, not an oversight.
+  const [carouselHeight, setCarouselHeight]   = useState(0)
+  const [emptyAreaHeight, setEmptyAreaHeight] = useState(0)
+
+  const carouselVisible = selectedBranchId !== null && branches.length > 0
+  // Matches <MapBranchTile>'s own `bottom: 80` / <MapEmptyArea>'s own
+  // `bottom: 100` StyleSheet values (styles.container / styles.card
+  // below) — duplicated here as named constants rather than imported
+  // (each component owns its OWN absolute-position style; MapScreen
+  // only needs to know the baseline to compute a target, not to author
+  // the overlay's own layout).
+  const CAROUSEL_BOTTOM_OFFSET   = 80
+  const EMPTY_AREA_BOTTOM_OFFSET = 100
+  const CONTROLS_BASELINE_BOTTOM = 160  // recentre/list button `bottom` today
+  const CONTROLS_GAP_ABOVE_OVERLAY = spacing[3]
+
+  const overlayBottomOffset  = carouselVisible ? CAROUSEL_BOTTOM_OFFSET : emptyVariant !== null ? EMPTY_AREA_BOTTOM_OFFSET : 0
+  const overlayMeasuredHeight = carouselVisible ? carouselHeight : emptyVariant !== null ? emptyAreaHeight : 0
+  const requiredControlsBottom = overlayMeasuredHeight > 0
+    ? overlayBottomOffset + overlayMeasuredHeight + CONTROLS_GAP_ABOVE_OVERLAY
+    : CONTROLS_BASELINE_BOTTOM
+  const controlsLiftTarget = Math.max(0, requiredControlsBottom - CONTROLS_BASELINE_BOTTOM)
+
+  const controlsLiftSV   = useSharedValue(0)
+  const controlsHiddenSV = useSharedValue(0)
+
+  useEffect(() => {
+    controlsLiftSV.value = reduceMotionScale === 0
+      ? controlsLiftTarget
+      : withSpring(controlsLiftTarget, { damping: 18, stiffness: 180 })
+  }, [controlsLiftTarget, reduceMotionScale, controlsLiftSV])
+
+  useEffect(() => {
+    const hidden = showListView ? 1 : 0
+    controlsHiddenSV.value = reduceMotionScale === 0
+      ? hidden
+      : withTiming(hidden, { duration: 180 })
+  }, [showListView, reduceMotionScale, controlsHiddenSV])
+
+  const controlsClusterStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -controlsLiftSV.value }],
+    opacity:   1 - controlsHiddenSV.value,
+  }))
+
+  const handleCarouselLayout = useCallback((e: LayoutChangeEvent) => {
+    setCarouselHeight(e.nativeEvent.layout.height)
+  }, [])
+
+  const handleEmptyAreaLayout = useCallback((e: LayoutChangeEvent) => {
+    setEmptyAreaHeight(e.nativeEvent.layout.height)
+  }, [])
+
   return (
     <View style={styles.container}>
       <MapView
@@ -851,23 +920,26 @@ export function MapScreen(_props: Props) {
       </MapView>
 
       <SafeAreaView style={styles.topOverlay} pointerEvents="box-none">
-        {/* §DF-v2-j Task 11 — chip-variant <LocationStatusLabel> mounted
-            at the TOP of the safe-area band per spec §8.3.  Reads the
-            unified `data?.locationContext` envelope — both /search and
-            /discovery/in-area emit it (Tasks 4 + 5).  Stays put as the
-            map pans below (user-context identity, NOT viewport).
-            Hidden during onboarding overlay + interactive
-            LocationSearch dropdown to avoid visual conflict with the
-            primary input states; offshore camera does NOT suppress
-            the chip (user identity is still meaningful when the map
-            is over water — the chip points the user back to Your
-            Location).  D10 lock preserved: <ViewportLocalityBadge>
-            stays in its own row below this overlay region. */}
+        {/* Map Phase 2 S5b Task 2 — consolidated location indicator,
+            mounted at the TOP of the safe-area band (same slot the
+            pre-S5b <LocationStatusLabel variant="chip"> occupied per
+            spec §8.3). Reads the unified `data?.locationContext`
+            envelope (unchanged source) AND `meta?.effectiveLocality`
+            (unchanged source) — see MapLocationIndicator.tsx for the
+            full D10 presentation-supersession rationale: the two
+            underlying FACTS (user identity, viewport locality) are
+            still both present on the wire and both reachable; only the
+            ALWAYS-TWO-ROWS presentation is retired. Hidden during
+            onboarding overlay + interactive LocationSearch dropdown,
+            matching both predecessor chips' suppression rules. */}
         {!showLocationPermission && !showLocationSearch && (
           <View style={styles.statusLabelRow} pointerEvents="box-none">
-            <LocationStatusLabel
-              variant="chip"
+            <MapLocationIndicator
               locationContext={data?.locationContext}
+              viewportLocalityName={meta?.effectiveLocality?.name}
+              viewportCenter={{ lat: region.latitude, lng: region.longitude }}
+              ownLocation={locationState.location ?? profileLatLng}
+              offshore={offshore}
             />
           </View>
         )}
@@ -937,46 +1009,51 @@ export function MapScreen(_props: Props) {
           />
         )}
 
-        {/* Plan 4 M3b follow-up — viewport locality badge. Renders
-            null when meta.effectiveLocality is absent. Suppressed
-            when the camera is offshore (the offshore message in
-            MapEmptyArea already covers that case) or while the
-            permission overlay is up (page is in onboarding mode). */}
-        {!offshore && !showLocationPermission && !showLocationSearch && (
-          <View style={styles.viewportLocalityRow} pointerEvents="box-none">
-            <ViewportLocalityBadge localityName={meta?.effectiveLocality?.name} />
-          </View>
-        )}
       </SafeAreaView>
 
-      {/* Filter button (above recentre, with active-dot indicator) */}
-      <Pressable
-        onPress={() => setFilterVisible(true)}
-        accessibilityLabel="Open filters"
-        style={styles.filterButton}
+      {/* Map Phase 2 S5b Task 1 — floating control cluster. All three
+          buttons keep their pre-S5b `bottom`/`left`/`right` StyleSheet
+          values UNCHANGED; they're relative to this wrapper (full-
+          screen absolute fill) rather than the screen itself, so the
+          wrapper's own `translateY` uniformly lifts the whole cluster
+          clear of whichever bottom overlay is showing (see the
+          `controlsLiftTarget` derivation above). `pointerEvents`
+          switches to 'none' (not just opacity 0) while the list sheet
+          is open so the hidden buttons can't steal touches meant for
+          the sheet underneath. */}
+      <Reanimated.View
+        style={[styles.controlsCluster, controlsClusterStyle]}
+        pointerEvents={showListView ? 'none' : 'box-none'}
       >
-        <SlidersHorizontal size={22} color={color.navy} />
-        <FilterButtonBadge count={nonScopeFilterCount(filters)} />
-      </Pressable>
+        {/* Filter button (above recentre, with active-dot indicator) */}
+        <Pressable
+          onPress={() => setFilterVisible(true)}
+          accessibilityLabel="Open filters"
+          style={styles.filterButton}
+        >
+          <SlidersHorizontal size={22} color={color.navy} />
+          <FilterButtonBadge count={nonScopeFilterCount(filters)} />
+        </Pressable>
 
-      <Pressable
-        onPress={handleRecentre}
-        accessibilityLabel="Re-centre to my location"
-        style={styles.recentreButton}
-      >
-        <Locate size={22} color={color.navy} />
-      </Pressable>
+        <Pressable
+          onPress={handleRecentre}
+          accessibilityLabel="Re-centre to my location"
+          style={styles.recentreButton}
+        >
+          <Locate size={22} color={color.navy} />
+        </Pressable>
 
-      <Pressable
-        onPress={() => setShowListView(true)}
-        accessibilityLabel="Show merchant list"
-        style={styles.listToggleButton}
-      >
-        <List size={18} color="#FFFFFF" />
-        <Text variant="label.lg" style={styles.listToggleText}>
-          List ({total})
-        </Text>
-      </Pressable>
+        <Pressable
+          onPress={() => setShowListView(true)}
+          accessibilityLabel="Show merchant list"
+          style={styles.listToggleButton}
+        >
+          <List size={18} color="#FFFFFF" />
+          <Text variant="label.lg" style={styles.listToggleText}>
+            List ({total})
+          </Text>
+        </Pressable>
+      </Reanimated.View>
 
       {showLocationPermission && (
         <LocationPermission
@@ -992,6 +1069,7 @@ export function MapScreen(_props: Props) {
           onClose={handleCarouselDismiss}
           onIndexChange={handleCarouselIndexChange}
           onBranchPress={handleBranchNavigate}
+          onLayout={handleCarouselLayout}
         />
       )}
 
@@ -1026,6 +1104,7 @@ export function MapScreen(_props: Props) {
           onRecentre={handleRecentre}
           onClearFilters={handleClearFilters}
           hasFilters={hasFilters}
+          onLayout={handleEmptyAreaLayout}
         />
       )}
 
@@ -1085,9 +1164,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4] + 2,
     paddingTop:        spacing[1],
   },
-  viewportLocalityRow: {
-    paddingHorizontal: spacing[4] + 2,
-    paddingTop:        spacing[1],
+  // Map Phase 2 S5b Task 1 — full-screen-fill wrapper for the floating
+  // control cluster. `pointerEvents` is set on the JSX (switches
+  // 'box-none' → 'none' while the list sheet is open); the wrapper
+  // itself carries no visual chrome, only the animated `transform` /
+  // `opacity` that the whole cluster shares. Children keep their own
+  // pre-S5b absolute `bottom`/`left`/`right` values unchanged — this
+  // wrapper is the positioning context they already assumed the SCREEN
+  // was.
+  controlsCluster: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: layer.sticky,
   },
   // §BH — centered loader overlay during first-data fetch. Absolute
   // fill so the loader is centered on the visible map area (not

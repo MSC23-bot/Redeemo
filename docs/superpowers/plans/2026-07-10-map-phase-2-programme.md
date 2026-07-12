@@ -68,6 +68,7 @@ Home/Search/Favourites; trust tiers remain the only exposure gate.
 | S3 | Pin system v2: teardrop/pill + category icon pins (use existing `pinColour`/`pinIcon`, read-time parent-fallback: no migration), label-chip zoom behaviour, selected pulse ring, drop-in animation, marker perf discipline; client-side clustering (supercluster-style, no provider change) | additive read-time fallback only | customer-app (+tiny backend read) | **SHIPPED** (branch `feat/map-p2-s3-pins`): see §7 as-shipped addendum |
 | S4 | Cards + list: carousel card parity with Home language; MapListView → shared BranchTile rows (hearts); sort selector; half-sheet resize audit | none | customer-app | **SHIPPED** (branch `feat/map-p2-s4-cards`): see §8 as-shipped addendum |
 | S5 | Filter/search coherence: FilterSheet on SearchScreen (D2), subcategory drill on pills, tags surfacing (D3), `region` scope re-add or retire (D4) | none | customer-app | **S5a SHIPPED** (branch `feat/map-p2-s5a-filters`): see §9 as-shipped addendum. §D3 (tag surfacing) intentionally NOT in S5a scope: remains open, tracked for a later S5 pickup |
+| S5b | Chrome polish (owner Doha device feedback, final pre-walkthrough slice): controls float above bottom overlays, two-chip consolidation (D10 presentation), list scope header, pin voucher-count badge + chip savings | none | customer-app | **SHIPPED** (branch `feat/map-p2-s5b-chrome`, stacked on S5a): see §10 as-shipped addendum |
 | S6 | Platform (propose-only): discovery rate tier, server in-area caching, pin-only lite endpoint, gazetteer LocationSearch, marker native-image migration | TBD | backend | PROPOSED, not scheduled; needs measurement first |
 
 ## 4. Decision register
@@ -530,3 +531,176 @@ failure list (`useFilterPreviewCount.test.tsx`, `MapScreen.focusLifecycle.test.t
 and passed cleanly: contention, not regression. CI runs the full matrix as the authoritative
 gate. Backend untouched (customer-app-only slice). No PR opened per task scope: branch pushed
 for lead review.
+
+## 10. S5b as-shipped addendum (2026-07-11, branch `feat/map-p2-s5b-chrome`)
+
+**Scope:** the final pre-walkthrough chrome-polish slice, all four items from owner Doha
+device feedback. Stacked on `feat/map-p2-s5a-filters` (lands after S5a merges). Customer-app
+only, no schema/backend touch.
+
+**Task 1: controls float above bottom overlays.** The locate-me / filter / list button
+cluster is now wrapped in one `Reanimated.View` (`MapScreen.tsx`'s `styles.controlsCluster`,
+a full-screen-fill positioning context) whose `translateY` lifts the WHOLE cluster clear of
+whichever bottom overlay is currently visible. The lift target is computed from REAL
+measured overlay height (`onLayout` on both `<MapBranchTile>`'s container and
+`<MapEmptyArea>`'s card: both gained a new optional `onLayout` prop, default `undefined`,
+zero behaviour change for the only caller, MapScreen), not a guessed constant: content height
+varies with dot-indicator visibility, empty-state copy length, dynamic type, etc. The three
+buttons keep their PRE-S5b `bottom`/`left`/`right` StyleSheet values byte-identical; they're
+relative to the new wrapper (which fills the screen) instead of the screen itself, so no
+button-level style changed. `controlsLiftTarget = max(0, overlayBottomOffset +
+overlayMeasuredHeight + GAP - CONTROLS_BASELINE_BOTTOM)`, animated via `withSpring` gated by
+the existing `useMotionScale()` reduce-motion signal (same pattern `MapPins.tsx`'s drop-in
+entrance and `MapScreen`'s own carousel camera-pan already use: no new motion primitive).
+The list sheet (`<MapListView>`) is handled differently on purpose: rather than compute a
+lift for a near-full-height modal, the cluster fades out (`opacity` animated via
+`withTiming`) and `pointerEvents` snaps to `'none'` so the hidden buttons can't steal touches
+meant for the sheet. Accepted per the task brief ("may hide under the full sheet: that is
+acceptable, it has its own dismiss").
+
+Verified combinations: carousel alone, empty-area alone, list-sheet alone, and (because
+carousel visibility (`selectedBranchId`) and empty-area visibility (`emptyVariant`) are
+already mutually exclusive upstream: empty-area only computes when `branches.length === 0`;
+carousel only shows when `branches.length > 0`) no double-overlay case exists to combine.
+List-sheet-plus-carousel (a user can open the list while a pin is still selected) is covered
+by the same `showListView` gate regardless of carousel state, so the hide-on-list-open rule
+applies uniformly.
+
+**Task 2: two-chip consolidation (D10 presentation supersession).** New
+`src/features/map/components/MapLocationIndicator.tsx` replaces MapScreen's separate
+`<LocationStatusLabel variant="chip">` (user-context identity) and `<ViewportLocalityBadge>`
+(viewport locality) with ONE composite pill. The D10 lock (per DF-v2-j, spec 2026-05-26) that
+originally separated the two is a SEMANTIC lock: the facts are genuinely different (who the
+user is vs. where the camera is pointed) and neither may be silently dropped. That lock stays
+intact: this is a presentation change, not a reversal.
+
+Design: resting state shows the viewport locality only, in quieter copy ("Near {name}",
+down from "Map centred near {name}"). The identity fact folds into the SAME pill (after a
+middot, e.g. "Near London · your location") only when INFORMATIVE, via two triggers computed
+from data MapScreen already has in scope (no new fetch):
+  1. the live camera centre is more than `FAR_FROM_OWN_LOCATION_METRES` (20km, a named
+     constant) from the user's own resolved point (GPS if granted, else saved-profile coords;
+     computed via the existing `haversineMetres` design-system util, the same one
+     `BranchFavCard`/`DirectionsSheet` already use): the "browsing far from home" case the
+     owner named explicitly (e.g. viewing Manchester while based in Doha);
+  2. there is no positional identity to compare against at all (`locationContext.source ===
+     'none'`): nothing to fall back on, so the existing "No GPS · Set location" nudge is
+     always worth the pixels (mirrors the pre-S5b chip's own always-visible behaviour for
+     that state).
+When GPS is off and a saved profile is quietly driving the map (`source === 'profile'`) but
+the viewport is STILL near that saved area, the pill stays quiet ON PURPOSE: this is the
+"honesty affordance on tap" the brief called for. The WHOLE pill still routes to
+`/saved-area` (unchanged target), exactly as the pre-S5b `<LocationStatusLabel>` always did,
+where the fuller identity + honesty-hint copy already lives. Nothing new had to be built for
+this half of the brief; it falls out of not showing an inline fragment when the trigger
+conditions above don't fire.
+
+Two structural fallbacks preserve every fact reachable pre-S5b: (a) when there is no viewport
+locality to anchor on (sparse-supply areas, `meta.effectiveLocality` absent), the component
+renders the UNMODIFIED `<LocationStatusLabel variant="chip">`: byte-identical import, not a
+re-implementation, so identity never goes dark; (b) when the camera is offshore, the
+component treats the viewport name as absent (same fallback path as (a)), reproducing BOTH
+pre-S5b behaviours in one branch: the viewport clause disappearing offshore (old
+`<ViewportLocalityBadge>` behaviour) AND the identity chip staying visible offshore (old
+`<LocationStatusLabel>` behaviour, since it never suppressed on `offshore`).
+
+`LocationStatusLabel.tsx` and `ViewportLocalityBadge.tsx` themselves are UNTOUCHED (not one
+line changed): S5b only changed how MapScreen composes/arranges them, so their own
+standalone unit-test files (`tests/lib/location/LocationStatusLabel.test.tsx`,
+`tests/design-system/components/ViewportLocalityBadge.test.tsx`) needed zero changes and stay
+green as a correctness proof that the underlying components are unaffected.
+
+**Test relocation (not deletion):** `MapScreen.locality.test.tsx`'s four suppression pins
+(hidden when locality absent / permission overlay up / offshore) are UNCHANGED in structure,
+only the literal string updated ("Map centred near X" to "Near X") to match the new resting
+copy. `MapScreen.statusLabel.test.tsx`'s single "D10 coexistence" pin (which asserted BOTH
+chips render, unconditionally, at once) is RELOCATED to assert the new composite's quiet
+resting behaviour in the SAME fixture (GPS-granted at the same coordinates the camera
+cascades to, so nothing is "far") plus explicit tap-through verification. The invariant it
+protects (both facts reachable) is preserved via the fallback/tap-through design above, not
+via literal always-both-visible rendering. Its two permission-overlay-skip pins are unchanged
+except the testID they check (`location-status-label` to `map-location-indicator`, since the
+mounted branch in that fixture is always the merged pill, never the fallback). A new dedicated
+unit-test file, `MapLocationIndicator.test.tsx` (10 tests), covers the full state-transition
+matrix in isolation: resting/quiet, far-pan-with-GPS, far-pan-with-profile, quiet-when-
+profile-and-near, no-own-signal-always-informative, viewport-name-absent fallback,
+offshore fallback, hidden-state (no locationContext at all), and tap-through. No pin was
+deleted; every one that changed shape was rewritten to assert the equivalent v2 invariant,
+per this codebase's established relocation discipline (see the S3/S4/S5a addenda above).
+
+**Task 3: list scope header.** `MapListView`'s header changed from a bare "Nearby Merchants"
+title plus a separate red count-badge circle to one sentence that states its own scope: "N
+places in this area" (singularises to "1 place in this area"). Directly answers the owner's
+"is this my area or everything?" confusion in the copy itself, with zero new data dependency:
+`total` is the SAME prop MapScreen already threads through (the live in-area/filtered
+result count). The now-redundant `countBadge`/`countText` styles were removed as dead code.
+`MapListView.test.tsx`'s two header pins were relocated (not deleted) to the new copy, plus a
+new singular-form pin.
+
+**Task 4a: voucher-count badge on pins.** Small white-keyline circle at the pin's top-right
+(`branch.merchant.voucherCount`, capped "9+"; hidden entirely when 0, so a merchant that
+somehow has none never shows a confusing "0" badge, though the platform's 2-mandatory-
+voucher rule means this is effectively unreachable in production). **Constant-outer-bounds
+decision (the BC/BF/BI rules in MapPins.tsx):** the badge is anchored at the marker
+CONTAINER's own top-right corner (`right: 0, top: 0`), which sits ENTIRELY inside the
+ALREADY-declared `CONTAINER_WIDTH x CONTAINER_HEIGHT` (60x63) bounds: the teardrop's own
+right edge sits 9px short of the container's right edge (`TEARDROP_LEFT + PIN_WIDTH` = 51 vs.
+container width 60), so a 16px badge anchored flush to the container's top-right corner fits
+within space that was already allocated, overlapping only the very top-right curve of the
+teardrop's head (the conventional "badge on the corner of an icon" look). No bounds growth,
+so this NEVER touches the native-bitmap-freeze contract (see the MapPins.tsx header). The
+badge is a sibling of `PulseRing`/`teardropWrap` (not a child of the scaled `teardropWrap`),
+so it deliberately does NOT participate in the selected/unselected `INNER_SCALE_UNSELECTED`
+transform: it communicates DATA about the branch, not selection state, so it stays a fixed
+on-screen size regardless of selection. Content is static per branch (does not change after
+mount unless the underlying data refetches with a new count, which does not re-trigger
+`tracksViewChanges`: the same trade-off `getPinColor`/`getPinGlyphName` already make for
+their own per-branch static content; documented, not accidental, per the task brief's own
+framing: "content changes only with data, tracksViewChanges freeze/thaw untouched"). New
+coverage: `CustomPin.test.tsx`'s new "S5b voucher-count badge" describe block (6 tests: exact
+count, "9+" cap, exact-9 boundary, 10 renders as "9+", omitted at 0, outer-bounds-unchanged
+with vs. without a badge).
+
+**Task 4b: savings in close-zoom name chips.** `MapNameChipMarker` gained an optional
+`maxEstimatedSaving` prop; when positive, the chip's label appends "· Save £X" in Mustica
+green (`#15803D`: the SAME literal `<BranchTile>`'s own `valueSave`/`savingAmount` styles and
+Home's NearbyCard/PopularCard use, not a fresh token) via the SAME `formatGbpCompact` util
+`<BranchTile>` uses (pence kept for sub-pound savings, dropped for whole pounds: "£0.40" not
+"£0", "£44" not "£44.00"), so the suffix matches the app-wide compact-currency convention
+exactly. The pill's `maxWidth` widened from 160 to 220 to fit the suffix before ellipsizing
+the name it follows (`numberOfLines={1}` still protects genuinely long combinations). This
+marker was frozen-content-per-lifetime already (`CHIP_TRACK_MS`); the saving value
+participates in that SAME freeze window, no new re-track logic needed. No dedicated unit-test
+file existed pre-S5b for this component (chip rendering was only exercised indirectly through
+`MapPins`/`mapNameChipGate` tests); S5b adds one, `MapNameChipMarker.test.tsx` (6 tests:
+label render, suffix omitted for absent/null/zero saving, exact compact-currency formatting
+for a whole-pound and a sub-pound amount).
+
+**Adjacent chrome improvement (documented, not separately asked for):** `MapListView`'s
+now-redundant standalone count badge was removed as part of Task 3's copy change rather than
+kept alongside the new sentence: showing "2" twice (once in the badge, once in the new
+header sentence) would have been the exact kind of visual noise this whole slice is fixing.
+
+**Deviations from the task brief:** none structural. The "your location: Doha" example
+phrasing in the brief is realised as "your area: {city}" / "your location" (generic, no
+place name) depending on whether `locationContext.city` is populated for the active source.
+GPS-only (`source: 'coordinates'`) does not reliably carry a place name on the wire, so the
+GPS-driven fragment stays generic ("your location") rather than always naming a city; the
+profile-driven fragment (which does carry `city`) uses the city literally, matching the
+brief's example shape most closely for the case it was clearly modelled on.
+
+**Verification:** map subset (which contains every touched suite: `MapScreen.*`,
+`MapBranchTile`, `MapEmptyArea`, `MapListView`, `MapPins`/`CustomPin`, `MapNameChipMarker`
+(new), `MapLocationIndicator` (new)) fully green: 27 suites / 238 tests. ONE full-suite
+attempt made per task scope: 318/324 suites and 3049/3056 tests passed; the 6 failing suites
+(voucher-detail-redeem-flow, HomeScreen.refresh, SavedAreaHonestyHint, subscribe,
+SearchResultItem.proximity-chip, HomeHeader: all 5s-timeout failures in suites this slice
+never touched, zero of them map suites) re-ran green in ONE isolated `--runInBand` pass
+(6 suites / 141 tests, 12s): contention, not regression, consistent with the S5a addendum's
+documented flake pattern on this machine. `MapScreen.accumulation.test.tsx` flaked the same
+way in an earlier map-subset run and also re-ran green in isolation. `tsc --noEmit` clean
+(one pre-existing, unrelated `tsconfig.json` deprecation warning, not from this branch's
+files); eslint on every touched source file shows only findings already present on the S5a
+base (verified by linting the same files with S5b changes stashed). CI runs the full matrix
+as the authoritative gate. Backend untouched (customer-app-only slice). No PR opened per
+task scope: branch pushed for lead review.

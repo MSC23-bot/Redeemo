@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Marker } from 'react-native-maps'
 import { Text, color, radius, elevation } from '@/design-system'
+import { formatGbpCompact } from '@/design-system/utils/formatters'
 
 // Map Phase 2 Slice S3 (pin v2, owner-approved Option A, 2026-07-10) —
 // name chip: white pill (category-colour dot + merchant/branch name)
@@ -35,9 +36,25 @@ type Props = {
   longitude: number
   label: string
   dotColor: string
+  /**
+   * Map Phase 2 S5b Task 4b — the branch's best available saving
+   * (`merchant.maxEstimatedSaving`, the SAME field `<BranchTile>`'s
+   * default `savingsDisplay="max"` reads). Formatted here via the same
+   * `formatGbpCompact` util `<BranchTile>` uses, so "Save £X" matches
+   * the app-wide compact-currency convention exactly (pence kept for
+   * sub-pound savings, dropped for whole pounds). `null`/`undefined`
+   * (no active saving) omits the suffix entirely. Content is static
+   * for this marker's LIFETIME (same freeze discipline as
+   * `label`/`dotColor` — see the header comment above): it does not
+   * change after mount, so it doesn't need its own re-track window.
+   */
+  maxEstimatedSaving?: number | null
 }
 
-export function MapNameChipMarker({ id, latitude, longitude, label, dotColor }: Props) {
+export function MapNameChipMarker({ id, latitude, longitude, label, dotColor, maxEstimatedSaving }: Props) {
+  const saveLabel = maxEstimatedSaving != null && maxEstimatedSaving > 0
+    ? formatGbpCompact(maxEstimatedSaving)
+    : null
   const [tracks, setTracks] = useState(true)
   useEffect(() => {
     const t = setTimeout(() => setTracks(false), CHIP_TRACK_MS)
@@ -63,7 +80,18 @@ export function MapNameChipMarker({ id, latitude, longitude, label, dotColor }: 
       <View testID={`map-name-chip-${id}`} style={styles.offsetWrap}>
         <View style={styles.pill}>
           <View style={[styles.dot, { backgroundColor: dotColor }]} />
-          <Text variant="label.md" numberOfLines={1} style={styles.label}>{label}</Text>
+          <Text variant="label.md" numberOfLines={1} style={styles.label}>
+            {label}
+            {saveLabel ? (
+              <Text
+                variant="label.md"
+                style={styles.saveLabel}
+                testID={`map-name-chip-save-${id}`}
+              >
+                {` · Save ${saveLabel}`}
+              </Text>
+            ) : null}
+          </Text>
         </View>
       </View>
     </Marker>
@@ -88,7 +116,11 @@ const styles = StyleSheet.create({
     borderRadius:      radius.pill,
     paddingHorizontal: 10,
     paddingVertical:   5,
-    maxWidth:          160,
+    // Map Phase 2 S5b Task 4b — widened from 160 to fit the optional
+    // "· Save £X" suffix without immediately ellipsizing the branch
+    // name it follows. `numberOfLines={1}` on the label still
+    // ellipsizes gracefully for genuinely long name+saving combos.
+    maxWidth:          220,
     ...elevation.sm,
   },
   dot: {
@@ -98,6 +130,16 @@ const styles = StyleSheet.create({
   },
   label: {
     color:      color.navy,
+    fontFamily: 'Lato-Bold',
+    fontSize:   12,
+  },
+  // Map Phase 2 S5b Task 4b — SAME Mustica green (#15803D) as
+  // `<BranchTile>`'s `valueSave`/`savingAmount` styles and Home's
+  // NearbyCard/PopularCard — one consistent "saving" colour app-wide,
+  // not a fresh token — so the saving reads as a distinct, positive
+  // fact rather than part of the branch name.
+  saveLabel: {
+    color:      '#15803D',
     fontFamily: 'Lato-Bold',
     fontSize:   12,
   },

@@ -266,3 +266,62 @@ describe('CustomPin — S3 static pulse ring', () => {
     expect(unselectedRing?.height).toBe(selectedRing?.height)
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────
+// Map Phase 2 S5b Task 4a — voucher-count badge.
+//
+// §BF constant-outer-bounds rule: the badge is anchored at the
+// CONTAINER's own top-right corner (`right: 0, top: 0`), which is
+// ALREADY inside the container's declared bounds (the teardrop's own
+// right edge sits 9px short of the container's right edge — see
+// MapPins.tsx's VOUCHER_BADGE_SIZE comment). These tests assert the
+// badge's content/visibility rules; the "outer bounds never change"
+// contract is already covered by the §BF describe block above (adding
+// the badge does not touch `custom-pin-{id}`'s own width/height).
+// ────────────────────────────────────────────────────────────────────────
+
+describe('CustomPin — S5b voucher-count badge', () => {
+  it('renders the exact voucherCount for single-digit counts', () => {
+    const tile = makeBranchTile({ id: 'brn-v2', merchant: { id: 'm1', businessName: 'Two Vouchers', voucherCount: 2 } })
+    const { getByTestId, getByText } = render(<CustomPin branch={tile} selected={false} />)
+    expect(getByTestId('pin-voucher-badge-brn-v2')).toBeTruthy()
+    expect(getByText('2')).toBeTruthy()
+  })
+
+  it('caps double-digit counts at "9+"', () => {
+    const tile = makeBranchTile({ id: 'brn-v12', merchant: { id: 'm1', businessName: 'Many Vouchers', voucherCount: 12 } })
+    const { getByText } = render(<CustomPin branch={tile} selected={false} />)
+    expect(getByText('9+')).toBeTruthy()
+  })
+
+  it('renders exactly "9" (not "9+") at the cap boundary', () => {
+    const tile = makeBranchTile({ id: 'brn-v9', merchant: { id: 'm1', businessName: 'Nine Vouchers', voucherCount: 9 } })
+    const { getByText, queryByText } = render(<CustomPin branch={tile} selected={false} />)
+    expect(getByText('9')).toBeTruthy()
+    expect(queryByText('9+')).toBeNull()
+  })
+
+  it('renders "10" as "9+"', () => {
+    const tile = makeBranchTile({ id: 'brn-v10', merchant: { id: 'm1', businessName: 'Ten Vouchers', voucherCount: 10 } })
+    const { getByText } = render(<CustomPin branch={tile} selected={false} />)
+    expect(getByText('9+')).toBeTruthy()
+  })
+
+  it('omits the badge entirely when voucherCount is 0 (default fixture — no confusing "0" badge)', () => {
+    const tile = makeBranchTile({ id: 'brn-v0' })
+    const { queryByTestId } = render(<CustomPin branch={tile} selected={false} />)
+    expect(queryByTestId('pin-voucher-badge-brn-v0')).toBeNull()
+  })
+
+  it('does NOT grow the outer marker container bounds (§BF invariant preserved)', () => {
+    const withBadge = makeBranchTile({ id: 'brn-badge', merchant: { id: 'm1', businessName: 'X', voucherCount: 5 } })
+    const withoutBadge = makeBranchTile({ id: 'brn-nobadge', merchant: { id: 'm1', businessName: 'X', voucherCount: 0 } })
+    const a = render(<CustomPin branch={withBadge} selected={false} />)
+    const b = render(<CustomPin branch={withoutBadge} selected={false} />)
+    const styleOf = (el: any) => (Array.isArray(el.props.style) ? Object.assign({}, ...el.props.style.filter(Boolean)) : el.props.style)
+    const withBadgeSize = styleOf(a.getByTestId('custom-pin-brn-badge'))
+    const withoutBadgeSize = styleOf(b.getByTestId('custom-pin-brn-nobadge'))
+    expect(withBadgeSize.width).toBe(withoutBadgeSize.width)
+    expect(withBadgeSize.height).toBe(withoutBadgeSize.height)
+  })
+})

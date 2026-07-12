@@ -6,17 +6,35 @@
  *   + §9.3 (surface integration pin scope).
  * Plan: docs/superpowers/plans/2026-05-26-locationcontext-parity.md Task 11.
  *
+ * Map Phase 2 S5b Task 2 (D10 presentation supersession, 2026-07-11) —
+ * MapScreen now mounts ONE consolidated <MapLocationIndicator> instead
+ * of the separate <LocationStatusLabel variant="chip"> +
+ * <ViewportLocalityBadge> pair. The pre-S5b coexistence assertion below
+ * ("both render, unconditionally, at once") is RELOCATED — not
+ * deleted — to match the new quiet-by-default composite: in THIS
+ * file's fixture (GPS granted at the SAME coords the camera cascades
+ * to, so the viewport is NOT far from the user's own point), the
+ * identity fact folds in QUIETLY (no separate always-visible row) but
+ * both facts stay reachable: the viewport-locality text renders, and
+ * the WHOLE pill still routes to `/saved-area` where the fuller
+ * identity copy lives. `MapLocationIndicator.test.tsx` is the dedicated
+ * unit-test file covering every informative-vs-quiet state transition
+ * in isolation (far-pan, no-GPS-no-profile, offshore, no-viewport-name
+ * fallback) — this file stays focused on proving the composite is
+ * correctly WIRED to MapScreen's data + overlay-suppression rules.
+ *
  * Asserts:
- *   - <LocationStatusLabel variant='chip'> mounts on MapScreen.
- *   - It reads from inAreaResponse.locationContext (Task 5 emit).
- *   - It is rendered as a chip (borderRadius=9999) — proves the
- *     `variant="chip"` prop reached the component.
- *   - <ViewportLocalityBadge> coexists with the chip when
- *     meta.effectiveLocality is also present — D10 lock: the two
- *     fields are NEVER collapsed.
+ *   - <MapLocationIndicator> mounts on MapScreen (testID
+ *     'map-location-indicator', the same for both its viewport+identity
+ *     merge branch and its viewport-only quiet branch).
+ *   - It reads from inAreaResponse.locationContext (Task 5 emit) AND
+ *     meta.effectiveLocality (Plan 4 M3b) — both original data sources
+ *     are still consulted, unchanged.
+ *   - It is rendered as a chip (borderRadius=9999) — proves the same
+ *     chip visual language as the pre-S5b `variant="chip"` render.
  */
 import React from 'react'
-import { render } from '@testing-library/react-native'
+import { render, fireEvent } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // ─── react-native-maps mock ──────────────────────────────────────────────────
@@ -108,8 +126,12 @@ jest.mock('@/hooks/useEligibleAmenities', () => ({
   useEligibleAmenities: () => ({ data: { amenities: [] }, isLoading: false }),
 }))
 
+// Map Phase 2 S5b Task 2 — hoisted so tests can assert on the composite
+// indicator's tap-through target (`/saved-area`), same route the pre-S5b
+// <LocationStatusLabel> chip has always used.
+const mockRouterPush = jest.fn()
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  useRouter: () => ({ push: mockRouterPush, back: jest.fn() }),
 }))
 
 // Task 13 Round 1 item 3 — MapScreen reads `me.data?.latitude/longitude`
@@ -136,6 +158,7 @@ jest.mock('@/hooks/useMe', () => ({
 beforeEach(() => {
   mockMeRef.current             = null
   mockLocationStatusRef.current = 'granted'
+  mockRouterPush.mockClear()
 })
 
 import { MapScreen } from '@/features/map/screens/MapScreen'
@@ -145,32 +168,38 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return React.createElement(QueryClientProvider, { client: qc }, children)
 }
 
-describe('§DF-v2-j Task 11 — MapScreen mounts <LocationStatusLabel variant=chip>', () => {
-  it('§LSL-Map — chip renders from inAreaResponse.locationContext with chip styling (radius=9999); coexists with ViewportLocalityBadge per D10', () => {
-    const { getByTestId, getByText } = render(<MapScreen />, { wrapper })
+describe('§DF-v2-j Task 11 — MapScreen mounts <MapLocationIndicator> (S5b consolidation)', () => {
+  it('§LSL-Map — composite renders from inAreaResponse.locationContext + meta.effectiveLocality, chip styling (radius=9999)', () => {
+    const { getByTestId } = render(<MapScreen />, { wrapper })
 
-    // 1. Chip is mounted.
-    const label = getByTestId('location-status-label')
-    expect(label).toBeTruthy()
+    // 1. Composite is mounted.
+    const indicator = getByTestId('map-location-indicator')
+    expect(indicator).toBeTruthy()
 
-    // 2. Chip styling proves the `variant="chip"` prop reached the
-    //    component (borderRadius=9999 is the unique chip discriminator
-    //    vs strip's borderRadius=0 — pinned in §LSL-10).
-    const flatten = Array.isArray(label.props.style)
-      ? Object.assign({}, ...label.props.style.filter(Boolean))
-      : (label.props.style ?? {})
+    // 2. Chip styling — same visual language as the pre-S5b
+    //    <LocationStatusLabel variant="chip"> (borderRadius=9999,
+    //    borderWidth=1).
+    const flatten = Array.isArray(indicator.props.style)
+      ? Object.assign({}, ...indicator.props.style.filter(Boolean))
+      : (indicator.props.style ?? {})
     expect(flatten.borderRadius).toBe(9999)
     expect(flatten.borderWidth).toBe(1)
 
-    // 3. Copy derived from inAreaResponse.locationContext envelope.
-    const city = getByTestId('location-status-city')
-    expect(city.props.children).toBe('Huddersfield')
+    // 3. Resting-state copy: this fixture's GPS location (53.6458,
+    //    -1.785) is the SAME point the initial-camera cascade centres
+    //    on, so the viewport is NOT "far" from the user's own point —
+    //    the identity fact stays quiet (D10 presentation supersession)
+    //    but the viewport-locality fact (sourced from
+    //    meta.effectiveLocality, unchanged data source) is always
+    //    shown.
+    const text = getByTestId('map-location-indicator-text')
+    expect(text.props.children).toEqual(['Near ', 'Huddersfield', null])
 
-    // 4. D10 coexistence: ViewportLocalityBadge still renders alongside
-    //    the chip when meta.effectiveLocality is present.  The two
-    //    fields are SEMANTICALLY separate (user-context vs viewport-
-    //    locality) and visually distinct.
-    expect(getByText('Map centred near Huddersfield')).toBeTruthy()
+    // 4. Tap-through preserved — the WHOLE pill still routes to
+    //    `/saved-area`, exactly as the pre-S5b chip did, so the fuller
+    //    identity + honesty-hint copy is one tap away even when quiet.
+    fireEvent.press(indicator)
+    expect(mockRouterPush).toHaveBeenCalledWith('/saved-area')
   })
 
   // Round 1 device-QA item 3 regression pin (extended in PR #131 fix #2).
@@ -203,9 +232,10 @@ describe('§DF-v2-j Task 11 — MapScreen mounts <LocationStatusLabel variant=ch
     expect(queryByText('Find merchants near you')).toBeNull()
     expect(queryByText('Enable Location')).toBeNull()
 
-    // Chip (the post-overlay location identity affordance) IS visible
-    // — Map opened directly into the user's profile-bbox experience.
-    expect(getByTestId('location-status-label')).toBeTruthy()
+    // Composite indicator (the post-overlay location identity
+    // affordance) IS visible — Map opened directly into the user's
+    // profile-bbox experience.
+    expect(getByTestId('map-location-indicator')).toBeTruthy()
   })
 
   // PR #131 pre-merge fix #2 (2026-05-26) — §DF-v2-i alignment

@@ -7,6 +7,7 @@ import {
   Animated,
   Dimensions,
   PanResponder,
+  type LayoutChangeEvent,
 } from 'react-native'
 import { X } from 'lucide-react-native'
 import { color, spacing, radius, elevation, layer, motion } from '@/design-system'
@@ -53,6 +54,13 @@ type Props = {
    * the `?branch=${id}&from=map` URL contract.
    */
   onBranchPress: (branchId: string) => void
+  /**
+   * Map Phase 2 S5b Task 1 — reports the card's rendered height so
+   * MapScreen can lift the floating control cluster (locate-me / filter
+   * / list buttons) clear of the carousel instead of letting it sit
+   * underneath. Optional: omitting it is a no-op (pre-S5b behaviour).
+   */
+  onLayout?: (event: LayoutChangeEvent) => void
 }
 
 // Phase 3C.1g M2.8 — `onFavourite` removed from MapBranchTile + the
@@ -65,6 +73,7 @@ export function MapBranchTile({
   onClose,
   onIndexChange,
   onBranchPress,
+  onLayout,
 }: Props) {
   const translateY = useRef(new Animated.Value(300)).current
   // Map Phase 2 S2 Task 4 — separate drag offset for swipe-down-to-
@@ -132,6 +141,7 @@ export function MapBranchTile({
     <Animated.View
       testID="map-branch-tile-container"
       style={[styles.container, { transform: [{ translateY: Animated.add(translateY, dragY) }] }]}
+      onLayout={onLayout}
       {...dismissResponder.panHandlers}
     >
       {/* Close button */}

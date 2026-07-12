@@ -79,16 +79,17 @@ export function MapListView({
       onDismiss={onDismiss}
       accessibilityLabel="Nearby Merchants list"
     >
-      {/* Header */}
+      {/* Header — Map Phase 2 S5b Task 3 (owner feedback: "is this my
+          area or everything?"). Copy states its OWN scope explicitly
+          ("N places in this area") rather than a bare count + a title
+          that doesn't say what's being counted. `total` is the SAME
+          value MapScreen already threads through (the live in-area/
+          filtered result count — not a client-side re-count), so this
+          is a copy fix, not a new data dependency. */}
       <View style={styles.header}>
         <Text variant="heading.md" style={styles.headerTitle}>
-          Nearby Merchants
+          {total} {total === 1 ? 'place' : 'places'} in this area
         </Text>
-        <View style={styles.countBadge}>
-          <Text variant="label.md" style={styles.countText}>
-            {total}
-          </Text>
-        </View>
       </View>
 
       <MapListSortSelector value={sortBy} onChange={onSortByChange} />
@@ -122,20 +123,6 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: color.navy,
-  },
-  countBadge: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: color.brandRose,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing[2],
-  },
-  countText: {
-    color: '#FFFFFF',
-    fontFamily: 'Lato-Bold',
-    fontSize: 12,
   },
   // Map Phase 2 S4 Task 2 — raised from 400: the shared `<BranchTile
   // size="compact">` rows are taller than the old flat BranchRow, so a
