@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { memo, useEffect, useState } from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Marker } from 'react-native-maps'
 import { Text, color, radius, elevation } from '@/design-system'
@@ -30,6 +30,30 @@ import { formatGbpCompact } from '@/design-system/utils/formatters'
 // reason documented in MapClusterMarker.tsx.
 const CHIP_TRACK_MS = 1000
 
+// Map P2 W1 (F3 + F4, 2026-07-12) — chip tether geometry.
+//
+// The chip is a SEPARATE Marker at the SAME coordinate as the pin, both
+// bottom-anchored (react-native-maps default `{x:0.5,y:1}`), so both are
+// horizontally centred on the coordinate and rise upward from it.
+//
+// The pre-W1 offset (`translateX: 22, translateY: -44`) pushed the chip
+// UP-AND-RIGHT, landing it squarely in the pin's top-right voucher-badge
+// zone (F3: the screenshot showed the red "2" badge sitting on top of
+// "Store" in "The Kraft Store"), and left it reading as detached from
+// the pin with no visual tether (F4).
+//
+// Fix: centre the chip over the pin (`translateX: 0`) and lift it to sit
+// JUST ABOVE the pin's fixed outer bounds with a small gap. `PIN_STACK_
+// HEIGHT` mirrors <MapPins>'s constant `CONTAINER_HEIGHT` (60x63 marker
+// box, tip-anchored at the coordinate) — a state-independent bound, so
+// the chip clears the pin head, the pulse ring AND the badge in every
+// selected/unselected state and for any name length (the pill is
+// centre-anchored, so it grows symmetrically and never drifts back over
+// the badge). Duplicated as a local constant (not imported) for the same
+// module-scope-decoupling reason CHIP_TRACK_MS is duplicated above.
+const PIN_STACK_HEIGHT   = 63
+const CHIP_GAP_ABOVE_PIN = 4
+
 type Props = {
   id: string
   latitude: number
@@ -51,7 +75,16 @@ type Props = {
   maxEstimatedSaving?: number | null
 }
 
-export function MapNameChipMarker({ id, latitude, longitude, label, dotColor, maxEstimatedSaving }: Props) {
+// Map P2 W1 (F1, 2026-07-12) — memoized. Name chips are frozen Markers
+// too (tracksViewChanges freezes after the mount capture), so the same
+// iOS "frozen annotation re-renders -> teleports to origin" hazard that
+// hit the pins applies here. Every prop is a value-stable primitive
+// (id / latitude / longitude / label / dotColor / maxEstimatedSaving) —
+// no function props — so the default shallow compare bails out on a pure
+// pan/zoom re-render of <MapPins>, and a chip that stays on screen never
+// re-renders (hence never teleports). A chip only re-mounts/re-renders
+// when it genuinely enters/leaves the density-gated candidate set.
+function MapNameChipMarkerBase({ id, latitude, longitude, label, dotColor, maxEstimatedSaving }: Props) {
   const saveLabel = maxEstimatedSaving != null && maxEstimatedSaving > 0
     ? formatGbpCompact(maxEstimatedSaving)
     : null
@@ -98,15 +131,17 @@ export function MapNameChipMarker({ id, latitude, longitude, label, dotColor, ma
   )
 }
 
+export const MapNameChipMarker = memo(MapNameChipMarkerBase)
+
 const styles = StyleSheet.create({
-  // Nudges the chip up and to the right of its anchor coordinate (the
-  // same coordinate the pin below it renders at) so it doesn't sit
-  // directly on top of the pin. Approximate — a coarse, decorative
-  // offset, not a pixel-measured layout (no MapView projection
-  // dependency; consistent with `mapNameChipGate.ts`'s own
-  // viewport-relative-unit approach rather than real screen pixels).
+  // Map P2 W1 (F3 + F4) — centre the chip over the pin and lift it to
+  // sit just above the pin's fixed outer bounds (see the geometry note
+  // on PIN_STACK_HEIGHT above). Centred (translateX 0) so the pill grows
+  // symmetrically for any name length and never re-enters the top-right
+  // badge zone; lifted clear of the head/ring/badge so it reads as a
+  // label tethered directly above the pin.
   offsetWrap: {
-    transform: [{ translateX: 22 }, { translateY: -44 }],
+    transform: [{ translateY: -(PIN_STACK_HEIGHT + CHIP_GAP_ABOVE_PIN) }],
   },
   pill: {
     flexDirection:     'row',
