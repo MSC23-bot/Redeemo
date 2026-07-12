@@ -75,9 +75,13 @@ separate name chip. Owner edits received same day (round 1, all applied to the b
 
 - **W2-D1 clusters are Redeemo red** (white ring + white count): supersedes the D1 navy
   cluster detail from the programme plan; red is the brand colour and must stand out.
-- **W2-D2 the count is never a bare number:** a small red ticket mark accompanies the count
-  in the pin stub at every zoom; users must be able to read it as "vouchers here" without
-  prior learning. Close zoom spells it out ("N offers").
+- **W2-D2 SUPERSEDED same day by W2-D6 (round 2):** originally "count never a bare number:
+  ticket mark beside the stub count". Owner round-2 decision goes further: **pins carry NO
+  count at all** (no stub, no badge, no number). The voucher count appears ONLY in the
+  unfolded close-zoom ticket, laid out with the merchant name on top and the saving +
+  "N vouchers" (with a red ticket mark) side by side beneath: the meaning must be explicit,
+  never a bare figure. Brought forward to W1.1: the shipped S5b pin badge is REMOVED now
+  (F14), not at W2 build time.
 - **W2-D3 category filter chips carry the category icons** (the app's existing category
   icon set) tinted in each category's colour.
 - **W2-D4 every voucher type gets its own icon** inside the mini-ticket chip (2 for 1
@@ -211,3 +215,74 @@ existing behaviour touched by W1 that was itself pinned is the carousel snap geo
 tests are new (no prior snap-geometry pin existed), and the pin/chip marker re-render behaviour,
 where the existing §BC/§BI marker tests still pass unchanged (memoization does not alter the
 freeze/thaw contract they protect).
+
+### W1.1 (2026-07-12, same branch, owner re-test residuals + W2-D6 brought forward)
+
+Customer-app-only. Full customer-app jest green: 325 suites / 3091 tests (map subset 28
+suites / 273 tests). No backend touch; the F6 distance proposal stays a proposal (lead
+endorsed, owner sign-off pending).
+
+**F12 (cross-category pin leak) — CONFIRMED root cause + fix.** `categoryId` is deliberately
+NOT a non-scope filter, so the in-area route + the region-accumulation layer stay enabled
+while a category filter is active. The in-area QUERY carries `categoryId` (fresh fetches are
+correctly filtered), but accumulated tiles were keyed by bbox ONLY: a tile fetched under
+"All" (or another category) kept contributing non-matching branches to the render union (the
+owner's Gift-Shop-under-Restaurant screenshot). Fix at the store seam: the tile key is now
+namespaced by the categoryId the fetch was made WITH (`{categoryId ?? 'all'}|{bbox}`), reads
+union only the ACTIVE category's namespace, and the hook gained a frozen
+`liveResultCategoryId` pairing (same mechanism as `liveResultBbox`) so keepPreviousData's
+in-flight window can neither record a tile under the wrong category nor merge live data
+fetched FOR a different category into the current view. Switching back to a
+previously-browsed category serves its warm per-category cache. The TILE_CAP stays GLOBAL
+across namespaces (memory bounded; eviction drops the oldest tile regardless of namespace);
+TTL unchanged. The non-scope-filter honesty lock (store bypassed entirely on the `/search`
+arm) is untouched. Accepted trade-off (honesty over anti-flicker): switching to a category
+with no warm namespace briefly shows the first-fetch loader instead of the previous
+category's pins.
+
+**F13 (residual F1 teleport) — CONFIRMED root cause + two-layer fix.** W1's memo relied on
+branch OBJECT identity, but the accumulation store rebuilt branch objects whenever a tile
+refreshed (`store.set` on refetch replaces `tile.branches` with freshly parsed objects; the
+freshest-wins merge can also flip which tile's copy wins): same id, new reference, so the
+memoized frozen marker still re-rendered and could teleport. Layer 1 (store): a canonical
+branch object per id; a refreshed copy whose RENDER-RELEVANT content is unchanged reuses the
+previous reference (field list defined explicitly in `renderRelevantEqual`'s comment: coords,
+name, primaryCategory id + pinColour, voucherCount, maxEstimatedSaving, totalEstimatedSaving,
+isOpenNow/closesAtLocal; viewport-relative fields (distance family) and favourites/rating
+copy are deliberately excluded with rationale). The live-merge path canonicalises through the
+same registry (`canonicalizeBranch`, pure at render time); the registry is pruned on tile
+eviction and wiped on sign-out. Layer 2 (marker): `MapPinMarker`'s memo got a custom
+PRIMITIVE-FIELD comparator (branch.id, lat, lng, selected, glyphName, pinColor, dropIn,
+dropInDelayMs, onPress identity) so even an unavoidable fresh reference with identical
+content cannot re-render a frozen pin; the `tracksViewChanges` re-open effect is kept in
+lockstep with the comparator's visual fields.
+
+**F14 (badge removal, owner decision W2-D6 brought forward).** The voucher-count badge is
+removed from pins entirely: no stub, no badge, no number (the count returns inside the W2
+close-zoom ticket lockup with an explanatory cue). Supersedes W1's F2 geometry work. The
+marker's constant outer bounds are untouched (content-only removal). `voucherCount` was also
+dropped from the marker's comparator/track-reopen lists: it no longer affects the pin bitmap
+(it stays in the STORE's render-relevant list: the carousel card still consumes it).
+Pinned-test removals ("the fixed behaviour was itself the pin"), each replaced by an
+absence pin (no badge testID, no bare count text): the 6 S5b Task 4a badge tests
+(single-digit render; 9+ cap x3; zero-count omission; bounds invariance: bounds coverage
+stays in the dedicated BF describe) and the 2 W1 F2 geometry tests (left/top in-bounds
+placement; head-shoulder hug).
+
+**F15 (chip tether tightened).** W1 lifted the chip clear of the whole 63pt pin container,
+but the container's upper band is mostly pulse-ring headroom, so the chip still read as
+detached. With the badge gone there is no badge zone to clear: the chip now sits 6pt above
+the VISIBLE resting head top, derived from the scaled-head geometry (scale is about the
+wrapper centre: scaled head top = 36 + (9 - 36) x 0.81 = 14.13 in container coords; lift =
+63 - 14.13 + 6 = 54.87). Chip bottom (container y 8.13) stays strictly above the SELECTED
+head top (y 9), so the chip never overlaps the teardrop in either state; it may fractionally
+overlap the faint OUTER ring circle when selected (owner-accepted). The two W1 F3/F4
+container-clearance tests are REPLACED by four head-clearance/parity assertions (documented
+in the test file).
+
+**W1.1 test delta:** +13 store tests (F12 namespacing/cap/TTL, F13 canonical identity), +4
+hook tests (new `useAccumulatedBranches.categoryNamespace.test.tsx`: owner-screenshot
+scenario, warm-namespace switchback, canonical live merge), +2 MapPins comparator tests
+(clone no-rerender; moved-coordinate rerender), +2 CustomPin F14 absence pins, F15 chip
+suite rewritten (4 tests); -8 badge tests, -2 W1 chip tests (supersessions above). Existing
+store tests updated for the new `categoryId` parameter position (behaviour pins unchanged).
