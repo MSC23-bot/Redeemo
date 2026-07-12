@@ -47,6 +47,17 @@ jest.mock('react-native-maps', () => {
   }
 })
 
+// Map P2 W2a round 2 (owner direction 2026-07-13) — the name-chip zoom gate
+// loosened from 0.03 to 0.10 latitude delta, so MapPins' DEFAULT_REGION
+// (0.05, used when tests pass no `region`) now ALSO renders a ticket-lockup
+// chip Marker (identifier `chip:{branchId}`) beside each single pin. The
+// PIN-cardinality assertions below filter the chip markers out rather than
+// double-counting them (chip content/behaviour has its own suite:
+// MapNameChipMarker.test.tsx; the gate itself: mapNameChipGate.test.ts).
+function pinCalls(): MarkerCall[] {
+  return mockMarkerCalls.filter(c => !String(c.identifier).startsWith('chip:'))
+}
+
 describe('MapPins (Map BranchTile contract)', () => {
   beforeEach(() => { mockMarkerCalls.length = 0 })
 
@@ -59,9 +70,9 @@ describe('MapPins (Map BranchTile contract)', () => {
       merchant: { id: 'm-karaara', businessName: 'Karaara' },
     })
     render(<MapPins branches={[tile]} selectedId={null} onPress={jest.fn()} />)
-    expect(mockMarkerCalls).toHaveLength(1)
-    expect(mockMarkerCalls[0]!.identifier).toBe('brn-karaara')
-    expect(mockMarkerCalls[0]!.coordinate).toEqual({ latitude: 53.6463, longitude: -1.7809 })
+    expect(pinCalls()).toHaveLength(1)
+    expect(pinCalls()[0]!.identifier).toBe('brn-karaara')
+    expect(pinCalls()[0]!.coordinate).toEqual({ latitude: 53.6463, longitude: -1.7809 })
   })
 
   it('uses branch.id (not merchant.id) as the Marker identifier', () => {
@@ -105,8 +116,8 @@ describe('MapPins (Map BranchTile contract)', () => {
       merchant:                 { id: 'm-covelum', businessName: 'Covelum Restaurant' },
     })
     render(<MapPins branches={[brightlingsea, colchester]} selectedId={null} onPress={jest.fn()} />)
-    expect(mockMarkerCalls).toHaveLength(2)
-    const identifiers = mockMarkerCalls.map(c => c.identifier).sort()
+    expect(pinCalls()).toHaveLength(2)
+    const identifiers = pinCalls().map(c => c.identifier).sort()
     expect(identifiers).toEqual(['brn-covelum-bri', 'brn-covelum-col'])
   })
 
@@ -169,8 +180,8 @@ describe('MapPins (Map BranchTile contract)', () => {
       branchLocationConfidence: 'POSTCODE_CENTROID',
     })
     render(<MapPins branches={[confirmed, approximate]} selectedId={null} onPress={jest.fn()} />)
-    expect(mockMarkerCalls).toHaveLength(1)
-    expect(mockMarkerCalls[0]!.identifier).toBe('brn-confirmed')
+    expect(pinCalls()).toHaveLength(1)
+    expect(pinCalls()[0]!.identifier).toBe('brn-confirmed')
   })
 
   // ──────────────────────────────────────────────────────────────────────
@@ -196,7 +207,9 @@ describe('MapPins (Map BranchTile contract)', () => {
     const a = makeBranchTile({ id: 'a', branchLatitude: 51, branchLongitude: 0 })
     const b = makeBranchTile({ id: 'b', branchLatitude: 52, branchLongitude: 1 })
     render(<MapPins branches={[a, b]} selectedId={null} onPress={jest.fn()} />)
-    expect(mockMarkerCalls).toHaveLength(2)
+    expect(pinCalls()).toHaveLength(2)
+    // Every marker — pins AND the co-rendered lockup chips — must capture
+    // its first bitmap with tracking on.
     expect(mockMarkerCalls.every(c => c.tracksViewChanges === true)).toBe(true)
   })
 
