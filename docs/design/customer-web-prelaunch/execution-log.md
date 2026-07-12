@@ -711,3 +711,18 @@ edited by this workstream.
   they were re-baked in place and Next's image optimizer served the stale
   originals (which faked mid-slide bars + garbled amounts during
   verification). Verified at 81.6%/85.5%/91.5%/94.5%/98.5%; tsc clean.
+- APP JOURNEY REVISION 3b (owner 2026-07-13: raise the Feb-Apr bars if
+  possible, else this-month to eighty-something): BOTH: the bars are DOM
+  replicas so they can be any height. The six months now sum EXACTLY to
+  the GBP325.45 lifetime total (account opened Feb): 28 + 35 + 42 + 78 +
+  56 + 86.45, with this month at GBP86.45 and Jul the tallest bar. In the
+  process the original bar scale was found wrong: the first redness scan
+  had merged the BAKED trend dot (y 0.429, erased later by the bar blank)
+  into the Jul bar top: true Jul height is 0.086, and all replica heights
+  were rescaled from it (May at the old scale would have out-topped Jul
+  and broken the story). The cinema DOM dot now sits at the design's own
+  baked-dot position. Fallback savings-top-full re-baked from the pristine
+  git original: GBP86.45 + 23 + green amounts drawn, Feb-Apr bars painted
+  UP and May/Jun repainted DOWN to the same scale (Jul untouched: its
+  baked height IS 86.45 at this scale); ?v=4. Ghost check on the erase
+  zones: pure white. tsc clean; live chart verified at 99% scroll.

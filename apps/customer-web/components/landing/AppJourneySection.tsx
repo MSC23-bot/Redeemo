@@ -65,7 +65,7 @@ const CHAPTERS = [
     kicker: '05 · Keep score',
     title: 'Watch it add up.',
     body: 'Every redemption is logged: what you saved, where, and how the months are trending. One dinner voucher typically covers the month of membership. Everything after that is keeping score.',
-    still: '/app-shots/journey/savings-top-full.jpg?v=3',
+    still: '/app-shots/journey/savings-top-full.jpg?v=4',
   },
 ]
 
@@ -104,14 +104,18 @@ const SAV_OFF_X = (SAV_CAP.w * SAV_SCALE - PHONE_W) / 2
 const savX = (f: number) => (f * SAV_CAP.w * SAV_SCALE - SAV_OFF_X) / PHONE_W
 
 // Savings trend bars: the baked bars are BLANKED out of the capture and
-// these DOM replicas (measured by redness scan, colours sampled from the
-// original pixels) spring up in their place: a real growth the eye can see
-// even on the tiny Feb-Apr stubs. [x, w, h, colour] in capture fractions.
+// these DOM replicas spring up in their place. Heights are set so the six
+// months sum EXACTLY to the GBP325.45 total (account opened in Feb):
+// 28 + 35 + 42 + 78 + 56 + 86.45. Jul (this month, GBP86.45) is tallest,
+// so no one can average their way to a contradiction (owner 2026-07-13).
+// [x, w, h, colour] in capture fractions; scale = the TRUE baked Jul bar
+// height (0.086; the 0.1421 first measured included the baked trend dot
+// floating above it) / GBP86.45.
 const BAR_BASELINE = 0.5716
 const BAR_SPECS: Array<[number, number, number, string]> = [
-  [0.1263, 0.0612, 0.0058, '#FBE6E3'], [0.265, 0.0612, 0.0064, '#FBE6E3'],
-  [0.4012, 0.0625, 0.0058, '#FBE6E3'], [0.5387, 0.065, 0.1274, '#FACAC8'],
-  [0.6775, 0.0638, 0.0769, '#FACAC8'], [0.815, 0.065, 0.1421, '#E20B06'],
+  [0.1263, 0.0612, 0.0279, '#FACAC8'], [0.265, 0.0612, 0.0348, '#FACAC8'],
+  [0.4012, 0.0625, 0.0418, '#FACAC8'], [0.5387, 0.065, 0.0776, '#FACAC8'],
+  [0.6775, 0.0638, 0.0557, '#FACAC8'], [0.815, 0.065, 0.086, '#E20B06'],
 ]
 
 // Top places / By category amounts: blanked in the capture, re-set here so
@@ -273,7 +277,7 @@ function Stage() {
   /* Chapter 5: the ledger counts itself: total, month, redemptions, bars */
   const totalNum = useBand(L5, [0.06, 0.46], [0, 325.45])
   const totalText = useTransform(totalNum, (v) => `£${v.toFixed(2)}`)
-  const monthNum = useBand(L5, [0.12, 0.5], [0, 46])
+  const monthNum = useBand(L5, [0.12, 0.5], [0, 86.45])
   const monthText = useTransform(monthNum, (v) => `£${v.toFixed(2)}`)
   const redemptionsNum = useBand(L5, [0.2, 0.48], [0, 23])
   const redemptionsText = useTransform(redemptionsNum, (v) => `${Math.round(v)}`)
@@ -449,9 +453,11 @@ function Stage() {
                   ))}
                   {/* the current-month dot sits above the Jul bar from the
                       moment the screen arrives (owner: no delayed pop-in) */}
+                  {/* the design's own dot position (it was baked at y 0.429
+                      before the bar-blank erased it) */}
                   <div
                     className="absolute w-2 h-2 -translate-x-1/2 rounded-full bg-[#E20C04]"
-                    style={{ left: `${savX(0.8475) * 100}%`, top: '41.6%' }}
+                    style={{ left: `${savX(0.8469) * 100}%`, top: '42.9%' }}
                   />
                   {/* Top places + By category amounts, re-set over the
                       blanked capture so the sums read true against £46 */}
