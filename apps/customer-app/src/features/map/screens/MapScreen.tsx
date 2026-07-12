@@ -339,6 +339,12 @@ export function MapScreen(_props: Props) {
     rawViewportBbox,
     inAreaBranches,
     !hasNonScopeFilters,
+    // Map P2 W1.1 (F12) — categoryId is NOT a non-scope filter (the
+    // in-area route accepts it), so accumulation stays enabled while a
+    // category filter is active; the store therefore namespaces its
+    // tiles by the ACTIVE category, or tiles cached under "All" (or
+    // another category) leak non-matching pins into the filtered view.
+    filters.categoryId,
   )
 
   const branches = hasNonScopeFilters ? dataView.branches : accumulatedBranches
