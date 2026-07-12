@@ -81,19 +81,23 @@ export function Navbar() {
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
-  // Owner direction 2026-07-07 (revised): the red bar lives at the top only
-  // and scrolls away with the page (it clashed with section backgrounds when
-  // sticky). Once the visitor is past the hero, the neutral glass bar is
-  // simply there: no scroll-direction games, which read as flicker.
+  // Owner direction 2026-07-13 (supersedes 2026-07-07's always-there bar):
+  // the glass bar COLLAPSES while scrolling down and returns on scroll-up,
+  // so it never covers pinned content (the journey chapter titles sat
+  // behind it on mobile). A 6px direction deadband keeps it from
+  // flickering on micro-scrolls, which was the original objection.
   const [floatVisible, setFloatVisible] = useState(false)
+  const lastScrollY = useRef(0)
   const accountRef = useRef<HTMLDivElement>(null)
   const firstMobileLinkRef = useRef<HTMLAnchorElement>(null)
 
   useEffect(() => {
     const onScroll = () => {
-      // Hysteresis so the handoff never flickers at the threshold
       const y = window.scrollY
-      setFloatVisible(prev => (prev ? y > 340 : y > 480))
+      const dy = y - lastScrollY.current
+      if (Math.abs(dy) < 6) return
+      lastScrollY.current = y
+      setFloatVisible(y > 420 && dy < 0)
     }
     onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
@@ -494,15 +498,16 @@ export function Navbar() {
       </div>
     </header>
 
-    {/* Glass quick-nav: slides in when scrolling UP mid-page; neutral so it
-        never fights whatever section background is behind it */}
+    {/* Glass quick-nav: slides in on scroll-UP mid-page and collapses away
+        while scrolling down (owner 2026-07-13); neutral so it never fights
+        whatever section background is behind it */}
     <AnimatePresence>
       {floatVisible && (
         <motion.div
-          initial={{ y: -76, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: -76, opacity: 0 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          initial={{ y: -84, opacity: 0, scale: 0.98 }}
+          animate={{ y: 0, opacity: 1, scale: 1 }}
+          exit={{ y: -84, opacity: 0, scale: 0.98 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 34 }}
           className="fixed top-3 inset-x-3 md:inset-x-6 z-50"
         >
           <nav

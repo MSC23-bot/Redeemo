@@ -80,7 +80,7 @@ export function HeroSection() {
           collage (so the voucher cards are hoverable); the text column and
           badge strip re-enable their own interactivity */}
       <div className="relative max-w-7xl mx-auto lg:pointer-events-none">
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,560px)_1fr] gap-14 lg:gap-16 items-center lg:min-h-[600px]">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,560px)_1fr] gap-9 lg:gap-16 items-center lg:min-h-[600px]">
 
           {/* ── Left: Text ── */}
           <div className="lg:pointer-events-auto">
@@ -164,12 +164,13 @@ export function HeroSection() {
               )}
             </motion.div>
 
-            {/* Launch-safe facts */}
+            {/* Launch-safe facts (desktop: in the column; on mobile they
+                move BELOW the artwork so the visual rides the CTAs) */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.42 }}
-              className="flex items-center gap-7 flex-wrap"
+              className="hidden lg:flex items-center gap-7 flex-wrap"
             >
               {FACTS.map((s, i) => (
                 <div key={i} className="flex items-baseline gap-1.5">
@@ -186,25 +187,41 @@ export function HeroSection() {
           </div>
 
           {/* ── Right: the product itself. On desktop the collage sits behind
-                 the whole section; on mobile the SAME artwork lands beneath
-                 the copy with its live card layers and the 3D ribbon ── */}
+                 the whole section; on mobile the SAME artwork rides straight
+                 after the CTAs, full-bleed for presence (owner 2026-07-13:
+                 it sat too low and too small) ── */}
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.3, ease: EASE }}
-            className="lg:hidden -mx-3"
+            className="lg:hidden -mx-6 -mt-3"
           >
             <HeroCollageMobile />
+
+            {/* Compact proof points under the artwork */}
+            <div className="mt-5 px-6 flex items-center justify-between gap-x-4 gap-y-2 flex-wrap">
+              {FACTS.map((s, i) => (
+                <div key={i} className="flex items-baseline gap-1.5">
+                  <span className="font-display text-[#010C35] leading-none" style={{ fontSize: '17px', letterSpacing: '-0.2px' }}>
+                    {s.value}
+                  </span>
+                  <span className="text-[11px] text-[#6B7280] font-medium">{s.label}</span>
+                </div>
+              ))}
+            </div>
           </motion.div>
         </div>
 
-        {/* Launch strip: where we start, and where the app fits. Quiet facts,
-            one line, no dead store badges before there is a store listing. */}
+        {/* Launch strip: where we start, and where the app fits. Desktop
+            only: on mobile it crowded the hero floor (owner 2026-07-13),
+            and both facts already live later in the page (the locality
+            toast + waitlist ticket carry Huddersfield; the footer carries
+            app-at-launch). */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.56 }}
-          className="mt-14 pt-7 border-t border-[#010C35]/10 lg:max-w-[48%] lg:pointer-events-auto"
+          className="hidden lg:block mt-14 pt-7 border-t border-[#010C35]/10 lg:max-w-[48%] lg:pointer-events-auto"
         >
           {marketplaceLive ? (
             <div className="flex gap-3 flex-wrap items-center">

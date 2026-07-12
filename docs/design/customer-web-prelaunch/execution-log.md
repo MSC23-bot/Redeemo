@@ -746,3 +746,17 @@ edited by this workstream.
   hijacked sweep). Verified at 390x844 (hero, ch1/ch4-dwell/ch5, founding
   promise) and desktop 1440x900 regression (hero collage + journey grid
   unchanged); tsc clean.
+- MOBILE HERO HIERARCHY + COLLAPSING NAV (owner 2026-07-13, simulator
+  screenshots): the mobile hero re-ranks to message -> action -> visual ->
+  proof: the artwork rides FULL-BLEED straight after the CTAs (it sat too
+  low and too small), the three fact pairs compact into a small row under
+  it (desktop keeps them in the column), and the launch strip leaves
+  mobile entirely (it crowded the hero floor; Huddersfield lives on in the
+  locality toast + waitlist ticket, app-at-launch in the footer). The
+  glass quick-nav now COLLAPSES while scrolling down and springs back on
+  scroll-up (owner's suggestion; supersedes the 2026-07-07 always-there
+  rule): a 6px direction deadband kills the flicker that motivated the old
+  rule, and the collapse also stops the bar covering the journey chapter
+  titles (the reported cut-off): the stage additionally gets pt-6 on
+  mobile. tsc clean; verified at 390x844 (hero art placement, facts row,
+  journey title clear with nav collapsed, nav returns on scroll-up).

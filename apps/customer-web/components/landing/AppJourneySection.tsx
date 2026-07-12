@@ -289,7 +289,7 @@ function Stage() {
     <div ref={trackRef} className="relative" style={{ height: '780vh' }}>
       {/* svh on mobile: iOS Safari's vh includes the collapsed toolbar */}
       <motion.div className="sticky top-0 h-[100svh] lg:h-screen overflow-hidden" style={{ background: bg }}>
-        <div className="relative max-w-7xl mx-auto h-full px-6 flex flex-col justify-center gap-1 lg:grid lg:grid-cols-[64px_1fr_420px] lg:gap-8 lg:items-center">
+        <div className="relative max-w-7xl mx-auto h-full px-6 pt-6 lg:pt-0 flex flex-col justify-center gap-1 lg:grid lg:grid-cols-[64px_1fr_420px] lg:gap-8 lg:items-center">
 
           {/* Progress rail (desktop only: mobile stacks copy over phone) */}
           <div className="hidden lg:flex flex-col gap-7 select-none" aria-hidden="true">

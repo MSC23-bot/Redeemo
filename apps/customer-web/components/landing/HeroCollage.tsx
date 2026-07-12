@@ -245,13 +245,12 @@ export function HeroCollageMobile() {
           unoptimized
           className="object-fill"
           style={{
-            // Feather the rectangle so the artwork's cream melts into the page
+            // Full-bleed sideways; feather only top and bottom so the
+            // artwork's cream melts into the page above and below
             maskImage:
-              'linear-gradient(90deg, transparent 0, black 26px, black calc(100% - 26px), transparent 100%), linear-gradient(180deg, transparent 0, black 26px, black calc(100% - 26px), transparent 100%)',
+              'linear-gradient(180deg, transparent 0, black 22px, black calc(100% - 22px), transparent 100%)',
             WebkitMaskImage:
-              'linear-gradient(90deg, transparent 0, black 26px, black calc(100% - 26px), transparent 100%), linear-gradient(180deg, transparent 0, black 26px, black calc(100% - 26px), transparent 100%)',
-            maskComposite: 'intersect',
-            WebkitMaskComposite: 'source-in',
+              'linear-gradient(180deg, transparent 0, black 22px, black calc(100% - 22px), transparent 100%)',
           }}
         />
         {LAYERS.map((layer) => (
