@@ -268,60 +268,78 @@ describe('CustomPin — S3 static pulse ring', () => {
 })
 
 // ────────────────────────────────────────────────────────────────────────
-// Map Phase 2 S5b Task 4a — voucher-count badge.
+// Map P2 W1.1 (F14, owner decision W2-D6) — voucher-count badge REMOVED.
 //
-// §BF constant-outer-bounds rule: the badge is anchored at the
-// CONTAINER's own top-right corner (`right: 0, top: 0`), which is
-// ALREADY inside the container's declared bounds (the teardrop's own
-// right edge sits 9px short of the container's right edge — see
-// MapPins.tsx's VOUCHER_BADGE_SIZE comment). These tests assert the
-// badge's content/visibility rules; the "outer bounds never change"
-// contract is already covered by the §BF describe block above (adding
-// the badge does not touch `custom-pin-{id}`'s own width/height).
+// Pinned-test supersession record ("the fixed behaviour was itself the
+// pin"): the S5b Task 4a badge suite (6 tests: single-digit render,
+// "9+" cap x3, zero-count omission, bounds invariance) and the W1 F2
+// geometry suite (2 tests: left/top in-bounds placement, head-shoulder
+// hug) asserted the badge's CONTENT and POSITION. The owner's W2 round-2
+// decision (W2-D6, brought forward to W1.1) removes the count from pins
+// entirely: no stub, no badge, no bare number; the count returns inside
+// the W2 close-zoom ticket lockup with an explanatory cue. Those 8 tests
+// are therefore REMOVED (not relocated: there is no badge left to pin)
+// and replaced by the absence pin below. The §BF bounds invariance the
+// old suite also touched stays covered by the dedicated §BF describe
+// block at the top of this file.
 // ────────────────────────────────────────────────────────────────────────
-
-describe('CustomPin — S5b voucher-count badge', () => {
-  it('renders the exact voucherCount for single-digit counts', () => {
-    const tile = makeBranchTile({ id: 'brn-v2', merchant: { id: 'm1', businessName: 'Two Vouchers', voucherCount: 2 } })
-    const { getByTestId, getByText } = render(<CustomPin branch={tile} selected={false} />)
-    expect(getByTestId('pin-voucher-badge-brn-v2')).toBeTruthy()
-    expect(getByText('2')).toBeTruthy()
+describe('CustomPin — F14 no voucher-count badge on pins', () => {
+  it('renders NO badge even when the branch has vouchers (owner W2-D6: pins carry no count)', () => {
+    const tile = makeBranchTile({ id: 'brn-v5', merchant: { id: 'm1', businessName: 'Five Vouchers', voucherCount: 5 } })
+    const { queryByTestId, queryByText } = render(<CustomPin branch={tile} selected={false} />)
+    expect(queryByTestId('pin-voucher-badge-brn-v5')).toBeNull()
+    expect(queryByText('5')).toBeNull()
   })
 
-  it('caps double-digit counts at "9+"', () => {
+  it('renders no bare count text anywhere in the pin for a double-digit voucherCount', () => {
     const tile = makeBranchTile({ id: 'brn-v12', merchant: { id: 'm1', businessName: 'Many Vouchers', voucherCount: 12 } })
-    const { getByText } = render(<CustomPin branch={tile} selected={false} />)
-    expect(getByText('9+')).toBeTruthy()
-  })
-
-  it('renders exactly "9" (not "9+") at the cap boundary', () => {
-    const tile = makeBranchTile({ id: 'brn-v9', merchant: { id: 'm1', businessName: 'Nine Vouchers', voucherCount: 9 } })
-    const { getByText, queryByText } = render(<CustomPin branch={tile} selected={false} />)
-    expect(getByText('9')).toBeTruthy()
+    const { queryByText } = render(<CustomPin branch={tile} selected={false} />)
+    expect(queryByText('12')).toBeNull()
     expect(queryByText('9+')).toBeNull()
   })
+})
 
-  it('renders "10" as "9+"', () => {
-    const tile = makeBranchTile({ id: 'brn-v10', merchant: { id: 'm1', businessName: 'Ten Vouchers', voucherCount: 10 } })
-    const { getByText } = render(<CustomPin branch={tile} selected={false} />)
-    expect(getByText('9+')).toBeTruthy()
+// ────────────────────────────────────────────────────────────────────────
+// Map P2 W1 (F7) — tree-resolved pin colour reaches the teardrop.
+//
+// The tree walk itself is unit-tested in categoryPinGlyph.test.ts; here we
+// pin the plumbing: <MapPins> resolves the top-level colour and passes it
+// as the `pinColor` prop, which must win over the tree-free
+// `getPinColor(branch)` fallback so a subcategory-primary branch (backend
+// `pinColour: null`) renders its category colour instead of default red.
+// ────────────────────────────────────────────────────────────────────────
+describe('CustomPin — F7 pinColor prop', () => {
+  function findTeardropFill(root: ReturnType<typeof render>['UNSAFE_root'], branchId: string): string | undefined {
+    return root.findByProps({ testID: `pin-shape-${branchId}` }).props.fill
+  }
+
+  it('uses the provided pinColor prop (tree-resolved) even when the branch pinColour is null', () => {
+    const tile = makeBranchTile({
+      id: 'brn-sub',
+      merchant: {
+        id: 'm-sub',
+        businessName: 'Karaara',
+        // Subcategory primary with NO own colour (the exact F7 shape).
+        primaryCategory: { id: 'cat-cafe', name: 'Cafe & Coffee', pinColour: null, pinIcon: null, parentId: 'cat-food' },
+      },
+    })
+    const { UNSAFE_root } = render(<CustomPin branch={tile} selected={false} pinColor="#E65100" />)
+    expect(findTeardropFill(UNSAFE_root, 'brn-sub')).toBe('#E65100')
   })
 
-  it('omits the badge entirely when voucherCount is 0 (default fixture — no confusing "0" badge)', () => {
-    const tile = makeBranchTile({ id: 'brn-v0' })
-    const { queryByTestId } = render(<CustomPin branch={tile} selected={false} />)
-    expect(queryByTestId('pin-voucher-badge-brn-v0')).toBeNull()
-  })
-
-  it('does NOT grow the outer marker container bounds (§BF invariant preserved)', () => {
-    const withBadge = makeBranchTile({ id: 'brn-badge', merchant: { id: 'm1', businessName: 'X', voucherCount: 5 } })
-    const withoutBadge = makeBranchTile({ id: 'brn-nobadge', merchant: { id: 'm1', businessName: 'X', voucherCount: 0 } })
-    const a = render(<CustomPin branch={withBadge} selected={false} />)
-    const b = render(<CustomPin branch={withoutBadge} selected={false} />)
-    const styleOf = (el: any) => (Array.isArray(el.props.style) ? Object.assign({}, ...el.props.style.filter(Boolean)) : el.props.style)
-    const withBadgeSize = styleOf(a.getByTestId('custom-pin-brn-badge'))
-    const withoutBadgeSize = styleOf(b.getByTestId('custom-pin-brn-nobadge'))
-    expect(withBadgeSize.width).toBe(withoutBadgeSize.width)
-    expect(withBadgeSize.height).toBe(withoutBadgeSize.height)
+  it('falls back to the tree-free getPinColor(branch) when no pinColor prop is given (default red for an unmatched subcategory)', () => {
+    const tile = makeBranchTile({
+      id: 'brn-sub2',
+      merchant: {
+        id: 'm-sub2',
+        businessName: 'Karaara',
+        primaryCategory: { id: 'cat-cafe', name: 'Cafe & Coffee', pinColour: null, pinIcon: null, parentId: 'cat-food' },
+      },
+    })
+    const { UNSAFE_root } = render(<CustomPin branch={tile} selected={false} />)
+    // Without the tree (direct render, no prop) the leaf name "Cafe &
+    // Coffee" matches no top-level keyword → default. This is exactly why
+    // the tree resolution in <MapPins> is needed on the real surface.
+    expect(findTeardropFill(UNSAFE_root, 'brn-sub2')).toBe(color.pin.default)
   })
 })

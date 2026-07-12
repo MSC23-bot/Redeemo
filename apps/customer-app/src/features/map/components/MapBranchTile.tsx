@@ -18,7 +18,37 @@ import {
 } from '@/lib/api/discovery'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
-const TILE_WIDTH = SCREEN_WIDTH - spacing[4] * 2
+
+// Map P2 W1 (F5, 2026-07-12) — carousel snap geometry.
+//
+// Walkthrough finding F5: the active card rendered LEFT-CLIPPED with the
+// next card crammed against it at a tiny gap. Root cause: the ScrollView
+// combined `pagingEnabled` (which snaps to the SCROLLVIEW FRAME width)
+// with a `snapToInterval` equal to the card width AND lived inside a
+// horizontally-padded container, so the two snap mechanisms disagreed
+// about where a page boundary was; the card also had zero inter-card gap
+// (`scrollContent.gap: 0`) and no next-card peek, so a settled swipe
+// could leave the active card straddling the viewport edge.
+//
+// Fix: a single, standard peek-carousel geometry (one snap mechanism).
+// The ScrollView spans the FULL screen width; the active card is inset
+// by `PAGE_INSET` on the left via `contentContainerStyle` padding, cards
+// are separated by a consistent `CARD_GAP`, and the next card peeks by
+// `CARD_PEEK`. Snap points fall on `SNAP_INTERVAL` (card + gap) with
+// `snapToAlignment="start"`, so a settled card always lands flush at
+// `PAGE_INSET` — fully visible, evenly inset, never clipped.
+// Exported for the F5 geometry regression test (not part of the
+// component's public runtime API).
+export const PAGE_INSET = spacing[4]       // 16 — left inset of the active card
+export const CARD_GAP   = spacing[3]       // 12 — consistent gap between cards
+export const CARD_PEEK  = spacing[6]       // modest peek of the next card
+export const CARD_WIDTH = SCREEN_WIDTH - PAGE_INSET - CARD_GAP - CARD_PEEK
+// One card advance = card width + the gap that follows it. Used by BOTH
+// the programmatic `scrollTo(activeIndex * SNAP_INTERVAL)` and the
+// scroll-settle `round(offsetX / SNAP_INTERVAL)` index read, so the two
+// stay in lockstep (a mismatch here was part of the pre-W1 confusion).
+export const SNAP_INTERVAL = CARD_WIDTH + CARD_GAP
+export const CAROUSEL_SCREEN_WIDTH = SCREEN_WIDTH
 
 // Map Phase 2 S2 Task 4 (spec §7.6) — swipe-down-to-dismiss thresholds.
 // Either passing the drag distance OR the flick velocity dismisses;
@@ -94,12 +124,12 @@ export function MapBranchTile({
 
   // Sync scroll to activeIndex when it changes externally
   useEffect(() => {
-    scrollRef.current?.scrollTo({ x: activeIndex * TILE_WIDTH, animated: true })
+    scrollRef.current?.scrollTo({ x: activeIndex * SNAP_INTERVAL, animated: true })
   }, [activeIndex])
 
   const handleScroll = (e: any) => {
     const offsetX = e.nativeEvent.contentOffset.x
-    const index = Math.round(offsetX / TILE_WIDTH)
+    const index = Math.round(offsetX / SNAP_INTERVAL)
     if (index !== activeIndex && index >= 0 && index < branches.length) {
       onIndexChange(index)
     }
@@ -153,27 +183,28 @@ export function MapBranchTile({
         <X size={16} color={color.text.secondary} />
       </Pressable>
 
-      {/* Snap-scrolling horizontal list */}
+      {/* Snap-scrolling horizontal list — Map P2 W1 (F5): single peek-
+          carousel snap mechanism (snapToInterval, no pagingEnabled), full
+          width so the next card can peek at the screen edge. */}
       <ScrollView
         ref={scrollRef}
         horizontal
-        pagingEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={handleScroll}
         decelerationRate="fast"
-        snapToInterval={TILE_WIDTH}
+        snapToInterval={SNAP_INTERVAL}
         snapToAlignment="start"
         contentContainerStyle={styles.scrollContent}
       >
         {branches.map((branch) => (
           // Branch-keyed identity (Phase 2.5) — two branches of the
           // same merchant render as TWO distinct carousel cards.
-          <View key={branch.id} style={[styles.tileWrapper, { width: TILE_WIDTH }]}>
+          <View key={branch.id} style={[styles.tileWrapper, { width: CARD_WIDTH }]}>
             <BranchTile
               branch={branch}
               onPress={onBranchPress}
               size="standard"
-              width={TILE_WIDTH}
+              width={CARD_WIDTH}
               // Map Phase 2 S4 — carousel card parity with Home: aggregate
               // saving ('Save £X across N vouchers') instead of the
               // single-voucher "Save up to £X" line. Opt-in prop; Search/
@@ -194,13 +225,17 @@ export function MapBranchTile({
 }
 
 const styles = StyleSheet.create({
+  // Map P2 W1 (F5) — full-bleed container (no horizontal padding) so the
+  // inner ScrollView spans the whole screen and the next card can peek at
+  // the edge. The active card's inset is applied via the ScrollView's
+  // `scrollContent` padding instead; the close button carries its own
+  // right inset so it still lines up with the card column.
   container: {
     position: 'absolute',
     bottom: 80,
     left: 0,
     right: 0,
     zIndex: layer.sticky,
-    paddingHorizontal: spacing[4],
     paddingBottom: spacing[2],
   },
   closeButton: {
@@ -211,13 +246,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: PAGE_INSET,
     marginBottom: spacing[2],
     ...elevation.sm,
   },
+  // Map P2 W1 (F5) — leading inset positions the active card at
+  // PAGE_INSET; the trailing inset lets the LAST card snap to the same
+  // inset instead of jamming against the screen edge.
   scrollContent: {
-    gap: 0,
+    paddingHorizontal: PAGE_INSET,
   },
+  // Map P2 W1 (F5) — consistent inter-card gap (the peek carousel's
+  // single source of spacing; snapToInterval accounts for it).
   tileWrapper: {
-    paddingHorizontal: 0,
+    marginRight: CARD_GAP,
   },
 })

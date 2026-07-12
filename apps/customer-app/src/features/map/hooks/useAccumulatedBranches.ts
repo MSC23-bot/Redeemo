@@ -12,7 +12,7 @@
 import { useEffect, useMemo } from 'react'
 import type { BranchTile } from '@/lib/api/discovery'
 import type { BoundingBox } from '../utils/bboxQuantize'
-import { recordAccumulatedTile, getAccumulatedBranches, bboxesIntersect } from './regionAccumulationStore'
+import { recordAccumulatedTile, getAccumulatedBranches, bboxesIntersect, canonicalizeBranch } from './regionAccumulationStore'
 
 /**
  * @param fetchBbox     The DEBOUNCED bbox `useInAreaBranches` is CURRENTLY
@@ -38,12 +38,21 @@ import { recordAccumulatedTile, getAccumulatedBranches, bboxesIntersect } from '
  *                       When disabled, this hook is a pass-through: no
  *                       recording, and rendering returns `liveBranches`
  *                       verbatim (no accumulation mixed in).
+ * @param categoryId     Map P2 W1.1 (F12) — the ACTIVE category filter
+ *                       (`filters.categoryId`, null = All). Namespaces
+ *                       both the recording and the render union so
+ *                       cached branches never mix across categories.
+ *                       Like `fetchBbox`, it can race ahead of
+ *                       `liveBranches` (keepPreviousData) — see
+ *                       `liveResultCategoryId` below for the frozen
+ *                       pairing.
  */
 export function useAccumulatedBranches(
   fetchBbox:     BoundingBox | null,
   viewportBbox:  BoundingBox | null,
   liveBranches:  BranchTile[] | undefined,
   enabled:       boolean,
+  categoryId:    string | null = null,
 ): BranchTile[] {
   // `liveResultBbox` — the bbox ACTUALLY paired with the current
   // `liveBranches`, frozen until `liveBranches` itself changes again.
@@ -61,17 +70,27 @@ export function useAccumulatedBranches(
   // render union below need answered correctly.
   const liveResultBbox = useMemo(() => fetchBbox, [liveBranches]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Map P2 W1.1 (F12) — the categoryId ACTUALLY paired with the current
+  // `liveBranches`, frozen exactly like `liveResultBbox` above (and for
+  // the same keepPreviousData race: after a category switch the query
+  // key changes but `liveBranches` keeps holding the PREVIOUS category's
+  // result until the new fetch lands). Recording must file the data
+  // under the category that PRODUCED it, and the render union must not
+  // merge live data fetched for a DIFFERENT category — that transient
+  // in-flight window was part of the F12 cross-category bleed.
+  const liveResultCategoryId = useMemo(() => categoryId, [liveBranches]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!enabled) return
     if (liveResultBbox === null) return
     if (!liveBranches || liveBranches.length === 0) return
-    recordAccumulatedTile(liveResultBbox, liveBranches)
-  }, [enabled, liveResultBbox, liveBranches])
+    recordAccumulatedTile(liveResultBbox, liveBranches, liveResultCategoryId)
+  }, [enabled, liveResultBbox, liveBranches, liveResultCategoryId])
 
   return useMemo(() => {
     if (!enabled) return liveBranches ?? []
     if (viewportBbox === null) return liveBranches ?? []
-    const accumulated = getAccumulatedBranches(viewportBbox)
+    const accumulated = getAccumulatedBranches(viewportBbox, categoryId)
     // `keepPreviousData` means `liveBranches` can still be holding the
     // PREVIOUS fetch's result while a long-distance pan has already
     // moved `viewportBbox` somewhere that fetch knows nothing about
@@ -83,16 +102,37 @@ export function useAccumulatedBranches(
     // conflated with what's shown here; the accumulated union (which IS
     // keyed by the areas it actually covers) is the correct fallback for
     // that gap.
+    //
+    // Map P2 W1.1 (F12) — same rule for the CATEGORY dimension: only
+    // merge live data that was fetched FOR the currently-active
+    // category. During the in-flight window after a category switch,
+    // `liveBranches` still holds the previous category's result; showing
+    // it under the new filter is exactly the cross-category dishonesty
+    // F12 flagged. Trade-off (accepted, honesty over anti-flicker):
+    // switching to a category with no warm namespace briefly renders no
+    // pins while the fetch resolves — the existing first-fetch loader
+    // (isFetching && branches.length === 0) covers that beat.
     const liveBelongsToViewport =
       liveResultBbox !== null && !!liveBranches && liveBranches.length > 0 && bboxesIntersect(liveResultBbox, viewportBbox)
-    if (!liveBelongsToViewport) return accumulated
+    const liveBelongsToCategory = liveResultCategoryId === categoryId
+    if (!liveBelongsToViewport || !liveBelongsToCategory) return accumulated
     const merged = new Map<string, BranchTile>()
     for (const b of accumulated) merged.set(b.id, b)
-    for (const b of liveBranches!) merged.set(b.id, b) // live always wins — freshest for this viewport
+    // Live always wins (freshest for this viewport), but each live copy
+    // is first canonicalised (F13): when a refetch (or a pan onto a
+    // different quantized-bbox cache entry) delivered a new OBJECT with
+    // unchanged render-relevant content, hand the marker layer the SAME
+    // reference it already froze a bitmap for.
+    for (const b of liveBranches!) {
+      const canonical = canonicalizeBranch(b)
+      merged.set(canonical.id, canonical)
+    }
     return Array.from(merged.values())
   }, [
     enabled,
     liveResultBbox,
+    liveResultCategoryId,
+    categoryId,
     viewportBbox?.minLat, viewportBbox?.maxLat, viewportBbox?.minLng, viewportBbox?.maxLng,
     liveBranches,
   ])

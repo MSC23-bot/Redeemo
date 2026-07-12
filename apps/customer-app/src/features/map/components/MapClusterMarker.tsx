@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { memo, useEffect, useState } from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Marker } from 'react-native-maps'
 import { Text, color, elevation } from '@/design-system'
@@ -27,10 +27,30 @@ type Props = {
   latitude: number
   longitude: number
   count: number
-  onPress: () => void
+  /** Branch ids in this cluster. Carried on the tap payload; currently
+   *  unused by the handler (cluster tap only zooms to the centroid), so
+   *  the memo comparator below deliberately IGNORES this array's identity
+   *  (it is rebuilt every parent render and would otherwise defeat the
+   *  memo). */
+  branchIds: readonly string[]
+  /** Stable (`useCallback`d in MapScreen) — its identity only changes on
+   *  ZOOM (the camera-delta dependency), not on PAN, which is exactly what
+   *  the memo comparator relies on. Optional so callers that don't wire
+   *  cluster taps (tests) can omit it. */
+  onPress?: (cluster: { latitude: number; longitude: number; branchIds: string[] }) => void
 }
 
-export function MapClusterMarker({ id, latitude, longitude, count, onPress }: Props) {
+// Map P2 W1 (F1, 2026-07-12) — memoized. Cluster markers freeze too
+// (tracksViewChanges settles false), so an unnecessary re-render on a
+// pure pan is the same iOS frozen-annotation-teleports-to-origin hazard
+// the pins had. The comparator compares only the fields that affect the
+// bitmap or the tap target (id / latitude / longitude / count / onPress
+// identity) and ignores `branchIds` (a fresh array every parent render,
+// unused downstream). On a pan every compared field is stable
+// (`onPress` is stable until zoom), so the cluster bails out and never
+// re-renders; on a zoom the cluster set recomputes and `onPress`'s
+// camera-delta closure changes, so it correctly re-renders.
+function MapClusterMarkerBase({ id, latitude, longitude, count, branchIds, onPress }: Props) {
   // Re-capture the bitmap whenever the CONTENT changes (the count —
   // clusters don't have a "selected" state, but their member count can
   // change across a data refresh even while the marker id is stable,
@@ -48,7 +68,7 @@ export function MapClusterMarker({ id, latitude, longitude, count, onPress }: Pr
     <Marker
       identifier={id}
       coordinate={{ latitude, longitude }}
-      onPress={onPress}
+      onPress={() => onPress?.({ latitude, longitude, branchIds: [...branchIds] })}
       tracksViewChanges={tracks}
     >
       <View testID={`map-cluster-${id}`} style={styles.circle}>
@@ -57,6 +77,17 @@ export function MapClusterMarker({ id, latitude, longitude, count, onPress }: Pr
     </Marker>
   )
 }
+
+export const MapClusterMarker = memo(
+  MapClusterMarkerBase,
+  (prev, next) =>
+    prev.id === next.id &&
+    prev.latitude === next.latitude &&
+    prev.longitude === next.longitude &&
+    prev.count === next.count &&
+    prev.onPress === next.onPress,
+  // `branchIds` intentionally excluded — see the Props doc + header note.
+)
 
 const styles = StyleSheet.create({
   circle: {

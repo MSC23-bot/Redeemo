@@ -300,6 +300,120 @@ describe('MapPins (Map BranchTile contract)', () => {
     }
   })
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Map P2 W1 (F1) — no frozen-marker re-render churn on a pure pan.
+  //
+  // The teleport root cause: <MapPins> receives a FRESH `branches` array
+  // reference on every region change (the accumulation store returns a new
+  // `Array.from(...)`), which rebuilds the internal clusters/singles arrays
+  // and re-runs the singles `.map`. WITHOUT memoization every frozen
+  // (tracksViewChanges=false) marker re-rendered, and on iOS a frozen
+  // annotation whose JS content re-renders relocates to the map ORIGIN —
+  // the top-left teleport the owner saw. `MapPinMarker` is now `React.memo`
+  // wrapped; this pins that a pure pan (new array, SAME branch objects,
+  // stable onPress, same zoom) does not re-render the markers at all.
+  // ──────────────────────────────────────────────────────────────────────
+  it('F1: a pure pan (new branches array, same branch objects, stable onPress) does NOT re-render frozen pin markers', () => {
+    jest.useFakeTimers()
+    try {
+      // Far apart so they stay two distinct SINGLE pins (not a cluster).
+      const a = makeBranchTile({ id: 'a', branchLatitude: 51, branchLongitude: 0 })
+      const b = makeBranchTile({ id: 'b', branchLatitude: 52, branchLongitude: 1 })
+      const onPress = jest.fn()
+      const regionA = { latitude: 51.5, longitude: 0.5, latitudeDelta: 0.02, longitudeDelta: 0.02 }
+      const { rerender } = render(
+        <MapPins branches={[a, b]} selectedId={null} onPress={onPress} region={regionA} />,
+      )
+      act(() => { jest.advanceTimersByTime(1500) }) // settle past the §BI freeze
+      mockMarkerCalls.length = 0
+
+      // Camera pans (same zoom deltas); accumulation store hands back a NEW
+      // array reference holding the SAME branch objects.
+      const regionB = { latitude: 51.51, longitude: 0.51, latitudeDelta: 0.02, longitudeDelta: 0.02 }
+      rerender(<MapPins branches={[a, b]} selectedId={null} onPress={onPress} region={regionB} />)
+
+      expect(mockMarkerCalls).toHaveLength(0)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  // Map P2 W1.1 (F13) — belt-and-braces comparator hardening. The W1 memo
+  // used the default shallow compare (branch OBJECT identity); the owner's
+  // re-test showed the residual teleport because the accumulation store
+  // rebuilds branch objects when a tile refreshes (same id, NEW reference).
+  // The comparator now compares primitive fields, so even an unavoidable
+  // fresh reference with identical content cannot re-render a frozen pin.
+  it('F13: a rerender with content-identical CLONES of the branch objects (new references) does NOT re-render frozen markers', () => {
+    jest.useFakeTimers()
+    try {
+      const a = makeBranchTile({ id: 'a', branchLatitude: 51, branchLongitude: 0 })
+      const b = makeBranchTile({ id: 'b', branchLatitude: 52, branchLongitude: 1 })
+      const onPress = jest.fn()
+      const region = { latitude: 51.5, longitude: 0.5, latitudeDelta: 0.02, longitudeDelta: 0.02 }
+      const { rerender } = render(
+        <MapPins branches={[a, b]} selectedId={null} onPress={onPress} region={region} />,
+      )
+      act(() => { jest.advanceTimersByTime(1500) }) // settle past the §BI freeze
+      mockMarkerCalls.length = 0
+
+      // A tile refresh delivered freshly parsed objects: same ids, same
+      // content, NEW references (the exact F13 churn shape).
+      const aClone = makeBranchTile({ id: 'a', branchLatitude: 51, branchLongitude: 0 })
+      const bClone = makeBranchTile({ id: 'b', branchLatitude: 52, branchLongitude: 1 })
+      expect(aClone).not.toBe(a)
+      rerender(<MapPins branches={[aClone, bClone]} selectedId={null} onPress={onPress} region={region} />)
+
+      expect(mockMarkerCalls).toHaveLength(0)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('F13: a clone whose COORDINATE genuinely changed DOES re-render (comparator does not over-suppress)', () => {
+    jest.useFakeTimers()
+    try {
+      const a = makeBranchTile({ id: 'a', branchLatitude: 51, branchLongitude: 0 })
+      const onPress = jest.fn()
+      const region = { latitude: 51.5, longitude: 0.5, latitudeDelta: 0.02, longitudeDelta: 0.02 }
+      const { rerender } = render(
+        <MapPins branches={[a]} selectedId={null} onPress={onPress} region={region} />,
+      )
+      act(() => { jest.advanceTimersByTime(1500) })
+      mockMarkerCalls.length = 0
+
+      const aMoved = makeBranchTile({ id: 'a', branchLatitude: 51.001, branchLongitude: 0 })
+      rerender(<MapPins branches={[aMoved]} selectedId={null} onPress={onPress} region={region} />)
+      act(() => { jest.advanceTimersByTime(0) })
+      expect(mockMarkerCalls.some(c => c.identifier === 'a')).toBe(true)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('F1: a genuine selection change STILL re-renders the affected marker (memo does not over-suppress)', () => {
+    jest.useFakeTimers()
+    try {
+      const a = makeBranchTile({ id: 'a', branchLatitude: 51, branchLongitude: 0 })
+      const b = makeBranchTile({ id: 'b', branchLatitude: 52, branchLongitude: 1 })
+      const onPress = jest.fn()
+      const region = { latitude: 51.5, longitude: 0.5, latitudeDelta: 0.02, longitudeDelta: 0.02 }
+      const { rerender } = render(
+        <MapPins branches={[a, b]} selectedId={null} onPress={onPress} region={region} />,
+      )
+      act(() => { jest.advanceTimersByTime(1500) })
+      mockMarkerCalls.length = 0
+
+      // Select 'a' — its `selected` prop flips, so it MUST re-render (and
+      // re-open its track window to recapture the selected bitmap).
+      rerender(<MapPins branches={[a, b]} selectedId="a" onPress={onPress} region={region} />)
+      act(() => { jest.advanceTimersByTime(0) })
+      expect(mockMarkerCalls.some(c => c.identifier === 'a')).toBe(true)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   // §BF stable-marker-dimensions tests live in CustomPin.test.tsx so
   // they can render CustomPin directly without dragging the §BC track-
   // then-freeze setTimeout chain into every assertion. The Fold 1

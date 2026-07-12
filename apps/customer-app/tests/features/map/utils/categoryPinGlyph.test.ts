@@ -13,6 +13,7 @@ import {
   getCategoryPinGlyph,
   buildCategoryTreeIndex,
   resolveTopLevelCategoryName,
+  resolveTopLevelPinColour,
   type CategoryTreeNode,
 } from '@/features/map/utils/categoryPinGlyph'
 
@@ -137,5 +138,73 @@ describe('resolveTopLevelCategoryName', () => {
   it('end-to-end degraded: subcategory leaf with no index gets the default glyph until categories load', () => {
     const name = resolveTopLevelCategoryName({ id: 'sub-nails', name: 'Nail Salon', parentId: 'top-beauty' }, buildCategoryTreeIndex(undefined))
     expect(getCategoryPinGlyph(name)).toBe(MapPin)
+  })
+})
+
+// Map P2 W1 (F7, 2026-07-12) — CLIENT-SIDE top-level pinColour resolution.
+//
+// Same architecture as `resolveTopLevelCategoryName` above (parentId walk
+// over the already-loaded useCategories tree), applied to the pin COLOUR
+// so a subcategory-primary branch inherits its top-level category colour
+// even when the backend hasn't merged the read-time parent-fallback yet
+// (the exact F7 walkthrough symptom: "Cafe & Coffee"/"Gift Shop" pins
+// rendered flat default red).
+const COLOURED_TREE: CategoryTreeNode[] = [
+  { id: 'top-food',   name: 'Food & Drink',      parentId: null,       pinColour: '#E65100' },
+  { id: 'top-shop',   name: 'Shopping',          parentId: null,       pinColour: '#7C4DFF' },
+  { id: 'top-blank',  name: 'Colourless Top',    parentId: null,       pinColour: null },
+  { id: 'sub-cafe',   name: 'Cafe & Coffee',     parentId: 'top-food', pinColour: null },
+  { id: 'sub-gift',   name: 'Gift Shop',         parentId: 'top-shop', pinColour: null },
+  { id: 'sub-own',    name: 'Special Sub',       parentId: 'top-food', pinColour: '#123456' },
+]
+
+describe('resolveTopLevelPinColour', () => {
+  const byId = buildCategoryTreeIndex(COLOURED_TREE)
+
+  it('resolves a subcategory (own pinColour null) to its PARENT top-level colour: the F7 fix', () => {
+    expect(resolveTopLevelPinColour({ id: 'sub-cafe', name: 'Cafe & Coffee', parentId: 'top-food', pinColour: null }, byId))
+      .toBe('#E65100')
+    expect(resolveTopLevelPinColour({ id: 'sub-gift', name: 'Gift Shop', parentId: 'top-shop', pinColour: null }, byId))
+      .toBe('#7C4DFF')
+  })
+
+  it("uses the leaf's OWN pinColour when set (backend already merged own-else-parent): short-circuit", () => {
+    expect(resolveTopLevelPinColour({ id: 'sub-own', name: 'Special Sub', parentId: 'top-food', pinColour: '#123456' }, byId))
+      .toBe('#123456')
+  })
+
+  it('resolves a top-level category to its own colour', () => {
+    expect(resolveTopLevelPinColour({ id: 'top-food', name: 'Food & Drink', parentId: null, pinColour: '#E65100' }, byId))
+      .toBe('#E65100')
+  })
+
+  it('returns null when the top-level ancestor has no colour (caller falls back to name-keyword/default)', () => {
+    const tree = buildCategoryTreeIndex([
+      { id: 'top-blank', name: 'Colourless Top', parentId: null, pinColour: null },
+      { id: 'sub-x',     name: 'Sub X',          parentId: 'top-blank', pinColour: null },
+    ])
+    expect(resolveTopLevelPinColour({ id: 'sub-x', name: 'Sub X', parentId: 'top-blank', pinColour: null }, tree)).toBeNull()
+  })
+
+  it('returns null when the index is empty (categories query still loading)', () => {
+    expect(resolveTopLevelPinColour({ id: 'sub-cafe', name: 'Cafe & Coffee', parentId: 'top-food', pinColour: null }, buildCategoryTreeIndex(undefined)))
+      .toBeNull()
+  })
+
+  it('returns null when the parent id is missing from the index', () => {
+    expect(resolveTopLevelPinColour({ id: 'sub-orphan', name: 'Orphan', parentId: 'missing', pinColour: null }, byId)).toBeNull()
+  })
+
+  it('returns null for a null/undefined leaf', () => {
+    expect(resolveTopLevelPinColour(null, byId)).toBeNull()
+    expect(resolveTopLevelPinColour(undefined, byId)).toBeNull()
+  })
+
+  it('a parentId cycle degrades to null instead of hanging (walk-depth guard)', () => {
+    const cyclic = buildCategoryTreeIndex([
+      { id: 'a', name: 'A', parentId: 'b', pinColour: null },
+      { id: 'b', name: 'B', parentId: 'a', pinColour: null },
+    ])
+    expect(resolveTopLevelPinColour({ id: 'a', name: 'A', parentId: 'b', pinColour: null }, cyclic)).toBeNull()
   })
 })

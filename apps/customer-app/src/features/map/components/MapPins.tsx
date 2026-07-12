@@ -1,14 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Marker, type Region } from 'react-native-maps'
 import Svg, { Path, Circle } from 'react-native-svg'
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSpring } from 'react-native-reanimated'
-import { Text, color, useMotionScale } from '@/design-system'
+import { color, useMotionScale } from '@/design-system'
 import { BranchTile } from '@/lib/api/discovery'
 import {
   getCategoryPinGlyph,
   buildCategoryTreeIndex,
   resolveTopLevelCategoryName,
+  resolveTopLevelPinColour,
   type CategoryTreeNode,
 } from '../utils/categoryPinGlyph'
 import { clusterBranchPins, type ClusterPoint } from '../utils/mapClustering'
@@ -103,37 +104,16 @@ const HEAD_CENTER_Y = TEARDROP_TOP + PIN_WIDTH / 2
 const GLYPH_SIZE = 16
 const INNER_SCALE_UNSELECTED = 0.81 // ≈ 34/42 — preserves the old visual feel, now applied to the teardrop
 
-// ── Voucher-count badge (Map Phase 2 S5b Task 4a) ──────────────────
+// ── Voucher-count badge: REMOVED (Map P2 W1.1 F14, owner decision W2-D6) ──
 //
-// Small white-keyline circle at the pin's top-right showing the
-// branch's `voucherCount` (capped "9+"). §BC/§BF/§BI constant-outer-
-// bounds rule: the badge must NOT grow the marker's declared
-// CONTAINER_WIDTH × CONTAINER_HEIGHT bounds (that's what makes the
-// bitmap-freeze discipline safe — see the file header). It doesn't
-// need to: the container is already 60px wide and the teardrop's own
-// right edge sits at `TEARDROP_LEFT + PIN_WIDTH` = 51px (9px short of
-// the container's right edge), so a badge anchored at the container's
-// OWN top-right corner (`right: 0, top: 0`) fits entirely inside
-// bounds that are ALREADY allocated — no growth, no overflow, no risk
-// to the native bitmap snapshot. It sits as a sibling of the teardrop
-// (not a child of `teardropWrap`), so it stays a fixed on-screen size
-// regardless of the pin's selected/unselected inner scale — the badge
-// communicates DATA about the branch, not selection state, so it
-// deliberately doesn't participate in that transform.
-const VOUCHER_BADGE_SIZE = 16
-
-function formatVoucherBadgeCount(voucherCount: number): string {
-  return voucherCount > 9 ? '9+' : String(voucherCount)
-}
-
-function VoucherCountBadge({ voucherCount, id }: { voucherCount: number; id: string }) {
-  if (voucherCount <= 0) return null
-  return (
-    <View testID={`pin-voucher-badge-${id}`} style={styles.voucherBadge} pointerEvents="none">
-      <Text variant="label.md" style={styles.voucherBadgeText}>{formatVoucherBadgeCount(voucherCount)}</Text>
-    </View>
-  )
-}
+// The S5b Task 4a badge (small count circle at the pin's top-right, W1's
+// F2 repositioned it onto the head shoulder) is deleted per the owner's
+// round-2 W2 decision brought forward: pins carry NO count at all (no
+// stub, no badge, no bare number). The voucher count returns inside the
+// W2 close-zoom ticket lockup with an explanatory cue ("N vouchers" +
+// red ticket mark), never as a bare figure. Removing pin CONTENT does
+// not touch the §BF constant-outer-bounds contract: CONTAINER_WIDTH x
+// CONTAINER_HEIGHT and every remaining element's position are unchanged.
 
 /**
  * Builds a classic teardrop/map-pin silhouette in a `w`×`h` box: a
@@ -218,6 +198,48 @@ function getPinColor(branch: BranchTile): string {
   if (catName.includes('beauty') || catName.includes('wellness')) return color.pin.beautyWellness
   if (catName.includes('fitness') || catName.includes('sport')) return color.pin.fitnessSport
   if (catName.includes('shopping')) return color.pin.shopping
+  return color.pin.default
+}
+
+// Map P2 W1 (F7, 2026-07-12) — tree-aware pin colour.
+//
+// Walkthrough finding F7: subcategory-primary branches ("Cafe & Coffee",
+// "Gift Shop") rendered the flat default red instead of their top-level
+// category colour. Root cause: the backend read-time parent-fallback
+// (`enrichBranchTile`, S3) IS correct and unit-tested, but it lives in
+// the same UNMERGED map wave; when the app runs against a backend without
+// it, those tiles arrive with `primaryCategory.pinColour: null`, and the
+// keyword fallback in `getPinColor` above only matches TOP-LEVEL names
+// ("Food & Drink"), never subcategory leaves ("Cafe & Coffee").
+//
+// Fix at the CLIENT seam using the SAME mechanism S3 chose for the pin
+// GLYPH (not the forbidden "extend the keyword list" workaround): resolve
+// the TOP-LEVEL category's `pinColour` from the category tree the app
+// already loads via `useCategories` (walk `parentId`). This makes the pin
+// colour correct regardless of backend deploy state. Ladder:
+//   1. the tile's OWN backend `pinColour` (a fully-up-to-date backend
+//      already merged own-else-parent — trust it first);
+//   2. else the tree-resolved TOP-LEVEL `pinColour`;
+//   3. else the legacy name-keyword palette (degrades on the tree-
+//      resolved top-level NAME, which top-level names always match);
+//   4. else the flat default.
+// The category index is empty while `useCategories` loads, in which case
+// this degrades to (3)/(4) — pins never blank waiting on it, exactly like
+// the glyph resolver.
+function resolvePinColorWithTree(
+  branch: BranchTile,
+  categoryIndex: ReadonlyMap<string, CategoryTreeNode>,
+): string {
+  const own = branch.merchant.primaryCategory?.pinColour
+  if (own) return own
+  const treeColour = resolveTopLevelPinColour(branch.merchant.primaryCategory, categoryIndex)
+  if (treeColour) return treeColour
+  const topLevelName = resolveTopLevelCategoryName(branch.merchant.primaryCategory, categoryIndex)
+  const catName = (topLevelName ?? branch.merchant.primaryCategory?.name ?? '').toLowerCase()
+  if (catName.includes('food') || catName.includes('drink')) return color.pin.foodDrink
+  if (catName.includes('beauty') || catName.includes('wellness')) return color.pin.beautyWellness
+  if (catName.includes('fitness') || catName.includes('sport')) return color.pin.fitnessSport
+  if (catName.includes('shopping') || catName.includes('shop')) return color.pin.shopping
   return color.pin.default
 }
 
@@ -354,6 +376,7 @@ export function CustomPin({
   dropIn = false,
   dropInDelayMs = 0,
   glyphName,
+  pinColor: pinColorProp,
 }: {
   branch: BranchTile
   selected: boolean
@@ -368,8 +391,16 @@ export function CustomPin({
    *  consumers without the tree) degrade to the branch's own leaf
    *  category name. */
   glyphName?: string | null
+  /** Map P2 W1 (F7) — resolved pin colour, computed by <MapPins> via the
+   *  client-side category-tree walk (`resolvePinColorWithTree`) so a
+   *  subcategory-primary branch inherits its top-level colour even when
+   *  the backend hasn't merged the parent-fallback yet. Optional: direct
+   *  renders (tests, consumers without the tree) fall back to the
+   *  tree-free `getPinColor(branch)` — backend colour, then name-keyword
+   *  palette, then default. */
+  pinColor?: string
 }) {
-  const pinColor = getPinColor(branch)
+  const pinColor = pinColorProp ?? getPinColor(branch)
   const Glyph = getCategoryPinGlyph(glyphName ?? branch.merchant.primaryCategory?.name ?? null)
   // §BF — outer marker bounds stay constant (CONTAINER_WIDTH ×
   // CONTAINER_HEIGHT). The inner teardrop uses transform: scale to
@@ -406,19 +437,46 @@ export function CustomPin({
             <Glyph size={GLYPH_SIZE} color="#FFFFFF" strokeWidth={2.5} />
           </View>
         </View>
-        <VoucherCountBadge id={branch.id} voucherCount={branch.merchant.voucherCount} />
+        {/* Voucher-count badge REMOVED here (W1.1 F14 / owner W2-D6) —
+            see the "Voucher-count badge: REMOVED" comment above. */}
       </Animated.View>
     </View>
   )
 }
 
-function MapPinMarker({
+// Map P2 W1 (F1, 2026-07-12) — `MapPinMarker` is `React.memo`-wrapped
+// (see `export ... = memo(MapPinMarkerBase)` below).
+//
+// Walkthrough finding F1 (CRITICAL): pins intermittently teleported to
+// the screen's top-left origin and flickered/vanished during zoom. Root
+// cause proven at the source: <MapPins> recomputes its clusters/singles/
+// chip arrays whenever the region changes, AND the `branches` array it
+// receives is a fresh reference on every region change (the region-
+// accumulation store returns a new `Array.from(...)` each render). That
+// re-runs the singles `.map`, producing fresh marker elements every
+// region delta. WITHOUT memoization, react-native-maps re-renders each
+// `tracksViewChanges={false}` (frozen) marker; on iOS a frozen
+// annotation view whose JS content re-renders relocates to the map
+// view's ORIGIN until its bitmap re-captures — the exact top-left
+// teleport the owner saw (same failure family as §BC/§BF/§BI).
+//
+// Fix: memo the marker subtree so a frozen pin whose data has NOT changed
+// never re-renders on a pure region/pan/zoom delta. The branch object
+// identity is stable across region changes (it comes from the store /
+// live query, not rebuilt per render), and <MapPins> now passes a stable
+// `onPress` plus value-stable `glyphName`/`pinColor` primitives, so the
+// default shallow prop compare bails out correctly. The §BC/§BF/§BI
+// invariants are PRESERVED unchanged: the freeze/thaw window
+// (SELECTION_TRACK_MS) and constant outer bounds are untouched; this only
+// stops SPURIOUS re-renders that were never supposed to happen.
+function MapPinMarkerBase({
   branch,
   selected,
   onPress,
   dropIn,
   dropInDelayMs,
   glyphName,
+  pinColor,
 }: {
   branch: BranchTile
   selected: boolean
@@ -426,19 +484,32 @@ function MapPinMarker({
   dropIn: boolean
   dropInDelayMs: number
   glyphName: string | null
+  pinColor: string
 }) {
   const { branchLatitude, branchLongitude } = branch
   // Initial render captures the first bitmap (tracks=true). After the
   // capture settles, freeze for perf. The effect re-enables tracking
-  // every time `selected` toggles so the resize is captured cleanly
-  // without an unmount/remount flicker on the affected pin.
+  // whenever the marker's VISIBLE CONTENT genuinely changes so the new
+  // bitmap captures cleanly without an unmount/remount flicker on the
+  // affected pin:
+  //   - `selected` (§BC — the original selection-toggle resize case);
+  //   - Map P2 W1 (F1): `glyphName` / `pinColor` — these upgrade after
+  //     mount (the categories query lands and resolves the top-level
+  //     glyph/colour), and a frozen bitmap would otherwise keep showing
+  //     the pre-upgrade content.
+  //   - Map P2 W1.1 (F13/F14): `voucherCount` DROPPED from this list —
+  //     the badge is removed (F14, owner W2-D6), so the count no longer
+  //     appears anywhere in this marker's bitmap. This dependency list
+  //     is kept deliberately IN LOCKSTEP with the memo comparator below:
+  //     the comparator's fields are exactly the ways this marker can
+  //     re-render, and each visual one re-opens the capture window here.
   const [tracks, setTracks] = useState(true)
   useEffect(() => {
     if (branchLatitude === null || branchLongitude === null) return
     setTracks(true)
     const t = setTimeout(() => setTracks(false), SELECTION_TRACK_MS)
     return () => clearTimeout(t)
-  }, [selected, branchLatitude, branchLongitude])
+  }, [selected, branchLatitude, branchLongitude, glyphName, pinColor])
 
   // Defensive client-side null-coord filter (PR-3 plan §6.3).
   // Backend `getInAreaBranches` is CONFIRMED_LOCATION_SET-only
@@ -459,10 +530,48 @@ function MapPinMarker({
       onPress={() => onPress(branch)}
       tracksViewChanges={tracks}
     >
-      <CustomPin branch={branch} selected={selected} dropIn={dropIn} dropInDelayMs={dropInDelayMs} glyphName={glyphName} />
+      <CustomPin branch={branch} selected={selected} dropIn={dropIn} dropInDelayMs={dropInDelayMs} glyphName={glyphName} pinColor={pinColor} />
     </Marker>
   )
 }
+
+// Map P2 W1.1 (F13) — custom PRIMITIVE-FIELD comparator, hardening the
+// W1 memo. W1 used the default shallow compare, which leans on `branch`
+// OBJECT identity; the owner's re-test showed the residual teleport
+// because the accumulation store rebuilds branch objects when a tile
+// refreshes (same id, new reference), so an identity-based memo still
+// re-rendered frozen markers. The store now interns canonical branch
+// objects (fix layer 1, regionAccumulationStore.ts), and this comparator
+// is the belt-and-braces layer 2: compare exactly the fields that affect
+// this marker's BITMAP or TAP TARGET, so even an unavoidable fresh
+// reference with identical content cannot re-render a frozen pin.
+//
+// Compared fields (in lockstep with the track-reopen effect above):
+//   - branch.id                  (Marker identifier + key)
+//   - branch.branchLatitude/Longitude (coordinate)
+//   - selected                   (§BC resize/ring toggle)
+//   - glyphName / pinColor       (bitmap content)
+//   - dropIn / dropInDelayMs     (fixed per marker lifetime; cheap)
+//   - onPress                    (tap behaviour; stable via branchesRef)
+// NOT compared: the rest of the `branch` object — nothing else renders
+// inside this marker (the name/save-chip is a SEPARATE marker; the
+// voucher-count badge was removed in F14). A skipped re-render keeps the
+// OLD branch reference in the `onPress` closure; the handler only reads
+// `branch.id` (see MapScreen.handleBranchPress), so a content-equal
+// stale reference is harmless by contract.
+const MapPinMarker = memo(
+  MapPinMarkerBase,
+  (prev, next) =>
+    prev.branch.id === next.branch.id &&
+    prev.branch.branchLatitude === next.branch.branchLatitude &&
+    prev.branch.branchLongitude === next.branch.branchLongitude &&
+    prev.selected === next.selected &&
+    prev.glyphName === next.glyphName &&
+    prev.pinColor === next.pinColor &&
+    prev.dropIn === next.dropIn &&
+    prev.dropInDelayMs === next.dropInDelayMs &&
+    prev.onPress === next.onPress,
+)
 
 // Staggered drop-in constants (spec §7.2 "Drop animation: pinDrop
 // 500ms spring, staggered per pin"). Capped so the LAST staggered
@@ -508,8 +617,15 @@ export function MapPins({ branches, selectedId, onPress, region, onClusterPress,
   )
   const { clusters, singles } = useMemo(
     () => clusterBranchPins(validPoints, effectiveRegion),
+    // Map P2 W1 (F1) — `clusterBranchPins` derives its grid CELL SIZE
+    // purely from the region DELTAS (zoom); it buckets points by their
+    // absolute lat/lng, so the region CENTRE (latitude/longitude) is not
+    // an input at all. The previous deps listed the centre too, which
+    // forced a full re-cluster on every pan even though the output was
+    // identical — needless churn feeding the F1 teleport. Depending only
+    // on the deltas means clustering recomputes on ZOOM, not on pan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [validPoints, effectiveRegion.latitude, effectiveRegion.longitude, effectiveRegion.latitudeDelta, effectiveRegion.longitudeDelta],
+    [validPoints, effectiveRegion.latitudeDelta, effectiveRegion.longitudeDelta],
   )
   const singleBranchesById = useMemo(
     () => new Map(validPoints.map((p) => [p.id, p.branch])),
@@ -548,22 +664,24 @@ export function MapPins({ branches, selectedId, onPress, region, onClusterPress,
             dropIn={dropIn}
             dropInDelayMs={dropInDelayMs}
             glyphName={getPinGlyphName(branch, categoryIndex)}
+            pinColor={resolvePinColorWithTree(branch, categoryIndex)}
           />
         )
       })}
 
       {clusters.map((c) => (
+        // Map P2 W1 (F1) — pass the STABLE `onClusterPress` straight
+        // through (not a fresh arrow per render) plus the cluster's own
+        // fields, so the memoized <MapClusterMarker> can bail on pan. The
+        // marker builds the tap payload internally.
         <MapClusterMarker
           key={c.id}
           id={c.id}
           latitude={c.latitude}
           longitude={c.longitude}
           count={c.count}
-          onPress={() => onClusterPress?.({
-            latitude:  c.latitude,
-            longitude: c.longitude,
-            branchIds: c.points.map((p) => p.id),
-          })}
+          branchIds={c.points.map((p) => p.id)}
+          onPress={onClusterPress}
         />
       ))}
 
@@ -577,7 +695,7 @@ export function MapPins({ branches, selectedId, onPress, region, onClusterPress,
             latitude={p.latitude}
             longitude={p.longitude}
             label={branch.branchName}
-            dotColor={getPinColor(branch)}
+            dotColor={resolvePinColorWithTree(branch, categoryIndex)}
             maxEstimatedSaving={branch.merchant.maxEstimatedSaving}
           />
         )
@@ -613,30 +731,8 @@ const styles = StyleSheet.create({
     width:    RING_SIZE,
     height:   RING_SIZE,
   },
-  // Map Phase 2 S5b Task 4a — voucher-count badge. Anchored to the
-  // CONTAINER's own top-right corner (`right: 0, top: 0`), which is
-  // ALREADY inside the constant CONTAINER_WIDTH × CONTAINER_HEIGHT
-  // bounds (see the VOUCHER_BADGE_SIZE comment above) — no bounds
-  // growth, so this never touches the §BF stable-dimensions contract.
-  voucherBadge: {
-    position:        'absolute',
-    right:           0,
-    top:             0,
-    width:           VOUCHER_BADGE_SIZE,
-    height:          VOUCHER_BADGE_SIZE,
-    borderRadius:    VOUCHER_BADGE_SIZE / 2,
-    backgroundColor: color.brandRose,
-    borderWidth:     1.5,
-    borderColor:     '#FFFFFF',
-    alignItems:      'center',
-    justifyContent:  'center',
-  },
-  voucherBadgeText: {
-    color:      '#FFFFFF',
-    fontFamily: 'Lato-Bold',
-    fontSize:   9,
-    lineHeight: 11,
-  },
+  // voucherBadge / voucherBadgeText styles removed (W1.1 F14, owner
+  // W2-D6) along with the badge component itself.
   teardropWrap: {
     position: 'absolute',
     left:     TEARDROP_LEFT,
