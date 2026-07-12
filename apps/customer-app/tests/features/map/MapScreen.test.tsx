@@ -262,7 +262,7 @@ describe('MapScreen', () => {
 
       fireEvent.press(getByLabelText('Open filters'))
       fireEvent.press(getByText('Nearest'))
-      fireEvent.press(getByText(/Show \d+ results/))
+      fireEvent.press(getByText(/Show \d+ places/))
 
       const lastInArea = mockInAreaCalls[mockInAreaCalls.length - 1]!
       const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
@@ -286,7 +286,7 @@ describe('MapScreen', () => {
 
       fireEvent.press(getByLabelText('Open filters'))
       fireEvent.press(getByText('Discount'))
-      fireEvent.press(getByText(/Show \d+ results/))
+      fireEvent.press(getByText(/Show \d+ places/))
 
       const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
       expect(lastSearch.enabled).toBe(true)
@@ -312,7 +312,7 @@ describe('MapScreen', () => {
         // Flip to the /search path via a non-scope filter.
         fireEvent.press(getByLabelText('Open filters'))
         fireEvent.press(getByText('Nearest'))
-        fireEvent.press(getByText(/Show \d+ results/))
+        fireEvent.press(getByText(/Show \d+ places/))
 
         const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
         expect(lastSearch.enabled).toBe(true)
@@ -334,7 +334,7 @@ describe('MapScreen', () => {
 
         fireEvent.press(getByLabelText('Open filters'))
         fireEvent.press(getByText('Nearest'))
-        fireEvent.press(getByText(/Show \d+ results/))
+        fireEvent.press(getByText(/Show \d+ places/))
 
         act(() => {
           mockOnRegionChangeComplete!({
@@ -366,7 +366,7 @@ describe('MapScreen', () => {
 
       fireEvent.press(getByLabelText('Open filters'))
       fireEvent.press(getByText('Nearest'))
-      fireEvent.press(getByText(/Show \d+ results/))
+      fireEvent.press(getByText(/Show \d+ places/))
 
       const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
       expect(lastSearch.enabled).toBe(true)
@@ -457,7 +457,7 @@ describe('MapScreen', () => {
       const { getByText, getByLabelText, queryByTestId } = render(<MapScreen />, { wrapper })
       fireEvent.press(getByLabelText('Open filters'))
       fireEvent.press(getByText('Nearest'))
-      fireEvent.press(getByText(/Show \d+ results/))
+      fireEvent.press(getByText(/Show \d+ places/))
       expect(queryByTestId('filter-active-dot')).toBeTruthy()
     })
   })
