@@ -206,8 +206,21 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
   // getReviewContext adminById pattern): one AdminUser lookup over the distinct
   // non-null claimedById set, keyed to "First Last". So the queue can render
   // "Claimed by <name>" instead of a bare "Claimed".
+  //
+  // Queue previously-reviewed-chip (owner-decided option 1): additively widen
+  // the SAME batch to also cover each UNCLAIMED row's prior actioner
+  // (adminUserId). On resubmission the backend reuses the same AdminApproval
+  // row, clears claimedById, but PRESERVES adminUserId: so an unclaimed row
+  // with a non-null adminUserId was reviewed before. No second AdminUser
+  // query: the prior-reviewer ids are folded into the one claimer lookup.
+  const previousReviewerIds = approvals
+    .filter((a) => a.claimedById == null && a.adminUserId != null)
+    .map((a) => a.adminUserId as string)
   const claimerIds = Array.from(
-    new Set(approvals.map((a) => a.claimedById).filter((id): id is string => id != null)),
+    new Set([
+      ...approvals.map((a) => a.claimedById).filter((id): id is string => id != null),
+      ...previousReviewerIds,
+    ]),
   )
   const claimers = claimerIds.length
     ? await prisma.adminUser.findMany({
@@ -218,6 +231,11 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
   const claimerById = new Map(
     claimers.map((c: { id: string; firstName: string; lastName: string }) => [c.id, `${c.firstName} ${c.lastName}`]),
   )
+  /** Unclaimed row + prior actioner -> { previousReviewerName }; omitted otherwise (optional field, mirrors voucherEditKind). */
+  function previousReviewerFor(a: (typeof approvals)[number]): { previousReviewerName?: string | null } {
+    if (a.claimedById != null || a.adminUserId == null) return {}
+    return { previousReviewerName: claimerById.get(a.adminUserId) ?? null }
+  }
 
   // Voucher governed flows: batch-resolve each VOUCHER_EDIT row's kind so the
   // queue can label "Voucher change request" vs "Voucher end request" without
@@ -343,7 +361,7 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
         // null, so a reorder/refactor could have null-deref'd. The null branch never
         // touches flagshipLiveByMerchant.
         if (!v) {
-          return { ...a, merchant: null, voucher: null, goLiveHint: null, claimedBy, selfOnboarded: false }
+          return { ...a, merchant: null, voucher: null, goLiveHint: null, claimedBy, selfOnboarded: false, ...previousReviewerFor(a) }
         }
         const m = voucherMerchantById.get(v.merchantId) ?? null
         const goLive = !!m && m.status === 'ACTIVE' && (flagshipLiveByMerchant.get(v.merchantId) ?? false)
@@ -354,8 +372,9 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
           goLiveHint: goLive ? ('live-now' as const) : ('waiting-for-go-live' as const),
           claimedBy,
           // VOUCHER rows are never self-approved (the concept is merchant
-          // draft-creation vs go-live, not voucher review) — see selfOnboardedFor.
+          // draft-creation vs go-live, not voucher review); see selfOnboardedFor.
           selfOnboarded: false,
+          ...previousReviewerFor(a),
         }
       }
       const merchant = a.type === 'MERCHANT_ONBOARDING'
@@ -379,6 +398,7 @@ export async function listApprovals(prisma: PrismaClient, filters: ListApprovals
         // false for every other type/status, including a rejected/changes-
         // requested onboarding row actioned by the merchant's own draft-creator.
         selfOnboarded: selfOnboardedFor(a),
+        ...previousReviewerFor(a),
       }
     }),
   }

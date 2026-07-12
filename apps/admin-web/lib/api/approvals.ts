@@ -83,9 +83,14 @@ export const approvalSchema = z.object({
   // went live via a self-approval (the approving admin also created the
   // merchant's draft). Optional (not `.default()`) so existing fixtures/tests
   // that predate this field keep parsing unchanged; the backend always sends
-  // a concrete boolean on every row — `undefined` here only ever means "an
+  // a concrete boolean on every row: `undefined` here only ever means "an
   // older/unrelated payload shape", treated the same as false by callers.
   selfOnboarded: z.boolean().optional(),
+  // Queue previously-reviewed-chip (owner-decided option 1): resolved name of
+  // the prior actioner on an UNCLAIMED row whose AdminApproval was reviewed
+  // before (adminUserId survives a merchant resubmission that clears
+  // claimedById). Optional: omitted on claimed/never-actioned rows.
+  previousReviewerName: z.string().nullable().optional(),
 })
 export type AdminApproval = z.infer<typeof approvalSchema>
 

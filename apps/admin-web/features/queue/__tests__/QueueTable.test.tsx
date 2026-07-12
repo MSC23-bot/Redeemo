@@ -299,6 +299,54 @@ describe('QueueTable claim cell', () => {
     expect(wideRow('a-1').getByText('Stale')).toBeInTheDocument()
   })
 
+  it('shows a "Previously reviewed by <name>" chip when unclaimed and a prior reviewer is resolved', () => {
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            status: 'PENDING',
+            claimedById: null,
+            previousReviewerName: 'Priya Reviewer',
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(wideRow('a-1').getByText('Unclaimed')).toBeInTheDocument()
+    expect(
+      wideRow('a-1').getByText('Previously reviewed by Priya Reviewer')
+    ).toBeInTheDocument()
+  })
+
+  it('does not show the previously-reviewed chip when unclaimed and there is no prior reviewer', () => {
+    render(
+      <QueueTable
+        items={[makeApproval({ status: 'PENDING', claimedById: null, previousReviewerName: null })]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(wideRow('a-1').getByText('Unclaimed')).toBeInTheDocument()
+    expect(wideRow('a-1').queryByText(/previously reviewed/i)).not.toBeInTheDocument()
+  })
+
+  it('does not show the previously-reviewed chip when the row is claimed, even with a prior reviewer name', () => {
+    render(
+      <QueueTable
+        items={[
+          makeApproval({
+            status: 'PENDING',
+            claimedById: 'admin-other',
+            claimedAt: new Date().toISOString(),
+            claimedBy: { id: 'admin-other', name: 'Jordan Lee' },
+            previousReviewerName: 'Priya Reviewer',
+          }),
+        ]}
+        currentAdminId={CURRENT_ADMIN}
+      />
+    )
+    expect(wideRow('a-1').queryByText(/previously reviewed/i)).not.toBeInTheDocument()
+  })
+
   it('shows "Closed" for a terminal-status row, even with a lingering claim', () => {
     render(
       <QueueTable

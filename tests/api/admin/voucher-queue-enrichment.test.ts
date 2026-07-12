@@ -433,3 +433,142 @@ describe('WF16: branch-edit + branch-lifecycle queue rows carry a merchant summa
     expect(row.merchant ?? null).toBeNull()
   })
 })
+
+// Queue previously-reviewed-chip (owner-decided option 1): on resubmission the
+// backend reuses the same AdminApproval row, clears claimedById, and
+// PRESERVES adminUserId (the prior actioner). listApprovals additively widens
+// the existing claimer-name batch (no second AdminUser query) to also resolve
+// that prior actioner's name onto the row as `previousReviewerName`, ONLY when
+// the row is unclaimed AND carries a prior actioner. Claimed rows and
+// never-actioned rows must omit the field (mirrors the voucherEditKind
+// optional-field idiom).
+describe('previousReviewerName: unclaimed rows with a prior actioner', () => {
+  let app: FastifyInstance
+  const signOps = () =>
+    (app.jwt as any).admin.sign(
+      { sub: 'admin-1', role: 'admin', adminRole: 'OPERATIONS', sessionId: 's1' },
+      { expiresIn: '1h' },
+    )
+
+  function makePrisma() {
+    const rows = [
+      // Unclaimed + previously actioned (resubmission after CHANGES_REQUESTED):
+      // adminUserId survives, claimedById was cleared.
+      {
+        id: 'appr-resubmitted', type: 'MERCHANT_ONBOARDING', referenceId: 'm-resub', referenceType: 'merchant',
+        status: 'PENDING', adminUserId: 'admin-prior', comment: null,
+        submittedAt: new Date('2026-07-11T09:00:00.000Z'), actionedAt: new Date('2026-07-10T09:00:00.000Z'),
+        claimedById: null, claimedAt: null,
+      },
+      // Currently claimed: even though adminUserId is set (e.g. re-claimed by
+      // the same admin after a prior action), the row is NOT in the unclaimed
+      // state, so the chip must not appear.
+      {
+        id: 'appr-claimed', type: 'MERCHANT_ONBOARDING', referenceId: 'm-claimed', referenceType: 'merchant',
+        status: 'PENDING', adminUserId: 'admin-prior', comment: null,
+        submittedAt: new Date('2026-07-11T09:01:00.000Z'), actionedAt: new Date('2026-07-10T09:01:00.000Z'),
+        claimedById: 'admin-claimer', claimedAt: new Date('2026-07-11T09:01:30.000Z'),
+      },
+      // Unclaimed, never actioned (fresh submission): adminUserId is null.
+      {
+        id: 'appr-fresh', type: 'MERCHANT_ONBOARDING', referenceId: 'm-fresh', referenceType: 'merchant',
+        status: 'PENDING', adminUserId: null, comment: null,
+        submittedAt: new Date('2026-07-11T09:02:00.000Z'), actionedAt: null, claimedById: null, claimedAt: null,
+      },
+    ]
+    return {
+      adminApproval: {
+        count: vi.fn().mockResolvedValue(rows.length),
+        findMany: vi.fn().mockResolvedValue(rows),
+      },
+      voucher: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
+      merchant: {
+        findMany: vi.fn().mockImplementation((args: any) => {
+          const ids: string[] = args?.where?.id?.in ?? []
+          const all = [
+            { id: 'm-resub', businessName: 'Resubmitted Co', status: 'PENDING_APPROVAL', onboardingStep: 'SUBMITTED', verificationStatus: 'PENDING', contractStatus: 'SIGNED' },
+            { id: 'm-claimed', businessName: 'Claimed Co', status: 'PENDING_APPROVAL', onboardingStep: 'UNDER_REVIEW', verificationStatus: 'PENDING', contractStatus: 'SIGNED' },
+            { id: 'm-fresh', businessName: 'Fresh Co', status: 'PENDING_APPROVAL', onboardingStep: 'SUBMITTED', verificationStatus: 'PENDING', contractStatus: 'SIGNED' },
+          ]
+          return Promise.resolve(all.filter((m) => ids.includes(m.id)))
+        }),
+      },
+      adminUser: {
+        findMany: vi.fn().mockImplementation((args: any) => {
+          const ids: string[] = args?.where?.id?.in ?? []
+          const all = [
+            { id: 'admin-prior', firstName: 'Priya', lastName: 'Reviewer' },
+            { id: 'admin-claimer', firstName: 'Cam', lastName: 'Claimer' },
+          ]
+          return Promise.resolve(all.filter((u) => ids.includes(u.id)))
+        }),
+      },
+      voucherPendingEdit: { findMany: vi.fn().mockResolvedValue([]) },
+      merchantPendingEdit: { findMany: vi.fn().mockResolvedValue([]) },
+      branchPendingEdit: { findMany: vi.fn().mockResolvedValue([]) },
+      branch: { findMany: vi.fn().mockResolvedValue([]) },
+      // Team & Roles S4 (#494) additively queries the merchant audit log to
+      // derive selfOnboarded; stub it empty so this chip suite exercises the
+      // previousReviewerName path with self-approval OFF (both features coexist).
+      auditLog: { findMany: vi.fn().mockResolvedValue([]) },
+    } as any
+  }
+
+  beforeEach(async () => {
+    app = await buildApp()
+    app.decorate('prisma', makePrisma())
+    app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue('OK') } as any)
+    await app.ready()
+  })
+  afterEach(async () => {
+    await app.close()
+  })
+
+  it('resolves previousReviewerName on an unclaimed + previously-actioned row', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/approvals',
+      headers: { authorization: `Bearer ${signOps()}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    const row = body.approvals.find((a: any) => a.id === 'appr-resubmitted')
+    expect(row.previousReviewerName).toBe('Priya Reviewer')
+  })
+
+  it('omits previousReviewerName on a currently-claimed row, even with a prior actioner', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/approvals',
+      headers: { authorization: `Bearer ${signOps()}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    const row = body.approvals.find((a: any) => a.id === 'appr-claimed')
+    expect('previousReviewerName' in row).toBe(false)
+  })
+
+  it('omits previousReviewerName on an unclaimed, never-actioned row', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/approvals',
+      headers: { authorization: `Bearer ${signOps()}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.body)
+    const row = body.approvals.find((a: any) => a.id === 'appr-fresh')
+    expect('previousReviewerName' in row).toBe(false)
+  })
+
+  it('resolves the prior actioner via ONE batched AdminUser lookup (no second query)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/approvals',
+      headers: { authorization: `Bearer ${signOps()}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect((app.prisma.adminUser.findMany as any).mock.calls.length).toBe(1)
+    const args = (app.prisma.adminUser.findMany as any).mock.calls[0][0]
+    expect(args.where.id.in.sort()).toEqual(['admin-claimer', 'admin-prior'])
+  })
+})
