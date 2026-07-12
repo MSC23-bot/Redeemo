@@ -613,3 +613,16 @@ edited by this workstream.
   capped 1.75, frameloop switches to 'never' whenever the hero is off
   screen. Verified two live frames at 2238px: motion confirmed, headline
   legibility intact behind the veil.
+- 3D THROUGH THE PAGE + break ribbons REMOVED (owner 2026-07-12: extend 3D/
+  WebGL beyond the hero; the hero band behind the artwork made the right
+  side too busy, move its flow elsewhere; the two static section-break
+  ribbons look odd and out of place, remove them): HeroRibbon3D generalised
+  into RibbonScene3D with presets. Hero mount now lives in a LEFT 58% wrapper
+  with a fade mask, so the band flows under the copy behind the veil and
+  never crosses the artwork side. New 'navy' preset (slower, narrower,
+  deeper, biased low after a first pass ran it through the promise cards'
+  text) mounted in FoundingPromiseSection behind the glass cards: red-on-
+  navy, the register the removed break band used to carry. RibbonBand
+  component + flow-a/flow-b assets DELETED along with both page mounts:
+  section seams are flat colour changes again; the ribbon motif now lives in
+  the two live 3D scenes plus the two static side peeks (Pricing, footer).

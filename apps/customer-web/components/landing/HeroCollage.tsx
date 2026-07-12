@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react'
 import { useScrollLinked } from './scroll'
 
 // WebGL is client-only; the hero must never block on it
-const HeroRibbon3D = dynamic(() => import('./HeroRibbon3D').then((m) => m.HeroRibbon3D), { ssr: false })
+const RibbonScene3D = dynamic(() => import('./RibbonScene3D').then((m) => m.RibbonScene3D), { ssr: false })
 
 /**
  * The owner's approved hero artwork (2026-07-08), brought to life in layers:
@@ -146,10 +146,21 @@ export function HeroCollage() {
 
   return (
     <div ref={ref} className="absolute inset-0 overflow-hidden" aria-hidden="true" style={{ background: GROUND, pointerEvents: 'auto', perspective: 1600 }}>
-      {/* The live 3D brand ribbon flows BEHIND the artwork: the collage,
-          veil and floor fade all paint above it, so the owner's art keeps
-          top billing and the scene gains true depth */}
-      {!reduceMotion && <HeroRibbon3D />}
+      {/* The live 3D brand ribbon flows through the LEFT side only (owner
+          2026-07-12: the artwork side was too busy with the band behind it):
+          the canvas stops at 58% and fades out before the artwork begins */}
+      {!reduceMotion && (
+        <div
+          className="absolute inset-y-0 left-0 pointer-events-none"
+          style={{
+            width: '58%',
+            maskImage: 'linear-gradient(90deg, black 62%, transparent 100%)',
+            WebkitMaskImage: 'linear-gradient(90deg, black 62%, transparent 100%)',
+          }}
+        >
+          <RibbonScene3D preset="hero" />
+        </div>
+      )}
       {/* 76% height: the group breathes instead of pressing the edges */}
       <motion.div
         className="absolute right-[4%] top-1/2 h-[76%] max-w-[92%]"

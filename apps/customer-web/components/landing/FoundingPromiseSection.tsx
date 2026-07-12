@@ -1,7 +1,10 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { motion } from 'framer-motion'
 import type { ReactNode } from 'react'
+
+const RibbonScene3D = dynamic(() => import('./RibbonScene3D').then((m) => m.RibbonScene3D), { ssr: false })
 
 const EASE = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
@@ -65,6 +68,12 @@ export function FoundingPromiseSection() {
             'radial-gradient(600px circle at 0% 48%, rgba(226,12,4,0.16), transparent 54%), radial-gradient(420px circle at 100% 120%, rgba(200,50,0,0.14), transparent 50%)',
         }}
       />
+
+      {/* The live 3D brand ribbon, slower and deeper here: red over navy is
+          the dramatic register the removed break band used to carry */}
+      <div className="hidden lg:block absolute inset-0 pointer-events-none" aria-hidden="true">
+        <RibbonScene3D preset="navy" />
+      </div>
 
       <div className="relative max-w-7xl mx-auto">
         <motion.div

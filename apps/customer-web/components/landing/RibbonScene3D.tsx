@@ -1,32 +1,79 @@
 'use client'
 
 import { Canvas, useFrame } from '@react-three/fiber'
-import { useInView } from 'framer-motion'
+import { useInView, useReducedMotion } from 'framer-motion'
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 
 /**
- * The brand ribbon, live in WebGL (owner 2026-07-08: add 3D elements to the
- * hero). One element done properly: the voucher band from the concept sheets
- * as a real-time 3D object, undulating and twisting slowly through the hero
- * space BEHIND the owner's artwork (the collage, veil and floor fade all
- * render above it, so the artwork keeps top billing and gains true depth).
+ * The brand ribbon as a live WebGL object, reusable through the landing page
+ * (owner 2026-07-12: 3D through the page; the hero band must flow AWAY from
+ * the artwork side; the static break ribbons are gone, this is the ribbon's
+ * home now). A swept rectangular cross-section with duplicated vertices per
+ * face so the edges stay crisp. ~220 rings recomputed per frame: cheap.
  *
- * The band is a swept rectangular cross-section with duplicated vertices per
- * face so its edges stay crisp (smoothed normals would melt it into a tube).
- * ~220 rings recomputed per frame on the CPU: 1.7k verts, cheap. The canvas
- * only runs while the hero is on screen, and never mounts for reduced-motion
- * visitors (they get the static artwork alone).
+ * Mount inside a positioned wrapper; the canvas fills it. Reduced-motion
+ * visitors get nothing (static art carries the page for them), and the
+ * render loop stops whenever the wrapper leaves the viewport.
  */
 
 const RINGS = 220
-const HALF_W = 0.72 // band half-width
-const HALF_T = 0.055 // band half-thickness: the visible edge
 
-function RibbonMesh() {
+type Preset = {
+  speed: number
+  halfW: number
+  halfT: number
+  span: number
+  yBase: number
+  ampY: number
+  ampY2: number
+  ampZ: number
+  zBase: number
+  color: string
+  ambient: number
+  key: number
+  rim: number
+}
+
+const PRESETS: Record<'hero' | 'navy', Preset> = {
+  // Cream hero, left side: a soft current under the copy, behind the veil
+  hero: {
+    speed: 1,
+    halfW: 0.72,
+    halfT: 0.055,
+    span: 30,
+    yBase: 0.5,
+    ampY: 1.9,
+    ampY2: 0.45,
+    ampZ: 1.5,
+    zBase: -1.3,
+    color: '#DE1004',
+    ambient: 0.85,
+    key: 1.5,
+    rim: 0.5,
+  },
+  // Navy sections: slower, narrower, deeper, and biased low so it grazes
+  // beneath the content more often than through it
+  navy: {
+    speed: 0.55,
+    halfW: 0.6,
+    halfT: 0.05,
+    span: 34,
+    yBase: -1.0,
+    ampY: 1.2,
+    ampY2: 0.35,
+    ampZ: 1.2,
+    zBase: -2.0,
+    color: '#E20C04',
+    ambient: 0.5,
+    key: 1.3,
+    rim: 0.7,
+  },
+}
+
+function RibbonMesh({ p }: { p: Preset }) {
   const geometry = useMemo(() => {
     const geom = new THREE.BufferGeometry()
-    // 4 side strips, each with its own vertex pair per ring => sharp edges
     const vertCount = 4 * (RINGS + 1) * 2
     geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertCount * 3), 3))
     const indices: number[] = []
@@ -58,44 +105,41 @@ function RibbonMesh() {
   )
 
   useFrame(({ clock }) => {
-    const time = clock.elapsedTime
+    const time = clock.elapsedTime * p.speed
     const pos = geometry.attributes.position as THREE.BufferAttribute
     const arr = pos.array as Float32Array
     const { c, T, U, V, corner, p0, p1 } = scratch
 
     const path = (t: number, out: THREE.Vector3) => {
       out.set(
-        (t - 0.5) * 36,
-        0.5 + 1.9 * Math.sin(t * Math.PI * 2.2 + time * 0.42) + 0.45 * Math.sin(t * Math.PI * 4.6 - time * 0.27),
-        -1.3 + 1.5 * Math.sin(t * Math.PI * 1.4 + time * 0.33),
+        (t - 0.5) * p.span,
+        p.yBase + p.ampY * Math.sin(t * Math.PI * 2.2 + time * 0.42) + p.ampY2 * Math.sin(t * Math.PI * 4.6 - time * 0.27),
+        p.zBase + p.ampZ * Math.sin(t * Math.PI * 1.4 + time * 0.33),
       )
     }
 
     for (let i = 0; i <= RINGS; i++) {
       const t = i / RINGS
       path(t, c)
-      // tangent by central difference
       path(Math.min(1, t + 0.004), p1)
       path(Math.max(0, t - 0.004), p0)
       T.subVectors(p1, p0).normalize()
-      // frame: U starts screen-vertical, V faces the camera, then both twist
       U.set(0, 1, 0)
       U.addScaledVector(T, -U.dot(T)).normalize()
       V.crossVectors(T, U).normalize()
       const twist = 1.05 * Math.sin(t * Math.PI * 1.8 + time * 0.5) + 0.35 * Math.sin(time * 0.21)
       const cos = Math.cos(twist)
       const sin = Math.sin(twist)
-      // rotate U, V around T
       const ux = U.x * cos + V.x * sin
       const uy = U.y * cos + V.y * sin
       const uz = U.z * cos + V.z * sin
       V.set(V.x * cos - U.x * sin, V.y * cos - U.y * sin, V.z * cos - U.z * sin)
       U.set(ux, uy, uz)
 
-      corner[0].copy(c).addScaledVector(U, HALF_W).addScaledVector(V, HALF_T)
-      corner[1].copy(c).addScaledVector(U, -HALF_W).addScaledVector(V, HALF_T)
-      corner[2].copy(c).addScaledVector(U, -HALF_W).addScaledVector(V, -HALF_T)
-      corner[3].copy(c).addScaledVector(U, HALF_W).addScaledVector(V, -HALF_T)
+      corner[0].copy(c).addScaledVector(U, p.halfW).addScaledVector(V, p.halfT)
+      corner[1].copy(c).addScaledVector(U, -p.halfW).addScaledVector(V, p.halfT)
+      corner[2].copy(c).addScaledVector(U, -p.halfW).addScaledVector(V, -p.halfT)
+      corner[3].copy(c).addScaledVector(U, p.halfW).addScaledVector(V, -p.halfT)
 
       for (let s = 0; s < 4; s++) {
         const a = corner[s]
@@ -115,14 +159,18 @@ function RibbonMesh() {
 
   return (
     <mesh geometry={geometry} frustumCulled={false}>
-      <meshStandardMaterial color="#DE1004" roughness={0.34} metalness={0.05} side={THREE.DoubleSide} />
+      <meshStandardMaterial color={p.color} roughness={0.34} metalness={0.05} side={THREE.DoubleSide} />
     </mesh>
   )
 }
 
-export function HeroRibbon3D() {
+export function RibbonScene3D({ preset }: { preset: keyof typeof PRESETS }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const inView = useInView(wrapRef, { margin: '200px' })
+  const reduceMotion = useReducedMotion()
+  const p = PRESETS[preset]
+
+  if (reduceMotion) return null
 
   return (
     <div ref={wrapRef} className="absolute inset-0 pointer-events-none" aria-hidden="true">
@@ -133,10 +181,10 @@ export function HeroRibbon3D() {
         camera={{ fov: 35, position: [0, 0, 13] }}
         style={{ position: 'absolute', inset: 0 }}
       >
-        <ambientLight intensity={0.85} color="#FFF4EC" />
-        <directionalLight position={[4, 6, 8]} intensity={1.5} color="#FFFFFF" />
-        <directionalLight position={[-6, -3, -4]} intensity={0.5} color="#FF9070" />
-        <RibbonMesh />
+        <ambientLight intensity={p.ambient} color="#FFF4EC" />
+        <directionalLight position={[4, 6, 8]} intensity={p.key} color="#FFFFFF" />
+        <directionalLight position={[-6, -3, -4]} intensity={p.rim} color="#FF9070" />
+        <RibbonMesh p={p} />
       </Canvas>
     </div>
   )

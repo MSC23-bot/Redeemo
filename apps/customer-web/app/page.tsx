@@ -8,7 +8,6 @@ import { PricingSection } from '@/components/landing/PricingSection'
 import { WaitlistSection } from '@/components/landing/WaitlistSection'
 import { ForBusinessesBridgeSection } from '@/components/landing/ForBusinessesBridgeSection'
 import { AppCtaFooterSection } from '@/components/landing/AppCtaFooterSection'
-import { RibbonBand } from '@/components/landing/RibbonBand'
 import { VoucherTypesRail } from '@/components/landing/VoucherTypesRail'
 import { WhatIsRedeemoSection } from '@/components/landing/WhatIsRedeemoSection'
 import { LaunchLocalityToast } from '@/components/landing/LaunchLocalityToast'
@@ -18,12 +17,9 @@ export default function HomePage() {
   return (
     <>
       <HeroSection />
-      {/* The logo's voucher-ribbon motif as the section seam (owner direction
-          2026-07-07); two mounts only, restraint on purpose. The colours are
-          the adjoining sections' backgrounds: the ribbon IS the break. */}
-      <RibbonBand variant="a" topColor="#FFF9F5" bottomColor="#FFFFFF" />
       {/* The definition: a cold visitor learns what Redeemo IS before the
-          product cinema and social proof */}
+          product cinema and social proof. Break ribbons removed (owner
+          2026-07-12): the ribbon lives in the live 3D scenes and side peeks */}
       <WhatIsRedeemoSection />
       <TrendingPreviewSection />
       {/* Scroll-driven find/choose/redeem story on desktop; static sections on
@@ -33,7 +29,6 @@ export default function HomePage() {
           horizontally (desktop; mobile gets the static grid via ScrollStory) */}
       <VoucherTypesRail />
       <HowItWorksSection />
-      <RibbonBand variant="b" flip topColor="#FAFAF8" bottomColor="#010C35" />
       {isMarketplaceLive() ? <TestimonialsSection /> : <FoundingPromiseSection />}
       <PricingSection />
       <WaitlistSection />
