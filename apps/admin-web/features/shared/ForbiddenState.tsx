@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * ForbiddenState — the ONE shared permission-denied surface for apps/admin-web.
+ * ForbiddenState: the ONE shared permission-denied surface for apps/admin-web.
  *
  * Honesty-copy sweep (prototype-fidelity audit item #13, 2026-07-13). Before
  * this sweep every gated page/section carried its own hand-copied
@@ -11,13 +11,13 @@
  * from a fetch failure. That is the opposite of the honesty contract the
  * merged module specs establish:
  *   - docs/superpowers/specs/2026-07-10-admin-panel-module-specs/
- *     approval-queue-spec.md §A.1 (qDenied) / §A.2 (rvDenied) — grey card,
+ *     approval-queue-spec.md §A.1 (qDenied) / §A.2 (rvDenied): grey card,
  *     lock icon, names the capability, "Nothing is broken; ask an admin".
- *   - .../merchant-360-spec.md §(d) — "Permission-denied copy always names
+ *   - .../merchant-360-spec.md §(d): "Permission-denied copy always names
  *     the capability + role."
- *   - .../leads-onboarding-spec.md §A2 (pipDenied) / §A4 (assistedCapDenied)
- *     — role-interpolated copy, "Ask a Super Admin if you need it."
- *   - .../cross-module-notes.md §4 — "permission-denied-with-capability+role"
+ *   - .../leads-onboarding-spec.md §A2 (pipDenied) / §A4 (assistedCapDenied):
+ *     role-interpolated copy, "Ask a Super Admin if you need it."
+ *   - .../cross-module-notes.md §4: "permission-denied-with-capability+role"
  *     is listed as a shared construct to "build once, reuse"; §5 lists the
  *     per-screen state switcher as prototype-only (this component replaces
  *     it with the real, role-aware render).
@@ -39,9 +39,9 @@
  * site comments where this applies).
  *
  * Two render shapes:
- *   - `variant: 'page'` (default) — the full-page centred treatment for a
+ *   - `variant: 'page'` (default): the full-page centred treatment for a
  *     whole gated route.
- *   - `variant: 'section'` — a dashed-border inline panel for a single
+ *   - `variant: 'section'`: a dashed-border inline panel for a single
  *     denied tab/section inside an otherwise-visible workspace (e.g. a
  *     Merchant 360 tab the viewer cannot read while the rest of the
  *     workspace renders normally).

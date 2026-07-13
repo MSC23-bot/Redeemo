@@ -1,8 +1,8 @@
 /**
- * ErrorState — the shared fetch-failure component (honesty-copy sweep,
+ * ErrorState: the shared fetch-failure component (honesty-copy sweep,
  * 2026-07-13). Locks the honesty contract from approval-queue-spec.md §A.1
  * (qError): error copy must state what failed, reassure that no items were
- * changed, and offer a retry — and must never read like an empty result set.
+ * changed, and offer a retry; it must never read like an empty result set.
  */
 import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -27,11 +27,11 @@ describe('ErrorState', () => {
   it('carries no em-dash', () => {
     render(<ErrorState subject="the team roster" onRetry={jest.fn()} testId="team-error" />)
     const text = screen.getByTestId('team-error').textContent ?? ''
-    expect(text).not.toMatch(/—/)
+    expect(text).not.toMatch(/\u2014/)
   })
 })
 
-describe('ErrorState vs an empty-result message — never confusable', () => {
+describe('ErrorState vs an empty-result message: never confusable', () => {
   it('uses destructive/red styling, unlike a muted empty-state message', () => {
     render(<ErrorState subject="redemptions" onRetry={jest.fn()} testId="redemptions-error" />)
     const el = screen.getByTestId('redemptions-error')

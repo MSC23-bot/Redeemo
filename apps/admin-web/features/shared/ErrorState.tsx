@@ -1,16 +1,16 @@
 /**
- * ErrorState — the ONE shared fetch-failure surface for apps/admin-web.
+ * ErrorState: the ONE shared fetch-failure surface for apps/admin-web.
  *
  * Honesty-copy sweep (prototype-fidelity audit item #13, 2026-07-13). Every
  * gated page previously carried its own hand-copied "ErrorState" that said
- * "Could not load X. Check your connection and try again." — plausible on
- * its own, but never stated that nothing had been changed, which is exactly
+ * "Could not load X. Check your connection and try again." (plausible on
+ * its own, but never stated that nothing had been changed), which is exactly
  * the reassurance the module specs require and which lets an operator tell
  * a genuine failure apart from an empty result set at a glance:
  *   - docs/superpowers/specs/2026-07-10-admin-panel-module-specs/
- *     approval-queue-spec.md §A.1 (qError) — "The service did not respond.
+ *     approval-queue-spec.md §A.1 (qError): "The service did not respond.
  *     No items were changed. This is different from an empty queue."
- *   - .../cross-module-notes.md §5 — the full per-screen state set requires
+ *   - .../cross-module-notes.md §5: the full per-screen state set requires
  *     a "DISTINCT error" state, never mistakable for empty.
  *
  * `subject` names what failed to load (e.g. "the approval queue", "this
@@ -18,7 +18,7 @@
  * so an operator learns the pattern once. The red/destructive styling (kept
  * from the pre-sweep local components) is deliberately the OPPOSITE tone from
  * ForbiddenState's calm grey/lock treatment, and neither one is the muted,
- * borderless "No X match" copy each list's own empty state uses — three
+ * borderless "No X match" copy each list's own empty state uses: three
  * visually and textually distinct states, never confusable with one another.
  */
 import { AlertCircle } from 'lucide-react'

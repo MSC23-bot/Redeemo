@@ -1,8 +1,8 @@
 /**
- * ForbiddenState — the shared permission-denied component (honesty-copy sweep,
+ * ForbiddenState: the shared permission-denied component (honesty-copy sweep,
  * 2026-07-13). Locks the honesty contract from the merged module specs:
  * denied copy must name the capability AND the viewer's role, state "Nothing
- * is broken", and point to a Super Admin — see the component's own doc
+ * is broken", and point to a Super Admin; see the component's own doc
  * comment for the exact spec citations.
  */
 import React from 'react'
@@ -32,7 +32,7 @@ function mockRole(role: string | null) {
   })
 }
 
-describe('ForbiddenState — page variant', () => {
+describe('ForbiddenState: page variant', () => {
   it('names the capability, the viewer role, and reassures nothing is broken', () => {
     mockRole('FINANCE')
     render(
@@ -73,11 +73,14 @@ describe('ForbiddenState — page variant', () => {
       <ForbiddenState heading="You cannot create merchant drafts." capability="merchant:create-draft" testId="create-draft-forbidden" />
     )
     const text = screen.getByTestId('create-draft-forbidden').textContent ?? ''
-    expect(text).not.toMatch(/—/)
+    // Unicode escape, not a literal em-dash character, so this file's own
+    // added lines stay clear of the house em-dash ban while still testing
+    // for the character's absence in the rendered copy.
+    expect(text).not.toMatch(/\u2014/)
   })
 })
 
-describe('ForbiddenState — section variant (denied tab inside an otherwise-visible workspace)', () => {
+describe('ForbiddenState: section variant (denied tab inside an otherwise-visible workspace)', () => {
   it('names the subject, capability, and role, distinct from the page variant heading style', () => {
     mockRole('SUPPORT')
     render(
