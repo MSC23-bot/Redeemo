@@ -44,6 +44,8 @@ describe('FIELD baseline (pinned)', () => {
     'merchant:manage-branches',
     'merchant:manage-documents',
     'merchant:manage-vouchers',
+    // MerchantNote packet: the universal notes cap is in every baseline (incl FIELD).
+    'merchant:notes',
   ]
 
   it('FIELD holds exactly the expected baseline set (order-insensitive)', () => {
@@ -101,10 +103,13 @@ describe('resolveEffectiveCapabilities — baseline UNION grantable grants', () 
     expect(occurrences).toBe(1)
   })
 
-  it('FINANCE/CONTENT/SUPPORT baselines are empty', () => {
-    expect(resolveEffectiveCapabilities('FINANCE', [])).toEqual([])
-    expect(resolveEffectiveCapabilities('CONTENT', [])).toEqual([])
-    expect(resolveEffectiveCapabilities('SUPPORT', [])).toEqual([])
+  it('FINANCE/CONTENT/SUPPORT baselines hold ONLY the universal merchant:notes cap', () => {
+    // MerchantNote packet (OD2): internal notes are readable + writable by every
+    // role, so `merchant:notes` is the sole baseline entry for these three roles
+    // (they still hold no other Slice-1 capability).
+    expect(resolveEffectiveCapabilities('FINANCE', [])).toEqual(['merchant:notes'])
+    expect(resolveEffectiveCapabilities('CONTENT', [])).toEqual(['merchant:notes'])
+    expect(resolveEffectiveCapabilities('SUPPORT', [])).toEqual(['merchant:notes'])
   })
 })
 

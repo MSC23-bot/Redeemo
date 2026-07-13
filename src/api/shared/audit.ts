@@ -226,6 +226,18 @@ export type AuditEvent =
   | 'LEAD_LOST'
   | 'LEAD_CONVERTED'
   | 'LEAD_ANONYMISED'
+  // MerchantNote packet (2026-07-13, OD2). Internal per-merchant admin notes.
+  // `event` is a String column, so these are union-only literals with NO
+  // migration. entityType 'merchant', entityId = the merchant the note is on,
+  // actorId = the acting admin, metadata { noteId }; RETRACTED carries the reason
+  // in the `reason` field. The note BODY (and priorBody) NEVER enters an audit
+  // row: content lives in MerchantNoteEvent (the lead-packet discipline).
+  //   MERCHANT_NOTE_ADDED    : a note was created.
+  //   MERCHANT_NOTE_EDITED   : an author edited their own active note.
+  //   MERCHANT_NOTE_RETRACTED: an author soft-deleted their own active note (reason).
+  | 'MERCHANT_NOTE_ADDED'
+  | 'MERCHANT_NOTE_EDITED'
+  | 'MERCHANT_NOTE_RETRACTED'
 
 export interface AuditContext {
   entityId: string

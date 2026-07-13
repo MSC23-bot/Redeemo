@@ -78,6 +78,14 @@ describe('M2 — admin capability map', () => {
         expect(adminHasCapability(role, 'redemption:read')).toBe(false)
       }
     })
+
+    it('MerchantNote packet: merchant:notes is UNIVERSAL — held by EVERY role', () => {
+      // OD2 owner decision: internal notes readable + writable by all roles. Unlike
+      // every other cap above, FINANCE/CONTENT/SUPPORT DO hold this one.
+      for (const role of ['SUPER_ADMIN', 'OPERATIONS', 'FIELD', 'FINANCE', 'CONTENT', 'SUPPORT']) {
+        expect(adminHasCapability(role, 'merchant:notes')).toBe(true)
+      }
+    })
   })
 
   describe('requireAdminCapability (preHandler)', () => {
