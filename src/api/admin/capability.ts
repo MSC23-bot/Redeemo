@@ -92,6 +92,16 @@ export type AdminCapability =
   // leads. The MerchantLead pipeline routes are a sibling packet; this literal
   // is declared here so ROLE_CAPABILITIES.FIELD can reference it now.
   | 'lead:manage'
+  // MerchantNote packet (2026-07-13, owner-locked OD2 grill-me 2026-07-10):
+  // gates the internal per-merchant admin notes surface (list / add / edit-own /
+  // retract-own). UNIVERSAL by owner decision: readable AND writable by EVERY
+  // admin role (OPERATIONS, FIELD, FINANCE, CONTENT, SUPPORT; SUPER_ADMIN via the
+  // short-circuit), so it is added to ALL FIVE role baselines below. It is NOT in
+  // GRANTABLE_CAPABILITIES: a grant is pointless when every role already holds it.
+  // A universal cap (rather than an ungated surface) keeps the fail-closed cap-
+  // gated house pattern; FINANCE/CONTENT/SUPPORT baselines were empty, so no
+  // pre-existing cap could express "all roles".
+  | 'merchant:notes'
   // Team & Roles S1: gates the entire Team & Roles surface (create admin
   // account, set base role, deactivate, grant/revoke curated capabilities).
   // Intentionally NOT in ALL_SLICE1_CAPS and NOT in ANY role baseline (incl.
@@ -112,6 +122,8 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:submit',
   'merchant:manage-vouchers',
   'redemption:read',
+  // MerchantNote packet: OPERATIONS holds the universal notes cap via its list.
+  'merchant:notes',
 ]
 
 // Team & Roles S1: FIELD baseline (owner-locked UNION set, 2026-07-10: FIELD
@@ -133,18 +145,22 @@ const FIELD_CAPABILITIES: AdminCapability[] = [
   'merchant:manage-branches',
   'merchant:manage-documents',
   'merchant:manage-vouchers',
+  // MerchantNote packet: FIELD holds the universal notes cap.
+  'merchant:notes',
 ]
 
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `adminHasCapability`
 // so it implicitly holds every CURRENT and FUTURE capability without map
 // upkeep). OPERATIONS runs the merchant lifecycle. FIELD holds the rep baseline
-// above. FINANCE/CONTENT/SUPPORT hold none of the Slice-1 capabilities.
+// above. FINANCE/CONTENT/SUPPORT hold NO Slice-1 capabilities; their only
+// baseline entry is the universal `merchant:notes` (MerchantNote packet OD2:
+// internal notes are readable + writable by EVERY role).
 const ROLE_CAPABILITIES: Record<string, AdminCapability[]> = {
   OPERATIONS: ALL_SLICE1_CAPS,
   FIELD: FIELD_CAPABILITIES,
-  FINANCE: [],
-  CONTENT: [],
-  SUPPORT: [],
+  FINANCE: ['merchant:notes'],
+  CONTENT: ['merchant:notes'],
+  SUPPORT: ['merchant:notes'],
 }
 
 // Team & Roles S1: the ONLY capabilities a SUPER_ADMIN may grant to another

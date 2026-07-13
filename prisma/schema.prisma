@@ -492,6 +492,10 @@ model Merchant {
   pendingEdits         MerchantPendingEdit[]
   branchPendingEdits   BranchPendingEdit[]
   voucherPendingEdits  VoucherPendingEdit[]
+  // MerchantNote packet (2026-07-13): internal admin notes. Back-relation only;
+  // the FK lives on MerchantNote.merchantId, so this edit is relation-side and
+  // the note migration stays create-only (no ALTER of the Merchant table).
+  notes                MerchantNote[]
 
   @@index([status])
   @@index([primaryCategoryId])
@@ -2099,4 +2103,72 @@ model MerchantLead {
   @@index([assignedRepId])
   @@index([dueDate])
   @@index([anonymisedAt, lastActivityAt]) // anonymisation sweep predicate (anonymisedAt IS NULL + lastActivityAt < cutoff)
+}
+
+// ─────────────────────────────────────────
+// MERCHANT NOTE (internal admin notes, packet 2026-07-13)
+// ─────────────────────────────────────────
+
+// Lifecycle state of a note. ACTIVE notes are editable/retractable by their
+// author; RETRACT is a SOFT delete (status -> RETRACTED, body preserved).
+enum MerchantNoteStatus {
+  ACTIVE
+  RETRACTED
+}
+
+// The three note lifecycle actions, each appended as a MerchantNoteEvent.
+enum MerchantNoteAction {
+  ADDED
+  EDITED
+  RETRACTED
+}
+
+// Internal per-merchant admin note (D51 Merchant 360 Tab 8; owner-locked OD2
+// grill-me 2026-07-10). Readable + writable by ALL admin roles via the universal
+// `merchant:notes` capability (src/api/admin/capability.ts). Notes are NEVER hard-
+// deleted: a retract soft-deletes (status RETRACTED + retractedBy/At/Reason, body
+// preserved). Edit and retract are OWN + ACTIVE only (author == the acting admin);
+// v1 has no moderation override (not even SUPER_ADMIN edits/retracts another
+// author's note). Every mutation appends a MerchantNoteEvent (ADDED /
+// EDITED-with-priorBody / RETRACTED-with-reason). No customer personal data
+// belongs in a note body (DSAR content lives elsewhere; UI hint later).
+// authorAdminId / retractedById are plain AdminUser id strings (NO FK): three
+// admin-referencing columns across these two tables would form a growing FK web,
+// so they follow the MerchantLead.assignedRepId / AdminApproval.claimedById
+// bare-id precedent; integrity is enforced in the service layer. The structural
+// parent relation (merchantId) keeps a real RESTRICT FK (like AdminCapabilityGrant),
+// and MerchantNote is a leaf table, so the migration stays create-only.
+model MerchantNote {
+  id              String              @id @default(uuid())
+  merchantId      String
+  merchant        Merchant            @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  authorAdminId   String
+  body            String
+  status          MerchantNoteStatus  @default(ACTIVE)
+  editedAt        DateTime?
+  retractedById   String?
+  retractedAt     DateTime?
+  retractedReason String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  events          MerchantNoteEvent[]
+
+  @@index([merchantId, createdAt])
+}
+
+// Append-only history for a MerchantNote: one row per lifecycle action. priorBody
+// is set on EDITED only (the version being replaced); reason on RETRACTED only.
+// actorAdminId is a plain AdminUser id string (see the MerchantNote FK note). The
+// structural parent relation (noteId) keeps a real RESTRICT FK.
+model MerchantNoteEvent {
+  id           String             @id @default(uuid())
+  noteId       String
+  note         MerchantNote       @relation(fields: [noteId], references: [id], onDelete: Restrict)
+  action       MerchantNoteAction
+  actorAdminId String
+  priorBody    String?
+  reason       String?
+  createdAt    DateTime           @default(now())
+
+  @@index([noteId, createdAt])
 }
