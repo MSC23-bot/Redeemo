@@ -1,8 +1,13 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { useScrollLinked } from './scroll'
+
+// Navy background, red radial glow and the live 3D ribbon: moved here from
+// the retired Redeemo Standard section (owner 2026-07-13).
+const RibbonScene3D = dynamic(() => import('./RibbonScene3D').then((m) => m.RibbonScene3D), { ssr: false })
 
 /**
  * The voucher shelf (owner direction 2026-07-08): the seven voucher types as
@@ -257,8 +262,9 @@ function RailCard({
       whileTap={{ rotate: 0, y: -8, scale: 1.02 }}
       transition={{ type: 'spring', stiffness: 260, damping: 22 }}
     >
-      {/* Shadow on a wrapper so the die-cut notches read in the silhouette */}
-      <div className="absolute inset-0" style={{ filter: 'drop-shadow(0 14px 26px rgba(1,12,53,0.1))' }}>
+      {/* Shadow on a wrapper so the die-cut notches read in the silhouette;
+          deeper now the cards lift off a navy stage rather than cream */}
+      <div className="absolute inset-0" style={{ filter: 'drop-shadow(0 18px 34px rgba(0,0,0,0.38))' }}>
         <div className="relative h-full w-full bg-white overflow-hidden" style={{ clipPath: cardClip(width, height) }}>
           {/* Header: the type's world, tinted in its colour */}
           <div
@@ -309,12 +315,12 @@ function RailCard({
 function ShelfHeader() {
   return (
     <div className="max-w-7xl mx-auto w-full px-6">
-      <p className="text-[12px] font-bold tracking-[0.2em] uppercase text-[#E20C04] mb-4">What members get</p>
+      <p className="text-[12px] font-bold tracking-[0.2em] uppercase text-white/40 mb-4">What members get</p>
       <div className="flex flex-wrap items-end justify-between gap-6">
-        <h2 className="font-display text-[#010C35] leading-[1.06]" style={{ fontSize: 'clamp(30px, 3.8vw, 54px)', letterSpacing: '-0.8px' }}>
+        <h2 className="font-display text-white leading-[1.06]" style={{ fontSize: 'clamp(30px, 3.8vw, 54px)', letterSpacing: '-0.8px' }}>
           Seven ways to pay less.
         </h2>
-        <p className="text-[15px] text-[#4B5563] leading-[1.7] max-w-[420px]">
+        <p className="text-[15px] text-white/55 leading-[1.7] max-w-[420px]">
           Every offer on Redeemo is one of seven clear voucher types, always
           labelled, so you know exactly what you are getting before you go.
         </p>
@@ -371,17 +377,27 @@ export function VoucherTypesRail() {
   // Reduced-motion visitors get a plain swipe carousel below.
   if (reduceMotion) {
     return (
-      <section aria-label="Voucher types" className="py-16" style={{ background: '#FFF9F5' }}>
-        <div className="mb-8">
+      <section aria-label="Voucher types" className="relative overflow-hidden py-16" style={{ background: '#010C35' }}>
+        {/* Red radial glow, matching the Redeemo Standard treatment it was
+            moved from (owner 2026-07-13) */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(600px circle at 0% 48%, rgba(226,12,4,0.16), transparent 54%), radial-gradient(420px circle at 100% 120%, rgba(200,50,0,0.14), transparent 50%)',
+          }}
+        />
+        <div className="relative mb-8">
           <ShelfHeader />
         </div>
-        <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 px-6 pb-6" style={{ scrollbarWidth: 'none' }}>
+        <div className="relative flex overflow-x-auto snap-x snap-mandatory gap-4 px-6 pb-6" style={{ scrollbarWidth: 'none' }}>
           {TYPES.map((type, i) => (
             <RailCard key={type.chip} type={type} index={i} width={318} height={330} tilt={false} />
           ))}
         </div>
-        <div className="px-6 mt-2">
-          <p className="text-[12px] text-[#6B7280] leading-[1.6]">Swipe for more · {FOOTER_LINE}</p>
+        <div className="relative px-6 mt-2">
+          <p className="text-[12px] text-white/50 leading-[1.6]">Swipe for more · {FOOTER_LINE}</p>
         </div>
       </section>
     )
@@ -390,38 +406,74 @@ export function VoucherTypesRail() {
   return (
     <>
       {/* Desktop: pinned stage, vertical scroll sweeps the shelf sideways */}
-      <section ref={trackRef} aria-label="Voucher types" className="relative hidden lg:block" style={{ height: '280vh', background: '#FFF9F5' }}>
+      {/* no overflow-hidden on the pinned tracks: it breaks position:sticky;
+          the sticky stage inside clips its own layers */}
+      <section ref={trackRef} aria-label="Voucher types" className="relative hidden lg:block" style={{ height: '280vh', background: '#010C35' }}>
         <div ref={stageRef} className="sticky top-0 h-screen overflow-hidden flex flex-col justify-center">
-          <div className="mb-12">
+          {/* Red radial glow, matching the Redeemo Standard treatment it was
+              moved from (owner 2026-07-13) */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background:
+                'radial-gradient(600px circle at 0% 48%, rgba(226,12,4,0.16), transparent 54%), radial-gradient(420px circle at 100% 120%, rgba(200,50,0,0.14), transparent 50%)',
+            }}
+          />
+
+          {/* The live 3D brand ribbon, carried over from the retired section
+              so the shelf keeps the navy stage's dramatic register */}
+          <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+            <RibbonScene3D preset="navy" />
+          </div>
+
+          <div className="relative mb-12">
             <ShelfHeader />
           </div>
 
-          <motion.div className="flex items-center" style={{ x, gap: GAP, paddingLeft: leftPad, paddingRight: leftPad }}>
+          <motion.div className="relative flex items-center" style={{ x, gap: GAP, paddingLeft: leftPad, paddingRight: leftPad }}>
             {TYPES.map((type, i) => (
               <RailCard key={type.chip} type={type} index={i} />
             ))}
           </motion.div>
 
           {/* Perforated progress line: the tear advances as the shelf sweeps */}
-          <div className="max-w-7xl mx-auto w-full px-6 mt-12">
+          <div className="relative max-w-7xl mx-auto w-full px-6 mt-12">
             <div className="relative h-[3px]">
-              <div className="absolute inset-0 border-t-[3px] border-dotted border-[#010C35]/12" />
+              <div className="absolute inset-0 border-t-[3px] border-dotted border-white/20" />
               <motion.div className="absolute inset-y-0 left-0 w-full origin-left" style={{ scaleX: progress, background: 'var(--brand-gradient)' }} />
             </div>
-            <p className="mt-4 text-[12px] text-[#6B7280]">{FOOTER_LINE}</p>
+            <p className="mt-4 text-[12px] text-white/50">{FOOTER_LINE}</p>
           </div>
         </div>
       </section>
 
       {/* Mobile: the SAME pinned sweep, tilts and all, plus native swipe */}
-      <section ref={mTrackRef} aria-label="Voucher types" className="relative lg:hidden" style={{ height: '240vh', background: '#FFF9F5' }}>
+      <section ref={mTrackRef} aria-label="Voucher types" className="relative lg:hidden" style={{ height: '240vh', background: '#010C35' }}>
         <div className="sticky top-0 h-[100svh] overflow-hidden flex flex-col justify-center">
-          <div className="mb-7">
+          {/* Red radial glow, matching the Redeemo Standard treatment it was
+              moved from (owner 2026-07-13) */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background:
+                'radial-gradient(600px circle at 0% 48%, rgba(226,12,4,0.16), transparent 54%), radial-gradient(420px circle at 100% 120%, rgba(200,50,0,0.14), transparent 50%)',
+            }}
+          />
+
+          {/* The live 3D brand ribbon, mobile included (owner 2026-07-13):
+              the 3D must travel */}
+          <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+            <RibbonScene3D preset="navy" />
+          </div>
+
+          <div className="relative mb-7">
             <ShelfHeader />
           </div>
           <div
             ref={mRowRef}
-            className="flex items-center overflow-x-auto gap-4 px-6 pt-3 pb-5"
+            className="relative flex items-center overflow-x-auto gap-4 px-6 pt-3 pb-5"
             style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
             onTouchStart={() => { touchingRef.current = true }}
             onTouchEnd={() => { window.setTimeout(() => { touchingRef.current = false }, 600) }}
@@ -430,12 +482,12 @@ export function VoucherTypesRail() {
               <RailCard key={type.chip} type={type} index={i} width={286} height={332} />
             ))}
           </div>
-          <div className="px-6 mt-5">
+          <div className="relative px-6 mt-5">
             <div className="relative h-[3px]">
-              <div className="absolute inset-0 border-t-[3px] border-dotted border-[#010C35]/12" />
+              <div className="absolute inset-0 border-t-[3px] border-dotted border-white/20" />
               <motion.div className="absolute inset-y-0 left-0 w-full origin-left" style={{ scaleX: mProgress, background: 'var(--brand-gradient)' }} />
             </div>
-            <p className="mt-3 text-[11.5px] text-[#6B7280] leading-[1.6]">{FOOTER_LINE}</p>
+            <p className="mt-3 text-[11.5px] text-white/50 leading-[1.6]">{FOOTER_LINE}</p>
           </div>
         </div>
       </section>

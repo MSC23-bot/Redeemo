@@ -879,3 +879,19 @@ edited by this workstream.
   register-interest email form remains as the secondary path. tsc + lint
   clean; verified: popup at 3s absent / 7s present, business hero cards
   desktop, all three converted panels, 2 portal links live.
+- REDEEMO STANDARD RETIRED; ITS WORLD MOVES TO THE VOUCHER SHELF (owner
+  2026-07-13; Sonnet 5 executed the restyle to a lead brief, lead-reviewed):
+  FoundingPromiseSection is DELETED from the landing page (its three
+  promises repeated the page); its navy background, red radial glows and
+  the live navy 3D ribbon now power "Seven ways to pay less" at every
+  viewport (ribbon inside both pinned stages; glow also on the
+  reduced-motion carousel). Content recoloured for navy: heading white,
+  kicker white/40, intro white/55, footer lines white/50, progress track
+  border-white/20 (brand-gradient fill unchanged), card drop-shadow
+  deepened to rgba(0,0,0,0.38); card internals untouched. page.tsx:
+  TestimonialsSection now renders only at marketplace-live. LEAD REVIEW
+  CATCH: the brief wrongly asked for overflow-hidden on the pinned
+  section elements, which breaks position:sticky (the mobile stage
+  stopped pinning): removed from both pinned tracks (the sticky stage
+  clips its own layers; the static reduced-motion section keeps it).
+  tsc clean; verified pinned navy shelf + ribbon at 1440x900 and 390x780.
