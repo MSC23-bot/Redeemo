@@ -13,8 +13,13 @@
  *   4 Vouchers               -> VouchersTab (RMV co-build; self-contained)
  *   5 Staff and access       -> HONESTLY GATED (no admin invite-on-behalf route)
  *   6 Documents              -> DocumentsTab (MerchantDocumentsCard; self-contained)
- *   7 Contract               -> HONESTLY GATED (OD6: no admin signing route);
- *                               shows the real contract gate from submitChecklist
+ *   7 Contract               -> ContractCeremony (D65 in-person signing). OD6
+ *                               correction (owner decision 2026-07-10, spec
+ *                               2026-07-10-d65-in-person-signing): the rep
+ *                               WITNESSES the owner signing on the rep's device
+ *                               (admin-never-signs preserved: the rep is the
+ *                               witness, never the signatory). The portal
+ *                               claim/click-to-agree path stays the fallback.
  *   8 Go-live review         -> SubmitForReviewCard + SubmitMerchantDialog
  *   9 Handover               -> honest claim-handover copy + owner-contact block
  *
@@ -45,6 +50,7 @@ import { BranchesTab } from '@/features/merchants/m360/BranchesTab'
 import { VouchersTab } from '@/features/merchants/m360/VouchersTab'
 import { DocumentsTab } from '@/features/merchants/m360/DocumentsTab'
 import { SubmitForReviewCard } from '@/features/merchants/SubmitForReviewCard'
+import { ContractCeremony } from './ContractCeremony'
 import type { MerchantDetail, BranchDetail } from '@/lib/api/merchants'
 import type { WizardDerivation } from '@/lib/leads/assistedWizard'
 
@@ -164,6 +170,8 @@ export interface StepCaps {
   canManageVouchers: boolean
   canManageDocuments: boolean
   canSubmit: boolean
+  /** D65: witness the in-person contract-signing ceremony (merchant:sign-agreement). */
+  canSignAgreement: boolean
 }
 
 export interface StepCallbacks {
@@ -175,6 +183,8 @@ export interface StepCallbacks {
   onEditBranch: (branch: BranchDetail) => void
   onDeleteBranch: (branch: BranchDetail) => void
   onSubmitForReview: () => void
+  /** D65: called once the ceremony confirms signing (refetch + advance to go-live). */
+  onContractSigned: () => void
 }
 
 // ── Step 1 · Category and identity ─────────────────────────────────────────────
@@ -455,16 +465,36 @@ export function Step6Documents({
   )
 }
 
-// ── Step 7 · Contract (honestly gated, OD6) ──────────────────────────────────────
+// ── Step 7 · Contract (D65 in-person signing ceremony) ───────────────────────────
 
-export function Step7Contract({ derivation }: { derivation: WizardDerivation }) {
+/**
+ * OD6 correction (owner decision 2026-07-10, spec 2026-07-10-d65-in-person-signing):
+ * the earlier "no admin signing route, honestly gated" model is superseded. The
+ * merchant now signs in person via the witnessed ceremony: the owner reviews and
+ * types their full name (the signature of record) on the rep's device, and the rep
+ * is recorded as the witness (admin-never-signs preserved). The portal
+ * claim/click-to-agree path remains the fallback for a self-onboarding owner.
+ */
+export function Step7Contract({
+  data,
+  caps,
+  cb,
+  derivation,
+}: {
+  data: MerchantDetail
+  caps: StepCaps
+  cb: StepCallbacks
+  derivation: WizardDerivation
+}) {
   const signed = derivation.facts.contractSigned
+  const businessLegalName = data.merchant.businessName
+
   return (
     <div className="space-y-5" data-testid="assisted-step-contract">
       <StepHeading
         step={7}
         title="Contract"
-        intro="The 12-month merchant agreement. The owner signs it themselves; the operator cannot sign on their behalf."
+        intro="The 12-month merchant agreement. The owner reviews and signs it themselves, in person on this device. The operator witnesses the signing and can never sign on the owner's behalf."
       />
 
       {signed ? (
@@ -477,25 +507,32 @@ export function Step7Contract({ derivation }: { derivation: WizardDerivation }) 
             <div>
               <h2 className="text-sm font-semibold text-foreground">Agreement signed by the owner</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                The merchant agreement is signed. This is one of the go-live gates in step 8.
+                The merchant agreement is signed. This is one of the go-live gates in step 8. The
+                signed evidence is on the merchant&apos;s 360.
               </p>
             </div>
           </div>
         </div>
+      ) : caps.canSignAgreement ? (
+        <ContractCeremony
+          merchantId={data.merchant.id}
+          businessLegalName={businessLegalName}
+          onDone={cb.onContractSigned}
+        />
       ) : (
         <GatedBanner
           testId="assisted-contract-gated"
-          title="The owner signs the contract, not the operator"
+          title="Signing the contract needs the sign-agreement capability"
           body={
             <>
               <p>
-                There is no admin contract-signing-on-behalf route (OD6). Acceptance is the owner&apos;s
-                own act: the owner signs the 12-month agreement from the Merchant Portal via the
-                claim/setup link, or in person on their own session.
+                Witnessing the in-person signing needs the merchant:sign-agreement capability, which
+                your role does not hold. The owner can still sign the 12-month agreement from the
+                Merchant Portal via the claim/setup link.
               </p>
               <p>
                 The contract gate is currently <strong>not met</strong>. It shows as unmet in the
-                go-live review (step 8) until the owner signs. Skip this step; it never blocks moving
+                go-live review (step 8) until the agreement is signed. This step never blocks moving
                 between steps.
               </p>
             </>
