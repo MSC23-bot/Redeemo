@@ -68,15 +68,21 @@ export const CURRENT_AGREEMENT_VERSION = '2.0-draft'
 
 // Review-round S2: the previous production contract, restored as a NON-DRAFT registry
 // entry so production can keep serving + binding it (with truthful evidence) while the
-// current version is a draft. This is the pre-D65 `CONTRACT_TEXT` verbatim except the
-// single em-dash is a colon (project style lock: no em-dashes); the semantics are
-// identical. There was no historical content hash (pre-D65 signing carried none), so
-// nothing downstream depends on a specific legacy hash: it is computed fresh here.
+// current version is a draft. This is the pre-D65 `CONTRACT_TEXT` VERBATIM (byte-for-byte,
+// including its em-dash). There was no historical content hash (pre-D65 signing carried
+// none), so nothing downstream depends on a specific legacy hash: it is computed fresh here.
+//
+// Byte-verbatim fidelity note: this is a served LEGAL artifact - the exact pre-D65 text
+// production merchants signed. The em-dash below is PRE-EXISTING content, not authored
+// output, so it is deliberately exempt from the CLAUDE.md section 9 style lock ("no
+// em-dashes"), which governs newly authored prose, not preserved historical artifacts.
+// Do not "fix" it to a colon: that would change the bytes (and therefore the hash) of a
+// contract merchants already signed.
 export const LEGACY_CONTRACT_VERSION = '1.0'
 export const LEGACY_CONTRACT_TEXT = `
 Redeemo Merchant Agreement v${LEGACY_CONTRACT_VERSION}
 
-By accepting this agreement, you agree to offer a minimum of two Redeemo Mandatory Vouchers (RMV) on the platform. These vouchers are performance-based: you are only promoted when a customer redeems. You retain full control of your custom vouchers. Redeemo reserves the right to suspend merchants who fail to honour redeemed vouchers.
+By accepting this agreement, you agree to offer a minimum of two Redeemo Mandatory Vouchers (RMV) on the platform. These vouchers are performance-based — you are only promoted when a customer redeems. You retain full control of your custom vouchers. Redeemo reserves the right to suspend merchants who fail to honour redeemed vouchers.
 
 Full legal terms are available at redeemo.co.uk/merchant-terms.
 `.trim()

@@ -83,10 +83,12 @@ describe('agreement version registry', () => {
     expect(legacy!.isDraft).toBe(false)
     expect(legacy!.content).toBe(LEGACY_CONTRACT_TEXT)
     expect(legacy!.contentHash).toBe(computeContentHash(LEGACY_CONTRACT_TEXT))
-    // Truthful: a distinct hash from the draft, and no em-dash in the legacy text
-    // (style lock). The em-dash is built from its code point to keep the diff clean.
+    // Truthful: a distinct hash from the draft. The legacy text is the BYTE-VERBATIM
+    // historical 1.0 contract merchants actually signed, so it DOES contain its
+    // original em-dash (U+2014) - a served legal artifact, exempt from the project
+    // style lock, which governs newly authored prose, not preserved historical text.
     expect(legacy!.contentHash).not.toBe(getCurrentAgreement().contentHash)
-    expect(legacy!.content).not.toContain(String.fromCharCode(0x2014))
+    expect(legacy!.content).toContain(String.fromCharCode(0x2014))
   })
 
   it('getLatestNonDraftAgreement returns the legacy 1.0 while the current version is a draft', () => {
