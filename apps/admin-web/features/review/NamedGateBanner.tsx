@@ -101,6 +101,16 @@ const CODE_MESSAGES: Record<string, string> = {
   GRANT_NOT_FOUND: 'This capability grant no longer exists. The list has refreshed.',
   LAST_SUPER_ADMIN_PROTECTED:
     'The last active Super Admin cannot be demoted or deactivated. Promote another admin to Super Admin first.',
+  // MerchantLead recruitment pipeline (packet 2026-07-12): the Prospect pipeline
+  // board's move / mark-lost / convert actions.
+  LEAD_NOT_FOUND: 'This lead no longer exists. The pipeline has refreshed.',
+  LEAD_LOST_REASON_REQUIRED: 'A reason is required to mark a lead as lost.',
+  LEAD_STAGE_NOT_DIRECTLY_SETTABLE:
+    'A lead becomes converted only by converting it to a merchant draft, not by a stage move.',
+  LEAD_ALREADY_CONVERTED:
+    'This lead has already been converted to a merchant draft. The pipeline has refreshed.',
+  LEAD_ANONYMISED:
+    'This lead has been anonymised for data retention and can no longer be edited.',
 }
 
 function getMessage(error: unknown, overrides?: Record<string, string>): string {
