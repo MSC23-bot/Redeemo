@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { useScrollLinked } from './scroll'
+import { useViewportMode } from './useViewportMode'
 
 // Navy background, red radial glow and the live 3D ribbon: moved here from
 // the retired Redeemo Standard section (owner 2026-07-13).
@@ -339,6 +340,7 @@ export function VoucherTypesRail() {
   const mRowRef = useRef<HTMLDivElement>(null)
   const touchingRef = useRef(false)
   const reduceMotion = useReducedMotion()
+  const mode = useViewportMode()
   const [viewW, setViewW] = useState(1440)
 
   useEffect(() => {
@@ -374,8 +376,11 @@ export function VoucherTypesRail() {
     })
   }, [mProgress])
 
-  // Reduced-motion visitors get a plain swipe carousel below.
-  if (reduceMotion) {
+  // Reduced-motion visitors get a plain swipe carousel; so do SHORT
+  // viewports (landscape phones, owner 2026-07-13): a pinned 100svh stage
+  // cannot hold header + cards in ~330px of height, but a natural-scroll
+  // carousel can, and the navy world still travels with it.
+  if (reduceMotion || mode === 'short') {
     return (
       <section aria-label="Voucher types" className="relative overflow-hidden py-16" style={{ background: '#010C35' }}>
         {/* Red radial glow, matching the Redeemo Standard treatment it was
@@ -388,6 +393,11 @@ export function VoucherTypesRail() {
               'radial-gradient(600px circle at 0% 48%, rgba(226,12,4,0.16), transparent 54%), radial-gradient(420px circle at 100% 120%, rgba(200,50,0,0.14), transparent 50%)',
           }}
         />
+        {!reduceMotion && (
+          <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+            <RibbonScene3D preset="navy" />
+          </div>
+        )}
         <div className="relative mb-8">
           <ShelfHeader />
         </div>

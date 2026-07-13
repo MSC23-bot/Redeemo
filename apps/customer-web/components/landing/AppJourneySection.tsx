@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { motion, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import { useRef } from 'react'
 import { useScrollLinked } from './scroll'
+import { useViewportMode } from './useViewportMode'
 
 /**
  * The app journey (owner brief 2026-07-12; copy approved 2026-07-13; revision
@@ -225,6 +226,11 @@ function ConfettiPiece({ local, p }: { local: MotionValue<number>; p: (typeof CO
 function Stage() {
   const trackRef = useRef<HTMLDivElement>(null)
   const { scrollYProgress } = useScroll({ target: trackRef, offset: ['start start', 'end end'] })
+  // Layout is mode-driven, not breakpoint-driven: landscape phones are
+  // "mobile width" with a fraction of the height (owner 2026-07-13), so
+  // 'short' lays copy and phone side by side and sizes the phone to fit
+  const mode = useViewportMode()
+  const phoneScale = mode === 'desktop' ? 1 : mode === 'tablet' ? 0.68 : mode === 'short' ? 0.4 : 0.55
 
   const bg = useTransform(
     scrollYProgress,
@@ -286,34 +292,57 @@ function Stage() {
   )
 
   return (
-    <div ref={trackRef} className="relative" style={{ height: '780vh' }}>
+    <div ref={trackRef} className="relative" style={{ height: '780vh', background: '#FFF9F5' }}>
       {/* svh on mobile: iOS Safari's vh includes the collapsed toolbar */}
       <motion.div className="sticky top-0 h-[100svh] lg:h-screen overflow-hidden" style={{ background: bg }}>
-        <div className="relative max-w-7xl mx-auto h-full px-6 pt-6 lg:pt-0 flex flex-col justify-center gap-3 lg:grid lg:grid-cols-[64px_1fr_420px] lg:gap-8 lg:items-center">
+        <div
+          className={`relative max-w-7xl mx-auto h-full px-6 ${
+            mode === 'desktop'
+              ? 'grid grid-cols-[64px_1fr_420px] gap-8 items-center'
+              : mode === 'short'
+              ? 'flex flex-row items-center justify-center gap-10 pt-2'
+              : 'flex flex-col justify-center gap-3 pt-6'
+          }`}
+        >
 
-          {/* Progress rail (desktop only: mobile stacks copy over phone) */}
-          <div className="hidden lg:flex flex-col gap-7 select-none" aria-hidden="true">
-            {RAIL.map((label, i) => (
-              <RailItem key={label} progress={scrollYProgress} index={i} label={label} />
-            ))}
-          </div>
+          {/* Progress rail (desktop only) */}
+          {mode === 'desktop' && (
+            <div className="flex flex-col gap-7 select-none" aria-hidden="true">
+              {RAIL.map((label, i) => (
+                <RailItem key={label} progress={scrollYProgress} index={i} label={label} />
+              ))}
+            </div>
+          )}
 
           {/* Chapter copy */}
-          <div className="relative min-h-[250px] lg:min-h-[420px] max-w-[560px] w-full">
+          <div
+            className={
+              mode === 'desktop'
+                ? 'relative min-h-[420px] max-w-[560px]'
+                : mode === 'short'
+                ? 'relative flex-1 min-h-[250px] max-w-[440px]'
+                : `relative ${mode === 'tablet' ? 'min-h-[290px]' : 'min-h-[250px]'} max-w-[560px] w-full`
+            }
+          >
             {CHAPTERS.map((c, i) => (
               <CopyLayer key={c.kicker} progress={scrollYProgress} index={i} chapter={c} />
             ))}
           </div>
 
           {/* The phone: upright, still, readable: all the life is on-screen.
-              On mobile the whole phone (overlays, taps, confetti and all)
-              scales down as one object via a transform. */}
-          {/* 0.55 with a 440px footprint: the whole stack must clear iOS
-              Safari's REAL small viewport (~740px with toolbars): at 0.61
-              the phone's bottom bezel hit the stage's overflow clip on
-              device (owner screenshot 2026-07-13) */}
-          <div className="relative self-center lg:justify-self-end w-[198px] h-[442px] lg:w-auto lg:h-auto">
-            <div className="origin-top-left scale-[0.55] lg:scale-100" style={{ width: PHONE_W + 20 }}>
+              Below desktop the whole phone (overlays, taps, confetti and
+              all) scales as one object via a transform; the footprint must
+              clear the REAL viewport height (portrait iOS ~740px with
+              toolbars; landscape phones ~330px, hence 'short'). */}
+          <div
+            className={`relative ${mode === 'desktop' ? 'justify-self-end' : mode === 'short' ? 'flex-shrink-0' : 'self-center'}`}
+            style={
+              mode === 'desktop'
+                ? undefined
+                : { width: Math.round((PHONE_W + 20) * phoneScale), height: Math.round(759 * phoneScale) + (mode === 'short' ? 0 : 22) }
+            }
+          >
+            <div className="origin-top-left" style={{ width: PHONE_W + 20, scale: phoneScale === 1 ? undefined : phoneScale }}>
             <div
               className="relative rounded-[50px] bg-[#10101c] p-[10px]"
               style={{
@@ -486,11 +515,14 @@ function Stage() {
             </div>
             </div>
 
-            {/* absolute on mobile: the scaled phone keeps its unscaled layout
-                height, so normal flow would land this ~340px too low */}
-            <p className="absolute bottom-0 inset-x-0 lg:static lg:mt-4 text-center text-[9px] lg:text-[10px] text-[#010C35]/40">
-              App preview · example places, not live listings
-            </p>
+            {/* absolute below desktop: the scaled phone keeps its unscaled
+                layout height, so normal flow would land this far too low.
+                Hidden when short: no vertical room for it. */}
+            {mode !== 'short' && (
+              <p className={mode === 'desktop' ? 'mt-4 text-center text-[10px] text-[#010C35]/40' : 'absolute bottom-0 inset-x-0 text-center text-[9px] text-[#010C35]/40'}>
+                App preview · example places, not live listings
+              </p>
+            )}
           </div>
         </div>
       </motion.div>

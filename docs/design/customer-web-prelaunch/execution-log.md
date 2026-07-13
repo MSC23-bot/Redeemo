@@ -895,3 +895,24 @@ edited by this workstream.
   stopped pinning): removed from both pinned tracks (the sticky stage
   clips its own layers; the static reduced-motion section keeps it).
   tsc clean; verified pinned navy shelf + ribbon at 1440x900 and 390x780.
+- LANDSCAPE + TABLET OPTIMISATION AND RIBBON FLOW (owner 2026-07-13,
+  landscape simulator screenshots): the pinned stages assumed portrait
+  heights and clipped badly at ~330px. New useViewportMode hook
+  (desktop / tablet / mobile / short, where short = max-height 540px and
+  WINS over width): 1) JOURNEY: layout is now mode-driven, not
+  breakpoint-driven: short lays copy and phone SIDE BY SIDE with the
+  phone at 0.4 scale (fits a landscape phone completely), tablet
+  portrait gets a 0.68 phone, mobile keeps 0.55, desktop unchanged; the
+  caption hides when short; the track carries cream so no white band
+  shows when svh underestimates the viewport. 2) VOUCHER SHELF: short
+  viewports get the natural-scroll carousel (pinning cannot hold header
+  + cards in 330px) with the navy world intact: glow + the live ribbon
+  now mount there too (reduced-motion keeps glow only). 3) HERO: the
+  full-bleed artwork caps at 520px width in short viewports. 4) NAVY
+  RIBBON retuned for the shelf (owner: more flowy; peek above and below
+  the cards, not by a lot): speed 0.55 -> 0.85, ampY 1.2 -> 2.0, yBase
+  -1.0 -> -0.1, slimmer halfW 0.55: crests now rise above the card row
+  and troughs dip below it, still BEHIND the cards (z-order unchanged:
+  premium, not tacky). tsc clean; verified 932x390 (journey side-by-side,
+  shelf carousel, popup scrolls within 92svh), 810x1080 tablet, 1440x900
+  ribbon crest/trough frames + desktop regression.

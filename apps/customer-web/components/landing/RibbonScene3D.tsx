@@ -52,17 +52,18 @@ const PRESETS: Record<'hero' | 'navy', Preset> = {
     key: 1.5,
     rim: 0.5,
   },
-  // Navy sections: slower, narrower, deeper, and biased low so it grazes
-  // beneath the content more often than through it
+  // Navy scene (the voucher shelf): flowier and taller than the old
+  // graze-the-floor tune (owner 2026-07-13): its crests peek above the
+  // card row and its troughs dip below it, without leaving the section
   navy: {
-    speed: 0.55,
-    halfW: 0.6,
+    speed: 0.85,
+    halfW: 0.55,
     halfT: 0.05,
     span: 34,
-    yBase: -1.0,
-    ampY: 1.2,
-    ampY2: 0.35,
-    ampZ: 1.2,
+    yBase: -0.1,
+    ampY: 2.0,
+    ampY2: 0.5,
+    ampZ: 1.4,
     zBase: -2.0,
     color: '#E20C04',
     ambient: 0.5,

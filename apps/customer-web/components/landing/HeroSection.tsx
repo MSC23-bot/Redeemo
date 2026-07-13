@@ -132,7 +132,7 @@ export function HeroSection() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.24, ease: EASE }}
-              className="lg:hidden -mx-6 mb-8"
+              className="lg:hidden -mx-6 mb-8 [@media(max-height:540px)]:!mx-auto [@media(max-height:540px)]:!max-w-[520px]"
             >
               <HeroCollageMobile />
             </motion.div>
