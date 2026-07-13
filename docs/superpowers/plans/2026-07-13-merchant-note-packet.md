@@ -38,8 +38,13 @@ bell is the only ungated admin surface, deliberately). NOT added to GRANTABLE_CA
   (reason REQUIRED); body preserved (strike-through in UI). NOTHING is ever hard-deleted.
 - History: chronological ADDED/EDITED/RETRACTED events (who + when) per note.
 - List: per merchant, newest first, bounded (take 500, mirroring leads v1 bound).
-- v1 gap accepted: no moderation override (SUPER_ADMIN cannot retract another author's note);
-  spec says own-only; revisit if abuse appears.
+- v1 gaps accepted (Fable adjudication of the adversarial review, 0 blocking / 0 should-fix):
+  (a) no moderation override (SUPER_ADMIN cannot retract another author's note; spec says
+  own-only; revisit if abuse appears); (b) no optimistic locking on edit/retract: a single
+  author double-submitting can lose one intermediate priorBody version from history
+  (low-concurrency internal surface); (c) body non-emptiness is route-Zod-enforced only
+  (retract reason has service-layer defence-in-depth; add the same if a non-route caller
+  ever appears).
 
 ## 4. Schema (create-only)
 
