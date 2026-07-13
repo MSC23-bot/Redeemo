@@ -7,6 +7,7 @@ import { adminNotificationRoutes } from './notifications/routes'
 import { adminTimelineRoutes } from './timeline/routes'
 import { adminRedemptionRoutes } from './redemptions/routes'
 import { adminTeamRoutes } from './team/routes'
+import { adminLeadRoutes } from './leads/routes'
 
 // Phase 2 Slice 1 M2 — admin-management surface. Mirrors merchant/plugin.ts:
 // a scoped sub-plugin applies the `authenticateAdmin` preHandler to all
@@ -27,6 +28,8 @@ async function adminManagementPlugin(app: FastifyInstance) {
     await scoped.register(adminRedemptionRoutes)
     // Team & Roles S1: SUPER_ADMIN-only account + capability-grant management.
     await scoped.register(adminTeamRoutes)
+    // MerchantLead recruitment pipeline (packet 2026-07-12): gated on lead:manage.
+    await scoped.register(adminLeadRoutes)
   })
 }
 

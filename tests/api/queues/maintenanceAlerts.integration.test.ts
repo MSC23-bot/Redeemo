@@ -51,6 +51,7 @@ const CFG: MaintenanceConfig & { mode: 'enabled' } = {
   sweepOutboxEnabled: true,
   sweepPendingHoursEnabled: true,
   sweepClaimStaleEnabled: true,
+  sweepLeadAnonymiseEnabled: true,
 }
 
 let opsAdminId = ''

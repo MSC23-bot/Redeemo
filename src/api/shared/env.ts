@@ -160,6 +160,9 @@ export type MaintenanceConfig =
        *  any 60-second polling (spec §8.2). */
       sweepPendingHoursEnabled: boolean
       sweepClaimStaleEnabled: boolean
+      /** MerchantLead 6-month anonymisation sweep (packet 2026-07-12): its own
+       *  enable flag / rollback switch, same convention as the sibling sweeps. */
+      sweepLeadAnonymiseEnabled: boolean
     }
 
 function parseIntVar(
@@ -225,6 +228,7 @@ export function resolveMaintenanceConfig(env: NodeJS.ProcessEnv): MaintenanceCon
   const sweepOutboxEnabled = parseBoolVar(env, 'MAINTENANCE_SWEEP_OUTBOX_ENABLED', problems)
   const sweepPendingHoursEnabled = parseBoolVar(env, 'MAINTENANCE_SWEEP_PENDING_HOURS_ENABLED', problems)
   const sweepClaimStaleEnabled = parseBoolVar(env, 'MAINTENANCE_SWEEP_CLAIM_STALE_ENABLED', problems)
+  const sweepLeadAnonymiseEnabled = parseBoolVar(env, 'MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED', problems)
   if (statementTimeoutMs !== undefined && txTimeoutMs !== undefined && statementTimeoutMs >= txTimeoutMs) {
     problems.push(
       `MAINTENANCE_STATEMENT_TIMEOUT_MS (${statementTimeoutMs}) must be < MAINTENANCE_TX_TIMEOUT_MS (${txTimeoutMs})`,
@@ -250,6 +254,7 @@ export function resolveMaintenanceConfig(env: NodeJS.ProcessEnv): MaintenanceCon
     sweepOutboxEnabled: sweepOutboxEnabled!,
     sweepPendingHoursEnabled: sweepPendingHoursEnabled!,
     sweepClaimStaleEnabled: sweepClaimStaleEnabled!,
+    sweepLeadAnonymiseEnabled: sweepLeadAnonymiseEnabled!,
   }
 }
 

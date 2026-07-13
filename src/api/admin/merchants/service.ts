@@ -1,4 +1,4 @@
-import { PrismaClient } from '../../../../generated/prisma/client'
+import { PrismaClient, Prisma } from '../../../../generated/prisma/client'
 import type { MerchantStatus } from '../../../../generated/prisma/enums'
 import type { Redis } from 'ioredis'
 import { AppError } from '../../shared/errors'
@@ -524,13 +524,100 @@ export interface CreateMerchantDraftResult {
 }
 
 /**
+ * The tx-composable BODY of createMerchantDraft: creates the Merchant (defaults
+ * to status REGISTERED / verificationStatus NOT_SUBMITTED / onboardingStep
+ * REGISTERED), the owner MerchantAdmin (no password: `mustChangePassword:
+ * true`), and the first OWNER MerchantMembership, then writes the transactional
+ * audit: all on the caller-supplied `tx`. Extracted so a CALLER that already
+ * owns a transaction (convertLead: draft + lead-stamp + audits must commit or
+ * roll back together, no orphan draft) can compose the draft into ITS
+ * transaction rather than running a separate one. Callers own P2002 mapping
+ * (see createMerchantDraft's `.catch`); the findUnique pre-check throws the
+ * friendly EMAIL_ALREADY_EXISTS for the common non-raced case.
+ */
+export async function createMerchantDraftInTx(
+  tx: Prisma.TransactionClient,
+  adminId: string,
+  input: CreateMerchantDraftInput,
+  ctx: { ipAddress: string; userAgent: string }
+): Promise<CreateMerchantDraftResult> {
+  const existing = await tx.merchantAdmin.findUnique({
+    where: { email: input.ownerEmail },
+    select: { id: true },
+  })
+  if (existing) throw new AppError('EMAIL_ALREADY_EXISTS')
+
+  const merchant = await tx.merchant.create({
+    data: {
+      businessName: input.businessName,
+      tradingName: input.tradingName,
+      status: 'REGISTERED',
+    },
+    select: { id: true },
+  })
+
+  const admin = await tx.merchantAdmin.create({
+    data: {
+      // M6b (D-1): MerchantAdmin.merchantId is dropped: the OWNER membership
+      // created just below is the sole link from this admin to the merchant.
+      email: input.ownerEmail,
+      firstName: input.ownerFirstName,
+      lastName: input.ownerLastName,
+      jobTitle: input.jobTitle,
+      mustChangePassword: true,
+      // passwordHash intentionally omitted: set by the owner via reset flow.
+    },
+    select: { id: true },
+  })
+
+  const membership = await tx.merchantMembership.create({
+    data: {
+      merchantId: merchant.id,
+      merchantAdminId: admin.id,
+      role: 'OWNER',
+      allBranches: true,
+      status: 'ACTIVE',
+    },
+    select: { id: true },
+  })
+
+  await writeAuditLogTx(tx, {
+    entityId: merchant.id,
+    entityType: 'merchant',
+    event: 'MERCHANT_DRAFT_CREATED',
+    actorId: adminId,
+    actorType: 'ADMIN',
+    after: { merchantId: merchant.id, ownerAdminId: admin.id, ownerEmail: input.ownerEmail },
+    ipAddress: ctx.ipAddress,
+    userAgent: ctx.userAgent,
+  })
+  await writeAuditLogTx(tx, {
+    entityId: merchant.id,
+    entityType: 'merchant',
+    event: 'MEMBERSHIP_CREATED',
+    actorId: adminId,
+    actorType: 'ADMIN',
+    after: { membershipId: membership.id, role: 'OWNER', merchantAdminId: admin.id },
+    ipAddress: ctx.ipAddress,
+    userAgent: ctx.userAgent,
+  })
+
+  return {
+    merchantId: merchant.id,
+    ownerAdminId: admin.id,
+    ownerEmail: input.ownerEmail,
+    passwordSetupRequired: true as const,
+  }
+}
+
+/**
  * Create a merchant DRAFT on an admin's behalf (Phase 2 Slice 1 M2, D-3).
  *
- * One transaction creates the Merchant (defaults to status REGISTERED /
- * verificationStatus NOT_SUBMITTED / onboardingStep REGISTERED), the owner
- * MerchantAdmin (no password — `mustChangePassword: true`), and the first
- * OWNER MerchantMembership, then writes the transactional audit. The owner
- * claims the account later via password-reset (no admin-known password/token).
+ * Wraps createMerchantDraftInTx in its OWN transaction. Public signature and
+ * behaviour are unchanged: one transaction creates the Merchant + owner
+ * MerchantAdmin + first OWNER MerchantMembership + transactional audit; the
+ * owner claims the account later via password-reset (no admin-known
+ * password/token).
  */
 export async function createMerchantDraft(
   prisma: PrismaClient,
@@ -538,81 +625,15 @@ export async function createMerchantDraft(
   input: CreateMerchantDraftInput,
   ctx: { ipAddress: string; userAgent: string }
 ): Promise<CreateMerchantDraftResult> {
-  return prisma.$transaction(async (tx) => {
-    const existing = await tx.merchantAdmin.findUnique({
-      where: { email: input.ownerEmail },
-      select: { id: true },
+  return prisma
+    .$transaction((tx) => createMerchantDraftInTx(tx, adminId, input, ctx))
+    .catch((e) => {
+      // P2002: a concurrent createMerchantDraft raced past the findUnique pre-check
+      // on the unique `email`. Map the unique-constraint violation to the same
+      // friendly 409 the pre-check returns, instead of an unhandled 500.
+      if ((e as { code?: string })?.code === 'P2002') throw new AppError('EMAIL_ALREADY_EXISTS')
+      throw e
     })
-    if (existing) throw new AppError('EMAIL_ALREADY_EXISTS')
-
-    const merchant = await tx.merchant.create({
-      data: {
-        businessName: input.businessName,
-        tradingName: input.tradingName,
-        status: 'REGISTERED',
-      },
-      select: { id: true },
-    })
-
-    const admin = await tx.merchantAdmin.create({
-      data: {
-        // M6b (D-1): MerchantAdmin.merchantId is dropped — the OWNER membership
-        // created just below is the sole link from this admin to the merchant.
-        email: input.ownerEmail,
-        firstName: input.ownerFirstName,
-        lastName: input.ownerLastName,
-        jobTitle: input.jobTitle,
-        mustChangePassword: true,
-        // passwordHash intentionally omitted — set by the owner via reset flow.
-      },
-      select: { id: true },
-    })
-
-    const membership = await tx.merchantMembership.create({
-      data: {
-        merchantId: merchant.id,
-        merchantAdminId: admin.id,
-        role: 'OWNER',
-        allBranches: true,
-        status: 'ACTIVE',
-      },
-      select: { id: true },
-    })
-
-    await writeAuditLogTx(tx, {
-      entityId: merchant.id,
-      entityType: 'merchant',
-      event: 'MERCHANT_DRAFT_CREATED',
-      actorId: adminId,
-      actorType: 'ADMIN',
-      after: { merchantId: merchant.id, ownerAdminId: admin.id, ownerEmail: input.ownerEmail },
-      ipAddress: ctx.ipAddress,
-      userAgent: ctx.userAgent,
-    })
-    await writeAuditLogTx(tx, {
-      entityId: merchant.id,
-      entityType: 'merchant',
-      event: 'MEMBERSHIP_CREATED',
-      actorId: adminId,
-      actorType: 'ADMIN',
-      after: { membershipId: membership.id, role: 'OWNER', merchantAdminId: admin.id },
-      ipAddress: ctx.ipAddress,
-      userAgent: ctx.userAgent,
-    })
-
-    return {
-      merchantId: merchant.id,
-      ownerAdminId: admin.id,
-      ownerEmail: input.ownerEmail,
-      passwordSetupRequired: true as const,
-    }
-  }).catch((e) => {
-    // P2002: a concurrent createMerchantDraft raced past the findUnique pre-check
-    // on the unique `email`. Map the unique-constraint violation to the same
-    // friendly 409 the pre-check returns, instead of an unhandled 500.
-    if ((e as { code?: string })?.code === 'P2002') throw new AppError('EMAIL_ALREADY_EXISTS')
-    throw e
-  })
 }
 
 // ── Phase 2 Slice 1 M6a — admin suspend / reactivate ────────────────────────

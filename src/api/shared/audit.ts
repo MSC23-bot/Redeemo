@@ -212,13 +212,27 @@ export type AuditEvent =
   | 'ADMIN_ACCOUNT_DEACTIVATED'
   | 'ADMIN_CAPABILITY_GRANTED'
   | 'ADMIN_CAPABILITY_REVOKED'
+  // MerchantLead recruitment pipeline (packet 2026-07-12). `event` is a String
+  // column, so these are union-only literals with NO migration.
+  //   LEAD_CREATED       : a prospect was captured (metadata: source, businessName).
+  //   LEAD_UPDATED       : non-stage field(s) edited (before/after diff).
+  //   LEAD_STAGE_CHANGED : pipeline stage moved (metadata: from/to).
+  //   LEAD_LOST          : stage set to LOST (metadata: lostReason; always audited).
+  //   LEAD_CONVERTED     : converted to a merchant draft (metadata: merchantId).
+  //   LEAD_ANONYMISED    : the scheduled job nulled contact PII (metadata: reason).
+  | 'LEAD_CREATED'
+  | 'LEAD_UPDATED'
+  | 'LEAD_STAGE_CHANGED'
+  | 'LEAD_LOST'
+  | 'LEAD_CONVERTED'
+  | 'LEAD_ANONYMISED'
 
 export interface AuditContext {
   entityId: string
   // 'voucher' added for the voucher governed flows (2026-07-07): the claim/release
   // audit-entity resolution for a VOUCHER_EDIT approval targets the real voucher
   // (entityType String column — union-only, no migration).
-  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher'
+  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher' | 'lead'
   event: AuditEvent
   ipAddress: string
   userAgent: string
@@ -259,7 +273,7 @@ export interface AuditActorContext {
   /** The TARGET of the action (e.g. the merchant being created). */
   entityId: string
   // 'voucher': see the AuditContext note (voucher governed flows, 2026-07-07).
-  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher'
+  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher' | 'lead'
   event: AuditEvent
   /** WHO performed the action. */
   actorId: string

@@ -83,6 +83,19 @@ export const ERROR_DEFINITIONS = {
   // has gone live (ACTIVE / INACTIVE / SUSPENDED / DELETED). OPERATIONS and
   // SUPER_ADMIN are never scope-restricted (they act on any merchant).
   MERCHANT_NOT_PRE_LIVE_FOR_FIELD: { statusCode: 403, message: 'Field reps can only act on merchants that are still being onboarded.' },
+  // MerchantLead recruitment pipeline (packet 2026-07-12, OD1).
+  LEAD_NOT_FOUND:                 { statusCode: 404, message: 'Lead not found.' },
+  // Lost requires a reason and is audited (OD1). Fires when stage is set to LOST
+  // without a non-empty lostReason.
+  LEAD_LOST_REASON_REQUIRED:      { statusCode: 400, message: 'A reason is required when marking a lead as lost.' },
+  // CONVERTED is a terminal state reached only via the convert route (which
+  // creates the merchant draft); it cannot be set through a plain field edit.
+  LEAD_STAGE_NOT_DIRECTLY_SETTABLE: { statusCode: 400, message: 'A lead becomes converted only by converting it to a merchant draft.' },
+  // Convert is idempotency-guarded: a lead already linked to a merchant draft
+  // cannot be converted again.
+  LEAD_ALREADY_CONVERTED:         { statusCode: 409, message: 'This lead has already been converted to a merchant draft.' },
+  // A terminal/anonymised lead cannot be further edited (its contact PII is gone).
+  LEAD_ANONYMISED:                { statusCode: 409, message: 'This lead has been anonymised and can no longer be edited.' },
   // Phase 2 Slice 1 M3: actioner.
   APPROVAL_NOT_FOUND:             { statusCode: 404, message: 'Approval not found.' },
   APPROVAL_ALREADY_CLAIMED:       { statusCode: 409, message: 'This approval is already being reviewed by another admin.' },
