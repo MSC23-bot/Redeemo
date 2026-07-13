@@ -35,6 +35,24 @@ import { merchantDisplayName } from '@/lib/merchantDisplayName'
  * the BRANCH id (the `?branch=` URL contract).
  */
 
+// W2b ROUND 3 ITEM 1 (owner device QA: "Indian Restaurant" cut mid-word) —
+// the row's WIDTH CONTRACT. The middle column was being squeezed by the
+// right value rail because the rail's width floated with its content. The
+// rail now has a FIXED width so the middle column's available space is
+// deterministic; the middle column carries `minWidth: 0` (RN flexbox does
+// not ellipsise text inside a flex child without it) and both text lines
+// ellipsise via numberOfLines={1} + ellipsizeMode="tail".
+//
+// Width derivation (documented: RN has no synchronous text-measurement
+// API, so this is derived from font metrics rather than a live measure):
+// the widest realistic rail content is the compact save capsule
+// "Save up to £999" — 15 glyphs at Lato-Bold 13 (average advance ~0.52em
+// → 15 x 13 x 0.52 ≈ 101pt; letterSpacing -0.1 x 15 ≈ -1.5pt → ~100pt)
+// + the capsule's compact horizontal padding (8 x 2 = 16pt) ≈ 116pt,
+// rounded up for safety. Pinned by a test so a future capsule copy or
+// typography change forces a deliberate re-derivation.
+export const VALUE_RAIL_WIDTH = 118
+
 type Props = {
   branch:  BranchTileType
   onPress: (branchId: string) => void
@@ -82,11 +100,13 @@ export function MapLedgerRow({ branch, onPress }: Props) {
           )}
         </View>
 
-        {/* Middle column (flex 1) — name + meta line ("category · distance ·
-            Open|Closed"). Inline nested Texts keep it one ellipsised line. */}
+        {/* Middle column (flex 1, minWidth 0) — name + meta line
+            ("category · distance · Open|Closed"). Inline nested Texts keep
+            it one ellipsised line; ROUND 3 ITEM 1: tail-ellipsis, never a
+            mid-word cut. */}
         <View style={styles.middle} testID="map-ledger-middle">
-          <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
-          <Text style={styles.meta} numberOfLines={1}>
+          <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
+          <Text style={styles.meta} numberOfLines={1} ellipsizeMode="tail">
             {category ? (
               <Text style={categoryColour ? { color: categoryColour } : null}>{category}</Text>
             ) : null}
@@ -96,15 +116,19 @@ export function MapLedgerRow({ branch, onPress }: Props) {
           </Text>
         </View>
 
-        {/* Right rail, top-aligned — save capsule with the voucher stub
-            beneath it (the shared <VoucherValue> column layout). */}
-        <VoucherValue
-          saveAmount={branch.merchant.maxEstimatedSaving}
-          voucherCount={branch.merchant.voucherCount}
-          orientation="column"
-          density="compact"
-          testID="map-ledger-value"
-        />
+        {/* Right rail, top-aligned, FIXED width (ROUND 3 ITEM 1) — save
+            capsule with the voucher stub beneath it (the shared
+            <VoucherValue> column layout). The fixed width makes the middle
+            column's available space deterministic. */}
+        <View style={styles.valueRail} testID="map-ledger-value-rail">
+          <VoucherValue
+            saveAmount={branch.merchant.maxEstimatedSaving}
+            voucherCount={branch.merchant.voucherCount}
+            orientation="column"
+            density="compact"
+            testID="map-ledger-value"
+          />
+        </View>
 
         {/* Heart — branch-level (entity="branch"), pinned top-right. */}
         <View style={styles.heart} testID="map-ledger-heart">
@@ -161,9 +185,18 @@ const styles = StyleSheet.create({
   },
   middle: {
     flex: 1,
+    // ROUND 3 ITEM 1 — RN flex children default to minWidth:'auto'; text
+    // inside will push the column wide instead of ellipsising without an
+    // explicit minWidth: 0.
+    minWidth: 0,
     gap:  3,
     // Optically centre the two text lines against the 44pt logo.
     paddingTop: 3,
+  },
+  // ROUND 3 ITEM 1 — fixed-width rail (see VALUE_RAIL_WIDTH derivation).
+  valueRail: {
+    width:      VALUE_RAIL_WIDTH,
+    alignItems: 'flex-end',
   },
   name: {
     fontSize:   14.5,

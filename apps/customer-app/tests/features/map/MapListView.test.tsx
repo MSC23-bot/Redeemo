@@ -417,13 +417,73 @@ describe('MapListView', () => {
       expect(childTestIDs).toEqual([
         'map-ledger-logo',
         'map-ledger-middle',
-        'map-ledger-value',
+        'map-ledger-value-rail',
         'map-ledger-heart',
       ])
       // The middle column takes the remaining width (flex: 1) so the value
       // rail and heart sit at the row end rather than mid-row.
       const middle = getByTestId('map-ledger-middle')
       expect(flattenStyle(middle.props.style).flex).toBe(1)
+    })
+  })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // W2b ROUND 3 ITEM 1 (owner device QA: "Indian Restaurant" cut mid-word)
+  // — the row's width contract: middle column flex:1 + minWidth:0 (RN
+  // needs minWidth 0 for text ellipsis inside flex children), both text
+  // lines single-line tail-ellipsised, and the value rail FIXED-width so
+  // the middle column's available space is deterministic.
+  // ──────────────────────────────────────────────────────────────────────
+  describe('W2b round 3 ITEM 1: ledger row width contract (no mid-word truncation)', () => {
+    function flattenStyle(style: unknown): Record<string, unknown> {
+      if (!style) return {}
+      if (Array.isArray(style)) return Object.assign({}, ...style.filter(Boolean).map(flattenStyle))
+      return style as Record<string, unknown>
+    }
+
+    const longTile = makeBranchTile({
+      id:         'brn-long',
+      distance:   500,
+      isOpenNow:  true,
+      merchant: {
+        id:                 'm-long',
+        businessName:       'The Grand International House of Fine Dining',
+        descriptor:         'International Fine Dining Restaurant',
+        voucherCount:       3,
+        maxEstimatedSaving: 999,
+      },
+    })
+
+    it('name and meta render as single-line, tail-ellipsised text', () => {
+      const { getByText } = render(
+        <MapListView visible branches={[longTile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
+      )
+      const name = getByText('The Grand International House of Fine Dining')
+      expect(name.props.numberOfLines).toBe(1)
+      expect(name.props.ellipsizeMode).toBe('tail')
+      // The meta line — query by the COMPOSED string (category · distance ·
+      // status) so we get the OUTER Text node (the one carrying the
+      // ellipsis props), not the nested category segment.
+      const meta = getByText(/International Fine Dining Restaurant · 0\.3 mi · Open/)
+      expect(meta.props.numberOfLines).toBe(1)
+      expect(meta.props.ellipsizeMode).toBe('tail')
+    })
+
+    it('middle column is flex:1 with minWidth:0 (the RN ellipsis contract) and the value rail keeps its fixed width', () => {
+      const { getByTestId } = render(
+        <MapListView visible branches={[longTile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
+      )
+      const middle = flattenStyle(getByTestId('map-ledger-middle').props.style)
+      expect(middle.flex).toBe(1)
+      expect(middle.minWidth).toBe(0)
+      // Fixed rail width — pinned against the documented VALUE_RAIL_WIDTH
+      // derivation ("Save up to £999" capsule at Lato-Bold 13 + padding).
+      const { VALUE_RAIL_WIDTH } = require('@/features/map/components/MapLedgerRow')
+      const rail = flattenStyle(getByTestId('map-ledger-value-rail').props.style)
+      expect(rail.width).toBe(VALUE_RAIL_WIDTH)
+      expect(VALUE_RAIL_WIDTH).toBe(118)
+      // The widest realistic capsule renders inside the rail.
+      expect(getByTestId('voucher-value-save')).toBeTruthy()
     })
   })
 })
