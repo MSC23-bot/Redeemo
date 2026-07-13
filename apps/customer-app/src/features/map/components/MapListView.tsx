@@ -76,6 +76,9 @@ export function MapListView({
       visible={visible}
       onDismiss={onDismiss}
       accessibilityLabel="Nearby Merchants list"
+      // W2b round 2 (List v3) — warm cream sheet ground; the ledger rows
+      // are white cards layered on it (same ground as the FilterSheet).
+      surface="cream"
     >
       {/* Header — Map Phase 2 S5b Task 3 (owner feedback: "is this my
           area or everything?"). Copy states its OWN scope explicitly

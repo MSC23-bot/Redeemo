@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, type ComponentType } from 'react'
-import { View, ScrollView, StyleSheet, TouchableOpacity, Pressable } from 'react-native'
+import { View, ScrollView, StyleSheet, Pressable } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
 import type { LucideProps } from 'lucide-react-native'
 import {
   X, RotateCcw, Copy, Percent, Gift, PoundSterling, Package, Clock, RefreshCw,
@@ -7,8 +8,10 @@ import {
 import { Text, color, spacing, radius } from '@/design-system'
 import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { PressableScale } from '@/design-system/motion/PressableScale'
+import { SegmentedControl } from '@/design-system/motion/SegmentedControl'
 import { GradientBrand } from '@/design-system/components/GradientBrand'
 import { Divider } from '@/design-system/components/Divider'
+import { hexWithAlpha } from '@/design-system/utils/colorAlpha'
 import { getCategoryPinGlyph } from '@/features/map/utils/categoryPinGlyph'
 import { useCategories } from '@/hooks/useCategories'
 import { useEligibleAmenities } from '@/hooks/useEligibleAmenities'
@@ -97,6 +100,27 @@ export const SORT_OPTIONS: { key: FilterState['sortBy']; label: string }[] = [
   { key: 'top_rated',      label: 'Top Rated' },
   { key: 'highest_saving', label: 'Highest Saving' },
 ]
+
+// Map Phase 2 W2b round 2 — display-only segment labels for the ONE shared
+// `<SegmentedControl>` ("Best saving" for `highest_saving`; "Top rated"
+// drops the title-case second cap). Canonical keys/values unchanged; the
+// canonical SORT_OPTIONS label stays the accessibilityLabel ("Sort by
+// Top Rated"), preserving the pinned a11y contract. Defined HERE next to
+// SORT_OPTIONS (the single source) and imported by MapListSortSelector so
+// the FilterSheet's Sort By section and the Map list's sort selector render
+// the IDENTICAL segment set.
+export const SORT_DISPLAY_LABEL: Record<FilterState['sortBy'], string> = {
+  relevance:      'Relevance',
+  nearest:        'Nearest',
+  top_rated:      'Top rated',
+  highest_saving: 'Best saving',
+}
+
+export const SORT_SEGMENTS = SORT_OPTIONS.map((opt) => ({
+  key:                opt.key,
+  label:              SORT_DISPLAY_LABEL[opt.key],
+  accessibilityLabel: `Sort by ${opt.label}`,
+}))
 
 // Map Phase 2 S0 (2026-07-10) — voucher-type label→enum mapping.
 //
@@ -312,7 +336,7 @@ export function FilterSheet({
   }
 
   return (
-    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Filter results">
+    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Filter results" surface="cream">
       {/* Header — title + explicit close. The sheet previously relied
           solely on the BottomSheet grabber / tap-outside to dismiss;
           an explicit affordance is a small, safe addition (owner
@@ -324,15 +348,25 @@ export function FilterSheet({
         </Pressable>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        style={styles.scrollView}
-      >
+      {/* v3 scroll affordance (owner: "I did not even realize I could
+          scroll") — three measures: the ScrollView's maxHeight is tuned so
+          the next section header sits half-cut at the fold at open (peek
+          by design); a soft cream-to-transparent gradient floats just
+          above the footer signalling continuation; and the scrollbar stays
+          visible. */}
+      <View style={styles.scrollWrap}>
+        <ScrollView
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
+          style={styles.scrollView}
+        >
         {/* Category section — TOP-LEVELS ONLY (filter to parentId === null).
-            W2b (W2-D3): each chip carries its category glyph tinted in the
-            category's pinColour; selected reads as a white chip with a
-            brand-red border + text (outlined pattern). */}
+            W2b v3 (W2-D3 + round-2 premium pass): white chip on the cream
+            ground; the category glyph sits in a small round disc tinted at
+            12% of that category's pinColour (icon full colour). Selected:
+            the pill blooms the category colour (14% tint fill + 1.5px
+            colour border, navy text) — colour with MEANING; red stays
+            reserved for brand actions. */}
         {topLevels.length > 0 && (
           <View>
             <SectionHeader label="Category" summary={summaryLabel(categoryCount)} />
@@ -344,13 +378,23 @@ export function FilterSheet({
               {topLevels.map((cat) => {
                 const active = activeTopLevelId === cat.id
                 const Glyph = getCategoryPinGlyph(cat.name)
+                const catColour = categoryIconColour(cat.pinColour)
                 return (
                   <PressableScale key={cat.id} onPress={() => selectTopLevel(cat.id)} hapticStyle="light">
-                    <View style={[styles.pill, active && styles.pillOutlineActive]}>
-                      {active
-                        ? <X size={12} color={color.brandRose} style={styles.pillIcon} />
-                        : <Glyph size={13} color={categoryIconColour(cat.pinColour)} strokeWidth={2.2} style={styles.pillIcon} />}
-                      <Text style={[styles.pillText, active && styles.pillTextOutlineActive]}>
+                    <View
+                      style={[
+                        styles.pill,
+                        active && {
+                          backgroundColor: hexWithAlpha(catColour, 0.14),
+                          borderColor:     catColour,
+                          borderWidth:     1.5,
+                        },
+                      ]}
+                    >
+                      <View style={[styles.iconDisc, { backgroundColor: active ? '#FFFFFF' : hexWithAlpha(catColour, 0.12) }]}>
+                        <Glyph size={13} color={catColour} strokeWidth={2.2} />
+                      </View>
+                      <Text style={styles.pillText}>
                         {cat.name}
                       </Text>
                     </View>
@@ -361,7 +405,9 @@ export function FilterSheet({
           </View>
         )}
 
-        {/* Subcategory drill-down — only when a top-level is selected and has ≥1 subcategory */}
+        {/* Subcategory drill-down — only when a top-level is selected and
+            has ≥1 subcategory. Selected subcategories bloom the PARENT
+            category's colour (same meaning system as the top-level row). */}
         {activeTopLevelId !== null && subcategories.length > 0 && (
           <View>
             <SectionHeader label="Subcategory" summary={summaryLabel(subcategorySelected ? 1 : 0)} />
@@ -372,13 +418,25 @@ export function FilterSheet({
             >
               {subcategories.map((sub) => {
                 const active = local.categoryId === sub.id
+                const parentColour = categoryIconColour(
+                  topLevels.find((t) => t.id === activeTopLevelId)?.pinColour,
+                )
                 return (
                   <PressableScale key={sub.id} onPress={() => selectSubcategory(sub.id)} hapticStyle="light">
-                    <View style={[styles.pill, active && styles.pillOutlineActive]}>
+                    <View
+                      style={[
+                        styles.pill,
+                        active && {
+                          backgroundColor: hexWithAlpha(parentColour, 0.14),
+                          borderColor:     parentColour,
+                          borderWidth:     1.5,
+                        },
+                      ]}
+                    >
                       {active && (
-                        <X size={12} color={color.brandRose} style={styles.pillIcon} />
+                        <X size={12} color={color.navy} style={styles.pillIcon} />
                       )}
-                      <Text style={[styles.pillText, active && styles.pillTextOutlineActive]}>
+                      <Text style={styles.pillText}>
                         {sub.name}
                       </Text>
                     </View>
@@ -391,42 +449,37 @@ export function FilterSheet({
 
         <Divider />
 
-        {/* Sort by section */}
+        {/* Sort by section — v3: the ONE shared segmented control (white
+            track, sliding navy thumb), same component the Map list renders. */}
         <View>
           <SectionHeader label="Sort By" summary={summaryLabel(sortCount)} />
-          <View style={styles.pillWrap}>
-            {SORT_OPTIONS.map((opt) => {
-              const active = local.sortBy === opt.key
-              return (
-                <PressableScale key={opt.key} onPress={() => setSortBy(opt.key)} hapticStyle="light">
-                  <View style={[styles.pill, active && styles.pillActive]}>
-                    <Text style={[styles.pillText, active && styles.pillTextActive]}>
-                      {opt.label}
-                    </Text>
-                  </View>
-                </PressableScale>
-              )
-            })}
-          </View>
+          <SegmentedControl
+            segments={SORT_SEGMENTS}
+            value={local.sortBy}
+            onChange={setSortBy}
+            testID="filter-sheet-sort-segmented"
+          />
         </View>
 
-        {/* Voucher type section — W2b (W2-D4): mini-ticket chips. Rounded
-            rect + a dashed perforation accent + a per-type glyph; the glyph
-            + text + perforation all take the chip's content colour so the
-            tint follows selected/unselected. */}
+        {/* Voucher type section — v3 (W2-D4): true TICKET silhouettes.
+            White body with two cream side notches (absolutely positioned
+            circles clipped at the mid edges), a red dashed perforation
+            inside the left edge, and the per-type glyph in coral. Selected:
+            warm red tint fill + 1.5px red border (brand action family). */}
         <View>
           <SectionHeader label="Voucher Type" summary={summaryLabel(voucherTypeCount)} />
           <View style={styles.pillWrap}>
             {VOUCHER_TYPE_CHIPS.map((chip) => {
               const active = chip.values.every((v) => local.voucherTypes.includes(v))
               const Glyph = VOUCHER_TYPE_ICON[chip.label]
-              const content = active ? color.onBrand : color.navy
               return (
                 <PressableScale key={chip.label} onPress={() => toggleVoucherType(chip)} hapticStyle="light">
                   <View style={[styles.ticketChip, active && styles.ticketChipActive]}>
-                    <View style={[styles.ticketPerforation, { borderColor: active ? 'rgba(255,255,255,0.65)' : color.border.default }]} />
-                    {Glyph ? <Glyph size={13} color={content} strokeWidth={2.2} style={styles.pillIcon} /> : null}
-                    <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                    <View style={styles.ticketNotchLeft} />
+                    <View style={styles.ticketNotchRight} />
+                    <View style={styles.ticketPerforation} />
+                    {Glyph ? <Glyph size={13} color={color.brandCoral} strokeWidth={2.2} style={styles.pillIcon} /> : null}
+                    <Text style={styles.pillText}>
                       {chip.label}
                     </Text>
                   </View>
@@ -436,8 +489,9 @@ export function FilterSheet({
           </View>
         </View>
 
-        {/* Open now section — W2b: chip-style toggle row consistent with the
-            chips above (same FilterState.openNow semantics). */}
+        {/* Open now section — chip-style toggle (same FilterState.openNow
+            semantics). v3 selected state: navy fill, white text (navy ink
+            = state, red = brand action, category colour = identity). */}
         <View>
           <SectionHeader label="Open Now" summary={local.openNow ? 'On' : 'Any'} />
           <View style={styles.pillWrap}>
@@ -447,7 +501,7 @@ export function FilterSheet({
               accessibilityLabel="Open now filter"
               accessibilityState={{ selected: local.openNow }}
             >
-              <View style={[styles.pill, local.openNow && styles.pillActive]}>
+              <View style={[styles.pill, local.openNow && styles.pillNavyActive]}>
                 <Clock size={13} color={local.openNow ? color.onBrand : color.navy} strokeWidth={2.2} style={styles.pillIcon} />
                 <Text style={[styles.pillText, local.openNow && styles.pillTextActive]}>
                   Open now
@@ -469,7 +523,7 @@ export function FilterSheet({
                 const active = local.amenityIds.includes(amenity.id)
                 return (
                   <PressableScale key={amenity.id} onPress={() => toggleAmenity(amenity.id)} hapticStyle="light">
-                    <View style={[styles.pill, active && styles.pillAmenityActive]}>
+                    <View style={[styles.pill, active && styles.pillNavyActive]}>
                       <Text style={[styles.pillText, active && styles.pillTextActive]}>
                         {amenity.name}
                       </Text>
@@ -480,22 +534,35 @@ export function FilterSheet({
             </View>
           </View>
         )}
-      </ScrollView>
+        </ScrollView>
+
+        {/* Continuation cue — cream fade over the last visible strip of
+            content, floating above the footer. Purely visual. */}
+        <LinearGradient
+          colors={['rgba(255,249,245,0)', color.cream]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.scrollFade}
+          pointerEvents="none"
+        />
+      </View>
 
       {/* Footer — Reset (draft-only, does not close the sheet) + Apply
           (brand gradient, shows the live/fallback place count). W2b copy:
           "Show N places" (owner brief), "Show places" when unknown. The
           live-count HOOK stays in the parent screen (locked pin); the
-          sheet only renders the resolved count. */}
+          sheet only renders the resolved count. v3: hairline top border +
+          slight upward shadow keep the footer visually separate from the
+          scrolling content. */}
       <View style={styles.footer}>
         <PressableScale onPress={handleReset} accessibilityLabel="Reset filters" hapticStyle="light" style={styles.resetButton}>
           <RotateCcw size={16} color={color.text.secondary} />
           <Text variant="label.lg" style={styles.resetButtonText}>Reset</Text>
         </PressableScale>
 
-        <TouchableOpacity
+        <PressableScale
           onPress={handleApply}
-          activeOpacity={0.9}
+          pressedScale={0.98}
           style={styles.applyButtonWrap}
           accessibilityLabel={applyLabel}
         >
@@ -504,7 +571,7 @@ export function FilterSheet({
               {applyLabel}
             </Text>
           </GradientBrand>
-        </TouchableOpacity>
+        </PressableScale>
       </View>
     </BottomSheet>
   )
@@ -526,20 +593,40 @@ const styles = StyleSheet.create({
     borderRadius:    16,
     alignItems:      'center',
     justifyContent:  'center',
-    backgroundColor: color.surface.neutral,
+    backgroundColor: '#FFFFFF',
+    borderWidth:     1,
+    borderColor:     'rgba(1,12,53,0.06)',
   },
+  scrollWrap: {
+    position: 'relative',
+  },
+  // v3 scroll affordance (a) — tuned DOWN from 460 so on a typical device
+  // the next section's header sits half-cut at the fold when the sheet
+  // opens (content continues = you can scroll).
   scrollView: {
-    maxHeight: 460,
+    maxHeight: 400,
   },
-  // W2b — section header row: small-caps label left, selected summary right.
+  // v3 scroll affordance (b) — the cream-to-transparent continuation fade
+  // floating over the content's last strip, just above the footer.
+  scrollFade: {
+    position: 'absolute',
+    left:     0,
+    right:    0,
+    bottom:   0,
+    height:   28,
+  },
+  // W2b — section header row: small-caps navy label left, selected summary
+  // right in brand red. v3 rhythm: 24 above / 12 below.
   sectionHeader: {
     flexDirection:  'row',
     alignItems:     'center',
     justifyContent: 'space-between',
-    marginTop:      spacing[4],
-    marginBottom:   spacing[2],
+    marginTop:      spacing[6],
+    marginBottom:   spacing[3],
   },
-  sectionLabel: {},
+  sectionLabel: {
+    color: color.navy,
+  },
   sectionSummary: {
     fontSize:   11,
     fontFamily: 'Lato-SemiBold',
@@ -556,6 +643,8 @@ const styles = StyleSheet.create({
     flexWrap:      'wrap',
     gap:           spacing[2],
   },
+  // v3 — chips are WHITE cards on the cream sheet ground: warmth + real
+  // elevation via a navy-tinted hairline, never grey-wash.
   pill: {
     flexDirection:    'row',
     alignItems:       'center',
@@ -563,43 +652,73 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     paddingVertical:  spacing[3],
     minHeight:        44,               // generous touch target (owner design brief item 2)
-    backgroundColor:  color.surface.neutral,
+    backgroundColor:  '#FFFFFF',
+    borderWidth:      1,
+    borderColor:      'rgba(1,12,53,0.06)',
   },
-  pillActive: {
-    backgroundColor: color.brandRose,
-  },
-  // W2b (W2-D3) — category/subcategory selected: white chip, brand-red
-  // border + text (outlined pattern), instead of the filled-rose chip.
-  pillOutlineActive: {
-    backgroundColor: '#FFFFFF',
-    borderWidth:     1.5,
-    borderColor:     color.brandRose,
-  },
-  pillTextOutlineActive: {
-    color: color.brandRose,
-  },
-  pillAmenityActive: {
+  // v3 — navy state fill (Open Now, Amenities). Navy ink = state; red is
+  // reserved for brand actions; category colours carry identity.
+  pillNavyActive: {
     backgroundColor: color.navy,
+    borderColor:     color.navy,
   },
-  // W2b (W2-D4) — voucher-type mini-ticket chip: rounded rect + a dashed
-  // perforation stub on the leading edge. Content colour tracks selection.
+  // W2b (W2-D3) v3 — the category glyph's tinted disc (12% category colour;
+  // full-colour icon inside).
+  iconDisc: {
+    width:          22,
+    height:         22,
+    borderRadius:   11,
+    alignItems:     'center',
+    justifyContent: 'center',
+    marginRight:    6,
+  },
+  // W2b (W2-D4) v3 — voucher-type TICKET silhouette: white body, two cream
+  // side notches (circles clipped at the mid edges via overflow: hidden),
+  // red dashed perforation inside the left edge, coral glyph.
   ticketChip: {
     flexDirection:     'row',
     alignItems:        'center',
     borderRadius:      9,
-    paddingHorizontal: spacing[3],
+    paddingLeft:       spacing[4],
+    paddingRight:      spacing[4],
     paddingVertical:   spacing[3],
     minHeight:         44,
-    backgroundColor:   color.surface.neutral,
+    backgroundColor:   '#FFFFFF',
+    borderWidth:       1,
+    borderColor:       'rgba(1,12,53,0.06)',
+    overflow:          'hidden',
   },
   ticketChipActive: {
-    backgroundColor: color.brandRose,
+    backgroundColor: hexWithAlpha(color.brandRose, 0.10),
+    borderWidth:     1.5,
+    borderColor:     color.brandRose,
+  },
+  ticketNotchLeft: {
+    position:        'absolute',
+    left:            -5,
+    top:             '50%',
+    marginTop:       -5,
+    width:           10,
+    height:          10,
+    borderRadius:    5,
+    backgroundColor: color.cream,
+  },
+  ticketNotchRight: {
+    position:        'absolute',
+    right:           -5,
+    top:             '50%',
+    marginTop:       -5,
+    width:           10,
+    height:          10,
+    borderRadius:    5,
+    backgroundColor: color.cream,
   },
   ticketPerforation: {
-    height:        18,
+    height:          18,
     borderLeftWidth: 2,
-    borderStyle:   'dashed',
-    marginRight:   spacing[2],
+    borderStyle:     'dashed',
+    borderColor:     'rgba(226,12,4,0.45)',
+    marginRight:     spacing[2],
   },
   pillIcon: {
     marginRight: 4,
@@ -612,11 +731,20 @@ const styles = StyleSheet.create({
   pillTextActive: {
     color: color.onBrand,
   },
+  // v3 — footer separation: hairline top border + a slight upward shadow.
   footer: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           spacing[3],
-    marginTop:     spacing[4],
+    flexDirection:  'row',
+    alignItems:     'center',
+    gap:            spacing[3],
+    marginTop:      spacing[3],
+    paddingTop:     spacing[3],
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(1,12,53,0.08)',
+    backgroundColor: color.cream,
+    shadowColor:    '#010C35',
+    shadowOpacity:  0.04,
+    shadowRadius:   6,
+    shadowOffset:   { width: 0, height: -3 },
   },
   resetButton: {
     flexDirection:     'row',
@@ -653,5 +781,8 @@ const styles = StyleSheet.create({
   applyButtonText: {
     color:      '#FFFFFF',
     fontFamily: 'Lato-Bold',
+    // v3 — tabular numerals so the live count doesn't jitter the label
+    // width as the preview refreshes.
+    fontVariant: ['tabular-nums'],
   },
 })

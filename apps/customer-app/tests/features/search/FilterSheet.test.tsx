@@ -41,14 +41,18 @@ const defaultFilters: FilterState = {
 describe('FilterSheet', () => {
   beforeEach(() => { mockState.amenities = [] })
 
-  it('renders sort options', () => {
-    const { getByText } = render(
+  it('renders sort options (W2b round 2: shared segmented control, display labels; canonical a11y labels retained)', () => {
+    const { getByText, getByLabelText } = render(
       <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={jest.fn()} onDismiss={jest.fn()} />,
     )
+    // Display-only labels (SORT_DISPLAY_LABEL).
     expect(getByText('Relevance')).toBeTruthy()
     expect(getByText('Nearest')).toBeTruthy()
-    expect(getByText('Top Rated')).toBeTruthy()
-    expect(getByText('Highest Saving')).toBeTruthy()
+    expect(getByText('Top rated')).toBeTruthy()
+    expect(getByText('Best saving')).toBeTruthy()
+    // Canonical accessibility labels stay on the SORT_OPTIONS wording.
+    expect(getByLabelText('Sort by Top Rated')).toBeTruthy()
+    expect(getByLabelText('Sort by Highest Saving')).toBeTruthy()
   })
 
   it('renders apply button with result count', () => {
