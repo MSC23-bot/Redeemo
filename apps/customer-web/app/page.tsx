@@ -4,12 +4,10 @@ import { TrendingPreviewSection } from '@/components/landing/TrendingPreviewSect
 import { TestimonialsSection } from '@/components/landing/TestimonialsSection'
 import { FoundingPromiseSection } from '@/components/landing/FoundingPromiseSection'
 import { PricingSection } from '@/components/landing/PricingSection'
-import { WaitlistSection } from '@/components/landing/WaitlistSection'
-import { ForBusinessesBridgeSection } from '@/components/landing/ForBusinessesBridgeSection'
 import { AppCtaFooterSection } from '@/components/landing/AppCtaFooterSection'
 import { VoucherTypesRail } from '@/components/landing/VoucherTypesRail'
 import { WhatIsRedeemoSection } from '@/components/landing/WhatIsRedeemoSection'
-import { LaunchLocalityToast } from '@/components/landing/LaunchLocalityToast'
+import { WelcomeOfferPopup } from '@/components/landing/WelcomeOfferPopup'
 import { isMarketplaceLive } from '@/lib/prelaunch'
 
 export default function HomePage() {
@@ -24,19 +22,21 @@ export default function HomePage() {
       {/* The app journey: five chapters through the real customer app
           (Discovery, Merchant profile, Voucher detail, Redemption, Savings) */}
       <AppJourneySection />
-      {/* The voucher shelf: vertical scroll sweeps the seven voucher types
-          horizontally (desktop; mobile gets the static grid via ScrollStory) */}
       {/* How-it-works section removed from the landing page (owner
           2026-07-13: redundant against the journey cinema); the standalone
           /how-it-works page remains for the hero's secondary CTA */}
       <VoucherTypesRail />
       {isMarketplaceLive() ? <TestimonialsSection /> : <FoundingPromiseSection />}
       <PricingSection />
-      <WaitlistSection />
-      <ForBusinessesBridgeSection />
+      {/* The bottom of the page used to stack three cards (waitlist ticket,
+          business bridge, app panel: owner 2026-07-13, too much): the
+          founding offer now greets visitors as the WelcomeOfferPopup, and
+          the business invitation lives inside the footer */}
       <AppCtaFooterSection />
-      {/* Quiet rollout note: starts in Huddersfield; dismissible, session-scoped */}
-      <LaunchLocalityToast />
+      {/* The founding-offer ticket as a once-per-session welcome dialog,
+          with the 3D ribbon in its backdrop; carries the rollout note that
+          the old locality toast used to show */}
+      <WelcomeOfferPopup />
     </>
   )
 }

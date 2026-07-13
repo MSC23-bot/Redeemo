@@ -809,3 +809,21 @@ edited by this workstream.
   is the vibe), white links, dashed divider, white CTA. tsc clean;
   verified at 390x780 (hero, pricing shelf, waitlist, app panel, footer)
   and desktop 1440x900 (ticket grid).
+- WELCOME OFFER POPUP + FOOTER BUSINESS BAND (owner 2026-07-13: the page
+  foot stacked three cards: waitlist ticket, business bridge, app panel):
+  the founding-member ticket LEAVES the landing page and becomes
+  WelcomeOfferPopup: a voucher-shaped dialog (brand band, Redeemo logo,
+  offer + three perks, die-cut tear line into the claim stub, white
+  Create-free-account CTA) with the LIVE 3D ribbon flowing through the
+  dimmed, blurred backdrop: the notches punch through to it. Carries the
+  Huddersfield rollout line, shows ~1.1s after arrival once per session,
+  closes by X / backdrop / Escape, scroll-locked while open, pre-launch
+  only; works at every viewport. The old LaunchLocalityToast is retired
+  (the popup carries its message; two session greeters would nag). The
+  ForBusinessesBridgeSection is retired as a page section and reborn as a
+  compact brand-red band INSIDE the footer (title, one-liner, white
+  Find-out-more) above the link columns: it now appears site-wide with
+  the footer. WaitlistSection/ForBusinessesBridgeSection/
+  LaunchLocalityToast components deleted. Landing foot is now Pricing ->
+  app panel -> footer. tsc clean; verified popup + footer at 390x780 and
+  1440x900 (open, X-close, ribbon backdrop, notches).

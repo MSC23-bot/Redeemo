@@ -39,6 +39,38 @@ export function Footer() {
 
       <div className="relative max-w-7xl mx-auto px-6">
 
+        {/* The business invitation lives here now (owner 2026-07-13: the
+            standalone bridge card was one card too many at the page's
+            foot): the same brand-red band, compact, at home on the navy */}
+        <div
+          className="relative overflow-hidden rounded-2xl px-5 py-5 md:px-8 md:py-6 mb-9 md:mb-12 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+          style={{
+            background: 'linear-gradient(135deg, #C40902 0%, #E20C04 45%, #E8500A 100%)',
+            boxShadow: '0 16px 44px rgba(226,12,4,0.24), inset 0 1px 0 rgba(255,255,255,0.18)',
+          }}
+        >
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 pointer-events-none"
+            style={{ background: 'radial-gradient(420px circle at 108% -30%, rgba(255,255,255,0.12), transparent 55%)' }}
+          />
+          <div className="relative">
+            <p className="font-display text-white text-[17px] md:text-[20px] leading-[1.25] mb-1" style={{ letterSpacing: '-0.2px' }}>
+              Got a business? List it on Redeemo.
+            </p>
+            <p className="text-[12.5px] md:text-[13px] text-white/75 leading-[1.55] max-w-[520px]">
+              Free listing. No commission. You design the vouchers.
+            </p>
+          </div>
+          <Link
+            href="/for-businesses"
+            className="relative inline-flex items-center justify-center flex-shrink-0 font-semibold text-[13.5px] px-5 py-2.5 rounded-lg bg-white no-underline hover:bg-white/90 transition-colors"
+            style={{ color: '#010C35', boxShadow: '0 4px 14px rgba(0,0,0,0.16)' }}
+          >
+            Find out more
+          </Link>
+        </div>
+
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-7 md:gap-12 mb-8 md:mb-12">
 
           {/* Brand */}

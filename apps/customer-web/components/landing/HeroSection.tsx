@@ -202,9 +202,8 @@ export function HeroSection() {
 
         {/* Launch strip: where we start, and where the app fits. Desktop
             only: on mobile it crowded the hero floor (owner 2026-07-13),
-            and both facts already live later in the page (the locality
-            toast + waitlist ticket carry Huddersfield; the footer carries
-            app-at-launch). */}
+            and both facts already live elsewhere (the welcome popup
+            carries Huddersfield; the app panel carries app-at-launch). */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
