@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, fireEvent, act } from '@testing-library/react-native'
+import { render, fireEvent, act, within } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // ─── react-native-maps mock ──────────────────────────────────────────────────
@@ -125,6 +125,8 @@ jest.mock('expo-router', () => ({
 
 // Import AFTER mocks are registered.
 import { MapScreen } from '@/features/map/screens/MapScreen'
+import { clearAccumulatedBranches } from '@/features/map/hooks/regionAccumulationStore'
+import { makeBranchTile } from '../../fixtures/branchTile'
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -510,6 +512,113 @@ describe('MapScreen', () => {
       const { queryByText } = render(<MapScreen />, { wrapper })
       expect(queryByText('No merchants in this area')).toBeNull()
       expect(queryByText('No matches in the UK yet')).toBeNull()
+    })
+  })
+
+  // ─── W2b round 2 BUG 2 (owner device QA 2026-07-13) ───────────────────────
+  //
+  // Device repro: "Show 0 places" on the Apply button while the list header
+  // said "3 places in this area", with ZERO filters selected (a remote-city
+  // viewport was active). Root cause: the live-count preview ALWAYS ran
+  // /search, whose ranking/scope cascade is relative to the USER's effLoc
+  // (GPS/profile), not the viewport bbox — with a remote viewport and no
+  // q/categoryId every bbox-admitted branch fell above the retained rungs
+  // and the bucket-B rescue could not fire, so /search honestly answered 0
+  // while the map's own /discovery/in-area feed showed 3. The preview now
+  // routes exactly like the APPLIED state would (the hybrid-hook contract).
+  describe('W2b round 2 BUG 2: filter-sheet live count routes like the hybrid hook', () => {
+    afterEach(() => {
+      clearAccumulatedBranches()
+    })
+
+    function seedThreeInAreaBranches() {
+      const mk = (id: string, name: string) =>
+        makeBranchTile({
+          id,
+          branchLatitude:  51.51,
+          branchLongitude: -0.13,
+          merchant: { id: `m-${id}`, businessName: name, voucherCount: 1, maxEstimatedSaving: 5 },
+        })
+      mockState.inAreaData = {
+        merchants: [],
+        branches:  [mk('brn-a', 'Alpha'), mk('brn-b', 'Beta'), mk('brn-c', 'Gamma')],
+        total:     3,
+        meta:      { resolvedArea: 'London', nearbyCount: 3, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+      }
+      // The owner-observed poison value: /search (bbox-only, remote
+      // viewport) answering zero. The fix must never surface this while
+      // the draft has no non-scope filters.
+      mockState.searchData = {
+        merchants: [],
+        branches:  [],
+        total:     0,
+        meta:      { resolvedArea: 'London', scope: 'nearby', scopeExpanded: false, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+      }
+    }
+
+    it('no filters selected → Apply shows the in-area count ("Show 3 places"), and the /search preview arm stays disabled', () => {
+      seedThreeInAreaBranches()
+      const { getByText, getByLabelText, queryByText } = render(<MapScreen />, { wrapper })
+
+      fireEvent.press(getByLabelText('Open filters'))
+
+      // The exact number the list header would show — never the /search 0.
+      expect(getByText('Show 3 places')).toBeTruthy()
+      expect(queryByText('Show 0 places')).toBeNull()
+      // No /search call was ever ENABLED for a clean (non-scope-free) draft.
+      expect(mockSearchCalls.some((c) => c.enabled)).toBe(false)
+    })
+
+    it('draft category differs from applied → the preview runs through /discovery/in-area with the DRAFT categoryId (not /search)', () => {
+      seedThreeInAreaBranches()
+      const { getByText, getByLabelText } = render(<MapScreen />, { wrapper })
+
+      fireEvent.press(getByLabelText('Open filters'))
+      // Draft-select a category INSIDE the sheet (not applied yet) — the
+      // map's own category pill row also says "Food & Drink", so scope the
+      // query to the sheet (accessibilityLabel "Filter results").
+      fireEvent.press(within(getByLabelText('Filter results')).getByText('Food & Drink'))
+
+      // The preview in-area call (textually before the screen's own call,
+      // so second-to-last) carries the draft category and is enabled...
+      const previewCall = mockInAreaCalls[mockInAreaCalls.length - 2]!
+      expect(previewCall.params.categoryId).toBe('c1')
+      expect(previewCall.enabled).toBe(true)
+      // ...while the screen's own (last) in-area call still reflects the
+      // APPLIED filters (no category).
+      const mainCall = mockInAreaCalls[mockInAreaCalls.length - 1]!
+      expect(mainCall.params.categoryId).toBeUndefined()
+      // Still no /search preview: categoryId is not a non-scope filter.
+      expect(mockSearchCalls.some((c) => c.enabled)).toBe(false)
+      // The preview count comes from the in-area feed.
+      expect(getByText('Show 3 places')).toBeTruthy()
+    })
+
+    it('draft with a NON-SCOPE filter still previews via /search (unchanged arm)', () => {
+      jest.useFakeTimers()
+      try {
+        seedThreeInAreaBranches()
+        mockState.searchData = {
+          merchants: [],
+          branches:  [],
+          total:     1,
+          meta:      { resolvedArea: 'London', scope: 'nearby', scopeExpanded: false, nearbyCount: 1, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+        }
+        const { getByText, getByLabelText } = render(<MapScreen />, { wrapper })
+
+        fireEvent.press(getByLabelText('Open filters'))
+        fireEvent.press(getByText('Open now'))
+        // Flush useFilterPreviewCount's 350ms draft debounce.
+        act(() => { jest.advanceTimersByTime(400) })
+
+        // The /search preview arm enables once the draft carries a
+        // non-scope filter (openNow), mirroring the applied hybrid switch.
+        const enabledSearch = mockSearchCalls.filter((c) => c.enabled)
+        expect(enabledSearch.length).toBeGreaterThan(0)
+        expect(enabledSearch[enabledSearch.length - 1]!.params.openNow).toBe(true)
+      } finally {
+        jest.useRealTimers()
+      }
     })
   })
 })

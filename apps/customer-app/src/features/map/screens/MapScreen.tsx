@@ -211,6 +211,46 @@ export function MapScreen(_props: Props) {
   // query, it just stops REFETCHING it while unfocused.
   const isFocused = useIsFocused()
 
+  // Map W2b round 2 (BUG 2, owner device QA 2026-07-13) — hybrid preview
+  // routing. The FilterSheet's live count previously ALWAYS previewed via
+  // /search, but with ZERO non-scope draft filters the map itself serves
+  // /discovery/in-area (pure bbox honesty). /search ranks against the
+  // USER's effLoc (GPS/profile) and its scope cascade retains only the
+  // lower rungs by default; with a REMOTE viewport (e.g. a Huddersfield
+  // city search while the user's GPS is elsewhere) every bbox-admitted
+  // branch classifies above the retained rungs, and with no q/categoryId
+  // the bucket-B rescue can't fire: /search honestly answers 0 while the
+  // in-area list header says "3 places in this area". Fix: the PREVIEW
+  // routes exactly like the APPLIED state would:
+  //   - draft has non-scope filters  → /search preview (unchanged arm);
+  //   - draft has none, same category → no query at all: the sheet falls
+  //     back to `resultCount` (the exact number the list header shows);
+  //   - draft has none, DIFFERENT category → an in-area preview call with
+  //     the draft's categoryId (what Apply would actually fetch).
+  const draftHasNonScopeFilters =
+    filterDraft.sortBy !== 'relevance' ||
+    filterDraft.voucherTypes.length > 0 ||
+    filterDraft.amenityIds.length > 0 ||
+    filterDraft.openNow
+
+  // NOTE: called BEFORE the screen's own `inAreaQuery` below — the
+  // MapScreen suite pins `mockInAreaCalls[length - 1]` as the screen's own
+  // in-area call (same ordering contract useFilterPreviewCount documents
+  // for useSearch).
+  const inAreaPreviewQuery = useInAreaBranches(
+    queryBbox,
+    {
+      ...(filterDraft.categoryId ? { categoryId: filterDraft.categoryId } : {}),
+      ...(locationState.location
+        ? { lat: locationState.location.lat, lng: locationState.location.lng }
+        : {}),
+    },
+    filterVisible &&
+      !draftHasNonScopeFilters &&
+      filterDraft.categoryId !== filters.categoryId &&
+      isFocused,
+  )
+
   // ─── Both queries always invoked (rules of hooks); `enabled` selects ──────
   const inAreaQuery = useInAreaBranches(
     queryBbox,
@@ -252,7 +292,24 @@ export function MapScreen(_props: Props) {
       ? { lat: locationState.location.lat, lng: locationState.location.lng }
       : {}),
   }
-  const filterPreview = useFilterPreviewCount(filterVisible, previewBaseParams, filterDraft)
+  const searchFilterPreview = useFilterPreviewCount(
+    filterVisible && draftHasNonScopeFilters,
+    previewBaseParams,
+    filterDraft,
+  )
+  // W2b round 2 (BUG 2) — resolve the preview along the same hybrid route
+  // the applied state takes (see the block above `inAreaPreviewQuery`).
+  // A `count: null` deliberately falls the sheet back to `resultCount`
+  // (the applied total), which for an unchanged zero-filter draft IS the
+  // list header's number.
+  const filterPreview = draftHasNonScopeFilters
+    ? searchFilterPreview
+    : filterDraft.categoryId !== filters.categoryId
+      ? {
+          count:   inAreaPreviewQuery.data ? mapDataView(inAreaPreviewQuery.data).total : null,
+          pending: filterVisible && inAreaPreviewQuery.isLoading,
+        }
+      : { count: null, pending: false }
 
   const searchResultQuery = useSearch(
     {
