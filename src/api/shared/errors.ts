@@ -106,6 +106,22 @@ export const ERROR_DEFINITIONS = {
   NOTE_NOT_ACTIVE:                { statusCode: 409, message: 'This note has been retracted and can no longer be changed.' },
   NOTE_NOT_AUTHOR:                { statusCode: 403, message: 'You can only edit or retract your own notes.' },
   NOTE_RETRACT_REASON_REQUIRED:   { statusCode: 400, message: 'A reason is required to retract a note.' },
+  // D65 in-person signing ceremony (plan Slice 2).
+  //   AGREEMENT_LEGAL_REVIEW_REQUIRED : the fail-closed legal gate. Fired when the
+  //     ceremony would write a BINDING evidence record on a PRODUCTION deploy while
+  //     AGREEMENT_LEGAL_REVIEW_REQUIRED is still on (the default). Staging/dev run
+  //     the flow fully (DRAFT-watermarked) for QA; production stays blocked until the
+  //     owner flips the flag post solicitor sign-off. (The plan calls this the
+  //     "LEGAL_REVIEW_REQUIRED error"; prefixed AGREEMENT_ for the errors namespace.)
+  //   AGREEMENT_VERSION_UNKNOWN       : the requested agreementVersion is not in the
+  //     version registry (fail-closed; the pinned contentHash only ever comes from a
+  //     registry entry, never the caller).
+  //   AGREEMENT_SIGNER_INVALID        : admin-never-signs / signature-of-record guard
+  //     - the typed signer name is empty, or a witness id was not resolved for an
+  //     in-person signing. Defence-in-depth behind the route's zod validation.
+  AGREEMENT_LEGAL_REVIEW_REQUIRED: { statusCode: 403, message: 'This agreement is pending legal review and cannot be signed for production yet.' },
+  AGREEMENT_VERSION_UNKNOWN:       { statusCode: 400, message: 'The agreement version is not recognised.' },
+  AGREEMENT_SIGNER_INVALID:        { statusCode: 400, message: 'A signatory name is required to sign this agreement.' },
   // Phase 2 Slice 1 M3: actioner.
   APPROVAL_NOT_FOUND:             { statusCode: 404, message: 'Approval not found.' },
   APPROVAL_ALREADY_CLAIMED:       { statusCode: 409, message: 'This approval is already being reviewed by another admin.' },

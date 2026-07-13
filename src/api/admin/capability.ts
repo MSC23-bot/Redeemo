@@ -83,6 +83,17 @@ export type AdminCapability =
   // PUBLIC custom offers) is a higher product/legal bar and may warrant a SEPARATE
   // capability/tier; do not assume it reuses this one.
   | 'merchant:manage-vouchers'
+  // D65 (in-person signing ceremony): gates the assisted contract-signing route
+  // (POST /admin/merchants/:id/agreement/sign) where the rep WITNESSES the owner's
+  // signature on the rep's device (admin-never-signs: the rep is recorded as
+  // actorAdminId/witness, never the signerName). An operational onboarding-completion
+  // action like merchant:submit (it drives a pre-live merchant toward go-live), so it
+  // IS in ALL_SLICE1_CAPS (OPERATIONS holds it) AND in FIELD_CAPABILITIES (spec §1.6:
+  // FIELD completes assisted onboarding END-TO-END, including the contract ceremony).
+  // The pre-live scope guard (assertFieldPreLiveScope) is the FIELD safety boundary,
+  // and the fail-closed AGREEMENT_LEGAL_REVIEW_REQUIRED gate blocks production binding
+  // writes regardless of role. NOT in GRANTABLE_CAPABILITIES.
+  | 'merchant:sign-agreement'
   // D67: gates the read-only cross-merchant admin redemptions list (GET
   // /admin/redemptions). Distinct from `merchant:read` (the merchants
   // directory) so a redemption-visibility role need not also hold the
@@ -130,6 +141,8 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:edit',
   'merchant:submit',
   'merchant:manage-vouchers',
+  // D65: OPERATIONS may witness the assisted contract-signing ceremony.
+  'merchant:sign-agreement',
   'redemption:read',
   // MerchantNote packet: OPERATIONS holds the universal notes cap via its list.
   'merchant:notes',
@@ -154,6 +167,10 @@ const FIELD_CAPABILITIES: AdminCapability[] = [
   'merchant:manage-branches',
   'merchant:manage-documents',
   'merchant:manage-vouchers',
+  // D65: FIELD completes assisted onboarding end-to-end, including witnessing the
+  // in-person contract-signing ceremony for a PRE-LIVE merchant (pre-live scope
+  // guarded).
+  'merchant:sign-agreement',
   // MerchantNote packet: FIELD holds the universal notes cap.
   'merchant:notes',
 ]

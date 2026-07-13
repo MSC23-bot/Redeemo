@@ -247,6 +247,22 @@ export type AuditEvent =
   //   EMAIL_SEND_RESUMED : a SUPER_ADMIN cleared the pause (actorType ADMIN).
   | 'EMAIL_SEND_PAUSED'
   | 'EMAIL_SEND_RESUMED'
+  // D65 in-person signing ceremony (spec §8). `event` is a String column, so these
+  // are union-only literals with NO migration. entityType 'merchant', entityId = the
+  // merchant whose agreement was signed. Written IN-TRANSACTION (writeAuditLogTx)
+  // alongside the MerchantAgreementRecord insert + the contractStatus flip.
+  // metadata carries { agreementVersion, contentHash, recordId, method } - NEVER the
+  // signer name / IP / user-agent (that PII lives only on the evidence record, per
+  // the spec's no-PII-in-logs seam; the audit row's own ipAddress/userAgent columns
+  // carry the request context as every audit row already does).
+  //   MERCHANT_AGREEMENT_SIGNED_IN_PERSON  - the assisted ceremony (actorId = the
+  //     witnessing rep; actorType ADMIN).
+  //   MERCHANT_AGREEMENT_SIGNED_SELF_SERVE - the portal click-to-agree fallback
+  //     (actorType MERCHANT_ADMIN; no witness). AGREEMENT_EVIDENCE_VIEWED is NOT
+  //     added here: the evidence-view surface is Slice 4 (Merchant 360), out of this
+  //     backend-core slice's scope.
+  | 'MERCHANT_AGREEMENT_SIGNED_IN_PERSON'
+  | 'MERCHANT_AGREEMENT_SIGNED_SELF_SERVE'
 
 export interface AuditContext {
   entityId: string

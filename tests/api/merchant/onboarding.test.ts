@@ -104,7 +104,10 @@ describe('merchant onboarding routes', () => {
 
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body)
-    expect(body.version).toBe('1.0')
+    // D65 Slice 0: GET /contract now reads the current version from the agreement
+    // registry (superseding the old hardcoded '1.0' constant). The current entry is
+    // the v2 DRAFT.
+    expect(body.version).toBe('2.0-draft')
     expect(typeof body.text).toBe('string')
     expect(body.text.length).toBeGreaterThan(10)
   })
