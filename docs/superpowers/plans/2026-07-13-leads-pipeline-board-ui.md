@@ -60,6 +60,19 @@ PROTOTYPE-ONLY demo switchers (omitted per spec).
   BadgeTone palette; spec hexes are prototype-only).
 - lostReason PII hint ships HERE (closes the owner-queue item from #500).
 
+## 2b. Review round outcome (Fable adjudication)
+
+Adversarial review: 0 BLOCKING · 1 SHOULD-FIX · 3 NOTE. Fixed on-branch: F1 (five net-new
+em-dashes in test headers) and F2 (a failed terminal fetch could fake "No prospects yet";
+now excluded from the empty computation and surfaced with its own inline retry, pinned by
+two tests). Accepted as logged follow-ups: F3 (latent contactEmail clear-to-null trap: any
+future field-edit UI must send null, not empty string, to clear an email) and F4 (no
+client-side maxLength mirroring backend caps; over-long input degrades to the banner
+fallback). Builder deviation accepted: "assign-then-claim" omitted from the honesty note
+(no claim mechanism exists; truth-lock overrides prototype copy). Owner-queue item raised:
+lead:manage is FIELD-baseline-only, so OPERATIONS sees the restricted-pipeline card; adding
+it to the OPERATIONS baseline is a one-line future decision.
+
 ## 3. Verification lane (all four, mandatory)
 
 `npx tsc --noEmit` · `npm run lint` · `npx jest` · `npx next build` in apps/admin-web.

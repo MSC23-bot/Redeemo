@@ -1,5 +1,5 @@
 /**
- * MarkLostDialog — reason REQUIRED, no-personal-data hint, LOST-move submit body,
+ * MarkLostDialog: reason REQUIRED, no-personal-data hint, LOST-move submit body,
  * and the lead-code error banner (LEAD_LOST_REASON_REQUIRED).
  */
 import React from 'react'

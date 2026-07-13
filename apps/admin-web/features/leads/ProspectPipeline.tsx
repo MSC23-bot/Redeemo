@@ -53,9 +53,13 @@ export function ProspectPipeline({ canManage, canConvert, role }: ProspectPipeli
 
   const lostLeads = terminal.leads.filter((l) => l.stage === 'LOST')
   const convertedLeads = terminal.leads.filter((l) => l.stage === 'CONVERTED')
+  // A terminal-fetch failure must not fake an empty pipeline: with zero live
+  // leads AND a failed terminal fetch, "No prospects yet" would be a lie (Lost
+  // and Converted rows may exist but failed to load). Review round F2.
   const isEmpty =
     !pipeline.isLoading &&
     !pipeline.isError &&
+    !terminal.isError &&
     pipeline.leads.length === 0 &&
     lostLeads.length === 0 &&
     convertedLeads.length === 0
@@ -128,6 +132,19 @@ export function ProspectPipeline({ canManage, canConvert, role }: ProspectPipeli
 
               {lostLeads.length > 0 && <LostSection leads={lostLeads} />}
               {convertedLeads.length > 0 && <ConvertedSection leads={convertedLeads} />}
+              {/* Degraded honestly: live lanes loaded but the terminal fetch
+                  failed, so Lost/Converted are missing, not absent (F2). */}
+              {terminal.isError && (
+                <div
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/30 px-4 py-3 text-xs text-muted-foreground"
+                  data-testid="pipeline-terminal-error"
+                >
+                  <span>Lost and converted leads could not be loaded.</span>
+                  <Button type="button" size="sm" variant="outline" onClick={handleRetry}>
+                    Try again
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </>

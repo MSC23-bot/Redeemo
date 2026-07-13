@@ -1,5 +1,5 @@
 /**
- * pipelineFormat — pure display-derivation helpers for the prospect board.
+ * pipelineFormat: pure display-derivation helpers for the prospect board.
  */
 import {
   sourceLabel,

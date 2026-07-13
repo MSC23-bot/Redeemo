@@ -1,5 +1,5 @@
 /**
- * ConvertLeadDialog — owner-field prefill + required gating, convert submit body,
+ * ConvertLeadDialog: owner-field prefill + required gating, convert submit body,
  * and the success view linking to the new merchant's 360.
  */
 import React from 'react'

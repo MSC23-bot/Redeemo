@@ -1,5 +1,5 @@
 /**
- * AddLeadDialog — required-field gating, no-personal-data hint, and the
+ * AddLeadDialog: required-field gating, no-personal-data hint, and the
  * non-blocking duplicate-warning notice shown after a successful create.
  */
 import React from 'react'

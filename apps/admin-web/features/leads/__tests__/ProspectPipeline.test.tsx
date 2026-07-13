@@ -1,5 +1,5 @@
 /**
- * ProspectPipeline — board render from hook data, capability gating (denied /
+ * ProspectPipeline: board render from hook data, capability gating (denied /
  * Add-lead / Convert), client-side overdue, anonymised-card treatment, terminal
  * Lost / Converted sections, and the loading / error / empty states.
  *
@@ -65,7 +65,7 @@ function makeLead(overrides: Partial<Lead> = {}): Lead {
 function setLanes(leads: Lead[], extra: Partial<{ isLoading: boolean; isError: boolean; refetch: () => void }> = {}) {
   mockUseLeadsPipeline.mockReturnValue({ leads, isLoading: false, isError: false, refetch: jest.fn(), ...extra })
 }
-function setTerminal(leads: Lead[], extra: Partial<{ refetch: () => void }> = {}) {
+function setTerminal(leads: Lead[], extra: Partial<{ isError: boolean; refetch: () => void }> = {}) {
   mockUseTerminalLeads.mockReturnValue({ leads, isLoading: false, isError: false, refetch: jest.fn(), ...extra })
 }
 
@@ -245,6 +245,30 @@ describe('ProspectPipeline load / error / empty states', () => {
   it('shows the empty state when there are no live or terminal leads', () => {
     render(<ProspectPipeline canManage canConvert role="FIELD" />)
     expect(screen.getByTestId('pipeline-empty')).toHaveTextContent('No prospects yet')
+  })
+
+  // F2 (review round): a failed terminal fetch must not fake an empty pipeline,
+  // and the failure is surfaced with its own retry instead of vanishing.
+  it('does not claim "No prospects yet" when the terminal fetch failed', () => {
+    setLanes([])
+    setTerminal([], { isError: true })
+    render(<ProspectPipeline canManage canConvert role="FIELD" />)
+    expect(screen.queryByTestId('pipeline-empty')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pipeline-terminal-error')).toHaveTextContent(
+      'Lost and converted leads could not be loaded.',
+    )
+  })
+
+  it('surfaces a terminal-fetch error beside loaded lanes and retries both fetches', () => {
+    const lanesRefetch = jest.fn()
+    const terminalRefetch = jest.fn()
+    setLanes([makeLead()], { refetch: lanesRefetch })
+    setTerminal([], { isError: true, refetch: terminalRefetch })
+    render(<ProspectPipeline canManage canConvert role="FIELD" />)
+    expect(screen.getByTestId('pipeline-board')).toBeInTheDocument()
+    fireEvent.click(within(screen.getByTestId('pipeline-terminal-error')).getByRole('button', { name: 'Try again' }))
+    expect(lanesRefetch).toHaveBeenCalledTimes(1)
+    expect(terminalRefetch).toHaveBeenCalledTimes(1)
   })
 })
 
