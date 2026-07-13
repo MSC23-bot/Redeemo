@@ -875,6 +875,23 @@ export function MapScreen(_props: Props) {
     [branches, router],
   )
 
+  // W2b round 3 ITEM 2 (owner device QA) — the LIST path's navigation.
+  // Repro: tap a pin (carousel opens, `selectedBranchId` set), open the
+  // list sheet on top, tap a row → navigate. `handleBranchNavigate` never
+  // clears the selection, so the carousel overlay stayed mounted on the
+  // map underneath/behind and was unexpectedly present on return. Fix:
+  // navigating FROM THE LIST clears the carousel selection first. The
+  // pin-tap → carousel path (`handleBranchPress`) and the carousel-card's
+  // own tap-through (`handleBranchNavigate`, where keeping the card for
+  // the return trip is the existing, unflagged behaviour) are untouched.
+  const handleListBranchNavigate = useCallback(
+    (branchId: string) => {
+      setSelectedBranchId(null)
+      handleBranchNavigate(branchId)
+    },
+    [handleBranchNavigate],
+  )
+
   // ─── Empty-state classification ───────────────────────────────────────────
   // 1. offshore         — bbox sits outside UK (live region, not debounced)
   // 2. no_uk_supply     — backend says no UK merchants for this filter
@@ -1192,7 +1209,9 @@ export function MapScreen(_props: Props) {
         branches={branches}
         total={total}
         onDismiss={() => setShowListView(false)}
-        onBranchPress={handleBranchNavigate}
+        // W2b round 3 ITEM 2 — list rows navigate via the list-scoped
+        // handler (clears the carousel selection first; see its comment).
+        onBranchPress={handleListBranchNavigate}
         sortBy={filters.sortBy}
         onSortByChange={handleSortByChange}
       />

@@ -621,4 +621,72 @@ describe('MapScreen', () => {
       }
     })
   })
+
+  // ─── W2b round 3 ITEM 2 (owner device QA 2026-07-13) ───────────────────────
+  //
+  // Repro: tap a pin (carousel opens, selectedBranchId set) → open the list
+  // sheet on top → tap a row → navigate to the merchant profile. The shared
+  // handleBranchNavigate never cleared the selection, so the carousel
+  // overlay stayed mounted on the map underneath/behind and was
+  // unexpectedly present on return. The LIST path now navigates through
+  // handleListBranchNavigate, which clears the selection first; the
+  // pin-tap → carousel behaviour is untouched.
+  describe('W2b round 3 ITEM 2: list-row navigation clears the carousel selection', () => {
+    afterEach(() => {
+      clearAccumulatedBranches()
+    })
+
+    function seedThreePinBranches() {
+      // Distinct, well-separated coords inside the LONDON-derived viewport
+      // so the three branches render as three SINGLE pins (no cluster).
+      const mk = (id: string, name: string, lat: number, lng: number) =>
+        makeBranchTile({
+          id,
+          branchLatitude:  lat,
+          branchLongitude: lng,
+          merchant: { id: `m-${id}`, businessName: name, voucherCount: 1, maxEstimatedSaving: 5 },
+        })
+      mockState.inAreaData = {
+        merchants: [],
+        branches:  [
+          mk('brn-a', 'Alpha', 51.49,  -0.145),
+          mk('brn-b', 'Beta',  51.505, -0.128),
+          mk('brn-c', 'Gamma', 51.525, -0.108),
+        ],
+        total: 3,
+        meta:  { resolvedArea: 'London', nearbyCount: 3, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+      }
+    }
+
+    it('pin-opened carousel does NOT survive a list-row navigation (no selection state left set)', () => {
+      seedThreePinBranches()
+      const { getByTestId, queryByTestId, getByLabelText, getAllByTestId } = render(<MapScreen />, { wrapper })
+
+      // 1. Tap a PIN — the carousel opens (existing behaviour, untouched).
+      fireEvent.press(getByTestId('custom-pin-brn-a'))
+      expect(getByTestId('map-branch-tile-container')).toBeTruthy()
+
+      // 2. Open the LIST sheet on top of the open carousel.
+      fireEvent.press(getByLabelText('Show merchant list'))
+
+      // 3. Tap a list row (the ledger rows are the only map-ledger-row
+      //    testIDs in the tree) — this navigates.
+      fireEvent.press(getAllByTestId('map-ledger-row')[0]!)
+
+      // The carousel selection must NOT survive list navigation: no
+      // carousel overlay left on the map underneath/behind (and none to
+      // greet the user on return).
+      expect(queryByTestId('map-branch-tile-container')).toBeNull()
+    })
+
+    it('list-row navigation with NO carousel open leaves no selection behind either (never opens one)', () => {
+      seedThreePinBranches()
+      const { queryByTestId, getByLabelText, getAllByTestId } = render(<MapScreen />, { wrapper })
+
+      fireEvent.press(getByLabelText('Show merchant list'))
+      fireEvent.press(getAllByTestId('map-ledger-row')[1]!)
+
+      expect(queryByTestId('map-branch-tile-container')).toBeNull()
+    })
+  })
 })
