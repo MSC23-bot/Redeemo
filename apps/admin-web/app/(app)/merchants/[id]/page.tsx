@@ -29,9 +29,11 @@
 import { Suspense, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useSearchParams } from 'next/navigation'
-import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
+import { ForbiddenState } from '@/features/shared/ForbiddenState'
+import { ErrorState } from '@/features/shared/ErrorState'
 import { EditMerchantWebsiteDialog } from '@/features/merchants/EditMerchantWebsiteDialog'
 import { EditMerchantIdentityDialog } from '@/features/merchants/EditMerchantIdentityDialog'
 import { ProposeMerchantEditDialog } from '@/features/merchants/ProposeMerchantEditDialog'
@@ -58,45 +60,10 @@ import type { BranchDetail } from '@/lib/api/merchants'
 
 // ── States ────────────────────────────────────────────────────────────────────
 
-function ForbiddenState() {
-  return (
-    <div className="mx-auto max-w-xl py-20 text-center" data-testid="merchant-detail-forbidden">
-      <span className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-        <AlertCircle className="size-6" aria-hidden="true" />
-      </span>
-      <h2 className="mb-2 text-lg font-semibold text-foreground">Access denied</h2>
-      <p className="text-sm text-muted-foreground">
-        You do not have permission to view merchant details. Contact your administrator.
-      </p>
-    </div>
-  )
-}
-
 function LoadingState() {
   return (
     <div className="flex items-center justify-center py-20" data-testid="merchant-detail-loading">
       <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading" />
-    </div>
-  )
-}
-
-function ErrorState({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div
-      className="rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-10 text-center"
-      data-testid="merchant-detail-error"
-    >
-      <AlertCircle className="mx-auto mb-3 size-6 text-destructive" aria-hidden="true" />
-      <p className="mb-4 text-sm text-destructive">
-        Could not load this merchant. Check your connection and try again.
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="text-sm font-medium text-primary hover:underline"
-      >
-        Retry
-      </button>
     </div>
   )
 }
@@ -161,7 +128,13 @@ function MerchantWorkspace() {
     return <LoadingState />
   }
   if (!can('merchant:read')) {
-    return <ForbiddenState />
+    return (
+      <ForbiddenState
+        heading="You do not have access to this merchant."
+        capability="merchant:read"
+        testId="merchant-detail-forbidden"
+      />
+    )
   }
 
   function closeDialog() {
@@ -193,7 +166,7 @@ function MerchantWorkspace() {
       {isLoading ? (
         <LoadingState />
       ) : isError || !data ? (
-        <ErrorState onRetry={refetch} />
+        <ErrorState subject="this merchant" onRetry={refetch} testId="merchant-detail-error" />
       ) : (
         <>
           <MerchantWorkspaceHeader

@@ -133,8 +133,27 @@ describe('QueuePage capability gate', () => {
 
     render(<QueuePage />)
 
-    expect(screen.getByText(/access denied/i)).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /approval queue/i })).not.toBeInTheDocument()
+    expect(screen.getByTestId('queue-forbidden')).toBeInTheDocument()
+    // Exact match: the forbidden heading itself legitimately contains the
+    // phrase "approval queue" (honesty-copy sweep names the surface), so this
+    // must check for the real page H1 by its exact text, not a substring.
+    expect(screen.queryByRole('heading', { name: 'Approval queue' })).not.toBeInTheDocument()
+  })
+
+  // Honesty-copy sweep (2026-07-13): denied copy must name the capability +
+  // the viewer's actual role and reassure that nothing is broken (module
+  // spec approval-queue-spec.md §A.1 qDenied).
+  it('the forbidden state names approval:read, the viewer role, and reassures nothing is broken', () => {
+    mockSession({ can: () => false, role: 'FINANCE' })
+    mockQueue()
+    mockQueueHistory()
+
+    render(<QueuePage />)
+
+    const forbidden = screen.getByTestId('queue-forbidden')
+    expect(forbidden).toHaveTextContent(/approval:read/)
+    expect(forbidden).toHaveTextContent(/FINANCE/)
+    expect(forbidden).toHaveTextContent(/nothing is broken/i)
   })
 
   it('calls useQueue with enabled:false when the admin lacks approval:read', () => {
@@ -154,7 +173,7 @@ describe('QueuePage capability gate', () => {
 
     render(<QueuePage />)
 
-    expect(screen.queryByText(/access denied/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('queue-forbidden')).not.toBeInTheDocument()
     expect(screen.getByText('Approval queue')).toBeInTheDocument()
   })
 
@@ -177,7 +196,7 @@ describe('QueuePage capability gate', () => {
     render(<QueuePage />)
 
     expect(screen.getByLabelText(/loading/i)).toBeInTheDocument()
-    expect(screen.queryByText(/access denied/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('queue-forbidden')).not.toBeInTheDocument()
   })
 })
 
@@ -205,6 +224,18 @@ describe('QueuePage OPERATIONS role (has approval:read)', () => {
     mockQueue({ isError: true, isLoading: false })
     render(<QueuePage />)
     expect(screen.getByText(/could not load the approval queue/i)).toBeInTheDocument()
+  })
+
+  // Honesty-copy sweep (2026-07-13): error copy must reassure nothing was
+  // changed, so it can never be mistaken for an empty queue (module spec
+  // approval-queue-spec.md §A.1 qError: "This is different from an empty
+  // queue.").
+  it('the error state reassures nothing was changed and is distinct from empty', () => {
+    mockQueue({ isError: true, isLoading: false })
+    render(<QueuePage />)
+    const error = screen.getByTestId('queue-error')
+    expect(error).toHaveTextContent(/no items were changed/i)
+    expect(screen.queryByText(/nothing is waiting/i)).not.toBeInTheDocument()
   })
 
   it('calls refetch when the Refresh button is clicked', () => {

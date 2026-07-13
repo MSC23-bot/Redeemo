@@ -32,12 +32,14 @@ import { useSession } from '@/lib/auth/useSession'
 
 const mockedUseSession = useSession as jest.MockedFunction<typeof useSession>
 
-function mockSession(opts: { ready?: boolean; can?: (cap: string) => boolean } = {}) {
+function mockSession(
+  opts: { ready?: boolean; can?: (cap: string) => boolean; role?: string } = {}
+) {
   mockedUseSession.mockReturnValue({
     accessToken: 'test-access-token',
     ready: opts.ready ?? true,
     isAuthenticated: true,
-    role: 'OPERATIONS',
+    role: (opts.role ?? 'OPERATIONS') as never,
     email: 'ops@redeemo.co.uk',
     adminId: 'admin-me',
     can: opts.can ?? (() => true),
@@ -63,6 +65,17 @@ describe('CreateMerchantDraftPage gate', () => {
     render(<CreateMerchantDraftPage />)
     expect(screen.getByTestId('create-draft-forbidden')).toBeInTheDocument()
     expect(screen.queryByTestId('create-draft-form-mock')).not.toBeInTheDocument()
+  })
+
+  // Honesty-copy sweep (2026-07-13): denied copy must name the capability +
+  // the viewer's role and reassure that nothing is broken.
+  it('the forbidden state names merchant:create-draft, the viewer role, and reassures nothing is broken', () => {
+    mockSession({ can: (cap) => cap !== 'merchant:create-draft', role: 'SUPPORT' })
+    render(<CreateMerchantDraftPage />)
+    const forbidden = screen.getByTestId('create-draft-forbidden')
+    expect(forbidden).toHaveTextContent(/merchant:create-draft/)
+    expect(forbidden).toHaveTextContent(/SUPPORT/)
+    expect(forbidden).toHaveTextContent(/nothing is broken/i)
   })
 
   it('renders the form when the admin has merchant:create-draft', () => {

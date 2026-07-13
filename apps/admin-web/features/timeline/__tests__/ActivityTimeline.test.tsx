@@ -112,6 +112,12 @@ describe('ActivityTimeline states', () => {
     expect(screen.getByTestId('timeline-error')).toBeInTheDocument()
   })
 
+  it('the error state reassures nothing was changed (honesty-copy sweep: distinct from empty)', () => {
+    mockTimeline(undefined, { isError: true })
+    renderTimeline()
+    expect(screen.getByTestId('timeline-error')).toHaveTextContent(/no items were changed/i)
+  })
+
   it('renders the error state when data is undefined and not loading', () => {
     mockTimeline(undefined)
     renderTimeline()

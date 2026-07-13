@@ -349,12 +349,14 @@ function mockRmv(overrides: Partial<ReturnType<typeof useAdminRmvVouchers>> = {}
   })
 }
 
-function mockSession(opts: { ready?: boolean; can?: (cap: string) => boolean } = {}) {
+function mockSession(
+  opts: { ready?: boolean; can?: (cap: string) => boolean; role?: string } = {}
+) {
   mockedUseSession.mockReturnValue({
     accessToken: 'test-access-token',
     ready: opts.ready ?? true,
     isAuthenticated: true,
-    role: 'OPERATIONS',
+    role: (opts.role ?? 'OPERATIONS') as never,
     email: 'ops@redeemo.co.uk',
     adminId: 'admin-me',
     can: opts.can ?? (() => true),
@@ -471,6 +473,20 @@ describe('Merchant 360 capability gate', () => {
     expect(screen.getByTestId('merchant-detail-forbidden')).toBeInTheDocument()
   })
 
+  // Honesty-copy sweep (2026-07-13): denied copy must name the capability +
+  // the viewer's role and reassure that nothing is broken (module spec
+  // merchant-360-spec.md §(d): "Permission-denied copy always names the
+  // capability + role.").
+  it('the forbidden state names merchant:read, the viewer role, and reassures nothing is broken', () => {
+    mockSession({ can: () => false, role: 'FINANCE' })
+    mockDetail()
+    render(<MerchantDetailPage />)
+    const forbidden = screen.getByTestId('merchant-detail-forbidden')
+    expect(forbidden).toHaveTextContent(/merchant:read/)
+    expect(forbidden).toHaveTextContent(/FINANCE/)
+    expect(forbidden).toHaveTextContent(/nothing is broken/i)
+  })
+
   it('calls useMerchantDetail with enabled:false when lacking merchant:read', () => {
     mockSession({ can: () => false })
     mockDetail()
@@ -501,6 +517,14 @@ describe('Merchant 360 loading/error states', () => {
     mockDetail({ isError: true })
     render(<MerchantDetailPage />)
     expect(screen.getByTestId('merchant-detail-error')).toBeInTheDocument()
+  })
+
+  // Honesty-copy sweep (2026-07-13): error copy must reassure nothing was
+  // changed.
+  it('the error state reassures nothing was changed', () => {
+    mockDetail({ isError: true })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-detail-error')).toHaveTextContent(/no items were changed/i)
   })
 
   it('shows error state when data is undefined (and not loading)', () => {
@@ -1131,6 +1155,18 @@ describe('Merchant 360 Activity tab (A2)', () => {
     expect(screen.queryByTestId('activity-timeline-mock')).not.toBeInTheDocument()
     expect(screen.queryByTestId('activity-filter')).not.toBeInTheDocument()
   })
+
+  // Honesty-copy sweep (2026-07-13): the tab-level denied panel must also
+  // name the viewer's role and reassure that nothing is broken (same
+  // contract as the page-level ForbiddenState).
+  it('the denied panel names the viewer role and reassures nothing is broken', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read', role: 'SUPPORT' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    const denied = screen.getByTestId('workspace-activity-denied')
+    expect(denied).toHaveTextContent(/SUPPORT/)
+    expect(denied).toHaveTextContent(/nothing is broken/i)
+  })
 })
 
 // ── A3: Redemptions tab ─────────────────────────────────────────────────────────
@@ -1209,6 +1245,17 @@ describe('Merchant 360 Redemptions tab (A3)', () => {
     const lastCall = mockedUseRedemptions.mock.calls[mockedUseRedemptions.mock.calls.length - 1]
     expect(lastCall[0].merchantId).toBe('m-1')
     expect(lastCall[1]).toEqual({ enabled: false })
+  })
+
+  // Honesty-copy sweep (2026-07-13): the tab-level denied panel must also
+  // name the viewer's role and reassure that nothing is broken.
+  it('the denied panel names the viewer role and reassures nothing is broken', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read', role: 'CONTENT' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    const denied = screen.getByTestId('workspace-redemptions-denied')
+    expect(denied).toHaveTextContent(/CONTENT/)
+    expect(denied).toHaveTextContent(/nothing is broken/i)
   })
 })
 

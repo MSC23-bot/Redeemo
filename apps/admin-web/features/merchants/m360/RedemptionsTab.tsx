@@ -16,11 +16,13 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, AlertCircle, Lock, ArrowUpRight } from 'lucide-react'
+import { Loader2, ArrowUpRight } from 'lucide-react'
 import { useRedemptions } from '@/lib/redemptions/useRedemptions'
 import { RedemptionsFilterBar } from '@/features/redemptions/RedemptionsFilterBar'
 import { RedemptionsTable } from '@/features/redemptions/RedemptionsTable'
 import { RedemptionsPagination } from '@/features/redemptions/RedemptionsPagination'
+import { ForbiddenState } from '@/features/shared/ForbiddenState'
+import { ErrorState } from '@/features/shared/ErrorState'
 import type { StatusChipValue } from '@/features/redemptions/StatusChips'
 
 const PAGE_SIZE = 25
@@ -63,17 +65,13 @@ export function RedemptionsTab({ merchantId, canReadRedemptions }: RedemptionsTa
 
   if (!canReadRedemptions) {
     return (
-      <section
-        className="rounded-lg border border-dashed border-border bg-card px-6 py-10 text-center"
-        data-testid="workspace-redemptions-denied"
-      >
-        <Lock className="mx-auto mb-3 size-6 text-muted-foreground" aria-hidden="true" />
-        <h2 className="text-sm font-semibold text-foreground">Redemptions</h2>
-        <p className="mx-auto mt-2 max-w-prose text-sm text-muted-foreground">
-          You do not have access to this merchant&apos;s redemptions. The redemption history needs
-          the redemption:read capability, which your role does not hold.
-        </p>
-      </section>
+      <ForbiddenState
+        variant="section"
+        heading="Redemptions"
+        subject="this merchant's redemptions"
+        capability="redemption:read"
+        testId="workspace-redemptions-denied"
+      />
     )
   }
 
@@ -116,19 +114,7 @@ export function RedemptionsTab({ merchantId, canReadRedemptions }: RedemptionsTa
           <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading" />
         </div>
       ) : isError ? (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-10 text-center">
-          <AlertCircle className="mx-auto mb-3 size-6 text-destructive" aria-hidden="true" />
-          <p className="mb-4 text-sm text-destructive">
-            Could not load redemptions. Check your connection and try again.
-          </p>
-          <button
-            type="button"
-            onClick={refetch}
-            className="text-sm font-medium text-primary hover:underline"
-          >
-            Retry
-          </button>
-        </div>
+        <ErrorState subject="redemptions" onRetry={refetch} testId="workspace-redemptions-error" />
       ) : (
         <>
           <RedemptionsTable items={items} hideMerchantColumn />

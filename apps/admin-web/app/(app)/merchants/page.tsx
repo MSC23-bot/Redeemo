@@ -14,12 +14,14 @@
  * Backend `requireAdminCapability` stays the enforcement; the client gate is UX.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Store, Loader2, AlertCircle, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Store, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantsList } from '@/lib/merchants/useMerchantsList'
 import { MerchantsTable } from '@/features/merchants/MerchantsTable'
 import { SuspendDialog } from '@/features/merchants/SuspendDialog'
 import { ReactivateConfirm } from '@/features/merchants/ReactivateConfirm'
+import { ForbiddenState } from '@/features/shared/ForbiddenState'
+import { ErrorState } from '@/features/shared/ErrorState'
 import { MERCHANT_STATUSES } from '@/lib/api/merchants'
 import type { MerchantStatusFilter, MerchantSummary } from '@/lib/api/merchants'
 
@@ -38,42 +40,10 @@ const STATUS_OPTIONS: { value: '' | MerchantStatusFilter; label: string }[] = [
 
 // ── States ──────────────────────────────────────────────────────────────────
 
-function ForbiddenState() {
-  return (
-    <div className="mx-auto max-w-xl py-20 text-center" data-testid="merchants-forbidden">
-      <span className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-        <AlertCircle className="size-6" aria-hidden="true" />
-      </span>
-      <h2 className="mb-2 text-lg font-semibold text-foreground">Access denied</h2>
-      <p className="text-sm text-muted-foreground">
-        You do not have permission to view the merchants directory. Contact your administrator.
-      </p>
-    </div>
-  )
-}
-
 function LoadingState() {
   return (
     <div className="flex items-center justify-center py-20">
       <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading" />
-    </div>
-  )
-}
-
-function ErrorState({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-10 text-center">
-      <AlertCircle className="mx-auto mb-3 size-6 text-destructive" aria-hidden="true" />
-      <p className="mb-4 text-sm text-destructive">
-        Could not load the merchants directory. Check your connection and try again.
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="text-sm font-medium text-primary hover:underline"
-      >
-        Retry
-      </button>
     </div>
   )
 }
@@ -120,7 +90,13 @@ export default function MerchantsPage() {
     return <LoadingState />
   }
   if (!can('merchant:read')) {
-    return <ForbiddenState />
+    return (
+      <ForbiddenState
+        heading="You do not have access to the merchants directory."
+        capability="merchant:read"
+        testId="merchants-forbidden"
+      />
+    )
   }
 
   const merchants = data?.merchants ?? []
@@ -188,7 +164,7 @@ export default function MerchantsPage() {
       {isLoading ? (
         <LoadingState />
       ) : isError ? (
-        <ErrorState onRetry={refetch} />
+        <ErrorState subject="the merchants directory" onRetry={refetch} testId="merchants-error" />
       ) : (
         <>
           <MerchantsTable

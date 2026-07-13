@@ -15,9 +15,9 @@
  * capability and passes `enabled=false` down (both UI-gate and never-fire).
  */
 import { useState } from 'react'
-import { Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ActivityTimeline } from '@/features/timeline/ActivityTimeline'
+import { ForbiddenState } from '@/features/shared/ForbiddenState'
 import type { TimelineFilter } from '@/features/timeline/ActivityTimeline'
 
 const FILTERS: readonly { key: TimelineFilter; label: string }[] = [
@@ -36,17 +36,13 @@ export function ActivityTab({ merchantId, canReadActivity }: ActivityTabProps) {
 
   if (!canReadActivity) {
     return (
-      <section
-        className="rounded-lg border border-dashed border-border bg-card px-6 py-10 text-center"
-        data-testid="workspace-activity-denied"
-      >
-        <Lock className="mx-auto mb-3 size-6 text-muted-foreground" aria-hidden="true" />
-        <h2 className="text-sm font-semibold text-foreground">Activity</h2>
-        <p className="mx-auto mt-2 max-w-prose text-sm text-muted-foreground">
-          You do not have access to this merchant&apos;s activity. The activity and communications
-          timeline needs the approval:read capability, which your role does not hold.
-        </p>
-      </section>
+      <ForbiddenState
+        variant="section"
+        heading="Activity"
+        subject="this merchant's activity"
+        capability="approval:read"
+        testId="workspace-activity-denied"
+      />
     )
   }
 

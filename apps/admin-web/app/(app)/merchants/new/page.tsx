@@ -11,28 +11,15 @@
  * Backend enforcement stays defence-in-depth; this is UI gating only.
  */
 import Link from 'next/link'
-import { ArrowLeft, Loader2, AlertCircle, UserPlus } from 'lucide-react'
+import { ArrowLeft, Loader2, UserPlus } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { CreateDraftForm } from '@/features/merchants/CreateDraftForm'
+import { ForbiddenState } from '@/features/shared/ForbiddenState'
 
 function LoadingState() {
   return (
     <div className="flex items-center justify-center py-20" data-testid="create-draft-loading">
       <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading" />
-    </div>
-  )
-}
-
-function ForbiddenState() {
-  return (
-    <div className="mx-auto max-w-xl py-20 text-center" data-testid="create-draft-forbidden">
-      <span className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-        <AlertCircle className="size-6" aria-hidden="true" />
-      </span>
-      <h2 className="mb-2 text-lg font-semibold text-foreground">Access denied</h2>
-      <p className="text-sm text-muted-foreground">
-        You do not have permission to create merchant drafts. Contact your administrator.
-      </p>
     </div>
   )
 }
@@ -45,7 +32,13 @@ export default function CreateMerchantDraftPage() {
   }
 
   if (!can('merchant:create-draft')) {
-    return <ForbiddenState />
+    return (
+      <ForbiddenState
+        heading="You cannot create merchant drafts."
+        capability="merchant:create-draft"
+        testId="create-draft-forbidden"
+      />
+    )
   }
 
   return (
