@@ -8,6 +8,7 @@ import { adminTimelineRoutes } from './timeline/routes'
 import { adminRedemptionRoutes } from './redemptions/routes'
 import { adminTeamRoutes } from './team/routes'
 import { adminLeadRoutes } from './leads/routes'
+import { adminMerchantNoteRoutes } from './merchants/notes/routes'
 
 // Phase 2 Slice 1 M2 — admin-management surface. Mirrors merchant/plugin.ts:
 // a scoped sub-plugin applies the `authenticateAdmin` preHandler to all
@@ -30,6 +31,8 @@ async function adminManagementPlugin(app: FastifyInstance) {
     await scoped.register(adminTeamRoutes)
     // MerchantLead recruitment pipeline (packet 2026-07-12): gated on lead:manage.
     await scoped.register(adminLeadRoutes)
+    // MerchantNote internal notes (packet 2026-07-13): gated on merchant:notes.
+    await scoped.register(adminMerchantNoteRoutes)
   })
 }
 

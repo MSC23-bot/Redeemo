@@ -96,6 +96,16 @@ export const ERROR_DEFINITIONS = {
   LEAD_ALREADY_CONVERTED:         { statusCode: 409, message: 'This lead has already been converted to a merchant draft.' },
   // A terminal/anonymised lead cannot be further edited (its contact PII is gone).
   LEAD_ANONYMISED:                { statusCode: 409, message: 'This lead has been anonymised and can no longer be edited.' },
+  // MerchantNote packet (2026-07-13, OD2). Internal per-merchant admin notes.
+  //   NOTE_NOT_FOUND               : the note id is unknown (or on a different merchant).
+  //   NOTE_NOT_ACTIVE              : edit/retract targeted an already-RETRACTED note.
+  //   NOTE_NOT_AUTHOR              : edit/retract by an admin who is not the author
+  //     (own-only; v1 has no moderation override, not even for SUPER_ADMIN).
+  //   NOTE_RETRACT_REASON_REQUIRED : retract without a non-empty reason.
+  NOTE_NOT_FOUND:                 { statusCode: 404, message: 'Note not found.' },
+  NOTE_NOT_ACTIVE:                { statusCode: 409, message: 'This note has been retracted and can no longer be changed.' },
+  NOTE_NOT_AUTHOR:                { statusCode: 403, message: 'You can only edit or retract your own notes.' },
+  NOTE_RETRACT_REASON_REQUIRED:   { statusCode: 400, message: 'A reason is required to retract a note.' },
   // Phase 2 Slice 1 M3: actioner.
   APPROVAL_NOT_FOUND:             { statusCode: 404, message: 'Approval not found.' },
   APPROVAL_ALREADY_CLAIMED:       { statusCode: 409, message: 'This approval is already being reviewed by another admin.' },
