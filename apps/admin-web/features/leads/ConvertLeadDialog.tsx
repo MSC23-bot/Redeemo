@@ -69,8 +69,8 @@ export function ConvertLeadDialog({ lead, onSuccess, onCancel }: ConvertLeadDial
       <Dialog label="Lead converted" onClose={onSuccess} scrimTestId="convert-lead-scrim" panelTestId="convert-lead-dialog">
         <h2 className="mb-1 text-base font-semibold text-foreground">Draft created</h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          {lead.businessName} is now a merchant draft. The owner sets their own password and finishes
-          onboarding; nothing goes live until it is approved through the queue.
+          {lead.businessName} is now a merchant draft. The owner completes account setup through the
+          secure claim/reset flow; nothing goes live until it is approved through the queue.
         </p>
         <div className="flex justify-end gap-3">
           <Button type="button" variant="outline" onClick={onSuccess} data-testid="convert-lead-done">
@@ -95,7 +95,8 @@ export function ConvertLeadDialog({ lead, onSuccess, onCancel }: ConvertLeadDial
       <h2 className="mb-1 text-base font-semibold text-foreground">Convert to merchant draft</h2>
       <p className="mb-4 text-sm text-muted-foreground">
         Creates a merchant draft for {lead.businessName} and links this lead to it. No password is set
-        here: a setup email is sent to the owner so they finish onboarding themselves.
+        here: the owner completes account setup through the secure claim/reset flow. Automatic setup
+        emails arrive with a later email-enablement step.
       </p>
 
       <div className="grid gap-3">

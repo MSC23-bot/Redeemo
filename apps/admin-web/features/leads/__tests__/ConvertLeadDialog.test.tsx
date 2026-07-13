@@ -67,6 +67,17 @@ describe('ConvertLeadDialog', () => {
     expect(screen.getByTestId('convert-owner-last')).toHaveValue('Vane')
   })
 
+  it('states the truthful post-convert setup path and never claims a setup email is sent', () => {
+    renderDialog(makeLead())
+    const dialog = screen.getByTestId('convert-lead-dialog')
+    // Truthful: owner completes setup via the secure claim/reset flow; auto emails are a later step.
+    expect(dialog).toHaveTextContent(/secure claim\/reset flow/i)
+    expect(dialog).toHaveTextContent(/later email-enablement step/i)
+    // Regression guard: the old false claim ("a setup email is sent to the owner") must not return.
+    expect(dialog).not.toHaveTextContent(/setup email is sent/i)
+    expect(dialog).not.toHaveTextContent(/email is sent to the owner/i)
+  })
+
   it('disables submit until email + first + last are present', () => {
     renderDialog(makeLead({ contactName: null, contactEmail: null }))
     expect(screen.getByTestId('convert-lead-submit')).toBeDisabled()
@@ -92,6 +103,9 @@ describe('ConvertLeadDialog', () => {
     })
     const link = await screen.findByTestId('convert-lead-open-360')
     expect(link).toHaveAttribute('href', '/merchants/m-new-42')
+    // Success view states the truthful setup path, not a "sets their own password" email claim.
+    const dialog = screen.getByTestId('convert-lead-dialog')
+    expect(dialog).toHaveTextContent(/secure claim\/reset flow/i)
   })
 
   it('renders the lead-code banner on a convert error (LEAD_ALREADY_CONVERTED)', () => {
