@@ -69,6 +69,14 @@ export type AdminCapability =
   // completion helper (like merchant:submit), so it IS in ALL_SLICE1_CAPS
   // (OPERATIONS holds it). Keep aligned with the backend src/api/admin/capability.ts.
   | 'merchant:manage-vouchers'
+  // D65 (in-person signing ceremony): gates the assisted contract-signing route
+  // (POST /admin/merchants/:id/agreement/sign) where the rep WITNESSES the owner's
+  // signature on the rep's device (admin-never-signs: the rep is the witness, never
+  // the signatory). An operational onboarding-completion action (like
+  // merchant:submit), so it IS in ALL_SLICE1_CAPS (OPERATIONS holds it) AND in
+  // FIELD_CAPABILITIES (FIELD completes assisted onboarding end-to-end). Keep
+  // aligned with the backend src/api/admin/capability.ts.
+  | 'merchant:sign-agreement'
   // D67: gates the read-only cross-merchant admin redemptions list. IS in
   // ALL_SLICE1_CAPS (OPERATIONS + SUPER_ADMIN hold it). Keep aligned with the
   // backend src/api/admin/capability.ts.
@@ -119,6 +127,7 @@ const CAPABILITY_EXHAUSTIVENESS_GUARD: Record<AdminCapability, true> = {
   'merchant:submit': true,
   'merchant:manage-documents': true,
   'merchant:manage-vouchers': true,
+  'merchant:sign-agreement': true,
   'redemption:read': true,
   'lead:manage': true,
   'merchant:notes': true,
@@ -157,6 +166,7 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:edit',
   'merchant:submit',
   'merchant:manage-vouchers',
+  'merchant:sign-agreement',
   'redemption:read',
   // MerchantNote packet: OPERATIONS holds the universal notes cap via its list.
   'merchant:notes',
@@ -177,6 +187,10 @@ const FIELD_CAPABILITIES: AdminCapability[] = [
   'merchant:manage-branches',
   'merchant:manage-documents',
   'merchant:manage-vouchers',
+  // D65: FIELD completes assisted onboarding end-to-end, including witnessing the
+  // in-person contract-signing ceremony for a PRE-LIVE merchant (pre-live scope
+  // guarded).
+  'merchant:sign-agreement',
   // MerchantNote packet: FIELD holds the universal notes cap.
   'merchant:notes',
 ]

@@ -92,6 +92,18 @@ const CODE_MESSAGES: Record<string, string> = {
     'This voucher is no longer a draft, so it cannot be submitted. The list has refreshed.',
   RMV_FIELD_NOT_ALLOWED:
     'One of the fields cannot be edited on this voucher. The list has refreshed; try again.',
+  // D65: the in-person assisted contract-signing ceremony (agreement/sign).
+  // AGREEMENT_LEGAL_REVIEW_REQUIRED is the fail-closed legal gate: signing
+  // becomes available once legal review completes. This copy NEVER states or
+  // implies solicitor approval (owner-locked framing, spec §6).
+  AGREEMENT_LEGAL_REVIEW_REQUIRED:
+    'This agreement is pending legal review, so it cannot be signed for production yet. Signing becomes available once legal review is complete.',
+  CONTRACT_ALREADY_SIGNED:
+    'This merchant has already signed the agreement. The page has refreshed.',
+  AGREEMENT_VERSION_UNKNOWN:
+    'The agreement version was not recognised. The page has refreshed; try again.',
+  AGREEMENT_SIGNER_INVALID:
+    'A signatory name and role are required to sign this agreement.',
   // Team & Roles S2: the SUPER_ADMIN-only account/role/grant management screen.
   CAPABILITY_NOT_GRANTABLE:
     'This capability cannot be granted from this screen.',
