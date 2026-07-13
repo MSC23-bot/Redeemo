@@ -13,7 +13,7 @@ import { RedisKey } from '../../../src/api/shared/redis-keys'
 //
 // Real Redis on an isolated db (11; the dev app uses db 0). NOTE: other
 // real-Redis test files claim dbs 12 (merchant-logout-durability), 13
-// (merchant-atomic-rotate), 14 (queue), 15 (atomic-limiter): every flushdb()
+// (merchant-atomic-rotate), 15 (atomic-limiter): every flushdb()
 // suite MUST have its OWN db because vitest runs files in parallel (a shared db
 // flakes). Availability is probed in beforeAll; when no Redis is reachable the
 // real-Redis tests dynamically skip (honest skip: never a false green).
