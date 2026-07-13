@@ -95,11 +95,41 @@ export const RedisKey = {
   rateLimitEmailAddrDay:   (emailHash: string)        => `rl:email:addr:day:${emailHash}`,  // aggregate per-address daily (GAP-2)
   rateLimitEmailAcctDay:   (recipientType: string, recipientId: string) => `rl:email:acct:day:${recipientType}:${recipientId}`, // per-account daily (GAP-3)
   rateLimitEmailIpHour:    (ip: string)               => `rl:email:ip:hour:${ip}`,     // per-IP hourly abuser ceiling (GAP-4)
+  // §SEC.1 GAP-5 (plan 2026-07-10 §1.4; src/api/shared/emailLimiter.ts): cross-
+  // challenge email-OTP resend cooldown + failed-round escalation. Keyed on the
+  // recipient IDENTITY (recipientType + recipientId), never the address: the OTP
+  // send paths already hold the authenticated identity, and keeping the address
+  // out of the key mirrors the hashEmail discipline of every tier above.
+  //   cooldown  : SET-NX-EX serializer gating the REQUEST of a fresh OTP email
+  //               (short TTL normally; a LONGER TTL once the failed-round counter
+  //               crosses the escalation threshold).
+  //   failedRound: consecutive DESTROYED challenges (Nth wrong code) for this
+  //               recipient; INCR on destroy, DEL on a successful verification.
+  rateLimitEmailOtpCooldown:    (recipientType: string, recipientId: string) => `rl:email-otp:cooldown:${recipientType}:${recipientId}`,
+  rateLimitEmailOtpFailedRound: (recipientType: string, recipientId: string) => `rl:email-otp:failed:${recipientType}:${recipientId}`,
   // Suppression: existence ⇒ provider reported a hard bounce / spam complaint for
   // this recipient; future MARKETING sends to it are skipped (notify guard).
   // Transactional sends (password reset, branch PIN) are NEVER suppressed —
   // account recovery must not be denied by a complaint / transient bounce.
   emailSuppression:        (emailHash: string)        => `email:suppress:${emailHash}`,
+
+  // §SEC.1 GAP-6 (plan 2026-07-10 §1.6; src/api/shared/emailOps.ts): the automatic
+  // send-pause circuit-breaker. `emailSendPaused` is a single global flag notify()
+  // checks BEFORE consuming limiter budget; when present, every send is declined
+  // ('send-paused'). It is set automatically by the bounce-ratio / repeated
+  // gate-trip triggers and cleared ONLY by a SUPER_ADMIN action (no TTL; it must
+  // persist until an operator resumes). `emailGateTripDay` counts how many times
+  // the global daily gate blocked today (the repeated-trip trigger reads it).
+  emailSendPaused:         ()                         => `email:send:paused`,
+  emailGateTripDay:        (dateUtc: string)          => `email:gate-trip:${dateUtc}`,
+  // §SEC.1 GAP-7 (plan 2026-07-10 §1.7; src/api/shared/emailOps.ts): send-volume
+  // counters incremented beside the limiter consumption (per allowed send). Daily,
+  // keyed by a UTC YYYYMMDD stamp so each day is a fresh key (a short TTL cleans
+  // up old ones). `emailBouncedCount` is incremented by the Resend webhook; the
+  // bounce-ratio trigger (GAP-6) reads sent-all vs bounced.
+  emailSentCountType:      (type: string, dateUtc: string) => `email:count:sent:${type}:${dateUtc}`,
+  emailSentCountAll:       (dateUtc: string)          => `email:count:sent:all:${dateUtc}`,
+  emailBouncedCount:       (dateUtc: string)          => `email:count:bounced:${dateUtc}`,
 
   // Branches PR-6 (§4e, blueprint §11.3): merchant Google location-search limiter.
   // The LOCKED pre-live multi-instance-safe cap that moves the merchant Google flow

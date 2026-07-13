@@ -85,6 +85,11 @@ describe('B8 cutover: non-owner (BRANCH_MANAGER) login', () => {
       get: vi.fn(async (_k: string) => null as string | null),
       set: vi.fn(async (_k: string, _v: string, ..._rest: unknown[]) => 'OK'),
       del: vi.fn(async (_k: string) => 1),
+      // GAP-5: OTP resend-cooldown gate (eval SET-NX; [1] = allowed) + failed-round
+      // counter (incr/expire, no-op here).
+      eval: vi.fn(async () => [1] as unknown),
+      incr: vi.fn(async () => 1),
+      expire: vi.fn(async () => 1),
     }
     const prisma = {
       merchantAdmin: { findUnique: vi.fn(async () => BM_ADMIN) },

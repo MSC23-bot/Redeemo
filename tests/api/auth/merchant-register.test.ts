@@ -297,6 +297,11 @@ describe('registerMerchant/loginMerchant: email normalization (transitional)', (
       get: vi.fn(async () => null),
       set: vi.fn(async () => 'OK'),
       del: vi.fn(async () => 1),
+      // GAP-5: OTP resend-cooldown gate (eval SET-NX; [1] = allowed) + failed-round
+      // counter (incr/expire, no-op here).
+      eval: vi.fn(async () => [1] as unknown),
+      incr: vi.fn(async () => 1),
+      expire: vi.fn(async () => 1),
     }
     const password = await import('../../../src/api/shared/password')
     vi.spyOn(password, 'verifyPassword').mockResolvedValue(true)
