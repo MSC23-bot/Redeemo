@@ -178,6 +178,42 @@ describe('NamedGateBanner code mapping', () => {
     )
   })
 
+  // MerchantLead recruitment pipeline (#500).
+  it('maps LEAD_NOT_FOUND correctly (leads)', () => {
+    render(<NamedGateBanner error={makeApiError('LEAD_NOT_FOUND')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This lead no longer exists. The pipeline has refreshed.'
+    )
+  })
+
+  it('maps LEAD_LOST_REASON_REQUIRED correctly (leads)', () => {
+    render(<NamedGateBanner error={makeApiError('LEAD_LOST_REASON_REQUIRED')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'A reason is required to mark a lead as lost.'
+    )
+  })
+
+  it('maps LEAD_STAGE_NOT_DIRECTLY_SETTABLE correctly (leads)', () => {
+    render(<NamedGateBanner error={makeApiError('LEAD_STAGE_NOT_DIRECTLY_SETTABLE')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'A lead becomes converted only by converting it to a merchant draft, not by a stage move.'
+    )
+  })
+
+  it('maps LEAD_ALREADY_CONVERTED correctly (leads)', () => {
+    render(<NamedGateBanner error={makeApiError('LEAD_ALREADY_CONVERTED')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This lead has already been converted to a merchant draft. The pipeline has refreshed.'
+    )
+  })
+
+  it('maps LEAD_ANONYMISED correctly (leads: mentions data retention)', () => {
+    render(<NamedGateBanner error={makeApiError('LEAD_ANONYMISED')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This lead has been anonymised for data retention and can no longer be edited.'
+    )
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)

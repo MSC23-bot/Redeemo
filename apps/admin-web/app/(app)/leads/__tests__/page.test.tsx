@@ -3,9 +3,10 @@
  *
  * Covers: ready/forbidden/authorised gating on merchant:read; the awaiting-
  * review count wiring (incl. the approval:read sub-gate); the in-progress
- * onboardings list wiring; the honestly-gated assisted-onboarding and
- * prospect-pipeline panels (never a dead button, never a kanban); and that
- * every hook is invoked with the correct `enabled` value per capability.
+ * onboardings list wiring; the honestly-gated assisted-onboarding panel; the
+ * live prospect-pipeline board section (gated on lead:manage; its own behaviour
+ * is covered in ProspectPipeline.test.tsx); and that every hook is invoked with
+ * the correct `enabled` value per capability.
  */
 import React from 'react'
 import { render, screen } from '@testing-library/react'
@@ -38,6 +39,19 @@ jest.mock('@/lib/leads/useAwaitingReviewCount', () => ({
 jest.mock('@/lib/leads/useInProgressOnboardings', () => ({
   useInProgressOnboardings: jest.fn(),
   IN_PROGRESS_DISPLAY_CAP: 10,
+}))
+
+// SECTION 3 ProspectPipeline: mock the pipeline data + mutation hooks so the hub
+// composition tests need no QueryClientProvider (the board's own behaviour is
+// covered by features/leads/__tests__/ProspectPipeline.test.tsx).
+jest.mock('@/lib/leads/useLeadsPipeline', () => ({
+  useLeadsPipeline: () => ({ leads: [], isLoading: false, isError: false, refetch: jest.fn() }),
+  useTerminalLeads: () => ({ leads: [], isLoading: false, isError: false, refetch: jest.fn() }),
+}))
+jest.mock('@/lib/leads/useLeadMutations', () => ({
+  useUpdateLead: () => ({ mutate: jest.fn(), mutateAsync: jest.fn(), isPending: false, error: null }),
+  useCreateLead: () => ({ mutateAsync: jest.fn(), isPending: false, error: null }),
+  useConvertLead: () => ({ mutateAsync: jest.fn(), isPending: false, error: null }),
 }))
 
 import { useSession } from '@/lib/auth/useSession'
@@ -240,12 +254,25 @@ describe('LeadsHubPage section composition', () => {
     expect(screen.getByTestId('leads-assisted-locked')).toHaveTextContent('Needs merchant:create-draft')
   })
 
-  it('the prospect pipeline section is an honest gated placeholder : no kanban, no lead CRUD', () => {
+  it('renders the live prospect pipeline board (Add-lead affordance) when lead:manage is held', () => {
     mockAwaiting()
     mockInProgress()
     render(<LeadsHubPage />)
 
-    expect(screen.getByTestId('leads-pipeline-gated')).toHaveTextContent(/open owner decision/i)
-    expect(screen.queryByText(/add lead/i)).not.toBeInTheDocument()
+    // The MerchantLead model is live (#500): the section is the real board, not
+    // the old honest placeholder. With lead:manage (default can()=>true) the
+    // Add-lead affordance and the empty board are present.
+    expect(screen.getByTestId('pipeline-add-lead')).toBeInTheDocument()
+    expect(screen.getByTestId('pipeline-empty')).toBeInTheDocument()
+  })
+
+  it('shows the restricted note in the pipeline section when lead:manage is absent', () => {
+    mockSession({ can: (cap) => cap === 'merchant:read' })
+    mockAwaiting()
+    mockInProgress()
+    render(<LeadsHubPage />)
+
+    expect(screen.getByTestId('pipeline-denied')).toHaveTextContent('Pipeline is restricted')
+    expect(screen.queryByTestId('pipeline-add-lead')).not.toBeInTheDocument()
   })
 })

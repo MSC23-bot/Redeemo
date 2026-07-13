@@ -60,6 +60,41 @@ export function verificationTone(status: string): BadgeTone {
   return 'neutral'
 }
 
+// ── Prospect pipeline lead stages (Leads & Onboarding hub §A2) ─────────────
+//
+// The three live lanes a prospect moves through. The spec's per-lane hexes
+// (#6B7280 / #2A63C4 / #B45309) are PROTOTYPE-only; they map onto the shared
+// BadgeTone palette here (no new hex, same "small shared token layer" rule as
+// the rest of this module): LEAD grey -> neutral, CONTACTED blue -> info,
+// VISIT_BOOKED amber -> warn. CONVERTED / LOST are terminal STATES (rendered in
+// their own sections below the board), not lanes, so they are handled inline.
+
+export type LeadLaneStage = 'LEAD' | 'CONTACTED' | 'VISIT_BOOKED'
+
+export const LEAD_LANES: readonly LeadLaneStage[] = ['LEAD', 'CONTACTED', 'VISIT_BOOKED']
+
+export const LEAD_STAGE_LABEL: Record<LeadLaneStage, string> = {
+  LEAD: 'Lead',
+  CONTACTED: 'Contacted',
+  VISIT_BOOKED: 'Visit booked',
+}
+
+export const LEAD_STAGE_TONE: Record<LeadLaneStage, BadgeTone> = {
+  LEAD: 'neutral',
+  CONTACTED: 'info',
+  VISIT_BOOKED: 'warn',
+}
+
+export const LEAD_STAGE_HINT: Record<LeadLaneStage, string> = {
+  LEAD: 'Captured, not yet contacted',
+  CONTACTED: 'Reached out, in conversation',
+  VISIT_BOOKED: 'Meeting or on-site scheduled',
+}
+
+export function isLeadLane(stage: string): stage is LeadLaneStage {
+  return (LEAD_LANES as readonly string[]).includes(stage)
+}
+
 // ── Court ──────────────────────────────────────────────────────────────────
 //
 // "Court" answers: whose turn is it to act on this row? It is a PRESENTATION
