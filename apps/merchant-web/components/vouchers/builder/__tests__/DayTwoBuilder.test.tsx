@@ -90,10 +90,17 @@ describe('DayTwoBuilder save path (create draft + optional submit)', () => {
     await waitFor(() => expect(onDone).toHaveBeenCalled())
   })
 
-  it('Submit for review creates the draft then submits it', async () => {
+  it('Submit for review opens the NORMAL confirm modal for a non-weak voucher, then creates + submits on confirm', async () => {
     renderBuilder()
     fireEvent.click(screen.getByRole('button', { name: /a straight saving off the price/i }))
+    // Make the voucher non-weak: 20% of a £30 typical order = £6 saving, 20% share.
+    fireEvent.click(screen.getByRole('button', { name: '20%' }))
+    fireEvent.click(screen.getByRole('button', { name: '£30' }))
     fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    // Prototype-faithful confirm modal (A10): normal copy, no weak warning.
+    expect(await screen.findByText('Confirm this is your voucher')).toBeInTheDocument()
+    expect(screen.queryByText('This offer may feel too weak')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /yes, this is my voucher/i }))
     await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(submitVoucher).toHaveBeenCalledWith('new1'))
   })
@@ -122,12 +129,66 @@ describe('DayTwoBuilder save path (create draft + optional submit)', () => {
   })
 })
 
+// CC-1 weak-submit warning (owner ruling 2026-07-13): the score stays NON-GATING
+// (Submit is always enabled), but submitting a Too weak voucher surfaces a soft
+// warning variant of the confirm dialog first. A fresh Discount with no values has
+// a £0 saving (below the £5 floor) so its verdict is Too weak deterministically.
+describe('DayTwoBuilder weak-submit warning (CC-1, owner ruling 2026-07-13)', () => {
+  function openWeakDiscount() {
+    renderBuilder()
+    // Default discount: no percent / typical order => saving £0 => Too weak.
+    fireEvent.click(screen.getByRole('button', { name: /a straight saving off the price/i }))
+    expect(screen.getByTestId('builder-score').querySelector('[data-cal]')).toHaveAttribute('data-cal', 'weak')
+  }
+
+  it('Submit stays ENABLED for a Too weak voucher, and clicking it shows the warning copy BEFORE any API call', async () => {
+    openWeakDiscount()
+    const submit = screen.getByRole('button', { name: /submit for review/i })
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+    // Owner-approved copy, verbatim.
+    expect(await screen.findByText('This offer may feel too weak')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Redeemo thinks this voucher may not be strong enough to stand out to members. You can still submit it for review, but improving the saving or relaxing the terms may help it perform better.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Keep editing' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Submit anyway' })).toBeInTheDocument()
+    // The weak variant REPLACES the normal confirm (never two dialogs in sequence).
+    expect(screen.queryByText('Confirm this is your voucher')).not.toBeInTheDocument()
+    // No API call happened before confirmation.
+    expect(createVoucher).not.toHaveBeenCalled()
+    expect(updateVoucher).not.toHaveBeenCalled()
+    expect(submitVoucher).not.toHaveBeenCalled()
+  })
+
+  it('Keep editing closes the warning and calls NOTHING', async () => {
+    openWeakDiscount()
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep editing' }))
+    await waitFor(() => expect(screen.queryByText('This offer may feel too weak')).not.toBeInTheDocument())
+    expect(createVoucher).not.toHaveBeenCalled()
+    expect(updateVoucher).not.toHaveBeenCalled()
+    expect(submitVoucher).not.toHaveBeenCalled()
+  })
+
+  it('Submit anyway proceeds through the existing submit flow (create then submit)', async () => {
+    openWeakDiscount()
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Submit anyway' }))
+    await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(submitVoucher).toHaveBeenCalledWith('new1'))
+  })
+})
+
 describe('DayTwoBuilder TIME_LIMITED + REUSABLE handling', () => {
-  it('TIME_LIMITED requires an availability window and sends availabilityWindows on save', async () => {
+  it('TIME_LIMITED wraps a base mechanic (Step 1), then a window is added and sent on save', async () => {
     renderBuilder()
     fireEvent.click(screen.getByRole('button', { name: /time limited/i }))
-    // Add a window via the window editor.
-    fireEvent.click(screen.getByRole('button', { name: /add a time window/i }))
+    // Wrapper model: pick a base mechanic first (Step 1), then Step 2 schedule shows.
+    fireEvent.click(within(screen.getByTestId('base-mechanic-picker')).getByRole('button', { name: /discount/i }))
+    fireEvent.click(screen.getByRole('button', { name: /add another window/i }))
     fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
     await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
     const payload = createVoucher.mock.calls[0][0]

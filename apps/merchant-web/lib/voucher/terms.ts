@@ -59,6 +59,10 @@ export interface ClauseBuildInput {
   discountKind?: 'fixed' | 'percent'
   /** Discount: the minimum spend (only the percent branch surfaces disc_min_spend). */
   discMin?: number
+  /** Wrapper (S1): TIME_LIMITED / REUSABLE prepend cadence-specific clauses and use
+   * only the booking caution rows (FULL.html clauseRaw, ~L11973). `type` stays the
+   * base mechanic (drives spend/freebie term copy where inline). */
+  wrapper?: 'time' | 'reusable'
 }
 
 // S0 §2.4 + §2.6: the category-conditional caution pool, driven by the per-category
@@ -80,10 +84,37 @@ function categoryCaution(categoryKey: CategoryKey, isFree: boolean): Clause[] {
 
 // S0 §2.7: per-type built-in clause ASSEMBLY (in order).
 export function buildClauseList(input: ClauseBuildInput): Clause[] {
-  const { type, categoryKey, spendAmt, freeNeedsPurchase, discountKind, discMin } = input
+  const { type, categoryKey, spendAmt, freeNeedsPurchase, discountKind, discMin, wrapper } = input
   const isFood = categoryKey === 'food_drink'
   const isFreebie = type === 'freebie'
   const baseCaution = categoryCaution(categoryKey, isFreebie)
+
+  // Wrapper pools (FULL.html clauseRaw, ~L11973-11979): cadence clauses + CORE fair +
+  // ONLY the booking caution rows (not the full category caution set).
+  if (wrapper) {
+    const flags = (CATEGORY_DATA[categoryKey] ?? CATEGORY_DATA.CATEGORY_FALLBACK).terms
+    const bookingCaution: Clause[] = flags.booking
+      ? [
+          { id: 'booking_rec', label: 'Booking recommended', tier: 'caution' },
+          { id: 'booking_req', label: 'Advance booking required', tier: 'caution' },
+        ]
+      : []
+    if (wrapper === 'reusable') {
+      const reuseActive: Clause = {
+        id: 'reuse_active',
+        label: 'Available again after the time shown, while your subscription stays active',
+        tier: 'fair',
+      }
+      return [reuseActive, ...CORE, ...bookingCaution]
+    }
+    const timedAvail: Clause = { id: 'time_avail', label: 'Available only during the times shown', tier: 'fair' }
+    const timedOnce: Clause = {
+      id: 'time_once_window',
+      label: 'One redemption per customer each time the voucher runs',
+      tier: 'fair',
+    }
+    return [timedAvail, timedOnce, ...CORE, ...bookingCaution]
+  }
 
   if (type === 'bogo') {
     const bogoFair: Clause = { id: 'same_transaction', label: 'Both items must be in the same transaction', tier: 'fair' }

@@ -43,6 +43,11 @@ export interface DraftFields {
   packageItems?: string
   packagePrice?: number
   packageNormal?: number
+  // Package "List the items" mode (A6): the builder keeps the individual items +
+  // the describe/list toggle in the bag and derives `packageItems` (the and-joined
+  // phrase) from `packageList` so the composer stays unchanged.
+  packageMode?: 'describe' | 'list'
+  packageList?: string[]
 }
 
 // --- helpers (S0 §6) ---------------------------------------------------------

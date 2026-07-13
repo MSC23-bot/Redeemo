@@ -114,11 +114,18 @@ describe('terms checklist (structured types)', () => {
     ])
   })
 
-  it('TIME_LIMITED keeps the free-text terms textarea (no clause pools)', () => {
+  it('TIME_LIMITED shows the base-mechanic Step 1 first, then the wrapper terms checklist once a base is picked', () => {
     renderBuilder()
     fireEvent.click(screen.getByRole('button', { name: /time limited/i }))
+    // Step 1 (base mechanic) shows; no terms checklist yet on a fresh wrapper.
+    expect(screen.getByTestId('base-mechanic-picker')).toBeInTheDocument()
     expect(screen.queryByTestId('terms-section')).not.toBeInTheDocument()
-    expect(screen.getByLabelText(/terms \(optional\)/i)).toBeInTheDocument()
+    // Pick a base mechanic: the wrapper cadence terms checklist appears with the
+    // wrapper defaults ticked (time_avail / time_once_window / tell_staff).
+    fireEvent.click(within(screen.getByTestId('base-mechanic-picker')).getByRole('button', { name: /discount/i }))
+    const section = screen.getByTestId('terms-section')
+    expect(within(section).getByRole('checkbox', { name: /available only during the times shown/i })).toBeChecked()
+    expect(within(section).getByRole('checkbox', { name: /one redemption per customer each time/i })).toBeChecked()
   })
 })
 
@@ -243,6 +250,8 @@ describe('REUSABLE custom interval', () => {
   it('applies every-N-unit as seconds and clamps to the 30-minute floor', () => {
     renderBuilder()
     fireEvent.click(screen.getByRole('button', { name: /reusable/i }))
+    // Wrapper Step 1: pick a base mechanic to reveal Step 2 (the cooldown editor).
+    fireEvent.click(within(screen.getByTestId('base-mechanic-picker')).getByRole('button', { name: /discount/i }))
     const box = screen.getByTestId('custom-cooldown')
     fireEvent.change(within(box).getByLabelText(/custom cooldown amount/i), { target: { value: '3' } })
     fireEvent.change(within(box).getByLabelText(/custom cooldown unit/i), { target: { value: 'days' } })
@@ -260,22 +269,27 @@ describe('REUSABLE custom interval', () => {
 })
 
 describe('TIME_LIMITED presets + end date', () => {
-  it('a preset seeds editable windows', async () => {
-    renderBuilder()
+  function pickTimeLimitedBase() {
     fireEvent.click(screen.getByRole('button', { name: /time limited/i }))
-    fireEvent.click(within(screen.getByTestId('window-presets')).getByRole('button', { name: /weekday lunchtimes/i }))
+    fireEvent.click(within(screen.getByTestId('base-mechanic-picker')).getByRole('button', { name: /discount/i }))
+  }
+
+  it('a quick-start preset seeds editable windows', async () => {
+    renderBuilder()
+    pickTimeLimitedBase()
+    fireEvent.click(within(screen.getByTestId('window-presets')).getByRole('button', { name: /happy hour/i }))
     // 5 seeded rows (Mon-Fri) render as editable window rows.
     expect(screen.getAllByLabelText(/open time/i)).toHaveLength(5)
     fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
     await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
     const windows = createVoucher.mock.calls[0][0].availabilityWindows
     expect(windows).toHaveLength(5)
-    expect(windows[0]).toEqual({ dayOfWeek: 1, openTime: '12:00', closeTime: '14:30' })
+    expect(windows[0]).toEqual({ dayOfWeek: 1, openTime: '17:00', closeTime: '19:00' })
   })
 
   it('the end-date toggle writes the normalized ISO expiryDate into the payload', async () => {
     renderBuilder()
-    fireEvent.click(screen.getByRole('button', { name: /time limited/i }))
+    pickTimeLimitedBase()
     fireEvent.click(screen.getByRole('checkbox', { name: /ends on a date/i }))
     fireEvent.change(screen.getByLabelText(/^end date$/i), { target: { value: '2026-09-30' } })
     fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
@@ -331,6 +345,7 @@ describe('expiryDate + imageUrl hydration and contract (Codex round)', () => {
   it('the date-only UI value normalizes to a literal ISO datetime in the outgoing payload', async () => {
     renderBuilder()
     fireEvent.click(screen.getByRole('button', { name: /time limited/i }))
+    fireEvent.click(within(screen.getByTestId('base-mechanic-picker')).getByRole('button', { name: /discount/i }))
     fireEvent.click(screen.getByRole('checkbox', { name: /ends on a date/i }))
     fireEvent.change(screen.getByLabelText(/^end date$/i), { target: { value: '2026-09-30' } })
     fireEvent.click(screen.getByRole('button', { name: /save as draft/i }))
@@ -441,9 +456,13 @@ describe('empty structured terms clear explicitly (CodeRabbit #366)', () => {
     expect('terms' in payload).toBe(true)
   })
 
-  it('non-structured types keep the omit-when-empty free-text semantics', () => {
+  it('wrapper types now compose their cadence terms from the checklist (no free-text path)', () => {
+    // A fresh TIME_LIMITED state seeds its wrapper default clauses, so the composed
+    // terms string is non-empty (there is no remaining omit-when-empty free-text path).
     const state = emptyBuilderState('time')
-    expect(toCreatePayload(state).terms).toBeUndefined()
+    const terms = toCreatePayload(state).terms
+    expect(typeof terms).toBe('string')
+    expect(String(terms)).toContain('Available only during the times shown')
   })
 })
 
@@ -482,6 +501,11 @@ describe('concierge terms apply (structured)', () => {
 describe('defaults sanity', () => {
   it('emptyBuilderState pre-ticks the per-type default clause ids', () => {
     expect(emptyBuilderState('freebie').selectedClauseIds).toEqual(defaultSelectedClauseIds('freebie'))
-    expect(emptyBuilderState('time').selectedClauseIds).toEqual([])
+    // Wrapper types now seed their cadence defaults (A7 / FULL.html), not [].
+    expect(emptyBuilderState('time').selectedClauseIds).toEqual(['time_avail', 'time_once_window', 'tell_staff'])
+    expect(emptyBuilderState('reusable').selectedClauseIds).toEqual(['reuse_active', 'tell_staff'])
+    // Live BOGO default is tell_staff + no_combine (A7), a day-2 override of the
+    // shared defaultSelectedClauseIds (which stays [] for the onboarding lane).
+    expect(emptyBuilderState('bogo').selectedClauseIds).toEqual(['tell_staff', 'no_combine'])
   })
 })

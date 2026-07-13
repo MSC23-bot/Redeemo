@@ -193,3 +193,82 @@ describe('single-fact-set guarantee (S0 §7.3): meter + lists never disagree', (
     if (res.calKey === 'great') expect(res.improvements).toEqual([])
   })
 })
+
+// --- S1: TIME_LIMITED / REUSABLE wrapper scoring (FULL.html L12582 + L12621-12628,
+// PROTOTYPE-INVENTORY A1) ---------------------------------------------------------
+describe('wrapper scoring: TIME_LIMITED generosity + window feedback', () => {
+  function timedDiscount(): ScoreInput {
+    return {
+      type: 'discount', // the base mechanic
+      savingValue: 6,
+      savingPercent: 8,
+      previewTitle: '20% off, Monday to Friday 5pm to 7pm',
+      previewDesc: 'A generous saving during our quieter times, edited in the merchant voice here.',
+      descUntouched: false,
+      hasPhoto: false,
+      freeStandalone: false,
+      reuseFrequent: false,
+      selectedClauses: [{ id: 'time_avail', label: 'x', tier: 'fair' }],
+      customs: [],
+      isTimed: true,
+      windowsValid: true,
+      windowNarrow: false,
+      windowsOk: true,
+      availabilitySummary: 'Monday to Friday, 5pm to 7pm',
+    }
+  }
+
+  it('the isTimed generosity floor is £6 absolute (not the £15 base-discount floor)', () => {
+    // £6 timed -> generous; £5 timed with low share -> not generous.
+    expect(scoreVoucher({ ...timedDiscount(), savingValue: 6, savingPercent: 8 }).isGenerous).toBe(true)
+    expect(scoreVoucher({ ...timedDiscount(), savingValue: 5, savingPercent: 8 }).isGenerous).toBe(false)
+  })
+
+  it('a usable window adds the "clear, usable times" strength', () => {
+    const res = scoreVoucher(timedDiscount())
+    expect(res.strengths).toContain('Clear, usable times customers can plan around: Monday to Friday, 5pm to 7pm')
+  })
+
+  it('a narrow (< 2h) window adds the "widen the times" improvement', () => {
+    const res = scoreVoucher({ ...timedDiscount(), windowNarrow: true, windowsOk: false })
+    expect(res.improvements).toContain(
+      'Widen the times a little. A window under two hours is hard for customers to catch, so a slightly longer window reads better.',
+    )
+  })
+
+  it('no valid window adds the "add at least one availability window" improvement', () => {
+    const res = scoreVoucher({ ...timedDiscount(), windowsValid: false, windowsOk: false, availabilitySummary: '' })
+    expect(res.improvements).toContain('Add at least one availability window so customers know when the offer runs')
+  })
+})
+
+describe('wrapper scoring: REUSABLE cadence', () => {
+  function reusableDiscount(): ScoreInput {
+    return {
+      type: 'discount',
+      savingValue: 6,
+      savingPercent: 20,
+      previewTitle: '20% off, available again every 4 hours',
+      previewDesc: 'Come back and use this again through the day, in the merchant own words here.',
+      descUntouched: false,
+      hasPhoto: false,
+      freeStandalone: false,
+      reuseFrequent: true,
+      selectedClauses: [{ id: 'reuse_active', label: 'x', tier: 'fair' }],
+      customs: [],
+      isReusable: true,
+      reuseIntervalText: '4 hours',
+    }
+  }
+
+  it('adds the repeat-use strength line', () => {
+    const res = scoreVoucher(reusableDiscount())
+    expect(res.strengths).toContain('Customers can come back and use it again every 4 hours, which keeps them returning')
+  })
+
+  it('reuseFrequent makes a >= £5 saving generous even without the absolute/relative floors', () => {
+    // savingValue 5, low percent, not absolute/relative generous, but reuseFrequent -> generous.
+    const res = scoreVoucher({ ...reusableDiscount(), savingValue: 5, savingPercent: 2 })
+    expect(res.isGenerous).toBe(true)
+  })
+})
