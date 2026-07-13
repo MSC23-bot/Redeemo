@@ -13,10 +13,10 @@ import { RedisKey } from '../../../src/api/shared/redis-keys'
 //
 // Real Redis on an isolated db (11; the dev app uses db 0). NOTE: other
 // real-Redis test files claim dbs 12 (merchant-logout-durability), 13
-// (merchant-atomic-rotate), 14 (queue), 15 (atomic-limiter) — every flushdb()
+// (merchant-atomic-rotate), 14 (queue), 15 (atomic-limiter): every flushdb()
 // suite MUST have its OWN db because vitest runs files in parallel (a shared db
 // flakes). Availability is probed in beforeAll; when no Redis is reachable the
-// real-Redis tests dynamically skip (honest skip — never a false green).
+// real-Redis tests dynamically skip (honest skip: never a false green).
 //
 // §SEC.1 classification: global = GATE (checked first, counted only on allowed:
 // anti-DoS on the cost cap); per-IP hour/day = ABUSER (every attempt counts);
@@ -58,7 +58,7 @@ afterEach(() => {
   delete process.env.RATE_LIMIT_RELAX
 })
 
-describe('emailGlobalDailyCap — env posture (mirrors SMS_GLOBAL_DAILY_CAP)', () => {
+describe('emailGlobalDailyCap: env posture (mirrors SMS_GLOBAL_DAILY_CAP)', () => {
   it('defaults to 2000 when the env var is absent (safe default: no deploy breaks)', () => {
     delete process.env.EMAIL_GLOBAL_DAILY_CAP
     expect(emailGlobalDailyCap()).toBe(2000)
@@ -77,7 +77,7 @@ describe('emailGlobalDailyCap — env posture (mirrors SMS_GLOBAL_DAILY_CAP)', (
   })
 })
 
-describe('consumeEmailSend — per-tier blocking (prod caps)', () => {
+describe('consumeEmailSend: per-tier blocking (prod caps)', () => {
   it('GAP-1: hard-blocks at the global daily gate with scope=gate', async () => {
     const redis = fakeRedis({ counts: { [RedisKey.rateLimitEmailGlobalDay()]: '2000' }, ttl: 3600 })
     const r = await consumeEmailSend(redis, baseCtx())
@@ -163,7 +163,7 @@ describe('consumeEmailSend — per-tier blocking (prod caps)', () => {
   })
 })
 
-describe('consumeEmailSend — precedence (gate > abuser > victim)', () => {
+describe('consumeEmailSend: precedence (gate > abuser > victim)', () => {
   it('gate block wins over a simultaneously-capped victim key', async () => {
     const redis = fakeRedis({
       counts: {
@@ -201,7 +201,7 @@ describe('consumeEmailSend — precedence (gate > abuser > victim)', () => {
   })
 })
 
-describe('consumeEmailSend — counting (§SEC.1 victim/abuser semantics)', () => {
+describe('consumeEmailSend: counting (§SEC.1 victim/abuser semantics)', () => {
   it('an allowed send counts the gate, both IP tiers, and all four victim keys', async () => {
     const redis = fakeRedis()
     const r = await consumeEmailSend(redis, baseCtx())
@@ -264,7 +264,7 @@ describe('RATE_LIMIT_RELAX', () => {
   })
 })
 
-// ── Part 2: real-Redis pins (db 11) — atomicity + gate anti-DoS, which a fake
+// ── Part 2: real-Redis pins (db 11): atomicity + gate anti-DoS, which a fake
 // cannot prove. Mirrors atomic-limiter.test.ts conventions (probe, honest skip,
 // flushdb per test on the suite's OWN db).
 
@@ -296,7 +296,7 @@ function requireRedis(ctx: TestContext): void {
   if (!available) ctx.skip()
 }
 
-describe('consumeEmailSend — real Redis (db 11)', () => {
+describe('consumeEmailSend: real Redis (db 11)', () => {
   beforeEach(async () => {
     if (available && redis) await redis.flushdb()
   })

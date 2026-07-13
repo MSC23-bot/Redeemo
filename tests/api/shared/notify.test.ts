@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Redis } from 'ioredis'
 import type { PrismaClient } from '../../../generated/prisma/client'
 
-// Phase 0 PR-0.4: the notify() dispatcher. Pins the §4.1 outbox contract — a
+// Phase 0 PR-0.4: the notify() dispatcher. Pins the §4.1 outbox contract: a
 // QUEUED CommunicationLog row is committed FIRST, then a best-effort enqueue
 // with jobId = row id; an enqueue failure leaves the row QUEUED and never
 // throws. The queue module is MOCKED (no Redis/BullMQ); prisma + redis are fakes.
@@ -58,7 +58,7 @@ beforeEach(() => {
   enqueueMock.mockResolvedValue({ id: 'job-1' })
 })
 
-describe('notify — outbox row + enqueue', () => {
+describe('notify: outbox row + enqueue', () => {
   it('commits a QUEUED CommunicationLog (channel EMAIL, type, payload) then enqueues with jobId = row id', async () => {
     const { prisma, createLog } = fakePrisma()
     const res = await notify(prisma, fakeRedis(), BASE)
@@ -167,7 +167,7 @@ describe('notify — outbox row + enqueue', () => {
       to: 'user@example.com',
       recipientType: 'USER',
       recipientId: 'user-77',
-      // input.userId intentionally OMITTED — the write-path must derive it from recipientType.
+      // input.userId intentionally OMITTED: the write-path must derive it from recipientType.
       type: 'some_user_notification',
       email: { subject: 'Hi', html: '<p>Hi</p>' },
       inApp: { notificationType: NotificationType.MERCHANT_VERIFICATION_UPDATE, title: 'Hi', body: 'Body' },
@@ -189,7 +189,7 @@ describe('notify — outbox row + enqueue', () => {
       to: 'admin@merchant.com',
       recipientType: 'MERCHANT_ADMIN',
       recipientId: 'ma-1',
-      userId: 'sneaky-user-id', // a caller mistake — the write-path must ignore it for non-USER rows.
+      userId: 'sneaky-user-id', // a caller mistake: the write-path must ignore it for non-USER rows.
       type: 'merchant_changes_requested',
       email: { subject: 'x', html: '<p>x</p>' },
       inApp: { notificationType: NotificationType.MERCHANT_VERIFICATION_UPDATE, title: 'x', body: 'y' },
@@ -226,14 +226,14 @@ describe('notify — outbox row + enqueue', () => {
   })
 })
 
-describe('notify — §4.1 enqueue-failure leaves the row QUEUED (does NOT throw)', () => {
+describe('notify: §4.1 enqueue-failure leaves the row QUEUED (does NOT throw)', () => {
   it('commits the row, swallows the enqueue error, returns enqueued:false', async () => {
     const { prisma, createLog } = fakePrisma()
     enqueueMock.mockRejectedValueOnce(new Error('redis down'))
 
     const res = await notify(prisma, fakeRedis(), BASE)
 
-    // row STILL committed as QUEUED — the reconciler will pick it up
+    // row STILL committed as QUEUED: the reconciler will pick it up
     expect(createLog).toHaveBeenCalledTimes(1)
     expect((createLog.mock.calls[0][0] as { data: { status: string } }).data.status).toBe('QUEUED')
     // call did NOT throw + signals the enqueue failure
@@ -241,7 +241,7 @@ describe('notify — §4.1 enqueue-failure leaves the row QUEUED (does NOT throw
   })
 })
 
-describe('notify — marketing consent', () => {
+describe('notify: marketing consent', () => {
   it('skips a marketing send when the user has not consented (no row, no enqueue)', async () => {
     const { prisma, createLog } = fakePrisma({ consent: false })
     const res = await notify(prisma, fakeRedis(), { ...BASE, category: 'marketing' })
@@ -264,9 +264,9 @@ describe('notify — marketing consent', () => {
   })
 })
 
-describe('notify — programming-error guard', () => {
+describe('notify: programming-error guard', () => {
   // M2: ADMIN is now a valid in-app recipient (the admin bell). The guard that
-  // previously rejected ADMIN+inApp is gone — the set now covers all 4 types.
+  // previously rejected ADMIN+inApp is gone: the set now covers all 4 types.
   // This test documents that combining ADMIN with inApp NO LONGER throws.
   it('M2: ADMIN + inApp does NOT throw (admin bell is supported)', async () => {
     const { prisma, createLog } = fakePrisma()
@@ -277,13 +277,13 @@ describe('notify — programming-error guard', () => {
       userId: null,
       inApp: { notificationType: NotificationType.ADMIN_MERCHANT_SUBMITTED, title: 'x', body: 'y' },
     })
-    // SUCCEEDS — no throw, outbox row committed
+    // SUCCEEDS: no throw, outbox row committed
     expect(res).toMatchObject({ queued: true })
     expect(createLog).toHaveBeenCalledTimes(1)
   })
 })
 
-describe('notify — pre-send guards', () => {
+describe('notify: pre-send guards', () => {
   it('declines a MARKETING send to a suppressed (bounced/complained) recipient', async () => {
     const { prisma, createLog } = fakePrisma({ consent: true })
     const res = await notify(prisma, fakeRedis({ suppressed: true }), { ...BASE, category: 'marketing' })
@@ -308,7 +308,7 @@ describe('notify — pre-send guards', () => {
   })
 })
 
-describe('notify — §SEC.1 limiter wiring (consumeEmailSend ctx)', () => {
+describe('notify: §SEC.1 limiter wiring (consumeEmailSend ctx)', () => {
   // The rate-limit block is now emailLimiter.consumeEmailSend (GAP-1..GAP-4).
   // These pins prove notify passes the RIGHT ctx: the limiter keys observed in
   // the store are derived from hashEmail(input.to), input.type,
