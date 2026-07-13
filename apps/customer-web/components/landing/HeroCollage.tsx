@@ -228,27 +228,30 @@ export function HeroCollage() {
  * (owner: behind the artwork it was too much going on): the ribbon's
  * mobile home is the navy Redeemo Standard scene.
  */
+// The card cluster occupies the artwork's right two-thirds (x 420-1672 of
+// 1672): cropping the empty cream on the left centres the cluster and buys
+// ~34% more size at the same viewport width.
+const CROP_X = 420
+const CROP_W = IMG_W - CROP_X
+
 export function HeroCollageMobile() {
   const reduceMotion = useReducedMotion()
   return (
-    <div className="relative" aria-hidden="true">
-      <div className="relative w-full" style={{ aspectRatio: `${IMG_W} / ${IMG_H}` }}>
-        <Image
-          src="/app-shots/hero-collage/base-v5.jpg"
-          alt=""
-          fill
-          priority
-          unoptimized
-          className="object-fill"
-          style={{
-            // Full-bleed sideways; feather only top and bottom so the
-            // artwork's cream melts into the page above and below
-            maskImage:
-              'linear-gradient(180deg, transparent 0, black 22px, black calc(100% - 22px), transparent 100%)',
-            WebkitMaskImage:
-              'linear-gradient(180deg, transparent 0, black 22px, black calc(100% - 22px), transparent 100%)',
-          }}
-        />
+    <div className="relative overflow-hidden" aria-hidden="true" style={{ aspectRatio: `${CROP_W} / ${IMG_H}` }}>
+      {/* The FULL artwork lives in a wider inner box shifted left, so the
+          card layers keep their original image fractions */}
+      <div
+        className="absolute inset-y-0"
+        style={{
+          left: `${(-CROP_X / CROP_W) * 100}%`,
+          width: `${(IMG_W / CROP_W) * 100}%`,
+          maskImage:
+            'linear-gradient(180deg, transparent 0, black 22px, black calc(100% - 22px), transparent 100%)',
+          WebkitMaskImage:
+            'linear-gradient(180deg, transparent 0, black 22px, black calc(100% - 22px), transparent 100%)',
+        }}
+      >
+        <Image src="/app-shots/hero-collage/base-v5.jpg" alt="" fill priority unoptimized className="object-fill" />
         {LAYERS.map((layer) => (
           <CardLayer key={layer.key} layer={layer} reduceMotion={!!reduceMotion} />
         ))}

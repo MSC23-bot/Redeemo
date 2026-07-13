@@ -12,10 +12,13 @@ export function AppCtaFooterSection() {
   const marketplaceLive = isMarketplaceLive()
 
   return (
-    <section
-      className="relative overflow-hidden py-20 md:py-28 px-6 text-center"
-      style={{ background: '#010C35' }}
-    >
+    <section className="px-6 py-12 md:py-20" style={{ background: '#FFF9F5' }}>
+      {/* A contained navy voucher panel on cream (owner 2026-07-13: the
+          full-bleed navy collided with the footer's navy right below it) */}
+      <div
+        className="relative overflow-hidden max-w-[1080px] mx-auto rounded-[28px] px-6 py-12 md:py-16 text-center"
+        style={{ background: '#010C35', boxShadow: '0 28px 64px rgba(1,12,53,0.22)' }}
+      >
       {/* The ribbon's last visit before the footer: far from both seams */}
       <RibbonPeek side="right" top="10%" width={220} />
       {/* Rose-red glow: bottom-left anchor + upper-right warmth */}
@@ -54,7 +57,7 @@ export function AppCtaFooterSection() {
           viewport={{ once: true }}
           transition={{ duration: 0.55, delay: 0.1, ease }}
           className="font-display text-white leading-[1.08] mb-4"
-          style={{ fontSize: 'clamp(30px, 4vw, 52px)', letterSpacing: '-0.5px' }}
+          style={{ fontSize: 'clamp(25px, 4vw, 52px)', letterSpacing: '-0.5px' }}
         >
           {marketplaceLive ? (
             <>
@@ -73,7 +76,7 @@ export function AppCtaFooterSection() {
           whileInView={{ opacity: 1 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5, delay: 0.2 }}
-          className="text-[15px] text-white/48 leading-[1.72] mb-9 max-w-[420px] mx-auto"
+          className="text-[13.5px] md:text-[15px] text-white/48 leading-[1.65] md:leading-[1.72] mb-7 md:mb-9 max-w-[420px] mx-auto"
         >
           {marketplaceLive
             ? 'Browse and save on the website. Redeem your vouchers in-store with the app.'
@@ -112,6 +115,7 @@ export function AppCtaFooterSection() {
             </>
           )}
         </motion.div>
+      </div>
       </div>
     </section>
   )

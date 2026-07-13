@@ -785,3 +785,27 @@ edited by this workstream.
   sliver. 6) The how-it-works section is REMOVED from the landing page at
   all viewports (redundant against the journey cinema; the /how-it-works
   route remains for the hero's secondary CTA). tsc clean.
+- MOBILE ROUND 3 + PRICING REDESIGN (owner 2026-07-13): 1) PRICING is
+  rebuilt as voucher TICKETS on every viewport (the plain unequal boxes
+  needed a drastic lift): equal-height tickets with a toned header stub
+  (Free cream, Monthly brand-red radial, Annual navy), a dashed tear line
+  with real die-cut side notches (mask on the card, shadow on a wrapper),
+  spring lift on hover AND touch, badges (Most popular / Best value in
+  brand red/coral). Mobile: a swipeable snap shelf that OPENS centred on
+  Monthly: pricing now fits one screen instead of three stacked cards.
+  2) WAITLIST ticket compacted on mobile (tighter paddings, clamped type:
+  ~60% of a screen, was a full one). 3) APP SECTION is now a contained
+  rounded navy panel on cream, so it no longer collides with the footer's
+  navy (owner). 4) FOOTER halved on mobile: small logo, two link columns
+  side by side, centred copyright; the bottom CTA button is REMOVED
+  entirely (owner: not needed). 5) REDEEMO STANDARD cards become compact
+  icon-left rows on mobile (desktop keeps glass cards); section paddings
+  tightened. 6) HERO artwork enlarged ~34% and centred via a pure-CSS crop
+  of the artwork's empty left cream (inner full-image box shifted inside
+  an overflow-hidden viewport: card layers keep their fractions). 7) The
+  JOURNEY ch5 CTA no longer touches the phone (copy area 250px + gap-3).
+  8) The floating pill's expanded menu wears the COUPON: the same brand
+  gradient band with die-cut side notches as the top island (owner: that
+  is the vibe), white links, dashed divider, white CTA. tsc clean;
+  verified at 390x780 (hero, pricing shelf, waitlist, app panel, footer)
+  and desktop 1440x900 (ticket grid).

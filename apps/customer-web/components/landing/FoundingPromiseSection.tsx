@@ -54,7 +54,7 @@ const PROMISES: Promise[] = [
 export function FoundingPromiseSection() {
   return (
     <section
-      className="relative overflow-hidden py-20 md:py-24 px-6"
+      className="relative overflow-hidden py-14 md:py-24 px-6"
       style={{ background: '#010C35' }}
     >
       {/* Red radial glow, matching the testimonials treatment. Origins sit
@@ -82,20 +82,22 @@ export function FoundingPromiseSection() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
           transition={{ duration: 0.5, ease: EASE }}
-          className="text-center max-w-[640px] mx-auto mb-14"
+          className="text-center max-w-[640px] mx-auto mb-8 md:mb-14"
         >
-          <span className="inline-block text-[11px] font-bold tracking-[0.18em] uppercase text-white/40 mb-4">
+          <span className="inline-block text-[11px] font-bold tracking-[0.18em] uppercase text-white/40 mb-3 md:mb-4">
             The Redeemo standard
           </span>
           <h2
             className="font-display text-white leading-[1.1]"
-            style={{ fontSize: 'clamp(28px, 3.5vw, 44px)', letterSpacing: '-0.3px' }}
+            style={{ fontSize: 'clamp(25px, 3.5vw, 44px)', letterSpacing: '-0.3px' }}
           >
             Chosen places. Honest terms.
           </h2>
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-[1040px] mx-auto">
+        {/* Mobile: compact icon-left rows (three tall cards ran well past a
+            screen); desktop keeps the full glass cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6 max-w-[1040px] mx-auto">
           {PROMISES.map((p, i) => (
             <motion.div
               key={p.title}
@@ -103,7 +105,7 @@ export function FoundingPromiseSection() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: '-40px' }}
               transition={{ duration: 0.5, delay: i * 0.1, ease: EASE }}
-              className="rounded-2xl p-8"
+              className="rounded-2xl p-4 md:p-8 flex items-start gap-4 md:block"
               style={{
                 background: 'rgba(255,255,255,0.06)',
                 border: '1px solid rgba(255,255,255,0.1)',
@@ -112,14 +114,16 @@ export function FoundingPromiseSection() {
               }}
             >
               <div
-                className="w-11 h-11 rounded-xl flex items-center justify-center mb-5 text-white/85"
+                className="w-10 h-10 md:w-11 md:h-11 rounded-xl flex items-center justify-center md:mb-5 text-white/85 flex-shrink-0"
                 style={{ background: 'rgba(255,255,255,0.08)' }}
                 aria-hidden="true"
               >
                 {p.icon}
               </div>
-              <h3 className="font-body text-[16px] font-bold text-white mb-2">{p.title}</h3>
-              <p className="text-[14px] text-white/60 leading-[1.65]">{p.body}</p>
+              <div>
+                <h3 className="font-body text-[15px] md:text-[16px] font-bold text-white mb-1 md:mb-2">{p.title}</h3>
+                <p className="text-[13px] md:text-[14px] text-white/60 leading-[1.55] md:leading-[1.65]">{p.body}</p>
+              </div>
             </motion.div>
           ))}
         </div>

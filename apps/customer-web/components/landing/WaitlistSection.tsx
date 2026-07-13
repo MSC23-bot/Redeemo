@@ -38,7 +38,7 @@ export function WaitlistSection() {
   if (isMarketplaceLive()) return null
 
   return (
-    <section id="waitlist" style={{ background: '#FAFAF8' }} className="py-20 md:py-28 px-6">
+    <section id="waitlist" style={{ background: '#FAFAF8' }} className="py-12 md:py-28 px-6">
       <div className="max-w-[1020px] mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -56,22 +56,22 @@ export function WaitlistSection() {
             <div aria-hidden="true" className="hidden md:block absolute w-6 h-6 rounded-full -bottom-3 right-[328px]" style={{ background: '#FAFAF8' }} />
 
             {/* Main: the offer */}
-            <div className="px-8 py-10 md:px-12 md:py-12">
-              <p className="text-[11.5px] font-bold tracking-[0.2em] uppercase text-white/65 mb-4">Founding member offer</p>
+            <div className="px-6 py-7 md:px-12 md:py-12">
+              <p className="text-[11px] md:text-[11.5px] font-bold tracking-[0.2em] uppercase text-white/65 mb-3 md:mb-4">Founding member offer</p>
               <h2
-                className="font-display text-white leading-[1.1] mb-4"
-                style={{ fontSize: 'clamp(28px, 3.2vw, 42px)', letterSpacing: '-0.6px', textWrap: 'balance' }}
+                className="font-display text-white leading-[1.1] mb-3 md:mb-4"
+                style={{ fontSize: 'clamp(23px, 3.2vw, 42px)', letterSpacing: '-0.6px', textWrap: 'balance' }}
               >
                 Join before launch. Three months on us.
               </h2>
-              <p className="text-[15px] text-white/85 leading-[1.7] max-w-[440px] mb-7" style={{ textWrap: 'pretty' }}>
+              <p className="text-[13.5px] md:text-[15px] text-white/85 leading-[1.6] md:leading-[1.7] max-w-[440px] mb-4 md:mb-7" style={{ textWrap: 'pretty' }}>
                 Create your free account today and your place is saved as a
                 founding member: full membership, every voucher included, free
                 for your first three months when Redeemo goes live.
               </p>
-              <ul className="flex flex-col gap-2.5 list-none p-0 m-0">
+              <ul className="flex flex-col gap-2 md:gap-2.5 list-none p-0 m-0">
                 {PERKS.map((perk) => (
-                  <li key={perk} className="flex items-start gap-2.5 text-[14px] text-white/95 leading-[1.55]">
+                  <li key={perk} className="flex items-start gap-2.5 text-[13px] md:text-[14px] text-white/95 leading-[1.5]">
                     <Tick />
                     {perk}
                   </li>
@@ -80,11 +80,11 @@ export function WaitlistSection() {
             </div>
 
             {/* Stub: tear here, claim it */}
-            <div className="relative px-8 py-10 md:py-12 flex flex-col items-center justify-center text-center border-t-2 md:border-t-0 md:border-l-2 border-dashed border-white/35">
-              <p className="font-display text-white leading-none mb-1" style={{ fontSize: '46px', letterSpacing: '-1px' }}>
+            <div className="relative px-6 py-7 md:px-8 md:py-12 flex flex-col items-center justify-center text-center border-t-2 md:border-t-0 md:border-l-2 border-dashed border-white/35">
+              <p className="font-display text-white leading-none mb-1" style={{ fontSize: 'clamp(32px, 4vw, 46px)', letterSpacing: '-1px' }}>
                 3 months
               </p>
-              <p className="text-[12px] font-bold tracking-[0.18em] uppercase text-white/70 mb-7">Free at launch</p>
+              <p className="text-[11px] md:text-[12px] font-bold tracking-[0.18em] uppercase text-white/70 mb-4 md:mb-7">Free at launch</p>
               <Link
                 href="/register"
                 className="inline-flex items-center gap-2 bg-white text-[#BE0A03] font-bold text-[15px] px-7 py-3.5 rounded-xl no-underline hover:opacity-90 transition-opacity"
@@ -95,13 +95,13 @@ export function WaitlistSection() {
                   <polyline points="12 5 19 12 12 19" />
                 </svg>
               </Link>
-              <p className="mt-4 text-[12px] text-white/60">Free to join · no card needed · takes a minute</p>
+              <p className="mt-3 md:mt-4 text-[11.5px] md:text-[12px] text-white/60">Free to join · no card needed · takes a minute</p>
             </div>
           </div>
         </motion.div>
 
         {/* Where the rollout starts: quiet, at the point of conversion */}
-        <p className="mt-6 text-center text-[13px] text-[#6B7280] leading-[1.6]">
+        <p className="mt-4 md:mt-6 text-center text-[12px] md:text-[13px] text-[#6B7280] leading-[1.6]">
           Rolling out first in Huddersfield and the surrounding areas, then more
           towns and cities across the UK. Join now and we will tell you the
           moment we reach yours.

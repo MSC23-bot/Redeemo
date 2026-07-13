@@ -558,60 +558,70 @@ export function Navbar() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -10, scale: 0.97 }}
           transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-          className="md:hidden fixed top-[62px] inset-x-3 z-50 origin-top-right rounded-2xl overflow-hidden"
-          style={{
-            background: 'rgba(255,249,245,0.96)',
-            backdropFilter: 'blur(20px) saturate(1.5)',
-            WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
-            boxShadow: '0 24px 60px rgba(1,12,53,0.2), inset 0 0 0 1px rgba(1,12,53,0.07)',
-          }}
+          className="md:hidden fixed top-[62px] inset-x-3 z-50 origin-top-right"
+          style={{ filter: 'drop-shadow(0 20px 44px rgba(190,10,3,0.32))' }}
         >
-          <div className="p-4 flex flex-col gap-0.5">
-            {navLinks.map(link => {
-              const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  onClick={() => setFloatMenuOpen(false)}
-                  className={`px-3 py-2.5 rounded-lg text-[15px] font-semibold no-underline transition-colors ${
-                    isActive ? 'text-[#E20C04] bg-[#E20C04]/[0.06]' : 'text-[#010C35]/80 hover:bg-[#010C35]/[0.04]'
-                  }`}
-                >
-                  {link.label}
-                </Link>
-              )
-            })}
-            <div className="my-2 border-t border-[#010C35]/8" />
-            <div className="flex items-center gap-3 px-1">
-              {user ? (
-                <Link
-                  href="/account"
-                  onClick={() => setFloatMenuOpen(false)}
-                  className="flex-1 text-center text-[14px] font-bold text-white px-4 py-2.5 rounded-xl no-underline"
-                  style={{ background: 'var(--brand-gradient)' }}
-                >
-                  Your account
-                </Link>
-              ) : (
-                <>
+          {/* The coupon (owner 2026-07-13): the expanded menu wears the same
+              voucher band as the top island: brand gradient with die-cut
+              notches at its sides */}
+          <div
+            className="relative rounded-2xl overflow-hidden"
+            style={{
+              background: '#BE0A03 radial-gradient(140% 380% at 72% 10%, #F24E2C 0%, #BE0A03 100%)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22)',
+              maskImage:
+                'radial-gradient(circle at 0 50%, transparent 8.5px, black 9px), radial-gradient(circle at 100% 50%, transparent 8.5px, black 9px)',
+              WebkitMaskImage:
+                'radial-gradient(circle at 0 50%, transparent 8.5px, black 9px), radial-gradient(circle at 100% 50%, transparent 8.5px, black 9px)',
+              maskComposite: 'intersect',
+              WebkitMaskComposite: 'source-in',
+            }}
+          >
+            <div className="p-4 flex flex-col gap-0.5">
+              {navLinks.map(link => {
+                const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+                return (
                   <Link
-                    href="/login"
+                    key={link.href}
+                    href={link.href}
                     onClick={() => setFloatMenuOpen(false)}
-                    className="text-[14px] font-semibold text-[#4B5563] no-underline px-2"
+                    className={`px-3 py-2.5 rounded-lg text-[15px] font-semibold no-underline transition-colors ${
+                      isActive ? 'text-white bg-white/[0.14]' : 'text-white/80 hover:text-white hover:bg-white/[0.08]'
+                    }`}
                   >
-                    Log in
+                    {link.label}
                   </Link>
+                )
+              })}
+              <div className="my-2 border-t border-dashed border-white/25" />
+              <div className="flex items-center gap-3 px-1 pb-0.5">
+                {user ? (
                   <Link
-                    href={primaryCtaHref}
+                    href="/account"
                     onClick={() => setFloatMenuOpen(false)}
-                    className="flex-1 text-center text-[14px] font-bold text-white px-4 py-2.5 rounded-xl no-underline"
-                    style={{ background: 'var(--brand-gradient)', boxShadow: '0 4px 16px rgba(226,12,4,0.3)' }}
+                    className="flex-1 text-center text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2.5 rounded-xl no-underline"
                   >
-                    {primaryCtaLabel}
+                    Your account
                   </Link>
-                </>
-              )}
+                ) : (
+                  <>
+                    <Link
+                      href="/login"
+                      onClick={() => setFloatMenuOpen(false)}
+                      className="text-[14px] font-semibold text-white/85 no-underline px-2"
+                    >
+                      Log in
+                    </Link>
+                    <Link
+                      href={primaryCtaHref}
+                      onClick={() => setFloatMenuOpen(false)}
+                      className="flex-1 text-center text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2.5 rounded-xl no-underline"
+                    >
+                      {primaryCtaLabel}
+                    </Link>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </motion.div>

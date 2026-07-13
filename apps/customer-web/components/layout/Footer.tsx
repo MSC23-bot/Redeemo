@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import Image from 'next/image'
-import { isMarketplaceLive } from '@/lib/prelaunch'
 
 const CURRENT_YEAR = new Date().getFullYear()
 
@@ -21,9 +20,12 @@ const SUPPORT_LINKS = [
   { href: '/terms',    label: 'Terms' },
 ]
 
+// Compact by design (owner 2026-07-13: the footer ran a full screen on
+// mobile): brand row on top, the two link columns side by side beneath it,
+// no closing CTA (the page is already saturated with them).
 export function Footer() {
   return (
-    <footer className="relative overflow-hidden bg-[#010C35] text-white pt-16 pb-10">
+    <footer className="relative overflow-hidden bg-[#010C35] text-white pt-10 md:pt-14 pb-7">
 
       {/* Rose-red glow — top-left strong + bottom-right accent */}
       <div
@@ -37,31 +39,30 @@ export function Footer() {
 
       <div className="relative max-w-7xl mx-auto px-6">
 
-        {/* Top row: brand + columns */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-12 mb-14">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-7 md:gap-12 mb-8 md:mb-12">
 
           {/* Brand */}
-          <div className="sm:col-span-1">
-            <Link href="/" className="inline-block mb-4 no-underline" aria-label="Redeemo home">
+          <div className="col-span-2 sm:col-span-1">
+            <Link href="/" className="inline-block mb-2 md:mb-4 no-underline" aria-label="Redeemo home">
               <Image
                 src="/logo-dark.png"
                 alt="Redeemo"
                 width={340}
                 height={96}
-                className="h-[96px] w-auto"
+                className="h-[52px] md:h-[80px] w-auto"
               />
             </Link>
-            <p className="text-[13px] leading-relaxed text-white/45 max-w-[200px]">
+            <p className="text-[12.5px] md:text-[13px] leading-relaxed text-white/45 max-w-[240px]">
               Exclusive vouchers from local businesses. Subscribe and save every month.
             </p>
           </div>
 
           {/* Company links */}
           <nav aria-label="Company">
-            <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-4">
+            <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-3 md:mb-4">
               Company
             </p>
-            <ul className="flex flex-col gap-3">
+            <ul className="flex flex-col gap-2 md:gap-3">
               {COMPANY_LINKS.map(item => (
                 <li key={item.href}>
                   <Link
@@ -77,10 +78,10 @@ export function Footer() {
 
           {/* Support links */}
           <nav aria-label="Support">
-            <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-4">
+            <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-3 md:mb-4">
               Support
             </p>
-            <ul className="flex flex-col gap-3">
+            <ul className="flex flex-col gap-2 md:gap-3">
               {SUPPORT_LINKS.map(item => (
                 <li key={item.href}>
                   <Link
@@ -95,18 +96,10 @@ export function Footer() {
           </nav>
         </div>
 
-        {/* Bottom row: copyright + gradient CTA */}
-        <div className="border-t border-white/[0.08] pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
-          <p className="text-[12px] text-white/30">
+        <div className="border-t border-white/[0.08] pt-6">
+          <p className="text-[11.5px] md:text-[12px] text-white/30 text-center sm:text-left">
             &copy; {CURRENT_YEAR} Redeemo Ltd. All rights reserved. UK registered company.
           </p>
-          <Link
-            href={isMarketplaceLive() ? '/register' : '/how-it-works'}
-            className="text-[13px] font-semibold text-white px-5 py-2.5 rounded-lg no-underline hover:opacity-90 transition-opacity"
-            style={{ background: 'var(--brand-gradient)' }}
-          >
-            {isMarketplaceLive() ? 'Join free today' : 'See how Redeemo works'}
-          </Link>
         </div>
       </div>
     </footer>
