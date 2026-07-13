@@ -9,6 +9,7 @@ import { adminRedemptionRoutes } from './redemptions/routes'
 import { adminTeamRoutes } from './team/routes'
 import { adminLeadRoutes } from './leads/routes'
 import { adminMerchantNoteRoutes } from './merchants/notes/routes'
+import { adminEmailOpsRoutes } from './email-ops/routes'
 
 // Phase 2 Slice 1 M2 — admin-management surface. Mirrors merchant/plugin.ts:
 // a scoped sub-plugin applies the `authenticateAdmin` preHandler to all
@@ -33,6 +34,9 @@ async function adminManagementPlugin(app: FastifyInstance) {
     await scoped.register(adminLeadRoutes)
     // MerchantNote internal notes (packet 2026-07-13): gated on merchant:notes.
     await scoped.register(adminMerchantNoteRoutes)
+    // §SEC.1 GAP-7: SUPER_ADMIN-only transactional-email ops view + resume
+    // (gated on email:ops, held only by SUPER_ADMIN).
+    await scoped.register(adminEmailOpsRoutes)
   })
 }
 

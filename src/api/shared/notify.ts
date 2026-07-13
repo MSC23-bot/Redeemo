@@ -30,6 +30,7 @@ import { EMAIL_QUEUE, enqueue } from '../queues'
 import { RedisKey } from './redis-keys'
 import { hashEmail } from './pwdResetLimiter'
 import { consumeEmailSend } from './emailLimiter'
+import { isSendPaused, recordEmailSendCounters, recordGlobalGateTrip, logEmailSendAnomaly } from './emailOps'
 
 export type NotifyCategory = 'transactional' | 'marketing'
 // CommunicationLog.recipientType is a free string; all four values are valid
@@ -86,7 +87,9 @@ export interface NotifyInput {
 
 export type NotifyResult =
   | { queued: true; communicationLogId: string; enqueued: boolean }
-  | { queued: false; reason: 'no-consent' | 'rate-limited' | 'suppressed' }
+  // 'send-paused' (GAP-6): the global auto-pause circuit-breaker is set; a
+  // distinct reason from 'rate-limited' so a paused platform is unambiguous.
+  | { queued: false; reason: 'no-consent' | 'rate-limited' | 'suppressed' | 'send-paused' }
 
 // Send caps live in emailLimiter.ts (§SEC.1 closure): the per-(type,recipient)
 // 5/hr and per-IP 200/day controls moved there unchanged, joined by the global
@@ -116,6 +119,14 @@ export async function notify(prisma: PrismaClient, redis: Redis, input: NotifyIn
         `(valid: ${NOTIFICATION_RECIPIENT_TYPES.join(', ')})`,
     )
   }
+
+  // (0) GAP-6 auto send-pause: the global circuit-breaker is checked FIRST, BEFORE
+  // any limiter budget is consumed and before any DB lookup. When set (by the
+  // bounce-ratio / repeated-gate-trip triggers), decline every send with a
+  // DISTINCT reason and write NO outbox row; a truly fail-closed stop at the one
+  // choke point (the worker does not read this flag, so a QUEUED-and-sent leak is
+  // impossible). Cleared only by a SUPER_ADMIN via the email-ops route.
+  if (await isSendPaused(redis)) return { queued: false, reason: 'send-paused' }
 
   const category: NotifyCategory = input.category ?? 'transactional'
   const emailHash = hashEmail(input.to)
@@ -149,7 +160,29 @@ export async function notify(prisma: PrismaClient, redis: Redis, input: NotifyIn
     recipientId: input.recipientId,
     ip: input.ip,
   })
-  if (!limit.ok) return { queued: false, reason: 'rate-limited' }
+  if (!limit.ok) {
+    // GAP-7 anomaly + GAP-6 gate-trip trigger. A GLOBAL-gate block or a per-address
+    // cap block is the ops-visible anomaly: emit a structured line (the blocked key
+    // is a static tier or a hashEmail, never a raw address). When the global COST
+    // gate blocked, count the trip so repeated trips auto-pause. Best-effort: never
+    // let telemetry throw the dispatcher; the caller contract is unchanged.
+    const isAddrBlock = limit.blockedKey.startsWith('rl:email:addr:')
+    if (limit.scope === 'gate' || isAddrBlock) {
+      logEmailSendAnomaly({ scope: limit.scope, blockedKey: limit.blockedKey, type: input.type })
+    }
+    if (limit.scope === 'gate') {
+      try {
+        await recordGlobalGateTrip(prisma, redis)
+      } catch (err) {
+        console.warn('[email] gate-trip record failed (non-fatal): ' + (err instanceof Error ? err.message : String(err)))
+      }
+    }
+    return { queued: false, reason: 'rate-limited' }
+  }
+
+  // GAP-7: count this ALLOWED send (per-type + total, per UTC day) beside the
+  // limiter consumption. Best-effort inside the helper (never blocks the outbox).
+  await recordEmailSendCounters(redis, input.type)
 
   // Commit the outbox row (+ optional Notification) FIRST, in one transaction.
   const payload: EmailJobPayload = {

@@ -28,6 +28,7 @@ import type { PrismaClient } from '../../../generated/prisma/client'
 import { AppError } from '../shared/errors'
 import { RedisKey } from '../shared/redis-keys'
 import { hashEmail } from '../shared/pwdResetLimiter'
+import { recordEmailBounce } from '../shared/emailOps'
 
 /** A hard bounce / spam complaint suppresses the recipient for this long. */
 export const SUPPRESSION_TTL_SECONDS = 90 * 24 * 60 * 60 // 90 days
@@ -79,6 +80,14 @@ export async function handleResendWebhookEvent(
           'EX',
           SUPPRESSION_TTL_SECONDS,
         )
+      }
+      // §SEC.1 GAP-6: count this bounce/complaint toward the day's bounce ratio and
+      // auto-pause all sending once the ratio crosses the threshold. Best-effort:
+      // a counter/pause blip must never fail the (idempotent) webhook ack.
+      try {
+        await recordEmailBounce(prisma, redis)
+      } catch (err) {
+        console.warn('[resend-webhook] bounce-ratio evaluation failed (non-fatal): ' + (err instanceof Error ? err.message : String(err)))
       }
       break
     }
