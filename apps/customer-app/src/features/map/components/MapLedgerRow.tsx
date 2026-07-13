@@ -15,8 +15,19 @@ import { merchantDisplayName } from '@/lib/merchantDisplayName'
  * Replaces the shared `<BranchTile size="compact">` card (S4 Task 2) with a
  * compact LEDGER row: a 44x44 rounded logo tile (navy initial fallback),
  * the merchant name + a single meta line ("category · distance ·
- * Open|Closed"), and a right-hand value column (the shared `<VoucherValue>`
- * save capsule + voucher stub) with the branch-level heart at the row end.
+ * Open|Closed"), and a right-hand rail (the shared `<VoucherValue>`
+ * save capsule + voucher stub, top-aligned) with the branch-level heart
+ * pinned at the row end.
+ *
+ * W2b ROUND 2 BUG 1 (owner device QA 2026-07-13) — the row rendered fully
+ * STACKED on device. Root cause: `<PressableScale>` applies its `style`
+ * prop to its OUTER Animated.View, but the children render inside the
+ * INNER `Pressable`, which lays out in the default column direction: the
+ * `flexDirection: 'row'` on the outer view never governed the children.
+ * (Invisible in the round-1 jest assertions, which only queried text/
+ * testIDs, not layout.) Fix: the card chrome stays on the PressableScale;
+ * an explicit inner `rowInner` View (testID `map-ledger-row`) owns the
+ * horizontal anatomy, pinned by a rendered-layout test.
  *
  * Branch-first cardinality (Phase C) is preserved by the caller: the
  * FlatList keys on `branch.id`, so two branches of one merchant render as
@@ -32,8 +43,12 @@ type Props = {
 export function MapLedgerRow({ branch, onPress }: Props) {
   const displayName = merchantDisplayName(branch.merchant)
   const category = branch.merchant.descriptor || branch.merchant.primaryCategory?.name || ''
+  // List v3 (round 2) — the category segment may carry its category's
+  // colour when the payload already delivers one (no tree resolution here:
+  // a missing colour quietly stays secondary; colour must MEAN something,
+  // never be invented).
+  const categoryColour = branch.merchant.primaryCategory?.pinColour ?? null
   const distanceStr = formatDistanceCompact(branch.distance) ?? ''
-  const metaLeft = [category, distanceStr].filter(Boolean).join(' · ')
   const statusWord = branch.isOpenNow ? 'Open' : 'Closed'
   const statusColour = branch.isOpenNow ? color.success : '#B54708'
 
@@ -43,80 +58,90 @@ export function MapLedgerRow({ branch, onPress }: Props) {
     <PressableScale
       onPress={() => onPress(branch.id)}
       accessibilityLabel={accessibilityLabel}
-      style={styles.row}
+      pressedScale={0.98}
+      style={styles.card}
     >
-      {/* Logo tile — real logo or navy-initial fallback (shared contract). */}
-      {branch.merchant.logoUrl ? (
-        <Image
-          testID="map-ledger-logo-image"
-          source={{ uri: branch.merchant.logoUrl }}
-          style={styles.logo}
-          contentFit="cover"
-          transition={180}
-          recyclingKey={`${branch.id}-logo`}
-        />
-      ) : (
-        <View style={[styles.logo, styles.logoFallback]}>
-          <Text style={styles.logoInitial}>{displayName.charAt(0)}</Text>
+      {/* BUG 1 fix — the horizontal anatomy lives on THIS view (the direct
+          parent of the four row pieces), not on the PressableScale. */}
+      <View style={styles.rowInner} testID="map-ledger-row">
+        {/* Logo tile — real logo or navy-initial fallback (shared contract). */}
+        <View testID="map-ledger-logo">
+          {branch.merchant.logoUrl ? (
+            <Image
+              testID="map-ledger-logo-image"
+              source={{ uri: branch.merchant.logoUrl }}
+              style={styles.logo}
+              contentFit="cover"
+              transition={180}
+              recyclingKey={`${branch.id}-logo`}
+            />
+          ) : (
+            <View style={[styles.logo, styles.logoFallback]}>
+              <Text style={styles.logoInitial}>{displayName.charAt(0)}</Text>
+            </View>
+          )}
         </View>
-      )}
 
-      {/* Middle — name + meta line ("category · distance · Open|Closed").
-          The category/distance run and the coloured status word are
-          separate Text nodes (not nested) so each stays a clean, single
-          string node. */}
-      <View style={styles.middle}>
-        <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
-        <View style={styles.metaRow}>
-          {metaLeft ? (
-            <Text style={styles.meta} numberOfLines={1}>{metaLeft} · </Text>
-          ) : null}
-          <Text style={[styles.meta, styles.metaStatus, { color: statusColour }]} numberOfLines={1}>
-            {statusWord}
+        {/* Middle column (flex 1) — name + meta line ("category · distance ·
+            Open|Closed"). Inline nested Texts keep it one ellipsised line. */}
+        <View style={styles.middle} testID="map-ledger-middle">
+          <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
+          <Text style={styles.meta} numberOfLines={1}>
+            {category ? (
+              <Text style={categoryColour ? { color: categoryColour } : null}>{category}</Text>
+            ) : null}
+            {category ? ' · ' : ''}
+            {distanceStr ? `${distanceStr} · ` : ''}
+            <Text style={[styles.metaStatus, { color: statusColour }]}>{statusWord}</Text>
           </Text>
         </View>
-      </View>
 
-      {/* Right value column — save capsule + voucher stub, stacked. */}
-      <VoucherValue
-        saveAmount={branch.merchant.maxEstimatedSaving}
-        voucherCount={branch.merchant.voucherCount}
-        orientation="column"
-        density="compact"
-        testID="map-ledger-value"
-      />
-
-      {/* Heart — branch-level (entity="branch"), at the row end. */}
-      <View style={styles.heart}>
-        <FavouriteHeart
-          entity="branch"
-          id={branch.id}
-          initialIsFavourited={branch.isFavourited}
-          tone="on-light"
-          size={20}
-          testID={`map-ledger-${branch.id}-heart`}
+        {/* Right rail, top-aligned — save capsule with the voucher stub
+            beneath it (the shared <VoucherValue> column layout). */}
+        <VoucherValue
+          saveAmount={branch.merchant.maxEstimatedSaving}
+          voucherCount={branch.merchant.voucherCount}
+          orientation="column"
+          density="compact"
+          testID="map-ledger-value"
         />
+
+        {/* Heart — branch-level (entity="branch"), pinned top-right. */}
+        <View style={styles.heart} testID="map-ledger-heart">
+          <FavouriteHeart
+            entity="branch"
+            id={branch.id}
+            initialIsFavourited={branch.isFavourited}
+            tone="on-light"
+            size={20}
+            testID={`map-ledger-${branch.id}-heart`}
+          />
+        </View>
       </View>
     </PressableScale>
   )
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection:   'row',
-    alignItems:      'center',
-    gap:             12,
+  // White card on the cream sheet ground (List v3): warm hairline + very
+  // soft navy shadow. Chrome only — layout direction lives on rowInner.
+  card: {
     backgroundColor: '#FFFFFF',
     borderRadius:    14,
     borderWidth:     1,
     borderColor:     '#EDE4D7',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
     shadowColor:     '#010C35',
     shadowOpacity:   0.06,
     shadowRadius:    8,
     shadowOffset:    { width: 0, height: 3 },
     elevation:       2,
+  },
+  rowInner: {
+    flexDirection:     'row',
+    alignItems:        'flex-start',
+    gap:               12,
+    paddingVertical:   10,
+    paddingHorizontal: 12,
   },
   logo: {
     width:        44,
@@ -137,6 +162,8 @@ const styles = StyleSheet.create({
   middle: {
     flex: 1,
     gap:  3,
+    // Optically centre the two text lines against the 44pt logo.
+    paddingTop: 3,
   },
   name: {
     fontSize:   14.5,
@@ -145,24 +172,19 @@ const styles = StyleSheet.create({
     color:      color.navy,
     letterSpacing: -0.1,
   },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
-  },
   meta: {
     fontSize:   12.5,
     lineHeight: 16,
     fontFamily: 'Lato-Medium',
     color:      color.text.secondary,
-    flexShrink: 1,
   },
   metaStatus: {
     fontFamily: 'Lato-SemiBold',
-    flexShrink: 0,
   },
   heart: {
-    width:          32,
+    width:          28,
     alignItems:     'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    paddingTop:     2,
   },
 })

@@ -379,4 +379,51 @@ describe('MapListView', () => {
     )
     expect(getByText('Open')).toBeTruthy()
   })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // W2b ROUND 2 BUG 1 (owner device QA 2026-07-13) — the row rendered
+  // fully STACKED on device: <PressableScale> applies its `style` to the
+  // OUTER Animated.View while children render inside the inner Pressable
+  // (default column layout), so `flexDirection: 'row'` never governed the
+  // row pieces. This pins the FIXED anatomy at the rendered-layout level:
+  // logo | middle (name+meta) | value rail | heart must be HORIZONTAL
+  // SIBLINGS under one flexDirection:'row' parent — not stacked.
+  // ──────────────────────────────────────────────────────────────────────
+  describe('W2b round 2 BUG 1: ledger row renders horizontally, not stacked', () => {
+    function flattenStyle(style: unknown): Record<string, unknown> {
+      if (!style) return {}
+      if (Array.isArray(style)) return Object.assign({}, ...style.filter(Boolean).map(flattenStyle))
+      return style as Record<string, unknown>
+    }
+
+    it('logo, name column, value rail and heart are horizontal siblings of a flexDirection:row container', () => {
+      const { getByTestId } = render(
+        <MapListView
+          visible
+          branches={[mockBranches[0]!]}
+          total={1}
+          onDismiss={jest.fn()}
+          onBranchPress={jest.fn()}
+          {...noopSort}
+        />,
+      )
+      const rowInner = getByTestId('map-ledger-row')
+      // The DIRECT parent of the row pieces lays out horizontally.
+      expect(flattenStyle(rowInner.props.style).flexDirection).toBe('row')
+      // All four anatomy pieces are DIRECT children (siblings) of that
+      // container, in ledger order: logo, middle, value, heart.
+      const childTestIDs = rowInner.children
+        .map((c) => (typeof c === 'string' ? null : c.props?.testID ?? null))
+      expect(childTestIDs).toEqual([
+        'map-ledger-logo',
+        'map-ledger-middle',
+        'map-ledger-value',
+        'map-ledger-heart',
+      ])
+      // The middle column takes the remaining width (flex: 1) so the value
+      // rail and heart sit at the row end rather than mid-row.
+      const middle = getByTestId('map-ledger-middle')
+      expect(flattenStyle(middle.props.style).flex).toBe(1)
+    })
+  })
 })
