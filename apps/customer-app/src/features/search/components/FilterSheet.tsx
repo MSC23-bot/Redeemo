@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState, type ComponentType } from 'react'
-import { View, ScrollView, StyleSheet, Pressable } from 'react-native'
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
+import { View, ScrollView, StyleSheet, Pressable, type LayoutChangeEvent } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
 import type { LucideProps } from 'lucide-react-native'
 import {
   X, RotateCcw, Copy, Percent, Gift, PoundSterling, Package, Clock, RefreshCw,
 } from '@/design-system/icons'
-import { Text, color, spacing, radius } from '@/design-system'
+import { Text, color, spacing, radius, useMotionScale } from '@/design-system'
 import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { PressableScale } from '@/design-system/motion/PressableScale'
 import { SegmentedControl } from '@/design-system/motion/SegmentedControl'
@@ -190,6 +190,45 @@ function summaryLabel(count: number): string {
   return count > 0 ? `${count} selected` : 'Any'
 }
 
+// ─── W2b round 3 ITEM 3a — measured mid-control fold ────────────────────────
+//
+// Owner round-2 feedback: a peeking section HEADER at the fold was too
+// subtle a scroll cue. The fold must land MID-CONTROL: a chip row visibly
+// half-cut is an unambiguous "there is more". Approach (documented per the
+// brief): every section registers its container's y (relative to the
+// scroll content) and its CONTROL block's rect (relative to the section)
+// via onLayout; `resolveScrollFold` then picks the DEEPEST control whose
+// midpoint falls inside the [FOLD_MIN, FOLD_MAX] band and sets the
+// ScrollView's maxHeight to that midpoint — cutting that control in half
+// by construction, whatever the section composition (subcategory row and
+// amenities appear conditionally, shifting everything). When no control
+// midpoint lands in the band (or before layout has fired, incl. jest,
+// where onLayout never runs), the height falls back to the round-2 value.
+export const SCROLL_FOLD_FALLBACK = 400
+const FOLD_MIN = 300
+const FOLD_MAX = 430
+
+export function resolveScrollFold(
+  blocks: readonly { top: number; height: number }[],
+): number {
+  let fold: number | null = null
+  for (const b of [...blocks].sort((a, z) => a.top - z.top)) {
+    const mid = b.top + b.height / 2
+    if (mid >= FOLD_MIN && mid <= FOLD_MAX) fold = mid
+  }
+  return Math.round(fold ?? SCROLL_FOLD_FALLBACK)
+}
+
+// ─── W2b round 3 ITEM 3b — one-time scroll hint, per app session ────────────
+//
+// Module-level (not state): "once per session" means once per JS runtime,
+// across every FilterSheet instance on every surface. Reduce-motion skips
+// the hint entirely and deliberately does NOT consume the flag.
+let scrollHintShownThisSession = false
+export function __resetFilterSheetScrollHintForTests(): void {
+  scrollHintShownThisSession = false
+}
+
 export function FilterSheet({
   visible, filters, resultCount, onApply, onDismiss,
   baseFilters, liveCount, liveCountPending, onDraftChange,
@@ -213,6 +252,68 @@ export function FilterSheet({
     onDraftChange?.(local)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [local])
+
+  // ─── W2b round 3 ITEM 3a — mid-control fold measurement ──────────────────
+  // Each section registers TWO layouts: its container's y (a direct child
+  // of the scroll content, so y is content-relative) and its control
+  // block's rect (section-relative). Their sum gives the control's
+  // content-coordinate top; `resolveScrollFold` picks the fold. Converges
+  // in one pass: content-internal positions don't depend on the scroll
+  // viewport's height, so changing maxHeight never re-shifts the blocks.
+  const sectionTopsRef  = useRef<Record<string, number>>({})
+  const controlRectsRef = useRef<Record<string, { y: number; h: number }>>({})
+  const [scrollMaxHeight, setScrollMaxHeight] = useState(SCROLL_FOLD_FALLBACK)
+
+  const recomputeFold = useCallback(() => {
+    const blocks: { top: number; height: number }[] = []
+    for (const key of Object.keys(controlRectsRef.current)) {
+      const sectionTop = sectionTopsRef.current[key]
+      const rect = controlRectsRef.current[key]
+      if (sectionTop === undefined || rect === undefined) continue
+      blocks.push({ top: sectionTop + rect.y, height: rect.h })
+    }
+    const next = resolveScrollFold(blocks)
+    setScrollMaxHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev))
+  }, [])
+
+  const onSectionLayout = useCallback(
+    (key: string) => (e: LayoutChangeEvent) => {
+      sectionTopsRef.current[key] = e.nativeEvent.layout.y
+      recomputeFold()
+    },
+    [recomputeFold],
+  )
+  const onControlLayout = useCallback(
+    (key: string) => (e: LayoutChangeEvent) => {
+      const l = e.nativeEvent.layout
+      controlRectsRef.current[key] = { y: l.y, h: l.height }
+      recomputeFold()
+    },
+    [recomputeFold],
+  )
+  const dropSectionMeasurement = useCallback((key: string) => {
+    // Conditional sections (subcategory, amenities) must not leave stale
+    // rects behind when they unmount — the remaining sections' onLayout
+    // refires as content shifts, triggering the recompute.
+    delete sectionTopsRef.current[key]
+    delete controlRectsRef.current[key]
+  }, [])
+
+  // ─── W2b round 3 ITEM 3b — one-time scroll hint on first open ────────────
+  // After the sheet settles, gently nudge the content down ~24pt and
+  // settle back, signalling scrollability. RN's scrollTo has no duration
+  // parameter, so the two-step nudge (down at 450ms post-open, back 200ms
+  // later; native scroll animation is ease-out) approximates the brief's
+  // 350ms ease-out envelope. Reduce-motion: skipped entirely.
+  const scrollRef = useRef<ScrollView>(null)
+  const motionScale = useMotionScale()
+  useEffect(() => {
+    if (!visible || scrollHintShownThisSession || motionScale === 0) return
+    scrollHintShownThisSession = true
+    const down = setTimeout(() => { scrollRef.current?.scrollTo({ y: 24, animated: true }) }, 450)
+    const back = setTimeout(() => { scrollRef.current?.scrollTo({ y: 0, animated: true }) }, 650)
+    return () => { clearTimeout(down); clearTimeout(back) }
+  }, [visible, motionScale])
 
   // Resolve the active top-level for the subcategory drill-down panel.
   // local.categoryId can be either a top-level id OR a subcategory id —
@@ -335,6 +436,12 @@ export function FilterSheet({
     )
   }
 
+  // Round 3 ITEM 3a — conditional sections must not leave stale fold
+  // measurements behind when hidden (the surviving sections' onLayout
+  // refires as content shifts, which re-runs the recompute).
+  if (!(activeTopLevelId !== null && subcategories.length > 0)) dropSectionMeasurement('subcategory')
+  if (!(local.categoryId !== null && eligibleAmenities.length > 0)) dropSectionMeasurement('amenities')
+
   return (
     <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Filter results" surface="cream">
       {/* Header — title + explicit close. The sheet previously relied
@@ -348,17 +455,18 @@ export function FilterSheet({
         </Pressable>
       </View>
 
-      {/* v3 scroll affordance (owner: "I did not even realize I could
-          scroll") — three measures: the ScrollView's maxHeight is tuned so
-          the next section header sits half-cut at the fold at open (peek
-          by design); a soft cream-to-transparent gradient floats just
-          above the footer signalling continuation; and the scrollbar stays
-          visible. */}
+      {/* Scroll affordance (owner rounds 2+3: "I did not even realize I
+          could scroll") — measures together: the fold is MEASURED to land
+          mid-control (a half-cut chip row, round 3); a soft cream
+          continuation fade floats above the footer; the scrollbar stays
+          visible; a one-time per-session scroll hint nudges the content
+          on first open. */}
       <View style={styles.scrollWrap}>
         <ScrollView
+          ref={scrollRef}
           showsVerticalScrollIndicator={true}
           keyboardShouldPersistTaps="handled"
-          style={styles.scrollView}
+          style={[styles.scrollView, { maxHeight: scrollMaxHeight }]}
         >
         {/* Category section — TOP-LEVELS ONLY (filter to parentId === null).
             W2b v3 (W2-D3 + round-2 premium pass): white chip on the cream
@@ -368,12 +476,13 @@ export function FilterSheet({
             colour border, navy text) — colour with MEANING; red stays
             reserved for brand actions. */}
         {topLevels.length > 0 && (
-          <View>
+          <View onLayout={onSectionLayout('category')}>
             <SectionHeader label="Category" summary={summaryLabel(categoryCount)} />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.pillRow}
+              onLayout={onControlLayout('category')}
             >
               {topLevels.map((cat) => {
                 const active = activeTopLevelId === cat.id
@@ -409,12 +518,13 @@ export function FilterSheet({
             has ≥1 subcategory. Selected subcategories bloom the PARENT
             category's colour (same meaning system as the top-level row). */}
         {activeTopLevelId !== null && subcategories.length > 0 && (
-          <View>
+          <View onLayout={onSectionLayout('subcategory')}>
             <SectionHeader label="Subcategory" summary={summaryLabel(subcategorySelected ? 1 : 0)} />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.pillRow}
+              onLayout={onControlLayout('subcategory')}
             >
               {subcategories.map((sub) => {
                 const active = local.categoryId === sub.id
@@ -451,14 +561,16 @@ export function FilterSheet({
 
         {/* Sort by section — v3: the ONE shared segmented control (white
             track, sliding navy thumb), same component the Map list renders. */}
-        <View>
+        <View onLayout={onSectionLayout('sort')}>
           <SectionHeader label="Sort By" summary={summaryLabel(sortCount)} />
-          <SegmentedControl
-            segments={SORT_SEGMENTS}
-            value={local.sortBy}
-            onChange={setSortBy}
-            testID="filter-sheet-sort-segmented"
-          />
+          <View onLayout={onControlLayout('sort')}>
+            <SegmentedControl
+              segments={SORT_SEGMENTS}
+              value={local.sortBy}
+              onChange={setSortBy}
+              testID="filter-sheet-sort-segmented"
+            />
+          </View>
         </View>
 
         {/* Voucher type section — v3 (W2-D4): true TICKET silhouettes.
@@ -466,9 +578,9 @@ export function FilterSheet({
             circles clipped at the mid edges), a red dashed perforation
             inside the left edge, and the per-type glyph in coral. Selected:
             warm red tint fill + 1.5px red border (brand action family). */}
-        <View>
+        <View onLayout={onSectionLayout('voucherType')}>
           <SectionHeader label="Voucher Type" summary={summaryLabel(voucherTypeCount)} />
-          <View style={styles.pillWrap}>
+          <View style={styles.pillWrap} onLayout={onControlLayout('voucherType')}>
             {VOUCHER_TYPE_CHIPS.map((chip) => {
               const active = chip.values.every((v) => local.voucherTypes.includes(v))
               const Glyph = VOUCHER_TYPE_ICON[chip.label]
@@ -492,9 +604,9 @@ export function FilterSheet({
         {/* Open now section — chip-style toggle (same FilterState.openNow
             semantics). v3 selected state: navy fill, white text (navy ink
             = state, red = brand action, category colour = identity). */}
-        <View>
+        <View onLayout={onSectionLayout('openNow')}>
           <SectionHeader label="Open Now" summary={local.openNow ? 'On' : 'Any'} />
-          <View style={styles.pillWrap}>
+          <View style={styles.pillWrap} onLayout={onControlLayout('openNow')}>
             <Pressable
               onPress={() => setLocal((prev) => ({ ...prev, openNow: !prev.openNow }))}
               accessibilityRole="button"
@@ -515,10 +627,10 @@ export function FilterSheet({
             Pulls real Amenity.id UUIDs from /categories/:id/amenities so
             the filter can actually match merchants on the backend. */}
         {local.categoryId !== null && eligibleAmenities.length > 0 && (
-          <View>
+          <View onLayout={onSectionLayout('amenities')}>
             <Divider />
             <SectionHeader label="Amenities" summary={summaryLabel(local.amenityIds.length)} />
-            <View style={styles.pillWrap}>
+            <View style={styles.pillWrap} onLayout={onControlLayout('amenities')}>
               {eligibleAmenities.map((amenity) => {
                 const active = local.amenityIds.includes(amenity.id)
                 return (
@@ -600,20 +712,19 @@ const styles = StyleSheet.create({
   scrollWrap: {
     position: 'relative',
   },
-  // v3 scroll affordance (a) — tuned DOWN from 460 so on a typical device
-  // the next section's header sits half-cut at the fold when the sheet
-  // opens (content continues = you can scroll).
-  scrollView: {
-    maxHeight: 400,
-  },
-  // v3 scroll affordance (b) — the cream-to-transparent continuation fade
-  // floating over the content's last strip, just above the footer.
+  // Round 3 ITEM 3a — maxHeight is now DYNAMIC (measured mid-control fold,
+  // see resolveScrollFold); this style carries the non-height chrome only.
+  scrollView: {},
+  // Continuation fade — cream-to-transparent over the content's last
+  // strip. Round 3 ITEM 3c: taller (36) for a stronger cue; it sits just
+  // above (under, in stacking terms) the footer's upward shadow (the
+  // footer is a later sibling, so its hairline + shadow render over it).
   scrollFade: {
     position: 'absolute',
     left:     0,
     right:    0,
     bottom:   0,
-    height:   28,
+    height:   36,
   },
   // W2b — section header row: small-caps navy label left, selected summary
   // right in brand red. v3 rhythm: 24 above / 12 below.

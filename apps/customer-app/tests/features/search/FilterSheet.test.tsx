@@ -462,4 +462,45 @@ describe('FilterSheet', () => {
       expect(getByText('On')).toBeTruthy()
     })
   })
+
+  // W2b round 3 ITEM 3a — the measured mid-control fold. The pure resolver
+  // is what makes the sheet's open-height land INSIDE a control block (a
+  // half-cut chip row = unambiguous "there is more"), replacing the
+  // round-2 magic 400. Layout events never fire in jest, so the resolver
+  // is pinned directly; the component falls back to SCROLL_FOLD_FALLBACK
+  // until real layout arrives (device).
+  describe('W2b round 3: resolveScrollFold (mid-control open-height)', () => {
+    const { resolveScrollFold, SCROLL_FOLD_FALLBACK } =
+      require('@/features/search/components/FilterSheet')
+
+    it('cuts the qualifying control at its midpoint (half-visible chip row)', () => {
+      // One control block whose midpoint (350) sits inside the fold band.
+      expect(resolveScrollFold([{ top: 328, height: 44 }])).toBe(350)
+    })
+
+    it('picks the DEEPEST control whose midpoint falls inside the band', () => {
+      const blocks = [
+        { top: 60,  height: 44 },  // mid 82 — above the band, ignored
+        { top: 290, height: 44 },  // mid 312 — qualifies
+        { top: 380, height: 44 },  // mid 402 — qualifies, deeper: wins
+        { top: 520, height: 44 },  // mid 542 — below the band, ignored
+      ]
+      expect(resolveScrollFold(blocks)).toBe(402)
+    })
+
+    it('falls back to SCROLL_FOLD_FALLBACK when no control midpoint lands in the band (or nothing measured yet)', () => {
+      expect(resolveScrollFold([])).toBe(SCROLL_FOLD_FALLBACK)
+      expect(resolveScrollFold([{ top: 0, height: 44 }, { top: 800, height: 44 }])).toBe(SCROLL_FOLD_FALLBACK)
+      expect(SCROLL_FOLD_FALLBACK).toBe(400)
+    })
+
+    it('is order-independent (blocks arrive as onLayout fires, in any order)', () => {
+      const shuffled = [
+        { top: 380, height: 44 },
+        { top: 60,  height: 44 },
+        { top: 290, height: 44 },
+      ]
+      expect(resolveScrollFold(shuffled)).toBe(402)
+    })
+  })
 })
