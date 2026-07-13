@@ -307,3 +307,56 @@ describe('notify — pre-send guards', () => {
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 })
+
+describe('notify — §SEC.1 limiter wiring (consumeEmailSend ctx)', () => {
+  // The rate-limit block is now emailLimiter.consumeEmailSend (GAP-1..GAP-4).
+  // These pins prove notify passes the RIGHT ctx: the limiter keys observed in
+  // the store are derived from hashEmail(input.to), input.type,
+  // input.recipientType/recipientId, and input.ip.
+
+  it('an allowed send counts every tier, keyed by hashEmail(to) / type / recipient identity / ip', async () => {
+    const { prisma } = fakePrisma()
+    const redis = fakeRedis()
+    const res = await notify(prisma, redis, { ...BASE, ip: '9.8.7.6' })
+    expect(res).toMatchObject({ queued: true })
+    const store = (redis as unknown as { _store: Map<string, string> })._store
+    const eh = hashEmail(BASE.to)
+    expect(store.get(RedisKey.rateLimitEmailGlobalDay())).toBe('1') // GAP-1 gate
+    expect(store.get(RedisKey.rateLimitEmailSend('password_reset', eh))).toBe('1') // per-(type,addr): input.type
+    expect(store.get(RedisKey.rateLimitEmailAddrHour(eh))).toBe('1') // GAP-2
+    expect(store.get(RedisKey.rateLimitEmailAddrDay(eh))).toBe('1') // GAP-2
+    expect(store.get(RedisKey.rateLimitEmailAcctDay('USER', 'user-1'))).toBe('1') // GAP-3: recipientType/Id
+    expect(store.get(RedisKey.rateLimitEmailIpHour('9.8.7.6'))).toBe('1') // GAP-4: input.ip
+    expect(store.get(RedisKey.rateLimitEmailIpDay('9.8.7.6'))).toBe('1')
+    // The raw address never appears in any key (hash only).
+    for (const key of store.keys()) expect(key).not.toContain('maya@example.com')
+  })
+
+  it('declines with the SAME rate-limited shape when the aggregate per-address cap blocks (type-cycling closed)', async () => {
+    const { prisma, createLog } = fakePrisma()
+    const redis = fakeRedis({ counts: { [RedisKey.rateLimitEmailAddrHour(hashEmail(BASE.to))]: '10' } })
+    // A FRESH type: the per-type key is empty, so only the aggregate cap can block.
+    const res = await notify(prisma, redis, { ...BASE, type: 'admin_otp', ip: '1.2.3.4' })
+    expect(res).toEqual({ queued: false, reason: 'rate-limited' })
+    expect(createLog).not.toHaveBeenCalled()
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('declines with the SAME rate-limited shape when the global daily gate blocks', async () => {
+    const { prisma, createLog } = fakePrisma()
+    const redis = fakeRedis({ counts: { [RedisKey.rateLimitEmailGlobalDay()]: '2000' } })
+    const res = await notify(prisma, redis, { ...BASE, ip: '1.2.3.4' })
+    expect(res).toEqual({ queued: false, reason: 'rate-limited' })
+    expect(createLog).not.toHaveBeenCalled()
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('declines when the per-account daily cap blocks, even for a fresh address + fresh type', async () => {
+    const { prisma, createLog } = fakePrisma()
+    const redis = fakeRedis({ counts: { [RedisKey.rateLimitEmailAcctDay('USER', 'user-1')]: '20' } })
+    const res = await notify(prisma, redis, { ...BASE, to: 'fresh-alias@example.com', type: 'fresh_type', ip: '1.2.3.4' })
+    expect(res).toEqual({ queued: false, reason: 'rate-limited' })
+    expect(createLog).not.toHaveBeenCalled()
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+})
