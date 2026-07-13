@@ -18,8 +18,9 @@ const RibbonScene3D = dynamic(() => import('./RibbonScene3D').then((m) => m.Ribb
  * dimmed backdrop behind it. Shows once per session, shortly after
  * arrival; dismissible by X, backdrop, or Escape. Pre-launch only.
  *
- * Fulfilment of the 3-months-free incentive is the Admin Panel follow-up
- * recorded in docs/deferrals/open-register.md (§FOUND.1).
+ * Fulfilment of the 2-months-free incentive (owner revised from 3 on
+ * 2026-07-13) is the Admin Panel follow-up recorded in
+ * docs/deferrals/open-register.md (§FOUND.1).
  */
 
 const SEEN_KEY = 'redeemo-welcome-offer-seen'
@@ -30,7 +31,7 @@ const SHOW_AFTER_MS = 1100
 const STUB_H = 176
 
 const PERKS = [
-  'Three months of full membership, free at launch',
+  'Two months of full membership, free at launch',
   'Founding member badge on your profile',
   'First to know when we reach your town',
 ]
@@ -134,7 +135,7 @@ export function WelcomeOfferPopup() {
                   className="font-display text-white leading-[1.12] mb-3"
                   style={{ fontSize: 'clamp(24px, 5.5vw, 31px)', letterSpacing: '-0.5px', textWrap: 'balance' }}
                 >
-                  Join before launch. Three months on us.
+                  Join before launch. Two months on us.
                 </h2>
                 <ul className="flex flex-col gap-2 list-none p-0 m-0">
                   {PERKS.map((perk) => (
@@ -150,7 +151,7 @@ export function WelcomeOfferPopup() {
               <div aria-hidden="true" className="mx-5 border-t-2 border-dashed border-white/35" />
               <div className="px-6 sm:px-8 flex flex-col items-center justify-center text-center" style={{ height: STUB_H }}>
                 <p className="text-[11px] font-bold tracking-[0.18em] uppercase text-white/70 mb-3">
-                  3 months free at launch
+                  2 months free at launch
                 </p>
                 <Link
                   href="/register"

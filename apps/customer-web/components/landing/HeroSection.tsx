@@ -171,7 +171,7 @@ export function HeroSection() {
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="flex-shrink-0">
                     <path d="M8 1.5 l1.8 3.9 4.2.5 -3.1 2.9.8 4.2 L8 10.9 4.3 13l.8-4.2 -3.1-2.9 4.2-.5 Z" fill="#E20C04" opacity="0.85" />
                   </svg>
-                  Free to join. Founding members get 3 months of membership free
+                  Free to join. Founding members get 2 months of membership free
                   at launch.
                 </p>
               )}

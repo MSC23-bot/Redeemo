@@ -247,7 +247,7 @@ export function PricingSection() {
           <p className="text-[13.5px] md:text-[15px] text-[#4B5563] leading-[1.65]">
             {marketplaceLive
               ? 'If one voucher saves you more than £6.99, the month has paid for itself.'
-              : 'Founding members get their first 3 months free at launch: register now to lock it in.'}
+              : 'Founding members get their first 2 months free at launch: register now to lock it in.'}
           </p>
         </motion.div>
 

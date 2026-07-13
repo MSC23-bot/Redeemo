@@ -536,7 +536,7 @@ function CopyLayer({ progress, index, chapter }: { progress: MotionValue<number>
             >
               Create free account
             </Link>
-            <span className="hidden lg:inline text-[13px] text-[#6B7280]">Free to join · founding members get 3 months free at launch</span>
+            <span className="hidden lg:inline text-[13px] text-[#6B7280]">Free to join · founding members get 2 months free at launch</span>
           </div>
         )}
       </motion.div>
@@ -571,7 +571,7 @@ function StaticJourney() {
           >
             Create free account
           </Link>
-          <p className="mt-3 text-[12.5px] text-[#6B7280]">Free to join · founding members get 3 months free at launch</p>
+          <p className="mt-3 text-[12.5px] text-[#6B7280]">Free to join · founding members get 2 months free at launch</p>
         </div>
       </div>
     </section>

@@ -384,7 +384,7 @@ export function RegisterForm() {
             <strong className="text-navy font-semibold">{email}</strong>.
             {isMarketplaceLive()
               ? ' Click it, then open the Redeemo app to verify your mobile number and finish setting up.'
-              : ' Click it to secure your place. We will email you the moment Redeemo launches near you, and your first three months of membership are on us.'}
+              : ' Click it to secure your place. We will email you the moment Redeemo launches near you, and your first two months of membership are on us.'}
           </p>
           {partialSave && (
             <p

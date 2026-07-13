@@ -849,3 +849,9 @@ edited by this workstream.
   floating die-cut price chips (Monthly/Annual/Free, desktop). tsc clean;
   verified: shelf peek at 390, all four heroes desktop, business page
   mobile + desktop.
+- FOUNDING OFFER REVISED TO 2 MONTHS (owner 2026-07-13, was 3): all seven
+  copy sites updated (welcome popup headline/perk/stub, hero founding
+  line, pricing subline, journey ch5 footnote + static fallback, register
+  page confirmation line) plus the §FOUND.1 deferral entry (grant = 2
+  months; promo sizing note updated). Grep-verified: no 3-month copy
+  remains in app/components. tsc clean.
