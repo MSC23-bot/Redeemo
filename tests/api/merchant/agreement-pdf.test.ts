@@ -99,6 +99,33 @@ describe('renderAgreementPdf', () => {
     expect(text).not.toContain('Not for production signing')
   })
 
+  // N3 (legibility): the diagonal watermark opacity was raised from 0.1 to 0.18. pdfkit
+  // (compress: false) writes fill-alpha as a literal `/ca 0.18` ExtGState; assert it is
+  // present when gated and absent (no raised-alpha stamp) when not gated.
+  it('N3: the gated watermark uses the raised 0.18 fill opacity (legible), absent when ungated', async () => {
+    const gated = (await renderAgreementPdf(baseInput({ gated: true }))).toString('latin1')
+    expect(/\/ca\s+0\.18/.test(gated)).toBe(true)
+    const ungated = (await renderAgreementPdf(baseInput({ gated: false }))).toString('latin1')
+    expect(/\/ca\s+0\.18/.test(ungated)).toBe(false)
+  })
+
+  // N3 (per-page): the watermark is stamped on EVERY page, not just page 1. Cheap here
+  // because the uncompressed footer is stamped exactly once per page ("signed by <name>")
+  // so it counts pages, and the squashed watermark phrase appears once per page PLUS once
+  // in the page-1 header line => watermarkHits === pageCount + 1.
+  it('N3: the watermark is present on every page of a multi-page gated document', async () => {
+    const longBody = Array.from(
+      { length: 60 },
+      (_, i) => `Clause ${i + 1}. Agreement body line forcing the document to span multiple pages.`,
+    ).join('\n')
+    const pdf = await renderAgreementPdf(baseInput({ gated: true, content: longBody }))
+    const squashed = squash(pdf)
+    const pageCount = (squashed.match(/signed by Priya Nair/g) ?? []).length
+    const watermarkHits = (squashed.match(/DRAFT - PENDING LEGAL REVIEW/g) ?? []).length
+    expect(pageCount).toBeGreaterThan(1) // genuinely multi-page
+    expect(watermarkHits).toBe(pageCount + 1) // one stamp per page + the page-1 header
+  })
+
   it('self-serve render marks the witness row not-applicable', async () => {
     const text = decode(
       await renderAgreementPdf(baseInput({ method: 'SELF_SERVE_CLICK', witnessLabel: null })),

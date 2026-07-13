@@ -53,7 +53,8 @@ describe('POST /admin/merchants/:id/agreement/sign', () => {
     const tx = {
       merchantAgreementRecord: { create: recordCreate },
       merchantContract: { upsert: vi.fn().mockResolvedValue({}) },
-      merchant: { update: vi.fn().mockResolvedValue({}) },
+      // N1: the ceremony status flip is now an atomic conditional updateMany guard.
+      merchant: { update: vi.fn().mockResolvedValue({}), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
     }
     app.decorate('prisma', {

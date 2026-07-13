@@ -4,9 +4,9 @@ import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
 import { isStorageEnabled } from '../../shared/storage'
 import { resolveAdminMerchant, type EditActor } from '../shared'
-import { getCurrentAgreement } from '../agreement/versions'
 import {
-  isAgreementGated,
+  getServedAgreement,
+  isVersionGated,
   renderAndStoreAgreementPdf,
   SELF_SERVE_SIGNER_NOT_CAPTURED,
 } from '../agreement/service'
@@ -17,9 +17,12 @@ import { merchantSubmittedOnBehalfEmail } from '../../shared/merchantEmails'
 
 // D65 Slice 0: the hardcoded CONTRACT_VERSION / CONTRACT_TEXT constants are
 // SUPERSEDED by the agreement version registry (src/api/merchant/agreement/versions.ts).
-// GET /contract now reads the current version + content from the registry
-// (behaviour-compatible: it still returns { version, text }). The registry is the
-// single source of the version id + the sha256 content hash pinned into evidence.
+// GET /contract + acceptContract now read the SERVED version + content from the registry
+// (behaviour-compatible: GET /contract still returns { version, text }). Review-round S2:
+// getServedAgreement serves + binds the legacy non-draft 1.0 in PRODUCTION while the
+// current version is a draft (preserving pre-D65 production onboarding), and the current
+// draft in non-production for QA. The registry is the single source of the version id +
+// the sha256 content hash pinned into evidence.
 
 // Checklist computation keyed by merchantId — shared by the merchant-facing
 // getOnboardingChecklist (resolves via adminId) and the M3 admin actioner
@@ -180,9 +183,10 @@ export async function getOnboardingStatus(prisma: PrismaClient, adminId: string)
  * documented placeholder (SELF_SERVE_SIGNER_NOT_CAPTURED) is recorded rather than a
  * fabricated name - flagged for the merchant-web to start sending the typed name.
  *
- * The version + hash pinned into the evidence record come from the registry's CURRENT
- * agreement (authoritative), NOT the client-echoed `version` (which is kept only for
- * MerchantContract.tcVersion backward compatibility).
+ * The version + hash pinned into the evidence record come from getServedAgreement()
+ * (authoritative: the legacy 1.0 in production while the current version is a draft, the
+ * current draft in non-production), NOT the client-echoed `version` (which is kept only
+ * for MerchantContract.tcVersion backward compatibility).
  *
  * Storage posture: the retrofit is ADDITIVE and must never break onboarding. When
  * STORAGE_ENABLED is off (local/dev/tests), it degrades to the pre-D65 behaviour
@@ -208,7 +212,7 @@ export async function acceptContract(
   if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
   if (merchant.contractStatus === 'SIGNED') throw new AppError('CONTRACT_ALREADY_SIGNED')
 
-  const agreement = getCurrentAgreement()
+  const agreement = getServedAgreement()
   const signedAt = new Date()
   const typedName = opts?.signerName?.trim()
   const signerName = typedName && typedName.length > 0 ? typedName : SELF_SERVE_SIGNER_NOT_CAPTURED
@@ -300,7 +304,7 @@ export async function acceptContract(
     }
   })
 
-  return { accepted: true, gated: isAgreementGated() }
+  return { accepted: true, gated: isVersionGated(agreement) }
 }
 
 /**

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import '../types'
 import { getOnboardingChecklist, getOnboardingTaxonomy, getOnboardingStatus, acceptContract, submitForApproval } from './service'
 import { setMerchantIdentity } from '../profile/service'
-import { getCurrentAgreement } from '../agreement/versions'
+import { getServedAgreement } from '../agreement/service'
 
 export async function onboardingRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/merchant/onboarding'
@@ -45,12 +45,13 @@ export async function onboardingRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
-  // D65 Slice 0: the current agreement now comes from the version registry
-  // (behaviour-compatible shape { version, text }); the registry pins the version
-  // id + the sha256 content hash used for signed evidence.
+  // D65 Slice 0 + review-round S2: the served agreement comes from the version registry
+  // (behaviour-compatible shape { version, text }). getServedAgreement returns the legacy
+  // non-draft 1.0 in PRODUCTION while the current version is a draft (pre-D65 production
+  // onboarding preserved), else the current version (the draft in non-production for QA).
   app.get(`${prefix}/contract`, async (_req: FastifyRequest, reply) => {
-    const current = getCurrentAgreement()
-    return reply.send({ version: current.version, text: current.content })
+    const served = getServedAgreement()
+    return reply.send({ version: served.version, text: served.content })
   })
 
   // D65 Slice 2: signerName is threaded through for the evidence record but stays

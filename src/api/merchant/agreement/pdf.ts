@@ -205,7 +205,9 @@ function stampPages(doc: PDFKit.PDFDocument, input: RenderAgreementPdfInput): vo
     if (input.gated) {
       doc.save()
       doc.rotate(-45, { origin: [pageWidth / 2, pageHeight / 2] })
-      doc.fillColor(BRAND_RED).opacity(0.1).font('Helvetica-Bold').fontSize(56)
+      // N3: legibility. 0.18 reads clearly as a "DRAFT" stamp without obscuring the body
+      // (the prior 0.1 was near-invisible on screen + in print).
+      doc.fillColor(BRAND_RED).opacity(0.18).font('Helvetica-Bold').fontSize(56)
       doc.text(DRAFT_WATERMARK_TEXT, 0, pageHeight / 2 - 28, {
         width: pageWidth,
         align: 'center',

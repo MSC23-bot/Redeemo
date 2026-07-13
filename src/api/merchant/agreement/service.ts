@@ -24,7 +24,12 @@ import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
 import { isStorageEnabled, putObject } from '../../shared/storage'
-import { getAgreementVersion, getCurrentAgreement, type AgreementVersion } from './versions'
+import {
+  getAgreementVersion,
+  getCurrentAgreement,
+  getLatestNonDraftAgreement,
+  type AgreementVersion,
+} from './versions'
 import { renderAgreementPdf } from './pdf'
 
 // ── Environment gate ────────────────────────────────────────────────────────
@@ -58,19 +63,42 @@ export function legalReviewRequired(): boolean {
   return (process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED ?? 'true') !== 'false'
 }
 
-/** The DRAFT watermark + pending-review copy show whenever legal review is required. */
-export function isAgreementGated(): boolean {
-  return legalReviewRequired()
+/**
+ * Effective gating for a SPECIFIC version (review-round S1). A version is gated when it
+ * is a DRAFT artifact OR while legal review is still required. Wiring `isDraft` in means
+ * a draft is gated (watermark + binding block) even if the env flag is lifted - defence
+ * in depth: lifting AGREEMENT_LEGAL_REVIEW_REQUIRED can never un-gate a draft. A
+ * non-draft (the legacy 1.0, or a future frozen 2.0) is gated only while the env flag is
+ * on, so lifting the flag serves it cleanly (no watermark) in production.
+ */
+export function isVersionGated(version: AgreementVersion): boolean {
+  return version.isDraft || legalReviewRequired()
 }
 
 /**
- * Fail-closed gate on a BINDING write. Refuses (AGREEMENT_LEGAL_REVIEW_REQUIRED)
- * only when legal review is still required AND this is a production deploy. Staging
- * and dev run fully (records written, DRAFT-watermarked) for QA. Independent of
- * STORAGE_ENABLED.
+ * Production version SELECTION (review-round S2). Serve the current version UNLESS this
+ * is a production deploy and the current version is a draft, in which case fall back to
+ * the latest non-draft (the legacy 1.0 today; a frozen 2.0 after Slice 6). Non-production
+ * always serves the current version (draft) for QA. Generic, not hardcoded to 1.0: once a
+ * non-draft becomes current, production serves it with no further change.
  */
-export function assertBindingWriteAllowed(): void {
-  if (legalReviewRequired() && isProductionDeploy()) {
+export function getServedAgreement(): AgreementVersion {
+  const current = getCurrentAgreement()
+  if (isProductionDeploy() && current.isDraft) {
+    return getLatestNonDraftAgreement() ?? current
+  }
+  return current
+}
+
+/**
+ * Fail-closed gate on a BINDING write for a SPECIFIC version. Refuses
+ * (AGREEMENT_LEGAL_REVIEW_REQUIRED) only when the version is gated (draft OR legal review
+ * required) AND this is a production deploy. Staging and dev run fully (records written,
+ * DRAFT-watermarked) for QA. A DRAFT is refused in production even with the env flag off
+ * (S1). Independent of STORAGE_ENABLED.
+ */
+export function assertBindingWriteAllowed(version: AgreementVersion): void {
+  if (isVersionGated(version) && isProductionDeploy()) {
     throw new AppError('AGREEMENT_LEGAL_REVIEW_REQUIRED')
   }
 }
@@ -124,7 +152,7 @@ export async function renderAndStoreAgreementPdf(input: RenderAndStoreInput): Pr
     signedAt: input.signedAt,
     ipAddress: input.ipAddress,
     userAgent: input.userAgent,
-    gated: isAgreementGated(),
+    gated: isVersionGated(input.agreement),
     drawnSignature: input.drawnSignature ?? null,
   })
 
@@ -156,25 +184,39 @@ export interface SignAgreementInPersonInput {
 }
 
 /**
- * The assisted contract-signing ceremony. Order (plan Slice 2):
- *   1. Fail-closed legal gate (refuse production binding write while gated).
- *   2. Resolve + validate the agreement version against the registry; pin its hash.
+ * The assisted contract-signing ceremony. Order (plan Slice 2 + review-round S1/N1):
+ *   1. Resolve + validate the agreement version against the registry; pin its hash.
+ *      The ceremony always signs the CURRENT version (an unknown/stale id fails closed).
+ *   2. Fail-closed legal gate for THAT version (refuse production binding write while the
+ *      version is gated; a draft is refused in production even with the env flag off).
  *   3. Admin-never-signs: a witness (actorAdminId) is required and can never be the
  *      signerName; the typed name must be non-empty.
- *   4. Render the PDF and write it to private R2 (fail-closed STORAGE_NOT_ENABLED).
- *   5. ONE transaction: insert the immutable MerchantAgreementRecord; upsert the
- *      MerchantContract pointer (signatureMethod stays CLICK_TO_AGREE); flip
- *      Merchant.contractStatus = SIGNED + contractStartDate; write the in-tx audit.
+ *   4. Merchant read + fast double-sign pre-check (UX).
+ *   5. Render the PDF and write it to private R2 (fail-closed STORAGE_NOT_ENABLED).
+ *   6. ONE transaction: an atomic conditional flip (contractStatus NOT already SIGNED)
+ *      is the double-sign guard (N1: the loser of two concurrent ceremonies throws
+ *      CONTRACT_ALREADY_SIGNED and writes nothing); then insert the immutable
+ *      MerchantAgreementRecord; upsert the MerchantContract pointer (signatureMethod
+ *      stays CLICK_TO_AGREE); write the in-tx audit.
  */
 export async function signAgreementInPerson(
   prisma: PrismaClient,
   input: SignAgreementInPersonInput,
   ctx: { ipAddress: string; userAgent: string },
 ) {
-  // (1) Fail-closed legal gate BEFORE any work.
-  assertBindingWriteAllowed()
+  // (1) Resolve + pin the version from the registry (never trust a caller hash). No DB.
+  const agreement = input.agreementVersion
+    ? getAgreementVersion(input.agreementVersion)
+    : getCurrentAgreement()
+  if (!agreement || agreement.version !== getCurrentAgreement().version) {
+    // Only the CURRENT version is signable; an unknown or stale id fails closed.
+    throw new AppError('AGREEMENT_VERSION_UNKNOWN')
+  }
 
-  // (3a) Signature-of-record + admin-never-signs invariants.
+  // (2) Fail-closed legal gate for the resolved version BEFORE any read or write.
+  assertBindingWriteAllowed(agreement)
+
+  // (3) Signature-of-record + admin-never-signs invariants.
   const signerName = input.signerName?.trim() ?? ''
   const signerRoleConfirmation = input.signerRoleConfirmation?.trim() ?? ''
   if (signerName.length === 0 || signerRoleConfirmation.length === 0) {
@@ -189,6 +231,8 @@ export async function signAgreementInPerson(
     throw new AppError('AGREEMENT_SIGNER_INVALID')
   }
 
+  // (4) Merchant read + fast double-sign pre-check (the authoritative guard is the
+  // in-tx conditional flip at step 6; this is a cheap early exit for good UX).
   const merchant = await prisma.merchant.findUnique({
     where: { id: input.merchantId },
     select: {
@@ -200,22 +244,11 @@ export async function signAgreementInPerson(
     },
   })
   if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
-  // Double-sign guard (mirrors the self-serve CONTRACT_ALREADY_SIGNED block). Re-sign
-  // of a NEW version is a future concern (renewal); this slice blocks a second sign.
   if (merchant.contractStatus === 'SIGNED') throw new AppError('CONTRACT_ALREADY_SIGNED')
-
-  // (2) Resolve + pin the version from the registry (never trust a caller hash).
-  const agreement = input.agreementVersion
-    ? getAgreementVersion(input.agreementVersion)
-    : getCurrentAgreement()
-  if (!agreement || agreement.version !== getCurrentAgreement().version) {
-    // Only the CURRENT version is signable; an unknown or stale id fails closed.
-    throw new AppError('AGREEMENT_VERSION_UNKNOWN')
-  }
 
   const signedAt = new Date()
 
-  // (4) Render + store the PDF (fail-closed STORAGE_NOT_ENABLED).
+  // (5) Render + store the PDF (fail-closed STORAGE_NOT_ENABLED).
   const pdfKey = await renderAndStoreAgreementPdf({
     merchantId: input.merchantId,
     agreement,
@@ -233,8 +266,18 @@ export async function signAgreementInPerson(
     drawnSignature: input.drawnSignature ?? null,
   })
 
-  // (5) One transaction: evidence + pointer + status + audit.
+  // (6) One transaction: atomic double-sign guard + evidence + pointer + status + audit.
   const record = await prisma.$transaction(async (tx) => {
+    // N1 (TOCTOU): the FIRST write is a conditional flip that only matches a merchant
+    // NOT already SIGNED. Postgres row-locks the matched row, so of two concurrent
+    // ceremonies exactly one flips (count 1) and the other sees count 0 after the first
+    // commits - it throws and writes NO evidence row (this runs before the record insert).
+    const flip = await tx.merchant.updateMany({
+      where: { id: input.merchantId, contractStatus: { not: 'SIGNED' } },
+      data: { contractStatus: 'SIGNED', contractStartDate: signedAt },
+    })
+    if (flip.count === 0) throw new AppError('CONTRACT_ALREADY_SIGNED')
+
     const created = await tx.merchantAgreementRecord.create({
       data: {
         merchantId: input.merchantId,
@@ -270,10 +313,7 @@ export async function signAgreementInPerson(
       },
     })
 
-    await tx.merchant.update({
-      where: { id: input.merchantId },
-      data: { contractStatus: 'SIGNED', contractStartDate: signedAt },
-    })
+    // (status flip already applied atomically by the conditional guard above.)
 
     // In-tx audit. No signer PII in the audit payload (name/IP/UA live on the
     // record + the audit row's own request-context columns).
@@ -302,6 +342,6 @@ export async function signAgreementInPerson(
     contentHash: agreement.contentHash,
     signedAt: record.signedAt,
     contractStatus: 'SIGNED' as const,
-    gated: isAgreementGated(),
+    gated: isVersionGated(agreement),
   }
 }

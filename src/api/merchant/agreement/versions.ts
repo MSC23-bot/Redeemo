@@ -17,13 +17,23 @@
 // upgrades). The PDF footer stamps version + this hash so a downloaded PDF is
 // self-describing.
 //
-// DRAFT posture (this slice): the only registered version is the v2 DRAFT
-// (`2.0-draft`), whose source is `docs/legal/drafts/merchant-agreement-v2-draft.md`
-// (embedded via agreement-v2-source.ts). It carries the LEGAL-REVIEW-REQUIRED / DRAFT
-// header verbatim and is gated by AGREEMENT_LEGAL_REVIEW_REQUIRED (see the ceremony
-// service). On solicitor sign-off (Slice 6, out of scope here) the frozen
-// `docs/legal/agreements/merchant-agreement-v2.md` is registered as a SEPARATE `2.0`
-// entry (a new append) - the draft id is never mutated in place.
+// DRAFT posture (this slice): the CURRENT version is the v2 DRAFT (`2.0-draft`),
+// whose source is `docs/legal/drafts/merchant-agreement-v2-draft.md` (embedded via
+// agreement-v2-source.ts). It carries the LEGAL-REVIEW-REQUIRED / DRAFT header
+// verbatim; its `isDraft` flag now DRIVES the watermark + the production binding
+// block regardless of the env flag (see the ceremony service). On solicitor sign-off
+// (Slice 6, out of scope here) the frozen `docs/legal/agreements/merchant-agreement-v2.md`
+// is registered as a SEPARATE non-draft `2.0` entry (a new append) - the draft id is
+// never mutated in place.
+//
+// LEGACY FALLBACK (review-round S2): the previous production contract `1.0` is ALSO
+// registered as a NON-DRAFT entry (its own sha256 over the legacy text, so evidence
+// stays truthful). While the current version is a draft, a PRODUCTION deploy serves +
+// binds `1.0` (see getServedAgreement in the service) so self-serve onboarding keeps
+// the exact pre-D65 behaviour instead of exposing the draft. Non-production serves the
+// draft for QA. The selection is generic: serve current unless production-and-current-
+// is-draft, else the latest non-draft - so a frozen non-draft `2.0` (Slice 6) is served
+// in production with no further code change.
 
 import crypto from 'node:crypto'
 import { MERCHANT_AGREEMENT_V2_SOURCE } from './agreement-v2-source'
@@ -36,9 +46,13 @@ export interface AgreementVersion {
   /** sha256 (hex) of `content` - the value pinned + later verifiable. */
   contentHash: string
   /**
-   * True while this version is a pre-sign-off DRAFT. Drives the DRAFT watermark and
-   * is independent of the AGREEMENT_LEGAL_REVIEW_REQUIRED env gate (a version can be
-   * a draft artifact even before the deploy-time gate is consulted).
+   * True while this version is a pre-sign-off DRAFT. READ (review-round S1): a draft
+   * is treated as gated for BOTH the PDF DRAFT watermark AND the production binding
+   * block regardless of the AGREEMENT_LEGAL_REVIEW_REQUIRED env flag (effective gating
+   * = isDraft OR legalReviewRequired()). So even with the env flag lifted, a draft is
+   * still watermarked and still refused for a binding write in production - defence in
+   * depth. It also drives production version SELECTION: while the current version is a
+   * draft, production falls back to the latest non-draft (see getServedAgreement).
    */
   isDraft: boolean
 }
@@ -52,6 +66,28 @@ export function computeContentHash(content: string): string {
 // are the DRAFT artifact (with its DRAFT header). The frozen `2.0` is a future append.
 export const CURRENT_AGREEMENT_VERSION = '2.0-draft'
 
+// Review-round S2: the previous production contract, restored as a NON-DRAFT registry
+// entry so production can keep serving + binding it (with truthful evidence) while the
+// current version is a draft. This is the pre-D65 `CONTRACT_TEXT` verbatim except the
+// single em-dash is a colon (project style lock: no em-dashes); the semantics are
+// identical. There was no historical content hash (pre-D65 signing carried none), so
+// nothing downstream depends on a specific legacy hash: it is computed fresh here.
+export const LEGACY_CONTRACT_VERSION = '1.0'
+export const LEGACY_CONTRACT_TEXT = `
+Redeemo Merchant Agreement v${LEGACY_CONTRACT_VERSION}
+
+By accepting this agreement, you agree to offer a minimum of two Redeemo Mandatory Vouchers (RMV) on the platform. These vouchers are performance-based: you are only promoted when a customer redeems. You retain full control of your custom vouchers. Redeemo reserves the right to suspend merchants who fail to honour redeemed vouchers.
+
+Full legal terms are available at redeemo.co.uk/merchant-terms.
+`.trim()
+
+const V1_LEGACY: AgreementVersion = {
+  version: LEGACY_CONTRACT_VERSION,
+  content: LEGACY_CONTRACT_TEXT,
+  contentHash: computeContentHash(LEGACY_CONTRACT_TEXT),
+  isDraft: false,
+}
+
 const V2_DRAFT: AgreementVersion = {
   version: CURRENT_AGREEMENT_VERSION,
   content: MERCHANT_AGREEMENT_V2_SOURCE,
@@ -60,7 +96,10 @@ const V2_DRAFT: AgreementVersion = {
 }
 
 // The registry. Keyed by version id. Frozen so a caller can never mutate an entry.
+// Insertion order is chronological (older first) so "latest non-draft" = the last
+// non-draft in iteration order.
 const REGISTRY: Readonly<Record<string, AgreementVersion>> = Object.freeze({
+  [V1_LEGACY.version]: V1_LEGACY,
   [V2_DRAFT.version]: V2_DRAFT,
 })
 
@@ -74,7 +113,18 @@ export function getAgreementVersion(version: string): AgreementVersion | undefin
   return Object.hasOwn(REGISTRY, version) ? REGISTRY[version] : undefined
 }
 
-/** The current agreement version (the one GET /contract and the ceremony present). */
+/** The current agreement version (the ceremony always presents THIS one). */
 export function getCurrentAgreement(): AgreementVersion {
   return REGISTRY[CURRENT_AGREEMENT_VERSION]
+}
+
+/**
+ * The latest registered NON-DRAFT version (by insertion order), or undefined if none.
+ * Used as the production fallback while the current version is still a draft. Today the
+ * only non-draft is the legacy `1.0`; a frozen `2.0` (Slice 6) would append after it and
+ * become the latest non-draft automatically.
+ */
+export function getLatestNonDraftAgreement(): AgreementVersion | undefined {
+  const nonDrafts = Object.values(REGISTRY).filter((v) => !v.isDraft)
+  return nonDrafts.length > 0 ? nonDrafts[nonDrafts.length - 1] : undefined
 }

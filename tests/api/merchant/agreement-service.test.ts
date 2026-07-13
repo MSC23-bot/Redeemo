@@ -36,13 +36,15 @@ vi.mock('../../../src/api/merchant/agreement/pdf', async (importOriginal) => {
 import {
   isProductionDeploy,
   legalReviewRequired,
+  isVersionGated,
+  getServedAgreement,
   assertBindingWriteAllowed,
   signAgreementInPerson,
   renderAndStoreAgreementPdf,
   SELF_SERVE_SIGNER_NOT_CAPTURED,
 } from '../../../src/api/merchant/agreement/service'
 import { acceptContract } from '../../../src/api/merchant/onboarding/service'
-import { getCurrentAgreement } from '../../../src/api/merchant/agreement/versions'
+import { getAgreementVersion, getCurrentAgreement } from '../../../src/api/merchant/agreement/versions'
 import { putObject } from '../../../src/api/shared/storage'
 import { AppError } from '../../../src/api/shared/errors'
 
@@ -50,6 +52,7 @@ const ctx = { ipAddress: '203.0.113.9', userAgent: 'RedeemoRepTablet/1.0' }
 const MERCHANT_ID = 'merch-tandoori-1'
 const WITNESS = 'admin-rep-42'
 const CURRENT = getCurrentAgreement()
+const LEGACY = getAgreementVersion('1.0')!
 
 const MERCHANT_ROW = {
   contractStatus: 'NOT_SIGNED',
@@ -68,7 +71,12 @@ function makeTx() {
       upsert: vi.fn().mockResolvedValue({}),
       create: vi.fn().mockResolvedValue({}),
     },
-    merchant: { update: vi.fn().mockResolvedValue({}) },
+    // N1: the ceremony status flip is now an atomic conditional updateMany (guard).
+    // Default: it matches one row (count 1). A double-sign test overrides to count 0.
+    merchant: {
+      update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   }
 }
@@ -129,21 +137,66 @@ describe('environment + legal gate mechanics', () => {
     process.env.NODE_ENV = nodeEnv
   })
 
-  it('assertBindingWriteAllowed refuses ONLY gated + production', () => {
-    // gated (default) + staging => allowed
+  // REBASELINE (review-round S1): assertBindingWriteAllowed now takes the version being
+  // written, and effective gating = version.isDraft OR legalReviewRequired(). The prior
+  // no-arg pins are replaced by the version-aware matrix below.
+  it('assertBindingWriteAllowed refuses ONLY gated + production (env-flag half, non-draft version)', () => {
+    // Use a NON-draft version so this isolates the env-flag half of the OR.
+    // gated (default flag on) + staging => allowed
     process.env.REDEEMO_DEPLOY_ENV = 'staging'
-    expect(() => assertBindingWriteAllowed()).not.toThrow()
-    // gated + production => refused
+    expect(() => assertBindingWriteAllowed(LEGACY)).not.toThrow()
+    // gated (flag on) + production => refused
     process.env.REDEEMO_DEPLOY_ENV = 'production'
-    expect(() => assertBindingWriteAllowed()).toThrow(AppError)
+    expect(() => assertBindingWriteAllowed(LEGACY)).toThrow(AppError)
     try {
-      assertBindingWriteAllowed()
+      assertBindingWriteAllowed(LEGACY)
     } catch (e) {
       expect((e as AppError).code).toBe('AGREEMENT_LEGAL_REVIEW_REQUIRED')
     }
-    // gate lifted + production => allowed (the owner's post-sign-off state)
+    // flag lifted + production + NON-draft => allowed (the owner's post-sign-off state)
     process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED = 'false'
-    expect(() => assertBindingWriteAllowed()).not.toThrow()
+    expect(() => assertBindingWriteAllowed(LEGACY)).not.toThrow()
+  })
+
+  it('S1: a DRAFT version is refused in PRODUCTION even with the env flag lifted (isDraft half)', () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'production'
+    process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED = 'false'
+    // Non-draft binds fine; the draft is still refused purely on isDraft.
+    expect(() => assertBindingWriteAllowed(LEGACY)).not.toThrow()
+    expect(() => assertBindingWriteAllowed(CURRENT)).toThrow(AppError)
+    try {
+      assertBindingWriteAllowed(CURRENT)
+    } catch (e) {
+      expect((e as AppError).code).toBe('AGREEMENT_LEGAL_REVIEW_REQUIRED')
+    }
+    // On staging the draft still runs fully (QA), gated:true (watermarked).
+    process.env.REDEEMO_DEPLOY_ENV = 'staging'
+    expect(() => assertBindingWriteAllowed(CURRENT)).not.toThrow()
+  })
+
+  it('S1: isVersionGated = isDraft OR legalReviewRequired', () => {
+    // Draft: gated regardless of the flag.
+    process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED = 'false'
+    expect(CURRENT.isDraft).toBe(true)
+    expect(isVersionGated(CURRENT)).toBe(true)
+    // Non-draft: gated ONLY while the flag is on.
+    expect(LEGACY.isDraft).toBe(false)
+    expect(isVersionGated(LEGACY)).toBe(false)
+    process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED = 'true'
+    expect(isVersionGated(LEGACY)).toBe(true)
+  })
+
+  it('S2: getServedAgreement serves current in non-production, the legacy non-draft in production+draft', () => {
+    // Non-production (staging): serve the current draft for QA.
+    process.env.REDEEMO_DEPLOY_ENV = 'staging'
+    expect(getServedAgreement().version).toBe(CURRENT.version)
+    expect(getServedAgreement().isDraft).toBe(true)
+    // Production while current is a draft: serve the latest non-draft (legacy 1.0).
+    process.env.REDEEMO_DEPLOY_ENV = 'production'
+    const served = getServedAgreement()
+    expect(served.version).toBe('1.0')
+    expect(served.isDraft).toBe(false)
+    expect(served.content).toContain('Redeemo Merchant Agreement v1.0')
   })
 })
 
@@ -176,6 +229,17 @@ describe('signAgreementInPerson (the assisted ceremony)', () => {
     expect(prisma.$transaction).toHaveBeenCalledOnce()
   })
 
+  it('S1: staging draft with the env flag LIFTED still reports gated: true (isDraft watermark)', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'staging'
+    process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED = 'false'
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    const result = await signAgreementInPerson(prisma, INPUT, ctx)
+    // The draft is still watermarked (gated) even though the env flag is off.
+    expect(result.gated).toBe(true)
+    expect(result.contractStatus).toBe('SIGNED')
+  })
+
   it('writes the complete evidence record + pointer + status flip + audit in ONE transaction', async () => {
     const tx = makeTx()
     const prisma = makePrisma(tx)
@@ -204,9 +268,14 @@ describe('signAgreementInPerson (the assisted ceremony)', () => {
     expect(upsert.create.signatureMethod).toBe('CLICK_TO_AGREE')
     expect(upsert.create.tcVersion).toBe(CURRENT.version)
 
-    // Status flip + contractStartDate.
-    expect(tx.merchant.update.mock.calls[0][0].data).toMatchObject({ contractStatus: 'SIGNED' })
-    expect(tx.merchant.update.mock.calls[0][0].data.contractStartDate).toBeInstanceOf(Date)
+    // Status flip is the atomic conditional guard (N1): updateMany scoped to a merchant
+    // NOT already SIGNED, flipping to SIGNED + contractStartDate.
+    const flip = tx.merchant.updateMany.mock.calls[0][0]
+    expect(flip.where).toMatchObject({ id: MERCHANT_ID, contractStatus: { not: 'SIGNED' } })
+    expect(flip.data).toMatchObject({ contractStatus: 'SIGNED' })
+    expect(flip.data.contractStartDate).toBeInstanceOf(Date)
+    // The plain update is no longer used for the ceremony status flip.
+    expect(tx.merchant.update).not.toHaveBeenCalled()
 
     // In-tx audit: witnessing rep is the actor; metadata carries version+hash, no PII.
     const audit = tx.auditLog.create.mock.calls[0][0].data
@@ -235,13 +304,30 @@ describe('signAgreementInPerson (the assisted ceremony)', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 
-  it('blocks a double sign (contractStatus already SIGNED)', async () => {
+  it('blocks a double sign via the fast pre-check (contractStatus already SIGNED)', async () => {
     const tx = makeTx()
     const prisma = makePrisma(tx, { ...MERCHANT_ROW, contractStatus: 'SIGNED' })
     await expect(signAgreementInPerson(prisma, INPUT, ctx)).rejects.toMatchObject({
       code: 'CONTRACT_ALREADY_SIGNED',
     })
     expect(tx.merchantAgreementRecord.create).not.toHaveBeenCalled()
+  })
+
+  it('N1 (TOCTOU): the in-tx conditional guard loses the race and writes NO evidence row', async () => {
+    // The merchant reads NOT_SIGNED (pre-check passes), but a concurrent ceremony has
+    // already flipped it by the time this tx runs: the conditional updateMany matches 0
+    // rows, so the loser throws CONTRACT_ALREADY_SIGNED and never inserts an evidence row.
+    const tx = makeTx()
+    tx.merchant.updateMany.mockResolvedValue({ count: 0 })
+    const prisma = makePrisma(tx) // findUnique still returns NOT_SIGNED
+    await expect(signAgreementInPerson(prisma, INPUT, ctx)).rejects.toMatchObject({
+      code: 'CONTRACT_ALREADY_SIGNED',
+    })
+    expect(prisma.$transaction).toHaveBeenCalledOnce()
+    // The guard runs BEFORE the record insert, so nothing was written.
+    expect(tx.merchantAgreementRecord.create).not.toHaveBeenCalled()
+    expect(tx.merchantContract.upsert).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
   })
 
   it('404s an unknown merchant', async () => {
@@ -380,5 +466,30 @@ describe('acceptContract self-serve retrofit', () => {
       code: 'CONTRACT_ALREADY_SIGNED',
     })
     expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('S2: non-production binds the current 2.0-draft (QA)', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'staging'
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    await acceptContract(prisma, 'ma1', '2.0-draft', ctx, { signerName: 'Priya Nair' })
+    const record = tx.merchantAgreementRecord.create.mock.calls[0][0].data
+    expect(record.agreementVersion).toBe('2.0-draft')
+    expect(record.contentHash).toBe(CURRENT.contentHash)
+  })
+
+  it('S2: PRODUCTION while current is a draft binds the LEGACY 1.0 with its own hash', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'production'
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    // acceptContract is NOT production-gated (self-serve keeps flipping in prod today);
+    // it binds the SERVED agreement, which in production+draft is the legacy 1.0.
+    const result = await acceptContract(prisma, 'ma1', '2.0-draft', ctx, { signerName: 'Priya Nair' })
+    expect(result.accepted).toBe(true)
+    const record = tx.merchantAgreementRecord.create.mock.calls[0][0].data
+    expect(record.agreementVersion).toBe('1.0')
+    expect(record.contentHash).toBe(LEGACY.contentHash)
+    // Truthful evidence: the hash is over the legacy 1.0 text, not the draft.
+    expect(record.contentHash).not.toBe(CURRENT.contentHash)
   })
 })

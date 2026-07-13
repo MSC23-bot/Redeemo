@@ -112,6 +112,28 @@ describe('merchant onboarding routes', () => {
     expect(body.text.length).toBeGreaterThan(10)
   })
 
+  // Review-round S2: in PRODUCTION, while the current version is a draft, GET /contract
+  // serves the legacy non-draft 1.0 (preserving pre-D65 production onboarding). This is
+  // the ONE environment-dependent GET /contract pin.
+  it('GET /contract serves the legacy 1.0 in production while the current version is a draft', async () => {
+    const prev = process.env.REDEEMO_DEPLOY_ENV
+    process.env.REDEEMO_DEPLOY_ENV = 'production'
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/merchant/onboarding/contract',
+        headers: { authorization: `Bearer ${merchantToken}` },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body)
+      expect(body.version).toBe('1.0')
+      expect(body.text).toContain('Redeemo Merchant Agreement v1.0')
+    } finally {
+      if (prev === undefined) delete process.env.REDEEMO_DEPLOY_ENV
+      else process.env.REDEEMO_DEPLOY_ENV = prev
+    }
+  })
+
   it('POST /api/v1/merchant/onboarding/contract/accept records acceptance', async () => {
     app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', contractStatus: 'NOT_SIGNED' })
     app.prisma.merchantContract.create = vi.fn().mockResolvedValue({})
