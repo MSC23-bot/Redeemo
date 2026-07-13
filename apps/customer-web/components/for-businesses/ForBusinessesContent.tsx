@@ -1,8 +1,13 @@
 'use client'
 
 import { motion } from 'framer-motion'
+import dynamic from 'next/dynamic'
 import { PortalShowcaseSection } from './PortalShowcaseSection'
 import { MerchantInterestSection } from './MerchantInterestSection'
+
+// The merchant page's own 3D scene: drifting die-cut voucher cards (owner
+// 2026-07-13: business-relevant WebGL, not the ribbon). Client-only.
+const VoucherCards3D = dynamic(() => import('./VoucherCards3D').then((m) => m.VoucherCards3D), { ssr: false })
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -109,6 +114,11 @@ export function ForBusinessesContent() {
           }}
         />
 
+        {/* The vouchers a business designs, drifting in 3D */}
+        <div className="absolute inset-0 opacity-60 lg:opacity-100">
+          <VoucherCards3D />
+        </div>
+
         <div className="relative max-w-5xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -130,7 +140,7 @@ export function ForBusinessesContent() {
             style={{ fontSize: 'clamp(36px, 5vw, 62px)', letterSpacing: '-0.8px' }}
           >
             Bring in new customers.{' '}
-            <span className="gradient-text">Keep your margins.</span>
+            <span className="gradient-text block">Keep your margins.</span>
           </motion.h1>
 
           <motion.p

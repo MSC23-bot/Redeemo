@@ -106,7 +106,7 @@ function PlanTicket({ plan, delay }: { plan: Plan; delay: number }) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: '-40px' }}
       transition={{ duration: 0.48, delay, ease: [0.22, 1, 0.36, 1] }}
-      className="relative h-full flex-shrink-0 w-[302px] snap-center lg:w-auto"
+      className="relative h-full flex-shrink-0 w-[272px] snap-center lg:w-auto"
     >
       <motion.div
         className="relative h-full"
@@ -201,12 +201,25 @@ export function PricingSection() {
   const plans = getPlans(marketplaceLive)
   const rowRef = useRef<HTMLDivElement>(null)
 
-  // Mobile: open the shelf centred on the Monthly ticket
+  // Mobile: open the shelf centred on the Monthly ticket, with Free and
+  // Annual visibly peeking either side (owner 2026-07-13: they sometimes
+  // were not). Centre after layout settles, and again on resize.
   useEffect(() => {
     const el = rowRef.current
-    if (!el || window.innerWidth >= 1024) return
-    const monthly = el.children[1] as HTMLElement | undefined
-    if (monthly) el.scrollLeft = monthly.offsetLeft - (el.clientWidth - monthly.clientWidth) / 2
+    if (!el) return
+    const centre = () => {
+      if (window.innerWidth >= 1024) return
+      const monthly = el.children[1] as HTMLElement | undefined
+      if (monthly) el.scrollLeft = monthly.offsetLeft - (el.clientWidth - monthly.clientWidth) / 2
+    }
+    const raf = requestAnimationFrame(centre)
+    const late = window.setTimeout(centre, 250)
+    window.addEventListener('resize', centre)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.clearTimeout(late)
+      window.removeEventListener('resize', centre)
+    }
   }, [])
 
   return (

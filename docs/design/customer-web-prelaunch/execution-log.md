@@ -827,3 +827,25 @@ edited by this workstream.
   LaunchLocalityToast components deleted. Landing foot is now Pricing ->
   app panel -> footer. tsc clean; verified popup + footer at 390x780 and
   1440x900 (open, X-close, ribbon backdrop, notches).
+- SUB-PAGE HEROES + BUSINESS 3D + SHELF FIX (owner 2026-07-13): 1) the
+  landing pricing shelf sometimes opened without the neighbours visible:
+  tickets narrowed 302->272 (43px peeks each side at 390) and the centring
+  runs on rAF + a 250ms retry + resize, so Free and Annual always peek.
+  2) Headline orphans fixed across sub-page heroes by making each
+  gradient clause a block (Simple to join. / Even simpler to redeem. ·
+  Start free. / Pay only when you're ready. · Bring in new customers. /
+  Keep your margins. · Guides, picks, / and hidden gems.): the four navy
+  heroes already shared structure; now they share clean two-line
+  typography too. 3) FOR-BUSINESSES gets its own WebGL (owner: not the
+  ribbon): VoucherCards3D: extruded die-cut voucher cards (real
+  semicircular edge notches via THREE.Shape absarc) in brand red/coral/
+  cream, tumbling and floating through the hero: the thing a merchant
+  designs on Redeemo. Same guards as the ribbon scene (reduced-motion
+  null, offscreen frameloop stop, dpr cap, small-screen position pull-in
+  + 60% opacity). First pass had a navy card reading as a dark slab on
+  the navy bg: palette now red/deep-red/coral/cream. 4) Visuals: the
+  how-it-works hero gains a floating tilted phone showing the real QR
+  redemption capture (desktop); the pricing page hero gains three
+  floating die-cut price chips (Monthly/Annual/Free, desktop). tsc clean;
+  verified: shelf peek at 390, all four heroes desktop, business page
+  mobile + desktop.

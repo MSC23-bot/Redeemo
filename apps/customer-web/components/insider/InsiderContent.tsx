@@ -62,6 +62,7 @@ export function InsiderContent() {
           >
             Guides, picks,{' '}
             <span
+              className="block"
               style={{
                 background: 'var(--brand-gradient)',
                 WebkitBackgroundClip: 'text',

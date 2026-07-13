@@ -336,6 +336,42 @@ export function PricingContent() {
           }}
         />
 
+        {/* Floating plan chips: the page's own objects as hero decoration
+            (owner 2026-07-13: these heroes needed visuals): desktop only */}
+        {[
+          { label: 'Monthly', price: '£6.99', side: 'left-[7%]', top: 'top-[190px]', rot: -7, delay: 0.4, dur: 5.6 },
+          { label: 'Annual', price: '£69.99', side: 'right-[6%]', top: 'top-[150px]', rot: 6, delay: 0.5, dur: 6.4 },
+          { label: 'Free', price: '£0', side: 'right-[13%]', top: 'top-[330px]', rot: -4, delay: 0.62, dur: 5 },
+        ].map((chip) => (
+          <motion.div
+            key={chip.label}
+            aria-hidden="true"
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: chip.delay, ease: ease() }}
+            className={`hidden lg:block absolute ${chip.side} ${chip.top}`}
+            style={{ rotate: chip.rot }}
+          >
+            <motion.div
+              animate={{ y: [0, -8, 0] }}
+              transition={{ duration: chip.dur, repeat: Infinity, ease: 'easeInOut' }}
+              className="px-5 py-3.5 rounded-2xl bg-white"
+              style={{
+                boxShadow: '0 20px 44px rgba(0,0,0,0.35)',
+                maskImage:
+                  'radial-gradient(circle at 0 50%, transparent 5.5px, black 6px), radial-gradient(circle at 100% 50%, transparent 5.5px, black 6px)',
+                WebkitMaskImage:
+                  'radial-gradient(circle at 0 50%, transparent 5.5px, black 6px), radial-gradient(circle at 100% 50%, transparent 5.5px, black 6px)',
+                maskComposite: 'intersect',
+                WebkitMaskComposite: 'source-in',
+              }}
+            >
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#010C35]/50 mb-0.5">{chip.label}</p>
+              <p className="font-display text-[#E20C04] text-[22px] leading-none">{chip.price}</p>
+            </motion.div>
+          </motion.div>
+        ))}
+
         <div className="relative max-w-5xl mx-auto text-center">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -354,10 +390,10 @@ export function PricingContent() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.08, ease: ease() }}
             className="font-display text-white leading-[1.06] mb-6 max-w-[800px] mx-auto"
-            style={{ fontSize: 'clamp(36px, 5vw, 62px)', letterSpacing: '-0.8px' }}
+            style={{ fontSize: 'clamp(34px, 5vw, 62px)', letterSpacing: '-0.8px', textWrap: 'balance' }}
           >
-            Start free. Pay only when{' '}
-            <span className="gradient-text">you&apos;re ready to redeem.</span>
+            Start free.{' '}
+            <span className="gradient-text block">Pay only when you&apos;re ready.</span>
           </motion.h1>
 
           <motion.p

@@ -349,6 +349,28 @@ export function HowItWorksContent() {
           }}
         />
 
+        {/* The proof on the right: the actual redemption screen (owner
+            2026-07-13: these heroes needed visuals): desktop only */}
+        <motion.div
+          initial={{ opacity: 0, y: 24, rotate: 8 }}
+          animate={{ opacity: 1, y: 0, rotate: 5 }}
+          transition={{ duration: 0.8, delay: 0.3, ease: ease() }}
+          aria-hidden="true"
+          className="hidden lg:block absolute right-[6%] top-[130px] w-[230px]"
+        >
+          <motion.div
+            animate={{ y: [0, -10, 0] }}
+            transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+            className="rounded-[34px] bg-[#10101c] p-[7px]"
+            style={{ boxShadow: '0 40px 90px rgba(0,0,0,0.5), 0 0 60px rgba(226,12,4,0.18)' }}
+          >
+            <div className="relative rounded-[28px] overflow-hidden" style={{ height: 448 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/app-shots/journey/qr-screen.jpg" alt="" className="w-full h-full object-cover object-top" />
+            </div>
+          </motion.div>
+        </motion.div>
+
         <div className="relative max-w-5xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -367,10 +389,10 @@ export function HowItWorksContent() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.08, ease: ease() }}
             className="font-display text-white leading-[1.06] mb-6 max-w-[760px]"
-            style={{ fontSize: 'clamp(36px, 5vw, 62px)', letterSpacing: '-0.8px' }}
+            style={{ fontSize: 'clamp(34px, 5vw, 62px)', letterSpacing: '-0.8px' }}
           >
             Simple to join.{' '}
-            <span className="gradient-text">Even simpler to redeem.</span>
+            <span className="gradient-text block">Even simpler to redeem.</span>
           </motion.h1>
 
           <motion.p
