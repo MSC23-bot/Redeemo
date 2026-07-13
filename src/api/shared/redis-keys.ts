@@ -84,6 +84,17 @@ export const RedisKey = {
   // appear in Redis key listings or logs.
   rateLimitEmailSend:      (type: string, emailHash: string) => `rl:email:${type}:${emailHash}`, // per-(type,recipient) hourly
   rateLimitEmailIpDay:     (ip: string)               => `rl:email:ip:day:${ip}`,      // per-IP daily abuser ceiling
+  // §SEC.1 closure (plan 2026-07-10, GAP-1..GAP-4; src/api/shared/emailLimiter.ts).
+  // GAP-1: global daily send GATE (env EMAIL_GLOBAL_DAILY_CAP): one ops-visible
+  // platform breaker, counted only on allowed sends. GAP-2: aggregate per-address
+  // hour+day VICTIM keys across ALL types (kills type-cycling around the per-type
+  // 5/hr above). GAP-3: per-account/day VICTIM key (one recipient identity, across
+  // address/type churn). GAP-4: per-IP HOURLY abuser key beside the daily one.
+  rateLimitEmailGlobalDay: ()                         => `rl:email:global:day`,        // global daily send breaker (GAP-1)
+  rateLimitEmailAddrHour:  (emailHash: string)        => `rl:email:addr:hour:${emailHash}`, // aggregate per-address hourly (GAP-2)
+  rateLimitEmailAddrDay:   (emailHash: string)        => `rl:email:addr:day:${emailHash}`,  // aggregate per-address daily (GAP-2)
+  rateLimitEmailAcctDay:   (recipientType: string, recipientId: string) => `rl:email:acct:day:${recipientType}:${recipientId}`, // per-account daily (GAP-3)
+  rateLimitEmailIpHour:    (ip: string)               => `rl:email:ip:hour:${ip}`,     // per-IP hourly abuser ceiling (GAP-4)
   // Suppression: existence ⇒ provider reported a hard bounce / spam complaint for
   // this recipient; future MARKETING sends to it are skipped (notify guard).
   // Transactional sends (password reset, branch PIN) are NEVER suppressed —

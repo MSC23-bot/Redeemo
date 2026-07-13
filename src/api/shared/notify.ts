@@ -29,7 +29,7 @@ import { NotificationType, NotificationChannel, NotificationRecipientType } from
 import { EMAIL_QUEUE, enqueue } from '../queues'
 import { RedisKey } from './redis-keys'
 import { hashEmail } from './pwdResetLimiter'
-import { consume } from './atomicLimiter'
+import { consumeEmailSend } from './emailLimiter'
 
 export type NotifyCategory = 'transactional' | 'marketing'
 // CommunicationLog.recipientType is a free string; all four values are valid
@@ -88,11 +88,10 @@ export type NotifyResult =
   | { queued: true; communicationLogId: string; enqueued: boolean }
   | { queued: false; reason: 'no-consent' | 'rate-limited' | 'suppressed' }
 
-// Send caps (the atomic limiter). A single recipient should not receive more
-// than a handful of the SAME transactional email per hour; the per-IP ceiling
-// catches an endpoint being used to email-bomb many recipients.
-const EMAIL_PER_RECIPIENT_PER_HOUR = { limit: 5, windowSec: 3600 }
-const EMAIL_PER_IP_PER_DAY = { limit: 200, windowSec: 86_400 }
+// Send caps live in emailLimiter.ts (§SEC.1 closure): the per-(type,recipient)
+// 5/hr and per-IP 200/day controls moved there unchanged, joined by the global
+// daily gate, the aggregate per-address hour/day caps, the per-account/day cap,
+// and the per-IP hourly cap (GAP-1..GAP-4).
 
 // The recipient types that map to a valid NotificationRecipientType (i.e. can
 // carry an in-app Notification). ADMIN now carries the admin bell (added in M2);
@@ -139,24 +138,16 @@ export async function notify(prisma: PrismaClient, redis: Redis, input: NotifyIn
     }
   }
 
-  // (c) Send rate-limit (atomic). victim = per-(type,recipient); abuser = per-IP.
-  const limit = await consume(redis, {
-    victimKeys: [
-      {
-        key: RedisKey.rateLimitEmailSend(input.type, emailHash),
-        limit: EMAIL_PER_RECIPIENT_PER_HOUR.limit,
-        windowSec: EMAIL_PER_RECIPIENT_PER_HOUR.windowSec,
-      },
-    ],
-    abuserKeys: input.ip
-      ? [
-          {
-            key: RedisKey.rateLimitEmailIpDay(input.ip),
-            limit: EMAIL_PER_IP_PER_DAY.limit,
-            windowSec: EMAIL_PER_IP_PER_DAY.windowSec,
-          },
-        ]
-      : [],
+  // (c) Send rate-limit (atomic; §SEC.1 closure GAP-1..GAP-4 in emailLimiter.ts).
+  // gate = global daily cap; abuser = per-IP hour + day; victim = per-(type,addr),
+  // aggregate per-address hour/day, per-account/day. Any blocking tier maps to the
+  // same 'rate-limited' result: the caller-facing contract is unchanged.
+  const limit = await consumeEmailSend(redis, {
+    emailHash,
+    type: input.type,
+    recipientType: input.recipientType,
+    recipientId: input.recipientId,
+    ip: input.ip,
   })
   if (!limit.ok) return { queued: false, reason: 'rate-limited' }
 
