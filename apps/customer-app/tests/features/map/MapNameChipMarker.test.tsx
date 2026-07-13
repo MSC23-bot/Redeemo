@@ -16,8 +16,9 @@
 //     capture window and RE-OPENS on a genuine content change (W1.1
 //     content-change re-track), and the memo bails out on an identical
 //     re-render (no frozen-marker teleport);
-//   - the W1.1 F15 tether geometry is UNCHANGED (the lockup's downward tail
-//     tip lands at the same tether point the old pill's bottom did).
+//   - the tether geometry: the lockup's downward tail tip lands just above
+//     the pin's visible resting head (W1.1 F15, TIGHTENED to ~2pt by W2a
+//     round 3 — see the tether describe block's supersession note).
 
 import React from 'react'
 import { render, act } from '@testing-library/react-native'
@@ -255,7 +256,18 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
     }
   })
 
-  // ── W1.1 F15 tether geometry — UNCHANGED by W2a ────────────────────────
+  // ── Tether geometry — W1.1 F15, TIGHTENED by W2a round 3 ──────────────
+  //
+  // Pinned-test supersession record: the F15 tests asserted 4-6pt of air
+  // above the visible resting head top AND strict clearance of the
+  // SELECTED (scale 1) head. The owner's round-3 device review found the
+  // lockup still detached, so the gap tightens to ~2pt above the visible
+  // resting head top — which by arithmetic places the tail tip ~3.1pt
+  // BELOW the selected head top (owner-accepted trade-off: slight contact
+  // with the selected pin's outer ring / head-top arc reads as attached;
+  // the resting state keeps clean air). The old strict selected-clearance
+  // assertion is therefore REPLACED by a bounded-intrusion assertion, not
+  // deleted silently.
 
   function chipOffsetTransform(testInstance: any): { translateX: number; translateY: number } {
     const style = Array.isArray(testInstance.props.style)
@@ -267,7 +279,7 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
     return { translateX: tx, translateY: ty }
   }
 
-  it('F15: the rendered offset is centred (translateX 0) and lifts by exactly CHIP_LIFT', () => {
+  it('tether: the rendered offset is centred (translateX 0) and lifts by exactly CHIP_LIFT', () => {
     const { getByTestId } = render(
       <MapNameChipMarker id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" pinColor="#E20C04" />,
     )
@@ -276,30 +288,53 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
     expect(translateY).toBe(-CHIP_LIFT)
   })
 
-  it('F15: the lockup tail tip sits 4-6pt above the VISIBLE resting head top (tight tether, not container-top float)', () => {
+  it('R3 tether: the lockup tail tip sits ~2pt above the VISIBLE resting head top (tight tether, not container-top float)', () => {
     // All in pin-container coords (y grows downward; the container bottom is
     // the shared anchor). The lockup's bottom-most point is its tail tip, at
     // container y = CONTAINER_HEIGHT - CHIP_LIFT.
     const tailTipY = PIN_CONTAINER_HEIGHT_FOR_TESTS - CHIP_LIFT
     const airAboveRestingHead = PIN_SCALED_HEAD_TOP - tailTipY
-    expect(airAboveRestingHead).toBeGreaterThanOrEqual(4)
-    expect(airAboveRestingHead).toBeLessThanOrEqual(6.001)
+    expect(airAboveRestingHead).toBeGreaterThanOrEqual(1.5)
+    expect(airAboveRestingHead).toBeLessThanOrEqual(2.5)
     expect(airAboveRestingHead).toBeCloseTo(CHIP_GAP_ABOVE_HEAD, 10)
   })
 
-  it('F15: the lockup never overlaps the teardrop itself even when the pin is SELECTED (scale 1 head top)', () => {
+  it('R3 tether: the tail never reaches into the RESTING teardrop (tip strictly above the resting head top)', () => {
     const tailTipY = PIN_CONTAINER_HEIGHT_FOR_TESTS - CHIP_LIFT
-    expect(tailTipY).toBeLessThan(PIN_SELECTED_HEAD_TOP)
+    expect(tailTipY).toBeLessThan(PIN_SCALED_HEAD_TOP)
   })
 
-  it('F15: constant-parity guard: the derived scaled head top matches the MapPins pin geometry (63 / 54 / 0.81)', () => {
+  it('R3 tether: SELECTED-state intrusion is the documented, BOUNDED trade-off (tail tip at most ~3.2pt below the scale-1 head top)', () => {
+    // Supersedes the F15 strict selected-clearance pin (see the block
+    // comment above). The selected head top is y = 9; the tail tip at
+    // y = 12.13 intrudes by (14.13 - 2) - 9 = 3.13pt. Pin the bound so a
+    // future gap tweak cannot silently push the tail deep into the
+    // selected teardrop.
+    const tailTipY = PIN_CONTAINER_HEIGHT_FOR_TESTS - CHIP_LIFT
+    const selectedIntrusion = tailTipY - PIN_SELECTED_HEAD_TOP
+    expect(selectedIntrusion).toBeGreaterThan(0)       // the accepted contact exists
+    expect(selectedIntrusion).toBeLessThanOrEqual(3.2) // and stays fractional
+  })
+
+  it('tether: constant-parity guard: the derived scaled head top matches the MapPins pin geometry (63 / 54 / 42 / 0.81)', () => {
+    // The chip file duplicates the pin constants (module-scope
+    // decoupling); this recomputes the derivation from first principles —
+    // head-centre + scaled-radius, the W1 F2 shoulder maths — so silent
+    // drift in either file fails loudly.
     const CONTAINER_HEIGHT = 63
     const PIN_HEIGHT = 54
+    const PIN_WIDTH = 42
     const TEARDROP_TOP = CONTAINER_HEIGHT - PIN_HEIGHT       // 9
     const WRAP_CENTER_Y = TEARDROP_TOP + PIN_HEIGHT / 2      // 36
+    const HEAD_CENTER_Y = TEARDROP_TOP + PIN_WIDTH / 2       // 30
+    const HEAD_RADIUS = PIN_WIDTH / 2                        // 21
     const SCALE = 0.81
-    const expectedScaledHeadTop = WRAP_CENTER_Y + (TEARDROP_TOP - WRAP_CENTER_Y) * SCALE
+    const scaledHeadCenterY = WRAP_CENTER_Y + (HEAD_CENTER_Y - WRAP_CENTER_Y) * SCALE // 31.14
+    const expectedScaledHeadTop = scaledHeadCenterY - HEAD_RADIUS * SCALE             // 14.13
     expect(PIN_SCALED_HEAD_TOP).toBeCloseTo(expectedScaledHeadTop, 10)
+    // The head-centre derivation must agree with the wrapper-top shortcut
+    // the F15 comment used — one geometry, two routes.
+    expect(expectedScaledHeadTop).toBeCloseTo(WRAP_CENTER_Y + (TEARDROP_TOP - WRAP_CENTER_Y) * SCALE, 10)
     expect(PIN_CONTAINER_HEIGHT_FOR_TESTS).toBe(CONTAINER_HEIGHT)
   })
 })

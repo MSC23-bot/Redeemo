@@ -55,42 +55,71 @@ import { getCategoryPinGlyph } from '../utils/categoryPinGlyph'
 // module-scope-decoupling reason documented in MapClusterMarker.tsx.
 const CHIP_TRACK_MS = 1000
 
-// Map P2 W1 (F3 + F4) revised by W1.1 (F15, 2026-07-12) — chip tether
-// geometry. PRESERVED UNCHANGED by W2a (the ticket lockup is bigger than
-// the old pill, but it grows UPWARD; its downward-pointing tail tip lands
-// at the SAME tether point the old pill's bottom did, so the F15 lift is
-// untouched and its geometry tests still hold).
+// Map P2 W1 (F3 + F4), revised by W1.1 (F15, 2026-07-12), TIGHTENED by
+// W2a round 3 (owner device review 2026-07-13) — chip tether geometry.
+//
+// Round-3 finding: the lockup still read as detached from its pin (owner
+// screenshot: the tail tip floating roughly a full pin-height above the
+// pin head). The pin container's upper band is mostly empty pulse-ring
+// headroom; the visible resting head top sits well below the container
+// top, so any lift referenced to the container reads as floating. The
+// tail tip now lands CHIP_GAP_ABOVE_HEAD = 2pt above the VISIBLE RESTING
+// head top (was 6pt at F15), derived from the pin's actual scaled
+// geometry below.
 //
 // The chip is a SEPARATE Marker at the SAME coordinate as the pin, both
 // bottom-anchored (react-native-maps default `{x:0.5,y:1}`), so both are
 // horizontally centred on the coordinate and rise upward from it. The
 // lockup's own bottom-most element is the pointer TAIL tip; lifting the
 // whole content by `CHIP_LIFT` places that tail tip just above the pin's
-// visible resting head (the F15 tether), so the tail visibly points at the
-// pin and the card body sits above it.
+// visible resting head, so the tail visibly points at the pin and the
+// card body sits above it.
 //
-// Derivation (container coords, y grows downward; the pin container is
-// 60x63 with the teardrop tip at the bottom-centre anchor):
-//   TEARDROP_TOP     = CONTAINER_HEIGHT - PIN_HEIGHT = 63 - 54 = 9
-//   wrapper centre y = TEARDROP_TOP + PIN_HEIGHT / 2 = 9 + 27  = 36
-//   (RN `transform: scale` scales a view about its OWN centre)
-//   scaled head top y = centre + (top - centre) * scale
-//                     = 36 + (9 - 36) * 0.81 = 14.13
+// Derivation of the VISIBLE RESTING head top (container coords, y grows
+// downward; the pin container is 60x63 with the teardrop tip at the
+// bottom-centre anchor; same head-centre + scaled-radius maths as the
+// W1 F2 badge-shoulder work). Constants duplicated from MapPins.tsx for
+// the same module-scope-decoupling reason CHIP_TRACK_MS is duplicated:
+//   TEARDROP_TOP      = CONTAINER_HEIGHT - PIN_HEIGHT   = 63 - 54 = 9
+//   head visible radius (unscaled) = PIN_WIDTH / 2      = 42 / 2  = 21
+//   head centre y     = TEARDROP_TOP + 21               = 30
+//   wrapper centre y  = TEARDROP_TOP + PIN_HEIGHT / 2   = 36
+//   (RN `transform: scale` scales a view about its OWN centre, so the
+//    resting 0.81 scale pulls every point toward y = 36)
+//   scaled head centre y = 36 + (30 - 36) * 0.81        = 31.14
+//   scaled head radius   = 21 * 0.81                    = 17.01
+//   VISIBLE RESTING HEAD TOP = 31.14 - 17.01            = 14.13
+// (Equivalently via the wrapper-top shortcut the F15 comment used:
+//  36 + (9 - 36) * 0.81 = 14.13 — the two derivations agree exactly.)
 // The tail tip sits CHIP_GAP_ABOVE_HEAD above that, at container
-// y = 14.13 - 6 = 8.13, so the lift from the anchor is
-// CONTAINER_HEIGHT - 8.13 = 54.87. (Constants duplicated from MapPins.tsx
-// for the same module-scope-decoupling reason CHIP_TRACK_MS is duplicated.)
+// y = 14.13 - 2 = 12.13, so the lift from the anchor is
+// CONTAINER_HEIGHT - 12.13 = 50.87.
+//
+// ACCEPTED TRADE-OFF (owner-directed, round 3): when the pin is SELECTED
+// its faint outer pulse-ring circle reaches toward the container top and
+// the teardrop scales up to 1.0 (head top rises from y 14.13 to y 9), so
+// the tail tip (y 12.13) slightly overlaps the outer ring circle and can
+// fractionally overlap the very top arc of the SELECTED head (~3.1pt of
+// vertical intrusion at most, at the tail's x-position). That close
+// contact is the point: the lockup must read as ATTACHED to its pin. The
+// resting (unselected) state — the overwhelmingly common one — keeps a
+// clean 2pt of air above the head, and the tail never reaches into the
+// resting teardrop.
 const PIN_CONTAINER_HEIGHT    = 63
 const PIN_HEIGHT              = 54
+const PIN_WIDTH               = 42
 const PIN_TEARDROP_TOP        = PIN_CONTAINER_HEIGHT - PIN_HEIGHT // 9
 const PIN_INNER_SCALE_RESTING = 0.81
 const PIN_WRAP_CENTER_Y       = PIN_TEARDROP_TOP + PIN_HEIGHT / 2 // 36
-// Exported for the F15 geometry tests (not part of the runtime API).
+const PIN_HEAD_CENTER_Y       = PIN_TEARDROP_TOP + PIN_WIDTH / 2  // 30
+const PIN_HEAD_RADIUS         = PIN_WIDTH / 2                     // 21
+// Exported for the tether geometry tests (not part of the runtime API).
 export const PIN_SCALED_HEAD_TOP =
-  PIN_WRAP_CENTER_Y + (PIN_TEARDROP_TOP - PIN_WRAP_CENTER_Y) * PIN_INNER_SCALE_RESTING // 14.13
+  (PIN_WRAP_CENTER_Y + (PIN_HEAD_CENTER_Y - PIN_WRAP_CENTER_Y) * PIN_INNER_SCALE_RESTING)
+  - PIN_HEAD_RADIUS * PIN_INNER_SCALE_RESTING // 31.14 - 17.01 = 14.13
 export const PIN_SELECTED_HEAD_TOP = PIN_TEARDROP_TOP // scale 1: head top = teardrop top
-export const CHIP_GAP_ABOVE_HEAD = 6
-export const CHIP_LIFT = PIN_CONTAINER_HEIGHT - PIN_SCALED_HEAD_TOP + CHIP_GAP_ABOVE_HEAD // 54.87
+export const CHIP_GAP_ABOVE_HEAD = 2 // W2a round 3: was 6 (F15); tightened per owner screenshot
+export const CHIP_LIFT = PIN_CONTAINER_HEIGHT - PIN_SCALED_HEAD_TOP + CHIP_GAP_ABOVE_HEAD // 50.87
 export const PIN_CONTAINER_HEIGHT_FOR_TESTS = PIN_CONTAINER_HEIGHT
 
 // ── Ticket-lockup geometry constants (constant outer bounds) ────────────
