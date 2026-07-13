@@ -24,7 +24,9 @@ const RibbonScene3D = dynamic(() => import('./RibbonScene3D').then((m) => m.Ribb
  */
 
 const SEEN_KEY = 'redeemo-welcome-offer-seen'
-const SHOW_AFTER_MS = 1100
+// 5s (owner 2026-07-13): the visitor gets a first look at what Redeemo is
+// before the offer greets them
+const SHOW_AFTER_MS = 5000
 
 // The tear line sits this far above the ticket's bottom edge; the die-cut
 // notches are cut from the silhouette so the backdrop shows through them

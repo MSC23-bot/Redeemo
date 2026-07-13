@@ -349,28 +349,6 @@ export function HowItWorksContent() {
           }}
         />
 
-        {/* The proof on the right: the actual redemption screen (owner
-            2026-07-13: these heroes needed visuals): desktop only */}
-        <motion.div
-          initial={{ opacity: 0, y: 24, rotate: 8 }}
-          animate={{ opacity: 1, y: 0, rotate: 5 }}
-          transition={{ duration: 0.8, delay: 0.3, ease: ease() }}
-          aria-hidden="true"
-          className="hidden lg:block absolute right-[6%] top-[130px] w-[230px]"
-        >
-          <motion.div
-            animate={{ y: [0, -10, 0] }}
-            transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-            className="rounded-[34px] bg-[#10101c] p-[7px]"
-            style={{ boxShadow: '0 40px 90px rgba(0,0,0,0.5), 0 0 60px rgba(226,12,4,0.18)' }}
-          >
-            <div className="relative rounded-[28px] overflow-hidden" style={{ height: 448 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/app-shots/journey/qr-screen.jpg" alt="" className="w-full h-full object-cover object-top" />
-            </div>
-          </motion.div>
-        </motion.div>
-
         <div className="relative max-w-5xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -701,9 +679,15 @@ export function HowItWorksContent() {
       {/* ── App CTA footer ── */}
       <section
         id="get-the-app"
-        className="relative overflow-hidden py-20 md:py-28 px-6"
-        style={{ background: '#010C35' }}
+        className="px-6 py-12 md:py-20"
+        style={{ background: '#FFF9F5' }}
       >
+        {/* A contained navy panel on cream: the full-bleed navy collided with the
+            footer's navy right below it (owner 2026-07-13) */}
+        <div
+          className="relative overflow-hidden max-w-[1080px] mx-auto rounded-[28px] px-6 py-12 md:py-16 text-center"
+          style={{ background: '#010C35', boxShadow: '0 28px 64px rgba(1,12,53,0.22)' }}
+        >
         <div
           aria-hidden="true"
           className="absolute inset-0 pointer-events-none"
@@ -760,6 +744,7 @@ export function HowItWorksContent() {
             </Link>{' '}
             and download the app before you visit.
           </motion.p>
+        </div>
         </div>
       </section>
     </>

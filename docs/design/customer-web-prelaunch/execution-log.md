@@ -855,3 +855,27 @@ edited by this workstream.
   page confirmation line) plus the §FOUND.1 deferral entry (grant = 2
   months; promo sizing note updated). Grep-verified: no 3-month copy
   remains in app/components. tsc clean.
+- POPUP DELAY + SUB-PAGE PANELS + PRINTED 3D VOUCHERS (owner 2026-07-13;
+  lead = Fable, routine refactor delegated to Opus 4.8 and reviewed):
+  1) welcome popup now waits 5s (was 1.1s): the visitor gets a first look
+  at Redeemo before the offer greets them; cadence stays once per session
+  (owner confirmed). 2) the hero visuals added earlier today to
+  how-it-works (floating QR phone) and pricing (floating price chips) are
+  REMOVED (owner disliked them). 3) the for-businesses 3D vouchers now
+  carry PRINTED OFFERS (owner: empty cards did not resonate): canvas
+  textures per card: MEMBER VOUCHER kicker, 2 FOR 1 / 20% OFF / FREE
+  COFFEE / GBP10 OFF / BUY 1 GET 1 with terms lines, tear dash and a
+  Redeem-with-Redeemo strapline, brand palette, mapped onto the extruded
+  faces via the shape-coordinate UVs; motion changed from spins to gentle
+  swings so the faces stay readable. 4) Opus applied the contained
+  navy-panel-on-cream pattern (the landing AppCta treatment) to the final
+  sections of how-it-works (keeps id=get-the-app), pricing, and
+  for-businesses: no more navy-on-navy collision with the footer;
+  insider's closer is light F8F7F5 against the navy footer already
+  (correctly left alone). 5) both for-businesses CTAs now go to the
+  MERCHANT PORTAL registration via merchantPortalRegisterUrl() in
+  lib/prelaunch.ts (NEXT_PUBLIC_MERCHANT_PORTAL_URL, localhost:3003
+  fallback: SET IN PRODUCTION when the portal domain lands); the
+  register-interest email form remains as the secondary path. tsc + lint
+  clean; verified: popup at 3s absent / 7s present, business hero cards
+  desktop, all three converted panels, 2 portal links live.

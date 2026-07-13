@@ -17,3 +17,14 @@ export { isMarketplaceLive }
 export function isLeadCaptureLive(): boolean {
   return process.env.NEXT_PUBLIC_LEAD_CAPTURE_LIVE === 'true'
 }
+
+/**
+ * Merchant portal registration URL. Merchants register in merchant-web (its own
+ * app, served under /register), not this consumer site. NEXT_PUBLIC_MERCHANT_PORTAL_URL
+ * must be set in production to the portal's own domain; the localhost:3003 fallback
+ * matches the dev port for merchant-web.
+ */
+export function merchantPortalRegisterUrl(): string {
+  const base = process.env.NEXT_PUBLIC_MERCHANT_PORTAL_URL ?? 'http://localhost:3003'
+  return `${base.replace(/\/$/, '')}/register`
+}

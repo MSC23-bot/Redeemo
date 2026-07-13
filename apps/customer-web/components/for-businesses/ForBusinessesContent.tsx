@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import { PortalShowcaseSection } from './PortalShowcaseSection'
 import { MerchantInterestSection } from './MerchantInterestSection'
+import { merchantPortalRegisterUrl } from '@/lib/prelaunch'
 
 // The merchant page's own 3D scene: drifting die-cut voucher cards (owner
 // 2026-07-13: business-relevant WebGL, not the ribbon). Client-only.
@@ -98,6 +99,9 @@ function ease(): [number, number, number, number] { return [0.22, 1, 0.36, 1] }
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function ForBusinessesContent() {
+  // Merchants register in the merchant portal, not this consumer site.
+  const registerUrl = merchantPortalRegisterUrl()
+
   return (
     <>
       {/* ── 1. Hero ── */}
@@ -175,7 +179,7 @@ export function ForBusinessesContent() {
             transition={{ duration: 0.4, delay: 0.34 }}
           >
             <a
-              href="#register-interest"
+              href={registerUrl}
               className="inline-flex items-center gap-2 text-white font-bold text-[15px] px-7 py-3.5 rounded-xl no-underline hover:opacity-90 transition-opacity"
               style={{
                 background: 'var(--brand-gradient)',
@@ -520,9 +524,15 @@ export function ForBusinessesContent() {
 
       {/* ── 8. Final CTA ── */}
       <section
-        className="relative overflow-hidden py-20 md:py-28 px-6"
-        style={{ background: '#010C35' }}
+        className="px-6 py-12 md:py-20"
+        style={{ background: '#FFF9F5' }}
       >
+        {/* A contained navy panel on cream: the full-bleed navy collided with the
+            footer's navy right below it (owner 2026-07-13) */}
+        <div
+          className="relative overflow-hidden max-w-[1080px] mx-auto rounded-[28px] px-6 py-12 md:py-16 text-center"
+          style={{ background: '#010C35', boxShadow: '0 28px 64px rgba(1,12,53,0.22)' }}
+        >
         <div
           aria-hidden="true"
           className="absolute inset-0 pointer-events-none"
@@ -561,7 +571,7 @@ export function ForBusinessesContent() {
             className="flex gap-3 justify-center flex-wrap"
           >
             <a
-              href="#register-interest"
+              href={registerUrl}
               className="inline-flex items-center gap-2 text-white font-bold text-[15px] px-7 py-3.5 rounded-xl no-underline hover:opacity-90 transition-opacity"
               style={{
                 background: 'var(--brand-gradient)',
@@ -584,6 +594,7 @@ export function ForBusinessesContent() {
           >
             No listing fees. No commission. 12-month contract required.
           </motion.p>
+        </div>
         </div>
       </section>
     </>
