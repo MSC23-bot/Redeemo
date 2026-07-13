@@ -214,6 +214,14 @@ describe('NamedGateBanner code mapping', () => {
     )
   })
 
+  // Team & Roles S3: the FIELD pre-live scope guard (assertFieldPreLiveScope).
+  it('maps MERCHANT_NOT_PRE_LIVE_FOR_FIELD correctly', () => {
+    render(<NamedGateBanner error={makeApiError('MERCHANT_NOT_PRE_LIVE_FOR_FIELD')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'Field reps can only act on merchants that are still being onboarded.'
+    )
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)

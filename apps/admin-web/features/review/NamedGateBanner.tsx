@@ -132,6 +132,11 @@ const CODE_MESSAGES: Record<string, string> = {
   NOTE_NOT_ACTIVE:
     'This note has already been retracted, so it cannot be edited or retracted again. The list has refreshed.',
   NOTE_RETRACT_REASON_REQUIRED: 'A reason is required to retract a note.',
+  // Team & Roles S3: the FIELD pre-live scope guard (assertFieldPreLiveScope).
+  // FIELD reps hold the assisted-onboarding on-behalf capabilities, but those
+  // apply only while the merchant is still pre-live (REGISTERED / PENDING_APPROVAL).
+  MERCHANT_NOT_PRE_LIVE_FOR_FIELD:
+    'Field reps can only act on merchants that are still being onboarded. This merchant is no longer in that state, so this action is not available here.',
 }
 
 function getMessage(error: unknown, overrides?: Record<string, string>): string {

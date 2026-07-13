@@ -101,6 +101,31 @@ describe('ContractCeremony pre-check + hand to owner', () => {
   })
 })
 
+describe('ContractCeremony re-handover freshness (S1)', () => {
+  it('re-arms the scroll gate and clears authority/key-terms/name/role on Back, then re-entering the owner panel', () => {
+    renderCeremony()
+    handToOwner()
+    scrollToEnd()
+    fillAcceptanceFields()
+    expect(screen.getByTestId('ceremony-accept')).toBeEnabled()
+
+    // Back to precheck, then hand to a (possibly different) owner again.
+    fireEvent.click(screen.getByTestId('ceremony-back'))
+    expect(screen.getByTestId('ceremony-precheck')).toBeInTheDocument()
+    handToOwner()
+
+    // The scroll gate is re-armed (the container still reports overflow from
+    // beforeEach, so it does not auto-open), and every prior tick/field is
+    // cleared: accept is disabled and the prior person's identity is gone.
+    expect(screen.getByTestId('ceremony-scroll-hint')).toBeInTheDocument()
+    expect(screen.getByTestId('ceremony-authority')).not.toBeChecked()
+    expect(screen.getByTestId('ceremony-key-terms')).not.toBeChecked()
+    expect(screen.getByTestId('ceremony-role')).toHaveValue('')
+    expect(screen.getByTestId('ceremony-name')).toHaveValue('')
+    expect(screen.getByTestId('ceremony-accept')).toBeDisabled()
+  })
+})
+
 describe('ContractCeremony acceptance gates', () => {
   it('keeps accept disabled until the agreement is scrolled to the end', () => {
     renderCeremony()
@@ -178,5 +203,18 @@ describe('ContractCeremony sign', () => {
     expect(banner).toHaveTextContent(/pending legal review/i)
     expect(banner).not.toHaveTextContent(/solicitor/i)
     expect(banner).not.toHaveTextContent(/approved by/i)
+  })
+
+  it('overrides STORAGE_NOT_ENABLED with signing-context copy, not the document-upload copy', () => {
+    mockSignMutation.error = new ApiError(500, {
+      error: { code: 'STORAGE_NOT_ENABLED', message: 'storage off' },
+    })
+    renderCeremony()
+    handToOwner()
+    const banner = screen.getByTestId('named-gate-banner')
+    expect(banner).toHaveTextContent(/signed pdf could not be stored/i)
+    expect(banner).toHaveTextContent(/storage is not enabled in this environment/i)
+    // The shared document-upload copy must NOT leak through here.
+    expect(banner).not.toHaveTextContent(/could not be uploaded/i)
   })
 })

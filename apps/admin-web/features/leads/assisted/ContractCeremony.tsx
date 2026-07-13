@@ -42,17 +42,21 @@ import { NamedGateBanner } from '@/features/review/NamedGateBanner'
 import { useSignAgreement } from '@/lib/agreement/useSignAgreement'
 import type { SignAgreementResponse } from '@/lib/api/agreement'
 
-// The enumerated key terms, plain English. Verbatim from the merchant portal
-// path (apps/merchant-web/components/onboarding/contract/ContractAgreementForm.tsx),
-// which the spec cites (step 5) as the shared key-terms set for both signing
-// paths. INTEGRATION NOTE: the admin surface has no agreement-text read route
-// today (the full text is served only on the merchant-scoped GET
-// /merchant/onboarding/contract, which an admin session cannot call). These
-// enumerated terms are the reviewable summary; the complete legal wording is
-// rendered into the downloadable signed PDF and will render inline here once an
-// admin-facing agreement-text read ships.
+// The enumerated key terms, plain English. Adapted to third person (this is the
+// witnessed device: the owner is "the business", not "you") from the merchant
+// portal set (apps/merchant-web/components/onboarding/contract/
+// ContractAgreementForm.tsx), which the spec cites (step 5) as the shared
+// key-terms set for both signing paths. The binding text in both cases is the
+// identical backend agreement PDF; these enumerated terms are a reviewable
+// summary only. Keep this SET OF SIX aligned with the merchant portal's list
+// when either side changes. INTEGRATION NOTE: the admin surface has no
+// agreement-text read route today (the full text is served only on the
+// merchant-scoped GET /merchant/onboarding/contract, which an admin session
+// cannot call). The complete legal wording is rendered into the downloadable
+// signed PDF and will render inline here once an admin-facing agreement-text
+// read ships.
 const KEY_TERMS: readonly string[] = [
-  'This is a 12-month agreement between the business and Redeemo.',
+  'This is a 12 month agreement between the business and Redeemo.',
   'Listing is free. The business only pays for optional featured placement and campaigns.',
   'The business agrees to honour the vouchers it publishes and to keep its information accurate.',
   'Customers redeem in person at the branch, and the team validates each redemption.',
@@ -201,6 +205,21 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
   const mutation = useSignAgreement(merchantId)
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  // Re-handover freshness (S1): a Back-then-hand-to-owner cycle must always
+  // re-arm the scroll gate and ticks and clear the prior person's identity.
+  // Without this, a second owner inherits the first owner's typed name and
+  // pre-cleared gates, so the signature of record could be attributed to the
+  // wrong person. Called on the owner->precheck Back transition, and
+  // defensively again on the precheck->owner hand-to-owner transition, so the
+  // owner panel is provably fresh no matter which edge triggered the entry.
+  function resetOwnerState() {
+    setScrolledToEnd(false)
+    setAuthorityAttested(false)
+    setKeyTermsAccepted(false)
+    setSignerName('')
+    setSignerRole('')
+  }
+
   // Step 3 scroll-to-end gate: if the agreement text fits without scrolling there
   // is nothing to scroll, so the gate opens immediately; otherwise it stays shut
   // until the owner reaches the end.
@@ -295,7 +314,14 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
           </div>
 
           <div className="mt-5 flex justify-end">
-            <Button type="button" onClick={() => setPhase('owner')} data-testid="ceremony-hand-to-owner">
+            <Button
+              type="button"
+              onClick={() => {
+                resetOwnerState()
+                setPhase('owner')
+              }}
+              data-testid="ceremony-hand-to-owner"
+            >
               Hand to the owner to review and sign
               <ArrowRight className="size-4" aria-hidden="true" />
             </Button>
@@ -418,7 +444,17 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
 
           {mutation.error && (
             <div className="mt-4">
-              <NamedGateBanner error={mutation.error} />
+              {/* STORAGE_NOT_ENABLED override: the shared copy is written for the
+                  document-upload flow ("could not be uploaded"), which is the
+                  wrong context here. The signature itself is still recorded; only
+                  the PDF write failed. */}
+              <NamedGateBanner
+                error={mutation.error}
+                overrides={{
+                  STORAGE_NOT_ENABLED:
+                    'The signature was recorded, but the signed PDF could not be stored: storage is not enabled in this environment. Try again once storage is enabled, or contact support.',
+                }}
+              />
             </div>
           )}
 
@@ -426,7 +462,10 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
             <Button
               type="button"
               variant="outline"
-              onClick={() => setPhase('precheck')}
+              onClick={() => {
+                resetOwnerState()
+                setPhase('precheck')
+              }}
               disabled={mutation.isPending}
               data-testid="ceremony-back"
             >

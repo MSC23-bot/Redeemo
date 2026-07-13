@@ -57,8 +57,8 @@ export type WizardStepId =
  *                  landing + the amber "attention" mark).
  *   - optional   : a non-blocking step with no data yet (never blocks go-live;
  *                  neutral "optional" mark).
- *   - gated      : no admin on-behalf route exists (staff / contract); shown as
- *                  honestly gated, never blocks progress.
+ *   - gated      : no admin on-behalf route exists (staff); shown as honestly
+ *                  gated, never blocks progress.
  */
 export type WizardStepStatus = 'complete' | 'incomplete' | 'optional' | 'gated'
 

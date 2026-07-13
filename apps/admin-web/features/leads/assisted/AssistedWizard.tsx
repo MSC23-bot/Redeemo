@@ -8,7 +8,7 @@
  * It composes the SHIPPED admin on-behalf building blocks into a 9-step focus
  * flow. It never forks a dialog or a mutation and never calls a merchant-scope
  * endpoint: every write is an existing admin route, and any step lacking an
- * admin route is honestly gated (staff, contract).
+ * admin route is honestly gated (staff).
  *
  * RESUME CONTRACT: the wizard step is DERIVED from the merchant's REAL state
  * (assistedWizard.deriveWizardState), not a stored pointer. The current step is
