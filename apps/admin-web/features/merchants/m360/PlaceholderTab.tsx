@@ -12,7 +12,15 @@ import type { M360TabKey } from './tabs'
 
 type PlaceholderKey = Exclude<
   M360TabKey,
-  'overview' | 'identity' | 'branches' | 'vouchers' | 'redemptions' | 'documents' | 'activity' | 'staff'
+  | 'overview'
+  | 'identity'
+  | 'branches'
+  | 'vouchers'
+  | 'redemptions'
+  | 'documents'
+  | 'activity'
+  | 'staff'
+  | 'notes'
 >
 
 export function PlaceholderTab({ tabKey }: { tabKey: PlaceholderKey }) {
