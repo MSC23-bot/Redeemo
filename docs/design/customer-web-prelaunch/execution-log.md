@@ -1121,3 +1121,17 @@ pixel y-values, since %-y is relative to the piece, not the screen);
 phone holds a slow perpetual rotateY sway under perspective. All motion
 reduced-motion aware. tsc clean; verified mid-count (£12.22) and settled
 (£16.00) by screenshot.
+
+## 2026-07-14 · App closer: trigger timing + ribbon slip (owner round)
+
+Owner: the count-up/confetti fired while the phone's top was only
+peeking in from the pricing section (attention not on the phone yet),
+and he missed the ribbon: wanted "a slip of it" in the empty navy
+between the copy column and the phone, bottom-middle. Fixes: the live
+moment now gates on useInView amount 0.85 (fires only when the phone is
+nearly fully on screen; entrance spring keeps its earlier trigger);
+verified by DOM probe: value holds £0.00 at peek stage, runs to £16.00
+at full view. RibbonPeek returns inside a positioned wrapper (bottom-8,
+right-300, 230x200) so its slide-in emerges from BEHIND the phone column
+into the gap; copy and phone render later in the DOM and paint over its
+edges; desktop-only as all peeks are.

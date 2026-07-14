@@ -6,6 +6,7 @@ import { animate, motion, useInView, useMotionValue, useReducedMotion, useTransf
 import { useEffect, useRef } from 'react'
 import { AppStoreBadge, GooglePlayBadge } from './HeroSection'
 import { isMarketplaceLive } from '@/lib/prelaunch'
+import { RibbonPeek } from './RibbonPeek'
 
 const ease = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
@@ -167,7 +168,11 @@ function OfferChip({
 function AppPhone() {
   const reduceMotion = useReducedMotion()
   const ref = useRef<HTMLDivElement>(null)
-  const inView = useInView(ref, { once: true, margin: '-120px' })
+  // The live moment (count-up + confetti) waits until the phone is
+  // nearly fully on screen (owner 2026-07-14: it was firing while the
+  // user was still reading the pricing section above, attention not yet
+  // on the phone). The entrance spring keeps its earlier trigger.
+  const inView = useInView(ref, { once: true, amount: 0.85 })
 
   return (
     <motion.div
@@ -255,6 +260,15 @@ export function AppCtaFooterSection() {
                   'radial-gradient(640px circle at 12% 130%, rgba(226,12,4,0.40), transparent 55%), radial-gradient(380px circle at 92% -15%, rgba(200,50,0,0.18), transparent 55%)',
               }}
             />
+          </div>
+
+          {/* A slip of the ribbon in the empty navy between the copy and
+              the phone (owner 2026-07-14: missed it after removal): it
+              emerges from behind the phone column, low in the gap. The
+              phone and copy render later in the DOM, so they paint over
+              its edges. Desktop only, like every RibbonPeek. */}
+          <div aria-hidden="true" className="hidden xl:block absolute bottom-8 right-[300px] w-[230px] h-[200px] pointer-events-none">
+            <RibbonPeek side="right" top="0%" width={210} />
           </div>
 
           <div className="relative grid lg:grid-cols-[1fr_320px] gap-0 items-center">
