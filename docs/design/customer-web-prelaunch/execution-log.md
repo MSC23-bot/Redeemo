@@ -1135,3 +1135,20 @@ at full view. RibbonPeek returns inside a positioned wrapper (bottom-8,
 right-300, 230x200) so its slide-in emerges from BEHIND the phone column
 into the gap; copy and phone render later in the DOM and paint over its
 edges; desktop-only as all peeks are.
+
+## 2026-07-14 · Customer merchant-invite + referral: Tier 3 spec approved
+
+Brainstormed across the session with the owner (delivery model,
+registration wall, dedupe, rep collision, timing fraud, rate limiting,
+abuse). Twelve decisions locked, including: customer-authored
+platform-delivered aggregated invites; no registration wall but
+verified-email counting; reward = one free month to every eligible
+inviter when the merchant goes LIVE; stacks with the founding offer;
+caps 5 per business / 3 per customer per year; eligibility window =
+invited before merchant onboarding began; staff ineligible; pipeline
+privacy (only live merchants revealed); rep-owned leads suppress the
+automated email; Phase 1 ships without automated email (manual via
+recruitment console until Resend/DNS). Spec:
+docs/superpowers/specs/2026-07-14-customer-merchant-invite-referral-design.md.
+Next: implementation plan (Tier 3 flow), sequencing vs Portal/Admin is
+an owner/programme call.
