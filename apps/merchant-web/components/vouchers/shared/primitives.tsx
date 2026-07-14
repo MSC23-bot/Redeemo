@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { cn } from '@/lib/utils'
+import { InlineError, useFieldError } from './submitValidation'
 
 // Voucher Builder shared core: field primitives, prototype-faithful. Consolidates the
 // two previously-forked bespoke primitive sets (the day-2 builder/fields.tsx and the
@@ -74,6 +75,7 @@ export function TextField({
   placeholder,
   hideLabel,
   id,
+  errorKey,
 }: {
   label: string
   value: string
@@ -81,8 +83,12 @@ export function TextField({
   placeholder?: string
   hideLabel?: boolean
   id?: string
+  /** S5 field code (e.g. 'bogoBuy'); when it has an error the input marks itself + is the focus target. */
+  errorKey?: string
 }) {
   const fieldId = id ?? `vf-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+  const err = useFieldError(errorKey)
+  const invalid = !!err
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={fieldId} className={cn('text-sm font-medium text-[#010C35]', hideLabel && 'sr-only')}>
@@ -93,9 +99,17 @@ export function TextField({
         type="text"
         value={value}
         placeholder={placeholder}
+        aria-invalid={invalid || undefined}
+        data-invalid={invalid ? 'true' : undefined}
         onChange={(e) => onChange(e.target.value)}
-        className="h-10 w-full rounded-[12px] border border-[#D1D5DB] bg-white px-3.5 text-sm text-[#010C35] outline-none transition-[border-color,box-shadow] placeholder:text-[#8089A4] focus-visible:border-[#E20C04] focus-visible:ring-[3px] focus-visible:ring-[#E20C04]/20"
+        className={cn(
+          'h-10 w-full rounded-[12px] border bg-white px-3.5 text-sm text-[#010C35] outline-none transition-[border-color,box-shadow] placeholder:text-[#8089A4] focus-visible:ring-[3px]',
+          invalid
+            ? 'border-[#B91C1C] focus-visible:border-[#B91C1C] focus-visible:ring-[#B91C1C]/20'
+            : 'border-[#D1D5DB] focus-visible:border-[#E20C04] focus-visible:ring-[#E20C04]/20',
+        )}
       />
+      <InlineError message={err?.message} />
     </div>
   )
 }
@@ -143,6 +157,7 @@ export function MoneyField({
   unitTrailing,
   hideLabel,
   id,
+  errorKey,
 }: {
   label: string
   value: string
@@ -151,25 +166,39 @@ export function MoneyField({
   unitTrailing?: boolean
   hideLabel?: boolean
   id?: string
+  /** S5 field code (e.g. 'bogoFreePrice'); when it has an error the input marks itself + is the focus target. */
+  errorKey?: string
 }) {
   const fieldId = id ?? `vf-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+  const err = useFieldError(errorKey)
+  const invalid = !!err
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={fieldId} className={cn('text-sm font-medium text-[#010C35]', hideLabel && 'sr-only')}>
         {label}
       </label>
-      <div className="flex h-10 items-center rounded-[12px] border border-[#D1D5DB] bg-white px-3 transition-[border-color,box-shadow] focus-within:border-[#E20C04] focus-within:ring-[3px] focus-within:ring-[#E20C04]/20">
+      <div
+        className={cn(
+          'flex h-10 items-center rounded-[12px] border bg-white px-3 transition-[border-color,box-shadow] focus-within:ring-[3px]',
+          invalid
+            ? 'border-[#B91C1C] focus-within:border-[#B91C1C] focus-within:ring-[#B91C1C]/20'
+            : 'border-[#D1D5DB] focus-within:border-[#E20C04] focus-within:ring-[#E20C04]/20',
+        )}
+      >
         {!unitTrailing ? <span className="mr-1 text-sm text-[#6B7390]">{unit}</span> : null}
         <input
           id={fieldId}
           type="text"
           inputMode="decimal"
           value={value}
+          aria-invalid={invalid || undefined}
+          data-invalid={invalid ? 'true' : undefined}
           onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ''))}
           className="w-full bg-transparent text-sm text-[#010C35] outline-none placeholder:text-[#8089A4]"
         />
         {unitTrailing ? <span className="ml-1 text-sm text-[#6B7390]">{unit}</span> : null}
       </div>
+      <InlineError message={err?.message} />
     </div>
   )
 }

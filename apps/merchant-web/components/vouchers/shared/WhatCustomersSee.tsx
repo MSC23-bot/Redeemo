@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { FileUpload } from '@/components/ui/file-upload'
 import { TextField, TextAreaField, MoneyField } from './primitives'
+import { FieldError } from './submitValidation'
 import { money, savingHint, bogoSavingMismatchNote } from '@/lib/voucher/builderCopy'
 import {
   effectiveTitle,
@@ -127,7 +128,7 @@ export function WhatCustomersSee({
             ) : null}
           </div>
           {canTitle ? (
-            <TextField label="Title" hideLabel value={title} onChange={onTitle} placeholder="Your voucher title" />
+            <TextField label="Title" hideLabel value={title} onChange={onTitle} placeholder="Your voucher title" errorKey="title" />
           ) : (
             <div className="flex min-h-10 items-center rounded-[12px] border border-[#E5E7EB] bg-[#F8F9FA] px-3.5 py-2 text-sm text-[#4B5366]">
               {title || 'Set by Redeemo'}
@@ -179,12 +180,14 @@ export function WhatCustomersSee({
             ) : null}
           </div>
           {canSaving && isBogo ? (
-            <MoneyField label="Estimated saving" hideLabel value={saving > 0 ? money(saving) : ''} onChange={(v) => onSaving(v === '' ? undefined : Number(v))} />
+            <MoneyField label="Estimated saving" hideLabel value={saving > 0 ? money(saving) : ''} onChange={(v) => onSaving(v === '' ? undefined : Number(v))} errorKey="estimatedSaving" />
           ) : (
             <div className="flex h-10 items-center rounded-[12px] border border-[#E5E7EB] bg-[#F8F9FA] px-3 text-sm font-semibold text-[#4B5366]">
               {saving > 0 ? `£${money(saving)}` : 'Add the details above'}
             </div>
           )}
+          {/* A derived saving has no input of its own; surface the S5 mark here when it fails. */}
+          {!(canSaving && isBogo) ? <FieldError errorKey="estimatedSaving" /> : null}
           <p className="text-[12px] text-[#8089A4]">{savingHint(state.fields)}</p>
           {mismatch ? <p className="text-[12px] font-semibold text-[#B45309]">{mismatch}</p> : null}
         </div>

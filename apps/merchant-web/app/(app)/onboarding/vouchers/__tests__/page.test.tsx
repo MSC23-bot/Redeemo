@@ -297,6 +297,11 @@ describe('2-voucher flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
     await screen.findByText('What does the customer buy?')
 
+    // S5: the offer must be complete before Submit is allowed.
+    fireEvent.change(screen.getByPlaceholderText('e.g. A main course') as HTMLInputElement, { target: { value: 'A main course' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. A second of equal or lower value') as HTMLInputElement, { target: { value: 'A second main' } })
+    fireEvent.change(screen.getByLabelText('Value of the free item') as HTMLInputElement, { target: { value: '12' } })
+
     submitFlagship(/Save voucher 1 of 2/i)
     await waitFor(() => expect(submitRmvVoucher).toHaveBeenCalledWith('rmv-1'))
 
@@ -319,6 +324,10 @@ describe('2-voucher flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /Freebie/i }))
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
     await screen.findByText('What does the customer get free?')
+
+    // S5: complete the freebie (a standalone freebie needs no qualifying purchase).
+    fireEvent.change(screen.getByPlaceholderText('e.g. A dessert') as HTMLInputElement, { target: { value: 'A dessert' } })
+    fireEvent.change(screen.getByLabelText('Worth') as HTMLInputElement, { target: { value: '6' } })
 
     submitFlagship(/Save voucher 2 of 2/i)
     await waitFor(() => expect(push).toHaveBeenCalledWith('/'))
@@ -388,8 +397,12 @@ describe('DRAFT resume + cap consistency (review-mandated fix)', () => {
     listRmvVouchers.mockResolvedValueOnce([row]).mockResolvedValue([{ ...row, status: 'PENDING_APPROVAL' }])
     renderPage()
     await screen.findByText('What does the customer buy?')
-    // Submit the resumed DRAFT -> updates THIS draft id then submits it. An empty BOGO is
-    // Too weak, so the soft warning interposes; submitFlagship clears it.
+    // S5: complete the resumed BOGO before submitting it (an empty BOGO fails closed).
+    fireEvent.change(screen.getByPlaceholderText('e.g. A main course') as HTMLInputElement, { target: { value: 'A main course' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. A second of equal or lower value') as HTMLInputElement, { target: { value: 'A second main' } })
+    fireEvent.change(screen.getByLabelText('Value of the free item') as HTMLInputElement, { target: { value: '12' } })
+    // Submit the resumed DRAFT -> updates THIS draft id then submits it. submitFlagship
+    // clears the soft weak-warning if it interposes.
     submitFlagship(/Save voucher 1 of 2/i)
     await waitFor(() => expect(submitRmvVoucher).toHaveBeenCalledWith('rmv-draft-1'))
     expect(createFlagshipRmv).not.toHaveBeenCalled()

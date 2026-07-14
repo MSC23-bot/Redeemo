@@ -22,6 +22,8 @@ import { builderTypeToEnum, enumToBuilderType } from '@/lib/voucher/typeMeta'
 import type { BuilderType } from '@/lib/voucher/terms'
 import { TypePicker } from '@/components/onboarding/vouchers/TypePicker'
 import { BuilderForm, type BuilderSavePayload, type BuilderResumeSeed } from '@/components/onboarding/vouchers/BuilderForm'
+import { parseIncompleteFields } from '@/components/vouchers/shared'
+import type { FieldError } from '@/lib/voucher/submitValidity'
 
 // M2 F5: the flagship voucher builder onboarding page. Wires the two-step flow:
 //   Step 1 picker -> POST create-flagship (DRAFT RMV) -> Step 2 guided builder ->
@@ -73,6 +75,9 @@ export default function VouchersPage() {
   const [draftRmvId, setDraftRmvId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // S5 belt-and-braces: a backend VOUCHER_INCOMPLETE response's fields[], handed to the
+  // BuilderForm so it marks the same fields inline (the client gate makes this rare).
+  const [submitFieldErrors, setSubmitFieldErrors] = useState<FieldError[] | null>(null)
   // Local mirror of "vouchers submitted so far" so we advance to 2 of 2 in-session
   // without waiting on a refetch.
   const [submittedCount, setSubmittedCount] = useState<number | null>(null)
@@ -219,6 +224,7 @@ export default function VouchersPage() {
   async function persist(payload: BuilderSavePayload, submit: boolean) {
     if (!draftRmvId) return
     setError(null)
+    setSubmitFieldErrors(null)
     setSaving(true)
     try {
       await updateRmvVoucher(draftRmvId, {
@@ -261,7 +267,15 @@ export default function VouchersPage() {
         setResumeResolved(false)
       }
     } catch (err) {
-      setError(voucherErrorMessage(err))
+      // S5: a backend VOUCHER_INCOMPLETE marks the offending fields inline (no generic
+      // banner); anything else shows the calm generic message.
+      const incomplete = parseIncompleteFields(err)
+      if (incomplete) {
+        setSubmitFieldErrors(incomplete)
+        setError(null)
+      } else {
+        setError(voucherErrorMessage(err))
+      }
     } finally {
       setSaving(false)
     }
@@ -286,6 +300,7 @@ export default function VouchersPage() {
         voucherIndex={voucherIndex}
         saving={saving}
         saveError={error}
+        submitFieldErrors={submitFieldErrors}
         initialFields={resumeSeed ?? undefined}
         allowedFields={rmvAllowedFields(currentRow)}
         onSave={(p) => persist(p, false)}
