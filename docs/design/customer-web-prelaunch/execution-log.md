@@ -1068,3 +1068,20 @@ Ruling: the hero carries a rose Brand Full Stop after BOTH sentences,
 owner-ruled exception to the one-per-screen guard; everywhere else keeps
 one stop per composition (sub-page heroes keep white-on-navy, ink
 headlines keep rose).
+
+## 2026-07-14 · App closer panel rebuilt (owner round)
+
+Owner flagged the "Vouchers in your pocket. Coming with launch." panel:
+CTA fatigue right after the pricing tickets' CTAs, static feel, the
+dotted "REDEEMO APP" eyebrow read AI-generic, wanted a premium phone
+mockup breaking out of the frame. Rebuild: the voucher-detail app
+screenshot in a tilted phone that stands THROUGH the navy panel (past
+its top edge on mobile, top and bottom on desktop; clipping moved to an
+inner effects layer so the panel never clips it), spring rise-in on
+scroll, two floating die-cut offer chips (2 FOR 1 / £10 OFF) with a slow
+bob (disabled under reduced motion). Eyebrow removed. Copy: headline now
+"Vouchers in your pocket. / Redemption in seconds."; sub explains the
+app's role and that accounts carry over at launch. CTA keeps /register
+but changes job: "Be first to get the app" (the sign-up wording lives
+with pricing; this is the app-anticipation ask), micro "Free to join,
+no card needed." tsc clean; verified 1440x900 + 390x780.
