@@ -210,6 +210,25 @@ the walk:**
   banner) based on the WEB service's `EMAIL_ENABLED=false`, while the WORKER actually sends.
   With the worker now ALWAYS-ON the label is wrong permanently, not just during windows.
   Align the flag posture or derive the label from delivery outcome.
+- **§PW-MAIN-5 (pre-existing Playwright failures on main, found 2026-07-13):** the full
+  merchant-web Playwright lane fails 5/57 on clean main (quick-actions.spec.ts:10 and four
+  redemptions-detail cases: strict-mode/timeout errors), byte-identical with and without the
+  voucher-builder branches. Not caused by the voucher-builder programme; the analytics-mock
+  gap was separately fixed in #520 `e6b9db27`. Triage the 5 specs (stale locators vs real
+  regressions) before promoting the browser-smoke lane to a required check.
+- **§VB-FU (Voucher Builder non-blocking follow-ups, opened 2026-07-14; programme SHIPPED,
+  PROJECT-STATE change log 2026-07-14):** (a) client-side strict-case parity: the client
+  submit gate can adopt the fixture's STRICT_CONTRACT_CASES for symmetric inline UX (backend
+  is authoritative and fail-closed regardless); (b) two dev-only fixtures
+  (prisma/seed-time-limited-fixtures.ts, prisma/insights-demo-fixture.ts) create markerless
+  vouchers born ACTIVE that never traverse the submit gate: inert, left as-is; (c) the
+  server-owned __submitContract marker is returned in getVoucher / admin JSON responses:
+  harmless (not caller-settable; builders ignore unknown keys), noted for awareness.
+- **§VB-STRICT-DRAFTS (owner-paused data disposition, 2026-07-14):** 2 real-data flagship RMV
+  DRAFT rows on staging (empty bags, created 2026-07-13) remain markerless-exempt. Read-only
+  dry-run packet prepared (STRICT-MARKER-DRYRUN-PACKET.md); recommended disposition is to stamp
+  ONLY those 2 during a later staging deploy/reconciliation window so they fail closed until
+  completed. NOT applied; awaits separate owner approval; no other row touched.
 - **§KRAFT-FU (Kraft-walkthrough follow-ups, opened 2026-07-12; the packet itself is
   CLOSED: PROJECT-STATE change log 2026-07-12):** (a) gallery-photo crop parity: #484 wired
   the crop modal into logo/banner via file-upload, but the BrandingPhotosCard gallery path
