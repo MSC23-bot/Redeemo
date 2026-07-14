@@ -72,10 +72,13 @@ function formatLondon(iso: string): string {
   return Number.isNaN(d.getTime()) ? '-' : londonDateTimeFmt.format(d)
 }
 
+// Exact-match only: 'ACTIVE' is green, 'RETRACTED' is neutral, and anything
+// else (a status value this client doesn't recognise yet) renders neutrally
+// with the raw status string as its own label. Never fall through to Active.
 function statusPill(status: string): { label: string; tone: BadgeTone } {
-  return status === 'RETRACTED'
-    ? { label: 'Retracted', tone: 'neutral' }
-    : { label: 'Active', tone: 'success' }
+  if (status === 'ACTIVE') return { label: 'Active', tone: 'success' }
+  if (status === 'RETRACTED') return { label: 'Retracted', tone: 'neutral' }
+  return { label: status, tone: 'neutral' }
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -228,9 +231,13 @@ function NoteCard({
   onStartRetract,
 }: NoteCardProps) {
   const pill = statusPill(note.status)
+  // Exact-match, not "!== ACTIVE" and not "!== RETRACTED": an unrecognised
+  // status must be neither presentation, so it can't inherit either one's
+  // affordances (drift fail-closed, not fail-open to the Active actions).
+  const isActive = note.status === 'ACTIVE'
   const isRetracted = note.status === 'RETRACTED'
   const isOwn = currentAdminId != null && note.authorAdminId === currentAdminId
-  const canAct = isOwn && !isRetracted
+  const canAct = isOwn && isActive
   const editTrimmed = editDraft.trim()
   const editCanSave = editTrimmed.length > 0 && editTrimmed !== note.body && !editIsPending
 
@@ -262,7 +269,11 @@ function NoteCard({
       {/* Body (inline edit for own + active notes). */}
       {isEditing ? (
         <div className="mt-3 space-y-2">
+          <label htmlFor={`note-edit-textarea-${note.id}`} className="sr-only">
+            Edit note
+          </label>
           <textarea
+            id={`note-edit-textarea-${note.id}`}
             value={editDraft}
             onChange={(e) => onEditDraftChange(e.target.value)}
             rows={4}

@@ -218,6 +218,33 @@ describe('NotesTab action visibility', () => {
     expect(screen.queryByTestId('note-edit-n-ret')).not.toBeInTheDocument()
     expect(screen.queryByTestId('note-retract-n-ret')).not.toBeInTheDocument()
   })
+
+  it('shows the exact Active / Retracted pills for the two known statuses', () => {
+    mockNotesQuery.data = [
+      makeNote({ id: 'n-active', status: 'ACTIVE' }),
+      makeNote({ id: 'n-retracted', status: 'RETRACTED', retractedById: 'admin-me' }),
+    ]
+    render(<NotesTab merchantId="m-1" />)
+    expect(screen.getByTestId('note-status-n-active')).toHaveTextContent('Active')
+    expect(screen.getByTestId('note-status-n-retracted')).toHaveTextContent('Retracted')
+  })
+
+  // Regression pin: the client Zod schema tolerates unknown future status
+  // values via `.or(z.string())` drift resilience. An unrecognised status
+  // must render neutrally and non-actionably rather than falling through to
+  // the Active presentation (drift fail-open would leak Edit/Retract to an
+  // owned note the server never marked ACTIVE).
+  it('renders an OWNED note with an unknown status neutrally: no actions, no strike-through, raw status shown', () => {
+    mockNotesQuery.data = [
+      makeNote({ id: 'n-drift', authorAdminId: 'admin-me', status: 'ARCHIVED' }),
+    ]
+    render(<NotesTab merchantId="m-1" />)
+    expect(screen.queryByTestId('note-edit-n-drift')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('note-retract-n-drift')).not.toBeInTheDocument()
+    expect(screen.getByTestId('note-body-n-drift').className).not.toMatch(/line-through/)
+    expect(screen.queryByTestId('note-retracted-meta-n-drift')).not.toBeInTheDocument()
+    expect(screen.getByTestId('note-status-n-drift')).toHaveTextContent('ARCHIVED')
+  })
 })
 
 // ── Inline edit ─────────────────────────────────────────────────────────────────
@@ -247,6 +274,15 @@ describe('NotesTab inline edit', () => {
     render(<NotesTab merchantId="m-1" />)
     fireEvent.click(screen.getByTestId('note-edit-n-1'))
     expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(/already been retracted/i)
+  })
+
+  it('gives the inline edit textarea an accessible name', () => {
+    mockNotesQuery.data = [makeNote({ id: 'n-1' })]
+    render(<NotesTab merchantId="m-1" />)
+    fireEvent.click(screen.getByTestId('note-edit-n-1'))
+    expect(screen.getByRole('textbox', { name: /edit note/i })).toBe(
+      screen.getByTestId('note-edit-textarea-n-1')
+    )
   })
 })
 
