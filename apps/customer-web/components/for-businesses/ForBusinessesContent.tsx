@@ -30,8 +30,8 @@ const VALUE_PROPS = [
     body: 'Unlike paid ads, the only cost is the offer you set, and only when a customer actually visits and spends. Your spend is tied to a real visit, not a click.',
   },
   {
-    title: 'One voucher per member per month.',
-    body: 'Members redeem once per subscription cycle per merchant. You attract customers and turn them into regulars. You are not subsidising every visit forever.',
+    title: 'You set the offers. And the limits.',
+    body: 'Each voucher can be used once per member each month, and you choose how many vouchers you run and what their terms allow. You attract customers and turn them into regulars, without an open-ended discount.',
   },
   {
     title: 'Full digital verification.',
@@ -62,7 +62,7 @@ const COMPARISONS = [
   {
     claim: 'Acquires customers. Doesn\'t subsidise them.',
     detail:
-      'A member redeems once per cycle per merchant. The other visits in that month are at full price. Redeemo acquires new customers. It does not permanently discount your regulars.',
+      'Each voucher is limited to once per member each month, and you decide how many offers you run and on what terms. Redeemo acquires new customers. It does not permanently discount your regulars.',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />

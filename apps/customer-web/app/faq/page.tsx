@@ -44,7 +44,7 @@ const FAQ_SECTIONS: FaqSection[] = [
     items: [
       {
         q: 'What does my subscription get me?',
-        a: 'One active subscription gives you access to every voucher at every merchant on Redeemo. You can redeem one voucher per merchant per subscription cycle. There are no additional costs per redemption.',
+        a: 'One active subscription gives you access to every voucher at every business on Redeemo. Each voucher can be used once per subscription month and comes back when your new month starts. There are no additional costs per redemption.',
       },
       {
         q: 'What is a subscription cycle?',
@@ -84,7 +84,7 @@ const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         q: 'Can I redeem at the same merchant more than once a month?',
-        a: 'You can redeem one voucher per merchant per subscription cycle. Additional visits are at full price. The voucher does not apply to every visit. It applies once per cycle.',
+        a: 'Each voucher works once per subscription month and returns when your new month starts. Businesses often run several vouchers at once, and each voucher’s terms say how it can be used in a single visit.',
       },
       {
         q: 'What happens to my vouchers if I cancel?',

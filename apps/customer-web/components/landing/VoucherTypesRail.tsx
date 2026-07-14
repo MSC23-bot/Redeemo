@@ -330,8 +330,25 @@ function ShelfHeader() {
   )
 }
 
+// Accuracy (owner 2026-07-14): each VOUCHER works once per member each
+// month and returns with the new month; businesses can run as many
+// vouchers as they like (per-visit limits are their terms). Never say
+// "one redemption per place": it undersells the model.
 const FOOTER_LINE =
-  'One membership unlocks all seven, wherever you see them. One redemption per place each month (reusables come back sooner).'
+  'One membership unlocks all seven, wherever you see them: and businesses can run as many offers as they like.'
+
+/** The renewal model, given the eye-catching moment it earns (owner
+    2026-07-14): every used voucher comes back with the new month. */
+function RenewalNote({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={compact ? 'mt-3' : 'mt-4'}>
+      <p className={`font-display text-white ${compact ? 'text-[17px]' : 'text-[19px]'} mb-1`} style={{ letterSpacing: '-0.2px' }}>
+        Use a voucher. It comes back next month.
+      </p>
+      <p className={`${compact ? 'text-[11.5px]' : 'text-[12px]'} text-white/50 leading-[1.6]`}>{FOOTER_LINE}</p>
+    </div>
+  )
+}
 
 export function VoucherTypesRail() {
   const trackRef = useRef<HTMLDivElement>(null)
@@ -407,7 +424,7 @@ export function VoucherTypesRail() {
           ))}
         </div>
         <div className="relative px-6 mt-2">
-          <p className="text-[12px] text-white/50 leading-[1.6]">Swipe for more · {FOOTER_LINE}</p>
+          <RenewalNote compact />
         </div>
       </section>
     )
@@ -453,7 +470,7 @@ export function VoucherTypesRail() {
               <div className="absolute inset-0 border-t-[3px] border-dotted border-white/20" />
               <motion.div className="absolute inset-y-0 left-0 w-full origin-left" style={{ scaleX: progress, background: 'var(--brand-gradient)' }} />
             </div>
-            <p className="mt-4 text-[12px] text-white/50">{FOOTER_LINE}</p>
+            <RenewalNote />
           </div>
         </div>
       </section>
@@ -497,7 +514,7 @@ export function VoucherTypesRail() {
               <div className="absolute inset-0 border-t-[3px] border-dotted border-white/20" />
               <motion.div className="absolute inset-y-0 left-0 w-full origin-left" style={{ scaleX: mProgress, background: 'var(--brand-gradient)' }} />
             </div>
-            <p className="mt-3 text-[11.5px] text-white/50 leading-[1.6]">{FOOTER_LINE}</p>
+            <RenewalNote compact />
           </div>
         </div>
       </section>

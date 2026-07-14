@@ -964,3 +964,20 @@ edited by this workstream.
   The under-shelf lockup is REMOVED (the title took its job); the Monthly
   ticket keeps "One redemption usually covers it. Cancel anytime." as the
   at-price echo. tsc clean; verified at 1440x900.
+- REDEMPTION-MODEL ACCURACY SWEEP + RENEWAL SPOTLIGHT (owner 2026-07-14):
+  the site repeatedly claimed "one redemption per place/merchant per
+  month": WRONG. Correct model (matches business rule 3): each VOUCHER is
+  redeemable once per member per cycle and returns with the new cycle;
+  merchants can run as many vouchers as they like, so a member can redeem
+  several times at one business in a month; per-visit limits live in each
+  voucher's terms. Fixed: rail footer line, FAQ (two answers), About page
+  economics paragraph, for-businesses value prop ("You set the offers.
+  And the limits.") + comparison detail, merchant-pitch baseline-offers
+  line. The RENEWAL model also gets its eye-catching moment (owner: it is
+  a big advantage said only in passing): the shelf's closing block is now
+  a bold display line "Use a voucher. It comes back next month." over the
+  corrected membership line, on all three rail variants. NOT touched:
+  app/terms/page.tsx still says one-voucher-per-merchant-per-cycle:
+  FLAGGED to owner (legal copy; solicitor review pending). The
+  redeemo-audience-profile skill's stale product facts were corrected in
+  place. tsc clean; shelf verified at 1440x900.
