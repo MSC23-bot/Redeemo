@@ -163,6 +163,15 @@ verify, branch PIN email, and the onboarding lifecycle notices — full caller i
   clearable by a SUPER_ADMIN action. Scope this as a SMALL follow-up within the enablement slice, not a
   blocker for first flip (the global daily gate GAP-1 is the hard cost stop; the auto-pause is defence in
   depth). Mark GAP-6 severity LOW-MEDIUM.
+  - AS IMPLEMENTED (PR #513): the pause is truly fail-closed, NOT the "QUEUED-not-sent, same as dark mode"
+    sketch above. When `email:send:paused` is set, `notify()` declines at the single choke point and returns
+    `{ queued: false, reason: 'send-paused' }`, writing NO outbox row. Rationale: a QUEUED-not-sent contract
+    would leave stale QUEUED rows that the delivery worker (which does not read the pause flag) would drain
+    the instant sending resumes, defeating the pause. Writing no row is the fail-closed contract that a
+    paused platform cannot leak sends through the worker. The flag has no TTL (persists until a SUPER_ADMIN
+    clears it); the bounce-ratio trigger fires from the Resend webhook and is bound to the FIRST BOUNCED
+    status transition so a duplicate webhook delivery cannot inflate the ratio (PR #513 idempotency
+    correction). Adjudicated by Fable, ratified by Codex review.
 
 ### 1.7 Monitoring / logging / SUPER_ADMIN visibility — PARTIAL
 
