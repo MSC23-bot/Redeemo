@@ -432,7 +432,10 @@ export async function submitInvite(
  *
  * Returns the number of rows scrubbed.
  */
-export async function scrubInvitesForUser(prisma: PrismaClient, userId: string): Promise<number> {
+export async function scrubInvitesForUser(
+  prisma: PrismaClient | Prisma.TransactionClient,
+  userId: string,
+): Promise<number> {
   const result = await prisma.merchantInvite.updateMany({
     where: { inviterUserId: userId, anonymisedAt: null },
     data: { note: null, inviterEmailNorm: null, ipHash: null, anonymisedAt: new Date() },

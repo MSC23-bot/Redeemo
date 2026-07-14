@@ -216,17 +216,21 @@ export async function customerAuthRoutes(app: FastifyInstance) {
     await app.redis.del(RedisKey.otpAction(req.user.sub, 'ACCOUNT_DELETION'))
 
     const anonymisedEmail = `deleted_${req.user.sub}@deleted.redeemo.co.uk`
-    await app.prisma.user.update({
-      where: { id: req.user.sub },
-      data: {
-        email: anonymisedEmail, phone: null, firstName: '[Deleted]', lastName: '[Deleted]',
-        passwordHash: null, deletedAt: new Date(), status: 'DELETED',
-      },
-    })
-
-    // Invite PII rides account erasure; see spec A2.
+    // User anonymisation + invite PII scrub commit ATOMICALLY (adversarial
+    // review round 2: the action token is consumed above, so a scrub failure
+    // after a committed user.update would leave un-erased invite PII with no
+    // re-run path). See spec A2.
     const { scrubInvitesForUser } = await import('../../customer/invites/service')
-    await scrubInvitesForUser(app.prisma, req.user.sub)
+    await app.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: req.user.sub },
+        data: {
+          email: anonymisedEmail, phone: null, firstName: '[Deleted]', lastName: '[Deleted]',
+          passwordHash: null, deletedAt: new Date(), status: 'DELETED',
+        },
+      })
+      await scrubInvitesForUser(tx, req.user.sub)
+    })
 
     const { revokeAllSessionsForEntity, revokeAllUserSessionRecords } = await import('../../shared/session')
     await revokeAllSessionsForEntity(app.redis, { role: 'customer', entityId: req.user.sub })
