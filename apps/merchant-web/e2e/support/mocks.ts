@@ -134,6 +134,46 @@ export function voucherDetailFixture(id = 'v-custom-1', over: Record<string, unk
   }
 }
 
+// Voucher ANALYTICS row (GET /merchant/vouchers/:id/analytics): the shape the
+// VoucherAnalytics detail-page panel renders (lib/api/voucher.ts
+// voucherAnalyticsSchema). whenUsed intensity fields are ordinal 0-3 bands
+// (the same privacy contract as the Insights busy-times fixture above: no raw
+// counts on the wire, only a bucketed intensity).
+export function voucherAnalyticsFixture(id = 'v-custom-1', over: Record<string, unknown> = {}) {
+  return {
+    voucherId: id,
+    totals: {
+      logged: 32,
+      confirmed: 30,
+      confirmedInPersonPct: 94,
+      distinctCustomers: 21,
+      estimatedSavingLogged: 144,
+      estimatedSavingConfirmed: 135,
+    },
+    lifecycle: {
+      liveSince: '2026-06-19T10:00:00.000Z',
+      liveSinceSource: 'publishedAt',
+      daysLive: 25,
+    },
+    trend: {
+      months: [
+        { monthStartLondon: '2026-05-01', logged: 12, confirmed: 11 },
+        { monthStartLondon: '2026-06-01', logged: 20, confirmed: 19 },
+      ],
+    },
+    whenUsed: {
+      days: [{ index: 1, intensity: 2 }],
+      dayparts: [{ index: 2, intensity: 3 }],
+      busiestDay: 1,
+      busiestDaypart: 2,
+    },
+    whereUsed: {
+      branches: [{ branchId: 'b1', name: 'Old Foundry', logged: 32, sharePct: 100 }],
+    },
+    ...over,
+  }
+}
+
 export function memberFixture(role: string) {
   return {
     id: 'mm1',
@@ -300,6 +340,17 @@ export interface MockApiOptions {
    */
   voucherDetails?: Record<string, Record<string, unknown>>
   /**
+   * GET /merchant/vouchers/:id/analytics response bodies, keyed by voucher
+   * id. Unlike voucherDetails, this is NOT opt-in-only: the VoucherAnalytics
+   * panel on the voucher detail page (components/vouchers/VoucherAnalytics.tsx)
+   * fetches unconditionally whenever the signed-in role has canViewInsights,
+   * with no per-spec toggle to skip it - so an id missing from this map still
+   * gets a populated default fixture (voucherAnalyticsFixture) rather than an
+   * unmocked 404, keeping every pre-existing spec that never heard of this
+   * option passing byte-for-byte.
+   */
+  voucherAnalytics?: Record<string, Record<string, unknown>>
+  /**
    * Decrypted PIN values for GET /merchant/branches/:id/pin, keyed by branch id
    * (branches.spec.ts PIN-reveal journey). Default: {} - any branch id not listed
    * returns { pin: null }, matching every pre-existing spec byte-for-byte since none
@@ -375,6 +426,9 @@ export async function installMockApi(
   // cross-test pollution this guards against.
   const voucherDetails: Record<string, Record<string, unknown>> = JSON.parse(
     JSON.stringify(opts.voucherDetails ?? {}),
+  )
+  const voucherAnalytics: Record<string, Record<string, unknown>> = JSON.parse(
+    JSON.stringify(opts.voucherAnalytics ?? {}),
   )
   const tracker: MockApiTracker = { unmatched: [] }
 
@@ -519,6 +573,17 @@ export async function installMockApi(
         return
       }
       await route.fulfill(json(200, flagshipVouchers))
+      return
+    }
+    // GET /merchant/vouchers/:id/analytics (VoucherAnalytics detail-page
+    // panel). Checked BEFORE the detail-by-id match below so the extra path
+    // segment never falls through to it; always modelled (see
+    // MockApiOptions.voucherAnalytics) since the panel fetches unconditionally
+    // for any capable role, unlike the opt-in-only voucherDetails contract.
+    const voucherAnalyticsMatch = p.match(/^\/api\/v1\/merchant\/vouchers\/([^/]+)\/analytics$/)
+    if (method === 'GET' && voucherAnalyticsMatch) {
+      const vid = voucherAnalyticsMatch[1]
+      await route.fulfill(json(200, voucherAnalytics[vid] ?? voucherAnalyticsFixture(vid)))
       return
     }
     // GET/PATCH the custom voucher DETAIL by id. Checked AFTER the literal
