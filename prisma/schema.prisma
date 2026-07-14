@@ -446,10 +446,13 @@ enum SignatureMethod {
 
 // D65 (in-person signing ceremony): the CHANNEL a MerchantAgreementRecord was
 // signed through. IN_PERSON_ASSISTED = the assisted-onboarding ceremony on a
-// Redeemo rep's device (the rep is the witness, actorAdminId set, never the
-// signer); SELF_SERVE_CLICK = the merchant portal click-to-agree fallback
-// (actorAdminId null). MerchantContract.signatureMethod stays CLICK_TO_AGREE for
-// both in this slice; the fidelity of channel lives here (spec §4.2).
+// Redeemo rep's device: the rep is recorded in the witness fields (actorAdminId
+// set), and the typed signerName is the owner's own signature of record - an
+// obvious same-name signing is refused, though the system cannot independently
+// prove two distinct humans were present (see MerchantAgreementRecord below).
+// SELF_SERVE_CLICK = the merchant portal click-to-agree fallback (actorAdminId
+// null). MerchantContract.signatureMethod stays CLICK_TO_AGREE for both in this
+// slice; the fidelity of channel lives here (spec §4.2).
 enum AgreementSignMethod {
   IN_PERSON_ASSISTED
   SELF_SERVE_CLICK

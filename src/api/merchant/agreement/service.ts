@@ -57,8 +57,11 @@ export function isProductionDeploy(): boolean {
 
 /**
  * True while the agreement is pending legal review. Default TRUE (fail-closed):
- * only the literal 'false' lifts it (the owner's post-sign-off action). Drives the
- * DRAFT watermark everywhere and the production binding-write block.
+ * only the literal 'false' lifts it (the owner's post-sign-off action). SCOPE: this
+ * participates ONLY in the production BINDING-write gate (isVersionGated /
+ * assertBindingWriteAllowed) for a version that is not itself a draft. It does NOT
+ * drive the DRAFT watermark: that follows the agreement version's own draft status
+ * ONLY (isVersionWatermarked), independent of this flag. See that helper.
  */
 export function legalReviewRequired(): boolean {
   return (process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED ?? 'true') !== 'false'
