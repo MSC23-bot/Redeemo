@@ -288,3 +288,34 @@ committed AND pushed beforehand: zero loss); restored with a clean
 every git command in multi-worktree sessions carries an explicit `cd`.
 This is the same failure class as the 2026-07-09 agent incidents; it
 can hit the lead's own shell, not only agents.
+
+## Codex correction round record (2026-07-14, second autonomous window)
+
+Owner-directed Fable-led correction round over #525/#526/#527. Spec
+Amendment A2 carries the rulings; renewed heads: docs @ this commit,
+M0 feat/invite-referral-m0 @ 1b039f48, M1 feat/invite-referral-m1 @
+8789c451 (stacked, force-with-lease after rebases). Round-2 adversarial
+review (Opus, concurrency/privacy): NO blocker, NO high; its one
+headline-touching MEDIUM (erasure durability: scrub not atomic with the
+user anonymisation, consumed action token left no re-run path) was
+FIXED in 1b039f48 (single transaction). Recorded ticket items from
+round 2, none gating the unmerged stack:
+- Sybil note: delete + re-register mints a new userId/inviterKey and
+  could re-earn in Phase 3; bounded by registration friction and the
+  Phase-3 re-verify hard gate; acknowledge in the reward design.
+- Phase-2 claim rewrite (e:hash -> u:userId) must MERGE with any
+  existing u-row for the same placeKey, never blind-update (unique
+  collision).
+- Production sizing item: consider SET LOCAL lock_timeout inside the
+  submit transaction mapped to a retryable 429 (same-business pile-up
+  currently surfaces as P2028 500s at Prisma's ~5s default; bounded,
+  ugly).
+- inviteSubmitLimiter runs after zod parse (malformed bodies do not
+  burn the global counter); intentional, documented.
+- hashtext 32-bit lock collisions: false-serialisation only; a true
+  cross-namespace deadlock cycle is pathological and self-resolved by
+  Postgres; no action.
+
+Enablement gates restated (blocking INVITES_ENABLED in production):
+owner threshold/cost-cap sizing (A2.4), audit-row retention/redaction
+decision (A2.6), plus the standing migration-window scheduling.

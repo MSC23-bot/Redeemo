@@ -1215,3 +1215,22 @@ every git command. M2 admin exposure remains backend-contract-only
 (admin-web frozen: #514/#516/#521); M3 site surfaces not built this
 run (they belong on this branch and need the M1 API contract owner-
 reviewed first).
+
+## 2026-07-14 · Codex correction round complete (invite/referral stack)
+
+Owner-directed hold + fix pass. Renewed heads: #525 docs @ b0ab3069
+(spec Amendment A2 + plan record), #526 M0 @ 1b039f48, #527 M1 @
+8789c451. Substance: stable inviterKey identity (u:<userId>; email
+changes can no longer bypass dedupe; Phase 1 persists NO email),
+erasure proven and made atomic with account deletion, advisory-lock
+concurrency (one lead per business, atomic 10-cap; genuine race
+regressions in the integration lane), TRUE dark-by-default via
+boot-time registration gating (probe matrix pinned), per-IP
+inviteSubmitLimiter with owner-gated production sizing, exact-
+constraint P2002, migration regenerated create-only + diff --check
+clean. Round-2 Opus review: no blocker/high; its one MEDIUM (erasure
+durability) fixed same round. Enablement gates: threshold sizing +
+audit-retention decision + migration window, all owner-held. Sonnet
+executed both correction briefs; every diff lead-reviewed; two lead
+command slips this round (an accidental --amend fold, corrected via
+message amend; a hook false-positive on rm -f) recorded honestly.

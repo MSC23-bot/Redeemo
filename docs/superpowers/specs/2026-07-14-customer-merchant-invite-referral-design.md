@@ -366,3 +366,89 @@ proposals are corrected to the real platform.
   GET /api/v1/admin/leads list payload (LEAD_SELECT) with demand
   evidence (invite counts, latest notes) as a BACKEND contract; console
   UI changes ride the admin session later.
+
+---
+
+# Amendment A2 · 2026-07-14 · Codex correction round (authoritative over A1 and body)
+
+Codex review of the autonomous run (#525/#526/#527) required a
+correction round; owner directed a Fable-led fix pass. Rulings:
+
+## A2.1 Identity, dedupe and erasure (supersedes A1.1(4) identity model)
+
+The previous design made inviterEmailNorm identity + uniqueness + PII
+simultaneously: unsound (erasing it breaks uniqueness; an account email
+change bypasses the person+business dedupe). New invariant:
+
+- **inviterKey** (new column) is the STABLE, NON-PII inviter identity
+  and carries the uniqueness invariant UNIQUE(inviterKey, placeKey):
+  `u:<userId>` for registered inviters (survives email changes);
+  `e:<keyed-hash-of-verified-email>` RESERVED for the Phase 2 anonymous
+  lane, rewritten to `u:<userId>` when claimed at registration (so
+  post-claim re-invites of the same business collide correctly).
+- **inviterEmailNorm** is nullable, erasable PII and NEVER identity.
+  Phase 1 (signed-in) persists NO email at all (userId is the linkage);
+  only Phase 2 anonymous rows will store it, solely to enable claiming.
+- **Erasure is implemented, not promised**: the customer delete-account
+  flow now calls scrubInvitesForUser (nulls note, inviterEmailNorm,
+  ipHash; stamps anonymisedAt). inviterKey/inviterUserId remain as
+  pseudonymous linkage, the same persistence class as the anonymised
+  DELETED User row itself. Aggregate demand (placeKey, businessNameRaw,
+  leadId, countableAt) survives anonymously (legitimate interest).
+- The anonymise sweep may null inviterKey on terminal anonymous rows
+  (Postgres unique indexes treat NULLs as distinct).
+
+## A2.2 Concurrency (supersedes the F3/F4 accepted-risk dispositions)
+
+Both races are now serialised with transaction-scoped advisory locks
+acquired in one fixed-order statement (placeKey then inviterKey) at the
+top of the submit transaction:
+- placeKey lock: concurrent submissions for the same new business
+  serialise through attach-or-create, so exactly ONE MerchantLead
+  exists per business (MerchantLead stays the sole recruitment truth).
+- inviterKey lock + in-transaction count: the 10-open-invite cap is
+  atomic (no TOCTOU overshoot).
+Genuine concurrency regressions live in
+tests/api/customer/invites/concurrency.integration.test.ts (loopback-
+guarded integration lane: 6-way same-business race yields one lead;
+12-way single-user race respects the cap).
+
+## A2.3 Feature-off contract (supersedes A1's handler-only gating)
+
+INVITES_ENABLED is now a BOOT-TIME registration gate: when off, the
+router never contains the invite paths, so unauthenticated,
+authenticated and would-be-throttled probes all receive the identical
+built-in 404 and no auth or rate-limit side effects run (true dark).
+Flipping the flag requires a restart (matches how env changes deploy).
+Handler-level checks remain as defence-in-depth. The probe matrix is
+pinned by tests.
+
+## A2.4 Abuse controls vs the signed-in Phase 1 threat model
+
+Layers now: per-user edge tier (10/hour) + atomic per-inviter cap (10
+open, in-tx) bound ONE account; NEW inviteSubmitLimiter bounds one
+MACHINE running many accounts (per-IP hourly abuser cap, default
+20/hour, env INVITE_SUBMIT_IP_HOURLY_CAP) and the platform (global
+daily gate, default 500/day, env INVITE_SUBMIT_GLOBAL_DAILY_CAP), with
+a dedicated INVITE_SUBMIT_RATE_LIMITED 429. All numeric thresholds are
+DEVELOPMENT DEFAULTS: production sizing (and Places cost-cap sizing) is
+OWNER-GATED before INVITES_ENABLED ever flips in production.
+
+## A2.5 P2002 and migration hygiene
+
+Duplicate-invite idempotence now requires an EXACT constraint match
+(target array equals {inviterKey, placeKey} or the constraint name
+MerchantInvite_inviterKey_placeKey_key); everything else rethrows. The
+migration was regenerated offline for the new columns (create-only,
+0 DROP/ALTER) and passes git diff --check (no whitespace defects).
+
+## A2.6 Raw-IP / audit retention (carries A1/F2 forward as a GATE)
+
+The recorded warning stands: LEAD_CREATED/INVITE_CREATED AuditLog rows
+retain raw IP + actor linkage under platform audit governance, so
+invite-row anonymisation alone does not sever inviter-IP linkage.
+RETENTION/REDACTION DECISION IS AN EXPLICIT OWNER GATE BEFORE PUBLIC
+ENABLEMENT: either the invite anonymise sweep (or a governed AuditLog
+retention job) extends to those rows, or the documented-linkage limit
+is accepted in writing. INVITES_ENABLED production flip is blocked on
+this decision alongside threshold sizing (A2.4).
