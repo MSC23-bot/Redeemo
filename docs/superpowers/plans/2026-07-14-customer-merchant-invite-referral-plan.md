@@ -319,3 +319,20 @@ round 2, none gating the unmerged stack:
 Enablement gates restated (blocking INVITES_ENABLED in production):
 owner threshold/cost-cap sizing (A2.4), audit-row retention/redaction
 decision (A2.6), plus the standing migration-window scheduling.
+
+## Round 3 CI-execution owner action (2026-07-14)
+
+Codex required the concurrency suite to EXECUTE in CI. The
+test:integration:invites script ships in M0 @ 7b359cdf, but the
+matching advisory pilot step edits .github/workflows/ci.yml and BOTH
+available tokens lack the GitHub `workflow` scope (push rejected). The
+ready-to-apply patch is committed alongside this plan:
+docs/superpowers/plans/2026-07-14-invite-ci-pilot-step.patch
+(adds the "Run invite-concurrency integration pilot (advisory)" step +
+explicit PASS/FAIL job-summary lines, mirroring the Insights and
+maintenance pilots exactly). OWNER ACTION: `git apply` the patch on a
+workflow-scoped credential and push; the next CI run on #526/#527 then
+executes the suite against the disposable loopback service and surfaces
+PASS/FAIL in the job summary. No local execution was possible on the
+build machine (no container runtime, no local Postgres): recorded
+honestly rather than claimed.
