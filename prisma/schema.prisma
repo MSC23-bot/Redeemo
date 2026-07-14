@@ -839,7 +839,7 @@ model MerchantAgreementRecord {
   signerRoleConfirmation String
 
   // Witness / channel. actorAdminId = the witnessing rep on IN_PERSON_ASSISTED;
-  // NULL on self-serve. The rep is NEVER the signer (admin-never-signs lock).
+  // NULL on self-serve. The rep is recorded here as witness, never in the signer fields; obvious same-name signing is refused, and the system cannot independently prove two distinct humans were present.
   actorAdminId           String?
   // Witness IDENTITY evidence (Codex correction FIX 2): the authenticated rep's own
   // name + email, looked up server-side from AdminUser at ceremony time, NOT any
