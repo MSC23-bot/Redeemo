@@ -23,6 +23,11 @@ describe('merchant auth routes', () => {
       set: vi.fn().mockResolvedValue('OK'),
       del: vi.fn().mockResolvedValue(1),
       keys: vi.fn().mockResolvedValue([]),
+      // GAP-5: the OTP resend-cooldown gate runs consume()'s SET-NX via eval;
+      // [1] = allowed. incr/expire back the failed-round counter (no-op here).
+      eval: vi.fn().mockResolvedValue([1]),
+      incr: vi.fn().mockResolvedValue(1),
+      expire: vi.fn().mockResolvedValue(1),
     } as any)
   })
 

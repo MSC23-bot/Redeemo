@@ -106,7 +106,9 @@ describe('login after claim — recognised-device path only (unknown-device OTP 
       userSession:        { create: vi.fn().mockResolvedValue({}) },
       auditLog:           { create: vi.fn().mockResolvedValue({}) },
     } as any)
-    app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue('OK') } as any)
+    // GAP-5: eval backs the OTP resend-cooldown gate ([1] = allowed); incr/expire/del
+    // back the failed-round counter (no-op for this login-only path).
+    app.decorate('redis', { get: vi.fn().mockResolvedValue(null), set: vi.fn().mockResolvedValue('OK'), del: vi.fn().mockResolvedValue(1), eval: vi.fn().mockResolvedValue([1]), incr: vi.fn().mockResolvedValue(1), expire: vi.fn().mockResolvedValue(1) } as any)
     await app.ready()
   })
   afterEach(async () => { await app.close() })

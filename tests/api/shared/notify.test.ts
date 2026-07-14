@@ -17,15 +17,32 @@ import { notify } from '../../../src/api/shared/notify'
 import { shimEval } from '../../../src/api/shared/atomicLimiter'
 import { RedisKey } from '../../../src/api/shared/redis-keys'
 import { hashEmail } from '../../../src/api/shared/pwdResetLimiter'
+import { utcDateStamp } from '../../../src/api/shared/emailOps'
 import { NotificationType } from '../../../generated/prisma/enums'
 
-function fakeRedis(opts: { suppressed?: boolean; counts?: Record<string, string> } = {}) {
+function fakeRedis(opts: { suppressed?: boolean; counts?: Record<string, string>; paused?: boolean } = {}) {
   const store = new Map<string, string>(Object.entries(opts.counts ?? {}))
+  // GAP-6: pre-set the pause flag when a test wants the breaker tripped. isSendPaused
+  // reads it via get() (NOT exists()), so this never collides with the suppression fake.
+  if (opts.paused) store.set(RedisKey.emailSendPaused(), JSON.stringify({ reason: 'gate-trips', at: '', actor: 'SYSTEM' }))
   return {
     _store: store,
     eval: vi.fn(async (_lua: string, numKeys: number, ...rest: Array<string | number>) =>
       shimEval(store, rest.slice(0, numKeys) as string[], rest.slice(numKeys), { ttlOf: () => 3600 })),
     exists: vi.fn(async (_key: string) => (opts.suppressed ? 1 : 0)),
+    // get MUST return null (not undefined) for a missing key so isSendPaused reads
+    // "not paused"; the GAP-7 counters read/write through get/incr/expire.
+    get: vi.fn(async (key: string) => store.get(key) ?? null),
+    incr: vi.fn(async (key: string) => {
+      const v = (parseInt(store.get(key) ?? '0', 10) || 0) + 1
+      store.set(key, String(v))
+      return v
+    }),
+    expire: vi.fn(async () => 1),
+    set: vi.fn(async (key: string, val: string) => {
+      store.set(key, val)
+      return 'OK'
+    }),
   } as unknown as Redis
 }
 
@@ -358,5 +375,59 @@ describe('notify: §SEC.1 limiter wiring (consumeEmailSend ctx)', () => {
     expect(res).toEqual({ queued: false, reason: 'rate-limited' })
     expect(createLog).not.toHaveBeenCalled()
     expect(enqueueMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('notify: GAP-6 auto send-pause (fail-closed, distinct reason)', () => {
+  it('declines with reason send-paused (NO row, NO enqueue, NO limiter budget) when the pause flag is set', async () => {
+    const { prisma, createLog, findUser } = fakePrisma()
+    const redis = fakeRedis({ paused: true })
+    const res = await notify(prisma, redis, { ...BASE, ip: '1.2.3.4' })
+    expect(res).toEqual({ queued: false, reason: 'send-paused' })
+    // No outbox row, no enqueue: a truly fail-closed stop at the choke point.
+    expect(createLog).not.toHaveBeenCalled()
+    expect(enqueueMock).not.toHaveBeenCalled()
+    // Checked BEFORE the limiter: the global gate counter was never touched.
+    const store = (redis as unknown as { _store: Map<string, string> })._store
+    expect(store.get(RedisKey.rateLimitEmailGlobalDay())).toBeUndefined()
+  })
+
+  it('a TRANSACTIONAL send is also paused (defence in depth applies to admin OTP etc.)', async () => {
+    const { prisma, createLog } = fakePrisma()
+    const res = await notify(prisma, fakeRedis({ paused: true }), { ...BASE, type: 'admin_otp', category: 'transactional' })
+    expect(res).toEqual({ queued: false, reason: 'send-paused' })
+    expect(createLog).not.toHaveBeenCalled()
+  })
+
+  it('NOT paused by default: send-paused never fires on a normal send', async () => {
+    const { prisma } = fakePrisma()
+    const res = await notify(prisma, fakeRedis(), { ...BASE, ip: '1.2.3.4' })
+    expect(res).toMatchObject({ queued: true })
+  })
+})
+
+describe('notify: GAP-7 send-volume counters (per-type + total, beside the limiter)', () => {
+  it('an ALLOWED send increments the per-type/day AND all/day counters', async () => {
+    const { prisma } = fakePrisma()
+    const redis = fakeRedis()
+    const day = utcDateStamp()
+    const res = await notify(prisma, redis, { ...BASE, type: 'branch_pin', ip: '5.5.5.5' })
+    expect(res).toMatchObject({ queued: true })
+    const store = (redis as unknown as { _store: Map<string, string> })._store
+    expect(store.get(RedisKey.emailSentCountType('branch_pin', day))).toBe('1')
+    expect(store.get(RedisKey.emailSentCountAll(day))).toBe('1')
+  })
+
+  it('a BLOCKED send does NOT increment the send counters', async () => {
+    const { prisma } = fakePrisma()
+    const redis = fakeRedis({ counts: { [RedisKey.rateLimitEmailGlobalDay()]: '2000' } })
+    const day = utcDateStamp()
+    const res = await notify(prisma, redis, { ...BASE, type: 'branch_pin', ip: '5.5.5.5' })
+    expect(res).toEqual({ queued: false, reason: 'rate-limited' })
+    const store = (redis as unknown as { _store: Map<string, string> })._store
+    expect(store.get(RedisKey.emailSentCountType('branch_pin', day))).toBeUndefined()
+    expect(store.get(RedisKey.emailSentCountAll(day))).toBeUndefined()
+    // The gate block DID count a gate-trip (GAP-6 repeated-trip trigger input).
+    expect(store.get(RedisKey.emailGateTripDay(day))).toBe('1')
   })
 })

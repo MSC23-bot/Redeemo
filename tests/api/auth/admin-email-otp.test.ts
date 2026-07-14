@@ -43,6 +43,12 @@ describe('loginAdmin — M0 generate + HMAC-store + email send', () => {
       get: vi.fn(async (_k: string) => null as string | null),
       set: vi.fn(async (_k: string, _v: string, ..._rest: unknown[]) => 'OK'),
       del: vi.fn(async (_k: string) => 1),
+      // GAP-5: the resend-cooldown gate runs consume()'s SET-NX via eval. A fresh
+      // store means the cooldown always acquires here (ok), so login proceeds; the
+      // cooldown/escalation behaviour itself is pinned in email-otp-cooldown.test.ts.
+      eval: vi.fn(async () => [1] as unknown),
+      incr: vi.fn(async () => 1),
+      expire: vi.fn(async () => 1),
     }
     const prisma = {
       adminUser: { findUnique: vi.fn(async () => ADMIN) },
@@ -123,6 +129,10 @@ describe('verifyAdminOtp — M0 HMAC verification + attempt limit', () => {
       get: vi.fn(async (k: string) => store[k] ?? null),
       set: vi.fn(async (k: string, v: string, ..._rest: unknown[]) => { store[k] = v; return 'OK' }),
       del: vi.fn(async (k: string) => { delete store[k]; return 1 }),
+      // GAP-5: a destroyed challenge records a failed ROUND (incr+expire); a good
+      // code clears it (del, above). No-op stubs here; behaviour pinned separately.
+      incr: vi.fn(async () => 1),
+      expire: vi.fn(async () => 1),
     }
     const prisma = {
       adminUser: { findUnique: vi.fn(async () => ADMIN) },

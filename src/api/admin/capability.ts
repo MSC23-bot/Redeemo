@@ -109,6 +109,15 @@ export type AdminCapability =
   // by SUPER_ADMIN. It is NOT in GRANTABLE_CAPABILITIES either, so no grant can
   // ever confer it (privilege-escalation guard, spec §7 invariant 1).
   | 'admin:manage-team'
+  // §SEC.1 GAP-7 (plan 2026-07-10-transactional-email-enablement §1.7): gates the
+  // read-only transactional-email OPS surface (the 24h send/failed/bounced
+  // aggregates + Redis counters + pause state) AND the SUPER_ADMIN-only resume
+  // action that clears the GAP-6 send-pause. The plan names no capability, so this
+  // follows the admin:manage-team precedent: NOT in any role baseline and NOT in
+  // GRANTABLE_CAPABILITIES, so under the SUPER_ADMIN short-circuit it is held ONLY
+  // by SUPER_ADMIN. Email ops (pausing/resuming all transactional mail, incl. admin
+  // OTP) is a platform-safety lever, so it sits at the top bar.
+  | 'email:ops'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',

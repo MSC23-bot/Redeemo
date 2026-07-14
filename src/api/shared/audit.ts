@@ -238,13 +238,24 @@ export type AuditEvent =
   | 'MERCHANT_NOTE_ADDED'
   | 'MERCHANT_NOTE_EDITED'
   | 'MERCHANT_NOTE_RETRACTED'
+  // §SEC.1 GAP-6 (plan 2026-07-10 §1.6): the automatic transactional-email
+  // send-pause circuit-breaker. `event` is a String column, so these are
+  // union-only literals with NO migration. entityType 'platform', entityId
+  // 'email' (a platform-scoped, non-entity row).
+  //   EMAIL_SEND_PAUSED  : sending was auto-paused (actorType SYSTEM; metadata
+  //                        carries the trigger reason: bounce-ratio | gate-trips).
+  //   EMAIL_SEND_RESUMED : a SUPER_ADMIN cleared the pause (actorType ADMIN).
+  | 'EMAIL_SEND_PAUSED'
+  | 'EMAIL_SEND_RESUMED'
 
 export interface AuditContext {
   entityId: string
   // 'voucher' added for the voucher governed flows (2026-07-07): the claim/release
   // audit-entity resolution for a VOUCHER_EDIT approval targets the real voucher
   // (entityType String column — union-only, no migration).
-  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher' | 'lead'
+  // 'platform' (GAP-6): a platform-scoped, non-entity row (the email send-pause
+  // breaker); entityType String column, so union-only, no migration.
+  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher' | 'lead' | 'platform'
   event: AuditEvent
   ipAddress: string
   userAgent: string
@@ -285,7 +296,9 @@ export interface AuditActorContext {
   /** The TARGET of the action (e.g. the merchant being created). */
   entityId: string
   // 'voucher': see the AuditContext note (voucher governed flows, 2026-07-07).
-  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher' | 'lead'
+  // 'platform' (GAP-6): a platform-scoped, non-entity row (the email send-pause
+  // breaker); entityType String column, so union-only, no migration.
+  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher' | 'lead' | 'platform'
   event: AuditEvent
   /** WHO performed the action. */
   actorId: string

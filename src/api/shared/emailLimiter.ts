@@ -160,3 +160,86 @@ export async function consumeEmailSend(redis: Redis, ctx: EmailSendContext): Pro
 
   return consume(redis, { gateKeys, abuserKeys, victimKeys })
 }
+
+// ── GAP-5: email-OTP resend cooldown + failed-round escalation ─────────────────
+//
+// §SEC.1 GAP-5 (plan 2026-07-10 §1.4, severity MODERATE). The per-(type,address)
+// + aggregate-address tiers above blunt inbox-bombing; GAP-5 closes the code-
+// FARMING / annoyance vector on the two EMAIL-OTP send paths (admin_otp +
+// merchant_login_otp) and gives a clean ops signal. It gates the REQUEST of a
+// fresh OTP email, NOT verification (verification keeps its own per-challenge
+// ADMIN/MERCHANT_OTP_MAX_ATTEMPTS ceiling).
+//
+// Two controls, keyed on the recipient IDENTITY (both send paths reach the OTP
+// step only AFTER a correct password, so the identity is already proven and no
+// enumeration oracle is created by a cooldown error):
+//   1. Resend cooldown: SET-NX-EX (the atomicLimiter `cooldown` scope, exactly as
+//      smsLimiter does for a phone). A rapid re-login within the window is blocked
+//      so the inbox is not flooded with fresh codes.
+//   2. Failed-round escalation: a per-recipient counter of CONSECUTIVE destroyed
+//      challenges (each Nth-wrong-code that burns a whole challenge). Once it
+//      crosses K, the cooldown TTL escalates to a much longer value, so an
+//      attacker who keeps farming-and-failing is throttled hard. A successful
+//      verification clears the counter (clearEmailOtpFailedRound).
+//
+// The failed-round READ then cooldown SET is deliberately two steps (not one Lua
+// script): this is an annoyance control, not a cost gate, so a rare race that
+// picks the shorter TTL is harmless. Volume/cost caps stay atomic in consume().
+const OTP_RESEND_COOLDOWN_SEC = 45
+const OTP_RESEND_COOLDOWN_ESCALATED_SEC = 15 * 60 // 15 min after K failed rounds
+const OTP_FAILED_ROUND_THRESHOLD = 3 // consecutive destroyed challenges before escalation
+const OTP_FAILED_ROUND_WINDOW_SEC = 3600 // the failed-round counter's own expiry
+
+// Dev loosening mirrors the volume caps: never touches production. A 1s cooldown
+// keeps automated dev/test login loops usable without disabling the control.
+const OTP_RESEND_COOLDOWN_DEV_SEC = 1
+
+export interface EmailOtpResendContext {
+  /** Recipient identity: 'ADMIN' | 'MERCHANT_ADMIN' etc. + the recipient id. */
+  recipientType: string
+  recipientId: string
+}
+
+export type EmailOtpResendResult = { ok: true } | { ok: false; retryAfter: number }
+
+/**
+ * Gate a fresh email-OTP send for one recipient. Call in the OTP send path BEFORE
+ * generating the code + notify(): the first request acquires the cooldown and
+ * proceeds; a request while the cooldown is held is refused with the remaining
+ * seconds so the caller can surface OTP_RESEND_COOLDOWN. The cooldown TTL is the
+ * escalated value once this recipient has crossed OTP_FAILED_ROUND_THRESHOLD
+ * consecutive destroyed challenges.
+ */
+export async function consumeEmailOtpResend(
+  redis: Redis,
+  ctx: EmailOtpResendContext,
+): Promise<EmailOtpResendResult> {
+  const failed = Number(await redis.get(RedisKey.rateLimitEmailOtpFailedRound(ctx.recipientType, ctx.recipientId))) || 0
+  const baseTtl = RELAX ? OTP_RESEND_COOLDOWN_DEV_SEC : OTP_RESEND_COOLDOWN_SEC
+  const ttlSec = failed >= OTP_FAILED_ROUND_THRESHOLD ? OTP_RESEND_COOLDOWN_ESCALATED_SEC : baseTtl
+
+  const result = await consume(redis, {
+    cooldown: { key: RedisKey.rateLimitEmailOtpCooldown(ctx.recipientType, ctx.recipientId), ttlSec },
+  })
+  if (!result.ok) return { ok: false, retryAfter: result.retryAfter }
+  return { ok: true }
+}
+
+/**
+ * Record one DESTROYED OTP challenge (the Nth wrong code burned a whole round)
+ * for a recipient: INCR the failed-round counter (TTL set on first increment).
+ * Best-effort: a counter blip must never break the verify path.
+ */
+export async function recordEmailOtpFailedRound(redis: Redis, ctx: EmailOtpResendContext): Promise<void> {
+  const key = RedisKey.rateLimitEmailOtpFailedRound(ctx.recipientType, ctx.recipientId)
+  const v = await redis.incr(key)
+  if (v === 1) await redis.expire(key, OTP_FAILED_ROUND_WINDOW_SEC)
+}
+
+/**
+ * Clear a recipient's failed-round counter after a SUCCESSFUL verification, so a
+ * legitimate user who eventually gets the code in is not left under escalation.
+ */
+export async function clearEmailOtpFailedRound(redis: Redis, ctx: EmailOtpResendContext): Promise<void> {
+  await redis.del(RedisKey.rateLimitEmailOtpFailedRound(ctx.recipientType, ctx.recipientId))
+}

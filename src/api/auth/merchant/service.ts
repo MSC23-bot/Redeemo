@@ -6,6 +6,7 @@ import { generateRefreshToken, hashRefreshToken, generateSessionId, generateSecu
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
 import { consumePwdResetAttempt } from '../../shared/pwdResetLimiter'
+import { consumeEmailOtpResend, recordEmailOtpFailedRound, clearEmailOtpFailedRound } from '../../shared/emailLimiter'
 import { getActiveMembership } from '../../shared/merchantMembership'
 import {
   storeRefreshToken, revokeAllSessionsForEntity, revokeOtherSessionsForEntity,
@@ -116,6 +117,15 @@ export async function loginMerchant(
   const knownDevices: string[] = knownRaw ? JSON.parse(knownRaw) : []
 
   if (otpRequired(admin, data.deviceId, knownDevices)) {
+    // GAP-5 (plan §1.4): gate the REQUEST of a fresh login-OTP email. Reached only
+    // AFTER a correct password + verified-email + status checks, so a cooldown
+    // error reveals nothing an attacker does not already hold (no enumeration
+    // oracle); it refuses a rapid re-request that would email-bomb / code-farm the
+    // inbox. The TTL escalates once this merchant has burned
+    // OTP_FAILED_ROUND_THRESHOLD consecutive challenges.
+    const resend = await consumeEmailOtpResend(redis, { recipientType: 'MERCHANT_ADMIN', recipientId: admin.id })
+    if (!resend.ok) throw new AppError('OTP_RESEND_COOLDOWN', { retryAfter: resend.retryAfter })
+
     const challenge = generateSecureToken(16)
 
     // M1 Slice 0: generate a real 6-digit code, store only its challenge-bound
@@ -199,6 +209,9 @@ export async function verifyMerchantOtp(
     const next = (attempts ?? 0) + 1
     if (next >= MERCHANT_OTP_MAX_ATTEMPTS) {
       await redis.del(key)
+      // GAP-5: a whole login-OTP challenge was destroyed (max wrong codes). Count
+      // the failed ROUND so repeated farming escalates the next resend cooldown.
+      await recordEmailOtpFailedRound(redis, { recipientType: 'MERCHANT_ADMIN', recipientId: adminId })
     } else {
       await redis.set(
         key,
@@ -211,6 +224,8 @@ export async function verifyMerchantOtp(
 
   // Match: single-use, consume the challenge before issuing tokens.
   await redis.del(key)
+  // GAP-5: a good code clears this merchant's consecutive-failed-round counter.
+  await clearEmailOtpFailedRound(redis, { recipientType: 'MERCHANT_ADMIN', recipientId: adminId })
 
   const admin = await prisma.merchantAdmin.findUnique({
     where: { id: adminId },

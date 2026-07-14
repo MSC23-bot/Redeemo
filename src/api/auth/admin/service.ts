@@ -6,6 +6,7 @@ import { generateRefreshToken, hashRefreshToken, generateSessionId, generateSecu
 import { AppError } from '../../shared/errors'
 import { RedisKey } from '../../shared/redis-keys'
 import { consumePwdResetAttempt } from '../../shared/pwdResetLimiter'
+import { consumeEmailOtpResend, recordEmailOtpFailedRound, clearEmailOtpFailedRound } from '../../shared/emailLimiter'
 import {
   storeRefreshToken, revokeRefreshToken,
   writeUserSession, validateRefreshToken,
@@ -59,6 +60,14 @@ export async function loginAdmin(
   }
 
   if (!admin.isActive) throw new AppError('ACCOUNT_SUSPENDED')
+
+  // GAP-5 (plan §1.4): gate the REQUEST of a fresh OTP email. Reached only AFTER a
+  // correct password, so throwing here reveals nothing an attacker does not
+  // already hold (no enumeration oracle); it simply refuses a rapid re-request
+  // that would email-bomb / code-farm the inbox. The TTL escalates once this
+  // admin has burned OTP_FAILED_ROUND_THRESHOLD consecutive challenges.
+  const resend = await consumeEmailOtpResend(redis, { recipientType: 'ADMIN', recipientId: admin.id })
+  if (!resend.ok) throw new AppError('OTP_RESEND_COOLDOWN', { retryAfter: resend.retryAfter })
 
   const challenge = generateSecureToken(16)
 
@@ -141,6 +150,9 @@ export async function verifyAdminOtp(
     const next = (attempts ?? 0) + 1
     if (next >= ADMIN_OTP_MAX_ATTEMPTS) {
       await redis.del(key)
+      // GAP-5: a whole challenge was just destroyed (max wrong codes). Count the
+      // failed ROUND so repeated farming escalates the next resend cooldown.
+      await recordEmailOtpFailedRound(redis, { recipientType: 'ADMIN', recipientId: adminId })
     } else {
       await redis.set(
         key,
@@ -153,6 +165,10 @@ export async function verifyAdminOtp(
 
   // Match: single-use — consume the challenge before issuing tokens.
   await redis.del(key)
+  // GAP-5: a good code clears this admin's consecutive-failed-round counter, so a
+  // legitimate admin who eventually gets the code in is never left under the
+  // escalated cooldown.
+  await clearEmailOtpFailedRound(redis, { recipientType: 'ADMIN', recipientId: adminId })
 
   const admin = await prisma.adminUser.findUnique({ where: { id: adminId } })
   if (!admin) throw new AppError('INVALID_CREDENTIALS')
