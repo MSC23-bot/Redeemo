@@ -139,6 +139,32 @@ describe('merchant onboarding routes', () => {
     app.prisma.merchantContract.create = vi.fn().mockResolvedValue({})
     app.prisma.merchant.update = vi.fn().mockResolvedValue({})
 
+    // Non-production (test env): the served version is the current draft, so the honest
+    // client echoes '2.0-draft' (what GET /contract returned). tcVersion is written from
+    // the SERVER-selected served version, not this echo.
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/merchant/onboarding/contract/accept',
+      headers: { authorization: `Bearer ${merchantToken}` },
+      payload: { version: '2.0-draft' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(app.prisma.merchantContract.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ tcVersion: '2.0-draft' }) })
+    )
+    expect(app.prisma.merchant.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ contractStatus: 'SIGNED' }) })
+    )
+  })
+
+  it('POST /contract/accept refuses a stale client version (409) and writes nothing', async () => {
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', contractStatus: 'NOT_SIGNED' })
+    app.prisma.merchantContract.create = vi.fn().mockResolvedValue({})
+    app.prisma.merchant.update = vi.fn().mockResolvedValue({})
+
+    // Non-production serves '2.0-draft'; a client echoing the stale '1.0' reviewed an
+    // out-of-date page, so the write is refused before any contract row / status flip.
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/merchant/onboarding/contract/accept',
@@ -146,11 +172,10 @@ describe('merchant onboarding routes', () => {
       payload: { version: '1.0' },
     })
 
-    expect(res.statusCode).toBe(200)
-    expect(app.prisma.merchantContract.create).toHaveBeenCalled()
-    expect(app.prisma.merchant.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ contractStatus: 'SIGNED' }) })
-    )
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body).error.code).toBe('AGREEMENT_VERSION_MISMATCH')
+    expect(app.prisma.merchantContract.create).not.toHaveBeenCalled()
+    expect(app.prisma.merchant.update).not.toHaveBeenCalled()
   })
 
   it('POST /api/v1/merchant/onboarding/contract/accept returns 409 if already signed', async () => {

@@ -303,13 +303,24 @@ describe('signAgreementInPerson (the assisted ceremony)', () => {
     expect(result.contentHash).toBe(CURRENT.contentHash)
   })
 
-  it('pins version + hash from the REGISTRY: an unknown/stale version fails closed', async () => {
+  it('pins version + hash from the REGISTRY server-side: a stale/mismatched client echo is refused (409) before any read or write', async () => {
     const tx = makeTx()
     const prisma = makePrisma(tx)
+    // '1.0' is a known-but-stale version (not the current); a bogus id would behave
+    // identically. The client echo is an integrity check, so either is a MISMATCH.
     await expect(
       signAgreementInPerson(prisma, { ...INPUT, agreementVersion: '1.0' }, ctx),
-    ).rejects.toMatchObject({ code: 'AGREEMENT_VERSION_UNKNOWN' })
+    ).rejects.toMatchObject({ code: 'AGREEMENT_VERSION_MISMATCH' })
+    expect(putObject).not.toHaveBeenCalled()
     expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('an explicit client version equal to the current version passes the integrity echo and signs', async () => {
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    const result = await signAgreementInPerson(prisma, { ...INPUT, agreementVersion: CURRENT.version }, ctx)
+    expect(result.agreementVersion).toBe(CURRENT.version)
+    expect(result.contractStatus).toBe('SIGNED')
   })
 
   it('blocks a double sign via the fast pre-check (contractStatus already SIGNED)', async () => {
@@ -558,8 +569,9 @@ describe('acceptContract self-serve retrofit', () => {
     const tx = makeTx()
     const prisma = makePrisma(tx)
     // acceptContract is NOT production-gated (self-serve keeps flipping in prod today);
-    // it binds the SERVED agreement, which in production+draft is the legacy 1.0.
-    const result = await acceptContract(prisma, 'ma1', '2.0-draft', ctx, { signerName: 'Priya Nair' })
+    // it binds the SERVED agreement, which in production+draft is the legacy 1.0. An honest
+    // production client fetched '1.0' from GET /contract, so it echoes '1.0' here.
+    const result = await acceptContract(prisma, 'ma1', '1.0', ctx, { signerName: 'Priya Nair' })
     expect(result.accepted).toBe(true)
     const record = tx.merchantAgreementRecord.create.mock.calls[0][0].data
     expect(record.agreementVersion).toBe('1.0')
@@ -595,6 +607,89 @@ describe('acceptContract self-serve retrofit', () => {
   })
 })
 
+// Version-integrity contract (this correction round): the PDF, the immutable evidence
+// record, and the MerchantContract.tcVersion pointer are all derived from ONE
+// server-resolved served-agreement object, so they can never disagree. The client-echoed
+// version is an integrity check only: a mismatch is refused (409) BEFORE any PDF
+// render/upload, so no compensation is ever needed on that path.
+describe('version-integrity: PDF + evidence record + tcVersion never disagree', () => {
+  const CEREMONY_INPUT = {
+    merchantId: MERCHANT_ID,
+    actorAdminId: WITNESS,
+    signerName: 'Priya Nair',
+    signerRoleConfirmation: 'Owner',
+  }
+
+  it('self-serve (non-production): all three sinks carry the SERVED current version', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'staging' // served = current draft
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    await acceptContract(prisma, 'ma1', CURRENT.version, ctx, { signerName: 'Priya Nair' })
+    const pdfArg = (renderAgreementPdf as any).mock.calls[0][0]
+    const record = tx.merchantAgreementRecord.create.mock.calls[0][0].data
+    const contract = tx.merchantContract.create.mock.calls[0][0].data
+    expect(pdfArg.version).toBe(CURRENT.version)
+    expect(record.agreementVersion).toBe(CURRENT.version)
+    expect(contract.tcVersion).toBe(CURRENT.version)
+  })
+
+  it('self-serve (production): all three sinks carry the SERVED legacy 1.0, not the draft', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'production' // served = legacy 1.0
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    await acceptContract(prisma, 'ma1', '1.0', ctx, { signerName: 'Priya Nair' })
+    const pdfArg = (renderAgreementPdf as any).mock.calls[0][0]
+    const record = tx.merchantAgreementRecord.create.mock.calls[0][0].data
+    const contract = tx.merchantContract.create.mock.calls[0][0].data
+    expect(pdfArg.version).toBe('1.0')
+    expect(record.agreementVersion).toBe('1.0')
+    expect(contract.tcVersion).toBe('1.0')
+    // Truthful evidence: the hash is over the legacy 1.0 text, not the draft.
+    expect(record.contentHash).toBe(LEGACY.contentHash)
+    expect(record.contentHash).not.toBe(CURRENT.contentHash)
+  })
+
+  it('ceremony: PDF + evidence record + tcVersion pointer all carry the current version', async () => {
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    await signAgreementInPerson(prisma, CEREMONY_INPUT, ctx)
+    const pdfArg = (renderAgreementPdf as any).mock.calls[0][0]
+    const record = tx.merchantAgreementRecord.create.mock.calls[0][0].data
+    const upsert = tx.merchantContract.upsert.mock.calls[0][0]
+    expect(pdfArg.version).toBe(CURRENT.version)
+    expect(record.agreementVersion).toBe(CURRENT.version)
+    expect(upsert.create.tcVersion).toBe(CURRENT.version)
+    expect(upsert.update.tcVersion).toBe(CURRENT.version)
+  })
+
+  it('self-serve stale echo (non-production, client sends 1.0 while the draft is served): 409, NO PDF/record/pointer/upload, no compensation', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'staging' // served = current draft
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    await expect(
+      acceptContract(prisma, 'ma1', '1.0', ctx, { signerName: 'Priya Nair' }),
+    ).rejects.toMatchObject({ code: 'AGREEMENT_VERSION_MISMATCH' })
+    // The mismatch check runs BEFORE the render/upload, so nothing was written or stored,
+    // and there is no orphan to compensate.
+    expect(renderAgreementPdf).not.toHaveBeenCalled()
+    expect(putObject).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+    expect(deleteObject).not.toHaveBeenCalled()
+  })
+
+  it('self-serve stale echo (production, client sends the draft while 1.0 is served): 409, nothing written', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'production' // served = legacy 1.0
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    await expect(
+      acceptContract(prisma, 'ma1', '2.0-draft', ctx, { signerName: 'Priya Nair' }),
+    ).rejects.toMatchObject({ code: 'AGREEMENT_VERSION_MISMATCH' })
+    expect(renderAgreementPdf).not.toHaveBeenCalled()
+    expect(putObject).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+})
+
 // FIX 3: the DRAFT watermark reflects the VERSION's legal status ONLY, decoupled from the
 // AGREEMENT_LEGAL_REVIEW_REQUIRED env flag. The env flag is the ceremony ENABLEMENT gate.
 // Net matrix pinned here (watermark column = renderAgreementPdf `gated` arg + result.gated):
@@ -614,7 +709,8 @@ describe('FIX 3: watermark = version.isDraft, env flag = ceremony gate', () => {
     delete process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED // flag ON (default)
     const tx = makeTx()
     const prisma = makePrisma(tx)
-    const result = await acceptContract(prisma, 'ma1', '2.0-draft', ctx, { signerName: 'Priya Nair' })
+    // Production serves the legacy 1.0; the honest client echoes the served '1.0'.
+    const result = await acceptContract(prisma, 'ma1', '1.0', ctx, { signerName: 'Priya Nair' })
     // Non-draft => not watermarked, even though legal review is still required (flag on).
     expect(result.gated).toBe(false)
     expect((renderAgreementPdf as any).mock.calls[0][0].gated).toBe(false)
@@ -626,7 +722,8 @@ describe('FIX 3: watermark = version.isDraft, env flag = ceremony gate', () => {
     process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED = 'false'
     const tx = makeTx()
     const prisma = makePrisma(tx)
-    const result = await acceptContract(prisma, 'ma1', '2.0-draft', ctx, { signerName: 'Priya Nair' })
+    // Production serves the legacy 1.0; the honest client echoes the served '1.0'.
+    const result = await acceptContract(prisma, 'ma1', '1.0', ctx, { signerName: 'Priya Nair' })
     expect(result.gated).toBe(false)
     expect((renderAgreementPdf as any).mock.calls[0][0].gated).toBe(false)
     // The ceremony (current draft) is still refused in production even with the flag off.
