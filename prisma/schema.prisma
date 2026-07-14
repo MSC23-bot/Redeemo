@@ -2210,10 +2210,21 @@ model MerchantInvite {
   // Account link; the Phase 1 service REQUIRES an authenticated user and
   // always sets this. Nullable for the Phase 2 anonymous lane.
   inviterUserId    String?
-  // Canonical inviter identity: lowercased/trimmed email. For signed-in
-  // inviters this is their account email; Phase 2 anonymous inviters use
-  // their double-opt-in verified address.
-  inviterEmailNorm String
+  // STABLE, NON-PII inviter identity (Codex correction round 2026-07-14):
+  // "u:<userId>" for registered inviters (survives account-email changes,
+  // so a changed email can never bypass the person+business dedupe);
+  // "e:<keyed-hash-of-verified-email>" reserved for the Phase 2 anonymous
+  // lane, REWRITTEN to "u:<userId>" when those rows are claimed at
+  // registration. Carries the uniqueness invariant below. Nullable ONLY so
+  // the anonymise sweep may null it on terminal anonymous rows (Postgres
+  // treats NULLs as distinct in unique indexes); the service always writes
+  // it non-null.
+  inviterKey       String?
+  // Erasable PII, NEVER identity: Phase 1 (signed-in) leaves this NULL
+  // (userId is the linkage; no email is persisted at all). Phase 2
+  // anonymous rows store the verified address here solely so registration
+  // can claim them; nulled by the anonymise sweep and by account erasure.
+  inviterEmailNorm String?
   // Canonical business identity: "gp:<googlePlaceId>" when Places-resolved,
   // else "fz:<name-slug>:<locality-slug>". Never derived client-side.
   placeKey         String
@@ -2246,7 +2257,7 @@ model MerchantInvite {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 
-  @@unique([inviterEmailNorm, placeKey])
+  @@unique([inviterKey, placeKey])
   @@index([placeKey])
   @@index([leadId])
   @@index([status])

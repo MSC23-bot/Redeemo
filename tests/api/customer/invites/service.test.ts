@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Prisma } from '../../../../generated/prisma/client'
-import { submitInvite } from '../../../../src/api/customer/invites/service'
+import { submitInvite, scrubInvitesForUser } from '../../../../src/api/customer/invites/service'
+import { buildInviterKey } from '../../../../src/api/customer/invites/identity'
 
 // Customer merchant-invite programme M0 with a mocked Prisma — mirrors the
 // mock shape in tests/api/admin/leads-service.test.ts ($transaction resolves
@@ -10,12 +11,15 @@ import { submitInvite } from '../../../../src/api/customer/invites/service'
 //     the SAME { kind: 'ok' } shape as an unknown business — never leaks the
 //     draft merchant's id/status — and the created invite is NOT reward-eligible.
 //   - only an ACTIVE merchant triggers `already_live`.
-//   - the open-invite cap and note validation both fail BEFORE any DB write.
-//   - a duplicate (inviterEmailNorm, placeKey) P2002 is swallowed to { kind: 'ok' }.
+//   - note validation fails BEFORE any DB write; the open-invite cap is now
+//     checked INSIDE the transaction, AFTER the advisory locks (Codex
+//     correction round 2026-07-14 — identity model: inviterKey = 'u:'+userId,
+//     no email persisted in Phase 1).
+//   - a duplicate (inviterKey, placeKey) P2002 is swallowed to { kind: 'ok' },
+//     matched EXACTLY (not by substring).
 
 const BASE_INPUT = {
   userId: 'user-1',
-  userEmail: 'Inviter@Example.com',
   businessNameRaw: 'Bloom Cafe',
   localityRaw: 'SW1',
   googlePlaceId: null as string | null,
@@ -43,8 +47,11 @@ function makeTx(overrides: {
   merchantLeadUpdate?: any
   merchantInviteFindFirst?: any
   merchantInviteCreate?: any
+  merchantInviteCount?: any
+  executeRaw?: any
 } = {}) {
   return {
+    $executeRaw: overrides.executeRaw ?? vi.fn().mockResolvedValue(0),
     merchantLead: {
       findMany: overrides.merchantLeadFindMany ?? vi.fn().mockResolvedValue([]),
       create: overrides.merchantLeadCreate ?? vi.fn().mockResolvedValue({ id: 'lead-new' }),
@@ -53,6 +60,7 @@ function makeTx(overrides: {
     merchantInvite: {
       findFirst: overrides.merchantInviteFindFirst ?? vi.fn().mockResolvedValue(null),
       create: overrides.merchantInviteCreate ?? vi.fn().mockResolvedValue({ id: 'invite-1' }),
+      count: overrides.merchantInviteCount ?? vi.fn().mockResolvedValue(0),
     },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   }
@@ -61,18 +69,25 @@ function makeTx(overrides: {
 function makePrisma(tx: any, overrides: {
   branchFindFirst?: any
   merchantFindFirst?: any
-  merchantInviteCount?: any
   merchantLeadFindMany?: any
+  merchantInviteUpdateMany?: any
   transactionImpl?: any
 } = {}) {
   return {
     $transaction: overrides.transactionImpl ?? vi.fn().mockImplementation(async (cb: any) => cb(tx)),
     branch: { findFirst: overrides.branchFindFirst ?? vi.fn().mockResolvedValue(null) },
     merchant: { findFirst: overrides.merchantFindFirst ?? vi.fn().mockResolvedValue(null) },
-    merchantInvite: { count: overrides.merchantInviteCount ?? vi.fn().mockResolvedValue(0) },
     merchantLead: { findMany: overrides.merchantLeadFindMany ?? vi.fn().mockResolvedValue([]) },
+    merchantInvite: { updateMany: overrides.merchantInviteUpdateMany ?? vi.fn().mockResolvedValue({ count: 0 }) },
   } as any
 }
+
+describe('identity: buildInviterKey', () => {
+  it('returns "u:" + userId, the stable non-PII identity', () => {
+    expect(buildInviterKey('user-1')).toBe('u:user-1')
+    expect(buildInviterKey('abc-123-def')).toBe('u:abc-123-def')
+  })
+})
 
 describe('submitInvite: already_live (googlePlaceId path)', () => {
   it('returns already_live when the Place resolves to an ACTIVE merchant', async () => {
@@ -139,6 +154,10 @@ describe('submitInvite: unknown business', () => {
     expect(inviteData.countableAt).toBeInstanceOf(Date)
     expect(inviteData.leadId).toBe('lead-new')
 
+    // Identity: inviterKey carries 'u:'+userId, and NO email is persisted.
+    expect(inviteData.inviterKey).toBe('u:user-1')
+    expect(inviteData.inviterEmailNorm).toBeUndefined()
+
     // LEAD_CREATED + INVITE_CREATED audit rows, both actorType CUSTOMER.
     expect(tx.auditLog.create).toHaveBeenCalledTimes(2)
     expect(tx.auditLog.create.mock.calls[0][0].data.event).toBe('LEAD_CREATED')
@@ -174,30 +193,127 @@ describe('submitInvite: attaches to an existing early-stage lead', () => {
   })
 })
 
-describe('submitInvite: P2002 duplicate (inviterEmailNorm, placeKey)', () => {
-  it('is swallowed to { kind: "ok" }, not thrown', async () => {
-    const tx = makeTx()
+describe('submitInvite: email-change dedupe (identity is userId, not email)', () => {
+  it('the SAME userId submitting the same business twice (account email changed between the two submits at the auth layer) still dedupes: first ok, second ok via P2002', async () => {
+    // SubmitInviteInput carries no email field at all — identity is userId
+    // only, so an email change at the auth layer between the two submits
+    // (invisible to this function's input shape) cannot bypass the dedupe.
+    // Call 1: fresh business, succeeds and creates the invite carrying
+    // inviterKey 'u:user-1'.
+    const merchantInviteCreate1 = vi.fn().mockResolvedValue({ id: 'invite-1' })
+    const tx1 = makeTx({ merchantInviteCreate: merchantInviteCreate1 })
+    const prisma1 = makePrisma(tx1)
+    const firstRes = await submitInvite(prisma1, BASE_INPUT)
+    expect(firstRes).toEqual({ kind: 'ok' })
+    expect(merchantInviteCreate1.mock.calls[0][0].data.inviterKey).toBe('u:user-1')
+
+    // Call 2: same userId, same business — the DB unique constraint on
+    // (inviterKey, placeKey) fires as a P2002, which submitInvite swallows
+    // to the same { kind: 'ok' } shape, regardless of any email change.
     const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
       code: 'P2002',
       clientVersion: '7.0.0',
-      meta: { target: ['inviterEmailNorm', 'placeKey'] },
+      meta: { target: ['inviterKey', 'placeKey'] },
     })
-    const prisma = makePrisma(tx, {
-      transactionImpl: vi.fn().mockRejectedValue(p2002),
-    })
-
-    const res = await submitInvite(prisma, BASE_INPUT)
-    expect(res).toEqual({ kind: 'ok' })
+    const tx2 = makeTx()
+    const prisma2 = makePrisma(tx2, { transactionImpl: vi.fn().mockRejectedValue(p2002) })
+    const secondRes = await submitInvite(prisma2, BASE_INPUT)
+    expect(secondRes).toEqual({ kind: 'ok' })
   })
 })
 
-describe('submitInvite: open-invite cap', () => {
-  it('throws INVITE_CAP_REACHED at 10 existing open invites, before any transaction', async () => {
+describe('submitInvite: P2002 exact-match (inviterKey, placeKey)', () => {
+  it('meta.target as array ["inviterKey","placeKey"] (in this order) -> ok', async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: '7.0.0',
+      meta: { target: ['inviterKey', 'placeKey'] },
+    })
     const tx = makeTx()
+    const prisma = makePrisma(tx, { transactionImpl: vi.fn().mockRejectedValue(p2002) })
+    const res = await submitInvite(prisma, BASE_INPUT)
+    expect(res).toEqual({ kind: 'ok' })
+  })
+
+  it('meta.target as array in the OPPOSITE order ["placeKey","inviterKey"] -> ok (order-insensitive)', async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: '7.0.0',
+      meta: { target: ['placeKey', 'inviterKey'] },
+    })
+    const tx = makeTx()
+    const prisma = makePrisma(tx, { transactionImpl: vi.fn().mockRejectedValue(p2002) })
+    const res = await submitInvite(prisma, BASE_INPUT)
+    expect(res).toEqual({ kind: 'ok' })
+  })
+
+  it('meta.target as the constraint-name string "MerchantInvite_inviterKey_placeKey_key" -> ok', async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: '7.0.0',
+      meta: { target: 'MerchantInvite_inviterKey_placeKey_key' },
+    })
+    const tx = makeTx()
+    const prisma = makePrisma(tx, { transactionImpl: vi.fn().mockRejectedValue(p2002) })
+    const res = await submitInvite(prisma, BASE_INPUT)
+    expect(res).toEqual({ kind: 'ok' })
+  })
+
+  it('meta.target ["somethingElse"] -> rethrows (not the composite constraint)', async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: '7.0.0',
+      meta: { target: ['somethingElse'] },
+    })
+    const tx = makeTx()
+    const prisma = makePrisma(tx, { transactionImpl: vi.fn().mockRejectedValue(p2002) })
+    await expect(submitInvite(prisma, BASE_INPUT)).rejects.toBe(p2002)
+  })
+
+  it('P2002 with no meta -> rethrows', async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: '7.0.0',
+    })
+    const tx = makeTx()
+    const prisma = makePrisma(tx, { transactionImpl: vi.fn().mockRejectedValue(p2002) })
+    await expect(submitInvite(prisma, BASE_INPUT)).rejects.toBe(p2002)
+  })
+})
+
+describe('submitInvite: advisory lock discipline', () => {
+  it('acquires both advisory locks (raw SQL mentioning pg_advisory_xact_lock) BEFORE the in-tx cap check and before any lead/invite write', async () => {
+    const executeRaw = vi.fn().mockResolvedValue(0)
+    const merchantInviteCount = vi.fn().mockResolvedValue(0)
+    const merchantLeadCreate = vi.fn().mockResolvedValue({ id: 'lead-new' })
+    const merchantInviteCreate = vi.fn().mockResolvedValue({ id: 'invite-1' })
+    const tx = makeTx({ executeRaw, merchantInviteCount, merchantLeadCreate, merchantInviteCreate })
+    const prisma = makePrisma(tx)
+
+    await submitInvite(prisma, BASE_INPUT)
+
+    expect(executeRaw).toHaveBeenCalledOnce()
+    // Called as a tagged-template: first arg is the strings array whose
+    // joined text mentions pg_advisory_xact_lock.
+    const sqlStrings = executeRaw.mock.calls[0][0] as TemplateStringsArray
+    expect(Array.from(sqlStrings).join('')).toContain('pg_advisory_xact_lock')
+
+    const lockOrder = executeRaw.mock.invocationCallOrder[0]
+    expect(lockOrder).toBeLessThan(merchantInviteCount.mock.invocationCallOrder[0])
+    expect(lockOrder).toBeLessThan(merchantLeadCreate.mock.invocationCallOrder[0])
+    expect(lockOrder).toBeLessThan(merchantInviteCreate.mock.invocationCallOrder[0])
+  })
+})
+
+describe('submitInvite: in-transaction open-invite cap', () => {
+  it('throws INVITE_CAP_REACHED when the tx count is 10, and never reaches invite create', async () => {
     const merchantInviteCount = vi.fn().mockResolvedValue(10)
-    const prisma = makePrisma(tx, { merchantInviteCount })
+    const merchantInviteCreate = vi.fn().mockResolvedValue({ id: 'invite-1' })
+    const tx = makeTx({ merchantInviteCount, merchantInviteCreate })
+    const prisma = makePrisma(tx)
+
     await expect(submitInvite(prisma, BASE_INPUT)).rejects.toThrow('INVITE_CAP_REACHED')
-    expect(prisma.$transaction).not.toHaveBeenCalled()
+    expect(merchantInviteCreate).not.toHaveBeenCalled()
   })
 })
 
@@ -308,5 +424,20 @@ describe('submitInvite: F1 (adversarial review), Places-lane branch-miss falls t
 
     expect(res).toEqual({ kind: 'already_live', merchantId: 'm-live', businessName: 'Bloom Cafe' })
     expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+})
+
+describe('scrubInvitesForUser', () => {
+  it('issues the correct updateMany shape and returns the scrubbed count', async () => {
+    const merchantInviteUpdateMany = vi.fn().mockResolvedValue({ count: 3 })
+    const prisma = { merchantInvite: { updateMany: merchantInviteUpdateMany } } as any
+
+    const count = await scrubInvitesForUser(prisma, 'user-1')
+
+    expect(count).toBe(3)
+    expect(merchantInviteUpdateMany).toHaveBeenCalledWith({
+      where: { inviterUserId: 'user-1', anonymisedAt: null },
+      data: { note: null, inviterEmailNorm: null, ipHash: null, anonymisedAt: expect.any(Date) },
+    })
   })
 })

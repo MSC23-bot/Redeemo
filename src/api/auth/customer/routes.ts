@@ -224,6 +224,10 @@ export async function customerAuthRoutes(app: FastifyInstance) {
       },
     })
 
+    // Invite PII rides account erasure; see spec A2.
+    const { scrubInvitesForUser } = await import('../../customer/invites/service')
+    await scrubInvitesForUser(app.prisma, req.user.sub)
+
     const { revokeAllSessionsForEntity, revokeAllUserSessionRecords } = await import('../../shared/session')
     await revokeAllSessionsForEntity(app.redis, { role: 'customer', entityId: req.user.sub })
     await revokeAllUserSessionRecords(app.prisma, { entityId: req.user.sub, entityType: 'customer', reason: 'ACCOUNT_DELETED' })

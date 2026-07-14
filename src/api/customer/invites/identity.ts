@@ -6,10 +6,26 @@
 
 import crypto from 'node:crypto'
 
-/** Lowercase + trim — the canonical inviter identity key (mirrors normalizeEmail
- * in ../../shared/pwdResetLimiter.ts). */
+/**
+ * Lowercase + trim (mirrors normalizeEmail in ../../shared/pwdResetLimiter.ts).
+ * Feeds the Phase-2 ANONYMOUS lane only (the reserved 'e:'-prefixed
+ * inviterKey form below, keyed off a verified-but-unregistered email).
+ * Phase 1 (signed-in) persists NO email at all — see buildInviterKey.
+ */
 export function normalizeInviterEmail(email: string): string {
   return email.trim().toLowerCase()
+}
+
+/**
+ * Canonical, STABLE, non-PII inviter identity for the (inviterKey, placeKey)
+ * uniqueness invariant. `'u:' + userId` for registered inviters — stable
+ * across account-email changes, so a changed email can never bypass the
+ * person+business dedupe. The Phase-2 anonymous lane's reserved form,
+ * `'e:' + keyedHash(emailNorm)`, is NOT implemented here — do not implement
+ * it in this round.
+ */
+export function buildInviterKey(userId: string): string {
+  return `u:${userId}`
 }
 
 /**

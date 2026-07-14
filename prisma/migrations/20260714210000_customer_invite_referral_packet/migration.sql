@@ -1,4 +1,5 @@
--- Customer invite + referral packet (2026-07-14). Create-only, additive.
+-- Customer invite + referral packet (2026-07-14, regenerated in the Codex
+-- correction round: inviterKey identity model). Create-only, additive.
 -- UNAPPLIED until the owner-scheduled window; MUST apply AFTER
 -- 20260712000000_merchant_lead_packet (invite service writes MerchantLead).
 -- Built offline via prisma migrate diff (no database contact).
@@ -15,7 +16,8 @@ CREATE TYPE "BusinessSuppressionReason" AS ENUM ('OPT_OUT', 'IGNORED', 'MANUAL')
 CREATE TABLE "MerchantInvite" (
     "id" TEXT NOT NULL,
     "inviterUserId" TEXT,
-    "inviterEmailNorm" TEXT NOT NULL,
+    "inviterKey" TEXT,
+    "inviterEmailNorm" TEXT,
     "placeKey" TEXT NOT NULL,
     "googlePlaceId" TEXT,
     "businessNameRaw" TEXT NOT NULL,
@@ -77,7 +79,7 @@ CREATE INDEX "MerchantInvite_inviterUserId_idx" ON "MerchantInvite"("inviterUser
 CREATE INDEX "MerchantInvite_anonymisedAt_createdAt_idx" ON "MerchantInvite"("anonymisedAt", "createdAt");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "MerchantInvite_inviterEmailNorm_placeKey_key" ON "MerchantInvite"("inviterEmailNorm", "placeKey");
+CREATE UNIQUE INDEX "MerchantInvite_inviterKey_placeKey_key" ON "MerchantInvite"("inviterKey", "placeKey");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "InviteRewardGrant_inviteId_key" ON "InviteRewardGrant"("inviteId");

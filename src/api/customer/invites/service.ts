@@ -2,6 +2,17 @@
 //
 // Customer merchant-invite programme, M0 (Phase 1, signed-in only).
 //
+// IDENTITY MODEL (Codex correction round 2026-07-14): registered inviters are
+// identified by inviterKey = 'u:' + userId — stable across account-email
+// changes, so a changed email can never bypass the person+business dedupe.
+// Phase 1 persists NO email at all: inviterEmailNorm stays NULL on every
+// Phase-1 row (it is Phase-2-anonymous-lane-only, reserved/not implemented
+// here). The unique invariant is (inviterKey, placeKey), enforced by
+// `MerchantInvite_inviterKey_placeKey_key`. Two same-transaction advisory
+// locks (placeKey, then inviterKey — fixed order, deadlock-safe) serialise
+// the races: one lead per business under concurrent first-submitters, and an
+// atomic open-invite cap check per inviter.
+//
 // Spec-locked decisions this module preserves:
 //   - Recruitment/pipeline STATE lives ONLY on MerchantLead (stage LEAD /
 //     CONTACTED / VISIT_BOOKED / CONVERTED / LOST). MerchantInvite is
@@ -32,7 +43,7 @@ import { PrismaClient, Prisma } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
 import {
-  normalizeInviterEmail,
+  buildInviterKey,
   buildPlaceKey,
   hashInviteIp,
   validateInviteNote,
@@ -52,7 +63,6 @@ export type SubmitInviteResult =
 
 export interface SubmitInviteInput {
   userId: string
-  userEmail: string
   businessNameRaw: string
   localityRaw?: string | null
   googlePlaceId?: string | null
@@ -238,7 +248,7 @@ export async function submitInvite(
   if (!noteResult.ok) throw new AppError(noteResult.code)
 
   // (c) Canonical identity.
-  const inviterEmailNorm = normalizeInviterEmail(input.userEmail)
+  const inviterKey = buildInviterKey(input.userId)
   const placeKey = buildPlaceKey({
     googlePlaceId: input.googlePlaceId,
     businessName: businessNameTrimmed,
@@ -255,11 +265,8 @@ export async function submitInvite(
     return { kind: 'already_live', merchantId: liveMatch.id, businessName: liveMatch.businessName }
   }
 
-  // (e) Open-invite cap.
-  const openInviteCount = await prisma.merchantInvite.count({
-    where: { inviterEmailNorm, anonymisedAt: null },
-  })
-  if (openInviteCount >= OPEN_INVITE_CAP) throw new AppError('INVITE_CAP_REACHED')
+  // (e) Open-invite cap moved INSIDE the transaction (below), after the
+  // advisory locks — see the cap check inside prisma.$transaction.
 
   // (f) Eligibility stamp — computed BEFORE the transaction, same matching
   // rules as (d) but without the ACTIVE filter, plus the matched-lead
@@ -286,6 +293,23 @@ export async function submitInvite(
   // retry shape.
   try {
     return await prisma.$transaction(async (tx) => {
+      // Acquire BOTH advisory locks in one raw statement, in this fixed
+      // order (placeKey, then inviterKey) — xact-scoped (auto-release on
+      // commit/rollback); the consistent acquisition order prevents
+      // deadlock. The placeKey lock serialises lead attach-or-create per
+      // business (one MerchantLead per new business under concurrency); the
+      // inviterKey lock serialises the open-invite cap check per inviter
+      // (no TOCTOU overshoot).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${placeKey})), pg_advisory_xact_lock(hashtext(${inviterKey}))`
+
+      // (e) Open-invite cap — re-checked here, INSIDE the transaction and
+      // AFTER the inviterKey lock, so concurrent submissions from the same
+      // inviter cannot all observe a stale count and overshoot the cap.
+      const openInviteCount = await tx.merchantInvite.count({
+        where: { inviterKey, anonymisedAt: null },
+      })
+      if (openInviteCount >= OPEN_INVITE_CAP) throw new AppError('INVITE_CAP_REACHED')
+
       let leadId: string
       let isFreshlyCreatedLead = false
 
@@ -335,7 +359,9 @@ export async function submitInvite(
       const invite = await tx.merchantInvite.create({
         data: {
           inviterUserId: input.userId,
-          inviterEmailNorm,
+          inviterKey,
+          // inviterEmailNorm intentionally omitted: Phase 1 persists no
+          // email at all (defaults to NULL at the DB level).
           placeKey,
           googlePlaceId: input.googlePlaceId ?? null,
           businessNameRaw: businessNameTrimmed,
@@ -365,19 +391,53 @@ export async function submitInvite(
       return { kind: 'ok' } as const
     })
   } catch (e) {
-    // (inviterEmailNorm, placeKey) unique — idempotent duplicate submission,
-    // not an error. Hardened per adversarial review F8: only THIS constraint
-    // is treated as idempotent; a P2002 from any other (future) unique in the
-    // transaction must surface, never lie 'ok'.
+    // (inviterKey, placeKey) unique (MerchantInvite_inviterKey_placeKey_key)
+    // — idempotent duplicate submission, not an error. Hardened per
+    // adversarial review F8, now EXACT rather than substring: only a P2002
+    // whose meta.target is precisely this composite constraint is treated
+    // as idempotent (either Prisma target shape — an array of column names,
+    // order-insensitive, or the constraint name string). A P2002 from any
+    // other (future) unique in the transaction must surface, never lie
+    // 'ok'. Non-Prisma errors (e.g. the INVITE_CAP_REACHED AppError thrown
+    // above) fall straight through to `throw e` below, untouched.
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      const target = (e.meta?.target ?? []) as string[] | string
-      const targetStr = Array.isArray(target) ? target.join(',') : String(target)
-      if (targetStr.includes('inviterEmailNorm') || targetStr.includes('placeKey')) {
+      const target = e.meta?.target
+      const isExactCompositeTarget =
+        (Array.isArray(target) &&
+          target.length === 2 &&
+          [...target].sort().join(',') === ['inviterKey', 'placeKey'].sort().join(',')) ||
+        target === 'MerchantInvite_inviterKey_placeKey_key'
+      if (isExactCompositeTarget) {
         return { kind: 'ok' }
       }
     }
     throw e
   }
+}
+
+/**
+ * Account-erasure hook — called from the customer delete-account flow
+ * (src/api/auth/customer/routes.ts). Nulls the erasable PII on every
+ * non-anonymised invite this user submitted: note, inviterEmailNorm
+ * (already NULL on Phase-1 rows; nulled here defensively for any future
+ * Phase-2 row claimed onto this userId), ipHash. Stamps anonymisedAt.
+ *
+ * inviterKey and inviterUserId are RETAINED as pseudonymous linkage —
+ * identical persistence class to the DELETED user row itself (same
+ * anonymise-in-place pattern the delete-account handler applies to User).
+ * Aggregate demand evidence (placeKey, businessNameRaw, leadId, countableAt,
+ * status) survives anonymously, per the spec's legitimate-interest note:
+ * the platform retains a legitimate interest in aggregate merchant-demand
+ * signal independent of who submitted it.
+ *
+ * Returns the number of rows scrubbed.
+ */
+export async function scrubInvitesForUser(prisma: PrismaClient, userId: string): Promise<number> {
+  const result = await prisma.merchantInvite.updateMany({
+    where: { inviterUserId: userId, anonymisedAt: null },
+    data: { note: null, inviterEmailNorm: null, ipHash: null, anonymisedAt: new Date() },
+  })
+  return result.count
 }
 
 /** LEAD_SELECT extension contract (future): per-lead invite demand evidence. */
