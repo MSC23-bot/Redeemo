@@ -97,7 +97,7 @@ export default function AboutPage() {
               Redeemo started from a simple frustration. The best local restaurants, gyms, and shops rarely have a way to reward loyal customers, while big chains run endless promotions. The tools that exist for independent businesses, like Tastecard and Groupon, take a cut of every transaction and offer merchants no control over their own offers.
             </p>
             <p>
-              We built Redeemo differently. Merchants set their own vouchers. Redeemo takes no commission, ever. Members pay a modest monthly subscription to use those vouchers. One redemption per merchant per cycle means the economics work for everyone. The member saves money on a real visit. The merchant acquires a new customer at full price the next time.
+              We built Redeemo differently. Merchants set their own vouchers. Redeemo takes no commission, ever. Members pay a modest monthly subscription to use those vouchers. Each voucher works once per member each month, and merchants choose how many vouchers they run: the economics work for everyone. The member saves money on a real visit. The merchant brings people through the door on terms they set.
             </p>
             <p>
               We are UK-based and UK-focused. Every design decision, every policy, every feature exists to serve local businesses and the people who live near them.

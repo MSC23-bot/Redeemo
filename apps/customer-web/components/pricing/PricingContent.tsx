@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { BrandStop } from '@/components/ui/BrandStop'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -324,7 +325,7 @@ export function PricingContent() {
     <>
       {/* ── Hero ── */}
       <section
-        className="relative overflow-hidden py-24 md:py-32 px-6"
+        className="relative overflow-hidden -mt-[80px] pt-[176px] pb-24 md:pt-[208px] md:pb-32 px-6"
         style={{ background: '#010C35' }}
       >
         <div
@@ -354,10 +355,10 @@ export function PricingContent() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.08, ease: ease() }}
             className="font-display text-white leading-[1.06] mb-6 max-w-[800px] mx-auto"
-            style={{ fontSize: 'clamp(36px, 5vw, 62px)', letterSpacing: '-0.8px' }}
+            style={{ fontSize: 'clamp(34px, 5vw, 62px)', letterSpacing: '-0.8px', textWrap: 'balance' }}
           >
-            Start free. Pay only when{' '}
-            <span className="gradient-text">you&apos;re ready to redeem.</span>
+            Start free.{' '}
+            <span className="gradient-text block">Pay only when you&apos;re <span className="whitespace-nowrap">ready<BrandStop tone="white" /></span></span>
           </motion.h1>
 
           <motion.p
@@ -366,7 +367,7 @@ export function PricingContent() {
             transition={{ duration: 0.45, delay: 0.18 }}
             className="text-[16px] md:text-[17px] text-white/52 leading-[1.65] max-w-[500px] mx-auto mb-12"
           >
-            Browse every merchant and voucher at no cost. Subscribe when you find somewhere worth visiting.
+            Browse every merchant and voucher at no cost. Subscribe when you find somewhere worth&nbsp;visiting.
           </motion.p>
 
           {/* Trust signals */}
@@ -437,10 +438,10 @@ export function PricingContent() {
               style={{ fontSize: 'clamp(30px, 4vw, 52px)', letterSpacing: '-0.6px' }}
             >
               Less than one coffee{' '}
-              <span className="gradient-text">a week.</span>
+              <span className="gradient-text">a&nbsp;week.</span>
             </h2>
             <p className="text-[16px] text-white/48 leading-[1.72] max-w-[460px] mx-auto mb-10">
-              Most members save more than their subscription cost in a single redemption. The maths tends to work out very quickly.
+              If a single voucher saves you more than £6.99, the month has paid for itself. The maths is not&nbsp;complicated.
             </p>
           </motion.div>
 
@@ -455,7 +456,7 @@ export function PricingContent() {
             {[
               { value: '£6.99', label: 'per month' },
               { value: '£1.75', label: 'per week' },
-              { value: '200+', label: 'merchants' },
+              { value: '7', label: 'voucher types' },
             ].map((s, i) => (
               <div key={i} className="text-center">
                 <p
@@ -482,7 +483,7 @@ export function PricingContent() {
             className="font-display text-[#010C35] leading-[1.1] mb-10"
             style={{ fontSize: 'clamp(28px, 3.5vw, 44px)', letterSpacing: '-0.3px' }}
           >
-            Common questions about pricing
+            Common questions about&nbsp;pricing
           </motion.h2>
 
           <div>
@@ -495,9 +496,15 @@ export function PricingContent() {
 
       {/* ── Final CTA ── */}
       <section
-        className="relative overflow-hidden py-20 md:py-28 px-6"
-        style={{ background: '#010C35' }}
+        className="px-6 py-12 md:py-20"
+        style={{ background: '#FFF9F5' }}
       >
+        {/* A contained navy panel on cream: the full-bleed navy collided with the
+            footer's navy right below it (owner 2026-07-13) */}
+        <div
+          className="relative overflow-hidden max-w-[1080px] mx-auto rounded-[28px] px-6 py-12 md:py-16 text-center"
+          style={{ background: '#010C35', boxShadow: '0 28px 64px rgba(1,12,53,0.22)' }}
+        >
         <div
           aria-hidden="true"
           className="absolute inset-0 pointer-events-none"
@@ -517,10 +524,11 @@ export function PricingContent() {
               className="font-display text-white leading-[1.08] mb-4"
               style={{ fontSize: 'clamp(30px, 4vw, 50px)', letterSpacing: '-0.5px' }}
             >
-              Start exploring for free today.
+              Start exploring for free&nbsp;today.
             </h2>
             <p className="text-[15px] text-white/48 leading-[1.7] mb-10">
-              No card needed to browse. Subscribe when you find somewhere you want to visit.
+              Free to join, no card needed. Subscribe when you find somewhere
+              you want to&nbsp;visit.
             </p>
           </motion.div>
 
@@ -548,6 +556,8 @@ export function PricingContent() {
               Get monthly access
             </Link>
           </motion.div>
+
+        </div>
         </div>
       </section>
     </>

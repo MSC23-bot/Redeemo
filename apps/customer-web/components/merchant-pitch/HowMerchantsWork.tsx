@@ -11,7 +11,7 @@ const steps = [
   {
     number: '02',
     title: 'Add your two mandatory vouchers',
-    body: 'Every merchant on Redeemo offers two standard vouchers as part of the marketplace agreement. These are the baseline offers that subscribers can redeem once per cycle.',
+    body: 'Every merchant on Redeemo offers two standard vouchers as part of the marketplace agreement. These are the baseline offers, each redeemable once per member every month.',
     detail: 'You choose the offer type: BOGO, discount, freebie, package deal, and more. Your vouchers, your terms.',
   },
   {
