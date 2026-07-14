@@ -1168,3 +1168,24 @@ review. Routing per the owner directive (restated today): Fable 5
 leads, decides, and cross-checks all agent output before commit;
 Opus 4.8 / Sonnet 5 execute milestone briefs and report back. Build
 scheduling vs Portal/Admin remains the owner's call.
+
+## 2026-07-14 · Autonomous run: spec/plan Amendment A1/P1 (platform-verified)
+
+Owner-approved autonomous window. Inspected origin/main (e6b9db27) via
+three read-only agents (billing, infra/security, recruitment) plus lead
+reads. Ten review anchors adjudicated; spec Amendment A1 + plan
+Amendment P1 appended (amendment wins over body). Headlines:
+MerchantLead owns recruitment (CUSTOMER_REQUEST enum was reserved for
+this intake); Phase 1 requires sign-in (email-off honesty); rewards
+become a provider-agnostic entitlement ledger with a design-first
+billing seam gate (verified: one Subscription row per user forever,
+promoCodeId write-once, no credit primitive; FOUND.1 unimplemented);
+house Redis tokens replace HMAC; candidate-token Places lookup (no
+placeId to clients; no autocomplete API exists); hashed-IP-only
+persistence with 6-month anonymise sweep; migration = separate packet
+AFTER merchant_lead_packet. Findings for owner: register success screen
+claims a sent email unconditionally (email-off honesty bug, pre-
+existing); PROJECT-STATE silent on lead/note packets' unapplied state;
+packet 4 (MerchantAgreementRecord) exists only in frozen PR #514; a
+latent resubscribe P2002 bug in createSubscription (schema comment
+describes unimplemented design).

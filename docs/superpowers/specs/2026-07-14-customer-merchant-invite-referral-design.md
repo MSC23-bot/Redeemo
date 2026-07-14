@@ -207,3 +207,162 @@ this email to claim your free month"): the PENDING grant waits.
 - PROJECT-STATE registration of this workstream and its sequencing
   against the Portal/Admin programme is an owner/programme call; this
   spec does not claim a slot.
+
+---
+
+# Amendment A1 · 2026-07-14 · Platform-verified corrections (authoritative)
+
+Same-day amendment after inspection of origin/main (e6b9db27) by the lead
+plus three read-only inspection agents (billing, infra/security,
+recruitment domain). Where this amendment conflicts with the body above,
+THE AMENDMENT WINS. Product outcomes D1-D12 are unchanged; the technical
+proposals are corrected to the real platform.
+
+## A1.1 Anchor adjudications
+
+1. **Anonymous Phase 1 honesty.** EMAIL_ENABLED is off and the platform
+   (correctly) never logs secret links, so anonymous email verification
+   cannot ship honestly in Phase 1. RULING: Phase 1 requires sign-in to
+   submit an invite (register is free, no card; /invite routes through
+   login/register with next=/invite). The anonymous + email-double-opt-in
+   lane ships in Phase 2 with real sending. D2's no-registration-wall
+   remains the PERMANENT design; the Phase 1 wall is a temporary,
+   documented scoping choice, not a product change. All "we'll tell you"
+   copy is account-based ("we'll let you know when they're live"), never
+   a promise of an email that cannot send. NOTE for owner: the existing
+   register success screen says "We've sent a verification link"
+   unconditionally: same honesty class of bug, pre-existing, flagged.
+2. **D8 cutoff, precise.** "Onboarding starts" =
+   `convertLead()` creating the draft Merchant
+   (src/api/admin/leads/service.ts:362, one transaction with
+   convertedMerchantId stamping), or a self-serve merchant registration
+   matching the business. A PROSPECT LEAD AT ANY STAGE
+   (LEAD/CONTACTED/VISIT_BOOKED) does NOT disqualify eligibility: demand
+   during recruitment is genuine and rewarded. Eligibility is stamped at
+   the moment the invite becomes countable: eligible iff no Merchant
+   record (draft or live) exists for the matched business at that
+   moment. Late-pipeline fraud is handled by the velocity-hold review,
+   not by widening the cutoff.
+3. **Place vs merchant identity.** Invites aggregate by PLACE via
+   `placeKey`; recruitment attaches by LEAD (leadId); rewards resolve by
+   MERCHANT. placeKey = `gp:<googlePlaceId>` when Places-resolved, else
+   `fz:<name-slug>:<locality-slug>`. At reward time the live merchant's
+   branches' googlePlaceIds (plus the lead chain's
+   convertedMerchantId) select the invite set; rewards dedupe by
+   inviter identity so one person inviting one business = one month
+   regardless of branch count. Deterministic first-5 ordering:
+   ORDER BY countableAt ASC, id ASC. googlePlaceId is NEVER exposed to
+   clients (existing platform contract): the invite form uses the
+   candidate-token pattern from merchant location search (opaque token,
+   15-min Redis TTL, server resolves to placeKey).
+4. **Executable identity invariants.** Inviter identity =
+   `inviterEmailNorm` (lowercased/trimmed account email in Phase 1;
+   verified email in Phase 2), always non-null. Business identity =
+   `placeKey`, always non-null (computed fuzzy key when no Places
+   match). Invariant: `@@unique([inviterEmailNorm, placeKey])` with the
+   house cross-transaction P2002-retry pattern; concurrent duplicate
+   submissions converge on the existing row (idempotent success).
+5. **MerchantLead integration (workflow ownership).**
+   `MerchantSource.CUSTOMER_REQUEST` already exists and was reserved for
+   this intake (schema.prisma:2050); admin-web already renders its
+   pipeline chip. RULING: MerchantLead OWNS all recruitment state
+   (stages, assignment, conversion, LOST). MerchantInvite holds ONLY
+   invitation facts: identity, verification, note, consent, demand
+   membership, eligibility, reward linkage: and carries a bare `leadId`
+   (house FK-free pattern, integrity in the service layer). Invite
+   statuses describe the invite alone (PENDING_CONFIRM/ACTIVE/
+   HELD_REVIEW); nothing on the invite mirrors lead stages. The invite
+   service creates the MerchantLead (source CUSTOMER_REQUEST, stage
+   LEAD, unassigned) when no active lead matches; otherwise attaches.
+   The abandoned 2026-04-22 `MerchantRequest` design stays abandoned.
+6. **Privacy and retention.** Persistent invite rows store NO raw IP and
+   NO device fingerprint: a keyed SHA-256-truncated `ipHash` only
+   (mirroring the mandatory hashEmail() convention), used solely for
+   clustering flags. Transient Redis limiter keys keep the existing
+   raw-IP convention (ephemeral TTLs, platform-wide precedent).
+   Retention: an invite anonymise sweep mirroring
+   leadAnonymiseSweep.ts nulls note + inviterEmailNorm displayable PII +
+   ipHash and stamps anonymisedAt for terminal, non-rewarded invites
+   after 6 months. Erasure: the existing delete-account flow gains an
+   invite-scrub step (soft PII-null in place, aggregate demand counts
+   survive anonymously). Audit rows follow the PII-free convention.
+7. **Manual Phase 1 outreach honesty.** The console action produces a
+   PREPARED record (composed, suppression-checked, throttle-checked);
+   the lead moves to CONTACTED and the 14-day clock starts ONLY when the
+   operator explicitly confirms "I sent this" (SENT_CONFIRMED, audited
+   with operator id). Prepared-but-unconfirmed messages expire without
+   status effect. The platform never claims delivery it cannot prove.
+8. **Reward mechanics, corrected.** Verified contracts: ONE Subscription
+   row per user forever (userId unique, no archival); `promoCodeId`
+   single-valued, written once at creation, never updated; exactly one
+   Stripe coupon can enter `subscriptions.create`; `currentPeriodEnd`
+   is written only from Stripe-derived values; NO credit/balance
+   mechanism exists; NO referral/reward code exists; the founding offer
+   (FOUND.1) itself has no billing implementation yet (register entry
+   lives on the unmerged site branch). RULING: rewards are recorded in a
+   provider-agnostic ENTITLEMENT LEDGER (`InviteRewardGrant`:
+   PENDING/ISSUED/CONSUMED/VOIDED, entitlementMonths). HOW an issued
+   grant becomes cheaper months is a deferred BILLING SEAM DESIGN,
+   co-designed with the founding-offer implementation (they are the
+   same class of entitlement and must compose: D6 stacking is a
+   requirement on that design, not on today's promo path). No Stripe
+   object names are promised by this spec. M5 gains a design-first gate.
+9. **Legal outreach classification.** Automated (Phase 2) sends require
+   a non-null contact provenance (`contactSource`) and recipient-type
+   classification on the target; unknown provenance or type routes to
+   the manual lane. Fail-closed remains: no automated send without the
+   solicitor gate satisfied.
+10. **Migration packaging.** Reality check: the "recruitment window" is
+    THREE built create-only packets on main (capability-grants+FIELD,
+    merchant_lead_packet, merchant_note_packet), all verified UNAPPLIED
+    on Neon; the fourth (MerchantAgreementRecord) exists only in frozen
+    PR #514. The invite/referral migration is a SEPARATE additive
+    create-only packet that must apply AFTER merchant_lead_packet
+    (runtime dependency: the invite service writes MerchantLead).
+    It does not join or alter the owner-approved window; scheduling is
+    the owner's. FINDING flagged to owner: PROJECT-STATE does not
+    record the lead/note packets' unapplied state (evidence lives in
+    commit messages + schema comments).
+
+## A1.2 Data model (final, supersedes §5)
+
+- **MerchantInvite**: id · inviterUserId? · inviterEmailNorm ·
+  placeKey · googlePlaceId? · businessNameRaw · localityRaw? · note?
+  (240, no URLs) · consentShareName · status (PENDING_CONFIRM | ACTIVE |
+  HELD_REVIEW) · rewardEligible · countableAt? · leadId? (bare) ·
+  ipHash? · anonymisedAt? · createdAt · updatedAt ·
+  UNIQUE(inviterEmailNorm, placeKey) · indexes: placeKey, leadId,
+  status, inviterUserId, (anonymisedAt, createdAt).
+- **InviteRewardGrant**: id · inviteId (bare, UNIQUE) · userId ·
+  merchantId · entitlementMonths (default 1) · status (PENDING | ISSUED
+  | CONSUMED | VOIDED) · voidReason? · issuedAt? · consumedAt? ·
+  createdAt · indexes: userId, merchantId, status. Provider-agnostic:
+  no Stripe fields until the billing seam design.
+- **BusinessSuppression**: id · placeKey UNIQUE · reason (OPT_OUT |
+  IGNORED | MANUAL) · createdByAdminId? · createdAt.
+- No MerchantLead schema changes. No attribution-token table in M0:
+  merchant-live reconciliation by placeKey (plus lead chain) is the
+  attribution mechanism; an explicit register-link token is a Phase 2
+  (M4) addition if analytics demand it.
+- Tokens follow the HOUSE pattern (random hex in Redis with TTL,
+  GET-then-DEL single-use), not HMAC as previously written: Phase 2
+  confirmation tokens and the place-search candidate tokens both.
+- Flags: `isInvitesEnabled()` / `isInviteRewardsEnabled()` following the
+  EMAIL_ENABLED predicate + FEATURE_GATED_SECRETS conventions (no new
+  secrets in Phase 1; Turnstile ALREADY EXISTS platform-side,
+  CAPTCHA_ENABLED + TURNSTILE_SECRET_KEY, used by merchant register:
+  reused, not built, when the anonymous lane arrives).
+
+## A1.3 Corrections to earlier sections
+
+- §4/§8 "HMAC" token references → house Redis token pattern (above).
+- §7 reward mechanics → superseded by A1.1(8).
+- §9 Phase 1 → sign-in required (A1.1(1)); Turnstile not needed in
+  Phase 1; anonymous+captcha lane moves wholly to Phase 2.
+- Open item added: billing seam design doc (with founding offer) gates
+  M5; solicitor blurb unchanged.
+- Admin scope: admin-web is under active frozen ownership (#514/#516/
+  #521); Phase 1 admin exposure = extending the existing
+  GET /api/v1/admin/leads list payload (LEAD_SELECT) with demand
+  evidence (invite counts, latest notes) as a BACKEND contract; console
+  UI changes ride the admin session later.

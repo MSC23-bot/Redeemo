@@ -156,3 +156,85 @@ accruing payout obligations.
 3. Solicitor: outreach template + referral terms blurb (gates M4/M5).
 4. Turnstile site key provisioning (new env var, M1/M3).
 5. Decide WHEN this builds relative to the Portal/Admin programme.
+
+---
+
+# Amendment P1 · 2026-07-14 · Post-inspection revision (authoritative)
+
+Follows spec Amendment A1 (same date). Where this conflicts with the
+milestones above, THE AMENDMENT WINS.
+
+## Revised milestone scopes
+
+**M0 · Schema + core service.** Models per A1.2 (MerchantInvite,
+InviteRewardGrant, BusinessSuppression; NO MerchantLead changes; NO
+attribution-token table). Migration built OFFLINE via
+`prisma migrate diff --from-schema <old> --to-schema <new> --script`
+(verified working, no DB contact), create-only, packaged as a SEPARATE
+packet that must apply AFTER merchant_lead_packet. Flags
+isInvitesEnabled()/isInviteRewardsEnabled() per env.ts conventions.
+Service: identity normalisation, placeKey construction, live-merchant
+detection (Branch.googlePlaceId exact + name/postcode fuzzy: note there
+is NO existing place-lookup service; this builds the first one),
+lead attach-or-create (source CUSTOMER_REQUEST, stage LEAD, unassigned;
+audit LEAD_CREATED with CUSTOMER actor + INVITE_CREATED), eligibility
+stamping per A1.1(2), caps arithmetic, P2002-idempotent submit.
+Unit tests in the CI unit lane.
+
+**M1 · Customer API (Phase 1 = signed-in only).**
+- POST /api/v1/customer/invites (authenticateCustomer; rate tier
+  `inviteSubmit` per-user + per-IP; no Turnstile in Phase 1).
+- POST /api/v1/customer/invites/place-search (authenticated; wraps
+  searchPlaces() behind a NEW Redis-backed inviteLocationLimiter
+  modelled on merchantLocationLimiter: the file-based Places cap is
+  single-process and unsafe for this route; candidate-token response,
+  placeId never leaves the server).
+- Responses per D11 (already_live | ok), generic ok for pipeline and
+  unknown alike.
+- All sends absent in Phase 1; nothing calls notify().
+- Contract tests for abuse rules with an M1 surface.
+
+**M2 · Admin exposure = BACKEND CONTRACT ONLY this programme phase.**
+admin-web is actively owned/frozen (#514/#516/#521). Deliverable: a
+short interface note + (when scheduled) LEAD_SELECT list-payload
+extension carrying inviteCount/latestInviteAt/demand notes and the
+PREPARED vs SENT_CONFIRMED manual-outreach endpoints per A1.1(7).
+No admin-web UI in this programme until the admin session's stack
+lands.
+
+**M4 · Phase 2 additions (unchanged gates)** now also includes: the
+anonymous lane (Turnstile via EXISTING CAPTCHA_ENABLED/verifyTurnstile;
+double-opt-in via house Redis tokens through notify()/emailLimiter with
+new inviteConfirm + inviteBusiness contexts), contact provenance +
+recipient-type classification (A1.1(9)), and the optional register-link
+attribution token if analytics justify it.
+
+**M5 · Reward activation** gains a DESIGN-FIRST GATE: a billing seam
+design doc co-designed with the founding-offer implementation (verified
+constraints: one Subscription row per user forever; promoCodeId
+single-valued write-once; one coupon per subscriptions.create;
+currentPeriodEnd Stripe-derived only; no credit primitive). Until that
+doc is owner-approved, grants exist only as ledger rows.
+
+## Corrected owner-action list
+
+1. Schedule the invite packet AFTER merchant_lead_packet in a migration
+   window (separate from, or sequenced within, the recruitment window:
+   owner's call).
+2. Resend/DNS + EMAIL_ENABLED before M4 (unchanged).
+3. Solicitor: outreach template + referral terms blurb (unchanged).
+4. Turnstile: NOT a new integration (already platform-wired); only
+   TURNSTILE_SECRET_KEY provisioning when CAPTCHA_ENABLED flips for the
+   anonymous lane.
+5. Build scheduling vs Portal/Admin (unchanged).
+6. NEW: PROJECT-STATE should record the unapplied state of
+   merchant_lead_packet + merchant_note_packet (currently only in
+   commit messages/schema comments) and that MerchantAgreementRecord
+   (packet 4) exists only in frozen PR #514.
+
+## Autonomous-run execution note (2026-07-14)
+
+M0+M1 are being implemented in this owner-approved autonomous window on
+fresh worktrees from origin/main, as unmerged PRs, flags default-off,
+no migration applied, no sends, no provider calls, per the safety
+boundaries in the owner brief.
