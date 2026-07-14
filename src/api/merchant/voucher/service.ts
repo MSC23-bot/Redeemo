@@ -9,6 +9,7 @@ import {
   type EditActor,
 } from '../shared'
 import { isEligibleFlagshipType, FLAGSHIP_RMV_CAP } from './shared'
+import { assertVoucherSubmittable } from './submitValidation'
 
 // Only DRAFT vouchers can be edited, submitted, or deleted
 const EDITABLE_STATUSES = ['DRAFT'] as const
@@ -555,6 +556,22 @@ export async function submitVoucher(
     throw new AppError('TIME_LIMITED_REQUIRES_WINDOW')
   }
 
+  // S5 (submission validity, owner requirement 2026-07-13): FAIL CLOSED. A DRAFT may be
+  // saved incomplete, but submit-for-review is rejected until every field needed to
+  // DEFINE the offer and CALCULATE an honest saving is present + valid. The custom lane's
+  // top-level columns (type/title/estimatedSaving) are authoritative; the structured
+  // mechanic (when present) lives in the merchantFields bag. Runs AFTER the status gate
+  // and the TIME_LIMITED window gate (kept alongside), BEFORE the transaction, so nothing
+  // is written on a reject. estimatedSaving is a Decimal column -> coerce to Number.
+  assertVoucherSubmittable({
+    type: voucher.type as unknown as string,
+    title: voucher.title,
+    estimatedSaving: voucher.estimatedSaving == null ? null : Number(voucher.estimatedSaving),
+    merchantFields: voucher.merchantFields,
+    windowCount: (voucher.availabilityWindows ?? []).length,
+    cooldownSeconds: voucher.cooldownSeconds ?? null,
+  })
+
   // Day-2 Vouchers A4: the status flip AND the VOUCHER approval lane row are
   // committed atomically. Create the AdminApproval{ type:'VOUCHER' } on first
   // submit; reopen the SAME row (clear the prior claim) on resubmit-after-changes,
@@ -781,16 +798,103 @@ export async function createFlagshipRmvVoucher(
   return voucher
 }
 
+// ─── S5 items 1+2+3 (2026-07-14): fail-closed EFFECTIVE-template resolution ──
+//
+// The F5 builder keeps the discount kind (fixed <-> percent) inside the bag
+// (bag.merchantFields.discountKind) while Voucher.type stays as created. When the
+// bag's kind implies the OTHER discount enum, the voucher must be re-linked to the
+// SIBLING RmvTemplate of the same top-level category. This resolver is the single
+// shared implementation; it returns BOTH the relink columns AND the EFFECTIVE
+// (post-relink / destination) template's allowedFields, so every caller validates and
+// promotes against the template the voucher will ACTUALLY link to, never the stale
+// current one (round-2 fix: validating proposed keys against the CURRENT template while
+// relinking to a sibling could persist a field the destination template forbids):
+//   - updateRmvVoucherCore validates proposed KEYS against the destination allowedFields
+//     at DRAFT SAVE time (item 2: draft-type honesty; the stored type/template always
+//     match the mechanic the merchant built, so admin co-build + review reads are
+//     truthful on drafts).
+//   - submitRmvVoucherCore relinks + GATES the promoted copy fields by the destination
+//     allowedFields at SUBMIT time (defence-in-depth: a no-op when drafts are already
+//     truthful; still covers legacy drafts saved before item 2, and prevents a
+//     flip-at-submit promoting a field the destination forbids).
+// FAIL CLOSED (item 1): when a flip is implied but the ACTIVE sibling cannot be resolved
+// (row missing, inactive, or the voucher's own template link is unreadable), throw the
+// typed 422 RMV_TEMPLATE_UNAVAILABLE BEFORE any write or status transition. Silently
+// keeping the old type while carrying the new mechanic's fields would put a dishonest
+// offer in front of admin review (and, post-approval, customers).
+//
+// On no flip (non-discount voucher, no discountKind, or the kind already matches) the
+// effective template IS the current one, so `relink` is null and `allowedFields` is the
+// current template's list. The resolution is a pure read (no side effects) and always
+// runs before the write boundary.
+type EffectiveTemplate = {
+  relink: { type: 'DISCOUNT_FIXED' | 'DISCOUNT_PERCENT'; rmvTemplateId: string } | null
+  allowedFields: string[]
+}
+
+function readAllowedFields(row: { allowedFields?: unknown } | null | undefined): string[] {
+  return Array.isArray(row?.allowedFields) ? (row!.allowedFields as string[]) : []
+}
+
+async function resolveEffectiveTemplate(
+  client: { rmvTemplate: { findFirst: (args: any) => Promise<{ id: string; allowedFields?: unknown } | null> } },
+  voucher: { type: unknown; rmvTemplate: { categoryId?: string; allowedFields?: unknown } | null },
+  bag: Record<string, unknown>,
+): Promise<EffectiveTemplate> {
+  const currentAllowed = readAllowedFields(voucher.rmvTemplate)
+  const currentType = voucher.type as unknown as string
+  if (currentType !== 'DISCOUNT_PERCENT' && currentType !== 'DISCOUNT_FIXED') {
+    return { relink: null, allowedFields: currentAllowed }
+  }
+
+  const nested = bag.merchantFields
+  const discountKind =
+    typeof nested === 'object' && nested !== null && !Array.isArray(nested)
+      ? (nested as Record<string, unknown>).discountKind
+      : undefined
+  let impliedType: 'DISCOUNT_FIXED' | 'DISCOUNT_PERCENT' | null = null
+  if (discountKind === 'fixed') impliedType = 'DISCOUNT_FIXED'
+  else if (discountKind === 'percent') impliedType = 'DISCOUNT_PERCENT'
+  if (!impliedType || impliedType === currentType) {
+    return { relink: null, allowedFields: currentAllowed }
+  }
+
+  // A flip is REQUIRED from here on: any unresolvable link fails closed (item 1).
+  const categoryId = voucher.rmvTemplate?.categoryId
+  if (!categoryId) throw new AppError('RMV_TEMPLATE_UNAVAILABLE')
+  const sibling = await client.rmvTemplate.findFirst({
+    where: { categoryId, voucherType: impliedType as any, isActive: true },
+  })
+  if (!sibling) throw new AppError('RMV_TEMPLATE_UNAVAILABLE')
+  // The DESTINATION template governs from here: its allowedFields, not the source's.
+  return { relink: { type: impliedType, rmvTemplateId: sibling.id }, allowedFields: readAllowedFields(sibling) }
+}
+
 /**
  * Option B B5.1: the RMV-EDIT core. Actor-aware so the admin path (actor ADMIN +
  * reason) and the merchant path (actor MERCHANT_ADMIN) share it (no weaker path).
- * Behaviour is unchanged from the previous `updateRmvVoucher`: DRAFT-only,
- * allowedFields KEY validation, merchantFields merge (top-level columns untouched).
- * The only change is the audit, which moves INSIDE the transaction and carries the
- * actor + reason + before/after (was fire-and-forget writeAuditLog). The
+ * DRAFT-only, allowedFields KEY validation, merchantFields merge. The audit runs
+ * INSIDE the transaction and carries the actor + reason + before/after. The
  * voucher.findFirst stays scoped to merchantId, so an admin acting on
  * /merchants/:id can never edit a voucher belonging to a different merchant (a
  * mismatch returns RMV_NOT_FOUND).
+ *
+ * S5 item 2 (draft-type honesty, 2026-07-14): when the MERGED bag's discountKind
+ * implies the OTHER discount mechanic, the voucher's type + rmvTemplateId are
+ * RE-LINKED in the SAME voucher.update as the bag write (one atomic row update:
+ * the bag write and the relink succeed or fail together).
+ *
+ * Round-2 ordering fix (2026-07-14): the EFFECTIVE (destination) template is resolved
+ * FIRST, and proposed KEYS are validated against ITS allowedFields, never the stale
+ * current template's. On a non-flip save the effective template IS the current one
+ * (behaviour unchanged); on a flip the sibling governs, so a field allowed only by the
+ * SOURCE template can never be persisted while relinking to a destination that forbids
+ * it. All resolution (fail-closed RMV_TEMPLATE_UNAVAILABLE, see resolveEffectiveTemplate)
+ * AND the allowedFields validation run BEFORE the transaction opens, so a reject writes
+ * nothing (no bag write, no relink, no audit). After a relink, subsequent edits validate
+ * against the sibling template (the voucher now links to it). Admin reads of drafts
+ * (Option B co-build listAdminRmvVouchers + the review read) are per-request
+ * pass-throughs of type/template, so they surface the truthful mechanic immediately.
  */
 export async function updateRmvVoucherCore(
   prisma: PrismaClient,
@@ -806,19 +910,21 @@ export async function updateRmvVoucherCore(
   if (!voucher) throw new AppError('RMV_NOT_FOUND')
   if (voucher.status !== 'DRAFT') throw new AppError('VOUCHER_NOT_EDITABLE')
 
-  const allowedFields: string[] = Array.isArray(voucher.rmvTemplate?.allowedFields)
-    ? (voucher.rmvTemplate.allowedFields as string[])
-    : []
-  const disallowed = Object.keys(proposedFields).filter(k => !allowedFields.includes(k))
-  if (disallowed.length > 0) throw new AppError('RMV_FIELD_NOT_ALLOWED')
-
   const currentFields = (voucher.merchantFields as Record<string, unknown>) ?? {}
   const merged = { ...currentFields, ...proposedFields }
+
+  // Resolve the EFFECTIVE (destination) template FIRST, fail-closed
+  // (RMV_TEMPLATE_UNAVAILABLE on an unresolvable sibling), then validate proposed KEYS
+  // against ITS allowedFields. Both happen BEFORE the transaction, so a reject (missing
+  // sibling OR a key the destination forbids) writes nothing.
+  const { relink, allowedFields } = await resolveEffectiveTemplate(prisma, voucher, merged)
+  const disallowed = Object.keys(proposedFields).filter(k => !allowedFields.includes(k))
+  if (disallowed.length > 0) throw new AppError('RMV_FIELD_NOT_ALLOWED')
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.voucher.update({
       where: { id: voucherId },
-      data: { merchantFields: merged as any },
+      data: { merchantFields: merged as any, ...(relink ?? {}) },
     })
     await writeAuditLogTx(tx, {
       entityId: merchantId, entityType: 'merchant', event: 'RMV_UPDATED',
@@ -856,11 +962,16 @@ export async function updateRmvVoucher(
 
 /**
  * Option B B5.1: the RMV-SUBMIT core. Actor-aware (admin ADMIN + reason / merchant
- * MERCHANT_ADMIN), no weaker path. Behaviour unchanged from the previous
- * `submitRmvVoucher`: DRAFT-only gate (VOUCHER_NOT_SUBMITTABLE otherwise), NO
- * allowedFields-completeness gate (a blank-fields RMV can still be submitted, same
- * as the merchant path), status flips DRAFT -> PENDING_APPROVAL with publishedAt.
- * Audit moves INSIDE the transaction with actor + reason + before/after.
+ * MERCHANT_ADMIN), no weaker path. DRAFT-only gate (VOUCHER_NOT_SUBMITTABLE
+ * otherwise); status flips DRAFT -> PENDING_APPROVAL with publishedAt. Audit runs
+ * INSIDE the transaction with actor + reason + before/after.
+ *
+ * S5 (owner requirement 2026-07-13): submission is FAIL-CLOSED. The effective
+ * voucher (promoted columns + structured bag) must pass the S5 required-field
+ * matrix (assertVoucherSubmittable) before the status flip: an incomplete or
+ * invalid flagship is rejected with VOUCHER_INCOMPLETE (400). Blank submissions
+ * are NO LONGER accepted; a template-default draft with no structured bag is
+ * validated on the universal invariants (title + saving are template-set).
  */
 export async function submitRmvVoucherCore(
   prisma: PrismaClient,
@@ -938,30 +1049,54 @@ export async function submitRmvVoucherCore(
     promoted.estimatedSaving = roundedSaving
   }
 
-  // Step 2 (A-style): re-link the discount type. The builder draft bag is nested
-  // one level deeper under bag.merchantFields; discountKind is 'fixed' | 'percent'.
-  const nested = (bag.merchantFields as Record<string, unknown> | undefined) ?? undefined
-  const discountKind = nested?.discountKind
+  // Step 2: resolve the EFFECTIVE (destination) template via the shared FAIL-CLOSED
+  // resolver. The builder draft bag is nested one level deeper under bag.merchantFields;
+  // discountKind is 'fixed' | 'percent'. With item 2 (draft-time relink) this is
+  // defence-in-depth: a truthful draft makes it a no-op, but a legacy draft saved before
+  // item 2 (or written by a direct API caller) still relinks here. When a flip is implied
+  // and the ACTIVE sibling template cannot be resolved, the submit is REJECTED with the
+  // typed 422 RMV_TEMPLATE_UNAVAILABLE before any write or status transition (never a
+  // silent keep of the old type, never a 5xx).
   const currentType = voucher.type as unknown as string
-  let impliedType: 'DISCOUNT_FIXED' | 'DISCOUNT_PERCENT' | null = null
-  if (currentType === 'DISCOUNT_PERCENT' || currentType === 'DISCOUNT_FIXED') {
-    if (discountKind === 'fixed') impliedType = 'DISCOUNT_FIXED'
-    else if (discountKind === 'percent') impliedType = 'DISCOUNT_PERCENT'
-  }
-  let relink: { type: string; rmvTemplateId: string } | null = null
-  if (impliedType && impliedType !== currentType) {
-    // The implied type differs from the current type: find the sibling template
-    // for the SAME top-level category. Defensively keep the current type/template
-    // if the sibling is missing (both kinds are seeded per category, so this
-    // should not happen) so the submit never fails on a missing sibling.
-    const categoryId = voucher.rmvTemplate?.categoryId
-    if (categoryId) {
-      const sibling = await prisma.rmvTemplate.findFirst({
-        where: { categoryId, voucherType: impliedType as any, isActive: true },
-      })
-      if (sibling) relink = { type: impliedType, rmvTemplateId: sibling.id }
+  const { relink, allowedFields: effectiveAllowed } = await resolveEffectiveTemplate(prisma, voucher, bag)
+
+  // Round-2 fix: a flip-at-submit must not PROMOTE a copy field the DESTINATION template
+  // forbids. Gate the promoted set by the effective (post-relink) template's allowedFields
+  // when that list is known (non-empty); a forbidden copy field is dropped so the column
+  // keeps its existing / template-default value. When no template/allowedFields is
+  // resolvable (empty list) the gate is a no-op, preserving legacy behaviour. All real +
+  // test templates include the copy fields, so a truthful builder submit is unaffected.
+  if (effectiveAllowed.length > 0) {
+    for (const key of Object.keys(promoted)) {
+      if (!effectiveAllowed.includes(key)) delete promoted[key]
     }
   }
+
+  // S5 (submission validity, owner requirement 2026-07-13): FAIL CLOSED on the flagship
+  // lane too. Validate the EFFECTIVE voucher (the promoted top-level values + re-linked
+  // type that this submit is about to write) plus the nested structured bag against the
+  // matrix, BEFORE the transaction. The existing assertSavingSane on a poisoned bag
+  // saving already ran above (keeps SAVING_INVALID); this adds the per-type completeness
+  // gate. A template-default flagship draft (empty/opaque bag) carries no structured bag,
+  // so it is validated on the universal invariants only (title + saving are template-set),
+  // never blocked by a mechanic field it never stored (S5.6). Flagship types are always a
+  // base type, so the wrapper rows never apply.
+  const effectiveType = relink?.type ?? currentType
+  const effectiveTitle = typeof promoted.title === 'string' ? promoted.title : voucher.title
+  const effectiveSaving =
+    'estimatedSaving' in promoted
+      ? promoted.estimatedSaving
+      : voucher.estimatedSaving == null
+        ? null
+        : Number(voucher.estimatedSaving)
+  assertVoucherSubmittable({
+    type: effectiveType,
+    title: effectiveTitle,
+    estimatedSaving: effectiveSaving,
+    merchantFields: voucher.merchantFields,
+    windowCount: 0,
+    cooldownSeconds: null,
+  })
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.voucher.update({

@@ -479,12 +479,12 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
 
   // Submit: move a DRAFT RMV to PENDING_APPROVAL on the merchant's behalf. Gated
   // OPERATIONS-level (`merchant:manage-vouchers`). Reuses the LIVE submit core (no
-  // weaker path): the SAME DRAFT-only gate (VOUCHER_NOT_SUBMITTABLE) and NO
-  // completeness gate (a blank-fields RMV still submits, exactly as the merchant
-  // path). Submitting only QUEUES the RMV for the go-live review; nothing goes live
-  // here; the actioner approve (approval:action) stays the separation-of-duties
-  // backstop that flips submitted RMVs to ACTIVE. STRICT body = reason only.
-  // Audited actorType ADMIN + reason.
+  // weaker path): the SAME DRAFT-only gate (VOUCHER_NOT_SUBMITTABLE) and the SAME S5
+  // fail-closed completeness gate (VOUCHER_INCOMPLETE: an incomplete offer cannot be
+  // submitted, admin path included). Submitting only QUEUES the RMV for the go-live
+  // review; nothing goes live here; the actioner approve (approval:action) stays the
+  // separation-of-duties backstop that flips submitted RMVs to ACTIVE. STRICT body =
+  // reason only. Audited actorType ADMIN + reason.
   app.post(`${prefix}/:id/vouchers/:voucherId/rmv/submit`, { preHandler: [requireAdminCapability('merchant:manage-vouchers')] }, async (req: any) => {
     const { id, voucherId } = z
       .object({ id: z.string().min(1), voucherId: z.string().min(1) })

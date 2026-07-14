@@ -61,13 +61,16 @@ describe('M2 flagship voucher bridge (submitRmvVoucherCore promotion + re-link)'
   }
 
   // The merchant-authored bag the F5 builder writes (no discount flip).
+  // S5: the nested structured bag is matrix-complete (DISCOUNT_PERCENT needs a
+  // percentage + a pricing basis) so the submit fail-closed gate passes; the bridge
+  // promotion/re-link assertions read the bag TOP-LEVEL copy fields, untouched here.
   const authoredBag = {
     title: 'Half Price Pizza Tuesdays',
     description: 'Enjoy 50% off all pizzas every Tuesday evening.',
     estimatedSaving: 12.5,
     terms: 'Dine-in only. Cannot be combined with other offers.',
     imageUrl: 'https://cdn.example/pizza.jpg',
-    merchantFields: { builderType: 'discount', discountKind: 'percent', discPercent: 50 },
+    merchantFields: { builderType: 'discount', discountKind: 'percent', discPercent: 50, discMin: 25 },
   }
 
   beforeEach(async () => {
@@ -209,13 +212,46 @@ describe('M2 flagship voucher bridge (submitRmvVoucherCore promotion + re-link)'
     )
   })
 
+  // Round-2 sweep closure (flip-at-submit): a copy field the DESTINATION template forbids
+  // must NOT be promoted onto the column, even though the SOURCE template allowed it. This
+  // guards a legacy draft (bag written before draft-time relinking) submitted with an
+  // imageUrl the fixed template does not permit. The flip still relinks; imageUrl is dropped.
+  it('does NOT promote a copy field forbidden by the destination template on a flip-at-submit', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({
+        type: 'DISCOUNT_PERCENT', rmvTemplateId: 'tmpl-pct',
+        // Source (percent) template allows imageUrl.
+        rmvTemplate: { ...percentTemplate, allowedFields: ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl'] },
+        imageUrl: 'https://cdn.example/existing.jpg',
+        merchantFields: {
+          title: 'A Tenner Off', estimatedSaving: 10, imageUrl: 'https://cdn.example/new.jpg',
+          merchantFields: { builderType: 'discount', discountKind: 'fixed', discAmount: 10 },
+        },
+      })
+    )
+    // Destination (fixed) sibling FORBIDS imageUrl.
+    app.prisma.rmvTemplate.findFirst = vi.fn().mockResolvedValue({
+      ...fixedTemplate, allowedFields: ['title', 'description', 'estimatedSaving', 'terms'],
+    })
+    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+
+    const res = await submit()
+    expect(res.statusCode).toBe(200)
+    const data = firstUpdateData()
+    // Relinked to the destination, title promoted (allowed), imageUrl DROPPED (forbidden).
+    expect(data.type).toBe('DISCOUNT_FIXED')
+    expect(data.rmvTemplateId).toBe('tmpl-fixed')
+    expect(data.title).toBe('A Tenner Off')
+    expect('imageUrl' in data).toBe(false)
+  })
+
   it('re-links DISCOUNT_FIXED -> DISCOUNT_PERCENT when the bag discountKind is "percent"', async () => {
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
       draftRmv({
         type: 'DISCOUNT_FIXED', rmvTemplateId: 'tmpl-fixed', rmvTemplate: fixedTemplate,
         merchantFields: {
           title: 'Twenty Percent Off', description: 'Save a percentage.', estimatedSaving: 8,
-          merchantFields: { builderType: 'discount', discountKind: 'percent', discPercent: 20 },
+          merchantFields: { builderType: 'discount', discountKind: 'percent', discPercent: 20, discMin: 40 },
         },
       })
     )
@@ -259,7 +295,7 @@ describe('M2 flagship voucher bridge (submitRmvVoucherCore promotion + re-link)'
         type: 'BOGO', rmvTemplateId: 'tmpl-bogo', rmvTemplate: bogoTemplate,
         merchantFields: {
           title: 'BOGO Burgers', description: 'Buy one burger get one free.', estimatedSaving: 9,
-          merchantFields: { builderType: 'bogo', discountKind: 'fixed' /* irrelevant on BOGO */ },
+          merchantFields: { builderType: 'bogo', discountKind: 'fixed' /* irrelevant on BOGO */, bogoBuy: 'A burger', bogoFree: 'A burger', bogoFreePrice: 9 },
         },
       })
     )
@@ -279,7 +315,7 @@ describe('M2 flagship voucher bridge (submitRmvVoucherCore promotion + re-link)'
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
       draftRmv({
         type: 'DISCOUNT_PERCENT', rmvTemplateId: 'tmpl-pct', rmvTemplate: percentTemplate,
-        merchantFields: { title: 'No Kind Here', estimatedSaving: 6, merchantFields: { builderType: 'discount' } },
+        merchantFields: { title: 'No Kind Here', estimatedSaving: 6, merchantFields: { builderType: 'discount', discPercent: 20, discMin: 30 } },
       })
     )
     app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
@@ -291,28 +327,55 @@ describe('M2 flagship voucher bridge (submitRmvVoucherCore promotion + re-link)'
     expect('type' in data).toBe(false)
   })
 
-  it('defensively keeps the current type/template when the sibling discount template is missing', async () => {
+  // S5 item 1 (fail-closed sibling relink): when the bag's discountKind requires the
+  // OTHER discount template but the ACTIVE sibling cannot be resolved, the submit is
+  // REJECTED with the typed 422 RMV_TEMPLATE_UNAVAILABLE and NOTHING is written (no
+  // voucher update, so no status transition and no promotion; no audit). The previous
+  // behaviour (silently keeping the old type while submitting the new mechanic's
+  // fields) put a dishonest offer in front of admin review.
+  it('fails closed (422 RMV_TEMPLATE_UNAVAILABLE, zero writes) when the sibling discount template is missing', async () => {
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
       draftRmv({
         type: 'DISCOUNT_PERCENT', rmvTemplateId: 'tmpl-pct', rmvTemplate: percentTemplate,
         merchantFields: {
           title: 'Fixed But No Sibling', estimatedSaving: 7,
-          merchantFields: { builderType: 'discount', discountKind: 'fixed' },
+          merchantFields: { builderType: 'discount', discountKind: 'fixed', discAmount: 7 },
         },
       })
     )
-    // Sibling lookup returns null (should not happen in seeded data, but defend).
+    // Sibling lookup returns null (row missing or inactive).
     app.prisma.rmvTemplate.findFirst = vi.fn().mockResolvedValue(null)
-    app.prisma.voucher.update = vi.fn().mockResolvedValue(draftRmv({ status: 'PENDING_APPROVAL' }))
+    app.prisma.voucher.update = vi.fn()
 
     const res = await submit()
-    // Submit must NOT fail.
-    expect(res.statusCode).toBe(200)
-    const data = firstUpdateData()
-    expect('type' in data).toBe(false)
-    expect('rmvTemplateId' in data).toBe(false)
-    // Promotion still happens.
-    expect(data.title).toBe('Fixed But No Sibling')
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body).error.code).toBe('RMV_TEMPLATE_UNAVAILABLE')
+    // Zero writes.
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+    expect(app.prisma.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  // Same class: the voucher's OWN template link is unreadable (relation null) while a
+  // flip is implied: also fail closed, never a silent keep and never a 5xx.
+  it('fails closed (422) when a flip is implied but the voucher has no readable template link', async () => {
+    app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(
+      draftRmv({
+        type: 'DISCOUNT_PERCENT', rmvTemplateId: 'tmpl-pct', rmvTemplate: null,
+        merchantFields: {
+          title: 'Fixed But No Template Link', estimatedSaving: 7,
+          merchantFields: { builderType: 'discount', discountKind: 'fixed', discAmount: 7 },
+        },
+      })
+    )
+    app.prisma.voucher.update = vi.fn()
+
+    const res = await submit()
+    expect(res.statusCode).toBe(422)
+    expect(JSON.parse(res.body).error.code).toBe('RMV_TEMPLATE_UNAVAILABLE')
+    // No sibling lookup is even attempted (categoryId unreadable) and nothing is written.
+    expect(app.prisma.rmvTemplate.findFirst).not.toHaveBeenCalled()
+    expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+    expect(app.prisma.auditLog.create).not.toHaveBeenCalled()
   })
 
   // ── Resubmit after NEEDS_CHANGES re-promotes the latest edits ─────────────

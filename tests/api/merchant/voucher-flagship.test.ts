@@ -285,8 +285,12 @@ describe('merchant flagship-RMV create-flagship route (M2 B3)', () => {
   })
 
   it('submits the created RMV: DRAFT -> PENDING_APPROVAL', async () => {
+    // S5: a flagship draft at template defaults (no structured builder bag) is validated
+    // on the universal invariants only; title + estimatedSaving are template-set on a real
+    // create-flagship, so they are present here for the fail-closed submit gate.
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
       id: 'rmv-new', merchantId: 'm1', isRmv: true, status: 'DRAFT',
+      type: 'BOGO', title: 'Buy One Get One Free', estimatedSaving: 5.0, merchantFields: {},
     })
     app.prisma.voucher.update = vi.fn().mockResolvedValue({ id: 'rmv-new', status: 'PENDING_APPROVAL' })
 

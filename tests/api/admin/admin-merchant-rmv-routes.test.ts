@@ -85,6 +85,26 @@ describe('B5.1: admin RMV co-build routes', () => {
     expect(body.vouchers[0]).not.toHaveProperty('rmvTemplate')
   })
 
+  // S5 item 2 (draft-type honesty): the co-build read is a per-request pass-through of
+  // voucher.type + the LINKED template's allowedFields. After a draft-time relink
+  // (percent -> fixed toggled save), the row carries the sibling type/template, so the
+  // admin surface shows the TRUTHFUL mechanic for a toggled draft: no stale
+  // DISCOUNT_PERCENT while the bag holds a fixed-amount offer.
+  it('GET surfaces the truthful mechanic for a relinked draft (type + sibling allowedFields)', async () => {
+    ;(app as any).prisma.voucher.findMany.mockResolvedValue([{
+      ...draftRmv,
+      type: 'DISCOUNT_FIXED', rmvTemplateId: 'tmpl-fixed',
+      merchantFields: { merchantFields: { builderType: 'discount', discountKind: 'fixed', discAmount: 10 } },
+      rmvTemplate: { id: 'tmpl-fixed', allowedFields: ['title', 'terms', 'merchantFields'] },
+    }])
+    const res = await app.inject({ method: 'GET', url: readUrl, headers: { authorization: `Bearer ${signAdmin('OPERATIONS')}` } })
+    expect(res.statusCode).toBe(200)
+    const row = JSON.parse(res.body).vouchers[0]
+    expect(row.type).toBe('DISCOUNT_FIXED')
+    expect(row.allowedFields).toEqual(['title', 'terms', 'merchantFields'])
+    expect(row.merchantFields.merchantFields.discountKind).toBe('fixed')
+  })
+
   // ── edit ─────────────────────────────────────────────────────────────────────
 
   it('PATCH 400 when reason is missing (STRICT body)', async () => {

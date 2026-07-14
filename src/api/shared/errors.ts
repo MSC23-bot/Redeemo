@@ -240,6 +240,17 @@ export const ERROR_DEFINITIONS = {
   MERCHANT_NOT_SUSPENDED:         { statusCode: 409, message: 'This merchant is not suspended, so it cannot be reactivated.' },
   CONTRACT_ALREADY_SIGNED:        { statusCode: 409, message: 'The contract has already been accepted.' },
   NO_RMV_TEMPLATE:                { statusCode: 422, message: 'No RMV template found for this category. Please contact Redeemo support.' },
+  // S5 item 1 (fail-closed sibling relink, 2026-07-14): a flagship discount edit or
+  // submit implies the OTHER discount mechanic (the bag's discountKind differs from the
+  // stored type) but the matching ACTIVE sibling RmvTemplate for the same top-level
+  // category cannot be resolved (row missing, inactive, or the voucher's template link
+  // is unreadable). The write is REJECTED before any update or status transition:
+  // silently keeping the old type while carrying the new mechanic's fields would put a
+  // dishonest offer in front of admin review and customers. Raised by
+  // resolveEffectiveTemplate (voucher/service.ts), shared by updateRmvVoucherCore (draft
+  // save relink + destination-template key validation) and submitRmvVoucherCore
+  // (defence-in-depth relink + promoted-field gating).
+  RMV_TEMPLATE_UNAVAILABLE:       { statusCode: 422, message: 'The voucher template for this discount kind is unavailable right now. Please contact Redeemo support.' },
   // M2 B3 (D2): the merchant chose a flagship voucher type that is not eligible
   // for a mandatory flagship RMV. Eligible: BOGO, SPEND_AND_SAVE, DISCOUNT_FIXED,
   // DISCOUNT_PERCENT, FREEBIE, PACKAGE_DEAL. Ineligible: TIME_LIMITED, REUSABLE
@@ -391,6 +402,18 @@ export const ERROR_DEFINITIONS = {
   // positive value is accepted; the floor is an advisory client-side scoring input
   // per D8b, with admin review the quality backstop).
   SAVING_INVALID:                  { statusCode: 400, message: 'Enter a saving amount greater than zero.' },
+  // S5 (voucher submission validity, owner requirement 2026-07-13): the fail-closed
+  // submit gate. A merchant may SAVE an incomplete DRAFT, but SUBMIT FOR REVIEW is
+  // rejected until every field needed to DEFINE the offer and CALCULATE an honest
+  // estimated saving is present and valid (per-type matrix in the S5 plan section).
+  // `details.fields` carries a stable per-field array `[{ field, code, message }]` where
+  // code is REQUIRED (absent/blank), INVALID (wrong type / non-finite / out of range /
+  // <= 0), or INCONSISTENT (contradicts a sibling field, e.g. save >= spend). The
+  // advisory score stays NON-GATING: a complete-but-weak voucher still submits. Runs in
+  // BOTH submit services (custom submitVoucher + flagship submitRmvVoucherCore) against
+  // the EFFECTIVE voucher (top-level columns + the merchantFields bag, after the flagship
+  // promotion/re-link bridge). See submitValidation.ts + the S5 plan section.
+  VOUCHER_INCOMPLETE:              { statusCode: 400, message: 'This voucher is not ready to submit. Complete the highlighted fields before submitting for review.' },
   // Day-2 Vouchers B1 (item 3): defensive guard on the free-form Voucher
   // merchantFields bag (no Zod cap). Rejected when the bag exceeds 16KB of JSON
   // or more than 50 top-level keys, before it can reach Prisma.
