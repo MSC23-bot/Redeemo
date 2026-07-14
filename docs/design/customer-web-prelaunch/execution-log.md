@@ -1252,3 +1252,31 @@ Gates: tsc clean, test:unit 3395, prisma validate clean, range check
 clean, layer scope re-verified. CI on #526 green including disposable-
 Postgres migrate deploy of the invite packet. Boundaries held: no
 merge, no shared-data mutation, no providers, no outreach, no rewards.
+
+## 2026-07-14 · #397 reconciliation programme: PR #529 (Fable-led)
+
+Owner brief: preserve the approved redesign, reconcile with today's
+platform, restore the preview, keep #397 untouched as rollback. Findings:
+the scary CONFLICTING/DIRTY state was ONE file (open-register.md, both
+sides appended changelog entries: union-resolved); main-side customer-web
+drift since the 2026-07-06 merge-base was TWO commits (R2 CSP/image fix +
+next 15.5.20 security bump: inherited byte-identical); the Vercel preview
+failure was three react-hooks/rules-of-hooks ERRORS (useBand inside .map
+callbacks in AppJourneySection: dev never runs ESLint, production lint
+correctly refused). Delivery: single merge-based PR #529 on
+feat/prelaunch-website-reconciled (full 96-commit history preserved, no
+rewrite) + three corrective commits: stale invite/referral doc mirrors
+removed (authoritative on #525), PinDigit/KeyFlash/TrendBar extraction
+(identical animation maths, verified band-by-band in adversarial review),
+dead media pruned 25MB -> 6.9MB (every removed file zero-referenced).
+Gates: tsc clean, lint zero errors, next build PASSES, range diff --check
+clean; QA at 1440/768/390/844x390 + reduced-motion (StaticJourney fallback
+verified in DOM) + keyboard focus + no horizontal overflow + console clean
+(one benign THREE.Clock deprecation) + zero 4xx resources. Vercel preview
+BUILD PASSES on #529 (deployment Ready; preview URL sits behind the
+team's Vercel Authentication: viewable by authenticated owner; protection
+settings are provider config and were not touched). Opus adversarial
+review: SAFE, zero blockers, all locked design/copy properties survived
+(two-months founding, per-voucher renewal, terms page untouched).
+#397 + worktree-prelaunch-website preserved untouched. Held draft for
+Codex review + owner SHA-bound approval; no merge, no production deploy.
