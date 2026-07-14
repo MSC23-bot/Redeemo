@@ -336,3 +336,32 @@ executes the suite against the disposable loopback service and surfaces
 PASS/FAIL in the job summary. No local execution was possible on the
 build machine (no container runtime, no local Postgres): recorded
 honestly rather than claimed.
+
+## Codex round-3 record (2026-07-14, third pass)
+
+Renewed heads: docs @ this commit, M0 @ 31f44656, M1 @ 56255236
+(stacked, layer re-verified 1 commit / 10 files). All five anchors
+resolved: erasure SEVERANCE implemented (spec A3.1; solicitor question
+on ISSUED/CONSUMED grants recorded), duplicate idempotency AT the cap
+(in-lock pre-check), namespaced bounded advisory locks with retryable
+contention 429, concurrency suite wired for CI execution
+(test:integration:invites shipped; the workflow step is an
+owner-applied patch: session tokens lack the GitHub workflow scope:
+docs/superpowers/plans/2026-07-14-invite-ci-pilot-step.patch), and the
+migration EOF whitespace fixed with the COMMITTED-RANGE git diff
+--check added to the gate list (working-tree --check cannot see
+committed defects: process lesson recorded).
+
+Round-3 adversarial verification (Opus): all anchors confirmed
+implemented; one must-fix, F-C1 (the 55P03 classifier hard-gated on the
+P2010 envelope, risking a 500 where the retryable 429 was intended)
+FIXED @ 31f44656 by duck-typing meta.code like the proven house
+isTimeout classifier, plus envelope-agnostic/non-mapping unit cases and
+a REAL-ADAPTER lock-timeout contention integration test (held ns1 lock
+-> INVITE_SUBMIT_CONTENTION, zero writes). Cosmetic note recorded: the
+contention copy mentions invites though a timeout could arise on a
+held lead row; acceptable. Executed evidence so far: CI on #526 is
+green and its integration-pilot job's `prisma migrate deploy` applied
+the invite packet cleanly to a real disposable Postgres AFTER
+merchant_lead_packet; the concurrency suite itself executes once the
+owner applies the workflow patch.
