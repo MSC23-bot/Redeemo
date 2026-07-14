@@ -52,6 +52,16 @@ import {
 const BUSINESS_NAME_MAX_LENGTH = 160
 const OPEN_INVITE_CAP = 10
 
+/** SQLSTATE 55P03 (lock_not_available) raised by SET LOCAL lock_timeout —
+ * surfaced by Prisma as P2010 (raw query failed) with the SQLSTATE in
+ * meta.code; message check is a defensive fallback for driver variance. */
+function isLockTimeoutError(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError)) return false
+  if (e.code !== 'P2010') return false
+  const metaCode = (e.meta as { code?: unknown } | undefined)?.code
+  return metaCode === '55P03' || /55P03|lock timeout/i.test(e.message)
+}
+
 // The three open pipeline lanes an attach-target lead can sit in (mirrors
 // PIPELINE_LANES in src/api/admin/leads/service.ts — CONVERTED/LOST are
 // terminal and never an attach target).
@@ -284,8 +294,8 @@ export async function submitInvite(
   const ipHash = hashInviteIp(input.ip)
   const userAgent = input.userAgent ?? ''
 
-  // (g)/(h) Atomic attach-or-create lead + create invite, with a P2002
-  // idempotent-duplicate short-circuit. Unlike the redemption claim (which
+  // (g)/(h) Atomic attach-or-create lead + create invite, with an in-lock
+  // duplicate pre-check and a P2002 backstop. Unlike the redemption claim (which
   // needs a cross-transaction RETRY to distinguish "stale, reclaimable" from
   // "already claimed"), a duplicate invite has one meaning regardless of
   // ordering — so this follows the simpler try/$transaction/catch shape used
@@ -293,18 +303,38 @@ export async function submitInvite(
   // retry shape.
   try {
     return await prisma.$transaction(async (tx) => {
-      // Acquire BOTH advisory locks in one raw statement, in this fixed
-      // order (placeKey, then inviterKey) — xact-scoped (auto-release on
-      // commit/rollback); the consistent acquisition order prevents
-      // deadlock. The placeKey lock serialises lead attach-or-create per
-      // business (one MerchantLead per new business under concurrency); the
-      // inviterKey lock serialises the open-invite cap check per inviter
-      // (no TOCTOU overshoot).
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${placeKey})), pg_advisory_xact_lock(hashtext(${inviterKey}))`
+      // Bounded, NAMESPACED advisory locks (correction round 3):
+      // - the two-argument pg_advisory_xact_lock(namespace, key) form puts
+      //   place locks (namespace 1) and inviter locks (namespace 2) in
+      //   structurally distinct classes, and the fixed namespace order
+      //   (1 then 2, identical for every caller) globally orders
+      //   acquisition, so a cross-namespace inversion/deadlock cannot be
+      //   constructed even under 32-bit hashtext() collisions.
+      // - SET LOCAL lock_timeout bounds the wait under same-key pile-up;
+      //   a timeout surfaces as the RETRYABLE INVITE_SUBMIT_CONTENTION 429
+      //   (mapped in the catch below), never an opaque 500.
+      // Both statements are transaction-scoped (auto-reset/release on
+      // commit or rollback). The placeKey lock serialises lead
+      // attach-or-create per business; the inviterKey lock serialises the
+      // duplicate pre-check + cap per inviter (no TOCTOU overshoot).
+      await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${placeKey})), pg_advisory_xact_lock(2, hashtext(${inviterKey}))`
 
-      // (e) Open-invite cap — re-checked here, INSIDE the transaction and
-      // AFTER the inviterKey lock, so concurrent submissions from the same
-      // inviter cannot all observe a stale count and overshoot the cap.
+      // Duplicate pre-check FIRST, under the inviterKey lock and BEFORE the
+      // cap (correction round 3): an exact (inviterKey, placeKey) duplicate
+      // is idempotent success — it must not consume cap headroom, be
+      // rejected at cap, or write anything. Two identical concurrent
+      // requests crossing the cap boundary both land here honestly: the
+      // first creates, the second (serialised by the inviterKey lock) sees
+      // the row and returns ok.
+      const existingDuplicate = await tx.merchantInvite.findUnique({
+        where: { inviterKey_placeKey: { inviterKey, placeKey } },
+        select: { id: true },
+      })
+      if (existingDuplicate) return { kind: 'ok' } as const
+
+      // (e) Open-invite cap — INSIDE the transaction, AFTER the inviterKey
+      // lock and the duplicate pre-check.
       const openInviteCount = await tx.merchantInvite.count({
         where: { inviterKey, anonymisedAt: null },
       })
@@ -400,6 +430,13 @@ export async function submitInvite(
     // other (future) unique in the transaction must surface, never lie
     // 'ok'. Non-Prisma errors (e.g. the INVITE_CAP_REACHED AppError thrown
     // above) fall straight through to `throw e` below, untouched.
+    // Bounded lock_timeout expiry (SQLSTATE 55P03) under same-key pile-up
+    // maps to the RETRYABLE contention 429 (correction round 3), never an
+    // opaque 500. Prisma surfaces raw-statement failures as P2010 with the
+    // SQLSTATE in meta.code; the message check is a defensive fallback.
+    if (isLockTimeoutError(e)) {
+      throw new AppError('INVITE_SUBMIT_CONTENTION')
+    }
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
       const target = e.meta?.target
       const isExactCompositeTarget =
@@ -417,28 +454,48 @@ export async function submitInvite(
 
 /**
  * Account-erasure hook — called from the customer delete-account flow
- * (src/api/auth/customer/routes.ts). Nulls the erasable PII on every
- * non-anonymised invite this user submitted: note, inviterEmailNorm
- * (already NULL on Phase-1 rows; nulled here defensively for any future
- * Phase-2 row claimed onto this userId), ipHash. Stamps anonymisedAt.
+ * (src/api/auth/customer/routes.ts), inside the same transaction as the
+ * User anonymisation. SEVERS the person linkage entirely (correction
+ * round 3): on every non-anonymised invite this user submitted it nulls
+ * the PII fields (note, inviterEmailNorm, ipHash) AND the person linkage
+ * (inviterUserId, inviterKey), stamps anonymisedAt, and clears
+ * rewardEligible — a deleted account's pending reward eligibility LAPSES
+ * by design (rewards pay registered accounts only, D2; there is no
+ * account left to pay). What survives is genuinely non-personal aggregate
+ * demand: placeKey, businessNameRaw, leadId, countableAt, status.
  *
- * inviterKey and inviterUserId are RETAINED as pseudonymous linkage —
- * identical persistence class to the DELETED user row itself (same
- * anonymise-in-place pattern the delete-account handler applies to User).
- * Aggregate demand evidence (placeKey, businessNameRaw, leadId, countableAt,
- * status) survives anonymously, per the spec's legitimate-interest note:
- * the platform retains a legitimate interest in aggregate merchant-demand
- * signal independent of who submitted it.
+ * NULL inviterKey rows drop out of the (inviterKey, placeKey) unique
+ * constraint (Postgres treats NULLs as distinct) and out of the cap and
+ * /mine queries — terminal rows by design. PENDING reward grants for the
+ * user are VOIDED (voidReason ACCOUNT_DELETED); ISSUED/CONSUMED grants
+ * are retained as financial records — the retention question for those
+ * is flagged to the owner/solicitor in the spec (A3).
  *
- * Returns the number of rows scrubbed.
+ * NOTE: the LEAD_CREATED / INVITE_CREATED AuditLog rows remain under
+ * platform audit governance (documented gate, spec A2.6/A3): this
+ * function makes the INVITE rows non-personal; it does not touch audit.
+ *
+ * Returns the number of invite rows severed.
  */
 export async function scrubInvitesForUser(
   prisma: PrismaClient | Prisma.TransactionClient,
   userId: string,
 ): Promise<number> {
+  await prisma.inviteRewardGrant.updateMany({
+    where: { userId, status: 'PENDING' },
+    data: { status: 'VOIDED', voidReason: 'ACCOUNT_DELETED' },
+  })
   const result = await prisma.merchantInvite.updateMany({
     where: { inviterUserId: userId, anonymisedAt: null },
-    data: { note: null, inviterEmailNorm: null, ipHash: null, anonymisedAt: new Date() },
+    data: {
+      note: null,
+      inviterEmailNorm: null,
+      ipHash: null,
+      inviterUserId: null,
+      inviterKey: null,
+      rewardEligible: false,
+      anonymisedAt: new Date(),
+    },
   })
   return result.count
 }

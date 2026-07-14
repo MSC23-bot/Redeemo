@@ -95,4 +95,3 @@ CREATE INDEX "InviteRewardGrant_status_idx" ON "InviteRewardGrant"("status");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "BusinessSuppression_placeKey_key" ON "BusinessSuppression"("placeKey");
-

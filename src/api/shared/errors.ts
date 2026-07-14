@@ -108,6 +108,10 @@ export const ERROR_DEFINITIONS = {
   INVITE_BUSINESS_NAME_INVALID:   { statusCode: 400, message: 'The business name is too long.' },
   INVITE_NOTE_INVALID:            { statusCode: 400, message: 'This note is too long or contains a link. Please rewrite it.' },
   INVITE_CAP_REACHED:             { statusCode: 429, message: "You've reached the limit of open invites. Please wait for one to be reviewed before sending more." },
+  // INVITE_SUBMIT_CONTENTION: the submit transaction's bounded advisory
+  // lock_timeout (3s) expired under same-business/same-inviter pile-up —
+  // an honest, RETRYABLE outcome (never a 500). Client should simply retry.
+  INVITE_SUBMIT_CONTENTION:       { statusCode: 429, message: 'That business is receiving a lot of invites right now. Please try again in a moment.' },
   // MerchantNote packet (2026-07-13, OD2). Internal per-merchant admin notes.
   //   NOTE_NOT_FOUND               : the note id is unknown (or on a different merchant).
   //   NOTE_NOT_ACTIVE              : edit/retract targeted an already-RETRACTED note.

@@ -17,7 +17,12 @@ export function normalizeInviterEmail(email: string): string {
 }
 
 /**
- * Canonical, STABLE, non-PII inviter identity for the (inviterKey, placeKey)
+ * Canonical, STABLE inviter identity for the (inviterKey, placeKey)
+ * invariant. HONEST CLASSIFICATION (correction round 3): while the account
+ * exists this is PSEUDONYMOUS PERSONAL DATA (it resolves to a user);
+ * account deletion SEVERS it (nulled with inviterUserId by
+ * scrubInvitesForUser), after which the row is non-personal aggregate
+ * demand. It is identity for dedupe, never a privacy control.
  * uniqueness invariant. `'u:' + userId` for registered inviters — stable
  * across account-email changes, so a changed email can never bypass the
  * person+business dedupe. The Phase-2 anonymous lane's reserved form,

@@ -11,12 +11,25 @@ import { buildInviterKey } from '../../../../src/api/customer/invites/identity'
 //     the SAME { kind: 'ok' } shape as an unknown business — never leaks the
 //     draft merchant's id/status — and the created invite is NOT reward-eligible.
 //   - only an ACTIVE merchant triggers `already_live`.
-//   - note validation fails BEFORE any DB write; the open-invite cap is now
-//     checked INSIDE the transaction, AFTER the advisory locks (Codex
-//     correction round 2026-07-14 — identity model: inviterKey = 'u:'+userId,
-//     no email persisted in Phase 1).
-//   - a duplicate (inviterKey, placeKey) P2002 is swallowed to { kind: 'ok' },
-//     matched EXACTLY (not by substring).
+//   - note validation fails BEFORE any DB write; the open-invite cap is
+//     checked INSIDE the transaction, AFTER the advisory locks AND after an
+//     in-lock duplicate pre-check (Codex correction round 3, 2026-07-14):
+//     `SET LOCAL lock_timeout = '3s'` then the namespaced two-arg
+//     `pg_advisory_xact_lock(1, hashtext(placeKey))` /
+//     `pg_advisory_xact_lock(2, hashtext(inviterKey))` pair (two separate
+//     $executeRaw calls, in that order), then
+//     `tx.merchantInvite.findUnique({ where: { inviterKey_placeKey } })` — an
+//     exact duplicate short-circuits to { kind: 'ok' } BEFORE the cap count
+//     ever runs, so a duplicate can never consume/be blocked by cap headroom.
+//   - a duplicate (inviterKey, placeKey) P2002 (the cross-transaction
+//     backstop) is swallowed to { kind: 'ok' }, matched EXACTLY (not by
+//     substring).
+//   - a lock_timeout expiry (P2010 + meta.code '55P03') on the lock
+//     $executeRaw maps to AppError INVITE_SUBMIT_CONTENTION (429).
+//   - scrubInvitesForUser (account erasure) now SEVERS the person linkage:
+//     voids PENDING InviteRewardGrant rows first, then nulls
+//     inviterUserId/inviterKey (not just note/email/ipHash) and sets
+//     rewardEligible false on every non-anonymised invite for the user.
 
 const BASE_INPUT = {
   userId: 'user-1',
@@ -46,6 +59,7 @@ function makeTx(overrides: {
   merchantLeadCreate?: any
   merchantLeadUpdate?: any
   merchantInviteFindFirst?: any
+  merchantInviteFindUnique?: any
   merchantInviteCreate?: any
   merchantInviteCount?: any
   executeRaw?: any
@@ -59,6 +73,9 @@ function makeTx(overrides: {
     },
     merchantInvite: {
       findFirst: overrides.merchantInviteFindFirst ?? vi.fn().mockResolvedValue(null),
+      // In-lock duplicate pre-check (correction round 3). Default: no
+      // existing (inviterKey, placeKey) row.
+      findUnique: overrides.merchantInviteFindUnique ?? vi.fn().mockResolvedValue(null),
       create: overrides.merchantInviteCreate ?? vi.fn().mockResolvedValue({ id: 'invite-1' }),
       count: overrides.merchantInviteCount ?? vi.fn().mockResolvedValue(0),
     },
@@ -281,39 +298,89 @@ describe('submitInvite: P2002 exact-match (inviterKey, placeKey)', () => {
   })
 })
 
-describe('submitInvite: advisory lock discipline', () => {
-  it('acquires both advisory locks (raw SQL mentioning pg_advisory_xact_lock) BEFORE the in-tx cap check and before any lead/invite write', async () => {
+describe('submitInvite: advisory lock discipline (correction round 3, namespaced two-arg locks)', () => {
+  it('sets lock_timeout, then acquires both namespaced advisory locks (raw SQL mentioning pg_advisory_xact_lock(1, ... and pg_advisory_xact_lock(2, ...), in that order, BEFORE the duplicate pre-check, the in-tx cap check, and any lead/invite write', async () => {
     const executeRaw = vi.fn().mockResolvedValue(0)
+    const merchantInviteFindUnique = vi.fn().mockResolvedValue(null)
     const merchantInviteCount = vi.fn().mockResolvedValue(0)
     const merchantLeadCreate = vi.fn().mockResolvedValue({ id: 'lead-new' })
     const merchantInviteCreate = vi.fn().mockResolvedValue({ id: 'invite-1' })
-    const tx = makeTx({ executeRaw, merchantInviteCount, merchantLeadCreate, merchantInviteCreate })
+    const tx = makeTx({ executeRaw, merchantInviteFindUnique, merchantInviteCount, merchantLeadCreate, merchantInviteCreate })
     const prisma = makePrisma(tx)
 
     await submitInvite(prisma, BASE_INPUT)
 
-    expect(executeRaw).toHaveBeenCalledOnce()
-    // Called as a tagged-template: first arg is the strings array whose
-    // joined text mentions pg_advisory_xact_lock.
-    const sqlStrings = executeRaw.mock.calls[0][0] as TemplateStringsArray
-    expect(Array.from(sqlStrings).join('')).toContain('pg_advisory_xact_lock')
+    // Exactly two raw statements: SET LOCAL lock_timeout, then the lock
+    // acquisition — never combined into one, never reordered.
+    expect(executeRaw).toHaveBeenCalledTimes(2)
 
-    const lockOrder = executeRaw.mock.invocationCallOrder[0]
+    const setLocalStrings = executeRaw.mock.calls[0][0] as TemplateStringsArray
+    expect(Array.from(setLocalStrings).join('')).toContain('SET LOCAL lock_timeout')
+
+    const lockStrings = executeRaw.mock.calls[1][0] as TemplateStringsArray
+    const lockSql = Array.from(lockStrings).join('')
+    expect(lockSql).toContain('pg_advisory_xact_lock(1,')
+    expect(lockSql).toContain('pg_advisory_xact_lock(2,')
+
+    const setLocalOrder = executeRaw.mock.invocationCallOrder[0]
+    const lockOrder = executeRaw.mock.invocationCallOrder[1]
+    expect(setLocalOrder).toBeLessThan(lockOrder)
+    expect(lockOrder).toBeLessThan(merchantInviteFindUnique.mock.invocationCallOrder[0])
     expect(lockOrder).toBeLessThan(merchantInviteCount.mock.invocationCallOrder[0])
     expect(lockOrder).toBeLessThan(merchantLeadCreate.mock.invocationCallOrder[0])
     expect(lockOrder).toBeLessThan(merchantInviteCreate.mock.invocationCallOrder[0])
   })
 })
 
-describe('submitInvite: in-transaction open-invite cap', () => {
-  it('throws INVITE_CAP_REACHED when the tx count is 10, and never reaches invite create', async () => {
+describe('submitInvite: in-lock duplicate pre-check + cap (correction round 3)', () => {
+  it('an existing (inviterKey, placeKey) row short-circuits to { kind: "ok" } BEFORE the cap check: count is NEVER called, and nothing is created', async () => {
+    const merchantInviteFindUnique = vi.fn().mockResolvedValue({ id: 'invite-existing' })
+    // Deliberately at-cap — if the pre-check didn't short-circuit before the
+    // cap, this would (wrongly) reject the idempotent duplicate.
+    const merchantInviteCount = vi.fn().mockResolvedValue(10)
+    const merchantLeadCreate = vi.fn()
+    const merchantInviteCreate = vi.fn()
+    const tx = makeTx({ merchantInviteFindUnique, merchantInviteCount, merchantLeadCreate, merchantInviteCreate })
+    const prisma = makePrisma(tx)
+
+    const res = await submitInvite(prisma, BASE_INPUT)
+
+    expect(res).toEqual({ kind: 'ok' })
+    expect(merchantInviteCount).not.toHaveBeenCalled()
+    expect(merchantLeadCreate).not.toHaveBeenCalled()
+    expect(merchantInviteCreate).not.toHaveBeenCalled()
+  })
+
+  it('no duplicate (findUnique null) + tx count at the cap (10) still throws INVITE_CAP_REACHED, and never reaches invite create', async () => {
+    const merchantInviteFindUnique = vi.fn().mockResolvedValue(null)
     const merchantInviteCount = vi.fn().mockResolvedValue(10)
     const merchantInviteCreate = vi.fn().mockResolvedValue({ id: 'invite-1' })
-    const tx = makeTx({ merchantInviteCount, merchantInviteCreate })
+    const tx = makeTx({ merchantInviteFindUnique, merchantInviteCount, merchantInviteCreate })
     const prisma = makePrisma(tx)
 
     await expect(submitInvite(prisma, BASE_INPUT)).rejects.toThrow('INVITE_CAP_REACHED')
     expect(merchantInviteCreate).not.toHaveBeenCalled()
+  })
+})
+
+describe('submitInvite: lock-timeout contention mapping (correction round 3)', () => {
+  it('a P2010 (SQLSTATE 55P03 in meta.code) on the lock-acquisition $executeRaw maps to AppError INVITE_SUBMIT_CONTENTION', async () => {
+    // Constructed the same way the existing P2002 fixtures in this file
+    // construct PrismaClientKnownRequestError: the public two-arg form
+    // (message, { code, clientVersion, meta }) — it accepts any code/meta
+    // shape, so no Object.create/assign workaround is needed here.
+    const p2010 = new Prisma.PrismaClientKnownRequestError('canceling statement due to lock timeout', {
+      code: 'P2010',
+      clientVersion: '7.0.0',
+      meta: { code: '55P03' },
+    })
+    const executeRaw = vi.fn()
+      .mockResolvedValueOnce(0) // SET LOCAL lock_timeout succeeds
+      .mockRejectedValueOnce(p2010) // the lock-acquisition statement times out
+    const tx = makeTx({ executeRaw })
+    const prisma = makePrisma(tx)
+
+    await expect(submitInvite(prisma, BASE_INPUT)).rejects.toThrow('INVITE_SUBMIT_CONTENTION')
   })
 })
 
@@ -427,17 +494,47 @@ describe('submitInvite: F1 (adversarial review), Places-lane branch-miss falls t
   })
 })
 
-describe('scrubInvitesForUser', () => {
-  it('issues the correct updateMany shape and returns the scrubbed count', async () => {
+describe('scrubInvitesForUser (correction round 3: severs person linkage)', () => {
+  it('voids PENDING reward grants, then nulls the invite person-linkage (inviterUserId + inviterKey) alongside the existing PII fields, clears rewardEligible, and returns the scrubbed invite count', async () => {
+    const inviteRewardGrantUpdateMany = vi.fn().mockResolvedValue({ count: 2 })
     const merchantInviteUpdateMany = vi.fn().mockResolvedValue({ count: 3 })
-    const prisma = { merchantInvite: { updateMany: merchantInviteUpdateMany } } as any
+    const prisma = {
+      inviteRewardGrant: { updateMany: inviteRewardGrantUpdateMany },
+      merchantInvite: { updateMany: merchantInviteUpdateMany },
+    } as any
 
     const count = await scrubInvitesForUser(prisma, 'user-1')
 
     expect(count).toBe(3)
+
+    // PENDING grants are voided (ISSUED/CONSUMED are financial records and
+    // are left untouched by this call — not asserted here since the mock
+    // only reports the PENDING-scoped updateMany shape).
+    expect(inviteRewardGrantUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', status: 'PENDING' },
+      data: { status: 'VOIDED', voidReason: 'ACCOUNT_DELETED' },
+    })
+
+    // The invite update now nulls inviterUserId + inviterKey (severing the
+    // person linkage entirely — NULLs drop the row out of the
+    // (inviterKey, placeKey) unique constraint and out of the cap/mine
+    // queries), on top of the pre-existing note/email/ipHash nulling, and
+    // clears rewardEligible (a deleted account's pending reward lapses).
     expect(merchantInviteUpdateMany).toHaveBeenCalledWith({
       where: { inviterUserId: 'user-1', anonymisedAt: null },
-      data: { note: null, inviterEmailNorm: null, ipHash: null, anonymisedAt: expect.any(Date) },
+      data: {
+        note: null,
+        inviterEmailNorm: null,
+        ipHash: null,
+        inviterUserId: null,
+        inviterKey: null,
+        rewardEligible: false,
+        anonymisedAt: expect.any(Date),
+      },
     })
+
+    // Grants are voided BEFORE the invite linkage is severed.
+    expect(inviteRewardGrantUpdateMany.mock.invocationCallOrder[0])
+      .toBeLessThan(merchantInviteUpdateMany.mock.invocationCallOrder[0])
   })
 })

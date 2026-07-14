@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { submitInvite } from '../../../../src/api/customer/invites/service'
-import { buildInviterKey } from '../../../../src/api/customer/invites/identity'
+import { buildInviterKey, buildPlaceKey, hashInviteIp } from '../../../../src/api/customer/invites/identity'
 
 /**
  * Codex correction round (2026-07-14) — real-DB integration tests for the
@@ -20,6 +20,15 @@ import { buildInviterKey } from '../../../../src/api/customer/invites/identity'
  * afterAll teardown in dependency order, real DATABASE_URL guarded by the
  * project-global strict-loopback check in tests/integration.setup.ts (wired
  * into the `integration` vitest project only — see vitest.config.ts).
+ *
+ * Correction round 3 adds two more real-DB races that only a genuine
+ * unique-index + advisory-lock combination can prove: an ordinary duplicate
+ * resubmission sitting exactly at the open-invite cap boundary (must be
+ * idempotent `ok`, never rejected, never a double-write), and two literally
+ * identical concurrent submissions crossing the nine-to-ten boundary (must
+ * both settle `ok`, with exactly one new row — the in-lock duplicate
+ * pre-check must let the loser see the winner's row rather than either
+ * double-creating or spuriously hitting the cap).
  *
  * DO NOT RUN standalone in this environment (no loopback DB available
  * here) — this file only needs to typecheck and follow the
@@ -49,6 +58,20 @@ const capBusinessNames: string[] = Array.from(
   (_, i) => `TEST concurrency cap business ${ts}-${i}`,
 )
 
+// Scenario 3 fixture (correction round 3): 1 user, seeded to exactly the
+// cap (10 open invites), then re-submits the SAME (inviterKey, placeKey)
+// as invite #10 — must be an idempotent ok, not a cap rejection or a
+// double-write — followed by an 11th DISTINCT business, which must be
+// rejected (the cap is genuinely exhausted).
+const CAP_BOUNDARY_PREFIX = `TEST cap-boundary business ${ts}`
+let capBoundaryUserId: string
+
+// Scenario 4 fixture (correction round 3): 1 user seeded to 9 open
+// invites, then TWO literally identical concurrent submits of the same
+// 10th business — both must settle ok, with exactly ONE new row.
+const NINE_TO_TEN_PREFIX = `TEST nine-to-ten business ${ts}`
+let nineToTenUserId: string
+
 async function createTestUser(suffix: string) {
   const user = await prisma.user.create({
     data: {
@@ -63,21 +86,74 @@ async function createTestUser(suffix: string) {
   return user.id
 }
 
+/**
+ * Directly seeds `count` ACTIVE, non-anonymised, countable open invites for
+ * `userId`, one per freshly created MerchantLead — bypassing submitInvite
+ * (which would re-run the LIVE/eligibility matching this fixture doesn't
+ * need) so tests can start from an exact, known open-invite count. Business
+ * names follow `${namePrefix}-${i}` so a single re-submit/race test can
+ * reuse index `count` for its boundary-crossing business and keep the whole
+ * family under one `startsWith` prefix for teardown.
+ */
+async function seedOpenInvites(userId: string, count: number, namePrefix: string): Promise<string[]> {
+  const inviterKey = buildInviterKey(userId)
+  const businessNames: string[] = []
+  for (let i = 0; i < count; i++) {
+    const businessName = `${namePrefix}-${i}`
+    businessNames.push(businessName)
+    const lead = await prisma.merchantLead.create({
+      data: {
+        businessName,
+        locationHint: null,
+        source: 'CUSTOMER_REQUEST',
+        stage: 'LEAD',
+      },
+      select: { id: true },
+    })
+    await prisma.merchantInvite.create({
+      data: {
+        inviterUserId: userId,
+        inviterKey,
+        placeKey: buildPlaceKey({ businessName, locality: null }),
+        businessNameRaw: businessName,
+        localityRaw: null,
+        googlePlaceId: null,
+        consentShareName: true,
+        status: 'ACTIVE',
+        rewardEligible: true,
+        countableAt: new Date(),
+        leadId: lead.id,
+        ipHash: hashInviteIp('203.0.113.99'),
+      },
+    })
+  }
+  return businessNames
+}
+
 beforeAll(async () => {
   raceUserIds = await Promise.all(
     Array.from({ length: 6 }, (_, i) => createTestUser(`race-${i}`)),
   )
   capUserId = await createTestUser('cap')
+  capBoundaryUserId = await createTestUser('cap-boundary')
+  nineToTenUserId = await createTestUser('nine-to-ten')
 })
 
 afterAll(async () => {
+  const allUserIds = [...raceUserIds, capUserId, capBoundaryUserId, nineToTenUserId].filter(Boolean)
   // Dependency order (bare-id FK-free house pattern, but tear down
   // logically-dependent rows first regardless): invites -> leads -> users.
-  await prisma.merchantInvite.deleteMany({
-    where: { inviterUserId: { in: [...raceUserIds, capUserId].filter(Boolean) } },
+  await prisma.merchantInvite.deleteMany({ where: { inviterUserId: { in: allUserIds } } })
+  await prisma.merchantLead.deleteMany({
+    where: {
+      OR: [
+        { businessName: RACE_BUSINESS_NAME },
+        { businessName: { startsWith: CAP_BOUNDARY_PREFIX } },
+        { businessName: { startsWith: NINE_TO_TEN_PREFIX } },
+      ],
+    },
   })
-  await prisma.merchantLead.deleteMany({ where: { businessName: RACE_BUSINESS_NAME } })
-  await prisma.user.deleteMany({ where: { id: { in: [...raceUserIds, capUserId].filter(Boolean) } } })
+  await prisma.user.deleteMany({ where: { id: { in: allUserIds } } })
   await prisma.$disconnect()
 })
 
@@ -157,5 +233,92 @@ describe('submitInvite advisory locks — real-DB concurrency (integration)', ()
     })
     expect(openInviteCount).toBeLessThanOrEqual(10)
     expect(openInviteCount).toBe(fulfilled.length)
+  }, 30000)
+
+  it('an ordinary duplicate resubmission sitting exactly at the cap boundary is an idempotent ok with no double-write, and an 11th DISTINCT business is genuinely rejected', async () => {
+    // Seed exactly 10 open invites (the cap) for one user across 10
+    // distinct businesses.
+    const businessNames = await seedOpenInvites(capBoundaryUserId, 10, CAP_BOUNDARY_PREFIX)
+    const tenthBusinessName = businessNames[9]
+
+    const before = await prisma.merchantInvite.count({ where: { inviterUserId: capBoundaryUserId } })
+    expect(before).toBe(10)
+
+    // Re-submit business #10 EXACTLY (same businessNameRaw/localityRaw/
+    // googlePlaceId -> the identical placeKey, and the same user ->
+    // the identical inviterKey): the in-lock duplicate pre-check must find
+    // the existing row and return ok BEFORE the cap check ever runs.
+    const duplicateResult = await submitInvite(prisma, {
+      userId: capBoundaryUserId,
+      businessNameRaw: tenthBusinessName,
+      localityRaw: null,
+      googlePlaceId: null,
+      note: null,
+      consentShareName: true,
+      ip: '203.0.113.12',
+      userAgent: 'concurrency-test',
+    })
+    expect(duplicateResult).toEqual({ kind: 'ok' })
+
+    const afterDuplicate = await prisma.merchantInvite.count({ where: { inviterUserId: capBoundaryUserId } })
+    expect(afterDuplicate).toBe(10)
+
+    // An 11th, genuinely DISTINCT business: no duplicate row exists for it,
+    // so the pre-check falls through to the cap check, which is genuinely
+    // exhausted (10 non-anonymised invites already exist).
+    const eleventhBusinessName = `${CAP_BOUNDARY_PREFIX}-10`
+    await expect(
+      submitInvite(prisma, {
+        userId: capBoundaryUserId,
+        businessNameRaw: eleventhBusinessName,
+        localityRaw: null,
+        googlePlaceId: null,
+        note: null,
+        consentShareName: true,
+        ip: '203.0.113.12',
+        userAgent: 'concurrency-test',
+      }),
+    ).rejects.toMatchObject({ code: 'INVITE_CAP_REACHED' })
+
+    const afterEleventh = await prisma.merchantInvite.count({ where: { inviterUserId: capBoundaryUserId } })
+    expect(afterEleventh).toBe(10)
+  }, 30000)
+
+  it('two IDENTICAL concurrent submissions crossing the nine-to-ten boundary both settle ok, with exactly ONE new row', async () => {
+    // Seed 9 open invites, then race the SAME (user, business) submit
+    // twice — the placeKey+inviterKey locks (both identical across the two
+    // calls, since this is the same user and the same business) serialise
+    // them: the first creates the 10th row; the second, once unblocked,
+    // must see that row via the in-lock duplicate pre-check and return ok
+    // WITHOUT creating a second row or hitting the cap.
+    await seedOpenInvites(nineToTenUserId, 9, NINE_TO_TEN_PREFIX)
+    const tenthBusinessName = `${NINE_TO_TEN_PREFIX}-9`
+
+    const input = {
+      userId: nineToTenUserId,
+      businessNameRaw: tenthBusinessName,
+      localityRaw: null,
+      googlePlaceId: null,
+      note: null,
+      consentShareName: true,
+      ip: '203.0.113.13',
+      userAgent: 'concurrency-test',
+    }
+
+    const results = await Promise.allSettled([submitInvite(prisma, input), submitInvite(prisma, input)])
+
+    const fulfilled = results.filter(
+      (r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof submitInvite>>> => r.status === 'fulfilled',
+    )
+    expect(fulfilled.length).toBe(2)
+    for (const r of fulfilled) expect(r.value).toEqual({ kind: 'ok' })
+
+    const totalCount = await prisma.merchantInvite.count({ where: { inviterUserId: nineToTenUserId } })
+    expect(totalCount).toBe(10)
+
+    const rowsForTenthBusiness = await prisma.merchantInvite.count({
+      where: { inviterUserId: nineToTenUserId, businessNameRaw: tenthBusinessName },
+    })
+    expect(rowsForTenthBusiness).toBe(1)
   }, 30000)
 })

@@ -2210,13 +2210,18 @@ model MerchantInvite {
   // Account link; the Phase 1 service REQUIRES an authenticated user and
   // always sets this. Nullable for the Phase 2 anonymous lane.
   inviterUserId    String?
-  // STABLE, NON-PII inviter identity (Codex correction round 2026-07-14):
+  // STABLE inviter identity (Codex correction rounds 2026-07-14). HONEST
+  // CLASSIFICATION: pseudonymous PERSONAL data while the account exists;
+  // account deletion SEVERS it (nulled together with inviterUserId by
+  // scrubInvitesForUser, and pending reward eligibility lapses), leaving
+  // the row as non-personal aggregate demand.
   // "u:<userId>" for registered inviters (survives account-email changes,
   // so a changed email can never bypass the person+business dedupe);
   // "e:<keyed-hash-of-verified-email>" reserved for the Phase 2 anonymous
   // lane, REWRITTEN to "u:<userId>" when those rows are claimed at
-  // registration. Carries the uniqueness invariant below. Nullable ONLY so
-  // the anonymise sweep may null it on terminal anonymous rows (Postgres
+  // registration. Carries the uniqueness invariant below. Nullable because
+  // BOTH the account-erasure scrub (registered rows) and the future
+  // anonymise sweep (anonymous rows) null it on terminal rows (Postgres
   // treats NULLs as distinct in unique indexes); the service always writes
   // it non-null.
   inviterKey       String?
