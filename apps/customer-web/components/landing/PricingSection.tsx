@@ -242,12 +242,12 @@ export function PricingSection() {
           >
             {marketplaceLive
               ? "Start free. Upgrade when you're ready."
-              : 'This is what membership will cost.'}
+              : 'Membership that pays for itself.'}
           </h2>
           <p className="text-[13.5px] md:text-[15px] text-[#4B5563] leading-[1.65]">
             {marketplaceLive
               ? 'If one voucher saves you more than £6.99, the month has paid for itself.'
-              : 'Founding members get their first 2 months free at launch: register now to lock it in.'}
+              : 'A single voucher often saves more than the month costs: redeem once and your £6.99 is covered. Founding members get their first two months free at launch.'}
           </p>
         </motion.div>
 
@@ -262,24 +262,6 @@ export function PricingSection() {
             <PlanTicket key={plan.name} plan={plan} delay={i * 0.1} />
           ))}
         </div>
-
-        {/* The ROI lockup at the decision moment (owner 2026-07-14): the
-            app's own strongest claim, kept arithmetic pre-launch. Upgrade
-            to a real "most members" statistic once launch data exists. */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.45, delay: 0.25 }}
-          className="text-center mt-8 md:mt-10"
-        >
-          <p className="font-display text-[#010C35] text-[19px] md:text-[22px] mb-1" style={{ letterSpacing: '-0.3px' }}>
-            Your membership pays for itself.
-          </p>
-          <p className="text-[13.5px] md:text-[14px] text-[#6B7280]">
-            Redeem once and the £6.99 is usually covered.
-          </p>
-        </motion.div>
 
         {marketplaceLive && (
           <motion.div

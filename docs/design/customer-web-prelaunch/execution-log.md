@@ -954,3 +954,13 @@ edited by this workstream.
   Monthly features for the outsider-clarity ruling: "Fresh vouchers each
   cycle" -> "New vouchers every month". tsc clean; lockup + ticket
   verified at 1440x900.
+- ROI CLAIM PROMOTED TO THE PRICING HEADLINE (owner 2026-07-14, revising
+  the lockup placement): H2 is now "Membership that pays for itself."
+  (the locked messaging pillar, tightened from the app's title) replacing
+  "This is what membership will cost."; the subline explains the claim in
+  outsider arithmetic then carries the founding offer: "A single voucher
+  often saves more than the month costs: redeem once and your GBP6.99 is
+  covered. Founding members get their first two months free at launch."
+  The under-shelf lockup is REMOVED (the title took its job); the Monthly
+  ticket keeps "One redemption usually covers it. Cancel anytime." as the
+  at-price echo. tsc clean; verified at 1440x900.
