@@ -1,9 +1,10 @@
 import { randomBytes } from 'crypto'
-import { PrismaClient } from '../../../../generated/prisma/client'
+import { PrismaClient, Prisma } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx, type AuditEvent } from '../../shared/audit'
 import { resolveAdminMerchant, resolveMerchantContext, isDraftWindow, resolveTopLevelCategoryId, type EditActor } from '../shared'
 import { handleCategoryChange } from '../voucher/service'
+import { stampStrictSubmitContract } from '../voucher/submitValidation'
 
 const SENSITIVE_FIELDS = ['businessName', 'tradingName', 'logoUrl', 'bannerUrl', 'description'] as const
 
@@ -283,7 +284,8 @@ export async function setMerchantCategoryCore(
             estimatedSaving: t.minimumSaving,
             status:          'DRAFT',
             approvalStatus:  'PENDING',
-            merchantFields:  {},
+            // S6: first-time-category auto-provisioned flagship drafts are born strict.
+            merchantFields:  stampStrictSubmitContract({}) as Prisma.InputJsonValue,
           },
         })
       ))

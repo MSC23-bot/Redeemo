@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { buildApp } from '../../../src/api/app'
 import type { FastifyInstance } from 'fastify'
+import { SUBMIT_CONTRACT_KEY, STRICT_SUBMIT_CONTRACT } from '../../../src/api/merchant/voucher/submitValidation'
 
 // Day-2 Vouchers A3: the custom create/update store an optional merchantFields bag
 // (for askHelp + later adminProposed). Security invariant (spec §6.1): the merchant
@@ -50,10 +51,11 @@ describe('A3: custom voucher merchantFields storage + body allow-listing', () =>
   const createArg = () => (app.prisma.voucher.create as any).mock.calls[0][0]
   const updateArg = () => (app.prisma.voucher.update as any).mock.calls[0][0]
 
-  it('create stores merchantFields { askHelp, builderType } in the Voucher.merchantFields column', async () => {
+  it('create stores merchantFields { askHelp, builderType } (+ the server-stamped strict marker) in the Voucher.merchantFields column', async () => {
     const res = await post({ type: 'BOGO', title: 'BOGO night', estimatedSaving: 5, merchantFields: { askHelp: true, builderType: 'bogo' } })
     expect(res.statusCode).toBe(201)
-    expect(createArg().data.merchantFields).toEqual({ askHelp: true, builderType: 'bogo' })
+    // S6: the merchant keys are stored verbatim; the server ADDS the strict contract marker.
+    expect(createArg().data.merchantFields).toEqual({ askHelp: true, builderType: 'bogo', [SUBMIT_CONTRACT_KEY]: STRICT_SUBMIT_CONTRACT })
   })
 
   it('create ALWAYS sets status:DRAFT, approvalStatus:PENDING, isRmv:false and ignores client-supplied status/approvalStatus/isRmv/merchantId/approvedBy', async () => {
@@ -98,13 +100,14 @@ describe('A3: custom voucher merchantFields storage + body allow-listing', () =>
   // clobbering a real admin proposal). They are stripped from merchant input on both
   // create and update; server-written values already in the bag are preserved on update.
 
-  it('create STRIPS admin-owned keys (adminProposed/adminNote) from the merchant bag, storing only merchant keys', async () => {
+  it('create STRIPS admin-owned keys (adminProposed/adminNote) from the merchant bag, storing only merchant keys (+ the server strict marker)', async () => {
     const res = await post({
       type: 'BOGO', title: 'BOGO night', estimatedSaving: 5,
       merchantFields: { askHelp: true, adminProposed: { title: 'fake' }, adminNote: 'fake' },
     })
     expect(res.statusCode).toBe(201)
-    expect(createArg().data.merchantFields).toEqual({ askHelp: true })
+    // Concierge keys stripped; the server strict marker stamped.
+    expect(createArg().data.merchantFields).toEqual({ askHelp: true, [SUBMIT_CONTRACT_KEY]: STRICT_SUBMIT_CONTRACT })
   })
 
   it('update STRIPS admin-owned keys from the patch when the current bag has none', async () => {

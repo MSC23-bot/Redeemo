@@ -78,6 +78,46 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
+// ── S6: server-owned strict submission contract (owner-approved 2026-07-14) ────
+//
+// THE tamper-resistant strictness signal. A single server-owned, VERSIONED key
+// stamped into Voucher.merchantFields at every voucher-birth path (see service.ts).
+// It is the SOURCE OF TRUTH for whether the submit gate enforces the per-type
+// mechanic matrix; it is deliberately NOT `builderType` (merchant-mutable, so a
+// client marker is not tamper-resistant) nor a schema column (no migration in this
+// slice). A merchant/admin API caller can never supply, set, overwrite, blank or
+// remove it: service.ts strips it from EVERY caller-supplied bag before every write,
+// and every write path MERGES the stored bag over the stripped input (or leaves the
+// bag untouched), so the stored value always survives. The name is `__`-prefixed so
+// it cannot collide with a real merchant builder field.
+//
+// PRESENT (strict-v1)  -> the submit gate enforces the mechanic matrix, driven by the
+//   AUTHORITATIVE Voucher.type (+ discountKind); a row with an empty / opaque bag has
+//   no usable mechanic field and FAILS CLOSED (VOUCHER_INCOMPLETE) instead of slipping
+//   through on the universal invariants. This is the S5-bypass fix.
+// ABSENT               -> a genuine legacy row (pre-S6): validated on the universal
+//   invariants plus any structured bag ONLY, exactly as before (S5.6 compatibility).
+//   Markerless legacy rows stay submittable until the owner decides their disposition.
+//
+// The value is versioned so a future contract revision is a NEW token, never a silent
+// change of meaning for an existing marker.
+export const SUBMIT_CONTRACT_KEY = '__submitContract'
+export const STRICT_SUBMIT_CONTRACT = 'strict-v1'
+
+/** True when the bag carries the server-owned strict marker at its top level. */
+export function isStrictSubmitContract(merchantFields: unknown): boolean {
+  return isObject(merchantFields) && merchantFields[SUBMIT_CONTRACT_KEY] === STRICT_SUBMIT_CONTRACT
+}
+
+/**
+ * Stamp the server-owned strict marker onto a bag (returns a new object). SERVER-SIDE
+ * ONLY: callers MUST strip any caller-supplied SUBMIT_CONTRACT_KEY first (service.ts
+ * stripCallerOwnedKeys) so a client value can never survive to be re-stamped over.
+ */
+export function stampStrictSubmitContract(bag: Record<string, unknown>): Record<string, unknown> {
+  return { ...bag, [SUBMIT_CONTRACT_KEY]: STRICT_SUBMIT_CONTRACT }
+}
+
 /**
  * Locate the structured DraftFields bag (S5.2). TWO canonical stored shapes exist
  * (both merged on main):
@@ -330,19 +370,31 @@ export function assertVoucherSubmittable(v: EffectiveVoucher): void {
     }
   }
 
-  // Per-type mechanic: only for a structured (matrix-aware) bag (S5.6 compatibility).
+  // Per-type mechanic. Two triggers (S6):
+  //   - STRICT rows (server-owned indicator present): ALWAYS validate the mechanic,
+  //     derived from the AUTHORITATIVE Voucher.type. An empty / opaque bag carries no
+  //     structured draft, so every required mechanic field reads as absent and the row
+  //     FAILS CLOSED (the S5-bypass fix: a direct-API {} bag can no longer submit on the
+  //     universal invariants alone).
+  //   - LEGACY rows (indicator absent): validate the mechanic ONLY when a structured bag
+  //     is present (the pre-S6 S5.6 compatibility rule), so a genuine markerless legacy
+  //     row is never blocked by a mechanic field it never stored.
+  // resolveMechanicType tolerates a null draft (returns the base type authoritatively;
+  // returns null only for a wrapper whose underlying mechanic is not yet derivable).
   const draft = resolveStructuredBag(v.merchantFields)
-  if (draft && typeof v.type === 'string') {
+  const strict = isStrictSubmitContract(v.merchantFields)
+  if (typeof v.type === 'string' && (strict || draft)) {
     const mechanic = resolveMechanicType(v.type, draft)
     if (mechanic) {
-      validateMechanic(mechanic, draft, fields)
+      validateMechanic(mechanic, draft ?? {}, fields)
     } else if (WRAPPER_TYPES.includes(v.type)) {
-      // A structured wrapper bag with NO derivable underlying mechanic: the S1 custom
-      // builder writes builderType 'time'/'reusable' from the picker and only adds
-      // baseMechanic once Step 1 is completed, so this is a wrapper submitted before
-      // its base offer was picked. The owner matrix requires a COMPLETE underlying
-      // mechanic on a wrapper, so this fails closed. (A truly legacy wrapper carries
-      // no structured bag at all and never reaches this branch.)
+      // A wrapper with NO derivable underlying mechanic. The S1 custom builder writes
+      // builderType 'time'/'reusable' from the picker and only adds baseMechanic once
+      // Step 1 is completed, so this is a wrapper submitted before its base offer was
+      // picked (structured bag), OR a strict wrapper with an empty bag. Either way the
+      // owner matrix requires a COMPLETE underlying mechanic on a wrapper, so it fails
+      // closed. (A truly legacy markerless wrapper carries no structured bag and, being
+      // non-strict, never reaches this branch.)
       fields.push({
         field: 'baseMechanic',
         code: 'REQUIRED',

@@ -34,6 +34,20 @@ export interface FieldExpectation {
 export const SUBMIT_LANES: SubmitLane[] = ['custom', 'flagship']
 export const BAG_SHAPES: BagShape[] = ['single', 'nested']
 
+// ── S6: server-owned strict submission contract (plan S6) ─────────────────────
+// The marker constants MIRROR the runtime source of truth in
+// src/api/merchant/voucher/submitValidation.ts (exported there as SUBMIT_CONTRACT_KEY /
+// STRICT_SUBMIT_CONTRACT). Kept as PURE LITERALS here so the import-free merchant-web
+// consumer can build strict bags without importing backend src; the backend suite asserts
+// parity against the runtime constants so a drift fails a test rather than diverging.
+export const SUBMIT_CONTRACT_KEY = '__submitContract'
+export const STRICT_SUBMIT_CONTRACT = 'strict-v1'
+
+/** Stamp the server-owned strict marker onto a stored bag (mirrors the server stamp). */
+export function withStrictContract(bag: Record<string, unknown>): Record<string, unknown> {
+  return { ...bag, [SUBMIT_CONTRACT_KEY]: STRICT_SUBMIT_CONTRACT }
+}
+
 // ── base types + their builder picker ids ────────────────────────────────────
 
 export const PICKER_ID: Record<string, string> = {
@@ -228,10 +242,18 @@ export const WRAPPER_CASES: WrapperCase[] = [
 ]
 
 // ── legacy / opaque-bag compatibility (custom lane) ───────────────────────────
+//
+// S6: EVERY case here is INDICATOR-ABSENT (a genuine pre-S6 / markerless bag). The
+// server-owned strict marker is NOT present, so these validate on the universal
+// invariants plus any structured bag only, exactly as before. The mirror-image
+// INDICATOR-PRESENT scenarios (a strict empty / opaque bag that now FAILS CLOSED) live in
+// STRICT_CONTRACT_CASES below. Splitting the two keeps this list safe for the merchant-web
+// client-gate suite, which iterates LEGACY_CASES without S6 awareness (the client gate's
+// own S6 adoption is a separate follow-up slice).
 
 export interface LegacyCase {
   name: string
-  /** The stored Voucher.merchantFields bag, verbatim. */
+  /** The stored Voucher.merchantFields bag, verbatim (INDICATOR-ABSENT: no strict marker). */
   bag: unknown
   /** Top-level column override (defaults valid in the suite). */
   estimatedSaving?: number
@@ -239,18 +261,43 @@ export interface LegacyCase {
 }
 
 export const LEGACY_CASES: LegacyCase[] = [
-  { name: 'a legacy voucher with a null bag submits on universal invariants', bag: null, outcome: 'SUBMITS' },
-  { name: 'an admin-concierge bag ({}) submits on universal invariants', bag: {}, outcome: 'SUBMITS' },
-  { name: 'a flat opaque bag WITHOUT builderType submits on universal invariants', bag: { askHelp: true, someLegacyKey: 'x' }, outcome: 'SUBMITS' },
+  { name: 'an indicator-absent voucher with a null bag submits on universal invariants (legacy)', bag: null, outcome: 'SUBMITS' },
+  { name: 'an indicator-absent empty bag ({}) submits on universal invariants (legacy admin-concierge / pre-S6)', bag: {}, outcome: 'SUBMITS' },
+  { name: 'an indicator-absent flat opaque bag WITHOUT builderType submits on universal invariants (legacy)', bag: { askHelp: true, someLegacyKey: 'x' }, outcome: 'SUBMITS' },
   {
-    name: 'a marker-only bag (builderType, no draftFields) is structured and fails closed',
+    name: 'a marker-only bag (builderType, no draftFields) is structured and fails closed even when indicator-absent',
     bag: { askHelp: true, builderType: 'bogo' },
     outcome: { field: 'bogoBuy', code: 'REQUIRED' },
   },
   {
-    name: 'a legacy voucher with a zero saving is still blocked',
+    name: 'an indicator-absent voucher with a zero saving is still blocked',
     bag: null,
     estimatedSaving: 0,
     outcome: { field: 'estimatedSaving', code: 'INVALID' },
   },
+]
+
+// ── S6: strict-contract (indicator-PRESENT) compatibility (custom lane) ────────
+//
+// The mirror image of LEGACY_CASES. Each `bag` is the INNER stored bag BEFORE the
+// server-owned marker is applied; the suite stamps it (withStrictContract) so the row is
+// STRICT. Under S6 a strict row with an empty / opaque bag has no usable mechanic field
+// and FAILS CLOSED on the mechanic derived from the AUTHORITATIVE Voucher.type; a strict
+// row that carries a complete structured mechanic still submits. This is the executable
+// projection of the S5-bypass fix.
+export interface StrictContractCase {
+  name: string
+  type: string
+  /** The inner stored bag; the suite stamps the strict marker onto it. */
+  bag: Record<string, unknown>
+  estimatedSaving?: number
+  outcome: 'SUBMITS' | FieldExpectation
+}
+
+export const STRICT_CONTRACT_CASES: StrictContractCase[] = [
+  { name: 'a STRICT empty bag fails closed on the authoritative BOGO mechanic', type: 'BOGO', bag: {}, outcome: { field: 'bogoBuy', code: 'REQUIRED' } },
+  { name: 'a STRICT empty bag fails closed on the authoritative DISCOUNT_PERCENT mechanic', type: 'DISCOUNT_PERCENT', bag: {}, outcome: { field: 'discPercent', code: 'REQUIRED' } },
+  { name: 'a STRICT flat opaque bag (marker, no builderType) still fails closed (opaque keys never satisfy the matrix)', type: 'BOGO', bag: { askHelp: true, someLegacyKey: 'x' }, outcome: { field: 'bogoBuy', code: 'REQUIRED' } },
+  { name: 'a STRICT complete nested bag submits', type: 'BOGO', bag: { merchantFields: { builderType: 'bogo', ...COMPLETE_MECHANICS.BOGO } }, outcome: 'SUBMITS' },
+  { name: 'a STRICT complete single bag submits', type: 'BOGO', bag: { askHelp: false, builderType: 'bogo', draftFields: { type: 'bogo', ...COMPLETE_MECHANICS.BOGO } }, outcome: 'SUBMITS' },
 ]
