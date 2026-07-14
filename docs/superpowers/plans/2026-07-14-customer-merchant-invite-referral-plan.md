@@ -1,0 +1,240 @@
+# Customer Merchant Invites + Referral Reward · Implementation Plan (Tier 3)
+
+Date: 2026-07-14 · Spec (authoritative, decisions D1-D12 locked):
+`docs/superpowers/specs/2026-07-14-customer-merchant-invite-referral-design.md`
+Lead: Fable 5 (design, adjudication, review). Execution: Opus 4.8 / Sonnet 5
+to precise briefs per the owner routing directive. Owner approval to plan:
+2026-07-14 ("please proceed").
+
+Status: PLANNED · build scheduling is an owner call (Portal/Admin programme
+holds priority; this plan claims no slot). Milestones pause for owner review
+per Tier 3 flow.
+
+## 0. Ground rules
+
+- Spec decisions D1-D12 are locked; deviations require an owner ruling and a
+  spec amendment, never a workaround (Tier 2/3 rule).
+- Schema changes ride the existing bundled-migration practice: the migration
+  is BUILT in its milestone but APPLIED to shared Neon only in an
+  owner-scheduled window (same policy as the admin-recruitment packets).
+- All new endpoints register rate-limit tiers in the tier registry
+  (pattern from PR #432); no endpoint ships on the global default.
+- Feature flags: `INVITES_ENABLED` (whole lane, default off in prod until
+  M3 verification), reuse `EMAIL_ENABLED` for anything that sends.
+- Copy on all customer surfaces follows the audience profile + locked copy
+  rules (per-voucher renewal language, no deal-site voice, no em-dashes).
+
+## M0 · Schema + core service (backend, no HTTP surface)
+
+1. Prisma models per spec §5: `MerchantInvite`, `RewardGrant`,
+   `BusinessSuppression`; enums for the two status lanes; unique
+   `(inviterIdentity, businessIdentity)` (composite over
+   `inviterUserId|inviterEmail` + `googlePlaceId|nameFuzzyKey`).
+   `rewardEligible` stamped FALSE automatically when the matched business
+   already has a merchant draft/lead at submit time (D8) so eligibility is
+   decided at write time, not payout time.
+2. `src/api/invites/` service module: identity resolution (Places result →
+   canonical key), dedupe/tally, live-merchant detection
+   (`Branch.googlePlaceId` exact + name+postcode fuzzy), lead attach.
+3. Signed single-use tokens (HMAC, expiring): invite-confirmation token,
+   merchant-register invite token. Same signing util pattern as existing
+   claim tokens (draft-owner claim, 7-day).
+4. Unit tests (vitest unit lane, CI-gated): identity resolution, dedupe,
+   eligibility stamping, token round-trip, cap arithmetic.
+
+Deliverable: PR (migration BUILT, unapplied). PAUSE for owner review.
+
+## M1 · Public API (backend)
+
+1. `POST /api/invites` submit: Turnstile check when anonymous, per-IP +
+   per-target-email tiers, disposable-domain blocklist, note constraints
+   (240 chars, no URLs, term-filter → HELD status), responses per D11
+   (live → `already_live` + merchant slug; everything else → generic ok).
+2. `POST /api/invites/confirm` (token from confirmation email): flips
+   PENDING_CONFIRM → NEW, idempotent, single-use.
+3. `GET /api/places/suggest` proxy: server-side Places autocomplete
+   (key never client-side), tight tier, UK-biased, returns name/locality/
+   placeId only. Reuses the existing Places client from the location-trust
+   work.
+4. Confirmation-email content: fixed template, zero user-controlled text.
+   Until EMAIL_ENABLED: dev-logs the link (same convention as existing
+   flag-off email paths); anonymous invites in prod-without-email hold at
+   PENDING_CONFIRM and the admin queue can mark-verified manually at
+   Huddersfield scale.
+5. Contract tests for every abuse rule in spec §8 that has an M1 surface.
+
+Deliverable: PR. PAUSE for owner review.
+
+## M2 · Admin console integration (admin-web + backend admin routes)
+
+1. Lead source "customer-requested" in the recruitment console list views:
+   tally badge, freshness, sort-by-demand; invite detail drawer (notes,
+   verification state, eligibility flags).
+2. Manual-send action (Phase 1 fulfilment): renders the composed invitation
+   email (ticket motif, tally, notes, register link with invite token) for
+   copy/send outside the system; records CONTACTED + timestamp; enforces
+   the 14-day per-business rule even for manual sends.
+3. Review queue: HELD notes, velocity flags, PENDING grants; approve/void
+   with reason; audit-trail entries follow the existing audit.ts pattern.
+4. Suppression list management (view, add manual opt-out).
+5. jest + `next build` verification (admin-web standing rule).
+
+Deliverable: PR. PAUSE for owner review + walkthrough.
+
+## M3 · Customer surfaces (customer-web)
+
+1. `/invite` page: Places autocomplete field, note, email-when-anonymous,
+   consent tick, Turnstile; the three response states; share-card block
+   ("send it yourself") with a pre-written message + link.
+2. Landing section (compact, between app closer and footer): headline
+   direction "Wish your favourite place was on here?"; links to `/invite`.
+   Placement must not compete with the primary register CTA (spec §3.1).
+3. Post-register prompt on the register success state: single-field
+   fast path (user already authenticated: no email, no captcha).
+4. SEO plumbing for `/invite` (seoRoutes.ts, sitemap), reduced-motion safe
+   entrances, mobile parity, orphan/Brand-Stop typography rules.
+5. Browser verification at 1440/390 + simulator pass; copy pass under
+   /copywriting + audience profile before ship.
+
+Deliverable: PR. PAUSE: owner reviews the section visually (screenshots +
+simulator) before merge. `INVITES_ENABLED` flips only after this review.
+
+## M4 · Automated invitation email (Phase 2; gated)
+
+Gates: EMAIL_ENABLED + Resend DNS live (owner action, already on the list)
+AND solicitor sign-off on the outreach template + referral terms blurb.
+
+1. Send worker: per-business 14-day throttle, digest batching, suppression
+   enforcement, global daily cap + alert metric, rep-owned-lead suppression
+   (D12), unsubscribe handling writing BusinessSuppression.
+2. Full double-opt-in confirmation flow replaces manual verification.
+3. Send/deliverability metrics panel in admin.
+
+Deliverable: PR. PAUSE for owner review.
+
+## M5 · Reward activation (Phase 3; launch-adjacent)
+
+Gates: subscriptions live at launch; referral terms page published.
+
+1. Merchant-live hook: eligibility selection (D7 caps, D8 window, D9 staff
+   exclusion, registered-account check), grant issuance, flagged-grant
+   auto-hold.
+2. Stripe single-use coupon creation + attach; consumption paths for
+   first-checkout and existing-subscriber credit; founding-offer stacking
+   (D6) verified against the checkout flow.
+3. Reconciliation job: on merchant approval, match branch googlePlaceId
+   against open invites lacking token attribution.
+4. Customer notification email + account banner + earned-months account
+   surface; "register to claim" variant for verified-email non-accounts.
+5. End-to-end test on a disposable DB (never the shared Neon; integration
+   lane rules apply).
+
+Deliverable: PR. PAUSE for owner review. Only after M5 may marketing copy
+carry "If they join, your next month is on us" (CAP substantiation).
+
+## Testing summary
+
+- Backend: unit lane (CI gate) for all service logic; integration suite
+  additions run only against a disposable DATABASE_URL.
+- admin-web: jest + `next build`. customer-web: browser verification both
+  viewports + simulator; tsc.
+- Abuse rules each get an explicit test naming the spec §8 bullet they
+  enforce, so the security section stays executable, not aspirational.
+
+## Rollout + kill switches
+
+`INVITES_ENABLED` off → the landing section, /invite, and post-register
+prompt all hide (same isMarketplaceLive() conditional pattern); API returns
+404. Send worker additionally behind EMAIL_ENABLED. Reward issuance behind
+its own `INVITE_REWARDS_ENABLED` so Phase 1/2 can run indefinitely without
+accruing payout obligations.
+
+## Owner actions this plan depends on
+
+1. Schedule the M0 migration into the next bundled Neon window.
+2. Resend/DNS + EMAIL_ENABLED (already on the standing list) before M4.
+3. Solicitor: outreach template + referral terms blurb (gates M4/M5).
+4. Turnstile site key provisioning (new env var, M1/M3).
+5. Decide WHEN this builds relative to the Portal/Admin programme.
+
+---
+
+# Amendment P1 · 2026-07-14 · Post-inspection revision (authoritative)
+
+Follows spec Amendment A1 (same date). Where this conflicts with the
+milestones above, THE AMENDMENT WINS.
+
+## Revised milestone scopes
+
+**M0 · Schema + core service.** Models per A1.2 (MerchantInvite,
+InviteRewardGrant, BusinessSuppression; NO MerchantLead changes; NO
+attribution-token table). Migration built OFFLINE via
+`prisma migrate diff --from-schema <old> --to-schema <new> --script`
+(verified working, no DB contact), create-only, packaged as a SEPARATE
+packet that must apply AFTER merchant_lead_packet. Flags
+isInvitesEnabled()/isInviteRewardsEnabled() per env.ts conventions.
+Service: identity normalisation, placeKey construction, live-merchant
+detection (Branch.googlePlaceId exact + name/postcode fuzzy: note there
+is NO existing place-lookup service; this builds the first one),
+lead attach-or-create (source CUSTOMER_REQUEST, stage LEAD, unassigned;
+audit LEAD_CREATED with CUSTOMER actor + INVITE_CREATED), eligibility
+stamping per A1.1(2), caps arithmetic, P2002-idempotent submit.
+Unit tests in the CI unit lane.
+
+**M1 · Customer API (Phase 1 = signed-in only).**
+- POST /api/v1/customer/invites (authenticateCustomer; rate tier
+  `inviteSubmit` per-user + per-IP; no Turnstile in Phase 1).
+- POST /api/v1/customer/invites/place-search (authenticated; wraps
+  searchPlaces() behind a NEW Redis-backed inviteLocationLimiter
+  modelled on merchantLocationLimiter: the file-based Places cap is
+  single-process and unsafe for this route; candidate-token response,
+  placeId never leaves the server).
+- Responses per D11 (already_live | ok), generic ok for pipeline and
+  unknown alike.
+- All sends absent in Phase 1; nothing calls notify().
+- Contract tests for abuse rules with an M1 surface.
+
+**M2 · Admin exposure = BACKEND CONTRACT ONLY this programme phase.**
+admin-web is actively owned/frozen (#514/#516/#521). Deliverable: a
+short interface note + (when scheduled) LEAD_SELECT list-payload
+extension carrying inviteCount/latestInviteAt/demand notes and the
+PREPARED vs SENT_CONFIRMED manual-outreach endpoints per A1.1(7).
+No admin-web UI in this programme until the admin session's stack
+lands.
+
+**M4 · Phase 2 additions (unchanged gates)** now also includes: the
+anonymous lane (Turnstile via EXISTING CAPTCHA_ENABLED/verifyTurnstile;
+double-opt-in via house Redis tokens through notify()/emailLimiter with
+new inviteConfirm + inviteBusiness contexts), contact provenance +
+recipient-type classification (A1.1(9)), and the optional register-link
+attribution token if analytics justify it.
+
+**M5 · Reward activation** gains a DESIGN-FIRST GATE: a billing seam
+design doc co-designed with the founding-offer implementation (verified
+constraints: one Subscription row per user forever; promoCodeId
+single-valued write-once; one coupon per subscriptions.create;
+currentPeriodEnd Stripe-derived only; no credit primitive). Until that
+doc is owner-approved, grants exist only as ledger rows.
+
+## Corrected owner-action list
+
+1. Schedule the invite packet AFTER merchant_lead_packet in a migration
+   window (separate from, or sequenced within, the recruitment window:
+   owner's call).
+2. Resend/DNS + EMAIL_ENABLED before M4 (unchanged).
+3. Solicitor: outreach template + referral terms blurb (unchanged).
+4. Turnstile: NOT a new integration (already platform-wired); only
+   TURNSTILE_SECRET_KEY provisioning when CAPTCHA_ENABLED flips for the
+   anonymous lane.
+5. Build scheduling vs Portal/Admin (unchanged).
+6. NEW: PROJECT-STATE should record the unapplied state of
+   merchant_lead_packet + merchant_note_packet (currently only in
+   commit messages/schema comments) and that MerchantAgreementRecord
+   (packet 4) exists only in frozen PR #514.
+
+## Autonomous-run execution note (2026-07-14)
+
+M0+M1 are being implemented in this owner-approved autonomous window on
+fresh worktrees from origin/main, as unmerged PRs, flags default-off,
+no migration applied, no sends, no provider calls, per the safety
+boundaries in the owner brief.
