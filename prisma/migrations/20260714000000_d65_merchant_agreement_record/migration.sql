@@ -5,7 +5,9 @@
 -- owner-gated window. Purely additive: MerchantAgreementRecord references Merchant
 -- (a leaf table beside MerchantContract), so no existing table is altered.
 -- actorAdminId is a plain admin id column (NO FK, matching the MerchantLead /
--- AdminApproval / MerchantNote bare-id precedent). Immutability (no UPDATE/DELETE)
+-- AdminApproval / MerchantNote bare-id precedent). witnessName / witnessEmail hold the
+-- authenticated rep identity (server-side AdminUser lookup, not client text; NULL on
+-- self-serve). Immutability (no UPDATE/DELETE)
 -- is an APPLICATION-LEVEL contract enforced in the service layer + a guard test;
 -- this migration adds no DB-level append-only trigger (spec §4.1 leaves that as an
 -- open solicitor question).
@@ -22,6 +24,8 @@ CREATE TABLE "MerchantAgreementRecord" (
     "signerName" TEXT NOT NULL,
     "signerRoleConfirmation" TEXT NOT NULL,
     "actorAdminId" TEXT,
+    "witnessName" TEXT,
+    "witnessEmail" TEXT,
     "method" "AgreementSignMethod" NOT NULL,
     "signedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "ipAddress" TEXT NOT NULL,
