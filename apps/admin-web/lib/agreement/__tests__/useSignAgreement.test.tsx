@@ -1,5 +1,5 @@
 /**
- * useSignAgreement — verifies the cache-invalidation contract on success: the
+ * useSignAgreement: verifies the cache-invalidation contract on success: the
  * merchant detail read is invalidated so the contract gate + Overview evidence
  * block re-read. Mirrors lib/merchants/__tests__/useMerchantActions.test.tsx.
  */

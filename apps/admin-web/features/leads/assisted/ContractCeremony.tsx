@@ -66,6 +66,17 @@ const KEY_TERMS: readonly string[] = [
 
 // ── Persistent legal-review banner (spec §6) ─────────────────────────────────────
 
+// Rendered in two places below: once gated-driven at the signed-confirmation step
+// (`{result.gated && <LegalReviewBanner />}`), and once hardcoded-on in the
+// pre-sign owner panel (~below, before `phase === 'owner'` renders). The pre-sign
+// render CANNOT read `result.gated` because `result` is null until the sign POST
+// resolves; there is no watermark-status value available before that point (the
+// admin surface has no agreement-text/version read route today, per the KEY_TERMS
+// integration note above). Hardcoding it on is correct today because the ceremony
+// only ever runs against a draft version, so the pre-sign warning is always true in
+// practice. If a non-draft version ever becomes ceremony-signable, this pre-sign
+// render should be driven by a version-status read (not `result.gated`, which still
+// won't exist yet at this point), not left hardcoded.
 function LegalReviewBanner() {
   return (
     <div

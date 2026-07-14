@@ -36,7 +36,7 @@ function okResponse(overrides: Partial<Record<string, unknown>> = {}) {
   }
 }
 
-// ── agreementApi.sign — request body ───────────────────────────────────────────
+// ── agreementApi.sign: request body ─────────────────────────────────────────────
 
 describe('agreementApi.sign request body', () => {
   it('POSTs the correct URL with auth:true', async () => {
@@ -79,7 +79,7 @@ describe('agreementApi.sign request body', () => {
 
 })
 
-// ── agreementApi.sign — response parsing ───────────────────────────────────────
+// ── agreementApi.sign: response parsing ─────────────────────────────────────────
 
 describe('agreementApi.sign response parsing', () => {
   it('returns the parsed SignAgreementResponse', async () => {

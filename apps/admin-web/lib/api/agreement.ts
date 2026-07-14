@@ -17,10 +17,13 @@
  * route body is strict, so it accepts ONLY signerName, signerRoleConfirmation and
  * the optional agreementVersion.
  *
- * `gated: true` means the agreement is still pending legal review (the
- * fail-closed default): staging/dev record the signing DRAFT-watermarked, while a
+ * `gated: true` means the served agreement VERSION is itself a draft (watermark
+ * semantics, backend `isVersionWatermarked`), decoupled from the
+ * AGREEMENT_LEGAL_REVIEW_REQUIRED env flag: that flag instead drives whether a
  * PRODUCTION binding write is refused with AGREEMENT_LEGAL_REVIEW_REQUIRED (403).
- * Never render copy that states or implies solicitor approval.
+ * A draft version is always watermarked regardless of the env flag; a non-draft
+ * version is never watermarked even while the env flag is on. Never render copy
+ * that states or implies solicitor approval.
  *
  * The response is Zod-validated so contract drift surfaces as a clear error
  * rather than an undefined-field crash. Errors throw `ApiError` from `apiFetch`
@@ -58,7 +61,8 @@ const signAgreementResponseSchema = z.object({
   // ISO string over the wire (Prisma DateTime serialises to a string).
   signedAt: z.string(),
   contractStatus: z.string(),
-  // True while the agreement is pending legal review (fail-closed default).
+  // True when the served agreement version is itself a draft (watermark status),
+  // independent of the AGREEMENT_LEGAL_REVIEW_REQUIRED env flag.
   gated: z.boolean(),
 })
 export type SignAgreementResponse = z.infer<typeof signAgreementResponseSchema>

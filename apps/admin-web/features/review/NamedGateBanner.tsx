@@ -106,8 +106,15 @@ const CODE_MESSAGES: Record<string, string> = {
   // stays for completeness. Reload and re-review before signing.
   AGREEMENT_VERSION_MISMATCH:
     'The agreement was updated. Please reload and review the current version before signing.',
+  // AGREEMENT_SIGNER_INVALID covers several server-side conditions behind one code
+  // (empty name/role, a missing witnessing rep, a rep that fails to resolve), but the
+  // only one a client can actually reach in normal use is the same-name safeguard: the
+  // backend refuses when the typed signer name equals the authenticated rep's own name
+  // (service.ts same-name guard). The UI cannot distinguish which condition fired, so
+  // this is an honest SUPERSET message covering both the name/role requirement and the
+  // same-name refusal, never claiming a specific cause the UI cannot verify.
   AGREEMENT_SIGNER_INVALID:
-    'A signatory name and role are required to sign this agreement.',
+    'The signatory name must be the merchant owner or an authorised signatory, not the operator, and a role confirmation is required.',
   // Team & Roles S2: the SUPER_ADMIN-only account/role/grant management screen.
   CAPABILITY_NOT_GRANTABLE:
     'This capability cannot be granted from this screen.',
