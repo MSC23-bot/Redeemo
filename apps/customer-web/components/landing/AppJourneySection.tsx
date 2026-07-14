@@ -39,7 +39,7 @@ import { useViewportMode } from './useViewportMode'
 
 const CHAPTERS = [
   {
-    kicker: '01 · Find',
+    kicker: '01 · Browse',
     title: 'Every place worth knowing, in one scroll.',
     body: 'Open the app and your area is already laid out: featured places, trending near you, and every category that matters. Each one carries a member voucher. Browsing is free, so you can see everything before you spend a penny.',
     still: '/app-shots/journey/home-top.jpg',
@@ -51,13 +51,13 @@ const CHAPTERS = [
     still: '/app-shots/journey/profile-strip.jpg',
   },
   {
-    kicker: '03 · Know',
-    title: 'No small-print surprises.',
-    body: 'The saving, the terms, where it works and when: all in plain English before you commit. When it says buy one main, get one free, that is exactly what happens at the till.',
+    kicker: '03 · Check',
+    title: 'See what you save before you go.',
+    body: 'Every voucher shows exactly what it is worth, and the terms in plain English: where it works, when, and for whom. When it says buy one main, get one free, that is exactly what happens at the till.',
     still: '/app-shots/journey/voucher-detail.jpg',
   },
   {
-    kicker: '04 · Redeem',
+    kicker: '04 · Redeem & save',
     title: 'At the venue, it takes seconds.',
     body: "Tap redeem when you arrive. A quick PIN from the counter confirms you're really there, then your code appears and staff check it on the spot. It works like paying, except you pay less.",
     still: '/app-shots/journey/qr-screen.jpg',
@@ -70,7 +70,10 @@ const CHAPTERS = [
   },
 ]
 
-const RAIL = ['Find', 'Choose', 'Know', 'Redeem', 'Keep score']
+// Rail rulings (owner 2026-07-14): Redeem stays (Redeemo is derived from
+// redeem) and carries the saving at its true moment; Browse is the free
+// entry; Check replaces Know (the reassurance now lives in ch3's body).
+const RAIL = ['Browse', 'Choose', 'Check', 'Redeem & save', 'Keep score']
 
 // Phone geometry: captures are 1320x2868, shown at 340px wide so the phone
 // sits inside the viewport with air above and below

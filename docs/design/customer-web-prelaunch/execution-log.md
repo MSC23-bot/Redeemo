@@ -981,3 +981,15 @@ edited by this workstream.
   FLAGGED to owner (legal copy; solicitor review pending). The
   redeemo-audience-profile skill's stale product facts were corrected in
   place. tsc clean; shelf verified at 1440x900.
+- JOURNEY RAIL RENAMED FOR CONVERSION (owner 2026-07-14, option 2 of the
+  lead's proposal): Find/Choose/Know/Redeem/Keep score becomes
+  Browse / Choose / Check / Redeem & save / Keep score. Rulings honoured:
+  Redeem stays in the rail (Redeemo derives from redeem) and now carries
+  the saving at its temporally true moment (the till); Keep score stays
+  (owner favourite); Know retired (its reassurance folds into ch3's
+  body); Browse names the free entry; "Savings" was rejected at slot 3
+  (it is the app tab shown in ch5). Chapter three reframed: kicker
+  03 - Check, title "See what you save before you go.", body leads with
+  the voucher's shown worth then the plain-English terms; the on-screen
+  SAVE roundel now proves the title. Kickers updated to mirror the rail;
+  all other chapter copy untouched. tsc clean; verified at 1440x900.
