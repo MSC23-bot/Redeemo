@@ -426,3 +426,38 @@ Guarded in design by the re-verify-at-issuance HARD GATE
 (schema.prisma rewardEligible: issuance re-checks eligibility and finds
 rewardEligible:false + inviterUserId:null on the scrubbed invite).
 Revisit when building the reward hook.
+
+## Round 5 — CI concurrency + erasure pilot EXECUTED (2026-07-14)
+
+Owner granted the GitHub CLI `workflow` scope (device-flow), so the CI
+step was applied DIRECTLY to M0's .github/workflows/ci.yml (commit
+4e12ee55) rather than via the docs-branch patch — the patch file is now
+historical/superseded (retained for provenance). Wording corrected
+throughout to "invite concurrency + erasure" (step name, comment,
+job-summary lines). test:integration:invites globs the invites dir, so
+BOTH concurrency and erasure suites run.
+
+EXECUTED EVIDENCE (run 29364470666, job 87192476034, sha 4e12ee55):
+- Explicit STEP conclusion (NOT just the advisory job's green):
+  "Run invite concurrency + erasure integration pilot (advisory)" ->
+  conclusion: SUCCESS.
+- vitest against the disposable loopback Postgres:
+    concurrency.integration.test.ts  5 tests  3625ms
+    erasure.integration.test.ts      1 test    253ms
+    Test Files 2 passed (2) · Tests 6 passed (6)
+- Job-summary logic (outcome=success) wrote:
+    "Advisory invite concurrency + erasure pilot: PASS"
+- The pilot's `prisma migrate deploy` applied 20260714210000_customer_invite_referral_packet
+  after merchant_lead_packet ("All migrations successfully applied").
+The 5 concurrency tests prove: one MerchantLead per business under a
+6-way race; the atomic ten-open-invite cap under a 12-way race; exact
+duplicate idempotency at the cap boundary; two identical concurrent
+submits crossing nine->ten yield one row; lock contention terminates as
+the retryable INVITE_SUBMIT_CONTENTION. The erasure test proves genuine
+severance (no invite links back, pending grant deleted, ISSUED retained,
+aggregate demand preserved).
+
+Renewed heads: M0 @ 4e12ee55, M1 @ 8815e73b, docs @ this commit.
+#526 CLEAN/MERGEABLE, CodeRabbit PASS; #527 MERGEABLE. All held for
+Codex review + owner SHA-bound approval. No merge/migration-apply/
+deploy/provider/shared-data/reward/billing/enablement occurred.
