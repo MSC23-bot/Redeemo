@@ -63,6 +63,7 @@ export const RENDERED_M360_TABS: readonly M360TabKey[] = [
   'documents',
   'activity',
   'staff',
+  'notes',
 ]
 
 /**
@@ -77,7 +78,15 @@ export function resolveM360Tab(raw: string | null | undefined): M360TabKey {
 
 type PlaceholderKey = Exclude<
   M360TabKey,
-  'overview' | 'identity' | 'branches' | 'vouchers' | 'redemptions' | 'documents' | 'activity' | 'staff'
+  | 'overview'
+  | 'identity'
+  | 'branches'
+  | 'vouchers'
+  | 'redemptions'
+  | 'documents'
+  | 'activity'
+  | 'staff'
+  | 'notes'
 >
 
 export interface PlaceholderCopy {
@@ -87,16 +96,13 @@ export interface PlaceholderCopy {
 
 /**
  * Honest placeholder copy per not-yet-built tab. Tabs that are simply queued for
- * a later slice say so plainly; the gated surfaces (Performance, Insights, Notes,
+ * a later slice say so plainly; the gated surfaces (Performance, Insights,
  * Commercial) carry the spec's own honesty language about WHY they are not live
- * (net-new aggregation, DPIA gate, net-new schema, provider/billing gate). No
- * fabricated data is ever shown.
+ * (net-new aggregation, DPIA gate, provider/billing gate). No fabricated data is
+ * ever shown. Notes is now built over the MerchantNote model (D51), so it is no
+ * longer a placeholder.
  */
 export const M360_PLACEHOLDER_COPY: Record<PlaceholderKey, PlaceholderCopy> = {
-  notes: {
-    title: 'Notes',
-    body: 'Internal operator notes need the MerchantNote model, which is not built yet (net-new schema). Nothing is shown here until it lands.',
-  },
   performance: {
     title: 'Performance',
     body: 'Aggregate performance roll-ups are not built yet. They need a net-new aggregation endpoint and stay aggregate-only: never an individual customer identity.',

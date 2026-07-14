@@ -54,6 +54,7 @@ import { RedemptionsTab } from '@/features/merchants/m360/RedemptionsTab'
 import { DocumentsTab } from '@/features/merchants/m360/DocumentsTab'
 import { ActivityTab } from '@/features/merchants/m360/ActivityTab'
 import { StaffTab } from '@/features/merchants/m360/StaffTab'
+import { NotesTab } from '@/features/merchants/m360/NotesTab'
 import { PlaceholderTab } from '@/features/merchants/m360/PlaceholderTab'
 import { resolveM360Tab } from '@/features/merchants/m360/tabs'
 import type { BranchDetail } from '@/lib/api/merchants'
@@ -237,6 +238,8 @@ function MerchantWorkspace() {
 
           {activeTab === 'staff' && <StaffTab merchantId={data.merchant.id} />}
 
+          {activeTab === 'notes' && <NotesTab merchantId={data.merchant.id} />}
+
           {activeTab !== 'overview' &&
             activeTab !== 'identity' &&
             activeTab !== 'branches' &&
@@ -244,7 +247,8 @@ function MerchantWorkspace() {
             activeTab !== 'redemptions' &&
             activeTab !== 'documents' &&
             activeTab !== 'activity' &&
-            activeTab !== 'staff' && <PlaceholderTab tabKey={activeTab} />}
+            activeTab !== 'staff' &&
+            activeTab !== 'notes' && <PlaceholderTab tabKey={activeTab} />}
         </>
       )}
 

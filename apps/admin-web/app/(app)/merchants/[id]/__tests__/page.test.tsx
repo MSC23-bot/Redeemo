@@ -234,6 +234,18 @@ jest.mock('@/lib/staff/useAdminStaff', () => ({
   adminStaffQueryKey: (id: string) => ['admin-merchant-staff', id],
 }))
 
+// Notes tab (D51): mock the note read hook + the three mutation hooks (network
+// I/O). The NotesTab renders for real, so the tab wiring + fail-closed gate are
+// exercised here; the tab's own behaviour is covered by NotesTab.test.tsx.
+const notesMutationStub = () => ({ mutateAsync: jest.fn(), isPending: false, error: null, reset: jest.fn() })
+jest.mock('@/lib/merchants/useMerchantNotes', () => ({
+  useMerchantNotes: jest.fn(),
+  useAddMerchantNote: () => notesMutationStub(),
+  useEditMerchantNote: () => notesMutationStub(),
+  useRetractMerchantNote: () => notesMutationStub(),
+  merchantNotesQueryKey: (id: string) => ['admin-merchant-notes', id],
+}))
+
 jest.mock('@/features/merchants/m360/RmvCoBuildDialog', () => ({
   RmvCoBuildDialog: ({
     merchantId,
@@ -281,6 +293,7 @@ import { useRedemptions } from '@/lib/redemptions/useRedemptions'
 import { useAdminRmvVouchers } from '@/lib/vouchers/useAdminRmvVouchers'
 import { useAdminCustomVouchers } from '@/lib/vouchers/useAdminCustomVouchers'
 import { useAdminStaff } from '@/lib/staff/useAdminStaff'
+import { useMerchantNotes } from '@/lib/merchants/useMerchantNotes'
 import type { AdminRmvVoucher } from '@/lib/api/vouchers'
 
 const mockedUseSession = useSession as jest.MockedFunction<typeof useSession>
@@ -289,6 +302,18 @@ const mockedUseRedemptions = useRedemptions as jest.MockedFunction<typeof useRed
 const mockedUseAdminRmvVouchers = useAdminRmvVouchers as jest.MockedFunction<typeof useAdminRmvVouchers>
 const mockedUseAdminCustomVouchers = useAdminCustomVouchers as jest.MockedFunction<typeof useAdminCustomVouchers>
 const mockedUseAdminStaff = useAdminStaff as jest.MockedFunction<typeof useAdminStaff>
+const mockedUseMerchantNotes = useMerchantNotes as jest.MockedFunction<typeof useMerchantNotes>
+
+function mockNotes(overrides: Partial<ReturnType<typeof useMerchantNotes>> = {}) {
+  mockedUseMerchantNotes.mockReturnValue({
+    data: [],
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: jest.fn(),
+    ...overrides,
+  })
+}
 
 function mockCustom(overrides: Partial<ReturnType<typeof useAdminCustomVouchers>> = {}) {
   mockedUseAdminCustomVouchers.mockReturnValue({
@@ -671,13 +696,6 @@ describe('Merchant 360 tab routing', () => {
 describe('Merchant 360 not-built placeholders', () => {
   beforeEach(() => mockSession())
 
-  it('shows the net-new-schema gated copy for Notes (MerchantNote)', () => {
-    mockSearch = 'tab=notes'
-    mockDetail({ data: makeDetail() })
-    render(<MerchantDetailPage />)
-    expect(screen.getByTestId('workspace-placeholder-notes')).toHaveTextContent(/MerchantNote/)
-  })
-
   it('shows the aggregation gated copy for Performance', () => {
     mockSearch = 'tab=performance'
     mockDetail({ data: makeDetail() })
@@ -690,6 +708,26 @@ describe('Merchant 360 not-built placeholders', () => {
     mockDetail({ data: makeDetail() })
     render(<MerchantDetailPage />)
     expect(screen.getByTestId('workspace-placeholder-insights')).toHaveTextContent(/DPIA/)
+  })
+})
+
+// ── Notes tab (D51) ─────────────────────────────────────────────────────────────
+
+describe('Merchant 360 Notes tab (D51)', () => {
+  beforeEach(() => {
+    mockSearch = 'tab=notes'
+    mockNotes()
+  })
+
+  it('renders the real Notes tab (not a placeholder) with the honesty banner + composer', () => {
+    mockSession()
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('workspace-notes')).toBeInTheDocument()
+    expect(screen.queryByTestId('workspace-placeholder-notes')).not.toBeInTheDocument()
+    expect(screen.getByTestId('notes-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('note-composer-save')).toBeInTheDocument()
+    expect(screen.getByTestId('workspace-tab-notes')).toHaveAttribute('data-active', 'true')
   })
 })
 
