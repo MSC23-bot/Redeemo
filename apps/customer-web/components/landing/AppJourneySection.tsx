@@ -42,7 +42,7 @@ const CHAPTERS = [
   {
     kicker: '01 · Browse',
     title: 'Every place worth knowing, in one scroll.',
-    body: 'Open the app and your area is already laid out: featured places, trending near you, and every category that matters. Each one carries a member voucher. Browsing is free, so you can see everything before you spend a penny.',
+    body: 'Open the app and your area is already laid out: featured places, trending near you, and every category that matters. Each one carries member vouchers. Browsing is free, so you can see everything before you spend a penny.',
     still: '/app-shots/journey/home-top.jpg',
   },
   {

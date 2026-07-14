@@ -127,8 +127,8 @@ export function HeroSection() {
               Redeemo is one membership for the things you already enjoy:
               meals out, workouts, salon visits, shopping, days out. The
               businesses on Redeemo create member-only offers: two for one,
-              money off, a freebie with your visit: and new vouchers become
-              available every month.
+              money off, a freebie with your visit: and once you use a
+              voucher, it comes back the next&nbsp;month.
             </motion.p>
 
             {/* Mobile: the artwork rides between the description and the

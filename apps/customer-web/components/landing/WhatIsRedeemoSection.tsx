@@ -16,7 +16,7 @@ const PILLARS = [
   {
     n: '01',
     title: 'Find local offers',
-    body: 'Restaurants, cafes, gyms, salons, shops and days out near you, each carrying its own member voucher.',
+    body: 'Restaurants, cafes, gyms, salons, shops and days out near you, each carrying its own member vouchers.',
   },
   {
     n: '02',

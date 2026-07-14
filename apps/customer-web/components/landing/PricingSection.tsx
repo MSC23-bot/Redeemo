@@ -57,7 +57,7 @@ function getPlans(marketplaceLive: boolean): Plan[] {
       features: [
         'Everything in Free',
         'Redeem at every merchant',
-        'New vouchers every month',
+        'Vouchers renew each month',
         'Savings dashboard',
       ],
     },
