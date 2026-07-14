@@ -226,6 +226,13 @@ export type AuditEvent =
   | 'LEAD_LOST'
   | 'LEAD_CONVERTED'
   | 'LEAD_ANONYMISED'
+  // Customer merchant-invite programme M0 (2026-07-14). `event` is a String
+  // column, so this is a union-only literal with NO migration. entityType
+  // 'invite', entityId = the MerchantInvite row, actorType CUSTOMER, actorId =
+  // the inviting user. metadata is PII-free ({ placeKeyKind, held }) — no
+  // inviter email, note text, or IP.
+  //   INVITE_CREATED : a customer submitted a merchant invite (src/api/customer/invites/service.ts).
+  | 'INVITE_CREATED'
   // MerchantNote packet (2026-07-13, OD2). Internal per-merchant admin notes.
   // `event` is a String column, so these are union-only literals with NO
   // migration. entityType 'merchant', entityId = the merchant the note is on,
@@ -271,7 +278,10 @@ export interface AuditContext {
   // (entityType String column — union-only, no migration).
   // 'platform' (GAP-6): a platform-scoped, non-entity row (the email send-pause
   // breaker); entityType String column, so union-only, no migration.
-  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher' | 'lead' | 'platform'
+  // 'invite' (Customer merchant-invite programme M0): entityType for the
+  // INVITE_CREATED row above; entityType String column, so union-only, no
+  // migration.
+  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher' | 'lead' | 'platform' | 'invite'
   event: AuditEvent
   ipAddress: string
   userAgent: string
@@ -314,7 +324,10 @@ export interface AuditActorContext {
   // 'voucher': see the AuditContext note (voucher governed flows, 2026-07-07).
   // 'platform' (GAP-6): a platform-scoped, non-entity row (the email send-pause
   // breaker); entityType String column, so union-only, no migration.
-  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher' | 'lead' | 'platform'
+  // 'invite' (Customer merchant-invite programme M0): entityType for the
+  // INVITE_CREATED row above; entityType String column, so union-only, no
+  // migration.
+  entityType: 'customer' | 'merchant' | 'branch' | 'admin' | 'voucher' | 'lead' | 'platform' | 'invite'
   event: AuditEvent
   /** WHO performed the action. */
   actorId: string

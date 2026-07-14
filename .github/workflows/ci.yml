@@ -308,6 +308,18 @@ jobs:
         continue-on-error: true
         run: npm run test:integration:maintenance
 
+      # Invite concurrency + erasure: real-DB integration suite (same disposable
+      # loopback service). Proves what unit mocks cannot — one MerchantLead per
+      # business under concurrent submissions, the atomic ten-open-invite cap,
+      # exact-duplicate idempotency at the cap boundary, safe lock-contention
+      # termination, AND genuine account-erasure severance (pending reward grants
+      # deleted with the person link, ISSUED financial records retained, invite
+      # person-linkage nulled). Advisory like its siblings; PASS/FAIL below.
+      - name: Run invite concurrency + erasure integration pilot (advisory)
+        id: invites_pilot
+        continue-on-error: true
+        run: npm run test:integration:invites
+
       # Surface PASS/FAIL explicitly (never swallowed): a FAIL is written to the job
       # summary AND the step above shows failed-but-continued, while the job stays green.
       - name: Report pilot result (job summary)
@@ -324,4 +336,9 @@ jobs:
             echo "Advisory maintenance-sweep pilot: PASS" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Advisory maintenance-sweep pilot: FAIL (non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${{ steps.invites_pilot.outcome }}" = "success" ]; then
+            echo "Advisory invite concurrency + erasure pilot: PASS" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Advisory invite concurrency + erasure pilot: FAIL (non-blocking)" >> "$GITHUB_STEP_SUMMARY"
           fi
