@@ -48,7 +48,7 @@ function getPlans(marketplaceLive: boolean): Plan[] {
       name: 'Monthly',
       price: '£6.99',
       priceSuffix: '/mo',
-      body: 'Full voucher access. Cancel anytime.',
+      body: 'One redemption usually covers it. Cancel anytime.',
       cta: marketplaceLive ? 'Get started' : 'Get early access',
       href: marketplaceLive ? '/subscribe' : '/register',
       tone: 'primary',
@@ -56,7 +56,7 @@ function getPlans(marketplaceLive: boolean): Plan[] {
       features: [
         'Everything in Free',
         'Redeem at every merchant',
-        'Fresh vouchers each cycle',
+        'New vouchers every month',
         'Savings dashboard',
       ],
     },
@@ -263,13 +263,31 @@ export function PricingSection() {
           ))}
         </div>
 
+        {/* The ROI lockup at the decision moment (owner 2026-07-14): the
+            app's own strongest claim, kept arithmetic pre-launch. Upgrade
+            to a real "most members" statistic once launch data exists. */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.45, delay: 0.25 }}
+          className="text-center mt-8 md:mt-10"
+        >
+          <p className="font-display text-[#010C35] text-[19px] md:text-[22px] mb-1" style={{ letterSpacing: '-0.3px' }}>
+            Your membership pays for itself.
+          </p>
+          <p className="text-[13.5px] md:text-[14px] text-[#6B7280]">
+            Redeem once and the £6.99 is usually covered.
+          </p>
+        </motion.div>
+
         {marketplaceLive && (
           <motion.div
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
             transition={{ duration: 0.4, delay: 0.35 }}
-            className="text-center mt-10"
+            className="text-center mt-8"
           >
             <Link href="/pricing" className="text-[14px] font-semibold text-[#E20C04] no-underline hover:underline">
               Compare all plans &rarr;

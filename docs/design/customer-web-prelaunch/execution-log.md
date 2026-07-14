@@ -940,3 +940,17 @@ edited by this workstream.
   every-voucher-shows-its-value point). tsc clean; verified desktop
   1440x900 (balanced 3-line stack) and mobile 390x780 (2 lines, no
   orphans).
+- ROI CONVERSION COPY AT THE PRICING MOMENT (owner 2026-07-14): the app's
+  own strongest claim ("Your subscription pays for itself", BenefitCards)
+  lands on the landing page as a lockup under the ticket shelf: "Your
+  membership pays for itself. / Redeem once and the GBP6.99 is usually
+  covered." and the Monthly ticket body becomes "One redemption usually
+  covers it. Cancel anytime." (replacing "Full voucher access", which
+  repeated the ticket's own feature list). Owner proposed "Most members
+  will cover their monthly fee with their first redemption": lead pushed
+  back (a members-behaviour statistic with zero members; CAP-code
+  substantiation risk) and shipped the arithmetic phrasing; UPGRADE to the
+  owner's statistic once real launch data supports it. Also swept the
+  Monthly features for the outsider-clarity ruling: "Fresh vouchers each
+  cycle" -> "New vouchers every month". tsc clean; lockup + ticket
+  verified at 1440x900.
