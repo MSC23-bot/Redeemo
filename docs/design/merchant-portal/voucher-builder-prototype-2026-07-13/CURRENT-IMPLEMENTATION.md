@@ -145,7 +145,7 @@ Field order for a structured type (e.g. BOGO), top to bottom:
    see §3).
 4. Terms - `TermsSection` for the 5 structured types (checklist of built-in
    clauses with Caution/Restrictive tier badges + a free-text "Add your own
-   term" box, 
+   term" box,
    copy: "Pick from this set so customers always know what to expect. The
    fewer you pick, the more people will redeem. Caution terms may put some
    customers off; Restrictive terms can stop people redeeming altogether.");
