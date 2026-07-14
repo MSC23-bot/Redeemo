@@ -52,14 +52,20 @@ import {
 const BUSINESS_NAME_MAX_LENGTH = 160
 const OPEN_INVITE_CAP = 10
 
-/** SQLSTATE 55P03 (lock_not_available) raised by SET LOCAL lock_timeout —
- * surfaced by Prisma as P2010 (raw query failed) with the SQLSTATE in
- * meta.code; message check is a defensive fallback for driver variance. */
-function isLockTimeoutError(e: unknown): boolean {
-  if (!(e instanceof Prisma.PrismaClientKnownRequestError)) return false
-  if (e.code !== 'P2010') return false
-  const metaCode = (e.meta as { code?: unknown } | undefined)?.code
-  return metaCode === '55P03' || /55P03|lock timeout/i.test(e.message)
+/** SQLSTATE 55P03 (lock_not_available) raised by SET LOCAL lock_timeout.
+ * Duck-typed like the proven house classifier (isTimeout in
+ * src/api/queues/maintenanceSweep.ts, round-3 review F-C1): the SQLSTATE is
+ * read from meta.code REGARDLESS of the wrapping envelope, because the
+ * driver adapter does not guarantee a KnownRequestError/P2010 wrapper for
+ * every raw failure; the message check is the final fallback. */
+function isLockTimeoutError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const e = err as { meta?: unknown; message?: unknown }
+  const metaCode =
+    e.meta && typeof e.meta === 'object' ? (e.meta as { code?: unknown }).code : undefined
+  if (metaCode === '55P03') return true
+  const msg = typeof e.message === 'string' ? e.message : ''
+  return msg.includes('55P03') || /lock timeout/i.test(msg)
 }
 
 // The three open pipeline lanes an attach-target lead can sit in (mirrors

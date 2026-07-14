@@ -382,6 +382,31 @@ describe('submitInvite: lock-timeout contention mapping (correction round 3)', (
 
     await expect(submitInvite(prisma, BASE_INPUT)).rejects.toThrow('INVITE_SUBMIT_CONTENTION')
   })
+
+  it('duck-typed 55P03 detection: a NON-KnownRequestError envelope with meta.code 55P03 still maps (round-3 F-C1)', async () => {
+    // The driver adapter does not guarantee a KnownRequestError/P2010
+    // wrapper for every raw failure — mirror of the proven isTimeout
+    // classifier: meta.code is read regardless of the envelope.
+    const bareError = Object.assign(new Error('canceling statement due to lock timeout'), {
+      meta: { code: '55P03' },
+    })
+    const executeRaw = vi.fn()
+      .mockResolvedValueOnce(0)
+      .mockRejectedValueOnce(bareError)
+    const tx = makeTx({ executeRaw })
+    const prisma = makePrisma(tx)
+
+    await expect(submitInvite(prisma, BASE_INPUT)).rejects.toThrow('INVITE_SUBMIT_CONTENTION')
+  })
+
+  it('a non-lock-timeout raw failure is NOT mapped (no false 429): it rethrows', async () => {
+    const otherError = Object.assign(new Error('connection reset'), { meta: { code: '57P01' } })
+    const executeRaw = vi.fn().mockResolvedValueOnce(0).mockRejectedValueOnce(otherError)
+    const tx = makeTx({ executeRaw })
+    const prisma = makePrisma(tx)
+
+    await expect(submitInvite(prisma, BASE_INPUT)).rejects.toThrow('connection reset')
+  })
 })
 
 describe('submitInvite: held-term note', () => {

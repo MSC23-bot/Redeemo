@@ -322,3 +322,46 @@ describe('submitInvite advisory locks — real-DB concurrency (integration)', ()
     expect(rowsForTenthBusiness).toBe(1)
   }, 30000)
 })
+
+describe('submitInvite lock-timeout contention — real-DB (round-3 F-C1)', () => {
+  it('a held placeKey advisory lock beyond lock_timeout maps to the retryable INVITE_SUBMIT_CONTENTION, never an opaque failure', async () => {
+    const userId = await createTestUser('contention')
+    const businessName = `TEST contention business ${ts}`
+    const placeKey = buildPlaceKey({ businessName, locality: null })
+    try {
+      await prisma.$transaction(
+        async (holder) => {
+          // Take the namespace-1 (place) lock and HOLD it by awaiting the
+          // contender inside this transaction — deterministic, no sleeps.
+          await holder.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${placeKey}))`
+          // The contender runs on a separate pool connection, blocks on the
+          // ns1 lock, hits its own SET LOCAL lock_timeout='3s', and must
+          // surface the retryable contention code (real-adapter proof of
+          // the 55P03 mapping that unit mocks can only assert by shape).
+          await expect(
+            submitInvite(prisma, {
+              userId,
+              businessNameRaw: businessName,
+              localityRaw: null,
+              googlePlaceId: null,
+              note: null,
+              consentShareName: false,
+              ip: '203.0.113.99',
+              userAgent: 'contention-test',
+            }),
+          ).rejects.toMatchObject({ code: 'INVITE_SUBMIT_CONTENTION' })
+        },
+        { timeout: 20000 },
+      )
+      // The timed-out transaction must have written NOTHING.
+      const rows = await prisma.merchantInvite.count({ where: { inviterUserId: userId } })
+      expect(rows).toBe(0)
+      const leads = await prisma.merchantLead.count({ where: { businessName } })
+      expect(leads).toBe(0)
+    } finally {
+      await prisma.merchantInvite.deleteMany({ where: { inviterUserId: userId } })
+      await prisma.merchantLead.deleteMany({ where: { businessName } })
+      await prisma.user.delete({ where: { id: userId } }).catch(() => {})
+    }
+  }, 30000)
+})
