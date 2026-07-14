@@ -9,5 +9,15 @@ export { ScorePanel } from './ScorePanel'
 export { PreviewCard } from './PreviewCard'
 export { SubmitConfirmModal } from './SubmitConfirmModal'
 export { buildScoreInput } from './scoreInput'
+export {
+  useSubmitValidation,
+  useFieldError,
+  SubmitValidationProvider,
+  FieldError,
+  InlineError,
+  SubmitErrorSummary,
+  parseIncompleteFields,
+  type SubmitValidation,
+} from './submitValidation'
 export * from './primitives'
 export * from './constants'

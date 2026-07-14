@@ -28,13 +28,19 @@ import {
   PreviewCard,
   SubmitConfirmModal,
   buildScoreInput,
+  useSubmitValidation,
+  SubmitValidationProvider,
+  SubmitErrorSummary,
+  parseIncompleteFields,
 } from '../shared'
 import { scoreVoucher } from '@/lib/voucher/scoring'
+import type { EffectiveVoucher } from '@/lib/voucher/submitValidity'
 import {
   emptyBuilderState,
   withBaseMechanic,
   fromDetail,
   toCreatePayload,
+  submitBag,
   effectiveTitle,
   effectiveDescription,
   effectiveSaving,
@@ -119,6 +125,30 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
   const [error, setError] = React.useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
 
+  // S5 (owner 2026-07-13): SUBMIT FOR REVIEW fails closed until the offer is complete.
+  // Save as draft is NEVER gated. The pure matrix lives in lib/voucher/submitValidity.
+  const computeEffective = React.useCallback((): EffectiveVoucher => {
+    if (!state) {
+      // No type chosen yet: an error-free placeholder (Submit is not reachable here).
+      return { type: 'BOGO', title: 'placeholder', estimatedSaving: 5, merchantFields: null, windowCount: 0, windowsKnown: true, cooldownSeconds: null }
+    }
+    const p = toCreatePayload(state, categoryKey)
+    return {
+      type: p.type,
+      title: p.title,
+      estimatedSaving: p.estimatedSaving,
+      merchantFields: submitBag(state),
+      windowCount: state.pickerId === 'time' ? state.availabilityWindows.length : 0,
+      // Mirror the SAVE path's own known/unknown signal (state.windowsLoaded): a
+      // TIME_LIMITED edit whose windows the detail contract did not return is UNKNOWN, so
+      // the window rule must skip (the save omits the field; the backend validates the
+      // real windows). Fresh create + loaded states are KNOWN, so fail-closed is intact.
+      windowsKnown: state.pickerId === 'time' ? state.windowsLoaded : true,
+      cooldownSeconds: state.pickerId === 'reusable' ? p.cooldownSeconds ?? null : null,
+    }
+  }, [state, categoryKey])
+  const validation = useSubmitValidation(computeEffective)
+
   const save = useMutation({
     mutationFn: async (action: 'draft' | 'submit') => {
       if (!state) throw new Error('No voucher type selected')
@@ -136,8 +166,16 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
       setConfirmOpen(false)
       onDone(result)
     },
-    onError: () => {
+    onError: (err) => {
       setConfirmOpen(false)
+      const incomplete = parseIncompleteFields(err)
+      if (incomplete) {
+        // Belt-and-braces: the backend rejected the submit as incomplete; mark the same
+        // fields inline + focus the first, no generic error banner.
+        setError(null)
+        validation.applyServerErrors(incomplete)
+        return
+      }
       setError('We could not save your voucher just now. Please try again.')
     },
   })
@@ -276,7 +314,8 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
   const submitIsWeak = scoreInput != null && scoreVoucher(scoreInput).calKey === 'weak'
 
   return (
-    <div className="space-y-5">
+    <div ref={validation.containerRef} className="space-y-5">
+      <SubmitValidationProvider errorFor={validation.errorFor}>
       {props.initialAdminProposed || props.initialAdminNote ? (
         <ConciergeDiff proposed={props.initialAdminProposed ?? null} note={props.initialAdminNote ?? null} current={currentForDiff} onApply={applyAdminProposed} />
       ) : null}
@@ -358,18 +397,29 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
         </div>
       ) : null}
 
+      {/* S5: what still needs correcting before this voucher can be submitted. */}
+      <SubmitErrorSummary errors={validation.errors} />
+
       <div className="flex flex-wrap items-center justify-end gap-3 border-t border-[#E5E7EB] pt-4">
         <Button variant="ghost" onClick={onCancel} disabled={save.isPending}>
           Cancel
         </Button>
-        {/* CC-1 (owner ruling 2026-07-13): non-gating, never disabled on score; a Too
-            weak verdict opens the confirm in its soft weak-warning variant instead.
-            Save as draft persists (product behaviour wins over the prototype's
-            Save-as-draft stub) and is unaffected by the verdict. */}
+        {/* CC-1 (owner ruling 2026-07-13): non-gating on the advisory SCORE; a Too weak
+            verdict opens the confirm in its soft weak-warning variant instead. Save as
+            draft persists (product behaviour wins over the prototype's Save-as-draft stub)
+            and is NEVER gated. S5 (owner 2026-07-13): Submit for review IS gated on
+            completeness; an incomplete offer marks its fields + focuses the first problem
+            and never opens the modal or hits the API. */}
         <Button variant="secondary" onClick={() => save.mutate('draft')} disabled={save.isPending}>
           {save.isPending ? 'Saving...' : 'Save as draft'}
         </Button>
-        <Button variant="gradient" onClick={() => setConfirmOpen(true)} disabled={save.isPending}>
+        <Button
+          variant="gradient"
+          onClick={() => {
+            if (validation.attemptSubmit()) setConfirmOpen(true)
+          }}
+          disabled={save.isPending}
+        >
           Submit for review
         </Button>
       </div>
@@ -385,6 +435,7 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
           onCancel={() => setConfirmOpen(false)}
         />
       ) : null}
+      </SubmitValidationProvider>
     </div>
   )
 }

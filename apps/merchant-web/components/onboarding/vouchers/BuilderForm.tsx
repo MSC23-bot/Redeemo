@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
@@ -16,7 +16,11 @@ import {
   PreviewCard,
   SubmitConfirmModal,
   buildScoreInput,
+  useSubmitValidation,
+  SubmitValidationProvider,
+  SubmitErrorSummary,
 } from '@/components/vouchers/shared'
+import type { EffectiveVoucher, FieldError } from '@/lib/voucher/submitValidity'
 import {
   emptyBuilderState,
   effectiveTitle,
@@ -24,6 +28,8 @@ import {
   effectiveSaving,
   clausesFor,
   composeTermsText,
+  pickerIdToEnum,
+  submitBag,
   type BuilderState,
 } from '@/components/vouchers/builder/builderModel'
 
@@ -88,6 +94,10 @@ interface BuilderFormProps {
   onBack: () => void
   /** When present, seeds the form from a previously-saved DRAFT or the template defaults. */
   initialFields?: BuilderResumeSeed
+  /** S5 belt-and-braces: a backend VOUCHER_INCOMPLETE response's fields[] (the parent page
+   * owns the submit API call, so it parses the error and hands the fields down). Mapped
+   * onto the same inline marks + focus the client gate uses. */
+  submitFieldErrors?: FieldError[] | null
   /** The voucher's OWN RmvTemplate.allowedFields set. FAIL CLOSED: null/undefined means
    * the permissions are UNKNOWN (the post-create refetch has not landed yet), in which
    * case NOTHING renders editable and Save/Submit are disabled behind a loading note.
@@ -207,10 +217,33 @@ export function BuilderForm({
   onSubmit,
   onBack,
   initialFields,
+  submitFieldErrors = null,
   allowedFields = null,
 }: BuilderFormProps) {
   const [state, setState] = useState<BuilderState>(() => seedToState(type, merchantBusinessName, initialFields))
   const [confirmOpen, setConfirmOpen] = useState(false)
+
+  // S5 (owner 2026-07-13): SUBMIT fails closed until the offer is complete; Save as draft
+  // is never gated. The pure matrix lives in lib/voucher/submitValidity.
+  const computeEffective = useCallback((): EffectiveVoucher => ({
+    type: pickerIdToEnum(state),
+    title: effectiveTitle(state),
+    estimatedSaving: effectiveSaving(state),
+    merchantFields: submitBag(state),
+    // Flagship RMVs are only ever the six base structured types (never a wrapper), so the
+    // window rule never applies; windowsKnown is trivially true.
+    windowCount: 0,
+    windowsKnown: true,
+    cooldownSeconds: null,
+  }), [state])
+  const validation = useSubmitValidation(computeEffective)
+
+  // Belt-and-braces: a backend VOUCHER_INCOMPLETE (parent owns the submit call) marks the
+  // same fields inline + focuses the first.
+  useEffect(() => {
+    if (submitFieldErrors && submitFieldErrors.length > 0) validation.applyServerErrors(submitFieldErrors)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitFieldErrors])
 
   // FAIL CLOSED: while the template permissions are unknown, NO key is allowed (every
   // surface renders read-only and the CTAs stay disabled behind the loading note below).
@@ -296,6 +329,9 @@ export function BuilderForm({
   const submitIsWeak = scoreInput != null && scoreVoucher(scoreInput).calKey === 'weak'
 
   function handleSubmit() {
+    // S5: fail closed on completeness. An incomplete offer marks its fields + focuses the
+    // first problem, and never opens the weak modal or calls the submit API.
+    if (!validation.attemptSubmit()) return
     if (submitIsWeak) {
       setConfirmOpen(true)
       return
@@ -306,7 +342,8 @@ export function BuilderForm({
   const submitLabel = `Save voucher ${voucherIndex} of 2`
 
   return (
-    <div className="flex flex-col gap-6">
+    <div ref={validation.containerRef} className="flex flex-col gap-6">
+      <SubmitValidationProvider errorFor={validation.errorFor}>
       {/* Prototype flagship-mode framing (A11 / FULL.html buildHeading + stepLabel,
           ~L12695-12708): the wizard step chip "Voucher N of 2 · Step 2 of 2" (middle
           dot per the prototype; never an em-dash) + the flagship heading, verbatim. */}
@@ -395,6 +432,9 @@ export function BuilderForm({
             </p>
           ) : null}
 
+          {/* S5: what still needs correcting before this flagship voucher can be submitted. */}
+          <SubmitErrorSummary errors={validation.errors} />
+
           {/* Footer. CC-1: NEITHER button is disabled by the score. A Too-weak submit
               opens the soft weak-warning first; Save as draft always persists. The
               buttons ARE disabled while the template permissions are unknown (fail
@@ -432,6 +472,7 @@ export function BuilderForm({
           onCancel={() => setConfirmOpen(false)}
         />
       ) : null}
+      </SubmitValidationProvider>
     </div>
   )
 }

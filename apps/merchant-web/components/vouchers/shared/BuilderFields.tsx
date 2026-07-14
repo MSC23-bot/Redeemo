@@ -22,6 +22,7 @@ import {
 import type { DraftFields } from '@/lib/voucher/compose'
 import { money } from '@/lib/voucher/builderCopy'
 import { FieldBlock, SuggestionChips, TextField, MoneyField, Segmented, InfoCallout, toNum } from './primitives'
+import { FieldError } from './submitValidation'
 import { REUSABLE_COOLDOWN_FLOOR, type BuilderState } from '../builder/builderModel'
 import type { BuilderType } from '@/lib/voucher/terms'
 import type { AvailabilityWindow } from '@/lib/api/voucher'
@@ -66,14 +67,14 @@ function BogoFields({ state, categoryKey, onFields }: FieldsProps) {
     <div className="flex flex-col gap-5">
       <FieldBlock heading="What does the customer buy?" helper="The item they pay full price for. Describe it in your own words.">
         <SuggestionChips chips={buySuggestChips(categoryKey)} onPick={(v) => onFields({ bogoBuy: v })} caption="Tap a suggestion to start, or write your own." />
-        <TextField label="Item" value={f.bogoBuy ?? ''} onChange={(v) => onFields({ bogoBuy: v })} placeholder="e.g. A main course" />
+        <TextField label="Item" value={f.bogoBuy ?? ''} onChange={(v) => onFields({ bogoBuy: v })} placeholder="e.g. A main course" errorKey="bogoBuy" />
         <MoneyField label="Full price" value={numStr(f.bogoBuyFullPrice)} onChange={(v) => onFields({ bogoBuyFullPrice: toNum(v) })} />
         <p className="text-[12px] text-[#8089A4]">What this item normally costs without the voucher.</p>
       </FieldBlock>
       <FieldBlock heading="What do they get free?" helper="A second of the same or a similar item. This is what the customer gets as their discount.">
         <SuggestionChips chips={freeBogoChips()} onPick={(v) => onFields({ bogoFree: v })} />
-        <TextField label="Item" value={f.bogoFree ?? ''} onChange={(v) => onFields({ bogoFree: v })} placeholder="e.g. A second of equal or lower value" />
-        <MoneyField label="Value of the free item" value={numStr(f.bogoFreePrice)} onChange={(v) => onFields({ bogoFreePrice: toNum(v) })} />
+        <TextField label="Item" value={f.bogoFree ?? ''} onChange={(v) => onFields({ bogoFree: v })} placeholder="e.g. A second of equal or lower value" errorKey="bogoFree" />
+        <MoneyField label="Value of the free item" value={numStr(f.bogoFreePrice)} onChange={(v) => onFields({ bogoFreePrice: toNum(v) })} errorKey="bogoFreePrice" />
         <p className="text-[12px] text-[#8089A4]">What the free item normally sells for. This is the saving the customer gets.</p>
       </FieldBlock>
     </div>
@@ -90,7 +91,7 @@ function SpendFields({ state, categoryKey, onFields }: FieldsProps) {
         subHelper="The total a customer spends in one visit before the saving applies."
       >
         <SuggestionChips chips={spendChips(categoryKey)} prefix="£" onPick={(v) => onFields({ spendAmount: toNum(v) })} caption="Tap a suggestion to start, or type your own." />
-        <MoneyField label="Spend amount" hideLabel value={numStr(f.spendAmount)} onChange={(v) => onFields({ spendAmount: toNum(v) })} />
+        <MoneyField label="Spend amount" hideLabel value={numStr(f.spendAmount)} onChange={(v) => onFields({ spendAmount: toNum(v) })} errorKey="spendAmount" />
       </FieldBlock>
       <FieldBlock
         heading="How much do they save?"
@@ -98,7 +99,7 @@ function SpendFields({ state, categoryKey, onFields }: FieldsProps) {
         subHelper="This is the saving the customer gets. It also shows as the estimated saving."
       >
         <SuggestionChips chips={saveChips(categoryKey)} prefix="£" onPick={(v) => onFields({ spendSave: toNum(v) })} />
-        <MoneyField label="Save amount" hideLabel value={numStr(f.spendSave)} onChange={(v) => onFields({ spendSave: toNum(v) })} />
+        <MoneyField label="Save amount" hideLabel value={numStr(f.spendSave)} onChange={(v) => onFields({ spendSave: toNum(v) })} errorKey="spendSave" />
       </FieldBlock>
     </div>
   )
@@ -127,7 +128,7 @@ function DiscountFields({ state, onFields }: FieldsProps) {
         <>
           <FieldBlock heading="How much off?" helper="The amount taken off the price. This is the estimated saving.">
             <SuggestionChips chips={discountAmountChips()} prefix="£" onPick={(v) => onFields({ discAmount: toNum(v) })} />
-            <MoneyField label="Amount off" hideLabel value={numStr(f.discAmount)} onChange={(v) => onFields({ discAmount: toNum(v) })} />
+            <MoneyField label="Amount off" hideLabel value={numStr(f.discAmount)} onChange={(v) => onFields({ discAmount: toNum(v) })} errorKey="discAmount" />
           </FieldBlock>
           <InfoCallout>
             A fixed amount off is a straight discount, like £10 off. If you want it to apply over a spend target, for example £10 off when you spend £40, that is the Spend and save type. Pick Spend and save from the voucher types instead.
@@ -137,7 +138,7 @@ function DiscountFields({ state, onFields }: FieldsProps) {
         <>
           <FieldBlock heading="What percentage off?" helper="The share taken off the price.">
             <SuggestionChips chips={discountPercentChips()} suffix="%" onPick={(v) => onFields({ discPercent: toNum(v) })} />
-            <MoneyField label="Percent off" hideLabel unit="%" unitTrailing value={numStr(f.discPercent)} onChange={(v) => onFields({ discPercent: toNum(v) })} />
+            <MoneyField label="Percent off" hideLabel unit="%" unitTrailing value={numStr(f.discPercent)} onChange={(v) => onFields({ discPercent: toNum(v) })} errorKey="discPercent" />
           </FieldBlock>
           <FieldBlock
             heading="What is a typical order value?"
@@ -145,7 +146,7 @@ function DiscountFields({ state, onFields }: FieldsProps) {
             subHelper="We use this only to estimate the saving. It is not shown to customers."
           >
             <SuggestionChips chips={discountTypicalOrderChips()} prefix="£" onPick={(v) => onFields({ discTypicalOrder: toNum(v) })} />
-            <MoneyField label="Typical order" hideLabel value={numStr(f.discTypicalOrder)} onChange={(v) => onFields({ discTypicalOrder: toNum(v) })} />
+            <MoneyField label="Typical order" hideLabel value={numStr(f.discTypicalOrder)} onChange={(v) => onFields({ discTypicalOrder: toNum(v) })} errorKey="discTypicalOrder" />
           </FieldBlock>
           {/* Minimum spend is a TOGGLE and percent-mode-only (A5). */}
           <FieldBlock
@@ -188,7 +189,7 @@ function FreebieFields({ state, categoryKey, onFields }: FieldsProps) {
         subHelper="Keep it broad. This is what the customer gets for free."
       >
         <SuggestionChips chips={freebieItemChips(categoryKey)} onPick={(v) => onFields({ freeItem: v })} caption="Tap a suggestion to start, or write your own." />
-        <TextField label="Free item" hideLabel value={f.freeItem ?? ''} onChange={(v) => onFields({ freeItem: v })} placeholder="e.g. A dessert" />
+        <TextField label="Free item" hideLabel value={f.freeItem ?? ''} onChange={(v) => onFields({ freeItem: v })} placeholder="e.g. A dessert" errorKey="freeItem" />
       </FieldBlock>
       <FieldBlock
         heading="What is it worth?"
@@ -196,7 +197,7 @@ function FreebieFields({ state, categoryKey, onFields }: FieldsProps) {
         subHelper="The free item's normal price. It also shows as the estimated saving."
       >
         <SuggestionChips chips={freebieWorthChips()} prefix="£" onPick={(v) => onFields({ freeWorth: toNum(v) })} />
-        <MoneyField label="Worth" hideLabel value={numStr(f.freeWorth)} onChange={(v) => onFields({ freeWorth: toNum(v) })} />
+        <MoneyField label="Worth" hideLabel value={numStr(f.freeWorth)} onChange={(v) => onFields({ freeWorth: toNum(v) })} errorKey="freeWorth" />
       </FieldBlock>
       <FieldBlock heading="Do they need to buy something to get it?" helper="Choose whether the free item comes with a purchase or on its own.">
         <Segmented
@@ -212,7 +213,7 @@ function FreebieFields({ state, categoryKey, onFields }: FieldsProps) {
       {needsPurchase ? (
         <FieldBlock heading="What do they need to buy?" helper="The qualifying purchase that unlocks the free item.">
           <SuggestionChips chips={freeQualifyChips(categoryKey)} onPick={(v) => onFields({ freeQualify: v })} />
-          <TextField label="Qualifying purchase" hideLabel value={f.freeQualify ?? ''} onChange={(v) => onFields({ freeQualify: v })} placeholder="e.g. Any main" />
+          <TextField label="Qualifying purchase" hideLabel value={f.freeQualify ?? ''} onChange={(v) => onFields({ freeQualify: v })} placeholder="e.g. Any main" errorKey="freeQualify" />
         </FieldBlock>
       ) : null}
     </div>
@@ -277,18 +278,21 @@ function PackageFields({ state, categoryKey, onFields }: FieldsProps) {
               Add another item
             </button>
             <p className="text-[12px] text-[#8089A4]">Customers see these items listed on the voucher.</p>
+            {/* List mode has no single packageItems input (the phrase is derived); surface
+                the S5 packageItems error under the list so it is not silently swallowed. */}
+            <FieldError errorKey="packageItems" />
           </div>
         ) : (
           <div className="mt-2 flex flex-col gap-1.5">
             <SuggestionChips chips={packageItemChips(categoryKey)} onPick={(v) => onFields({ packageItems: v })} caption="Tap a suggestion to start, or write your own." />
-            <TextField label="Package items" hideLabel value={f.packageItems ?? ''} onChange={(v) => onFields({ packageItems: v })} placeholder="e.g. Two mains and a bottle of wine" />
+            <TextField label="Package items" hideLabel value={f.packageItems ?? ''} onChange={(v) => onFields({ packageItems: v })} placeholder="e.g. Two mains and a bottle of wine" errorKey="packageItems" />
             <p className="text-[12px] text-[#8089A4]">Keep it broad. This is the bundle customers receive together.</p>
           </div>
         )}
       </FieldBlock>
       <FieldBlock heading="What does the customer pay?" helper="The one set price for the whole package.">
         <SuggestionChips chips={packagePriceChips()} prefix="£" onPick={(v) => onFields({ packagePrice: toNum(v) })} />
-        <MoneyField label="Package price" hideLabel value={numStr(f.packagePrice)} onChange={(v) => onFields({ packagePrice: toNum(v) })} />
+        <MoneyField label="Package price" hideLabel value={numStr(f.packagePrice)} onChange={(v) => onFields({ packagePrice: toNum(v) })} errorKey="packagePrice" />
       </FieldBlock>
       <FieldBlock
         heading="What would these normally cost?"
@@ -296,7 +300,7 @@ function PackageFields({ state, categoryKey, onFields }: FieldsProps) {
         subHelper="This should be higher than the package price, so customers see a saving."
       >
         <SuggestionChips chips={packageNormalChips()} prefix="£" onPick={(v) => onFields({ packageNormal: toNum(v) })} />
-        <MoneyField label="Normal total" hideLabel value={numStr(f.packageNormal)} onChange={(v) => onFields({ packageNormal: toNum(v) })} />
+        <MoneyField label="Normal total" hideLabel value={numStr(f.packageNormal)} onChange={(v) => onFields({ packageNormal: toNum(v) })} errorKey="packageNormal" />
         {pkgValid ? (
           <p className="text-[12px] font-semibold text-[#0F7A3E]">
             Customers save £{money(Math.max(0, normal - price))} on the normal total of £{money(normal)}.
@@ -430,6 +434,8 @@ export function ScheduleFields({
         >
           + Add another window
         </button>
+        {/* S5: TIME_LIMITED needs at least one window before it can be submitted. */}
+        <FieldError errorKey="availabilityWindows" />
       </div>
 
       <InfoCallout>
@@ -601,6 +607,9 @@ export function CooldownFields({
       ) : customOpen ? (
         <p className="text-[12px] font-semibold text-[#0F6357]">Custom interval applied</p>
       ) : null}
+
+      {/* S5: a reuse cooldown is required (and >= 30 min); surfaces a backend mark too. */}
+      <FieldError errorKey="cooldownSeconds" />
 
       <InfoCallout tone="green">
         Unlike most vouchers, a customer can use this more than once. After each redemption it becomes available again after the time you set, instead of once a month. Set the interval around your footfall and your margin.

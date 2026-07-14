@@ -131,13 +131,17 @@ describe('DayTwoBuilder save path (create draft + optional submit)', () => {
 
 // CC-1 weak-submit warning (owner ruling 2026-07-13): the score stays NON-GATING
 // (Submit is always enabled), but submitting a Too weak voucher surfaces a soft
-// warning variant of the confirm dialog first. A fresh Discount with no values has
-// a £0 saving (below the £5 floor) so its verdict is Too weak deterministically.
+// warning variant of the confirm dialog first. S5 (owner 2026-07-13): the weak-warning
+// modal is reached only by a COMPLETE offer; an INCOMPLETE one is blocked before it.
+// So the fixture is a COMPLETE-but-weak percentage discount: 5% off a £20 typical order
+// is a £1 saving (below the £5 floor) => Too weak, while every S5-required field is set.
 describe('DayTwoBuilder weak-submit warning (CC-1, owner ruling 2026-07-13)', () => {
   function openWeakDiscount() {
     renderBuilder()
-    // Default discount: no percent / typical order => saving £0 => Too weak.
     fireEvent.click(screen.getByRole('button', { name: /a straight saving off the price/i }))
+    // Complete the percent discount so it clears the S5 submit gate but stays weak.
+    fireEvent.change(screen.getByLabelText('Percent off') as HTMLInputElement, { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText('Typical order') as HTMLInputElement, { target: { value: '20' } })
     expect(screen.getByTestId('builder-score').querySelector('[data-cal]')).toHaveAttribute('data-cal', 'weak')
   }
 
@@ -205,5 +209,199 @@ describe('DayTwoBuilder TIME_LIMITED + REUSABLE handling', () => {
     const payload = createVoucher.mock.calls[0][0]
     expect(payload.type).toBe('REUSABLE')
     expect(payload.cooldownSeconds).toBeGreaterThanOrEqual(1800)
+  })
+})
+
+// S5 submission-validity gate (owner requirement 2026-07-13): Save as draft is never
+// blocked; Submit for review fails closed until the offer is complete, marking the
+// offending fields inline + focusing the first problem, and never reaching the modal or
+// the API. Weak-but-complete still routes through the weak modal (covered above). The
+// shared matrix is unit-tested in lib/voucher/__tests__/submitValidity.test.ts.
+describe('DayTwoBuilder S5 submit-validity gate (owner 2026-07-13)', () => {
+  function openBogo() {
+    renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /buy one, get one free/i }))
+  }
+
+  it('blocks an incomplete BOGO submit: marks fields, focuses the first problem, no modal, no API', () => {
+    openBogo()
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    // Summary + inline marks.
+    expect(screen.getByText(/Before you submit/i)).toBeInTheDocument()
+    const buy = screen.getByPlaceholderText('e.g. A main course')
+    expect(buy).toHaveAttribute('aria-invalid', 'true')
+    // The FIRST problem (top-down) receives focus.
+    expect(buy).toHaveFocus()
+    // Never reaches the confirm modal or the API.
+    expect(screen.queryByTestId('submit-confirm-modal')).not.toBeInTheDocument()
+    expect(createVoucher).not.toHaveBeenCalled()
+    expect(submitVoucher).not.toHaveBeenCalled()
+  })
+
+  it('live-clears a field mark the moment it is corrected (no phantom errors before Submit)', () => {
+    openBogo()
+    // No marks before the first Submit attempt (resumed/legacy drafts must not flash errors).
+    const buy = screen.getByPlaceholderText('e.g. A main course')
+    expect(buy).not.toHaveAttribute('aria-invalid')
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    expect(buy).toHaveAttribute('aria-invalid', 'true')
+    fireEvent.change(buy, { target: { value: 'A main course' } })
+    expect(buy).not.toHaveAttribute('aria-invalid')
+  })
+
+  it('a complete BOGO opens the NORMAL confirm (not the weak variant) and submits', async () => {
+    openBogo()
+    fireEvent.change(screen.getByPlaceholderText('e.g. A main course'), { target: { value: 'A main course' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. A second of equal or lower value'), { target: { value: 'A second main' } })
+    fireEvent.change(screen.getByLabelText('Value of the free item') as HTMLInputElement, { target: { value: '8' } })
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    expect(await screen.findByText('Confirm this is your voucher')).toBeInTheDocument()
+    expect(screen.queryByText('This offer may feel too weak')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, this is my voucher' }))
+    await waitFor(() => expect(createVoucher).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(submitVoucher).toHaveBeenCalledWith('new1'))
+  })
+
+  it('maps a backend VOUCHER_INCOMPLETE response onto the same inline marks + summary', async () => {
+    // A voucher the client considers complete, but the backend rejects as incomplete
+    // (belt-and-braces for direct-API drift): the fields[] render as the same marks.
+    submitVoucher.mockRejectedValueOnce({
+      code: 'VOUCHER_INCOMPLETE',
+      body: { error: { fields: [{ field: 'bogoFreePrice', code: 'REQUIRED', message: 'A backend completeness message.' }] } },
+    })
+    openBogo()
+    fireEvent.change(screen.getByPlaceholderText('e.g. A main course'), { target: { value: 'A main course' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. A second of equal or lower value'), { target: { value: 'A second main' } })
+    fireEvent.change(screen.getByLabelText('Value of the free item') as HTMLInputElement, { target: { value: '8' } })
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Yes, this is my voucher' }))
+    // The backend rejection surfaces as an inline mark + summary line (message appears twice).
+    expect((await screen.findAllByText('A backend completeness message.')).length).toBeGreaterThan(0)
+    const price = screen.getByLabelText('Value of the free item') as HTMLInputElement
+    expect(price).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  // Fill a client-complete BOGO, submit, and let the backend reject it with the given
+  // VOUCHER_INCOMPLETE fields[] (drift simulation for the lifecycle tests).
+  async function submitCompleteBogoRejectedWith(fields: Array<{ field: string; code: string; message: string }>) {
+    submitVoucher.mockRejectedValueOnce({ code: 'VOUCHER_INCOMPLETE', body: { error: { fields } } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. A main course'), { target: { value: 'A main course' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. A second of equal or lower value'), { target: { value: 'A second main' } })
+    fireEvent.change(screen.getByLabelText('Value of the free item') as HTMLInputElement, { target: { value: '8' } })
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Yes, this is my voucher' }))
+    await waitFor(() => expect(screen.queryByTestId('submit-confirm-modal')).not.toBeInTheDocument())
+  }
+
+  // Server-error lifecycle (blocking fix 2026-07-14): editing the flagged field drops the
+  // server mark permanently; it never resurfaces from stale state.
+  it('edit-after-server-error: correcting the flagged field clears the server mark immediately and it does NOT reappear', async () => {
+    openBogo()
+    await submitCompleteBogoRejectedWith([
+      { field: 'bogoFreePrice', code: 'REQUIRED', message: 'A backend completeness message.' },
+    ])
+    const price = screen.getByLabelText('Value of the free item') as HTMLInputElement
+    expect(price).toHaveAttribute('aria-invalid', 'true')
+    // Correct the flagged field: the server mark drops immediately.
+    fireEvent.change(price, { target: { value: '9' } })
+    expect(price).not.toHaveAttribute('aria-invalid')
+    expect(screen.queryByText('A backend completeness message.')).not.toBeInTheDocument()
+    // Unrelated re-renders + ANOTHER field erroring must not resurrect it: blank bogoBuy
+    // so the client flags that field; the retired server mark stays gone.
+    const buy = screen.getByPlaceholderText('e.g. A main course') as HTMLInputElement
+    fireEvent.change(buy, { target: { value: '' } })
+    expect(buy).toHaveAttribute('aria-invalid', 'true')
+    expect(price).not.toHaveAttribute('aria-invalid')
+    expect(screen.queryByText('A backend completeness message.')).not.toBeInTheDocument()
+    // And restoring the other field still does not bring it back.
+    fireEvent.change(buy, { target: { value: 'A main course' } })
+    expect(screen.queryByText('A backend completeness message.')).not.toBeInTheDocument()
+  })
+
+  it('a fresh submit replaces the server-error set wholesale (old fields drop, new ones show)', async () => {
+    openBogo()
+    await submitCompleteBogoRejectedWith([
+      { field: 'bogoFreePrice', code: 'REQUIRED', message: 'A backend completeness message.' },
+    ])
+    expect(screen.getAllByText('A backend completeness message.').length).toBeGreaterThan(0)
+    // Resubmit; the backend now rejects a DIFFERENT field. The first set must be replaced
+    // wholesale, not merged.
+    submitVoucher.mockRejectedValueOnce({
+      code: 'VOUCHER_INCOMPLETE',
+      body: { error: { fields: [{ field: 'bogoFree', code: 'REQUIRED', message: 'A different backend message.' }] } },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Yes, this is my voucher' }))
+    expect((await screen.findAllByText('A different backend message.')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('A backend completeness message.')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Value of the free item')).not.toHaveAttribute('aria-invalid')
+  })
+})
+
+// S5 TIME_LIMITED window rule, three-state known/unknown (regression fix 2026-07-14). The
+// voucher DETAIL contract does NOT return availabilityWindows (a relation), so an existing
+// TIME_LIMITED edit hydrates windowsLoaded=false and the client gate must NOT invent a
+// zero-window block: the save omits the field and the backend preserves + validates the
+// real windows. Fresh create + loaded states stay KNOWN and fail-closed. The gate mirrors
+// the SAVE path's own signal (state.windowsLoaded); it never gets stricter than the backend.
+describe('DayTwoBuilder TIME_LIMITED window rule (three-state, regression fix 2026-07-14)', () => {
+  const TL_BOGO_BAG = {
+    askHelp: false,
+    builderType: 'time',
+    baseMechanic: 'bogo',
+    draftFields: { type: 'bogo', bogoBuy: 'A main course', bogoFree: 'A second main', bogoFreePrice: 12 },
+    selectedClauseIds: ['tell_staff'],
+    customTerms: [],
+  }
+  const ONE_WINDOW = [{ dayOfWeek: 2, openTime: '17:00', closeTime: '21:00' }]
+
+  it('UNKNOWN (existing edit, detail omits availabilityWindows -> initialWindows null): submits, not blocked', async () => {
+    renderBuilder({ voucherId: 'v1', initialType: 'TIME_LIMITED', initialFields: TL_BOGO_BAG, initialWindows: null })
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    // Reaches the confirm modal (attemptSubmit passed): the window rule was skipped.
+    expect(await screen.findByTestId('submit-confirm-modal')).toBeInTheDocument()
+    expect(screen.queryByText(/Add at least one time window/i)).not.toBeInTheDocument()
+    // Confirming submits: update (edit) then submit; the save OMITS windows (unknown state).
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, this is my voucher' }))
+    await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(submitVoucher).toHaveBeenCalledWith('new1'))
+    expect(updateVoucher.mock.calls[0][1]).not.toHaveProperty('availabilityWindows')
+  })
+
+  it('KNOWN-PRESENT (existing edit with loaded non-empty windows): submits', async () => {
+    renderBuilder({ voucherId: 'v1', initialType: 'TIME_LIMITED', initialFields: TL_BOGO_BAG, initialWindows: ONE_WINDOW })
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    expect(await screen.findByTestId('submit-confirm-modal')).toBeInTheDocument()
+    expect(screen.queryByText(/Add at least one time window/i)).not.toBeInTheDocument()
+  })
+
+  it('KNOWN-EMPTY (fresh create, no windows added): fails closed with the window requirement, no modal', () => {
+    renderBuilder()
+    fireEvent.click(screen.getByRole('button', { name: /time limited/i }))
+    fireEvent.click(within(screen.getByTestId('base-mechanic-picker')).getByRole('button', { name: /buy one, get one free/i }))
+    // Complete the underlying mechanic so ONLY the window rule can block.
+    fireEvent.change(screen.getByPlaceholderText('e.g. A main course'), { target: { value: 'A main course' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. A second of equal or lower value'), { target: { value: 'A second main' } })
+    fireEvent.change(screen.getByLabelText('Value of the free item') as HTMLInputElement, { target: { value: '12' } })
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    // Fresh create = KNOWN-EMPTY: the window requirement fires and the modal never opens.
+    expect(screen.getAllByText(/Add at least one time window/i).length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('submit-confirm-modal')).not.toBeInTheDocument()
+    expect(createVoucher).not.toHaveBeenCalled()
+  })
+
+  it('REUSABLE existing edit (cooldownSeconds IS returned by detail): submits, cooldown never falsely blocks', async () => {
+    const reuseBag = {
+      askHelp: false,
+      builderType: 'reusable',
+      baseMechanic: 'bogo',
+      draftFields: { type: 'bogo', bogoBuy: 'A main course', bogoFree: 'A second main', bogoFreePrice: 12 },
+      selectedClauseIds: ['tell_staff'],
+      customTerms: [],
+    }
+    renderBuilder({ voucherId: 'v1', initialType: 'REUSABLE', initialFields: reuseBag, initialCooldown: 3600 })
+    fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    expect(await screen.findByTestId('submit-confirm-modal')).toBeInTheDocument()
+    expect(screen.queryByText(/reuse cooldown/i)).not.toBeInTheDocument()
   })
 })

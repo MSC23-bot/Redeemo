@@ -387,6 +387,22 @@ export function toCreatePayload(state: BuilderState, categoryKey: CategoryKey = 
   return payload
 }
 
+// The structured bag for CLIENT-SIDE S5 submit validation (lib/voucher/submitValidity).
+// It mirrors the persisted merchantFields bag closely enough for resolveStructuredBag to
+// normalise it to the same flat draft the backend validates: the DraftFields under
+// `draftFields` (single-level Shape 2) plus the wrapper base marker, ONLY when the state
+// has structured fields (a wrapper with no base yet stays marker-only, so the matrix
+// reports baseMechanic/REQUIRED exactly like the backend). Both lanes use this: the
+// flat DraftFields shape is identical, so one bag builder serves custom and flagship.
+export function submitBag(state: BuilderState): Record<string, unknown> {
+  if (!hasStructuredFields(state)) return { builderType: state.pickerId }
+  return {
+    builderType: state.pickerId,
+    draftFields: state.fields,
+    ...(isWrapperPickerId(state.pickerId) && state.baseMechanic ? { baseMechanic: state.baseMechanic } : {}),
+  }
+}
+
 // The date input emits YYYY-MM-DD; the backend accepts z.string().datetime().
 // Normalize a date-only value to UTC midnight ISO; pass a full ISO through
 // (hydrated values arrive as full ISO already).

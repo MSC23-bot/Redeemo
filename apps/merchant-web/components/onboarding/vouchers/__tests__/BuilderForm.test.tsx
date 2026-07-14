@@ -36,6 +36,7 @@ function setup(props: Partial<React.ComponentProps<typeof BuilderForm>> = {}) {
       onSubmit={onSubmit}
       onBack={jest.fn()}
       initialFields={props.initialFields}
+      submitFieldErrors={props.submitFieldErrors}
       allowedFields={Object.prototype.hasOwnProperty.call(props, 'allowedFields') ? props.allowedFields : FULL_ALLOWED}
     />,
   )
@@ -132,11 +133,20 @@ describe('advisory score (CC-1: advisory, NOT a gate)', () => {
   })
 })
 
-// (c) Weak-submit warning path on flagship submit (owner ruling 2026-07-13).
+// (c) Weak-submit warning path on flagship submit (owner ruling 2026-07-13). S5 (owner
+// 2026-07-13): the weak modal is reached only by a COMPLETE offer; an incomplete one is
+// blocked before it. The fixture is a COMPLETE-but-weak percentage discount (5% off a £20
+// typical order => £1 saving, below the £5 floor => Too weak, every S5 field set).
+function completeWeakDiscount() {
+  fireEvent.change(screen.getByLabelText('Percent off') as HTMLInputElement, { target: { value: '5' } })
+  fireEvent.change(screen.getByLabelText('Typical order') as HTMLInputElement, { target: { value: '20' } })
+}
+
 describe('weak-submit warning (governed CC-1 soft warning)', () => {
   it('a Too-weak SUBMIT opens the soft weak-warning first (does NOT submit yet); "Submit anyway" then submits', () => {
     const { onSubmit } = setup({ type: 'discount', categoryKey: 'food_drink' })
-    // Empty draft => Too weak. Clicking Submit opens the warning instead of submitting.
+    completeWeakDiscount()
+    // Complete-but-weak => clearing the S5 gate, Submit opens the warning not the API.
     fireEvent.click(screen.getByRole('button', { name: /Save voucher 1 of 2/i }))
     expect(onSubmit).not.toHaveBeenCalled()
     expect(screen.getByText('This offer may feel too weak')).toBeInTheDocument()
@@ -147,6 +157,7 @@ describe('weak-submit warning (governed CC-1 soft warning)', () => {
 
   it('"Keep editing" dismisses the weak warning without submitting', () => {
     const { onSubmit } = setup({ type: 'discount', categoryKey: 'food_drink' })
+    completeWeakDiscount()
     fireEvent.click(screen.getByRole('button', { name: /Save voucher 1 of 2/i }))
     fireEvent.click(screen.getByRole('button', { name: /Keep editing/i }))
     expect(onSubmit).not.toHaveBeenCalled()
@@ -155,7 +166,10 @@ describe('weak-submit warning (governed CC-1 soft warning)', () => {
 
   it('a strong (non-weak) BOGO submits directly with no warning dialog', () => {
     const { onSubmit } = setup({ type: 'bogo', categoryKey: 'food_drink' })
-    // A generous BOGO: full price £20, free item £20 => saving £20 => not weak.
+    // A generous BOGO: full price £20, free item £20 => saving £20 => not weak. S5 also
+    // needs the two item descriptions, so the offer is complete before submit.
+    fireEvent.change(screen.getByPlaceholderText('e.g. A main course') as HTMLInputElement, { target: { value: 'A main course' } })
+    fireEvent.change(screen.getByPlaceholderText('e.g. A second of equal or lower value') as HTMLInputElement, { target: { value: 'A second main' } })
     fireEvent.change(screen.getByLabelText('Full price') as HTMLInputElement, { target: { value: '20' } })
     fireEvent.change(screen.getByLabelText('Value of the free item') as HTMLInputElement, { target: { value: '20' } })
     fireEvent.click(screen.getByRole('button', { name: /Save voucher 1 of 2/i }))
@@ -510,5 +524,105 @@ describe('resume rehydration (real round-trip shape)', () => {
   it('default (no initialFields) keeps fresh-start behaviour unchanged', () => {
     setup({ type: 'bogo', categoryKey: 'food_drink' })
     expect((screen.getByLabelText('Item') as HTMLInputElement).value).toBe('')
+  })
+})
+
+// S5 submission-validity gate (owner requirement 2026-07-13): Save as draft is never
+// gated; Submit (Save voucher N of 2) fails closed until the flagship offer is complete,
+// marking the offending fields inline + focusing the first problem, and never calling
+// onSubmit. Weak-but-complete still routes through the weak modal (covered above). The
+// shared matrix is unit-tested in lib/voucher/__tests__/submitValidity.test.ts.
+describe('S5 submit-validity gate (owner 2026-07-13)', () => {
+  it('blocks an incomplete BOGO submit: marks fields, focuses the first problem, no onSubmit', () => {
+    const { onSubmit } = setup({ type: 'bogo' })
+    fireEvent.click(screen.getByRole('button', { name: /Save voucher 1 of 2/i }))
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(screen.getByText(/Before you submit/i)).toBeInTheDocument()
+    const buy = screen.getByPlaceholderText('e.g. A main course')
+    expect(buy).toHaveAttribute('aria-invalid', 'true')
+    expect(buy).toHaveFocus()
+    // No weak modal either (incomplete never reaches it).
+    expect(screen.queryByText('This offer may feel too weak')).not.toBeInTheDocument()
+  })
+
+  it('Save as draft is NEVER gated by completeness (an incomplete draft still saves)', () => {
+    const { onSave } = setup({ type: 'bogo' })
+    fireEvent.click(screen.getByRole('button', { name: /Save as draft/i }))
+    expect(onSave).toHaveBeenCalledTimes(1)
+  })
+
+  it('live-clears a field mark as it is corrected', () => {
+    setup({ type: 'bogo' })
+    const buy = screen.getByPlaceholderText('e.g. A main course')
+    expect(buy).not.toHaveAttribute('aria-invalid')
+    fireEvent.click(screen.getByRole('button', { name: /Save voucher 1 of 2/i }))
+    expect(buy).toHaveAttribute('aria-invalid', 'true')
+    fireEvent.change(buy, { target: { value: 'A main course' } })
+    expect(buy).not.toHaveAttribute('aria-invalid')
+  })
+
+  // A resume seed whose BOGO is CLIENT-COMPLETE at mount, so an injected backend
+  // VOUCHER_INCOMPLETE (submitFieldErrors prop) is a genuine drift mark: the client
+  // matrix passes, only the server flags the field.
+  const COMPLETE_BOGO_SEED = {
+    fields: { builderType: 'bogo', bogoBuy: 'A main course', bogoFree: 'A second main', bogoFreePrice: 8 },
+  }
+  const SERVER_PRICE_ERROR = [{ field: 'bogoFreePrice', code: 'REQUIRED' as const, message: 'A backend completeness message.' }]
+
+  it('maps a backend VOUCHER_INCOMPLETE (submitFieldErrors prop) onto the same inline marks + summary', () => {
+    setup({ type: 'bogo', initialFields: COMPLETE_BOGO_SEED, submitFieldErrors: SERVER_PRICE_ERROR })
+    // The backend message shows (inline mark + summary line) even though the client is happy.
+    expect(screen.getAllByText('A backend completeness message.').length).toBeGreaterThan(0)
+    const price = screen.getByLabelText('Value of the free item') as HTMLInputElement
+    expect(price).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  // Server-error lifecycle (blocking fix 2026-07-14): editing the flagged field drops the
+  // server mark permanently; it never resurfaces from stale state.
+  it('edit-after-server-error: changing the flagged field clears the server mark immediately and it does NOT reappear', () => {
+    setup({ type: 'bogo', initialFields: COMPLETE_BOGO_SEED, submitFieldErrors: SERVER_PRICE_ERROR })
+    const price = screen.getByLabelText('Value of the free item') as HTMLInputElement
+    expect(price).toHaveAttribute('aria-invalid', 'true')
+    // Correct the flagged field: the server mark drops immediately.
+    fireEvent.change(price, { target: { value: '9' } })
+    expect(price).not.toHaveAttribute('aria-invalid')
+    expect(screen.queryByText('A backend completeness message.')).not.toBeInTheDocument()
+    // Unrelated re-renders + ANOTHER field erroring must not resurrect it: blank bogoBuy
+    // so the client flags that field; the retired server mark stays gone.
+    const buy = screen.getByPlaceholderText('e.g. A main course') as HTMLInputElement
+    fireEvent.change(buy, { target: { value: '' } })
+    expect(buy).toHaveAttribute('aria-invalid', 'true')
+    expect(price).not.toHaveAttribute('aria-invalid')
+    expect(screen.queryByText('A backend completeness message.')).not.toBeInTheDocument()
+    // And restoring the other field still does not bring it back.
+    fireEvent.change(buy, { target: { value: 'A main course' } })
+    expect(screen.queryByText('A backend completeness message.')).not.toBeInTheDocument()
+  })
+
+  it('a fresh backend response replaces the server-error set wholesale (old fields drop)', () => {
+    // Simulates the page passing a NEW VOUCHER_INCOMPLETE fields[] after a re-submit.
+    const props = (submitFieldErrors: React.ComponentProps<typeof BuilderForm>['submitFieldErrors']) => (
+      <BuilderForm
+        type="bogo"
+        categoryKey="food_drink"
+        merchantBusinessName="The Old Foundry"
+        voucherIndex={1}
+        saving={false}
+        saveError={null}
+        onSave={jest.fn()}
+        onSubmit={jest.fn()}
+        onBack={jest.fn()}
+        initialFields={COMPLETE_BOGO_SEED}
+        submitFieldErrors={submitFieldErrors}
+        allowedFields={FULL_ALLOWED}
+      />
+    )
+    const { rerender } = render(props(SERVER_PRICE_ERROR))
+    expect(screen.getAllByText('A backend completeness message.').length).toBeGreaterThan(0)
+    rerender(props([{ field: 'bogoFree', code: 'REQUIRED', message: 'A different backend message.' }]))
+    // The new set REPLACES the old one wholesale: only the new message remains.
+    expect(screen.queryByText('A backend completeness message.')).not.toBeInTheDocument()
+    expect(screen.getAllByText('A different backend message.').length).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Value of the free item')).not.toHaveAttribute('aria-invalid')
   })
 })
