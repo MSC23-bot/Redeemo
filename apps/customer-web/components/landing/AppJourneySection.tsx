@@ -241,6 +241,9 @@ function Stage() {
     ['#FFF9F5', '#FFFFFF', '#FFFFFF', '#FFF6F3', '#FFFFFF', '#FFF9F5'],
   )
 
+  // The rail spine fills node by node as chapters begin
+  const railFill = useBand(scrollYProgress, CH_BOUNDS, [0, 0.25, 0.5, 0.75, 1, 1])
+
   // Chapter screen opacities (crossfades within the app flow). The phone
   // itself is completely still (owner 2026-07-13): the life is on-screen.
   // Chapter five does NOT crossfade: it is a new flow, so it slides up
@@ -301,16 +304,24 @@ function Stage() {
         <div
           className={`relative max-w-7xl mx-auto h-full px-6 ${
             mode === 'desktop'
-              ? 'grid grid-cols-[64px_1fr_420px] gap-8 items-center'
+              ? 'grid grid-cols-[164px_1fr_400px] gap-8 items-center'
               : mode === 'short'
               ? 'flex flex-row items-center justify-center gap-10 pt-2'
               : 'flex flex-col justify-center gap-3 pt-6'
           }`}
         >
 
-          {/* Progress rail (desktop only) */}
+          {/* Progress rail (desktop only): numbered nodes on a spine that
+              fills with the scroll; the active step glows in the brand
+              gradient. Column widened to 164px so two-word labels never
+              collide with the copy (owner 2026-07-14). */}
           {mode === 'desktop' && (
-            <div className="flex flex-col gap-7 select-none" aria-hidden="true">
+            <div className="relative flex flex-col gap-7 select-none" aria-hidden="true">
+              <div className="absolute left-[11px] top-3 bottom-3 w-[2px] rounded-full bg-[#010C35]/10" />
+              <motion.div
+                className="absolute left-[11px] top-3 bottom-3 w-[2px] rounded-full origin-top"
+                style={{ scaleY: railFill, background: 'var(--brand-gradient)' }}
+              />
               {RAIL.map((label, i) => (
                 <RailItem key={label} progress={scrollYProgress} index={i} label={label} />
               ))}
@@ -536,12 +547,44 @@ function Stage() {
 function RailItem({ progress, index, label }: { progress: MotionValue<number>; index: number; label: string }) {
   const a = CH_BOUNDS[index]
   const b = CH_BOUNDS[index + 1]
-  const active = useBand(progress, [a - 0.02, a + 0.02, b - 0.02, b + 0.02], index === 0 ? [1, 1, 1, 0.28] : index === 4 ? [0.28, 1, 1, 1] : [0.28, 1, 1, 0.28])
+  // The node fills the moment its chapter begins and stays filled
+  const filled = useBand(
+    progress,
+    index === 0 ? [0, 0.001] : [a - 0.015, a + 0.015],
+    index === 0 ? [1, 1] : [0, 1],
+  )
+  // The glow ring belongs to the ACTIVE chapter only
+  const glow = useBand(
+    progress,
+    [a - 0.02, a + 0.02, b - 0.02, b + 0.02],
+    index === 0 ? [1, 1, 1, 0] : index === 4 ? [0, 1, 1, 1] : [0, 1, 1, 0],
+  )
+  const labelOp = useBand(
+    progress,
+    [a - 0.02, a + 0.02, b - 0.02, b + 0.02],
+    index === 0 ? [1, 1, 1, 0.32] : index === 4 ? [0.32, 1, 1, 1] : [0.32, 1, 1, 0.32],
+  )
   return (
-    <motion.div className="flex items-center gap-2.5" style={{ opacity: active }}>
-      <span className="w-1.5 h-1.5 rounded-full bg-[#E20C04] flex-shrink-0" />
-      <span className="text-[11px] font-bold tracking-[0.08em] uppercase text-[#010C35] whitespace-nowrap">{label}</span>
-    </motion.div>
+    <div className="flex items-center gap-3">
+      <div className="relative w-6 h-6 flex-shrink-0">
+        <motion.div
+          className="absolute -inset-[5px] rounded-full"
+          style={{ opacity: glow, boxShadow: '0 0 0 5px rgba(226,12,4,0.12), 0 4px 16px rgba(226,12,4,0.3)' }}
+        />
+        <div className="absolute inset-0 rounded-full bg-[#FFF9F5] border-[1.5px] border-[#010C35]/20" />
+        <motion.div className="absolute inset-0 rounded-full" style={{ opacity: filled, background: 'var(--brand-gradient)' }} />
+        <span className="absolute inset-0 flex items-center justify-center text-[10.5px] font-bold text-[#010C35]/45">{index + 1}</span>
+        <motion.span className="absolute inset-0 flex items-center justify-center text-[10.5px] font-bold text-white" style={{ opacity: filled }}>
+          {index + 1}
+        </motion.span>
+      </div>
+      <motion.span
+        className="text-[11px] font-bold tracking-[0.08em] uppercase text-[#010C35] whitespace-nowrap"
+        style={{ opacity: labelOp }}
+      >
+        {label}
+      </motion.span>
+    </div>
   )
 }
 

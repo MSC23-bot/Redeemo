@@ -993,3 +993,13 @@ edited by this workstream.
   the voucher's shown worth then the plain-English terms; the on-screen
   SAVE roundel now proves the title. Kickers updated to mirror the rail;
   all other chapter copy untouched. tsc clean; verified at 1440x900.
+- JOURNEY RAIL REBUILT AS A PROGRESS SPINE (owner 2026-07-14: "Redeem &
+  save" overlapped the copy at the old 64px column, and the rail deserved
+  visual ambition): the rail column widens to 164px (copy column 1fr,
+  phone 400px) and the dots become NUMBERED NODES on a vertical spine:
+  the spine fills with scroll (band over CH_BOUNDS to each node), each
+  node fills in the brand gradient the moment its chapter begins and
+  stays filled, the ACTIVE node wears a soft red glow ring, and labels
+  brighten with their chapter. Desktop only (mobile and landscape modes
+  have no rail). tsc clean; verified at 1440x900 on chapter four:
+  nodes 1-4 filled, 4 glowing, 5 hollow, no copy collision.
