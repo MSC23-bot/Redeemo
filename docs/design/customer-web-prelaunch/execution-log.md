@@ -1103,3 +1103,21 @@ corner, clear of the phone. Non-interactive App Store / Google Play
 badges added under the CTA with "On both stores at launch". Screenshot
 swapped to the redemption success sheet ("Voucher redeemed successfully
 · You saved £16.00"): the payoff the headline promises.
+
+## 2026-07-14 · App closer: live success moment (owner round)
+
+Owner: the dimmed screenshot on dark bezel on navy sank; ribbon behind
+the red headline was unreadable; wanted motion inside the screenshot
+(count-up on the saved figure, confetti, 3D life). Shipped: warm radial
+halo behind the phone + white/10 bezel ring + slight screenshot
+brightness lift so the phone pops; ribbon REMOVED from this panel (it
+collided with the headline top-left and the phone right across rounds;
+the phone is the panel's visual now); the "You saved £16.00" pill is a
+pixel-matched DOM replica (colours/geometry canvas-sampled from the
+asset: pill rgb(239,240,232) at 13.5%/42% of frame) whose figure counts
+up £0.00 to £16.00 on scroll-in; 14 deterministic brand-confetti pieces
+fall inside the screen (index-derived values rounded 2dp, hydration-safe;
+pixel y-values, since %-y is relative to the piece, not the screen);
+phone holds a slow perpetual rotateY sway under perspective. All motion
+reduced-motion aware. tsc clean; verified mid-count (£12.22) and settled
+(£16.00) by screenshot.

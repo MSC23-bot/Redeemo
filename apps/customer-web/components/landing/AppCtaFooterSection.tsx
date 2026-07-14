@@ -2,27 +2,118 @@
 
 import Link from 'next/link'
 import Image from 'next/image'
-import { motion, useReducedMotion } from 'framer-motion'
+import { animate, motion, useInView, useMotionValue, useReducedMotion, useTransform } from 'framer-motion'
+import { useEffect, useRef } from 'react'
 import { AppStoreBadge, GooglePlayBadge } from './HeroSection'
 import { isMarketplaceLive } from '@/lib/prelaunch'
-import { RibbonPeek } from './RibbonPeek'
 
 const ease = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
 /**
- * The app closer (owner 2026-07-14 rebuild): the pricing shelf above
- * already asks for the account, so this panel's job is app
- * anticipation, not a repeated sign-up line. One phone mockup stands
- * THROUGH the navy panel (protruding past its top and bottom edges),
- * two die-cut offer chips float beside it, and the CTA keeps the same
- * /register destination but changes job: "Be first to get the app".
- * The dotted eyebrow pill was removed (owner: felt AI-generic).
+ * The app closer (owner 2026-07-14 rebuild, refined twice): the pricing
+ * shelf above already asks for the account, so this panel's job is app
+ * anticipation. One phone stands THROUGH the navy panel with balanced
+ * top/bottom protrusion, lit by a warm glow so the dimmed screenshot
+ * still pops off the navy (owner: it sank). The success sheet plays a
+ * live moment when scrolled into view: the "You saved" figure counts up
+ * from £0.00 on a DOM replica of the baked pill, and brand confetti
+ * falls inside the screen, echoing the app's own redemption behaviour.
+ * The ribbon was removed from this panel: it collided with the red
+ * headline top-left and with the phone right (owner rounds).
  */
 
-/** Mini die-cut voucher chip beside the phone. Instead of the vertical
-    bob used elsewhere on the page (owner: overused), these sway like
-    hanging paper tickets: a slow pendulum rotation, each on its own
-    period so the pair never sync. */
+// ── Success-sheet overlay geometry ─────────────────────────────────────
+// Fractions of the 800x1740 success-sheet.jpg, sampled from the asset:
+// the "You saved £16.00" pill spans x 108-689, y 730-832; pill bg
+// rgb(239,240,232); label green rgb(59,155,91); number green
+// rgb(39,168,86). The DOM replica covers the baked pill exactly.
+const PILL = { left: 0.135, top: 0.4195, width: 0.7263, height: 0.0586 }
+
+// Deterministic confetti (no Math.random: values derive from the index
+// and are rounded to 2dp, or React/browser serialisation diverges and
+// hydration fails: journey lesson). Falls INSIDE the phone screen.
+const r2 = (v: number) => Math.round(v * 100) / 100
+const CONFETTI_COLORS = ['#E20C04', '#E84A00', '#F5B301', '#16A34A']
+const CONFETTI = Array.from({ length: 14 }, (_, i) => ({
+  left: r2(6 + ((i * 37 + 13) % 88)),
+  delay: r2(((i * 53) % 40) / 50),
+  duration: r2(1.7 + ((i * 29) % 50) / 55),
+  size: 4 + (i % 3) * 2,
+  drift: r2((((i * 17) % 21) - 10) * 1.6),
+  rotate: (i * 67) % 360,
+  color: CONFETTI_COLORS[i % 4],
+}))
+
+function SavedAmountPill({ inView, screenIsSmall }: { inView: boolean; screenIsSmall?: boolean }) {
+  const value = useMotionValue(0)
+  const text = useTransform(value, (v) => `£${v.toFixed(2)}`)
+
+  useEffect(() => {
+    if (!inView) return
+    const controls = animate(value, 16, { duration: 1.4, delay: 0.55, ease: 'easeOut' })
+    return () => controls.stop()
+  }, [inView, value])
+
+  return (
+    <div
+      className="absolute flex items-center justify-center gap-[0.5em] rounded-[6px] lg:rounded-[9px]"
+      style={{
+        left: `${PILL.left * 100}%`,
+        top: `${PILL.top * 100}%`,
+        width: `${PILL.width * 100}%`,
+        height: `${PILL.height * 100}%`,
+        background: 'rgb(239,240,232)',
+      }}
+    >
+      <span
+        className={screenIsSmall ? 'text-[6.5px]' : 'text-[6.5px] lg:text-[10px]'}
+        style={{ color: 'rgb(59,155,91)' }}
+      >
+        You saved
+      </span>
+      <motion.span
+        className={`font-bold ${screenIsSmall ? 'text-[10px]' : 'text-[10px] lg:text-[15.5px]'}`}
+        style={{ color: 'rgb(39,168,86)' }}
+      >
+        {text}
+      </motion.span>
+    </div>
+  )
+}
+
+/** Brand confetti raining inside the phone screen on arrival. */
+function ScreenConfetti({ inView }: { inView: boolean }) {
+  const reduceMotion = useReducedMotion()
+  if (reduceMotion || !inView) return null
+  return (
+    <div aria-hidden="true" className="absolute inset-0 overflow-hidden pointer-events-none">
+      {CONFETTI.map((p, i) => (
+        <motion.span
+          key={i}
+          className="absolute rounded-[1px]"
+          style={{
+            left: `${p.left}%`,
+            top: '-4%',
+            width: p.size,
+            height: p.size * 0.55,
+            background: p.color,
+          }}
+          initial={{ y: 0, opacity: 0, rotate: p.rotate }}
+          animate={{
+            y: [0, 640],
+            x: [0, p.drift],
+            opacity: [0, 1, 1, 0],
+            rotate: p.rotate + 200,
+          }}
+          transition={{ duration: p.duration, delay: 0.9 + p.delay, ease: [0.3, 0.2, 0.6, 1] }}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** Mini die-cut voucher chip beside the phone: sways like a hanging
+    paper ticket (slow pendulum, each on its own period). */
 function OfferChip({
   headline,
   sub,
@@ -71,10 +162,16 @@ function OfferChip({
   )
 }
 
-/** The phone, rising out of the panel on scroll. */
+/** The phone: rises out of the panel, then holds a slow 3D sway. A warm
+    glow halo sits behind it so the dark screenshot pops off the navy. */
 function AppPhone() {
+  const reduceMotion = useReducedMotion()
+  const ref = useRef<HTMLDivElement>(null)
+  const inView = useInView(ref, { once: true, margin: '-120px' })
+
   return (
     <motion.div
+      ref={ref}
       initial={{ opacity: 0, y: 90, rotate: -10 }}
       whileInView={{ opacity: 1, y: 0, rotate: -5 }}
       viewport={{ once: true, margin: '-80px' }}
@@ -82,20 +179,39 @@ function AppPhone() {
       className="relative w-[190px] lg:w-[292px]"
       aria-hidden="true"
     >
+      {/* Warm halo: lifts the phone off the navy (owner: it sank) */}
       <div
-        className="rounded-[36px] lg:rounded-[46px] bg-[#10101c] p-[7px] lg:p-[9px]"
-        style={{ boxShadow: '0 34px 70px rgba(1,12,53,0.45), 0 8px 24px rgba(1,12,53,0.3)' }}
+        className="absolute -inset-x-[42%] -inset-y-[20%] pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(closest-side, rgba(232,74,0,0.5), rgba(226,12,4,0.24) 52%, transparent 76%)',
+        }}
+      />
+      <motion.div
+        className="relative"
+        animate={reduceMotion ? undefined : { rotateY: [0, 4, 0, -4, 0] }}
+        transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        style={{ transformPerspective: 900 }}
       >
-        <div className="relative rounded-[29px] lg:rounded-[40px] overflow-hidden h-[392px] lg:h-[602px]">
-          <Image
-            src="/app-shots/journey/success-sheet.jpg"
-            alt=""
-            fill
-            sizes="270px"
-            className="object-cover object-top"
-          />
+        <div
+          className="rounded-[36px] lg:rounded-[46px] bg-[#10101c] p-[7px] lg:p-[9px] border border-white/10"
+          style={{ boxShadow: '0 34px 70px rgba(1,12,53,0.5), 0 8px 24px rgba(1,12,53,0.32)' }}
+        >
+          <div className="relative rounded-[29px] lg:rounded-[40px] overflow-hidden h-[392px] lg:h-[602px]">
+            <Image
+              src="/app-shots/journey/success-sheet.jpg"
+              alt=""
+              fill
+              sizes="292px"
+              className="object-cover object-top brightness-[1.07]"
+            />
+            {/* Live moment: the saved amount counts up on a pixel-matched
+                replica of the baked pill, confetti falls in-screen */}
+            <SavedAmountPill inView={inView} />
+            <ScreenConfetti inView={inView} />
+          </div>
         </div>
-      </div>
+      </motion.div>
       <OfferChip
         headline="2 FOR 1"
         sub="Dinner for two"
@@ -129,11 +245,9 @@ export function AppCtaFooterSection() {
           className="relative rounded-[28px]"
           style={{ background: '#010C35', boxShadow: '0 28px 64px rgba(1,12,53,0.22)' }}
         >
-          {/* Clipped effects layer. The ribbon peeks from the top-left
-              corner, well clear of the phone on the right (owner
-              2026-07-14: it collided behind the phone) */}
+          {/* Clipped effects layer (glows only: the ribbon collided with
+              the headline or the phone in every corner, owner rounds) */}
           <div aria-hidden="true" className="absolute inset-0 rounded-[28px] overflow-hidden pointer-events-none">
-            <RibbonPeek side="left" top="-8%" width={200} />
             <div
               className="absolute inset-0"
               style={{
@@ -169,7 +283,7 @@ export function AppCtaFooterSection() {
               >
                 {marketplaceLive
                   ? 'Browse and save on the website. Redeem your vouchers in-store with the app.'
-                  : 'Redeemo lives in the app: browse nearby, redeem at the till, and see exactly what you saved. It arrives with launch on iOS and Android, and your account carries straight over.'}
+                  : 'Redeemo lives in the app: browse nearby, redeem at the till, and see exactly what you saved. It arrives with launch on iOS and Android, and your account carries straight over.'}
               </motion.p>
 
               <motion.div
@@ -212,8 +326,7 @@ export function AppCtaFooterSection() {
             {/* Phone zone. Mobile: breaks the top edge only (owner: that
                 ratio is right). Desktop: symmetric negative margins plus
                 the grid's items-center split the overflow EVENLY between
-                the top and bottom edges, so the protrusion is balanced
-                whatever height the copy column takes. */}
+                the top and bottom edges (measured 54px/54px). */}
             <div className="relative flex justify-center -mt-14 lg:-mt-24 lg:-mb-24 order-1 lg:order-2 pointer-events-none">
               <AppPhone />
             </div>
