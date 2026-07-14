@@ -371,7 +371,7 @@ export function HowItWorksContent() {
             style={{ fontSize: 'clamp(34px, 5vw, 62px)', letterSpacing: '-0.8px' }}
           >
             Simple to join.{' '}
-            <span className="gradient-text block">Even simpler to <span className="whitespace-nowrap">redeem<BrandStop tone="inherit" /></span></span>
+            <span className="gradient-text block">Even simpler to <span className="whitespace-nowrap">redeem<BrandStop tone="white" /></span></span>
           </motion.h1>
 
           <motion.p

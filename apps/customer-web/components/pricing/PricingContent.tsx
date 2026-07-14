@@ -358,7 +358,7 @@ export function PricingContent() {
             style={{ fontSize: 'clamp(34px, 5vw, 62px)', letterSpacing: '-0.8px', textWrap: 'balance' }}
           >
             Start free.{' '}
-            <span className="gradient-text block">Pay only when you&apos;re <span className="whitespace-nowrap">ready<BrandStop tone="inherit" /></span></span>
+            <span className="gradient-text block">Pay only when you&apos;re <span className="whitespace-nowrap">ready<BrandStop tone="white" /></span></span>
           </motion.h1>
 
           <motion.p

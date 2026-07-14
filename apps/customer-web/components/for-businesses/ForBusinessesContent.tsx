@@ -145,7 +145,7 @@ export function ForBusinessesContent() {
             style={{ fontSize: 'clamp(36px, 5vw, 62px)', letterSpacing: '-0.8px' }}
           >
             Bring in new customers.{' '}
-            <span className="gradient-text block">Keep your <span className="whitespace-nowrap">margins<BrandStop tone="inherit" /></span></span>
+            <span className="gradient-text block">Keep your <span className="whitespace-nowrap">margins<BrandStop tone="white" /></span></span>
           </motion.h1>
 
           <motion.p

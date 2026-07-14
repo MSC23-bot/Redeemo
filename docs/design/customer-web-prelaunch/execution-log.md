@@ -1044,3 +1044,18 @@ Split: Sonnet 5 executed the sub-page file sweep to a precise brief
 files, CSS, BrandStop, verification. tsc clean; verified by screenshot
 at 1440x900 and 390x780. VoucherTypesSection.tsx and landing
 HowItWorksSection.tsx confirmed dead code (not rendered, left untouched).
+
+## 2026-07-14 · Brand Full Stop contrast ruling (owner)
+
+Owner reviewed the hero screenshot: the gradient stop on the gradient
+line looked like a mismatched twin of the ordinary navy period above it,
+and ruled the device must CONTRAST with its sentence ("that was the whole
+point"). Rule now encoded in BrandStop.tsx: navy/ink text takes the rose
+stop (journey finale, shelf, pricing section: already correct); red or
+gradient text takes the navy stop (hero "cost."); on navy surfaces where
+navy would vanish, gradient hero words take the white stop, echoing their
+white first lines (how-it-works, pricing, for-businesses, insider heroes).
+BrandStop also sets WebkitTextFillColor so the colour survives inside
+gradient-text spans. The 2026-06-10 foundations doc still says
+"rose or gradient"; the owner contrast ruling supersedes it and the doc
+amendment should ride the next docs PR.

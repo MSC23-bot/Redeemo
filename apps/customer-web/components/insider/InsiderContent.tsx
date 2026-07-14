@@ -70,7 +70,7 @@ export function InsiderContent() {
                 WebkitTextFillColor: 'transparent',
               }}
             >
-              and hidden <span className="whitespace-nowrap">gems<BrandStop tone="inherit" /></span>
+              and hidden <span className="whitespace-nowrap">gems<BrandStop tone="white" /></span>
             </span>
           </motion.h1>
 

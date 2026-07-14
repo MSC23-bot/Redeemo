@@ -105,10 +105,10 @@ export function HeroSection() {
               {/* non-breaking group: narrow viewports break after "things",
                   never stranding "enjoy." on its own line */}
               Keep the things you&nbsp;enjoy.{' '}
-              {/* Brand Full Stop: the hero's one signature period, inheriting
-                  the gradient clip (one per screen, locked overuse guard) */}
+              {/* Brand Full Stop: the hero's one signature period; navy on
+                  the red line (owner 2026-07-14: the stop contrasts) */}
               <span className="gradient-text block">
-                Cut what they <span className="whitespace-nowrap">cost<BrandStop tone="inherit" /></span>
+                Cut what they <span className="whitespace-nowrap">cost<BrandStop tone="navy" /></span>
               </span>
             </motion.h1>
 
