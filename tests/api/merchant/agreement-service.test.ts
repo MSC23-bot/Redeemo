@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 //  - Ceremony: ONE transaction containing the immutable record insert + the
 //    MerchantContract upsert + the contractStatus flip + the in-tx audit; evidence
 //    fields complete; version/hash pinned from the REGISTRY (never the caller);
-//    double-sign guarded; admin-never-signs invariants; storage fail-closed.
+//    double-sign guarded; witness-integrity invariants (same-name refusal; separateness not provable); storage fail-closed.
 //  - Self-serve retrofit (acceptContract): SELF_SERVE_CLICK record with null
 //    actorAdminId; typed name threaded; documented placeholder when absent;
 //    storage-dark degrade (no record, contract flow intact).
@@ -356,7 +356,7 @@ describe('signAgreementInPerson (the assisted ceremony)', () => {
     })
   })
 
-  it('admin-never-signs: empty signer name / role / witness all refuse', async () => {
+  it('witness-integrity: empty signer name / role / witness all refuse', async () => {
     const prisma = makePrisma(makeTx())
     await expect(
       signAgreementInPerson(prisma, { ...INPUT, signerName: '   ' }, ctx),
