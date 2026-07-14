@@ -104,11 +104,12 @@ export function HeroSection() {
             >
               {/* non-breaking group: narrow viewports break after "things",
                   never stranding "enjoy." on its own line */}
-              Keep the things you&nbsp;enjoy.{' '}
-              {/* Brand Full Stop: the hero's one signature period; navy on
-                  the red line (owner 2026-07-14: the stop contrasts) */}
+              {/* Owner 2026-07-14: the hero carries PAIRED rose stops, one
+                  after each sentence (navy-on-red was rejected; the paired
+                  red stops are the owner-ruled exception to one-per-screen) */}
+              Keep the things <span className="whitespace-nowrap">you&nbsp;enjoy<BrandStop /></span>{' '}
               <span className="gradient-text block">
-                Cut what they <span className="whitespace-nowrap">cost<BrandStop tone="navy" /></span>
+                Cut what they <span className="whitespace-nowrap">cost<BrandStop /></span>
               </span>
             </motion.h1>
 

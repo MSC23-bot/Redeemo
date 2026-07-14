@@ -1059,3 +1059,12 @@ BrandStop also sets WebkitTextFillColor so the colour survives inside
 gradient-text spans. The 2026-06-10 foundations doc still says
 "rose or gradient"; the owner contrast ruling supersedes it and the doc
 amendment should ride the next docs PR.
+
+## 2026-07-14 · Hero stop revision (owner): paired rose stops
+
+Owner rejected the navy stop on the red hero line ("doesn't look nice").
+Ruling: the hero carries a rose Brand Full Stop after BOTH sentences,
+"Keep the things you enjoy." and "Cut what they cost." This is the
+owner-ruled exception to the one-per-screen guard; everywhere else keeps
+one stop per composition (sub-page heroes keep white-on-navy, ink
+headlines keep rose).
