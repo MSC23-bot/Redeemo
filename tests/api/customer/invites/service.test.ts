@@ -26,10 +26,13 @@ import { buildInviterKey } from '../../../../src/api/customer/invites/identity'
 //     substring).
 //   - a lock_timeout expiry (P2010 + meta.code '55P03') on the lock
 //     $executeRaw maps to AppError INVITE_SUBMIT_CONTENTION (429).
-//   - scrubInvitesForUser (account erasure) now SEVERS the person linkage:
-//     voids PENDING InviteRewardGrant rows first, then nulls
+//   - scrubInvitesForUser (account erasure) SEVERS the person linkage:
+//     DELETES PENDING InviteRewardGrant rows (round-4: deletion, not
+//     void-in-place, so no grant.userId survives), then nulls
 //     inviterUserId/inviterKey (not just note/email/ipHash) and sets
 //     rewardEligible false on every non-anonymised invite for the user.
+//     ISSUED/CONSUMED grants (financial records) are the owner/solicitor
+//     retention gate and are untouched.
 
 const BASE_INPUT = {
   userId: 'user-1',
@@ -519,12 +522,12 @@ describe('submitInvite: F1 (adversarial review), Places-lane branch-miss falls t
   })
 })
 
-describe('scrubInvitesForUser (correction round 3: severs person linkage)', () => {
-  it('voids PENDING reward grants, then nulls the invite person-linkage (inviterUserId + inviterKey) alongside the existing PII fields, clears rewardEligible, and returns the scrubbed invite count', async () => {
-    const inviteRewardGrantUpdateMany = vi.fn().mockResolvedValue({ count: 2 })
+describe('scrubInvitesForUser (account erasure: severs person linkage)', () => {
+  it('DELETES PENDING reward grants (not void-in-place), then nulls the invite person-linkage (inviterUserId + inviterKey) alongside the PII fields, clears rewardEligible, and returns the scrubbed invite count', async () => {
+    const inviteRewardGrantDeleteMany = vi.fn().mockResolvedValue({ count: 2 })
     const merchantInviteUpdateMany = vi.fn().mockResolvedValue({ count: 3 })
     const prisma = {
-      inviteRewardGrant: { updateMany: inviteRewardGrantUpdateMany },
+      inviteRewardGrant: { deleteMany: inviteRewardGrantDeleteMany },
       merchantInvite: { updateMany: merchantInviteUpdateMany },
     } as any
 
@@ -532,19 +535,23 @@ describe('scrubInvitesForUser (correction round 3: severs person linkage)', () =
 
     expect(count).toBe(3)
 
-    // PENDING grants are voided (ISSUED/CONSUMED are financial records and
-    // are left untouched by this call — not asserted here since the mock
-    // only reports the PENDING-scoped updateMany shape).
-    expect(inviteRewardGrantUpdateMany).toHaveBeenCalledWith({
+    // Round-4 correction: PENDING grants are DELETED, not voided-in-place.
+    // Void retained grant.userId, which (the User row being anonymised
+    // under the SAME id) kept the grant pseudonymously linked to the
+    // person. Deletion severs it genuinely. The scope is EXACTLY the
+    // PENDING status — ISSUED/CONSUMED financial records are not in the
+    // where-clause, so they are untouched (owner/solicitor gate A3.1).
+    expect(inviteRewardGrantDeleteMany).toHaveBeenCalledWith({
       where: { userId: 'user-1', status: 'PENDING' },
-      data: { status: 'VOIDED', voidReason: 'ACCOUNT_DELETED' },
     })
+    // Belt-and-braces: the grant call is a DELETE, never an update to VOIDED
+    // (which would have retained userId).
+    expect((prisma.inviteRewardGrant as any).updateMany).toBeUndefined()
 
-    // The invite update now nulls inviterUserId + inviterKey (severing the
-    // person linkage entirely — NULLs drop the row out of the
-    // (inviterKey, placeKey) unique constraint and out of the cap/mine
-    // queries), on top of the pre-existing note/email/ipHash nulling, and
-    // clears rewardEligible (a deleted account's pending reward lapses).
+    // The invite update nulls inviterUserId + inviterKey (severing the
+    // person linkage — NULLs drop the row out of the (inviterKey, placeKey)
+    // unique constraint and out of the cap/mine queries), on top of the
+    // note/email/ipHash nulling, and clears rewardEligible.
     expect(merchantInviteUpdateMany).toHaveBeenCalledWith({
       where: { inviterUserId: 'user-1', anonymisedAt: null },
       data: {
@@ -558,8 +565,8 @@ describe('scrubInvitesForUser (correction round 3: severs person linkage)', () =
       },
     })
 
-    // Grants are voided BEFORE the invite linkage is severed.
-    expect(inviteRewardGrantUpdateMany.mock.invocationCallOrder[0])
+    // Pending grants are deleted BEFORE the invite linkage is severed.
+    expect(inviteRewardGrantDeleteMany.mock.invocationCallOrder[0])
       .toBeLessThan(merchantInviteUpdateMany.mock.invocationCallOrder[0])
   })
 })

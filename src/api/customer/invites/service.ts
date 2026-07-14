@@ -461,25 +461,34 @@ export async function submitInvite(
 /**
  * Account-erasure hook — called from the customer delete-account flow
  * (src/api/auth/customer/routes.ts), inside the same transaction as the
- * User anonymisation. SEVERS the person linkage entirely (correction
- * round 3): on every non-anonymised invite this user submitted it nulls
- * the PII fields (note, inviterEmailNorm, ipHash) AND the person linkage
+ * User anonymisation.
+ *
+ * On every non-anonymised invite this user submitted it nulls the PII
+ * fields (note, inviterEmailNorm, ipHash) AND the person linkage
  * (inviterUserId, inviterKey), stamps anonymisedAt, and clears
- * rewardEligible — a deleted account's pending reward eligibility LAPSES
- * by design (rewards pay registered accounts only, D2; there is no
- * account left to pay). What survives is genuinely non-personal aggregate
- * demand: placeKey, businessNameRaw, leadId, countableAt, status.
+ * rewardEligible. What survives on the invite row is genuinely
+ * non-personal aggregate demand: placeKey, businessNameRaw, leadId,
+ * countableAt, status. NULL inviterKey rows drop out of the
+ * (inviterKey, placeKey) unique constraint (Postgres treats NULLs as
+ * distinct) and out of the cap and /mine queries — terminal by design.
  *
- * NULL inviterKey rows drop out of the (inviterKey, placeKey) unique
- * constraint (Postgres treats NULLs as distinct) and out of the cap and
- * /mine queries — terminal rows by design. PENDING reward grants for the
- * user are VOIDED (voidReason ACCOUNT_DELETED); ISSUED/CONSUMED grants
- * are retained as financial records — the retention question for those
- * is flagged to the owner/solicitor in the spec (A3).
+ * REWARD GRANTS (round-4 correction, Codex): PENDING grants carry NO
+ * financial value (nothing issued or consumed) and a deleted account's
+ * eligibility LAPSES (D2: rewards pay registered accounts only). They
+ * are DELETED outright, not voided-in-place — voiding retained
+ * grant.userId, which (because the User row is anonymised in place under
+ * the SAME id) kept the grant pseudonymously linked to the person.
+ * Deletion removes that linkage genuinely. ISSUED/CONSUMED grants are
+ * financial records and are DELIBERATELY RETAINED (grant.userId intact);
+ * the retention basis/duration for those is the explicit owner/solicitor
+ * gate in spec A3.1 and is NOT decided or altered here.
  *
- * NOTE: the LEAD_CREATED / INVITE_CREATED AuditLog rows remain under
- * platform audit governance (documented gate, spec A2.6/A3): this
- * function makes the INVITE rows non-personal; it does not touch audit.
+ * Person linkage that this function does NOT sever, by documented design:
+ * (a) ISSUED/CONSUMED reward grants (financial-record gate, A3.1);
+ * (b) LEAD_CREATED / INVITE_CREATED AuditLog rows retain raw IP + actorId
+ *     under platform audit governance (gate A2.6). This function makes
+ *     the INVITE ROWS and PENDING grants non-personal; those two gated
+ *     surfaces remain the owner/solicitor decision.
  *
  * Returns the number of invite rows severed.
  */
@@ -487,9 +496,8 @@ export async function scrubInvitesForUser(
   prisma: PrismaClient | Prisma.TransactionClient,
   userId: string,
 ): Promise<number> {
-  await prisma.inviteRewardGrant.updateMany({
+  await prisma.inviteRewardGrant.deleteMany({
     where: { userId, status: 'PENDING' },
-    data: { status: 'VOIDED', voidReason: 'ACCOUNT_DELETED' },
   })
   const result = await prisma.merchantInvite.updateMany({
     where: { inviterUserId: userId, anonymisedAt: null },
