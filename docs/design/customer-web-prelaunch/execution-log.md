@@ -1234,3 +1234,21 @@ audit-retention decision + migration window, all owner-held. Sonnet
 executed both correction briefs; every diff lead-reviewed; two lead
 command slips this round (an accidental --amend fold, corrected via
 message amend; a hook false-positive on rm -f) recorded honestly.
+
+## 2026-07-14 · Codex round 3 complete (invite/referral stack)
+
+Renewed heads: #525 docs @ 6c0cab39 (spec Amendment A3 + round records
++ owner-applied CI patch), #526 M0 @ 31f44656, #527 M1 @ 56255236.
+Substance: account erasure now SEVERS person linkage (inviterUserId +
+inviterKey nulled, eligibility lapses, PENDING grants voided; all
+anonymous/non-PII overclaims rewritten honestly; solicitor question on
+consumed-grant retention recorded); duplicate idempotency preserved AT
+the cap; namespaced bounded advisory locks with retryable contention
+429 (round-3 Opus F-C1 fixed: duck-typed 55P03 classifier + real-
+adapter contention integration test); test:integration:invites wired
+(CI step = owner-applied patch: session tokens lack workflow scope);
+migration EOF fixed with committed-range diff --check added as a gate.
+Gates: tsc clean, test:unit 3395, prisma validate clean, range check
+clean, layer scope re-verified. CI on #526 green including disposable-
+Postgres migrate deploy of the invite packet. Boundaries held: no
+merge, no shared-data mutation, no providers, no outreach, no rewards.
