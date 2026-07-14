@@ -518,3 +518,50 @@ The committed migration had a trailing blank line at EOF that only the
 COMMITTED-RANGE check reveals (git diff --check origin/main...HEAD):
 working-tree --check cannot see it. Fixed; the range check is now part
 of the round's gate list.
+
+---
+
+# Amendment A4 · 2026-07-14 · Codex round 4 (authoritative over A1-A3 and body)
+
+## A4.1 Reward-grant erasure (corrects A3.1's void-in-place)
+
+A3 voided PENDING reward grants (status VOIDED, voidReason
+ACCOUNT_DELETED) on account deletion but RETAINED grant.userId. Because
+the User row is anonymised in place under the SAME id, a voided grant
+stayed pseudonymously linked to the person — the "severed entirely"
+claim was inaccurate. Corrected, implemented: scrubInvitesForUser now
+DELETES PENDING grants outright (they carry no financial value; a
+deleted account's eligibility lapses, D2). Deletion removes the linkage
+genuinely. ISSUED/CONSUMED grants are financial records and remain
+RETAINED with grant.userId intact — their retention basis/duration is
+the explicit owner/solicitor gate (unchanged, still open). Every
+"severs the person linkage entirely" overclaim in code/tests/docs is
+rewritten to name the two documented residual gates: (a) ISSUED/CONSUMED
+grants, (b) LEAD_CREATED/INVITE_CREATED AuditLog rows (raw IP + actorId,
+A2.6).
+
+Genuine-severance proof (not merely a status check): a real-DB
+integration test (erasure.integration.test.ts) runs the true
+delete-account transaction and asserts NO invite links back
+(inviterUserId AND inviterKey NULL), the PENDING grant is GONE
+(findUnique null), the ISSUED grant SURVIVES with userId intact (gate
+respected), and non-personal aggregate demand (placeKey/businessNameRaw)
+is preserved.
+
+OPEN owner/solicitor gates (unchanged, preserved): retention of
+ISSUED/CONSUMED financial records; invite-related audit actor IDs and
+IP addresses; reward activation and billing behaviour.
+
+## A4.2 CI pilot patch hygiene
+
+The round-3 CI pilot patch was a full-context unified diff; a blank
+YAML context line is inherently " \n" (space+newline) when a diff is
+stored as a committed file, which failed committed-range
+`git diff --check`. Regenerated as a ZERO-CONTEXT patch (no context
+lines, hence no bare-space lines): committed range now passes
+git diff --check, and plain `git apply` accepts it against current main
+(verified with `git apply --check`). Owner action is unchanged in
+substance (apply on a workflow-scoped credential). The
+test:integration:invites script now globs the invites integration
+directory, so BOTH the concurrency and the new erasure suites execute
+in the pilot.

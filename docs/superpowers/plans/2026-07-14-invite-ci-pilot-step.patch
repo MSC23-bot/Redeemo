@@ -2,10 +2,7 @@ diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
 index 0005e2ec..01de7ad2 100644
 --- a/.github/workflows/ci.yml
 +++ b/.github/workflows/ci.yml
-@@ -308,6 +308,16 @@ jobs:
-         continue-on-error: true
-         run: npm run test:integration:maintenance
- 
+@@ -310,0 +311,10 @@ jobs:
 +      # Invite/referral correction round 3: the concurrency regression suite
 +      # (one-lead-per-business under race; atomic 10-cap; duplicate
 +      # idempotency at the cap boundary) runs against the same disposable
@@ -16,13 +13,7 @@ index 0005e2ec..01de7ad2 100644
 +        continue-on-error: true
 +        run: npm run test:integration:invites
 +
-       # Surface PASS/FAIL explicitly (never swallowed): a FAIL is written to the job
-       # summary AND the step above shows failed-but-continued, while the job stays green.
-       - name: Report pilot result (job summary)
-@@ -325,3 +335,8 @@ jobs:
-           else
-             echo "Advisory maintenance-sweep pilot: FAIL (non-blocking)" >> "$GITHUB_STEP_SUMMARY"
-           fi
+@@ -327,0 +338,5 @@ jobs:
 +          if [ "${{ steps.invites_pilot.outcome }}" = "success" ]; then
 +            echo "Advisory invite-concurrency pilot: PASS" >> "$GITHUB_STEP_SUMMARY"
 +          else

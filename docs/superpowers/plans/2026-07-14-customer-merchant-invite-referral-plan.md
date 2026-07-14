@@ -365,3 +365,38 @@ green and its integration-pilot job's `prisma migrate deploy` applied
 the invite packet cleanly to a real disposable Postgres AFTER
 merchant_lead_packet; the concurrency suite itself executes once the
 owner applies the workflow patch.
+
+## Codex round-4 record (2026-07-14)
+
+Renewed heads: M0 @ 0fdd3d61, docs @ this commit (M1/#527 restacked
+after — head in the round-4 report). Corrections:
+- ERASURE (spec A4.1): PENDING reward grants are now DELETED on account
+  deletion, not voided-in-place (void retained grant.userId → still
+  person-linked under the anonymised-in-place User). Genuine severance;
+  ISSUED/CONSUMED financial records retained (owner/solicitor gate).
+  Overclaim comments corrected. New real-DB erasure.integration.test.ts
+  proves the linkage is actually gone (no invite links back; PENDING
+  grant deleted; ISSUED grant survives; aggregate demand preserved).
+- CI PILOT PATCH (spec A4.2): regenerated ZERO-CONTEXT so committed-range
+  git diff --check passes (a full-context diff's blank YAML context line
+  is inherently " \n"). Verified: plain `git apply --check` OK against
+  current main.
+
+### OWNER ACTION (exact, minimal) — enable the CI concurrency+erasure pilot
+Session tokens lack the GitHub `workflow` scope, so the workflow file
+cannot be pushed from here. On a workflow-scoped credential, from repo
+root on the branch under review (feat/invite-referral-m0):
+
+    git apply docs/superpowers/plans/2026-07-14-invite-ci-pilot-step.patch
+    git add .github/workflows/ci.yml
+    git commit -m "ci(invites): advisory invite-concurrency+erasure integration pilot"
+    git push
+
+The next CI run then executes `npm run test:integration:invites` (both
+concurrency + erasure suites) against the disposable loopback Postgres
+service and writes PASS/FAIL to the job summary, exactly like the
+Insights and maintenance pilots. Until then, executed evidence remains:
+the integration-pilot job's `prisma migrate deploy` already applies the
+invite packet to a real disposable Postgres after merchant_lead_packet
+(green on #526), proving migration validity; the concurrency/erasure
+assertions execute once the patch is applied.
