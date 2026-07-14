@@ -111,6 +111,15 @@ const CODE_MESSAGES: Record<string, string> = {
     'This lead has already been converted to a merchant draft. The pipeline has refreshed.',
   LEAD_ANONYMISED:
     'This lead has been anonymised for data retention and can no longer be edited.',
+  // MerchantNote packet (2026-07-13, PR #510, D51): the internal per-merchant
+  // notes surface (add / edit-own / retract-own). Edit and retract are OWN +
+  // ACTIVE only; v1 has no moderation override.
+  NOTE_NOT_FOUND: 'This note no longer exists. The list has refreshed.',
+  NOTE_NOT_AUTHOR:
+    'Only the admin who wrote a note can edit or retract it. The list has refreshed.',
+  NOTE_NOT_ACTIVE:
+    'This note has already been retracted, so it cannot be edited or retracted again. The list has refreshed.',
+  NOTE_RETRACT_REASON_REQUIRED: 'A reason is required to retract a note.',
 }
 
 function getMessage(error: unknown, overrides?: Record<string, string>): string {
