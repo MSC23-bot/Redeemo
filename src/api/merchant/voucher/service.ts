@@ -9,7 +9,11 @@ import {
   type EditActor,
 } from '../shared'
 import { isEligibleFlagshipType, FLAGSHIP_RMV_CAP } from './shared'
-import { assertVoucherSubmittable } from './submitValidation'
+import {
+  assertVoucherSubmittable,
+  SUBMIT_CONTRACT_KEY,
+  stampStrictSubmitContract,
+} from './submitValidation'
 
 // Only DRAFT vouchers can be edited, submitted, or deleted
 const EDITABLE_STATUSES = ['DRAFT'] as const
@@ -36,6 +40,42 @@ function stripAdminOwnedKeys(bag: Record<string, unknown>): Record<string, unkno
   for (const key of ADMIN_OWNED_MERCHANTFIELDS_KEYS) {
     delete copy[key]
   }
+  return copy
+}
+
+// ─── S6 (2026-07-14): server-owned strict submission-contract key ────────────
+//
+// SUBMIT_CONTRACT_KEY (`__submitContract`) is a THIRD caller-forbidden merchantFields
+// key. The server STAMPS it (stampStrictSubmitContract) at every voucher-birth path so
+// every newly created custom / flagship / auto-provisioned voucher is born strict, and
+// it must be impossible for a merchant/admin API caller to SET, OVERWRITE, BLANK or
+// REMOVE it. We strip it (with the concierge keys) from every CALLER-SUPPLIED bag before
+// every write; because each write path MERGES the stored bag over the stripped input
+// (or does not touch the bag at all), the stored value always survives a tamper attempt.
+//
+// It is deliberately NOT added to ADMIN_OWNED_MERCHANTFIELDS_KEYS: that narrower set is
+// also used to CLEAR the concierge keys from the STORED bag on resubmit (submitVoucher),
+// and the contract key must SURVIVE that clear. So the caller-strip is its own combined
+// set, and stripAdminOwnedKeys stays concierge-only.
+const CALLER_OWNED_MERCHANTFIELDS_KEYS = [...ADMIN_OWNED_MERCHANTFIELDS_KEYS, SUBMIT_CONTRACT_KEY] as const
+
+// Strip every caller-forbidden key (concierge + submit-contract) from a merchant-supplied
+// bag. Used by the custom create + PATCH-merge paths.
+function stripCallerOwnedKeys(bag: Record<string, unknown>): Record<string, unknown> {
+  const copy = { ...bag }
+  for (const key of CALLER_OWNED_MERCHANTFIELDS_KEYS) {
+    delete copy[key]
+  }
+  return copy
+}
+
+// Strip ONLY the submit-contract key. Used by the RMV-edit merge, whose existing
+// allowedFields check already rejects any non-allow-listed key (belt): stripping here is
+// the braces, so a caller sneaking the key alongside valid fields cannot overwrite the
+// stored marker and the stored value survives the { ...current, ...proposed } merge.
+function stripSubmitContractKey(bag: Record<string, unknown>): Record<string, unknown> {
+  const copy = { ...bag }
+  delete copy[SUBMIT_CONTRACT_KEY]
   return copy
 }
 
@@ -333,8 +373,11 @@ export async function createVoucher(
 
   const code = generateVoucherCode('RCV')
   const hasWindows = !!data.availabilityWindows && data.availabilityWindows.length > 0
-  // B1 item 3: guard the FINAL stripped bag before the create reaches Prisma.
-  const merchantFieldsToStore = stripAdminOwnedKeys(data.merchantFields ?? {})
+  // S6: strip every caller-forbidden key (concierge + a caller-supplied submit-contract
+  // marker), THEN stamp the server-owned strict marker so every new custom voucher is
+  // born strict and a client cannot pre-seed a downgraded / fake contract. B1 item 3:
+  // guard the FINAL stamped bag before the create reaches Prisma.
+  const merchantFieldsToStore = stampStrictSubmitContract(stripCallerOwnedKeys(data.merchantFields ?? {}))
   assertMerchantFieldsWithinLimit(merchantFieldsToStore)
   const voucher = await prisma.voucher.create({
     data: {
@@ -354,9 +397,10 @@ export async function createVoucher(
       // Day-2 Vouchers A3: store the merchant-authored bag (askHelp + builder
       // draft). Default to {} so the column is never null for a custom voucher,
       // matching the RMV create paths. status/approvalStatus/isRmv/merchantId are
-      // server-set above and CANNOT be overridden by the bag.
-      // Codex review FIX 2: strip the server-owned adminProposed/adminNote concierge
-      // keys so a merchant cannot self-inject a fake Redeemo suggestion at create.
+      // server-set above and CANNOT be overridden by the bag. The FINAL bag (computed
+      // above) has the caller-forbidden keys stripped (concierge + any client
+      // __submitContract) and the server-owned strict marker stamped (S6), so every
+      // custom voucher is born strict and no client value can seed / downgrade it.
       merchantFields: merchantFieldsToStore as Prisma.InputJsonValue,
       // M5 Task 12.5 — propagate validated cooldown. Zod refine (Task
       // 12) guarantees: REUSABLE → null OR >= 1800; non-REUSABLE → null.
@@ -435,12 +479,15 @@ export async function updateVoucher(
   // ACTIVE / APPROVED (security invariant spec §6.1).
   if ('merchantFields' in data && data.merchantFields && typeof data.merchantFields === 'object') {
     const currentBag = (voucher.merchantFields as Record<string, unknown> | null) ?? {}
-    // Codex review FIX 2: strip the server-owned adminProposed/adminNote keys from the
-    // INCOMING bag before the merge. Because they are absent from the incoming side,
-    // the existing server-written values in currentBag are PRESERVED (a merchant
-    // editing other builder fields does not clear a real admin proposal), and a
-    // merchant attempt to set/overwrite them is dropped.
-    const mergedBag = { ...currentBag, ...stripAdminOwnedKeys(data.merchantFields as Record<string, unknown>) }
+    // Codex review FIX 2 + S6: strip every caller-forbidden key (concierge
+    // adminProposed/adminNote AND the server-owned __submitContract marker) from the
+    // INCOMING bag before the merge. Because they are absent from the incoming side, the
+    // existing server-written values in currentBag are PRESERVED (a merchant editing other
+    // builder fields does not clear a real admin proposal, and never removes/downgrades the
+    // strict marker), and any merchant attempt to set/overwrite them is dropped. NOTE the
+    // merge does NOT stamp: a genuine markerless legacy row edited here stays markerless
+    // (legacy compatibility) until the owner decides its disposition.
+    const mergedBag = { ...currentBag, ...stripCallerOwnedKeys(data.merchantFields as Record<string, unknown>) }
     // B1 item 3: guard the FINAL merged bag before the update reaches Prisma.
     assertMerchantFieldsWithinLimit(mergedBag)
     safe.merchantFields = mergedBag
@@ -591,6 +638,10 @@ export async function submitVoucher(
       // adminNote) are CLEARED on resubmit. stripAdminOwnedKeys removes exactly
       // those two keys; a normal DRAFT submit (no admin keys) is a no-op. The
       // stripped bag is strictly a subset of the stored bag, so no size concern.
+      // S6: this deliberately uses the NARROW concierge-only strip, NOT
+      // stripCallerOwnedKeys, so the __submitContract marker SURVIVES the resubmit
+      // clear; otherwise a strict voucher would silently lose its contract after the
+      // first submit and a later resubmit could regain the legacy exemption.
       data: {
         status: 'PENDING_APPROVAL',
         approvalStatus: 'PENDING',
@@ -784,7 +835,10 @@ export async function createFlagshipRmvVoucher(
       estimatedSaving: template.minimumSaving,
       status:          'DRAFT',
       approvalStatus:  'PENDING',
-      merchantFields:  {},
+      // S6: born strict. A template-default flagship draft carries the marker but no
+      // structured mechanic bag, so submit fails closed (VOUCHER_INCOMPLETE) until the
+      // merchant completes the builder; this closes the flagship create-then-submit bypass.
+      merchantFields:  stampStrictSubmitContract({}) as Prisma.InputJsonValue,
     },
   })
   writeAuditLog(prisma, {
@@ -910,15 +964,25 @@ export async function updateRmvVoucherCore(
   if (!voucher) throw new AppError('RMV_NOT_FOUND')
   if (voucher.status !== 'DRAFT') throw new AppError('VOUCHER_NOT_EDITABLE')
 
+  // S6: strip a caller-supplied __submitContract from the proposed bag before the merge
+  // (and before the allowedFields check). The key is not in any RmvTemplate.allowedFields,
+  // so the existing disallowed-key check would already reject it (belt); stripping is the
+  // braces so a caller cannot overwrite / downgrade / blank the stored marker, which
+  // survives the { ...current, ...proposed } merge below. This shared core is reached by
+  // BOTH the merchant PATCH and the admin edit-on-behalf/co-build path, so both are covered.
+  const cleanProposed = stripSubmitContractKey(proposedFields)
   const currentFields = (voucher.merchantFields as Record<string, unknown>) ?? {}
-  const merged = { ...currentFields, ...proposedFields }
+  const merged = { ...currentFields, ...cleanProposed }
 
   // Resolve the EFFECTIVE (destination) template FIRST, fail-closed
   // (RMV_TEMPLATE_UNAVAILABLE on an unresolvable sibling), then validate proposed KEYS
   // against ITS allowedFields. Both happen BEFORE the transaction, so a reject (missing
   // sibling OR a key the destination forbids) writes nothing.
   const { relink, allowedFields } = await resolveEffectiveTemplate(prisma, voucher, merged)
-  const disallowed = Object.keys(proposedFields).filter(k => !allowedFields.includes(k))
+  // Validate the CLEANED proposal keys (the stripped __submitContract never counts as a
+  // merchant-supplied field): a caller sneaking the marker alongside valid fields has it
+  // silently dropped, not the whole edit rejected, and the stored marker survives the merge.
+  const disallowed = Object.keys(cleanProposed).filter(k => !allowedFields.includes(k))
   if (disallowed.length > 0) throw new AppError('RMV_FIELD_NOT_ALLOWED')
 
   return prisma.$transaction(async (tx) => {
@@ -967,11 +1031,18 @@ export async function updateRmvVoucher(
  * INSIDE the transaction with actor + reason + before/after.
  *
  * S5 (owner requirement 2026-07-13): submission is FAIL-CLOSED. The effective
- * voucher (promoted columns + structured bag) must pass the S5 required-field
- * matrix (assertVoucherSubmittable) before the status flip: an incomplete or
- * invalid flagship is rejected with VOUCHER_INCOMPLETE (400). Blank submissions
- * are NO LONGER accepted; a template-default draft with no structured bag is
- * validated on the universal invariants (title + saving are template-set).
+ * voucher (promoted columns + structured bag) must pass the required-field matrix
+ * (assertVoucherSubmittable) before the status flip: an incomplete or invalid
+ * flagship is rejected with VOUCHER_INCOMPLETE (400).
+ *
+ * S6 (2026-07-14): strictness is driven by the SERVER-OWNED __submitContract marker,
+ * not the merchant-mutable builderType. Every flagship created post-S6 is stamped
+ * strict at birth (createFlagshipRmvVoucher / provisionRmvVouchers /
+ * handleCategoryChange / profile first-set), so a template-default draft (marker but
+ * EMPTY structured bag) now FAILS CLOSED on the mechanic derived from the authoritative
+ * type: it must run the builder before it can submit. This closes the flagship
+ * create-then-submit bypass. Only a genuine markerless legacy flagship (pre-S6) is still
+ * validated on the universal invariants alone (owner-paused disposition).
  */
 export async function submitRmvVoucherCore(
   prisma: PrismaClient,
@@ -1072,15 +1143,15 @@ export async function submitRmvVoucherCore(
     }
   }
 
-  // S5 (submission validity, owner requirement 2026-07-13): FAIL CLOSED on the flagship
-  // lane too. Validate the EFFECTIVE voucher (the promoted top-level values + re-linked
-  // type that this submit is about to write) plus the nested structured bag against the
-  // matrix, BEFORE the transaction. The existing assertSavingSane on a poisoned bag
-  // saving already ran above (keeps SAVING_INVALID); this adds the per-type completeness
-  // gate. A template-default flagship draft (empty/opaque bag) carries no structured bag,
-  // so it is validated on the universal invariants only (title + saving are template-set),
-  // never blocked by a mechanic field it never stored (S5.6). Flagship types are always a
-  // base type, so the wrapper rows never apply.
+  // S5/S6 (submission validity): FAIL CLOSED on the flagship lane too. Validate the
+  // EFFECTIVE voucher (the promoted top-level values + re-linked type that this submit is
+  // about to write) plus the FULL stored bag (which carries the server-owned marker and
+  // the nested structured bag) against the matrix, BEFORE the transaction. The existing
+  // assertSavingSane on a poisoned bag saving already ran above (keeps SAVING_INVALID);
+  // this adds the per-type completeness gate. Under S6 a strict template-default draft
+  // (marker present, empty/opaque bag) fails closed on the mechanic derived from the
+  // authoritative type; only a markerless legacy flagship is validated on the universal
+  // invariants alone. Flagship types are always a base type, so the wrapper rows never apply.
   const effectiveType = relink?.type ?? currentType
   const effectiveTitle = typeof promoted.title === 'string' ? promoted.title : voucher.title
   const effectiveSaving =
@@ -1479,7 +1550,8 @@ export async function provisionRmvVouchers(
         estimatedSaving: t.minimumSaving,
         status:          'DRAFT',
         approvalStatus:  'PENDING',
-        merchantFields:  {},
+        // S6: auto-provisioned flagship drafts are born strict.
+        merchantFields:  stampStrictSubmitContract({}) as Prisma.InputJsonValue,
       },
     })
   ))
@@ -1547,7 +1619,8 @@ export async function handleCategoryChange(
           estimatedSaving: t.minimumSaving,
           status:          'DRAFT',
           approvalStatus:  'PENDING',
-          merchantFields:  {},
+          // S6: re-provisioned flagship drafts on a category change are born strict.
+          merchantFields:  stampStrictSubmitContract({}) as Prisma.InputJsonValue,
         },
       })
     ))

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { buildApp } from '../../../src/api/app'
 import type { FastifyInstance } from 'fastify'
+import { SUBMIT_CONTRACT_KEY, STRICT_SUBMIT_CONTRACT } from '../../../src/api/merchant/voucher/submitValidation'
 
 /**
  * M2 B3 (Decision D, MINIMAL): the merchant flagship-RMV create-flagship endpoint.
@@ -94,7 +95,8 @@ describe('merchant flagship-RMV create-flagship route (M2 B3)', () => {
       estimatedSaving: bogoTemplate.minimumSaving,
       status: 'DRAFT',
       approvalStatus: 'PENDING',
-      merchantFields: {},
+      // S6: the flagship is born strict (server-stamped marker), not an empty {} bag.
+      merchantFields: { [SUBMIT_CONTRACT_KEY]: STRICT_SUBMIT_CONTRACT },
     }))
     expect(createArg.data.code).toMatch(/^RMV-/)
   })
@@ -284,13 +286,18 @@ describe('merchant flagship-RMV create-flagship route (M2 B3)', () => {
     )
   })
 
-  it('submits the created RMV: DRAFT -> PENDING_APPROVAL', async () => {
-    // S5: a flagship draft at template defaults (no structured builder bag) is validated
-    // on the universal invariants only; title + estimatedSaving are template-set on a real
-    // create-flagship, so they are present here for the fail-closed submit gate.
+  it('submits a COMPLETED strict flagship: DRAFT -> PENDING_APPROVAL', async () => {
+    // S6: a real strict flagship is submittable once the merchant has completed the
+    // builder, i.e. the marker is present AND the nested structured mechanic is filled.
+    // (The template-default marker-only draft failing closed is covered in the S6 contract
+    // suite: tests/api/merchant/voucher-submit-contract.test.ts.)
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
       id: 'rmv-new', merchantId: 'm1', isRmv: true, status: 'DRAFT',
-      type: 'BOGO', title: 'Buy One Get One Free', estimatedSaving: 5.0, merchantFields: {},
+      type: 'BOGO', title: 'Buy One Get One Free', estimatedSaving: 5.0,
+      merchantFields: {
+        [SUBMIT_CONTRACT_KEY]: STRICT_SUBMIT_CONTRACT,
+        merchantFields: { builderType: 'bogo', bogoBuy: 'A main', bogoFree: 'A side', bogoFreePrice: 5 },
+      },
     })
     app.prisma.voucher.update = vi.fn().mockResolvedValue({ id: 'rmv-new', status: 'PENDING_APPROVAL' })
 

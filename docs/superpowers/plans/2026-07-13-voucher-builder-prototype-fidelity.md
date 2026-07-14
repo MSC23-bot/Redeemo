@@ -341,3 +341,109 @@ would be a dishonest offer. See S5.7.
   (nothing silently degrades: the voucher keeps its existing link) and is
   deliberately not blocked: admin review is the backstop, and blocking would freeze
   previously valid drafts when an admin retires a template.
+
+## S6: server-owned strict submission contract (2026-07-14, owner-approved)
+
+### S6.1 Why (the S5 bypass)
+
+S5 (S5.6) engaged the mechanic matrix ONLY when the bag carried a string `builderType`
+(one of the two S5.2 shapes). `builderType` is a MERCHANT-mutable field, so a direct-API
+caller could bypass the S5 mechanic gate for NEW vouchers: `createVoucher` defaults
+`merchantFields` to `{}` (service.ts), `createFlagshipRmvVoucher` seeds `{}`; submit then
+skipped the matrix (`resolveStructuredBag` returns null without a string `builderType`) and
+returned 200 with no mechanic detail. A client-supplied marker is not tamper-resistant. The
+fix makes strictness a BACKEND-OWNED, VERSIONED signal a merchant/admin API caller can
+never supply, remove, downgrade or overwrite.
+
+### S6.2 The indicator
+
+- A single server-owned key in `Voucher.merchantFields`: `__submitContract: 'strict-v1'`
+  (`SUBMIT_CONTRACT_KEY` / `STRICT_SUBMIT_CONTRACT` in `submitValidation.ts`, the single
+  runtime source of truth; the shared test fixture mirrors the literals and the suite
+  asserts parity). The `__`-prefixed name cannot collide with a merchant builder field, and
+  it sits at the OUTER bag top level, so it never perturbs `resolveStructuredBag` (which
+  keys on `builderType` / nested `merchantFields.builderType`). The value is VERSIONED: a
+  future contract revision is a NEW token, never a silent change of meaning.
+- NO schema migration. The JSON approach was PROVEN robust across every write path (S6.4),
+  so the architecture fork to a schema column was NOT taken (owner-gated; not needed).
+
+### S6.3 Tamper-proof mechanism
+
+- Stamp: `stampStrictSubmitContract(bag)` writes the marker; applied at EVERY
+  voucher-birth path so every new custom / flagship / auto-provisioned voucher is born
+  strict (S6.5).
+- Strip: two caller-forbidden strip sets in `service.ts`:
+  - `stripCallerOwnedKeys` = concierge keys (`adminProposed`/`adminNote`) PLUS
+    `__submitContract`: applied to the CUSTOM create input and the CUSTOM PATCH-merge
+    input, so a caller can never SET or OVERWRITE the marker on those paths.
+  - `stripSubmitContractKey` = `__submitContract` only: applied to the RMV-edit merge
+    proposal (the shared `updateRmvVoucherCore`, reached by both the merchant PATCH and the
+    admin edit-on-behalf/co-build route), before the `allowedFields` check.
+  - The concierge-only `stripAdminOwnedKeys` is DELIBERATELY unchanged and still used for
+    the resubmit CONCIERGE CLEAR in `submitVoucher`, so the marker SURVIVES that clear (it
+    is NOT in the cleared set). Adding the marker to `ADMIN_OWNED_MERCHANTFIELDS_KEYS` would
+    have silently dropped it on the first submit and re-opened the exemption on resubmit.
+- Persistence: every write path either MERGES the stored bag over the stripped caller input
+  (`{ ...stored, ...stripped }`), or does not write `merchantFields` at all. Because the
+  caller input never contains the marker (stripped) and there is NO wholesale caller-replace
+  path, the stored server value always survives a SET / OVERWRITE / BLANK / REMOVE attempt.
+
+### S6.4 Across-all-write-paths proof (JSON-robustness evidence)
+
+| Write path | Op on `merchantFields` | Marker handling | Proof test |
+|---|---|---|---|
+| `createVoucher` (custom) | write caller bag | strip caller keys, THEN stamp | contract: create stamps (+ omitted-bag) |
+| `createFlagshipRmvVoucher` | write `{}` | stamp `{}` | flagship: create asserts marker; contract: flagship stamp |
+| `provisionRmvVouchers` | write `{}` | stamp `{}` | contract: provision stamps x2 |
+| `handleCategoryChange` | write `{}` (re-provision) | stamp `{}` | contract: category-change stamps x2 |
+| `setMerchantCategoryCore` (first-set) | write `{}` | stamp `{}` | contract: first-set stamps x2 |
+| `updateVoucher` (custom PATCH) | MERGE `{ ...current, ...stripCallerOwnedKeys(in) }` | stripped from input; current marker survives | contract: tamper x4 + benign-edit preserve |
+| `updateRmvVoucherCore` (merchant + admin co-build) | MERGE `{ ...current, ...stripSubmitContractKey(in) }` | stripped from input; current marker survives | contract: RMV PATCH + admin-core preserve |
+| `submitVoucher` (resubmit clear) | REPLACE `stripAdminOwnedKeys(stored)` | narrow clear KEEPS marker | contract: resubmit preserves marker, clears concierge |
+| `submitRmvVoucherCore` | writes promoted/relink cols only; NOT `merchantFields` | untouched | flagship: completed submit 200 |
+| `voucherApprover.requestVoucherChanges` (concierge REPLACE) | REPLACE `{ ...bagWithoutProposed, adminProposed?, adminNote }` | only `adminProposed` destructured out; `bagWithoutProposed` keeps marker; `buildAdminProposed` cannot inject it | contract: concierge preserves marker |
+| `editApplier` CHANGE / END | writes allow-listed top-level cols / `status` only | never writes `merchantFields` | (code-proven; buildVoucherApplied allow-list) |
+| `withdrawVoucherSubmission` / `withdrawVoucherPendingEdit` / `requestVoucherEnd` / `requestFlagshipVoucherChange` | do not write `voucher.merchantFields` | untouched | (code-proven) |
+
+Result: JSON PROVED ROBUST. Every write path stamps, merges-preserving, or leaves the bag
+untouched; no path replaces the bag with caller-controlled content that could omit the
+marker. No schema migration required.
+
+### S6.5 Creation-path list (born strict)
+
+`createVoucher`, `createFlagshipRmvVoucher`, `provisionRmvVouchers`, `handleCategoryChange`
+(re-provision on category change), and `setMerchantCategoryCore` first-set provisioning
+(profile). Sweep basis: every `prisma.voucher.create` / `createMany` in `src` outside the
+seed. (The seed is dev fixture data, not an API birth path, and is out of scope.)
+
+### S6.6 Gate change (submitValidation.ts)
+
+Strictness is driven by the SERVER-OWNED indicator, not `builderType`. In
+`assertVoucherSubmittable` the per-type mechanic runs when `strict || draft`:
+- STRICT (marker present): ALWAYS validate the mechanic, derived from the AUTHORITATIVE
+  `Voucher.type` (+ `discountKind`). `resolveMechanicType` tolerates a null draft and
+  returns the base type authoritatively; an empty / opaque bag therefore has every required
+  mechanic field ABSENT and FAILS CLOSED with `VOUCHER_INCOMPLETE` before any status /
+  voucher / audit write. A strict wrapper (TIME_LIMITED / REUSABLE) with no derivable
+  underlying mechanic fails closed on `baseMechanic` REQUIRED.
+- LEGACY (marker absent): unchanged S5.6 rule: validate the mechanic ONLY when a
+  structured bag is present, so a genuine markerless legacy row is never blocked by a
+  mechanic field it never stored. Universal + wrapper (window / cooldown) invariants are
+  unchanged in both cases.
+
+The shared executable fixture distinguishes the two: `LEGACY_CASES` (indicator-absent, e.g.
+`{}` -> 200) vs the new `STRICT_CONTRACT_CASES` (indicator-present, e.g. strict `{}` ->
+`VOUCHER_INCOMPLETE`). The strict cases are a SEPARATE export so the merchant-web client-gate
+suite (which iterates `LEGACY_CASES` without S6 awareness) is not broken; the client gate's
+own S6 adoption is a separate follow-up slice.
+
+### S6.7 Pre-fix DRAFT population note (owner-paused; NO data action)
+
+A read-only staging inventory (done before this fix) found the ONLY exempt
+submittable-DRAFT rows are 2 real-data flagship RMV drafts created 2026-07-13 (empty `{}`
+bags, template-default free-text, no mechanic): recent programme artifacts, NOT genuine
+pre-S5 legacy. No genuine complete legacy DRAFT offers exist. Those rows PRE-DATE this fix,
+so they carry NO marker and remain INDICATOR-ABSENT (legacy-exempt) until the owner decides
+their disposition. This fix deliberately does NOT touch, backfill, block-by-migration, or
+require resave of any existing row: markerless legacy rows stay compatible. Only NEWLY
+created vouchers (post-fix) are born strict and fail closed when incomplete.

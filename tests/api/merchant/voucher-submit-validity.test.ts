@@ -12,10 +12,18 @@ import {
   UNIVERSAL_CASES,
   WRAPPER_CASES,
   LEGACY_CASES,
+  STRICT_CONTRACT_CASES,
+  SUBMIT_CONTRACT_KEY,
+  STRICT_SUBMIT_CONTRACT,
+  withStrictContract,
   type BagShape,
   type SubmitLane,
   type Draft,
 } from '../../fixtures/voucher-submit-validity-cases'
+import {
+  SUBMIT_CONTRACT_KEY as RUNTIME_SUBMIT_CONTRACT_KEY,
+  STRICT_SUBMIT_CONTRACT as RUNTIME_STRICT_SUBMIT_CONTRACT,
+} from '../../../src/api/merchant/voucher/submitValidation'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // S5: voucher submission validity (owner requirement 2026-07-13).
@@ -391,4 +399,58 @@ describe('S5 legacy compatibility (fixture-driven; non-structured bags validate 
     expect(body.error.code).toBe('VOUCHER_INCOMPLETE')
     expect(body.error.fields).toEqual(expect.arrayContaining([expect.objectContaining(c.outcome)]))
   })
+})
+
+// ── S6 strict submission contract (indicator-present), fixture-driven, both lanes ──
+//
+// The mirror image of the legacy block. Each STRICT_CONTRACT_CASES bag is stamped with the
+// server-owned marker (withStrictContract) so the row is STRICT; an empty / opaque strict
+// bag FAILS CLOSED on the mechanic derived from the authoritative type, while a complete
+// strict bag submits. Driven across BOTH submit lanes so custom + flagship stay aligned.
+// The end-to-end create-then-submit bypass, tamper-resistance and stamping proofs live in
+// tests/api/merchant/voucher-submit-contract.test.ts.
+describe('S6 strict submission contract (fixture-driven, indicator-present)', () => {
+  it('the shared fixture marker constants mirror the runtime source of truth', () => {
+    expect(SUBMIT_CONTRACT_KEY).toBe(RUNTIME_SUBMIT_CONTRACT_KEY)
+    expect(STRICT_SUBMIT_CONTRACT).toBe(RUNTIME_STRICT_SUBMIT_CONTRACT)
+  })
+
+  for (const lane of SUBMIT_LANES) {
+    describe(`${lane} lane`, () => {
+      let app: FastifyInstance
+      let token: string
+      beforeEach(async () => {
+        app = await buildApp()
+        app.decorate('prisma', makePrisma() as any)
+        app.decorate('redis', { get: vi.fn().mockResolvedValue(null), exists: vi.fn().mockResolvedValue(1) } as any)
+        await app.ready()
+        token = (app.jwt as any).merchant.sign({ sub: 'ma1', role: 'merchant', deviceId: 'd1', sessionId: 's1' }, { expiresIn: '1h' })
+      })
+      afterEach(async () => { await app.close() })
+
+      const submit = (voucher: any) => {
+        app.prisma.voucher.findFirst = vi.fn().mockResolvedValue(voucher)
+        return app.inject({ method: 'POST', url: submitUrl(lane), headers: { authorization: `Bearer ${token}` } })
+      }
+
+      it.each(STRICT_CONTRACT_CASES)('$name', async (c) => {
+        const voucher = buildVoucher(lane, {
+          type: c.type,
+          bag: withStrictContract(c.bag),
+          ...(c.estimatedSaving !== undefined ? { estimatedSaving: c.estimatedSaving } : {}),
+        })
+        const res = await submit(voucher)
+        if (c.outcome === 'SUBMITS') {
+          expect(res.statusCode).toBe(200)
+          return
+        }
+        expect(res.statusCode).toBe(400)
+        const body = JSON.parse(res.body)
+        expect(body.error.code).toBe('VOUCHER_INCOMPLETE')
+        expect(body.error.fields).toEqual(expect.arrayContaining([expect.objectContaining(c.outcome)]))
+        // Fail closed: no status flip.
+        expect(app.prisma.voucher.update).not.toHaveBeenCalled()
+      })
+    })
+  }
 })
