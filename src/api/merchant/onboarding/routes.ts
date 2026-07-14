@@ -1,8 +1,9 @@
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import '../types'
-import { CONTRACT_VERSION, CONTRACT_TEXT, getOnboardingChecklist, getOnboardingTaxonomy, getOnboardingStatus, acceptContract, submitForApproval } from './service'
+import { getOnboardingChecklist, getOnboardingTaxonomy, getOnboardingStatus, acceptContract, submitForApproval } from './service'
 import { setMerchantIdentity } from '../profile/service'
+import { getServedAgreement } from '../agreement/service'
 
 export async function onboardingRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/merchant/onboarding'
@@ -44,15 +45,29 @@ export async function onboardingRoutes(app: FastifyInstance) {
     return reply.send(result)
   })
 
+  // D65 Slice 0 + review-round S2: the served agreement comes from the version registry
+  // (behaviour-compatible shape { version, text }). getServedAgreement returns the legacy
+  // non-draft 1.0 in PRODUCTION while the current version is a draft (pre-D65 production
+  // onboarding preserved), else the current version (the draft in non-production for QA).
   app.get(`${prefix}/contract`, async (_req: FastifyRequest, reply) => {
-    return reply.send({ version: CONTRACT_VERSION, text: CONTRACT_TEXT })
+    const served = getServedAgreement()
+    return reply.send({ version: served.version, text: served.content })
   })
 
+  // D65 Slice 2: signerName is threaded through for the evidence record but stays
+  // OPTIONAL for backward compatibility (the current merchant-web form does not send
+  // it yet). When absent, acceptContract records a documented placeholder.
   app.post(`${prefix}/contract/accept`, async (req: FastifyRequest, reply) => {
-    const { version } = z.object({ version: z.string() }).parse(req.body)
-    const result = await acceptContract(app.prisma, req.user.sub, version, {
-      ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '',
-    })
+    const { version, signerName } = z
+      .object({ version: z.string(), signerName: z.string().trim().min(1).optional() })
+      .parse(req.body)
+    const result = await acceptContract(
+      app.prisma,
+      req.user.sub,
+      version,
+      { ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' },
+      { signerName },
+    )
     return reply.send(result)
   })
 

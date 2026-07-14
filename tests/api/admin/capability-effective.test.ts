@@ -44,6 +44,9 @@ describe('FIELD baseline (pinned)', () => {
     'merchant:manage-branches',
     'merchant:manage-documents',
     'merchant:manage-vouchers',
+    // D65: FIELD witnesses the in-person contract-signing ceremony (assisted
+    // onboarding end-to-end), clamped by the pre-live scope guard.
+    'merchant:sign-agreement',
     // MerchantNote packet: the universal notes cap is in every baseline (incl FIELD).
     'merchant:notes',
   ]

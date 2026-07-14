@@ -71,6 +71,15 @@ describe('M2 — admin capability map', () => {
       }
     })
 
+    it('D65: merchant:sign-agreement held by OPERATIONS + FIELD + SUPER_ADMIN, not FINANCE/CONTENT/SUPPORT', () => {
+      expect(adminHasCapability('OPERATIONS', 'merchant:sign-agreement')).toBe(true)
+      expect(adminHasCapability('FIELD', 'merchant:sign-agreement')).toBe(true)
+      expect(adminHasCapability('SUPER_ADMIN', 'merchant:sign-agreement')).toBe(true)
+      for (const role of ['FINANCE', 'CONTENT', 'SUPPORT']) {
+        expect(adminHasCapability(role, 'merchant:sign-agreement')).toBe(false)
+      }
+    })
+
     it('D67: redemption:read held by OPERATIONS + SUPER_ADMIN, not FINANCE/CONTENT/SUPPORT', () => {
       expect(adminHasCapability('OPERATIONS', 'redemption:read')).toBe(true)
       expect(adminHasCapability('SUPER_ADMIN', 'redemption:read')).toBe(true)

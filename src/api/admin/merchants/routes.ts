@@ -10,6 +10,7 @@ import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
 import { updateMerchantProfileDirectCore, setMerchantCategoryCore, createMerchantEditRequestCore } from '../../merchant/profile/service'
 import { createBranchCore, toAdminBranchShape } from '../../merchant/branch/service'
 import { submitForApprovalCore } from '../../merchant/onboarding/service'
+import { signAgreementInPerson } from '../../merchant/agreement/service'
 import { AppError } from '../../shared/errors'
 import { isStorageEnabled, kindPolicy } from '../../shared/storage'
 import { listMerchantDocuments, createMerchantDocument, deleteMerchantDocument } from './documents'
@@ -307,6 +308,51 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       onboardingStep: updated.onboardingStep,
       verificationStatus: updated.verificationStatus,
     }
+  })
+
+  // ── D65: in-person assisted contract-signing ceremony ────────────────────────
+  //
+  // The rep (req.user.sub) WITNESSES the owner's signature on the rep's device: the
+  // owner's typed name is the signature of record; the rep is recorded as actorAdminId
+  // plus the witness identity, not in the signer field. An obvious same-name signing is
+  // refused, but the system cannot independently prove two distinct humans were present.
+  // FIX 2: the witness IDENTITY is
+  // NOT client-supplied; the service looks up the authenticated rep's name + email from
+  // AdminUser server-side and persists THAT as evidence. Gated on the operational
+  // `merchant:sign-agreement` cap (OPERATIONS + FIELD). resolveTargetMerchantForAdmin
+  // 404s an unknown merchant; assertFieldPreLiveScope clamps FIELD to PRE-LIVE
+  // merchants (signing happens during onboarding). The fail-closed
+  // AGREEMENT_LEGAL_REVIEW_REQUIRED gate (in the service) refuses production binding
+  // writes while legal review is pending; staging/dev run fully, DRAFT-watermarked.
+  // STRICT body: the typed name + authority role (+ optional explicit version). No
+  // `reason` (the ceremony IS the act; the audit carries version + hash metadata). No
+  // `witnessLabel` (FIX 2: witness identity is authenticated server-side, not request text).
+  app.post(`${prefix}/:id/agreement/sign`, { preHandler: [requireAdminCapability('merchant:sign-agreement')] }, async (req: any) => {
+    const body = z
+      .object({
+        signerName: z.string().trim().min(1),
+        signerRoleConfirmation: z.string().trim().min(1),
+        agreementVersion: z.string().min(1).optional(),
+      })
+      .strict()
+      .parse(req.body)
+
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+    // S3 defence-in-depth: a FIELD rep may witness signing only for a PRE-LIVE merchant.
+    await assertFieldPreLiveScope(app.prisma, req.user.adminRole, id)
+
+    return signAgreementInPerson(
+      app.prisma,
+      {
+        merchantId: id,
+        actorAdminId: req.user.sub,
+        signerName: body.signerName,
+        signerRoleConfirmation: body.signerRoleConfirmation,
+        agreementVersion: body.agreementVersion,
+      },
+      auditCtx(req),
+    )
   })
 
   // ── Option B B4: admin merchant documents (upload / view / delete on behalf) ──

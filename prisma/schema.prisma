@@ -444,6 +444,20 @@ enum SignatureMethod {
   ZOHO_SIGN
 }
 
+// D65 (in-person signing ceremony): the CHANNEL a MerchantAgreementRecord was
+// signed through. IN_PERSON_ASSISTED = the assisted-onboarding ceremony on a
+// Redeemo rep's device: the rep is recorded in the witness fields (actorAdminId
+// set), and the typed signerName is the owner's own signature of record - an
+// obvious same-name signing is refused, though the system cannot independently
+// prove two distinct humans were present (see MerchantAgreementRecord below).
+// SELF_SERVE_CLICK = the merchant portal click-to-agree fallback (actorAdminId
+// null). MerchantContract.signatureMethod stays CLICK_TO_AGREE for both in this
+// slice; the fidelity of channel lives here (spec §4.2).
+enum AgreementSignMethod {
+  IN_PERSON_ASSISTED
+  SELF_SERVE_CLICK
+}
+
 // ─────────────────────────────────────────
 // MERCHANT
 // ─────────────────────────────────────────
@@ -496,6 +510,10 @@ model Merchant {
   // the FK lives on MerchantNote.merchantId, so this edit is relation-side and
   // the note migration stays create-only (no ALTER of the Merchant table).
   notes                MerchantNote[]
+  // D65 (2026-07-14): immutable agreement evidence ledger. Back-relation only;
+  // the FK lives on MerchantAgreementRecord.merchantId, so this is relation-side
+  // and the D65 migration stays create-only (no ALTER of the Merchant table).
+  agreementRecords     MerchantAgreementRecord[]
 
   @@index([status])
   @@index([primaryCategoryId])
@@ -797,6 +815,56 @@ model MerchantContract {
   zohoSignRequestId String?
 
   merchant Merchant @relation(fields: [merchantId], references: [id])
+}
+
+// D65 (spec §4.1): the IMMUTABLE, APPEND-ONLY agreement evidence ledger. Sits
+// BESIDE MerchantContract (which stays the 1:1 "current contract" pointer the
+// onboarding gate reads); this is the per-signing-event evidence pack (agreement
+// version + content hash, signer identity, witness, when/where, and the signed
+// private-R2 PDF). Immutability is an APPLICATION-LEVEL CONTRACT, not a DB feature:
+// NO service code ever issues update/delete against this table - a superseding
+// agreement version produces a NEW row, leaving prior rows untouched (a guard test
+// asserts no update/delete call sites exist). merchantId is a real RESTRICT FK
+// (structural parent, like MerchantNote); actorAdminId is a bare admin-id column
+// (NO FK, matching the MerchantLead.assignedRepId / AdminApproval.claimedById
+// precedent). Leaf table -> the migration stays create-only.
+model MerchantAgreementRecord {
+  id                     String              @id @default(uuid())
+  merchantId             String
+
+  // Agreement identity (WHAT was signed).
+  agreementVersion       String
+  contentHash            String
+
+  // Signatory identity (WHO signed). signerName is the typed full name = the
+  // signature of record; signerRoleConfirmation is the authority attestation.
+  signerName             String
+  signerRoleConfirmation String
+
+  // Witness / channel. actorAdminId = the witnessing rep on IN_PERSON_ASSISTED;
+  // NULL on self-serve. The rep is recorded here as witness, never in the signer fields; obvious same-name signing is refused, and the system cannot independently prove two distinct humans were present.
+  actorAdminId           String?
+  // Witness IDENTITY evidence (Codex correction FIX 2): the authenticated rep's own
+  // name + email, looked up server-side from AdminUser at ceremony time, NOT any
+  // client-supplied text. NULL on self-serve (no witness). This records that the
+  // authenticated rep witnessed the signing; it does not, on its own, technically
+  // prove two distinct humans were present.
+  witnessName            String?
+  witnessEmail           String?
+  method                 AgreementSignMethod
+
+  // When + where.
+  signedAt               DateTime            @default(now())
+  ipAddress              String
+  userAgent              String
+
+  // Signed artifact (private R2 document key) + optional stylus image.
+  pdfKey                 String
+  drawnSignatureKey      String?
+
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+
+  @@index([merchantId])
 }
 
 // ─────────────────────────────────────────

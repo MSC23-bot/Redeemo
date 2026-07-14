@@ -1,21 +1,28 @@
 import type { Redis } from 'ioredis'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
-import { writeAuditLog, writeAuditLogTx } from '../../shared/audit'
+import { writeAuditLogTx } from '../../shared/audit'
+import { isStorageEnabled, deleteObject } from '../../shared/storage'
 import { resolveAdminMerchant, type EditActor } from '../shared'
+import {
+  getServedAgreement,
+  isVersionWatermarked,
+  renderAndStoreAgreementPdf,
+  SELF_SERVE_SIGNER_NOT_CAPTURED,
+} from '../agreement/service'
 import { emitMerchantSubmittedAlert, emitMerchantResubmittedAlert } from '../../shared/adminNotify'
 import { getMerchantOwnerContact } from '../../shared/merchantMembership'
 import { notify } from '../../shared/notify'
 import { merchantSubmittedOnBehalfEmail } from '../../shared/merchantEmails'
 
-export const CONTRACT_VERSION = '1.0'
-export const CONTRACT_TEXT = `
-Redeemo Merchant Agreement v${CONTRACT_VERSION}
-
-By accepting this agreement, you agree to offer a minimum of two Redeemo Mandatory Vouchers (RMV) on the platform. These vouchers are performance-based — you are only promoted when a customer redeems. You retain full control of your custom vouchers. Redeemo reserves the right to suspend merchants who fail to honour redeemed vouchers.
-
-Full legal terms are available at redeemo.co.uk/merchant-terms.
-`.trim()
+// D65 Slice 0: the hardcoded CONTRACT_VERSION / CONTRACT_TEXT constants are
+// SUPERSEDED by the agreement version registry (src/api/merchant/agreement/versions.ts).
+// GET /contract + acceptContract now read the SERVED version + content from the registry
+// (behaviour-compatible: GET /contract still returns { version, text }). Review-round S2:
+// getServedAgreement serves + binds the legacy non-draft 1.0 in PRODUCTION while the
+// current version is a draft (preserving pre-D65 production onboarding), and the current
+// draft in non-production for QA. The registry is the single source of the version id +
+// the sha256 content hash pinned into evidence.
 
 // Checklist computation keyed by merchantId — shared by the merchant-facing
 // getOnboardingChecklist (resolves via adminId) and the M3 admin actioner
@@ -165,34 +172,174 @@ export async function getOnboardingStatus(prisma: PrismaClient, adminId: string)
   }
 }
 
+/**
+ * Merchant self-serve click-to-agree (the fallback path preserved beside the D65
+ * assisted ceremony). D65 Slice 2 retrofit: this ALSO renders a signed PDF + writes
+ * an immutable MerchantAgreementRecord (method SELF_SERVE_CLICK, actorAdminId null)
+ * so the fallback gains the same evidence pack.
+ *
+ * `signerName` is threaded from the route but stays OPTIONAL for backward
+ * compatibility (the current merchant-web form does not send it yet). When absent, a
+ * documented placeholder (SELF_SERVE_SIGNER_NOT_CAPTURED) is recorded rather than a
+ * fabricated name - flagged for the merchant-web to start sending the typed name.
+ *
+ * The version + hash pinned into the evidence record AND the MerchantContract.tcVersion
+ * pointer all come from getServedAgreement() (authoritative: the legacy 1.0 in production
+ * while the current version is a draft, the current draft in non-production), resolved
+ * ONCE. The client-echoed `version` is an INTEGRITY CHECK ONLY: it must equal the served
+ * version or the request is refused (AGREEMENT_VERSION_MISMATCH, 409) BEFORE any PDF
+ * render/upload, guarding against binding a merchant to text they did not review (a stale
+ * page). The honest merchant-web client echoes the version it fetched from GET /contract,
+ * which IS the served version, so an honest client never hits the 409.
+ *
+ * Storage posture: the retrofit is ADDITIVE and must never break onboarding. When
+ * STORAGE_ENABLED is off (local/dev/tests), it degrades to the pre-D65 behaviour
+ * (contract row + status flip + audit, NO PDF/evidence record), since the evidence
+ * record requires a pdfKey. Where storage is live (staging/prod) it always writes the
+ * evidence record. This path is NOT production-gated by AGREEMENT_LEGAL_REVIEW_REQUIRED
+ * (the existing self-serve flow already flips contractStatus in production today;
+ * gating it would break onboarding). FIX 3: the PDF is watermarked only when the SERVED
+ * version is a draft. In production the served version is the non-draft legacy 1.0, so the
+ * bound PDF is CLEAN; in non-production the served draft is watermarked for QA.
+ */
 export async function acceptContract(
   prisma: PrismaClient,
   adminId: string,
   version: string,
-  ctx: { ipAddress: string; userAgent: string }
+  ctx: { ipAddress: string; userAgent: string },
+  opts?: { signerName?: string }
 ) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
-  const merchant = await prisma.merchant.findUnique({ where: { id: merchantId }, select: { contractStatus: true } })
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { contractStatus: true, businessName: true, tradingName: true, companyNumber: true, vatNumber: true },
+  })
   if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
   if (merchant.contractStatus === 'SIGNED') throw new AppError('CONTRACT_ALREADY_SIGNED')
 
-  await prisma.merchantContract.create({
-    data: {
+  const agreement = getServedAgreement()
+
+  // Integrity check (runs BEFORE any PDF render/upload): the client echoes the version it
+  // fetched from GET /contract, which IS the served version, so an honest client always
+  // matches. A mismatch means the client reviewed a stale page; refuse (409) here so no
+  // PDF, evidence record, or pointer is written under a version the merchant did not see.
+  if (version !== agreement.version) {
+    throw new AppError('AGREEMENT_VERSION_MISMATCH')
+  }
+
+  const signedAt = new Date()
+  const typedName = opts?.signerName?.trim()
+  const signerName = typedName && typedName.length > 0 ? typedName : SELF_SERVE_SIGNER_NOT_CAPTURED
+
+  // Render + store the evidence PDF only when storage is live; degrade otherwise so
+  // onboarding never breaks in a storage-dark environment.
+  let pdfKey: string | null = null
+  if (isStorageEnabled()) {
+    pdfKey = await renderAndStoreAgreementPdf({
       merchantId,
-      signedAt:        new Date(),
-      ipAddress:       ctx.ipAddress,
-      tcVersion:       version,
-      signatureMethod: 'CLICK_TO_AGREE',
-    },
-  })
+      agreement,
+      signerName,
+      signerRoleConfirmation: 'Self-serve (merchant portal)',
+      businessLegalName: merchant.businessName,
+      tradingName: merchant.tradingName,
+      companyNumber: merchant.companyNumber,
+      vatNumber: merchant.vatNumber,
+      method: 'SELF_SERVE_CLICK',
+      witnessLabel: null,
+      signedAt,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      drawnSignature: null,
+    })
+  }
 
-  await prisma.merchant.update({
-    where: { id: merchantId },
-    data:  { contractStatus: 'SIGNED', contractStartDate: new Date() },
-  })
+  // FIX 1: when a PDF was rendered+stored above (storage live), it is already in R2 before
+  // this transaction. If the transaction fails, that object would orphan, so a compensating
+  // best-effort delete runs in the catch before the original error is rethrown; a cleanup
+  // failure is logged and swallowed so it can never mask the original error. When storage is
+  // dark (pdfKey null) there is nothing to compensate.
+  try {
+    await prisma.$transaction(async (tx) => {
+    await tx.merchantContract.create({
+      data: {
+        merchantId,
+        signedAt,
+        ipAddress: ctx.ipAddress,
+        // The pointer takes its authority from the SERVER-selected served agreement (the
+        // same object that renders the PDF + stamps the evidence record), never client input.
+        tcVersion: agreement.version,
+        signatureMethod: 'CLICK_TO_AGREE',
+      },
+    })
 
-  writeAuditLog(prisma, { entityId: merchantId, entityType: 'merchant', event: 'MERCHANT_CONTRACT_ACCEPTED', ipAddress: ctx.ipAddress, userAgent: ctx.userAgent })
-  return { accepted: true }
+    await tx.merchant.update({
+      where: { id: merchantId },
+      data: { contractStatus: 'SIGNED', contractStartDate: signedAt },
+    })
+
+    // Preserve the existing status-flip audit (backward compat), in-transaction now.
+    await writeAuditLogTx(tx, {
+      entityId: merchantId,
+      entityType: 'merchant',
+      event: 'MERCHANT_CONTRACT_ACCEPTED',
+      actorId: adminId,
+      actorType: 'MERCHANT_ADMIN',
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+    })
+
+    // D65: the immutable evidence record + its own audit, only when a PDF was stored.
+    if (pdfKey) {
+      const record = await tx.merchantAgreementRecord.create({
+        data: {
+          merchantId,
+          agreementVersion: agreement.version,
+          contentHash: agreement.contentHash,
+          signerName,
+          signerRoleConfirmation: 'Self-serve (merchant portal)',
+          actorAdminId: null,
+          method: 'SELF_SERVE_CLICK',
+          signedAt,
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
+          pdfKey,
+          drawnSignatureKey: null,
+        },
+        select: { id: true },
+      })
+      await writeAuditLogTx(tx, {
+        entityId: merchantId,
+        entityType: 'merchant',
+        event: 'MERCHANT_AGREEMENT_SIGNED_SELF_SERVE',
+        actorId: adminId,
+        actorType: 'MERCHANT_ADMIN',
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        metadata: {
+          recordId: record.id,
+          agreementVersion: agreement.version,
+          contentHash: agreement.contentHash,
+          method: 'SELF_SERVE_CLICK',
+          signerNameCaptured: Boolean(typedName && typedName.length > 0),
+        },
+      })
+    }
+    })
+  } catch (err) {
+    if (pdfKey) {
+      try {
+        await deleteObject(pdfKey)
+      } catch (cleanupErr) {
+        console.warn(`[acceptContract] orphan PDF cleanup for "${pdfKey}" failed (ignored):`, cleanupErr)
+      }
+    }
+    throw err
+  }
+
+  // FIX 3: the confirmation "gated" flag reflects the SERVED version's draft status
+  // (watermark), decoupled from the env flag: false for the non-draft legacy 1.0 bound in
+  // production, true for the draft served in non-production.
+  return { accepted: true, gated: isVersionWatermarked(agreement) }
 }
 
 /**
