@@ -86,7 +86,7 @@ export function Footer() {
             </Link>
             <p className="text-[12.5px] md:text-[13px] leading-relaxed text-white/45 max-w-[250px]">
               Member-only offers from the businesses around you, with new
-              vouchers every month.
+              vouchers every&nbsp;month.
             </p>
           </div>
 

@@ -72,7 +72,7 @@ export function WhatIsRedeemoSection() {
           </p>
           <p className="text-[16.5px] text-[#4B5563] leading-[1.75] max-w-[520px] mb-8">
             Browse what is near you for free, choose a voucher, and use it when
-            you visit.
+            you&nbsp;visit.
           </p>
 
           {/* What it is not */}

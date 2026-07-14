@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AppStoreBadge, GooglePlayBadge } from '@/components/landing/HeroSection'
+import { BrandStop } from '@/components/ui/BrandStop'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -44,7 +45,7 @@ const PHASE_2_STEPS: Step[] = [
   },
   {
     n: 5,
-    title: 'Show your unique code to staff',
+    title: 'Show your unique code to staff',
     body: 'Once you enter the PIN, the app generates a unique redemption code tied to your account and that visit. Show the QR code or the alphanumeric code to the member of staff.',
   },
   {
@@ -370,7 +371,7 @@ export function HowItWorksContent() {
             style={{ fontSize: 'clamp(34px, 5vw, 62px)', letterSpacing: '-0.8px' }}
           >
             Simple to join.{' '}
-            <span className="gradient-text block">Even simpler to redeem.</span>
+            <span className="gradient-text block">Even simpler to <span className="whitespace-nowrap">redeem<BrandStop tone="inherit" /></span></span>
           </motion.h1>
 
           <motion.p
@@ -474,7 +475,7 @@ export function HowItWorksContent() {
               className="font-display text-[#010C35] leading-[1.1] mt-1"
               style={{ fontSize: 'clamp(22px, 2.8vw, 32px)', letterSpacing: '-0.3px' }}
             >
-              Getting started. Takes about 2 minutes.
+              Getting started. Takes about 2&nbsp;minutes.
             </h2>
           </motion.div>
 
@@ -556,10 +557,10 @@ export function HowItWorksContent() {
               className="font-display text-[#010C35] leading-[1.1] mb-3"
               style={{ fontSize: 'clamp(28px, 3.5vw, 44px)', letterSpacing: '-0.3px' }}
             >
-              What the free plan includes
+              What the free plan&nbsp;includes
             </h2>
             <p className="text-[15px] text-[#4B5563] leading-[1.65] max-w-[520px]">
-              Everything you need to decide if Redeemo is for you. Redeeming is the one thing that needs a subscription.
+              Everything you need to decide if Redeemo is for you. Redeeming is the one thing that needs a&nbsp;subscription.
             </p>
           </motion.div>
 
@@ -710,7 +711,7 @@ export function HowItWorksContent() {
               className="font-display text-white leading-[1.08] mb-5"
               style={{ fontSize: 'clamp(28px, 4vw, 48px)', letterSpacing: '-0.5px' }}
             >
-              Redeeming happens in the app.
+              Redeeming happens in the&nbsp;app.
             </h2>
             <p className="text-[15px] text-white/48 leading-[1.7] mb-9">
               Browse here. Subscribe here. Redeem in the Redeemo app at the venue.

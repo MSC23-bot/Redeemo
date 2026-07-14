@@ -1003,3 +1003,44 @@ edited by this workstream.
   brighten with their chapter. Desktop only (mobile and landscape modes
   have no rail). tsc clean; verified at 1440x900 on chapter four:
   nodes 1-4 filled, 4 glowing, 5 hollow, no copy collision.
+
+## 2026-07-14 · Orphan sweep + Brand Full Stop + no-card reassurance
+
+Owner round: screenshots showed orphaned last words in headings and body
+copy across the site, plus a request to apply the branding "full stop"
+device discussed previously, plus (queued mid-round) "no card needed"
+reassurance near sign-up CTAs.
+
+The full-stop device was located in the brand design system foundations
+doc (2026-06-10): the Brand Full Stop, a terminal period ~1.4-1.5x the
+headline size in rose #E20C04 (or inheriting the warm gradient on large
+statements), used on confident marketing statements only, HARD LIMIT one
+per screen/composition, never in body, labels, or legal text. Built as
+components/ui/BrandStop.tsx and applied to: hero "Cut what they cost."
+(gradient), journey finale "Watch it add up.", shelf "Seven ways to pay
+less.", pricing section "Membership that pays for itself." (the doc's own
+canonical example), and each sub-page hero h1 (how-it-works "redeem.",
+pricing "ready.", for-businesses "margins.", insider "gems.", all
+gradient-inherit). Welcome popup skipped: rose vanishes on its brand-red
+band. Each stop is nowrap-glued to its final word.
+
+Orphans: global text-wrap rules added to globals.css (headings balance,
+p/li/figcaption pretty) plus explicit no-break spaces on ~40 flagged
+strings across 12 files (found via an in-browser Range-API line-box
+detector run over all five pages at 1440 and 390; belt-and-braces for
+WebKit). Journey ch2 retitled "Everything about a place, in one tap."
+because ch2 and ch3 both ended "before you go." (repetition). Detector
+notes for next time: 3D-tilted cards and the enlarged stop glyph produce
+false positives (post-transform rects break line grouping).
+
+No-card reassurance: hero founding line now ends "Free to join, no card
+needed."; Free pricing ticket body gains "No card needed."; journey ch5
+CTA footnote and landing app-panel closer carry "Free to join, no card
+needed"; pricing-page closer subline folds it in (an agent-added
+duplicate line there was removed in review; popup already had it).
+
+Split: Sonnet 5 executed the sub-page file sweep to a precise brief
+(faithful; one duplication caught in lead review), lead did landing
+files, CSS, BrandStop, verification. tsc clean; verified by screenshot
+at 1440x900 and 390x780. VoucherTypesSection.tsx and landing
+HowItWorksSection.tsx confirmed dead code (not rendered, left untouched).

@@ -5,6 +5,7 @@ import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion
 import { useEffect, useRef, useState } from 'react'
 import { useScrollLinked } from './scroll'
 import { useViewportMode } from './useViewportMode'
+import { BrandStop } from '@/components/ui/BrandStop'
 
 // Navy background, red radial glow and the live 3D ribbon: moved here from
 // the retired Redeemo Standard section (owner 2026-07-13).
@@ -53,7 +54,7 @@ const TYPES: RailType[] = [
     key: 'bogo',
     chip: 'BOGO',
     title: 'Buy one, get one free',
-    body: 'Order one and a second arrives on the house.',
+    body: 'Order one and a second arrives on the house.',
     deals: 'A second coffee free · a second main free · one to share for nothing',
     accent: '#7C3AED',
     accentBg: 'rgba(124,58,237,0.1)',
@@ -62,7 +63,7 @@ const TYPES: RailType[] = [
     key: 'discount',
     chip: 'Discount',
     title: 'Straight discount',
-    body: 'A clean cut off the bill, stated up front.',
+    body: 'A clean cut off the bill, stated up front.',
     deals: '20% off the bill · £10 off a treatment · money off, plain and simple',
     accent: '#E20C04',
     accentBg: 'rgba(226,12,4,0.1)',
@@ -71,7 +72,7 @@ const TYPES: RailType[] = [
     key: 'freebie',
     chip: 'Freebie',
     title: 'Freebie',
-    body: 'Something extra, free with your visit.',
+    body: 'Something extra, free with your visit.',
     deals: 'A pastry with your coffee · a side with your main · a taster on the house',
     accent: '#16A34A',
     accentBg: 'rgba(22,163,74,0.1)',
@@ -80,7 +81,7 @@ const TYPES: RailType[] = [
     key: 'spend',
     chip: 'Spend & save',
     title: 'Spend and save',
-    body: 'Pass a spend level and money comes off.',
+    body: 'Pass a spend level and money comes off.',
     deals: 'Spend £40, save £10 · stock up and save · bigger baskets, bigger rewards',
     accent: '#E84A00',
     accentBg: 'rgba(232,74,0,0.1)',
@@ -89,7 +90,7 @@ const TYPES: RailType[] = [
     key: 'package',
     chip: 'Package deal',
     title: 'Package deal',
-    body: 'A bundle priced better than its parts.',
+    body: 'A bundle priced better than its parts.',
     deals: 'Cut and finish as one booking · lunch combos · sessions bundled for less',
     accent: '#2563EB',
     accentBg: 'rgba(37,99,235,0.1)',
@@ -98,7 +99,7 @@ const TYPES: RailType[] = [
     key: 'time',
     chip: 'Time-limited',
     title: 'Time-limited',
-    body: 'Extra generous, for a short window.',
+    body: 'Extra generous, for a short window.',
     deals: 'Off-peak prices · morning-only treats · catch it while it is live',
     accent: '#D97706',
     accentBg: 'rgba(217,119,6,0.1)',
@@ -107,7 +108,7 @@ const TYPES: RailType[] = [
     key: 'reusable',
     chip: 'Reusable',
     title: 'Reusable',
-    body: 'It does not burn out: it returns after every visit.',
+    body: 'It does not burn out: it returns after every visit.',
     deals: 'Your usual order, cheaper every time · the regular that rewards you',
     accent: '#0D9488',
     accentBg: 'rgba(13,148,136,0.1)',
@@ -319,7 +320,9 @@ function ShelfHeader() {
       <p className="text-[12px] font-bold tracking-[0.2em] uppercase text-white/40 mb-4">What members get</p>
       <div className="flex flex-wrap items-end justify-between gap-6">
         <h2 className="font-display text-white leading-[1.06]" style={{ fontSize: 'clamp(30px, 3.8vw, 54px)', letterSpacing: '-0.8px' }}>
-          Seven ways to pay less.
+          {/* the shelf's one Brand Full Stop (RenewalNote shares this
+              pinned viewport, so it stays plain) */}
+          Seven ways to <span className="whitespace-nowrap">pay less<BrandStop /></span>
         </h2>
         <p className="text-[15px] text-white/55 leading-[1.7] max-w-[420px]">
           Every offer on Redeemo is one of seven clear voucher types, always

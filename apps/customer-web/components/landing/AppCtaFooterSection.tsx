@@ -110,7 +110,8 @@ export function AppCtaFooterSection() {
                 </svg>
               </Link>
               <p className="text-[12px] text-white/35">
-                The app arrives at launch: iOS &amp; Android
+                Free to join, no card needed · the app arrives at launch on
+                iOS&nbsp;&amp;&nbsp;Android
               </p>
             </>
           )}

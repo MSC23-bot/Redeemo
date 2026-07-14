@@ -5,6 +5,7 @@ import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } fro
 import { useRef, useCallback } from 'react'
 import { HeroCollage, HeroCollageMobile } from './HeroCollage'
 import { isMarketplaceLive } from '@/lib/prelaunch'
+import { BrandStop } from '@/components/ui/BrandStop'
 
 const EASE = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
@@ -104,7 +105,11 @@ export function HeroSection() {
               {/* non-breaking group: narrow viewports break after "things",
                   never stranding "enjoy." on its own line */}
               Keep the things you&nbsp;enjoy.{' '}
-              <span className="gradient-text block">Cut what they cost.</span>
+              {/* Brand Full Stop: the hero's one signature period, inheriting
+                  the gradient clip (one per screen, locked overuse guard) */}
+              <span className="gradient-text block">
+                Cut what they <span className="whitespace-nowrap">cost<BrandStop tone="inherit" /></span>
+              </span>
             </motion.h1>
 
             {/* Sub (owner brief 2026-07-14): membership plainly, offers
@@ -171,7 +176,8 @@ export function HeroSection() {
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="flex-shrink-0">
                     <path d="M8 1.5 l1.8 3.9 4.2.5 -3.1 2.9.8 4.2 L8 10.9 4.3 13l.8-4.2 -3.1-2.9 4.2-.5 Z" fill="#E20C04" opacity="0.85" />
                   </svg>
-                  Founding members get their first two months free at launch.
+                  Founding members get their first two months free
+                  at&nbsp;launch. Free to join, no card&nbsp;needed.
                 </p>
               )}
             </motion.div>

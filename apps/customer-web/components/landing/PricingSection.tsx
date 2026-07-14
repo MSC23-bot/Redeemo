@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { useEffect, useRef } from 'react'
 import { isMarketplaceLive } from '@/lib/prelaunch'
 import { RibbonPeek } from './RibbonPeek'
+import { BrandStop } from '@/components/ui/BrandStop'
 
 /**
  * Pricing as the product's own object (owner 2026-07-13: the plain boxes
@@ -34,7 +35,7 @@ function getPlans(marketplaceLive: boolean): Plan[] {
     {
       name: 'Free',
       price: '£0',
-      body: 'Browse everything before you spend anything.',
+      body: 'Browse everything before you spend anything. No card needed.',
       cta: marketplaceLive ? 'Start exploring' : 'Create free account',
       href: '/register',
       tone: 'neutral',
@@ -48,7 +49,7 @@ function getPlans(marketplaceLive: boolean): Plan[] {
       name: 'Monthly',
       price: '£6.99',
       priceSuffix: '/mo',
-      body: 'One redemption usually covers it. Cancel anytime.',
+      body: 'One redemption usually covers it. Cancel anytime.',
       cta: marketplaceLive ? 'Get started' : 'Get early access',
       href: marketplaceLive ? '/subscribe' : '/register',
       tone: 'primary',
@@ -64,7 +65,7 @@ function getPlans(marketplaceLive: boolean): Plan[] {
       name: 'Annual',
       price: '£69.99',
       priceSuffix: '/yr',
-      body: 'Two months free. Pay once, save all year.',
+      body: 'Two months free. Pay once, save all year.',
       cta: marketplaceLive ? 'Best value' : 'Get early access',
       href: marketplaceLive ? '/subscribe?plan=annual' : '/register',
       tone: 'navy',
@@ -240,14 +241,20 @@ export function PricingSection() {
             className="font-display text-[#010C35] leading-[1.1] mb-3 md:mb-4"
             style={{ fontSize: 'clamp(26px, 3.5vw, 44px)', letterSpacing: '-0.3px' }}
           >
-            {marketplaceLive
-              ? "Start free. Upgrade when you're ready."
-              : 'Membership that pays for itself.'}
+            {marketplaceLive ? (
+              "Start free. Upgrade when you're ready."
+            ) : (
+              <>
+                {/* Brand Full Stop: this screen's one signature period */}
+                Membership that pays for{' '}
+                <span className="whitespace-nowrap">itself<BrandStop /></span>
+              </>
+            )}
           </h2>
           <p className="text-[13.5px] md:text-[15px] text-[#4B5563] leading-[1.65]">
             {marketplaceLive
               ? 'If one voucher saves you more than £6.99, the month has paid for itself.'
-              : 'A single voucher often saves more than the month costs: redeem once and your £6.99 is covered. Founding members get their first two months free at launch.'}
+              : 'A single voucher often saves more than the month costs: redeem once and your £6.99 is covered. Founding members get their first two months free at launch.'}
           </p>
         </motion.div>
 

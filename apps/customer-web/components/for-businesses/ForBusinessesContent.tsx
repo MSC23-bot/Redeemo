@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { PortalShowcaseSection } from './PortalShowcaseSection'
 import { MerchantInterestSection } from './MerchantInterestSection'
 import { merchantPortalRegisterUrl } from '@/lib/prelaunch'
+import { BrandStop } from '@/components/ui/BrandStop'
 
 // The merchant page's own 3D scene: drifting die-cut voucher cards (owner
 // 2026-07-13: business-relevant WebGL, not the ribbon). Client-only.
@@ -23,14 +24,14 @@ const VALUE_PROPS = [
   },
   {
     title: 'Increase footfall.',
-    body: 'Customers come in specifically because your voucher drew them. That visit often converts into a regular customer. The voucher gets them through the door. Your business keeps them.',
+    body: 'Customers come in specifically because your voucher drew them. That visit often converts into a regular customer. The voucher gets them through the door. Your business keeps them.',
   },
   {
     title: 'You only spend when a customer turns up.',
     body: 'Unlike paid ads, the only cost is the offer you set, and only when a customer actually visits and spends. Your spend is tied to a real visit, not a click.',
   },
   {
-    title: 'You set the offers. And the limits.',
+    title: 'You set the offers. And the limits.',
     body: 'Each voucher can be used once per member each month, and you choose how many vouchers you run and what their terms allow. You attract customers and turn them into regulars, without an open-ended discount.',
   },
   {
@@ -60,9 +61,9 @@ const COMPARISONS = [
     ),
   },
   {
-    claim: 'Acquires customers. Doesn\'t subsidise them.',
+    claim: 'Acquires customers. Doesn\'t subsidise them.',
     detail:
-      'Each voucher is limited to once per member each month, and you decide how many offers you run and on what terms. Redeemo acquires new customers. It does not permanently discount your regulars.',
+      'Each voucher is limited to once per member each month, and you decide how many offers you run and on what terms. Redeemo acquires new customers. It does not permanently discount your regulars.',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -75,7 +76,7 @@ const COMPARISONS = [
   {
     claim: 'Full audit trail. No disputes.',
     detail:
-      'Every redemption generates a unique digital code tied to the member\'s account. Staff validate it in the merchant app. You see every redemption: when, which offer, which branch. No card sharing, no guesswork.',
+      'Every redemption generates a unique digital code tied to the member\'s account. Staff validate it in the merchant app. You see every redemption: when, which offer, which branch. No card sharing, no guesswork.',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -87,9 +88,9 @@ const COMPARISONS = [
 
 const STEPS = [
   { n: 1, title: 'Create your account', body: 'Register on the merchant portal. Takes 2 minutes. No payment details required.' },
-  { n: 2, title: 'Set up your profile and branches', body: 'Add your business details, photos, and location. We verify and approve each listing.' },
-  { n: 3, title: 'Create your two standard offers', body: 'Work with us to set the right standard member offers for your business type, then add any custom vouchers on top.' },
-  { n: 4, title: 'Go live', body: 'Once approved by Redeemo, your business is visible to every nearby member. You are live.' },
+  { n: 2, title: 'Set up your profile and branches', body: 'Add your business details, photos, and location. We verify and approve each listing.' },
+  { n: 3, title: 'Create your two standard offers', body: 'Work with us to set the right standard member offers for your business type, then add any custom vouchers on top.' },
+  { n: 4, title: 'Go live', body: 'Once approved by Redeemo, your business is visible to every nearby member. You are live.' },
 ]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -144,7 +145,7 @@ export function ForBusinessesContent() {
             style={{ fontSize: 'clamp(36px, 5vw, 62px)', letterSpacing: '-0.8px' }}
           >
             Bring in new customers.{' '}
-            <span className="gradient-text block">Keep your margins.</span>
+            <span className="gradient-text block">Keep your <span className="whitespace-nowrap">margins<BrandStop tone="inherit" /></span></span>
           </motion.h1>
 
           <motion.p
@@ -315,7 +316,7 @@ export function ForBusinessesContent() {
               className="font-display text-white leading-[1.08] max-w-[680px]"
               style={{ fontSize: 'clamp(28px, 3.5vw, 44px)', letterSpacing: '-0.4px' }}
             >
-              Not like what you&apos;ve tried before.
+              Not like what you&apos;ve tried&nbsp;before.
             </h2>
           </motion.div>
 
@@ -371,7 +372,7 @@ export function ForBusinessesContent() {
               className="font-display text-[#010C35] leading-[1.1] mb-3 max-w-[720px]"
               style={{ fontSize: 'clamp(28px, 3.5vw, 44px)', letterSpacing: '-0.3px' }}
             >
-              Two standard offers. Unlimited custom vouchers.
+              Two standard offers. Unlimited custom&nbsp;vouchers.
             </h2>
             <p className="text-[15px] text-[#4B5563] leading-[1.65] max-w-[600px]">
               Every merchant on Redeemo commits to two standard member offers as part of the platform quality standard. Beyond that, you are free to create as many custom vouchers as your business needs.
@@ -556,7 +557,7 @@ export function ForBusinessesContent() {
               style={{ fontSize: 'clamp(30px, 4vw, 50px)', letterSpacing: '-0.5px' }}
             >
               Ready to list{' '}
-              <span className="gradient-text">your business?</span>
+              <span className="gradient-text">your&nbsp;business?</span>
             </h2>
             <p className="text-[15px] text-white/48 leading-[1.7] mb-10 max-w-[440px] mx-auto">
               Free to join. No commission. Your only cost is the offer you designed, and only when a customer walks in.
@@ -592,7 +593,7 @@ export function ForBusinessesContent() {
             transition={{ duration: 0.4, delay: 0.3 }}
             className="mt-5 text-[13px] text-white/25"
           >
-            No listing fees. No commission. 12-month contract required.
+            No listing fees. No commission. 12-month contract&nbsp;required.
           </motion.p>
         </div>
         </div>

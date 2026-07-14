@@ -6,6 +6,7 @@ import { motion, useReducedMotion, useScroll, useTransform, type MotionValue } f
 import { useRef } from 'react'
 import { useScrollLinked } from './scroll'
 import { useViewportMode } from './useViewportMode'
+import { BrandStop } from '@/components/ui/BrandStop'
 
 /**
  * The app journey (owner brief 2026-07-12; copy approved 2026-07-13; revision
@@ -40,25 +41,26 @@ import { useViewportMode } from './useViewportMode'
 const CHAPTERS = [
   {
     kicker: '01 · Browse',
-    title: 'Every place worth knowing, in one scroll.',
+    title: 'Every place worth knowing, in one scroll.',
     body: 'Open the app and your area is already laid out: featured places, trending near you, and every category that matters. Each one carries a member voucher. Browsing is free, so you can see everything before you spend a penny.',
     still: '/app-shots/journey/home-top.jpg',
   },
   {
     kicker: '02 · Choose',
-    title: 'Get the full picture before you go.',
+    // "before you go." belongs to ch3; this one is the one-tap profile
+    title: 'Everything about a place, in one tap.',
     body: 'Tap a place and everything you want to know is in one spot: photos, opening hours, location, member reviews, and the vouchers it offers. No juggling three apps and a search engine. If it is on Redeemo, someone chose it.',
     still: '/app-shots/journey/profile-strip.jpg',
   },
   {
     kicker: '03 · Check',
-    title: 'See what you save before you go.',
+    title: 'See what you save before you go.',
     body: 'Every voucher shows exactly what it is worth, and the terms in plain English: where it works, when, and for whom. When it says buy one main, get one free, that is exactly what happens at the till.',
     still: '/app-shots/journey/voucher-detail.jpg',
   },
   {
     kicker: '04 · Redeem & save',
-    title: 'At the venue, it takes seconds.',
+    title: 'At the venue, it takes seconds.',
     body: "Tap redeem when you arrive. A quick PIN from the counter confirms you're really there, then your code appears and staff check it on the spot. It works like paying, except you pay less.",
     still: '/app-shots/journey/qr-screen.jpg',
   },
@@ -602,7 +604,13 @@ function CopyLayer({ progress, index, chapter }: { progress: MotionValue<number>
       <motion.div style={{ opacity, y }}>
         <p className="text-[11px] lg:text-[12px] font-bold tracking-[0.2em] uppercase mb-2 lg:mb-5 text-[#E20C04]">{chapter.kicker}</p>
         <h3 className="font-display text-[#010C35] leading-[1.08] mb-2.5 lg:mb-5" style={{ fontSize: 'clamp(24px, 3.4vw, 50px)', letterSpacing: '-0.7px' }}>
-          {chapter.title}
+          {/* finale gets the journey's one Brand Full Stop (text mirrors
+              CHAPTERS[4].title) */}
+          {index === 4 ? (
+            <>Watch it add <span className="whitespace-nowrap">up<BrandStop /></span></>
+          ) : (
+            chapter.title
+          )}
         </h3>
         <p className="text-[13.5px] lg:text-[16px] leading-[1.55] lg:leading-[1.7] max-w-[460px] text-[#4B5563]">{chapter.body}</p>
         {index === 4 && (
@@ -614,7 +622,7 @@ function CopyLayer({ progress, index, chapter }: { progress: MotionValue<number>
             >
               Create free account
             </Link>
-            <span className="hidden lg:inline text-[13px] text-[#6B7280]">Free to join · founding members get 2 months free at launch</span>
+            <span className="hidden lg:inline text-[13px] text-[#6B7280]">Free to join, no card needed · 2 months free at&nbsp;launch</span>
           </div>
         )}
       </motion.div>

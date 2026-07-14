@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { BrandStop } from '@/components/ui/BrandStop'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -357,7 +358,7 @@ export function PricingContent() {
             style={{ fontSize: 'clamp(34px, 5vw, 62px)', letterSpacing: '-0.8px', textWrap: 'balance' }}
           >
             Start free.{' '}
-            <span className="gradient-text block">Pay only when you&apos;re ready.</span>
+            <span className="gradient-text block">Pay only when you&apos;re <span className="whitespace-nowrap">ready<BrandStop tone="inherit" /></span></span>
           </motion.h1>
 
           <motion.p
@@ -366,7 +367,7 @@ export function PricingContent() {
             transition={{ duration: 0.45, delay: 0.18 }}
             className="text-[16px] md:text-[17px] text-white/52 leading-[1.65] max-w-[500px] mx-auto mb-12"
           >
-            Browse every merchant and voucher at no cost. Subscribe when you find somewhere worth visiting.
+            Browse every merchant and voucher at no cost. Subscribe when you find somewhere worth&nbsp;visiting.
           </motion.p>
 
           {/* Trust signals */}
@@ -437,10 +438,10 @@ export function PricingContent() {
               style={{ fontSize: 'clamp(30px, 4vw, 52px)', letterSpacing: '-0.6px' }}
             >
               Less than one coffee{' '}
-              <span className="gradient-text">a week.</span>
+              <span className="gradient-text">a&nbsp;week.</span>
             </h2>
             <p className="text-[16px] text-white/48 leading-[1.72] max-w-[460px] mx-auto mb-10">
-              If a single voucher saves you more than £6.99, the month has paid for itself. The maths is not complicated.
+              If a single voucher saves you more than £6.99, the month has paid for itself. The maths is not&nbsp;complicated.
             </p>
           </motion.div>
 
@@ -482,7 +483,7 @@ export function PricingContent() {
             className="font-display text-[#010C35] leading-[1.1] mb-10"
             style={{ fontSize: 'clamp(28px, 3.5vw, 44px)', letterSpacing: '-0.3px' }}
           >
-            Common questions about pricing
+            Common questions about&nbsp;pricing
           </motion.h2>
 
           <div>
@@ -523,10 +524,11 @@ export function PricingContent() {
               className="font-display text-white leading-[1.08] mb-4"
               style={{ fontSize: 'clamp(30px, 4vw, 50px)', letterSpacing: '-0.5px' }}
             >
-              Start exploring for free today.
+              Start exploring for free&nbsp;today.
             </h2>
             <p className="text-[15px] text-white/48 leading-[1.7] mb-10">
-              No card needed to browse. Subscribe when you find somewhere you want to visit.
+              Free to join, no card needed. Subscribe when you find somewhere
+              you want to&nbsp;visit.
             </p>
           </motion.div>
 
@@ -554,6 +556,7 @@ export function PricingContent() {
               Get monthly access
             </Link>
           </motion.div>
+
         </div>
         </div>
       </section>
