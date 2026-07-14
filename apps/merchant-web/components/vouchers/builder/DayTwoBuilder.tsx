@@ -3,8 +3,10 @@
 import * as React from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { resolveCategoryKey } from '@/lib/voucher/config'
 import type { DraftFields } from '@/lib/voucher/compose'
+import type { BuilderType } from '@/lib/voucher/terms'
 import {
   createVoucher,
   updateVoucher,
@@ -12,17 +14,25 @@ import {
   type AvailabilityWindow,
   type AdminProposed,
 } from '@/lib/api/voucher'
-import { TypePicker } from './TypePicker'
-import { BuilderFields } from './BuilderFields'
-import { BuilderPreview } from './BuilderPreview'
-import { BuilderScore } from './BuilderScore'
-import { TermsSection } from './TermsSection'
 import { ConciergeDiff } from '../ConciergeDiff'
-import { TextAreaField } from './fields'
-import { FileUpload } from '@/components/ui/file-upload'
 import { tierOf, type CustomTerm } from '@/lib/voucher/terms'
 import {
+  TypePicker,
+  BaseMechanicPicker,
+  MechanicFields,
+  ScheduleFields,
+  CooldownFields,
+  WhatCustomersSee,
+  TermsComposer,
+  ScorePanel,
+  PreviewCard,
+  SubmitConfirmModal,
+  buildScoreInput,
+} from '../shared'
+import { scoreVoucher } from '@/lib/voucher/scoring'
+import {
   emptyBuilderState,
+  withBaseMechanic,
   fromDetail,
   toCreatePayload,
   effectiveTitle,
@@ -30,27 +40,34 @@ import {
   effectiveSaving,
   clausesFor,
   composeTermsText,
-  isStructuredPickerId,
+  baseMechanicOf,
+  hasStructuredFields,
+  isWrapperPickerId,
   type BuilderState,
   type DayTwoPickerId,
 } from './builderModel'
 
-// Day-2 Vouchers B2 (+ B6 concierge): the decoupled day-2 builder. Reuses the
-// validated pure logic in lib/voucher/* for the structured 5 types and handles
-// TIME_LIMITED windows + REUSABLE cooldown on top. NO onboarding imports/state.
+// Day-2 (custom / RCV) voucher builder, rewired (2026-07-13 S1) onto the shared
+// prototype-fidelity core in components/vouchers/shared/*. Handles all 8 backend types
+// including the TIME_LIMITED / REUSABLE wrapper model (Step 1 base mechanic + Step 2
+// schedule / interval). Reuses the validated pure logic in lib/voucher/*.
 //
-// Save path:
-//   - new voucher: createVoucher(payload) -> DRAFT.
-//   - existing draft (voucherId set): updateVoucher(id, payload).
-//   then, when the action is "submit", submitVoucher(id) flips DRAFT->PENDING_APPROVAL.
+// The 12 locks (CURRENT-IMPLEMENTATION section 3) are preserved: DRAFT-only PATCH +
+// nullable-clear (builderModel contracts untouched), capability gating stays on the
+// page, no admin-owned merchantFields keys settable, 16KB/50-key bag guard server-side,
+// availabilityWindows/cooldown type-gating in toCreatePayload, no PII in the preview.
 //
-// B6: when initialAdminProposed is set (a CHANGES_REQUESTED voucher), the concierge
-// diff renders at the top and "Apply Redeemo's suggestions" writes the proposed
-// values into the form state.
+// CC-1 (owner ruling 2026-07-13): the advisory score never gates Save/Submit; the
+// footer buttons are never disabled on score (only on the in-flight mutation). A Too
+// weak verdict at Submit time is required to surface a SOFT warning dialog first
+// (weak variant of SubmitConfirmModal); "Submit anyway" then proceeds through the
+// exact same submit path as the normal confirm.
 
 export interface DayTwoBuilderProps {
   /** The merchant's top-level category NAME (drives the suggestion chips). */
   categoryName: string | null
+  /** Optional merchant display name for the preview card (no customer PII). */
+  merchantName?: string | null
   /** Called after a successful save/submit (the parent typically closes + refetches). */
   onDone: (result: { id: string }) => void
   onCancel: () => void
@@ -76,9 +93,7 @@ export interface DayTwoBuilderProps {
   initialAdminNote?: string | null
 }
 
-// The edit/duplicate prefill. Delegates to the single fromDetail rehydrator (B-11)
-// so the windowsLoaded distinction (loaded-zero vs not-loaded) is computed in one
-// place. The parent already suffixes the title with " (copy)" for a duplicate.
+// The edit/duplicate prefill. Delegates to the single fromDetail rehydrator (B-11).
 function seedState(props: DayTwoBuilderProps): BuilderState | null {
   if (!props.initialType) return null
   return fromDetail({
@@ -96,20 +111,19 @@ function seedState(props: DayTwoBuilderProps): BuilderState | null {
 }
 
 export function DayTwoBuilder(props: DayTwoBuilderProps) {
-  const { categoryName, onDone, onCancel, voucherId } = props
+  const { categoryName, merchantName, onDone, onCancel, voucherId } = props
   const qc = useQueryClient()
   const categoryKey = resolveCategoryKey(categoryName)
 
   const [state, setState] = React.useState<BuilderState | null>(() => seedState(props))
   const [error, setError] = React.useState<string | null>(null)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
 
   const save = useMutation({
     mutationFn: async (action: 'draft' | 'submit') => {
       if (!state) throw new Error('No voucher type selected')
       const payload = toCreatePayload(state, categoryKey)
-      const saved = voucherId
-        ? await updateVoucher(voucherId, payload)
-        : await createVoucher(payload)
+      const saved = voucherId ? await updateVoucher(voucherId, payload) : await createVoucher(payload)
       const id = (saved as { id: string }).id
       if (action === 'submit') {
         await submitVoucher(id)
@@ -119,9 +133,11 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
     onSuccess: (result) => {
       void qc.invalidateQueries({ queryKey: ['vouchers'] })
       void qc.invalidateQueries({ queryKey: ['voucher', result.id] })
+      setConfirmOpen(false)
       onDone(result)
     },
     onError: () => {
+      setConfirmOpen(false)
       setError('We could not save your voucher just now. Please try again.')
     },
   })
@@ -130,23 +146,35 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
     setState(emptyBuilderState(id))
     setError(null)
   }
-
+  function pickBaseMechanic(mechanic: BuilderType) {
+    setState((prev) => (prev ? withBaseMechanic(prev, mechanic) : prev))
+  }
   function patchFields(patch: Partial<DraftFields>) {
     setState((prev) => (prev ? { ...prev, fields: { ...prev.fields, ...patch } } : prev))
   }
   function setWindows(windows: AvailabilityWindow[]) {
-    // An explicit window edit means the editor now owns the windows; mark loaded so
-    // toCreatePayload sends them (B-1) instead of omitting the key.
     setState((prev) => (prev ? { ...prev, availabilityWindows: windows, windowsLoaded: true } : prev))
   }
   function setCooldown(seconds: number) {
     setState((prev) => (prev ? { ...prev, cooldownSeconds: seconds } : prev))
   }
+  function setTitle(v: string) {
+    setState((prev) => (prev ? { ...prev, titleOverride: v } : prev))
+  }
+  function resetTitle() {
+    setState((prev) => (prev ? { ...prev, titleOverride: undefined } : prev))
+  }
   function setDescription(v: string) {
     setState((prev) => (prev ? { ...prev, descriptionOverride: v } : prev))
   }
-  function setTerms(v: string) {
-    setState((prev) => (prev ? { ...prev, terms: v } : prev))
+  function resetDescription() {
+    setState((prev) => (prev ? { ...prev, descriptionOverride: undefined } : prev))
+  }
+  function setSaving(v: number | undefined) {
+    setState((prev) => (prev ? { ...prev, savingOverride: typeof v === 'number' && v > 0 ? v : undefined } : prev))
+  }
+  function resetSaving() {
+    setState((prev) => (prev ? { ...prev, savingOverride: undefined } : prev))
   }
   function toggleClause(id: string) {
     setState((prev) => {
@@ -169,6 +197,9 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
   function setExpiryDate(v: string | null | undefined) {
     setState((prev) => (prev ? { ...prev, expiryDate: v } : prev))
   }
+  function setAskHelp(v: boolean) {
+    setState((prev) => (prev ? { ...prev, askHelp: v } : prev))
+  }
 
   // B6: apply the admin-proposed corrections into the form state.
   function applyAdminProposed(proposed: AdminProposed) {
@@ -178,11 +209,7 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
       if (typeof proposed.title === 'string') next.titleOverride = proposed.title
       if (typeof proposed.description === 'string') next.descriptionOverride = proposed.description
       if (typeof proposed.terms === 'string') {
-        if (isStructuredPickerId(prev.pickerId)) {
-          // Structured types compose their terms from the checklist model, so the
-          // admin's proposed terms text must land THERE (as verbatim custom lines,
-          // replacing the current selections) or it would be silently dropped by
-          // toCreatePayload. Mirrors the legacy free-text conversion in fromDetail.
+        if (hasStructuredFields(prev)) {
           next.selectedClauseIds = []
           next.customTerms = proposed.terms
             .split('\n')
@@ -196,8 +223,6 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
       if (typeof proposed.estimatedSaving === 'number') next.savingOverride = proposed.estimatedSaving
       if (Array.isArray(proposed.availabilityWindows)) {
         next.availabilityWindows = proposed.availabilityWindows
-        // Applying admin-proposed windows means we now own them; mark loaded so the
-        // PATCH sends them (B-1).
         next.windowsLoaded = true
       }
       if (typeof proposed.cooldownSeconds === 'number') next.cooldownSeconds = proposed.cooldownSeconds
@@ -210,15 +235,10 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
     return (
       <div className="space-y-5">
         {props.initialAdminProposed || props.initialAdminNote ? (
-          <ConciergeDiff
-            proposed={props.initialAdminProposed ?? null}
-            note={props.initialAdminNote ?? null}
-            current={{}}
-            onApply={() => {}}
-          />
+          <ConciergeDiff proposed={props.initialAdminProposed ?? null} note={props.initialAdminNote ?? null} current={{}} onApply={() => {}} />
         ) : null}
         <div className="space-y-1">
-          <h2 className="font-display text-xl font-semibold text-[#010C35]">Choose a voucher type</h2>
+          <h2 className="font-display text-xl font-semibold text-[#010C35]">Create a voucher</h2>
           <p className="text-sm text-[#6B7390]">Pick the kind of offer you want to create.</p>
         </div>
         <TypePicker value={null} onChange={pickType} />
@@ -231,117 +251,104 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
     )
   }
 
+  const wrapper = isWrapperPickerId(state.pickerId)
+  const base = baseMechanicOf(state)
+  // Seeded = editing / duplicating an existing voucher. A legacy wrapper (no stored
+  // base mechanic) still shows Step 2 + the "What customers will see" card so the
+  // merchant can manage its photo / schedule / end date; a FRESH wrapper create gates
+  // those on picking a base mechanic first (prototype Step-1-first flow).
+  const seeded = !!props.initialType
+  const showWrapperBody = base != null || seeded
+  const showBuild = wrapper ? showWrapperBody : true
+  const clauses = clausesFor(state, categoryKey)
+
   const currentForDiff = {
     title: effectiveTitle(state),
     description: effectiveDescription(state),
-    // Structured types keep their terms in the checklist model; compose so the
-    // diff's "Your version" row shows the real current terms, not stale state.terms.
-    terms: isStructuredPickerId(state.pickerId) ? composeTermsText(state, categoryKey) : state.terms,
+    terms: showBuild ? composeTermsText(state, categoryKey) : state.terms,
     estimatedSaving: effectiveSaving(state),
   }
+
+  // Weak-submit warning (owner ruling 2026-07-13): the SAME fact set the ScorePanel
+  // renders decides whether the Submit confirm opens in its weak-warning variant.
+  // Advisory only; nothing is disabled and no API call happens before confirmation.
+  const scoreInput = buildScoreInput(state, categoryName)
+  const submitIsWeak = scoreInput != null && scoreVoucher(scoreInput).calKey === 'weak'
 
   return (
     <div className="space-y-5">
       {props.initialAdminProposed || props.initialAdminNote ? (
-        <ConciergeDiff
-          proposed={props.initialAdminProposed ?? null}
-          note={props.initialAdminNote ?? null}
-          current={currentForDiff}
-          onApply={applyAdminProposed}
-        />
+        <ConciergeDiff proposed={props.initialAdminProposed ?? null} note={props.initialAdminNote ?? null} current={currentForDiff} onApply={applyAdminProposed} />
       ) : null}
 
       <div className="flex items-center justify-between">
         <h2 className="font-display text-xl font-semibold text-[#010C35]">Build your voucher</h2>
         <Button variant="ghost" size="sm" onClick={() => pickType(state.pickerId)}>
-          Change type
+          Change voucher type
         </Button>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div className="space-y-6">
-          <BuilderFields
-            state={state}
-            categoryKey={categoryKey}
-            onFields={patchFields}
-            onWindows={setWindows}
-            onCooldown={setCooldown}
-            onExpiryDate={setExpiryDate}
-            hasSavedEndDate={!!voucherId && !!state.savedExpiryDate}
-          />
+          {/* Wrapper Step 1: base mechanic picker. */}
+          {wrapper ? (
+            <BaseMechanicPicker wrapper={state.pickerId as 'time' | 'reusable'} value={state.baseMechanic ?? null} onChange={pickBaseMechanic} />
+          ) : null}
 
-          <TextAreaField
-            label="Description (optional, but recommended)"
-            value={state.descriptionOverride ?? effectiveDescription(state)}
-            onChange={setDescription}
-            placeholder="Tell customers why they will love this offer."
-          />
+          {/* Structured field group (5 mechanics), shown for structured types and
+              for a wrapper once its base is chosen. */}
+          {base != null ? <MechanicFields state={state} categoryKey={categoryKey} mechanic={base} onFields={patchFields} /> : null}
 
-          {/* Voucher photo (V1): the backend photo kind is gated on voucher-management
-              power, matching this builder's capability gate. Optional; a photo lifts
-              the advisory score.
-              Nullable-clear (spec 2026-07-05, D1+D3): a SAVED photo can now be
-              removed - the Remove control sets state.imageUrl to explicit null,
-              which the PATCH serializes as a column clear. A session upload that
-              is not yet saved keeps the revert-to-saved affordance; a
-              fresh/duplicate builder clears freely (CREATE-omission means no
-              photo, never an accidental null). */}
-          <div className="flex flex-col gap-1.5">
-            <FileUpload
-              kind="photo"
-              label={state.imageUrl ? 'Replace photo' : 'Add a photo (optional)'}
-              hint="JPG or PNG, landscape, at least 1200 by 600 pixels, up to 5 MB."
-              onUploaded={(url) => setImageUrl(url)}
-            />
-            {(() => {
-              const isEdit = !!voucherId
-              const savedBaseline = isEdit ? state.savedImageUrl : undefined
-              if (!state.imageUrl) return null
-              if (savedBaseline && state.imageUrl === savedBaseline) {
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setImageUrl(null)}
-                    className="w-fit text-xs font-semibold text-[#B91C1C] hover:underline"
-                  >
-                    Remove photo
-                  </button>
-                )
-              }
-              return (
-                <button
-                  type="button"
-                  onClick={() => setImageUrl(savedBaseline)}
-                  className="w-fit text-xs font-semibold text-[#B91C1C] hover:underline"
-                >
-                  {savedBaseline ? 'Use the saved photo instead' : 'Remove photo'}
-                </button>
-              )
-            })()}
-          </div>
+          {/* Wrapper Step 2: schedule (TIME_LIMITED) / cooldown (REUSABLE). */}
+          {state.pickerId === 'time' && showWrapperBody ? (
+            <ScheduleFields state={state} onWindows={setWindows} onExpiryDate={setExpiryDate} hasSavedEndDate={!!voucherId && !!state.savedExpiryDate} />
+          ) : null}
+          {state.pickerId === 'reusable' && showWrapperBody ? (
+            <CooldownFields state={state} onCooldown={setCooldown} />
+          ) : null}
 
-          {isStructuredPickerId(state.pickerId) ? (
-            <TermsSection
-              clauses={clausesFor(state, categoryKey)}
-              selectedIds={new Set(state.selectedClauseIds)}
-              onToggle={toggleClause}
-              customs={state.customTerms}
-              onAddCustom={addCustomTerm}
-              onRemoveCustom={removeCustomTerm}
-            />
-          ) : (
-            <TextAreaField
-              label="Terms (optional)"
-              value={state.terms ?? ''}
-              onChange={setTerms}
-              placeholder="Any conditions a customer should know."
-            />
-          )}
+          {showBuild ? (
+            <>
+              <WhatCustomersSee
+                state={state}
+                isEdit={!!voucherId}
+                onTitle={setTitle}
+                onResetTitle={resetTitle}
+                onDescription={setDescription}
+                onResetDescription={resetDescription}
+                onSaving={setSaving}
+                onResetSaving={resetSaving}
+                onImageUrl={setImageUrl}
+              />
+
+              <TermsComposer
+                clauses={clauses}
+                selectedIds={new Set(state.selectedClauseIds)}
+                onToggle={toggleClause}
+                customs={state.customTerms}
+                onAddCustom={addCustomTerm}
+                onRemoveCustom={removeCustomTerm}
+              />
+
+              {/* Ask the Redeemo team assist toggle (prototype parity). */}
+              <div className="rounded-[16px] border border-[#F4D9D2] bg-[#FFF9F5] p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[15px] font-bold text-[#010C35]">Ask the Redeemo team to help with this offer</p>
+                    <p className="mt-0.5 text-[13px] leading-relaxed text-[#6B7390]">
+                      Turn this on if you would like our team to help build or improve this voucher with you. You always approve it before it goes live.
+                    </p>
+                  </div>
+                  <Switch checked={state.askHelp} onCheckedChange={setAskHelp} label="Ask the Redeemo team to help" />
+                </div>
+              </div>
+            </>
+          ) : null}
         </div>
 
         <div className="space-y-4">
-          <BuilderPreview state={state} />
-          <BuilderScore state={state} categoryName={categoryName} />
+          <ScorePanel state={state} categoryName={categoryName} />
+          <PreviewCard state={state} categoryName={categoryName} merchantName={merchantName} />
         </div>
       </div>
 
@@ -355,13 +362,29 @@ export function DayTwoBuilder(props: DayTwoBuilderProps) {
         <Button variant="ghost" onClick={onCancel} disabled={save.isPending}>
           Cancel
         </Button>
+        {/* CC-1 (owner ruling 2026-07-13): non-gating, never disabled on score; a Too
+            weak verdict opens the confirm in its soft weak-warning variant instead.
+            Save as draft persists (product behaviour wins over the prototype's
+            Save-as-draft stub) and is unaffected by the verdict. */}
         <Button variant="secondary" onClick={() => save.mutate('draft')} disabled={save.isPending}>
           {save.isPending ? 'Saving...' : 'Save as draft'}
         </Button>
-        <Button variant="gradient" onClick={() => save.mutate('submit')} disabled={save.isPending}>
-          {save.isPending ? 'Submitting...' : 'Submit for review'}
+        <Button variant="gradient" onClick={() => setConfirmOpen(true)} disabled={save.isPending}>
+          Submit for review
         </Button>
       </div>
+
+      {confirmOpen ? (
+        <SubmitConfirmModal
+          weak={submitIsWeak}
+          title={effectiveTitle(state)}
+          saving={effectiveSaving(state)}
+          merchantName={merchantName}
+          pending={save.isPending}
+          onConfirm={() => save.mutate('submit')}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }

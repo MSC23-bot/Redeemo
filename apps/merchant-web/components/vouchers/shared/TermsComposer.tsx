@@ -11,21 +11,21 @@ import {
   type CustomTerm,
   type Tier,
 } from '@/lib/voucher/terms'
-import { TextField } from './fields'
+import { TextField } from './primitives'
 
-// Vouchers V1: the interactive terms checklist for the Day-2 builder, closing the
-// gap where lib/voucher/terms.ts (clause pools, tiers, stacking thresholds) was
-// fully built + tested but the builder only exposed a free-text textarea. The UI
-// mirrors the onboarding flagship builder's terms card (M2 F5) so merchants meet
-// ONE terms model everywhere. Structured types only - TIME_LIMITED / REUSABLE
-// keep free text (the engine has no clause pools for them).
+// Voucher Builder shared core: the "Your terms" composer. Checklist of built-in
+// clauses (Caution / Restrictive tier badges) + an "Add your own term" mini-form with
+// the prototype's auto-tiering (restrictive-word regex, terms.ts) and the escalating
+// terms-card notes. Copy verbatim from the prototype (FULL.html "Your terms" region)
+// + PROTOTYPE-INVENTORY 2.2 / 5 / A3 / A14. Custom terms render at the BOTTOM of the
+// list as permanently-checked rows with a teal CUSTOM badge (A14).
 
 function badgeStyle(tier: Tier): React.CSSProperties {
   if (tier === 'restrictive') return { background: '#FEECEC', color: '#B91C1C' }
   return { background: '#FEF6EC', color: '#B45309' }
 }
 
-export interface TermsSectionProps {
+export interface TermsComposerProps {
   clauses: Clause[]
   selectedIds: Set<string>
   onToggle: (id: string) => void
@@ -34,7 +34,7 @@ export interface TermsSectionProps {
   onRemoveCustom: (index: number) => void
 }
 
-export function TermsSection({ clauses, selectedIds, onToggle, customs, onAddCustom, onRemoveCustom }: TermsSectionProps) {
+export function TermsComposer({ clauses, selectedIds, onToggle, customs, onAddCustom, onRemoveCustom }: TermsComposerProps) {
   const [customDraft, setCustomDraft] = React.useState('')
   const selectedClauses = clauses.filter((c) => selectedIds.has(c.id))
   const counts = countTermTiers(selectedClauses, customs)
@@ -62,21 +62,11 @@ export function TermsSection({ clauses, selectedIds, onToggle, customs, onAddCus
           return (
             <li key={c.id}>
               <label className="flex cursor-pointer items-start gap-2.5 rounded-[10px] p-2 hover:bg-[#FBFAF9]">
-                {/* The wrapping label supplies the accessible name so it includes
-                    BOTH the clause text AND the tier badge (Caution/Restrictive). */}
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => onToggle(c.id)}
-                  className="mt-0.5 size-4 accent-[#E20C04]"
-                />
+                <input type="checkbox" checked={checked} onChange={() => onToggle(c.id)} className="mt-0.5 size-4 accent-[#E20C04]" />
                 <span className="flex flex-1 flex-wrap items-center gap-2">
                   <span className="text-[13px] leading-relaxed text-[#1F2A4A]">{c.label}</span>
                   {badge ? (
-                    <span
-                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                      style={badgeStyle(c.tier)}
-                    >
+                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={badgeStyle(c.tier)}>
                       {badge}
                     </span>
                   ) : null}
@@ -93,27 +83,16 @@ export function TermsSection({ clauses, selectedIds, onToggle, customs, onAddCus
             <li key={`${c.text}-${i}`} className="flex items-start gap-2 rounded-[10px] bg-[#FBFAF9] p-2">
               <span className="flex flex-1 flex-wrap items-center gap-2">
                 <span className="text-[13px] leading-relaxed text-[#1F2A4A]">{c.text}</span>
-                <span
-                  className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                  style={{ background: '#EFEAFE', color: '#5B21B6' }}
-                >
+                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ background: '#DBF5EF', color: '#0F6357' }}>
                   Custom
                 </span>
                 {c.tier === 'restrictive' ? (
-                  <span
-                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                    style={badgeStyle('restrictive')}
-                  >
+                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={badgeStyle('restrictive')}>
                     Restrictive
                   </span>
                 ) : null}
               </span>
-              <button
-                type="button"
-                aria-label={`Remove term: ${c.text}`}
-                onClick={() => onRemoveCustom(i)}
-                className="text-xs font-semibold text-[#B91C1C] hover:underline"
-              >
+              <button type="button" aria-label={`Remove term: ${c.text}`} onClick={() => onRemoveCustom(i)} className="text-xs font-semibold text-[#B91C1C] hover:underline">
                 Remove
               </button>
             </li>
@@ -122,20 +101,14 @@ export function TermsSection({ clauses, selectedIds, onToggle, customs, onAddCus
       ) : null}
 
       <div className="mt-3 flex flex-col gap-1.5">
-        <TextField label="Add your own term" value={customDraft} onChange={setCustomDraft} placeholder="Add your own term" />
+        <TextField label="Add your own term" value={customDraft} onChange={setCustomDraft} placeholder="A short, plain line customers will read" />
         <p className="text-xs text-[#8089A4]">
           Keep it simple and fair. {Math.max(0, CUSTOM_CHAR_LIMIT - customDraft.length)} characters left of {CUSTOM_CHAR_LIMIT}.
         </p>
         {customDraft.trim() && tierOf(customDraft) === 'restrictive' ? (
           <p className="text-xs font-medium text-[#B91C1C]">This reads as restrictive. Try to simplify before adding.</p>
         ) : null}
-        <Button
-          variant="secondary"
-          size="sm"
-          className="w-fit"
-          onClick={addCustom}
-          disabled={customDraft.trim().length === 0 || customDraft.length > CUSTOM_CHAR_LIMIT}
-        >
+        <Button variant="secondary" size="sm" className="w-fit" onClick={addCustom} disabled={customDraft.trim().length === 0 || customDraft.length > CUSTOM_CHAR_LIMIT}>
           Add term
         </Button>
       </div>

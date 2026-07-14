@@ -136,6 +136,8 @@ describe('DayTwoBuilder concierge apply + resubmit', () => {
       expect(screen.getByTestId('builder-preview-title')).toHaveTextContent('Better title'),
     )
     fireEvent.click(screen.getByRole('button', { name: /submit for review/i }))
+    // Prototype-faithful confirm modal (A10): confirm to proceed.
+    fireEvent.click(await screen.findByRole('button', { name: /yes, this is my voucher/i }))
     await waitFor(() => expect(updateVoucher).toHaveBeenCalledTimes(1))
     const [calledId, payload] = updateVoucher.mock.calls[0]
     expect(calledId).toBe('v9')
