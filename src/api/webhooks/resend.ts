@@ -18,8 +18,10 @@
 // Verification: Resend signs webhooks with Svix headers (svix-id /
 // svix-timestamp / svix-signature). We verify with the `svix` package (already a
 // dependency) against the RAW request body — a tampered/forged body throws.
-// Duplicate deliveries are safe without a dedup table: every effect here
-// (updateMany to BOUNCED/SENT, SET on the suppression key) is idempotent.
+// Duplicate deliveries are safe without a dedup table: the suppression SET is a
+// keyed Redis write with a TTL (re-setting is a no-op), and the GAP-6 bounce
+// counter is bound to the DB status transition (the conditional updateMany only
+// counts on the FIRST flip to BOUNCED), so a retry cannot inflate the ratio.
 
 import type { FastifyInstance } from 'fastify'
 import type { Redis } from 'ioredis'
@@ -65,14 +67,26 @@ export async function handleResendWebhookEvent(
   switch (event.type) {
     case 'email.bounced':
     case 'email.complained': {
+      // Idempotency boundary for the GAP-6 bounce counter is the DATABASE status
+      // transition, not the webhook delivery. The conditional updateMany flips the
+      // matched row only WHERE it is not already BOUNCED, so its count is 1 exactly
+      // once: on the FIRST bounced transition. A duplicate delivery (row already
+      // BOUNCED), an event with no provider id (no row to flip), or an unmatched
+      // externalId all report count 0 and must NOT touch the counter. Otherwise a
+      // routine webhook retry would inflate the day's bounce ratio and could falsely
+      // trip the auto-pause, killing all transactional mail including admin OTPs.
+      let firstBouncedTransition = false
       if (emailId) {
-        await prisma.communicationLog.updateMany({
-          where: { externalId: emailId },
+        const { count } = await prisma.communicationLog.updateMany({
+          where: { externalId: emailId, status: { not: 'BOUNCED' } },
           data: { status: 'BOUNCED' },
         })
+        firstBouncedTransition = count === 1
       }
       // Suppress the recipient(s) so future MARKETING sends are skipped.
-      // (Transactional sends are never suppressed — see notify().)
+      // (Transactional sends are never suppressed; see notify().) This is a Redis
+      // SET with a TTL: re-setting on a duplicate delivery is naturally idempotent,
+      // so it runs on every delivery regardless of the DB transition above.
       for (const r of recipientsOf(event)) {
         await redis.set(
           RedisKey.emailSuppression(hashEmail(r)),
@@ -81,13 +95,16 @@ export async function handleResendWebhookEvent(
           SUPPRESSION_TTL_SECONDS,
         )
       }
-      // §SEC.1 GAP-6: count this bounce/complaint toward the day's bounce ratio and
-      // auto-pause all sending once the ratio crosses the threshold. Best-effort:
-      // a counter/pause blip must never fail the (idempotent) webhook ack.
-      try {
-        await recordEmailBounce(prisma, redis)
-      } catch (err) {
-        console.warn('[resend-webhook] bounce-ratio evaluation failed (non-fatal): ' + (err instanceof Error ? err.message : String(err)))
+      // §SEC.1 GAP-6: only a genuine first bounced transition counts toward the
+      // day's bounce ratio (and can auto-pause sending once the ratio crosses the
+      // threshold). Best-effort: a counter/pause blip must never fail the
+      // (idempotent) webhook ack.
+      if (firstBouncedTransition) {
+        try {
+          await recordEmailBounce(prisma, redis)
+        } catch (err) {
+          console.warn('[resend-webhook] bounce-ratio evaluation failed (non-fatal): ' + (err instanceof Error ? err.message : String(err)))
+        }
       }
       break
     }

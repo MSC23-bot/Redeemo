@@ -3,6 +3,13 @@ import Fastify from 'fastify'
 import { Webhook } from 'svix'
 import type { PrismaClient } from '../../../generated/prisma/client'
 import type { Redis } from 'ioredis'
+
+// The webhook binds the GAP-6 bounce counter to the DB status transition. We mock
+// recordEmailBounce so the idempotency pins assert the counter's call boundary
+// directly (its own counter/pause internals are covered by email-ops.test.ts).
+const { recordEmailBounce } = vi.hoisted(() => ({ recordEmailBounce: vi.fn(async () => {}) }))
+vi.mock('../../../src/api/shared/emailOps', () => ({ recordEmailBounce }))
+
 import {
   handleResendWebhookEvent,
   resendWebhookRoutes,
@@ -12,18 +19,36 @@ import {
 import { RedisKey } from '../../../src/api/shared/redis-keys'
 import { hashEmail } from '../../../src/api/shared/pwdResetLimiter'
 
-function fakePrisma() {
-  const updateMany = vi.fn(async () => ({ count: 1 }))
-  return { prisma: { communicationLog: { updateMany } } as unknown as PrismaClient, updateMany }
+/**
+ * Faithful fake: models CommunicationLog rows keyed by externalId, each with a
+ * status, and applies the handler's conditional updateMany the way the DB would.
+ * `seed` pre-loads rows (status SENT) that the FIRST bounce can transition; an
+ * externalId not in `seed` is an unmatched event (count 0).
+ */
+function fakePrisma(seed: string[] = []) {
+  const rows = new Map<string, { status: string }>()
+  for (const id of seed) rows.set(id, { status: 'SENT' })
+  const updateMany = vi.fn(
+    async (args: { where: { externalId: string; status?: { not?: string } }; data: { status: string } }) => {
+      const row = rows.get(args.where.externalId)
+      if (!row) return { count: 0 }
+      if (args.where.status?.not === 'BOUNCED' && row.status === 'BOUNCED') return { count: 0 }
+      row.status = args.data.status
+      return { count: 1 }
+    },
+  )
+  return { prisma: { communicationLog: { updateMany } } as unknown as PrismaClient, updateMany, rows }
 }
 function fakeRedis() {
   const set = vi.fn(async () => 'OK')
   return { redis: { set } as unknown as Redis, set }
 }
 
+beforeEach(() => recordEmailBounce.mockClear())
+
 describe('handleResendWebhookEvent — bounce / complaint', () => {
-  it('flips the row to BOUNCED (by externalId) and suppresses the recipient', async () => {
-    const { prisma, updateMany } = fakePrisma()
+  it('flips the row to BOUNCED (conditional on not-already-BOUNCED) and suppresses the recipient', async () => {
+    const { prisma, updateMany } = fakePrisma(['re_999'])
     const { redis, set } = fakeRedis()
     const event: ResendWebhookEvent = {
       type: 'email.bounced',
@@ -31,32 +56,85 @@ describe('handleResendWebhookEvent — bounce / complaint', () => {
     }
     await handleResendWebhookEvent(prisma, redis, event)
 
-    expect(updateMany).toHaveBeenCalledWith({ where: { externalId: 're_999' }, data: { status: 'BOUNCED' } })
+    // The transition is guarded WHERE status != BOUNCED so a duplicate delivery is a no-op.
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { externalId: 're_999', status: { not: 'BOUNCED' } },
+      data: { status: 'BOUNCED' },
+    })
     expect(set).toHaveBeenCalledWith(
       RedisKey.emailSuppression(hashEmail('dead@example.com')),
       'email.bounced',
       'EX',
       SUPPRESSION_TTL_SECONDS,
     )
+    // First genuine transition contributes to the pause-ratio path exactly once.
+    expect(recordEmailBounce).toHaveBeenCalledTimes(1)
   })
 
-  it('treats a complaint the same way (BOUNCED + suppress), multi-recipient', async () => {
-    const { prisma, updateMany } = fakePrisma()
+  it('treats a complaint the same way (BOUNCED + suppress + count once), multi-recipient', async () => {
+    const { prisma, updateMany } = fakePrisma(['re_1'])
     const { redis, set } = fakeRedis()
     await handleResendWebhookEvent(prisma, redis, {
       type: 'email.complained',
       data: { email_id: 're_1', to: ['a@x.com', 'b@x.com'] },
     })
-    expect(updateMany).toHaveBeenCalledWith({ where: { externalId: 're_1' }, data: { status: 'BOUNCED' } })
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { externalId: 're_1', status: { not: 'BOUNCED' } },
+      data: { status: 'BOUNCED' },
+    })
     expect(set).toHaveBeenCalledTimes(2)
+    expect(recordEmailBounce).toHaveBeenCalledTimes(1)
   })
 
-  it('still suppresses even when the provider omits the email id (no row to flip)', async () => {
+  it('still suppresses even when the provider omits the email id, but does NOT count (no row to flip)', async () => {
     const { prisma, updateMany } = fakePrisma()
     const { redis, set } = fakeRedis()
     await handleResendWebhookEvent(prisma, redis, { type: 'email.bounced', data: { to: 'x@y.com' } })
     expect(updateMany).not.toHaveBeenCalled()
     expect(set).toHaveBeenCalledTimes(1)
+    expect(recordEmailBounce).not.toHaveBeenCalled()
+  })
+})
+
+describe('handleResendWebhookEvent: bounce counter idempotency (GAP-6 auto-pause guard)', () => {
+  it('a duplicate bounced delivery increments the counter exactly once', async () => {
+    const { prisma, updateMany } = fakePrisma(['re_dup'])
+    const { redis } = fakeRedis()
+    const event: ResendWebhookEvent = { type: 'email.bounced', data: { email_id: 're_dup', to: 'd@x.com' } }
+
+    await handleResendWebhookEvent(prisma, redis, event) // first delivery: transitions
+    await handleResendWebhookEvent(prisma, redis, event) // retry: row already BOUNCED
+
+    expect(updateMany).toHaveBeenCalledTimes(2)
+    expect(recordEmailBounce).toHaveBeenCalledTimes(1)
+  })
+
+  it('an already-BOUNCED row does not increment the counter', async () => {
+    const { prisma } = fakePrisma(['re_pre'])
+    const { redis } = fakeRedis()
+    const event: ResendWebhookEvent = { type: 'email.bounced', data: { email_id: 're_pre', to: 'p@x.com' } }
+    await handleResendWebhookEvent(prisma, redis, event) // pre-bounce
+    recordEmailBounce.mockClear()
+    await handleResendWebhookEvent(prisma, redis, event) // second: no transition
+    expect(recordEmailBounce).not.toHaveBeenCalled()
+  })
+
+  it('an unmatched externalId does not increment the counter (and does not crash)', async () => {
+    const { prisma, updateMany } = fakePrisma([]) // no rows: nothing matches
+    const { redis, set } = fakeRedis()
+    await handleResendWebhookEvent(prisma, redis, { type: 'email.bounced', data: { email_id: 're_ghost', to: 'g@x.com' } })
+    expect(updateMany).toHaveBeenCalledTimes(1)
+    expect(set).toHaveBeenCalledTimes(1) // suppression still applies
+    expect(recordEmailBounce).not.toHaveBeenCalled()
+  })
+
+  it('a duplicate complaint delivery also counts exactly once', async () => {
+    const { prisma } = fakePrisma(['re_cdup'])
+    const { redis } = fakeRedis()
+    const event: ResendWebhookEvent = { type: 'email.complained', data: { email_id: 're_cdup', to: 'c@x.com' } }
+    await handleResendWebhookEvent(prisma, redis, event)
+    await handleResendWebhookEvent(prisma, redis, event)
+    expect(recordEmailBounce).toHaveBeenCalledTimes(1)
   })
 })
 
