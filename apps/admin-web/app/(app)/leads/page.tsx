@@ -21,8 +21,10 @@
  *   SECTION 2 "In-progress onboardings": draft/incomplete merchants (existing
  *     merchants directory read, pre-live statuses), each linking into
  *     Merchant 360 to continue.
- *   SECTION 3 "Prospect pipeline": honestly gated : the lead model is OD1, an
- *     open owner decision. No kanban, no fake columns, no lead CRUD.
+ *   SECTION 3 "Prospect pipeline": the live MerchantLead board (#500). Gated on
+ *     `lead:manage`: a role without it sees a "Pipeline is restricted" note in
+ *     place of the board (denied state); Convert additionally needs
+ *     `merchant:create-draft` (the backend dual gate).
  *
  * Two-layer capability gating: the PAGE fails closed on `merchant:read` (the
  * lowest bar for viewing the hub at all : the same gate the Merchants
@@ -46,7 +48,7 @@ import { useInProgressOnboardings, IN_PROGRESS_DISPLAY_CAP } from '@/lib/leads/u
 import { InboundPointerCard } from '@/features/leads/InboundPointerCard'
 import { CreateDraftCard, AssistedOnboardingCard } from '@/features/leads/OnboardingRouteCards'
 import { InProgressOnboardingsSection } from '@/features/leads/InProgressOnboardingsSection'
-import { ProspectPipelinePlaceholder } from '@/features/leads/ProspectPipelinePlaceholder'
+import { ProspectPipeline } from '@/features/leads/ProspectPipeline'
 
 // ── States ──────────────────────────────────────────────────────────────────
 
@@ -75,10 +77,11 @@ function LoadingState() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function LeadsHubPage() {
-  const { ready, can } = useSession()
+  const { ready, can, role } = useSession()
   const canRead = ready && can('merchant:read')
   const canCreateDraft = can('merchant:create-draft')
   const canReadApprovals = can('approval:read')
+  const canManageLeads = ready && can('lead:manage')
 
   const awaiting = useAwaitingReviewCount({ enabled: canRead && canReadApprovals })
   const inProgress = useInProgressOnboardings({ enabled: canRead })
@@ -143,9 +146,9 @@ export default function LeadsHubPage() {
         />
       </section>
 
-      {/* SECTION 3: Prospect pipeline (honestly gated: OD1) */}
+      {/* SECTION 3: Prospect pipeline (gated on lead:manage; MerchantLead model live, #500) */}
       <section className="space-y-3" data-testid="leads-section-pipeline" aria-label="Prospect pipeline">
-        <ProspectPipelinePlaceholder />
+        <ProspectPipeline canManage={canManageLeads} canConvert={canCreateDraft} role={role} />
       </section>
     </div>
   )

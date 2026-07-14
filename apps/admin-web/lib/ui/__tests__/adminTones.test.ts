@@ -19,6 +19,11 @@ import {
   approvalStatusTone,
   merchantLifecycle,
   voucherLifecycle,
+  LEAD_LANES,
+  LEAD_STAGE_LABEL,
+  LEAD_STAGE_TONE,
+  LEAD_STAGE_HINT,
+  isLeadLane,
 } from '../adminTones'
 import type { AdminApproval } from '@/lib/api/approvals'
 
@@ -27,6 +32,39 @@ const CURRENT_ADMIN = 'admin-me'
 function approval(overrides: Partial<Pick<AdminApproval, 'status' | 'claimedById'>>) {
   return { status: 'PENDING' as const, claimedById: null, ...overrides }
 }
+
+// ── Prospect pipeline lead stages (§A2) ─────────────────────────────────────
+
+describe('lead stage tone mapping', () => {
+  it('maps the three lanes onto the shared BadgeTone palette (no new hex)', () => {
+    expect(LEAD_STAGE_TONE.LEAD).toBe('neutral')
+    expect(LEAD_STAGE_TONE.CONTACTED).toBe('info')
+    expect(LEAD_STAGE_TONE.VISIT_BOOKED).toBe('warn')
+  })
+
+  it('labels the lanes in operator language', () => {
+    expect(LEAD_STAGE_LABEL.LEAD).toBe('Lead')
+    expect(LEAD_STAGE_LABEL.CONTACTED).toBe('Contacted')
+    expect(LEAD_STAGE_LABEL.VISIT_BOOKED).toBe('Visit booked')
+  })
+
+  it('carries the spec hint per lane', () => {
+    expect(LEAD_STAGE_HINT.LEAD).toBe('Captured, not yet contacted')
+    expect(LEAD_STAGE_HINT.CONTACTED).toBe('Reached out, in conversation')
+    expect(LEAD_STAGE_HINT.VISIT_BOOKED).toBe('Meeting or on-site scheduled')
+  })
+
+  it('LEAD_LANES is exactly the three live lanes in board order', () => {
+    expect([...LEAD_LANES]).toEqual(['LEAD', 'CONTACTED', 'VISIT_BOOKED'])
+  })
+
+  it('isLeadLane accepts lanes and rejects terminal states', () => {
+    expect(isLeadLane('CONTACTED')).toBe(true)
+    expect(isLeadLane('CONVERTED')).toBe(false)
+    expect(isLeadLane('LOST')).toBe(false)
+    expect(isLeadLane('NONSENSE')).toBe(false)
+  })
+})
 
 // ── courtOf ───────────────────────────────────────────────────────────────
 
