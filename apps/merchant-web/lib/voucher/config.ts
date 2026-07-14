@@ -148,6 +148,19 @@ export function resolveCategoryKey(name: string | null | undefined): CategoryKey
   return NAME_TO_KEY[name] ?? CATEGORY_FALLBACK_KEY
 }
 
+// The inverse of NAME_TO_KEY: a representative top-level category NAME for a config
+// key. Used where a surface holds the resolved CategoryKey but a shared component
+// (ScorePanel / PreviewCard / buildScoreInput) wants the NAME it re-resolves from -
+// passing this back through resolveCategoryKey yields the SAME key, so chips / clauses
+// / score / preview all agree. CATEGORY_FALLBACK has no name (resolves to fallback).
+const KEY_TO_NAME: Partial<Record<CategoryKey, string>> = Object.fromEntries(
+  Object.entries(NAME_TO_KEY).map(([name, key]) => [key, name]),
+) as Partial<Record<CategoryKey, string>>
+
+export function categoryNameForKey(key: CategoryKey): string | null {
+  return KEY_TO_NAME[key] ?? null
+}
+
 function datumFor(key: CategoryKey): CategoryDatum {
   return CATEGORY_DATA[key] ?? CATEGORY_DATA[CATEGORY_FALLBACK_KEY]
 }

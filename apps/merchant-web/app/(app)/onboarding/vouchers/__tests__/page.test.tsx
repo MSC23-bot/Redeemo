@@ -37,6 +37,12 @@ jest.mock('@/lib/api/voucher', () => ({
   updateRmvVoucher: (...a: unknown[]) => updateRmvVoucher(...a),
   submitRmvVoucher: (...a: unknown[]) => submitRmvVoucher(...a),
   listRmvVouchers: (...a: unknown[]) => listRmvVouchers(...a),
+  // Mirrors the real helper's FAIL-CLOSED semantics: the template's own list when the
+  // fetched row carries one; null (nothing editable) when unknown. No permissive default.
+  rmvAllowedFields: (row: { rmvTemplate?: { allowedFields?: string[] | null } } | null | undefined) => {
+    const list = row?.rmvTemplate?.allowedFields
+    return Array.isArray(list) ? list : null
+  },
 }))
 
 jest.mock('@/components/ui/file-upload', () => ({
@@ -57,6 +63,27 @@ const FOOD_TAXONOMY = {
       subcategories: [{ id: 'sub-restaurant', name: 'Restaurant', parentId: 'cat-food', tags: [] }],
     },
   ],
+}
+
+// The standard template allowedFields set (backend seed). The page reads the
+// AUTHORITATIVE list from the fetched row's rmvTemplate: rows without it are treated
+// as unknown and the builder fails closed (nothing editable).
+const FULL_ALLOWED = ['title', 'description', 'estimatedSaving', 'terms', 'imageUrl', 'merchantFields']
+const FULL_TEMPLATE = { allowedFields: FULL_ALLOWED }
+
+// A freshly-created DRAFT row as the post-create REFETCH returns it: top-level template
+// defaults + the rmvTemplate relation (which the create response itself lacks).
+function createdRow(id: string, type: string, template: { allowedFields: string[] } = FULL_TEMPLATE) {
+  return { id, type, status: 'DRAFT', title: 'Template title', description: 'Template body', estimatedSaving: 5, rmvTemplate: template }
+}
+
+// Click a flagship Submit button, then clear the governed soft weak-warning if it
+// interposes (a Too-weak voucher shows it; a strong one submits directly). CC-1: the
+// warning never hard-gates - "Submit anyway" proceeds through the same submit path.
+function submitFlagship(label: RegExp) {
+  fireEvent.click(screen.getByRole('button', { name: label }))
+  const anyway = screen.queryByRole('button', { name: /Submit anyway/i })
+  if (anyway) fireEvent.click(anyway)
 }
 
 function renderPage() {
@@ -94,6 +121,7 @@ function captureSavePayload(
       onSave={onSave}
       onSubmit={jest.fn()}
       onBack={jest.fn()}
+      allowedFields={FULL_ALLOWED}
     />,
   )
   edit?.()
@@ -125,6 +153,9 @@ function draftRow(
     estimatedSaving: templateDefaults.estimatedSaving,
     // The merged PATCH body lands in merchantFields (the draft bag nests under .merchantFields).
     merchantFields: { ...payload },
+    // List rows carry the template relation; its allowedFields is the authoritative
+    // gating source (fail closed without it).
+    rmvTemplate: FULL_TEMPLATE,
   }
 }
 
@@ -139,6 +170,8 @@ beforeEach(() => {
 
 describe('type pick -> create-flagship -> builder', () => {
   it('resolves the food category, picks BOGO, and creates the flagship DRAFT', async () => {
+    // Initial load: no rows. Post-create refetch: the created DRAFT WITH its template.
+    listRmvVouchers.mockResolvedValueOnce([]).mockResolvedValue([createdRow('rmv-1', 'BOGO')])
     renderPage()
     // The picker shows once taxonomy + profile load.
     const bogo = await screen.findByRole('button', { name: /Buy one, get one free/i })
@@ -146,8 +179,90 @@ describe('type pick -> create-flagship -> builder', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
 
     await waitFor(() => expect(createFlagshipRmv).toHaveBeenCalledWith('BOGO'))
-    // The guided builder mounts.
+    // The guided builder mounts, EDITABLE (the refetched template allows the fields).
     expect(await screen.findByText('What does the customer buy?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Save as draft/i })).toBeEnabled()
+  })
+
+  it('GAP 2: the fresh-create path gates on the FETCHED template allowedFields (restricted template)', async () => {
+    // The refetched row carries a template WITHOUT imageUrl or estimatedSaving: those
+    // surfaces must render read-only even though this is a brand-new draft.
+    listRmvVouchers
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([createdRow('rmv-1', 'BOGO', { allowedFields: ['title', 'description', 'terms', 'merchantFields'] })])
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /Buy one, get one free/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
+    expect(await screen.findByText('What does the customer buy?')).toBeInTheDocument()
+    // Photo upload absent (imageUrl not allowed); title still editable.
+    expect(screen.queryByRole('button', { name: /Add a photo|Replace photo/i })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Title')).toBeInTheDocument()
+  })
+
+  it('GAP 2: unknown permissions FAIL CLOSED (created row missing from the refetched list)', async () => {
+    // The refetch never returns the created row: the builder must render its
+    // fail-closed loading state, with nothing editable and the CTAs disabled.
+    listRmvVouchers.mockResolvedValue([])
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /Buy one, get one free/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
+    await waitFor(() => expect(createFlagshipRmv).toHaveBeenCalledWith('BOGO'))
+    expect(await screen.findByText(/Checking what you can edit on this voucher/i)).toBeInTheDocument()
+    expect(screen.queryByText('What does the customer buy?')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Save as draft/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Save voucher 1 of 2/i })).toBeDisabled()
+    expect(updateRmvVoucher).not.toHaveBeenCalled()
+  })
+})
+
+describe('GAP 1: discount kind type/template integrity', () => {
+  it('create-percent then toggle-fixed then submit: the PATCH bag carries discountKind "fixed" for the backend re-link', async () => {
+    // The picker's single Discount card creates DISCOUNT_PERCENT (the default kind).
+    createFlagshipRmv.mockResolvedValue({ id: 'rmv-d1', type: 'DISCOUNT_PERCENT', status: 'DRAFT' })
+    updateRmvVoucher.mockResolvedValue({ id: 'rmv-d1', type: 'DISCOUNT_PERCENT', status: 'DRAFT' })
+    submitRmvVoucher.mockResolvedValue({ id: 'rmv-d1', type: 'DISCOUNT_FIXED', status: 'PENDING_APPROVAL' })
+    listRmvVouchers.mockResolvedValueOnce([]).mockResolvedValue([createdRow('rmv-d1', 'DISCOUNT_PERCENT')])
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Discount/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
+    await waitFor(() => expect(createFlagshipRmv).toHaveBeenCalledWith('DISCOUNT_PERCENT'))
+    await screen.findByText('What kind of discount?')
+
+    // Toggle to the FIXED kind and set an amount.
+    fireEvent.click(screen.getByRole('radio', { name: 'A fixed amount off' }))
+    fireEvent.change(screen.getByLabelText('Amount off') as HTMLInputElement, { target: { value: '10' } })
+
+    submitFlagship(/Save voucher 1 of 2/i)
+    await waitFor(() => expect(submitRmvVoucher).toHaveBeenCalledWith('rmv-d1'))
+
+    // The PATCH (save) body's nested bag carries the chosen kind: this is the exact
+    // key submitRmvVoucherCore reads (Voucher.merchantFields.merchantFields.discountKind)
+    // to re-link type + rmvTemplateId to the DISCOUNT_FIXED sibling template
+    // (backend covered by tests/api/merchant/voucher-bridge.test.ts).
+    const patchBody = updateRmvVoucher.mock.calls[0][1] as { merchantFields?: { discountKind?: string; builderType?: string } }
+    expect(patchBody.merchantFields?.builderType).toBe('discount')
+    expect(patchBody.merchantFields?.discountKind).toBe('fixed')
+    // And the PATCH lands BEFORE submit, so the re-link sees the stored kind.
+    expect(updateRmvVoucher.mock.invocationCallOrder[0]).toBeLessThan(submitRmvVoucher.mock.invocationCallOrder[0])
+  })
+
+  it('resumed FIXED-kind draft: renders the saved kind and a re-save retains discountKind "fixed" (vice versa direction)', async () => {
+    // A saved draft whose bag carries the FIXED kind (created percent, toggled fixed).
+    const row = draftRow('rmv-d2', 'DISCOUNT_PERCENT', 'discount', { title: 'Template default title', description: 'Template default body', estimatedSaving: 5 }, () => {
+      fireEvent.click(screen.getByRole('radio', { name: 'A fixed amount off' }))
+      fireEvent.change(screen.getByLabelText('Amount off') as HTMLInputElement, { target: { value: '10' } })
+    })
+    listRmvVouchers.mockResolvedValue([row])
+    renderPage()
+    // The resumed draft renders the saved FIXED branch, not the percent default.
+    expect(await screen.findByLabelText('Amount off')).toBeInTheDocument()
+    expect((screen.getByLabelText('Amount off') as HTMLInputElement).value).toBe('10')
+
+    submitFlagship(/Save voucher 1 of 2/i)
+    await waitFor(() => expect(submitRmvVoucher).toHaveBeenCalledWith('rmv-d2'))
+    const patchBody = updateRmvVoucher.mock.calls[0][1] as { merchantFields?: { discountKind?: string } }
+    expect(patchBody.merchantFields?.discountKind).toBe('fixed')
   })
 })
 
@@ -171,31 +286,41 @@ describe('VOUCHER_TYPE_NOT_ELIGIBLE + FLAGSHIP_RMV_LIMIT_REACHED handling', () =
 
 describe('2-voucher flow', () => {
   it('after submitting voucher 1, advances to "voucher 2 of 2" (does NOT leave to the hub yet)', async () => {
+    // initial [] -> post-create refetch [DRAFT + template] -> post-submit refetch [PENDING].
+    const row = createdRow('rmv-1', 'BOGO')
+    listRmvVouchers
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValue([{ ...row, status: 'PENDING_APPROVAL' }])
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /Buy one, get one free/i }))
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
     await screen.findByText('What does the customer buy?')
 
-    fireEvent.click(screen.getByRole('button', { name: /Save voucher 1 of 2/i }))
+    submitFlagship(/Save voucher 1 of 2/i)
     await waitFor(() => expect(submitRmvVoucher).toHaveBeenCalledWith('rmv-1'))
 
-    // Now back on the picker for voucher 2 of 2.
-    expect(await screen.findByText(/2 of 2/i)).toBeInTheDocument()
+    // Now back on the picker for voucher 2 of 2 (prototype step chip: Step 1 = pick).
+    expect(await screen.findByText('Voucher 2 of 2 · Step 1 of 2')).toBeInTheDocument()
     expect(push).not.toHaveBeenCalled()
   })
 
   it('after submitting voucher 2, returns to the hub', async () => {
-    listRmvVouchers.mockResolvedValue([{ id: 'rmv-1', type: 'BOGO', status: 'PENDING_APPROVAL' }])
+    const pending1 = { id: 'rmv-1', type: 'BOGO', status: 'PENDING_APPROVAL' }
+    createFlagshipRmv.mockResolvedValue({ id: 'rmv-2', type: 'FREEBIE', status: 'DRAFT' })
     submitRmvVoucher.mockResolvedValue({ id: 'rmv-2', type: 'FREEBIE', status: 'PENDING_APPROVAL' })
+    listRmvVouchers
+      .mockResolvedValueOnce([pending1])
+      .mockResolvedValue([pending1, createdRow('rmv-2', 'FREEBIE')])
     renderPage()
-    // Already one flagship submitted -> picker shows "voucher 2 of 2".
-    expect(await screen.findByText(/2 of 2/i)).toBeInTheDocument()
+    // Already one flagship submitted -> picker shows the "Voucher 2 of 2" step chip.
+    expect(await screen.findByText('Voucher 2 of 2 · Step 1 of 2')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Freebie/i }))
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
     await screen.findByText('What does the customer get free?')
 
-    fireEvent.click(screen.getByRole('button', { name: /Save voucher 2 of 2/i }))
+    submitFlagship(/Save voucher 2 of 2/i)
     await waitFor(() => expect(push).toHaveBeenCalledWith('/'))
   })
 })
@@ -224,14 +349,15 @@ describe('DRAFT resume + cap consistency (review-mandated fix)', () => {
     expect((screen.getByLabelText('Value of the free item') as HTMLInputElement).value).toBe('12')
     // No create-flagship call: we RESUMED, not created.
     expect(createFlagshipRmv).not.toHaveBeenCalled()
-    // Resuming voucher 1 of 2 (0 submitted) - the builder eyebrow reads the index.
-    expect(screen.getByText(/Flagship voucher 1 of 2/i)).toBeInTheDocument()
+    // Resuming voucher 1 of 2 (0 submitted): the builder step chip reads the index
+    // (prototype stepLabel; the builder is Step 2 of 2).
+    expect(screen.getByText('Voucher 1 of 2 · Step 2 of 2')).toBeInTheDocument()
   })
 
   it('resumes a DRAFT with an edited title/description + selected clause + custom term + askHelp (full round-trip)', async () => {
     const row = draftRow('rmv-draft-1', 'DISCOUNT_PERCENT', 'discount', { title: 'Template default title', description: 'Template default body', estimatedSaving: 5 }, () => {
-      fireEvent.change(screen.getByLabelText(/What percentage off/i) as HTMLInputElement, { target: { value: '25' } })
-      fireEvent.change(screen.getByLabelText(/typical order value/i) as HTMLInputElement, { target: { value: '40' } })
+      fireEvent.change(screen.getByLabelText(/Percent off/i) as HTMLInputElement, { target: { value: '25' } })
+      fireEvent.change(screen.getByLabelText(/Typical order/i) as HTMLInputElement, { target: { value: '40' } })
       fireEvent.change(screen.getByLabelText('Title') as HTMLInputElement, { target: { value: 'My own headline' } })
       fireEvent.change(screen.getByLabelText('Description') as HTMLInputElement, { target: { value: 'My own body copy' } })
       const terms = screen.getByTestId('terms-section')
@@ -245,7 +371,7 @@ describe('DRAFT resume + cap consistency (review-mandated fix)', () => {
     await screen.findByText('What kind of discount?')
     // Edited title/description rehydrate from the STORED bag, not the template defaults.
     expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('My own headline')
-    expect(screen.getByTestId('preview-desc')).toHaveTextContent('My own body copy')
+    expect(screen.getByTestId('builder-preview-description')).toHaveTextContent('My own body copy')
     // The selected clause stays selected + the custom term rehydrates.
     const termsSection = screen.getByTestId('terms-section')
     expect((within(termsSection).getByRole('checkbox', { name: 'Not valid with any other voucher' }) as HTMLInputElement).checked).toBe(true)
@@ -262,12 +388,14 @@ describe('DRAFT resume + cap consistency (review-mandated fix)', () => {
     listRmvVouchers.mockResolvedValueOnce([row]).mockResolvedValue([{ ...row, status: 'PENDING_APPROVAL' }])
     renderPage()
     await screen.findByText('What does the customer buy?')
-    // Submit the resumed DRAFT -> updates THIS draft id then submits it.
-    fireEvent.click(screen.getByRole('button', { name: /Save voucher 1 of 2/i }))
+    // Submit the resumed DRAFT -> updates THIS draft id then submits it. An empty BOGO is
+    // Too weak, so the soft warning interposes; submitFlagship clears it.
+    submitFlagship(/Save voucher 1 of 2/i)
     await waitFor(() => expect(submitRmvVoucher).toHaveBeenCalledWith('rmv-draft-1'))
     expect(createFlagshipRmv).not.toHaveBeenCalled()
-    // Advances to voucher 2 of 2 (still does not leave to the hub): picker for #2.
-    expect(await screen.findByText(/2 of 2/i)).toBeInTheDocument()
+    // Advances to voucher 2 of 2 (still does not leave to the hub): picker for #2
+    // (prototype step chip: the type pick is Step 1 of 2).
+    expect(await screen.findByText('Voucher 2 of 2 · Step 1 of 2')).toBeInTheDocument()
     expect(push).not.toHaveBeenCalled()
   })
 
@@ -292,7 +420,8 @@ describe('DRAFT resume + cap consistency (review-mandated fix)', () => {
     renderPage()
     // 1 submitted -> "2 of 2"; resumes the DRAFT (no create).
     expect(await screen.findByText('What does the customer get free?')).toBeInTheDocument()
-    expect(screen.getByText(/Flagship voucher 2 of 2/i)).toBeInTheDocument()
+    // Builder step chip (prototype stepLabel): the builder is Step 2 of 2.
+    expect(screen.getByText('Voucher 2 of 2 · Step 2 of 2')).toBeInTheDocument()
     expect(createFlagshipRmv).not.toHaveBeenCalled()
   })
 

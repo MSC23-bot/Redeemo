@@ -3,10 +3,10 @@
 import * as React from 'react'
 import { cn } from '@/lib/utils'
 
-// Voucher Builder shared core: field primitives, prototype-faithful. Consolidates
-// the two previously-forked bespoke primitive sets (builder/fields.tsx +
-// onboarding/vouchers/fields.tsx) onto one brand-mapped set. Styled to the design
-// tokens (cream identity, navy text, brand-rose focus).
+// Voucher Builder shared core: field primitives, prototype-faithful. Consolidates the
+// two previously-forked bespoke primitive sets (the day-2 builder/fields.tsx and the
+// onboarding lane's own fields.tsx, both since retired) onto one brand-mapped set.
+// Styled to the design tokens (cream identity, navy text, brand-rose focus).
 
 export function FieldBlock({
   heading,

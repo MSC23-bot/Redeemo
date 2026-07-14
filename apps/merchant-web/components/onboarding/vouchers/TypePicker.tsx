@@ -31,11 +31,14 @@ export function TypePicker({ categoryKey, voucherIndex, onContinue, onBack }: Ty
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
+        {/* Prototype wizard step chip (A11 / FULL.html stepLabel ~L12708): the type pick
+            is Step 1 of 2; the builder is Step 2 of 2. Middle dot per the prototype;
+            never an em-dash (style lock). */}
         <span
           className="inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold"
           style={{ background: '#FEF0EE', color: '#E84A00' }}
         >
-          Flagship voucher {voucherIndex} of 2
+          Voucher {voucherIndex} of 2 · Step 1 of 2
         </span>
         <h1 className="font-display text-2xl font-semibold text-[#010C35]">{PRIMER.pickerHeader}</h1>
         <p className="text-sm leading-relaxed text-[#6B7390]">{PRIMER.pickerSub}</p>

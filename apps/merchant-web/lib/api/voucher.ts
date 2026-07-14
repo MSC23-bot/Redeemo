@@ -19,7 +19,9 @@ import { apiFetch } from './client'
 //   GET  /api/v1/merchant/vouchers/rmv  -> the merchant's flagship RMV rows.
 
 // The RMV row shape we consume. .passthrough() so a future backend field cannot break
-// this client. merchantFields is the JSON bag the guided builder rehydrates from.
+// this client. merchantFields is the JSON bag the guided builder rehydrates from;
+// rmvTemplate.allowedFields (included by listRmvVouchers) governs which fields the
+// guided builder may write (governed RMV template lock).
 export const rmvVoucherSchema = z
   .object({
     id: z.string(),
@@ -31,10 +33,26 @@ export const rmvVoucherSchema = z
     terms: z.string().nullish(),
     imageUrl: z.string().nullish(),
     merchantFields: z.record(z.string(), z.unknown()).nullish(),
+    rmvTemplate: z
+      .object({ allowedFields: z.array(z.string()).nullish() })
+      .passthrough()
+      .nullish(),
   })
   .passthrough()
 
 export type RmvVoucher = z.infer<typeof rmvVoucherSchema>
+
+// The template's allowedFields for a row: FAIL CLOSED. Returns the template's own list
+// when the row carries one; returns null when the permissions are UNKNOWN (row missing,
+// no rmvTemplate relation, malformed json). There is deliberately no permissive default:
+// the create-flagship response does not include the relation, so the page refetches the
+// RMV list after create and the builder treats null as nothing-editable (loading state)
+// until the authoritative list arrives. Mirrors updateRmvVoucherCore's key check
+// (RMV_FIELD_NOT_ALLOWED); an explicitly EMPTY template list means nothing is editable.
+export function rmvAllowedFields(row: Pick<RmvVoucher, 'rmvTemplate'> | null | undefined): string[] | null {
+  const list = row?.rmvTemplate?.allowedFields
+  return Array.isArray(list) ? list : null
+}
 
 export async function createFlagshipRmv(voucherType: string): Promise<RmvVoucher> {
   return rmvVoucherSchema.parse(

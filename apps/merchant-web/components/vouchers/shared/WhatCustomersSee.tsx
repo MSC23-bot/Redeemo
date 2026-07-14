@@ -30,6 +30,12 @@ export interface WhatCustomersSeeProps {
   onSaving: (v: number | undefined) => void
   onResetSaving: () => void
   onImageUrl: (url: string | null | undefined) => void
+  /** Per-field editability. Absent (or a flag omitted) = editable, so the day-2 custom
+   * lane is unaffected. The onboarding flagship lane passes false for any field the
+   * RmvTemplate.allowedFields set does NOT permit: a disallowed field renders read-only
+   * (its template default stays visible) and is never written to the PATCH (governed
+   * RMV lock: title/description/estimatedSaving/imageUrl are template-gated keys). */
+  editable?: { photo?: boolean; title?: boolean; description?: boolean; saving?: boolean }
 }
 
 export function WhatCustomersSee({
@@ -42,7 +48,12 @@ export function WhatCustomersSee({
   onSaving,
   onResetSaving,
   onImageUrl,
+  editable,
 }: WhatCustomersSeeProps) {
+  const canPhoto = editable?.photo !== false
+  const canTitle = editable?.title !== false
+  const canDescription = editable?.description !== false
+  const canSaving = editable?.saving !== false
   const title = effectiveTitle(state)
   const description = effectiveDescription(state)
   const saving = effectiveSaving(state)
@@ -69,16 +80,22 @@ export function WhatCustomersSee({
         {/* Photo */}
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-medium text-[#010C35]">Photo</label>
-          <FileUpload
-            kind="photo"
-            label={state.imageUrl ? 'Replace photo' : 'Add a photo'}
-            hint="JPG or PNG, landscape, at least 1200 by 600 pixels, up to 5 MB."
-            onUploaded={(url) => onImageUrl(url)}
-          />
+          {canPhoto ? (
+            <FileUpload
+              kind="photo"
+              label={state.imageUrl ? 'Replace photo' : 'Add a photo'}
+              hint="JPG or PNG, landscape, at least 1200 by 600 pixels, up to 5 MB."
+              onUploaded={(url) => onImageUrl(url)}
+            />
+          ) : (
+            <div className="flex h-10 items-center rounded-[12px] border border-[#E5E7EB] bg-[#F8F9FA] px-3 text-sm text-[#4B5366]">
+              {state.imageUrl ? 'Photo set by Redeemo' : 'No photo'}
+            </div>
+          )}
           <p className="text-[12px] text-[#8089A4]">
             It fills the top of your voucher card. A photo of the item or your space works well.
           </p>
-          {(() => {
+          {canPhoto ? (() => {
             const savedBaseline = isEdit ? state.savedImageUrl : undefined
             if (!state.imageUrl) return null
             if (savedBaseline && state.imageUrl === savedBaseline) {
@@ -96,24 +113,32 @@ export function WhatCustomersSee({
                 {savedBaseline ? 'Use the saved photo instead' : 'Remove photo'}
               </button>
             )
-          })()}
+          })() : null}
         </div>
 
         {/* Title */}
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-[#010C35]">Title</label>
-            {titleEdited ? (
+            {canTitle && titleEdited ? (
               <button type="button" onClick={onResetTitle} className="text-xs font-semibold text-[#E20C04] hover:underline">
                 Use our suggestion
               </button>
             ) : null}
           </div>
-          <TextField label="Title" hideLabel value={title} onChange={onTitle} placeholder="Your voucher title" />
+          {canTitle ? (
+            <TextField label="Title" hideLabel value={title} onChange={onTitle} placeholder="Your voucher title" />
+          ) : (
+            <div className="flex min-h-10 items-center rounded-[12px] border border-[#E5E7EB] bg-[#F8F9FA] px-3.5 py-2 text-sm text-[#4B5366]">
+              {title || 'Set by Redeemo'}
+            </div>
+          )}
           <p className="text-[12px] text-[#8089A4]">
-            {titleEdited
-              ? 'Your wording. Customers see this exactly. 60 character limit.'
-              : 'Suggested from what you entered. Edit it any way you like. 60 character limit.'}
+            {!canTitle
+              ? 'Set by Redeemo for this flagship voucher.'
+              : titleEdited
+                ? 'Your wording. Customers see this exactly. 60 character limit.'
+                : 'Suggested from what you entered. Edit it any way you like. 60 character limit.'}
           </p>
         </div>
 
@@ -121,17 +146,25 @@ export function WhatCustomersSee({
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-[#010C35]">Description</label>
-            {descEdited ? (
+            {canDescription && descEdited ? (
               <button type="button" onClick={onResetDescription} className="text-xs font-semibold text-[#E20C04] hover:underline">
                 Use our suggestion
               </button>
             ) : null}
           </div>
-          <TextAreaField label="Description" hideLabel value={description} onChange={onDescription} placeholder="Tell customers why they will love this offer." />
+          {canDescription ? (
+            <TextAreaField label="Description" hideLabel value={description} onChange={onDescription} placeholder="Tell customers why they will love this offer." />
+          ) : (
+            <div className="min-h-10 rounded-[12px] border border-[#E5E7EB] bg-[#F8F9FA] px-3.5 py-2 text-sm text-[#4B5366]">
+              {description || 'Set by Redeemo'}
+            </div>
+          )}
           <p className="text-[12px] text-[#8089A4]">
-            {descEdited
-              ? 'Your wording. 300 character limit.'
-              : 'Suggested. Make it your own to sell the offer in your voice. 300 character limit.'}
+            {!canDescription
+              ? 'Set by Redeemo for this flagship voucher.'
+              : descEdited
+                ? 'Your wording. 300 character limit.'
+                : 'Suggested. Make it your own to sell the offer in your voice. 300 character limit.'}
           </p>
         </div>
 
@@ -139,13 +172,13 @@ export function WhatCustomersSee({
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-[#010C35]">Estimated saving</label>
-            {isBogo && savingEdited ? (
+            {canSaving && isBogo && savingEdited ? (
               <button type="button" onClick={onResetSaving} className="text-xs font-semibold text-[#E20C04] hover:underline">
                 Reset to suggested
               </button>
             ) : null}
           </div>
-          {isBogo ? (
+          {canSaving && isBogo ? (
             <MoneyField label="Estimated saving" hideLabel value={saving > 0 ? money(saving) : ''} onChange={(v) => onSaving(v === '' ? undefined : Number(v))} />
           ) : (
             <div className="flex h-10 items-center rounded-[12px] border border-[#E5E7EB] bg-[#F8F9FA] px-3 text-sm font-semibold text-[#4B5366]">
@@ -163,13 +196,15 @@ export function WhatCustomersSee({
             <p className="mt-0.5 text-[12px] leading-relaxed text-[#8A5A16]">
               Offers need to save a customer at least £5 to be worth their trip. Raise the saving, or make the free item more generous.
             </p>
-            <button
-              type="button"
-              onClick={() => onSaving(5)}
-              className="mt-2 inline-flex h-8 items-center rounded-[10px] border border-[#E5B87A] bg-white px-3 text-xs font-semibold text-[#8A5A16] hover:bg-[#FDF0DD]"
-            >
-              Set saving to £5
-            </button>
+            {canSaving ? (
+              <button
+                type="button"
+                onClick={() => onSaving(5)}
+                className="mt-2 inline-flex h-8 items-center rounded-[10px] border border-[#E5B87A] bg-white px-3 text-xs font-semibold text-[#8A5A16] hover:bg-[#FDF0DD]"
+              >
+                Set saving to £5
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>

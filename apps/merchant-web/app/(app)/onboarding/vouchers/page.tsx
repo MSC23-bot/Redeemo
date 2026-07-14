@@ -13,6 +13,7 @@ import {
   updateRmvVoucher,
   submitRmvVoucher,
   listRmvVouchers,
+  rmvAllowedFields,
   type RmvVoucher,
 } from '@/lib/api/voucher'
 import { ApiError } from '@/lib/api/client'
@@ -197,6 +198,16 @@ export default function VouchersPage() {
     try {
       const voucher = await createFlagshipRmv(builderTypeToEnum(type))
       setDraftRmvId(voucher.id)
+      // Template-seed: the create-flagship endpoint seeds title/description/
+      // estimatedSaving from the RmvTemplate; carry those into the builder as the
+      // editable starting values (no draft bag yet, so `fields` is null).
+      setResumeSeed(templateSeedFromRmv(voucher))
+      // FAIL CLOSED (allowedFields): the create response does NOT include the
+      // rmvTemplate relation, so refetch the list to get the AUTHORITATIVE
+      // template allowedFields for the new row. Until this lands the builder
+      // renders nothing editable (rmvAllowedFields returns null for a missing
+      // row); the resume effect will not re-run (resumeResolved stays true).
+      await queryClient.refetchQueries({ queryKey: ['rmvVouchers'] })
       setStage('builder')
     } catch (err) {
       setError(voucherErrorMessage(err))
@@ -257,6 +268,13 @@ export default function VouchersPage() {
   }
 
   if (stage === 'builder' && pickedType) {
+    // Governed RMV lock, FAIL CLOSED: which fields the builder may write is the
+    // template's OWN allowedFields, read from the refetched list row (the create
+    // response carries no rmvTemplate relation; handleContinue refetches before the
+    // builder mounts). While the row/template is unknown, rmvAllowedFields returns
+    // null and the builder renders nothing editable (loading state), never a
+    // permissive default.
+    const currentRow = rmvRows.find((r) => r.id === draftRmvId)
     return (
       <BuilderForm
         // Key on the draft id so resuming a DIFFERENT draft remounts the form and
@@ -269,6 +287,7 @@ export default function VouchersPage() {
         saving={saving}
         saveError={error}
         initialFields={resumeSeed ?? undefined}
+        allowedFields={rmvAllowedFields(currentRow)}
         onSave={(p) => persist(p, false)}
         onSubmit={(p) => persist(p, true)}
         onBack={() => {
@@ -314,6 +333,25 @@ export default function VouchersPage() {
 // This flattens both into the single clean seed the builder consumes, preferring the
 // stored (edited) values and falling back to the top-level row defaults only when a bag
 // key is absent (e.g. a DRAFT created but never edited).
+// Build the builder seed from a freshly-created flagship DRAFT: the create-flagship
+// endpoint seeds title / description / estimatedSaving from the RmvTemplate and writes
+// an EMPTY merchantFields bag, so `fields` is null (no draft yet) and the template
+// defaults become the editable starting values in the builder.
+function templateSeedFromRmv(row: RmvVoucher): BuilderResumeSeed {
+  const saving = typeof row.estimatedSaving === 'number'
+    ? row.estimatedSaving
+    : typeof row.estimatedSaving === 'string'
+      ? Number(row.estimatedSaving)
+      : null
+  return {
+    title: row.title ?? null,
+    description: row.description ?? null,
+    estimatedSaving: saving != null && Number.isFinite(saving) ? saving : null,
+    imageUrl: row.imageUrl ?? null,
+    fields: null,
+  }
+}
+
 function resumeSeedFromRmv(row: RmvVoucher): BuilderResumeSeed {
   const bag: Record<string, unknown> = (row.merchantFields as Record<string, unknown> | null | undefined) ?? {}
   const bagStr = (k: string): string | null => (typeof bag[k] === 'string' ? (bag[k] as string) : null)

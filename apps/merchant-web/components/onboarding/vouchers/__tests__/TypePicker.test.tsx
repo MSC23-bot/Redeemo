@@ -59,12 +59,13 @@ describe('selection + continue', () => {
 })
 
 describe('primer + voucher counter', () => {
-  it('shows the redemption-cycle primer and "voucher 1 of 2"', () => {
+  it('shows the redemption-cycle primer and the prototype step chip "Voucher 1 of 2 · Step 1 of 2"', () => {
     setup()
     expect(
       screen.getByText(/Each customer can use a voucher once a month/i),
     ).toBeInTheDocument()
-    expect(screen.getByText(/1 of 2/i)).toBeInTheDocument()
+    // Prototype wizard chip (A11 / FULL.html stepLabel): the type pick is Step 1 of 2.
+    expect(screen.getByText('Voucher 1 of 2 · Step 1 of 2')).toBeInTheDocument()
   })
 
   it('shows a category example on the BOGO card', () => {
