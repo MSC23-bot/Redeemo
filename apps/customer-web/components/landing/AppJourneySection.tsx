@@ -228,6 +228,61 @@ function ConfettiPiece({ local, p }: { local: MotionValue<number>; p: (typeof CO
   )
 }
 
+/* The next three components exist so every scroll-linked value is created
+   by a hook at the top level of a component (react-hooks/rules-of-hooks:
+   `useBand` inside a .map() callback fails the production build's lint,
+   which was the Vercel preview failure). Same ConfettiPiece pattern:
+   fixed-length constant arrays render one component per item. */
+
+/** One PIN digit appearing in its entry box as its key is pressed. */
+function PinDigit({ local, keyTime, digit }: { local: MotionValue<number>; keyTime: number; digit: string }) {
+  const opacity = useBand(local, [keyTime + 0.012, keyTime + 0.03], [0, 1])
+  return (
+    <motion.span className="font-display text-[22px] text-[#010C35]" style={{ opacity }}>
+      {digit}
+    </motion.span>
+  )
+}
+
+/** The keypad flash for one PIN key press. */
+function KeyFlash({ local, keyTime, digit }: { local: MotionValue<number>; keyTime: number; digit: string }) {
+  const opacity = useBand(local, [keyTime - 0.012, keyTime, keyTime + 0.025], [0, 1, 0])
+  const [kx, ky] = PIN_KEYS[digit]
+  return (
+    <motion.div
+      className="absolute rounded-lg pointer-events-none"
+      style={{
+        left: `${(kx - 0.145) * 100}%`, top: `${(ky - 0.024) * 100}%`,
+        width: '29%', height: '4.8%',
+        opacity,
+        background: 'rgba(226,12,4,0.22)',
+        boxShadow: '0 0 0 2px rgba(226,12,4,0.45)',
+      }}
+    />
+  )
+}
+
+/** One savings-trend replica bar growing to its true (money-accurate) height. */
+function TrendBar({ local, index, spec }: { local: MotionValue<number>; index: number; spec: (typeof BAR_SPECS)[number] }) {
+  const [bx, bw, bh, colour] = spec
+  const scaleY = useBand(
+    local,
+    [0.26 + index * 0.08, 0.36 + index * 0.08, 0.42 + index * 0.08],
+    [0, bh < 0.02 ? 2.4 : 1.12, 1],
+  )
+  return (
+    <motion.div
+      className="absolute pointer-events-none"
+      style={{
+        left: `${savX(bx) * 100}%`, width: `${(savX(bx + bw) - savX(bx)) * 100}%`,
+        top: `${(BAR_BASELINE - bh) * 100}%`, height: `${bh * 100}%`,
+        background: colour, borderRadius: '3px 3px 0 0',
+        scaleY, transformOrigin: 'bottom',
+      }}
+    />
+  )
+}
+
 function Stage() {
   const trackRef = useRef<HTMLDivElement>(null)
   const { scrollYProgress } = useScroll({ target: trackRef, offset: ['start start', 'end end'] })
@@ -285,8 +340,8 @@ function Stage() {
   const successOp = useBand(L4, [0.56, 0.6, 0.78, 0.83], [0, 1, 1, 0])
   const successScale = useBand(L4, [0.56, 0.64], [0.93, 1])
   const qrOp = useBand(L4, [0.8, 0.85, 1], [0, 1, 1])
-  const pinDigitOps = KEY_TIMES.map((t) => useBand(L4, [t + 0.012, t + 0.03], [0, 1]))
-  const keyFlashes = KEY_TIMES.map((t) => useBand(L4, [t - 0.012, t, t + 0.025], [0, 1, 0]))
+  // PIN digit/key-flash values live in PinDigit/KeyFlash components
+  // (rules-of-hooks: no useBand inside .map callbacks)
 
   /* Chapter 5: the ledger counts itself: total, month, redemptions, bars */
   const totalNum = useBand(L5, [0.06, 0.46], [0, 325.45])
@@ -295,9 +350,7 @@ function Stage() {
   const monthText = useTransform(monthNum, (v) => `£${v.toFixed(2)}`)
   const redemptionsNum = useBand(L5, [0.2, 0.48], [0, 23])
   const redemptionsText = useTransform(redemptionsNum, (v) => `${Math.round(v)}`)
-  const barsGrow = BAR_SPECS.map(([, , h], i) =>
-    useBand(L5, [0.26 + i * 0.08, 0.36 + i * 0.08, 0.42 + i * 0.08], [0, h < 0.02 ? 2.4 : 1.12, 1]),
-  )
+  // Trend-bar growth values live in TrendBar components (rules-of-hooks)
 
   return (
     <div ref={trackRef} className="relative" style={{ height: '780vh', background: '#FFF9F5' }}>
@@ -428,27 +481,12 @@ function Stage() {
                           border: '2px solid #F1D9D4',
                         }}
                       >
-                        <motion.span className="font-display text-[22px] text-[#010C35]" style={{ opacity: pinDigitOps[i] }}>
-                          {PIN_DIGITS[i]}
-                        </motion.span>
+                        <PinDigit local={L4} keyTime={KEY_TIMES[i]} digit={PIN_DIGITS[i]} />
                       </div>
                     ))}
-                    {PIN_DIGITS.map((d, i) => {
-                      const [kx, ky] = PIN_KEYS[d]
-                      return (
-                        <motion.div
-                          key={i}
-                          className="absolute rounded-lg pointer-events-none"
-                          style={{
-                            left: `${(kx - 0.145) * 100}%`, top: `${(ky - 0.024) * 100}%`,
-                            width: '29%', height: '4.8%',
-                            opacity: keyFlashes[i],
-                            background: 'rgba(226,12,4,0.22)',
-                            boxShadow: '0 0 0 2px rgba(226,12,4,0.45)',
-                          }}
-                        />
-                      )
-                    })}
+                    {PIN_DIGITS.map((d, i) => (
+                      <KeyFlash key={i} local={L4} keyTime={KEY_TIMES[i]} digit={d} />
+                    ))}
                   </motion.div>
 
                   <motion.div className="absolute inset-0" style={{ opacity: successOp, scale: successScale }}>
@@ -492,17 +530,8 @@ function Stage() {
                       {redemptionsText}
                     </motion.span>
                   </div>
-                  {BAR_SPECS.map(([bx, bw, bh, colour], i) => (
-                    <motion.div
-                      key={i}
-                      className="absolute pointer-events-none"
-                      style={{
-                        left: `${savX(bx) * 100}%`, width: `${(savX(bx + bw) - savX(bx)) * 100}%`,
-                        top: `${(BAR_BASELINE - bh) * 100}%`, height: `${bh * 100}%`,
-                        background: colour, borderRadius: '3px 3px 0 0',
-                        scaleY: barsGrow[i], transformOrigin: 'bottom',
-                      }}
-                    />
+                  {BAR_SPECS.map((spec, i) => (
+                    <TrendBar key={i} local={L5} index={i} spec={spec} />
                   ))}
                   {/* the current-month dot sits above the Jul bar from the
                       moment the screen arrives (owner: no delayed pop-in) */}
