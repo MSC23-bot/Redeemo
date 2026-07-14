@@ -128,6 +128,10 @@ describe('A4: submitVoucher creates/reopens the VOUCHER AdminApproval', () => {
   // adminNote) are CLEARED on resubmit. submitVoucher must strip them from the
   // bag inside the transaction. stripAdminOwnedKeys removes exactly those two
   // keys; a normal DRAFT submit (no admin keys) is a no-op.
+  // S5 note: these bags carry the custom structured marker (string builderType), so the
+  // fail-closed submit gate now validates the mechanic too. draftFields is matrix-complete
+  // for the suite's BOGO draft so the submits still pass and the strip behaviour under
+  // test stays observable.
   it('resubmit-after-changes CLEARS adminProposed/adminNote from merchantFields (keeps the merchant keys)', async () => {
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
       ...draft,
@@ -135,7 +139,7 @@ describe('A4: submitVoucher creates/reopens the VOUCHER AdminApproval', () => {
       merchantFields: {
         askHelp: true,
         builderType: 'bogo',
-        draftFields: { headline: 'BOGO night' },
+        draftFields: { bogoBuy: 'A main', bogoFree: 'A side', bogoFreePrice: 5 },
         adminProposed: { title: 'x' },
         adminNote: 'y',
       },
@@ -148,7 +152,7 @@ describe('A4: submitVoucher creates/reopens the VOUCHER AdminApproval', () => {
     expect(upd.data.merchantFields).toEqual({
       askHelp: true,
       builderType: 'bogo',
-      draftFields: { headline: 'BOGO night' },
+      draftFields: { bogoBuy: 'A main', bogoFree: 'A side', bogoFreePrice: 5 },
     })
     expect(upd.data.merchantFields.adminProposed).toBeUndefined()
     expect(upd.data.merchantFields.adminNote).toBeUndefined()
@@ -157,11 +161,11 @@ describe('A4: submitVoucher creates/reopens the VOUCHER AdminApproval', () => {
   it('a normal DRAFT submit (no admin keys) leaves merchantFields unchanged', async () => {
     app.prisma.voucher.findFirst = vi.fn().mockResolvedValue({
       ...draft,
-      merchantFields: { askHelp: false, builderType: 'freebie' },
+      merchantFields: { askHelp: false, builderType: 'bogo', draftFields: { bogoBuy: 'A main', bogoFree: 'A side', bogoFreePrice: 5 } },
     })
     const res = await submit()
     expect(res.statusCode).toBe(200)
     const upd = (app.prisma.voucher.update as any).mock.calls[0][0]
-    expect(upd.data.merchantFields).toEqual({ askHelp: false, builderType: 'freebie' })
+    expect(upd.data.merchantFields).toEqual({ askHelp: false, builderType: 'bogo', draftFields: { bogoBuy: 'A main', bogoFree: 'A side', bogoFreePrice: 5 } })
   })
 })
