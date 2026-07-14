@@ -1189,3 +1189,29 @@ existing); PROJECT-STATE silent on lead/note packets' unapplied state;
 packet 4 (MerchantAgreementRecord) exists only in frozen PR #514; a
 latent resubscribe P2002 bug in createSubscription (schema comment
 describes unimplemented design).
+
+## 2026-07-14 · Autonomous run complete: M0+M1 built, reviewed, stacked as PRs
+
+Owner-approved 2-3h window. Delivered (all unmerged, owner-gated):
+PR #525 docs (docs/plan-invite-referral @ 6b344b86: spec+plan with
+Amendments A1/P1, adversarial-review record, incident record); PR #526
+M0 (feat/invite-referral-m0 @ 0f691bc3: schema packet create-only
+UNAPPLIED built offline, signed-in submit service, D8 eligibility, lead
+attach-or-create); PR #527 M1 (feat/invite-referral-m1 @ 4a5faab2,
+stacked: place-search candidate tokens with fail-closed atomic Places
+limiter, submit, mine, per-customer tiers, dark-by-default 404). Split:
+Sonnet executed M0/M1 to lead contracts; lead review caught and fixed
+two D8 gaps pre-commit; Opus adversarial review found F1 HIGH (Places
+lane missed branchless drafts): fixed same run (0f691bc3) + Phase-3
+re-verify hard gate recorded; F2-F8 dispositioned in the plan. Gates:
+tsc clean, test:unit 3377 passed, prisma validate clean, migration
+byte-stable, PR scopes verified via live compare. No merge, no
+migration apply, no Neon mutation, no deploy, no provider action, no
+outreach, no email, no reward issuance. TWO worktree incidents (shell
+cwd reset + a pathless checkout) switched THIS worktree's branch;
+both detected in minutes, both restored clean, zero loss (everything
+was committed and pushed first); correction adopted: explicit cd on
+every git command. M2 admin exposure remains backend-contract-only
+(admin-web frozen: #514/#516/#521); M3 site surfaces not built this
+run (they belong on this branch and need the M1 API contract owner-
+reviewed first).

@@ -238,3 +238,53 @@ M0+M1 are being implemented in this owner-approved autonomous window on
 fresh worktrees from origin/main, as unmerged PRs, flags default-off,
 no migration applied, no sends, no provider calls, per the safety
 boundaries in the owner brief.
+
+## Adversarial review record (Opus, 2026-07-14 autonomous run)
+
+Combined M0+M1 diff attacked (pipeline privacy, D8 bypasses, races,
+limiter bypasses, injection/PII, resource abuse, migration risks).
+Verdict: safe as unmerged PRs; no blocker. Findings and dispositions:
+
+- F1 HIGH (FIXED, 0f691bc3): Places-lane eligibility missed
+  freshly-converted branchless drafts (branch-miss now falls through to
+  the name lane in both lanes; also fixes live manual-pin merchants not
+  being revealed). RESIDUAL HARD GATE: rewardEligible is a point-in-time
+  heuristic; Phase-3 issuance MUST re-verify eligibility at issuance
+  (recorded on the schema field); durable fix candidate: persist
+  placeKey on the lead at creation.
+- F2 MEDIUM (SCOPE CORRECTED, 0f691bc3): invite-row anonymisation does
+  not sever inviter-IP linkage (LEAD_CREATED/INVITE_CREATED audit rows
+  keep raw IP under audit governance; ipHash is clustering-only, not a
+  privacy control). The future invite anonymise sweep must either extend
+  redaction to those audit rows or keep this documented limit.
+- F3 MEDIUM (ACCEPTED, follow-up): concurrent different-inviter submits
+  can create duplicate open leads for one business (no lead unique;
+  bounded by per-user limits; self-heals via admin merge). Phase-3
+  fairness note: an invite attached to the losing duplicate lead must
+  still be matched by placeKey at payout. Candidate fix: placeKey
+  advisory lock or dedup at lead creation.
+- F4 LOW (ACCEPTED): OPEN_INVITE_CAP counted pre-transaction (TOCTOU
+  overshoot bounded by the 10/hour tier).
+- F5 (FIXED, 0f691bc3): stale flags/googlePlaces comments corrected.
+- F6 LOW (FOLLOW-UP): case-insensitive businessName scans on
+  Merchant/MerchantLead have no functional index; add
+  lower(businessName) indexes (or normalized slug columns) before these
+  tables grow.
+- F7 NOTE (DOCUMENTED IN TEST): flag-off 404 parity holds for
+  authenticated callers; unauthenticated probes get the authed scope's
+  401 like every other authed route.
+- F8 (FIXED, 0f691bc3): P2002 idempotence narrowed to the
+  (inviterEmailNorm, placeKey) constraint.
+
+## Autonomous-run incident record (2026-07-14)
+
+During the run the lead's persistent shell reset its working directory
+to the session default (the prelaunch-website worktree) and a
+`git checkout feat/invite-referral-m0` executed there, switching the
+SITE worktree off its branch. Detected within minutes via the harness
+file-change notes; verified with git status (site branch was fully
+committed AND pushed beforehand: zero loss); restored with a clean
+`git checkout worktree-prelaunch-website`. Standing correction adopted:
+every git command in multi-worktree sessions carries an explicit `cd`.
+This is the same failure class as the 2026-07-09 agent incidents; it
+can hit the lead's own shell, not only agents.
