@@ -100,8 +100,12 @@ const CODE_MESSAGES: Record<string, string> = {
     'This agreement is pending legal review, so it cannot be signed for production yet. Signing becomes available once legal review is complete.',
   CONTRACT_ALREADY_SIGNED:
     'This merchant has already signed the agreement. The page has refreshed.',
-  AGREEMENT_VERSION_UNKNOWN:
-    'The agreement version was not recognised. The page has refreshed; try again.',
+  // AGREEMENT_VERSION_MISMATCH (409): the agreement was updated since this page
+  // loaded, so the served version no longer matches. The ceremony pins the current
+  // version (it never echoes one), so it cannot itself trigger this; the mapping
+  // stays for completeness. Reload and re-review before signing.
+  AGREEMENT_VERSION_MISMATCH:
+    'The agreement was updated. Please reload and review the current version before signing.',
   AGREEMENT_SIGNER_INVALID:
     'A signatory name and role are required to sign this agreement.',
   // Team & Roles S2: the SUPER_ADMIN-only account/role/grant management screen.

@@ -7,12 +7,15 @@
  *
  *   POST /api/v1/admin/merchants/:id/agreement/sign
  *     capability merchant:sign-agreement (+ FIELD pre-live scope)
- *     body   { signerName, signerRoleConfirmation, agreementVersion?, witnessLabel? }
+ *     body   { signerName, signerRoleConfirmation, agreementVersion? }
  *     resp   { recordId, agreementVersion, contentHash, signedAt, contractStatus, gated }
  *
  * The rep (the authed admin) WITNESSES the owner's signature on the rep's device;
  * the owner's typed name is the signature of record. The rep is recorded as the
- * witness server-side (actorAdminId), never the signer (admin-never-signs lock).
+ * witness server-side (actorAdminId + server-derived witness identity), never the
+ * signer, and never from a client-supplied label (admin-never-signs lock). The
+ * route body is strict, so it accepts ONLY signerName, signerRoleConfirmation and
+ * the optional agreementVersion.
  *
  * `gated: true` means the agreement is still pending legal review (the
  * fail-closed default): staging/dev record the signing DRAFT-watermarked, while a
@@ -21,8 +24,11 @@
  *
  * The response is Zod-validated so contract drift surfaces as a clear error
  * rather than an undefined-field crash. Errors throw `ApiError` from `apiFetch`
- * (AGREEMENT_LEGAL_REVIEW_REQUIRED, CONTRACT_ALREADY_SIGNED, AGREEMENT_VERSION_UNKNOWN,
- * AGREEMENT_SIGNER_INVALID, MERCHANT_NOT_FOUND, STORAGE_NOT_ENABLED).
+ * (AGREEMENT_LEGAL_REVIEW_REQUIRED, AGREEMENT_VERSION_MISMATCH, CONTRACT_ALREADY_SIGNED,
+ * AGREEMENT_SIGNER_INVALID, MERCHANT_NOT_PRE_LIVE_FOR_FIELD, MERCHANT_NOT_FOUND,
+ * STORAGE_NOT_ENABLED). AGREEMENT_VERSION_MISMATCH (409) is the client-echo integrity
+ * check: this ceremony omits agreementVersion (pins the CURRENT version), so it cannot
+ * itself trigger the mismatch, but the banner still maps it for completeness.
  */
 import { z } from 'zod'
 import { apiFetch } from './client'
@@ -37,11 +43,10 @@ export interface SignAgreementInput {
   /**
    * Optional explicit version. Omitted here so the backend pins its CURRENT
    * registry version (the admin surface has no agreement-text read to select a
-   * version from; see the ceremony integration note).
+   * version from; see the ceremony integration note). When present, it is an
+   * INTEGRITY CHECK ONLY: a stale echo throws AGREEMENT_VERSION_MISMATCH (409).
    */
   agreementVersion?: string
-  /** Optional human label for the witnessing rep (display only in the PDF). */
-  witnessLabel?: string
 }
 
 // ── Response schema ─────────────────────────────────────────────────────────────
@@ -72,7 +77,6 @@ export const agreementApi = {
       signerRoleConfirmation: input.signerRoleConfirmation,
     }
     if (input.agreementVersion) body.agreementVersion = input.agreementVersion
-    if (input.witnessLabel) body.witnessLabel = input.witnessLabel
 
     const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${merchantId}/agreement/sign`, {
       method: 'POST',

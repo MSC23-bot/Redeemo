@@ -3,9 +3,10 @@
  * in-person signing ceremony (POST .../agreement/sign).
  *
  * Mirrors lib/api/__tests__/voucherReview.test.ts. Pins the request body shape
- * (a prior regression always sent witnessLabel/agreementVersion even when the
- * caller omitted them, which would silently override the backend's current
- * registry version pin) and the response Zod parse.
+ * (a prior regression always sent agreementVersion even when the caller omitted
+ * it, which would silently override the backend's current registry version pin;
+ * the strict route also rejects any extra key, so the body must carry ONLY the
+ * three accepted fields) and the response Zod parse.
  */
 import { agreementApi } from '../agreement'
 
@@ -47,14 +48,15 @@ describe('agreementApi.sign request body', () => {
     )
   })
 
-  it('sends ONLY signerName + signerRoleConfirmation when agreementVersion and witnessLabel are absent', async () => {
+  it('sends ONLY signerName + signerRoleConfirmation when agreementVersion is absent', async () => {
     mockedApiFetch.mockResolvedValueOnce(okResponse())
     await agreementApi.sign('m-1', { signerName: 'Marta Owner', signerRoleConfirmation: 'Owner' })
     const [, init] = mockedApiFetch.mock.calls[0]
     const body = JSON.parse((init as { body: string }).body)
-    // A regression that always sends witnessLabel/agreementVersion (even as
-    // undefined/empty) would silently override the backend's current-version
-    // pin or add spurious keys; this must fail if that regresses.
+    // A regression that always sends agreementVersion (even as undefined/empty)
+    // would silently override the backend's current-version pin; a spurious key
+    // (e.g. a client-supplied witness label) would be rejected by the strict
+    // route. This must fail if either regresses.
     expect(body).toEqual({ signerName: 'Marta Owner', signerRoleConfirmation: 'Owner' })
     expect(Object.keys(body).sort()).toEqual(['signerName', 'signerRoleConfirmation'])
   })
@@ -75,21 +77,6 @@ describe('agreementApi.sign request body', () => {
     })
   })
 
-  it('includes witnessLabel when explicitly provided', async () => {
-    mockedApiFetch.mockResolvedValueOnce(okResponse())
-    await agreementApi.sign('m-1', {
-      signerName: 'Marta Owner',
-      signerRoleConfirmation: 'Owner',
-      witnessLabel: 'Jordan (Field Rep)',
-    })
-    const [, init] = mockedApiFetch.mock.calls[0]
-    const body = JSON.parse((init as { body: string }).body)
-    expect(body).toEqual({
-      signerName: 'Marta Owner',
-      signerRoleConfirmation: 'Owner',
-      witnessLabel: 'Jordan (Field Rep)',
-    })
-  })
 })
 
 // ── agreementApi.sign — response parsing ───────────────────────────────────────
