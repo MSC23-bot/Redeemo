@@ -106,21 +106,26 @@ export const ERROR_DEFINITIONS = {
   NOTE_NOT_ACTIVE:                { statusCode: 409, message: 'This note has been retracted and can no longer be changed.' },
   NOTE_NOT_AUTHOR:                { statusCode: 403, message: 'You can only edit or retract your own notes.' },
   NOTE_RETRACT_REASON_REQUIRED:   { statusCode: 400, message: 'A reason is required to retract a note.' },
-  // D65 in-person signing ceremony (plan Slice 2).
+  // D65 in-person signing ceremony (plan Slice 2) + version-integrity correction.
   //   AGREEMENT_LEGAL_REVIEW_REQUIRED : the fail-closed legal gate. Fired when the
   //     ceremony would write a BINDING evidence record on a PRODUCTION deploy while
   //     AGREEMENT_LEGAL_REVIEW_REQUIRED is still on (the default). Staging/dev run
   //     the flow fully (DRAFT-watermarked) for QA; production stays blocked until the
   //     owner flips the flag post solicitor sign-off. (The plan calls this the
   //     "LEGAL_REVIEW_REQUIRED error"; prefixed AGREEMENT_ for the errors namespace.)
-  //   AGREEMENT_VERSION_UNKNOWN       : the requested agreementVersion is not in the
-  //     version registry (fail-closed; the pinned contentHash only ever comes from a
-  //     registry entry, never the caller).
-  //   AGREEMENT_SIGNER_INVALID        : admin-never-signs / signature-of-record guard
-  //     - the typed signer name is empty, or a witness id was not resolved for an
-  //     in-person signing. Defence-in-depth behind the route's zod validation.
+  //   AGREEMENT_VERSION_MISMATCH      : the client-echoed agreement version does not
+  //     equal the SERVER-selected served/current version. The server pins the PDF, the
+  //     immutable evidence record, AND the MerchantContract.tcVersion pointer from the
+  //     one served-agreement object; the client echo is an INTEGRITY CHECK ONLY. A
+  //     mismatch means the client reviewed a stale page, so the write is refused BEFORE
+  //     any PDF render/upload and the merchant is asked to reload and re-review.
+  //   AGREEMENT_SIGNER_INVALID        : signature-of-record / witness-integrity guard
+  //     - the typed signer name is empty, a witness id was not resolved, or the typed
+  //     signer name equals the authenticated rep's own name (obvious same-name signing
+  //     refused; the system cannot independently prove two distinct humans were present).
+  //     Defence-in-depth behind the route's zod validation.
   AGREEMENT_LEGAL_REVIEW_REQUIRED: { statusCode: 403, message: 'This agreement is pending legal review and cannot be signed for production yet.' },
-  AGREEMENT_VERSION_UNKNOWN:       { statusCode: 400, message: 'The agreement version is not recognised.' },
+  AGREEMENT_VERSION_MISMATCH:      { statusCode: 409, message: 'The agreement was updated. Please reload and review the current version before signing.' },
   AGREEMENT_SIGNER_INVALID:        { statusCode: 400, message: 'A signatory name is required to sign this agreement.' },
   // Phase 2 Slice 1 M3: actioner.
   APPROVAL_NOT_FOUND:             { statusCode: 404, message: 'Approval not found.' },

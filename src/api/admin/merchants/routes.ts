@@ -314,7 +314,9 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
   //
   // The rep (req.user.sub) WITNESSES the owner's signature on the rep's device: the
   // owner's typed name is the signature of record; the rep is recorded as actorAdminId
-  // (witness), NEVER the signer (admin-never-signs lock). FIX 2: the witness IDENTITY is
+  // plus the witness identity, not in the signer field. An obvious same-name signing is
+  // refused, but the system cannot independently prove two distinct humans were present.
+  // FIX 2: the witness IDENTITY is
   // NOT client-supplied; the service looks up the authenticated rep's name + email from
   // AdminUser server-side and persists THAT as evidence. Gated on the operational
   // `merchant:sign-agreement` cap (OPERATIONS + FIELD). resolveTargetMerchantForAdmin

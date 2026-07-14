@@ -85,8 +85,10 @@ export type AdminCapability =
   | 'merchant:manage-vouchers'
   // D65 (in-person signing ceremony): gates the assisted contract-signing route
   // (POST /admin/merchants/:id/agreement/sign) where the rep WITNESSES the owner's
-  // signature on the rep's device (admin-never-signs: the rep is recorded as
-  // actorAdminId/witness, never the signerName). An operational onboarding-completion
+  // signature on the rep's device: the rep is recorded as actorAdminId plus the witness
+  // identity, and the owner types their own name as the signer of record. An obvious
+  // same-name signing is refused; the system cannot independently prove two distinct
+  // humans were present. An operational onboarding-completion
   // action like merchant:submit (it drives a pre-live merchant toward go-live), so it
   // IS in ALL_SLICE1_CAPS (OPERATIONS holds it) AND in FIELD_CAPABILITIES (spec §1.6:
   // FIELD completes assisted onboarding END-TO-END, including the contract ceremony).

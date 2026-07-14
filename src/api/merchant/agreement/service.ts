@@ -3,8 +3,10 @@
 // Two write paths share one evidence model (MerchantAgreementRecord, immutable /
 // append-only) and one PDF renderer:
 //   - signAgreementInPerson(...)  : the assisted ceremony on a Redeemo rep's device.
-//     The owner is the signer; the rep is the WITNESS (actorAdminId), never the
-//     signer (admin-never-signs lock). method = IN_PERSON_ASSISTED.
+//     The owner types their own name as the signature of record; the authenticated rep
+//     is recorded as the WITNESS (actorAdminId + witnessName/witnessEmail), not in the
+//     signer field. An obvious same-name signing is refused, but the system cannot
+//     independently prove two distinct humans were present. method = IN_PERSON_ASSISTED.
 //   - buildAndStoreSelfServeRecord(...) : the helper the merchant portal
 //     click-to-agree fallback (onboarding.acceptContract) uses to ALSO gain a PDF +
 //     evidence record. method = SELF_SERVE_CLICK, actorAdminId = null.
@@ -25,7 +27,6 @@ import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
 import { isStorageEnabled, putObject, deleteObject } from '../../shared/storage'
 import {
-  getAgreementVersion,
   getCurrentAgreement,
   getLatestNonDraftAgreement,
   type AgreementVersion,
@@ -189,13 +190,15 @@ export async function renderAndStoreAgreementPdf(input: RenderAndStoreInput): Pr
 
 export interface SignAgreementInPersonInput {
   merchantId: string
-  /** The authenticated witnessing rep (req.user.sub). NEVER the signer. */
+  /** The authenticated witnessing rep (req.user.sub). Recorded as the witness, not in the
+   * signer field; the typed signerName below is the owner's own. */
   actorAdminId: string
   /** Typed full name = the signature of record. */
   signerName: string
   /** Authority attestation role (e.g. "Owner", "Director"). */
   signerRoleConfirmation: string
-  /** Optional explicit version; must match the current registry version if given. */
+  /** Optional client-echoed version (integrity check). Absent = server current; if given
+   * it must equal the served/current version, else AGREEMENT_VERSION_MISMATCH (409). */
   agreementVersion?: string
   /** Optional stylus/finger signature PNG bytes (non-gating). */
   drawnSignature?: Buffer | null
@@ -205,8 +208,10 @@ export interface SignAgreementInPersonInput {
 
 /**
  * The assisted contract-signing ceremony. Order (plan Slice 2 + review-round S1/N1):
- *   1. Resolve + validate the agreement version against the registry; pin its hash.
- *      The ceremony always signs the CURRENT version (an unknown/stale id fails closed).
+ *   1. Resolve the CURRENT version SERVER-SIDE + pin its hash; the PDF, the immutable
+ *      evidence record, and the MerchantContract pointer all derive from THIS one object.
+ *      Any client-echoed version is an integrity check (a stale/mismatched id is refused,
+ *      409 AGREEMENT_VERSION_MISMATCH, before any read or write).
  *   2. Fail-closed legal gate for THAT version (refuse production binding write while the
  *      version is gated; a draft is refused in production even with the env flag off).
  *   3. Signature-of-record + witness invariants (FIX 2): the typed signer name + role must
@@ -231,13 +236,15 @@ export async function signAgreementInPerson(
   input: SignAgreementInPersonInput,
   ctx: { ipAddress: string; userAgent: string },
 ) {
-  // (1) Resolve + pin the version from the registry (never trust a caller hash). No DB.
-  const agreement = input.agreementVersion
-    ? getAgreementVersion(input.agreementVersion)
-    : getCurrentAgreement()
-  if (!agreement || agreement.version !== getCurrentAgreement().version) {
-    // Only the CURRENT version is signable; an unknown or stale id fails closed.
-    throw new AppError('AGREEMENT_VERSION_UNKNOWN')
+  // (1) Resolve + pin the version SERVER-SIDE from the registry (never trust a caller
+  // hash). The ceremony always signs the CURRENT version; the PDF, the immutable evidence
+  // record, and the MerchantContract pointer all derive from THIS one object.
+  const agreement = getCurrentAgreement()
+  // The optional client-echoed agreementVersion is an INTEGRITY CHECK ONLY: absent means
+  // "use the server current"; present must equal the served/current version, else the
+  // client reviewed a stale page and we refuse (409) before any read or write.
+  if (input.agreementVersion && input.agreementVersion !== agreement.version) {
+    throw new AppError('AGREEMENT_VERSION_MISMATCH')
   }
 
   // (2) Fail-closed legal gate for the resolved version BEFORE any read or write.

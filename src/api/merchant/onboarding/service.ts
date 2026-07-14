@@ -183,10 +183,14 @@ export async function getOnboardingStatus(prisma: PrismaClient, adminId: string)
  * documented placeholder (SELF_SERVE_SIGNER_NOT_CAPTURED) is recorded rather than a
  * fabricated name - flagged for the merchant-web to start sending the typed name.
  *
- * The version + hash pinned into the evidence record come from getServedAgreement()
- * (authoritative: the legacy 1.0 in production while the current version is a draft, the
- * current draft in non-production), NOT the client-echoed `version` (which is kept only
- * for MerchantContract.tcVersion backward compatibility).
+ * The version + hash pinned into the evidence record AND the MerchantContract.tcVersion
+ * pointer all come from getServedAgreement() (authoritative: the legacy 1.0 in production
+ * while the current version is a draft, the current draft in non-production), resolved
+ * ONCE. The client-echoed `version` is an INTEGRITY CHECK ONLY: it must equal the served
+ * version or the request is refused (AGREEMENT_VERSION_MISMATCH, 409) BEFORE any PDF
+ * render/upload, guarding against binding a merchant to text they did not review (a stale
+ * page). The honest merchant-web client echoes the version it fetched from GET /contract,
+ * which IS the served version, so an honest client never hits the 409.
  *
  * Storage posture: the retrofit is ADDITIVE and must never break onboarding. When
  * STORAGE_ENABLED is off (local/dev/tests), it degrades to the pre-D65 behaviour
@@ -214,6 +218,15 @@ export async function acceptContract(
   if (merchant.contractStatus === 'SIGNED') throw new AppError('CONTRACT_ALREADY_SIGNED')
 
   const agreement = getServedAgreement()
+
+  // Integrity check (runs BEFORE any PDF render/upload): the client echoes the version it
+  // fetched from GET /contract, which IS the served version, so an honest client always
+  // matches. A mismatch means the client reviewed a stale page; refuse (409) here so no
+  // PDF, evidence record, or pointer is written under a version the merchant did not see.
+  if (version !== agreement.version) {
+    throw new AppError('AGREEMENT_VERSION_MISMATCH')
+  }
+
   const signedAt = new Date()
   const typedName = opts?.signerName?.trim()
   const signerName = typedName && typedName.length > 0 ? typedName : SELF_SERVE_SIGNER_NOT_CAPTURED
@@ -252,7 +265,9 @@ export async function acceptContract(
         merchantId,
         signedAt,
         ipAddress: ctx.ipAddress,
-        tcVersion: version,
+        // The pointer takes its authority from the SERVER-selected served agreement (the
+        // same object that renders the PDF + stamps the evidence record), never client input.
+        tcVersion: agreement.version,
         signatureMethod: 'CLICK_TO_AGREE',
       },
     })
