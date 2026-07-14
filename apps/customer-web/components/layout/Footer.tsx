@@ -84,8 +84,9 @@ export function Footer() {
                 className="h-[52px] md:h-[80px] w-auto"
               />
             </Link>
-            <p className="text-[12.5px] md:text-[13px] leading-relaxed text-white/45 max-w-[240px]">
-              Exclusive vouchers from local businesses. Subscribe and save every month.
+            <p className="text-[12.5px] md:text-[13px] leading-relaxed text-white/45 max-w-[250px]">
+              Member-only offers from the businesses around you, with new
+              vouchers every month.
             </p>
           </div>
 

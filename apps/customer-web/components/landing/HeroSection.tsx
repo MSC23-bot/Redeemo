@@ -8,13 +8,6 @@ import { isMarketplaceLive } from '@/lib/prelaunch'
 
 const EASE = [0.22, 1, 0.36, 1] as [number, number, number, number]
 
-// Launch-safe facts only: mechanics, not unverifiable scale claims.
-const FACTS = [
-  { value: 'Free', label: 'to browse. No card needed.' },
-  { value: '£6.99', label: 'a month to redeem' },
-  { value: 'Monthly', label: 'vouchers, fresh each cycle' },
-]
-
 export function HeroSection() {
   const sectionRef = useRef<HTMLElement>(null)
   const reduceMotion = useReducedMotion()
@@ -105,24 +98,31 @@ export function HeroSection() {
               initial={{ opacity: 0, y: 22 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.08, ease: EASE }}
-              className="font-display text-[#010C35] leading-[1.06] mb-5 max-w-[620px]"
-              style={{ fontSize: 'clamp(32px, 4.2vw, 56px)', letterSpacing: '-1px' }}
+              className="font-display text-[#010C35] leading-[1.06] mb-5 max-w-[680px]"
+              style={{ fontSize: 'clamp(30px, 4vw, 50px)', letterSpacing: '-1px' }}
             >
-              Your whole town,{' '}
-              <span className="gradient-text block">at member prices.</span>
+              {/* non-breaking group: narrow viewports break after "things",
+                  never stranding "enjoy." on its own line */}
+              Keep the things you&nbsp;enjoy.{' '}
+              <span className="gradient-text block">Cut what they cost.</span>
             </motion.h1>
 
-            {/* Sub */}
+            {/* Sub (owner brief 2026-07-14): membership plainly, offers
+                created by the businesses ON Redeemo (never aggregated),
+                examples across the lifestyle, renewal in outsider language,
+                price kept OUT (the price line below owns it, once) */}
             <motion.p
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, delay: 0.18 }}
-              className="text-[16px] text-[#4B5563] leading-[1.65] mb-9 max-w-[490px]"
+              className="text-[16px] text-[#4B5563] leading-[1.65] mb-9 max-w-[520px]"
               style={{ textWrap: 'pretty' }}
             >
-              Redeemo brings your local restaurants, cafes, gyms and salons into
-              one membership, each with exclusive vouchers that renew every
-              month. Browse everything free; redeem from £6.99 a month.
+              Redeemo is one membership for the things you already enjoy:
+              meals out, workouts, salon visits, shopping, days out. The
+              businesses on Redeemo create member-only offers: two for one,
+              money off, a freebie with your visit: and new vouchers become
+              available every month.
             </motion.p>
 
             {/* Mobile: the artwork rides between the description and the
@@ -171,32 +171,24 @@ export function HeroSection() {
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="flex-shrink-0">
                     <path d="M8 1.5 l1.8 3.9 4.2.5 -3.1 2.9.8 4.2 L8 10.9 4.3 13l.8-4.2 -3.1-2.9 4.2-.5 Z" fill="#E20C04" opacity="0.85" />
                   </svg>
-                  Free to join. Founding members get 2 months of membership free
-                  at launch.
+                  Founding members get their first two months free at launch.
                 </p>
               )}
             </motion.div>
 
-            {/* Launch-safe facts: full-size in the desktop column, one
-                compact row on mobile */}
-            <motion.div
+            {/* The price, exactly once (owner brief 2026-07-14): the old
+                three-part facts row repeated it */}
+            <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.42 }}
-              className="flex items-center justify-between lg:justify-start gap-x-4 gap-y-2 lg:gap-7 flex-wrap"
+              className="text-[14.5px] text-[#4B5563]"
             >
-              {FACTS.map((s, i) => (
-                <div key={i} className="flex items-baseline gap-1.5">
-                  <span
-                    className="font-display text-[#010C35] leading-none text-[17px] lg:text-[22px]"
-                    style={{ letterSpacing: '-0.3px' }}
-                  >
-                    {s.value}
-                  </span>
-                  <span className="text-[11px] lg:text-[12px] text-[#6B7280] font-medium">{s.label}</span>
-                </div>
-              ))}
-            </motion.div>
+              <span className="font-display text-[#010C35] text-[17px] lg:text-[19px] mr-1.5" style={{ letterSpacing: '-0.2px' }}>
+                Browse free.
+              </span>
+              Join from £6.99 a month to redeem.
+            </motion.p>
           </div>
         </div>
 

@@ -916,3 +916,27 @@ edited by this workstream.
   premium, not tacky). tsc clean; verified 932x390 (journey side-by-side,
   shelf carousel, popup scrolls within 92svh), 810x1080 tablet, 1440x900
   ribbon crest/trough frames + desktop regression.
+- HERO REWRITE + PAGE COPY AUDIT FIXES (owner brief + audit rulings
+  2026-07-14, via /copywriting + /copy-editing): headline "Keep the things
+  you enjoy. / Cut what they cost." (lead's pick from the owner-approved
+  finalist pair; the alternate "Don't cut back. Pay less." is a one-line
+  swap): outcome-led, lifestyle-wide, no scale/curation claims. New sub
+  per the brief: membership plainly, offers created by the businesses ON
+  Redeemo (anti-aggregator), five lifestyle examples, three offer shapes,
+  renewal in outsider language ("new vouchers become available every
+  month": owner ruling: "fresh every month" is insider shorthand). Price
+  now appears ONCE: the three-part facts row is replaced by "Browse free.
+  Join from GBP6.99 a month to redeem."; founding line reworded to the
+  brief's "Founding members get their first two months free at launch."
+  Headline wrap control: nbsp group so "enjoy." can never orphan (mobile
+  breaks after "things"). AUDIT RULINGS (owner): founding offer stays in
+  all four places; both CTA labels (Get early access / Create free
+  account) stay; What-is-Redeemo untouched. Fixes shipped: footer tagline
+  rewritten ("Member-only offers from the businesses around you, with new
+  vouchers every month": kills the ruled-out "local businesses" +
+  "exclusive vouchers" repeat + insider shorthand); seven-ways intro now
+  "always labelled, always showing what you save" (drops the
+  know-before-you-go tail that repeated journey ch3, adds the owner's
+  every-voucher-shows-its-value point). tsc clean; verified desktop
+  1440x900 (balanced 3-line stack) and mobile 390x780 (2 lines, no
+  orphans).

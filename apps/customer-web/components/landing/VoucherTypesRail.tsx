@@ -323,7 +323,7 @@ function ShelfHeader() {
         </h2>
         <p className="text-[15px] text-white/55 leading-[1.7] max-w-[420px]">
           Every offer on Redeemo is one of seven clear voucher types, always
-          labelled, so you know exactly what you are getting before you go.
+          labelled, always showing what you save.
         </p>
       </div>
     </div>
