@@ -5,6 +5,7 @@ import { Footer } from '@/components/layout/Footer'
 import { VerificationBanners } from '@/components/layout/VerificationBanners'
 import { SubscriptionNudge } from '@/components/layout/SubscriptionNudge'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { MotionProvider } from '@/components/shared/MotionProvider'
 import { OrganizationJsonLd } from '@/components/seo/OrganizationJsonLd'
 
 const SITE_URL = 'https://redeemo.co.uk'
@@ -62,11 +63,13 @@ export default function RootLayout({
       <body>
         <OrganizationJsonLd />
         <AuthProvider>
-          <Navbar />
-          <VerificationBanners />
-          <SubscriptionNudge />
-          <main>{children}</main>
-          <Footer />
+          <MotionProvider>
+            <Navbar />
+            <VerificationBanners />
+            <SubscriptionNudge />
+            <main>{children}</main>
+            <Footer />
+          </MotionProvider>
         </AuthProvider>
       </body>
     </html>

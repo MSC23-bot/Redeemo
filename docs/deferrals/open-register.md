@@ -65,7 +65,8 @@ closed by a later PR; confirm and then remove with a citation).
 |---|---|---|
 | §CU.1 | Branch-first migration (still consumes legacy `merchants` field); blocks Plan 4 M5 + Discovery Phase 3b backend cleanup | GATED: Tier 3 brainstorm-first |
 | §BW | Customer-web test infrastructure | OPEN (blocks §DF-web) |
-| Redesign | Pre-launch website redesign | GATED: owner sequencing 2026-06-09 (after Merchant Portal + Admin) |
+| Redesign | Pre-launch website redesign | IN PROGRESS: owner re-sequenced 2026-07-06 (direct brief; supersedes the 2026-06-09 sequencing for this workstream). Plan: `docs/superpowers/plans/2026-07-06-prelaunch-website-conversion-rebaseline.md`. D1 (ConsumerWaitlist form persistence) SUPERSEDED 2026-07-08: owner directed that account registration IS the pre-launch waitlist; the site routes all early-access CTAs to `/register`. MerchantLead interest endpoint unchanged |
+| §FOUND.1 | Founding-member launch incentive backend (owner-directed 2026-07-08; site copy already promises it): pre-launch registrants get 2 months full membership free at launch (owner revised 3 -> 2 months, 2026-07-13) + a founding-member badge. Needs: (a) cohort definition (User.createdAt < launch date, or explicit flag/marker set at register), (b) grant mechanism (admin-grant subscription path: `stripeSubscriptionId` nullable supports non-Stripe grants; or a 100%-off 2-month promo), (c) badge surface (profile flag + app/web UI), (d) admin panel tooling to view the cohort, apply/revoke the grant at launch, and report take-up, (e) locality capture for launch-area notifications (web register postcode is optional; decide whether founding flow nudges it). PICK UP with the Admin Panel programme | OPEN, Tier 2/3; trigger = Admin Panel work or launch-prep, whichever first |
 
 ## 3. Platform / Security / Ops
 
@@ -326,3 +327,8 @@ disabled key is visible in logs without needing a live probe.)
   nullable-clear findings corrected + Opus-cleared before merge). Opened five §5 follow-ups
   (§BP-ADJ1, §BP-ADJ2, §BP-DOC, §BP-ACC, business-generic-contact). Recorded COMPLETE in
   PROJECT-STATE §4.2 + the Merchant roadmap WITHOUT implying Documents or My Account are done.
+- **2026-07-08** · Pre-launch conversion pivot (owner direct brief in the website session):
+  D1 lead-capture form persistence SUPERSEDED (registration is the waitlist; all early-access
+  CTAs route to `/register`); new §FOUND.1 row opened for the founding-member 3-months-free +
+  badge backend/admin tooling that the live site copy now promises. Pick §FOUND.1 up with the
+  Admin Panel programme or launch-prep.

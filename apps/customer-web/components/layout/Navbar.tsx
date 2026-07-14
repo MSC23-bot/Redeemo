@@ -7,10 +7,12 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, ChevronDown, LayoutDashboard, PiggyBank, Heart, CreditCard, User, LogOut, Bell } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { isMarketplaceLive } from '@/lib/prelaunch'
 
-// Links shown to logged-out visitors
+// Links shown to logged-out visitors. Marketplace routes are middleware-gated
+// pre-launch (they redirect home), so Discover only appears once live.
 const NAV_LINKS_PUBLIC = [
-  { href: '/discover',       label: 'Discover' },
+  ...(isMarketplaceLive() ? [{ href: '/discover', label: 'Discover' }] : []),
   { href: '/how-it-works',   label: 'How it works' },
   { href: '/pricing',        label: 'Pricing' },
   { href: '/insider',        label: 'Insider' },
@@ -19,7 +21,7 @@ const NAV_LINKS_PUBLIC = [
 
 // Links shown to signed-in members
 const NAV_LINKS_MEMBER = [
-  { href: '/discover',       label: 'Discover' },
+  ...(isMarketplaceLive() ? [{ href: '/discover', label: 'Discover' }] : []),
   { href: '/for-businesses', label: 'For businesses' },
   { href: '/insider',        label: 'Insider' },
 ]
@@ -78,16 +80,37 @@ export function Navbar() {
   const pathname = usePathname()
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  // Owner direction 2026-07-13 (round 2): "collapsed" means collapsed INTO
+  // a compact control, not gone. On mobile, once past the hero, a small
+  // glass pill (logo mark + hamburger) floats top-right and expands into a
+  // full menu on tap: it never covers pinned content. Desktop keeps the
+  // full glass bar, revealed on scroll-up with a 6px direction deadband.
+  const [floatVisible, setFloatVisible] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const [floatMenuOpen, setFloatMenuOpen] = useState(false)
+  const lastScrollY = useRef(0)
   const accountRef = useRef<HTMLDivElement>(null)
   const firstMobileLinkRef = useRef<HTMLAnchorElement>(null)
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 80)
+    const onScroll = () => {
+      const y = window.scrollY
+      setScrolled(y > 420)
+      const dy = y - lastScrollY.current
+      if (Math.abs(dy) < 6) return
+      lastScrollY.current = y
+      setFloatVisible(y > 420 && dy < 0)
+      setFloatMenuOpen(false)
+    }
+    onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
+
+  useEffect(() => { setMenuOpen(false) }, [floatVisible])
+
+  useEffect(() => { setFloatMenuOpen(false) }, [pathname])
 
   useEffect(() => { setMenuOpen(false); setAccountOpen(false) }, [pathname])
 
@@ -105,10 +128,12 @@ export function Navbar() {
     if (menuOpen) firstMobileLinkRef.current?.focus()
   }, [menuOpen])
 
-  const isDark = scrolled || menuOpen
-  const navBg = isDark
-    ? 'bg-[#010C35] border-transparent'
-    : 'bg-white border-[#EDE8E8]'
+  // Owner direction 2026-07-06: the top-of-page bar carries the primary brand
+  // colour, so its inner chrome runs the on-colour (dark) theme permanently.
+  // Revised 2026-07-08: not "one long stripe": the brand colour rides a
+  // floating island with voucher die-cut notches at its ends, the same shape
+  // language as the glass quick-nav and the voucher cards.
+  const isDark = true
 
   const navLinks = user ? NAV_LINKS_MEMBER : NAV_LINKS_PUBLIC
 
@@ -119,24 +144,60 @@ export function Navbar() {
 
   const firstName = user?.name ? getFirstName(user.name) : ''
 
+  // Pre-launch there is no app to point at, so the secondary slot carries the
+  // merchant funnel instead (owner 2026-07-08); it returns to "Get the app"
+  // when the marketplace goes live.
+  const marketplaceLive = isMarketplaceLive()
+  // Creating an account IS the waitlist (owner 2026-07-08): registration is
+  // live pre-launch and founding members claim the launch incentive.
+  const primaryCtaHref = '/register'
+  const primaryCtaLabel = marketplaceLive ? 'Join free' : 'Get early access'
+
   return (
-    <header className={`sticky top-0 z-50 border-b transition-colors duration-300 ${navBg}`}>
-      <nav aria-label="Main" className="max-w-7xl mx-auto px-6 h-[84px] flex items-center gap-6">
+    <>
+    <header className="relative z-40 px-3 md:px-6 pt-3">
+      <div className="relative max-w-6xl mx-auto">
+        {/* The voucher band: brand gradient with a die-cut notch carved into
+            each end, drop-shadow on a wrapper so the notches read in the
+            silhouette. Background only: the notch mask must never clip the
+            account dropdown or the light sweep of content above it. */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none"
+          style={{ filter: 'drop-shadow(0 14px 30px rgba(190,10,3,0.22))' }}
+        >
+          <div
+            className="h-full w-full rounded-2xl"
+            style={{
+              background: '#BE0A03 radial-gradient(140% 380% at 72% 10%, #F24E2C 0%, #BE0A03 100%)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22)',
+              maskImage:
+                'radial-gradient(circle at 0 50%, transparent 8.5px, black 9px), radial-gradient(circle at 100% 50%, transparent 8.5px, black 9px)',
+              WebkitMaskImage:
+                'radial-gradient(circle at 0 50%, transparent 8.5px, black 9px), radial-gradient(circle at 100% 50%, transparent 8.5px, black 9px)',
+              maskComposite: 'intersect',
+              WebkitMaskComposite: 'source-in',
+            }}
+          />
+        </div>
+
+        <nav aria-label="Main" className="relative px-5 md:px-7 h-[68px] flex items-center gap-6">
 
         {/* Logo */}
         <Link href="/" className="flex-shrink-0 no-underline">
           <Image
-            src={isDark ? '/logo-dark.png' : '/logo-light.png'}
+            src="/logo-white.svg"
             alt="Redeemo"
             width={220}
             height={60}
-            className="h-[68px] w-auto transition-opacity duration-300"
+            className="h-[50px] w-auto transition-opacity duration-300"
             priority
           />
         </Link>
 
-        {/* Desktop nav links */}
-        <div className="hidden md:flex gap-0.5 flex-1">
+        {/* Desktop nav links, centred so the island reads balanced:
+            logo · links · actions rather than everything left-stacked */}
+        <div className="hidden md:flex gap-1 flex-1 justify-center">
           {navLinks.map(link => {
             const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
             return (
@@ -149,8 +210,8 @@ export function Navbar() {
                 {isActive && (
                   <motion.span
                     layoutId="nav-indicator"
-                    className="absolute inset-x-3 -bottom-[13px] h-[2px] rounded-full"
-                    style={{ background: 'var(--brand-gradient)' }}
+                    className="absolute inset-x-3 -bottom-[8px] h-[2px] rounded-full"
+                    style={{ background: 'rgba(255,255,255,0.9)' }}
                     transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                   />
                 )}
@@ -294,34 +355,50 @@ export function Navbar() {
                 >
                   Log in
                 </Link>
-                <a
-                  href="https://apps.apple.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[14px] font-medium text-white px-4 py-2 rounded-lg no-underline hover:opacity-80 transition-opacity"
-                  style={{
-                    background: '#010C35',
-                    boxShadow: isDark ? 'inset 0 0 0 1px rgba(255,255,255,0.20)' : '0 1px 3px rgba(1,12,53,0.18)',
-                  }}
-                >
-                  Get the app
-                </a>
+                {marketplaceLive ? (
+                  <a
+                    href="https://apps.apple.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[14px] font-medium text-white px-4 py-2 rounded-lg no-underline hover:opacity-80 transition-opacity"
+                    style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.20)' }}
+                  >
+                    Get the app
+                  </a>
+                ) : (
+                  <Link
+                    href="/for-businesses"
+                    className="text-[14px] font-medium text-white px-4 py-2 rounded-lg no-underline hover:opacity-80 transition-opacity"
+                    style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.20)' }}
+                  >
+                    Got a business?
+                  </Link>
+                )}
                 <Link
-                  href="/register"
-                  className="text-[14px] font-semibold text-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
-                  style={{ background: 'var(--brand-gradient)' }}
+                  href={primaryCtaHref}
+                  className="text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
                 >
-                  Join free
+                  {primaryCtaLabel}
                 </Link>
               </>
             )
           )}
         </div>
 
+        {/* Mobile: primary CTA rides in the island (owner 2026-07-13) */}
+        {!user && (
+          <Link
+            href={primaryCtaHref}
+            className="md:hidden ml-auto text-[13px] font-bold text-[#BE0A03] bg-white px-3.5 py-2 rounded-lg no-underline"
+          >
+            {primaryCtaLabel}
+          </Link>
+        )}
+
         {/* Mobile hamburger */}
         <button
           onClick={() => setMenuOpen(o => !o)}
-          className={`md:hidden ml-auto p-1.5 rounded-md transition-colors ${
+          className={`md:hidden ${user ? 'ml-auto' : ''} p-1.5 rounded-md transition-colors ${
             isDark ? 'text-white/70 hover:text-white' : 'text-[#4B5563] hover:text-[#010C35]'
           }`}
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
@@ -344,7 +421,7 @@ export function Navbar() {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.22, ease: 'easeInOut' }}
-            className="md:hidden overflow-hidden bg-[#010C35] border-t border-white/[0.06]"
+            className="md:hidden overflow-hidden border-t border-white/[0.14] relative"
           >
             <div className="px-6 py-4 flex flex-col gap-1">
 
@@ -411,23 +488,20 @@ export function Navbar() {
                       >
                         Log in
                       </Link>
-                      <a
-                        href="https://apps.apple.com"
-                        target="_blank"
-                        rel="noreferrer"
+                      <Link
+                        href={marketplaceLive ? 'https://apps.apple.com' : '/for-businesses'}
                         onClick={() => setMenuOpen(false)}
                         className="px-3 py-3 text-[14px] font-medium text-white text-center rounded-lg no-underline hover:opacity-80 transition-opacity"
                         style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.18)' }}
                       >
-                        Get the app
-                      </a>
+                        {marketplaceLive ? 'Get the app' : 'Got a business?'}
+                      </Link>
                       <Link
-                        href="/register"
+                        href={primaryCtaHref}
                         onClick={() => setMenuOpen(false)}
-                        className="px-3 py-3 text-[14px] font-semibold text-white text-center rounded-lg no-underline hover:opacity-90 transition-opacity"
-                        style={{ background: 'var(--brand-gradient)' }}
+                        className="px-3 py-3 text-[14px] font-bold text-[#BE0A03] bg-white text-center rounded-lg no-underline hover:opacity-90 transition-opacity"
                       >
-                        Join free
+                        {primaryCtaLabel}
                       </Link>
                     </>
                   )}
@@ -437,6 +511,196 @@ export function Navbar() {
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
     </header>
+
+    {/* Mobile: the collapsed state is a compact glass pill (logo mark +
+        hamburger) that expands into a full menu on tap: premium, and it
+        never covers pinned content (owner 2026-07-13) */}
+    <AnimatePresence>
+      {scrolled && (
+        <motion.div
+          key="pill"
+          initial={{ y: -18, opacity: 0, scale: 0.94 }}
+          animate={{ y: 0, opacity: 1, scale: 1 }}
+          exit={{ y: -18, opacity: 0, scale: 0.94 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+          className="md:hidden fixed top-3 right-3 z-50"
+        >
+          <button
+            onClick={() => setFloatMenuOpen(o => !o)}
+            aria-label={floatMenuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={floatMenuOpen}
+            aria-controls="float-menu"
+            className="flex items-center gap-2.5 pl-3 pr-3.5 h-[46px] rounded-full border-none cursor-pointer"
+            style={{
+              background: 'rgba(255,249,245,0.92)',
+              backdropFilter: 'blur(16px) saturate(1.5)',
+              WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
+              boxShadow: '0 10px 32px rgba(1,12,53,0.16), inset 0 0 0 1px rgba(1,12,53,0.08)',
+            }}
+          >
+            <Image src="/logo-icon.svg" alt="" width={24} height={24} className="h-[22px] w-auto" />
+            <span className="w-px h-[18px] bg-[#010C35]/12" aria-hidden="true" />
+            {floatMenuOpen
+              ? <X size={19} strokeWidth={2} className="text-[#010C35]/80" />
+              : <Menu size={19} strokeWidth={2} className="text-[#010C35]/80" />}
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    <AnimatePresence>
+      {scrolled && floatMenuOpen && (
+        <motion.div
+          key="float-menu"
+          id="float-menu"
+          initial={{ opacity: 0, y: -10, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -10, scale: 0.97 }}
+          transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+          className="md:hidden fixed top-[62px] inset-x-3 z-50 origin-top-right"
+          style={{ filter: 'drop-shadow(0 20px 44px rgba(190,10,3,0.32))' }}
+        >
+          {/* The coupon (owner 2026-07-13): the expanded menu wears the same
+              voucher band as the top island: brand gradient with die-cut
+              notches at its sides */}
+          <div
+            className="relative rounded-2xl overflow-hidden"
+            style={{
+              background: '#BE0A03 radial-gradient(140% 380% at 72% 10%, #F24E2C 0%, #BE0A03 100%)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22)',
+              maskImage:
+                'radial-gradient(circle at 0 50%, transparent 8.5px, black 9px), radial-gradient(circle at 100% 50%, transparent 8.5px, black 9px)',
+              WebkitMaskImage:
+                'radial-gradient(circle at 0 50%, transparent 8.5px, black 9px), radial-gradient(circle at 100% 50%, transparent 8.5px, black 9px)',
+              maskComposite: 'intersect',
+              WebkitMaskComposite: 'source-in',
+            }}
+          >
+            <div className="p-4 flex flex-col gap-0.5">
+              {navLinks.map(link => {
+                const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setFloatMenuOpen(false)}
+                    className={`px-3 py-2.5 rounded-lg text-[15px] font-semibold no-underline transition-colors ${
+                      isActive ? 'text-white bg-white/[0.14]' : 'text-white/80 hover:text-white hover:bg-white/[0.08]'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                )
+              })}
+              <div className="my-2 border-t border-dashed border-white/25" />
+              <div className="flex items-center gap-3 px-1 pb-0.5">
+                {user ? (
+                  <Link
+                    href="/account"
+                    onClick={() => setFloatMenuOpen(false)}
+                    className="flex-1 text-center text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2.5 rounded-xl no-underline"
+                  >
+                    Your account
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      href="/login"
+                      onClick={() => setFloatMenuOpen(false)}
+                      className="text-[14px] font-semibold text-white/85 no-underline px-2"
+                    >
+                      Log in
+                    </Link>
+                    <Link
+                      href={primaryCtaHref}
+                      onClick={() => setFloatMenuOpen(false)}
+                      className="flex-1 text-center text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2.5 rounded-xl no-underline"
+                    >
+                      {primaryCtaLabel}
+                    </Link>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* Desktop glass quick-nav: slides in on scroll-UP mid-page and
+        collapses away while scrolling down; neutral so it never fights
+        whatever section background is behind it */}
+    <AnimatePresence>
+      {floatVisible && (
+        <motion.div
+          initial={{ y: -84, opacity: 0, scale: 0.98 }}
+          animate={{ y: 0, opacity: 1, scale: 1 }}
+          exit={{ y: -84, opacity: 0, scale: 0.98 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+          className="hidden md:block fixed top-3 inset-x-3 md:inset-x-6 z-50"
+        >
+          <nav
+            aria-label="Quick navigation"
+            className="max-w-6xl mx-auto flex items-center gap-5 px-5 md:px-7 h-[70px] rounded-2xl"
+            style={{
+              background: 'rgba(255,249,245,0.90)',
+              backdropFilter: 'blur(16px) saturate(1.5)',
+              WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
+              border: '1px solid rgba(1,12,53,0.08)',
+              boxShadow: '0 12px 40px rgba(1,12,53,0.14)',
+            }}
+          >
+            <Link href="/" className="flex-shrink-0 no-underline">
+              <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[52px] w-auto" />
+            </Link>
+
+            <div className="hidden md:flex gap-1 flex-1 justify-center">
+              {navLinks.map(link => {
+                const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${
+                      isActive ? 'text-[#E20C04]' : 'text-[#4B5563] hover:text-[#010C35]'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                )
+              })}
+            </div>
+
+            <div className="flex items-center gap-3 ml-auto">
+              {!isLoading && (
+                user ? (
+                  <Link href="/account" aria-label="Your account" className="no-underline">
+                    <UserAvatar name={user.name} imageUrl={user.profileImageUrl} size={32} />
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      href="/login"
+                      className="hidden md:block text-[14px] font-medium text-[#4B5563] hover:text-[#010C35] no-underline transition-colors"
+                    >
+                      Log in
+                    </Link>
+                    <Link
+                      href={primaryCtaHref}
+                      className="text-[14px] font-bold text-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
+                      style={{ background: 'var(--brand-gradient)' }}
+                    >
+                      {primaryCtaLabel}
+                    </Link>
+                  </>
+                )
+              )}
+            </div>
+          </nav>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    </>
   )
 }

@@ -25,7 +25,7 @@ const CATEGORIES: NotificationCategory[] = [
     id: 'voucher-cycle',
     icon: RefreshCw,
     label: 'Voucher cycle resets',
-    description: 'When your monthly cycle resets and new vouchers become available',
+    description: 'When your monthly cycle resets and your vouchers are ready to use again',
     accent: '#16A34A',
   },
   {

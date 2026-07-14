@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { motion } from 'framer-motion'
+import { BrandStop } from '@/components/ui/BrandStop'
 
 const CATEGORIES = ['All', 'Food & Drink', 'Health & Fitness', 'Beauty', 'Wellness', 'Local Guides', "Members' Picks"]
 
@@ -11,16 +12,16 @@ const PREVIEW_ARTICLES = [
   { category: 'Food & Drink',     title: 'The best independent restaurants in Manchester right now',      mins: 5 },
   { category: 'Health & Fitness', title: 'Why more Londoners are switching to boutique gyms',             mins: 4 },
   { category: "Members' Picks",   title: 'Hidden gems: the places our members keep going back to',        mins: 6 },
-  { category: 'Beauty',           title: 'A guide to the best independent salons in Birmingham',          mins: 3 },
-  { category: 'Local Guides',     title: 'Exploring Leeds: where to eat, train, and unwind',              mins: 7 },
-  { category: 'Wellness',         title: "UK wellness on a budget: Redeemo members' favourites",          mins: 5 },
+  { category: 'Beauty',           title: 'A guide to the best independent salons in Birmingham',          mins: 3 },
+  { category: 'Local Guides',     title: 'Exploring Leeds: where to eat, train, and unwind',              mins: 7 },
+  { category: 'Wellness',         title: "UK wellness on a budget: Redeemo members' favourites",          mins: 5 },
 ]
 
 export function InsiderContent() {
   return (
     <>
       {/* ── Editorial hero — navy with rose glow ── */}
-      <section className="relative overflow-hidden bg-[#010C35] py-20 md:py-28 px-6">
+      <section className="relative overflow-hidden bg-[#010C35] -mt-[80px] pt-[160px] pb-20 md:pt-[192px] md:pb-28 px-6">
         {/* Glow */}
         <div
           aria-hidden="true"
@@ -62,13 +63,14 @@ export function InsiderContent() {
           >
             Guides, picks,{' '}
             <span
+              className="block"
               style={{
                 background: 'var(--brand-gradient)',
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
               }}
             >
-              and hidden gems.
+              and hidden <span className="whitespace-nowrap">gems<BrandStop tone="white" /></span>
             </span>
           </motion.h1>
 
@@ -78,7 +80,7 @@ export function InsiderContent() {
             transition={{ duration: 0.5, delay: 0.22 }}
             className="text-[15px] text-white/45 max-w-[460px] leading-[1.72]"
           >
-            Written by Redeemo members and our local editors. Real places, real experiences.
+            Written by Redeemo members and our local editors. Real places, real&nbsp;experiences.
           </motion.p>
         </div>
       </section>

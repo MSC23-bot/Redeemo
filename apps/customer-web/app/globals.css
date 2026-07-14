@@ -141,6 +141,17 @@ body {
   background-clip: text;
 }
 
+/* ── Typography wrapping: no orphaned last words ──────────────────────────
+   balance keeps multi-line headings even; pretty stops paragraphs ending
+   on a single-word line. Stubborn cases also carry explicit no-break
+   spaces so WebKit versions without `pretty` still avoid orphans. */
+h1, h2, h3, h4 {
+  text-wrap: balance;
+}
+p, li, figcaption {
+  text-wrap: pretty;
+}
+
 /* Focus ring */
 :focus-visible {
   outline: 2px solid var(--ring);
