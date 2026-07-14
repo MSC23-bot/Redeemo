@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify'
 vi.mock('../../../src/api/shared/storage', () => ({
   isStorageEnabled: vi.fn(() => process.env.STORAGE_ENABLED === 'true'),
   putObject: vi.fn(async () => ({ key: 'document/m1/cafebabecafebabe.pdf' })),
+  deleteObject: vi.fn(async () => {}),
   presignGet: vi.fn(),
   kindPolicy: vi.fn(() => ({ contentTypes: { 'application/pdf': 'pdf' }, maxBytes: 10 * 1024 * 1024, visibility: 'private' })),
 }))
@@ -60,6 +61,8 @@ describe('POST /admin/merchants/:id/agreement/sign', () => {
     app.decorate('prisma', {
       $transaction: vi.fn().mockImplementation(async (cb: any) => cb(tx)),
       merchant: { findUnique: merchantFindUnique },
+      // FIX 2: the ceremony looks up the authenticated rep identity server-side.
+      adminUser: { findUnique: vi.fn().mockResolvedValue({ firstName: 'Rep', lastName: 'Fortytwo', email: 'rep42@redeemo.com' }) },
     } as any)
     app.decorate('redis', { get: vi.fn(), set: vi.fn(), del: vi.fn(), keys: vi.fn().mockResolvedValue([]) } as any)
     await app.ready()
@@ -109,12 +112,25 @@ describe('POST /admin/merchants/:id/agreement/sign', () => {
     expect(body.recordId).toBe('rec-1')
     expect(body.contractStatus).toBe('SIGNED')
     expect(body.gated).toBe(true)
-    // The witnessing rep comes from req.user.sub, never the payload.
+    // The witnessing rep comes from req.user.sub, never the payload. FIX 2: the witness
+    // identity is the server-looked-up AdminUser (name + email), not any request field.
     expect(recordCreate.mock.calls[0][0].data).toMatchObject({
       actorAdminId: 'admin-rep-42',
       signerName: 'Priya Nair',
+      witnessName: 'Rep Fortytwo',
+      witnessEmail: 'rep42@redeemo.com',
       method: 'IN_PERSON_ASSISTED',
     })
+  })
+
+  it('FIX 2: strict body rejects a client-supplied witnessLabel (400, no write)', async () => {
+    const token = sign('OPERATIONS', ['merchant:sign-agreement'])
+    const res = await app.inject({
+      method: 'POST', url: URL, headers: { authorization: `Bearer ${token}` },
+      payload: { ...BODY, witnessLabel: 'I typed my own witness name' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(recordCreate).not.toHaveBeenCalled()
   })
 
   it('production + gated: the route refuses the binding write (403 AGREEMENT_LEGAL_REVIEW_REQUIRED)', async () => {

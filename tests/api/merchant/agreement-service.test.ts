@@ -21,6 +21,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 vi.mock('../../../src/api/shared/storage', () => ({
   isStorageEnabled: vi.fn(() => process.env.STORAGE_ENABLED === 'true'),
   putObject: vi.fn(async () => ({ key: 'document/m1/deadbeefdeadbeef.pdf' })),
+  // FIX 1: compensation deletes the orphaned PDF on a failed/lost transaction.
+  deleteObject: vi.fn(async () => {}),
 }))
 
 // Mock the PDF renderer: the ceremony service only needs a Buffer back (the real
@@ -45,12 +47,16 @@ import {
 } from '../../../src/api/merchant/agreement/service'
 import { acceptContract } from '../../../src/api/merchant/onboarding/service'
 import { getAgreementVersion, getCurrentAgreement } from '../../../src/api/merchant/agreement/versions'
-import { putObject } from '../../../src/api/shared/storage'
+import { putObject, deleteObject } from '../../../src/api/shared/storage'
+import { renderAgreementPdf } from '../../../src/api/merchant/agreement/pdf'
 import { AppError } from '../../../src/api/shared/errors'
 
 const ctx = { ipAddress: '203.0.113.9', userAgent: 'RedeemoRepTablet/1.0' }
 const MERCHANT_ID = 'merch-tandoori-1'
 const WITNESS = 'admin-rep-42'
+// FIX 2: the authenticated rep identity resolved server-side from AdminUser.
+const WITNESS_ADMIN = { firstName: 'Sam', lastName: 'Rep', email: 'sam.rep@redeemo.com' }
+const WITNESS_FULL_NAME = 'Sam Rep'
 const CURRENT = getCurrentAgreement()
 const LEGACY = getAgreementVersion('1.0')!
 
@@ -85,6 +91,8 @@ function makePrisma(tx: any, merchantRow: Record<string, unknown> | null = MERCH
   return {
     $transaction: vi.fn().mockImplementation(async (cb: any) => cb(tx)),
     merchant: { findUnique: vi.fn().mockResolvedValue(merchantRow) },
+    // FIX 2: witness identity lookup (the authenticated rep) resolves to a real admin.
+    adminUser: { findUnique: vi.fn().mockResolvedValue(WITNESS_ADMIN) },
     // Self-serve path resolution (resolveAdminMerchant).
     merchantAdmin: { findUnique: vi.fn().mockResolvedValue({ id: 'ma1', merchantId: MERCHANT_ID }) },
     merchantMembership: {
@@ -337,7 +345,7 @@ describe('signAgreementInPerson (the assisted ceremony)', () => {
     })
   })
 
-  it('admin-never-signs: empty signer name / role and witness-as-signer all refuse', async () => {
+  it('admin-never-signs: empty signer name / role / witness all refuse', async () => {
     const prisma = makePrisma(makeTx())
     await expect(
       signAgreementInPerson(prisma, { ...INPUT, signerName: '   ' }, ctx),
@@ -348,11 +356,43 @@ describe('signAgreementInPerson (the assisted ceremony)', () => {
     await expect(
       signAgreementInPerson(prisma, { ...INPUT, actorAdminId: '' }, ctx),
     ).rejects.toMatchObject({ code: 'AGREEMENT_SIGNER_INVALID' })
-    // The witness id typed AS the signature of record is refused.
-    await expect(
-      signAgreementInPerson(prisma, { ...INPUT, signerName: WITNESS }, ctx),
-    ).rejects.toMatchObject({ code: 'AGREEMENT_SIGNER_INVALID' })
     expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('FIX 2: refuses when the authenticated rep does not resolve to a real admin', async () => {
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    prisma.adminUser.findUnique.mockResolvedValue(null)
+    await expect(signAgreementInPerson(prisma, INPUT, ctx)).rejects.toMatchObject({
+      code: 'AGREEMENT_SIGNER_INVALID',
+    })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('FIX 2: witness identity is looked up server-side (AdminUser) and persisted, never from the request', async () => {
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    await signAgreementInPerson(prisma, INPUT, ctx)
+    expect(prisma.adminUser.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: WITNESS } }),
+    )
+    const record = tx.merchantAgreementRecord.create.mock.calls[0][0].data
+    expect(record.witnessName).toBe(WITNESS_FULL_NAME)
+    expect(record.witnessEmail).toBe(WITNESS_ADMIN.email)
+    expect(record.actorAdminId).toBe(WITNESS)
+    // The rep identity also reaches the PDF renderer as the witness display label.
+    const rendered = (renderAgreementPdf as any).mock.calls[0][0]
+    expect(rendered.witnessLabel).toContain(WITNESS_FULL_NAME)
+    expect(rendered.witnessLabel).toContain(WITNESS_ADMIN.email)
+  })
+
+  it('FIX 2: a signer name equal to the rep own full name is refused (case-insensitive, trimmed)', async () => {
+    await expect(
+      signAgreementInPerson(makePrisma(makeTx()), { ...INPUT, signerName: 'sam rep' }, ctx),
+    ).rejects.toMatchObject({ code: 'AGREEMENT_SIGNER_INVALID' })
+    await expect(
+      signAgreementInPerson(makePrisma(makeTx()), { ...INPUT, signerName: '  Sam Rep  ' }, ctx),
+    ).rejects.toMatchObject({ code: 'AGREEMENT_SIGNER_INVALID' })
   })
 
   it('fails closed with STORAGE_NOT_ENABLED when storage is dark (no tx, no record)', async () => {
@@ -376,6 +416,41 @@ describe('signAgreementInPerson (the assisted ceremony)', () => {
         contentType: 'application/pdf',
       }),
     )
+  })
+
+  it('FIX 1: a failed transaction best-effort deletes the orphaned PDF with the exact key, then rethrows', async () => {
+    const tx = makeTx()
+    const boom = new Error('db-down')
+    tx.merchantAgreementRecord.create.mockRejectedValue(boom)
+    const prisma = makePrisma(tx)
+    await expect(signAgreementInPerson(prisma, INPUT, ctx)).rejects.toBe(boom)
+    expect(deleteObject).toHaveBeenCalledWith('document/m1/deadbeefdeadbeef.pdf')
+  })
+
+  it('FIX 1: the losing concurrent ceremony (N1 guard) compensates the orphaned PDF', async () => {
+    const tx = makeTx()
+    tx.merchant.updateMany.mockResolvedValue({ count: 0 })
+    const prisma = makePrisma(tx)
+    await expect(signAgreementInPerson(prisma, INPUT, ctx)).rejects.toMatchObject({
+      code: 'CONTRACT_ALREADY_SIGNED',
+    })
+    expect(deleteObject).toHaveBeenCalledWith('document/m1/deadbeefdeadbeef.pdf')
+  })
+
+  it('FIX 1: a cleanup failure never masks the original transaction error', async () => {
+    const tx = makeTx()
+    const boom = new Error('db-down')
+    tx.merchantAgreementRecord.create.mockRejectedValue(boom)
+    ;(deleteObject as any).mockRejectedValueOnce(new Error('r2-cleanup-down'))
+    const prisma = makePrisma(tx)
+    // The ORIGINAL db error surfaces, not the cleanup error.
+    await expect(signAgreementInPerson(prisma, INPUT, ctx)).rejects.toBe(boom)
+  })
+
+  it('FIX 1: the success path never deletes the stored PDF', async () => {
+    const prisma = makePrisma(makeTx())
+    await signAgreementInPerson(prisma, INPUT, ctx)
+    expect(deleteObject).not.toHaveBeenCalled()
   })
 })
 
@@ -491,5 +566,81 @@ describe('acceptContract self-serve retrofit', () => {
     expect(record.contentHash).toBe(LEGACY.contentHash)
     // Truthful evidence: the hash is over the legacy 1.0 text, not the draft.
     expect(record.contentHash).not.toBe(CURRENT.contentHash)
+  })
+
+  it('FIX 1: a failed self-serve transaction best-effort deletes the orphaned PDF then rethrows', async () => {
+    const tx = makeTx()
+    const boom = new Error('db-down')
+    tx.merchantContract.create.mockRejectedValue(boom)
+    const prisma = makePrisma(tx)
+    await expect(
+      acceptContract(prisma, 'ma1', '2.0-draft', ctx, { signerName: 'Priya Nair' }),
+    ).rejects.toBe(boom)
+    expect(deleteObject).toHaveBeenCalledWith('document/m1/deadbeefdeadbeef.pdf')
+  })
+
+  it('FIX 1: storage-dark self-serve has NO PDF to compensate on a tx failure', async () => {
+    process.env.STORAGE_ENABLED = 'false'
+    const tx = makeTx()
+    tx.merchantContract.create.mockRejectedValue(new Error('db-down'))
+    const prisma = makePrisma(tx)
+    await expect(acceptContract(prisma, 'ma1', '2.0-draft', ctx)).rejects.toThrow()
+    expect(deleteObject).not.toHaveBeenCalled()
+  })
+
+  it('FIX 1: the self-serve success path never deletes the stored PDF', async () => {
+    const prisma = makePrisma(makeTx())
+    await acceptContract(prisma, 'ma1', '2.0-draft', ctx, { signerName: 'Priya Nair' })
+    expect(deleteObject).not.toHaveBeenCalled()
+  })
+})
+
+// FIX 3: the DRAFT watermark reflects the VERSION's legal status ONLY, decoupled from the
+// AGREEMENT_LEGAL_REVIEW_REQUIRED env flag. The env flag is the ceremony ENABLEMENT gate.
+// Net matrix pinned here (watermark column = renderAgreementPdf `gated` arg + result.gated):
+//   prod + flag ON  : self-serve binds 1.0 CLEAN (no watermark); ceremony refused.
+//   prod + flag OFF : self-serve binds 1.0 CLEAN (no watermark); draft ceremony still refused.
+//   non-prod        : draft signs for QA, watermarked.
+describe('FIX 3: watermark = version.isDraft, env flag = ceremony gate', () => {
+  const CEREMONY_INPUT = {
+    merchantId: MERCHANT_ID,
+    actorAdminId: WITNESS,
+    signerName: 'Priya Nair',
+    signerRoleConfirmation: 'Owner',
+  }
+
+  it('prod + flag ON: self-serve binds the non-draft 1.0 with a CLEAN (unwatermarked) PDF', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'production'
+    delete process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED // flag ON (default)
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    const result = await acceptContract(prisma, 'ma1', '2.0-draft', ctx, { signerName: 'Priya Nair' })
+    // Non-draft => not watermarked, even though legal review is still required (flag on).
+    expect(result.gated).toBe(false)
+    expect((renderAgreementPdf as any).mock.calls[0][0].gated).toBe(false)
+    expect(tx.merchantAgreementRecord.create.mock.calls[0][0].data.agreementVersion).toBe('1.0')
+  })
+
+  it('prod + flag OFF: self-serve binds 1.0 CLEAN; the draft ceremony stays refused', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'production'
+    process.env.AGREEMENT_LEGAL_REVIEW_REQUIRED = 'false'
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    const result = await acceptContract(prisma, 'ma1', '2.0-draft', ctx, { signerName: 'Priya Nair' })
+    expect(result.gated).toBe(false)
+    expect((renderAgreementPdf as any).mock.calls[0][0].gated).toBe(false)
+    // The ceremony (current draft) is still refused in production even with the flag off.
+    await expect(
+      signAgreementInPerson(makePrisma(makeTx()), CEREMONY_INPUT, ctx),
+    ).rejects.toMatchObject({ code: 'AGREEMENT_LEGAL_REVIEW_REQUIRED' })
+  })
+
+  it('non-prod: the draft signs for QA and IS watermarked', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'staging'
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    const result = await signAgreementInPerson(prisma, CEREMONY_INPUT, ctx)
+    expect(result.gated).toBe(true) // draft => watermarked
+    expect((renderAgreementPdf as any).mock.calls[0][0].gated).toBe(true)
   })
 })
