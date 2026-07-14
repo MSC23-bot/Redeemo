@@ -1152,3 +1152,19 @@ recruitment console until Resend/DNS). Spec:
 docs/superpowers/specs/2026-07-14-customer-merchant-invite-referral-design.md.
 Next: implementation plan (Tier 3 flow), sequencing vs Portal/Admin is
 an owner/programme call.
+
+## 2026-07-14 · Invite/referral implementation plan written (owner: proceed)
+
+Tier 3 plan at
+docs/superpowers/plans/2026-07-14-customer-merchant-invite-referral-plan.md:
+M0 schema+service (migration built, applied only in an owner-scheduled
+bundled window), M1 public API (Turnstile, tier-registry rate limits,
+Places proxy), M2 admin recruitment-console integration (lead source,
+manual send, review queue), M3 customer surfaces (/invite, landing
+section, post-register prompt) behind INVITES_ENABLED, M4 automated
+email (gated EMAIL_ENABLED + solicitor), M5 reward activation (gated
+launch + INVITE_REWARDS_ENABLED). Each milestone pauses for owner
+review. Routing per the owner directive (restated today): Fable 5
+leads, decides, and cross-checks all agent output before commit;
+Opus 4.8 / Sonnet 5 execute milestone briefs and report back. Build
+scheduling vs Portal/Admin remains the owner's call.
