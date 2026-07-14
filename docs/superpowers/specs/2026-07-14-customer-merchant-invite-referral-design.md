@@ -452,3 +452,69 @@ ENABLEMENT: either the invite anonymise sweep (or a governed AuditLog
 retention job) extends to those rows, or the documented-linkage limit
 is accepted in writing. INVITES_ENABLED production flip is blocked on
 this decision alongside threshold sizing (A2.4).
+
+---
+
+# Amendment A3 · 2026-07-14 · Codex round 3 (authoritative over A1/A2 and body)
+
+## A3.1 Account-erasure truth (corrects A2.1's retention claim)
+
+A2.1 described post-scrub rows as anonymous while retaining
+inviterUserId + inviterKey (u:<userId>): that retention is pseudonymous
+PERSONAL data and the wording was an overclaim. Corrected design, now
+implemented: account deletion SEVERS the person linkage on every
+non-anonymised invite row: inviterUserId and inviterKey are NULLED
+together with the PII fields (note, inviterEmailNorm, ipHash);
+anonymisedAt is stamped; rewardEligible is cleared. PENDING reward
+grants are VOIDED (voidReason ACCOUNT_DELETED): a deleted account's
+pending eligibility LAPSES by design (rewards pay registered accounts
+only, D2). What survives is genuinely non-personal aggregate demand
+(placeKey, businessNameRaw, leadId, countableAt, status), which keeps
+the business's tally intact. Every "non-PII"/"anonymous" overclaim in
+code and schema comments has been rewritten to the honest
+classification (pseudonymous personal data while the account exists;
+severed on deletion).
+
+OWNER/SOLICITOR QUESTION (flagged, non-blocking for the unmerged
+stack): ISSUED/CONSUMED reward grants are retained as financial records
+after account deletion (userId on the grant row). Confirm retention
+basis/duration for consumed entitlements, alongside the A2.6 audit-row
+retention decision.
+
+## A3.2 Duplicate idempotency at the cap
+
+An exact (inviterKey, placeKey) duplicate is now detected INSIDE the
+transaction, under the inviterKey lock, BEFORE the cap check: it
+returns the honest idempotent ok with no writes and no cap consumption.
+Two identical concurrent requests crossing nine-to-ten serialise on the
+inviterKey lock: the first creates the tenth row, the second sees it in
+the pre-check and returns ok. Both behaviours are pinned by unit tests
+and by new disposable-Postgres integration regressions.
+
+## A3.3 Advisory locks: namespacing + bounded honest timeout
+
+The single-namespace hashtext() locks could theoretically invert across
+the place/inviter key spaces. Corrected: the two-argument
+pg_advisory_xact_lock(namespace, key) form with structurally distinct
+namespaces (1 = place, 2 = inviter) and fixed namespace-order
+acquisition, making cross-namespace inversion unconstructible. The wait
+is bounded by SET LOCAL lock_timeout = '3s'; expiry (SQLSTATE 55P03)
+maps to the RETRYABLE INVITE_SUBMIT_CONTENTION 429, never a 500.
+
+## A3.4 Concurrency tests EXECUTE in CI
+
+The concurrency regression suite is now wired into the CI integration
+pilot job (disposable loopback Postgres service): new
+test:integration:invites script + an advisory
+"Run invite-concurrency integration pilot" step whose PASS/FAIL is
+written explicitly to the job summary (same pattern as the Insights and
+maintenance pilots). No local container runtime exists on the build
+machine, so executed evidence = the PR check runs on the renewed heads
+(reported in the round log).
+
+## A3.5 Migration hygiene
+
+The committed migration had a trailing blank line at EOF that only the
+COMMITTED-RANGE check reveals (git diff --check origin/main...HEAD):
+working-tree --check cannot see it. Fixed; the range check is now part
+of the round's gate list.
