@@ -158,4 +158,34 @@ export const RedisKey = {
   // so a rapid burst of screenshot events for the same (userId, code) writes
   // exactly one RedemptionScreenshotEvent row instead of N.
   redemptionScreenshotDedup: (userId: string, code: string) => `rl:ss:${userId}:${code}`,
+
+  // Customer merchant-invite programme M1 (mirrors the Branches PR-6 §4a
+  // merchantLocationCandidate shape): server-issued opaque candidate token ->
+  // server-held { googlePlaceId, name, formattedAddress, locality } stash for
+  // POST /api/v1/customer/invites/place-search. Scoped by userId so a token
+  // minted for one customer can never be resolved by another customer's
+  // submit. 15-minute TTL (set at write time in the route/service).
+  inviteLocationCandidate: (userId: string, token: string) => `invite:${userId}:loccand:${token}`,
+
+  // Customer merchant-invite programme M1 (mirrors rl:merchloc:* above):
+  // inviteLocationLimiter counters for POST /api/v1/customer/invites/place-search.
+  // Per-user daily is a VICTIM key (counted on allowed only); per-IP hourly is an
+  // ABUSER key (every attempt counts); the global daily ceiling is a GATE key
+  // (env INVITE_PLACES_GLOBAL_DAILY_CAP cost breaker). No per-merchant tier —
+  // this is a customer-side flow with no merchant identity to key on.
+  rateLimitInviteLocSearchUserDay:   (userId: string) => `rl:invloc:user:day:${userId}`, // per-user daily
+  rateLimitInviteLocSearchIpHour:    (ip: string)     => `rl:invloc:ip:hour:${ip}`,      // per-IP hourly (abuser)
+  rateLimitInviteLocSearchGlobalDay: ()                => `rl:invloc:global:day`,        // global daily cost ceiling
+
+  // Customer merchant-invite programme M1 (Codex correction round;
+  // src/api/shared/inviteSubmitLimiter.ts): per-IP + global atomic limiter for
+  // POST /api/v1/customer/invites (submit). Per-IP hourly is an ABUSER key
+  // (every attempt counts); the global daily ceiling is a GATE key (env
+  // INVITE_SUBMIT_GLOBAL_DAILY_CAP cost/abuse breaker). No per-user tier here
+  // — the per-customer `inviteSubmit` rate-limit tier
+  // (src/api/plugins/rate-limit.ts) and the in-transaction OPEN_INVITE_CAP
+  // (service.ts) already bound a single account; this bounds one MACHINE
+  // running many accounts.
+  rateLimitInviteSubmitIpHour:       (ip: string)     => `rl:invsub:ip:hour:${ip}`,      // per-IP hourly (abuser)
+  rateLimitInviteSubmitGlobalDay:    ()                => `rl:invsub:global:day`,        // global daily cost/abuse ceiling
 } as const

@@ -73,6 +73,23 @@ const TIERS = {
   // NOT per IP, so a NAT/CGNAT-shared office cannot collectively starve. The
   // global 300/min backstop still applies on top.
   branchPinDrop:     { prod: { max: 10, timeWindow: '1 minute' }, dev: { max: 100, timeWindow: '1 minute' } },
+  // Customer merchant-invite programme M1 — submit tier. Protects POST
+  // /api/v1/customer/invites (the write that creates/attaches a MerchantLead +
+  // MerchantInvite). Keyed PER CUSTOMER (route keyGenerator override, mirrors
+  // redemptionPolling/branchPinDrop), NOT per-IP — a customer submits invites
+  // occasionally, so 10/hour in prod is generous headroom above real usage while
+  // bounding lead/invite-table spam from one account; the service's own
+  // OPEN_INVITE_CAP (10 open invites) is the durable per-account ceiling this
+  // edge tier backstops.
+  inviteSubmit:      { prod: { max: 10, timeWindow: '1 hour' },   dev: { max: 50,  timeWindow: '1 minute' } },
+  // Customer merchant-invite programme M1 — place-search tier. Protects POST
+  // /api/v1/customer/invites/place-search, which calls the billable Google
+  // Places searchPlaces() wrapper. Keyed PER CUSTOMER (same mechanism as
+  // inviteSubmit above). This edge tier is a secondary backstop; the primary
+  // cost/abuse control is the atomic inviteLocationLimiter (global daily GATE +
+  // per-user daily + per-IP hourly), which runs BEFORE the Google call inside
+  // the route.
+  invitePlaceSearch: { prod: { max: 20, timeWindow: '1 hour' },   dev: { max: 100, timeWindow: '1 minute' } },
 } as const
 
 // Global backstop sizing (2026-07-09, Savings "Couldn't load <month>" fix).

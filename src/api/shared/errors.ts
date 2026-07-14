@@ -112,6 +112,13 @@ export const ERROR_DEFINITIONS = {
   // lock_timeout (3s) expired under same-business/same-inviter pile-up —
   // an honest, RETRYABLE outcome (never a 500). Client should simply retry.
   INVITE_SUBMIT_CONTENTION:       { statusCode: 429, message: 'That business is receiving a lot of invites right now. Please try again in a moment.' },
+  // Customer merchant-invite programme M1 (Codex correction round;
+  // src/api/shared/inviteSubmitLimiter.ts): the per-IP + global atomic
+  // submit-abuse limiter for POST /api/v1/customer/invites. Deliberately a
+  // DEDICATED code, distinct from LOCATION_SEARCH_RATE_LIMITED (the
+  // place-search read's limiter) — a submit throttle must not masquerade as
+  // a location-search throttle. details.retryAfter (seconds).
+  INVITE_SUBMIT_RATE_LIMITED:     { statusCode: 429, message: 'Too many invite submissions. Please try again later.' },
   // MerchantNote packet (2026-07-13, OD2). Internal per-merchant admin notes.
   //   NOTE_NOT_FOUND               : the note id is unknown (or on a different merchant).
   //   NOTE_NOT_ACTIVE              : edit/retract targeted an already-RETRACTED note.
