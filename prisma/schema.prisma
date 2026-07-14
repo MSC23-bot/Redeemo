@@ -2172,3 +2172,112 @@ model MerchantNoteEvent {
 
   @@index([noteId, createdAt])
 }
+// ─────────────────────────────────────────
+// CUSTOMER MERCHANT INVITES + REFERRAL (packet 2026-07-14)
+// ─────────────────────────────────────────
+// Spec: docs/superpowers/specs/2026-07-14-customer-merchant-invite-referral-design.md
+// (Amendment A1 authoritative). Create-only additive packet, UNAPPLIED
+// until the owner schedules it, and it must apply AFTER
+// 20260712000000_merchant_lead_packet (the invite service writes
+// MerchantLead rows). Bare-id links (leadId/userId/merchantId/inviteId)
+// are intentionally FK-free following the MerchantLead precedent:
+// keeps the packet additive; integrity is enforced in the service layer.
+
+// Invite lifecycle describes the INVITE ONLY. Recruitment progress lives
+// on MerchantLead (single workflow owner, spec A1.1(5)); nothing here
+// mirrors lead stages.
+enum MerchantInviteStatus {
+  PENDING_CONFIRM // Phase 2 anonymous lane: awaiting email double-opt-in
+  ACTIVE // countable demand evidence
+  HELD_REVIEW // note tripped the term filter; admin review before any use
+}
+
+enum InviteRewardGrantStatus {
+  PENDING
+  ISSUED
+  CONSUMED
+  VOIDED
+}
+
+enum BusinessSuppressionReason {
+  OPT_OUT
+  IGNORED
+  MANUAL
+}
+
+model MerchantInvite {
+  id               String               @id @default(uuid())
+  // Account link; the Phase 1 service REQUIRES an authenticated user and
+  // always sets this. Nullable for the Phase 2 anonymous lane.
+  inviterUserId    String?
+  // Canonical inviter identity: lowercased/trimmed email. For signed-in
+  // inviters this is their account email; Phase 2 anonymous inviters use
+  // their double-opt-in verified address.
+  inviterEmailNorm String
+  // Canonical business identity: "gp:<googlePlaceId>" when Places-resolved,
+  // else "fz:<name-slug>:<locality-slug>". Never derived client-side.
+  placeKey         String
+  // Raw Places id when known. NEVER exposed to customers (platform contract).
+  googlePlaceId    String?
+  businessNameRaw  String
+  localityRaw      String?
+  // Plain text, <=240 chars, no URLs (service-enforced); rendered escaped only.
+  note             String?
+  consentShareName Boolean              @default(false)
+  status           MerchantInviteStatus @default(ACTIVE)
+  // Stamped when the invite becomes countable (spec A1.1(2)): true iff NO
+  // Merchant record (draft or live) existed for the business at that moment.
+  // Prospect leads at any stage do NOT disqualify.
+  rewardEligible   Boolean              @default(false)
+  // When the invite became countable demand. Deterministic first-N reward
+  // ordering key: ORDER BY countableAt ASC, id ASC.
+  countableAt      DateTime?
+  // Bare id -> MerchantLead (FK-free, house pattern).
+  leadId           String?
+  // Keyless SHA-256 truncation of the submitting IP (hashEmail convention).
+  // Raw IPs are never persisted on invite rows; nulled by the anonymise sweep.
+  ipHash           String?
+  anonymisedAt     DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@unique([inviterEmailNorm, placeKey])
+  @@index([placeKey])
+  @@index([leadId])
+  @@index([status])
+  @@index([inviterUserId])
+  @@index([anonymisedAt, createdAt]) // anonymisation sweep predicate
+}
+
+// Provider-agnostic reward entitlement ledger (spec A1.1(8)). HOW an
+// ISSUED grant becomes cheaper months is the deferred billing seam
+// design (co-designed with the founding offer); no Stripe fields here
+// until that design is owner-approved. Rows are created only by the
+// merchant-goes-live hook behind INVITE_REWARDS_ENABLED (Phase 3).
+model InviteRewardGrant {
+  id                String                  @id @default(uuid())
+  inviteId          String                  @unique // bare id -> MerchantInvite
+  userId            String // bare id -> User (registered account, D2)
+  merchantId        String // bare id -> Merchant that went live
+  entitlementMonths Int                     @default(1)
+  status            InviteRewardGrantStatus @default(PENDING)
+  voidReason        String?
+  issuedAt          DateTime?
+  consumedAt        DateTime?
+  createdAt         DateTime                @default(now())
+
+  @@index([userId])
+  @@index([merchantId])
+  @@index([status])
+}
+
+// Businesses that must never receive automated invitation outreach
+// (opt-out, repeated ignores, or manual admin suppression). Keyed by the
+// same placeKey as invites. Retained as a legal-basis record.
+model BusinessSuppression {
+  id               String                    @id @default(uuid())
+  placeKey         String                    @unique
+  reason           BusinessSuppressionReason
+  createdByAdminId String?
+  createdAt        DateTime                  @default(now())
+}

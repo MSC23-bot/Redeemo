@@ -96,6 +96,18 @@ export const ERROR_DEFINITIONS = {
   LEAD_ALREADY_CONVERTED:         { statusCode: 409, message: 'This lead has already been converted to a merchant draft.' },
   // A terminal/anonymised lead cannot be further edited (its contact PII is gone).
   LEAD_ANONYMISED:                { statusCode: 409, message: 'This lead has been anonymised and can no longer be edited.' },
+  // Customer merchant-invite programme M0 (src/api/customer/invites/service.ts).
+  // INVITE_BUSINESS_NAME_REQUIRED / INVITE_BUSINESS_NAME_INVALID: businessNameRaw
+  // must be non-empty after trim and <=160 chars.
+  // INVITE_NOTE_INVALID: the optional note failed validateInviteNote (>240 chars
+  // trimmed, or contains a URL). A HELD_REVIEW-worthy note is NOT rejected here
+  // (it is kept and the invite is held for admin review instead).
+  // INVITE_CAP_REACHED: the inviter already has 10 open (non-anonymised)
+  // MerchantInvite rows; a further submission is refused until one closes out.
+  INVITE_BUSINESS_NAME_REQUIRED:  { statusCode: 400, message: 'Enter the business name you want to invite.' },
+  INVITE_BUSINESS_NAME_INVALID:   { statusCode: 400, message: 'The business name is too long.' },
+  INVITE_NOTE_INVALID:            { statusCode: 400, message: 'This note is too long or contains a link. Please rewrite it.' },
+  INVITE_CAP_REACHED:             { statusCode: 429, message: "You've reached the limit of open invites. Please wait for one to be reviewed before sending more." },
   // MerchantNote packet (2026-07-13, OD2). Internal per-merchant admin notes.
   //   NOTE_NOT_FOUND               : the note id is unknown (or on a different merchant).
   //   NOTE_NOT_ACTIVE              : edit/retract targeted an already-RETRACTED note.
