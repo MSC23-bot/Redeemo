@@ -113,6 +113,11 @@ queue); `Campaign` → `CampaignMerchant`; `FeaturedMerchant` (paid placement).
 - **Tier 3** new architecture / backend contract / schema change: full flow
   brainstorm → spec → plan → implement → review → lock.
 - Rebaselines are Tier 2 by default. If the tier is unclear, PAUSE and ask the owner.
+- **Long-run end summaries (owner directive 2026-07-13):** any long autonomous run (multiple
+  PRs/agents/merges while the owner is away) MUST end with a standalone consolidated summary
+  the moment it stops or pauses for owner gates: merges with SHAs, frozen PR heads, review
+  findings, incidents, every lead-made decision the owner could veto, and a single owner/Codex
+  action list. Never assume mid-run messages were read.
 
 ## 8. Git safety (enforced by `.claude/hooks/pre-bash/01-git-safety.sh`)
 
