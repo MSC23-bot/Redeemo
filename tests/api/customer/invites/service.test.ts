@@ -271,3 +271,42 @@ describe('submitInvite: D8 eligibility, freshly-converted business (lead review 
     expect(merchantInviteCreate.mock.calls[0][0].data.rewardEligible).toBe(false)
   })
 })
+
+describe('submitInvite: F1 (adversarial review), Places-lane branch-miss falls through to the name lane', () => {
+  it('placeId with NO branch match + a branchless draft name-match still disqualifies rewardEligible', async () => {
+    // convertLead draft: no branch carries the placeId yet, and the draft has
+    // no branches at all — the eligibility lane must fall through to the
+    // name lane or the Places lane reopens the D8 insider window.
+    const branchFindFirst = vi.fn().mockResolvedValue(null)
+    const merchantFindFirst = vi.fn().mockImplementation(async (args: any) => {
+      if (args.where.status === 'ACTIVE') return null
+      return { id: 'm-draft', businessName: 'Bloom Cafe', status: 'REGISTERED', branches: [] }
+    })
+    const merchantInviteCreate = vi.fn().mockResolvedValue({ id: 'invite-1' })
+    const tx = makeTx({ merchantInviteCreate })
+    const prisma = makePrisma(tx, { branchFindFirst, merchantFindFirst })
+
+    const res = await submitInvite(prisma, { ...BASE_INPUT, googlePlaceId: 'gp-123' })
+
+    expect(res).toEqual({ kind: 'ok' })
+    expect(merchantInviteCreate).toHaveBeenCalledOnce()
+    expect(merchantInviteCreate.mock.calls[0][0].data.rewardEligible).toBe(false)
+  })
+
+  it('placeId with NO branch match + an ACTIVE name+locality match is revealed as already_live (manual-pin live merchant)', async () => {
+    const branchFindFirst = vi.fn().mockResolvedValue(null)
+    const merchantFindFirst = vi.fn().mockImplementation(async (args: any) => {
+      if (args.where.status === 'ACTIVE') {
+        return { id: 'm-live', businessName: 'Bloom Cafe', status: 'ACTIVE', branches: [matchingBranch({ city: 'SW1' })] }
+      }
+      return null
+    })
+    const tx = makeTx()
+    const prisma = makePrisma(tx, { branchFindFirst, merchantFindFirst })
+
+    const res = await submitInvite(prisma, { ...BASE_INPUT, googlePlaceId: 'gp-123' })
+
+    expect(res).toEqual({ kind: 'already_live', merchantId: 'm-live', businessName: 'Bloom Cafe' })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+})

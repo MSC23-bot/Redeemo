@@ -10,8 +10,11 @@
 //                             later reward-grant work can ship dark and be
 //                             flipped on independently of the invite surface).
 //
-// No entry in FEATURE_GATED_SECRETS (src/api/shared/env.ts): Phase 1 needs no
-// secret (no Places API key, no payment provider) behind either flag.
+// No entry in FEATURE_GATED_SECRETS (src/api/shared/env.ts). Note (F5,
+// adversarial review): M1 place-search DOES call the billable Google Places
+// wrapper when INVITES_ENABLED is on; a missing GOOGLE_MAPS_API_KEY degrades
+// gracefully to an empty candidate list (free-text fallback), so the key is
+// desirable-but-not-required rather than a boot-blocking gated secret.
 
 export const isInvitesEnabled = (): boolean => (process.env.INVITES_ENABLED ?? '') === 'true'
 export const isInviteRewardsEnabled = (): boolean => (process.env.INVITE_REWARDS_ENABLED ?? '') === 'true'

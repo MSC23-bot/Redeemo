@@ -15,6 +15,14 @@
 //     (console/log output — NOT the audit trail, which is the sanctioned
 //     store-of-record and already carries ipAddress per the house
 //     AuditActorContext convention used across every other service).
+//     HONEST SCOPE (adversarial review F2): the future invite anonymise
+//     sweep covers INVITE-ROW fields only (note, emails, ipHash). The
+//     LEAD_CREATED / INVITE_CREATED AuditLog rows written here retain the
+//     raw IP + actorId under the platform's audit governance, so invite-row
+//     anonymisation does NOT sever the inviter<->IP linkage on its own;
+//     ipHash is a coarse clustering datum (keyless sha256/32 over a small
+//     input space), NOT a privacy control. The sweep milestone must either
+//     extend redaction to these audit rows or keep this documented limit.
 //
 // Release of a HELD_REVIEW invite (HELD_REVIEW -> ACTIVE, stamping
 // countableAt + rewardEligible at release time) is an M2 admin action,
@@ -113,9 +121,20 @@ async function findMatchingMerchant(
       select: { merchant: { select: { id: true, businessName: true, status: true } } },
     })
     const merchant = branch?.merchant ?? null
-    if (!merchant) return null
-    if (opts.activeOnly && merchant.status !== 'ACTIVE') return null
-    return merchant
+    if (merchant) {
+      // A branch-level placeId hit precisely identifies THIS business, so a
+      // non-ACTIVE result in the LIVE lane must NOT fall through to the name
+      // lane (which could wrongly reveal a different live business of the
+      // same name).
+      if (opts.activeOnly && merchant.status !== 'ACTIVE') return null
+      return merchant
+    }
+    // Branch MISS falls through to the name lane in BOTH lanes (adversarial
+    // review F1): a freshly-converted draft has no branch at all, so the
+    // eligibility lane would otherwise stamp rewardEligible for a business
+    // already onboarding; and in the LIVE lane a live merchant whose pin is
+    // manual/centroid (no googlePlaceId on any branch) is still matched by
+    // name+locality at the same disclosure standard as the free-text lane.
   }
 
   const merchant = await prisma.merchant.findFirst({
@@ -347,9 +366,15 @@ export async function submitInvite(
     })
   } catch (e) {
     // (inviterEmailNorm, placeKey) unique — idempotent duplicate submission,
-    // not an error.
+    // not an error. Hardened per adversarial review F8: only THIS constraint
+    // is treated as idempotent; a P2002 from any other (future) unique in the
+    // transaction must surface, never lie 'ok'.
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      return { kind: 'ok' }
+      const target = (e.meta?.target ?? []) as string[] | string
+      const targetStr = Array.isArray(target) ? target.join(',') : String(target)
+      if (targetStr.includes('inviterEmailNorm') || targetStr.includes('placeKey')) {
+        return { kind: 'ok' }
+      }
     }
     throw e
   }

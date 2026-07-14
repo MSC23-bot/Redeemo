@@ -2228,6 +2228,11 @@ model MerchantInvite {
   // Stamped when the invite becomes countable (spec A1.1(2)): true iff NO
   // Merchant record (draft or live) existed for the business at that moment.
   // Prospect leads at any stage do NOT disqualify.
+  // HARD GATE (adversarial review F1): this is a point-in-time heuristic;
+  // Phase-3 grant issuance MUST RE-VERIFY eligibility against the live
+  // merchant/lead chain at issuance time and never trust this stamp alone
+  // (Places displayName vs lead/draft businessName variance can produce a
+  // false-positive stamp).
   rewardEligible   Boolean              @default(false)
   // When the invite became countable demand. Deterministic first-N reward
   // ordering key: ORDER BY countableAt ASC, id ASC.
