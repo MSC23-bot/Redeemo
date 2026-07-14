@@ -1085,3 +1085,21 @@ app's role and that accounts carry over at launch. CTA keeps /register
 but changes job: "Be first to get the app" (the sign-up wording lives
 with pricing; this is the app-anticipation ask), micro "Free to join,
 no card needed." tsc clean; verified 1440x900 + 390x780.
+
+## 2026-07-14 · App closer refinement round (owner)
+
+Owner review of the rebuild: desktop protrusion ratio off (mobile ratio
+approved), bob animation overused, chip copy read restrictive
+("Mon-Thu", "First visit"), ribbon collided behind the phone, wanted
+store badges, wanted a stronger screenshot. Fixes: the imbalance was a
+Tailwind conflict (lg:mt-0 beat lg:-my-20, dumping all overflow at the
+bottom); now explicit lg:-mt-24/-mb-24 with items-center splits the
+overflow evenly (measured 54px/54px), phone sized up to 292x620 so the
+balanced protrusion actually shows. Chips now sway like hanging paper
+tickets (slow pendulum rotation, different periods, reduced-motion
+aware) instead of the vertical bob, and read "2 FOR 1 / Dinner for two"
+and "£10 OFF / Salon visits". Ribbon moved to the panel's top-left
+corner, clear of the phone. Non-interactive App Store / Google Play
+badges added under the CTA with "On both stores at launch". Screenshot
+swapped to the redemption success sheet ("Voucher redeemed successfully
+· You saved £16.00"): the payoff the headline promises.

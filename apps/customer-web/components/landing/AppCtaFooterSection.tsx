@@ -19,34 +19,38 @@ const ease = [0.22, 1, 0.36, 1] as [number, number, number, number]
  * The dotted eyebrow pill was removed (owner: felt AI-generic).
  */
 
-/** Mini die-cut voucher chip that floats beside the phone. */
+/** Mini die-cut voucher chip beside the phone. Instead of the vertical
+    bob used elsewhere on the page (owner: overused), these sway like
+    hanging paper tickets: a slow pendulum rotation, each on its own
+    period so the pair never sync. */
 function OfferChip({
   headline,
   sub,
   className,
   rotate,
   delay,
+  swayDuration,
 }: {
   headline: string
   sub: string
   className: string
   rotate: number
   delay: number
+  swayDuration: number
 }) {
   const reduceMotion = useReducedMotion()
   return (
     <motion.div
-      initial={{ opacity: 0, y: 26 }}
-      whileInView={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 26, rotate: rotate * 2.5 }}
+      whileInView={{ opacity: 1, y: 0, rotate }}
       viewport={{ once: true, margin: '-40px' }}
-      transition={{ duration: 0.55, delay, ease }}
+      transition={{ duration: 0.65, delay, ease }}
       className={`absolute z-20 ${className}`}
-      style={{ rotate }}
     >
       <motion.div
-        animate={reduceMotion ? undefined : { y: [0, -9, 0] }}
-        transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut', delay: delay * 3 }}
-        style={{ filter: 'drop-shadow(0 12px 24px rgba(1,12,53,0.35))' }}
+        animate={reduceMotion ? undefined : { rotate: [0, 4, 0, -3.5, 0] }}
+        transition={{ duration: swayDuration, repeat: Infinity, ease: 'easeInOut', delay: delay * 2 }}
+        style={{ filter: 'drop-shadow(0 12px 24px rgba(1,12,53,0.35))', transformOrigin: '50% -30px' }}
       >
         <div
           className="bg-white rounded-xl px-4 py-2.5"
@@ -75,36 +79,38 @@ function AppPhone() {
       whileInView={{ opacity: 1, y: 0, rotate: -5 }}
       viewport={{ once: true, margin: '-80px' }}
       transition={{ type: 'spring', stiffness: 70, damping: 16 }}
-      className="relative w-[190px] lg:w-[250px]"
+      className="relative w-[190px] lg:w-[292px]"
       aria-hidden="true"
     >
       <div
-        className="rounded-[36px] lg:rounded-[44px] bg-[#10101c] p-[7px] lg:p-[9px]"
+        className="rounded-[36px] lg:rounded-[46px] bg-[#10101c] p-[7px] lg:p-[9px]"
         style={{ boxShadow: '0 34px 70px rgba(1,12,53,0.45), 0 8px 24px rgba(1,12,53,0.3)' }}
       >
-        <div className="relative rounded-[29px] lg:rounded-[35px] overflow-hidden h-[392px] lg:h-[516px]">
+        <div className="relative rounded-[29px] lg:rounded-[40px] overflow-hidden h-[392px] lg:h-[602px]">
           <Image
-            src="/app-shots/journey/voucher-detail.jpg"
+            src="/app-shots/journey/success-sheet.jpg"
             alt=""
             fill
-            sizes="250px"
+            sizes="270px"
             className="object-cover object-top"
           />
         </div>
       </div>
       <OfferChip
         headline="2 FOR 1"
-        sub="Mains, Mon-Thu"
+        sub="Dinner for two"
         className="-left-16 lg:-left-24 top-[18%]"
         rotate={-7}
         delay={0.25}
+        swayDuration={6.5}
       />
       <OfferChip
         headline="£10 OFF"
-        sub="First visit"
+        sub="Salon visits"
         className="-right-12 lg:-right-20 top-[62%]"
         rotate={6}
         delay={0.4}
+        swayDuration={7.8}
       />
     </motion.div>
   )
@@ -123,9 +129,11 @@ export function AppCtaFooterSection() {
           className="relative rounded-[28px]"
           style={{ background: '#010C35', boxShadow: '0 28px 64px rgba(1,12,53,0.22)' }}
         >
-          {/* Clipped effects layer */}
+          {/* Clipped effects layer. The ribbon peeks from the top-left
+              corner, well clear of the phone on the right (owner
+              2026-07-14: it collided behind the phone) */}
           <div aria-hidden="true" className="absolute inset-0 rounded-[28px] overflow-hidden pointer-events-none">
-            <RibbonPeek side="right" top="10%" width={220} />
+            <RibbonPeek side="left" top="-8%" width={200} />
             <div
               className="absolute inset-0"
               style={{
@@ -190,14 +198,23 @@ export function AppCtaFooterSection() {
                       </svg>
                     </Link>
                     <p className="text-[12px] text-white/35">Free to join, no card&nbsp;needed.</p>
+                    {/* Store badges, non-interactive until the apps exist */}
+                    <div className="flex items-center gap-2.5 mt-3 opacity-75">
+                      <AppStoreBadge />
+                      <GooglePlayBadge />
+                    </div>
+                    <p className="text-[11px] text-white/30">On both stores at&nbsp;launch</p>
                   </>
                 )}
               </motion.div>
             </div>
 
-            {/* Phone zone: protrudes past the panel's top edge on all
-                viewports (and past the bottom edge on desktop) */}
-            <div className="relative flex justify-center lg:justify-start -mt-14 lg:mt-0 lg:-my-10 order-1 lg:order-2 pointer-events-none">
+            {/* Phone zone. Mobile: breaks the top edge only (owner: that
+                ratio is right). Desktop: symmetric negative margins plus
+                the grid's items-center split the overflow EVENLY between
+                the top and bottom edges, so the protrusion is balanced
+                whatever height the copy column takes. */}
+            <div className="relative flex justify-center -mt-14 lg:-mt-24 lg:-mb-24 order-1 lg:order-2 pointer-events-none">
               <AppPhone />
             </div>
           </div>
