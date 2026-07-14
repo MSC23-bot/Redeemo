@@ -5,8 +5,11 @@
 // signer/merchant data for DISPLAY only - the pinned contentHash is always computed
 // over the UNSUBSTITUTED registry source, so substitution here never affects the
 // hash), followed by an execution/evidence block. Every page is stamped, via a
-// buffered-page pass, with a footer (version + hash + signer + timestamp) and, while
-// the legal gate is on, a diagonal "DRAFT - PENDING LEGAL REVIEW" watermark.
+// buffered-page pass, with a footer (version + hash + signer + timestamp) and, when the
+// caller marks the agreement a DRAFT version, a diagonal "DRAFT - PENDING LEGAL REVIEW"
+// watermark. FIX 3: the watermark reflects the VERSION's own legal status (isDraft), which
+// the caller passes as `gated`; it is NOT driven by the AGREEMENT_LEGAL_REVIEW_REQUIRED env
+// flag (a clean non-draft bound in production is never watermarked).
 //
 // LEGAL LOCK: nothing here states or implies solicitor approval. While `gated` the
 // watermark is present and the confirmation copy stays "pending legal review".
@@ -32,12 +35,17 @@ export interface RenderAgreementPdfInput {
   companyNumber?: string | null
   vatNumber?: string | null
   method: 'IN_PERSON_ASSISTED' | 'SELF_SERVE_CLICK'
-  /** The witnessing rep's display label for in-person signing; null on self-serve. */
+  /**
+   * The witnessing rep's display label for in-person signing; null on self-serve. FIX 2:
+   * the ceremony now passes the SERVER-looked-up rep identity here (name + email), never
+   * client-supplied text.
+   */
   witnessLabel?: string | null
   signedAt: Date
   ipAddress: string
   userAgent: string
-  /** True => stamp the DRAFT watermark + pending-legal-review copy (gate on). */
+  /** True => stamp the DRAFT watermark + pending-legal-review copy. FIX 3: the caller sets
+   * this from the VERSION's draft status (isVersionWatermarked), not the env flag. */
   gated: boolean
   /** Optional stylus/finger signature PNG bytes (non-gating; embedded if present). */
   drawnSignature?: Buffer | null

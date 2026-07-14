@@ -20,8 +20,10 @@
 // DRAFT posture (this slice): the CURRENT version is the v2 DRAFT (`2.0-draft`),
 // whose source is `docs/legal/drafts/merchant-agreement-v2-draft.md` (embedded via
 // agreement-v2-source.ts). It carries the LEGAL-REVIEW-REQUIRED / DRAFT header
-// verbatim; its `isDraft` flag now DRIVES the watermark + the production binding
-// block regardless of the env flag (see the ceremony service). On solicitor sign-off
+// verbatim. FIX 3 separates two concerns: its `isDraft` flag ALONE drives the PDF
+// watermark + pending-review labelling (a non-draft is never watermarked, whatever the
+// env flag), while the production BINDING block is `isDraft OR the env flag` (see the
+// ceremony service: isVersionWatermarked vs isVersionGated). On solicitor sign-off
 // (Slice 6, out of scope here) the frozen `docs/legal/agreements/merchant-agreement-v2.md`
 // is registered as a SEPARATE non-draft `2.0` entry (a new append) - the draft id is
 // never mutated in place.
@@ -46,13 +48,14 @@ export interface AgreementVersion {
   /** sha256 (hex) of `content` - the value pinned + later verifiable. */
   contentHash: string
   /**
-   * True while this version is a pre-sign-off DRAFT. READ (review-round S1): a draft
-   * is treated as gated for BOTH the PDF DRAFT watermark AND the production binding
-   * block regardless of the AGREEMENT_LEGAL_REVIEW_REQUIRED env flag (effective gating
-   * = isDraft OR legalReviewRequired()). So even with the env flag lifted, a draft is
-   * still watermarked and still refused for a binding write in production - defence in
-   * depth. It also drives production version SELECTION: while the current version is a
-   * draft, production falls back to the latest non-draft (see getServedAgreement).
+   * True while this version is a pre-sign-off DRAFT. READ (FIX 3): isDraft is the SOLE
+   * driver of the PDF DRAFT watermark + any pending-review labelling (isVersionWatermarked)
+   * - a draft is ALWAYS watermarked, a non-draft NEVER is, regardless of the
+   * AGREEMENT_LEGAL_REVIEW_REQUIRED env flag. Separately, the production BINDING block is
+   * `isDraft OR legalReviewRequired()` (isVersionGated), so even with the env flag lifted a
+   * draft is still refused for a binding write in production (defence in depth). isDraft also
+   * drives production version SELECTION: while the current version is a draft, production
+   * falls back to the latest non-draft (see getServedAgreement).
    */
   isDraft: boolean
 }

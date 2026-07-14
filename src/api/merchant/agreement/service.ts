@@ -23,7 +23,7 @@
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
-import { isStorageEnabled, putObject } from '../../shared/storage'
+import { isStorageEnabled, putObject, deleteObject } from '../../shared/storage'
 import {
   getAgreementVersion,
   getCurrentAgreement,
@@ -64,15 +64,33 @@ export function legalReviewRequired(): boolean {
 }
 
 /**
- * Effective gating for a SPECIFIC version (review-round S1). A version is gated when it
- * is a DRAFT artifact OR while legal review is still required. Wiring `isDraft` in means
- * a draft is gated (watermark + binding block) even if the env flag is lifted - defence
- * in depth: lifting AGREEMENT_LEGAL_REVIEW_REQUIRED can never un-gate a draft. A
- * non-draft (the legacy 1.0, or a future frozen 2.0) is gated only while the env flag is
- * on, so lifting the flag serves it cleanly (no watermark) in production.
+ * BINDING-write gating for a SPECIFIC version (review-round S1). A version is gated for a
+ * binding write when it is a DRAFT artifact OR while legal review is still required. Wiring
+ * `isDraft` in means a draft is gated for the binding block even if the env flag is lifted:
+ * defence in depth (lifting AGREEMENT_LEGAL_REVIEW_REQUIRED can never let a draft bind in
+ * production). A non-draft (the legacy 1.0, or a future frozen 2.0) is gated only while the
+ * env flag is on, so lifting the flag binds it in production.
+ *
+ * SCOPE (Codex correction FIX 3): this drives the BINDING block ONLY (assertBindingWriteAllowed).
+ * It does NOT drive the PDF watermark or the confirmation labelling: those follow the version's
+ * own draft status (isVersionWatermarked), decoupled from the env flag. See that helper.
  */
 export function isVersionGated(version: AgreementVersion): boolean {
   return version.isDraft || legalReviewRequired()
+}
+
+/**
+ * DRAFT-watermark / pending-review labelling driver (Codex correction FIX 3). The watermark
+ * and any "pending legal review" labelling on the PDF and the sign confirmation reflect the
+ * VERSION's own legal status ONLY: a draft version is ALWAYS watermarked; a non-draft version
+ * (the legacy 1.0, or a future frozen 2.0) is NEVER watermarked, regardless of
+ * AGREEMENT_LEGAL_REVIEW_REQUIRED. The env flag is the CEREMONY ENABLEMENT gate (see
+ * assertBindingWriteAllowed), NOT a watermark driver: binding a clean non-draft in production
+ * must never stamp it "DRAFT - PENDING LEGAL REVIEW". Stated plainly for the solicitor packet:
+ * watermark = the VERSION's legal status; env flag = ceremony enablement gate.
+ */
+export function isVersionWatermarked(version: AgreementVersion): boolean {
+  return version.isDraft
 }
 
 /**
@@ -132,7 +150,8 @@ interface RenderAndStoreInput extends MerchantSigningIdentity {
  * Render the signed PDF and write it to PRIVATE R2 (`document` kind, ownerId =
  * merchantId). Fails closed with STORAGE_NOT_ENABLED when storage is dark; never
  * constructs the S3 client otherwise. Returns the private key. The PDF is
- * DRAFT-watermarked whenever the legal gate is on.
+ * DRAFT-watermarked when (and only when) the agreement version is a draft
+ * (isVersionWatermarked), independent of the env flag (Codex correction FIX 3).
  */
 export async function renderAndStoreAgreementPdf(input: RenderAndStoreInput): Promise<string> {
   if (!isStorageEnabled()) throw new AppError('STORAGE_NOT_ENABLED')
@@ -152,7 +171,8 @@ export async function renderAndStoreAgreementPdf(input: RenderAndStoreInput): Pr
     signedAt: input.signedAt,
     ipAddress: input.ipAddress,
     userAgent: input.userAgent,
-    gated: isVersionGated(input.agreement),
+    // FIX 3: the watermark reflects the version's OWN legal status (draft), not the env flag.
+    gated: isVersionWatermarked(input.agreement),
     drawnSignature: input.drawnSignature ?? null,
   })
 
@@ -169,7 +189,7 @@ export async function renderAndStoreAgreementPdf(input: RenderAndStoreInput): Pr
 
 export interface SignAgreementInPersonInput {
   merchantId: string
-  /** The witnessing rep (req.user.sub). NEVER the signer. */
+  /** The authenticated witnessing rep (req.user.sub). NEVER the signer. */
   actorAdminId: string
   /** Typed full name = the signature of record. */
   signerName: string
@@ -177,10 +197,10 @@ export interface SignAgreementInPersonInput {
   signerRoleConfirmation: string
   /** Optional explicit version; must match the current registry version if given. */
   agreementVersion?: string
-  /** Optional human label for the witnessing rep (display only in the PDF). */
-  witnessLabel?: string | null
   /** Optional stylus/finger signature PNG bytes (non-gating). */
   drawnSignature?: Buffer | null
+  // FIX 2: there is NO client-supplied witness label. The witness IDENTITY is looked up
+  // server-side from AdminUser by actorAdminId (authenticated evidence, never request text).
 }
 
 /**
@@ -189,15 +209,22 @@ export interface SignAgreementInPersonInput {
  *      The ceremony always signs the CURRENT version (an unknown/stale id fails closed).
  *   2. Fail-closed legal gate for THAT version (refuse production binding write while the
  *      version is gated; a draft is refused in production even with the env flag off).
- *   3. Admin-never-signs: a witness (actorAdminId) is required and can never be the
- *      signerName; the typed name must be non-empty.
+ *   3. Signature-of-record + witness invariants (FIX 2): the typed signer name + role must
+ *      be non-empty; an authenticated witnessing rep (actorAdminId) is required and its
+ *      IDENTITY is looked up server-side from AdminUser (authenticated evidence, never
+ *      request text). A best-effort separate-person safeguard refuses when the typed signer
+ *      name case-insensitively equals the rep's own full name. This records that the
+ *      authenticated rep witnessed and the signer typed their own name + attested authority;
+ *      it cannot, on its own, technically prove two distinct humans were physically present.
  *   4. Merchant read + fast double-sign pre-check (UX).
  *   5. Render the PDF and write it to private R2 (fail-closed STORAGE_NOT_ENABLED).
  *   6. ONE transaction: an atomic conditional flip (contractStatus NOT already SIGNED)
  *      is the double-sign guard (N1: the loser of two concurrent ceremonies throws
  *      CONTRACT_ALREADY_SIGNED and writes nothing); then insert the immutable
  *      MerchantAgreementRecord; upsert the MerchantContract pointer (signatureMethod
- *      stays CLICK_TO_AGREE); write the in-tx audit.
+ *      stays CLICK_TO_AGREE); write the in-tx audit. On a failed or lost transaction the
+ *      PDF written in step 5 would orphan in R2, so a compensating best-effort delete runs
+ *      (FIX 1) before the original error is rethrown.
  */
 export async function signAgreementInPerson(
   prisma: PrismaClient,
@@ -216,20 +243,41 @@ export async function signAgreementInPerson(
   // (2) Fail-closed legal gate for the resolved version BEFORE any read or write.
   assertBindingWriteAllowed(agreement)
 
-  // (3) Signature-of-record + admin-never-signs invariants.
+  // (3) Signature-of-record + witness invariants (FIX 2).
   const signerName = input.signerName?.trim() ?? ''
   const signerRoleConfirmation = input.signerRoleConfirmation?.trim() ?? ''
   if (signerName.length === 0 || signerRoleConfirmation.length === 0) {
     throw new AppError('AGREEMENT_SIGNER_INVALID')
   }
-  if (!input.actorAdminId || input.actorAdminId.trim().length === 0) {
+  const actorAdminId = input.actorAdminId?.trim() ?? ''
+  if (actorAdminId.length === 0) {
     // A ceremony always has a witnessing rep (the authed admin); defence in depth.
     throw new AppError('AGREEMENT_SIGNER_INVALID')
   }
-  // The witness (an admin id) can never BE the typed signature-of-record.
-  if (input.actorAdminId.trim() === signerName) {
+
+  // Witness IDENTITY is AUTHENTICATED evidence: look it up server-side from AdminUser by
+  // the authenticated actorAdminId. The witness name/email persisted below come from THIS
+  // lookup, never from client-supplied text (there is no client witness field anymore).
+  const witness = await prisma.adminUser.findUnique({
+    where: { id: actorAdminId },
+    select: { firstName: true, lastName: true, email: true },
+  })
+  if (!witness) {
+    // The authenticated rep must resolve to a real admin; fail closed otherwise.
     throw new AppError('AGREEMENT_SIGNER_INVALID')
   }
+  const witnessName = `${witness.firstName} ${witness.lastName}`.trim()
+  const witnessEmail = witness.email
+
+  // Best-effort separate-person safeguard: refuse when the typed signer name
+  // case-insensitively equals the authenticated rep's OWN full name. This is an honest
+  // heuristic, not proof: it blocks the rep from typing their own name as the signature of
+  // record, but cannot technically guarantee two distinct humans were physically present.
+  if (witnessName.length > 0 && signerName.toLowerCase() === witnessName.toLowerCase()) {
+    throw new AppError('AGREEMENT_SIGNER_INVALID')
+  }
+  // The witness identity for the PDF display + evidence row (server-derived, not client text).
+  const witnessDisplay = witnessEmail ? `${witnessName} (${witnessEmail})` : witnessName
 
   // (4) Merchant read + fast double-sign pre-check (the authoritative guard is the
   // in-tx conditional flip at step 6; this is a cheap early exit for good UX).
@@ -259,7 +307,8 @@ export async function signAgreementInPerson(
     companyNumber: merchant.companyNumber,
     vatNumber: merchant.vatNumber,
     method: 'IN_PERSON_ASSISTED',
-    witnessLabel: input.witnessLabel ?? null,
+    // FIX 2: the witness display is the server-looked-up rep identity, not client text.
+    witnessLabel: witnessDisplay,
     signedAt,
     ipAddress: ctx.ipAddress,
     userAgent: ctx.userAgent,
@@ -267,7 +316,12 @@ export async function signAgreementInPerson(
   })
 
   // (6) One transaction: atomic double-sign guard + evidence + pointer + status + audit.
-  const record = await prisma.$transaction(async (tx) => {
+  // FIX 1: the PDF at step 5 is already in R2. If this transaction fails or loses the N1
+  // race, that object would orphan, so a compensating best-effort delete runs in the catch
+  // before the original error is rethrown; a cleanup failure is logged and never masks it.
+  let record
+  try {
+    record = await prisma.$transaction(async (tx) => {
     // N1 (TOCTOU): the FIRST write is a conditional flip that only matches a merchant
     // NOT already SIGNED. Postgres row-locks the matched row, so of two concurrent
     // ceremonies exactly one flips (count 1) and the other sees count 0 after the first
@@ -285,7 +339,10 @@ export async function signAgreementInPerson(
         contentHash: agreement.contentHash,
         signerName,
         signerRoleConfirmation,
-        actorAdminId: input.actorAdminId,
+        actorAdminId,
+        // FIX 2: authenticated witness identity (server-side AdminUser lookup) as evidence.
+        witnessName,
+        witnessEmail,
         method: 'IN_PERSON_ASSISTED',
         signedAt,
         ipAddress: ctx.ipAddress,
@@ -321,7 +378,7 @@ export async function signAgreementInPerson(
       entityId: input.merchantId,
       entityType: 'merchant',
       event: 'MERCHANT_AGREEMENT_SIGNED_IN_PERSON',
-      actorId: input.actorAdminId,
+      actorId: actorAdminId,
       actorType: 'ADMIN',
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
@@ -333,8 +390,20 @@ export async function signAgreementInPerson(
       },
     })
 
-    return created
-  })
+      return created
+    })
+  } catch (err) {
+    // FIX 1 (orphan compensation): the PDF was written to private R2 before this
+    // transaction. Best-effort delete it so a failed/lost tx does not leave an orphan,
+    // then rethrow the ORIGINAL error. A cleanup failure is logged and swallowed so it
+    // can never mask the original error that triggered the rollback.
+    try {
+      await deleteObject(pdfKey)
+    } catch (cleanupErr) {
+      console.warn(`[agreement] orphan PDF cleanup for "${pdfKey}" failed (ignored):`, cleanupErr)
+    }
+    throw err
+  }
 
   return {
     recordId: record.id,
@@ -342,6 +411,8 @@ export async function signAgreementInPerson(
     contentHash: agreement.contentHash,
     signedAt: record.signedAt,
     contractStatus: 'SIGNED' as const,
-    gated: isVersionGated(agreement),
+    // FIX 3: the confirmation "gated" flag reflects the version's draft status (watermark),
+    // decoupled from the env flag. For the ceremony this is always the current draft.
+    gated: isVersionWatermarked(agreement),
   }
 }

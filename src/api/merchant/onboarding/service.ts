@@ -2,11 +2,11 @@ import type { Redis } from 'ioredis'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
-import { isStorageEnabled } from '../../shared/storage'
+import { isStorageEnabled, deleteObject } from '../../shared/storage'
 import { resolveAdminMerchant, type EditActor } from '../shared'
 import {
   getServedAgreement,
-  isVersionGated,
+  isVersionWatermarked,
   renderAndStoreAgreementPdf,
   SELF_SERVE_SIGNER_NOT_CAPTURED,
 } from '../agreement/service'
@@ -194,8 +194,9 @@ export async function getOnboardingStatus(prisma: PrismaClient, adminId: string)
  * record requires a pdfKey. Where storage is live (staging/prod) it always writes the
  * evidence record. This path is NOT production-gated by AGREEMENT_LEGAL_REVIEW_REQUIRED
  * (the existing self-serve flow already flips contractStatus in production today;
- * gating it would break onboarding). The PDF still carries the DRAFT watermark while
- * the gate is on.
+ * gating it would break onboarding). FIX 3: the PDF is watermarked only when the SERVED
+ * version is a draft. In production the served version is the non-draft legacy 1.0, so the
+ * bound PDF is CLEAN; in non-production the served draft is watermarked for QA.
  */
 export async function acceptContract(
   prisma: PrismaClient,
@@ -239,7 +240,13 @@ export async function acceptContract(
     })
   }
 
-  await prisma.$transaction(async (tx) => {
+  // FIX 1: when a PDF was rendered+stored above (storage live), it is already in R2 before
+  // this transaction. If the transaction fails, that object would orphan, so a compensating
+  // best-effort delete runs in the catch before the original error is rethrown; a cleanup
+  // failure is logged and swallowed so it can never mask the original error. When storage is
+  // dark (pdfKey null) there is nothing to compensate.
+  try {
+    await prisma.$transaction(async (tx) => {
     await tx.merchantContract.create({
       data: {
         merchantId,
@@ -302,9 +309,22 @@ export async function acceptContract(
         },
       })
     }
-  })
+    })
+  } catch (err) {
+    if (pdfKey) {
+      try {
+        await deleteObject(pdfKey)
+      } catch (cleanupErr) {
+        console.warn(`[acceptContract] orphan PDF cleanup for "${pdfKey}" failed (ignored):`, cleanupErr)
+      }
+    }
+    throw err
+  }
 
-  return { accepted: true, gated: isVersionGated(agreement) }
+  // FIX 3: the confirmation "gated" flag reflects the SERVED version's draft status
+  // (watermark), decoupled from the env flag: false for the non-draft legacy 1.0 bound in
+  // production, true for the draft served in non-production.
+  return { accepted: true, gated: isVersionWatermarked(agreement) }
 }
 
 /**
