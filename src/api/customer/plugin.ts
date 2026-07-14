@@ -6,6 +6,8 @@ import { favouritesRoutes } from './favourites/routes'
 import { reviewOpenRoutes, reviewAuthRoutes } from './reviews/routes'
 import { savingsRoutes } from './savings/routes'
 import { postcodeRoutes } from './postcode/routes'
+import { inviteRoutes } from './invites/routes'
+import { isInvitesEnabled } from './invites/flags'
 
 /**
  * Extracts the customer `sub` (userId) from an Authorization: Bearer <token>
@@ -80,6 +82,17 @@ async function customerPlugin(app: FastifyInstance) {
 
     // Savings routes — summary + redemptions history
     authed.register(savingsRoutes)
+
+    // Merchant-invite routes (M1) — TRUE dark-by-default (Codex correction
+    // round): when the flag is off at boot the router simply never contains
+    // these paths, so unauthenticated, authenticated and throttled probes
+    // ALL get the identical built-in 404 and no auth/rate-limit side effects
+    // run; flipping INVITES_ENABLED requires a restart (matches how env
+    // changes deploy); the per-request isInvitesEnabled() checks inside the
+    // handlers remain as defence-in-depth.
+    if (isInvitesEnabled()) {
+      authed.register(inviteRoutes)
+    }
   })
 }
 

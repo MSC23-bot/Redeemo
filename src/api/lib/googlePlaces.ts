@@ -3,8 +3,14 @@
 // Plan 4 M2.1 — Typed wrapper around Google Places API (New) Text Search.
 // Plan 4 M2.3.5 — Local daily + monthly cap hard-stop + source tracking.
 //
-// Used exclusively by `prisma/suggest-branch-pin.ts` (owner-run CLI). NOT a
-// customer-facing API. NEVER call this from any customer code path. See
+// Originally exclusive to `prisma/suggest-branch-pin.ts` (owner-run CLI); the
+// banner below is stale on that point — the merchant location-search flow
+// (src/api/merchant/location/service.ts, `merchant_portal` bucket) and the
+// customer merchant-invite place-search flow (M1,
+// src/api/customer/invites/service.ts, `customer_invite` bucket) both call
+// this wrapper directly, each behind its own atomic Redis limiter
+// (merchantLocationLimiter.ts / inviteLocationLimiter.ts) that runs BEFORE
+// this call. See
 // docs/superpowers/specs/2026-05-14-merchant-exact-pin-confirmation-design.md
 // (§4.2 wrapper signature, §4.4 confidence heuristic, §4.8 local caps).
 //
@@ -37,7 +43,7 @@ const DEFAULT_DAILY_CAP = 500
 const DEFAULT_MONTHLY_CAP = 4_500
 const DEFAULT_USAGE_FILE_REL = '.cache/google-places-usage.json'
 
-type UsageSource = 'admin_cli' | 'merchant_portal'
+type UsageSource = 'admin_cli' | 'merchant_portal' | 'customer_invite'
 type DayBucket = { total: number; bySource: Record<string, number> }
 type UsageState = {
   month: string                       // 'YYYY-MM' local

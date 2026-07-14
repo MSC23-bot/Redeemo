@@ -39,9 +39,15 @@
 // countableAt + rewardEligible at release time) is an M2 admin action,
 // deliberately NOT implemented here.
 
+import type Redis from 'ioredis'
 import { PrismaClient, Prisma } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
+import { RedisKey } from '../../shared/redis-keys'
+import { generateSecureToken } from '../../shared/tokens'
+import { consumeInviteLocationSearch } from '../../shared/inviteLocationLimiter'
+import { searchPlaces } from '../../lib/googlePlaces'
+import { parseFormattedAddress, type MerchantLocationCandidate } from '../../merchant/location/service'
 import {
   buildInviterKey,
   buildPlaceKey,
@@ -66,6 +72,121 @@ function isLockTimeoutError(err: unknown): boolean {
   if (metaCode === '55P03') return true
   const msg = typeof e.message === 'string' ? e.message : ''
   return msg.includes('55P03') || /lock timeout/i.test(msg)
+}
+
+// ── M1: place-search (candidate-token stash) ────────────────────────────────
+// Mirrors the Branches PR-6 §4a merchant location-search flow (searchMerchantLocations
+// in src/api/merchant/location/service.ts) EXACTLY in shape, sized for the
+// customer-facing "invite a business" flow: the customer searches a business
+// name, picks a Google Text Search result, and the server stashes the
+// place id + parsed address behind an opaque candidateToken (coords/placeId
+// NEVER cross the wire — same L1 invariant as the merchant flow).
+
+const INVITE_CANDIDATE_TTL_SECONDS = 15 * 60 // 15 minutes
+
+/** The client-safe candidate DTO returned by POST .../place-search. */
+export interface InviteLocationCandidate {
+  candidateToken: string
+  name: string
+  formattedAddress: string
+  addressParts: MerchantLocationCandidate['addressParts']
+}
+
+/** The server-held secret behind an invite candidate token (NEVER serialized
+ * to the client). `locality` is a best-effort city/postcode fragment used
+ * only for submitInvite's branch-locality matching — never the raw coords. */
+export interface InviteLocationCandidateStash {
+  googlePlaceId: string
+  name: string
+  formattedAddress: string
+  locality: string | null
+}
+
+/**
+ * Run a customer invite location search: enforce the inviteLocationLimiter,
+ * call Google in the `customer_invite` usage bucket, stash each candidate's
+ * placeId + parsed address behind a fresh opaque token, and return the
+ * client-safe DTO array. NEVER throws on a provider failure (missing API key,
+ * quota, transport, local caps, or genuinely no results) — the invite form's
+ * search is a nicety, not a hard requirement, so every `searchPlaces`
+ * `ok:false` case degrades to an empty candidate list and the customer falls
+ * back to typing the business name by hand. The limiter's own
+ * LOCATION_SEARCH_RATE_LIMITED throw is NOT swallowed here — it propagates as
+ * a genuine 429.
+ */
+export async function searchInvitePlaces(
+  redis: Redis,
+  ctx: { userId: string; ip?: string | null },
+  query: string,
+): Promise<InviteLocationCandidate[]> {
+  // Limiter FIRST — before any billable Google call.
+  await consumeInviteLocationSearch(redis, { userId: ctx.userId, ip: ctx.ip ?? null })
+
+  const result = await searchPlaces(query, { source: 'customer_invite' })
+  if (!result.ok) return [] // graceful degrade — provider internals never surfaced to the client
+
+  const out: InviteLocationCandidate[] = []
+  for (const c of result.candidates) {
+    const candidateToken = generateSecureToken(16)
+    const addressParts = parseFormattedAddress(c.formattedAddress)
+    const stash: InviteLocationCandidateStash = {
+      googlePlaceId: c.placeId,
+      name: c.name,
+      formattedAddress: c.formattedAddress,
+      // Best-effort locality for submitInvite's branch-address matching —
+      // city when parseable, else the postcode fragment, else null.
+      locality: addressParts.city ?? addressParts.postcode ?? null,
+    }
+    await redis.set(
+      RedisKey.inviteLocationCandidate(ctx.userId, candidateToken),
+      JSON.stringify(stash),
+      'EX',
+      INVITE_CANDIDATE_TTL_SECONDS,
+    )
+    out.push({ candidateToken, name: c.name, formattedAddress: c.formattedAddress, addressParts })
+  }
+  return out
+}
+
+/**
+ * Resolve an invite candidate token to its server-held stash. Unlike the
+ * merchant flow's `resolveLocationCandidate` (single-use, deletes on read),
+ * this is a plain GET — the M1 contract explicitly allows reuse within the
+ * TTL (a customer may re-open the submit form against the same search
+ * result). Returns null when the token is missing / expired / malformed;
+ * the route treats that identically to "no candidateToken was supplied" and
+ * falls back to a free-text businessName when one was given.
+ */
+export async function resolveInviteLocationCandidate(
+  redis: Redis,
+  userId: string,
+  token: string,
+): Promise<InviteLocationCandidateStash | null> {
+  const raw = await redis.get(RedisKey.inviteLocationCandidate(userId, token))
+  if (!raw) return null
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+
+  const obj = parsed as Partial<InviteLocationCandidateStash>
+  if (
+    typeof obj.googlePlaceId !== 'string' ||
+    typeof obj.name !== 'string' ||
+    typeof obj.formattedAddress !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    googlePlaceId: obj.googlePlaceId,
+    name: obj.name,
+    formattedAddress: obj.formattedAddress,
+    locality: typeof obj.locality === 'string' ? obj.locality : null,
+  }
 }
 
 // The three open pipeline lanes an attach-target lead can sit in (mirrors
