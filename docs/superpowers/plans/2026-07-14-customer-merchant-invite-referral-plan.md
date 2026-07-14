@@ -400,3 +400,29 @@ the integration-pilot job's `prisma migrate deploy` already applies the
 invite packet to a real disposable Postgres after merchant_lead_packet
 (green on #526), proving migration validity; the concurrency/erasure
 assertions execute once the patch is applied.
+
+### Round-4 adversarial review (Opus) + honesty fix
+
+Distinct Opus review of the erasure-severance change: verdict SAFE, no
+blocker/high. The deleteMany is correctly scoped (userId + PENDING only;
+never ISSUED/CONSUMED, never other users' grants), atomic with the
+delete-account transaction, FK-free (no cascade surprises), and no
+tally/query reads grants so nothing breaks. One MEDIUM (honesty): the
+new integration-test comments claimed the suites "execute in the CI
+invites pilot" — but test:integration:invites is not wired into ci.yml
+yet (it is the owner-applied workflow patch; session lacks the workflow
+scope). Fixed @ M0 69af5d88: comments corrected to say the suites run
+manually/locally until the owner applies the patch; also retitled a
+buildInviterKey test that still said "non-PII" (round-3 reclassification
+missed line) to "pseudonymous". Renewed heads after this fix: M0 @
+69af5d88, M1 @ 5aebad4a.
+
+FORWARD-LOOKING (Phase-3 build ticket, not fixable now): grant DELETE
+is not coordinated with any concurrent grant-ISSUANCE path because none
+exists yet (INVITE_REWARDS_ENABLED dark). When Phase 3 lands, a grant
+issued for a just-deleted account, or a PENDING->ISSUED flip racing the
+delete, could leave an ISSUED financial record for an anonymised user.
+Guarded in design by the re-verify-at-issuance HARD GATE
+(schema.prisma rewardEligible: issuance re-checks eligibility and finds
+rewardEligible:false + inviterUserId:null on the scrubbed invite).
+Revisit when building the reward hook.
