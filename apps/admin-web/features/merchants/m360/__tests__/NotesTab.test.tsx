@@ -16,6 +16,7 @@ import React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { NotesTab } from '../NotesTab'
 import { ApiError } from '@/lib/api/client'
+import { BODY_LIMIT } from '@/lib/api/merchantNotes'
 import type { MerchantNote } from '@/lib/api/merchantNotes'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -116,6 +117,14 @@ describe('NotesTab banner + composer', () => {
     expect(banner).toHaveTextContent(/do not record customer personal data/i)
   })
 
+  it('caps the composer textarea at BODY_LIMIT characters', () => {
+    render(<NotesTab merchantId="m-1" />)
+    expect(screen.getByTestId('note-composer-textarea')).toHaveAttribute(
+      'maxLength',
+      String(BODY_LIMIT)
+    )
+  })
+
   it('disables Save note until the composer is non-empty', () => {
     render(<NotesTab merchantId="m-1" />)
     expect(screen.getByTestId('note-composer-save')).toBeDisabled()
@@ -162,6 +171,16 @@ describe('NotesTab list states', () => {
     mockNotesQuery.data = []
     render(<NotesTab merchantId="m-1" />)
     expect(screen.getByTestId('notes-empty')).toHaveTextContent(/no notes yet/i)
+  })
+
+  it('does not flash the empty state while a background refetch is in flight', () => {
+    // Right after adding the first note, the query is invalidated and a
+    // refetch starts (isFetching:true) while `data` still reads the stale,
+    // empty result. "No notes yet" must not render for that frame.
+    mockNotesQuery.data = []
+    mockNotesQuery.isFetching = true
+    render(<NotesTab merchantId="m-1" />)
+    expect(screen.queryByTestId('notes-empty')).not.toBeInTheDocument()
   })
 
   it('fail-closes with the shared ForbiddenState (and enabled:false) when the role lacks merchant:notes', () => {

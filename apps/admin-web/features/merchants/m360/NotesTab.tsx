@@ -40,7 +40,7 @@ import {
   useEditMerchantNote,
   useRetractMerchantNote,
 } from '@/lib/merchants/useMerchantNotes'
-import { BODY_LIMIT } from '@/lib/api/merchantNotes'
+import { BODY_LIMIT, REASON_LIMIT } from '@/lib/api/merchantNotes'
 import type { MerchantNote, MerchantNoteEvent } from '@/lib/api/merchantNotes'
 import { Badge } from '@/features/shared/Badge'
 import type { BadgeTone } from '@/features/shared/Badge'
@@ -157,7 +157,7 @@ function RetractNoteDialog({
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         rows={3}
-        maxLength={500}
+        maxLength={REASON_LIMIT}
         placeholder="Explain why this note is being retracted."
         className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid="retract-note-reason"
@@ -375,7 +375,9 @@ export function NotesTab({ merchantId }: NotesTabProps) {
   const { adminId, can } = useSession()
   const canNotes = can('merchant:notes')
 
-  const { data, isLoading, isError, refetch } = useMerchantNotes(merchantId, { enabled: canNotes })
+  const { data, isLoading, isError, isFetching, refetch } = useMerchantNotes(merchantId, {
+    enabled: canNotes,
+  })
   const addMutation = useAddMerchantNote(merchantId)
   const editMutation = useEditMerchantNote(merchantId)
   const retractMutation = useRetractMerchantNote(merchantId)
@@ -528,14 +530,20 @@ export function NotesTab({ merchantId }: NotesTabProps) {
           testId="workspace-notes-error"
         />
       ) : notes.length === 0 ? (
-        <div
-          className="rounded-lg border border-dashed border-border bg-card px-4 py-8 text-center"
-          data-testid="notes-empty"
-        >
-          <p className="text-sm text-muted-foreground">
-            No notes yet. Add the first internal note about this business above.
-          </p>
-        </div>
+        // Gate on isFetching: right after a mutation invalidates the query, a
+        // background refetch is in flight while `data` still reads the stale
+        // (empty) result. Rendering the empty state here would flash "No notes
+        // yet" for a frame even though the just-added note is on its way in.
+        !isFetching ? (
+          <div
+            className="rounded-lg border border-dashed border-border bg-card px-4 py-8 text-center"
+            data-testid="notes-empty"
+          >
+            <p className="text-sm text-muted-foreground">
+              No notes yet. Add the first internal note about this business above.
+            </p>
+          </div>
+        ) : null
       ) : (
         <ul className="space-y-3">
           {notes.map((note) => (

@@ -4,7 +4,13 @@
  * auth option, body, and Zod parsing; ApiError passes through unchanged so the
  * NOTE_* / MERCHANT_NOT_FOUND codes reach NamedGateBanner.
  */
-import { merchantNotesApi, merchantNoteSchema, merchantNotesResponseSchema } from '../merchantNotes'
+import {
+  merchantNotesApi,
+  merchantNoteSchema,
+  merchantNotesResponseSchema,
+  BODY_LIMIT,
+  REASON_LIMIT,
+} from '../merchantNotes'
 import { apiFetch, ApiError } from '../client'
 
 jest.mock('../client', () => ({
@@ -41,6 +47,16 @@ const NOTE = {
     },
   ],
 }
+
+describe('cap constants', () => {
+  it('pins BODY_LIMIT at 4000 (note body / composer / inline-edit cap)', () => {
+    expect(BODY_LIMIT).toBe(4000)
+  })
+
+  it('pins REASON_LIMIT at 500 (retract reason cap)', () => {
+    expect(REASON_LIMIT).toBe(500)
+  })
+})
 
 describe('merchantNotesApi.list', () => {
   it('GET /admin/merchants/:id/notes with auth:true and parses the array', async () => {
