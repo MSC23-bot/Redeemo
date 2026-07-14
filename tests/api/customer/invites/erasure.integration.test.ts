@@ -24,7 +24,12 @@ import { buildInviterKey, buildPlaceKey } from '../../../../src/api/customer/inv
  *     businessNameRaw), so the business's tally is preserved.
  *
  * DO NOT RUN standalone here (no loopback DB) — typechecks and follows the
- * *.integration.test.ts lane conventions; executes in the CI invites pilot.
+ * *.integration.test.ts lane conventions. Executed by `test:integration:invites`
+ * (package.json), which is NOT YET invoked by ci.yml: the advisory CI step is
+ * the owner-applied patch docs/superpowers/plans/2026-07-14-invite-ci-pilot-step.patch
+ * (session tokens lack the GitHub workflow scope). Until that patch is applied
+ * this is a manual/local lane — run `npm run test:integration:invites` against
+ * a disposable loopback Postgres.
  */
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })

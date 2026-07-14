@@ -32,8 +32,12 @@ import { buildInviterKey, buildPlaceKey, hashInviteIp } from '../../../../src/ap
  *
  * DO NOT RUN standalone in this environment (no loopback DB available
  * here) — this file only needs to typecheck and follow the
- * `*.integration.test.ts` lane conventions so CI / the integration project
- * can run it for real.
+ * `*.integration.test.ts` lane conventions. It is executed by
+ * `test:integration:invites` (package.json), which is NOT YET invoked by
+ * ci.yml: the advisory CI step is the owner-applied patch
+ * docs/superpowers/plans/2026-07-14-invite-ci-pilot-step.patch (session
+ * tokens lack the GitHub workflow scope). Until that patch is applied this
+ * is a manual/local lane against a disposable loopback Postgres.
  */
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! })

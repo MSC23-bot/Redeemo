@@ -103,7 +103,7 @@ function makePrisma(tx: any, overrides: {
 }
 
 describe('identity: buildInviterKey', () => {
-  it('returns "u:" + userId, the stable non-PII identity', () => {
+  it('returns "u:" + userId, the stable pseudonymous identity (personal while the account exists; severed on erasure)', () => {
     expect(buildInviterKey('user-1')).toBe('u:user-1')
     expect(buildInviterKey('abc-123-def')).toBe('u:abc-123-def')
   })
