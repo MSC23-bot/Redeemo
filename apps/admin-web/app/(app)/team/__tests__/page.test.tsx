@@ -45,12 +45,17 @@ const mockedUseTeamRoster = useTeamRoster as jest.MockedFunction<typeof useTeamR
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function mockSession(overrides: { can?: (cap: string) => boolean; ready?: boolean; adminId?: string | null }) {
+function mockSession(overrides: {
+  can?: (cap: string) => boolean
+  ready?: boolean
+  adminId?: string | null
+  role?: string
+}) {
   mockedUseSession.mockReturnValue({
     accessToken: 'test-access-token',
     ready: overrides.ready ?? true,
     isAuthenticated: true,
-    role: 'SUPER_ADMIN',
+    role: (overrides.role ?? 'SUPER_ADMIN') as never,
     email: 'super@redeemo.co.uk',
     adminId: overrides.adminId ?? 'me',
     can: overrides.can ?? (() => true),
@@ -105,6 +110,20 @@ describe('TeamPage capability gate (fail-closed)', () => {
     expect(screen.queryByText('Team & roles')).not.toBeInTheDocument()
   })
 
+  // Honesty-copy sweep (2026-07-13): denied copy must name the capability +
+  // the viewer's role and reassure that nothing is broken.
+  it('the forbidden state names admin:manage-team, the viewer role, and reassures nothing is broken', () => {
+    mockSession({ can: () => false, role: 'OPERATIONS' })
+    mockRoster()
+
+    render(<TeamPage />)
+
+    const forbidden = screen.getByTestId('team-forbidden')
+    expect(forbidden).toHaveTextContent(/admin:manage-team/)
+    expect(forbidden).toHaveTextContent(/OPERATIONS/)
+    expect(forbidden).toHaveTextContent(/nothing is broken/i)
+  })
+
   it('calls useTeamRoster with enabled:false when the admin lacks admin:manage-team', () => {
     mockSession({ can: () => false })
     mockRoster()
@@ -150,6 +169,14 @@ describe('TeamPage roster rendering', () => {
     mockRoster({ isError: true, isLoading: false })
     render(<TeamPage />)
     expect(screen.getByText(/could not load the team roster/i)).toBeInTheDocument()
+  })
+
+  // Honesty-copy sweep (2026-07-13): error copy must reassure nothing was
+  // changed, distinct from the "No admin accounts yet" empty state below.
+  it('the error state reassures nothing was changed', () => {
+    mockRoster({ isError: true, isLoading: false })
+    render(<TeamPage />)
+    expect(screen.getByTestId('team-error')).toHaveTextContent(/no items were changed/i)
   })
 
   it('clicking Retry in the error state calls refetch', () => {

@@ -15,7 +15,7 @@
  * + action kind (mirrors app/(app)/merchants/page.tsx's dialog pattern).
  */
 import { useState } from 'react'
-import { Users, Loader2, AlertCircle, UserPlus } from 'lucide-react'
+import { Users, Loader2, UserPlus } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useTeamRoster } from '@/lib/team/useTeam'
 import { TeamRosterTable } from '@/features/team/TeamRosterTable'
@@ -25,46 +25,16 @@ import { GrantApprovalConfirm } from '@/features/team/GrantApprovalConfirm'
 import { RevokeApprovalConfirm } from '@/features/team/RevokeApprovalConfirm'
 import { DeactivateConfirm } from '@/features/team/DeactivateConfirm'
 import { Button } from '@/components/ui/button'
+import { ForbiddenState } from '@/features/shared/ForbiddenState'
+import { ErrorState } from '@/features/shared/ErrorState'
 import type { TeamAdmin } from '@/lib/api/team'
 
 // ── States ──────────────────────────────────────────────────────────────────
-
-function ForbiddenState() {
-  return (
-    <div className="mx-auto max-w-xl py-20 text-center" data-testid="team-forbidden">
-      <span className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-        <AlertCircle className="size-6" aria-hidden="true" />
-      </span>
-      <h2 className="mb-2 text-lg font-semibold text-foreground">Access denied</h2>
-      <p className="text-sm text-muted-foreground">
-        You do not have permission to view Team &amp; roles. Contact your administrator.
-      </p>
-    </div>
-  )
-}
 
 function LoadingState() {
   return (
     <div className="flex items-center justify-center py-20">
       <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading" />
-    </div>
-  )
-}
-
-function ErrorState({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-10 text-center">
-      <AlertCircle className="mx-auto mb-3 size-6 text-destructive" aria-hidden="true" />
-      <p className="mb-4 text-sm text-destructive">
-        Could not load the team roster. Check your connection and try again.
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="text-sm font-medium text-primary hover:underline"
-      >
-        Retry
-      </button>
     </div>
   )
 }
@@ -92,7 +62,13 @@ export default function TeamPage() {
     return <LoadingState />
   }
   if (!can('admin:manage-team')) {
-    return <ForbiddenState />
+    return (
+      <ForbiddenState
+        heading="You do not have access to Team & roles."
+        capability="admin:manage-team"
+        testId="team-forbidden"
+      />
+    )
   }
 
   const admins = data?.admins ?? []
@@ -130,7 +106,7 @@ export default function TeamPage() {
       {isLoading ? (
         <LoadingState />
       ) : isError ? (
-        <ErrorState onRetry={refetch} />
+        <ErrorState subject="the team roster" onRetry={refetch} testId="team-error" />
       ) : (
         <TeamRosterTable
           items={admins}

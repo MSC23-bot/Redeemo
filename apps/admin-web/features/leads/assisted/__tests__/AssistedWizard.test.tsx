@@ -105,12 +105,12 @@ const mockedUseMerchantDetail = useMerchantDetail as jest.MockedFunction<typeof 
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function mockSession(can: (cap: string) => boolean = () => true, ready = true) {
+function mockSession(can: (cap: string) => boolean = () => true, ready = true, role = 'SUPER_ADMIN') {
   mockedUseSession.mockReturnValue({
     accessToken: 'tok',
     ready,
     isAuthenticated: true,
-    role: 'SUPER_ADMIN',
+    role: role as never,
     email: 'ops@redeemo.co.uk',
     adminId: 'admin-me',
     can: can as never,
@@ -213,6 +213,21 @@ describe('AssistedWizard gate + states', () => {
     expect(screen.queryByTestId('assisted-wizard')).not.toBeInTheDocument()
   })
 
+  // Honesty-copy sweep (2026-07-13): denied copy must name the actual gating
+  // capability (merchant:read: see the wizard's own comment on why this
+  // diverges from leads-onboarding-spec.md §A4's aspirational
+  // "merchant:assisted-onboard") + the viewer's role, and reassure nothing is
+  // broken.
+  it('the forbidden state names merchant:read, the viewer role, and reassures nothing is broken', () => {
+    mockSession(() => false, true, 'CONTENT')
+    mockDetail()
+    render(<AssistedOnboardingPage />)
+    const forbidden = screen.getByTestId('assisted-forbidden')
+    expect(forbidden).toHaveTextContent(/merchant:read/)
+    expect(forbidden).toHaveTextContent(/CONTENT/)
+    expect(forbidden).toHaveTextContent(/nothing is broken/i)
+  })
+
   it('does not fire the detail read without merchant:read', () => {
     mockSession(() => false)
     mockDetail()
@@ -227,6 +242,15 @@ describe('AssistedWizard gate + states', () => {
     render(<AssistedOnboardingPage />)
     fireEvent.click(screen.getByRole('button', { name: /retry/i }))
     expect(refetch).toHaveBeenCalledTimes(1)
+  })
+
+  // Honesty-copy sweep (2026-07-13): error copy must reassure nothing was
+  // changed.
+  it('the error state reassures nothing was changed', () => {
+    mockSession()
+    mockDetail({ data: undefined, isError: true })
+    render(<AssistedOnboardingPage />)
+    expect(screen.getByTestId('assisted-error')).toHaveTextContent(/no items were changed/i)
   })
 
   it('renders the persistent on-behalf focus header', () => {

@@ -41,7 +41,7 @@
  * Backend `requireAdminCapability` on the underlying reads stays the
  * enforcement; this is UI gating only.
  */
-import { Users, AlertCircle, Loader2 } from 'lucide-react'
+import { Users, Loader2 } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useAwaitingReviewCount } from '@/lib/leads/useAwaitingReviewCount'
 import { useInProgressOnboardings, IN_PROGRESS_DISPLAY_CAP } from '@/lib/leads/useInProgressOnboardings'
@@ -49,22 +49,9 @@ import { InboundPointerCard } from '@/features/leads/InboundPointerCard'
 import { CreateDraftCard, AssistedOnboardingCard } from '@/features/leads/OnboardingRouteCards'
 import { InProgressOnboardingsSection } from '@/features/leads/InProgressOnboardingsSection'
 import { ProspectPipeline } from '@/features/leads/ProspectPipeline'
+import { ForbiddenState } from '@/features/shared/ForbiddenState'
 
 // ── States ──────────────────────────────────────────────────────────────────
-
-function ForbiddenState() {
-  return (
-    <div className="mx-auto max-w-xl py-20 text-center" data-testid="leads-forbidden">
-      <span className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-        <AlertCircle className="size-6" aria-hidden="true" />
-      </span>
-      <h2 className="mb-2 text-lg font-semibold text-foreground">Access denied</h2>
-      <p className="text-sm text-muted-foreground">
-        You do not have permission to view Leads and onboarding. Contact your administrator.
-      </p>
-    </div>
-  )
-}
 
 function LoadingState() {
   return (
@@ -90,7 +77,13 @@ export default function LeadsHubPage() {
     return <LoadingState />
   }
   if (!can('merchant:read')) {
-    return <ForbiddenState />
+    return (
+      <ForbiddenState
+        heading="You do not have access to Leads and onboarding."
+        capability="merchant:read"
+        testId="leads-forbidden"
+      />
+    )
   }
 
   return (

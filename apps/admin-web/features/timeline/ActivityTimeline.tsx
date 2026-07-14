@@ -14,8 +14,9 @@
  * account, not a perfect merchant-specific correspondence record, so a visible
  * label discloses that whenever an owner resolved.
  */
-import { Loader2, AlertCircle } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useTimeline } from '@/lib/timeline/useTimeline'
+import { ErrorState } from '@/features/shared/ErrorState'
 import { ActionRow } from './ActionRow'
 import { EmailRow } from './EmailRow'
 
@@ -67,22 +68,7 @@ export function ActivityTimeline({
   if (isError || !data) {
     return (
       <TimelineShell>
-        <div
-          className="rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-8 text-center"
-          data-testid="timeline-error"
-        >
-          <AlertCircle className="mx-auto mb-3 size-5 text-destructive" aria-hidden="true" />
-          <p className="mb-3 text-sm text-destructive">
-            Could not load the activity timeline. Check your connection and try again.
-          </p>
-          <button
-            type="button"
-            onClick={() => refetch()}
-            className="text-sm font-medium text-primary hover:underline"
-          >
-            Retry
-          </button>
-        </div>
+        <ErrorState subject="the activity timeline" onRetry={() => refetch()} testId="timeline-error" />
       </TimelineShell>
     )
   }

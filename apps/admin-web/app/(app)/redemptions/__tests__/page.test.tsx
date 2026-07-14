@@ -27,12 +27,12 @@ const mockedUseRedemptions = useRedemptions as jest.MockedFunction<typeof useRed
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function mockSession(overrides: { can?: (cap: string) => boolean }) {
+function mockSession(overrides: { can?: (cap: string) => boolean; role?: string }) {
   mockedUseSession.mockReturnValue({
     accessToken: 'test-access-token',
     ready: true,
     isAuthenticated: true,
-    role: 'OPERATIONS',
+    role: (overrides.role ?? 'OPERATIONS') as never,
     email: 'ops@redeemo.co.uk',
     adminId: 'admin-me',
     can: overrides.can ?? (() => true),
@@ -87,7 +87,24 @@ describe('RedemptionsPage capability gate', () => {
     render(<RedemptionsPage />)
 
     expect(screen.getByTestId('redemptions-forbidden')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /redemptions/i })).not.toBeInTheDocument()
+    // Exact match: the forbidden heading itself legitimately contains the
+    // word "redemptions" (honesty-copy sweep names the surface), so this
+    // must check for the real page H1 by its exact text, not a substring.
+    expect(screen.queryByRole('heading', { name: 'Redemptions' })).not.toBeInTheDocument()
+  })
+
+  // Honesty-copy sweep (2026-07-13): denied copy must name the capability +
+  // the viewer's role and reassure that nothing is broken.
+  it('the forbidden state names redemption:read, the viewer role, and reassures nothing is broken', () => {
+    mockSession({ can: () => false, role: 'CONTENT' })
+    mockRedemptions()
+
+    render(<RedemptionsPage />)
+
+    const forbidden = screen.getByTestId('redemptions-forbidden')
+    expect(forbidden).toHaveTextContent(/redemption:read/)
+    expect(forbidden).toHaveTextContent(/CONTENT/)
+    expect(forbidden).toHaveTextContent(/nothing is broken/i)
   })
 
   it('calls useRedemptions with enabled:false when the admin lacks redemption:read', () => {
@@ -146,6 +163,14 @@ describe('RedemptionsPage OPERATIONS role (has redemption:read)', () => {
     mockRedemptions({ isError: true, isLoading: false })
     render(<RedemptionsPage />)
     expect(screen.getByText(/could not load redemptions/i)).toBeInTheDocument()
+  })
+
+  // Honesty-copy sweep (2026-07-13): error copy must reassure nothing was
+  // changed, distinct from the "No redemptions match" empty state below.
+  it('the error state reassures nothing was changed', () => {
+    mockRedemptions({ isError: true, isLoading: false })
+    render(<RedemptionsPage />)
+    expect(screen.getByTestId('redemptions-error')).toHaveTextContent(/no items were changed/i)
   })
 
   it('calls refetch when Retry is clicked in the error state', () => {

@@ -18,54 +18,24 @@
  * every behaviour + test id unchanged.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Receipt, Loader2, AlertCircle } from 'lucide-react'
+import { Receipt, Loader2 } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useRedemptions } from '@/lib/redemptions/useRedemptions'
 import { RedemptionsFilterBar } from '@/features/redemptions/RedemptionsFilterBar'
 import { RedemptionsTable } from '@/features/redemptions/RedemptionsTable'
 import { RedemptionsPagination } from '@/features/redemptions/RedemptionsPagination'
+import { ForbiddenState } from '@/features/shared/ForbiddenState'
+import { ErrorState } from '@/features/shared/ErrorState'
 import type { StatusChipValue } from '@/features/redemptions/StatusChips'
 
 const PAGE_SIZE = 25
 
 // ── States ──────────────────────────────────────────────────────────────────
 
-function ForbiddenState() {
-  return (
-    <div className="mx-auto max-w-xl py-20 text-center" data-testid="redemptions-forbidden">
-      <span className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-        <AlertCircle className="size-6" aria-hidden="true" />
-      </span>
-      <h2 className="mb-2 text-lg font-semibold text-foreground">Access denied</h2>
-      <p className="text-sm text-muted-foreground">
-        You do not have permission to view redemptions. Contact your administrator.
-      </p>
-    </div>
-  )
-}
-
 function LoadingState() {
   return (
     <div className="flex items-center justify-center py-20">
       <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading" />
-    </div>
-  )
-}
-
-function ErrorState({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-10 text-center">
-      <AlertCircle className="mx-auto mb-3 size-6 text-destructive" aria-hidden="true" />
-      <p className="mb-4 text-sm text-destructive">
-        Could not load redemptions. Check your connection and try again.
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="text-sm font-medium text-primary hover:underline"
-      >
-        Retry
-      </button>
     </div>
   )
 }
@@ -104,7 +74,13 @@ export default function RedemptionsPage() {
     return <LoadingState />
   }
   if (!can('redemption:read')) {
-    return <ForbiddenState />
+    return (
+      <ForbiddenState
+        heading="You do not have access to redemptions."
+        capability="redemption:read"
+        testId="redemptions-forbidden"
+      />
+    )
   }
 
   const items = data?.items ?? []
@@ -142,7 +118,7 @@ export default function RedemptionsPage() {
       {isLoading ? (
         <LoadingState />
       ) : isError ? (
-        <ErrorState onRetry={refetch} />
+        <ErrorState subject="redemptions" onRetry={refetch} testId="redemptions-error" />
       ) : (
         <>
           <RedemptionsTable items={items} />

@@ -64,12 +64,14 @@ const mockedUseInProgressOnboardings = useInProgressOnboardings as jest.MockedFu
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function mockSession(overrides: { ready?: boolean; can?: (cap: string) => boolean } = {}) {
+function mockSession(
+  overrides: { ready?: boolean; can?: (cap: string) => boolean; role?: string } = {}
+) {
   mockedUseSession.mockReturnValue({
     accessToken: 'test-access-token',
     ready: overrides.ready ?? true,
     isAuthenticated: true,
-    role: 'OPERATIONS',
+    role: (overrides.role ?? 'OPERATIONS') as never,
     email: 'ops@redeemo.co.uk',
     adminId: 'admin-me',
     can: overrides.can ?? (() => true),
@@ -141,6 +143,21 @@ describe('LeadsHubPage capability gate', () => {
 
     expect(screen.getByTestId('leads-forbidden')).toBeInTheDocument()
     expect(screen.queryByTestId('leads-hub-page')).not.toBeInTheDocument()
+  })
+
+  // Honesty-copy sweep (2026-07-13): denied copy must name the capability +
+  // the viewer's role and reassure that nothing is broken.
+  it('the forbidden state names merchant:read, the viewer role, and reassures nothing is broken', () => {
+    mockSession({ can: () => false, role: 'FIELD' })
+    mockAwaiting()
+    mockInProgress()
+
+    render(<LeadsHubPage />)
+
+    const forbidden = screen.getByTestId('leads-forbidden')
+    expect(forbidden).toHaveTextContent(/merchant:read/)
+    expect(forbidden).toHaveTextContent(/FIELD/)
+    expect(forbidden).toHaveTextContent(/nothing is broken/i)
   })
 
   it('renders the hub when the admin has merchant:read', () => {

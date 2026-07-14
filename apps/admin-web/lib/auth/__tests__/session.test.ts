@@ -11,6 +11,7 @@ import {
   hasEffectiveCapability,
   isGrantableCapability,
   GRANTABLE_CAPABILITIES,
+  ALL_ADMIN_CAPABILITIES,
   getAccessToken,
   setSession,
   clearSession,
@@ -134,6 +135,7 @@ const BACKEND_OPERATIONS_CAPS: AdminCapability[] = [
   'merchant:submit',
   'merchant:manage-vouchers',
   'redemption:read',
+  'merchant:notes',
 ]
 
 // The SUPER_ADMIN-only caps: declared in the union but intentionally NOT in
@@ -172,6 +174,28 @@ describe('OPERATIONS grant mirrors the backend ALL_SLICE1_CAPS exactly', () => {
     expect(hasCapability('OPERATIONS', 'merchant:manage-vouchers')).toBe(true)
     expect(hasCapability('SUPER_ADMIN', 'merchant:manage-vouchers')).toBe(true)
     expect(hasCapability('FINANCE', 'merchant:manage-vouchers')).toBe(false)
+  })
+})
+
+// MerchantNote packet (PR #510, honesty-copy sweep 2026-07-13 mirror-drift fix):
+// the backend added `merchant:notes` to ALL FIVE role baselines
+// (OPERATIONS/FIELD via their own lists, FINANCE/CONTENT/SUPPORT as their
+// only entry); this mirror had missed it entirely until this fix. Universal
+// by owner decision (OD2 grill-me 2026-07-10), so unlike every other
+// capability pin above, every role holds it.
+describe('merchant:notes is UNIVERSAL: every role holds it (mirror-drift fix, PR #510)', () => {
+  const ALL_FIVE_ROLES: AdminRole[] = ['SUPER_ADMIN', 'OPERATIONS', 'FIELD', 'FINANCE', 'CONTENT']
+  for (const role of ALL_FIVE_ROLES) {
+    it(`${role} holds it`, () => {
+      expect(hasCapability(role, 'merchant:notes')).toBe(true)
+    })
+  }
+  it('SUPPORT holds it too', () => {
+    expect(hasCapability('SUPPORT', 'merchant:notes')).toBe(true)
+  })
+  it('an unknown role does NOT hold it (no-role fallback still applies)', () => {
+    expect(hasCapability('GHOST', 'merchant:notes')).toBe(false)
+    expect(hasCapability(null, 'merchant:notes')).toBe(false)
   })
 })
 
@@ -225,6 +249,8 @@ describe('FIELD baseline (pinned, mirrors the backend exactly)', () => {
     'merchant:manage-branches',
     'merchant:manage-documents',
     'merchant:manage-vouchers',
+    // MerchantNote packet: the universal notes cap is in every baseline (incl FIELD).
+    'merchant:notes',
   ]
 
   it('FIELD holds exactly the expected baseline set (order-insensitive)', () => {
@@ -247,15 +273,16 @@ describe('FIELD baseline (pinned, mirrors the backend exactly)', () => {
     expect(hasCapability('FIELD', 'merchant:edit-category')).toBe(false)
   })
 
+  // Anti-drift improvement (honesty-copy sweep, 2026-07-13): this used to be
+  // a hand-copied `ALL_DECLARED` literal, the same kind of list that let the
+  // mirror silently miss `merchant:notes` (PR #510); nothing forced it back
+  // in sync when the AdminCapability union grew. It now iterates the
+  // exported `ALL_ADMIN_CAPABILITIES`, which is itself derived from a
+  // TS-enforced exhaustiveness guard in session.ts (see its doc comment): a
+  // capability added to the union without a corresponding guard entry is a
+  // compile error, so this loop can never silently skip one again.
   it('every OTHER declared capability is correctly absent from the FIELD baseline', () => {
-    const ALL_DECLARED: AdminCapability[] = [
-      'merchant:create-draft', 'merchant:read', 'approval:read', 'approval:action',
-      'merchant:suspend', 'branch:confirm-location', 'approval:apply-edit', 'merchant:edit',
-      'merchant:edit-identity', 'merchant:edit-category', 'merchant:manage-branches',
-      'merchant:propose-edit', 'merchant:submit', 'merchant:manage-documents',
-      'merchant:manage-vouchers', 'redemption:read', 'lead:manage', 'admin:manage-team',
-    ]
-    for (const cap of ALL_DECLARED) {
+    for (const cap of ALL_ADMIN_CAPABILITIES) {
       expect(hasCapability('FIELD', cap)).toBe(EXPECTED_FIELD.includes(cap))
     }
   })

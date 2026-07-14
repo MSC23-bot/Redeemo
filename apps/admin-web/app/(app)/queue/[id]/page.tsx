@@ -17,11 +17,13 @@
  */
 import { use, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, AlertCircle, FileQuestion } from 'lucide-react'
+import { ArrowLeft, Loader2, FileQuestion } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useReview } from '@/lib/review/useReview'
 import { useClaim, useRelease } from '@/lib/review/useReviewActions'
 import { Badge } from '@/features/shared/Badge'
+import { ForbiddenState } from '@/features/shared/ForbiddenState'
+import { ErrorState } from '@/features/shared/ErrorState'
 import type { BadgeTone } from '@/features/shared/Badge'
 import { courtOf, COURT_TONE } from '@/lib/ui/adminTones'
 import type { ReviewApproval } from '@/lib/api/review'
@@ -65,41 +67,6 @@ function LoadingState() {
   return (
     <div className="flex items-center justify-center py-20" data-testid="review-loading">
       <Loader2 className="size-6 animate-spin text-muted-foreground" aria-label="Loading review" />
-    </div>
-  )
-}
-
-function ForbiddenState() {
-  return (
-    <div className="mx-auto max-w-xl py-20 text-center" data-testid="review-forbidden">
-      <span className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-        <AlertCircle className="size-6" aria-hidden="true" />
-      </span>
-      <h2 className="mb-2 text-lg font-semibold text-foreground">Access denied</h2>
-      <p className="text-sm text-muted-foreground">
-        You do not have permission to view approval reviews. Contact your administrator.
-      </p>
-    </div>
-  )
-}
-
-function ErrorState({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div
-      className="rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-10 text-center"
-      data-testid="review-error"
-    >
-      <AlertCircle className="mx-auto mb-3 size-6 text-destructive" aria-hidden="true" />
-      <p className="mb-4 text-sm text-destructive">
-        Could not load this review. Check your connection and try again.
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="text-sm font-medium text-primary hover:underline"
-      >
-        Retry
-      </button>
     </div>
   )
 }
@@ -229,7 +196,17 @@ export default function ReviewPage({ params }: ReviewPageProps) {
   }
 
   if (!can('approval:read')) {
-    return <ForbiddenState />
+    // approval-queue-spec.md §A.2 rvDenied names the capability as
+    // "approval:review", which is aspirational: no such capability exists in
+    // the mirror. The real gate on this page is approval:read (same as the
+    // queue list), so that is what is named here.
+    return (
+      <ForbiddenState
+        heading="You do not have access to review this item."
+        capability="approval:read"
+        testId="review-forbidden"
+      />
+    )
   }
 
   // Determine whether the Release button should show in the topbar.
@@ -286,7 +263,7 @@ export default function ReviewPage({ params }: ReviewPageProps) {
       {isLoading ? (
         <LoadingState />
       ) : isError || !data ? (
-        <ErrorState onRetry={refetch} />
+        <ErrorState subject="this review" onRetry={refetch} testId="review-error" />
       ) : EDIT_APPROVAL_TYPES.includes(data.approval.type) ? (
         // Option B B1: merchant-requested identity edit (its own field-diff
         // surface with Approve-edit / Reject-edit). The actions are gated on

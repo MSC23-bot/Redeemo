@@ -340,6 +340,20 @@ describe('ReviewPage capability gate', () => {
     expect(screen.queryByTestId('review-loading')).not.toBeInTheDocument()
   })
 
+  // Honesty-copy sweep (2026-07-13): denied copy must name the actual gating
+  // capability (approval:read: see the page's own comment on why this
+  // diverges from approval-queue-spec.md §A.2's aspirational
+  // "approval:review") + the viewer's role, and reassure nothing is broken.
+  it('the forbidden state names approval:read, the viewer role, and reassures nothing is broken', () => {
+    mockSession({ can: () => false, role: 'SUPER_ADMIN' })
+    mockReview()
+    renderPage()
+    const forbidden = screen.getByTestId('review-forbidden')
+    expect(forbidden).toHaveTextContent(/approval:read/)
+    expect(forbidden).toHaveTextContent(/SUPER_ADMIN/)
+    expect(forbidden).toHaveTextContent(/nothing is broken/i)
+  })
+
   it('calls useReview with enabled:false when lacking the capability', () => {
     mockSession({ can: () => false })
     mockReview()
@@ -377,6 +391,14 @@ describe('ReviewPage loading/error states', () => {
     mockReview({ isError: true, isLoading: false })
     renderPage()
     expect(screen.getByTestId('review-error')).toBeInTheDocument()
+  })
+
+  // Honesty-copy sweep (2026-07-13): error copy must reassure nothing was
+  // changed, so it can never be mistaken for an empty/absent result.
+  it('the error state reassures nothing was changed', () => {
+    mockReview({ isError: true, isLoading: false })
+    renderPage()
+    expect(screen.getByTestId('review-error')).toHaveTextContent(/no items were changed/i)
   })
 
   it('shows error state when data is undefined (and not loading)', () => {

@@ -77,12 +77,63 @@ export type AdminCapability =
   // leads. NOT in ALL_SLICE1_CAPS (OPERATIONS does not hold it) — only FIELD's
   // own baseline grants it. Keep aligned with the backend src/api/admin/capability.ts.
   | 'lead:manage'
+  // MerchantNote packet (2026-07-13, PR #510, owner-locked OD2 grill-me
+  // 2026-07-10): gates the internal per-merchant admin notes surface (list /
+  // add / edit-own / retract-own). UNIVERSAL by owner decision: readable AND
+  // writable by EVERY admin role (OPERATIONS, FIELD, FINANCE, CONTENT,
+  // SUPPORT; SUPER_ADMIN via the short-circuit), so it is added to ALL FIVE
+  // role baselines below. NOT in GRANTABLE_CAPABILITIES: a grant is pointless
+  // when every role already holds it. Keep aligned with the backend
+  // src/api/admin/capability.ts.
+  | 'merchant:notes'
   // Team & Roles S1: gates the entire Team & Roles surface (create admin
   // account, set base role, deactivate, grant/revoke curated capabilities).
   // NOT in ALL_SLICE1_CAPS and NOT in ANY role baseline (incl. FIELD /
   // OPERATIONS), so under the SUPER_ADMIN short-circuit it is held ONLY by
   // SUPER_ADMIN. Keep aligned with the backend src/api/admin/capability.ts.
   | 'admin:manage-team'
+
+// Exhaustiveness guard: TypeScript errors if a capability is added to (or
+// removed from) the AdminCapability union above without a matching edit
+// here. Anti-drift improvement (honesty-copy sweep, 2026-07-13): the
+// backend added `merchant:notes` to every role baseline in PR #510 and this
+// mirror silently missed it, because the FIELD-baseline test's own
+// "every OTHER declared capability" list was a SEPARATE hand-copied literal
+// that nothing forced back in sync with the union type. `ALL_ADMIN_CAPABILITIES`
+// below is the single list derived from this guard; the test iterates it
+// instead of hand-copying its own, so a capability added to the union without
+// a role decision can no longer pass silently.
+const CAPABILITY_EXHAUSTIVENESS_GUARD: Record<AdminCapability, true> = {
+  'merchant:create-draft': true,
+  'merchant:read': true,
+  'approval:read': true,
+  'approval:action': true,
+  'merchant:suspend': true,
+  'branch:confirm-location': true,
+  'approval:apply-edit': true,
+  'merchant:edit': true,
+  'merchant:edit-identity': true,
+  'merchant:edit-category': true,
+  'merchant:manage-branches': true,
+  'merchant:propose-edit': true,
+  'merchant:submit': true,
+  'merchant:manage-documents': true,
+  'merchant:manage-vouchers': true,
+  'redemption:read': true,
+  'lead:manage': true,
+  'merchant:notes': true,
+  'admin:manage-team': true,
+}
+
+/**
+ * Every declared `AdminCapability`, derived from the exhaustiveness guard
+ * above rather than hand-copied, so this list can never silently omit a
+ * capability that exists in the union type. Exported for tests (the
+ * anti-drift check that replaced the old hand-copied `ALL_DECLARED` literal).
+ */
+export const ALL_ADMIN_CAPABILITIES: AdminCapability[] = Object.keys(
+  CAPABILITY_EXHAUSTIVENESS_GUARD
+) as AdminCapability[]
 
 export type AdminRole =
   | 'SUPER_ADMIN'
@@ -107,6 +158,8 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:submit',
   'merchant:manage-vouchers',
   'redemption:read',
+  // MerchantNote packet: OPERATIONS holds the universal notes cap via its list.
+  'merchant:notes',
 ]
 
 // Team & Roles S1/S3: FIELD baseline (owner-locked UNION set — see spec
@@ -124,19 +177,23 @@ const FIELD_CAPABILITIES: AdminCapability[] = [
   'merchant:manage-branches',
   'merchant:manage-documents',
   'merchant:manage-vouchers',
+  // MerchantNote packet: FIELD holds the universal notes cap.
+  'merchant:notes',
 ]
 
 // Per-role grants. SUPER_ADMIN is the superuser (handled in `hasCapability`, so
 // it implicitly holds every current and future capability). OPERATIONS runs the
 // merchant lifecycle and holds all Slice-1 caps. FIELD holds the rep baseline
-// above. FINANCE/CONTENT/SUPPORT hold none. Keep this aligned with
-// ROLE_CAPABILITIES in the backend.
+// above. FINANCE/CONTENT/SUPPORT hold NO Slice-1 capabilities; their only
+// baseline entry is the universal `merchant:notes` (MerchantNote packet OD2:
+// internal notes are readable + writable by EVERY role). Keep this aligned
+// with ROLE_CAPABILITIES in the backend.
 const ROLE_CAPABILITIES: Record<string, AdminCapability[]> = {
   OPERATIONS: ALL_SLICE1_CAPS,
   FIELD: FIELD_CAPABILITIES,
-  FINANCE: [],
-  CONTENT: [],
-  SUPPORT: [],
+  FINANCE: ['merchant:notes'],
+  CONTENT: ['merchant:notes'],
+  SUPPORT: ['merchant:notes'],
 }
 
 // Team & Roles S1: the ONLY capabilities a SUPER_ADMIN may grant to another
