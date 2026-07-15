@@ -48,6 +48,28 @@ describe('normalizeSignerText', () => {
     expect(composed).not.toBe(decomposed) // different bytes...
     expect(normalizeSignerText(composed)).toBe(normalizeSignerText(decomposed)) // ...same after NFC
   })
+
+  // D65 signer-name hardening (SHOULD-FIX): plain trim()/collapse does not touch Unicode
+  // default-ignorable code points (they are not \s), so a name built only from these renders
+  // visually empty yet used to pass the old length===0 guard. Strip them from the value that
+  // is hashed + persisted, not just check for their absence.
+  it('strips Unicode default-ignorable code points embedded in otherwise real text', () => {
+    const zwsp = String.fromCodePoint(0x200b) // ZERO WIDTH SPACE
+    expect(normalizeSignerText(`John${zwsp}Smith`)).toBe('JohnSmith')
+    const bom = String.fromCodePoint(0xfeff) // ZERO WIDTH NO-BREAK SPACE / BOM
+    expect(normalizeSignerText(`${bom}Jane Smith${bom}`)).toBe('Jane Smith')
+  })
+
+  it('strips C0/C1 control characters', () => {
+    const bel = String.fromCodePoint(0x0007)
+    expect(normalizeSignerText(`Jane${bel}Smith`)).toBe('JaneSmith')
+  })
+
+  it('is idempotent after the invisible/control strip (applying it twice is a no-op)', () => {
+    const zwsp = String.fromCodePoint(0x200b)
+    const once = normalizeSignerText(`${zwsp}Priya Nair${zwsp}`)
+    expect(normalizeSignerText(once)).toBe(once)
+  })
 })
 
 describe('methodLabel', () => {
@@ -112,6 +134,69 @@ describe('renderReviewedBody', () => {
     } catch (e) {
       expect((e as AppError).code).toBe('AGREEMENT_SIGNER_INVALID')
     }
+  })
+
+  // D65 signer-name hardening (SHOULD-FIX, legal-material): the guard above only checked
+  // length===0, so a signer name that is VISUALLY empty but not string-empty (Unicode
+  // default-ignorable code points, or a lone combining mark with no base letter) used to
+  // pass through and produce a "signed" reviewed body with no legible signatory. Each of
+  // these normalizes to something that is either empty or has no \p{L}/\p{N} content, and
+  // every one must be rejected with AGREEMENT_SIGNER_INVALID before any hash/body derivation.
+  describe('D65 hardening: visually-empty / invisible-only / control-only signer values are rejected', () => {
+    const cases: Array<[string, string]> = [
+      ['ZERO WIDTH SPACE (U+200B)', String.fromCodePoint(0x200b)],
+      ['LEFT-TO-RIGHT MARK (U+200E)', String.fromCodePoint(0x200e)],
+      ['RIGHT-TO-LEFT MARK (U+200F)', String.fromCodePoint(0x200f)],
+      ['WORD JOINER (U+2060)', String.fromCodePoint(0x2060)],
+      ['SOFT HYPHEN (U+00AD)', String.fromCodePoint(0x00ad)],
+      ['MONGOLIAN VOWEL SEPARATOR (U+180E)', String.fromCodePoint(0x180e)],
+      ['ZERO WIDTH NO-BREAK SPACE / BOM (U+FEFF)', String.fromCodePoint(0xfeff)],
+      ['lone COMBINING ACUTE ACCENT (U+0301)', String.fromCodePoint(0x0301)],
+      ['C0 control BELL (U+0007)', String.fromCodePoint(0x0007)],
+      // A mix of several invisible/control code points strung together: still nothing legible.
+      [
+        'mixed invisible+control run',
+        String.fromCodePoint(0x200b, 0x200e, 0x00ad, 0x0007, 0x2060),
+      ],
+    ]
+
+    it.each(cases)('rejects signerName == %s', (_label, ch) => {
+      expect(() => renderReviewedBody({ ...BASE, signerName: ch })).toThrow(AppError)
+      try {
+        renderReviewedBody({ ...BASE, signerName: ch })
+      } catch (e) {
+        expect((e as AppError).code).toBe('AGREEMENT_SIGNER_INVALID')
+      }
+    })
+
+    it.each(cases)('rejects signerRoleConfirmation == %s', (_label, ch) => {
+      try {
+        renderReviewedBody({ ...BASE, signerRoleConfirmation: ch })
+        throw new Error('expected AGREEMENT_SIGNER_INVALID')
+      } catch (e) {
+        expect((e as AppError).code).toBe('AGREEMENT_SIGNER_INVALID')
+      }
+    })
+
+    it('rejects a name that is otherwise real text but embeds an invisible run with no legible content added', () => {
+      // The whole "name" is invisible/control characters wrapped around nothing legible.
+      const invisibleOnly = String.fromCodePoint(0x200b, 0xfeff, 0x200e)
+      expect(() => renderReviewedBody({ ...BASE, signerName: invisibleOnly })).toThrow(AppError)
+    })
+  })
+
+  // Positive control: an honest name + role passes and hashes stably (golden-testable), proving
+  // the hardening only rejects illegible values, not real ones.
+  it('a normal name + role passes and hashes stably', () => {
+    const first = renderReviewedBody({ ...BASE, signerName: 'Jane Q. Smith', signerRoleConfirmation: 'Owner' })
+    const second = renderReviewedBody({ ...BASE, signerName: 'Jane Q. Smith', signerRoleConfirmation: 'Owner' })
+    expect(first.normalizedSignerName).toBe('Jane Q. Smith')
+    expect(first.normalizedSignerRole).toBe('Owner')
+    expect(first.reviewedBody).toContain('Jane Q. Smith')
+    expect(first.reviewedContentHash).toBe(second.reviewedContentHash)
+    expect(first.reviewedContentHash).toBe(
+      crypto.createHash('sha256').update(first.reviewedBody, 'utf8').digest('hex'),
+    )
   })
 
   it('renders unset optional identity fields as "Not provided", never undefined', () => {

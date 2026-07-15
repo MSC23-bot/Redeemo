@@ -822,6 +822,54 @@ describe('acceptContract self-serve: D65 v2+ path', () => {
     expect(deleteObject).toHaveBeenCalledWith('document/m1/deadbeefdeadbeef.pdf')
   })
 
+  // NOTE 2 (self-serve double-sign RACE): the fast contractStatus pre-check is not atomic
+  // against a concurrent accept, so the race loser's merchantContract.create can hit the
+  // MerchantContract.merchantId @unique inside the transaction. A simulated P2002 there must
+  // map to the same clean CONTRACT_ALREADY_SIGNED (409) the pre-check returns, not surface as
+  // an unhandled 500, AND the orphaned-PDF compensation must still run first.
+  it('NOTE 2: a simulated P2002 on the contract-unique maps to CONTRACT_ALREADY_SIGNED, with orphan PDF cleanup still invoked', async () => {
+    const tx = makeTx()
+    const raceLoss = Object.assign(new Error('Unique constraint failed on the fields: (`merchantId`)'), {
+      code: 'P2002',
+      meta: { target: ['merchantId'] },
+    })
+    tx.merchantContract.create.mockRejectedValue(raceLoss)
+    const prisma = makePrisma(tx)
+    await expect(acceptContract(prisma, 'ma1', CURRENT.version, ctx, SIGNER)).rejects.toMatchObject({
+      code: 'CONTRACT_ALREADY_SIGNED',
+    })
+    expect(deleteObject).toHaveBeenCalledWith('document/m1/deadbeefdeadbeef.pdf')
+  })
+
+  it('NOTE 2: a P2002-mapped race loss still emits the orphan-PDF reconciliation alert on a cleanup failure', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const tx = makeTx()
+      const raceLoss = Object.assign(new Error('Unique constraint failed on the fields: (`merchantId`)'), {
+        code: 'P2002',
+        meta: { target: ['merchantId'] },
+      })
+      tx.merchantContract.create.mockRejectedValue(raceLoss)
+      ;(deleteObject as any).mockRejectedValueOnce(new Error('r2-cleanup-down'))
+      const prisma = makePrisma(tx)
+      await expect(acceptContract(prisma, 'ma1', CURRENT.version, ctx, SIGNER)).rejects.toMatchObject({
+        code: 'CONTRACT_ALREADY_SIGNED',
+      })
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[agreement][RECONCILE]'),
+        expect.objectContaining({
+          event: 'AGREEMENT_PDF_ORPHAN',
+          severity: 'high',
+          needsReconciliation: true,
+          lane: 'self-serve',
+          pdfKey: 'document/m1/deadbeefdeadbeef.pdf',
+        }),
+      )
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
   it('S2: non-production binds the current draft with its own hash', async () => {
     process.env.REDEEMO_DEPLOY_ENV = 'staging'
     const tx = makeTx()

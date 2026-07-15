@@ -146,10 +146,13 @@ export const ERROR_DEFINITIONS = {
   //     mismatch means the client reviewed a stale page, so the write is refused BEFORE
   //     any PDF render/upload and the merchant is asked to reload and re-review.
   //   AGREEMENT_SIGNER_INVALID        : signature-of-record / witness-integrity guard
-  //     - the typed signer name is empty, a witness id was not resolved, or the typed
-  //     signer name equals the authenticated rep's own name (obvious same-name signing
-  //     refused; the system cannot independently prove two distinct humans were present).
-  //     Defence-in-depth behind the route's zod validation.
+  //     - the typed signer name (or role) is empty, normalizes to no legible content
+  //     (whitespace-only, or built entirely from invisible/format characters or a lone
+  //     combining mark with no base letter; see reviewedBody.ts normalizeSignerText /
+  //     hasLegibleContent), a witness id was not resolved, or the typed signer name equals
+  //     the authenticated rep's own name (obvious same-name signing refused; the system
+  //     cannot independently prove two distinct humans were present). Defence-in-depth
+  //     behind the route's zod validation.
   //   AGREEMENT_REVIEW_HASH_MISMATCH  : the client-echoed reviewedContentHash (the hash of
   //     the personalised body the owner reviewed via the preview) does not equal the hash
   //     the server RE-DERIVES from the same normalized inputs at sign time. It means a

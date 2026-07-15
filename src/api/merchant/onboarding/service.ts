@@ -407,6 +407,17 @@ export async function acceptContract(
       // structured signal (not a routine warn). Swallowed so it can never mask the original err.
       reportOrphanedAgreementPdf({ lane: 'self-serve', merchantId, pdfKey, cause: cleanupErr })
     }
+    // Self-serve double-sign RACE (NOTE 2, parity with the assisted ceremony's in-tx
+    // conditional flip): two concurrent accepts can both pass the fast contractStatus !==
+    // 'SIGNED' pre-check above, then both attempt merchantContract.create inside their own
+    // transaction. The race LOSER hits the MerchantContract.merchantId @unique and Prisma
+    // throws P2002; unmapped, that surfaced as a raw, unhandled 500 instead of a clean 409.
+    // Map it to the same CONTRACT_ALREADY_SIGNED the pre-check (and the assisted ceremony's
+    // N1 guard) return, so the race loser gets a normal "already signed" error. The
+    // compensating PDF delete above still runs first in every case, P2002 or not.
+    if ((err as { code?: string })?.code === 'P2002') {
+      throw new AppError('CONTRACT_ALREADY_SIGNED')
+    }
     throw err
   }
 

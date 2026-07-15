@@ -20,7 +20,8 @@
 // unresolved placeholder for any contractual field.
 //
 // DETERMINISM (§4, golden-testable): normalization is server-side + deterministic (trim,
-// collapse internal whitespace to a single space, Unicode NFC). The SAME normalized signer
+// collapse internal whitespace to a single space, Unicode NFC, strip Unicode
+// default-ignorable code points + C0/C1 control characters). The SAME normalized signer
 // values feed the reviewed body, the reviewedContentHash, the sign call, and the persisted
 // record. reviewedContentHash = sha256(reviewedBody) over the exact UTF-8 bytes, so the
 // stored reviewedBody is the self-verifying immutable pre-image of the hash (§6).
@@ -33,15 +34,43 @@ export type AgreementSignMethodValue = 'IN_PERSON_ASSISTED' | 'SELF_SERVE_CLICK'
 /** The display value for an unset optional identity field (matches the PDF renderer). */
 export const NOT_PROVIDED = 'Not provided'
 
+// Characters that render as nothing (or as a non-printing control) but are not matched by
+// \s, so plain trim()/collapse leaves them in place: the Unicode Default_Ignorable_Code_Point
+// property (zero-width space U+200B, zero-width non/joiner U+200C/U+200D, LRM/RLM U+200E/
+// U+200F, word joiner U+2060, soft hyphen U+00AD, Mongolian vowel separator U+180E, the BOM/
+// ZWNBSP U+FEFF, variation selectors, invisible math operators, and similar format
+// characters) plus the C0/C1 control characters (\p{Cc}: U+0000-U+001F, U+007F-U+009F; the
+// whitespace-acting ones among these -- tab/LF/CR/FF/VT -- are already collapsed by the \s+
+// step above, this additionally strips the non-whitespace controls such as NUL/BEL/ESC).
+const INVISIBLE_OR_CONTROL_RE = /[\p{Default_Ignorable_Code_Point}\p{Cc}]/gu
+
+/**
+ * True when a normalized signer value has at least one letter or digit (\p{L} / \p{N}).
+ * Catches content that is non-empty but not legible: a lone combining mark with no base
+ * character to attach to (e.g. a bare U+0301), or a value built entirely from punctuation/
+ * symbols. Not a real-identity check, only a "something legible was typed" check.
+ */
+function hasLegibleContent(value: string): boolean {
+  return /[\p{L}\p{N}]/u.test(value)
+}
+
 /**
  * Deterministic, server-side normalization for a signer-provided free-text value (the
  * typed name, the authority role). Unicode NFC first (so canonically-equivalent inputs
- * hash identically), then collapse ALL internal whitespace runs (spaces, tabs, newlines)
- * to a single space, then trim. Idempotent. The SAME function is applied wherever the
- * value is used, so the reviewed body, the hash, and the persisted record always agree.
+ * hash identically), collapse ALL internal whitespace runs (spaces, tabs, newlines) to a
+ * single space, trim, then strip Unicode default-ignorable code points and C0/C1 control
+ * characters (see INVISIBLE_OR_CONTROL_RE) and trim again. Idempotent. The SAME function is
+ * applied wherever the value is used, so the reviewed body, the reviewedContentHash, and the
+ * persisted record always agree, and the CLEANED value (not the raw input) is what is ever
+ * hashed or persisted.
  */
 export function normalizeSignerText(raw: string | null | undefined): string {
-  return (raw ?? '').normalize('NFC').replace(/\s+/g, ' ').trim()
+  return (raw ?? '')
+    .normalize('NFC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(INVISIBLE_OR_CONTROL_RE, '')
+    .trim()
 }
 
 /** The human-readable signing-method label (KNOWN-BEFORE fact, part of the reviewed body). */
@@ -103,14 +132,22 @@ export function renderReviewedBody(input: ReviewedBodyInput): ReviewedBodyResult
   const normalizedSignerName = normalizeSignerText(input.signerName)
   const normalizedSignerRole = normalizeSignerText(input.signerRoleConfirmation)
 
-  // FIX 3 (decision doc §8; single chokepoint). A personalised reviewed body cannot be validly
-  // produced without a real signatory name + authority role. Reject a value that normalizes to
-  // EMPTY (e.g. a non-breaking space passes a route .min(1) but normalizes to "") BEFORE hashing
-  // or persisting anything. Because EVERY preview + both sign paths + the self-serve accept route
-  // through this shared render, this backstop makes an empty-signer personalised body impossible
-  // everywhere at once (the sign/accept paths also pre-check, this catches the previews + any
-  // future caller).
-  if (normalizedSignerName.length === 0 || normalizedSignerRole.length === 0) {
+  // FIX 3 (decision doc §8; single chokepoint), hardened (D65 signer-name hardening pass). A
+  // personalised reviewed body cannot be validly produced without a real signatory name +
+  // authority role. normalizeSignerText already strips Unicode default-ignorable code points
+  // (zero-width space, bidi marks, word joiner, soft hyphen, BOM, variation selectors: the
+  // characters a browser renders as nothing) and C0/C1 controls, so this backstop requires the
+  // CLEANED value to contain at least one \p{L} letter or \p{N} digit. That single check covers
+  // an EMPTY string, a whitespace-only string (e.g. a non-breaking space passes a route .min(1)
+  // but normalizes to ""), a string built entirely from invisible/format characters, AND a
+  // value that is non-empty but not legible (a lone combining mark with no base character, or
+  // punctuation/symbols only). This is a "something legible was typed" check, not a real-identity
+  // check. It runs BEFORE any hash/body derivation or write. Because EVERY preview + both sign
+  // paths + the self-serve accept route through this shared render, this backstop makes an
+  // empty-or-invisible-signer personalised body impossible everywhere at once (the sign/accept
+  // paths also pre-check the plain-empty case via the same normalizeSignerText, this catches the
+  // previews, the invisible/lone-combining-mark cases, and any future caller).
+  if (!hasLegibleContent(normalizedSignerName) || !hasLegibleContent(normalizedSignerRole)) {
     throw new AppError('AGREEMENT_SIGNER_INVALID')
   }
 
