@@ -54,19 +54,26 @@ export async function onboardingRoutes(app: FastifyInstance) {
     return reply.send({ version: served.version, text: served.content })
   })
 
-  // D65 Slice 2: signerName is threaded through for the evidence record but stays
-  // OPTIONAL for backward compatibility (the current merchant-web form does not send
-  // it yet). When absent, acceptContract records a documented placeholder.
+  // D65 personalised-agreement (decision doc §8): signerName + signerRoleConfirmation are
+  // threaded through for the evidence record. They stay OPTIONAL at the route for backward
+  // compatibility (the legacy v1 self-serve path does not require them), but acceptContract
+  // REQUIRES both on the D65 v2+ path (AGREEMENT_SIGNER_INVALID otherwise). The merchant-web
+  // FORM must start sending both for the v2+ path; that UI change is the Merchant Portal
+  // session's, not this PR's.
   app.post(`${prefix}/contract/accept`, async (req: FastifyRequest, reply) => {
-    const { version, signerName } = z
-      .object({ version: z.string(), signerName: z.string().trim().min(1).optional() })
+    const { version, signerName, signerRoleConfirmation } = z
+      .object({
+        version: z.string(),
+        signerName: z.string().trim().min(1).max(200).optional(),
+        signerRoleConfirmation: z.string().trim().min(1).max(200).optional(),
+      })
       .parse(req.body)
     const result = await acceptContract(
       app.prisma,
       req.user.sub,
       version,
       { ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' },
-      { signerName },
+      { signerName, signerRoleConfirmation },
     )
     return reply.send(result)
   })

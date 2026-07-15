@@ -106,8 +106,8 @@ describe('merchant onboarding routes', () => {
     const body = JSON.parse(res.body)
     // D65 Slice 0: GET /contract now reads the current version from the agreement
     // registry (superseding the old hardcoded '1.0' constant). The current entry is
-    // the v2 DRAFT.
-    expect(body.version).toBe('2.0-draft')
+    // the v2 DRAFT (bumped to 2.1-draft when the template's Execution section was trimmed).
+    expect(body.version).toBe('2.1-draft')
     expect(typeof body.text).toBe('string')
     expect(body.text.length).toBeGreaterThan(10)
   })
@@ -134,36 +134,67 @@ describe('merchant onboarding routes', () => {
     }
   })
 
-  it('POST /api/v1/merchant/onboarding/contract/accept records acceptance', async () => {
-    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', contractStatus: 'NOT_SIGNED' })
+  it('POST /contract/accept records acceptance via the PRODUCTION legacy v1 path (no PDF, no signer required)', async () => {
+    // D65 personalised-agreement (decision doc §12): production serves the legacy non-draft
+    // 1.0, which is the MerchantContract-ONLY lane (no PDF, no reviewedBody record, no signer
+    // requirement, not storage-gated). This is the pre-D65 production self-serve behaviour,
+    // still exercised end-to-end via the route. The full D65 v2+ evidence path (real signer +
+    // reviewedBody + PDF) is covered in the service-level suite where storage is stubbed.
+    const prev = process.env.REDEEMO_DEPLOY_ENV
+    process.env.REDEEMO_DEPLOY_ENV = 'production'
+    try {
+      app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', contractStatus: 'NOT_SIGNED', businessName: 'Kovalam Tandoori Ltd', tradingName: null, companyNumber: null, vatNumber: null })
+      app.prisma.merchantContract.create = vi.fn().mockResolvedValue({})
+      app.prisma.merchant.update = vi.fn().mockResolvedValue({})
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/merchant/onboarding/contract/accept',
+        headers: { authorization: `Bearer ${merchantToken}` },
+        payload: { version: '1.0' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(app.prisma.merchantContract.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ tcVersion: '1.0' }) })
+      )
+      expect(app.prisma.merchant.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ contractStatus: 'SIGNED' }) })
+      )
+    } finally {
+      if (prev === undefined) delete process.env.REDEEMO_DEPLOY_ENV
+      else process.env.REDEEMO_DEPLOY_ENV = prev
+    }
+  })
+
+  it('POST /contract/accept D65 v2+ path FAILS CLOSED when storage is dark (503, no write)', async () => {
+    // Non-production (test env) serves the current draft = the D65 v2+ path. With a real signer
+    // name + role supplied but storage dark, a binding signature must not complete without the
+    // full evidence pack (decision doc §16): it fails closed with STORAGE_NOT_ENABLED and writes
+    // nothing. (This is the intended tightening the merchant-web form must satisfy on staging.)
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', contractStatus: 'NOT_SIGNED', businessName: 'Kovalam Tandoori Ltd', tradingName: null, companyNumber: null, vatNumber: null })
     app.prisma.merchantContract.create = vi.fn().mockResolvedValue({})
     app.prisma.merchant.update = vi.fn().mockResolvedValue({})
 
-    // Non-production (test env): the served version is the current draft, so the honest
-    // client echoes '2.0-draft' (what GET /contract returned). tcVersion is written from
-    // the SERVER-selected served version, not this echo.
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/merchant/onboarding/contract/accept',
       headers: { authorization: `Bearer ${merchantToken}` },
-      payload: { version: '2.0-draft' },
+      payload: { version: '2.1-draft', signerName: 'Priya Nair', signerRoleConfirmation: 'Owner' },
     })
 
-    expect(res.statusCode).toBe(200)
-    expect(app.prisma.merchantContract.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ tcVersion: '2.0-draft' }) })
-    )
-    expect(app.prisma.merchant.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ contractStatus: 'SIGNED' }) })
-    )
+    expect(res.statusCode).toBe(503)
+    expect(JSON.parse(res.body).error.code).toBe('STORAGE_NOT_ENABLED')
+    expect(app.prisma.merchantContract.create).not.toHaveBeenCalled()
+    expect(app.prisma.merchant.update).not.toHaveBeenCalled()
   })
 
   it('POST /contract/accept refuses a stale client version (409) and writes nothing', async () => {
-    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', contractStatus: 'NOT_SIGNED' })
+    app.prisma.merchant.findUnique = vi.fn().mockResolvedValue({ id: 'm1', contractStatus: 'NOT_SIGNED', businessName: 'Kovalam Tandoori Ltd', tradingName: null, companyNumber: null, vatNumber: null })
     app.prisma.merchantContract.create = vi.fn().mockResolvedValue({})
     app.prisma.merchant.update = vi.fn().mockResolvedValue({})
 
-    // Non-production serves '2.0-draft'; a client echoing the stale '1.0' reviewed an
+    // Non-production serves '2.1-draft'; a client echoing the stale '1.0' reviewed an
     // out-of-date page, so the write is refused before any contract row / status flip.
     const res = await app.inject({
       method: 'POST',

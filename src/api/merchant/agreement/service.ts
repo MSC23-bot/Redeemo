@@ -22,6 +22,7 @@
 // MerchantAgreementRecord rows (never update/delete); a new version = a new row. A
 // guard test asserts no update/delete call sites exist.
 
+import crypto from 'node:crypto'
 import { PrismaClient } from '../../../../generated/prisma/client'
 import { AppError } from '../../shared/errors'
 import { writeAuditLogTx } from '../../shared/audit'
@@ -31,6 +32,7 @@ import {
   getLatestNonDraftAgreement,
   type AgreementVersion,
 } from './versions'
+import { renderReviewedBody, normalizeSignerText, type AgreementSignMethodValue } from './reviewedBody'
 import { renderAgreementPdf } from './pdf'
 
 // ── Environment gate ────────────────────────────────────────────────────────
@@ -127,22 +129,14 @@ export function assertBindingWriteAllowed(version: AgreementVersion): void {
 
 // ── Shared PDF render + store ────────────────────────────────────────────────
 
-/** Placeholder signer name for a legacy self-serve click that carried no typed name. */
-export const SELF_SERVE_SIGNER_NOT_CAPTURED = '(self-serve click; typed name not captured)'
-
-export interface MerchantSigningIdentity {
-  businessLegalName: string
-  tradingName?: string | null
-  companyNumber?: string | null
-  vatNumber?: string | null
-}
-
-interface RenderAndStoreInput extends MerchantSigningIdentity {
+interface RenderAndStoreInput {
   merchantId: string
   agreement: AgreementVersion
+  /** The exact personalised reviewed body (shared reviewedBody module). Rendered verbatim. */
+  reviewedBody: string
+  /** Normalized signer name (PDF metadata only; the reviewed body already carries it). */
   signerName: string
-  signerRoleConfirmation: string
-  method: 'IN_PERSON_ASSISTED' | 'SELF_SERVE_CLICK'
+  method: AgreementSignMethodValue
   witnessLabel: string | null
   signedAt: Date
   ipAddress: string
@@ -153,32 +147,38 @@ interface RenderAndStoreInput extends MerchantSigningIdentity {
 /**
  * Render the signed PDF and write it to PRIVATE R2 (`document` kind, ownerId =
  * merchantId). Fails closed with STORAGE_NOT_ENABLED when storage is dark; never
- * constructs the S3 client otherwise. Returns the private key. The PDF is
- * DRAFT-watermarked when (and only when) the agreement version is a draft
- * (isVersionWatermarked), independent of the env flag (Codex correction FIX 3).
+ * constructs the S3 client otherwise. The PDF body IS the personalised `reviewedBody`
+ * (already resolved by the shared module); the renderer appends only the event-evidence
+ * block. The PDF is DRAFT-watermarked when (and only when) the agreement version is a draft
+ * (isVersionWatermarked), independent of the env flag.
+ *
+ * TRUTHFUL SEQUENCE (decision doc §16/§17): the returned `pdfHash` is sha256 over the EXACT
+ * bytes uploaded (captured between render and upload, no re-render), so the record's pdfHash
+ * always matches the stored object. Returns { key, pdfHash }.
  */
-export async function renderAndStoreAgreementPdf(input: RenderAndStoreInput): Promise<string> {
+export async function renderAndStoreAgreementPdf(
+  input: RenderAndStoreInput,
+): Promise<{ key: string; pdfHash: string }> {
   if (!isStorageEnabled()) throw new AppError('STORAGE_NOT_ENABLED')
 
   const pdf = await renderAgreementPdf({
     version: input.agreement.version,
     contentHash: input.agreement.contentHash,
-    content: input.agreement.content,
+    reviewedBody: input.reviewedBody,
     signerName: input.signerName,
-    signerRoleConfirmation: input.signerRoleConfirmation,
-    businessLegalName: input.businessLegalName,
-    tradingName: input.tradingName,
-    companyNumber: input.companyNumber,
-    vatNumber: input.vatNumber,
     method: input.method,
     witnessLabel: input.witnessLabel,
     signedAt: input.signedAt,
     ipAddress: input.ipAddress,
     userAgent: input.userAgent,
-    // FIX 3: the watermark reflects the version's OWN legal status (draft), not the env flag.
+    // The watermark reflects the version's OWN legal status (draft), not the env flag.
     gated: isVersionWatermarked(input.agreement),
     drawnSignature: input.drawnSignature ?? null,
   })
+
+  // Capture pdfHash over the EXACT bytes we are about to upload (§17 CAPTURE): bytes hashed
+  // == bytes stored, no re-render in between.
+  const pdfHash = crypto.createHash('sha256').update(pdf).digest('hex')
 
   const { key } = await putObject({
     kind: 'document',
@@ -186,7 +186,7 @@ export async function renderAndStoreAgreementPdf(input: RenderAndStoreInput): Pr
     contentType: 'application/pdf',
     body: pdf,
   })
-  return key
+  return { key, pdfHash }
 }
 
 // ── The in-person assisted ceremony ──────────────────────────────────────────
@@ -203,6 +203,16 @@ export interface SignAgreementInPersonInput {
   /** Optional client-echoed version (integrity check). Absent = server current; if given
    * it must equal the served/current version, else AGREEMENT_VERSION_MISMATCH (409). */
   agreementVersion?: string
+  /**
+   * Optional client-echoed reviewedContentHash (decision doc §4/§10). The server is
+   * AUTHORITATIVE: it RE-DERIVES the personalised body from the same normalized inputs and
+   * recomputes the hash. When this echo is present it must equal the server value, else
+   * AGREEMENT_REVIEW_HASH_MISMATCH (409) BEFORE any PDF render/upload/DB tx/status/audit
+   * (the owner reviewed a body that no longer matches what would be signed). Absent = the
+   * server derivation is authoritative (a non-ceremony caller may omit it); the ceremony
+   * always echoes the preview's hash. NO browser recompute: the client only echoes.
+   */
+  reviewedContentHash?: string
   /** Optional stylus/finger signature PNG bytes (non-gating). */
   drawnSignature?: Buffer | null
   // FIX 2: there is NO client-supplied witness label. The witness IDENTITY is looked up
@@ -253,9 +263,12 @@ export async function signAgreementInPerson(
   // (2) Fail-closed legal gate for the resolved version BEFORE any read or write.
   assertBindingWriteAllowed(agreement)
 
-  // (3) Signature-of-record + witness invariants (FIX 2).
-  const signerName = input.signerName?.trim() ?? ''
-  const signerRoleConfirmation = input.signerRoleConfirmation?.trim() ?? ''
+  // (3) Signature-of-record + witness invariants (FIX 2). Normalize the typed signer values
+  // with the SAME deterministic server-side normalizer used by the reviewed-body module
+  // (NFC + collapse-internal-whitespace + trim), so the empty check, the same-name safeguard,
+  // the reviewed body, the hash, and the persisted record all use identical values.
+  const signerName = normalizeSignerText(input.signerName)
+  const signerRoleConfirmation = normalizeSignerText(input.signerRoleConfirmation)
   if (signerName.length === 0 || signerRoleConfirmation.length === 0) {
     throw new AppError('AGREEMENT_SIGNER_INVALID')
   }
@@ -304,18 +317,37 @@ export async function signAgreementInPerson(
   if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
   if (merchant.contractStatus === 'SIGNED') throw new AppError('CONTRACT_ALREADY_SIGNED')
 
-  const signedAt = new Date()
-
-  // (5) Render + store the PDF (fail-closed STORAGE_NOT_ENABLED).
-  const pdfKey = await renderAndStoreAgreementPdf({
-    merchantId: input.merchantId,
-    agreement,
-    signerName,
-    signerRoleConfirmation,
+  // (5a) Re-derive the personalised reviewed body + reviewedContentHash SERVER-SIDE from the
+  // same normalized inputs + the merchant identity (decision doc §4). This is the legally
+  // accepted object; its sha256 is the reviewedContentHash. The client-echoed hash (if any)
+  // is an INTEGRITY CHECK: a mismatch means the owner reviewed a body that no longer matches
+  // what would be signed, so refuse (409) BEFORE any PDF render/upload, DB tx, status flip,
+  // or audit (decision doc §10). Nothing is persisted on a mismatch.
+  const reviewed = renderReviewedBody({
+    version: agreement.version,
+    canonicalContentHash: agreement.contentHash,
+    content: agreement.content,
+    method: 'IN_PERSON_ASSISTED',
     businessLegalName: merchant.businessName,
     tradingName: merchant.tradingName,
     companyNumber: merchant.companyNumber,
     vatNumber: merchant.vatNumber,
+    signerName,
+    signerRoleConfirmation,
+  })
+  if (input.reviewedContentHash && input.reviewedContentHash !== reviewed.reviewedContentHash) {
+    throw new AppError('AGREEMENT_REVIEW_HASH_MISMATCH')
+  }
+
+  const signedAt = new Date()
+
+  // (5b) Render + store the PDF (fail-closed STORAGE_NOT_ENABLED). The PDF body IS the exact
+  // reviewedBody; pdfHash is captured over the exact uploaded bytes (§16/§17).
+  const { key: pdfKey, pdfHash } = await renderAndStoreAgreementPdf({
+    merchantId: input.merchantId,
+    agreement,
+    reviewedBody: reviewed.reviewedBody,
+    signerName,
     method: 'IN_PERSON_ASSISTED',
     // FIX 2: the witness display is the server-looked-up rep identity, not client text.
     witnessLabel: witnessDisplay,
@@ -347,6 +379,13 @@ export async function signAgreementInPerson(
         merchantId: input.merchantId,
         agreementVersion: agreement.version,
         contentHash: agreement.contentHash,
+        // D65 personalised-agreement: the immutable reviewed-body pre-image + its hash + the
+        // exact-bytes PDF hash. reviewedBody is self-verifying (sha256 == reviewedContentHash)
+        // and reconstructs the exact accepted object with zero dependence on mutable
+        // template/merchant/render code (decision doc §6/§17).
+        reviewedBody: reviewed.reviewedBody,
+        reviewedContentHash: reviewed.reviewedContentHash,
+        pdfHash,
         signerName,
         signerRoleConfirmation,
         actorAdminId,
@@ -423,6 +462,76 @@ export async function signAgreementInPerson(
     contractStatus: 'SIGNED' as const,
     // FIX 3: the confirmation "gated" flag reflects the version's draft status (watermark),
     // decoupled from the env flag. For the ceremony this is always the current draft.
+    gated: isVersionWatermarked(agreement),
+  }
+}
+
+// ── The personalised preview (assisted ceremony) ─────────────────────────────
+
+export interface AgreementPreviewInput {
+  /** The owner's typed full name (RAW: normalized server-side by the shared module). */
+  signerName: string
+  /** The authority-attestation role (RAW: normalized server-side). */
+  signerRoleConfirmation: string
+}
+
+export interface AgreementPreviewResult {
+  version: string
+  /** The personalised reviewed body (= reviewedBody); the owner reviews THIS exact text. */
+  personalisedText: string
+  /** sha256(personalisedText); server-authoritative; the ceremony echoes it into the sign call. */
+  reviewedContentHash: string
+  /** sha256 of the UNSUBSTITUTED canonical source (the template-version hash). */
+  canonicalContentHash: string
+  isDraft: boolean
+  /** Watermark / pending-legal-review driver (isVersionWatermarked semantics). */
+  gated: boolean
+}
+
+/**
+ * Render the merchant-PERSONALISED agreement body + its reviewedContentHash for the assisted
+ * ceremony (decision doc §4/§4b). SERVER-AUTHORITATIVE: the merchant identity + version +
+ * method are resolved server-side; only the normalized signer name + role come from the
+ * caller. Same shared render/normalize/hash module the sign path uses, so preview == what
+ * gets signed (the ceremony echoes the returned reviewedContentHash; the sign path
+ * re-derives + compares).
+ *
+ * The ceremony pins + signs getCurrentAgreement() (like the sign service), so this previews
+ * getCurrentAgreement() (NOT getServedAgreement) so the displayed body binds to the recorded
+ * evidence. Read-only: no legal-gate binding-write check (this writes nothing).
+ */
+export async function previewAgreement(
+  prisma: PrismaClient,
+  merchantId: string,
+  input: AgreementPreviewInput,
+): Promise<AgreementPreviewResult> {
+  const agreement = getCurrentAgreement()
+
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { businessName: true, tradingName: true, companyNumber: true, vatNumber: true },
+  })
+  if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
+
+  const reviewed = renderReviewedBody({
+    version: agreement.version,
+    canonicalContentHash: agreement.contentHash,
+    content: agreement.content,
+    method: 'IN_PERSON_ASSISTED',
+    businessLegalName: merchant.businessName,
+    tradingName: merchant.tradingName,
+    companyNumber: merchant.companyNumber,
+    vatNumber: merchant.vatNumber,
+    signerName: input.signerName,
+    signerRoleConfirmation: input.signerRoleConfirmation,
+  })
+
+  return {
+    version: agreement.version,
+    personalisedText: reviewed.reviewedBody,
+    reviewedContentHash: reviewed.reviewedContentHash,
+    canonicalContentHash: agreement.contentHash,
+    isDraft: agreement.isDraft,
     gated: isVersionWatermarked(agreement),
   }
 }

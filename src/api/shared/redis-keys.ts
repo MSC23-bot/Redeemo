@@ -188,4 +188,13 @@ export const RedisKey = {
   // running many accounts.
   rateLimitInviteSubmitIpHour:       (ip: string)     => `rl:invsub:ip:hour:${ip}`,      // per-IP hourly (abuser)
   rateLimitInviteSubmitGlobalDay:    ()                => `rl:invsub:global:day`,        // global daily cost/abuse ceiling
+
+  // D65 personalised-agreement admin PREVIEW limiter
+  // (src/api/shared/agreementPreviewLimiter.ts): a bounded per-caller rate limit on
+  // POST /api/v1/admin/merchants/:id/agreement/preview (decision doc §4b REQUIRED
+  // acceptance criterion). Both keys are ABUSER keys (every attempt counts): the
+  // preview is a cheap server-side render for the ceremony, so per-admin bounds the
+  // authenticated caller and per-IP is defence in depth.
+  rateLimitAgreementPreviewAdminMin: (adminId: string) => `rl:agrprev:admin:min:${adminId}`, // per-admin per-minute (abuser)
+  rateLimitAgreementPreviewIpMin:    (ip: string)       => `rl:agrprev:ip:min:${ip}`,         // per-IP per-minute (abuser)
 } as const
