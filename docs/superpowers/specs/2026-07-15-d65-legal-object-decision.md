@@ -1,7 +1,8 @@
 # D65 legal-object + evidence-binding decision packet
 
-Status: FABLE-AUTHORED · directionally APPROVED by Codex/owner 2026-07-15 · amended for the four
-Codex correction-round gaps below · owner-approval-required BEFORE implementation.
+Status: FABLE-AUTHORED · directionally APPROVED by Codex/owner 2026-07-15 · amended across successive
+Codex correction rounds (round 1: four gaps §2-§7; round 2: five gaps §0b; round 3: two R2 contract
+blockers §0c) · owner-approval-required BEFORE implementation.
 Trigger: the ceremony reviews the RAW canonical template (literal `{{placeholders}}`) while the
 signed PDF substitutes real values; `contentHash` hashes the unsubstituted source. Verified against
 live source. Holds PR #516 (interim head 99bae9bf) until this architecture is approved + implemented
@@ -22,6 +23,15 @@ live source. Holds PR #516 (interim head 99bae9bf) until this architecture is ap
 - Solicitor questions APPROVED to proceed, ADDING exact-body retention/reconstruction + body-vs-
   evidence composition (§12).
 - Production legal gate (`AGREEMENT_LEGAL_REVIEW_REQUIRED`) UNCHANGED.
+
+## 0c. Codex correction round 3 (2026-07-15): two R2 contract blockers corrected
+
+Doc-only. (1) §16 atomicity claim corrected: R2 + Postgres cannot share a transaction; replaced with
+the truthful upload-then-DB-tx-with-compensation sequence (matches the live ceremony code). (2) §17
+retrieval corrected: server-proxied retrieve-hash-compare-serve is the default; a verify-then-presign
+flow has a TOCTOU gap and is not equivalent; immutable/versioned R2 + presign would be a material fork.
+Also: header count corrected (round 1 four + round 2 five + round 3 two), and the preview rate limit
+(§4b) upgraded from "assess" to a REQUIRED bounded acceptance criterion.
 
 ## 0b. Codex correction round 2 (2026-07-15): five further gaps corrected
 
@@ -103,7 +113,7 @@ cross-merchant id).
 | Auth / scope | `authenticateAdmin` + `merchant:sign-agreement` + `assertFieldPreLiveScope` | merchant-portal auth preHandler; own-merchant only |
 | Request body (`.strict()`) | `{ signerName, signerRoleConfirmation }` | `{ signerName, signerRoleConfirmation }` |
 | Max lengths | signerName <= 200, signerRoleConfirmation <= 200 (trimmed, NFC) | same |
-| Rate limiting | existing admin limiter; assess a bounded preview limit (deterministic render is cheap but merchant-facing) | existing merchant limiter; assess a bounded per-merchant preview limit |
+| Rate limiting | REQUIRED: a bounded preview rate limit (a hard acceptance criterion, not optional). Implementation inspects the existing admin limiter conventions and proposes the exact safe per-caller limit | REQUIRED: a bounded per-merchant preview rate limit (hard acceptance criterion). Implementation inspects the existing merchant limiter conventions and proposes the exact safe limit |
 | Response | `{ version, personalisedText, reviewedContentHash, canonicalContentHash, isDraft, gated }` | identical shape |
 | Invalidation | any input change -> new POST -> new hash -> reset review + accept gates | identical |
 | Hash echo | client echoes the server-returned `reviewedContentHash`; NO browser recompute | identical |
@@ -300,13 +310,29 @@ closed with `STORAGE_NOT_ENABLED` when storage is dark. But self-serve `acceptCo
 `MERCHANT_CONTRACT_ACCEPTED` audit, and creates the `MerchantAgreementRecord` only `if (pdfKey)` ->
 a BINDING v2 signature can complete with NO PDF and NO evidence record. That is the gap.
 
-APPROVED D65 RULE: no binding D65 (v2+) signature may complete in a SHARED environment without the
-immutable `reviewedBody`, the PDF, and the `MerchantAgreementRecord` (all in one transaction). If
-storage is unavailable when signing a D65 version, the sign FAILS CLOSED (`STORAGE_NOT_ENABLED`)
-BEFORE any contractStatus flip or audit write; nothing is persisted. Test/local may inject a storage
-stub so the path runs end-to-end, but MUST NOT flip a binding SIGNED state without the full evidence;
-shared environments (staging/production) are never weakened. Legacy v1 (§12) is outside the D65 path
-and keeps its `MerchantContract` evidence, which needs no PDF.
+APPROVED D65 RULE + TRUTHFUL FAIL-CLOSED SEQUENCE (CORRECTED, Codex round 3 blocker 1): R2 object
+storage and PostgreSQL CANNOT participate in one atomic transaction; the prior "all in one
+transaction" wording was physically impossible. The correct sequence (which the LIVE ceremony
+`signAgreementInPerson` already implements: PDF upload at line 310, THEN `prisma.$transaction` at
+line 334, THEN compensating `deleteObject` on tx failure at lines 405-412; the self-serve fix must
+match it) is:
+
+1. Deterministically produce `reviewedBody`, the final PDF bytes, and both hashes (`reviewedContentHash`,
+   `pdfHash`). No side effects yet.
+2. Upload those EXACT PDF bytes to a FRESH private R2 key.
+3. ONLY after the upload succeeds, run ONE database transaction that atomically stores `reviewedBody`,
+   `reviewedContentHash`, `pdfKey`, `pdfHash`, flips `contractStatus`, and writes the audit.
+4. If the database transaction fails, attempt compensating deletion of the uploaded object.
+5. If that cleanup ALSO fails, record a HIGH-SEVERITY operational/reconciliation warning (an orphaned
+   R2 object may remain); do NOT claim nothing persisted externally.
+6. No binding database state or audit may commit unless the complete evidence record commits in that
+   one DB transaction.
+7. Storage/upload failure (incl. `STORAGE_NOT_ENABLED` when storage is dark) occurs BEFORE any database
+   status or audit write; on failure nothing binding is written.
+
+Test/local may inject a storage stub so the path runs end-to-end, but MUST NOT flip a binding SIGNED
+state without the full evidence; shared environments (staging/production) are never weakened. Legacy
+v1 (§12) is outside the D65 path and keeps its `MerchantContract` evidence, which needs no PDF.
 
 ### Storage behavior table
 
@@ -318,21 +344,27 @@ and keeps its `MerchantContract` evidence, which needs no PDF.
 
 ## 17. PDF integrity verification lifecycle (CORRECTED, Codex gap 5)
 
-A stored hash ALONE is not tamper detection: tampering is only detectable if retrieved bytes are
-re-hashed and compared. Approved lifecycle:
+A stored hash ALONE is not tamper detection, AND a direct presigned R2 URL cannot truthfully
+guarantee the bytes ultimately downloaded are the bytes the server verified: a verify-then-presign
+flow leaves a time-of-check/time-of-use (TOCTOU) gap and is NOT equivalent. Approved lifecycle
+(CORRECTED, Codex round 3 blocker 2):
 
-- CAPTURE: at sign time, the final PDF bytes are hashed (`pdfHash = sha256(pdfBytes)`) at the moment
-  they are produced and written to R2, and `pdfHash` is stored on the `MerchantAgreementRecord` IN
-  THE SAME sign transaction as `pdfKey`. Bytes hashed == bytes stored (no re-render between).
-- BIND: `pdfHash` + `pdfKey` are both on the immutable record; the record is the authority linking a
-  specific stored object to its expected hash.
-- VERIFY ON RETRIEVAL: every evidence download / presign-fetch (the lane-2 evidence-read path)
-  re-hashes the retrieved bytes and compares to the stored `pdfHash` BEFORE returning them.
-- FAIL-CLOSED + AUDIT ON MISMATCH: a mismatch REFUSES the download (fail-closed), writes an
-  integrity-failure audit event, and surfaces an ops/legal alert. The record is never silently
+- CAPTURE: at sign time, `pdfHash = sha256(pdfBytes)` is computed over the EXACT bytes uploaded to R2
+  (§16 step 1-3) and stored on the record together with `pdfKey`, inside the one DB transaction. Bytes
+  hashed == bytes stored (no re-render between capture and upload).
+- BIND: `pdfHash` + `pdfKey` on the immutable record are the authority linking a specific stored
+  object to its expected hash.
+- SERVER-PROXIED RETRIEVAL IS THE DEFAULT: the authenticated backend RETRIEVES the stored PDF bytes,
+  HASHES those exact bytes, COMPARES to `MerchantAgreementRecord.pdfHash`, and returns THOSE SAME bytes
+  only after a match. The client never receives a direct presigned URL for the agreement PDF (that
+  would reintroduce the TOCTOU gap).
+- FAIL-CLOSED + AUDIT ON MISMATCH/MISS: a missing object or a hash mismatch releases NO PDF, fails
+  closed, writes an integrity-failure audit event, and surfaces an ops/legal alert. The record is never
   served as authentic when its bytes no longer match.
-- This lifecycle spans this packet (sign-time capture) + lane-2 (retrieval-time verification); lane-2
-  must implement the re-hash-on-retrieval, not just store the hash.
+- This lifecycle spans this packet (sign-time capture) + lane-2 (server-proxied retrieval + verify);
+  lane-2 implements the retrieve-hash-compare-serve path, not a presigned URL, for the agreement PDF.
+- (If a future design ever wants immutable/versioned R2 objects + presigned URLs instead of server-
+  proxying, that is a MATERIAL ARCHITECTURE FORK to return to Fable/Codex, not adopted here.)
 
 Nothing implemented until this amended packet is approved; #516 remains held. On approval, #516 is
 reworked to this contract (POST personalised preview + normalized inputs + server-authoritative
