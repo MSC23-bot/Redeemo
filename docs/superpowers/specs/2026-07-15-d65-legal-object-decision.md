@@ -23,6 +23,12 @@ live source. Holds PR #516 (interim head 99bae9bf) until this architecture is ap
   evidence composition (§12).
 - Production legal gate (`AGREEMENT_LEGAL_REVIEW_REQUIRED`) UNCHANGED.
 
+## 0b. Codex correction round 2 (2026-07-15): five further gaps corrected
+
+Directional model accepted; owner approval withheld pending these five (all corrected doc-only here):
+storage fail-closed (§16), legacy-v1 accepted object (§12 rewritten), self-serve preview contract
+(§4b), personal-data/retention truth (§6/§11/§13 corrected), pdfHash integrity lifecycle (§17).
+
 ## 1. Verified facts (live source)
 
 - v2 template (`docs/legal/drafts/merchant-agreement-v2-draft.md`, embedded `agreement-v2-source.ts`)
@@ -84,6 +90,27 @@ merchant-scoped GET cannot produce it, and signer PII must not enter URL/query l
   `AGREEMENT_REVIEW_HASH_MISMATCH` (and `AGREEMENT_VERSION_MISMATCH` for template drift) BEFORE any
   PDF render/upload, DB transaction, contractStatus mutation, or audit write.
 
+## 4b. Self-serve preview contract (CORRECTED, Codex gap 3)
+
+Both lanes share ONE renderer + normalizer + hash module (server-side, single source of truth); the
+prior packet only defined the admin route. The merchant lane needs its OWN merchant-authenticated
+preview route (merchant portal auth resolves the caller's OWN merchant via `req.user.sub`, never a
+cross-merchant id).
+
+| | Assisted (admin) | Self-serve (merchant) |
+|---|---|---|
+| Route | `POST /admin/merchants/:id/agreement/preview` | `POST /merchant/onboarding/agreement/preview` (own merchant, no id param; resolved from `req.user.sub`) |
+| Auth / scope | `authenticateAdmin` + `merchant:sign-agreement` + `assertFieldPreLiveScope` | merchant-portal auth preHandler; own-merchant only |
+| Request body (`.strict()`) | `{ signerName, signerRoleConfirmation }` | `{ signerName, signerRoleConfirmation }` |
+| Max lengths | signerName <= 200, signerRoleConfirmation <= 200 (trimmed, NFC) | same |
+| Rate limiting | existing admin limiter; assess a bounded preview limit (deterministic render is cheap but merchant-facing) | existing merchant limiter; assess a bounded per-merchant preview limit |
+| Response | `{ version, personalisedText, reviewedContentHash, canonicalContentHash, isDraft, gated }` | identical shape |
+| Invalidation | any input change -> new POST -> new hash -> reset review + accept gates | identical |
+| Hash echo | client echoes the server-returned `reviewedContentHash`; NO browser recompute | identical |
+
+Both preview routes and both sign paths call the SAME internal render/normalize/hash function, so the
+two lanes cannot diverge on wording, normalization, or hash. Server is authoritative in both.
+
 ## 5. Hashes stored + what each proves
 
 | Hash | Over | Proves | Change |
@@ -107,10 +134,15 @@ the existing event columns signedAt/IP/UA/witness). Alternative considered: an a
 like `pdfKey`; rejected as heavier for a few-KB-per-record text with no shared-artifact benefit (the
 body is per-merchant, not a shared version).
 
-Privacy/retention (to the solicitor packet): `reviewedBody` duplicates the business's own
-contractual identity + full agreement text onto the immutable record; standard contractual necessity,
-retained for the life of the contract; it holds NO third-party PII (no IP/UA/witnessEmail: those stay
-in the event columns under the lane-2 tiering).
+Privacy/retention (CORRECTED, Codex gap 4): `reviewedBody` CONTAINS PERSONAL DATA: the signatory's
+typed name + role, and for a SOLE TRADER the business legal name is itself the individual's personal
+name. The prior "NO third-party PII" and "standard contractual necessity, retained for the life of
+the contract" claims are WITHDRAWN as pre-deciding a solicitor/privacy matter. Lawful basis,
+claims-period retention duration, data-subject access/export, erasure-restriction (whether/when a
+signed-contract record may be erased vs retained), and legal-hold treatment are RESERVED to the
+solicitor/privacy decision packet (§13). What this packet fixes technically: `reviewedBody` is the
+immutable pre-image of `reviewedContentHash` (it does not add IP/UA/witnessEmail, which stay in the
+event columns under the lane-2 tiering); its lawful-basis and retention are NOT decided here.
 
 Final migration column set (owner-confirm before implementation): `reviewedContentHash` (NOT NULL),
 `reviewedBody` (NOT NULL, immutable), `pdfHash` (NOT NULL). All ADD COLUMN on the empty (unapplied)
@@ -144,11 +176,13 @@ REMOVED from the new evidence path.
 - Caller inspection required before implementation: every `acceptContract` caller (onboarding
   `POST /contract/accept`; any staff/claim path), and the legacy `MerchantContract` flip (which may
   remain lenient for the OLD model but the NEW `MerchantAgreementRecord` must have real values).
-  Legacy v1 self-serve (no placeholders) STILL needs a real signer name + role on its evidence record.
+  The required signer name + role apply to the D65 (v2+) evidence path. Legacy v1 stays OUTSIDE that
+  path (§12): it writes the legacy `MerchantContract` (which has no D65 signer capture) as its honest
+  lesser-standard fallback, so it does NOT gain, nor claim, the D65 signer-name+role requirement.
 - Compatibility: no existing D65 records, so requiring the fields breaks no data; the change is a
   request-contract tightening surfaced to the merchant-web form.
 
-## 9. Both-lanes cross-check
+## 9. Both-lanes cross-check (D65 v2+ path; legacy v1 is §12, outside this path)
 
 | Aspect | Assisted (ceremony) | Self-serve (merchant portal) |
 |---|---|---|
@@ -176,13 +210,28 @@ The client resets the review + acceptance gates and re-fetches the current perso
 - IP / user-agent / witnessEmail remain WITHHELD from the ordinary evidence view (lane-2 tiering),
   reserved for the separately-gated SUPER_ADMIN/legal-dispute export (solicitor/privacy-approved).
 
-## 12. Compatibility
+## 12. Compatibility + legacy-v1 accepted object (CORRECTED, Codex gap 2)
 
-- Legacy v1 (no placeholders): personalised render is a no-op -> reviewedBody == canonical source ->
-  `reviewedContentHash == canonicalContentHash`; still requires a real signer name + role on its
-  evidence record. Prod self-serve fallback keeps working.
+The prior "legacy v1 reviewedBody == canonical source" was a FALSE PARITY: v1 (`LEGACY_CONTRACT_TEXT`)
+is a short flat terms text with NO signer/role/business/execution section, so a v1 "reviewedBody"
+would carry none of the personalised execution attestation the D65 evidence standard requires.
+
+ADJUDICATION: keep legacy v1 OUTSIDE the new D65 evidence path. When the served version is legacy
+v1 (the production self-serve fallback while v2 remains a pre-solicitor draft), signing produces ONLY
+the legacy `MerchantContract` row (status flip + signedAt + ipAddress + tcVersion) as its own,
+explicitly LESSER, honestly-labelled evidence: NO `MerchantAgreementRecord`, NO `reviewedBody`, NO
+`reviewedContentHash`, NO PDF. It does NOT claim D65 parity. The full D65 evidence path
+(personalised reviewedBody + hashes + PDF + record) applies to v2+ ONLY. When v2 is solicitor-
+approved and production-live, v1 is retired. Alternative considered (a deterministic v1 execution/
+attestation addition to force v1 into the D65 path): REJECTED as effort/risk on a contract being
+retired.
+
+This also resolves the storage-fail-closed rule (§16): the "no binding sign without full evidence"
+rule binds the D65 (v2+) path; the legacy-v1 path keeps its MerchantContract evidence and is not
+subject to the D65 PDF/record requirement.
+
 - No existing D65 records -> new NOT NULL columns + required fields break no data.
-- Legacy `MerchantContract` rows untouched (different model).
+- Legacy `MerchantContract` rows untouched (different model); v1 continues to write them.
 - Production legal gate unchanged.
 
 ## 13. Solicitor / legal questions (expanded per owner)
@@ -197,6 +246,23 @@ The client resets the review + acceptance gates and re-fetches the current perso
   UA/witnessing are evidence-only.
 - Is typed-name simple e-signature + this evidence pack sufficient execution?
 - Self-serve vs assisted: same evidence standard confirmed.
+- PERSONAL-DATA / RETENTION (added, Codex gap 4), RESERVED here (not pre-decided): the lawful basis
+  for storing `reviewedBody` (signatory personal data; sole-trader business name = personal name);
+  the claims-period retention duration for a signed-contract record; data-subject access/export of a
+  signed agreement; erasure-restriction (whether a signed-contract record is exempt from erasure and
+  on what basis); and legal-hold treatment during a dispute.
+- Legacy-v1 lesser evidence standard (§12): confirm keeping v1 outside the D65 evidence path (its
+  `MerchantContract`-only record) is an acceptable honest production fallback until v2 goes live.
+
+## 13b. Five-findings cross-check (Codex correction round 2)
+
+| # | Finding | Correction | Section |
+|---|---|---|---|
+| 1 | Self-serve signs binding with no PDF/record when storage off | D65 (v2+) fail-closed in shared envs; no bind without reviewedBody+PDF+record; test stub only | §16 |
+| 2 | Legacy-v1 false parity (reviewedBody==canonical gives no execution attestation) | v1 kept OUTSIDE the D65 path; MerchantContract-only, honestly lesser; no parity claim | §12 |
+| 3 | Only the admin preview defined | Added merchant-authenticated own-merchant POST preview; both lanes share one renderer/normalizer/hash; strict bodies, max lengths, auth/scope, rate limit, response, invalidation, echo | §4b |
+| 4 | "NO third-party PII" + pre-decided lawful-basis/retention | Withdrawn; reviewedBody IS personal data (signer + sole-trader); lawful basis/retention/access/erasure/legal-hold RESERVED to solicitor | §6, §11, §13 |
+| 5 | Stored pdfHash described as tamper detection | Full lifecycle: capture-at-sign, bind on record, re-hash on retrieval, fail-closed + audit on mismatch | §17 |
 
 ## 14. Rejected alternatives
 
@@ -217,8 +283,56 @@ The client resets the review + acceptance gates and re-fetches the current perso
    reviewed body.
 3. Confirm `reviewedBody` (immutable text column) as the exact-body preservation vs an R2 artifact.
 4. Confirm the one-body + one-evidence-block PDF composition + the template Execution trim (§7).
-5. Confirm the self-serve required signer-name+role contract + the Merchant Portal handoff scope (§8).
-6. The §13 solicitor questions (production gate stays until answered).
+5. Confirm the self-serve required signer-name+role contract + the Merchant Portal handoff scope (§8),
+   AND the merchant-authenticated preview route contract (§4b).
+6. Confirm the storage fail-closed rule for D65 v2+ signatures in shared environments (§16).
+7. Confirm keeping legacy v1 outside the D65 evidence path (MerchantContract-only fallback) (§12).
+8. Confirm the pdfHash capture + re-hash-on-retrieval verification lifecycle (§17; lane-2 implements
+   the retrieval check).
+9. The §13 solicitor questions incl. the reserved personal-data/retention set (production gate stays
+   until answered).
+
+## 16. Evidence-storage fail-closed (CORRECTED, Codex gap 1)
+
+Verified: the ceremony (`signAgreementInPerson` -> `renderAndStoreAgreementPdf`) ALREADY fails
+closed with `STORAGE_NOT_ENABLED` when storage is dark. But self-serve `acceptContract` with
+`STORAGE_ENABLED=false` sets `pdfKey=null`, STILL flips `contractStatus=SIGNED` + writes the
+`MERCHANT_CONTRACT_ACCEPTED` audit, and creates the `MerchantAgreementRecord` only `if (pdfKey)` ->
+a BINDING v2 signature can complete with NO PDF and NO evidence record. That is the gap.
+
+APPROVED D65 RULE: no binding D65 (v2+) signature may complete in a SHARED environment without the
+immutable `reviewedBody`, the PDF, and the `MerchantAgreementRecord` (all in one transaction). If
+storage is unavailable when signing a D65 version, the sign FAILS CLOSED (`STORAGE_NOT_ENABLED`)
+BEFORE any contractStatus flip or audit write; nothing is persisted. Test/local may inject a storage
+stub so the path runs end-to-end, but MUST NOT flip a binding SIGNED state without the full evidence;
+shared environments (staging/production) are never weakened. Legacy v1 (§12) is outside the D65 path
+and keeps its `MerchantContract` evidence, which needs no PDF.
+
+### Storage behavior table
+
+| Lane / version | Storage available | Storage unavailable (shared env) | Storage stub (test/local) |
+|---|---|---|---|
+| Assisted ceremony (v2+) | full evidence written | FAIL-CLOSED `STORAGE_NOT_ENABLED`, no flip/audit (already so) | stub -> full evidence path runs; still requires evidence to bind |
+| Self-serve (v2+) | full evidence written (FIX) | FAIL-CLOSED (FIX: today it wrongly flips SIGNED with no record) | stub -> full evidence path; no bind without evidence |
+| Self-serve legacy v1 | `MerchantContract` only (no PDF needed) | `MerchantContract` only (v1 not D65; not storage-gated) | same |
+
+## 17. PDF integrity verification lifecycle (CORRECTED, Codex gap 5)
+
+A stored hash ALONE is not tamper detection: tampering is only detectable if retrieved bytes are
+re-hashed and compared. Approved lifecycle:
+
+- CAPTURE: at sign time, the final PDF bytes are hashed (`pdfHash = sha256(pdfBytes)`) at the moment
+  they are produced and written to R2, and `pdfHash` is stored on the `MerchantAgreementRecord` IN
+  THE SAME sign transaction as `pdfKey`. Bytes hashed == bytes stored (no re-render between).
+- BIND: `pdfHash` + `pdfKey` are both on the immutable record; the record is the authority linking a
+  specific stored object to its expected hash.
+- VERIFY ON RETRIEVAL: every evidence download / presign-fetch (the lane-2 evidence-read path)
+  re-hashes the retrieved bytes and compares to the stored `pdfHash` BEFORE returning them.
+- FAIL-CLOSED + AUDIT ON MISMATCH: a mismatch REFUSES the download (fail-closed), writes an
+  integrity-failure audit event, and surfaces an ops/legal alert. The record is never silently
+  served as authentic when its bytes no longer match.
+- This lifecycle spans this packet (sign-time capture) + lane-2 (retrieval-time verification); lane-2
+  must implement the re-hash-on-retrieval, not just store the hash.
 
 Nothing implemented until this amended packet is approved; #516 remains held. On approval, #516 is
 reworked to this contract (POST personalised preview + normalized inputs + server-authoritative
