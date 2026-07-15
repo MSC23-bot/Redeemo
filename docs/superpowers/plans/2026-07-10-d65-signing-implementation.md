@@ -255,3 +255,71 @@ without changing the backend sign contract:
 
 No change to the sign service or route logic beyond the additive read route. The
 `LEGAL_REVIEW_REQUIRED` staging-only, DRAFT-watermarked posture is unchanged.
+
+## As-built addendum: personalised-agreement rework (PR #516, 2026-07-15)
+
+Binding authority: `docs/superpowers/specs/2026-07-15-d65-legal-object-decision.md` (owner-approved,
+merged via #533). It corrected a legal defect the prior addendum's full-text-review model still
+carried: the ceremony reviewed the RAW canonical template (literal `{{placeholders}}`) while the
+signed PDF substituted real values, and `contentHash` hashed the UNSUBSTITUTED source. The legally
+accepted object is now the merchant-PERSONALISED contractual body, reviewed + hashed + immutably
+preserved. This PR reworks the ASSISTED lane + the shared backend + the migration; the merchant-web
+self-serve FORM and the lane-2 server-proxied PDF retrieval are separate sessions.
+
+- **Shared render/normalize/hash module** (`src/api/merchant/agreement/reviewedBody.ts`, single source
+  of truth). Deterministic, server-side, golden-testable: NFC + collapse-internal-whitespace + trim
+  normalization of the signer name/role; resolves the CONTRACTUAL-PARTY + SIGNATORY + KNOWN-BEFORE
+  FACT placeholders (business identity, signer name/role, agreementVersion, canonical contentHash,
+  method) into the reviewed body; produces `reviewedBody` + `reviewedContentHash = sha256(reviewedBody)`.
+  EVENT-CREATED evidence (signedAt/IP/UA/witnessing) is never in the reviewed body. The admin preview,
+  the admin sign path, the self-serve accept path, and the PDF body all call this one function, so the
+  lanes cannot diverge.
+- **Template trim + version bump** (decision doc §7). The v2 draft template's Execution section was
+  trimmed of the event-created lines (`{{signedAt}}` / `{{ipAddress}}` / `{{userAgent}}` /
+  `{{actorAdminName}}`); the embedded `agreement-v2-source.ts` was regenerated via
+  `prisma/_gen-agreement-source.ts`, and the draft id was bumped `2.0-draft` to `2.1-draft` so the
+  registry hash updates coherently (append-never-mutate; safe while pre-solicitor and unsigned). The
+  append-never-mutate guard test recomputes green.
+- **One-block PDF** (`src/api/merchant/agreement/pdf.ts`). The renderer now renders the exact
+  `reviewedBody` as the document body and appends exactly ONE "Signing evidence" block containing ONLY
+  the event-created values; it no longer substitutes placeholders and no longer re-lists the
+  contractual facts in a second table (the pre-rework defect where the evidence was composed twice and
+  could diverge). `pdfHash = sha256(the exact uploaded bytes)` is captured at upload time.
+- **Reviewed-body hash bind on signing** (`signAgreementInPerson`). The sign body gains an echoed
+  `reviewedContentHash`. The server RE-DERIVES the personalised body from the same normalized inputs,
+  recomputes the hash, and 409s a NEW `AGREEMENT_REVIEW_HASH_MISMATCH` (added to `errors.ts`) if the
+  echo differs, BEFORE any PDF render/upload, DB transaction, contractStatus flip, or audit. The
+  truthful sequence is preserved: produce body + PDF + hashes, upload the exact bytes to a fresh R2
+  key, then ONE DB transaction storing `reviewedBody` / `reviewedContentHash` / `pdfKey` / `pdfHash`
+  plus the status flip and audit, with compensating `deleteObject` on tx failure and a high-severity
+  reconciliation warning if cleanup also fails.
+- **Admin preview route** (`POST /api/v1/admin/merchants/:id/agreement/preview`). Merchant-scoped,
+  gated `merchant:sign-agreement` + `assertFieldPreLiveScope`, strict body `{ signerName,
+  signerRoleConfirmation }` (trim, max 200 each), a REQUIRED bounded per-caller rate limit
+  (`agreementPreviewLimiter`: 60/admin/min + 120/IP/min, env-overridable), returning
+  `{ version, personalisedText, reviewedContentHash, canonicalContentHash, isDraft, gated }`. Signer
+  PII travels in the POST body, never a URL/query.
+- **Self-serve backend split** (`acceptContract`, decision doc §8/§12/§16). Two lanes by SERVED
+  version: the legacy v1 path stays OUTSIDE D65 (MerchantContract only, no PDF, no record, no signer
+  requirement, not storage-gated, its honest lesser fallback); the D65 v2+ path REQUIRES a real typed
+  signer name + role, FAILS CLOSED when storage is dark, and writes the same personalised
+  reviewedBody + reviewedContentHash + pdfHash evidence record via the shared module. The merchant-web
+  FORM must start sending the signer name + role for the v2+ path; that UI change is the Merchant
+  Portal session's, and it only affects staging today (production serves legacy v1).
+- **Migration + schema** (create-only, UNAPPLIED). A NEW additive migration
+  (`20260715000000_d65_agreement_reviewed_body`) adds `reviewedContentHash` (NOT NULL),
+  `reviewedBody` (NOT NULL, immutable), and `pdfHash` (NOT NULL) to `MerchantAgreementRecord` (still
+  empty, so the NOT NULL adds are safe). The merged D65 migration is not edited. `prisma validate`
+  clean; the client is regenerated.
+- **Admin ceremony UI** (`apps/admin-web`). POST-preview lifecycle: the owner enters name + role
+  FIRST, GENERATES the personalised body (POST preview), reviews the COMPLETE personalised body with
+  an honest scroll-to-end gate over it, attests authority + accepts terms, sees a SEPARATE pre-sign
+  NOTICE of what evidence WILL be recorded (not completed facts), and signs echoing the version + the
+  server-returned reviewedContentHash. Changing any contractual input invalidates the previewed body
+  and resets the gates; a stale `AGREEMENT_REVIEW_HASH_MISMATCH` or `AGREEMENT_VERSION_MISMATCH` forces
+  a regenerate + re-review (never a silent re-sign). `NamedGateBanner` gained the new-code copy.
+
+The `AGREEMENT_LEGAL_REVIEW_REQUIRED` production gate is UNCHANGED, and every write path here is INERT
+until the owner-gated migration window (the `MerchantAgreementRecord` table is unapplied). The GET
+`/api/v1/admin/agreement/current` platform-global read remains but is no longer used by the ceremony
+(the ceremony now uses the personalised POST preview).
