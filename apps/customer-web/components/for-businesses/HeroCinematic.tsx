@@ -42,7 +42,7 @@ const STAGE_H = 941
 // and to clear the right-hand signal rail.
 const CLUSTER_W = 1268
 const CLUSTER_H = 763
-const CLUSTER_DESKTOP = { x: 516, y: 392, s: 0.645 }
+const CLUSTER_DESKTOP = { x: 610, y: 340, s: 0.645 }
 
 // Phone screen: content design space (800 wide, height matches quad aspect)
 const PHONE_W = 800
@@ -74,12 +74,20 @@ const PORTAL_BG = '#F8F7F4'
 const PANE = { left: 328, top: 79, width: 1386, height: 1005 }
 const PANE_STRIP_H = 1761 // stitched dashboard content strip height (logical)
 
-// ── Growth signal rail ────────────────────────────────────────────────────────
-// The funnel, in order. Owner 2026-07-16: the chips were floating with no
-// order, so they now stack as a single structured rail (consistent width,
-// even spacing, right-aligned) rather than scattered anchors.
+// ── Growth signal cards ───────────────────────────────────────────────────────
+// The funnel, in order. Owner 2026-07-16: the chips sit AROUND the devices in
+// the scene's own perspective (not a flat right rail), so they read as part of
+// the shot. Each has a stage-space anchor (sx, sy in the 1672x941 design
+// space, card centre) and shares CARD_TRANSFORM: a yaw/pitch/roll that matches
+// the measured device tilt (right side nearer camera, slight pitch, ~7deg
+// roll). Anchors are tuned to frame the devices without covering the screens,
+// the faces, or the headline.
+
+const CARD_TRANSFORM = 'perspective(1500px) rotateY(-17deg) rotateX(6deg) rotateZ(-2.5deg)'
 
 type Signal = {
+  sx: number
+  sy: number
   kicker: string
   title: string
   sub: string
@@ -88,12 +96,14 @@ type Signal = {
   band: [number, number]
 }
 
+// Two cards float above-right of the phone, three rest along the counter
+// below the devices; none covers a screen or a face.
 const SIGNALS: Signal[] = [
-  { kicker: 'Offer live', title: '2 for 1 mains', sub: 'Visible to customers nearby', icon: 'live', band: [0.05, 0.14] },
-  { kicker: 'Time-limited', title: 'Lunch rush · 20% off', sub: '', icon: 'clock', countdown: true, band: [0.18, 0.27] },
-  { kicker: 'New customer', title: 'A customer just found you', sub: 'Browsing nearby · Food & Drink', icon: 'live', band: [0.31, 0.4] },
-  { kicker: 'At the till', title: 'Redemption confirmed', sub: 'Code R7X4 KM2P · logged', icon: 'tick', band: [0.44, 0.53] },
-  { kicker: 'Coming back', title: 'A regular in the making', sub: '3rd visit this month', icon: 'repeat', band: [0.57, 0.66] },
+  { sx: 1450, sy: 222, kicker: 'Offer live', title: '2 for 1 mains', sub: 'Visible to customers nearby', icon: 'live', band: [0.05, 0.14] },
+  { sx: 1492, sy: 404, kicker: 'Time-limited', title: 'Lunch rush · 20% off', sub: '', icon: 'clock', countdown: true, band: [0.18, 0.27] },
+  { sx: 1358, sy: 872, kicker: 'New customer', title: 'A customer just found you', sub: 'Browsing nearby · Food & Drink', icon: 'live', band: [0.31, 0.4] },
+  { sx: 1014, sy: 878, kicker: 'At the till', title: 'Redemption confirmed', sub: 'Code R7X4 KM2P · logged', icon: 'tick', band: [0.44, 0.53] },
+  { sx: 662, sy: 872, kicker: 'Coming back', title: 'A regular in the making', sub: '3rd visit this month', icon: 'repeat', band: [0.57, 0.66] },
 ]
 
 const COUNTDOWN_START = 2 * 3600 + 14 * 60 + 33
@@ -366,40 +376,53 @@ function CountdownPill() {
   )
 }
 
-function SignalChip({ signal, appear, float }: { signal: Signal; appear?: MotionValue<number>; float: boolean }) {
+// The card body (used flat on mobile, perspective-tilted on desktop).
+function SignalChip({ signal, float }: { signal: Signal; float: boolean }) {
   return (
-    <motion.div aria-hidden="true" className="pointer-events-none" style={appear ? { opacity: appear } : undefined}>
-      <motion.div
-        animate={float ? { y: [0, -6, 0] } : undefined}
-        transition={float ? { duration: 5.6, repeat: Infinity, ease: 'easeInOut', delay: signal.band[0] * 6 } : undefined}
-        className="flex items-start gap-3 rounded-2xl border border-white/14 bg-[#0A1436]/66 px-4 py-3.5 backdrop-blur-md"
-        style={{ boxShadow: '0 18px 48px rgba(0,4,20,0.45), inset 0 1px 0 rgba(255,255,255,0.08)' }}
-      >
-        <SignalIcon icon={signal.icon} />
-        <span className="min-w-0">
-          <span className="block text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">{signal.kicker}</span>
-          <span className="block text-[14px] font-bold leading-snug text-white">{signal.title}</span>
-          {signal.countdown ? <CountdownPill /> : <span className="block text-[12px] leading-snug text-white/55">{signal.sub}</span>}
-        </span>
-      </motion.div>
+    <motion.div
+      animate={float ? { y: [0, -6, 0] } : undefined}
+      transition={float ? { duration: 5.6, repeat: Infinity, ease: 'easeInOut', delay: signal.band[0] * 6 } : undefined}
+      className="flex items-start gap-3 rounded-2xl border border-white/14 bg-[#0A1436]/72 px-4 py-3.5 backdrop-blur-md"
+      style={{ boxShadow: '0 24px 60px rgba(0,4,20,0.5), inset 0 1px 0 rgba(255,255,255,0.09)' }}
+    >
+      <SignalIcon icon={signal.icon} />
+      <span className="min-w-0">
+        <span className="block text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">{signal.kicker}</span>
+        <span className="block text-[14px] font-bold leading-snug text-white">{signal.title}</span>
+        {signal.countdown ? <CountdownPill /> : <span className="block text-[12px] leading-snug text-white/55">{signal.sub}</span>}
+      </span>
     </motion.div>
   )
 }
 
-// The structured desktop rail: one aligned column, right side, evenly spaced.
-function DesktopSignalRail({ progress, float }: { progress: MotionValue<number>; float: boolean }) {
+// Desktop: one card, anchored in stage space and tilted into the scene's
+// perspective. Static wrappers carry the centring + tilt (framer rewrites the
+// transform on animated nodes), the motion node only fades it in.
+function DesktopSignal({ signal, m, progress, float }: { signal: Signal; m: StageMetrics; progress: MotionValue<number>; float: boolean }) {
+  const appear = useScrollLinked(useTransform(progress, [signal.band[0], signal.band[1]], [0, 1]))
+  const left = m.ox + signal.sx * m.s
+  const top = m.oy + signal.sy * m.s
   return (
-    <div className="pointer-events-none absolute right-[1.4vw] top-1/2 z-10 flex -translate-y-1/2 flex-col gap-3.5" style={{ width: 244 }}>
-      {SIGNALS.map((sig) => (
-        <RailChip key={sig.kicker} signal={sig} progress={progress} float={float} />
-      ))}
+    <div className="pointer-events-none absolute z-10" style={{ left, top, width: 220 }}>
+      <div style={{ transform: 'translate(-50%, -50%)' }}>
+        <div style={{ transform: CARD_TRANSFORM, transformOrigin: '50% 50%' }}>
+          <motion.div style={{ opacity: appear }}>
+            <SignalChip signal={signal} float={float} />
+          </motion.div>
+        </div>
+      </div>
     </div>
   )
 }
 
-function RailChip({ signal, progress, float }: { signal: Signal; progress: MotionValue<number>; float: boolean }) {
-  const appear = useScrollLinked(useTransform(progress, [signal.band[0], signal.band[1]], [0, 1]))
-  return <SignalChip signal={signal} appear={appear} float={float} />
+function DesktopSignalLayer({ m, progress, float }: { m: StageMetrics; progress: MotionValue<number>; float: boolean }) {
+  return (
+    <>
+      {SIGNALS.map((sig) => (
+        <DesktopSignal key={sig.kicker} signal={sig} m={m} progress={progress} float={float} />
+      ))}
+    </>
+  )
 }
 
 // ── Shared copy column (approved copy; unchanged) ─────────────────────────────
@@ -599,11 +622,11 @@ function HeroDesktop({ registerUrl }: { registerUrl: string }) {
           }}
         />
 
-        {/* Growth signals: one structured rail on the right */}
-        <DesktopSignalRail progress={scrollYProgress} float={!reduceMotion} />
+        {/* Growth signals: perspective-tilted cards framing the devices */}
+        {m ? <DesktopSignalLayer m={m} progress={scrollYProgress} float={!reduceMotion} /> : null}
 
-        <motion.div style={{ opacity: reduceMotion ? 1 : copyOpacity, y: reduceMotion ? 0 : copyY }} className="relative mx-auto flex h-full max-w-7xl items-center px-6 lg:px-10">
-          <div className="max-w-[620px] pt-[80px]">
+        <motion.div style={{ opacity: reduceMotion ? 1 : copyOpacity, y: reduceMotion ? 0 : copyY }} className="relative mx-auto flex h-full max-w-7xl items-start px-6 lg:px-10">
+          <div className="max-w-[540px] pt-[120px]">
             <HeroCopy registerUrl={registerUrl} />
           </div>
         </motion.div>
@@ -658,6 +681,7 @@ function HeroStacked({ registerUrl }: { registerUrl: string }) {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-40px' }}
             transition={{ duration: 0.45, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] }}
+            aria-hidden="true"
           >
             <SignalChip signal={sig} float={false} />
           </motion.div>
