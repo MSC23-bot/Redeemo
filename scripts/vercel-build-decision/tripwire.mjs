@@ -21,6 +21,14 @@ export function isAccountedFor(commitSha, productionSha, cwd) {
   return isAncestor(commitSha, productionSha, cwd);
 }
 
+/** True iff `sha` lies on the FIRST-PARENT history of `mainRef` (the chain the tripwire walks). */
+export function isOnFirstParent(sha, mainRef, cwd) {
+  if (!SHA_RE.test(sha)) return false;
+  const r = git(['rev-list', '--first-parent', mainRef], cwd);
+  if (!r.ok) return false;
+  return r.stdout.split('\n').map((s) => s.trim()).includes(sha);
+}
+
 /**
  * Enumerate the RELEVANT main commits for the given web keys in (baseline, mainRef].
  * @returns {{ok: true, commits: {sha: string, keys: string[]}[]}
@@ -81,6 +89,23 @@ export function runTripwire({ projectKey, productionSha, baseline, mainRef = 'ma
     // A production deployment whose SHA is not on main is unexpected (manual promote of an
     // off-main build); surface it rather than silently trusting it.
     alerts.push({ type: 'production-sha-not-on-main', productionSha });
+  }
+
+  // A supplied baseline is only an ENUMERATION WINDOW optimisation. If it is not trustworthy it
+  // can hide an undeployed relevant commit that sits between production and the baseline (Codex
+  // false-PASS: production=C1, undeployed relevant C2, baseline=later tip C3 => checked:0). It
+  // must therefore: exist, sit on the applicable main first-parent history, and already be an
+  // ancestor of (or equal to) production. Any failure => ALERT BEFORE enumeration.
+  if (baseline !== undefined && baseline !== null) {
+    let baselineAlert = null;
+    if (!SHA_RE.test(baseline)) baselineAlert = { type: 'invalid-baseline-sha', baseline };
+    else if (!objectExists(baseline, cwd)) baselineAlert = { type: 'baseline-not-in-repo', baseline };
+    else if (!isOnFirstParent(baseline, mainSha, cwd)) baselineAlert = { type: 'baseline-not-on-main-first-parent', baseline };
+    else if (!isAncestor(baseline, productionSha, cwd)) baselineAlert = { type: 'baseline-ahead-of-production', baseline, productionSha };
+    if (baselineAlert) {
+      alerts.push(baselineAlert);
+      return { ok: false, alert: true, alerts };
+    }
   }
 
   const rel = relevantCommits({ baseline, mainRef, keys: [projectKey], cwd });

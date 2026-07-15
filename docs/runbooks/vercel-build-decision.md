@@ -66,12 +66,17 @@ never lossily decoded. Lockfile changes always BUILD all three (we never try to 
 change is web-irrelevant). `tests/fixtures/` is a BUILD trigger because web-app test files
 import shared fixtures and `next build` type-checks them (the web apps' tsconfig includes
 `**/*.ts` with no `ignoreBuildErrors`); the rest of `tests/` stays SAFE. `architecture-guard.test.mjs`
-FAILS if any web app's build-reachable code imports a still-SAFE location, keeping this policy
-honest as the code evolves. The guard resolves relative imports, tsconfig `paths`/`baseUrl`/
-`extends`, package `imports`, and in-app symlinks to their repo paths and compares each against
-`classifyPath` (an import into a BUILD location, e.g. `tests/fixtures/`, is fine; an import into
-a SAFE location is a violation). The diff parser enforces the exact `(status NUL path NUL)`
-grammar: a missing or extra terminal NUL is an anomaly => BUILD. The tripwire (section 7) shares this exact policy module, so the two
+keeps this policy honest as the code evolves. It FAILS if any of these build-reachable
+dependency seams in a web app resolves to a SAFE-classified location: JS/TS relative imports;
+JS/TS aliases resolved via tsconfig `paths` + `baseUrl` + RELATIVE `extends`; package.json
+`imports` subpaths; in-app symlinks; and CSS/SCSS `@import` / `url(...)` relative escapes. It
+compares each resolved repo path against `classifyPath` (a dependency on a BUILD location, e.g.
+`tests/fixtures/`, is fine; a dependency on a SAFE location is a violation). Two scope limits are
+enforced rather than assumed: a BARE-package tsconfig `extends` (which cannot be resolved to a
+node_modules config here) is itself reported as a violation, so a future introduction fails CI;
+and the web apps' `next.config` is verified to define no `webpack` alias / `transpilePackages` /
+`modularizeImports` seam (checked during review; none today). The diff parser enforces the exact
+`(status NUL path NUL)` grammar: a missing or extra terminal NUL is an anomaly => BUILD. The tripwire (section 7) shares this exact policy module, so the two
 cannot drift.
 
 ## 4. Provider configuration per project (owner-gated; TWO settings per flip)
@@ -146,14 +151,23 @@ NOT call the Vercel API and reads NO token.
 node scripts/vercel-production-tripwire.mjs \
   --key <customer-web|merchant-web|admin-web> \
   --production-sha <40-hex> \
-  [--baseline <40-hex last-verified main SHA>] [--main-ref main] [--repo <path>]
+  [--baseline <40-hex>] [--main-ref main] [--repo <path>]
 ```
+
+The optional `--baseline` is only an enumeration-window optimisation; it is NOT trusted on the
+operator's word. The script itself verifies that the baseline (a) is a valid existing commit,
+(b) lies on the applicable main first-parent history, and (c) is already an ancestor of (or equal
+to) the production SHA. If any of those fail, it ALERTs BEFORE enumerating, because a baseline
+ahead of production would otherwise skip commits between production and the baseline and hide an
+undeployed relevant one. Omit `--baseline` to check the complete available main history (always
+safe).
 
 Exit 0 = PASS; exit 2 = ALERT (roll that project back to Automatic + re-enable native skip,
 then investigate); exit 1 = usage error. ALERT conditions: missing/invalid production SHA,
-production SHA absent from the repo, production SHA not on main, git enumeration failure, or any
-relevant commit not contained in the production SHA. Run against a FULL clone of the repo (the
-tripwire needs real history), never the shallow build container.
+production SHA absent from the repo, production SHA not on main, an untrusted baseline
+(missing/off-first-parent/ahead-of-production), git enumeration failure, or any relevant commit
+not contained in the production SHA. Run against a FULL clone of the repo (the tripwire needs
+real history), never the shallow build container.
 
 Obtaining the production SHA (operator step; read-only). Either:
 

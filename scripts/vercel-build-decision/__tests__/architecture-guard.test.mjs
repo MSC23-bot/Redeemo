@@ -18,6 +18,7 @@ import { KNOWN_WEB_APPS, classifyPath } from '../policy.mjs';
 
 const REPO = repoRoot(process.cwd()) || process.cwd();
 const SRC_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
+const STYLE_EXT = new Set(['.css', '.scss', '.sass', '.less']);
 const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', 'build', 'coverage', '.turbo', '.vercel']);
 
 function walk(dir, acc = { files: [], symlinks: [] }) {
@@ -31,10 +32,34 @@ function walk(dir, acc = { files: [], symlinks: [] }) {
       if (!SKIP_DIRS.has(e.name)) walk(full, acc);
     } else if (e.isFile()) {
       const dot = e.name.lastIndexOf('.');
-      if (dot >= 0 && SRC_EXT.has(e.name.slice(dot))) acc.files.push(full);
+      const ext = dot >= 0 ? e.name.slice(dot) : '';
+      if (SRC_EXT.has(ext) || STYLE_EXT.has(ext)) acc.files.push(full);
     }
   }
   return acc;
+}
+
+// Stylesheet dependency specifiers: @import "..." and url(...). Only RELATIVE specifiers can
+// escape into the repo; bare (tailwindcss), absolute web ("/fonts/..."), data:, and http(s)
+// are not filesystem escapes and are ignored by the caller.
+const CSS_PATTERNS = [
+  /@import\s+['"]([^'"]+)['"]/g,
+  /url\(\s*['"]?([^'")]+?)['"]?\s*\)/g,
+];
+function cssSpecifiers(src) {
+  const clean = src.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const found = new Set();
+  for (const re of CSS_PATTERNS) {
+    let m;
+    re.lastIndex = 0;
+    while ((m = re.exec(clean)) !== null) found.add(m[1].trim());
+  }
+  return [...found];
+}
+
+function extOf(file) {
+  const dot = file.lastIndexOf('.');
+  return dot >= 0 ? file.slice(dot) : '';
 }
 
 function stripComments(src) {
@@ -76,26 +101,34 @@ function loadTsPathConfig(appDir, seen = new Set()) {
 
 function loadTsconfigChain(tsconfigPath, seen) {
   if (!tsconfigPath || seen.has(tsconfigPath) || !existsSync(tsconfigPath)) {
-    return { baseUrlAbs: dirname(tsconfigPath || '.'), paths: {} };
+    return { baseUrlAbs: dirname(tsconfigPath || '.'), paths: {}, bareExtends: null };
   }
   seen.add(tsconfigPath);
   let cfg;
-  try { cfg = parseJsonc(readFileSync(tsconfigPath, 'utf8')); } catch { return { baseUrlAbs: dirname(tsconfigPath), paths: {} }; }
+  try { cfg = parseJsonc(readFileSync(tsconfigPath, 'utf8')); } catch { return { baseUrlAbs: dirname(tsconfigPath), paths: {}, bareExtends: null }; }
   const dir = dirname(tsconfigPath);
 
-  let inherited = { baseUrlAbs: dir, paths: {} };
-  if (typeof cfg.extends === 'string' && cfg.extends.startsWith('.')) {
-    // Relative extends. (Bare-package extends is not resolved here; the app tsconfigs do not use
-    // it, and any real alias defined in the app tsconfig is still fully resolved below.)
-    let ext = resolve(dir, cfg.extends);
-    if (!ext.endsWith('.json')) ext += '.json';
-    inherited = loadTsconfigChain(ext, seen);
+  let inherited = { baseUrlAbs: dir, paths: {}, bareExtends: null };
+  let bareExtends = null;
+  if (typeof cfg.extends === 'string') {
+    if (cfg.extends.startsWith('.')) {
+      // Relative extends: fully resolvable, so follow it and merge.
+      let ext = resolve(dir, cfg.extends);
+      if (!ext.endsWith('.json')) ext += '.json';
+      inherited = loadTsconfigChain(ext, seen);
+    } else {
+      // Bare-package extends (e.g. "@tsconfig/next"): we cannot resolve a node_modules config
+      // here, so we cannot PROVE it introduces no SAFE-escaping alias. Record it; scanApp turns
+      // it into a violation so a future introduction fails CI (rather than being silently
+      // covered by the "every build-reachable dependency" claim).
+      bareExtends = cfg.extends;
+    }
   }
 
   const co = cfg.compilerOptions || {};
   const paths = { ...inherited.paths, ...(co.paths || {}) };
   const baseUrlAbs = co.baseUrl !== undefined ? resolve(dir, co.baseUrl) : (co.paths ? dir : inherited.baseUrlAbs);
-  return { baseUrlAbs, paths };
+  return { baseUrlAbs, paths, bareExtends: bareExtends || inherited.bareExtends };
 }
 
 function loadPkgImports(appDir) {
@@ -161,11 +194,22 @@ function scanApp({ appDir, repo, key }) {
   const pkgImports = loadPkgImports(appDir);
   const { files, symlinks } = walk(appDir);
   const violations = [];
+
+  // A bare-package tsconfig `extends` we cannot resolve is an UNPROVEN seam: it could define a
+  // SAFE-escaping path alias. Fail rather than silently assume it is clean.
+  if (cfg.bareExtends) {
+    violations.push(`apps/${key}: tsconfig extends a bare package "${cfg.bareExtends}" that cannot be resolved to prove it defines no SAFE-escaping path alias`);
+  }
+
   for (const file of files) {
     const fileDir = dirname(file);
-    for (const spec of specifiers(readFileSync(file, 'utf8'))) {
-      // Candidate absolute targets this specifier could resolve to.
-      const targets = spec.startsWith('.') ? [resolve(fileDir, spec)] : aliasTargets(spec, cfg, pkgImports, appDir);
+    const isStyle = STYLE_EXT.has(extOf(file));
+    // CSS: only relative @import/url can escape into the repo. JS/TS: relative + resolved aliases.
+    const specs = isStyle ? cssSpecifiers(readFileSync(file, 'utf8')) : specifiers(readFileSync(file, 'utf8'));
+    for (const spec of specs) {
+      const targets = spec.startsWith('.')
+        ? [resolve(fileDir, spec)]
+        : (isStyle ? [] : aliasTargets(spec, cfg, pkgImports, appDir));
       for (const target of targets) {
         if (!escapesApp(appDir, target)) continue; // stays inside the app
         const targetRepoRel = relative(repo, target).split(sep).join('/');
@@ -196,7 +240,7 @@ function scanApp({ appDir, repo, key }) {
 // ---------------- Live-repo assertions ----------------
 
 for (const app of KNOWN_WEB_APPS) {
-  test(`apps/${app}: no build-reachable import (relative OR resolved alias) couples to a SAFE location`, () => {
+  test(`apps/${app}: no build-reachable dependency (relative/alias import, CSS @import/url, symlink, bare-extends) couples to a SAFE location`, () => {
     const appDir = resolve(REPO, 'apps', app);
     if (!existsSync(appDir)) return; // app not present in this checkout
     assert.ok(walk(appDir).files.length > 0, `expected source files under apps/${app}`);
@@ -304,6 +348,41 @@ test('SYMLINK seam: an in-app symlink to root src/ is flagged', () => {
   assert.equal(violations.length, 1, JSON.stringify(violations));
   assert.match(violations[0], /symlink/);
   assert.match(violations[0], /src/);
+});
+
+test('CSS @import escaping into root src/ is flagged', () => {
+  const { repo, appDir } = tmpApp();
+  writeFileSync(join(appDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: {} }));
+  writeFileSync(join(appDir, 'lib', 'styles.css'), `@import '../../../src/shared.css';\n.a { color: red; }\n`);
+  const violations = scanApp({ appDir, repo, key: 'merchant-web' });
+  assert.equal(violations.length, 1, JSON.stringify(violations));
+  assert.match(violations[0], /src\/shared\.css/);
+});
+
+test('CSS url() escaping into root src/ is flagged; bare/absolute/tailwind imports are NOT', () => {
+  const { repo, appDir } = tmpApp();
+  writeFileSync(join(appDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: {} }));
+  writeFileSync(join(appDir, 'lib', 'a.css'),
+    `@import "tailwindcss";\n@font-face { src: url('/fonts/x.ttf'); }\n.b { background: url(../../../src/bg.png); }\n`);
+  const violations = scanApp({ appDir, repo, key: 'merchant-web' });
+  assert.equal(violations.length, 1, JSON.stringify(violations));
+  assert.match(violations[0], /src\/bg\.png/);
+});
+
+test('bare-package tsconfig extends is flagged (future introduction fails CI)', () => {
+  const { repo, appDir } = tmpApp();
+  writeFileSync(join(appDir, 'tsconfig.json'), JSON.stringify({ extends: '@tsconfig/next/tsconfig.json', compilerOptions: {} }));
+  writeFileSync(join(appDir, 'lib', 'a.ts'), 'export const a = 1;');
+  const violations = scanApp({ appDir, repo, key: 'merchant-web' });
+  assert.ok(violations.some((v) => /bare package "@tsconfig\/next/.test(v)), JSON.stringify(violations));
+});
+
+test('relative tsconfig extends is NOT flagged as bare (it is resolved)', () => {
+  const { repo, appDir } = tmpApp();
+  writeFileSync(join(appDir, 'tsconfig.base.json'), JSON.stringify({ compilerOptions: { paths: { '@/*': ['./*'] } } }));
+  writeFileSync(join(appDir, 'tsconfig.json'), JSON.stringify({ extends: './tsconfig.base.json' }));
+  writeFileSync(join(appDir, 'lib', 'a.ts'), 'export const a = 1;');
+  assert.deepEqual(scanApp({ appDir, repo, key: 'merchant-web' }), []);
 });
 
 test('alias into a BUILD-classified location (tests/fixtures) is NOT a violation', () => {

@@ -137,6 +137,62 @@ test('genuine --no-ff merge introducing an app file is a relevant commit (ALERT 
   assert.equal(deployed.ok, true, JSON.stringify(deployed.alerts));
 });
 
+// ---- Finding: an untrusted supplied baseline must not hide an undeployed relevant commit ----
+
+// Scenario: production=C1, undeployed admin change C2, later docs tip C3.
+function baselineScenario(r) {
+  write(r, 'package.json', '{"name":"root","workspaces":["apps/*"]}');
+  write(r, 'apps/admin-web/x', '1');
+  const c1 = commit(r, 'C1 seed (production)');
+  write(r, 'apps/admin-web/feature.tsx', '1');
+  const c2 = commit(r, 'C2 admin (undeployed, relevant)');
+  write(r, 'docs/a.md', '1');
+  const c3 = commit(r, 'C3 docs (later main tip)');
+  return { c1, c2, c3 };
+}
+
+test('BASELINE AHEAD of production => ALERT before enumeration (hidden undeployed commit)', () => {
+  const r = repo(); const { c1, c3 } = baselineScenario(r);
+  const res = runTripwire({ projectKey: 'admin-web', productionSha: c1, baseline: c3, mainRef: 'main', cwd: r });
+  assert.equal(res.alert, true);
+  assert.equal(res.ok, false);
+  assert.ok(res.alerts.some((a) => a.type === 'baseline-ahead-of-production'), JSON.stringify(res.alerts));
+});
+
+test('no-baseline: complete main history is checked (undeployed commit IS caught)', () => {
+  const r = repo(); const { c1, c2 } = baselineScenario(r);
+  const res = runTripwire({ projectKey: 'admin-web', productionSha: c1, mainRef: 'main', cwd: r });
+  assert.equal(res.alert, true);
+  assert.ok(res.alerts.some((a) => a.type === 'unaccounted-relevant-commits' && a.commits.includes(c2)));
+});
+
+test('absent baseline object => ALERT (baseline-not-in-repo)', () => {
+  const r = repo(); const { c1 } = baselineScenario(r);
+  const res = runTripwire({ projectKey: 'admin-web', productionSha: c1, baseline: 'a'.repeat(40), mainRef: 'main', cwd: r });
+  assert.equal(res.alert, true);
+  assert.ok(res.alerts.some((a) => a.type === 'baseline-not-in-repo'));
+});
+
+test('off-main / non-first-parent baseline => ALERT (baseline-not-on-main-first-parent)', () => {
+  const r = repo(); const { c1 } = baselineScenario(r);
+  // A commit on a side branch off C1 is not on main's first-parent history.
+  sh(r, ['checkout', '-q', '-b', 'side', c1]);
+  write(r, 'apps/admin-web/side.tsx', '1');
+  const sideSha = commit(r, 'off-main commit');
+  sh(r, ['checkout', '-q', 'main']);
+  const res = runTripwire({ projectKey: 'admin-web', productionSha: c1, baseline: sideSha, mainRef: 'main', cwd: r });
+  assert.equal(res.alert, true);
+  assert.ok(res.alerts.some((a) => a.type === 'baseline-not-on-main-first-parent'), JSON.stringify(res.alerts));
+});
+
+test('valid baseline already accounted for by production => PASS', () => {
+  const r = repo(); const { c1, c3 } = baselineScenario(r);
+  // production at the tip (c3) accounts for everything; baseline c1 is a valid ancestor.
+  const res = runTripwire({ projectKey: 'admin-web', productionSha: c3, baseline: c1, mainRef: 'main', cwd: r });
+  assert.equal(res.ok, true, JSON.stringify(res.alerts));
+  assert.equal(res.alert, false);
+});
+
 // Root-commit handling: the first commit has no parent; commitChangedRaw must diff it against
 // the empty tree so its files are visible.
 test('root commit files are visible to the tripwire (empty-tree base)', () => {
