@@ -1,15 +1,10 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import dynamic from 'next/dynamic'
+import { HeroCinematic } from './HeroCinematic'
 import { PortalShowcaseSection } from './PortalShowcaseSection'
 import { MerchantInterestSection } from './MerchantInterestSection'
 import { merchantPortalRegisterUrl } from '@/lib/prelaunch'
-import { BrandStop } from '@/components/ui/BrandStop'
-
-// The merchant page's own 3D scene: drifting die-cut voucher cards (owner
-// 2026-07-13: business-relevant WebGL, not the ribbon). Client-only.
-const VoucherCards3D = dynamic(() => import('./VoucherCards3D').then((m) => m.VoucherCards3D), { ssr: false })
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -105,120 +100,9 @@ export function ForBusinessesContent() {
 
   return (
     <>
-      {/* ── 1. Hero ── */}
-      <section
-        className="relative overflow-hidden -mt-[80px] pt-[176px] pb-24 md:pt-[208px] md:pb-32 px-6"
-        style={{ background: '#010C35' }}
-      >
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background:
-              'radial-gradient(900px circle at 85% -10%, rgba(226,12,4,0.30), transparent 52%), radial-gradient(500px circle at 5% 115%, rgba(200,50,0,0.14), transparent 55%)',
-          }}
-        />
+      {/* ── 1. Hero: cinematic night-street stage with the live app phone ── */}
+      <HeroCinematic registerUrl={registerUrl} />
 
-        {/* The vouchers a business designs, drifting in 3D */}
-        <div className="absolute inset-0 opacity-60 lg:opacity-100">
-          <VoucherCards3D />
-        </div>
-
-        <div className="relative max-w-5xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="inline-flex items-center gap-2 mb-8 rounded-full border border-white/14 bg-white/7 backdrop-blur-sm px-4 py-2"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-[#E20C04] flex-shrink-0 animate-pulse" />
-            <span className="text-[11px] font-bold tracking-[0.18em] uppercase text-white/55">
-              For businesses
-            </span>
-          </motion.div>
-
-          <motion.h1
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.08, ease: ease() }}
-            className="font-display text-white leading-[1.06] mb-6 max-w-[820px]"
-            style={{ fontSize: 'clamp(36px, 5vw, 62px)', letterSpacing: '-0.8px' }}
-          >
-            Bring in new customers.{' '}
-            <span className="gradient-text block">Keep your <span className="whitespace-nowrap">margins<BrandStop tone="white" /></span></span>
-          </motion.h1>
-
-          <motion.p
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, delay: 0.18 }}
-            className="text-[16px] md:text-[17px] text-white/52 leading-[1.7] max-w-[540px] mb-10"
-          >
-            List your business on Redeemo for free. No commission. No listing fees. Reach local customers who are already looking for exactly what you offer.
-          </motion.p>
-
-          {/* Trust pills */}
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.26 }}
-            className="flex flex-wrap gap-2.5 mb-10"
-          >
-            {['Free to list', 'No commission. Ever.', '12-month contract', 'Digital verification'].map((t) => (
-              <span
-                key={t}
-                className="text-[12px] font-semibold text-white/60 px-3.5 py-1.5 rounded-full border border-white/12 bg-white/5"
-              >
-                {t}
-              </span>
-            ))}
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.34 }}
-          >
-            <a
-              href={registerUrl}
-              className="inline-flex items-center gap-2 text-white font-bold text-[15px] px-7 py-3.5 rounded-xl no-underline hover:opacity-90 transition-opacity"
-              style={{
-                background: 'var(--brand-gradient)',
-                boxShadow: '0 4px 24px rgba(226,12,4,0.38)',
-              }}
-            >
-              List your business free
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
-              </svg>
-            </a>
-          </motion.div>
-
-          {/* Stats strip */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.48 }}
-            className="mt-16 pt-8 border-t border-white/[0.08] flex flex-wrap gap-10"
-          >
-            {[
-              { value: '£0', label: 'to list your business' },
-              { value: '0%', label: 'commission per redemption' },
-              { value: '1×', label: 'redemption per member per cycle' },
-            ].map((s, i) => (
-              <div key={i}>
-                <p
-                  className="font-display text-white leading-none mb-1"
-                  style={{ fontSize: '30px', letterSpacing: '-0.5px' }}
-                >
-                  {s.value}
-                </p>
-                <p className="text-[12px] text-white/38 font-medium uppercase tracking-[0.1em]">{s.label}</p>
-              </div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
 
       {/* ── 2. Value props ── */}
       <section style={{ background: '#FAFAF8' }} className="py-20 md:py-28 px-6">
