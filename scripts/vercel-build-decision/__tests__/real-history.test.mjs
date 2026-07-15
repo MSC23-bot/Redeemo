@@ -8,12 +8,12 @@
 // checkout), the sub-test skips rather than fails.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { git, objectExists, revParse } from '../git.mjs';
+import { git, objectExists, revParse, repoRoot } from '../git.mjs';
 import { parseNameStatusZ } from '../parse.mjs';
 import { classifyPath, KNOWN_WEB_APPS, KNOWN_APPS } from '../policy.mjs';
-import { computeDecision } from '../should-build.mjs';
+import { evaluateDiff } from '../should-build.mjs';
 
-const REPO = process.cwd();
+const REPO = repoRoot(process.cwd()) || process.cwd();
 const MAIN = revParse('origin/main', REPO) ? 'origin/main' : (revParse('main', REPO) ? 'main' : null);
 
 function firstParentOf(sha) {
@@ -30,10 +30,12 @@ function pathsOf(sha) {
   return parsed.ok ? parsed.paths : null;
 }
 
-// Assert the end-to-end decision for a real (parent -> sha) transition.
+// Assert the diff-and-classify decision for a real (parent -> sha) transition. Uses
+// evaluateDiff (trusted SHAs) because these historical commits are not checked out; the
+// entrypoint's separate checkout cross-check (computeDecision) is exercised by its own test.
 function assertDecision(sha, parent, expected) {
   for (const key of KNOWN_WEB_APPS) {
-    const d = computeDecision({ projectKey: key, prevSha: parent, headSha: sha, cwd: REPO });
+    const d = evaluateDiff({ projectKey: key, prevSha: parent, headSha: sha, root: REPO });
     assert.equal(d.build, expected[key], `${key} for ${sha.slice(0, 8)}: expected build=${expected[key]}, got ${d.build} (${d.reason})`);
   }
 }

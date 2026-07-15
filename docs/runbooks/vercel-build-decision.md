@@ -28,12 +28,17 @@ changed path since the last successful deployment is irrelevant to the project. 
 else BUILDs:
 
 - invalid/missing project key
+- repo root unresolvable
+- actual checked-out HEAD unresolvable
+- supplied HEAD (`VERCEL_GIT_COMMIT_SHA`) does not equal the actual checked-out HEAD (provider/
+  checkout skew: the build deploys the checkout, so a mismatched supplied SHA could hide a real
+  change)
 - missing/malformed `VERCEL_GIT_PREVIOUS_SHA` (first deploy of a project/branch: no baseline)
-- HEAD unresolvable
 - `PREV == HEAD` (same-SHA redeploy, e.g. after an env-var change)
 - `PREV` not present in the shallow clone (out of depth, force-push, GC)
 - git diff failed
-- diff output failed the defensive parser (any unexpected status, empty path, odd token count)
+- diff output failed the byte-safe parser (unexpected status, empty path, odd token count, or
+  a path whose raw bytes are not valid UTF-8 — never lossily decoded)
 - empty tree diff (`PREV != HEAD` but identical trees, e.g. an `--allow-empty` trigger commit)
 - any changed path classifies BUILD for this project
 - any unexpected exception
@@ -46,17 +51,23 @@ For project `P` (customer-web | merchant-web | admin-web):
 | --- | --- | --- |
 | `apps/P/**` | own app | BUILD |
 | `package.json`, `package-lock.json`, `.npmrc`, `.nvmrc` (root) | GLOBAL install seam | BUILD (all three) |
+| `tests/fixtures/**` | shared test fixtures imported by web-app tests that `next build` type-checks | BUILD (all three) |
 | `apps/<other known app>/**` (the other web apps, `apps/customer-app`) | sibling app | SAFE |
-| `src/**`, `prisma/**`, `prisma.config.ts`, `tests/**`, `vitest.config.ts`, `tsconfig*.json`, `Procfile` | backend / test infra | SAFE |
+| `src/**`, `prisma/**`, `prisma.config.ts`, `tests/**` (except `tests/fixtures/`), `vitest.config.ts`, `tsconfig*.json`, `Procfile` | backend / test infra | SAFE |
 | `docs/**`, `context/**`, `.claude/**`, `.github/**`, `.gitignore`, `.env.example`, root `*.md` | docs / CI / agent | SAFE |
 | anything else (new top-level file/dir, an unrecognized `apps/<x>/`) | UNKNOWN | BUILD (fail-open) |
 
 SKIP requires a non-empty changed-path list in which EVERY path is SAFE. Renames are handled
 by diffing with `--no-renames`, so a rename decomposes into a delete (old path) plus an add
 (new path) and both sides are classified: renaming an app file out to docs still BUILDs that
-app. Lockfile changes always BUILD all three (we never try to prove a lockfile change is
-web-irrelevant). The tripwire (section 7) shares this exact policy module, so the two cannot
-drift.
+app. Path bytes are read raw and strictly UTF-8 validated (an invalid path encoding => BUILD),
+never lossily decoded. Lockfile changes always BUILD all three (we never try to prove a lockfile
+change is web-irrelevant). `tests/fixtures/` is a BUILD trigger because web-app test files
+import shared fixtures and `next build` type-checks them (the web apps' tsconfig includes
+`**/*.ts` with no `ignoreBuildErrors`); the rest of `tests/` stays SAFE. `architecture-guard.test.mjs`
+FAILS if any web app's build-reachable code imports a still-SAFE location, keeping this policy
+honest as the code evolves. The tripwire (section 7) shares this exact policy module, so the two
+cannot drift.
 
 ## 4. Provider configuration per project (owner-gated; TWO settings per flip)
 

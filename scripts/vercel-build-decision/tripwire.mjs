@@ -39,8 +39,8 @@ export function relevantCommits({ baseline, mainRef = 'main', keys = KNOWN_WEB_A
   const shas = listed.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
   const commits = [];
   for (const sha of shas) {
-    const dt = commitChangedRaw(sha, root); // --no-renames --no-relative --name-status -z
-    if (!dt.ok) return { ok: false, reason: `diff-tree-failed:${sha}` };
+    const dt = commitChangedRaw(sha, root); // byte-safe diff vs first parent (empty tree if root)
+    if (!dt.ok) return { ok: false, reason: `commit-diff-failed:${sha}` };
     const parsed = parseNameStatusZ(dt.raw);
     if (!parsed.ok) return { ok: false, reason: `parse-anomaly:${sha}:${parsed.reason}` };
     const relKeys = keys.filter((k) => commitIsRelevant(k, parsed.paths));

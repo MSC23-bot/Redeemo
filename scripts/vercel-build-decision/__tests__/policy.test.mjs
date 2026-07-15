@@ -49,6 +49,17 @@ test('backend, prisma, docs, tests, configs are safe for all web apps', () => {
   }
 });
 
+test('tests/fixtures/ is a GLOBAL BUILD trigger, but the rest of tests/ stays SAFE', () => {
+  for (const key of KNOWN_WEB_APPS) {
+    // Shared fixtures are imported by web-app test files that next build type-checks.
+    assert.equal(classifyPath('tests/fixtures/voucher-submit-validity-cases.ts', key), 'BUILD', key);
+    assert.equal(classifyPath('tests/fixtures/nested/data.ts', key), 'BUILD', key);
+    // Backend suites are still safe.
+    assert.equal(classifyPath('tests/integration/foo.test.ts', key), 'SAFE', key);
+    assert.equal(classifyPath('tests/api/bar.test.ts', key), 'SAFE', key);
+  }
+});
+
 test('unknown top-level file or dir builds all three (fail-open)', () => {
   for (const key of KNOWN_WEB_APPS) {
     assert.equal(classifyPath('infra/main.tf', key), 'BUILD');

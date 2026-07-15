@@ -2,7 +2,7 @@
 // squash-merge and batched-deploy coverage, and every alert condition.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkRepo, write, commit, sh, cleanup } from './helpers.mjs';
+import { mkRepo, write, commit, head, sh, cleanup } from './helpers.mjs';
 import { runTripwire, relevantCommits, isAccountedFor } from '../tripwire.mjs';
 
 const repos = [];
@@ -37,7 +37,9 @@ test('PASS: production SHA at tip accounts for all relevant merchant commits', (
   const res = runTripwire({ projectKey: 'merchant-web', productionSha: c6, mainRef: 'main', cwd: r });
   assert.equal(res.ok, true, JSON.stringify(res.alerts));
   assert.equal(res.alert, false);
-  assert.equal(res.checked, 2); // c3 and c6 are the relevant merchant commits
+  // c1 (root: seeds apps/merchant-web/x + package.json), c3, c6 are the relevant merchant commits.
+  // c1 is correctly counted via the empty-tree base for root commits (F2 fix).
+  assert.equal(res.checked, 3);
 });
 
 test('ALERT: an undeployed relevant commit (after production SHA) is flagged', () => {
@@ -53,10 +55,11 @@ test('ALERT: an undeployed relevant commit (after production SHA) is flagged', (
 
 test('batched deploy: production SHA covering several commits accounts for all of them', () => {
   const r = repo(); const { c4, c6 } = buildMain(r);
-  // admin-web relevant commit is c4; a later batched production deploy at c6 covers it.
+  // admin-web relevant commits are c1 (root seed) and c4; a later batched production deploy at
+  // c6 covers both (each is an ancestor of c6).
   const res = runTripwire({ projectKey: 'admin-web', productionSha: c6, mainRef: 'main', cwd: r });
   assert.equal(res.ok, true, JSON.stringify(res.alerts));
-  assert.equal(res.checked, 1);
+  assert.equal(res.checked, 2);
 });
 
 test('squash merge on main is itself checked and passes when deployed', () => {
@@ -98,4 +101,49 @@ test('ALERT: missing / invalid / absent production SHA', () => {
 test('ALERT: invalid project key', () => {
   const r = repo(); const { c6 } = buildMain(r);
   assert.equal(runTripwire({ projectKey: 'nope', productionSha: c6, cwd: r }).alert, true);
+});
+
+// Regression for Finding 2: a genuine 2-parent --no-ff merge that introduces an app file must
+// be seen. The old `diff-tree --first-parent <merge>` returned an EMPTY stream, hiding it.
+test('genuine --no-ff merge introducing an app file is a relevant commit (ALERT when undeployed)', () => {
+  const r = repo();
+  write(r, 'package.json', '{"name":"root","workspaces":["apps/*"]}');
+  write(r, 'apps/admin-web/x', '1');
+  const c1 = commit(r, 'c1 seed');
+  // feature branch adds an admin-web file
+  sh(r, ['checkout', '-q', '-b', 'feature', c1]);
+  write(r, 'apps/admin-web/newfeature.tsx', '1');
+  commit(r, 'admin feature');
+  // main advances with an unrelated docs commit, then merges the feature with --no-ff
+  sh(r, ['checkout', '-q', 'main']);
+  write(r, 'docs/note.md', '1');
+  const preMerge = commit(r, 'main docs');
+  sh(r, ['merge', '--no-ff', '--no-edit', '-q', 'feature']);
+  const mergeSha = head(r);
+  assert.notEqual(mergeSha, preMerge);
+
+  // The merge is a first-parent main commit; it must be detected as relevant to admin-web.
+  const rel = relevantCommits({ mainRef: 'main', keys: ['admin-web'], cwd: r });
+  assert.equal(rel.ok, true);
+  assert.ok(rel.commits.some((c) => c.sha === mergeSha), 'merge commit must be flagged relevant to admin-web');
+
+  // Production is still at the pre-merge commit => the merge is undeployed => ALERT.
+  const undeployed = runTripwire({ projectKey: 'admin-web', productionSha: preMerge, mainRef: 'main', cwd: r });
+  assert.equal(undeployed.alert, true);
+  assert.ok(undeployed.alerts.some((a) => a.type === 'unaccounted-relevant-commits' && a.commits.includes(mergeSha)));
+
+  // Once production is at the merge, it PASSES.
+  const deployed = runTripwire({ projectKey: 'admin-web', productionSha: mergeSha, mainRef: 'main', cwd: r });
+  assert.equal(deployed.ok, true, JSON.stringify(deployed.alerts));
+});
+
+// Root-commit handling: the first commit has no parent; commitChangedRaw must diff it against
+// the empty tree so its files are visible.
+test('root commit files are visible to the tripwire (empty-tree base)', () => {
+  const r = repo();
+  write(r, 'apps/customer-web/x', '1');
+  const root = commit(r, 'root commit with a customer-web file');
+  const rel = relevantCommits({ mainRef: 'main', keys: ['customer-web'], cwd: r });
+  assert.equal(rel.ok, true);
+  assert.ok(rel.commits.some((c) => c.sha === root), 'root commit must be seen');
 });

@@ -4,9 +4,13 @@
 import { spawnSync } from 'node:child_process';
 
 const SHA_RE = /^[0-9a-f]{40}$/;
+// git's canonical empty-tree object (always present); used as the diff base for root commits.
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 /**
- * Run git with the given args in cwd.
+ * Run git with the given args in cwd, decoding stdout as UTF-8. Use ONLY for output that is
+ * guaranteed ASCII/UTF-8 (SHAs, ancestry checks, toplevel path). For raw path bytes from a
+ * diff, use gitBytes + the byte-safe parser instead.
  * @returns {{ok: boolean, stdout: string, stderr: string, code: number|null}}
  */
 export function git(args, cwd) {
@@ -27,6 +31,30 @@ export function git(args, cwd) {
     };
   } catch (e) {
     return { ok: false, stdout: '', stderr: String((e && e.message) || e), code: null };
+  }
+}
+
+/**
+ * Run git and return stdout as RAW BYTES (a Buffer), never lossily decoded. Required for
+ * `-z` diff output: a filename may contain bytes that are not valid UTF-8, and decoding with
+ * `encoding: 'utf8'` would replace them with U+FFFD, silently corrupting the path. The
+ * byte-safe parser (parse.mjs) rejects any path whose bytes are not valid UTF-8 -> BUILD.
+ * @returns {{ok: boolean, stdout: Buffer, stderr: string, code: number|null}}
+ */
+export function gitBytes(args, cwd) {
+  try {
+    const res = spawnSync('git', args, { cwd, maxBuffer: 64 * 1024 * 1024 }); // no encoding => Buffer stdout
+    if (res.error) {
+      return { ok: false, stdout: Buffer.alloc(0), stderr: String(res.error.message || res.error), code: null };
+    }
+    return {
+      ok: res.status === 0,
+      stdout: Buffer.isBuffer(res.stdout) ? res.stdout : Buffer.from(res.stdout || ''),
+      stderr: (res.stderr ? res.stderr.toString('utf8') : ''),
+      code: res.status,
+    };
+  } catch (e) {
+    return { ok: false, stdout: Buffer.alloc(0), stderr: String((e && e.message) || e), code: null };
   }
 }
 
@@ -59,23 +87,25 @@ export function repoRoot(cwd) {
 
 /**
  * Content-tree diff between two commits, `--no-renames --no-relative --name-status -z`.
- * @returns {{ok: boolean, raw: string, stderr: string}}
+ * `raw` is a Buffer of RAW bytes for the byte-safe parser.
+ * @returns {{ok: boolean, raw: Buffer, stderr: string}}
  */
 export function diffNameStatusZ(prev, head, cwd) {
-  const r = git(['diff', '--no-renames', '--no-relative', '--name-status', '-z', prev, head], cwd);
+  const r = gitBytes(['diff', '--no-renames', '--no-relative', '--name-status', '-z', prev, head], cwd);
   return { ok: r.ok, raw: r.stdout, stderr: r.stderr };
 }
 
 /**
- * Changed paths of a single commit vs its first parent, `--no-renames --no-relative --name-status -z`.
- * Used by the tripwire. For a root commit git emits an empty diff.
- * @returns {{ok: boolean, raw: string, stderr: string}}
+ * Changed paths a single commit introduced relative to its FIRST parent, byte-safe.
+ * Uses an explicit `<sha>^1 <sha>` diff (NOT `diff-tree --first-parent <sha>`, which returns
+ * an EMPTY stream for a genuine 2-parent merge and would hide an app change a merge brought
+ * onto main). For a root commit (no parent) the base is the empty tree, so all files show.
+ * @returns {{ok: boolean, raw: Buffer, stderr: string}}
  */
 export function commitChangedRaw(sha, cwd) {
-  const r = git(
-    ['diff-tree', '--no-commit-id', '--no-renames', '--no-relative', '--name-status', '-z', '-r', '--first-parent', sha],
-    cwd,
-  );
+  const firstParent = revParse(`${sha}^1`, cwd); // null for a root commit
+  const base = firstParent || EMPTY_TREE;
+  const r = gitBytes(['diff', '--no-renames', '--no-relative', '--name-status', '-z', base, sha], cwd);
   return { ok: r.ok, raw: r.stdout, stderr: r.stderr };
 }
 

@@ -21,7 +21,7 @@
     "start": "node dist/src/index.js",
     "start:worker": "node dist/src/worker.js",
     "test": "vitest run",
-    "test:vercel-build-decision": "node --test scripts/vercel-build-decision/__tests__/",
+    "test:vercel-build-decision": "node --test scripts/vercel-build-decision/__tests__/*.test.mjs",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:integration:insights": "vitest run --project integration tests/api/merchant/insights",

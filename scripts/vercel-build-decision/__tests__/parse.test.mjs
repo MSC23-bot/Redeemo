@@ -102,3 +102,39 @@ test('a file literally named like a status letter is parsed as a path, not misre
   assert.equal(r.ok, true);
   assert.deepEqual(r.paths, ['M', 'docs/keep.md']);
 });
+
+// --- Byte-level (Buffer) contract: raw bytes preserved; invalid encoding => BUILD. ---
+
+test('Buffer input with valid multi-byte UTF-8 path round-trips exactly', () => {
+  // "apps/admin-web/café-☕.ts" as raw UTF-8 bytes.
+  const p = 'apps/admin-web/café-☕.ts';
+  const buf = Buffer.concat([Buffer.from('A\0', 'ascii'), Buffer.from(p, 'utf8'), Buffer.from('\0', 'ascii')]);
+  const r = parseNameStatusZ(buf);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.paths, [p]);
+});
+
+test('Buffer path with INVALID UTF-8 bytes is rejected (fail-open BUILD), not silently corrupted', () => {
+  // A path token containing a lone 0xFF 0xFE (not valid UTF-8). A lossy utf8 decode would
+  // replace these with U+FFFD and could reclassify the path; strict decode must reject.
+  const buf = Buffer.concat([
+    Buffer.from('M\0', 'ascii'),
+    Buffer.from([0x61, 0x70, 0x70, 0x73, 0x2f, 0xff, 0xfe]), // "apps/" + invalid bytes
+    Buffer.from('\0', 'ascii'),
+  ]);
+  const r = parseNameStatusZ(buf);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'invalid-path-encoding');
+});
+
+test('raw Buffer bytes are not lossily decoded before splitting (embedded high bytes in one path)', () => {
+  // Two records; the first path is valid UTF-8 with a 2-byte char, ensuring byte-accurate split.
+  const p1 = 'apps/merchant-web/ünicode.ts';
+  const buf = Buffer.concat([
+    Buffer.from('A\0', 'ascii'), Buffer.from(p1, 'utf8'), Buffer.from('\0', 'ascii'),
+    Buffer.from('M\0', 'ascii'), Buffer.from('docs/x.md', 'utf8'), Buffer.from('\0', 'ascii'),
+  ]);
+  const r = parseNameStatusZ(buf);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.paths, [p1, 'docs/x.md']);
+});

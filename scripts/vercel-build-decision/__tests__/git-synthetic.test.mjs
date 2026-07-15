@@ -217,6 +217,34 @@ test('diff.relative=true + cwd=apps/<app>: root package.json change still BUILDs
   }
 });
 
+// Regression for Finding 1: the provider-supplied HEAD (VERCEL_GIT_COMMIT_SHA) must match the
+// actually checked-out HEAD. Codex reproduced base -> docs-only SUPPLIED head -> merchant-web
+// ACTUAL checkout head, which wrongly SKIPPED. It must BUILD with reason head-sha-mismatch.
+test('supplied HEAD != checked-out HEAD => BUILD (head-sha-mismatch)', () => {
+  const r = repo(); const base = seed(r);
+  write(r, 'docs/only.md', 'x');
+  const docsHead = commit(r, 'docs-only commit (the SUPPLIED head)');
+  write(r, 'apps/merchant-web/real.tsx', 'x');
+  const merchantHead = commit(r, 'merchant change (the ACTUAL checkout)');
+  assert.equal(head(r), merchantHead, 'working tree is at the merchant commit');
+  // Provider claims the deployment is the docs-only commit, but the checkout is the merchant one.
+  const d = computeDecision({ projectKey: 'merchant-web', prevSha: base, headSha: docsHead, cwd: r });
+  assert.equal(d.build, true);
+  assert.equal(d.reason, 'head-sha-mismatch');
+  assert.equal(d.detail.suppliedHead, docsHead);
+  assert.equal(d.detail.actualHead, merchantHead);
+});
+
+test('supplied HEAD == checked-out HEAD proceeds normally; absent supplied HEAD uses checkout', () => {
+  const r = repo(); const base = seed(r);
+  write(r, 'apps/customer-web/x.tsx', 'x');
+  const h = commit(r, 'customer change');
+  // matching supplied head -> normal BUILD (path affects)
+  assert.equal(computeDecision({ projectKey: 'customer-web', prevSha: base, headSha: h, cwd: r }).reason, 'path-affects-project');
+  // absent supplied head -> falls back to the actual checkout, still BUILDs
+  assert.equal(computeDecision({ projectKey: 'customer-web', prevSha: base, headSha: undefined, cwd: r }).build, true);
+});
+
 test('diff.relative=true + cwd=apps/<app>: docs-only change still SKIPs (fix did not over-build)', () => {
   const r = repo();
   write(r, 'package.json', '{"name":"root","workspaces":["apps/*"]}');

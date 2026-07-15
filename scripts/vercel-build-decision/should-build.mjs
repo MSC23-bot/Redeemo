@@ -6,21 +6,29 @@
 //
 // Order of fail-open guards (every one that trips returns build:true):
 //   1. invalid/unknown project key
-//   2. missing/invalid VERCEL_GIT_PREVIOUS_SHA (no baseline: first deploy of project/branch)
-//   3. HEAD unresolvable
-//   4. PREV === HEAD (same-SHA redeploy, e.g. after an env-var change)
-//   5. PREV not present in the (shallow) clone (out of depth / force-push / GC)
-//   6. git diff failed
-//   7. diff output failed the defensive parser
-//   8. empty tree diff (PREV != HEAD but identical trees, e.g. --allow-empty commit)
-//   9. any changed path classifies BUILD for this project
+//   2. repo root unresolvable
+//   3. actual checked-out HEAD unresolvable
+//   4. supplied HEAD (VERCEL_GIT_COMMIT_SHA) != actual checked-out HEAD (provider/checkout skew)
+//   5. missing/invalid VERCEL_GIT_PREVIOUS_SHA (no baseline: first deploy of project/branch)
+//   6. PREV === HEAD (same-SHA redeploy, e.g. after an env-var change)
+//   7. PREV not present in the (shallow) clone (out of depth / force-push / GC)
+//   8. git diff failed
+//   9. diff output failed the byte-safe defensive parser
+//  10. empty tree diff (PREV != HEAD but identical trees, e.g. --allow-empty commit)
+//  11. any changed path classifies BUILD for this project
 // Only if none trip and every changed path is SAFE do we return build:false.
 import { objectExists, revParse, diffNameStatusZ, repoRoot, SHA_RE } from './git.mjs';
 import { parseNameStatusZ } from './parse.mjs';
 import { decide, KNOWN_WEB_APPS } from './policy.mjs';
 
 /**
+ * Full decision as used by the Vercel Ignored Build Step. Resolves the repo root and the
+ * ACTUAL checked-out HEAD, and fails open if the provider-supplied HEAD disagrees with what is
+ * really checked out (the build deploys the checkout, not the env var). Then delegates to
+ * evaluateDiff, which diffs the ACTUAL head against the baseline.
+ *
  * @param {{projectKey?: string, prevSha?: string, headSha?: string, cwd?: string}} opts
+ *        headSha = VERCEL_GIT_COMMIT_SHA (provider-claimed head; cross-checked, not trusted).
  * @returns {{build: boolean, reason: string, detail: object}}
  */
 export function computeDecision({ projectKey, prevSha, headSha, cwd = process.cwd() } = {}) {
@@ -38,24 +46,57 @@ export function computeDecision({ projectKey, prevSha, headSha, cwd = process.cw
       return { build: true, reason: 'cannot-resolve-repo-root', detail: { cwd } };
     }
 
-    if (typeof prevSha !== 'string' || !SHA_RE.test(prevSha)) {
-      return { build: true, reason: 'no-or-invalid-previous-sha', detail: { prevSha: prevSha ?? null } };
-    }
-
-    const head = typeof headSha === 'string' && SHA_RE.test(headSha) ? headSha : revParse('HEAD', root);
-    if (!head) {
+    // The commit that will actually be built is whatever is checked out. Resolve it and diff
+    // against IT, never against an unverified env value.
+    const actualHead = revParse('HEAD', root);
+    if (!actualHead) {
       return { build: true, reason: 'cannot-resolve-head', detail: {} };
     }
 
-    if (prevSha === head) {
-      return { build: true, reason: 'same-sha-redeploy', detail: { sha: head } };
+    // If the provider supplied a commit SHA, it must match the checkout. A mismatch means the
+    // diff we would compute (against the supplied SHA) describes a DIFFERENT commit than the one
+    // being deployed -> a docs-only supplied head could hide a real app-change checkout. BUILD.
+    if (typeof headSha === 'string' && SHA_RE.test(headSha) && headSha !== actualHead) {
+      return {
+        build: true,
+        reason: 'head-sha-mismatch',
+        detail: { suppliedHead: headSha, actualHead },
+      };
     }
 
+    return evaluateDiff({ projectKey, prevSha, headSha: actualHead, root });
+  } catch (e) {
+    // Absolute backstop: any unexpected throw => BUILD.
+    return { build: true, reason: 'exception', detail: { message: String((e && e.message) || e).slice(0, 200) } };
+  }
+}
+
+/**
+ * Diff `headSha` against `prevSha` and decide. `headSha` is TRUSTED here (computeDecision has
+ * already reconciled it with the checkout). Exposed for unit tests that diff explicit historical
+ * commit pairs without checking them out.
+ * @param {{projectKey: string, prevSha?: string, headSha: string, root: string}} opts
+ * @returns {{build: boolean, reason: string, detail: object}}
+ */
+export function evaluateDiff({ projectKey, prevSha, headSha, root } = {}) {
+  try {
+    if (typeof projectKey !== 'string' || !KNOWN_WEB_APPS.includes(projectKey)) {
+      return { build: true, reason: 'invalid-or-missing-project-key', detail: { projectKey: projectKey ?? null } };
+    }
+    if (typeof headSha !== 'string' || !SHA_RE.test(headSha)) {
+      return { build: true, reason: 'invalid-head-sha', detail: { headSha: headSha ?? null } };
+    }
+    if (typeof prevSha !== 'string' || !SHA_RE.test(prevSha)) {
+      return { build: true, reason: 'no-or-invalid-previous-sha', detail: { prevSha: prevSha ?? null } };
+    }
+    if (prevSha === headSha) {
+      return { build: true, reason: 'same-sha-redeploy', detail: { sha: headSha } };
+    }
     if (!objectExists(prevSha, root)) {
       return { build: true, reason: 'previous-sha-out-of-history', detail: { prevSha } };
     }
 
-    const diff = diffNameStatusZ(prevSha, head, root);
+    const diff = diffNameStatusZ(prevSha, headSha, root);
     if (!diff.ok) {
       return { build: true, reason: 'git-diff-failed', detail: { stderr: (diff.stderr || '').slice(0, 200) } };
     }
@@ -73,7 +114,6 @@ export function computeDecision({ projectKey, prevSha, headSha, cwd = process.cw
       detail: { changedCount: parsed.paths.length, triggers: d.triggers || [] },
     };
   } catch (e) {
-    // Absolute backstop: any unexpected throw => BUILD.
     return { build: true, reason: 'exception', detail: { message: String((e && e.message) || e).slice(0, 200) } };
   }
 }

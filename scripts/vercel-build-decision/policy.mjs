@@ -33,6 +33,14 @@ const GLOBAL_ROOT_FILES = new Set([
   '.nvmrc',
 ]);
 
+// Directory prefixes that force a build of ALL web projects. `tests/fixtures/` holds shared
+// test data that web-app test files import; because the web apps' tsconfig includes `**/*.ts`
+// and `next build` type-checks (no `ignoreBuildErrors`), a change to a fixture can fail a web
+// build. The architecture guard (architecture-guard.test.mjs) enforces that any web import of a
+// SAFE location is caught, so this list stays in sync with real couplings. NOTE: the rest of
+// `tests/` (backend suites) remains SAFE below; only fixtures are build-coupled.
+const GLOBAL_PREFIXES = ['tests/fixtures/'];
+
 // Exact root files that are SAFE to ignore for every web app.
 const SAFE_EXACT = new Set([
   'prisma.config.ts',
@@ -68,8 +76,11 @@ export function classifyPath(path, projectKey) {
   if (typeof path !== 'string' || path.length === 0) return 'BUILD';
   if (typeof projectKey !== 'string' || !KNOWN_WEB_APPS.includes(projectKey)) return 'BUILD';
 
-  // 1. GLOBAL install / runtime seam => build all web projects.
+  // 1. GLOBAL install / runtime seam or shared build-coupled paths => build all web projects.
   if (GLOBAL_ROOT_FILES.has(path)) return 'BUILD';
+  for (const prefix of GLOBAL_PREFIXES) {
+    if (path.startsWith(prefix)) return 'BUILD';
+  }
 
   // 2. App-scoped paths under apps/.
   if (path.startsWith('apps/')) {
