@@ -279,8 +279,8 @@ describe('ContractCeremony sign (version echo)', () => {
 })
 
 describe('ContractCeremony stale-version handling', () => {
-  it('on AGREEMENT_VERSION_MISMATCH forces reload + re-review and does NOT silently sign', async () => {
-    const refetch = jest.fn()
+  it('on AGREEMENT_VERSION_MISMATCH forces a FULL owner-state reset (FIX C) and only claims "reloaded" once the refetch settles (FIX B), and does NOT silently sign', async () => {
+    const refetch = jest.fn() // resolves to `undefined`: treated as a successful reload
     mockAgreementQuery.refetch = refetch
     mockSignMutation.mutateAsync = jest.fn().mockRejectedValue(
       new ApiError(409, { error: { code: 'AGREEMENT_VERSION_MISMATCH', message: 'stale' } })
@@ -291,17 +291,77 @@ describe('ContractCeremony stale-version handling', () => {
     fillAcceptanceFields()
     fireEvent.click(screen.getByTestId('ceremony-accept'))
 
-    // The mismatch notice appears, the review gates are re-armed, the text is re-fetched.
-    const notice = await screen.findByTestId('ceremony-version-mismatch')
-    expect(notice).toHaveTextContent(/agreement was updated/i)
-    expect(refetch).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('ceremony-scroll-hint')).toBeInTheDocument()
+    // FIX C: the reset is FULL, not just scroll/key-terms: authority, role, and the
+    // typed name are cleared too, so the owner re-attests everything.
+    await waitFor(() => expect(screen.getByTestId('ceremony-scroll-hint')).toBeInTheDocument())
+    expect(screen.getByTestId('ceremony-authority')).not.toBeChecked()
     expect(screen.getByTestId('ceremony-key-terms')).not.toBeChecked()
+    expect(screen.getByTestId('ceremony-role')).toHaveValue('')
+    expect(screen.getByTestId('ceremony-name')).toHaveValue('')
+    expect(screen.getByTestId('ceremony-accept')).toBeDisabled()
+    expect(refetch).toHaveBeenCalledTimes(1)
+
+    // FIX B: the notice only claims "reloaded below" once the refetch has actually
+    // settled without an error (not unconditionally on the mismatch itself).
+    await waitFor(() =>
+      expect(screen.getByTestId('ceremony-version-mismatch')).toHaveTextContent(/agreement was updated/i)
+    )
+    expect(screen.getByTestId('ceremony-version-mismatch')).toHaveTextContent(/reloaded below/i)
 
     // No silent sign: the ceremony did NOT reach the signed state, and there was no
     // auto-retry (mutateAsync fired exactly once, from the single user click).
     expect(screen.queryByTestId('ceremony-signed')).not.toBeInTheDocument()
     expect(mockSignMutation.mutateAsync).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows an honest failure notice (not "reloaded") and keeps signing blocked when the refetch itself fails (FIX B)', async () => {
+    const refetch = jest.fn().mockResolvedValue({ isError: true })
+    mockAgreementQuery.refetch = refetch
+    mockSignMutation.mutateAsync = jest.fn().mockRejectedValue(
+      new ApiError(409, { error: { code: 'AGREEMENT_VERSION_MISMATCH', message: 'stale' } })
+    )
+    renderCeremony()
+    handToOwner()
+    scrollToEnd()
+    fillAcceptanceFields()
+    fireEvent.click(screen.getByTestId('ceremony-accept'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('ceremony-version-mismatch')).toHaveTextContent(/could not be reloaded/i)
+    )
+    const notice = screen.getByTestId('ceremony-version-mismatch')
+    expect(notice).not.toHaveTextContent(/reloaded below/i)
+    expect(screen.getByTestId('ceremony-reload-retry')).toBeInTheDocument()
+
+    // Signing stays blocked: even after redoing the (reset) acceptance fields, accept
+    // is disabled because the reload failed.
+    scrollToEnd()
+    fillAcceptanceFields()
+    expect(screen.getByTestId('ceremony-accept')).toBeDisabled()
+  })
+})
+
+describe('ContractCeremony full-text presence gate (FIX A)', () => {
+  it('does not allow the review gate to arm and blocks the owner panel when the agreement text is empty', () => {
+    mockAgreementQuery.data = agreementResponse({ text: '' })
+    renderCeremony()
+    expect(screen.getByTestId('ceremony-agreement-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('ceremony-precheck')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ceremony-owner-panel')).not.toBeInTheDocument()
+  })
+
+  it('does not allow the review gate to arm when the agreement text is whitespace-only', () => {
+    mockAgreementQuery.data = agreementResponse({ text: '   \n\t  ' })
+    renderCeremony()
+    expect(screen.getByTestId('ceremony-agreement-empty')).toBeInTheDocument()
+  })
+
+  it('lets the owner retry the read from the empty-text blocking state', () => {
+    const refetch = jest.fn()
+    mockAgreementQuery = { data: agreementResponse({ text: '' }), isLoading: false, isError: false, refetch }
+    renderCeremony()
+    fireEvent.click(screen.getByTestId('ceremony-agreement-retry'))
+    expect(refetch).toHaveBeenCalledTimes(1)
   })
 })
 

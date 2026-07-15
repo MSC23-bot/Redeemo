@@ -45,6 +45,26 @@
  * the success state carries the same note when the sign response reports gated: true.
  * NEVER state or imply solicitor approval. On a production deploy while the gate is
  * on, the sign POST returns AGREEMENT_LEGAL_REVIEW_REQUIRED (403) via NamedGateBanner.
+ *
+ * REVIEW-NOTES FOLLOW-UP (Fable, 2026-07-15): three signing-integrity gaps closed:
+ *   (a) the agreement-text read's Zod only guarantees `text: z.string()`, which
+ *       allows ''. The review gate must never arm on empty/absent text, so entry to
+ *       the owner panel is gated on `agreementTextPresent` (trimmed length > 0), not
+ *       merely on the read having returned SOME object. This is a client-side guard
+ *       only; it deliberately does NOT add a sha256 recompute (a separate deferred
+ *       decision);
+ *   (b) on AGREEMENT_VERSION_MISMATCH the forced reload now has an honest, three-state
+ *       notice (reloading / reloaded / failed) instead of unconditionally claiming
+ *       "reloaded below": React Query's refetch() does not reject on a fetch error by
+ *       default and keeps the previous (stale) data on screen, so the copy only
+ *       claims success once the refetch has actually settled without an error, and
+ *       shows an honest failure message (with a retry) otherwise; accept stays
+ *       blocked while reloading or failed. The backend 409 remains the fail-closed
+ *       backstop regardless of what the UI shows;
+ *   (c) the mismatch handler now calls the existing resetOwnerState() (full reset:
+ *       scroll + authority + key-terms + name + role), not just the scroll/key-terms
+ *       pair, so a stale-version event clears ALL acceptance state uniformly and the
+ *       owner re-attests everything against the reloaded current text.
  */
 import { useEffect, useRef, useState } from 'react'
 import { ShieldCheck, Lock, ArrowRight, ArrowLeft, CheckCircle2, Download, Info, RefreshCw } from 'lucide-react'
@@ -216,13 +236,23 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
   const [keyTermsAccepted, setKeyTermsAccepted] = useState(false)
   const [signerName, setSignerName] = useState('')
   const [signerRole, setSignerRole] = useState('')
-  const [staleReload, setStaleReload] = useState(false)
+  // FIX B: a three-state notice (rather than a boolean) so the copy can honestly
+  // distinguish "reload in flight" from "reload succeeded" from "reload failed",
+  // instead of unconditionally claiming the text below has been reloaded.
+  const [mismatchReload, setMismatchReload] = useState<'reloading' | 'reloaded' | 'failed' | null>(
+    null
+  )
   const [result, setResult] = useState<SignAgreementResponse | null>(null)
 
   const agreementQuery = useAgreementText(true)
   const agreement = agreementQuery.data
   const mutation = useSignAgreement(merchantId)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // FIX A: the read's Zod only guarantees `text: z.string()`, which allows ''. The
+  // scroll/review gate must never arm on empty or whitespace-only text; treat that
+  // the same as "no text yet" (blocks entry to the owner panel entirely below).
+  const agreementTextPresent = !!agreement && agreement.text.trim().length > 0
 
   // Re-handover freshness (S1): a Back-then-hand-to-owner cycle must always
   // re-arm the scroll gate and ticks and clear the prior person's identity.
@@ -237,7 +267,7 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
     setKeyTermsAccepted(false)
     setSignerName('')
     setSignerRole('')
-    setStaleReload(false)
+    setMismatchReload(null)
   }
 
   // Step 3 scroll-to-end gate: if the FULL agreement fits without scrolling there is
@@ -259,18 +289,41 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
   const trimmedName = signerName.trim()
   const trimmedRole = signerRole.trim()
   const canAccept =
-    !!agreement &&
+    agreementTextPresent &&
     scrolledToEnd &&
     authorityAttested &&
     keyTermsAccepted &&
     trimmedName.length > 0 &&
     trimmedRole.length > 0 &&
+    // FIX B: keep signing blocked while a stale-version reload is in flight or has
+    // failed (the on-screen text may still be the stale, no-longer-current version).
+    mismatchReload !== 'reloading' &&
+    mismatchReload !== 'failed' &&
     !mutation.isPending
+
+  // FIX B: re-fetch the current agreement and only claim success once the refetch
+  // has actually settled without an error. React Query's refetch() does not reject
+  // by default on a fetch failure (it resolves with a result object and keeps the
+  // previous/stale data on screen), so read the settled result's `isError` rather
+  // than relying on promise rejection. The cast is necessary because the hook types
+  // refetch's return as `void` for the common fire-and-forget caller; at runtime it
+  // is still the real React Query refetch result.
+  function attemptReload() {
+    setMismatchReload('reloading')
+    const refetchResult = agreementQuery.refetch() as unknown as
+      | { isError?: boolean }
+      | Promise<{ isError?: boolean } | void>
+      | void
+    Promise.resolve(refetchResult).then((res) => {
+      const failed = !!res && typeof res === 'object' && 'isError' in res && !!res.isError
+      setMismatchReload(failed ? 'failed' : 'reloaded')
+    })
+  }
 
   async function handleAccept() {
     if (!canAccept || !agreement) return
     // Clear a prior stale-reload notice for this fresh attempt.
-    setStaleReload(false)
+    setMismatchReload(null)
     try {
       const res = await mutation.mutateAsync({
         signerName: trimmedName,
@@ -285,10 +338,11 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
       // reviewed is no longer current. FORCE a reload + re-review of the CURRENT text; do
       // NOT auto-retry with the new version (the owner must actually see what they sign).
       if (err instanceof ApiError && err.code === 'AGREEMENT_VERSION_MISMATCH') {
-        setStaleReload(true)
-        setScrolledToEnd(false)
-        setKeyTermsAccepted(false)
-        agreementQuery.refetch()
+        // FIX C: full owner-state reset (not just scroll/key-terms), so the owner
+        // re-attests everything (authority, role, typed name too) against the
+        // reloaded current text.
+        resetOwnerState()
+        attemptReload()
       }
       // Any other error surfaces via mutation.error / NamedGateBanner below.
     }
@@ -309,9 +363,11 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
     )
   }
 
-  // The ceremony cannot run without the agreement text: the whole point is that the owner
-  // reviews the EXACT recorded version. Gate the flow on the read.
-  if (!agreement) {
+  // The ceremony cannot run without the FULL agreement text: the whole point is that
+  // the owner reviews the EXACT recorded version. Gate the flow on the read AND on
+  // the text being non-trivial (FIX A): a present-but-empty/whitespace-only text is
+  // treated the same as "no text yet", closing the empty-text auto-arm window.
+  if (!agreement || !agreementTextPresent) {
     return (
       <div className="space-y-4" data-testid="contract-ceremony">
         {agreementQuery.isError ? (
@@ -320,6 +376,24 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
             data-testid="ceremony-agreement-error"
           >
             <p>The agreement could not be loaded, so it cannot be reviewed or signed right now.</p>
+            <div className="mt-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => agreementQuery.refetch()}
+                data-testid="ceremony-agreement-retry"
+              >
+                <RefreshCw className="size-4" aria-hidden="true" />
+                Try again
+              </Button>
+            </div>
+          </div>
+        ) : agreement ? (
+          <div
+            className="rounded-lg border border-red-200 bg-red-50 p-5 text-sm text-red-700"
+            data-testid="ceremony-agreement-empty"
+          >
+            <p>The agreement text came back empty, so it cannot be reviewed or signed right now.</p>
             <div className="mt-3">
               <Button
                 type="button"
@@ -422,18 +496,48 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
           </p>
 
           {/* Stale-version notice (signing-integrity correction (c)): the version changed
-              between load and submit; the owner must re-review the current text below. */}
-          {staleReload && (
+              between load and submit; the owner must re-review the current text below.
+              FIX B: the wording is honest about the reload's actual outcome, not a
+              blanket "reloaded below" claim: neutral while in flight, success copy only
+              once the refetch has settled without an error, and an honest failure
+              message (with a retry) if the refetch itself failed. */}
+          {mismatchReload && (
             <div
               className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
               data-testid="ceremony-version-mismatch"
               role="alert"
             >
               <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              <p>
-                The agreement was updated while this was open. It has been reloaded below: please read
-                the current version to the end and accept the terms again before signing.
-              </p>
+              <div className="min-w-0 flex-1">
+                {mismatchReload === 'reloading' && (
+                  <p>The agreement was updated while this was open. Reloading the current version...</p>
+                )}
+                {mismatchReload === 'reloaded' && (
+                  <p>
+                    The agreement was updated while this was open. It has been reloaded below: please
+                    read the current version to the end and accept the terms again before signing.
+                  </p>
+                )}
+                {mismatchReload === 'failed' && (
+                  <>
+                    <p>
+                      The agreement was updated while this was open, but the current version could not
+                      be reloaded. Try again before signing.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={attemptReload}
+                      data-testid="ceremony-reload-retry"
+                    >
+                      <RefreshCw className="size-4" aria-hidden="true" />
+                      Try again
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           )}
 
