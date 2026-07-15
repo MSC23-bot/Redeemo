@@ -17,7 +17,7 @@
  *
  *   POST /api/v1/admin/merchants/:id/agreement/sign
  *     capability merchant:sign-agreement (+ FIELD pre-live scope)
- *     body   { signerName, signerRoleConfirmation, agreementVersion? }
+ *     body   { signerName, signerRoleConfirmation, agreementVersion?, reviewedContentHash? }
  *     resp   { recordId, agreementVersion, contentHash, signedAt, contractStatus, gated }
  *
  * The rep (the authed admin) WITNESSES the owner's signature on the rep's device;

@@ -1,14 +1,16 @@
 // D65 Slice 2: the agreement-signing backend core.
 //
 // Two write paths share one evidence model (MerchantAgreementRecord, immutable /
-// append-only) and one PDF renderer:
+// append-only) and two shared helpers, renderReviewedBody(...) (./reviewedBody) and
+// renderAndStoreAgreementPdf(...) (this file), so wording/normalization/hash and PDF
+// output can never diverge between lanes:
 //   - signAgreementInPerson(...)  : the assisted ceremony on a Redeemo rep's device.
 //     The owner types their own name as the signature of record; the authenticated rep
 //     is recorded as the WITNESS (actorAdminId + witnessName/witnessEmail), not in the
 //     signer field. An obvious same-name signing is refused, but the system cannot
 //     independently prove two distinct humans were present. method = IN_PERSON_ASSISTED.
-//   - buildAndStoreSelfServeRecord(...) : the helper the merchant portal
-//     click-to-agree fallback (onboarding.acceptContract) uses to ALSO gain a PDF +
+//   - onboarding.acceptContract(...) : the merchant portal click-to-agree fallback
+//     (../onboarding/service.ts), which calls both helpers directly to ALSO gain a PDF +
 //     evidence record. method = SELF_SERVE_CLICK, actorAdminId = null.
 //
 // LEGAL GATE (fail-closed, spec §6): while AGREEMENT_LEGAL_REVIEW_REQUIRED is on
