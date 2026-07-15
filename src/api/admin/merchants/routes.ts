@@ -358,18 +358,24 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
   // merchants (signing happens during onboarding). The fail-closed
   // AGREEMENT_LEGAL_REVIEW_REQUIRED gate (in the service) refuses production binding
   // writes while legal review is pending; staging/dev run fully, DRAFT-watermarked.
-  // STRICT body: the typed name + authority role (+ optional explicit version + the echoed
-  // reviewedContentHash). No `reason` (the ceremony IS the act; the audit carries version +
-  // hash metadata). No `witnessLabel` (FIX 2: witness identity is authenticated server-side,
-  // not request text). The server RE-DERIVES the reviewed body from the same normalized
-  // inputs and 409s AGREEMENT_REVIEW_HASH_MISMATCH if the echoed hash differs, BEFORE any write.
+  // STRICT body: the typed name + authority role + the REQUIRED echoed agreementVersion +
+  // reviewedContentHash (FIX 1). No `reason` (the ceremony IS the act; the audit carries version
+  // + hash metadata). No `witnessLabel` (FIX 2: witness identity is authenticated server-side,
+  // not request text). The server RE-DERIVES the reviewed body from the same normalized inputs
+  // and 409s AGREEMENT_VERSION_MISMATCH / AGREEMENT_REVIEW_HASH_MISMATCH if the echoed version or
+  // hash is missing or differs, BEFORE any write - so a sign is impossible unless the owner
+  // reviewed the EXACT personalised body.
   app.post(`${prefix}/:id/agreement/sign`, { preHandler: [requireAdminCapability('merchant:sign-agreement')] }, async (req: any) => {
+    // FIX 1 (D65 review-binding): agreementVersion + reviewedContentHash are REQUIRED
+    // (z.string().min(1), still .strict()). A sign request that omits either is rejected here
+    // (400) before the service runs: a signature is impossible unless the ceremony echoes the
+    // exact reviewed version + its server-authoritative hash.
     const body = z
       .object({
         signerName: z.string().trim().min(1).max(200),
         signerRoleConfirmation: z.string().trim().min(1).max(200),
-        agreementVersion: z.string().min(1).optional(),
-        reviewedContentHash: z.string().min(1).optional(),
+        agreementVersion: z.string().min(1),
+        reviewedContentHash: z.string().min(1),
       })
       .strict()
       .parse(req.body)

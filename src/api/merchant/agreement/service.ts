@@ -191,6 +191,53 @@ export async function renderAndStoreAgreementPdf(
   return { key, pdfHash }
 }
 
+// ── Orphaned-PDF reconciliation alert (FIX 4) ─────────────────────────────────
+
+/**
+ * FIX 4 (decision #533 §16 step 5). Both D65 write paths upload the signed PDF to private R2
+ * BEFORE the one DB transaction; on a failed/lost transaction they best-effort delete that
+ * object. When that COMPENSATING DELETE also fails, a real R2 object is orphaned and needs
+ * MANUAL RECONCILIATION. That is a HIGH-SEVERITY operational signal, not a routine warning.
+ *
+ * Mechanism (deliberately non-material): the project's metrics boundary (queues/maintenance
+ * Metrics.ts header) defines its alerting tiers as "console structured logs + in-process
+ * counters + in-app admin bell Notification rows". This uses the STRUCTURED HIGH-SEVERITY
+ * console tier (console.error with a stable, greppable event tag + a redacted structured
+ * payload + a reconciliation marker), matching how maintenanceMetrics logs its high-severity
+ * ops signals. It intentionally does NOT add an in-app bell here: a new dedicated
+ * NotificationType would require a Prisma enum migration (out of the D65 boundary), reusing an
+ * existing unrelated type would mislead the bell's grouping, and this path fires right after a
+ * DB transaction FAILED (the database may itself be down), so a Notification write is the
+ * least reliable channel at exactly this moment. A dedicated durable/in-app reconciliation
+ * channel would be a MATERIAL new subsystem for owner adjudication, not built here.
+ *
+ * PURE LOGGING: never throws. It is called from the compensation catch AFTER the original
+ * error is captured, so it can never mask that error. REDACTED: merchantId + R2 key + a coarse
+ * cause CLASS only (never raw provider text, never signer PII).
+ */
+export function reportOrphanedAgreementPdf(input: {
+  lane: 'assisted' | 'self-serve'
+  merchantId: string
+  pdfKey: string
+  cause: unknown
+}): void {
+  try {
+    console.error('[agreement][RECONCILE] orphaned signed-agreement PDF needs manual reconciliation', {
+      event: 'AGREEMENT_PDF_ORPHAN',
+      severity: 'high',
+      needsReconciliation: true,
+      lane: input.lane,
+      merchantId: input.merchantId,
+      pdfKey: input.pdfKey,
+      // Coarse cause class only (Error.name / typeof) - never the raw message, which can
+      // embed provider/driver text.
+      causeClass: input.cause instanceof Error ? input.cause.name : typeof input.cause,
+    })
+  } catch {
+    // The reconciliation logger itself must never throw into the compensation catch.
+  }
+}
+
 // ── The in-person assisted ceremony ──────────────────────────────────────────
 
 export interface SignAgreementInPersonInput {
@@ -202,19 +249,25 @@ export interface SignAgreementInPersonInput {
   signerName: string
   /** Authority attestation role (e.g. "Owner", "Director"). */
   signerRoleConfirmation: string
-  /** Optional client-echoed version (integrity check). Absent = server current; if given
-   * it must equal the served/current version, else AGREEMENT_VERSION_MISMATCH (409). */
-  agreementVersion?: string
   /**
-   * Optional client-echoed reviewedContentHash (decision doc §4/§10). The server is
-   * AUTHORITATIVE: it RE-DERIVES the personalised body from the same normalized inputs and
-   * recomputes the hash. When this echo is present it must equal the server value, else
-   * AGREEMENT_REVIEW_HASH_MISMATCH (409) BEFORE any PDF render/upload/DB tx/status/audit
-   * (the owner reviewed a body that no longer matches what would be signed). Absent = the
-   * server derivation is authoritative (a non-ceremony caller may omit it); the ceremony
-   * always echoes the preview's hash. NO browser recompute: the client only echoes.
+   * REQUIRED client-echoed agreement version (FIX 1, D65 review-binding). The ceremony echoes
+   * the version the owner reviewed in the preview; it MUST equal the served/current version,
+   * else AGREEMENT_VERSION_MISMATCH (409) BEFORE any read or write. A missing/empty value is
+   * treated as a mismatch (the caller never bound to a reviewed version): a signature is
+   * IMPOSSIBLE without it.
    */
-  reviewedContentHash?: string
+  agreementVersion: string
+  /**
+   * REQUIRED client-echoed reviewedContentHash (FIX 1, decision doc §4/§10). The server is
+   * AUTHORITATIVE: it RE-DERIVES the personalised body from the same normalized inputs and
+   * recomputes the hash; the echo MUST equal that server value, else
+   * AGREEMENT_REVIEW_HASH_MISMATCH (409) BEFORE any PDF render/upload, DB tx, status change,
+   * or audit (the owner reviewed a body that no longer matches what would be signed). A
+   * missing/empty echo is treated as a mismatch: the owner cannot have reviewed the EXACT
+   * personalised body being signed, so a signature is IMPOSSIBLE without it. NO browser
+   * recompute: the client only echoes.
+   */
+  reviewedContentHash: string
   /** Optional stylus/finger signature PNG bytes (non-gating). */
   drawnSignature?: Buffer | null
   // FIX 2: there is NO client-supplied witness label. The witness IDENTITY is looked up
@@ -255,10 +308,12 @@ export async function signAgreementInPerson(
   // hash). The ceremony always signs the CURRENT version; the PDF, the immutable evidence
   // record, and the MerchantContract pointer all derive from THIS one object.
   const agreement = getCurrentAgreement()
-  // The optional client-echoed agreementVersion is an INTEGRITY CHECK ONLY: absent means
-  // "use the server current"; present must equal the served/current version, else the
-  // client reviewed a stale page and we refuse (409) before any read or write.
-  if (input.agreementVersion && input.agreementVersion !== agreement.version) {
+  // FIX 1 (D65 review-binding): the client-echoed agreementVersion is MANDATORY. It must be
+  // present AND equal the served/current version, else the client reviewed a stale/absent
+  // version and we refuse (409) BEFORE any read or write. A missing/empty echo is a mismatch:
+  // a signature is impossible without binding to the exact reviewed version.
+  const echoedVersion = (input.agreementVersion ?? '').trim()
+  if (echoedVersion.length === 0 || echoedVersion !== agreement.version) {
     throw new AppError('AGREEMENT_VERSION_MISMATCH')
   }
 
@@ -321,10 +376,11 @@ export async function signAgreementInPerson(
 
   // (5a) Re-derive the personalised reviewed body + reviewedContentHash SERVER-SIDE from the
   // same normalized inputs + the merchant identity (decision doc §4). This is the legally
-  // accepted object; its sha256 is the reviewedContentHash. The client-echoed hash (if any)
-  // is an INTEGRITY CHECK: a mismatch means the owner reviewed a body that no longer matches
-  // what would be signed, so refuse (409) BEFORE any PDF render/upload, DB tx, status flip,
-  // or audit (decision doc §10). Nothing is persisted on a mismatch.
+  // accepted object; its sha256 is the reviewedContentHash. FIX 1 (D65 review-binding): the
+  // client-echoed hash is MANDATORY: it must be present AND equal this server-derived value,
+  // else the owner did not review the EXACT personalised body being signed. A mismatch (or a
+  // missing/empty echo) refuses (409) BEFORE any PDF render/upload, DB tx, status flip, or
+  // audit (decision doc §10). Nothing is persisted on a mismatch.
   const reviewed = renderReviewedBody({
     version: agreement.version,
     canonicalContentHash: agreement.contentHash,
@@ -337,7 +393,8 @@ export async function signAgreementInPerson(
     signerName,
     signerRoleConfirmation,
   })
-  if (input.reviewedContentHash && input.reviewedContentHash !== reviewed.reviewedContentHash) {
+  const echoedHash = (input.reviewedContentHash ?? '').trim()
+  if (echoedHash.length === 0 || echoedHash !== reviewed.reviewedContentHash) {
     throw new AppError('AGREEMENT_REVIEW_HASH_MISMATCH')
   }
 
@@ -451,7 +508,9 @@ export async function signAgreementInPerson(
     try {
       await deleteObject(pdfKey)
     } catch (cleanupErr) {
-      console.warn(`[agreement] orphan PDF cleanup for "${pdfKey}" failed (ignored):`, cleanupErr)
+      // FIX 4: a persisted orphaned R2 object needs manual reconciliation - HIGH-SEVERITY
+      // structured signal (not a routine warn). Swallowed so it can never mask the original err.
+      reportOrphanedAgreementPdf({ lane: 'assisted', merchantId: input.merchantId, pdfKey, cause: cleanupErr })
     }
     throw err
   }

@@ -21,9 +21,34 @@ vi.mock('../../../src/api/merchant/agreement/pdf', async (importOriginal) => {
 })
 
 import { buildApp } from '../../../src/api/app'
+import { getCurrentAgreement } from '../../../src/api/merchant/agreement/versions'
+import { renderReviewedBody } from '../../../src/api/merchant/agreement/reviewedBody'
 
 const URL = '/api/v1/admin/merchants/m1/agreement/sign'
-const BODY = { signerName: 'Priya Nair', signerRoleConfirmation: 'Owner' }
+
+// FIX 1: agreementVersion + reviewedContentHash are now REQUIRED. The ceremony echoes the
+// preview's version + server-authoritative hash; the route rejects a body missing either. The
+// honest hash is derived from the SAME shared module the service re-derives from, over the m1
+// merchant identity the mock returns below.
+const CUR = getCurrentAgreement()
+const REVIEWED_HASH = renderReviewedBody({
+  version: CUR.version,
+  canonicalContentHash: CUR.contentHash,
+  content: CUR.content,
+  method: 'IN_PERSON_ASSISTED',
+  businessLegalName: 'Kovalam Tandoori Ltd',
+  tradingName: null,
+  companyNumber: null,
+  vatNumber: null,
+  signerName: 'Priya Nair',
+  signerRoleConfirmation: 'Owner',
+}).reviewedContentHash
+const BODY = {
+  signerName: 'Priya Nair',
+  signerRoleConfirmation: 'Owner',
+  agreementVersion: CUR.version,
+  reviewedContentHash: REVIEWED_HASH,
+}
 
 describe('POST /admin/merchants/:id/agreement/sign', () => {
   let app: FastifyInstance
@@ -101,6 +126,40 @@ describe('POST /admin/merchants/:id/agreement/sign', () => {
       payload: { ...BODY, reason: 'not-a-field' },
     })
     expect(res.statusCode).toBe(400)
+    expect(recordCreate).not.toHaveBeenCalled()
+  })
+
+  // FIX 1 route bypass reproductions: the strict route now REQUIRES agreementVersion +
+  // reviewedContentHash (z.string().min(1)). A body omitting either is 400'd before the service
+  // runs, so a signature cannot be recorded without the review echo.
+  it('FIX 1: omitting agreementVersion 400s (required), no record written', async () => {
+    const token = sign('OPERATIONS', ['merchant:sign-agreement'])
+    const { agreementVersion: _omit, ...noVersion } = BODY
+    const res = await app.inject({
+      method: 'POST', url: URL, headers: { authorization: `Bearer ${token}` }, payload: noVersion,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(recordCreate).not.toHaveBeenCalled()
+  })
+
+  it('FIX 1: omitting reviewedContentHash 400s (required), no record written', async () => {
+    const token = sign('OPERATIONS', ['merchant:sign-agreement'])
+    const { reviewedContentHash: _omit, ...noHash } = BODY
+    const res = await app.inject({
+      method: 'POST', url: URL, headers: { authorization: `Bearer ${token}` }, payload: noHash,
+    })
+    expect(res.statusCode).toBe(400)
+    expect(recordCreate).not.toHaveBeenCalled()
+  })
+
+  it('FIX 1: a WRONG reviewedContentHash echo is refused (409 AGREEMENT_REVIEW_HASH_MISMATCH), no record written', async () => {
+    const token = sign('OPERATIONS', ['merchant:sign-agreement'])
+    const res = await app.inject({
+      method: 'POST', url: URL, headers: { authorization: `Bearer ${token}` },
+      payload: { ...BODY, reviewedContentHash: 'deadbeef-not-the-hash' },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(JSON.parse(res.body).error.code).toBe('AGREEMENT_REVIEW_HASH_MISMATCH')
     expect(recordCreate).not.toHaveBeenCalled()
   })
 

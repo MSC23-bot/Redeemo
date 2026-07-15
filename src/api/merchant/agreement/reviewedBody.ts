@@ -25,6 +25,7 @@
 // record. reviewedContentHash = sha256(reviewedBody) over the exact UTF-8 bytes, so the
 // stored reviewedBody is the self-verifying immutable pre-image of the hash (§6).
 
+import { AppError } from '../../shared/errors'
 import { computeContentHash } from './versions'
 
 export type AgreementSignMethodValue = 'IN_PERSON_ASSISTED' | 'SELF_SERVE_CLICK'
@@ -101,6 +102,17 @@ export interface ReviewedBodyResult {
 export function renderReviewedBody(input: ReviewedBodyInput): ReviewedBodyResult {
   const normalizedSignerName = normalizeSignerText(input.signerName)
   const normalizedSignerRole = normalizeSignerText(input.signerRoleConfirmation)
+
+  // FIX 3 (decision doc §8; single chokepoint). A personalised reviewed body cannot be validly
+  // produced without a real signatory name + authority role. Reject a value that normalizes to
+  // EMPTY (e.g. a non-breaking space passes a route .min(1) but normalizes to "") BEFORE hashing
+  // or persisting anything. Because EVERY preview + both sign paths + the self-serve accept route
+  // through this shared render, this backstop makes an empty-signer personalised body impossible
+  // everywhere at once (the sign/accept paths also pre-check, this catches the previews + any
+  // future caller).
+  if (normalizedSignerName.length === 0 || normalizedSignerRole.length === 0) {
+    throw new AppError('AGREEMENT_SIGNER_INVALID')
+  }
 
   const map: Record<string, string> = {
     businessLegalName: input.businessLegalName,

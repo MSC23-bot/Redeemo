@@ -43,7 +43,7 @@ import {
   renderAndStoreAgreementPdf,
   previewAgreement,
 } from '../../../src/api/merchant/agreement/service'
-import { acceptContract } from '../../../src/api/merchant/onboarding/service'
+import { acceptContract, previewOwnContract } from '../../../src/api/merchant/onboarding/service'
 import { getAgreementVersion, getCurrentAgreement, computeContentHash } from '../../../src/api/merchant/agreement/versions'
 import { renderReviewedBody } from '../../../src/api/merchant/agreement/reviewedBody'
 import { putObject, deleteObject } from '../../../src/api/shared/storage'
@@ -74,6 +74,23 @@ function expectedCeremonyHash() {
     canonicalContentHash: CURRENT.contentHash,
     content: CURRENT.content,
     method: 'IN_PERSON_ASSISTED',
+    businessLegalName: MERCHANT_ROW.businessName,
+    tradingName: MERCHANT_ROW.tradingName,
+    companyNumber: MERCHANT_ROW.companyNumber,
+    vatNumber: MERCHANT_ROW.vatNumber,
+    signerName: 'Priya Nair',
+    signerRoleConfirmation: 'Owner',
+  }).reviewedContentHash
+}
+
+// The server-derived self-serve echo (same inputs, SELF_SERVE_CLICK method). Used as the honest
+// reviewedContentHash echo the v2+ self-serve accept path now REQUIRES (FIX 2).
+function expectedSelfServeHash() {
+  return renderReviewedBody({
+    version: CURRENT.version,
+    canonicalContentHash: CURRENT.contentHash,
+    content: CURRENT.content,
+    method: 'SELF_SERVE_CLICK',
     businessLegalName: MERCHANT_ROW.businessName,
     tradingName: MERCHANT_ROW.tradingName,
     companyNumber: MERCHANT_ROW.companyNumber,
@@ -206,11 +223,16 @@ describe('environment + legal gate mechanics', () => {
 })
 
 describe('signAgreementInPerson (the assisted ceremony)', () => {
+  // FIX 1: agreementVersion + reviewedContentHash are now REQUIRED (the ceremony always echoes
+  // the preview's version + hash). The base INPUT carries the honest values; the negative tests
+  // below override or omit them.
   const INPUT = {
     merchantId: MERCHANT_ID,
     actorAdminId: WITNESS,
     signerName: 'Priya Nair',
     signerRoleConfirmation: 'Owner',
+    agreementVersion: CURRENT.version,
+    reviewedContentHash: expectedCeremonyHash(),
   }
 
   it('refuses a gated PRODUCTION binding write BEFORE any read or write', async () => {
@@ -336,6 +358,54 @@ describe('signAgreementInPerson (the assisted ceremony)', () => {
     expect(result.contractStatus).toBe('SIGNED')
     const record = tx.merchantAgreementRecord.create.mock.calls[0][0].data
     expect(record.reviewedContentHash).toBe(expectedCeremonyHash())
+  })
+
+  // FIX 1 bypass reproductions: BEFORE this fix the service checks were
+  // `if (input.agreementVersion && ...)` / `if (input.reviewedContentHash && ...)`, so an
+  // OMITTED echo NO-OP'd and the ceremony signed anyway. Now a missing/empty echo is treated as a
+  // mismatch and NOTHING binds (no PDF, no upload, no transaction, no status flip, no audit).
+  it('FIX 1 (bypass repro): OMITTING agreementVersion is refused (AGREEMENT_VERSION_MISMATCH), nothing written', async () => {
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    const { agreementVersion: _omit, ...noVersion } = INPUT
+    await expect(signAgreementInPerson(prisma, noVersion as any, ctx)).rejects.toMatchObject({
+      code: 'AGREEMENT_VERSION_MISMATCH',
+    })
+    expect(renderAgreementPdf).not.toHaveBeenCalled()
+    expect(putObject).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('FIX 1 (bypass repro): OMITTING reviewedContentHash is refused (AGREEMENT_REVIEW_HASH_MISMATCH), nothing written', async () => {
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    const { reviewedContentHash: _omit, ...noHash } = INPUT
+    await expect(signAgreementInPerson(prisma, noHash as any, ctx)).rejects.toMatchObject({
+      code: 'AGREEMENT_REVIEW_HASH_MISMATCH',
+    })
+    expect(renderAgreementPdf).not.toHaveBeenCalled()
+    expect(putObject).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('FIX 1: an EMPTY agreementVersion is refused (AGREEMENT_VERSION_MISMATCH)', async () => {
+    const prisma = makePrisma(makeTx())
+    await expect(signAgreementInPerson(prisma, { ...INPUT, agreementVersion: '' }, ctx)).rejects.toMatchObject({
+      code: 'AGREEMENT_VERSION_MISMATCH',
+    })
+    expect(putObject).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('FIX 1: a whitespace-only reviewedContentHash is refused (AGREEMENT_REVIEW_HASH_MISMATCH)', async () => {
+    const prisma = makePrisma(makeTx())
+    await expect(signAgreementInPerson(prisma, { ...INPUT, reviewedContentHash: '   ' }, ctx)).rejects.toMatchObject({
+      code: 'AGREEMENT_REVIEW_HASH_MISMATCH',
+    })
+    expect(renderAgreementPdf).not.toHaveBeenCalled()
+    expect(putObject).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 
   it('pins version + hash from the REGISTRY server-side: a stale/mismatched client echo is refused (409) before any read or write', async () => {
@@ -485,6 +555,35 @@ describe('signAgreementInPerson (the assisted ceremony)', () => {
     await expect(signAgreementInPerson(prisma, INPUT, ctx)).rejects.toBe(boom)
   })
 
+  it('FIX 4: an orphaned-PDF cleanup failure emits a HIGH-SEVERITY structured reconciliation alert', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const tx = makeTx()
+      const boom = new Error('db-down')
+      tx.merchantAgreementRecord.create.mockRejectedValue(boom)
+      ;(deleteObject as any).mockRejectedValueOnce(new Error('r2-cleanup-down'))
+      const prisma = makePrisma(tx)
+      await expect(signAgreementInPerson(prisma, INPUT, ctx)).rejects.toBe(boom)
+      // Structured, greppable, high-severity, reconciliation-flagged, redacted (no signer PII).
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[agreement][RECONCILE]'),
+        expect.objectContaining({
+          event: 'AGREEMENT_PDF_ORPHAN',
+          severity: 'high',
+          needsReconciliation: true,
+          lane: 'assisted',
+          merchantId: MERCHANT_ID,
+          pdfKey: 'document/m1/deadbeefdeadbeef.pdf',
+        }),
+      )
+      const payload = JSON.stringify(errSpy.mock.calls)
+      expect(payload).not.toContain('Priya Nair')
+      expect(payload).not.toContain('r2-cleanup-down') // raw provider text redacted (class only)
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+
   it('the success path never deletes the stored PDF', async () => {
     const prisma = makePrisma(makeTx())
     await signAgreementInPerson(prisma, INPUT, ctx)
@@ -516,6 +615,47 @@ describe('previewAgreement (personalised preview)', () => {
       previewAgreement(prisma, MERCHANT_ID, { signerName: 'Priya Nair', signerRoleConfirmation: 'Owner' }),
     ).rejects.toMatchObject({ code: 'MERCHANT_NOT_FOUND' })
   })
+
+  it('FIX 3: a whitespace-only signer name is rejected (AGREEMENT_SIGNER_INVALID) in the assisted preview', async () => {
+    const prisma = makePrisma(makeTx())
+    await expect(
+      previewAgreement(prisma, MERCHANT_ID, { signerName: '   ', signerRoleConfirmation: 'Owner' }),
+    ).rejects.toMatchObject({ code: 'AGREEMENT_SIGNER_INVALID' })
+  })
+})
+
+describe('previewOwnContract (FIX 2: self-serve personalised preview)', () => {
+  it('previews the SERVED version and returns the exact echo the v2+ self-serve accept re-derives', async () => {
+    process.env.REDEEMO_DEPLOY_ENV = 'staging' // served = current draft (the D65 v2+ path)
+    const prisma = makePrisma(makeTx())
+    const preview = await previewOwnContract(prisma, MERCHANT_ID, {
+      signerName: '  Priya   Nair ',
+      signerRoleConfirmation: 'Owner',
+    })
+    expect(preview.version).toBe(CURRENT.version)
+    expect(preview.canonicalContentHash).toBe(CURRENT.contentHash)
+    expect(preview.isDraft).toBe(true)
+    expect(preview.gated).toBe(true)
+    expect(preview.personalisedText).toContain('Priya Nair')
+    expect(preview.personalisedText).toContain('Kovalam Tandoori Ltd')
+    expect(preview.reviewedContentHash).toBe(computeContentHash(preview.personalisedText))
+    // The preview hash IS the mandatory echo the v2+ self-serve accept requires.
+    expect(preview.reviewedContentHash).toBe(expectedSelfServeHash())
+  })
+
+  it('FIX 3: a non-breaking-space-only signer name is rejected (AGREEMENT_SIGNER_INVALID)', async () => {
+    const prisma = makePrisma(makeTx())
+    await expect(
+      previewOwnContract(prisma, MERCHANT_ID, { signerName: ' ', signerRoleConfirmation: 'Owner' }),
+    ).rejects.toMatchObject({ code: 'AGREEMENT_SIGNER_INVALID' })
+  })
+
+  it('404s an unknown merchant', async () => {
+    const prisma = makePrisma(makeTx(), null)
+    await expect(
+      previewOwnContract(prisma, MERCHANT_ID, { signerName: 'Priya Nair', signerRoleConfirmation: 'Owner' }),
+    ).rejects.toMatchObject({ code: 'MERCHANT_NOT_FOUND' })
+  })
 })
 
 describe('renderAndStoreAgreementPdf storage fail-closed + pdfHash', () => {
@@ -545,7 +685,10 @@ describe('renderAndStoreAgreementPdf storage fail-closed + pdfHash', () => {
 })
 
 describe('acceptContract self-serve: D65 v2+ path', () => {
-  const SIGNER = { signerName: 'Priya Nair', signerRoleConfirmation: 'Owner' }
+  // FIX 2: the v2+ self-serve path now REQUIRES a valid reviewedContentHash echo (parity with the
+  // assisted ceremony). SIGNER carries the honest self-serve echo; the signer-invalid /
+  // double-sign / stale-version tests throw BEFORE the echo check, so they omit/override it.
+  const SIGNER = { signerName: 'Priya Nair', signerRoleConfirmation: 'Owner', reviewedContentHash: expectedSelfServeHash() }
 
   it('writes a SELF_SERVE_CLICK record (null actorAdminId) with reviewedBody/hash/pdfHash + real signer name + role', async () => {
     const tx = makeTx()
@@ -592,11 +735,73 @@ describe('acceptContract self-serve: D65 v2+ path', () => {
     process.env.STORAGE_ENABLED = 'false'
     const tx = makeTx()
     const prisma = makePrisma(tx)
+    // SIGNER carries a valid echo, so the review-binding check passes and the storage fail-closed
+    // gate is what refuses (proving the echo check sits BEFORE storage, both pre-write).
     await expect(acceptContract(prisma, 'ma1', CURRENT.version, ctx, SIGNER)).rejects.toMatchObject({
       code: 'STORAGE_NOT_ENABLED',
     })
     expect(putObject).not.toHaveBeenCalled()
     expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  // FIX 2 bypass reproduction: BEFORE this fix the self-serve accept took NO reviewedContentHash,
+  // so a merchant-web click bound a v2+ signature without proving the EXACT personalised body was
+  // reviewed. Now a missing/tampered echo fails closed (409) before any PDF/upload/write.
+  it('FIX 2 (bypass repro): v2+ self-serve with a MISSING echo is refused (AGREEMENT_REVIEW_HASH_MISMATCH) before any write', async () => {
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    await expect(
+      acceptContract(prisma, 'ma1', CURRENT.version, ctx, { signerName: 'Priya Nair', signerRoleConfirmation: 'Owner' }),
+    ).rejects.toMatchObject({ code: 'AGREEMENT_REVIEW_HASH_MISMATCH' })
+    expect(renderAgreementPdf).not.toHaveBeenCalled()
+    expect(putObject).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+    expect(deleteObject).not.toHaveBeenCalled()
+  })
+
+  it('FIX 2: v2+ self-serve with a TAMPERED echo is refused (AGREEMENT_REVIEW_HASH_MISMATCH) before any write', async () => {
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    await expect(
+      acceptContract(prisma, 'ma1', CURRENT.version, ctx, { ...SIGNER, reviewedContentHash: 'deadbeef-not-the-hash' }),
+    ).rejects.toMatchObject({ code: 'AGREEMENT_REVIEW_HASH_MISMATCH' })
+    expect(renderAgreementPdf).not.toHaveBeenCalled()
+    expect(putObject).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('FIX 2: v2+ self-serve with a VALID echo signs the full evidence record', async () => {
+    const tx = makeTx()
+    const prisma = makePrisma(tx)
+    const result = await acceptContract(prisma, 'ma1', CURRENT.version, ctx, SIGNER)
+    expect(result.accepted).toBe(true)
+    const record = tx.merchantAgreementRecord.create.mock.calls[0][0].data
+    expect(record.method).toBe('SELF_SERVE_CLICK')
+    expect(record.reviewedContentHash).toBe(expectedSelfServeHash())
+  })
+
+  it('FIX 4: a self-serve orphaned-PDF cleanup failure emits the HIGH-SEVERITY structured reconciliation alert (lane self-serve)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const tx = makeTx()
+      const boom = new Error('db-down')
+      tx.merchantContract.create.mockRejectedValue(boom)
+      ;(deleteObject as any).mockRejectedValueOnce(new Error('r2-cleanup-down'))
+      const prisma = makePrisma(tx)
+      await expect(acceptContract(prisma, 'ma1', CURRENT.version, ctx, SIGNER)).rejects.toBe(boom)
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[agreement][RECONCILE]'),
+        expect.objectContaining({
+          event: 'AGREEMENT_PDF_ORPHAN',
+          severity: 'high',
+          needsReconciliation: true,
+          lane: 'self-serve',
+          pdfKey: 'document/m1/deadbeefdeadbeef.pdf',
+        }),
+      )
+    } finally {
+      errSpy.mockRestore()
+    }
   })
 
   it('double sign still refused (CONTRACT_ALREADY_SIGNED) before any write', async () => {
@@ -692,13 +897,15 @@ describe('version-integrity + parity: PDF + record + tcVersion never disagree', 
     actorAdminId: WITNESS,
     signerName: 'Priya Nair',
     signerRoleConfirmation: 'Owner',
+    agreementVersion: CURRENT.version,
+    reviewedContentHash: expectedCeremonyHash(),
   }
 
   it('self-serve (non-production, D65): PDF + record + tcVersion all carry the served current version', async () => {
     process.env.REDEEMO_DEPLOY_ENV = 'staging'
     const tx = makeTx()
     const prisma = makePrisma(tx)
-    await acceptContract(prisma, 'ma1', CURRENT.version, ctx, { signerName: 'Priya Nair', signerRoleConfirmation: 'Owner' })
+    await acceptContract(prisma, 'ma1', CURRENT.version, ctx, { signerName: 'Priya Nair', signerRoleConfirmation: 'Owner', reviewedContentHash: expectedSelfServeHash() })
     const pdfArg = (renderAgreementPdf as any).mock.calls[0][0]
     const record = tx.merchantAgreementRecord.create.mock.calls[0][0].data
     const contract = tx.merchantContract.create.mock.calls[0][0].data
@@ -731,7 +938,7 @@ describe('version-integrity + parity: PDF + record + tcVersion never disagree', 
     // Self-serve record (non-production so the D65 path binds the same current version).
     process.env.REDEEMO_DEPLOY_ENV = 'staging'
     const txS = makeTx()
-    await acceptContract(makePrisma(txS), 'ma1', CURRENT.version, ctx, { signerName: 'Priya Nair', signerRoleConfirmation: 'Owner' })
+    await acceptContract(makePrisma(txS), 'ma1', CURRENT.version, ctx, { signerName: 'Priya Nair', signerRoleConfirmation: 'Owner', reviewedContentHash: expectedSelfServeHash() })
     const selfServeRecord = txS.merchantAgreementRecord.create.mock.calls[0][0].data
     // The only difference is the method label inside the reviewed body.
     expect(ceremonyRecord.reviewedBody).not.toBe(selfServeRecord.reviewedBody)
@@ -747,6 +954,8 @@ describe('FIX 3: watermark = version.isDraft, env flag = ceremony gate', () => {
     actorAdminId: WITNESS,
     signerName: 'Priya Nair',
     signerRoleConfirmation: 'Owner',
+    agreementVersion: CURRENT.version,
+    reviewedContentHash: expectedCeremonyHash(),
   }
 
   it('prod + flag ON: self-serve binds the non-draft 1.0 (legacy lane, no PDF/record, result.gated false)', async () => {

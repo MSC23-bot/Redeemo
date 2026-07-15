@@ -197,4 +197,11 @@ export const RedisKey = {
   // authenticated caller and per-IP is defence in depth.
   rateLimitAgreementPreviewAdminMin: (adminId: string) => `rl:agrprev:admin:min:${adminId}`, // per-admin per-minute (abuser)
   rateLimitAgreementPreviewIpMin:    (ip: string)       => `rl:agrprev:ip:min:${ip}`,         // per-IP per-minute (abuser)
+  // D65 self-serve (FIX 2): a bounded per-caller rate limit on the merchant-authenticated
+  // own-merchant POST /api/v1/merchant/onboarding/agreement/preview (decision doc §4b REQUIRED
+  // acceptance criterion). Both keys are ABUSER keys: per-MERCHANT is the primary bound (the
+  // resolved own merchant, so one merchant cannot hammer the render) and per-IP is defence in
+  // depth against one machine cycling merchant sessions.
+  rateLimitMerchantAgreementPreviewMerchantMin: (merchantId: string) => `rl:magrprev:merch:min:${merchantId}`, // per-merchant per-minute (abuser)
+  rateLimitMerchantAgreementPreviewIpMin:       (ip: string)         => `rl:magrprev:ip:min:${ip}`,             // per-IP per-minute (abuser)
 } as const

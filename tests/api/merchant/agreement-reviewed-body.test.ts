@@ -8,6 +8,7 @@ import {
   NOT_PROVIDED,
 } from '../../../src/api/merchant/agreement/reviewedBody'
 import { getCurrentAgreement } from '../../../src/api/merchant/agreement/versions'
+import { AppError } from '../../../src/api/shared/errors'
 
 // D65 personalised-agreement SHARED render/normalize/hash module suite (decision doc §4/§13).
 // Deterministic + golden-testable: the SAME module feeds the admin preview, the sign path, the
@@ -89,6 +90,28 @@ describe('renderReviewedBody', () => {
     const clean = renderReviewedBody({ ...BASE, signerName: 'Priya Nair', signerRoleConfirmation: 'Owner' })
     expect(messy.reviewedBody).toBe(clean.reviewedBody)
     expect(messy.reviewedContentHash).toBe(clean.reviewedContentHash)
+  })
+
+  // FIX 3 (single chokepoint): a personalised body cannot be produced without a real signatory.
+  // A value that NORMALIZES to empty (whitespace, tab, or a non-breaking space that passes a route
+  // .min(1)) is rejected here, so every caller (both previews, both sign paths, self-serve accept)
+  // inherits the guard.
+  it('FIX 3: throws AGREEMENT_SIGNER_INVALID when the signer name normalizes to empty', () => {
+    expect(() => renderReviewedBody({ ...BASE, signerName: '   ' })).toThrow(AppError)
+    try {
+      renderReviewedBody({ ...BASE, signerName: ' ' })
+    } catch (e) {
+      expect((e as AppError).code).toBe('AGREEMENT_SIGNER_INVALID')
+    }
+  })
+
+  it('FIX 3: throws AGREEMENT_SIGNER_INVALID when the signer role normalizes to empty', () => {
+    try {
+      renderReviewedBody({ ...BASE, signerRoleConfirmation: '\t\n ' })
+      throw new Error('expected AGREEMENT_SIGNER_INVALID')
+    } catch (e) {
+      expect((e as AppError).code).toBe('AGREEMENT_SIGNER_INVALID')
+    }
   })
 
   it('renders unset optional identity fields as "Not provided", never undefined', () => {

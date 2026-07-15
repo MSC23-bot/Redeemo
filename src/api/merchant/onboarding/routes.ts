@@ -1,9 +1,11 @@
 import { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import '../types'
-import { getOnboardingChecklist, getOnboardingTaxonomy, getOnboardingStatus, acceptContract, submitForApproval } from './service'
+import { getOnboardingChecklist, getOnboardingTaxonomy, getOnboardingStatus, acceptContract, submitForApproval, previewOwnContract } from './service'
 import { setMerchantIdentity } from '../profile/service'
 import { getServedAgreement } from '../agreement/service'
+import { consumeMerchantAgreementPreview } from '../../shared/agreementPreviewLimiter'
+import { resolveAdminMerchant } from '../shared'
 
 export async function onboardingRoutes(app: FastifyInstance) {
   const prefix = '/api/v1/merchant/onboarding'
@@ -54,18 +56,51 @@ export async function onboardingRoutes(app: FastifyInstance) {
     return reply.send({ version: served.version, text: served.content })
   })
 
-  // D65 personalised-agreement (decision doc §8): signerName + signerRoleConfirmation are
-  // threaded through for the evidence record. They stay OPTIONAL at the route for backward
-  // compatibility (the legacy v1 self-serve path does not require them), but acceptContract
-  // REQUIRES both on the D65 v2+ path (AGREEMENT_SIGNER_INVALID otherwise). The merchant-web
-  // FORM must start sending both for the v2+ path; that UI change is the Merchant Portal
-  // session's, not this PR's.
+  // D65 self-serve PERSONALISED preview (FIX 2; decision doc §4b). The merchant-authenticated
+  // own-merchant counterpart of the admin ceremony preview. POST (not GET): the signer name +
+  // role are entered by the owner and must not enter a URL/query log. There is NO :id param -
+  // the OWN merchant is resolved from the authenticated caller (resolveAdminMerchant via
+  // req.user.sub), so it can never preview a cross-merchant body. A REQUIRED bounded per-merchant
+  // rate limit (consumeMerchantAgreementPreview: 30/merchant/min + 60/IP/min, env-overridable)
+  // runs BEFORE the render. Returns the SAME shape as the admin preview via the SAME shared
+  // reviewedBody module; the client echoes the returned reviewedContentHash into accept.
+  app.post(`${prefix}/agreement/preview`, async (req: FastifyRequest, reply) => {
+    const body = z
+      .object({
+        signerName: z.string().trim().max(200),
+        signerRoleConfirmation: z.string().trim().max(200),
+      })
+      .strict()
+      .parse(req.body)
+
+    // Own-merchant resolution (never a cross-merchant id) gives the rate-limit key AND the render
+    // target in one lookup. FIX 3 (empty-normalized signer/role) is enforced inside the shared
+    // reviewedBody module (AGREEMENT_SIGNER_INVALID), so a whitespace-only name is rejected.
+    const { merchantId } = await resolveAdminMerchant(app.prisma, req.user.sub)
+    await consumeMerchantAgreementPreview(app.redis, { merchantId, ip: req.ip })
+
+    const result = await previewOwnContract(app.prisma, merchantId, {
+      signerName: body.signerName,
+      signerRoleConfirmation: body.signerRoleConfirmation,
+    })
+    return reply.send(result)
+  })
+
+  // D65 personalised-agreement (decision doc §8): signerName + signerRoleConfirmation +
+  // reviewedContentHash are threaded through for the evidence record + the review-binding echo.
+  // They stay OPTIONAL at the route for backward compatibility (the legacy v1 self-serve path
+  // requires none of them), but acceptContract REQUIRES the signer name + role AND a valid echo
+  // on the D65 v2+ path (AGREEMENT_SIGNER_INVALID / AGREEMENT_REVIEW_HASH_MISMATCH otherwise), so
+  // v2+ self-serve is FAIL-CLOSED without a valid echo. The merchant-web FORM must call the
+  // preview route above and send all three for the v2+ path; that UI change is the Merchant
+  // Portal session's, not this PR's.
   app.post(`${prefix}/contract/accept`, async (req: FastifyRequest, reply) => {
-    const { version, signerName, signerRoleConfirmation } = z
+    const { version, signerName, signerRoleConfirmation, reviewedContentHash } = z
       .object({
         version: z.string(),
         signerName: z.string().trim().min(1).max(200).optional(),
         signerRoleConfirmation: z.string().trim().min(1).max(200).optional(),
+        reviewedContentHash: z.string().trim().min(1).optional(),
       })
       .parse(req.body)
     const result = await acceptContract(
@@ -73,7 +108,7 @@ export async function onboardingRoutes(app: FastifyInstance) {
       req.user.sub,
       version,
       { ipAddress: req.ip, userAgent: req.headers['user-agent'] ?? '' },
-      { signerName, signerRoleConfirmation },
+      { signerName, signerRoleConfirmation, reviewedContentHash },
     )
     return reply.send(result)
   })
