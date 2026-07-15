@@ -18,6 +18,14 @@ jest.mock('@/lib/api/agreement', () => ({
 
 const MERCHANT_ID = 'm-1'
 
+// FIX 1: SignAgreementInput now requires agreementVersion + reviewedContentHash (the review echo).
+const SIGN_INPUT = {
+  signerName: 'Marta Owner',
+  signerRoleConfirmation: 'Owner',
+  agreementVersion: '2.1-draft',
+  reviewedContentHash: 'reviewed-hash-abc',
+} as const
+
 function makeHarness() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const invalidateSpy = jest.spyOn(qc, 'invalidateQueries')
@@ -42,13 +50,10 @@ describe('useSignAgreement', () => {
     const { Wrapper } = makeHarness()
     const { result } = renderHook(() => useSignAgreement(MERCHANT_ID), { wrapper: Wrapper })
 
-    result.current.mutate({ signerName: 'Marta Owner', signerRoleConfirmation: 'Owner' })
+    result.current.mutate(SIGN_INPUT)
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(agreementApi.sign).toHaveBeenCalledWith(MERCHANT_ID, {
-      signerName: 'Marta Owner',
-      signerRoleConfirmation: 'Owner',
-    })
+    expect(agreementApi.sign).toHaveBeenCalledWith(MERCHANT_ID, SIGN_INPUT)
   })
 
   it('invalidates the merchant detail query on success', async () => {
@@ -63,7 +68,7 @@ describe('useSignAgreement', () => {
     const { invalidateSpy, Wrapper } = makeHarness()
     const { result } = renderHook(() => useSignAgreement(MERCHANT_ID), { wrapper: Wrapper })
 
-    result.current.mutate({ signerName: 'Marta Owner', signerRoleConfirmation: 'Owner' })
+    result.current.mutate(SIGN_INPUT)
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: merchantDetailQueryKey(MERCHANT_ID) })
@@ -74,7 +79,7 @@ describe('useSignAgreement', () => {
     const { invalidateSpy, Wrapper } = makeHarness()
     const { result } = renderHook(() => useSignAgreement(MERCHANT_ID), { wrapper: Wrapper })
 
-    result.current.mutate({ signerName: 'Marta Owner', signerRoleConfirmation: 'Owner' })
+    result.current.mutate(SIGN_INPUT)
 
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(invalidateSpy).not.toHaveBeenCalled()

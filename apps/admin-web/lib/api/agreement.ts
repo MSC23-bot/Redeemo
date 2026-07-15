@@ -17,7 +17,9 @@
  *
  *   POST /api/v1/admin/merchants/:id/agreement/sign
  *     capability merchant:sign-agreement (+ FIELD pre-live scope)
- *     body   { signerName, signerRoleConfirmation, agreementVersion?, reviewedContentHash? }
+ *     body   { signerName, signerRoleConfirmation, agreementVersion, reviewedContentHash }
+ *            (FIX 1: agreementVersion + reviewedContentHash are REQUIRED - the strict route
+ *            rejects a body missing either; a signature is impossible without the review echo)
  *     resp   { recordId, agreementVersion, contentHash, signedAt, contractStatus, gated }
  *
  * The rep (the authed admin) WITNESSES the owner's signature on the rep's device;
@@ -55,19 +57,19 @@ export interface SignAgreementInput {
   /** The authority-attestation role, e.g. "Owner", "Director". */
   signerRoleConfirmation: string
   /**
-   * The agreement version the owner actually reviewed (from the preview). The ceremony
-   * ALWAYS supplies it now so the displayed text is bound to the recorded evidence: it is
-   * an INTEGRITY CHECK: if it no longer equals the backend's current version the sign is
-   * refused (AGREEMENT_VERSION_MISMATCH, 409) and the owner re-reviews.
+   * REQUIRED (FIX 1, D65 review-binding). The agreement version the owner actually reviewed
+   * (from the preview). The ceremony ALWAYS supplies it so the displayed text is bound to the
+   * recorded evidence: the backend refuses (AGREEMENT_VERSION_MISMATCH, 409) unless it equals
+   * the current version. A signature is impossible without it.
    */
-  agreementVersion?: string
+  agreementVersion: string
   /**
-   * The server-authoritative reviewedContentHash the owner reviewed (from the preview). The
-   * ceremony ECHOES it; the backend RE-DERIVES the personalised body from the same normalized
-   * inputs and refuses (AGREEMENT_REVIEW_HASH_MISMATCH, 409) if it no longer matches (a
-   * contractual input changed since review). NO browser recompute: the client only echoes.
+   * REQUIRED (FIX 1). The server-authoritative reviewedContentHash the owner reviewed (from the
+   * preview). The ceremony ECHOES it; the backend RE-DERIVES the personalised body from the same
+   * normalized inputs and refuses (AGREEMENT_REVIEW_HASH_MISMATCH, 409) unless it matches, so the
+   * owner cannot sign a body they did not review. NO browser recompute: the client only echoes.
    */
-  reviewedContentHash?: string
+  reviewedContentHash: string
 }
 
 // ── Personalised preview (ceremony) ─────────────────────────────────────────────
@@ -167,17 +169,18 @@ export const agreementApi = {
    * AGREEMENT_REVIEW_HASH_MISMATCH when a contractual input changed since review, etc.).
    */
   sign: async (merchantId: string, input: SignAgreementInput): Promise<SignAgreementResponse> => {
-    const body: Record<string, unknown> = {
-      signerName: input.signerName,
-      signerRoleConfirmation: input.signerRoleConfirmation,
-    }
-    if (input.agreementVersion) body.agreementVersion = input.agreementVersion
-    if (input.reviewedContentHash) body.reviewedContentHash = input.reviewedContentHash
-
+    // FIX 1 (D65 review-binding): agreementVersion + reviewedContentHash are REQUIRED and ALWAYS
+    // sent (the strict backend route now rejects a body missing either). The body carries exactly
+    // the four accepted fields; the ceremony always echoes the preview's version + hash.
     const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${merchantId}/agreement/sign`, {
       method: 'POST',
       auth: true,
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        signerName: input.signerName,
+        signerRoleConfirmation: input.signerRoleConfirmation,
+        agreementVersion: input.agreementVersion,
+        reviewedContentHash: input.reviewedContentHash,
+      }),
     })
     return signAgreementResponseSchema.parse(raw)
   },
