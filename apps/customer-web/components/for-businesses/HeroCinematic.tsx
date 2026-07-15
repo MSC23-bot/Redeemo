@@ -37,10 +37,12 @@ const HeroEmbers = dynamic(() => import('./HeroEmbers').then((m) => m.HeroEmbers
 const STAGE_W = 1672
 const STAGE_H = 941
 
-// Device cluster: cropped cutout layer, native size and desktop placement
+// Device cluster: cropped cutout layer, native size and desktop placement.
+// Owner 2026-07-16: scaled up and moved left (was 850/420/0.6) for presence
+// and to clear the right-hand signal rail.
 const CLUSTER_W = 1268
 const CLUSTER_H = 763
-const CLUSTER_DESKTOP = { x: 850, y: 420, s: 0.6 }
+const CLUSTER_DESKTOP = { x: 516, y: 392, s: 0.645 }
 
 // Phone screen: content design space (800 wide, height matches quad aspect)
 const PHONE_W = 800
@@ -55,16 +57,16 @@ const FEED_NAV_H = 152
 const FEED_STRIP_H = 2421
 const FEED_TRAVEL = FEED_STRIP_H - PHONE_H // 526 design px of scroll-scrub
 
-// Laptop screen: content design space and homography
+// Laptop screen: content design space and homography. Height matches the
+// 16:10 portal capture (1728x1084) so the screenshot fills the screen edge
+// to edge with no empty strip; the matrix is re-solved for H=1084 (owner
+// 2026-07-16: the previous 1261 left cream space at the bottom).
 const LAPTOP_W = 1728
-const LAPTOP_H = 1261
+const LAPTOP_H = 1084
 const LAPTOP_RADIUS = 18
 const LAPTOP_MATRIX =
-  'matrix3d(0.312366, -0.020379, 0, -0.000066, -0.069812, 0.347528, 0, -0.000037, 0, 0, 1, 0, 448.3, 59.6, 0, 1)'
+  'matrix3d(0.312366, -0.020379, 0, -0.000066, -0.081212, 0.404274, 0, -0.000043, 0, 0, 1, 0, 448.3, 59.6, 0, 1)'
 
-// Portal captures are 1728x1117 logical; the pane rect and strip height are
-// stamped from the processed assets (see scripts in the PR description).
-const PORTAL_IMG_H = 1084 // capture height after the 33px recording band crop
 const PORTAL_BG = '#F8F7F4'
 // Content pane of the dashboard (region that scrolls behind fixed chrome),
 // in band-cropped 1728x1084 logical px; top calibrated empirically against
@@ -73,12 +75,11 @@ const PANE = { left: 328, top: 79, width: 1386, height: 1005 }
 const PANE_STRIP_H = 1761 // stitched dashboard content strip height (logical)
 
 // ── Growth signal rail ────────────────────────────────────────────────────────
-// The funnel, in order, anchored down the right side of the photograph. Copy
-// is illustrative UI (customer lens; the code uses the real 4+4 format).
+// The funnel, in order. Owner 2026-07-16: the chips were floating with no
+// order, so they now stack as a single structured rail (consistent width,
+// even spacing, right-aligned) rather than scattered anchors.
 
 type Signal = {
-  x: number
-  y: number
   kicker: string
   title: string
   sub: string
@@ -87,16 +88,12 @@ type Signal = {
   band: [number, number]
 }
 
-// Anchors live in the free corridor between the shop window and the devices;
-// the redemption chip deliberately sits INSIDE the laptop screen like a real
-// portal toast, and the closer chip rests on the counter by the laptop base.
-// The phone's live feed stays uncovered.
 const SIGNALS: Signal[] = [
-  { x: 1258, y: 138, kicker: 'Offer live', title: '2 for 1 mains', sub: 'Visible to customers nearby', icon: 'live', band: [0.06, 0.16] },
-  { x: 1170, y: 296, kicker: 'Time-limited', title: 'Lunch rush · 20% off', sub: 'Ends in 2:14:33', icon: 'clock', countdown: true, band: [0.2, 0.3] },
-  { x: 1268, y: 430, kicker: 'New customer', title: 'A customer just found you', sub: 'Browsing nearby · Food & Drink', icon: 'live', band: [0.34, 0.44] },
-  { x: 1300, y: 548, kicker: 'At the till', title: 'Redemption confirmed', sub: 'Code R7X4 KM2P · logged', icon: 'tick', band: [0.48, 0.58] },
-  { x: 978, y: 812, kicker: 'Coming back', title: 'A regular in the making', sub: '3rd visit this month', icon: 'repeat', band: [0.62, 0.72] },
+  { kicker: 'Offer live', title: '2 for 1 mains', sub: 'Visible to customers nearby', icon: 'live', band: [0.05, 0.14] },
+  { kicker: 'Time-limited', title: 'Lunch rush · 20% off', sub: '', icon: 'clock', countdown: true, band: [0.18, 0.27] },
+  { kicker: 'New customer', title: 'A customer just found you', sub: 'Browsing nearby · Food & Drink', icon: 'live', band: [0.31, 0.4] },
+  { kicker: 'At the till', title: 'Redemption confirmed', sub: 'Code R7X4 KM2P · logged', icon: 'tick', band: [0.44, 0.53] },
+  { kicker: 'Coming back', title: 'A regular in the making', sub: '3rd visit this month', icon: 'repeat', band: [0.57, 0.66] },
 ]
 
 const COUNTDOWN_START = 2 * 3600 + 14 * 60 + 33
@@ -166,14 +163,12 @@ function PhoneScreen({ feedY }: { feedY: MotionValue<number> | number }) {
   )
 }
 
-// A laptop chapter: full portal capture, width-fit and top-anchored inside
-// the 1728x1261 screen space, page-coloured fill beneath.
+// A laptop chapter: the 16:10 portal capture fills the whole screen (the
+// design space is sized to the capture, so object-cover crops nothing).
 function LaptopChapter({ src, opacity, children }: { src: string; opacity: MotionValue<number> | number; children?: React.ReactNode }) {
   return (
     <motion.div style={{ position: 'absolute', inset: 0, opacity, background: PORTAL_BG }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, width: LAPTOP_W, height: PORTAL_IMG_H }}>
-        <Image src={src} alt="" fill sizes="520px" className="object-cover object-top" />
-      </div>
+      <Image src={src} alt="" fill sizes="520px" className="object-cover object-top" />
       {children}
     </motion.div>
   )
@@ -317,7 +312,8 @@ function useCountdown(active: boolean) {
   const h = Math.floor(left / 3600)
   const m = Math.floor((left % 3600) / 60)
   const s = left % 60
-  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  // Compact, human format (owner 2026-07-16): "2h 14m 33s"
+  return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`
 }
 
 function SignalIcon({ icon }: { icon: Signal['icon'] }) {
@@ -355,39 +351,55 @@ function SignalIcon({ icon }: { icon: Signal['icon'] }) {
   return <span className="mt-[7px] h-2 w-2 flex-shrink-0 rounded-full bg-[#E20C04] shadow-[0_0_10px_rgba(226,12,4,0.9)] animate-pulse" />
 }
 
-function SignalChip({ signal, style, appear, float }: { signal: Signal; style?: React.CSSProperties; appear?: MotionValue<number>; float: boolean }) {
-  const countdown = useCountdown(Boolean(signal.countdown))
-  const sub = signal.countdown ? `Ends in ${countdown}` : signal.sub
+function CountdownPill() {
+  const countdown = useCountdown(true)
   return (
-    // Positioning wrapper stays static: framer-motion rebuilds `transform`
-    // on animated elements, so the centring translate must live one level up.
-    <div aria-hidden="true" style={style} className="pointer-events-none">
-      <motion.div style={appear ? { opacity: appear, scale: appear } : undefined}>
-        <motion.div
-          animate={float ? { y: [0, -6, 0] } : undefined}
-          transition={float ? { duration: 5.6, repeat: Infinity, ease: 'easeInOut', delay: signal.band[0] * 6 } : undefined}
-          className="flex items-start gap-3 rounded-2xl border border-white/14 bg-[#0A1436]/62 px-4 py-3.5 backdrop-blur-md"
-          style={{ boxShadow: '0 18px 48px rgba(0,4,20,0.45), inset 0 1px 0 rgba(255,255,255,0.08)' }}
-        >
-          <SignalIcon icon={signal.icon} />
-          <span className="min-w-0">
-            <span className="block text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">{signal.kicker}</span>
-            <span className="block text-[14px] font-bold leading-snug text-white">{signal.title}</span>
-            <span className="block text-[12px] leading-snug text-white/55" style={signal.countdown ? { fontVariantNumeric: 'tabular-nums' } : undefined}>
-              {sub}
-            </span>
-          </span>
-        </motion.div>
+    <span
+      className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-[#E20C04]/35 bg-[#E20C04]/16 px-2.5 py-1"
+      style={{ boxShadow: 'inset 0 0 0 1px rgba(226,12,4,0.08)' }}
+    >
+      <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-white/55">Ends in</span>
+      <span className="text-[13px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {countdown}
+      </span>
+    </span>
+  )
+}
+
+function SignalChip({ signal, appear, float }: { signal: Signal; appear?: MotionValue<number>; float: boolean }) {
+  return (
+    <motion.div aria-hidden="true" className="pointer-events-none" style={appear ? { opacity: appear } : undefined}>
+      <motion.div
+        animate={float ? { y: [0, -6, 0] } : undefined}
+        transition={float ? { duration: 5.6, repeat: Infinity, ease: 'easeInOut', delay: signal.band[0] * 6 } : undefined}
+        className="flex items-start gap-3 rounded-2xl border border-white/14 bg-[#0A1436]/66 px-4 py-3.5 backdrop-blur-md"
+        style={{ boxShadow: '0 18px 48px rgba(0,4,20,0.45), inset 0 1px 0 rgba(255,255,255,0.08)' }}
+      >
+        <SignalIcon icon={signal.icon} />
+        <span className="min-w-0">
+          <span className="block text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">{signal.kicker}</span>
+          <span className="block text-[14px] font-bold leading-snug text-white">{signal.title}</span>
+          {signal.countdown ? <CountdownPill /> : <span className="block text-[12px] leading-snug text-white/55">{signal.sub}</span>}
+        </span>
       </motion.div>
+    </motion.div>
+  )
+}
+
+// The structured desktop rail: one aligned column, right side, evenly spaced.
+function DesktopSignalRail({ progress, float }: { progress: MotionValue<number>; float: boolean }) {
+  return (
+    <div className="pointer-events-none absolute right-[1.4vw] top-1/2 z-10 flex -translate-y-1/2 flex-col gap-3.5" style={{ width: 244 }}>
+      {SIGNALS.map((sig) => (
+        <RailChip key={sig.kicker} signal={sig} progress={progress} float={float} />
+      ))}
     </div>
   )
 }
 
-function DesktopSignal({ signal, m, progress, float }: { signal: Signal; m: StageMetrics; progress: MotionValue<number>; float: boolean }) {
+function RailChip({ signal, progress, float }: { signal: Signal; progress: MotionValue<number>; float: boolean }) {
   const appear = useScrollLinked(useTransform(progress, [signal.band[0], signal.band[1]], [0, 1]))
-  const left = Math.min(Math.max(m.ox + signal.x * m.s, 140), m.w - 140)
-  const top = m.oy + signal.y * m.s
-  return <SignalChip signal={signal} appear={appear} float={float} style={{ position: 'absolute', left, top, transform: 'translate(-50%, -50%)', width: 'max-content', maxWidth: 252 }} />
+  return <SignalChip signal={signal} appear={appear} float={float} />
 }
 
 // ── Shared copy column (approved copy; unchanged) ─────────────────────────────
@@ -409,11 +421,13 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
-        className="font-display mb-6 max-w-[820px] leading-[1.06] text-white"
-        style={{ fontSize: 'clamp(36px, 5vw, 62px)', letterSpacing: '-0.8px' }}
+        className="font-display mb-6 leading-[1.08] text-white"
+        style={{ fontSize: 'clamp(32px, 4.2vw, 47px)', letterSpacing: '-0.6px' }}
       >
-        Bring in new customers.{' '}
-        <span className="gradient-text block">
+        {/* Two lines exactly (owner 2026-07-16); pb on the gradient line so the
+            y/g descenders are not clipped by background-clip:text */}
+        <span className="block">Bring in new customers.</span>
+        <span className="gradient-text block pb-[0.14em] leading-[1.14]">
           Keep your <span className="whitespace-nowrap">margins<BrandStop tone="white" /></span>
         </span>
       </motion.h1>
@@ -422,7 +436,7 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, delay: 0.18 }}
-        className="mb-10 max-w-[540px] text-[16px] leading-[1.7] text-white/60 md:text-[17px]"
+        className="mb-10 max-w-[470px] text-[16px] leading-[1.7] text-white/60 md:text-[17px] lg:max-w-[470px]"
       >
         List your business on Redeemo for free. No commission. No listing fees. Reach local customers who are already looking for exactly what you offer.
       </motion.p>
@@ -585,15 +599,11 @@ function HeroDesktop({ registerUrl }: { registerUrl: string }) {
           }}
         />
 
-        {/* Growth signals down the right rail */}
-        {m
-          ? SIGNALS.map((sig) => (
-              <DesktopSignal key={sig.kicker} signal={sig} m={m} progress={scrollYProgress} float={!reduceMotion} />
-            ))
-          : null}
+        {/* Growth signals: one structured rail on the right */}
+        <DesktopSignalRail progress={scrollYProgress} float={!reduceMotion} />
 
         <motion.div style={{ opacity: reduceMotion ? 1 : copyOpacity, y: reduceMotion ? 0 : copyY }} className="relative mx-auto flex h-full max-w-7xl items-center px-6 lg:px-10">
-          <div className="max-w-[600px] pt-[80px]">
+          <div className="max-w-[620px] pt-[80px]">
             <HeroCopy registerUrl={registerUrl} />
           </div>
         </motion.div>
@@ -639,8 +649,8 @@ function HeroStacked({ registerUrl }: { registerUrl: string }) {
         />
       </div>
 
-      {/* Growth signals as a flowing stack */}
-      <div className="relative mx-auto flex w-full max-w-[600px] flex-col gap-3 px-6 pb-14 pt-2" style={{ marginTop: '-56px' }}>
+      {/* Growth signals as an aligned stack (no diagonal stagger) */}
+      <div className="relative mx-auto flex w-full max-w-[440px] flex-col gap-3 px-6 pb-14 pt-2" style={{ marginTop: '-56px' }}>
         {SIGNALS.map((sig, i) => (
           <motion.div
             key={sig.kicker}
@@ -648,7 +658,6 @@ function HeroStacked({ registerUrl }: { registerUrl: string }) {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-40px' }}
             transition={{ duration: 0.45, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] }}
-            style={{ marginLeft: i * 14 }}
           >
             <SignalChip signal={sig} float={false} />
           </motion.div>
