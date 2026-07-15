@@ -66,17 +66,83 @@ describe('agreementApi.sign request body', () => {
     await agreementApi.sign('m-1', {
       signerName: 'Marta Owner',
       signerRoleConfirmation: 'Owner',
-      agreementVersion: '2.0-draft',
+      agreementVersion: '2.1-draft',
     })
     const [, init] = mockedApiFetch.mock.calls[0]
     const body = JSON.parse((init as { body: string }).body)
     expect(body).toEqual({
       signerName: 'Marta Owner',
       signerRoleConfirmation: 'Owner',
-      agreementVersion: '2.0-draft',
+      agreementVersion: '2.1-draft',
     })
   })
 
+  it('includes reviewedContentHash (the echo) when provided', async () => {
+    mockedApiFetch.mockResolvedValueOnce(okResponse())
+    await agreementApi.sign('m-1', {
+      signerName: 'Marta Owner',
+      signerRoleConfirmation: 'Owner',
+      agreementVersion: '2.1-draft',
+      reviewedContentHash: 'reviewed-hash-abc',
+    })
+    const [, init] = mockedApiFetch.mock.calls[0]
+    const body = JSON.parse((init as { body: string }).body)
+    expect(body).toEqual({
+      signerName: 'Marta Owner',
+      signerRoleConfirmation: 'Owner',
+      agreementVersion: '2.1-draft',
+      reviewedContentHash: 'reviewed-hash-abc',
+    })
+  })
+
+})
+
+// ── agreementApi.preview: the ceremony personalised-body render ───────────────────
+
+function previewResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    version: '2.1-draft',
+    personalisedText: 'Personalised body for Southville Sourdough Ltd, signed by Marta Owner (Owner).',
+    reviewedContentHash: 'reviewed-hash-abc',
+    canonicalContentHash: 'canonical-hash-1',
+    isDraft: true,
+    gated: true,
+    ...overrides,
+  }
+}
+
+describe('agreementApi.preview', () => {
+  it('POSTs the merchant-scoped preview URL with auth:true and ONLY signer name + role', async () => {
+    mockedApiFetch.mockResolvedValueOnce(previewResponse())
+    await agreementApi.preview('m-1', { signerName: 'Marta Owner', signerRoleConfirmation: 'Owner' })
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/api/v1/admin/merchants/m-1/agreement/preview',
+      expect.objectContaining({ method: 'POST', auth: true })
+    )
+    const [, init] = mockedApiFetch.mock.calls[0]
+    const body = JSON.parse((init as { body: string }).body)
+    expect(body).toEqual({ signerName: 'Marta Owner', signerRoleConfirmation: 'Owner' })
+  })
+
+  it('returns the parsed { version, personalisedText, reviewedContentHash, canonicalContentHash, isDraft, gated }', async () => {
+    mockedApiFetch.mockResolvedValueOnce(previewResponse({ isDraft: false, gated: false }))
+    const result = await agreementApi.preview('m-1', { signerName: 'Marta Owner', signerRoleConfirmation: 'Owner' })
+    expect(result.version).toBe('2.1-draft')
+    expect(result.personalisedText).toContain('Southville Sourdough Ltd')
+    expect(result.reviewedContentHash).toBe('reviewed-hash-abc')
+    expect(result.canonicalContentHash).toBe('canonical-hash-1')
+    expect(result.isDraft).toBe(false)
+    expect(result.gated).toBe(false)
+  })
+
+  it('throws when a required field is missing (contract drift surfaces clearly)', async () => {
+    const missing = previewResponse()
+    delete (missing as { reviewedContentHash?: string }).reviewedContentHash
+    mockedApiFetch.mockResolvedValueOnce(missing)
+    await expect(
+      agreementApi.preview('m-1', { signerName: 'Marta Owner', signerRoleConfirmation: 'Owner' })
+    ).rejects.toThrow()
+  })
 })
 
 // ── agreementApi.getCurrent: the ceremony agreement-text read ────────────────────

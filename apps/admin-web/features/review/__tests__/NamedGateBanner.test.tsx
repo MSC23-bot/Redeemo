@@ -244,6 +244,18 @@ describe('NamedGateBanner code mapping', () => {
     )
   })
 
+  it('maps AGREEMENT_REVIEW_HASH_MISMATCH correctly (D65 personalised-agreement)', () => {
+    render(<NamedGateBanner error={makeApiError('AGREEMENT_REVIEW_HASH_MISMATCH')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'The agreement details changed since you reviewed it. Please regenerate and review the current version before signing.'
+    )
+  })
+
+  it('maps AGREEMENT_PREVIEW_RATE_LIMITED correctly (D65 preview limiter)', () => {
+    render(<NamedGateBanner error={makeApiError('AGREEMENT_PREVIEW_RATE_LIMITED')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('Too many preview requests.')
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)

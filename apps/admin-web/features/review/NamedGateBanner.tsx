@@ -106,6 +106,16 @@ const CODE_MESSAGES: Record<string, string> = {
   // stays for completeness. Reload and re-review before signing.
   AGREEMENT_VERSION_MISMATCH:
     'The agreement was updated. Please reload and review the current version before signing.',
+  // AGREEMENT_REVIEW_HASH_MISMATCH (409): a contractual input changed since the personalised
+  // body was reviewed (or the echoed hash was tampered), so what would be signed no longer
+  // matches what was reviewed. The ceremony routes this to its dedicated re-review notice (like
+  // AGREEMENT_VERSION_MISMATCH), so it never reaches this banner in normal use; the mapping
+  // stays for completeness. Regenerate and re-review before signing.
+  AGREEMENT_REVIEW_HASH_MISMATCH:
+    'The agreement details changed since you reviewed it. Please regenerate and review the current version before signing.',
+  // D65 personalised-agreement preview limiter: too many preview renders in a short window.
+  AGREEMENT_PREVIEW_RATE_LIMITED:
+    'Too many preview requests. Please wait a moment and try generating the agreement again.',
   // AGREEMENT_SIGNER_INVALID covers several server-side conditions behind one code
   // (empty name/role, a missing witnessing rep, a rep that fails to resolve), but the
   // only one a client can actually reach in normal use is the same-name safeguard: the

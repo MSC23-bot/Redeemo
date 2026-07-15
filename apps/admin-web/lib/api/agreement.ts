@@ -55,17 +55,46 @@ export interface SignAgreementInput {
   /** The authority-attestation role, e.g. "Owner", "Director". */
   signerRoleConfirmation: string
   /**
-   * The agreement version the owner actually reviewed (from the agreement-text
-   * read). The ceremony ALWAYS supplies it now so the displayed text is bound to
-   * the recorded evidence: it is an INTEGRITY CHECK: if it no longer equals the
-   * backend's current version the sign is refused (AGREEMENT_VERSION_MISMATCH, 409)
-   * and the owner re-reviews. Still typed optional so the strict backend route (and
-   * any non-ceremony caller) can pin the server current by omitting it.
+   * The agreement version the owner actually reviewed (from the preview). The ceremony
+   * ALWAYS supplies it now so the displayed text is bound to the recorded evidence: it is
+   * an INTEGRITY CHECK: if it no longer equals the backend's current version the sign is
+   * refused (AGREEMENT_VERSION_MISMATCH, 409) and the owner re-reviews.
    */
   agreementVersion?: string
+  /**
+   * The server-authoritative reviewedContentHash the owner reviewed (from the preview). The
+   * ceremony ECHOES it; the backend RE-DERIVES the personalised body from the same normalized
+   * inputs and refuses (AGREEMENT_REVIEW_HASH_MISMATCH, 409) if it no longer matches (a
+   * contractual input changed since review). NO browser recompute: the client only echoes.
+   */
+  reviewedContentHash?: string
 }
 
-// ── Agreement-text read (ceremony) ──────────────────────────────────────────────
+// ── Personalised preview (ceremony) ─────────────────────────────────────────────
+
+export interface AgreementPreviewInput {
+  /** The owner's typed full name (RAW; the server normalizes it). */
+  signerName: string
+  /** The authority-attestation role (RAW; the server normalizes it). */
+  signerRoleConfirmation: string
+}
+
+const agreementPreviewResponseSchema = z.object({
+  version: z.string(),
+  /** The personalised reviewed body the owner reviews + accepts (already substituted). */
+  personalisedText: z.string(),
+  /** sha256(personalisedText); server-authoritative; echoed into the sign call. */
+  reviewedContentHash: z.string(),
+  /** sha256 of the unsubstituted canonical source (the template-version hash). */
+  canonicalContentHash: z.string(),
+  /** The version's own draft status. */
+  isDraft: z.boolean(),
+  /** Watermark / pending-legal-review driver (isVersionWatermarked semantics). */
+  gated: z.boolean(),
+})
+export type AgreementPreviewResponse = z.infer<typeof agreementPreviewResponseSchema>
+
+// ── Agreement-text read (platform-global; not used by the ceremony) ──────────────
 
 const agreementTextResponseSchema = z.object({
   version: z.string(),
@@ -112,10 +141,30 @@ export const agreementApi = {
   },
 
   /**
-   * Witness the in-person owner signing for a merchant. Throws ApiError on the
-   * documented failure codes (AGREEMENT_LEGAL_REVIEW_REQUIRED on a production
-   * binding write while the gate is on, CONTRACT_ALREADY_SIGNED,
-   * AGREEMENT_VERSION_MISMATCH when the echoed version is stale, etc.).
+   * Render the merchant-PERSONALISED agreement body for the ceremony (POST, never GET: the
+   * signer name + role are entered during the ceremony and must not enter a URL/query log).
+   * The server resolves the merchant identity + version + method; only the signer name + role
+   * are sent. The returned reviewedContentHash is echoed into the sign call. Throws ApiError
+   * on ADMIN_CAPABILITY_DENIED, MERCHANT_NOT_PRE_LIVE_FOR_FIELD, AGREEMENT_PREVIEW_RATE_LIMITED.
+   */
+  preview: async (merchantId: string, input: AgreementPreviewInput): Promise<AgreementPreviewResponse> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${merchantId}/agreement/preview`, {
+      method: 'POST',
+      auth: true,
+      body: JSON.stringify({
+        signerName: input.signerName,
+        signerRoleConfirmation: input.signerRoleConfirmation,
+      }),
+    })
+    return agreementPreviewResponseSchema.parse(raw)
+  },
+
+  /**
+   * Witness the in-person owner signing for a merchant. Echoes the reviewed version + the
+   * server-authoritative reviewedContentHash from the preview so display is bound to the
+   * recorded evidence. Throws ApiError on the documented failure codes
+   * (AGREEMENT_LEGAL_REVIEW_REQUIRED, CONTRACT_ALREADY_SIGNED, AGREEMENT_VERSION_MISMATCH,
+   * AGREEMENT_REVIEW_HASH_MISMATCH when a contractual input changed since review, etc.).
    */
   sign: async (merchantId: string, input: SignAgreementInput): Promise<SignAgreementResponse> => {
     const body: Record<string, unknown> = {
@@ -123,6 +172,7 @@ export const agreementApi = {
       signerRoleConfirmation: input.signerRoleConfirmation,
     }
     if (input.agreementVersion) body.agreementVersion = input.agreementVersion
+    if (input.reviewedContentHash) body.reviewedContentHash = input.reviewedContentHash
 
     const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${merchantId}/agreement/sign`, {
       method: 'POST',
