@@ -228,6 +228,12 @@ jobs:
       - name: Unit tests (backend)
         run: npm run test:unit
 
+      # Vercel build-decision script + tripwire (node:test). Self-contained: the git
+      # suites build their own throwaway repos and a depth-10 clone; the real-history
+      # suite skips gracefully on the shallow checkout. No DB / network / provider access.
+      - name: Vercel build-decision tests
+        run: npm run test:vercel-build-decision
+
   # PR-G1a1: ADVISORY pilot of the 11 loopback-guarded Insights real-DB integration
   # suites against an EPHEMERAL Postgres-16 service. The job concludes GREEN even when
   # the suites fail (continue-on-error on the test step) so it never blocks the
