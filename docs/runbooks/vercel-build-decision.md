@@ -67,16 +67,36 @@ change is web-irrelevant). `tests/fixtures/` is a BUILD trigger because web-app 
 import shared fixtures and `next build` type-checks them (the web apps' tsconfig includes
 `**/*.ts` with no `ignoreBuildErrors`); the rest of `tests/` stays SAFE. `architecture-guard.test.mjs`
 keeps this policy honest as the code evolves. It FAILS if any of these build-reachable
-dependency seams in a web app resolves to a SAFE-classified location: JS/TS relative imports;
-JS/TS aliases resolved via tsconfig `paths` + `baseUrl` + RELATIVE `extends`; package.json
-`imports` subpaths; in-app symlinks; and CSS/SCSS `@import` / `url(...)` relative escapes. It
-compares each resolved repo path against `classifyPath` (a dependency on a BUILD location, e.g.
-`tests/fixtures/`, is fine; a dependency on a SAFE location is a violation). Two scope limits are
-enforced rather than assumed: a BARE-package tsconfig `extends` (which cannot be resolved to a
-node_modules config here) is itself reported as a violation, so a future introduction fails CI;
-and the web apps' `next.config` is verified to define no `webpack` alias / `transpilePackages` /
-`modularizeImports` seam (checked during review; none today). The diff parser enforces the exact
-`(status NUL path NUL)` grammar: a missing or extra terminal NUL is an anomaly => BUILD. The tripwire (section 7) shares this exact policy module, so the two
+dependency seams in a web app resolves to a SAFE-classified location, comparing each resolved
+repo path against `classifyPath` (a dependency on a BUILD location such as `tests/fixtures/` is
+fine; a dependency on a SAFE location is a violation):
+
+- JS/TS relative imports;
+- JS/TS aliases resolved via tsconfig `paths` + `baseUrl`, following the COMPLETE relative
+  `extends` chain (string and array forms);
+- every EXTERNAL parent config FILE in the tsconfig `extends` chain (a change to an out-of-app
+  parent config affects this app's compilation, so an external parent on a SAFE path is a
+  violation; in-app parents are covered by `apps/<project>/**`);
+- package.json `imports` subpaths;
+- in-app symlinks (resolved to their real target);
+- CSS/SCSS `@import` and `url(...)` RELATIVE escapes (bare `tailwindcss`, absolute `/fonts/...`,
+  and `http`/`data` are correctly ignored; PostCSS/CSS path-alias config is NOT resolved and is
+  not claimed — the SCSS include-path seam is covered by the next.config guard below).
+
+Three seams are enforced rather than assumed, so a future introduction fails CI instead of being
+silently covered:
+
+- a BARE-package tsconfig `extends` (unresolvable node_modules config) is itself a violation;
+- an unsupported/unparsable `extends` form is a violation (fail-open);
+- an executable `next.config` scan (verified against Next.js 15 / webpack + Turbopack) fails if a
+  module-resolution seam appears in any of the three apps: `transpilePackages`,
+  `modularizeImports`, `experimental.externalDir`, a `webpack` config function or
+  `resolve.alias`, a `turbopack` config or `resolveAlias`, or `sassOptions`/`includePaths`.
+  `outputFileTracingRoot` / `images` / `headers` are NOT resolution seams and do not trip it.
+  (This is a conservative presence check, not a full config evaluation.)
+
+The diff parser enforces the exact `(status NUL path NUL)` grammar: a missing or extra terminal
+NUL is an anomaly => BUILD. The tripwire (section 7) shares this exact policy module, so the two
 cannot drift.
 
 ## 4. Provider configuration per project (owner-gated; TWO settings per flip)
