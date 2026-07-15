@@ -38,9 +38,17 @@ export function parseNameStatusZ(raw) {
   else if (typeof raw === 'string') buf = Buffer.from(raw, 'utf8');
   else return { ok: false, reason: 'non-buffer-input' };
 
-  if (buf.length === 0) return { ok: true, records: [], paths: [] }; // no changes
+  if (buf.length === 0) return { ok: true, records: [], paths: [] }; // no changes (empty diff)
 
-  // Split on NUL bytes into token sub-buffers (no decoding yet).
+  // EXACT grammar: a non-empty stream is a sequence of records, each `STATUS NUL PATH NUL`.
+  // The whole stream must therefore END with a NUL. A missing terminal NUL, or an extra NUL
+  // (empty token), or an odd token count is an anomaly => BUILD.
+  if (buf[buf.length - 1] !== NUL) {
+    return { ok: false, reason: 'missing-terminal-nul' };
+  }
+  // Tokenize by pushing on each NUL. Because the stream ends with a NUL and we never push a
+  // trailing remainder, a well-formed stream yields exactly the [status, path, ...] tokens with
+  // NO trailing empty. An EXTRA terminal NUL produces an empty token, which we reject below.
   const tokens = [];
   let start = 0;
   for (let i = 0; i < buf.length; i++) {
@@ -49,11 +57,10 @@ export function parseNameStatusZ(raw) {
       start = i + 1;
     }
   }
-  if (start < buf.length) tokens.push(buf.subarray(start)); // trailing bytes with no final NUL
-
-  // Drop trailing EMPTY tokens (a well-formed stream ends with a NUL -> one trailing empty).
-  while (tokens.length > 0 && tokens[tokens.length - 1].length === 0) tokens.pop();
-  if (tokens.length === 0) return { ok: true, records: [], paths: [] };
+  if (tokens.length === 0) return { ok: true, records: [], paths: [] }; // buffer was only NUL(s)? handled by empty-path check anyway
+  if (tokens.length % 2 !== 0) {
+    return { ok: false, reason: 'odd-token-count' };
+  }
 
   const records = [];
   let i = 0;

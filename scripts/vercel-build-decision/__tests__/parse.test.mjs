@@ -7,10 +7,32 @@ import { parseNameStatusZ } from '../parse.mjs';
 const NUL = '\0';
 const rec = (...pairs) => pairs.map(([s, p]) => `${s}${NUL}${p}`).join(NUL) + NUL;
 
-test('empty input => ok, no changes', () => {
+test('empty input => ok, no changes (empty diff; decision layer BUILDs)', () => {
   const r = parseNameStatusZ('');
   assert.equal(r.ok, true);
   assert.deepEqual(r.paths, []);
+  const rb = parseNameStatusZ(Buffer.alloc(0));
+  assert.equal(rb.ok, true);
+  assert.deepEqual(rb.paths, []);
+});
+
+// Exact NUL grammar: a non-empty stream must be exact (status NUL path NUL) records.
+test('missing terminal NUL => anomaly (BUILD)', () => {
+  const r = parseNameStatusZ('A\0docs/safe.md');
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'missing-terminal-nul');
+});
+
+test('extra terminal NUL => anomaly (BUILD)', () => {
+  const r = parseNameStatusZ('A\0docs/safe.md\0\0');
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'odd-token-count');
+});
+
+test('well-formed single-record stream (exact terminal NUL) => ok', () => {
+  const r = parseNameStatusZ('A\0docs/safe.md\0');
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.paths, ['docs/safe.md']);
 });
 
 test('single add', () => {

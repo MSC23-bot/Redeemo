@@ -53,15 +53,17 @@ export function computeDecision({ projectKey, prevSha, headSha, cwd = process.cw
       return { build: true, reason: 'cannot-resolve-head', detail: {} };
     }
 
-    // If the provider supplied a commit SHA, it must match the checkout. A mismatch means the
-    // diff we would compute (against the supplied SHA) describes a DIFFERENT commit than the one
-    // being deployed -> a docs-only supplied head could hide a real app-change checkout. BUILD.
-    if (typeof headSha === 'string' && SHA_RE.test(headSha) && headSha !== actualHead) {
-      return {
-        build: true,
-        reason: 'head-sha-mismatch',
-        detail: { suppliedHead: headSha, actualHead },
-      };
+    // The provider MUST supply a valid, resolvable commit SHA (VERCEL_GIT_COMMIT_SHA) that
+    // matches the checkout. Anything else is a provider/checkout anomaly => BUILD:
+    //   - missing or malformed (not a 40-hex sha) => missing-or-invalid-commit-sha
+    //   - a valid sha that is not the checked-out HEAD (incl. an absent object, which cannot
+    //     equal the resolvable actualHead) => head-sha-mismatch
+    // The diff always runs against the ACTUAL checkout, never an unverified env value.
+    if (typeof headSha !== 'string' || !SHA_RE.test(headSha)) {
+      return { build: true, reason: 'missing-or-invalid-commit-sha', detail: { suppliedHead: headSha ?? null } };
+    }
+    if (headSha !== actualHead) {
+      return { build: true, reason: 'head-sha-mismatch', detail: { suppliedHead: headSha, actualHead } };
     }
 
     return evaluateDiff({ projectKey, prevSha, headSha: actualHead, root });

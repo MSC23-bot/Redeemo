@@ -235,14 +235,24 @@ test('supplied HEAD != checked-out HEAD => BUILD (head-sha-mismatch)', () => {
   assert.equal(d.detail.actualHead, merchantHead);
 });
 
-test('supplied HEAD == checked-out HEAD proceeds normally; absent supplied HEAD uses checkout', () => {
+test('supplied HEAD == checked-out HEAD proceeds normally (path decides)', () => {
   const r = repo(); const base = seed(r);
   write(r, 'apps/customer-web/x.tsx', 'x');
   const h = commit(r, 'customer change');
-  // matching supplied head -> normal BUILD (path affects)
   assert.equal(computeDecision({ projectKey: 'customer-web', prevSha: base, headSha: h, cwd: r }).reason, 'path-affects-project');
-  // absent supplied head -> falls back to the actual checkout, still BUILDs
-  assert.equal(computeDecision({ projectKey: 'customer-web', prevSha: base, headSha: undefined, cwd: r }).build, true);
+});
+
+// A missing or malformed VERCEL_GIT_COMMIT_SHA is a provider anomaly and must BUILD, even when
+// the actual diff would be docs-only (Codex finding: undefined / "not-a-sha" wrongly SKIPPED).
+test('missing / malformed supplied HEAD => BUILD (missing-or-invalid-commit-sha)', () => {
+  const r = repo(); const base = seed(r);
+  write(r, 'docs/only.md', 'x'); // a docs-only change: would SKIP if the anomaly were ignored
+  commit(r, 'docs only');
+  for (const bad of [undefined, null, '', 'not-a-sha', 'abc', 'A'.repeat(40) /* uppercase: not 40-hex-lower */]) {
+    const d = computeDecision({ projectKey: 'customer-web', prevSha: base, headSha: bad, cwd: r });
+    assert.equal(d.build, true, `headSha=${JSON.stringify(bad)} must BUILD`);
+    assert.equal(d.reason, 'missing-or-invalid-commit-sha', `headSha=${JSON.stringify(bad)}`);
+  }
 });
 
 test('diff.relative=true + cwd=apps/<app>: docs-only change still SKIPs (fix did not over-build)', () => {

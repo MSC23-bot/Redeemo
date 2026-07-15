@@ -60,18 +60,17 @@ test('depth-10 clone: out-of-depth baseline forces BUILD; in-depth safe span SKI
 
 test('accumulated skips: baseline spanning several commits, one touching an app, BUILDs that app', () => {
   const origin = mkRepo(); temps.push(origin);
-  const shas = [seed(origin)];
-  // c2..c8 well within depth-10.
-  write(origin, 'docs/a.md', 'a'); shas.push(commit(origin, 'c2 docs'));       // idx2
-  write(origin, 'docs/b.md', 'b'); shas.push(commit(origin, 'c3 docs'));       // idx3
-  write(origin, 'src/api/more.ts', '2'); shas.push(commit(origin, 'c4 backend')); // idx4
-  write(origin, 'apps/merchant-web/app/x.tsx', '2'); shas.push(commit(origin, 'c5 merchant')); // idx5
-  write(origin, 'docs/c.md', 'c'); shas.push(commit(origin, 'c6 docs'));       // idx6
+  const shas = [seed(origin)]; // shas[0] = c1 (seed)
+  write(origin, 'docs/a.md', 'a'); shas.push(commit(origin, 'c2 docs'));       // shas[1]
+  write(origin, 'docs/b.md', 'b'); shas.push(commit(origin, 'c3 docs'));       // shas[2]
+  write(origin, 'src/api/more.ts', '2'); shas.push(commit(origin, 'c4 backend')); // shas[3]
+  write(origin, 'apps/merchant-web/app/x.tsx', '2'); shas.push(commit(origin, 'c5 merchant')); // shas[4]
+  write(origin, 'docs/c.md', 'c'); shas.push(commit(origin, 'c6 docs'));       // shas[5]
   const clone = shallowClone(origin, 10);
-  const tip = shas[6]; // c6
+  const tip = shas[5]; // c6 (the clone's checked-out HEAD)
 
   // Baseline = c3 (last successful deploy). Span c4..c6 includes the merchant change (c5).
-  const baseline = shas[3];
+  const baseline = shas[2];
   assert.equal(objectExists(baseline, clone), true);
   // merchant-web must build (its file changed within the accumulated span)...
   assert.equal(computeDecision({ projectKey: 'merchant-web', prevSha: baseline, headSha: tip, cwd: clone }).build, true);

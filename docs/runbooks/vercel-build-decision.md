@@ -30,6 +30,7 @@ else BUILDs:
 - invalid/missing project key
 - repo root unresolvable
 - actual checked-out HEAD unresolvable
+- `VERCEL_GIT_COMMIT_SHA` missing or not a 40-hex commit SHA (provider anomaly)
 - supplied HEAD (`VERCEL_GIT_COMMIT_SHA`) does not equal the actual checked-out HEAD (provider/
   checkout skew: the build deploys the checkout, so a mismatched supplied SHA could hide a real
   change)
@@ -66,7 +67,11 @@ change is web-irrelevant). `tests/fixtures/` is a BUILD trigger because web-app 
 import shared fixtures and `next build` type-checks them (the web apps' tsconfig includes
 `**/*.ts` with no `ignoreBuildErrors`); the rest of `tests/` stays SAFE. `architecture-guard.test.mjs`
 FAILS if any web app's build-reachable code imports a still-SAFE location, keeping this policy
-honest as the code evolves. The tripwire (section 7) shares this exact policy module, so the two
+honest as the code evolves. The guard resolves relative imports, tsconfig `paths`/`baseUrl`/
+`extends`, package `imports`, and in-app symlinks to their repo paths and compares each against
+`classifyPath` (an import into a BUILD location, e.g. `tests/fixtures/`, is fine; an import into
+a SAFE location is a violation). The diff parser enforces the exact `(status NUL path NUL)`
+grammar: a missing or extra terminal NUL is an anomaly => BUILD. The tripwire (section 7) shares this exact policy module, so the two
 cannot drift.
 
 ## 4. Provider configuration per project (owner-gated; TWO settings per flip)
