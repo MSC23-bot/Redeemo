@@ -17,7 +17,7 @@
 // upgrades). The PDF footer stamps version + this hash so a downloaded PDF is
 // self-describing.
 //
-// DRAFT posture (this slice): the CURRENT version is the v2 DRAFT (`2.0-draft`),
+// DRAFT posture (this slice): the CURRENT version is the v2 DRAFT (`2.1-draft`),
 // whose source is `docs/legal/drafts/merchant-agreement-v2-draft.md` (embedded via
 // agreement-v2-source.ts). It carries the LEGAL-REVIEW-REQUIRED / DRAFT header
 // verbatim. FIX 3 separates two concerns: its `isDraft` flag ALONE drives the PDF
@@ -65,9 +65,15 @@ export function computeContentHash(content: string): string {
   return crypto.createHash('sha256').update(content, 'utf8').digest('hex')
 }
 
-// The current version id. `2.0-draft` (not `2.0`) is deliberate: the registered bytes
-// are the DRAFT artifact (with its DRAFT header). The frozen `2.0` is a future append.
-export const CURRENT_AGREEMENT_VERSION = '2.0-draft'
+// The current version id. `2.1-draft` (not `2.1`/`2.0`) is deliberate: the registered
+// bytes are the DRAFT artifact (with its DRAFT header). The frozen `2.0`/`2.1` is a future
+// append. D65 personalised-agreement rework (2026-07-15): the id was bumped `2.0-draft` ->
+// `2.1-draft` when the template's Execution section was trimmed of the event-created lines
+// ({{signedAt}}/{{ipAddress}}/{{userAgent}}/{{actorAdminName}}) so the reviewed body carries
+// only contractual + signatory + known-before facts (decision doc §7). A trim changes the
+// bytes + the hash, so it takes a NEW draft id rather than mutating a published one
+// (append-never-mutate); safe while the draft is pre-solicitor and unsigned.
+export const CURRENT_AGREEMENT_VERSION = '2.1-draft'
 
 // Review-round S2: the previous production contract, restored as a NON-DRAFT registry
 // entry so production can keep serving + binding it (with truthful evidence) while the

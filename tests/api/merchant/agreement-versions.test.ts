@@ -52,7 +52,7 @@ describe('agreement version registry', () => {
   it('the current version is the v2 draft and matches the artifact hash', () => {
     const current = getCurrentAgreement()
     expect(current.version).toBe(CURRENT_AGREEMENT_VERSION)
-    expect(current.version).toBe('2.0-draft')
+    expect(current.version).toBe('2.1-draft')
     expect(current.isDraft).toBe(true)
     const onDisk = fs.readFileSync(ARTIFACT_PATH, 'utf8')
     expect(current.contentHash).toBe(crypto.createHash('sha256').update(onDisk, 'utf8').digest('hex'))
