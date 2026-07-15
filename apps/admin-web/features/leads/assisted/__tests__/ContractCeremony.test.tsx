@@ -1,31 +1,59 @@
 /**
- * ContractCeremony (D65 in-person signing): the assisted contract-signing flow.
+ * ContractCeremony (D65 in-person signing): the assisted contract-signing flow,
+ * with the signing-integrity correction (full-text review + version echo + stale
+ * handling + status-driven banner).
  *
  * Covers the load-bearing ceremony contract (spec §2 steps 1-7):
- *   - the persistent pending-legal-review banner (never claims solicitor approval);
+ *   - the FULL agreement text is fetched and rendered; the scroll-to-end gate runs
+ *     over the full text (accept stays disabled until scrolled to the end);
+ *   - the pending-legal-review banner is DRIVEN BY the read's gated status (shown for a
+ *     draft, absent for a non-draft), never hardcoded; never claims solicitor approval;
  *   - step 1-2 rep pre-check + the explicit "operator cannot accept" hand-to-owner;
- *   - step 3 scroll-to-end gate: accept stays disabled until the owner scrolls
- *     the agreement to the end, even with every other field complete;
- *   - steps 4-6: authority attestation + role + key-terms + typed name gate the
- *     accept control; the POST carries { signerName, signerRoleConfirmation };
+ *   - steps 4-6: authority attestation + role + key-terms + typed name gate the accept
+ *     control; the POST ECHOES the exact displayed agreementVersion;
+ *   - a stale version (AGREEMENT_VERSION_MISMATCH) forces a reload + re-review (re-arms
+ *     the scroll/key-terms gates, shows the mismatch notice) and does NOT silently sign;
  *   - step 7 success: the signed evidence + the gated watermark note + Continue;
- *   - the AGREEMENT_LEGAL_REVIEW_REQUIRED error surfaces via NamedGateBanner with
- *     copy that never implies solicitor approval.
+ *   - AGREEMENT_LEGAL_REVIEW_REQUIRED surfaces via NamedGateBanner without claiming approval;
+ *   - loading / read-error states gate the ceremony (no text = no signing).
  *
- * The React Query mutation hook is mocked (house idiom), so no QueryClientProvider.
+ * The React Query hooks are mocked (house idiom), so no QueryClientProvider.
  */
 import React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ContractCeremony } from '../ContractCeremony'
 import { ApiError } from '@/lib/api/client'
-import type { SignAgreementResponse } from '@/lib/api/agreement'
+import type { SignAgreementResponse, AgreementTextResponse } from '@/lib/api/agreement'
 
-// Mutable mutation stub; the jest.mock factory may reference `mock`-prefixed vars.
+// Mutable hook stubs; the jest.mock factories may reference `mock`-prefixed vars.
 let mockSignMutation: { mutateAsync: jest.Mock; isPending: boolean; error: unknown }
+let mockAgreementQuery: {
+  data: AgreementTextResponse | undefined
+  isLoading: boolean
+  isError: boolean
+  refetch: jest.Mock
+}
 
 jest.mock('@/lib/agreement/useSignAgreement', () => ({
   useSignAgreement: () => mockSignMutation,
 }))
+jest.mock('@/lib/agreement/useAgreementText', () => ({
+  useAgreementText: () => mockAgreementQuery,
+}))
+
+const FULL_TEXT =
+  'Redeemo Merchant Agreement v2.0-draft\n\nDRAFT - PENDING LEGAL REVIEW\n\n1. Term. This is a 12 month agreement...\n\n2. Fees. Listing is free...\n\n(full legal wording continues for the length of the agreement)'
+
+function agreementResponse(overrides: Partial<AgreementTextResponse> = {}): AgreementTextResponse {
+  return {
+    version: '2.0-draft',
+    text: FULL_TEXT,
+    contentHash: 'abc123def456',
+    isDraft: true,
+    gated: true,
+    ...overrides,
+  }
+}
 
 function okResponse(overrides: Partial<SignAgreementResponse> = {}): SignAgreementResponse {
   return {
@@ -44,6 +72,12 @@ beforeEach(() => {
     mutateAsync: jest.fn().mockResolvedValue(okResponse()),
     isPending: false,
     error: null,
+  }
+  mockAgreementQuery = {
+    data: agreementResponse(),
+    isLoading: false,
+    isError: false,
+    refetch: jest.fn(),
   }
   // jsdom has no layout: force the agreement container to overflow so the
   // scroll-to-end gate does NOT auto-open on mount.
@@ -80,8 +114,26 @@ function fillAcceptanceFields() {
   fireEvent.change(screen.getByTestId('ceremony-name'), { target: { value: 'Marta Owner' } })
 }
 
-describe('ContractCeremony pre-check + hand to owner', () => {
-  it('shows the pending-legal-review banner and never claims solicitor approval', () => {
+describe('ContractCeremony read gating', () => {
+  it('shows a loading state until the agreement text is available (no text = no signing)', () => {
+    mockAgreementQuery = { data: undefined, isLoading: true, isError: false, refetch: jest.fn() }
+    renderCeremony()
+    expect(screen.getByTestId('ceremony-agreement-loading')).toBeInTheDocument()
+    expect(screen.queryByTestId('ceremony-precheck')).not.toBeInTheDocument()
+  })
+
+  it('shows a retryable error state when the agreement read fails', () => {
+    const refetch = jest.fn()
+    mockAgreementQuery = { data: undefined, isLoading: false, isError: true, refetch }
+    renderCeremony()
+    expect(screen.getByTestId('ceremony-agreement-error')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('ceremony-agreement-retry'))
+    expect(refetch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ContractCeremony status-driven legal banner', () => {
+  it('shows the pending-legal-review banner for a draft (gated) version and never claims approval', () => {
     renderCeremony()
     const banner = screen.getByTestId('ceremony-legal-banner')
     expect(banner).toHaveTextContent(/pending legal review/i)
@@ -89,6 +141,14 @@ describe('ContractCeremony pre-check + hand to owner', () => {
     expect(banner).not.toHaveTextContent(/approved/i)
   })
 
+  it('does NOT show the pending-legal-review banner for a non-draft (non-gated) version', () => {
+    mockAgreementQuery.data = agreementResponse({ version: '2.0', isDraft: false, gated: false })
+    renderCeremony()
+    expect(screen.queryByTestId('ceremony-legal-banner')).not.toBeInTheDocument()
+  })
+})
+
+describe('ContractCeremony pre-check + hand to owner', () => {
   it('states the operator cannot accept and hands the device to the owner', () => {
     renderCeremony()
     expect(screen.getByTestId('ceremony-business-name')).toHaveTextContent('Southville Sourdough Ltd')
@@ -101,6 +161,18 @@ describe('ContractCeremony pre-check + hand to owner', () => {
   })
 })
 
+describe('ContractCeremony full-text review', () => {
+  it('renders the FULL agreement text (not just the key-terms summary)', () => {
+    renderCeremony()
+    handToOwner()
+    const fullText = screen.getByTestId('ceremony-agreement-fulltext')
+    expect(fullText).toHaveTextContent('Redeemo Merchant Agreement v2.0-draft')
+    expect(fullText).toHaveTextContent('full legal wording continues')
+    // The version is labelled on the full-agreement block.
+    expect(screen.getByTestId('ceremony-agreement-scroll')).toHaveTextContent(/Full agreement \(version 2\.0-draft\)/i)
+  })
+})
+
 describe('ContractCeremony re-handover freshness (S1)', () => {
   it('re-arms the scroll gate and clears authority/key-terms/name/role on Back, then re-entering the owner panel', () => {
     renderCeremony()
@@ -109,14 +181,10 @@ describe('ContractCeremony re-handover freshness (S1)', () => {
     fillAcceptanceFields()
     expect(screen.getByTestId('ceremony-accept')).toBeEnabled()
 
-    // Back to precheck, then hand to a (possibly different) owner again.
     fireEvent.click(screen.getByTestId('ceremony-back'))
     expect(screen.getByTestId('ceremony-precheck')).toBeInTheDocument()
     handToOwner()
 
-    // The scroll gate is re-armed (the container still reports overflow from
-    // beforeEach, so it does not auto-open), and every prior tick/field is
-    // cleared: accept is disabled and the prior person's identity is gone.
     expect(screen.getByTestId('ceremony-scroll-hint')).toBeInTheDocument()
     expect(screen.getByTestId('ceremony-authority')).not.toBeChecked()
     expect(screen.getByTestId('ceremony-key-terms')).not.toBeChecked()
@@ -127,7 +195,7 @@ describe('ContractCeremony re-handover freshness (S1)', () => {
 })
 
 describe('ContractCeremony acceptance gates', () => {
-  it('keeps accept disabled until the agreement is scrolled to the end', () => {
+  it('keeps accept disabled until the full agreement is scrolled to the end', () => {
     renderCeremony()
     handToOwner()
     fillAcceptanceFields() // every field complete EXCEPT the scroll gate
@@ -156,8 +224,8 @@ describe('ContractCeremony acceptance gates', () => {
   })
 })
 
-describe('ContractCeremony sign', () => {
-  it('posts the typed name + role and shows the signed evidence + gated note', async () => {
+describe('ContractCeremony sign (version echo)', () => {
+  it('echoes the EXACT displayed agreementVersion in the sign POST and shows the signed evidence', async () => {
     const onDone = jest.fn()
     renderCeremony(onDone)
     handToOwner()
@@ -166,23 +234,39 @@ describe('ContractCeremony sign', () => {
     fireEvent.click(screen.getByTestId('ceremony-accept'))
 
     await waitFor(() => expect(mockSignMutation.mutateAsync).toHaveBeenCalledTimes(1))
+    // The precise value matters: the sign is bound to the version the owner reviewed.
     expect(mockSignMutation.mutateAsync).toHaveBeenCalledWith({
       signerName: 'Marta Owner',
       signerRoleConfirmation: 'Owner',
+      agreementVersion: '2.0-draft',
     })
 
     const signed = await screen.findByTestId('ceremony-signed')
     expect(signed).toHaveTextContent('Marta Owner')
     expect(signed).toHaveTextContent('Owner')
     expect(signed).toHaveTextContent('2.0-draft')
-    // gated: true -> the draft/pending-review watermark note.
     expect(screen.getByTestId('ceremony-signed-gated')).toBeInTheDocument()
+    // Signed-state copy points to the Merchant 360 summary, not a full evidence surface.
+    expect(signed).toHaveTextContent(/Merchant 360/i)
 
     fireEvent.click(screen.getByTestId('ceremony-continue'))
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
-  it('does not show the gated note when the backend reports gated:false', async () => {
+  it('echoes a DIFFERENT displayed version verbatim (proves the echo is not a constant)', async () => {
+    mockAgreementQuery.data = agreementResponse({ version: '2.1-draft' })
+    renderCeremony()
+    handToOwner()
+    scrollToEnd()
+    fillAcceptanceFields()
+    fireEvent.click(screen.getByTestId('ceremony-accept'))
+    await waitFor(() => expect(mockSignMutation.mutateAsync).toHaveBeenCalledTimes(1))
+    expect(mockSignMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ agreementVersion: '2.1-draft' })
+    )
+  })
+
+  it('does not show the gated note when the sign response reports gated:false', async () => {
     mockSignMutation.mutateAsync = jest.fn().mockResolvedValue(okResponse({ gated: false }))
     renderCeremony()
     handToOwner()
@@ -192,7 +276,36 @@ describe('ContractCeremony sign', () => {
     await screen.findByTestId('ceremony-signed')
     expect(screen.queryByTestId('ceremony-signed-gated')).not.toBeInTheDocument()
   })
+})
 
+describe('ContractCeremony stale-version handling', () => {
+  it('on AGREEMENT_VERSION_MISMATCH forces reload + re-review and does NOT silently sign', async () => {
+    const refetch = jest.fn()
+    mockAgreementQuery.refetch = refetch
+    mockSignMutation.mutateAsync = jest.fn().mockRejectedValue(
+      new ApiError(409, { error: { code: 'AGREEMENT_VERSION_MISMATCH', message: 'stale' } })
+    )
+    renderCeremony()
+    handToOwner()
+    scrollToEnd()
+    fillAcceptanceFields()
+    fireEvent.click(screen.getByTestId('ceremony-accept'))
+
+    // The mismatch notice appears, the review gates are re-armed, the text is re-fetched.
+    const notice = await screen.findByTestId('ceremony-version-mismatch')
+    expect(notice).toHaveTextContent(/agreement was updated/i)
+    expect(refetch).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('ceremony-scroll-hint')).toBeInTheDocument()
+    expect(screen.getByTestId('ceremony-key-terms')).not.toBeChecked()
+
+    // No silent sign: the ceremony did NOT reach the signed state, and there was no
+    // auto-retry (mutateAsync fired exactly once, from the single user click).
+    expect(screen.queryByTestId('ceremony-signed')).not.toBeInTheDocument()
+    expect(mockSignMutation.mutateAsync).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ContractCeremony error surfacing', () => {
   it('surfaces AGREEMENT_LEGAL_REVIEW_REQUIRED via NamedGateBanner without claiming approval', () => {
     mockSignMutation.error = new ApiError(403, {
       error: { code: 'AGREEMENT_LEGAL_REVIEW_REQUIRED', message: 'pending' },
@@ -214,7 +327,17 @@ describe('ContractCeremony sign', () => {
     const banner = screen.getByTestId('named-gate-banner')
     expect(banner).toHaveTextContent(/signed pdf could not be stored/i)
     expect(banner).toHaveTextContent(/storage is not enabled in this environment/i)
-    // The shared document-upload copy must NOT leak through here.
     expect(banner).not.toHaveTextContent(/could not be uploaded/i)
+  })
+
+  it('routes a version mismatch to the re-review notice, not the generic error banner', () => {
+    mockSignMutation.error = new ApiError(409, {
+      error: { code: 'AGREEMENT_VERSION_MISMATCH', message: 'stale' },
+    })
+    renderCeremony()
+    handToOwner()
+    // The generic NamedGateBanner must NOT render for a mismatch (the dedicated notice
+    // is shown via the stale-reload path instead), so the two never double up.
+    expect(screen.queryByTestId('named-gate-banner')).not.toBeInTheDocument()
   })
 })

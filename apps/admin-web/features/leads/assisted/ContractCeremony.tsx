@@ -12,11 +12,22 @@
  * (admin-never-signs is preserved). The click-to-agree portal/claim path stays
  * the fallback for a self-onboarding owner.
  *
+ * SIGNING-INTEGRITY CORRECTION (Fable, 2026-07-14): the ceremony must prove the
+ * owner reviewed and accepted the EXACT full agreement version the backend records.
+ * So (a) the FULL agreement text is fetched (GET /admin/agreement/current) and
+ * rendered inline, and the scroll-to-end review gate runs over the FULL text (the
+ * enumerated key terms remain a summary ABOVE it, not a replacement); (b) the sign
+ * call ECHOES the exact displayed version so display is bound to recorded evidence;
+ * (c) if the version changed between the read and the submit the backend returns
+ * AGREEMENT_VERSION_MISMATCH (409) and the ceremony FORCES a reload + re-review (never
+ * a silent re-sign of a version the owner never saw); (d) the pre-sign legal-review
+ * banner is driven by the read's own draft/gated status, not hardcoded.
+ *
  * The 7 steps, mapped to this component's phases:
  *   1 Rep pre-check         : the operator confirms the business + named signatory.
  *   2 Hand to owner         : an explicit full-panel handover; the operator cannot
  *                             proceed AS THEMSELVES past this point.
- *   3 Scroll-to-end review  : the owner reviews the agreement; the accept control
+ *   3 Scroll-to-end review  : the owner reviews the FULL agreement; the accept control
  *                             is disabled until they have scrolled to the end.
  *   4 Authority attestation : a separately-ticked "I can bind this business" +
  *                             a free-text role (signerRoleConfirmation).
@@ -26,35 +37,34 @@
  *                             (see the note at KEY_TERMS): it is non-gating per
  *                             spec, and the current sign route does not persist a
  *                             drawn image, so a canvas would capture nothing.
- *   7 Timestamped confirm   : the signed evidence + a download affordance.
+ *   7 Timestamped confirm   : the signed evidence + a pointer to the Merchant 360
+ *                             contract summary.
  *
- * LEGAL GATE (spec §6): the agreement is pending legal review (fail-closed
- * default). A persistent banner says so; the success state carries the same
- * note when the backend reports `gated: true`. NEVER state or imply solicitor
- * approval. On a production deploy while the gate is on, the sign POST returns
- * AGREEMENT_LEGAL_REVIEW_REQUIRED (403), surfaced via NamedGateBanner.
+ * LEGAL GATE (spec §6): while the presented version is a draft the read reports
+ * gated: true, and a persistent banner says the agreement is pending legal review;
+ * the success state carries the same note when the sign response reports gated: true.
+ * NEVER state or imply solicitor approval. On a production deploy while the gate is
+ * on, the sign POST returns AGREEMENT_LEGAL_REVIEW_REQUIRED (403) via NamedGateBanner.
  */
 import { useEffect, useRef, useState } from 'react'
-import { ShieldCheck, Lock, ArrowRight, ArrowLeft, CheckCircle2, Download, Info } from 'lucide-react'
+import { ShieldCheck, Lock, ArrowRight, ArrowLeft, CheckCircle2, Download, Info, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/features/shared/Badge'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'
 import { useSignAgreement } from '@/lib/agreement/useSignAgreement'
+import { useAgreementText } from '@/lib/agreement/useAgreementText'
+import { ApiError } from '@/lib/api/client'
 import type { SignAgreementResponse } from '@/lib/api/agreement'
 
 // The enumerated key terms, plain English. Adapted to third person (this is the
 // witnessed device: the owner is "the business", not "you") from the merchant
 // portal set (apps/merchant-web/components/onboarding/contract/
 // ContractAgreementForm.tsx), which the spec cites (step 5) as the shared
-// key-terms set for both signing paths. The binding text in both cases is the
-// identical backend agreement PDF; these enumerated terms are a reviewable
-// summary only. Keep this SET OF SIX aligned with the merchant portal's list
-// when either side changes. INTEGRATION NOTE: the admin surface has no
-// agreement-text read route today (the full text is served only on the
-// merchant-scoped GET /merchant/onboarding/contract, which an admin session
-// cannot call). The complete legal wording is rendered into the downloadable
-// signed PDF and will render inline here once an admin-facing agreement-text
-// read ships.
+// key-terms set for both signing paths. These are a reviewable SUMMARY shown ABOVE
+// the full agreement text; the binding text in both cases is the identical backend
+// agreement, now fetched and rendered IN FULL below with the scroll gate running over
+// it (GET /admin/agreement/current). Keep this SET OF SIX aligned with the merchant
+// portal's list when either side changes.
 const KEY_TERMS: readonly string[] = [
   'This is a 12 month agreement between the business and Redeemo.',
   'Listing is free. The business only pays for optional featured placement and campaigns.',
@@ -66,17 +76,10 @@ const KEY_TERMS: readonly string[] = [
 
 // ── Persistent legal-review banner (spec §6) ─────────────────────────────────────
 
-// Rendered in two places below: once gated-driven at the signed-confirmation step
-// (`{result.gated && <LegalReviewBanner />}`), and once hardcoded-on in the
-// pre-sign owner panel (~below, before `phase === 'owner'` renders). The pre-sign
-// render CANNOT read `result.gated` because `result` is null until the sign POST
-// resolves; there is no watermark-status value available before that point (the
-// admin surface has no agreement-text/version read route today, per the KEY_TERMS
-// integration note above). Hardcoding it on is correct today because the ceremony
-// only ever runs against a draft version, so the pre-sign warning is always true in
-// practice. If a non-draft version ever becomes ceremony-signable, this pre-sign
-// render should be driven by a version-status read (not `result.gated`, which still
-// won't exist yet at this point), not left hardcoded.
+// Rendered driven by the agreement read's own status (gated/isDraft), never
+// hardcoded (signing-integrity correction (d)): shown iff the presented version is a
+// draft/gated, and again at the signed step when the sign response reports gated: true.
+// A non-draft version shows NO watermark/pending banner. NEVER states solicitor approval.
 function LegalReviewBanner() {
   return (
     <div
@@ -171,18 +174,20 @@ function SignedConfirmation({
       )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        {/* Download affordance. INTEGRATION NOTE: the presigned-PDF read is the
-            Slice 4 backend (contract:view-evidence + an evidence-download route),
-            not present in the signing backend PR. Until it ships, the control is
-            disabled with an honest note; wire it to the presign read when Slice 4
-            lands. */}
+        {/* Signed-state copy (signing-integrity correction (e)): point ONLY to the
+            contract summary the merchant's record (Merchant 360) already carries. Do
+            NOT imply the complete signing-evidence surface (the immutable ledger + the
+            presigned signed-PDF download) exists yet: that is the separate lane-2
+            evidence read (contract:view-evidence), not built here. The button stays
+            disabled with honest copy until that read ships. */}
         <div>
           <Button type="button" variant="outline" disabled data-testid="ceremony-download">
             <Download className="size-4" aria-hidden="true" />
             Download signed agreement
           </Button>
           <p className="mt-1 text-xs text-muted-foreground">
-            The signed document download becomes available with the evidence view.
+            The contract summary (status, method, signed date, and term window) is on the merchant&apos;s
+            record under Merchant 360. The full signed-document download follows with the evidence view.
           </p>
         </div>
         <Button type="button" onClick={onDone} data-testid="ceremony-continue">
@@ -211,8 +216,11 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
   const [keyTermsAccepted, setKeyTermsAccepted] = useState(false)
   const [signerName, setSignerName] = useState('')
   const [signerRole, setSignerRole] = useState('')
+  const [staleReload, setStaleReload] = useState(false)
   const [result, setResult] = useState<SignAgreementResponse | null>(null)
 
+  const agreementQuery = useAgreementText(true)
+  const agreement = agreementQuery.data
   const mutation = useSignAgreement(merchantId)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -229,16 +237,19 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
     setKeyTermsAccepted(false)
     setSignerName('')
     setSignerRole('')
+    setStaleReload(false)
   }
 
-  // Step 3 scroll-to-end gate: if the agreement text fits without scrolling there
-  // is nothing to scroll, so the gate opens immediately; otherwise it stays shut
-  // until the owner reaches the end.
+  // Step 3 scroll-to-end gate: if the FULL agreement fits without scrolling there is
+  // nothing to scroll, so the gate opens immediately; otherwise it stays shut until the
+  // owner reaches the end. Re-evaluated when the presented version changes (e.g. after a
+  // stale-version refetch swaps the text), so a shorter replacement opens the gate and a
+  // longer one keeps it shut until re-scrolled.
   useEffect(() => {
     if (phase !== 'owner') return
     const el = scrollRef.current
     if (el && el.scrollHeight <= el.clientHeight + 8) setScrolledToEnd(true)
-  }, [phase])
+  }, [phase, agreement?.version])
 
   function onScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget
@@ -248,6 +259,7 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
   const trimmedName = signerName.trim()
   const trimmedRole = signerRole.trim()
   const canAccept =
+    !!agreement &&
     scrolledToEnd &&
     authorityAttested &&
     keyTermsAccepted &&
@@ -256,15 +268,29 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
     !mutation.isPending
 
   async function handleAccept() {
-    if (!canAccept) return
+    if (!canAccept || !agreement) return
+    // Clear a prior stale-reload notice for this fresh attempt.
+    setStaleReload(false)
     try {
       const res = await mutation.mutateAsync({
         signerName: trimmedName,
         signerRoleConfirmation: trimmedRole,
+        // Echo the EXACT version the owner reviewed. Binds display == evidence; a stale
+        // echo is refused (AGREEMENT_VERSION_MISMATCH, 409) rather than silently signed.
+        agreementVersion: agreement.version,
       })
       setResult(res)
-    } catch {
-      // Error is available via mutation.error; NamedGateBanner renders it.
+    } catch (err) {
+      // Stale-version handling (signing-integrity correction (c)): the version the owner
+      // reviewed is no longer current. FORCE a reload + re-review of the CURRENT text; do
+      // NOT auto-retry with the new version (the owner must actually see what they sign).
+      if (err instanceof ApiError && err.code === 'AGREEMENT_VERSION_MISMATCH') {
+        setStaleReload(true)
+        setScrolledToEnd(false)
+        setKeyTermsAccepted(false)
+        agreementQuery.refetch()
+      }
+      // Any other error surfaces via mutation.error / NamedGateBanner below.
     }
   }
 
@@ -283,9 +309,47 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
     )
   }
 
+  // The ceremony cannot run without the agreement text: the whole point is that the owner
+  // reviews the EXACT recorded version. Gate the flow on the read.
+  if (!agreement) {
+    return (
+      <div className="space-y-4" data-testid="contract-ceremony">
+        {agreementQuery.isError ? (
+          <div
+            className="rounded-lg border border-red-200 bg-red-50 p-5 text-sm text-red-700"
+            data-testid="ceremony-agreement-error"
+          >
+            <p>The agreement could not be loaded, so it cannot be reviewed or signed right now.</p>
+            <div className="mt-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => agreementQuery.refetch()}
+                data-testid="ceremony-agreement-retry"
+              >
+                <RefreshCw className="size-4" aria-hidden="true" />
+                Try again
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div
+            className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground"
+            data-testid="ceremony-agreement-loading"
+          >
+            Loading the current agreement for review...
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const isVersionMismatchError =
+    mutation.error instanceof ApiError && mutation.error.code === 'AGREEMENT_VERSION_MISMATCH'
+
   return (
     <div className="space-y-4" data-testid="contract-ceremony">
-      <LegalReviewBanner />
+      {agreement.gated && <LegalReviewBanner />}
 
       {phase === 'precheck' ? (
         // Steps 1-2: rep pre-check + explicit hand-to-owner.
@@ -339,7 +403,7 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
           </div>
         </div>
       ) : (
-        // Steps 3-6: owner reviews, attests authority, accepts terms, types name.
+        // Steps 3-6: owner reviews the FULL agreement, attests authority, accepts terms, types name.
         <div
           className="rounded-lg border border-primary/30 bg-card p-5"
           data-testid="ceremony-owner-panel"
@@ -357,29 +421,53 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
             owner or an authorised signatory, can accept this. The rep cannot accept for you.
           </p>
 
-          {/* Step 3: scroll-to-end review of the enumerated key terms. */}
+          {/* Stale-version notice (signing-integrity correction (c)): the version changed
+              between load and submit; the owner must re-review the current text below. */}
+          {staleReload && (
+            <div
+              className="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+              data-testid="ceremony-version-mismatch"
+              role="alert"
+            >
+              <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <p>
+                The agreement was updated while this was open. It has been reloaded below: please read
+                the current version to the end and accept the terms again before signing.
+              </p>
+            </div>
+          )}
+
+          {/* Step 3: scroll-to-end review over the FULL agreement (key terms are a
+              summary above the complete text; the gate covers the whole container). */}
           <div
             ref={scrollRef}
             onScroll={onScroll}
             data-testid="ceremony-agreement-scroll"
-            className="mt-4 max-h-48 overflow-auto rounded-md border border-border bg-secondary/20 p-4 text-sm text-muted-foreground"
+            className="mt-4 max-h-72 overflow-auto rounded-md border border-border bg-secondary/20 p-4 text-sm text-muted-foreground"
           >
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Key terms
+              Key terms (summary)
             </p>
             <ul className="list-disc space-y-2 pl-5">
               {KEY_TERMS.map((term) => (
                 <li key={term}>{term}</li>
               ))}
             </ul>
-            <p className="mt-3 border-t border-border pt-3 text-xs">
-              This is the enumerated summary. The complete agreement wording is included in the signed
-              document you can download after signing, and is pending final legal review.
-            </p>
+            <div className="mt-4 border-t border-border pt-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Full agreement (version {agreement.version})
+              </p>
+              <p
+                className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground"
+                data-testid="ceremony-agreement-fulltext"
+              >
+                {agreement.text}
+              </p>
+            </div>
           </div>
           {!scrolledToEnd && (
             <p className="mt-1 text-xs text-muted-foreground" data-testid="ceremony-scroll-hint">
-              Scroll to the end of the agreement to continue.
+              Scroll to the end of the full agreement to continue.
             </p>
           )}
 
@@ -426,7 +514,7 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
                 data-testid="ceremony-key-terms"
                 className="mt-0.5 size-4 shrink-0"
               />
-              <span>I have read and accept the key terms of the Redeemo Merchant Agreement above.</span>
+              <span>I have read the full agreement above and accept the terms of the Redeemo Merchant Agreement.</span>
             </label>
 
             {/* Step 6: typed full name = the signature of record. */}
@@ -453,7 +541,9 @@ export function ContractCeremony({ merchantId, businessLegalName, onDone }: Cont
             </div>
           </div>
 
-          {mutation.error && (
+          {/* A version mismatch is surfaced by the dedicated re-review notice above, not
+              here, so the two never double up. Any OTHER error surfaces via the banner. */}
+          {mutation.error && !isVersionMismatchError && (
             <div className="mt-4">
               {/* STORAGE_NOT_ENABLED override: the shared copy is written for the
                   document-upload flow ("could not be uploaded"), which is the

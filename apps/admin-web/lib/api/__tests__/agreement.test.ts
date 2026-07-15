@@ -79,6 +79,52 @@ describe('agreementApi.sign request body', () => {
 
 })
 
+// ── agreementApi.getCurrent: the ceremony agreement-text read ────────────────────
+
+function agreementTextResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    version: '2.0-draft',
+    text: 'Redeemo Merchant Agreement v2.0-draft\n\nDRAFT - PENDING LEGAL REVIEW\n\nFull wording...',
+    contentHash: 'abc123def456',
+    isDraft: true,
+    gated: true,
+    ...overrides,
+  }
+}
+
+describe('agreementApi.getCurrent', () => {
+  it('GETs the platform-global agreement-current URL with auth:true (no merchant id)', async () => {
+    mockedApiFetch.mockResolvedValueOnce(agreementTextResponse())
+    await agreementApi.getCurrent()
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/api/v1/admin/agreement/current',
+      expect.objectContaining({ method: 'GET', auth: true })
+    )
+  })
+
+  it('returns the parsed { version, text, contentHash, isDraft, gated }', async () => {
+    mockedApiFetch.mockResolvedValueOnce(agreementTextResponse({ isDraft: false, gated: false }))
+    const result = await agreementApi.getCurrent()
+    expect(result.version).toBe('2.0-draft')
+    expect(result.text).toContain('Redeemo Merchant Agreement')
+    expect(result.contentHash).toBe('abc123def456')
+    expect(result.isDraft).toBe(false)
+    expect(result.gated).toBe(false)
+  })
+
+  it('throws when a required field is missing (contract drift surfaces clearly)', async () => {
+    const missingText = agreementTextResponse()
+    delete (missingText as { text?: string }).text
+    mockedApiFetch.mockResolvedValueOnce(missingText)
+    await expect(agreementApi.getCurrent()).rejects.toThrow()
+  })
+
+  it('throws when gated is not a boolean', async () => {
+    mockedApiFetch.mockResolvedValueOnce(agreementTextResponse({ gated: 'yes' }))
+    await expect(agreementApi.getCurrent()).rejects.toThrow()
+  })
+})
+
 // ── agreementApi.sign: response parsing ─────────────────────────────────────────
 
 describe('agreementApi.sign response parsing', () => {
