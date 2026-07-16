@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { motion, useMotionValue, useReducedMotion, useSpring, useTransform, type MotionValue } from 'framer-motion'
+import { motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 
 /**
@@ -574,6 +574,32 @@ function PortalWindow({ active, onPick, scrub, navRefs }: { active: string; onPi
                     <>
                       <PaneImage src="/for-businesses/portal/pane-home.webp" active={isActive} />
                       <StatsLayer stats={HOME_STATS} bars={HOME_BARS} active={isActive} />
+                      {/* The capture's baked June date is covered with a July
+                          chip (owner ruling: the dashboard must not
+                          contradict the July redemption records) */}
+                      <div
+                        className="absolute flex items-center justify-center gap-1.5 bg-white"
+                        style={{
+                          left: '79.8%',
+                          top: '4.6%',
+                          width: '17.5%',
+                          height: '5.8%',
+                          borderRadius: 8,
+                          border: '1px solid #E9ECF2',
+                          boxShadow: '0 1px 3px rgba(16,24,40,0.05)',
+                        }}
+                        aria-hidden="true"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2" strokeLinecap="round">
+                          <rect x="3" y="4" width="18" height="18" rx="2" />
+                          <line x1="16" y1="2" x2="16" y2="6" />
+                          <line x1="8" y1="2" x2="8" y2="6" />
+                          <line x1="3" y1="10" x2="21" y2="10" />
+                        </svg>
+                        <span className="whitespace-nowrap font-semibold" style={{ fontSize: 15, color: '#28324E' }}>
+                          Tuesday, 7 July 2026
+                        </span>
+                      </div>
                     </>
                   ) : null}
                   {screen.key === 'vouchers' ? (
@@ -627,10 +653,34 @@ function PortalWindow({ active, onPick, scrub, navRefs }: { active: string; onPi
 
 // ── The section ───────────────────────────────────────────────────────────────
 
+// Each screen owns this much page scroll while the tour is pinned.
+const TOUR_STEP_SVH = 46
+
 export function PortalSection() {
   const [active, setActive] = useState('home')
   const reduceMotion = useReducedMotion()
   const stageRef = useRef<HTMLDivElement>(null)
+  const tourRef = useRef<HTMLDivElement>(null)
+
+  // The pinned tour: page scroll steps through the six screens, so nobody
+  // needs to discover the sidebar to see them all. A sidebar click takes
+  // over until the visitor scrolls to a different step, then scroll resumes.
+  const { scrollYProgress: tourP } = useScroll({ target: tourRef, offset: ['start start', 'end end'] })
+  const manualHold = useRef<number | null>(null)
+  useMotionValueEvent(tourP, 'change', (v) => {
+    const idx = Math.min(SCREENS.length - 1, Math.max(0, Math.floor(v * SCREENS.length)))
+    if (manualHold.current !== null) {
+      if (manualHold.current === idx) return
+      manualHold.current = null
+    }
+    const key = SCREENS[idx].key
+    setActive((prev) => (prev === key ? prev : key))
+  })
+  const pick = (k: string) => {
+    const v = tourP.get()
+    manualHold.current = Math.min(SCREENS.length - 1, Math.max(0, Math.floor(v * SCREENS.length)))
+    setActive(k)
+  }
   const windowWrapRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const navRefs = useRef<Record<string, HTMLButtonElement | null>>({})
@@ -691,7 +741,7 @@ export function PortalSection() {
   const current = SCREENS.find((s) => s.key === active) ?? SCREENS[0]
 
   return (
-    <section className="relative -mt-8 overflow-hidden rounded-t-[44px]" style={{ background: NAVY }}>
+    <section className="relative overflow-hidden" style={{ background: NAVY }}>
       {/* Owner plate: glass ticket mark on deep navy */}
       <div aria-hidden="true" className="absolute inset-0">
         <Image src="/for-businesses/portal/portal-bg.webp" alt="" fill sizes="100vw" className="object-cover" style={{ objectPosition: '70% 40%' }} />
@@ -730,8 +780,10 @@ export function PortalSection() {
           </div>
         </motion.div>
 
-        {/* Stage: blurb rail + the portal window, straight-on (desktop) */}
-        <div ref={stageRef} className="relative mt-12 hidden items-center gap-9 lg:flex">
+        {/* Stage: pinned tour; scroll steps the screens, clicks still work */}
+        <div ref={tourRef} className="hidden lg:block" style={{ height: `calc(100svh + ${SCREENS.length * TOUR_STEP_SVH}svh)` }}>
+        <div className="sticky top-0 flex h-[100svh] items-center">
+        <div ref={stageRef} className="relative flex w-full items-center gap-9">
           {/* The red thread from the card to the active sidebar item */}
           {link ? (
             <svg aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible">
@@ -818,11 +870,13 @@ export function PortalSection() {
                 }}
               >
                 <div style={{ transform: `scale(${scale})`, transformOrigin: '0 0', width: SHELL_W, height: SHELL_H }}>
-                  <PortalWindow active={active} onPick={setActive} scrub={scrub} navRefs={navRefs} />
+                  <PortalWindow active={active} onPick={pick} scrub={scrub} navRefs={navRefs} />
                 </div>
               </div>
             </div>
           </motion.div>
+        </div>
+        </div>
         </div>
 
         {/* Mobile / tablet: pill switcher + content-pane window */}
