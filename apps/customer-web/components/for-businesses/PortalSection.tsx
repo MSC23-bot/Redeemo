@@ -690,11 +690,15 @@ export function PortalSection() {
   useEffect(() => {
     const el = windowWrapRef.current
     if (!el) return
-    const measure = () => setScale(Math.min(1, el.clientWidth / SHELL_W))
+    const measure = () => setScale(Math.min(1, el.clientWidth / SHELL_W, (window.innerHeight - 330) / SHELL_H))
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
-    return () => ro.disconnect()
+    window.addEventListener('resize', measure)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
   }, [])
 
   // The red thread: connect the narrator card to the active sidebar item so
@@ -742,22 +746,14 @@ export function PortalSection() {
 
   return (
     <section className="relative overflow-x-clip" style={{ background: NAVY }}>
-      {/* Header zone: quiet navy with a soft glow (the plate lives inside
-          the pinned viewport so it stays viewport-sized and crisp) */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-[520px]"
-        style={{ background: 'radial-gradient(700px 320px at 22% 30%, rgba(80,110,220,0.1), transparent 70%)' }}
-      />
-
-      <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 md:pb-28 md:pt-24 lg:px-10">
-        {/* Header */}
+      <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 md:pb-28 lg:px-10 lg:pb-16 lg:pt-0">
+        {/* Header (mobile/tablet: the desktop pin carries its own compact twin) */}
         <motion.div
           initial={{ opacity: 0, y: 18 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: '-60px' }}
           transition={{ duration: 0.55, ease: EASE }}
-          className="max-w-[720px]"
+          className="max-w-[720px] lg:hidden"
         >
           <p className="mb-4 flex items-center gap-2.5 text-[11.5px] font-bold uppercase tracking-[0.22em] text-white/45">
             <span className="h-[2px] w-6 bg-[#E20C04]" aria-hidden="true" />
@@ -769,7 +765,6 @@ export function PortalSection() {
           <p className="max-w-[620px] text-[15.5px] leading-[1.65] text-white/60">
             Your entire Redeemo presence, managed from one clean portal: profile and branches, staff access, vouchers, redemptions and live insights.
           </p>
-          {/* Reassurance strip */}
           <div className="mt-6 flex flex-wrap gap-2.5">
             {REASSURANCE.map((r) => (
               <span key={r} className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.06] px-3.5 py-1.5 text-[12.5px] font-semibold text-white/75 backdrop-blur-sm">
@@ -784,11 +779,42 @@ export function PortalSection() {
 
         {/* Stage: pinned tour; scroll steps the screens, clicks still work */}
         <div ref={tourRef} className="hidden lg:block" style={{ height: `calc(100svh + ${SCREENS.length * TOUR_STEP_SVH}svh)` }}>
-        <div className="sticky top-0 flex h-[100svh] items-center">
-        {/* Owner plate, pinned with the stage */}
-        <div aria-hidden="true" className="absolute inset-0 -z-10">
-          <Image src="/for-businesses/portal/portal-bg.webp" alt="" fill sizes="100vw" className="object-cover" style={{ objectPosition: '70% 40%' }} />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(1,12,53,0.9) 0%, rgba(1,12,53,0.1) 26%, rgba(1,12,53,0) 60%, rgba(1,12,53,0.6) 100%)' }} />
+        <div className="sticky top-0 flex h-[100svh] flex-col justify-center pt-[88px]">
+        {/* Backdrop: composed gradients only (image plates upscale into
+            visible shading bands at large viewports); silky at any size */}
+        <div
+          aria-hidden="true"
+          className="absolute -z-10"
+          style={{
+            inset: '-2px -100vw',
+            background:
+              'radial-gradient(1100px 640px at 76% -8%, rgba(210,40,18,0.16), transparent 62%), radial-gradient(900px 620px at 8% 42%, rgba(70,100,200,0.1), transparent 66%), linear-gradient(180deg, #071033 0%, #030B28 100%)',
+          }}
+        />
+        {/* Compact header shares the pinned screen */}
+        <div className="mb-6">
+          <p className="mb-2.5 flex items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
+            <span className="h-[2px] w-6 bg-[#E20C04]" aria-hidden="true" />
+            The merchant portal
+          </p>
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
+            <h2 className="font-display leading-[1.08] text-white" style={{ fontSize: 'clamp(26px, 2.6vw, 36px)', letterSpacing: '-0.5px' }}>
+              One place to manage it all.
+            </h2>
+            <p className="max-w-[560px] text-[14px] leading-snug text-white/60">
+              Profile and branches, staff access, vouchers, redemptions and live insights.
+            </p>
+          </div>
+          <div className="mt-3.5 flex flex-wrap gap-2">
+            {REASSURANCE.map((r) => (
+              <span key={r} className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.06] px-3 py-1 text-[12px] font-semibold text-white/75">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                {r}
+              </span>
+            ))}
+          </div>
         </div>
         <div ref={stageRef} className="relative flex w-full items-center gap-9">
           {/* The red thread from the card to the active sidebar item */}
@@ -859,23 +885,8 @@ export function PortalSection() {
             transition={{ duration: 0.8, ease: EASE }}
             className="relative min-w-0 flex-1"
           >
-            {/* Ambient glow pooling behind and beneath the window */}
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -inset-x-10 -bottom-16 -top-10"
-              style={{
-                background:
-                  'radial-gradient(60% 55% at 50% 45%, rgba(80,110,220,0.16), transparent 70%), radial-gradient(45% 35% at 72% 100%, rgba(226,12,4,0.12), transparent 70%)',
-              }}
-            />
             <div ref={windowWrapRef} onPointerMove={onWindowPointer} className="relative">
-              <div
-                style={{
-                  width: SHELL_W * scale,
-                  height: SHELL_H * scale,
-                  WebkitBoxReflect: 'below 14px linear-gradient(transparent 72%, rgba(255,255,255,0.10))',
-                }}
-              >
+              <div style={{ width: SHELL_W * scale, height: SHELL_H * scale }}>
                 <div style={{ transform: `scale(${scale})`, transformOrigin: '0 0', width: SHELL_W, height: SHELL_H }}>
                   <PortalWindow active={active} onPick={pick} scrub={scrub} navRefs={navRefs} />
                 </div>
