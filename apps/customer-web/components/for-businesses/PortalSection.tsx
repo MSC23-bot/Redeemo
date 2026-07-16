@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { motion, useReducedMotion, useSpring } from 'framer-motion'
+import { motion, useMotionValue, useReducedMotion, useSpring, useTransform, type MotionValue } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 
 /**
@@ -27,16 +27,44 @@ const EASE = [0.22, 1, 0.36, 1] as const
 
 // Shell design space: content pane captures are 1400x1020 (1728-wide portal,
 // content right of the 328px sidebar, below the 64px top bar).
-const SHELL = { sidebar: 300, topbar: 56, browser: 40, contentW: 1400, contentH: 1020 }
+const SHELL = { sidebar: 300, topbar: 56, browser: 40, contentW: 1386, contentH: 1020 }
 const SHELL_W = SHELL.sidebar + SHELL.contentW
 const SHELL_H = SHELL.browser + SHELL.topbar + SHELL.contentH
 
-// The home dashboard's scrolling pane (from the hero pipeline): the strip
-// sits inside the content pane at this content-local rect.
-const HOME_PANE = { left: 0, top: 15, width: 1386, height: 1005, stripH: 1761 }
-// The builder strip is native 1178 wide (1440-capture content), letterboxed
-// on the portal page background.
-const BUILDER_STRIP = { width: 1178, height: 2169 }
+// Live stats land on blanked capture regions (surgery 2026-07-16).
+const HOME_STATS: StatSpec[] = [
+  { value: 318, rect: [0.4315, 0.1961, 0.0375, 0.0275], size: 38, color: NAVY, align: 'right' },
+  { value: 212, rect: [0.0577, 0.6284, 0.0562, 0.0333], size: 46, color: NAVY },
+  { value: 25, rect: [0.2929, 0.6284, 0.0446, 0.0343], size: 46, color: NAVY },
+  { value: 4, rect: [0.5289, 0.6284, 0.0295, 0.0333], size: 46, color: NAVY },
+  { value: 'Saturday', rect: [0.7648, 0.6294, 0.1333, 0.0353], size: 40, color: NAVY },
+]
+const HOME_BARS: BarSpec[] = [
+  { x: 0.544, w: 0.0267, bottom: 0.4755, h: 0.0627, color: '#E3E4EA' },
+  { x: 0.6039, w: 0.026, bottom: 0.4755, h: 0.0696, color: '#E3E4EA' },
+  { x: 0.6638, w: 0.0267, bottom: 0.4755, h: 0.0765, color: '#E3E4EA' },
+  { x: 0.7237, w: 0.0267, bottom: 0.4755, h: 0.0912, color: '#E3E4EA' },
+  { x: 0.7835, w: 0.0267, bottom: 0.4755, h: 0.1157, color: '#E3E4EA' },
+  { x: 0.8442, w: 0.0267, bottom: 0.4755, h: 0.1461, color: '#D14021' },
+  { x: 0.904, w: 0.0267, bottom: 0.4755, h: 0.0814, color: '#E3E4EA' },
+]
+const INSIGHT_STATS: StatSpec[] = [
+  { value: 61, rect: [0.0693, 0.2608, 0.0302, 0.0265], size: 36, color: NAVY },
+  { value: 41, rect: [0.3564, 0.2608, 0.0316, 0.0265], size: 36, color: NAVY },
+  { value: 609, prefix: '£', rect: [0.6436, 0.2598, 0.0692, 0.0275], size: 36, color: NAVY },
+]
+const INSIGHT_BARS: BarSpec[] = [
+  { x: 0.1176, w: 0.033, bottom: 0.6029, h: 0.0167, color: '#E6E3DB', label: '6' },
+  { x: 0.2547, w: 0.033, bottom: 0.6029, h: 0.0696, color: '#E6E3DB', label: '28' },
+  { x: 0.3925, w: 0.033, bottom: 0.6029, h: 0.1059, color: '#E6E3DB', label: '43' },
+  { x: 0.5296, w: 0.033, bottom: 0.6029, h: 0.1343, color: '#E6E3DB', label: '55' },
+  { x: 0.6667, w: 0.033, bottom: 0.6029, h: 0.1324, color: '#E6E3DB', label: '54' },
+  { x: 0.8045, w: 0.033, bottom: 0.6029, h: 0.148, color: '#D1401F', label: '61' },
+]
+
+// The builder FORM column (right rail removed: it renders as the live
+// sticky panels beside it, like the real builder).
+const FORM_STRIP = { width: 726, height: 2169 }
 
 type Screen = {
   key: string
@@ -173,12 +201,12 @@ function NavIcon({ kind }: { kind: string }) {
   }
 }
 
-function ShellSidebar({ active, onPick }: { active: string; onPick: (k: string) => void }) {
+function ShellSidebar({ active, onPick, navRefs }: { active: string; onPick: (k: string) => void; navRefs?: React.MutableRefObject<Record<string, HTMLButtonElement | null>> }) {
   return (
     <div className="flex h-full flex-col border-r bg-white" style={{ borderColor: '#EEE9E2', width: SHELL.sidebar }}>
       {/* Brand */}
       <div className="flex items-center gap-2.5 px-6 pb-4 pt-6">
-        <Image src="/logo-dark.png" alt="" width={30} height={30} className="h-[30px] w-[30px] object-contain" />
+        <Image src="/logo-icon.svg" alt="" width={34} height={34} className="h-[34px] w-[34px] object-contain" />
         <div className="leading-none">
           <p className="text-[17px] font-bold" style={{ color: NAVY }}>
             Redeemo
@@ -213,10 +241,17 @@ function ShellSidebar({ active, onPick }: { active: string; onPick: (k: string) 
               return (
                 <button
                   key={item.nav}
+                  ref={
+                    clickable && navRefs
+                      ? (el) => {
+                          navRefs.current[item.key as string] = el
+                        }
+                      : undefined
+                  }
                   onClick={clickable ? () => onPick(item.key as string) : undefined}
                   disabled={!clickable}
                   aria-pressed={clickable ? isActive : undefined}
-                  className="relative mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15.5px] font-semibold transition-colors"
+                  className="group/nav relative mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15.5px] font-semibold transition-colors"
                   style={{
                     color: isActive ? NAVY : clickable ? 'rgba(1,12,53,0.62)' : 'rgba(1,12,53,0.34)',
                     background: isActive ? 'rgba(226,12,4,0.07)' : 'transparent',
@@ -228,6 +263,22 @@ function ShellSidebar({ active, onPick }: { active: string; onPick: (k: string) 
                     <NavIcon kind={item.icon} />
                   </span>
                   {item.nav}
+                  {clickable && !isActive ? (
+                    <svg
+                      className="ml-auto opacity-30 transition-all duration-200 group-hover/nav:translate-x-0.5 group-hover/nav:opacity-70"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                  ) : null}
                 </button>
               )
             })}
@@ -259,7 +310,9 @@ function PaneImage({ src, active, kenburns = false }: { src: string; active: boo
   )
 }
 
-/** Auto-panning strip: slow yo-yo through a tall capture. */
+/** Pointer-scrubbed strip: hovering the window glides the page through the
+ *  capture (owner: autonomous auto-scroll read as odd; this puts the motion
+ *  under the visitor's hand). */
 function PaneStrip({
   src,
   stripW,
@@ -267,7 +320,8 @@ function PaneStrip({
   boxW,
   boxH,
   offsetTop = 0,
-  active,
+  left,
+  scrub,
 }: {
   src: string
   stripW: number
@@ -275,20 +329,131 @@ function PaneStrip({
   boxW: number
   boxH: number
   offsetTop?: number
-  active: boolean
+  left?: number
+  scrub: MotionValue<number>
 }) {
-  const reduceMotion = useReducedMotion()
   const travel = Math.max(0, stripH - (boxH - offsetTop))
+  const y = useTransform(scrub, [0, 1], [0, -travel])
   return (
-    <div className="absolute overflow-hidden" style={{ left: (SHELL.contentW - boxW) / 2, top: offsetTop, width: boxW, height: boxH - offsetTop }}>
-      <motion.div
-        className="absolute left-0 top-0"
-        style={{ width: stripW, height: stripH }}
-        animate={active && !reduceMotion ? { y: [0, -travel, 0] } : { y: 0 }}
-        transition={{ duration: Math.max(18, travel / 45), repeat: Infinity, ease: 'easeInOut' }}
-      >
+    <div className="absolute overflow-hidden" style={{ left: left ?? (SHELL.contentW - boxW) / 2, top: offsetTop, width: boxW, height: boxH - offsetTop }}>
+      <motion.div className="absolute left-0 top-0" style={{ width: stripW, height: stripH, y }}>
         <Image src={src} alt="" fill sizes="1000px" className="object-cover object-top" />
       </motion.div>
+    </div>
+  )
+}
+
+// ── Live stats: count-ups and rising bars over blanked capture regions ──────
+// (the baked values are blanked out of the pane assets; these land on the
+// real numbers, landing-savings style)
+
+type StatSpec = { value: number | string; prefix?: string; rect: [number, number, number, number]; size: number; color: string; align?: 'left' | 'center' | 'right'; weight?: number }
+type BarSpec = { x: number; w: number; bottom: number; h: number; color: string; label?: string }
+
+function CountUpStat({ spec, active }: { spec: StatSpec; active: boolean }) {
+  const reduceMotion = useReducedMotion()
+  const numeric = typeof spec.value === 'number'
+  const [display, setDisplay] = useState<string>(numeric ? '0' : '')
+  useEffect(() => {
+    if (!active) {
+      setDisplay(numeric ? '0' : '')
+      return
+    }
+    if (!numeric || reduceMotion) {
+      setDisplay(String(spec.value))
+      return
+    }
+    const target = spec.value as number
+    const t0 = performance.now()
+    const dur = 1100
+    let raf = 0
+    const tick = (t: number) => {
+      const f = Math.min(1, (t - t0) / dur)
+      const eased = 1 - Math.pow(1 - f, 3)
+      setDisplay(String(Math.round(target * eased)))
+      if (f < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [active, numeric, reduceMotion, spec.value])
+  const [x, y, w, h] = spec.rect
+  return (
+    <motion.span
+      initial={false}
+      animate={active ? { opacity: 1, y: 0 } : { opacity: 0, y: numeric ? 0 : 8 }}
+      transition={{ duration: 0.4, ease: EASE }}
+      className="absolute flex items-center"
+      style={{
+        left: `${x * 100}%`,
+        top: `${y * 100}%`,
+        width: `${w * 100}%`,
+        height: `${h * 100}%`,
+        justifyContent: spec.align === 'right' ? 'flex-end' : spec.align === 'center' ? 'center' : 'flex-start',
+        fontSize: spec.size,
+        fontWeight: spec.weight ?? 700,
+        color: spec.color,
+        fontFamily: 'var(--font-display, inherit)',
+        letterSpacing: '-0.5px',
+        lineHeight: 1,
+      }}
+      aria-hidden="true"
+    >
+      {spec.prefix ?? ''}
+      {display}
+    </motion.span>
+  )
+}
+
+function RiseBar({ bar, index, active }: { bar: BarSpec; index: number; active: boolean }) {
+  const reduceMotion = useReducedMotion()
+  return (
+    <>
+      <motion.span
+        initial={false}
+        animate={active ? { scaleY: 1 } : { scaleY: 0 }}
+        transition={{ duration: reduceMotion ? 0 : 0.6, delay: active && !reduceMotion ? 0.15 + index * 0.07 : 0, ease: EASE }}
+        className="absolute origin-bottom rounded-t-[3px]"
+        style={{
+          left: `${bar.x * 100}%`,
+          width: `${bar.w * 100}%`,
+          bottom: `${(1 - bar.bottom) * 100}%`,
+          height: `${bar.h * 100}%`,
+          background: bar.color,
+        }}
+        aria-hidden="true"
+      />
+      {bar.label ? (
+        <motion.span
+          initial={false}
+          animate={active ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
+          transition={{ duration: reduceMotion ? 0 : 0.35, delay: active && !reduceMotion ? 0.45 + index * 0.07 : 0, ease: EASE }}
+          className="absolute flex justify-center font-semibold"
+          style={{
+            left: `${(bar.x - 0.01) * 100}%`,
+            width: `${(bar.w + 0.02) * 100}%`,
+            bottom: `${(1 - bar.bottom + bar.h) * 100 + 0.6}%`,
+            fontSize: 13,
+            color: '#9AA0B0',
+            lineHeight: 1,
+          }}
+          aria-hidden="true"
+        >
+          {bar.label}
+        </motion.span>
+      ) : null}
+    </>
+  )
+}
+
+function StatsLayer({ stats, bars, active }: { stats: StatSpec[]; bars: BarSpec[]; active: boolean }) {
+  return (
+    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+      {stats.map((spec, i) => (
+        <CountUpStat key={i} spec={spec} active={active} />
+      ))}
+      {bars.map((bar, i) => (
+        <RiseBar key={i} bar={bar} index={i} active={active} />
+      ))}
     </div>
   )
 }
@@ -338,7 +503,7 @@ function ValidationToast({ active }: { active: boolean }) {
 
 // ── The portal window ─────────────────────────────────────────────────────────
 
-function PortalWindow({ active, onPick }: { active: string; onPick: (k: string) => void }) {
+function PortalWindow({ active, onPick, scrub, navRefs }: { active: string; onPick: (k: string) => void; scrub: MotionValue<number>; navRefs?: React.MutableRefObject<Record<string, HTMLButtonElement | null>> }) {
   return (
     <div className="overflow-hidden rounded-[18px] bg-white" style={{ width: SHELL_W, height: SHELL_H, boxShadow: '0 60px 140px rgba(0,4,20,0.55), 0 0 0 1px rgba(255,255,255,0.09)' }}>
       {/* Browser chrome */}
@@ -353,13 +518,13 @@ function PortalWindow({ active, onPick }: { active: string; onPick: (k: string) 
             <rect x="5" y="11" width="14" height="9" rx="2" />
             <path d="M8 11V7a4 4 0 0 1 8 0v4" />
           </svg>
-          portal.redeemo.co.uk
+          Redeemo Merchant Portal
         </span>
         <span className="w-[52px]" aria-hidden="true" />
       </div>
 
       <div className="flex" style={{ height: SHELL.topbar + SHELL.contentH }}>
-        <ShellSidebar active={active} onPick={onPick} />
+        <ShellSidebar active={active} onPick={onPick} navRefs={navRefs} />
 
         <div className="relative flex-1">
           {/* App top bar */}
@@ -408,27 +573,32 @@ function PortalWindow({ active, onPick }: { active: string; onPick: (k: string) 
                   {screen.key === 'home' ? (
                     <>
                       <PaneImage src="/for-businesses/portal/pane-home.webp" active={isActive} />
-                      <PaneStrip
-                        src="/for-businesses/portal/home-content-strip.webp"
-                        stripW={HOME_PANE.width}
-                        stripH={HOME_PANE.stripH}
-                        boxW={HOME_PANE.width}
-                        boxH={HOME_PANE.height + HOME_PANE.top}
-                        offsetTop={HOME_PANE.top}
-                        active={isActive}
-                      />
+                      <StatsLayer stats={HOME_STATS} bars={HOME_BARS} active={isActive} />
                     </>
                   ) : null}
                   {screen.key === 'vouchers' ? (
                     <div className="absolute inset-0" style={{ background: '#F8F7F4' }}>
+                      {/* Form column glides under the pointer... */}
                       <PaneStrip
-                        src="/for-businesses/journey/journey-builder-strip.webp"
-                        stripW={BUILDER_STRIP.width}
-                        stripH={BUILDER_STRIP.height}
-                        boxW={BUILDER_STRIP.width}
+                        src="/for-businesses/portal/builder-form-strip.webp"
+                        stripW={FORM_STRIP.width}
+                        stripH={FORM_STRIP.height}
+                        boxW={FORM_STRIP.width}
                         boxH={SHELL.contentH}
-                        active={isActive}
+                        left={26}
+                        scrub={scrub}
                       />
+                      {/* ...while the stacks-up check and the customer preview
+                          stay STICKY, exactly like the real builder */}
+                      <div className="absolute" style={{ left: 782, top: 24, width: 580 }}>
+                        <div className="relative w-full overflow-hidden rounded-xl" style={{ boxShadow: '0 10px 30px rgba(1,12,53,0.07)' }}>
+                          <Image src="/for-businesses/portal/panel-stacksup.webp" alt="" width={1236} height={982} className="h-auto w-full" />
+                        </div>
+                        <div className="relative mt-4 w-[400px] overflow-hidden rounded-xl" style={{ height: 480, boxShadow: '0 10px 30px rgba(1,12,53,0.07)' }}>
+                          <Image src="/for-businesses/portal/panel-preview.webp" alt="" width={1104} height={1801} className="h-auto w-full" />
+                          <div className="absolute inset-x-0 bottom-0 h-16" style={{ background: 'linear-gradient(transparent, #F8F7F4)' }} aria-hidden="true" />
+                        </div>
+                      </div>
                     </div>
                   ) : null}
                   {screen.key === 'redemptions' ? (
@@ -437,7 +607,12 @@ function PortalWindow({ active, onPick }: { active: string; onPick: (k: string) 
                       <ValidationToast active={isActive} />
                     </>
                   ) : null}
-                  {screen.key === 'insights' ? <PaneImage src="/for-businesses/portal/pane-insight.webp" active={isActive} kenburns /> : null}
+                  {screen.key === 'insights' ? (
+                    <>
+                      <PaneImage src="/for-businesses/portal/pane-insight.webp" active={isActive} />
+                      <StatsLayer stats={INSIGHT_STATS} bars={INSIGHT_BARS} active={isActive} />
+                    </>
+                  ) : null}
                   {screen.key === 'branches' ? <PaneImage src="/for-businesses/portal/pane-branches.webp" active={isActive} kenburns /> : null}
                   {screen.key === 'staff' ? <PaneImage src="/for-businesses/portal/pane-staff.webp" active={isActive} kenburns /> : null}
                 </motion.div>
@@ -457,7 +632,10 @@ export function PortalSection() {
   const reduceMotion = useReducedMotion()
   const stageRef = useRef<HTMLDivElement>(null)
   const windowWrapRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const navRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const [scale, setScale] = useState(0.56)
+  const [link, setLink] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
 
   useEffect(() => {
     const el = windowWrapRef.current
@@ -469,30 +647,45 @@ export function PortalSection() {
     return () => ro.disconnect()
   }, [])
 
-  // Pointer-follow tilt (desktop): the window leans away and tracks gently.
-  // Springs START flat and engage after mount: branching the initial style
-  // on useReducedMotion() hydration-mismatches (server false, client true).
-  const rx = useSpring(0, { stiffness: 90, damping: 20 })
-  const ry = useSpring(0, { stiffness: 90, damping: 20 })
+  // The red thread: connect the narrator card to the active sidebar item so
+  // nobody misses that the sidebar is clickable. Measured in stage space.
   useEffect(() => {
-    if (!reduceMotion) {
-      rx.set(2)
-      ry.set(-7)
+    const measureLink = () => {
+      const stage = stageRef.current
+      const card = cardRef.current
+      const btn = navRefs.current[active]
+      if (!stage || !card || !btn) return
+      const sr = stage.getBoundingClientRect()
+      const cr = card.getBoundingClientRect()
+      const br = btn.getBoundingClientRect()
+      setLink({
+        x1: cr.right - sr.left,
+        y1: cr.top - sr.top + cr.height / 2,
+        x2: br.left - sr.left + 4 * (br.width / 240),
+        y2: br.top - sr.top + br.height / 2,
+      })
     }
-  }, [reduceMotion, rx, ry])
-  const onPointer = (e: React.PointerEvent) => {
+    measureLink()
+    const ro = new ResizeObserver(measureLink)
+    if (stageRef.current) ro.observe(stageRef.current)
+    window.addEventListener('scroll', measureLink, { passive: true })
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('scroll', measureLink)
+    }
+  }, [active, scale])
+
+  // Hover-scrub: the pointer's height over the window glides the scrolling
+  // panes (home dashboard, voucher builder) through their pages.
+  const scrubRaw = useMotionValue(0)
+  const scrub = useSpring(scrubRaw, { stiffness: 60, damping: 22 })
+  const onWindowPointer = (e: React.PointerEvent) => {
     if (reduceMotion) return
-    const el = stageRef.current
+    const el = windowWrapRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    const px = (e.clientX - r.left) / r.width - 0.5
-    const py = (e.clientY - r.top) / r.height - 0.5
-    ry.set(-7 + px * 5)
-    rx.set(2 - py * 4)
-  }
-  const resetTilt = () => {
-    ry.set(reduceMotion ? 0 : -7)
-    rx.set(reduceMotion ? 0 : 2)
+    const f = (e.clientY - r.top) / r.height
+    scrubRaw.set(Math.max(0, Math.min(1, (f - 0.15) / 0.7)))
   }
 
   const current = SCREENS.find((s) => s.key === active) ?? SCREENS[0]
@@ -519,7 +712,7 @@ export function PortalSection() {
             The merchant portal
           </p>
           <h2 className="font-display mb-4 leading-[1.08] text-white" style={{ fontSize: 'clamp(30px, 3.6vw, 46px)', letterSpacing: '-0.6px' }}>
-            One place to run it all.
+            One place to manage it all.
           </h2>
           <p className="max-w-[620px] text-[15.5px] leading-[1.65] text-white/60">
             Your entire Redeemo presence, managed from one clean portal: profile and branches, staff access, vouchers, redemptions and live insights.
@@ -537,11 +730,41 @@ export function PortalSection() {
           </div>
         </motion.div>
 
-        {/* Stage: blurb rail + tilted portal window (desktop) */}
-        <div ref={stageRef} onPointerMove={onPointer} onPointerLeave={resetTilt} className="mt-12 hidden items-center gap-8 lg:flex">
+        {/* Stage: blurb rail + the portal window, straight-on (desktop) */}
+        <div ref={stageRef} className="relative mt-12 hidden items-center gap-9 lg:flex">
+          {/* The red thread from the card to the active sidebar item */}
+          {link ? (
+            <svg aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible">
+              <defs>
+                <linearGradient id="portal-link" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stopColor="#E20C04" stopOpacity="0.25" />
+                  <stop offset="1" stopColor="#FF6B3D" stopOpacity="0.9" />
+                </linearGradient>
+              </defs>
+              <motion.path
+                initial={false}
+                animate={{ d: `M ${link.x1} ${link.y1} C ${link.x1 + 56} ${link.y1}, ${link.x2 - 72} ${link.y2}, ${link.x2} ${link.y2}` }}
+                transition={{ type: 'spring', stiffness: 170, damping: 26 }}
+                stroke="url(#portal-link)"
+                strokeWidth="2"
+                fill="none"
+                style={{ filter: 'drop-shadow(0 0 6px rgba(226,12,4,0.45))' }}
+              />
+              <motion.circle
+                initial={false}
+                animate={{ cx: link.x2, cy: link.y2 }}
+                transition={{ type: 'spring', stiffness: 170, damping: 26 }}
+                r="3.5"
+                fill="#FF6B3D"
+                style={{ filter: 'drop-shadow(0 0 6px rgba(226,12,4,0.8))' }}
+              />
+              <circle cx={link.x1} cy={link.y1} r="3" fill="rgba(255,107,61,0.7)" />
+            </svg>
+          ) : null}
+
           {/* Active-screen blurb */}
           <div className="relative w-[300px] flex-shrink-0">
-            <div className="rounded-2xl border border-white/10 bg-[#081130]/70 p-6 backdrop-blur-md" style={{ boxShadow: '0 24px 60px rgba(0,4,20,0.45)' }}>
+            <div ref={cardRef} className="rounded-2xl border border-white/10 bg-[#081130]/70 p-6 backdrop-blur-md" style={{ boxShadow: '0 24px 60px rgba(0,4,20,0.45)' }}>
               <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-white/40">{current.nav}</p>
               <div className="relative min-h-[170px]">
                 {SCREENS.map((screen) => (
@@ -569,22 +792,36 @@ export function PortalSection() {
             <p className="mt-4 px-1 text-[12px] leading-relaxed text-white/35">Click through the sidebar to explore the real portal. Example data, not live listings.</p>
           </div>
 
-          {/* The window, in perspective */}
+          {/* The window: straight-on, seated on light */}
           <motion.div
-            initial={{ opacity: 0, y: 46, rotateY: -16 }}
-            whileInView={{ opacity: 1, y: 0, rotateY: -7 }}
+            initial={{ opacity: 0, y: 44, scale: 0.965 }}
+            whileInView={{ opacity: 1, y: 0, scale: 1 }}
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.8, ease: EASE }}
-            className="min-w-0 flex-1"
-            style={{ perspective: 1800 }}
+            className="relative min-w-0 flex-1"
           >
-            <motion.div ref={windowWrapRef} style={{ rotateX: rx, rotateY: ry, transformStyle: 'preserve-3d' }}>
-              <div style={{ width: SHELL_W * scale, height: SHELL_H * scale }}>
+            {/* Ambient glow pooling behind and beneath the window */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -inset-x-10 -bottom-16 -top-10"
+              style={{
+                background:
+                  'radial-gradient(60% 55% at 50% 45%, rgba(80,110,220,0.16), transparent 70%), radial-gradient(45% 35% at 72% 100%, rgba(226,12,4,0.12), transparent 70%)',
+              }}
+            />
+            <div ref={windowWrapRef} onPointerMove={onWindowPointer} className="relative">
+              <div
+                style={{
+                  width: SHELL_W * scale,
+                  height: SHELL_H * scale,
+                  WebkitBoxReflect: 'below 14px linear-gradient(transparent 72%, rgba(255,255,255,0.10))',
+                }}
+              >
                 <div style={{ transform: `scale(${scale})`, transformOrigin: '0 0', width: SHELL_W, height: SHELL_H }}>
-                  <PortalWindow active={active} onPick={setActive} />
+                  <PortalWindow active={active} onPick={setActive} scrub={scrub} navRefs={navRefs} />
                 </div>
               </div>
-            </motion.div>
+            </div>
           </motion.div>
         </div>
 
