@@ -117,7 +117,7 @@ const MARGIN: Item[] = [
   {
     num: '13',
     title: 'No commission. No redemption fee.',
-    body: 'Redeemo does not take a percentage when a voucher is used, and there is no separate redemption charge. The saving you choose reaches your customer in full, not a platform’s margin.',
+    body: "Redeemo does not take a percentage when a voucher is used, and there is no separate redemption charge. The saving you choose reaches your customer in full, not a platform's margin.",
   },
   {
     num: '14',
@@ -467,6 +467,7 @@ function MarketingConsole() {
   const [engaged, setEngaged] = useState(false)
   const reduceMotion = useReducedMotion()
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
 
   // Gentle auto-advance until the visitor takes over
   useEffect(() => {
@@ -482,6 +483,16 @@ function MarketingConsole() {
     setActive(i)
   }
 
+  // APG tablist keyboard support: vertical arrows move + focus, roving tabindex
+  const onTablistKeyDown = (e: React.KeyboardEvent) => {
+    const dir = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0
+    if (!dir) return
+    e.preventDefault()
+    const next = (active + dir + MARKETING.length) % MARKETING.length
+    pick(next)
+    tabRefs.current[next]?.focus()
+  }
+
   const PANELS = [ChipsViz, CalendarViz, FeaturedViz, InsightsViz]
 
   return (
@@ -494,16 +505,20 @@ function MarketingConsole() {
     >
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.05fr]">
         {/* Tabs */}
-        <div role="tablist" aria-label="Marketing built around your business" aria-orientation="vertical" className="flex flex-col p-4 lg:p-6">
+        <div role="tablist" aria-label="Marketing built around your business" aria-orientation="vertical" onKeyDown={onTablistKeyDown} className="flex flex-col p-4 lg:p-6">
           {MARKETING.map((item, i) => {
             const isActive = i === active
             return (
               <button
                 key={item.num}
+                ref={(el) => {
+                  tabRefs.current[i] = el
+                }}
                 role="tab"
                 aria-selected={isActive}
                 aria-controls={`favour-panel-${i}`}
                 id={`favour-tab-${i}`}
+                tabIndex={isActive ? 0 : -1}
                 onClick={() => pick(i)}
                 className="relative rounded-2xl px-5 py-4 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#E20C04]"
                 style={{ background: isActive ? 'rgba(226,12,4,0.05)' : 'transparent' }}
@@ -521,7 +536,11 @@ function MarketingConsole() {
                     {item.title}
                   </span>
                 </span>
+                {/* Collapsing body is decorative inside the tab (it would
+                    otherwise inflate the tab's accessible name); the same
+                    text is exposed to AT inside the active tabpanel. */}
                 <span
+                  aria-hidden="true"
                   className="grid transition-[grid-template-rows,opacity] duration-500"
                   style={{ gridTemplateRows: isActive ? '1fr' : '0fr', opacity: isActive ? 1 : 0 }}
                 >
@@ -544,9 +563,11 @@ function MarketingConsole() {
               role="tabpanel"
               id={`favour-panel-${i}`}
               aria-labelledby={`favour-tab-${i}`}
+              aria-hidden={i !== active}
               className="absolute inset-0 transition-opacity duration-500"
               style={{ opacity: i === active ? 1 : 0, pointerEvents: i === active ? 'auto' : 'none' }}
             >
+              <p className="sr-only">{MARKETING[i].body}</p>
               <Panel active={i === active} />
             </div>
           ))}
@@ -582,7 +603,7 @@ function PortalSpotlight() {
         style={{ aspectRatio: '1728 / 1084', background: '#F8F7F4' }}
       >
         <Image src="/for-businesses/portal/home-chrome.webp" alt="" fill sizes="(min-width: 1024px) 640px, 100vw" className="object-cover" style={{ filter: 'brightness(0.55) saturate(0.85)' }} />
-        <motion.div className="absolute inset-0" animate={{ clipPath: inset }} transition={{ type: 'spring', stiffness: 200, damping: 28 }}>
+        <motion.div className="absolute inset-0" initial={false} animate={{ clipPath: inset }} transition={{ type: 'spring', stiffness: 200, damping: 28 }}>
           <Image src="/for-businesses/portal/home-chrome.webp" alt="" fill sizes="(min-width: 1024px) 640px, 100vw" className="object-cover" />
         </motion.div>
         <motion.div
