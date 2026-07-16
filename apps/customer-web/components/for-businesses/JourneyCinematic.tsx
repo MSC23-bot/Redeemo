@@ -43,10 +43,10 @@ import { HeroCinematic, HeroStage, useStageMetrics, STAGE_W, STAGE_H } from './H
 
 const HERO_SCROLL = 75 // matches the approved standalone hero band (175 - 100)
 const ARRIVE = 70
-const BEAT = 85
+const BEAT = 100 // round 3: each beat carries a multi-screen story
 const CLOSE = 70
-const JOURNEY_SCROLL = ARRIVE + BEAT * 4 + CLOSE // 480
-const TOTAL_SCROLL = HERO_SCROLL + JOURNEY_SCROLL // 555
+const JOURNEY_SCROLL = ARRIVE + BEAT * 4 + CLOSE // 540
+const TOTAL_SCROLL = HERO_SCROLL + JOURNEY_SCROLL // 615
 const F_HERO = HERO_SCROLL / TOTAL_SCROLL
 
 // Journey-local fraction helper: svh into [0..1] of the journey slice.
@@ -55,7 +55,53 @@ const jf = (svh: number) => svh / JOURNEY_SCROLL
 const BEAT_START = [0, 1, 2, 3].map((i) => jf(ARRIVE + i * BEAT))
 const CLOSE_START = jf(ARRIVE + BEAT * 4)
 const FADE = jf(10) // standard crossfade slice
-const CONFIRM_AT = BEAT_START[3] + jf(38) // validated success + green stop
+
+// ── Choreography (owner spec 2026-07-16 round 3) ─────────────────────────────
+// Every keyframe is an svh offset in journey space (b1=70, b2=170, b3=270,
+// b4=370, close=470). The two devices tell one synchronised story, mirroring
+// the landing page's app journey:
+//   laptop: builder scroll -> "created" toast -> portal home -> redemptions
+//           (awaiting codes) -> Validate tapped -> modal rises -> validated
+//           success + confetti + toast
+//   phone:  home categories -> feed scrolls to a merchant + tap -> merchant
+//           profile scrolls to its vouchers + tap -> voucher detail ->
+//           Redeem tapped -> branch sheet -> PIN typed -> success + confetti
+//           -> View code tapped -> QR code (held while the merchant
+//           validates: the customer presents BEFORE the laptop confirms)
+const K = {
+  // laptop
+  paneScrub: [76, 122] as const,
+  toastCreated: { in: [126, 132] as const, out: [152, 158] as const },
+  portalHome: [156, 164] as const,
+  redemptions: [318, 328] as const,
+  tapValidate: [406, 416] as const,
+  modalDim: [418, 424] as const,
+  modalRise: [424, 434] as const,
+  validated: [446, 452] as const,
+  laptopConfetti: 448,
+  toastValidated: [454, 460] as const,
+  // phone
+  feedStart: [172, 180] as const, // home-top hands over to the live feed
+  feedScrub: [180, 210] as const,
+  tapMerchant: [214, 224] as const,
+  profile: [226, 234] as const,
+  profScrub: [234, 262] as const,
+  tapVoucher: [264, 274] as const,
+  detail: [276, 284] as const,
+  redeemGlow: [286, 316] as const,
+  tapRedeem: [298, 308] as const,
+  branch: [310, 318] as const,
+  tapBranch: [320, 328] as const,
+  tapConfirm: [332, 340] as const,
+  pin: [342, 350] as const,
+  pinKeys: [354, 360, 366, 372] as const,
+  pinFlash: [376, 380, 384] as const,
+  success: [378, 386] as const,
+  phoneConfetti: 380,
+  tapViewCode: [392, 400] as const,
+  qr: [404, 412] as const,
+}
+const kf = (pair: readonly [number, number]) => [jf(pair[0]), jf(pair[1])] as [number, number]
 
 // ── Front cluster geometry (calibrated from measured screen quads) ───────────
 // The front-facing cutout is cropped to its bbox (268,86 of the 1672x941
@@ -145,12 +191,15 @@ type Status = {
   at: number // journey progress where this stop activates
 }
 
+// Stops fire at their on-screen moments: terms taking shape, the portal home
+// with the phone browsing, the voucher detail open, the QR presented, the
+// validated confirmation.
 const STATUSES: Status[] = [
-  { num: '01', kicker: 'Voucher ready', title: 'Terms set. Ready to submit.', kind: 'red', at: 0.2 },
-  { num: '02', kicker: 'Offer live', title: 'Visible on Redeemo.', kind: 'red', at: 0.345 },
-  { num: '03', kicker: 'Found nearby', title: 'A customer is viewing your voucher.', kind: 'amber', at: 0.42 },
-  { num: '04', kicker: 'At the till', title: 'Code ready to validate.', kind: 'red', at: 0.565 },
-  { num: '05', kicker: 'Redemption confirmed', title: 'Voucher and branch recorded.', kind: 'green', at: CONFIRM_AT + 0.012 },
+  { num: '01', kicker: 'Voucher ready', title: 'Terms set. Ready to submit.', kind: 'red', at: jf(115) },
+  { num: '02', kicker: 'Offer live', title: 'Visible on Redeemo.', kind: 'red', at: jf(176) },
+  { num: '03', kicker: 'Found nearby', title: 'A customer is viewing your voucher.', kind: 'amber', at: jf(284) },
+  { num: '04', kicker: 'At the till', title: 'Code ready to validate.', kind: 'red', at: jf(412) },
+  { num: '05', kicker: 'Redemption confirmed', title: 'Voucher and branch recorded.', kind: 'green', at: jf(452) },
 ]
 
 // ── Journey route: five stops on a filling line over the map ─────────────────
@@ -269,6 +318,10 @@ function StatusChip({ status }: { status: Status }) {
 
 // ── Front-facing device cluster ───────────────────────────────────────────────
 
+function useBand(progress: MotionValue<number>, input: number[], output: number[]) {
+  return useScrollLinked(useTransform(progress, input, output))
+}
+
 function ChapterImage({
   src,
   opacity,
@@ -287,10 +340,168 @@ function ChapterImage({
   )
 }
 
+// ── Cover-crop remaps ─────────────────────────────────────────────────────────
+// Full-screen phone captures (800x1738-1740) render object-cover into the
+// 226x522 screen rect: height fits, width is cropped, so capture x-fractions
+// must be remapped (same trick as the landing journey's savX).
+const CAP = { w: 800, h: 1738 }
+const CAP_DISP_W = CAP.w * (J_PHONE.height / CAP.h)
+const CAP_OFF_X = (CAP_DISP_W - J_PHONE.width) / 2
+const capX = (f: number) => (f * CAP_DISP_W - CAP_OFF_X) / J_PHONE.width
+// The portal redemptions capture (1728x1084) cover-cropped into the laptop rect.
+const RED_DISP_W = 1728 * (J_LAPTOP.height / 1084)
+const RED_OFF_X = (RED_DISP_W - J_LAPTOP.width) / 2
+const lapX = (f: number) => (f * RED_DISP_W - RED_OFF_X) / J_LAPTOP.width
+
+// PIN keypad geometry (fractions of the pin-screen capture; measured for the
+// landing journey and reused verbatim: same source image).
+const PIN_KEYS: Record<string, [number, number]> = {
+  '1': [0.168, 0.719], '2': [0.497, 0.719], '3': [0.826, 0.719],
+  '4': [0.168, 0.777], '5': [0.497, 0.777], '6': [0.826, 0.777],
+  '7': [0.168, 0.835], '8': [0.497, 0.835], '9': [0.826, 0.835],
+  '0': [0.497, 0.894],
+}
+const PIN_DIGITS = ['4', '7', '2', '9']
+const PIN_BOX_LEFTS = [0.198, 0.352, 0.506, 0.661]
+const PIN_BOX = { top: 0.409, w: 0.136, h: 0.08 }
+const PIN_KEY_TIMES = K.pinKeys.map((svh) => jf(svh))
+
+// Merchant profile strip in the phone's 800-wide design space.
+const PROFILE_STRIP_H = 2350
+const PROFILE_TRAVEL = PROFILE_STRIP_H - PHONE_DESIGN_H
+
+// Deterministic confetti (hash-based so SSR and client renders agree),
+// straight from the landing journey's proven recipe.
+const CONFETTI_COLOURS = ['#E20C04', '#E84A00', '#F5B301', '#16A34A', '#2563EB', '#7C3AED', '#FF7A64']
+function makeConfetti(count: number, seed: number) {
+  return Array.from({ length: count }, (_, i) => {
+    const h = (n: number) => {
+      const s = Math.sin((i + seed) * n) * 10000
+      return s - Math.floor(s)
+    }
+    const r2 = (v: number) => Math.round(v * 100) / 100
+    return {
+      x: r2(3 + h(12.9898) * 94),
+      sway: Math.round((h(78.233) - 0.5) * 80),
+      fall: Math.round(300 + h(43.317) * 300),
+      rot: Math.round((h(9.421) - 0.5) * 720),
+      colour: CONFETTI_COLOURS[i % CONFETTI_COLOURS.length],
+      size: r2(6 + h(27.61) * 6),
+      delay: r2(h(3.7) * jf(8)),
+      round: i % 3 === 0,
+    }
+  })
+}
+const PHONE_CONFETTI = makeConfetti(30, 1)
+const LAPTOP_CONFETTI = makeConfetti(34, 7)
+
+function ConfettiPiece({ jp, p, t0 }: { jp: MotionValue<number>; p: ReturnType<typeof makeConfetti>[number]; t0: number }) {
+  const start = t0 + p.delay
+  const end = start + jf(30)
+  const mid = (start + end) / 2
+  const y = useBand(jp, [start, end], [0, p.fall])
+  const x = useBand(jp, [start, mid, end], [0, p.sway * 0.55, p.sway])
+  const rotate = useBand(jp, [start, end], [0, p.rot])
+  const opacity = useBand(jp, [start, start + jf(1), end - jf(8), end], [0, 1, 1, 0])
+  return (
+    <motion.span
+      className={`absolute pointer-events-none ${p.round ? 'rounded-full' : 'rounded-[2px]'}`}
+      style={{ left: `${p.x}%`, top: -14, width: p.size, height: p.round ? p.size : Math.round(p.size * 55) / 100, background: p.colour, x, y, rotate, opacity }}
+    />
+  )
+}
+
+/** The landing journey's fingertip: pressing core + double ripple. */
+function Tap({ jp, at, x, y, size = 34 }: { jp: MotionValue<number>; at: readonly [number, number]; x: string; y: string; size?: number }) {
+  const [a, b] = kf(at)
+  const span = b - a
+  const opacity = useBand(jp, [a, a + span * 0.1, b - span * 0.1, b], [0, 1, 1, 0])
+  const press = useBand(jp, [a, a + span * 0.25, a + span * 0.45, a + span * 0.65, b], [0.6, 1.08, 0.78, 1.05, 1])
+  const ring1 = useBand(jp, [a + span * 0.35, b], [0.5, 2.9])
+  const ring1Op = useBand(jp, [a + span * 0.35, a + span * 0.5, b], [0, 0.8, 0])
+  const ring2 = useBand(jp, [a + span * 0.5, b], [0.4, 3.9])
+  const ring2Op = useBand(jp, [a + span * 0.5, a + span * 0.65, b], [0, 0.55, 0])
+  const box = { width: size, height: size, marginLeft: -size / 2, marginTop: -size / 2 }
+  return (
+    <div className="pointer-events-none absolute" style={{ left: x, top: y }}>
+      <motion.div
+        className="absolute rounded-full"
+        style={{
+          ...box,
+          opacity,
+          scale: press,
+          background: 'radial-gradient(circle, rgba(226,12,4,0.9) 0%, rgba(226,12,4,0.55) 55%, rgba(226,12,4,0.25) 100%)',
+          boxShadow: '0 4px 18px rgba(226,12,4,0.55), inset 0 0 0 2.5px rgba(255,255,255,0.95)',
+        }}
+      />
+      <motion.div className="absolute rounded-full border-[3px] border-[#E20C04]" style={{ ...box, opacity: ring1Op, scale: ring1 }} />
+      <motion.div className="absolute rounded-full border-2 border-[#E20C04]" style={{ ...box, opacity: ring2Op, scale: ring2 }} />
+    </div>
+  )
+}
+
+/** One PIN digit appearing in its entry box as its key is pressed. */
+function PinDigit({ jp, keyTime, digit }: { jp: MotionValue<number>; keyTime: number; digit: string }) {
+  const opacity = useBand(jp, [keyTime + jf(1), keyTime + jf(3)], [0, 1])
+  return (
+    <motion.span className="font-display text-[15px] text-[#010C35]" style={{ opacity }}>
+      {digit}
+    </motion.span>
+  )
+}
+
+/** The keypad flash for one PIN key press. */
+function KeyFlash({ jp, keyTime, digit }: { jp: MotionValue<number>; keyTime: number; digit: string }) {
+  const opacity = useBand(jp, [keyTime - jf(1), keyTime, keyTime + jf(2.5)], [0, 1, 0])
+  const [kx, ky] = PIN_KEYS[digit]
+  const left = capX(kx - 0.145)
+  const width = capX(kx + 0.145) - left
+  return (
+    <motion.div
+      className="pointer-events-none absolute rounded-lg"
+      style={{
+        left: `${left * 100}%`,
+        top: `${(ky - 0.024) * 100}%`,
+        width: `${width * 100}%`,
+        height: '4.8%',
+        opacity,
+        background: 'rgba(226,12,4,0.22)',
+        boxShadow: '0 0 0 2px rgba(226,12,4,0.45)',
+      }}
+    />
+  )
+}
+
+/** A portal toast in the laptop's bottom-LEFT corner (the phone body
+ *  occludes the screen's bottom-right, where portal toasts would live). */
+function LaptopToast({ opacity, y, text }: { opacity: MotionValue<number>; y: MotionValue<number>; text: string }) {
+  return (
+    <motion.div
+      className="absolute bottom-5 left-5 flex items-center gap-2.5 rounded-xl px-4 py-3"
+      style={{ opacity, y, background: 'rgba(13,23,42,0.94)', boxShadow: '0 14px 34px rgba(1,8,30,0.35)' }}
+    >
+      <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#16A34A]/25">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </span>
+      <span className="whitespace-nowrap text-[17px] font-semibold text-white">{text}</span>
+    </motion.div>
+  )
+}
+
 // The app home feed, scroll-scrubbed: the hero's own assets (pinned header +
 // nav over a moving strip), rendered in an 800-wide design space scaled into
-// the phone's screen rect.
-function PhoneFeed({ opacity, feedY }: { opacity: MotionValue<number> | number; feedY: MotionValue<number> | number }) {
+// the phone's screen rect. Opens on the real home screen (home-top overlay).
+function PhoneFeed({
+  opacity,
+  homeTopOp,
+  feedY,
+}: {
+  opacity: MotionValue<number> | number
+  homeTopOp: MotionValue<number> | number
+  feedY: MotionValue<number> | number
+}) {
   const s = J_PHONE.width / FEED.w
   return (
     <motion.div style={{ position: 'absolute', inset: 0, opacity, background: '#0A1030' }}>
@@ -305,29 +516,45 @@ function PhoneFeed({ opacity, feedY }: { opacity: MotionValue<number> | number; 
           <Image src="/app-shots/journey/home-nav.jpg" alt="" fill sizes="260px" className="object-cover" />
         </div>
       </div>
+      {/* The real home screen (categories) opens the story */}
+      <motion.div className="absolute inset-0" style={{ opacity: homeTopOp }}>
+        <Image src="/app-shots/journey/home-top.jpg" alt="" fill sizes="240px" className="object-cover object-top" loading="eager" />
+      </motion.div>
     </motion.div>
   )
 }
 
 function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boolean }) {
-  const [s1, s2, s3, s4] = BEAT_START
+  // ── Laptop timeline ──
+  const paneY = useBand(jp, kf(K.paneScrub), [0, -PANE_TRAVEL])
+  const builderOp = useBand(jp, kf(K.portalHome), [1, 0])
+  const homeOp = useBand(jp, [...kf(K.portalHome), ...kf(K.redemptions)], [0, 1, 1, 0])
+  const redemptionsOp = useBand(jp, kf(K.redemptions), [0, 1])
+  const toastCreatedOp = useBand(jp, [...kf(K.toastCreated.in), ...kf(K.toastCreated.out)], [0, 1, 1, 0])
+  const toastCreatedY = useBand(jp, kf(K.toastCreated.in), [14, 0])
+  const laptopVeil = useBand(jp, [jf(174), jf(182), jf(396), jf(404)], [0, 0.4, 0.4, 0])
+  const modalDim = useBand(jp, [...kf(K.modalDim), jf(436), jf(440)], [0, 0.45, 0.45, 0])
+  const modalOp = useBand(jp, kf(K.modalRise), [0, 1])
+  const modalY = useBand(jp, kf(K.modalRise), [30, 0])
+  const validateFullOp = useBand(jp, [jf(434), jf(438), ...kf(K.validated)], [0, 1, 1, 0])
+  const validatedOp = useBand(jp, kf(K.validated), [0, 1])
+  const toastValidatedOp = useBand(jp, kf(K.toastValidated), [0, 1])
+  const toastValidatedY = useBand(jp, kf(K.toastValidated), [14, 0])
 
-  // Laptop: builder (pinned chrome + scrolling pane) -> validate -> validated.
-  const builderOp = useScrollLinked(useTransform(jp, [s4, s4 + FADE], [1, 0]))
-  const validateOp = useScrollLinked(useTransform(jp, [s4, s4 + FADE, CONFIRM_AT, CONFIRM_AT + FADE], [0, 1, 1, 0]))
-  const validatedOp = useScrollLinked(useTransform(jp, [CONFIRM_AT, CONFIRM_AT + FADE], [0, 1]))
-  const paneY = useScrollLinked(useTransform(jp, [s1 + jf(6), s2 - jf(8)], [0, -PANE_TRAVEL]))
-
-  // Phone: customer preview -> home feed scroll -> code -> customer success.
-  const previewOp = useScrollLinked(useTransform(jp, [s2, s2 + FADE], [1, 0]))
-  const feedOp = useScrollLinked(useTransform(jp, [s2, s2 + FADE, s3, s3 + FADE], [0, 1, 1, 0]))
-  const feedY = useScrollLinked(useTransform(jp, [s2 + jf(4), s3 - jf(6)], [0, -FEED_TRAVEL2]))
-  const codeOp = useScrollLinked(useTransform(jp, [s3, s3 + FADE, CONFIRM_AT, CONFIRM_AT + FADE], [0, 1, 1, 0]))
-  const successOp = useScrollLinked(useTransform(jp, [CONFIRM_AT, CONFIRM_AT + FADE], [0, 1]))
-
-  // Focus: the resting device sits behind a light navy veil.
-  const laptopVeil = useScrollLinked(useTransform(jp, [s2, s2 + FADE, s4, s4 + FADE], [0, 0.42, 0.42, 0]))
-  const phoneVeil = useScrollLinked(useTransform(jp, [s4, s4 + FADE], [0, 0.3]))
+  // ── Phone timeline ──
+  const homeTopOp = useBand(jp, kf(K.feedStart), [1, 0])
+  const feedY = useBand(jp, kf(K.feedScrub), [0, -FEED_TRAVEL2])
+  const feedLayerOp = useBand(jp, kf(K.profile), [1, 0])
+  const profileOp = useBand(jp, [...kf(K.profile), ...kf(K.detail)], [0, 1, 1, 0])
+  const profY = useBand(jp, kf(K.profScrub), [0, -PROFILE_TRAVEL])
+  const detailOp = useBand(jp, [...kf(K.detail), ...kf(K.branch)], [0, 1, 1, 0])
+  const redeemGlow = useBand(jp, [jf(K.redeemGlow[0]), jf(K.redeemGlow[0] + 10), jf(K.redeemGlow[1] - 8), jf(K.redeemGlow[1])], [0, 1, 1, 0.4])
+  const branchOp = useBand(jp, [...kf(K.branch), ...kf(K.pin)], [0, 1, 1, 0])
+  const pinOp = useBand(jp, [...kf(K.pin), ...kf(K.success)], [0, 1, 1, 0])
+  const pinFlash = useBand(jp, [jf(K.pinFlash[0]), jf(K.pinFlash[1]), jf(K.pinFlash[2])], [0, 0.55, 0])
+  const successOp = useBand(jp, [...kf(K.success), ...kf(K.qr)], [0, 1, 1, 0])
+  const successScale = useBand(jp, [jf(K.success[0]), jf(K.success[1] + 6)], [0.94, 1])
+  const qrOp = useBand(jp, kf(K.qr), [0, 1])
 
   const laptopScale = J_LAPTOP.width / BUILDER.w
 
@@ -391,9 +618,71 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
           <Image src="/for-businesses/journey/journey-builder.webp" alt="" fill sizes="540px" className="object-cover object-top" style={{ clipPath: `polygon(0 0, 100% 0, 100% ${BUILDER.paneTop}px, ${BUILDER.paneLeft}px ${BUILDER.paneTop}px, ${BUILDER.paneLeft}px 100%, 0 100%)` }} />
         </motion.div>
 
-        {armed ? <ChapterImage src="/for-businesses/journey/journey-validate.webp" opacity={validateOp} /> : null}
-        {armed ? <ChapterImage src="/for-businesses/journey/journey-validated.webp" opacity={validatedOp} /> : null}
+        {/* Portal home, then the redemptions queue (2 codes awaiting). The
+            dashboard capture's date chip is re-dated live to July so it
+            cannot contradict the July redemption records (owner 2026-07-16);
+            the replacement pill mirrors the baked one's styling. */}
+        {armed ? (
+          <motion.div style={{ position: 'absolute', inset: 0, opacity: homeOp, background: PORTAL_BG }}>
+            <Image src="/for-businesses/portal/home-chrome.webp" alt="" fill sizes="640px" className="object-cover object-top" />
+            <div
+              className="absolute flex items-center justify-center gap-1.5 bg-white"
+              style={{
+                left: `${lapX(1436 / 1728) * 100}%`,
+                width: `${(lapX(1676 / 1728) - lapX(1436 / 1728)) * 100}%`,
+                top: `${(112 / 1084) * 100}%`,
+                height: `${(58 / 1084) * 100}%`,
+                borderRadius: 7,
+                border: '1px solid #E9ECF2',
+                boxShadow: '0 1px 3px rgba(16,24,40,0.05)',
+              }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="18" rx="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              <span className="whitespace-nowrap font-semibold" style={{ fontSize: 13, color: '#28324E' }}>
+                Tuesday, 7 July 2026
+              </span>
+            </div>
+          </motion.div>
+        ) : null}
+        {armed ? <ChapterImage src="/for-businesses/portal/redemptions.webp" opacity={redemptionsOp} /> : null}
+
+        {/* Focus veil while the phone carries the story */}
         <motion.div style={{ position: 'absolute', inset: 0, background: '#010C35', opacity: laptopVeil }} />
+
+        {/* Staff tap Validate a code, the modal rises, the code checks out */}
+        {armed ? <Tap jp={jp} at={K.tapValidate} x={`${lapX(0.902) * 100}%`} y="13.6%" size={44} /> : null}
+        <motion.div style={{ position: 'absolute', inset: 0, background: 'rgba(7,12,32,0.75)', opacity: modalDim }} />
+        {armed ? (
+          <motion.div style={{ position: 'absolute', inset: 0, opacity: modalOp, y: modalY }}>
+            <Image
+              src="/for-businesses/journey/journey-validate.webp"
+              alt=""
+              fill
+              sizes="640px"
+              className="object-cover object-top"
+              style={{ clipPath: 'inset(15% 27% 15% 27% round 14px)' }}
+            />
+          </motion.div>
+        ) : null}
+        {armed ? <ChapterImage src="/for-businesses/journey/journey-validate.webp" opacity={validateFullOp} /> : null}
+        {armed ? <ChapterImage src="/for-businesses/journey/journey-validated.webp" opacity={validatedOp} /> : null}
+
+        {/* Confirmation moment: brand confetti + portal toast */}
+        {armed ? (
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            {LAPTOP_CONFETTI.map((p, i) => (
+              <ConfettiPiece key={i} jp={jp} p={p} t0={jf(K.laptopConfetti)} />
+            ))}
+          </div>
+        ) : null}
+        <LaptopToast opacity={toastCreatedOp} y={toastCreatedY} text="Voucher successfully created." />
+        <LaptopToast opacity={toastValidatedOp} y={toastValidatedY} text="Voucher successfully validated." />
+
         <div
           style={{
             position: 'absolute',
@@ -426,11 +715,102 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
           background: '#0A1030',
         }}
       >
-        <ChapterImage src="/for-businesses/journey/journey-phone-preview.webp" opacity={previewOp} eager sizes="220px" />
-        <PhoneFeed opacity={feedOp} feedY={feedY} />
-        {armed ? <ChapterImage src="/for-businesses/journey/journey-phone-code.webp" opacity={codeOp} sizes="220px" /> : null}
-        {armed ? <ChapterImage src="/for-businesses/journey/journey-phone-success.webp" opacity={successOp} sizes="220px" /> : null}
-        <motion.div style={{ position: 'absolute', inset: 0, background: '#010C35', opacity: phoneVeil }} />
+        {/* Home (categories) -> the feed scrolls to a merchant, tapped */}
+        <PhoneFeed opacity={feedLayerOp} homeTopOp={homeTopOp} feedY={feedY} />
+        <motion.div className="pointer-events-none absolute inset-0" style={{ opacity: feedLayerOp }}>
+          <Tap jp={jp} at={K.tapMerchant} x="34%" y="63%" />
+        </motion.div>
+
+        {/* Merchant profile scrolls down to its vouchers, one is tapped */}
+        {armed ? (
+          <motion.div style={{ position: 'absolute', inset: 0, opacity: profileOp, background: '#FFF9F5' }}>
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: FEED.w,
+                height: PHONE_DESIGN_H,
+                transform: `scale(${J_PHONE.width / FEED.w})`,
+                transformOrigin: '0 0',
+              }}
+            >
+              <motion.div style={{ position: 'absolute', left: 0, top: 0, width: FEED.w, height: PROFILE_STRIP_H, y: profY }}>
+                <Image src="/app-shots/journey/profile-strip.jpg" alt="" fill sizes="260px" className="object-cover object-top" />
+              </motion.div>
+            </div>
+            <Tap jp={jp} at={K.tapVoucher} x="76%" y="86%" />
+          </motion.div>
+        ) : null}
+
+        {/* Voucher detail: Redeem glows, then gets tapped */}
+        {armed ? (
+          <motion.div style={{ position: 'absolute', inset: 0, opacity: detailOp, background: '#FFF9F5' }}>
+            <Image src="/app-shots/journey/voucher-detail.jpg" alt="" fill sizes="240px" className="object-cover object-top" />
+            <motion.div
+              className="pointer-events-none absolute rounded-xl"
+              style={{
+                left: `${capX(0.045) * 100}%`,
+                width: `${(capX(0.955) - capX(0.045)) * 100}%`,
+                top: '86.9%',
+                height: '7.6%',
+                opacity: redeemGlow,
+                boxShadow: '0 0 0 2px rgba(255,255,255,0.6), 0 0 22px rgba(226,12,4,0.5)',
+              }}
+            />
+            <Tap jp={jp} at={K.tapRedeem} x="50%" y="90.5%" />
+          </motion.div>
+        ) : null}
+
+        {/* Redemption: branch sheet, PIN typed on the keypad, success */}
+        {armed ? (
+          <motion.div style={{ position: 'absolute', inset: 0, opacity: branchOp, background: '#2a1a3e' }}>
+            <Image src="/app-shots/journey/branch-sheet.jpg" alt="" fill sizes="240px" className="object-cover object-top" />
+            <Tap jp={jp} at={K.tapBranch} x="50%" y="79%" />
+            <Tap jp={jp} at={K.tapConfirm} x="50%" y="94.5%" />
+          </motion.div>
+        ) : null}
+        {armed ? (
+          <motion.div style={{ position: 'absolute', inset: 0, opacity: pinOp, background: '#2a1a3e' }}>
+            <Image src="/app-shots/journey/pin-screen.jpg" alt="" fill sizes="240px" className="object-cover object-top" />
+            {PIN_BOX_LEFTS.map((left, i) => (
+              <div
+                key={i}
+                className="absolute flex items-center justify-center rounded-lg bg-white"
+                style={{
+                  left: `${capX(left) * 100}%`,
+                  top: `${PIN_BOX.top * 100}%`,
+                  width: `${(capX(left + PIN_BOX.w) - capX(left)) * 100}%`,
+                  height: `${PIN_BOX.h * 100}%`,
+                  border: '1.5px solid #F1D9D4',
+                }}
+              >
+                <PinDigit jp={jp} keyTime={PIN_KEY_TIMES[i]} digit={PIN_DIGITS[i]} />
+              </div>
+            ))}
+            {PIN_DIGITS.map((d, i) => (
+              <KeyFlash key={i} jp={jp} keyTime={PIN_KEY_TIMES[i]} digit={d} />
+            ))}
+          </motion.div>
+        ) : null}
+        {armed ? (
+          <motion.div style={{ position: 'absolute', inset: 0, opacity: successOp, scale: successScale, background: '#2a1a3e' }}>
+            <Image src="/app-shots/journey/success-sheet.jpg" alt="" fill sizes="240px" className="object-cover object-top" />
+            <Tap jp={jp} at={K.tapViewCode} x="50%" y="65.5%" />
+          </motion.div>
+        ) : null}
+        <motion.div className="pointer-events-none absolute inset-0 bg-white" style={{ opacity: pinFlash }} />
+        {armed ? (
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            {PHONE_CONFETTI.map((p, i) => (
+              <ConfettiPiece key={i} jp={jp} p={p} t0={jf(K.phoneConfetti)} />
+            ))}
+          </div>
+        ) : null}
+
+        {/* The QR + code, presented at the till while the merchant validates */}
+        {armed ? <ChapterImage src="/app-shots/journey/qr-screen.jpg" opacity={qrOp} sizes="240px" /> : null}
+
         <div
           style={{
             position: 'absolute',
