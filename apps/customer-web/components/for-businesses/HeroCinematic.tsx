@@ -83,9 +83,11 @@ const PANE_STRIP_H = 1761 // stitched dashboard content strip height (logical)
 // roll). Anchors are tuned to frame the devices without covering the screens,
 // the faces, or the headline.
 
-// A gentle single-axis turn only: matches the devices' leftward face without
-// the roll/pitch that read as "wonky" (owner 2026-07-16 round 3).
-const CARD_TRANSFORM = 'perspective(2400px) rotateY(-7deg)'
+// Cards share the devices' own viewpoint (owner 2026-07-16): same yaw
+// direction as the laptop/phone and their slight downward pitch, no roll
+// (roll is what previously read as crooked). One consistent transform for
+// every card = one shared 3D space, like the landing hero's vouchers.
+const CARD_TRANSFORM = 'perspective(1600px) rotateY(-14deg) rotateX(4deg)'
 
 type Signal = {
   sx: number
@@ -454,13 +456,13 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, delay: 0.18 }}
-        className="mb-8 max-w-[500px] text-[15.5px] leading-[1.62] text-white/60 md:text-[16px]"
+        className="mb-9 max-w-[500px] text-[15.5px] leading-[1.62] text-white/60 md:text-[16px]"
       >
         Redeemo is a digital voucher platform that helps local customers discover your business. Create your own vouchers, set the terms and give new customers a reason to visit.
       </motion.p>
 
       {/* CTA + trust line */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.26 }} className="mb-8">
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.26 }} className="mb-10">
         <a
           href={registerUrl}
           className="inline-flex items-center gap-2 rounded-xl px-7 py-3.5 text-[15px] font-bold text-white no-underline transition-opacity hover:opacity-90"
@@ -479,7 +481,7 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5, delay: 0.4 }}
-        className="mb-8 max-w-[470px] border-t border-white/[0.08] pt-7"
+        className="mb-9 max-w-[470px] border-t border-white/[0.08] pt-7"
       >
         <div className="grid grid-cols-3 gap-5">
           {[
@@ -498,15 +500,15 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         </p>
       </motion.div>
 
-      {/* Reassurance chips */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.5 }}
-        className="grid max-w-[430px] grid-cols-2 gap-x-3 gap-y-2.5"
+        className="grid max-w-[470px] grid-cols-2 gap-x-8 gap-y-3.5"
       >
         {['Merchant portal included', 'Verified redemptions', 'Built-in voucher limits', 'No hidden platform fees'].map((t) => (
-          <span key={t} className="w-max rounded-full border border-white/12 bg-[#010C35]/40 px-3.5 py-1.5 text-[12px] font-semibold text-white/65 backdrop-blur-sm">
+          <span key={t} className="flex items-center gap-2.5 text-[13px] font-medium text-white/60">
+            <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#E20C04]/80" />
             {t}
           </span>
         ))}
@@ -626,8 +628,8 @@ function HeroDesktop({ registerUrl }: { registerUrl: string }) {
         {/* Growth signals: perspective-tilted cards framing the devices */}
         {m ? <DesktopSignalLayer m={m} progress={scrollYProgress} float={!reduceMotion} /> : null}
 
-        <motion.div style={{ opacity: reduceMotion ? 1 : copyOpacity, y: reduceMotion ? 0 : copyY }} className="relative mx-auto flex h-full max-w-7xl items-start px-6 lg:px-10">
-          <div className="max-w-[540px] pt-[120px]">
+        <motion.div style={{ opacity: reduceMotion ? 1 : copyOpacity, y: reduceMotion ? 0 : copyY }} className="relative mx-auto flex h-full max-w-7xl items-center px-6 lg:px-10">
+          <div className="max-w-[540px] pt-[56px]">
             <HeroCopy registerUrl={registerUrl} />
           </div>
         </motion.div>
