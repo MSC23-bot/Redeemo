@@ -439,7 +439,7 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/7 px-4 py-2 backdrop-blur-sm"
+        className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/7 px-4 py-2 backdrop-blur-sm"
       >
         <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-[#E20C04]" />
         <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/55">For businesses</span>
@@ -449,8 +449,8 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
-        className="font-display mb-6 leading-[1.08] text-white"
-        style={{ fontSize: 'clamp(32px, 4.2vw, 47px)', letterSpacing: '-0.6px' }}
+        className="font-display mb-5 leading-[1.08] text-white"
+        style={{ fontSize: 'clamp(32px, 4.2vw, 46px)', letterSpacing: '-0.6px' }}
       >
         {/* Two lines exactly (owner 2026-07-16); pb on the gradient line so the
             y/g descenders are not clipped by background-clip:text */}
@@ -464,25 +464,13 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, delay: 0.18 }}
-        className="mb-10 max-w-[470px] text-[16px] leading-[1.7] text-white/60 md:text-[17px] lg:max-w-[470px]"
+        className="mb-8 max-w-[500px] text-[15.5px] leading-[1.62] text-white/60 md:text-[16px]"
       >
-        List your business on Redeemo for free. No commission. No listing fees. Reach local customers who are already looking for exactly what you offer.
+        Redeemo is a digital voucher platform that puts your business in front of local customers looking for places to eat, shop, work out, unwind and explore. Create vouchers that attract new customers and drive visits, with clear control over each voucher’s value, terms and usage.
       </motion.p>
 
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.26 }}
-        className="mb-10 flex flex-wrap gap-2.5"
-      >
-        {['Free to list', 'No commission. Ever.', '12-month contract', 'Digital verification'].map((t) => (
-          <span key={t} className="rounded-full border border-white/12 bg-[#010C35]/40 px-3.5 py-1.5 text-[12px] font-semibold text-white/65 backdrop-blur-sm">
-            {t}
-          </span>
-        ))}
-      </motion.div>
-
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.34 }}>
+      {/* CTA + trust line */}
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.26 }} className="mb-8">
         <a
           href={registerUrl}
           className="inline-flex items-center gap-2 rounded-xl px-7 py-3.5 text-[15px] font-bold text-white no-underline transition-opacity hover:opacity-90"
@@ -494,25 +482,45 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
             <polyline points="12 5 19 12 12 19" />
           </svg>
         </a>
+        <p className="mt-3.5 text-[12.5px] leading-relaxed text-white/45">No payment details required · Full terms shown before you go live</p>
       </motion.div>
 
+      {/* Proof strip: three no-cost points + the built-in redemption limit */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.48 }}
-        className="mt-14 grid max-w-[460px] grid-cols-3 gap-6 border-t border-white/[0.08] pt-8"
+        transition={{ duration: 0.5, delay: 0.4 }}
+        className="mb-8 max-w-[470px] border-t border-white/[0.08] pt-7"
       >
-        {[
-          { value: '£0', label: 'to list your business' },
-          { value: '0%', label: 'commission per redemption' },
-          { value: '1×', label: 'per customer per membership month' },
-        ].map((s, i) => (
-          <div key={i}>
-            <p className="font-display mb-1 leading-none text-white" style={{ fontSize: '30px', letterSpacing: '-0.5px' }}>
-              {s.value}
-            </p>
-            <p className="text-[11px] font-medium uppercase leading-snug tracking-[0.1em] text-white/38">{s.label}</p>
-          </div>
+        <div className="grid grid-cols-3 gap-5">
+          {[
+            { value: '£0', label: 'Listing fee' },
+            { value: '0%', label: 'Commission' },
+            { value: '£0', label: 'Redemption fee' },
+          ].map((s, i) => (
+            <div key={i}>
+              <p className="font-display mb-1 leading-none text-white" style={{ fontSize: '28px', letterSpacing: '-0.5px' }}>{s.value}</p>
+              <p className="text-[11px] font-medium uppercase leading-snug tracking-[0.08em] text-white/38">{s.label}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 border-t border-white/[0.06] pt-4">
+          <p className="font-display mb-1 leading-none text-white" style={{ fontSize: '19px', letterSpacing: '-0.3px' }}>One redemption</p>
+          <p className="text-[11px] font-medium uppercase leading-snug tracking-[0.08em] text-white/38">Per voucher · per customer · per monthly cycle</p>
+        </div>
+      </motion.div>
+
+      {/* Reassurance chips */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.5 }}
+        className="flex flex-wrap gap-2.5"
+      >
+        {['Merchant portal included', 'Verified redemptions', 'Built-in voucher limits', 'No hidden platform fees'].map((t) => (
+          <span key={t} className="rounded-full border border-white/12 bg-[#010C35]/40 px-3.5 py-1.5 text-[12px] font-semibold text-white/65 backdrop-blur-sm">
+            {t}
+          </span>
         ))}
       </motion.div>
     </>
