@@ -34,15 +34,15 @@ const HeroEmbers = dynamic(() => import('./HeroEmbers').then((m) => m.HeroEmbers
  * -> phone-content lets the phone body occlude laptop content naturally.
  */
 
-const STAGE_W = 1672
-const STAGE_H = 941
+export const STAGE_W = 1672
+export const STAGE_H = 941
 
 // Device cluster: cropped cutout layer, native size and desktop placement.
 // Owner 2026-07-16: scaled up and moved left (was 850/420/0.6) for presence
 // and to clear the right-hand signal rail.
-const CLUSTER_W = 1268
-const CLUSTER_H = 763
-const CLUSTER_DESKTOP = { x: 596, y: 396, s: 0.645 }
+export const CLUSTER_W = 1268
+export const CLUSTER_H = 763
+export const CLUSTER_DESKTOP = { x: 596, y: 396, s: 0.645 }
 
 // Phone screen: content design space (800 wide, height matches quad aspect)
 const PHONE_W = 800
@@ -55,7 +55,7 @@ const PHONE_MATRIX =
 const FEED_HEADER_H = 194
 const FEED_NAV_H = 152
 const FEED_STRIP_H = 2421
-const FEED_TRAVEL = FEED_STRIP_H - PHONE_H // 526 design px of scroll-scrub
+export const FEED_TRAVEL = FEED_STRIP_H - PHONE_H // 526 design px of scroll-scrub
 
 // Laptop screen: content design space and homography. Height matches the
 // 16:10 portal capture (1728x1084) so the screenshot fills the screen edge
@@ -71,8 +71,8 @@ const PORTAL_BG = '#F8F7F4'
 // Content pane of the dashboard (region that scrolls behind fixed chrome),
 // in band-cropped 1728x1084 logical px; top calibrated empirically against
 // the rendered chrome (toggle-diff), not just derived from the crop maths.
-const PANE = { left: 328, top: 79, width: 1386, height: 1005 }
-const PANE_STRIP_H = 1761 // stitched dashboard content strip height (logical)
+export const PANE = { left: 328, top: 79, width: 1386, height: 1005 }
+export const PANE_STRIP_H = 1761 // stitched dashboard content strip height (logical)
 
 // ── Growth signal cards ───────────────────────────────────────────────────────
 // The funnel, in order. Owner 2026-07-16: the chips sit AROUND the devices in
@@ -117,9 +117,9 @@ const COUNTDOWN_START = 2 * 3600 + 14 * 60 + 33
 
 // ── Stage metrics: replicate object-fit:cover / object-position maths ─────────
 
-type StageMetrics = { s: number; ox: number; oy: number; w: number; h: number }
+export type StageMetrics = { s: number; ox: number; oy: number; w: number; h: number }
 
-function useStageMetrics(ref: RefObject<HTMLDivElement | null>, focalX: number): StageMetrics | null {
+export function useStageMetrics(ref: RefObject<HTMLDivElement | null>, focalX: number): StageMetrics | null {
   const [m, setM] = useState<StageMetrics | null>(null)
   useLayoutEffect(() => {
     const el = ref.current
@@ -257,7 +257,7 @@ function LaptopScreen({
 
 // ── The device cluster: laptop-content under the punched cutout, phone on top ─
 
-function DeviceCluster({
+export function DeviceCluster({
   placement,
   feedY,
   stripY,
@@ -580,59 +580,88 @@ function Scene({
   )
 }
 
-// ── Desktop: pinned scroll chapter ────────────────────────────────────────────
+// ── Desktop: pinned scroll stage ──────────────────────────────────────────────
+// HeroStage renders the CONTENTS of the pinned viewport and takes its scroll
+// progress as a prop, so it can be hosted either by the standalone HeroDesktop
+// band below, or re-hosted (unchanged) as the opening slice of the combined
+// for-businesses cinema band, where Section 2's journey continues the shot.
+// `seamless` is set by the combined band: the copy column and growth cards
+// fade fully OUT by the end of the hero slice so the device turn that follows
+// starts from a clean frame; standalone keeps the approved 0.4 resting fade.
+
+export function HeroStage({
+  registerUrl,
+  progress,
+  seamless = false,
+  embersOn = true,
+}: {
+  registerUrl: string
+  progress: MotionValue<number>
+  seamless?: boolean
+  embersOn?: boolean
+}) {
+  const stageRef = useRef<HTMLDivElement>(null)
+  const reduceMotion = useReducedMotion()
+  const m = useStageMetrics(stageRef, 0.68)
+
+  const feedY = useScrollLinked(useTransform(progress, [0.04, 0.86], [0, -FEED_TRAVEL]))
+  const stripY = useScrollLinked(useTransform(progress, [0.04, 0.4], [0, -(PANE_STRIP_H - PANE.height)]))
+  const dashOp = useScrollLinked(useTransform(progress, [0.42, 0.5], [1, 0]))
+  const insightOp = useScrollLinked(useTransform(progress, [0.42, 0.5, 0.64, 0.72], [0, 1, 1, 0]))
+  const builderOp = useScrollLinked(useTransform(progress, [0.64, 0.72], [0, 1]))
+  const stageScale = useScrollLinked(useTransform(progress, [0, 1], [1, 1.04]))
+  const copyOpacity = useScrollLinked(useTransform(progress, [0.8, 1], [1, seamless ? 0 : 0.4]))
+  const copyY = useScrollLinked(useTransform(progress, [0.8, 1], [0, -26]))
+  const signalsOpacity = useScrollLinked(useTransform(progress, [0.86, 1], [1, seamless ? 0 : 1]))
+
+  return (
+    <>
+      <motion.div ref={stageRef} className="absolute inset-0" style={{ scale: reduceMotion ? 1 : stageScale, transformOrigin: '50% 42%' }}>
+        <Scene
+          m={m}
+          focalX={0.68}
+          cluster={CLUSTER_DESKTOP}
+          feedY={reduceMotion ? 0 : feedY}
+          stripY={reduceMotion ? 0 : stripY}
+          dashOp={reduceMotion ? 1 : dashOp}
+          insightOp={reduceMotion ? 0 : insightOp}
+          builderOp={reduceMotion ? 0 : builderOp}
+        />
+        {embersOn ? <HeroEmbers progress={progress} /> : null}
+      </motion.div>
+
+      {/* Scrims: headline zone, navbar, footline */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'linear-gradient(90deg, rgba(1,12,53,0.94) 0%, rgba(1,12,53,0.62) 32%, rgba(1,12,53,0) 58%), linear-gradient(180deg, rgba(1,12,53,0.72) 0%, rgba(1,12,53,0) 150px), linear-gradient(0deg, rgba(1,12,53,0.6) 0%, rgba(1,12,53,0) 170px)',
+        }}
+      />
+
+      {/* Growth signals: perspective-tilted cards framing the devices */}
+      <motion.div className="pointer-events-none absolute inset-0" style={{ opacity: signalsOpacity }}>
+        {m ? <DesktopSignalLayer m={m} progress={progress} float={!reduceMotion} /> : null}
+      </motion.div>
+
+      <motion.div style={{ opacity: reduceMotion ? 1 : copyOpacity, y: reduceMotion ? 0 : copyY }} className="relative mx-auto flex h-full max-w-7xl items-center px-6 lg:px-10">
+        <div className="max-w-[540px] pt-[56px]">
+          <HeroCopy registerUrl={registerUrl} />
+        </div>
+      </motion.div>
+    </>
+  )
+}
 
 function HeroDesktop({ registerUrl }: { registerUrl: string }) {
   const bandRef = useRef<HTMLDivElement>(null)
-  const stageRef = useRef<HTMLDivElement>(null)
-  const reduceMotion = useReducedMotion()
   const { scrollYProgress } = useScroll({ target: bandRef, offset: ['start start', 'end end'] })
-  const m = useStageMetrics(stageRef, 0.68)
-
-  const feedY = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.86], [0, -FEED_TRAVEL]))
-  const stripY = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.4], [0, -(PANE_STRIP_H - PANE.height)]))
-  const dashOp = useScrollLinked(useTransform(scrollYProgress, [0.42, 0.5], [1, 0]))
-  const insightOp = useScrollLinked(useTransform(scrollYProgress, [0.42, 0.5, 0.64, 0.72], [0, 1, 1, 0]))
-  const builderOp = useScrollLinked(useTransform(scrollYProgress, [0.64, 0.72], [0, 1]))
-  const stageScale = useScrollLinked(useTransform(scrollYProgress, [0, 1], [1, 1.04]))
-  const copyOpacity = useScrollLinked(useTransform(scrollYProgress, [0.8, 1], [1, 0.4]))
-  const copyY = useScrollLinked(useTransform(scrollYProgress, [0.8, 1], [0, -26]))
 
   return (
     <section ref={bandRef} className="relative -mt-[80px]" style={{ height: '175svh', background: '#010C35' }}>
       <div className="sticky top-0 h-[100svh] overflow-hidden">
-        <motion.div ref={stageRef} className="absolute inset-0" style={{ scale: reduceMotion ? 1 : stageScale, transformOrigin: '50% 42%' }}>
-          <Scene
-            m={m}
-            focalX={0.68}
-            cluster={CLUSTER_DESKTOP}
-            feedY={reduceMotion ? 0 : feedY}
-            stripY={reduceMotion ? 0 : stripY}
-            dashOp={reduceMotion ? 1 : dashOp}
-            insightOp={reduceMotion ? 0 : insightOp}
-            builderOp={reduceMotion ? 0 : builderOp}
-          />
-          <HeroEmbers progress={scrollYProgress} />
-        </motion.div>
-
-        {/* Scrims: headline zone, navbar, footline */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'linear-gradient(90deg, rgba(1,12,53,0.94) 0%, rgba(1,12,53,0.62) 32%, rgba(1,12,53,0) 58%), linear-gradient(180deg, rgba(1,12,53,0.72) 0%, rgba(1,12,53,0) 150px), linear-gradient(0deg, rgba(1,12,53,0.6) 0%, rgba(1,12,53,0) 170px)',
-          }}
-        />
-
-        {/* Growth signals: perspective-tilted cards framing the devices */}
-        {m ? <DesktopSignalLayer m={m} progress={scrollYProgress} float={!reduceMotion} /> : null}
-
-        <motion.div style={{ opacity: reduceMotion ? 1 : copyOpacity, y: reduceMotion ? 0 : copyY }} className="relative mx-auto flex h-full max-w-7xl items-center px-6 lg:px-10">
-          <div className="max-w-[540px] pt-[56px]">
-            <HeroCopy registerUrl={registerUrl} />
-          </div>
-        </motion.div>
+        <HeroStage registerUrl={registerUrl} progress={scrollYProgress} />
       </div>
     </section>
   )
@@ -640,7 +669,7 @@ function HeroDesktop({ registerUrl }: { registerUrl: string }) {
 
 // ── Mobile / tablet: stacked, unpinned ────────────────────────────────────────
 
-function HeroStacked({ registerUrl }: { registerUrl: string }) {
+export function HeroStacked({ registerUrl }: { registerUrl: string }) {
   const stageRef = useRef<HTMLDivElement>(null)
   const m = useStageMetrics(stageRef, 0.58)
 

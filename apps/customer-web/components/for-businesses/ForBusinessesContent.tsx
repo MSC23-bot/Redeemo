@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { HeroCinematic } from './HeroCinematic'
+import { ForBusinessesCinema } from './JourneyCinematic'
 import { PortalShowcaseSection } from './PortalShowcaseSection'
 import { MerchantInterestSection } from './MerchantInterestSection'
 import { merchantPortalRegisterUrl } from '@/lib/prelaunch'
@@ -101,7 +101,7 @@ export function ForBusinessesContent() {
   return (
     <>
       {/* ── 1. Hero: cinematic night-street stage with the live app phone ── */}
-      <HeroCinematic registerUrl={registerUrl} />
+      <ForBusinessesCinema registerUrl={registerUrl} />
 
 
       {/* ── 2. Value props ── */}
