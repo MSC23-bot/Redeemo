@@ -161,7 +161,7 @@ const VOUCHER_KINDS: VoucherKind[] = [
     key: 'reusable',
     name: 'Reusable',
     tag: 'It keeps coming back',
-    body: 'Returns on the frequency you choose: weekly, fortnightly or monthly. Built for regulars and the visit that becomes a habit.',
+    body: 'The same customer can use it again after the gap you set: hourly, every few hours, daily or your own interval. Built for regulars.',
     accent: '#0D9488',
     accentBg: 'rgba(13,148,136,0.1)',
   },
@@ -765,13 +765,13 @@ function TimeLimitedExtras({ accent }: { accent: string }) {
 function ReusableExtras({ accent }: { accent: string }) {
   return (
     <div className="flex flex-col gap-3.5">
-      {/* The frequency you choose */}
+      {/* The reuse gap, exactly as the builder offers it */}
       <div className="flex flex-wrap items-center gap-1.5">
-        {['Weekly', 'Fortnightly', 'Monthly'].map((f, i) => (
+        {['Every hour', 'Every 4 hours', 'Once a day', 'Custom'].map((f, i) => (
           <span
             key={f}
             className="rounded-md px-2.5 py-1.5 text-[11px] font-bold"
-            style={i === 0 ? { background: accent, color: '#fff' } : { background: 'rgba(1,12,53,0.05)', color: 'rgba(1,12,53,0.4)' }}
+            style={i === 1 ? { background: accent, color: '#fff' } : { background: 'rgba(1,12,53,0.05)', color: 'rgba(1,12,53,0.4)' }}
           >
             {f}
           </span>
@@ -795,12 +795,12 @@ function ReusableExtras({ accent }: { accent: string }) {
             <path d="M21 12a9 9 0 1 1-3-6.7" />
             <path d="M21 3v6h-6" />
           </svg>
-          Back next week
+          Ready again in 4 hours
         </span>
       </div>
 
       <p className="text-[11.5px] font-semibold" style={{ color: 'rgba(1,12,53,0.45)' }}>
-        No re-claiming, no admin: it simply returns.
+        Any gap from 30 minutes: no re-claiming, no admin.
       </p>
     </div>
   )
@@ -1073,9 +1073,17 @@ function VoucherSweep() {
 
   const { scrollYProgress } = useScroll({ target: wrapRef, offset: ['start start', 'end end'] })
   const sweepX = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.96], [0, -travel]))
-  // Scroll drives the sweep; a drag offset lets visitors pull the row
-  // themselves. The combined position is clamped to the row's real bounds.
+  // Scroll drives the sweep; a pan offset lets visitors pull the row
+  // themselves. IMPORTANT: this is a pan gesture, not framer drag: drag
+  // would try to own the (derived) x value and judder against it. The
+  // accumulator itself is clamped so the row never banks up invisible
+  // offset past its bounds.
   const dragX = useMotionValue(0)
+  const panBy = (delta: number) => {
+    const lo = -travel - sweepX.get()
+    const hi = -sweepX.get()
+    dragX.set(Math.max(lo, Math.min(hi, dragX.get() + delta)))
+  }
   const x = useTransform([sweepX, dragX] as const, ([a, b]: number[]) => Math.max(-travel, Math.min(0, a + b)))
   const prog = useTransform(x, (v) => (travel > 0 ? Math.min(1, Math.max(0, -v / travel)) : 0))
   const leftFade = useTransform(prog, [0, 0.04], [0, 1])
@@ -1091,12 +1099,8 @@ function VoucherSweep() {
           <motion.ul
             ref={rowRef}
             className="flex w-max cursor-grab items-stretch gap-5 pb-4 pt-2 active:cursor-grabbing"
-            style={{ x }}
-            drag="x"
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0}
-            dragMomentum={false}
-            onDrag={(_, info) => dragX.set(dragX.get() + info.delta.x)}
+            style={{ x, touchAction: 'pan-y' }}
+            onPan={(_, info) => panBy(info.delta.x)}
             aria-label="The seven voucher types"
           >
             {VOUCHER_KINDS.map((kind, i) => (
@@ -1215,7 +1219,7 @@ const FAIR_POINTS = [
     icon: 'refresh' as const,
     at: 0.88,
     lead: 'Reusable, on your terms.',
-    body: 'Reusable vouchers come back weekly, fortnightly or monthly: you choose.',
+    body: 'Reusable vouchers work again after the gap you choose: from every 30 minutes to once a day, or your own interval.',
   },
 ]
 
@@ -1223,14 +1227,9 @@ function FairIcon({ kind, stroke }: { kind: 'stack' | 'shield' | 'refresh'; stro
   if (kind === 'stack') {
     return (
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <g transform="rotate(-8 8 9)">
-          <rect x="2.5" y="5" width="11" height="7" rx="1.6" />
-        </g>
-        <rect x="6.5" y="8.5" width="11" height="7" rx="1.6" />
-        <g transform="rotate(8 16 16)">
-          <rect x="10.5" y="12" width="11" height="7" rx="1.6" />
-          <line x1="17.5" y1="13" x2="17.5" y2="18" strokeDasharray="1.4 1.8" />
-        </g>
+        <path d="M12 3l9 4.5-9 4.5-9-4.5L12 3z" />
+        <path d="M3 12l9 4.5 9-4.5" />
+        <path d="M3 16.5L12 21l9-4.5" />
       </svg>
     )
   }
