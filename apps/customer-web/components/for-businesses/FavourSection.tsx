@@ -975,9 +975,9 @@ function VoucherTicket({ kind, index, sweep = false }: { kind: VoucherKind; inde
       }}
     >
       {/* Accent header with the type's motif; the tag sits clear of the badge */}
-      <div className="relative flex h-[104px] items-center justify-center overflow-hidden" style={{ background: kind.accentBg }}>
+      <div className="relative flex h-[92px] items-center justify-center overflow-hidden" style={{ background: kind.accentBg }}>
         <span className="favour-shimmer absolute inset-0 opacity-0 transition-opacity duration-300 group-hover/ticket:opacity-100" aria-hidden="true" />
-        <div className="h-[74px] w-[74px] transition-transform duration-300 group-hover/ticket:scale-110" aria-hidden="true">
+        <div className="h-[66px] w-[66px] transition-transform duration-300 group-hover/ticket:scale-110" aria-hidden="true">
           <Motif kind={kind.key} accent={kind.accent} />
         </div>
         <span
@@ -1014,7 +1014,7 @@ function VoucherTicket({ kind, index, sweep = false }: { kind: VoucherKind; inde
         </p>
         {/* The working parts breathe in the remaining space, so shorter
             interiors never pool empty space above the foot */}
-        <div className="flex flex-1 flex-col justify-center py-4">
+        <div className="flex flex-1 flex-col justify-center py-3">
           <Extras accent={kind.accent} />
         </div>
         {/* Blind-embossed foot, like pressed card stock */}
@@ -1030,15 +1030,24 @@ function VoucherTicket({ kind, index, sweep = false }: { kind: VoucherKind; inde
   )
 }
 
-// Shared header for both showcase modes
+// Shared header for both showcase modes (compact: on desktop it shares one
+// pinned screen with the tickets, the bar and the fair-use strip)
 function VoucherShowcaseHeader() {
   return (
-    <>
-      <GroupHeader label="Your vouchers" title="Seven ways to bring customers in" />
-      <p className="-mt-6 mb-8 max-w-[560px] text-[15px] leading-[1.65]" style={{ color: INK }}>
-        Every type is yours to shape: your value, your terms, your timing.
+    <div className="mb-5">
+      <p className="mb-2.5 flex items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'rgba(1,12,53,0.45)' }}>
+        <span className="h-[2px] w-5 rounded-full bg-[#E20C04]" aria-hidden="true" />
+        Your vouchers
       </p>
-    </>
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
+        <h3 className="font-display leading-[1.1]" style={{ color: NAVY, fontSize: 'clamp(24px, 2.4vw, 32px)', letterSpacing: '-0.4px' }}>
+          Seven ways to bring customers in
+        </h3>
+        <p className="text-[14px] leading-snug" style={{ color: INK }}>
+          Every type is yours to shape: your value, your terms, your timing.
+        </p>
+      </div>
+    </div>
   )
 }
 
@@ -1103,6 +1112,10 @@ function VoucherSweep() {
         >
           <motion.span className="block h-full origin-left rounded-full" style={{ scaleX: prog, background: 'var(--brand-gradient)', boxShadow: '0 1px 4px rgba(226,12,4,0.35)' }} />
         </div>
+
+        {/* The fair-use strip shares the screen; tiles light as the sweep
+            passes their third */}
+        <VoucherFairness prog={prog} />
       </div>
     </div>
   )
@@ -1181,91 +1194,128 @@ function VoucherRail() {
   )
 }
 
-// Fair-use block (owner 2026-07-16 round 2): three digestible tiles; no
-// "unlimited" framing (it reads as misleading; see the consumer-side rule on
-// the same word).
+// Fair-use strip (owner 2026-07-16 round 3): lives on the SAME pinned screen
+// as the tickets; each tile lights as the sweep passes its third, lifts on
+// hover, and its medallion warms to the brand gradient. No "unlimited"
+// framing (misleading; see the consumer-side rule on the same word).
 const FAIR_POINTS = [
   {
     icon: 'stack' as const,
+    at: 0.12,
     lead: 'As many vouchers as you need.',
     body: 'You decide how many offers you run, what they say and what they give.',
   },
   {
     icon: 'shield' as const,
+    at: 0.5,
     lead: 'One redemption per customer, per cycle.',
-    body: 'Each voucher works once per customer in their monthly cycle, then renews: a fresh reason to return, never a loophole.',
+    body: 'Each voucher works once per cycle, then renews: a fresh reason to return, never a loophole.',
   },
   {
     icon: 'refresh' as const,
+    at: 0.88,
     lead: 'Reusable, on your terms.',
-    body: 'Reusable vouchers come back on the frequency you choose: weekly, fortnightly or monthly.',
+    body: 'Reusable vouchers come back weekly, fortnightly or monthly: you choose.',
   },
 ]
 
-function FairIcon({ kind }: { kind: 'stack' | 'shield' | 'refresh' }) {
+function FairIcon({ kind, stroke }: { kind: 'stack' | 'shield' | 'refresh'; stroke: string }) {
   if (kind === 'stack') {
     return (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E20C04" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect x="4" y="13" width="16" height="7" rx="2" />
-        <path d="M6 13v-3a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v3" />
-        <path d="M8 8V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <g transform="rotate(-8 8 9)">
+          <rect x="2.5" y="5" width="11" height="7" rx="1.6" />
+        </g>
+        <rect x="6.5" y="8.5" width="11" height="7" rx="1.6" />
+        <g transform="rotate(8 16 16)">
+          <rect x="10.5" y="12" width="11" height="7" rx="1.6" />
+          <line x1="17.5" y1="13" x2="17.5" y2="18" strokeDasharray="1.4 1.8" />
+        </g>
       </svg>
     )
   }
   if (kind === 'shield') {
     return (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E20C04" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z" />
-        <polyline points="9 12 11 14 15 10" />
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 2.5l7.5 3.5v5.5c0 4.6-3.2 7.9-7.5 9.5-4.3-1.6-7.5-4.9-7.5-9.5V6l7.5-3.5z" />
+        <path d="M10.2 9.5l2-1.5v8" />
       </svg>
     )
   }
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E20C04" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-      <path d="M21 12a9 9 0 1 1-3-6.7" />
-      <path d="M21 3v6h-6" />
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 12a8 8 0 1 1-2.6-5.9" />
+      <path d="M20 3.5V8h-4.5" />
+      <path d="M9.5 12.2l1.8 1.8 3.4-3.6" />
     </svg>
   )
 }
 
-function VoucherFairnessNote() {
+function FairTile({ pt, prog }: { pt: (typeof FAIR_POINTS)[number]; prog?: ReturnType<typeof useMotionValue<number>> }) {
+  const fallback = useMotionValue(1)
+  const source = prog ?? fallback
+  const lit = useTransform(source, [Math.max(0, pt.at - 0.12), pt.at], [0, 1])
   return (
     <motion.div
-      initial={{ opacity: 0, y: 18 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '-50px' }}
-      transition={{ duration: 0.5, ease: EASE }}
-      className="mt-8"
+      whileHover={{ y: -3 }}
+      className="group/fair relative flex items-start gap-3.5 overflow-hidden rounded-2xl border bg-white px-4 py-3.5 transition-shadow duration-300 hover:shadow-[0_14px_34px_rgba(1,12,53,0.1)]"
+      style={{ borderColor: '#EFE7DD', boxShadow: '0 8px 22px rgba(1,12,53,0.04)' }}
     >
-      <h4 className="font-display mb-5 text-[20px] font-semibold leading-snug" style={{ color: NAVY, letterSpacing: '-0.2px' }}>
+      {/* Medallion: warms to the brand gradient as the sweep reaches it,
+          and on hover */}
+      <span className="relative mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: 'rgba(226,12,4,0.07)', border: '1px solid rgba(226,12,4,0.14)' }} aria-hidden="true">
+        <span className="absolute inset-0 rounded-xl opacity-0 transition-opacity duration-300 group-hover/fair:opacity-100" style={{ background: 'var(--brand-gradient)' }} />
+        <motion.span className="absolute inset-0 rounded-xl" style={{ background: 'var(--brand-gradient)', opacity: lit }} />
+        <span className="relative">
+          <span className="absolute inset-0 flex items-center justify-center opacity-100 transition-opacity duration-200 group-hover/fair:opacity-0">
+            <motion.span style={{ opacity: useTransform(lit, (v) => 1 - v) }}>
+              <FairIcon kind={pt.icon} stroke="#E20C04" />
+            </motion.span>
+          </span>
+          <span className="flex items-center justify-center">
+            <motion.span style={{ opacity: lit }} className="transition-opacity duration-200 group-hover/fair:!opacity-100">
+              <FairIcon kind={pt.icon} stroke="#FFFFFF" />
+            </motion.span>
+          </span>
+        </span>
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[13.5px] font-bold leading-snug" style={{ color: NAVY }}>
+          {pt.lead}
+        </span>
+        <span className="mt-1 block text-[12px] leading-[1.55]" style={{ color: INK }}>
+          {pt.body}
+        </span>
+      </span>
+      {/* Activation underline */}
+      <motion.span aria-hidden="true" className="absolute bottom-0 left-0 right-0 h-[2.5px] origin-left" style={{ background: 'var(--brand-gradient)', scaleX: lit }} />
+    </motion.div>
+  )
+}
+
+function VoucherFairness({ prog }: { prog?: ReturnType<typeof useMotionValue<number>> }) {
+  return (
+    <div className="mt-5">
+      <p className="mb-3 text-[12px] font-bold uppercase tracking-[0.16em]" style={{ color: 'rgba(1,12,53,0.45)' }}>
         Generous to customers. Protected for you.
-      </h4>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      </p>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         {FAIR_POINTS.map((pt) => (
-          <div key={pt.icon} className="rounded-2xl border bg-white p-5" style={{ borderColor: '#EFE7DD', boxShadow: '0 10px 28px rgba(1,12,53,0.05)' }}>
-            <span className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg" style={{ background: 'rgba(226,12,4,0.08)' }} aria-hidden="true">
-              <FairIcon kind={pt.icon} />
-            </span>
-            <p className="mb-1.5 text-[14.5px] font-bold leading-snug" style={{ color: NAVY }}>
-              {pt.lead}
-            </p>
-            <p className="text-[13px] leading-[1.65]" style={{ color: INK }}>
-              {pt.body}
-            </p>
-          </div>
+          <FairTile key={pt.icon} pt={pt} prog={prog} />
         ))}
       </div>
-    </motion.div>
+    </div>
   )
 }
 
 function VoucherShowcase() {
   const mode = useViewportMode()
   const reduceMotion = useReducedMotion()
+  if (mode === 'desktop' && !reduceMotion) return <VoucherSweep />
   return (
     <>
-      {mode === 'desktop' && !reduceMotion ? <VoucherSweep /> : <VoucherRail />}
-      <VoucherFairnessNote />
+      <VoucherRail />
+      <VoucherFairness />
     </>
   )
 }
