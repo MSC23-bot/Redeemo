@@ -171,3 +171,13 @@ S4 "manage it all."; hero and S5 already carried theirs. Section 3 entrance
 choreography upgraded (Sonnet executed to spec): eyebrow dash draws, headers and
 bento tiles blur-in with stagger, console and receipt reveal (receipt settles from
 1.4deg like the ticket), all reduced-motion gated.
+
+### Portal backdrop v3 (owner feedback 2026-07-17): the night street carried through
+
+Owner pointed at Section 2's textured, neon-lit night-street photograph as the
+reference for the portal stage. The pinned backdrop now layers: hero-bg.webp at
+100vw inside the sticky, blur(14px) saturate(1.2) at scale(1.08) (heavy blur is what
+makes an image safe here; sharp plates banded before), a navy pull-down gradient
+ending SOLID #010C35 (preserves the ticket-band seam), intensified neon radials
+(red top, coral low-right, cool whisper left), an SVG feTurbulence film-grain layer
+(opacity .05, overlay), and the BrandDeboss marks above it all.

@@ -781,17 +781,47 @@ export function PortalSection() {
         {/* Stage: pinned tour; scroll steps the screens, clicks still work */}
         <div ref={tourRef} className="hidden lg:block" style={{ height: `calc(100svh + ${SCREENS.length * TOUR_STEP_SVH}svh)` }}>
         <div className="sticky top-0 flex h-[100svh] flex-col justify-center pt-[88px]">
-        {/* Backdrop: composed gradients only (image plates upscale into
-            visible shading bands at large viewports); silky at any size */}
-        <div
-          aria-hidden="true"
-          className="absolute -z-10"
-          style={{
-            inset: '-2px -100vw',
-            background:
-              'radial-gradient(1100px 640px at 76% -8%, rgba(210,40,18,0.16), transparent 62%), radial-gradient(900px 620px at 8% 42%, rgba(70,100,200,0.1), transparent 66%), linear-gradient(180deg, #071033 0%, #010C35 100%)',
-          }}
-        />
+        {/* Backdrop: the hero's night street carried through, blurred deep
+            into navy so its texture and neon reds glow through as ambience.
+            Heavy blur is what makes an image safe here (the sharp plates
+            banded at large sizes); the tint must end on solid #010C35 so the
+            handoff to the ticket band below stays seamless. */}
+        <div aria-hidden="true" className="absolute -z-10 overflow-hidden" style={{ inset: '-2px -100vw', background: '#010C35' }}>
+          <div className="absolute left-1/2 top-0 h-full w-[100vw] -translate-x-1/2">
+            <Image
+              src="/for-businesses/hero-bg.webp"
+              alt=""
+              fill
+              sizes="100vw"
+              className="object-cover"
+              style={{
+                filter: 'blur(14px) saturate(1.2) brightness(0.92)',
+                transform: 'scale(1.08)',
+              }}
+            />
+            {/* Navy pull-down; solid at the base for the seam */}
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(1,12,53,0.72) 0%, rgba(1,12,53,0.86) 52%, #010C35 100%)' }} />
+          </div>
+          {/* Neon accents riding over the texture */}
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'radial-gradient(1100px 640px at 76% -8%, rgba(226,12,4,0.2), transparent 62%), radial-gradient(520px 380px at 12% 20%, rgba(255,64,40,0.13), transparent 68%), radial-gradient(700px 480px at 90% 78%, rgba(232,74,0,0.1), transparent 66%), radial-gradient(900px 620px at 8% 42%, rgba(70,100,200,0.08), transparent 66%)',
+            }}
+          />
+          {/* Film grain unifies the surface */}
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage:
+                "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='280' height='280'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='280' height='280' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E\")",
+              backgroundSize: '280px 280px',
+              opacity: 0.05,
+              mixBlendMode: 'overlay',
+            }}
+          />
+        </div>
         {/* Whisper-level brand marks pressed into the stage */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
           <BrandDeboss tone="navy" size={660} rotate={12} style={{ right: '-6%', top: '-14%' }} />
