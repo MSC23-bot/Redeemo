@@ -42,7 +42,7 @@ const STAGE_H = 941
 // and to clear the right-hand signal rail.
 const CLUSTER_W = 1268
 const CLUSTER_H = 763
-const CLUSTER_DESKTOP = { x: 560, y: 430, s: 0.645 }
+const CLUSTER_DESKTOP = { x: 582, y: 396, s: 0.645 }
 
 // Phone screen: content design space (800 wide, height matches quad aspect)
 const PHONE_W = 800
@@ -101,12 +101,14 @@ type Signal = {
 // Owner-specified arrangement (2026-07-16 round 3): two above the laptop,
 // one in the L-gap between the laptop screen and the phone, two beside the
 // phone. Anchors are card centres in the 1672x941 stage space.
+// Anchors shifted with the cluster (owner 2026-07-16: devices nudged up +22
+// right, +34 up) so cards stay aligned to the devices.
 const SIGNALS: Signal[] = [
-  { sx: 1016, sy: 388, kicker: 'Offer live', title: '2 for 1 mains', sub: 'Visible to customers nearby', icon: 'live', band: [0.05, 0.14] },
-  { sx: 1280, sy: 368, kicker: 'Time-limited', title: 'Lunch rush · 20% off', sub: '', icon: 'clock', countdown: true, band: [0.18, 0.27] },
-  { sx: 1372, sy: 482, kicker: 'New customer', title: 'A customer just found you', sub: 'Browsing nearby · Food & Drink', icon: 'live', band: [0.31, 0.4] },
-  { sx: 1482, sy: 620, kicker: 'At the till', title: 'Redemption confirmed', sub: 'Code R7X4 KM2P · logged', icon: 'tick', band: [0.44, 0.53] },
-  { sx: 1482, sy: 806, kicker: 'Coming back', title: 'A regular in the making', sub: '3rd visit this month', icon: 'repeat', band: [0.57, 0.66] },
+  { sx: 1038, sy: 354, kicker: 'Offer live', title: '2 for 1 mains', sub: 'Visible to customers nearby', icon: 'live', band: [0.05, 0.14] },
+  { sx: 1302, sy: 334, kicker: 'Time-limited', title: 'Lunch rush · 20% off', sub: '', icon: 'clock', countdown: true, band: [0.18, 0.27] },
+  { sx: 1394, sy: 448, kicker: 'New customer', title: 'A customer just found you', sub: 'Browsing nearby · Food & Drink', icon: 'live', band: [0.31, 0.4] },
+  { sx: 1500, sy: 586, kicker: 'At the till', title: 'Redemption confirmed', sub: 'Code R7X4 KM2P · logged', icon: 'tick', band: [0.44, 0.53] },
+  { sx: 1500, sy: 772, kicker: 'Coming back', title: 'A regular in the making', sub: '3rd visit this month', icon: 'repeat', band: [0.57, 0.66] },
 ]
 
 const COUNTDOWN_START = 2 * 3600 + 14 * 60 + 33
