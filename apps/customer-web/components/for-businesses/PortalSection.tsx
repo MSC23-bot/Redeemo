@@ -1,7 +1,6 @@
 'use client'
 
 import Image from 'next/image'
-import { BrandDeboss } from './BrandDeboss'
 import { motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 
@@ -799,15 +798,17 @@ export function PortalSection() {
                 transform: 'scale(1.08)',
               }}
             />
-            {/* Navy pull-down; solid at the base for the seam */}
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(1,12,53,0.6) 0%, rgba(1,12,53,0.8) 52%, #010C35 100%)' }} />
+            {/* Navy pull-down; SOLID at both ends (top blends the image edge
+                into the curve seam above, base into the ticket band below),
+                texture fading in between */}
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.62) 24%, rgba(1,12,53,0.8) 58%, #010C35 100%)' }} />
           </div>
           {/* Neon accents riding over the texture */}
           <div
             className="absolute inset-0"
             style={{
               background:
-                'radial-gradient(1100px 640px at 76% -8%, rgba(226,12,4,0.2), transparent 62%), radial-gradient(520px 380px at 12% 20%, rgba(255,64,40,0.13), transparent 68%), radial-gradient(700px 480px at 90% 78%, rgba(232,74,0,0.1), transparent 66%), radial-gradient(900px 620px at 8% 42%, rgba(70,100,200,0.08), transparent 66%)',
+                'radial-gradient(1100px 640px at 76% -8%, rgba(226,12,4,0.2), transparent 62%), radial-gradient(1050px 760px at 2% 104%, rgba(232,74,0,0.17), transparent 64%), radial-gradient(700px 480px at 90% 78%, rgba(232,74,0,0.08), transparent 66%), radial-gradient(900px 620px at 8% 42%, rgba(70,100,200,0.07), transparent 66%)',
             }}
           />
           {/* Film grain unifies the surface */}
@@ -821,11 +822,6 @@ export function PortalSection() {
               mixBlendMode: 'overlay',
             }}
           />
-        </div>
-        {/* Whisper-level brand marks pressed into the stage */}
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-          <BrandDeboss tone="navy" size={560} rotate={12} style={{ right: '-4%', top: '3%' }} />
-          <BrandDeboss tone="navy" size={300} rotate={-10} style={{ left: '1.5%', bottom: '4%' }} />
         </div>
         {/* Compact header shares the pinned screen */}
         <div className="mb-9">
