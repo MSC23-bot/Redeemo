@@ -42,7 +42,7 @@ const STAGE_H = 941
 // and to clear the right-hand signal rail.
 const CLUSTER_W = 1268
 const CLUSTER_H = 763
-const CLUSTER_DESKTOP = { x: 610, y: 340, s: 0.645 }
+const CLUSTER_DESKTOP = { x: 560, y: 430, s: 0.645 }
 
 // Phone screen: content design space (800 wide, height matches quad aspect)
 const PHONE_W = 800
@@ -83,7 +83,9 @@ const PANE_STRIP_H = 1761 // stitched dashboard content strip height (logical)
 // roll). Anchors are tuned to frame the devices without covering the screens,
 // the faces, or the headline.
 
-const CARD_TRANSFORM = 'perspective(1500px) rotateY(-17deg) rotateX(6deg) rotateZ(-2.5deg)'
+// A gentle single-axis turn only: matches the devices' leftward face without
+// the roll/pitch that read as "wonky" (owner 2026-07-16 round 3).
+const CARD_TRANSFORM = 'perspective(2400px) rotateY(-7deg)'
 
 type Signal = {
   sx: number
@@ -96,14 +98,15 @@ type Signal = {
   band: [number, number]
 }
 
-// Two cards float above-right of the phone, three rest along the counter
-// below the devices; none covers a screen or a face.
+// Owner-specified arrangement (2026-07-16 round 3): two above the laptop,
+// one in the L-gap between the laptop screen and the phone, two beside the
+// phone. Anchors are card centres in the 1672x941 stage space.
 const SIGNALS: Signal[] = [
-  { sx: 1450, sy: 222, kicker: 'Offer live', title: '2 for 1 mains', sub: 'Visible to customers nearby', icon: 'live', band: [0.05, 0.14] },
-  { sx: 1492, sy: 404, kicker: 'Time-limited', title: 'Lunch rush · 20% off', sub: '', icon: 'clock', countdown: true, band: [0.18, 0.27] },
-  { sx: 1358, sy: 872, kicker: 'New customer', title: 'A customer just found you', sub: 'Browsing nearby · Food & Drink', icon: 'live', band: [0.31, 0.4] },
-  { sx: 1014, sy: 878, kicker: 'At the till', title: 'Redemption confirmed', sub: 'Code R7X4 KM2P · logged', icon: 'tick', band: [0.44, 0.53] },
-  { sx: 662, sy: 872, kicker: 'Coming back', title: 'A regular in the making', sub: '3rd visit this month', icon: 'repeat', band: [0.57, 0.66] },
+  { sx: 1016, sy: 388, kicker: 'Offer live', title: '2 for 1 mains', sub: 'Visible to customers nearby', icon: 'live', band: [0.05, 0.14] },
+  { sx: 1280, sy: 368, kicker: 'Time-limited', title: 'Lunch rush · 20% off', sub: '', icon: 'clock', countdown: true, band: [0.18, 0.27] },
+  { sx: 1372, sy: 482, kicker: 'New customer', title: 'A customer just found you', sub: 'Browsing nearby · Food & Drink', icon: 'live', band: [0.31, 0.4] },
+  { sx: 1482, sy: 620, kicker: 'At the till', title: 'Redemption confirmed', sub: 'Code R7X4 KM2P · logged', icon: 'tick', band: [0.44, 0.53] },
+  { sx: 1482, sy: 806, kicker: 'Coming back', title: 'A regular in the making', sub: '3rd visit this month', icon: 'repeat', band: [0.57, 0.66] },
 ]
 
 const COUNTDOWN_START = 2 * 3600 + 14 * 60 + 33
@@ -365,7 +368,7 @@ function CountdownPill() {
   const countdown = useCountdown(true)
   return (
     <span
-      className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-[#E20C04]/35 bg-[#E20C04]/16 px-2.5 py-1"
+      className="mt-1.5 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-[#E20C04]/35 bg-[#E20C04]/16 px-2.5 py-1"
       style={{ boxShadow: 'inset 0 0 0 1px rgba(226,12,4,0.08)' }}
     >
       <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-white/55">Ends in</span>
@@ -403,7 +406,7 @@ function DesktopSignal({ signal, m, progress, float }: { signal: Signal; m: Stag
   const left = m.ox + signal.sx * m.s
   const top = m.oy + signal.sy * m.s
   return (
-    <div className="pointer-events-none absolute z-10" style={{ left, top, width: 220 }}>
+    <div className="pointer-events-none absolute z-10" style={{ left, top, width: 224 }}>
       <div style={{ transform: 'translate(-50%, -50%)' }}>
         <div style={{ transform: CARD_TRANSFORM, transformOrigin: '50% 50%' }}>
           <motion.div style={{ opacity: appear }}>
@@ -495,7 +498,7 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5, delay: 0.48 }}
-        className="mt-14 grid grid-cols-3 gap-6 border-t border-white/[0.08] pt-8"
+        className="mt-14 grid max-w-[460px] grid-cols-3 gap-6 border-t border-white/[0.08] pt-8"
       >
         {[
           { value: '£0', label: 'to list your business' },
