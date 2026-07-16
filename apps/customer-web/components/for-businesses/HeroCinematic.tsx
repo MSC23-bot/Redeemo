@@ -40,9 +40,9 @@ export const STAGE_H = 941
 // Device cluster: cropped cutout layer, native size and desktop placement.
 // Owner 2026-07-16: scaled up and moved left (was 850/420/0.6) for presence
 // and to clear the right-hand signal rail.
-export const CLUSTER_W = 1268
-export const CLUSTER_H = 763
-export const CLUSTER_DESKTOP = { x: 596, y: 396, s: 0.645 }
+const CLUSTER_W = 1268
+const CLUSTER_H = 763
+const CLUSTER_DESKTOP = { x: 596, y: 396, s: 0.645 }
 
 // Phone screen: content design space (800 wide, height matches quad aspect)
 const PHONE_W = 800
@@ -55,7 +55,7 @@ const PHONE_MATRIX =
 const FEED_HEADER_H = 194
 const FEED_NAV_H = 152
 const FEED_STRIP_H = 2421
-export const FEED_TRAVEL = FEED_STRIP_H - PHONE_H // 526 design px of scroll-scrub
+const FEED_TRAVEL = FEED_STRIP_H - PHONE_H // 526 design px of scroll-scrub
 
 // Laptop screen: content design space and homography. Height matches the
 // 16:10 portal capture (1728x1084) so the screenshot fills the screen edge
@@ -71,8 +71,8 @@ const PORTAL_BG = '#F8F7F4'
 // Content pane of the dashboard (region that scrolls behind fixed chrome),
 // in band-cropped 1728x1084 logical px; top calibrated empirically against
 // the rendered chrome (toggle-diff), not just derived from the crop maths.
-export const PANE = { left: 328, top: 79, width: 1386, height: 1005 }
-export const PANE_STRIP_H = 1761 // stitched dashboard content strip height (logical)
+const PANE = { left: 328, top: 79, width: 1386, height: 1005 }
+const PANE_STRIP_H = 1761 // stitched dashboard content strip height (logical)
 
 // ── Growth signal cards ───────────────────────────────────────────────────────
 // The funnel, in order. Owner 2026-07-16: the chips sit AROUND the devices in
@@ -257,7 +257,7 @@ function LaptopScreen({
 
 // ── The device cluster: laptop-content under the punched cutout, phone on top ─
 
-export function DeviceCluster({
+function DeviceCluster({
   placement,
   feedY,
   stripY,

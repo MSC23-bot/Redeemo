@@ -57,3 +57,22 @@ the owner handoff; the five status annotations are live HTML.
 tsc, production build, `git diff --check`, Playwright QA at 1600x900 / 768 / 390 / 344,
 reduced motion, overflow scan, console/network clean, seam continuity walk, screenshot
 comparison against pack references. Hold for Codex review + owner SHA approval; no merge.
+
+## Round 2 (owner feedback 2026-07-16)
+
+Owner rulings: hero must read untouched (it was; the transition implied otherwise);
+the front devices' screens must fit naturally (round 1's phone rect was under-measured,
+leaving a white ring; the builder crop cut the portal top bar); screens must tell each
+beat's story WITH motion inside the devices; the travelling-cluster transition read as
+"floating" and is rejected; the five scattered status cards are rejected.
+
+Revisions: (1) transition becomes a filmic dissolve: the whole hero plate fades and
+pulls back, the map plate settles beneath, and the front pair turns into place where
+it stands (rotateY + scale settle, no positional flight). (2) Laptop beat 01 becomes
+the real builder page with pinned chrome and a scrolling content pane (hero-dashboard
+technique; new journey-builder.webp full-chrome crop + journey-builder-strip.webp).
+(3) Phone beat 02 scroll-scrubs the app home feed reusing the hero's own feed assets.
+(4) Phone screen rect re-measured at threshold 195 to kill the white ring. (5) Status
+cards replaced by a JOURNEY ROUTE: five stops on a progress line drawn under the
+devices across the map plate, kickers under each stop, the active stop's locked line
+centred beneath, final stop green. Clears the navbar entirely.

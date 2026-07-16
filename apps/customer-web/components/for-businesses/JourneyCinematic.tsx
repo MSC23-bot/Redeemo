@@ -6,77 +6,91 @@ import { useEffect, useRef, useState } from 'react'
 import { useViewportMode } from '@/components/landing/useViewportMode'
 import { useScrollLinked } from '@/components/landing/scroll'
 import { BrandStop } from '@/components/ui/BrandStop'
-import {
-  HeroCinematic,
-  HeroStage,
-  useStageMetrics,
-  DeviceCluster,
-  CLUSTER_DESKTOP,
-  FEED_TRAVEL,
-  PANE,
-  PANE_STRIP_H,
-  STAGE_W,
-  STAGE_H,
-} from './HeroCinematic'
+import { HeroCinematic, HeroStage, useStageMetrics, STAGE_W, STAGE_H } from './HeroCinematic'
 
 /**
- * Section 2: "How Redeemo works" journey cinema (owner handoff 2026-07-16).
+ * Section 2: "How Redeemo works" journey cinema (owner handoff 2026-07-16;
+ * round 2 after owner feedback 2026-07-16).
  *
- * The hero and the journey share ONE pinned band: a continuous device move
- * (hero's angled cluster travels centre-ward and turns to face the viewer)
- * is impossible across two separate sticky sections, so ForBusinessesCinema
- * owns the band and re-hosts the approved HeroStage unchanged as its first
- * slice. As the hero copy and growth cards finish fading, the cafe plate
- * dissolves into the dark local-map plate beneath, the angled cluster
- * crossfades into a front-facing cluster (rotateY handoff on both sides),
- * and four locked beats walk voucher -> discovery -> visit -> validation on
- * the real product screens. Five locked status annotations accumulate as a
- * live-HTML rail; the section ends on the validation-success state and the
- * locked closing line. No CTA in Section 2.
+ * The hero and the journey share ONE pinned band: ForBusinessesCinema owns
+ * the band and re-hosts the approved HeroStage unchanged as its first slice.
+ * Round 2 transition (owner: the travelling cluster read as "floating"): the
+ * whole hero plate dissolves and pulls back while the dark local-map plate
+ * settles in beneath; the front-facing device pair then turns into place
+ * where it stands (rotateY + scale settle, no positional flight).
  *
- * Non-desktop, short and reduced-motion viewers get JourneyStacked: four
- * readable scenes (one device state + beat copy + status chips each) with
- * every piece of locked copy present. SSR default is the stacked layout.
+ * Each beat drives the screens (owner: screens must tell the beat's story,
+ * with motion inside the devices):
+ *   01 create   laptop ACTIVE: real builder page, pinned chrome + scrolling
+ *               content pane (same technique as the hero dashboard);
+ *               phone previews the customer-facing voucher.
+ *   02 appear   phone ACTIVE: the app home feed scroll-scrubs (the hero's
+ *               own feed assets); laptop rests behind a veil.
+ *   03 visit    phone ACTIVE: the present-to-staff code screen.
+ *   04 confirm  laptop ACTIVE: validate modal -> validated success;
+ *               the phone mirrors the customer's success state.
+ *
+ * The five locked statuses draw as a JOURNEY ROUTE under the devices: five
+ * stops on a progress line over the map plate (owner: no scattered cards),
+ * activating in step with the beats; the last stop confirms green. Locked
+ * closing line ends the section. No CTA.
+ *
+ * Non-desktop / short / reduced-motion viewers get JourneyStacked: four
+ * readable scenes with every piece of locked copy present (SSR default).
  */
 
 // ── Timeline (svh of scroll) ──────────────────────────────────────────────────
 
 const HERO_SCROLL = 75 // matches the approved standalone hero band (175 - 100)
-const ARRIVE = 90
+const ARRIVE = 70
 const BEAT = 85
 const CLOSE = 70
-const JOURNEY_SCROLL = ARRIVE + BEAT * 4 + CLOSE // 500
-const TOTAL_SCROLL = HERO_SCROLL + JOURNEY_SCROLL // 575
+const JOURNEY_SCROLL = ARRIVE + BEAT * 4 + CLOSE // 480
+const TOTAL_SCROLL = HERO_SCROLL + JOURNEY_SCROLL // 555
 const F_HERO = HERO_SCROLL / TOTAL_SCROLL
 
 // Journey-local fraction helper: svh into [0..1] of the journey slice.
 const jf = (svh: number) => svh / JOURNEY_SCROLL
 
-const BEAT_START = [0, 1, 2, 3].map((i) => jf(ARRIVE + i * BEAT)) // 0.18 0.35 0.52 0.69
-const CLOSE_START = jf(ARRIVE + BEAT * 4) // 0.86
-const FADE = jf(10) // standard crossfade slice (0.02)
+const BEAT_START = [0, 1, 2, 3].map((i) => jf(ARRIVE + i * BEAT))
+const CLOSE_START = jf(ARRIVE + BEAT * 4)
+const FADE = jf(10) // standard crossfade slice
+const CONFIRM_AT = BEAT_START[3] + jf(38) // validated success + green stop
 
 // ── Front cluster geometry (calibrated from measured screen quads) ───────────
 // The front-facing cutout is cropped to its bbox (268,86 of the 1672x941
-// plate); screen rects are bbox-local. Laptop white quad measured at
+// plate); screen rects are bbox-local. The laptop white quad measured at
 // (127,26)-(990,572) with near-sharp corners (its bottom-right is occluded by
-// the phone body, which the raster handles naturally); phone white quad at
-// (937,181)-(1144,682), radius ~24. Content rects OVERDRAW the quads by 2px
-// so misregistration can never show a white sliver; the punched laptop hole
-// was dilated 2px to match.
+// the phone body, which the raster handles naturally). The phone rect covers
+// every white screen pixel down to threshold 195 plus margin (round 1's tight
+// quad left a white ring around the content). Content overdraws the quads so
+// misregistration can never show a white sliver.
 
 const J_BOX = { w: 1165, h: 731 }
-const J_PLACE = { x: 690, y: 255, s: 0.6 } // stage-space placement, QA-tuned
+const J_PLACE = { x: 690, y: 245, s: 0.6 } // stage-space placement, QA-tuned
 const J_LAPTOP = { left: 124, top: 23, width: 869, height: 553, radius: 6 }
-const J_PHONE = { left: 935, top: 179, width: 211, height: 505, radius: 26 }
+// True white-component bounds (930,176)-(1151,692) + 2px margin; round 1 used
+// the fitted-quad corners, ~7px inside the component, hence the white ring.
+const J_PHONE = { left: 928, top: 174, width: 226, height: 522, radius: 24 }
 
 const PORTAL_BG = '#F8F7F4'
 
-// Where the angled cluster travels to before handing off to the front cluster:
-// its centre eases toward the front cluster's centre while it turns.
-const FRONT_CX = J_PLACE.x + (J_BOX.w * J_PLACE.s) / 2
-const FRONT_CY = J_PLACE.y + (J_BOX.h * J_PLACE.s) / 2
-const ANGLED_END_S = 0.66 // angled replica's scale as it hands off, centred on the front cluster
+// Builder chrome pane (measured from the 1440x2233 capture: sidebar/content
+// divider at x=261, topbar divider at y=63): the sidebar and top bar stay
+// pinned while the content strip scrolls behind them, exactly like the hero
+// dashboard's pane.
+const BUILDER = { w: 1440, h: 911, paneLeft: 262, paneTop: 64 }
+const BUILDER_STRIP_H = 2233 - BUILDER.paneTop
+const PANE_TRAVEL = 720 // partial scroll through the form during beat 01
+
+// Phone app-feed reuse (the hero's own journey assets): 800-wide design space.
+const FEED = { w: 800, headerH: 194, navH: 152, stripH: 2421 }
+const PHONE_DESIGN_H = Math.round((FEED.w * J_PHONE.height) / J_PHONE.width)
+const FEED_TRAVEL2 = FEED.stripH - PHONE_DESIGN_H
+
+// Journey route: five stops on a progress line under the devices, drawn over
+// the map plate like a route. Stage-space geometry.
+const ROUTE = { y: 782, x0: 745, x1: 1405 }
 
 // Pins baked into the map plate that stay visible around the devices; a soft
 // pulse over each during the discovery beat (restrained: CSS only, no WebGL).
@@ -128,52 +142,122 @@ type Status = {
   kicker: string
   title: string
   kind: 'red' | 'amber' | 'green'
-  at: number // journey progress where it appears
-  sx: number // stage-space anchor (card centre)
-  sy: number
+  at: number // journey progress where this stop activates
 }
 
-// Anchors: three across the top of the devices, two down the right edge
-// (the 16:10 cover-crop hides stage x beyond ~1619, so the right column
-// stays inside that; QA-tuned).
 const STATUSES: Status[] = [
-  { num: '01', kicker: 'Voucher ready', title: 'Terms set. Ready to submit.', kind: 'red', at: 0.24, sx: 830, sy: 132 },
-  { num: '02', kicker: 'Offer live', title: 'Visible on Redeemo.', kind: 'red', at: 0.36, sx: 1110, sy: 132 },
-  { num: '03', kicker: 'Found nearby', title: 'A customer is viewing your voucher.', kind: 'amber', at: 0.45, sx: 1390, sy: 132 },
-  { num: '04', kicker: 'At the till', title: 'Code ready to validate.', kind: 'red', at: 0.62, sx: 1500, sy: 320 },
-  { num: '05', kicker: 'Redemption confirmed', title: 'Voucher and branch recorded.', kind: 'green', at: 0.775, sx: 1500, sy: 505 },
+  { num: '01', kicker: 'Voucher ready', title: 'Terms set. Ready to submit.', kind: 'red', at: 0.2 },
+  { num: '02', kicker: 'Offer live', title: 'Visible on Redeemo.', kind: 'red', at: 0.345 },
+  { num: '03', kicker: 'Found nearby', title: 'A customer is viewing your voucher.', kind: 'amber', at: 0.42 },
+  { num: '04', kicker: 'At the till', title: 'Code ready to validate.', kind: 'red', at: 0.565 },
+  { num: '05', kicker: 'Redemption confirmed', title: 'Voucher and branch recorded.', kind: 'green', at: CONFIRM_AT + 0.012 },
 ]
 
-// ── Status cards (live HTML) ──────────────────────────────────────────────────
+// ── Journey route: five stops on a filling line over the map ─────────────────
 
-function StatusDot({ kind }: { kind: Status['kind'] }) {
-  if (kind === 'green') {
-    return (
-      <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#16A34A]/20">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      </span>
-    )
-  }
-  const c = kind === 'amber' ? '#FBBF24' : '#FF4B3E'
-  const glow = kind === 'amber' ? 'rgba(251,191,36,0.8)' : 'rgba(226,12,4,0.9)'
+const STOP_X = STATUSES.map((_, i) => ROUTE.x0 + ((ROUTE.x1 - ROUTE.x0) / (STATUSES.length - 1)) * i)
+
+function RouteStop({ status, x, jp }: { status: Status; x: number; jp: MotionValue<number> }) {
+  const lit = useScrollLinked(useTransform(jp, [status.at, status.at + 0.02], [0, 1]))
+  const dotScale = useScrollLinked(useTransform(jp, [status.at, status.at + 0.025], [1, 1.15]))
+  const kickerOp = useScrollLinked(useTransform(jp, [status.at, status.at + 0.02], [0.38, 1]))
+  const c = status.kind === 'green' ? '#4ADE80' : status.kind === 'amber' ? '#FBBF24' : '#FF4B3E'
+  const glow = status.kind === 'green' ? 'rgba(74,222,128,0.7)' : status.kind === 'amber' ? 'rgba(251,191,36,0.7)' : 'rgba(226,12,4,0.8)'
   return (
-    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center">
-      <span className="h-2 w-2 rounded-full animate-pulse" style={{ background: c, boxShadow: `0 0 10px ${glow}` }} />
-    </span>
+    <div style={{ position: 'absolute', left: x, top: ROUTE.y, width: 0 }}>
+      {/* Base dot (always visible, quiet) */}
+      <span
+        className="absolute block rounded-full"
+        style={{ left: -5, top: -5, width: 10, height: 10, border: '1.5px solid rgba(255,255,255,0.35)', background: '#0A1436' }}
+      />
+      {/* Lit dot */}
+      <motion.span
+        className="absolute block rounded-full"
+        style={{ left: -5, top: -5, width: 10, height: 10, background: c, boxShadow: `0 0 14px ${glow}`, opacity: lit, scale: dotScale }}
+      />
+      {/* Kicker under the stop */}
+      <motion.span
+        className="absolute block whitespace-nowrap text-center text-[10.5px] font-bold uppercase tracking-[0.14em]"
+        style={{ left: 0, top: 16, transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.85)', opacity: kickerOp }}
+      >
+        {status.kicker}
+      </motion.span>
+    </div>
   )
 }
 
-function StatusCard({ status }: { status: Status }) {
+// The active stop's locked line, one motion node per status (own component so
+// each hook call sits at a component top level).
+function RouteTitle({ status, next, jp }: { status: Status; next: number | null; jp: MotionValue<number> }) {
+  const opacity = useScrollLinked(
+    useTransform(jp, next === null ? [status.at, status.at + 0.02] : [status.at, status.at + 0.02, next, next + 0.02], next === null ? [0, 1] : [0, 1, 1, 0]),
+  )
+  return (
+    <motion.p
+      className="absolute inset-0 text-center text-[13.5px] font-semibold text-white"
+      style={{ opacity, textShadow: '0 2px 14px rgba(0,4,20,0.9)' }}
+    >
+      {status.title}
+    </motion.p>
+  )
+}
+
+function JourneyRoute({ jp }: { jp: MotionValue<number> }) {
+  const routeIn = useScrollLinked(useTransform(jp, [jf(34), jf(48)], [0, 1]))
+  // The line fills stop to stop as each status activates.
+  const fill = useScrollLinked(
+    useTransform(
+      jp,
+      STATUSES.map((s) => s.at),
+      STATUSES.map((_, i) => i / (STATUSES.length - 1)),
+    ),
+  )
+  return (
+    <motion.div style={{ opacity: routeIn }}>
+      {/* Base line + filling line */}
+      <div
+        style={{ position: 'absolute', left: ROUTE.x0, top: ROUTE.y - 1, width: ROUTE.x1 - ROUTE.x0, height: 2, background: 'rgba(255,255,255,0.14)', borderRadius: 2 }}
+      />
+      <motion.div
+        style={{
+          position: 'absolute',
+          left: ROUTE.x0,
+          top: ROUTE.y - 1,
+          width: ROUTE.x1 - ROUTE.x0,
+          height: 2,
+          borderRadius: 2,
+          background: 'linear-gradient(90deg, #E20C04, #FF6B3D)',
+          boxShadow: '0 0 12px rgba(226,12,4,0.55)',
+          scaleX: fill,
+          transformOrigin: '0 50%',
+        }}
+      />
+      {STATUSES.map((status, i) => (
+        <RouteStop key={status.num} status={status} x={STOP_X[i]} jp={jp} />
+      ))}
+      {/* The active stop's locked line, centred under the route */}
+      <div style={{ position: 'absolute', left: ROUTE.x0, top: ROUTE.y + 44, width: ROUTE.x1 - ROUTE.x0, height: 24 }}>
+        {STATUSES.map((status, i) => (
+          <RouteTitle key={status.num} status={status} next={i < STATUSES.length - 1 ? STATUSES[i + 1].at : null} jp={jp} />
+        ))}
+      </div>
+    </motion.div>
+  )
+}
+
+// ── Status chips (stacked layout) ─────────────────────────────────────────────
+
+function StatusChip({ status }: { status: Status }) {
+  const c = status.kind === 'green' ? '#4ADE80' : status.kind === 'amber' ? '#FBBF24' : '#FF4B3E'
+  const glow = status.kind === 'green' ? 'rgba(74,222,128,0.7)' : status.kind === 'amber' ? 'rgba(251,191,36,0.7)' : 'rgba(226,12,4,0.8)'
   return (
     <div
-      className={`flex items-start gap-3 rounded-2xl border px-4 py-3.5 backdrop-blur-md ${
-        status.kind === 'green' ? 'border-[#4ADE80]/30 bg-[#071426]/80' : 'border-white/14 bg-[#081130]/78'
-      }`}
+      className="flex items-start gap-3 rounded-2xl border border-white/14 bg-[#081130]/78 px-4 py-3.5 backdrop-blur-md"
       style={{ boxShadow: '0 24px 60px rgba(0,4,20,0.55), inset 0 1px 0 rgba(255,255,255,0.08)' }}
     >
-      <StatusDot kind={status.kind} />
+      <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center">
+        <span className="h-2 w-2 rounded-full" style={{ background: c, boxShadow: `0 0 10px ${glow}` }} />
+      </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">{status.kicker}</span>
         <span className="block text-[13.5px] font-bold leading-snug text-white">{status.title}</span>
@@ -183,26 +267,7 @@ function StatusCard({ status }: { status: Status }) {
   )
 }
 
-// Desktop: appears at its journey moment, then rests dimmed once the next
-// status takes over. Flat (no tilt): the camera is now front-on, and the
-// cards keep the scene's perspective coherent by matching it.
-function DesktopStatus({ status, next, m, jp }: { status: Status; next: number | null; m: { s: number; ox: number; oy: number }; jp: MotionValue<number> }) {
-  const opacity = useScrollLinked(
-    useTransform(jp, next === null ? [status.at, status.at + 0.025] : [status.at, status.at + 0.025, next, next + 0.025], next === null ? [0, 1] : [0, 1, 1, 0.55]),
-  )
-  const y = useScrollLinked(useTransform(jp, [status.at, status.at + 0.03], [16, 0]))
-  return (
-    <div className="pointer-events-none absolute z-10" style={{ left: m.ox + status.sx * m.s, top: m.oy + status.sy * m.s, width: 240 }}>
-      <div style={{ transform: 'translate(-50%, -50%)' }}>
-        <motion.div style={{ opacity, y }}>
-          <StatusCard status={status} />
-        </motion.div>
-      </div>
-    </div>
-  )
-}
-
-// ── Front-facing device cluster: laptop content under the punched cutout ─────
+// ── Front-facing device cluster ───────────────────────────────────────────────
 
 function ChapterImage({
   src,
@@ -222,24 +287,49 @@ function ChapterImage({
   )
 }
 
+// The app home feed, scroll-scrubbed: the hero's own assets (pinned header +
+// nav over a moving strip), rendered in an 800-wide design space scaled into
+// the phone's screen rect.
+function PhoneFeed({ opacity, feedY }: { opacity: MotionValue<number> | number; feedY: MotionValue<number> | number }) {
+  const s = J_PHONE.width / FEED.w
+  return (
+    <motion.div style={{ position: 'absolute', inset: 0, opacity, background: '#0A1030' }}>
+      <div style={{ position: 'absolute', left: 0, top: 0, width: FEED.w, height: PHONE_DESIGN_H, transform: `scale(${s})`, transformOrigin: '0 0' }}>
+        <motion.div style={{ position: 'absolute', left: 0, top: 0, width: FEED.w, height: FEED.stripH, y: feedY }}>
+          <Image src="/app-shots/journey/home-strip.jpg" alt="" fill sizes="260px" className="object-cover object-top" />
+        </motion.div>
+        <div style={{ position: 'absolute', left: 0, top: 0, width: FEED.w, height: FEED.headerH }}>
+          <Image src="/app-shots/journey/home-header.jpg" alt="" fill sizes="260px" className="object-cover" />
+        </div>
+        <div style={{ position: 'absolute', left: 0, bottom: 0, width: FEED.w, height: FEED.navH }}>
+          <Image src="/app-shots/journey/home-nav.jpg" alt="" fill sizes="260px" className="object-cover" />
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
 function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boolean }) {
-  const [s2, s3, s4] = [BEAT_START[1], BEAT_START[2], BEAT_START[3]]
-  const confirmAt = s4 + jf(38)
+  const [s1, s2, s3, s4] = BEAT_START
 
-  // Laptop chapters: builder through beats 1-3, then validate -> validated.
+  // Laptop: builder (pinned chrome + scrolling pane) -> validate -> validated.
   const builderOp = useScrollLinked(useTransform(jp, [s4, s4 + FADE], [1, 0]))
-  const validateOp = useScrollLinked(useTransform(jp, [s4, s4 + FADE, confirmAt, confirmAt + FADE], [0, 1, 1, 0]))
-  const validatedOp = useScrollLinked(useTransform(jp, [confirmAt, confirmAt + FADE], [0, 1]))
+  const validateOp = useScrollLinked(useTransform(jp, [s4, s4 + FADE, CONFIRM_AT, CONFIRM_AT + FADE], [0, 1, 1, 0]))
+  const validatedOp = useScrollLinked(useTransform(jp, [CONFIRM_AT, CONFIRM_AT + FADE], [0, 1]))
+  const paneY = useScrollLinked(useTransform(jp, [s1 + jf(6), s2 - jf(8)], [0, -PANE_TRAVEL]))
 
-  // Phone chapters: preview -> discovery home -> code -> customer success.
+  // Phone: customer preview -> home feed scroll -> code -> customer success.
   const previewOp = useScrollLinked(useTransform(jp, [s2, s2 + FADE], [1, 0]))
-  const homeOp = useScrollLinked(useTransform(jp, [s2, s2 + FADE, s3, s3 + FADE], [0, 1, 1, 0]))
-  const codeOp = useScrollLinked(useTransform(jp, [s3, s3 + FADE, confirmAt, confirmAt + FADE], [0, 1, 1, 0]))
-  const successOp = useScrollLinked(useTransform(jp, [confirmAt, confirmAt + FADE], [0, 1]))
+  const feedOp = useScrollLinked(useTransform(jp, [s2, s2 + FADE, s3, s3 + FADE], [0, 1, 1, 0]))
+  const feedY = useScrollLinked(useTransform(jp, [s2 + jf(4), s3 - jf(6)], [0, -FEED_TRAVEL2]))
+  const codeOp = useScrollLinked(useTransform(jp, [s3, s3 + FADE, CONFIRM_AT, CONFIRM_AT + FADE], [0, 1, 1, 0]))
+  const successOp = useScrollLinked(useTransform(jp, [CONFIRM_AT, CONFIRM_AT + FADE], [0, 1]))
 
-  // Focus: the inactive device rests behind a light navy veil.
+  // Focus: the resting device sits behind a light navy veil.
   const laptopVeil = useScrollLinked(useTransform(jp, [s2, s2 + FADE, s4, s4 + FADE], [0, 0.42, 0.42, 0]))
   const phoneVeil = useScrollLinked(useTransform(jp, [s4, s4 + FADE], [0, 0.3]))
+
+  const laptopScale = J_LAPTOP.width / BUILDER.w
 
   return (
     <div aria-hidden="true" style={{ position: 'relative', width: J_BOX.w, height: J_BOX.h }}>
@@ -280,7 +370,27 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
           background: PORTAL_BG,
         }}
       >
-        <ChapterImage src="/for-businesses/journey/journey-builder.webp" opacity={builderOp} eager />
+        {/* Builder in its own 1440x911 design space: full chrome pinned, the
+            content pane scrolls behind it during beat 01 */}
+        <motion.div style={{ position: 'absolute', left: 0, top: 0, width: BUILDER.w, height: BUILDER.h, transform: `scale(${laptopScale})`, transformOrigin: '0 0', opacity: builderOp, background: PORTAL_BG }}>
+          <div
+            style={{
+              position: 'absolute',
+              left: BUILDER.paneLeft,
+              top: BUILDER.paneTop,
+              width: BUILDER.w - BUILDER.paneLeft,
+              height: BUILDER.h - BUILDER.paneTop,
+              overflow: 'hidden',
+              background: PORTAL_BG,
+            }}
+          >
+            <motion.div style={{ position: 'absolute', left: 0, top: 0, width: BUILDER.w - BUILDER.paneLeft, height: BUILDER_STRIP_H, y: paneY }}>
+              <Image src="/for-businesses/journey/journey-builder-strip.webp" alt="" fill sizes="540px" className="object-cover object-top" />
+            </motion.div>
+          </div>
+          <Image src="/for-businesses/journey/journey-builder.webp" alt="" fill sizes="540px" className="object-cover object-top" style={{ clipPath: `polygon(0 0, 100% 0, 100% ${BUILDER.paneTop}px, ${BUILDER.paneLeft}px ${BUILDER.paneTop}px, ${BUILDER.paneLeft}px 100%, 0 100%)` }} />
+        </motion.div>
+
         {armed ? <ChapterImage src="/for-businesses/journey/journey-validate.webp" opacity={validateOp} /> : null}
         {armed ? <ChapterImage src="/for-businesses/journey/journey-validated.webp" opacity={validatedOp} /> : null}
         <motion.div style={{ position: 'absolute', inset: 0, background: '#010C35', opacity: laptopVeil }} />
@@ -317,7 +427,7 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
         }}
       >
         <ChapterImage src="/for-businesses/journey/journey-phone-preview.webp" opacity={previewOp} eager sizes="220px" />
-        {armed ? <ChapterImage src="/for-businesses/journey/journey-phone-home.webp" opacity={homeOp} sizes="220px" /> : null}
+        <PhoneFeed opacity={feedOp} feedY={feedY} />
         {armed ? <ChapterImage src="/for-businesses/journey/journey-phone-code.webp" opacity={codeOp} sizes="220px" /> : null}
         {armed ? <ChapterImage src="/for-businesses/journey/journey-phone-success.webp" opacity={successOp} sizes="220px" /> : null}
         <motion.div style={{ position: 'absolute', inset: 0, background: '#010C35', opacity: phoneVeil }} />
@@ -348,8 +458,8 @@ function BeatBlock({ beat }: { beat: Beat }) {
 }
 
 function JourneyCopyColumn({ jp }: { jp: MotionValue<number> }) {
-  const headerOp = useScrollLinked(useTransform(jp, [jf(32), jf(46)], [0, 1]))
-  const headerY = useScrollLinked(useTransform(jp, [jf(32), jf(46)], [22, 0]))
+  const headerOp = useScrollLinked(useTransform(jp, [jf(26), jf(40)], [0, 1]))
+  const headerY = useScrollLinked(useTransform(jp, [jf(26), jf(40)], [22, 0]))
 
   const beatOps = BEATS.map((_, i) => {
     const s = BEAT_START[i]
@@ -421,19 +531,19 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
   const heroP = useTransform(p, [0, F_HERO], [0, 1])
   const jp = useTransform(p, [F_HERO, 1], [0, 1])
 
-  // The hero scene dissolves into the map plate FIRST (the journey's angled
-  // replica sits glued over the hero cluster during the fade); only once the
-  // hero is gone does the replica travel and turn. Sequencing the two avoids
-  // a double image of the devices mid-dissolve.
-  const heroOpacity = useScrollLinked(useTransform(jp, [jf(2), jf(14)], [1, 0]))
+  // Arrival: the whole hero plate dissolves and pulls back (no device
+  // flight); the map plate settles beneath; the front pair turns into place
+  // where it stands.
+  const heroOpacity = useScrollLinked(useTransform(jp, [jf(2), jf(13)], [1, 0]))
+  const heroPull = useScrollLinked(useTransform(jp, [0, jf(13)], [1, 0.985]))
   // Visibility tracks the opacity value itself so the hero's CTA can never
   // sit invisible-but-focusable over the journey, whatever the scroll state.
   const heroVisibility = useTransform(heroOpacity, (v) => (v < 0.02 ? 'hidden' : 'visible'))
   const [heroGone, setHeroGone] = useState(false)
-  useMotionValueEvent(jp, 'change', (v) => setHeroGone(v > jf(15)))
+  useMotionValueEvent(jp, 'change', (v) => setHeroGone(v > jf(14)))
 
   // Mount later journey chapters once the visitor starts moving (keeps them
-  // out of the first-paint payload; they load ~70svh before they are seen).
+  // out of the first-paint payload; they load well before they are seen).
   const [armed, setArmed] = useState(false)
   useMotionValueEvent(p, 'change', (v) => {
     if (v > 0.03) setArmed(true)
@@ -444,36 +554,25 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
   // stay unmounted and the screens sit blank until the first scroll).
   useEffect(() => {
     if (p.get() > 0.03) setArmed(true)
-    setHeroGone(jp.get() > jf(15))
+    setHeroGone(jp.get() > jf(14))
   }, [p, jp])
 
-  // Camera settle: the hero hands over at its 1.04 end scale; the journey
-  // stage starts there and eases back to 1 as the devices turn.
-  const settle = useScrollLinked(useTransform(jp, [0, jf(42)], [1.04, 1]))
+  const mapScale = useScrollLinked(useTransform(jp, [0, jf(44)], [1.05, 1]))
 
-  // Angled cluster travel: from the hero placement toward the front cluster's
-  // centre, turning as it goes, then handing off to the front-facing cutout.
-  const angledX = useScrollLinked(useTransform(jp, [jf(14), jf(36)], [CLUSTER_DESKTOP.x, FRONT_CX - (1268 * ANGLED_END_S) / 2]))
-  const angledY = useScrollLinked(useTransform(jp, [jf(14), jf(36)], [CLUSTER_DESKTOP.y, FRONT_CY - (763 * ANGLED_END_S) / 2]))
-  const angledS = useScrollLinked(useTransform(jp, [jf(14), jf(36)], [CLUSTER_DESKTOP.s, ANGLED_END_S]))
-  const angledRot = useScrollLinked(useTransform(jp, [jf(14), jf(36)], [0, 13]))
-  const angledOp = useScrollLinked(useTransform(jp, [jf(30), jf(40)], [1, 0]))
-
-  const frontX = useScrollLinked(useTransform(jp, [jf(22), jf(46)], [J_PLACE.x + 26, J_PLACE.x]))
-  const frontY = useScrollLinked(useTransform(jp, [jf(22), jf(46)], [J_PLACE.y + 40, J_PLACE.y]))
-  const frontS = useScrollLinked(useTransform(jp, [jf(22), jf(46)], [J_PLACE.s * 0.94, J_PLACE.s]))
-  const frontRot = useScrollLinked(useTransform(jp, [jf(22), jf(46)], [-11, 0]))
-  const frontOp = useScrollLinked(useTransform(jp, [jf(30), jf(40)], [0, 1]))
+  const frontOp = useScrollLinked(useTransform(jp, [jf(10), jf(24)], [0, 1]))
+  const frontRot = useScrollLinked(useTransform(jp, [jf(10), jf(36)], [-15, 0]))
+  const frontScale = useScrollLinked(useTransform(jp, [jf(10), jf(36)], [1.06, 1]))
+  const frontY = useScrollLinked(useTransform(jp, [jf(10), jf(36)], [26, 0]))
 
   // Journey scrim + map pin pulses (pulses live during the discovery beat)
-  const journeyScrim = useScrollLinked(useTransform(jp, [0, jf(14)], [0, 1]))
+  const journeyScrim = useScrollLinked(useTransform(jp, [0, jf(13)], [0, 1]))
   const pulseOp = useScrollLinked(useTransform(jp, [BEAT_START[1], BEAT_START[1] + jf(8), BEAT_START[2], BEAT_START[2] + jf(8)], [0, 1, 1, 0]))
 
   return (
     <section ref={bandRef} className="relative -mt-[80px]" style={{ height: `${TOTAL_SCROLL + 100}svh`, background: '#010C35' }}>
       <div className="sticky top-0 h-[100svh] overflow-hidden">
         {/* ── Journey backdrop: the map plate, revealed as the hero dissolves ── */}
-        <motion.div ref={stageRef} aria-hidden="true" className="absolute inset-0" style={{ scale: settle, transformOrigin: '50% 42%' }}>
+        <motion.div ref={stageRef} aria-hidden="true" className="absolute inset-0" style={{ scale: mapScale, transformOrigin: '50% 42%' }}>
           {/* Needed at the seam (~75svh in) but hidden behind the hero at
               first paint: eager so it fetches immediately, NOT priority so
               it never contends with the hero's LCP image. */}
@@ -509,16 +608,16 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
           ) : null}
         </motion.div>
 
-        {/* ── The approved hero, re-hosted unchanged; fades into the journey ── */}
-        <motion.div className="absolute inset-0" style={{ opacity: heroOpacity, visibility: heroVisibility }}>
+        {/* ── The approved hero, re-hosted unchanged; dissolves into the journey ── */}
+        <motion.div className="absolute inset-0" style={{ opacity: heroOpacity, scale: heroPull, transformOrigin: '50% 45%', visibility: heroVisibility }}>
           <HeroStage registerUrl={registerUrl} progress={heroP} seamless embersOn={!heroGone} />
         </motion.div>
 
         {/* ── Journey scrim (identical gradient to the hero's) ── */}
         <motion.div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ background: SCRIM, opacity: journeyScrim }} />
 
-        {/* ── Device clusters: angled replica hands off to the front cutout ── */}
-        <motion.div aria-hidden="true" className="absolute inset-0" style={{ scale: settle, transformOrigin: '50% 42%' }}>
+        {/* ── Devices + journey route in stage space ── */}
+        <div aria-hidden="true" className="absolute inset-0">
           {m ? (
             <div
               style={{
@@ -532,34 +631,40 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
                 perspective: 1400,
               }}
             >
-              {/* Angled cluster at the hero's exact end state (builder up,
-                  feed at rest); mounts over the hero's own cluster so the
-                  takeover is invisible, then travels and turns. */}
+              {/* Soft light pooling behind the devices so they lift off the map */}
               <motion.div
-                style={{ position: 'absolute', left: 0, top: 0, x: angledX, y: angledY, scale: angledS, rotateY: angledRot, opacity: angledOp, transformOrigin: '0 0' }}
+                style={{
+                  position: 'absolute',
+                  left: J_PLACE.x - 60,
+                  top: J_PLACE.y - 40,
+                  width: J_BOX.w * J_PLACE.s + 120,
+                  height: J_BOX.h * J_PLACE.s + 90,
+                  background: 'radial-gradient(closest-side, rgba(90,120,220,0.14), transparent 74%)',
+                  opacity: frontOp,
+                }}
+              />
+              <motion.div
+                style={{
+                  position: 'absolute',
+                  left: J_PLACE.x,
+                  top: J_PLACE.y,
+                  width: J_BOX.w * J_PLACE.s,
+                  height: J_BOX.h * J_PLACE.s,
+                  opacity: frontOp,
+                  rotateY: frontRot,
+                  scale: frontScale,
+                  y: frontY,
+                  transformOrigin: '50% 60%',
+                }}
               >
-                <div style={{ position: 'relative', width: 1268, height: 763 }}>
-                  <DeviceCluster placement={{ x: 0, y: 0, s: 1 }} feedY={-FEED_TRAVEL} stripY={-(PANE_STRIP_H - PANE.height)} dashOp={0} insightOp={0} builderOp={1} />
+                <div style={{ transform: `scale(${J_PLACE.s})`, transformOrigin: '0 0' }}>
+                  <FrontDeviceCluster jp={jp} armed={armed} />
                 </div>
               </motion.div>
 
-              {/* Front-facing cluster settles in as the turn completes */}
-              <motion.div
-                style={{ position: 'absolute', left: 0, top: 0, x: frontX, y: frontY, scale: frontS, rotateY: frontRot, opacity: frontOp, transformOrigin: '0 0' }}
-              >
-                <FrontDeviceCluster jp={jp} armed={armed} />
-              </motion.div>
+              <JourneyRoute jp={jp} />
             </div>
           ) : null}
-        </motion.div>
-
-        {/* ── Status rail (decorative; the beats carry the story for AT) ── */}
-        <div aria-hidden="true">
-          {m
-            ? STATUSES.map((status, i) => (
-                <DesktopStatus key={status.num} status={status} next={i < STATUSES.length - 1 ? STATUSES[i + 1].at : null} m={m} jp={jp} />
-              ))
-            : null}
         </div>
 
         {/* ── Copy column ── */}
@@ -636,7 +741,7 @@ export function JourneyStacked() {
 
               <div aria-hidden="true" className="mx-auto mt-5 flex max-w-[440px] flex-col gap-3">
                 {SCENE_STATUSES[i].map((si) => (
-                  <StatusCard key={STATUSES[si].num} status={STATUSES[si]} />
+                  <StatusChip key={STATUSES[si].num} status={STATUSES[si]} />
                 ))}
               </div>
             </motion.div>
