@@ -690,7 +690,7 @@ export function PortalSection() {
   useEffect(() => {
     const el = windowWrapRef.current
     if (!el) return
-    const measure = () => setScale(Math.min(1, el.clientWidth / SHELL_W, (window.innerHeight - 330) / SHELL_H))
+    const measure = () => setScale(Math.min(1, el.clientWidth / SHELL_W, (window.innerHeight - 370) / SHELL_H))
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
@@ -763,7 +763,7 @@ export function PortalSection() {
             One place to manage it all.
           </h2>
           <p className="max-w-[620px] text-[15.5px] leading-[1.65] text-white/60">
-            Your entire Redeemo presence, managed from one clean portal: profile and branches, staff access, vouchers, redemptions and live insights.
+            Your control room on Redeemo: shape what customers see, give your team the right access, and watch real results come back.
           </p>
           <div className="mt-6 flex flex-wrap gap-2.5">
             {REASSURANCE.map((r) => (
@@ -792,22 +792,20 @@ export function PortalSection() {
           }}
         />
         {/* Compact header shares the pinned screen */}
-        <div className="mb-6">
-          <p className="mb-2.5 flex items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
+        <div className="mb-9">
+          <p className="mb-3 flex items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
             <span className="h-[2px] w-6 bg-[#E20C04]" aria-hidden="true" />
             The merchant portal
           </p>
-          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
-            <h2 className="font-display leading-[1.08] text-white" style={{ fontSize: 'clamp(26px, 2.6vw, 36px)', letterSpacing: '-0.5px' }}>
-              One place to manage it all.
-            </h2>
-            <p className="max-w-[560px] text-[14px] leading-snug text-white/60">
-              Profile and branches, staff access, vouchers, redemptions and live insights.
-            </p>
-          </div>
-          <div className="mt-3.5 flex flex-wrap gap-2">
+          <h2 className="font-display mb-3 leading-[1.08] text-white" style={{ fontSize: 'clamp(28px, 3vw, 40px)', letterSpacing: '-0.5px' }}>
+            One place to manage it all.
+          </h2>
+          <p className="mb-5 max-w-[600px] text-[14.5px] leading-[1.6] text-white/60">
+            Your control room on Redeemo: shape what customers see, give your team the right access, and watch real results come back.
+          </p>
+          <div className="flex flex-wrap gap-2.5">
             {REASSURANCE.map((r) => (
-              <span key={r} className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.06] px-3 py-1 text-[12px] font-semibold text-white/75">
+              <span key={r} className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.06] px-3.5 py-1.5 text-[12px] font-semibold text-white/75">
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
@@ -886,7 +884,13 @@ export function PortalSection() {
             className="relative min-w-0 flex-1"
           >
             <div ref={windowWrapRef} onPointerMove={onWindowPointer} className="relative">
-              <div style={{ width: SHELL_W * scale, height: SHELL_H * scale }}>
+              <div
+                style={{
+                  width: SHELL_W * scale,
+                  height: SHELL_H * scale,
+                  WebkitBoxReflect: 'below 16px linear-gradient(transparent 74%, rgba(255,255,255,0.09))',
+                }}
+              >
                 <div style={{ transform: `scale(${scale})`, transformOrigin: '0 0', width: SHELL_W, height: SHELL_H }}>
                   <PortalWindow active={active} onPick={pick} scrub={scrub} navRefs={navRefs} />
                 </div>
