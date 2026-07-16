@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { motion, useMotionValue, useReducedMotion, useSpring, useTransform, type MotionValue } from 'framer-motion'
+import { motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 
 /**
@@ -627,10 +627,34 @@ function PortalWindow({ active, onPick, scrub, navRefs }: { active: string; onPi
 
 // ── The section ───────────────────────────────────────────────────────────────
 
+// Each screen owns this much page scroll while the tour is pinned.
+const TOUR_STEP_SVH = 46
+
 export function PortalSection() {
   const [active, setActive] = useState('home')
   const reduceMotion = useReducedMotion()
   const stageRef = useRef<HTMLDivElement>(null)
+  const tourRef = useRef<HTMLDivElement>(null)
+
+  // The pinned tour: page scroll steps through the six screens, so nobody
+  // needs to discover the sidebar to see them all. A sidebar click takes
+  // over until the visitor scrolls to a different step, then scroll resumes.
+  const { scrollYProgress: tourP } = useScroll({ target: tourRef, offset: ['start start', 'end end'] })
+  const manualHold = useRef<number | null>(null)
+  useMotionValueEvent(tourP, 'change', (v) => {
+    const idx = Math.min(SCREENS.length - 1, Math.max(0, Math.floor(v * SCREENS.length)))
+    if (manualHold.current !== null) {
+      if (manualHold.current === idx) return
+      manualHold.current = null
+    }
+    const key = SCREENS[idx].key
+    setActive((prev) => (prev === key ? prev : key))
+  })
+  const pick = (k: string) => {
+    const v = tourP.get()
+    manualHold.current = Math.min(SCREENS.length - 1, Math.max(0, Math.floor(v * SCREENS.length)))
+    setActive(k)
+  }
   const windowWrapRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const navRefs = useRef<Record<string, HTMLButtonElement | null>>({})
@@ -730,8 +754,10 @@ export function PortalSection() {
           </div>
         </motion.div>
 
-        {/* Stage: blurb rail + the portal window, straight-on (desktop) */}
-        <div ref={stageRef} className="relative mt-12 hidden items-center gap-9 lg:flex">
+        {/* Stage: pinned tour; scroll steps the screens, clicks still work */}
+        <div ref={tourRef} className="hidden lg:block" style={{ height: `calc(100svh + ${SCREENS.length * TOUR_STEP_SVH}svh)` }}>
+        <div className="sticky top-0 flex h-[100svh] items-center">
+        <div ref={stageRef} className="relative flex w-full items-center gap-9">
           {/* The red thread from the card to the active sidebar item */}
           {link ? (
             <svg aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible">
@@ -818,11 +844,13 @@ export function PortalSection() {
                 }}
               >
                 <div style={{ transform: `scale(${scale})`, transformOrigin: '0 0', width: SHELL_W, height: SHELL_H }}>
-                  <PortalWindow active={active} onPick={setActive} scrub={scrub} navRefs={navRefs} />
+                  <PortalWindow active={active} onPick={pick} scrub={scrub} navRefs={navRefs} />
                 </div>
               </div>
             </div>
           </motion.div>
+        </div>
+        </div>
         </div>
 
         {/* Mobile / tablet: pill switcher + content-pane window */}

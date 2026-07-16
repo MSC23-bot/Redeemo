@@ -336,19 +336,26 @@ function FootfallViz() {
 function RetentionViz() {
   return (
     <div className="relative h-full w-full overflow-hidden" style={{ background: 'linear-gradient(150deg, #EAF7EF, #DCF2E5)' }}>
-      <svg className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" width="110" height="110" viewBox="0 0 110 110" fill="none" aria-hidden="true">
-        <circle cx="55" cy="55" r="40" stroke="rgba(22,163,74,0.18)" strokeWidth="7" />
-        <path
-          className="favour-loop"
-          d="M55 15 a40 40 0 1 1 -28.28 11.72"
-          stroke="#16A34A"
-          strokeWidth="7"
-          strokeLinecap="round"
-          fill="none"
-          strokeDasharray="251"
-        />
-        <path d="M18 34 L27 26 L30 38" stroke="#16A34A" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </svg>
+      <div className="absolute left-1/2 top-1/2 h-[110px] w-[110px] -translate-x-1/2 -translate-y-1/2" aria-hidden="true">
+        <svg className="absolute inset-0" width="110" height="110" viewBox="0 0 110 110" fill="none">
+          <circle cx="55" cy="55" r="40" stroke="rgba(22,163,74,0.18)" strokeWidth="7" />
+          <path
+            className="favour-loop"
+            d="M55 15 a40 40 0 1 1 -28.28 11.72"
+            stroke="#16A34A"
+            strokeWidth="7"
+            strokeLinecap="round"
+            fill="none"
+            strokeDasharray="251"
+          />
+        </svg>
+        {/* The arrowhead rides the drawing tip (same path, same timing) */}
+        <span className="favour-loop-arrow absolute left-0 top-0">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: 'translate(-8px, -8px)' }}>
+            <path d="M3 12 L13 8 L5 2" stroke="#16A34A" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" transform="rotate(24 8 8)" />
+          </svg>
+        </span>
+      </div>
       <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-display text-[15px] text-[#166534]">3rd visit</span>
       <span className="absolute bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-[#166534] shadow-sm">
         Coming back this month
@@ -1423,19 +1430,23 @@ function MarginReceipt() {
 
 export function FavourSection() {
   return (
-    <section className="relative -mt-[70px]" style={{ background: 'transparent' }}>
-      {/* Seam: the cream sheet sweeps up over the cinema's night scene
-          (night to daylight), a broad curve rather than a hard edge */}
-      <svg aria-hidden="true" className="block h-[90px] w-full md:h-[110px]" viewBox="0 0 1440 110" preserveAspectRatio="none">
-        <path d="M0,110 C 480,0 960,0 1440,110 Z" fill={CREAM} />
-      </svg>
-      <div className="relative" style={{ background: CREAM }}>
-        {/* Sunrise glow at the crest of the curve */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -top-[90px] left-0 right-0 h-[260px]"
-          style={{ background: 'radial-gradient(620px 200px at 50% 40px, rgba(232,74,0,0.1), transparent 70%)' }}
-        />
+    <section className="relative -mt-10 overflow-hidden rounded-t-[44px]" style={{ background: '#FFF7F2' }}>
+      {/* Owner plate (2026-07-17): embossed ticket marks on a warm wash.
+          Fixed-attachment cover keeps the wash viewport-sized and calm (a
+          stretch over the full section drowned the content); below lg the
+          section stays plain warm cream (iOS ignores fixed attachment). */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 hidden lg:block"
+        style={{
+          backgroundImage: 'url(/for-businesses/favour-bg.webp)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center 30%',
+          backgroundAttachment: 'fixed',
+        }}
+      />
+      <div aria-hidden="true" className="absolute inset-0 hidden lg:block" style={{ background: 'rgba(255,249,245,0.35)' }} />
+      <div className="relative">
 
       <style>{`
         .favour-radar-sweep { animation: favourSweep 5.2s linear infinite; }
@@ -1444,6 +1455,8 @@ export function FavourSection() {
         @keyframes favourStep { 0% { opacity: 0; } 18% { opacity: 1; } 48% { opacity: 1; } 70% { opacity: 0; } 100% { opacity: 0; } }
         .favour-loop { stroke-dashoffset: 251; animation: favourLoop 3.4s ease-in-out infinite; }
         @keyframes favourLoop { 0% { stroke-dashoffset: 251; } 55% { stroke-dashoffset: 40; } 100% { stroke-dashoffset: 40; } }
+        .favour-loop-arrow { offset-path: path('M55 15 a40 40 0 1 1 -28.28 11.72'); offset-rotate: auto; animation: favourLoopArrow 3.4s ease-in-out infinite; }
+        @keyframes favourLoopArrow { 0% { offset-distance: 0%; } 55% { offset-distance: 100%; } 100% { offset-distance: 100%; } }
         .favour-shimmer { background: linear-gradient(105deg, transparent 38%, rgba(255,255,255,0.28) 50%, transparent 62%); animation: favourShimmer 3.2s ease-in-out infinite; }
         @keyframes favourShimmer { 0% { transform: translateX(-100%); } 60% { transform: translateX(100%); } 100% { transform: translateX(100%); } }
         .favour-rail { scrollbar-width: none; }
@@ -1451,7 +1464,8 @@ export function FavourSection() {
         .favour-spin { animation: favourSpin 3.6s linear infinite; }
         @keyframes favourSpin { to { transform: rotate(360deg); } }
         @media (prefers-reduced-motion: reduce) {
-          .favour-radar-sweep, .favour-step, .favour-loop, .favour-shimmer, .favour-spin { animation: none; }
+          .favour-radar-sweep, .favour-step, .favour-loop, .favour-shimmer, .favour-spin, .favour-loop-arrow { animation: none; }
+          .favour-loop-arrow { offset-distance: 100%; }
           .favour-step { opacity: 1; }
           .favour-loop { stroke-dashoffset: 40; }
         }
