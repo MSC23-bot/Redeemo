@@ -1,6 +1,6 @@
 'use client'
 
-import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
+import { motion, useMotionValue, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { BrandStop } from '@/components/ui/BrandStop'
 import { Motif } from '@/components/landing/VoucherTypesRail'
@@ -1012,13 +1012,15 @@ function VoucherTicket({ kind, index, sweep = false }: { kind: VoucherKind; inde
         <p className="text-[13.5px] leading-[1.65]" style={{ color: INK }}>
           {kind.body}
         </p>
-        <div className="mt-4">
+        {/* The working parts breathe in the remaining space, so shorter
+            interiors never pool empty space above the foot */}
+        <div className="flex flex-1 flex-col justify-center py-4">
           <Extras accent={kind.accent} />
         </div>
         {/* Blind-embossed foot, like pressed card stock */}
         <p
           aria-hidden="true"
-          className="mt-auto pt-4 text-center text-[9px] font-bold uppercase tracking-[0.3em] select-none"
+          className="pt-2 text-center text-[9px] font-bold uppercase tracking-[0.3em] select-none"
           style={{ color: 'rgba(1,12,53,0.1)', textShadow: '0 1px 0 rgba(255,255,255,0.9)' }}
         >
           Redeemo · Member voucher
@@ -1061,31 +1063,46 @@ function VoucherSweep() {
   }, [])
 
   const { scrollYProgress } = useScroll({ target: wrapRef, offset: ['start start', 'end end'] })
-  const x = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.96], [0, -travel]))
-  const leftFade = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.12], [0, 1]))
-  const rightFade = useScrollLinked(useTransform(scrollYProgress, [0.88, 0.96], [1, 0]))
-  const barScale = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.96], [0, 1]))
+  const sweepX = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.96], [0, -travel]))
+  // Scroll drives the sweep; a drag offset lets visitors pull the row
+  // themselves. The combined position is clamped to the row's real bounds.
+  const dragX = useMotionValue(0)
+  const x = useTransform([sweepX, dragX] as const, ([a, b]: number[]) => Math.max(-travel, Math.min(0, a + b)))
+  const prog = useTransform(x, (v) => (travel > 0 ? Math.min(1, Math.max(0, -v / travel)) : 0))
+  const leftFade = useTransform(prog, [0, 0.04], [0, 1])
+  const rightFade = useTransform(prog, [0.96, 1], [1, 0])
 
   return (
-    <div ref={wrapRef} style={{ height: `calc(100svh + ${travel + 240}px)` }}>
+    <div ref={wrapRef} style={{ height: `calc(100svh + ${travel + 120}px)` }}>
       <div className="sticky top-0 flex h-[100svh] flex-col justify-center overflow-hidden">
         <VoucherShowcaseHeader />
         <div className="relative">
           <motion.div aria-hidden="true" className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 w-12" style={{ background: `linear-gradient(90deg, ${CREAM}, transparent)`, opacity: leftFade }} />
           <motion.div aria-hidden="true" className="pointer-events-none absolute bottom-0 right-0 top-0 z-10 w-12" style={{ background: `linear-gradient(270deg, ${CREAM}, transparent)`, opacity: rightFade }} />
-          <motion.ul ref={rowRef} className="flex w-max items-stretch gap-5 pb-4 pt-2" style={{ x }} aria-label="The seven voucher types">
+          <motion.ul
+            ref={rowRef}
+            className="flex w-max cursor-grab items-stretch gap-5 pb-4 pt-2 active:cursor-grabbing"
+            style={{ x }}
+            drag="x"
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={0}
+            dragMomentum={false}
+            onDrag={(_, info) => dragX.set(dragX.get() + info.delta.x)}
+            aria-label="The seven voucher types"
+          >
             {VOUCHER_KINDS.map((kind, i) => (
               <VoucherTicket key={kind.key} kind={kind} index={i} sweep />
             ))}
           </motion.ul>
         </div>
-        {/* The sweep's own progress bar fills with the page scroll */}
-        <div className="mt-3 h-[4px] max-w-[420px] overflow-hidden rounded-full" style={{ background: 'rgba(1,12,53,0.08)' }} aria-hidden="true">
-          <motion.span className="block h-full origin-left rounded-full" style={{ scaleX: barScale, background: 'var(--brand-gradient)' }} />
+        {/* Full-width progress bar: the shadowed track says there is more */}
+        <div
+          className="mt-4 h-[5px] overflow-hidden rounded-full"
+          style={{ background: 'rgba(1,12,53,0.08)', boxShadow: 'inset 0 1px 2.5px rgba(1,12,53,0.16)' }}
+          aria-hidden="true"
+        >
+          <motion.span className="block h-full origin-left rounded-full" style={{ scaleX: prog, background: 'var(--brand-gradient)', boxShadow: '0 1px 4px rgba(226,12,4,0.35)' }} />
         </div>
-        <motion.p className="mt-2.5 text-[11.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'rgba(1,12,53,0.35)', opacity: rightFade }}>
-          Keep scrolling: all seven sweep past
-        </motion.p>
       </div>
     </div>
   )
@@ -1164,8 +1181,53 @@ function VoucherRail() {
   )
 }
 
-// Unlimited vouchers, protected redemptions (owner 2026-07-16): the fair-use
-// promise attached to the showcase itself.
+// Fair-use block (owner 2026-07-16 round 2): three digestible tiles; no
+// "unlimited" framing (it reads as misleading; see the consumer-side rule on
+// the same word).
+const FAIR_POINTS = [
+  {
+    icon: 'stack' as const,
+    lead: 'As many vouchers as you need.',
+    body: 'You decide how many offers you run, what they say and what they give.',
+  },
+  {
+    icon: 'shield' as const,
+    lead: 'One redemption per customer, per cycle.',
+    body: 'Each voucher works once per customer in their monthly cycle, then renews: a fresh reason to return, never a loophole.',
+  },
+  {
+    icon: 'refresh' as const,
+    lead: 'Reusable, on your terms.',
+    body: 'Reusable vouchers come back on the frequency you choose: weekly, fortnightly or monthly.',
+  },
+]
+
+function FairIcon({ kind }: { kind: 'stack' | 'shield' | 'refresh' }) {
+  if (kind === 'stack') {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E20C04" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="4" y="13" width="16" height="7" rx="2" />
+        <path d="M6 13v-3a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v3" />
+        <path d="M8 8V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      </svg>
+    )
+  }
+  if (kind === 'shield') {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E20C04" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z" />
+        <polyline points="9 12 11 14 15 10" />
+      </svg>
+    )
+  }
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E20C04" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+      <path d="M21 12a9 9 0 1 1-3-6.7" />
+      <path d="M21 3v6h-6" />
+    </svg>
+  )
+}
+
 function VoucherFairnessNote() {
   return (
     <motion.div
@@ -1173,24 +1235,25 @@ function VoucherFairnessNote() {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: '-50px' }}
       transition={{ duration: 0.5, ease: EASE }}
-      className="mt-10 flex flex-col gap-4 rounded-2xl border bg-white p-6 sm:flex-row sm:items-start sm:gap-5 md:p-7"
-      style={{ borderColor: '#EFE7DD', boxShadow: '0 14px 36px rgba(1,12,53,0.06)' }}
+      className="mt-8"
     >
-      <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: 'rgba(226,12,4,0.08)' }} aria-hidden="true">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E20C04" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z" />
-          <polyline points="9 12 11 14 15 10" />
-        </svg>
-      </span>
-      <div>
-        <h4 className="font-display mb-2 text-[19px] font-semibold leading-snug" style={{ color: NAVY, letterSpacing: '-0.2px' }}>
-          Unlimited vouchers. Protected redemptions.
-        </h4>
-        <p className="max-w-[720px] text-[14.5px] leading-[1.7]" style={{ color: INK }}>
-          Create as many vouchers as your business needs. Each standard voucher can be redeemed once per customer during their monthly cycle, then it renews:
-          nobody can use the same voucher again and again in the same month, and every renewal is a fresh reason to come back. Reusable vouchers follow the
-          frequency you set. Generous to your customers, safe for your margin.
-        </p>
+      <h4 className="font-display mb-5 text-[20px] font-semibold leading-snug" style={{ color: NAVY, letterSpacing: '-0.2px' }}>
+        Generous to customers. Protected for you.
+      </h4>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {FAIR_POINTS.map((pt) => (
+          <div key={pt.icon} className="rounded-2xl border bg-white p-5" style={{ borderColor: '#EFE7DD', boxShadow: '0 10px 28px rgba(1,12,53,0.05)' }}>
+            <span className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg" style={{ background: 'rgba(226,12,4,0.08)' }} aria-hidden="true">
+              <FairIcon kind={pt.icon} />
+            </span>
+            <p className="mb-1.5 text-[14.5px] font-bold leading-snug" style={{ color: NAVY }}>
+              {pt.lead}
+            </p>
+            <p className="text-[13px] leading-[1.65]" style={{ color: INK }}>
+              {pt.body}
+            </p>
+          </div>
+        ))}
       </div>
     </motion.div>
   )
@@ -1376,13 +1439,13 @@ export function FavourSection() {
           <MarketingConsole />
         </div>
 
-        {/* C · Voucher types */}
-        <div className="mt-20 md:mt-28">
+        {/* C · Voucher types (tighter: the pinned sweep carries its own air) */}
+        <div className="mt-16 lg:mt-6">
           <VoucherShowcase />
         </div>
 
         {/* D · Margin */}
-        <div className="mt-20 md:mt-28">
+        <div className="mt-16 lg:mt-10">
           <GroupHeader label="Your margin" title="A model that protects your margin" />
           <MarginReceipt />
         </div>
