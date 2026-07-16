@@ -40,7 +40,7 @@ export function ForBusinessesContent() {
       {/* ── 4. The Merchant Portal (Section 4) ── */}
       <PortalSection />
 
-      {/* ── 4. Voucher structure ── */}
+      {/* ── 5. Voucher structure ── */}
       <section className="bg-white py-20 md:py-24 px-6">
         <div className="max-w-5xl mx-auto">
           <motion.div

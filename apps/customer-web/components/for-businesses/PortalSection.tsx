@@ -300,11 +300,15 @@ function ValidationToast({ active }: { active: boolean }) {
   useEffect(() => {
     if (!active || reduceMotion) return
     setShown(true)
+    let inner: ReturnType<typeof setTimeout> | null = null
     const id = setInterval(() => {
       setShown(false)
-      setTimeout(() => setShown(true), 900)
+      inner = setTimeout(() => setShown(true), 900)
     }, 5600)
-    return () => clearInterval(id)
+    return () => {
+      clearInterval(id)
+      if (inner) clearTimeout(inner)
+    }
   }, [active, reduceMotion])
   return (
     <motion.div
@@ -539,7 +543,7 @@ export function PortalSection() {
           <div className="relative w-[300px] flex-shrink-0">
             <div className="rounded-2xl border border-white/10 bg-[#081130]/70 p-6 backdrop-blur-md" style={{ boxShadow: '0 24px 60px rgba(0,4,20,0.45)' }}>
               <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-white/40">{current.nav}</p>
-              <div className="relative min-h-[150px]">
+              <div className="relative min-h-[170px]">
                 {SCREENS.map((screen) => (
                   <motion.div
                     key={screen.key}
@@ -586,14 +590,13 @@ export function PortalSection() {
 
         {/* Mobile / tablet: pill switcher + content-pane window */}
         <div className="mt-10 lg:hidden">
-          <div className="favour-rail -mx-2 flex gap-2 overflow-x-auto px-2 pb-3" style={{ scrollbarWidth: 'none' }} role="tablist" aria-label="Portal screens">
+          <div className="favour-rail -mx-2 flex gap-2 overflow-x-auto px-2 pb-3" style={{ scrollbarWidth: 'none' }} role="group" aria-label="Portal screens">
             {SCREENS.map((screen) => {
               const isActive = screen.key === active
               return (
                 <button
                   key={screen.key}
-                  role="tab"
-                  aria-selected={isActive}
+                  aria-pressed={isActive}
                   onClick={() => setActive(screen.key)}
                   className="flex-shrink-0 rounded-full border px-3.5 py-2 text-[12.5px] font-bold transition-colors"
                   style={{
