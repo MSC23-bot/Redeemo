@@ -1430,23 +1430,19 @@ function MarginReceipt() {
 
 export function FavourSection() {
   return (
-    <section className="relative -mt-10 overflow-hidden rounded-t-[44px]" style={{ background: '#FFF7F2' }}>
-      {/* Owner plate (2026-07-17): embossed ticket marks on a warm wash.
-          Fixed-attachment cover keeps the wash viewport-sized and calm (a
-          stretch over the full section drowned the content); below lg the
-          section stays plain warm cream (iOS ignores fixed attachment). */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 hidden lg:block"
-        style={{
-          backgroundImage: 'url(/for-businesses/favour-bg.webp)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center 30%',
-          backgroundAttachment: 'fixed',
-        }}
-      />
-      <div aria-hidden="true" className="absolute inset-0 hidden lg:block" style={{ background: 'rgba(255,249,245,0.35)' }} />
-      <div className="relative">
+    <section className="relative -mt-[70px]" style={{ background: 'transparent' }}>
+      {/* Seam: the cream sheet sweeps up over the cinema's night scene
+          (night to daylight), a broad curve rather than a hard edge */}
+      <svg aria-hidden="true" className="block h-[90px] w-full md:h-[110px]" viewBox="0 0 1440 110" preserveAspectRatio="none">
+        <path d="M0,110 C 480,0 960,0 1440,110 Z" fill={CREAM} />
+      </svg>
+      <div className="relative" style={{ background: CREAM }}>
+        {/* Sunrise glow at the crest of the curve */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-[90px] left-0 right-0 h-[260px]"
+          style={{ background: 'radial-gradient(620px 200px at 50% 40px, rgba(232,74,0,0.1), transparent 70%)' }}
+        />
 
       <style>{`
         .favour-radar-sweep { animation: favourSweep 5.2s linear infinite; }
