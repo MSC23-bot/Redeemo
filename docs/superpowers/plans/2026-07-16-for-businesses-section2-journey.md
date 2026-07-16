@@ -95,3 +95,23 @@ protocol responses on every call (server-side fault); design proceeded on house
 language. QA fix: `armed` deferred-mount gating in JourneyCinematic removed after a
 deep-reload left mid-scroll-mounted layers with dead motion subscriptions (blank
 screens); all layers now mount from the start.
+
+## Section 4: the Merchant Portal (owner brief 2026-07-16; built same day)
+
+Dark stage on the owner-supplied glass-ticket plate (Downloads "Generated image 1 (9)",
+now portal-bg.webp), rounded-top sheet over Section 3's cream. Centrepiece = a
+LIVE-RENDERED portal shell (browser chrome + top bar + sidebar in code), which by
+construction guarantees an identical sidebar on every screen, excludes the demo pills
+and drops the coming-soon items (owner requirements). Real captured CONTENT panes sit
+inside (cropped below topbar, right of sidebar, from the Desktop screenshot library;
+Branches and Staff & access verified fictional-only). The sidebar is the switcher: six
+destinations (Home, Vouchers, Redemptions, Insights, Branches, Staff) flip the pane
+with a soft slide; screens live inside (dashboard + builder panes slow-scroll, a
+validation toast pops on Redemptions, the bell wears a pulsing badge); the window
+tilts in perspective and follows the pointer. One glass blurb card narrates the
+active screen (copy from Section 3's former Manage group). Mobile: pill switcher +
+flat pane + blurb. Replaces the legacy PortalShowcaseSection. Magic MCP attempted
+again per owner instruction: still returns malformed protocol responses (3rd strike).
+QA fixes: measured window scaling (ResizeObserver), sidebar type-scale up for
+legibility, tilt springs start flat and engage post-mount (useReducedMotion branch
+hydration-mismatched otherwise).

@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion'
 import { ForBusinessesCinema } from './JourneyCinematic'
 import { FavourSection } from './FavourSection'
-import { PortalShowcaseSection } from './PortalShowcaseSection'
+import { PortalSection } from './PortalSection'
 import { MerchantInterestSection } from './MerchantInterestSection'
 import { merchantPortalRegisterUrl } from '@/lib/prelaunch'
 
@@ -36,6 +36,9 @@ export function ForBusinessesContent() {
 
       {/* ── 2-3. Everything in your favour (Section 3) ── */}
       <FavourSection />
+
+      {/* ── 4. The Merchant Portal (Section 4) ── */}
+      <PortalSection />
 
       {/* ── 4. Voucher structure ── */}
       <section className="bg-white py-20 md:py-24 px-6">
@@ -110,9 +113,6 @@ export function ForBusinessesContent() {
           </div>
         </div>
       </section>
-
-      {/* ── 5. Merchant Portal showcase (real screens, example data) ── */}
-      <PortalShowcaseSection />
 
       {/* ── 6. Getting started (dark, timeline) ── */}
       <section

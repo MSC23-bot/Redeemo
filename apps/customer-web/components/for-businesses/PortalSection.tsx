@@ -1,0 +1,637 @@
+'use client'
+
+import Image from 'next/image'
+import { motion, useReducedMotion, useSpring } from 'framer-motion'
+import { useEffect, useRef, useState } from 'react'
+
+/**
+ * Section 4: the Merchant Portal (owner brief 2026-07-16). Dark stage on the
+ * owner-supplied glass-ticket plate; back to navy after Section 3's cream.
+ *
+ * The centrepiece is a LIVE-RENDERED portal shell: browser chrome, top bar
+ * and sidebar are code (which guarantees an identical sidebar on every
+ * screen, kills the demo pills and drops the coming-soon items by
+ * construction), while each screen's CONTENT pane is a real capture cropped
+ * below the top bar and right of the sidebar. The sidebar itself is the
+ * switcher: six real destinations flip the pane with a soft slide, the
+ * whole window tilts in perspective and follows the pointer, and screens
+ * stay alive inside (the dashboard and builder panes slow-scroll, the
+ * redemptions screen pops a validation toast, the bell wears its badge).
+ *
+ * Copy stays light: one glass blurb card narrates the active screen; the
+ * locked portal facts from Section 3's former Manage group live here now.
+ */
+
+const NAVY = '#010C35'
+const EASE = [0.22, 1, 0.36, 1] as const
+
+// Shell design space: content pane captures are 1400x1020 (1728-wide portal,
+// content right of the 328px sidebar, below the 64px top bar).
+const SHELL = { sidebar: 300, topbar: 56, browser: 40, contentW: 1400, contentH: 1020 }
+const SHELL_W = SHELL.sidebar + SHELL.contentW
+const SHELL_H = SHELL.browser + SHELL.topbar + SHELL.contentH
+
+// The home dashboard's scrolling pane (from the hero pipeline): the strip
+// sits inside the content pane at this content-local rect.
+const HOME_PANE = { left: 0, top: 15, width: 1386, height: 1005, stripH: 1761 }
+// The builder strip is native 1178 wide (1440-capture content), letterboxed
+// on the portal page background.
+const BUILDER_STRIP = { width: 1178, height: 2169 }
+
+type Screen = {
+  key: string
+  nav: string
+  title: string
+  body: string
+}
+
+const SCREENS: Screen[] = [
+  {
+    key: 'home',
+    nav: 'Home',
+    title: 'The day at a glance.',
+    body: 'Redemptions over time, customers brought in, live vouchers and what needs your attention: the state of play from the second you log in.',
+  },
+  {
+    key: 'vouchers',
+    nav: 'Vouchers',
+    title: 'Create and manage every offer.',
+    body: "The guided builder walks you from voucher type to terms, with the 'How this voucher stacks up' check before anything is submitted.",
+  },
+  {
+    key: 'redemptions',
+    nav: 'Redemptions',
+    title: 'Every code, verified and logged.',
+    body: 'Validate at the till or later, filter by branch, voucher or date, and export your records whenever you need them.',
+  },
+  {
+    key: 'insights',
+    nav: 'Insights & reports',
+    title: 'Decisions from real activity.',
+    body: 'Busiest days, top vouchers and customer patterns, drawn from confirmed redemptions rather than clicks.',
+  },
+  {
+    key: 'branches',
+    nav: 'Branches',
+    title: 'Every location, one account.',
+    body: 'Hours, amenities, photos and branch PINs in one place, with instant updates and main-branch control.',
+  },
+  {
+    key: 'staff',
+    nav: 'Staff & access',
+    title: 'The right access for every role.',
+    body: 'Portal access for managers, app validation for the team at the till: you decide who can do what, and where.',
+  },
+]
+
+const REASSURANCE = ['Included free with your listing', 'Nothing to install', 'One login, every branch', 'Staff roles built in']
+
+// ── Sidebar (live-rendered: identical on every screen, no demo, no SOON) ─────
+
+const NAV_GROUPS: Array<{ label: string | null; items: Array<{ key: string | null; nav: string; icon: string }> }> = [
+  { label: null, items: [{ key: 'home', nav: 'Home', icon: 'home' }] },
+  {
+    label: 'Vouchers & customers',
+    items: [
+      { key: 'vouchers', nav: 'Vouchers', icon: 'ticket' },
+      { key: 'redemptions', nav: 'Redemptions', icon: 'scan' },
+      { key: 'insights', nav: 'Insights & reports', icon: 'chart' },
+    ],
+  },
+  {
+    label: 'Locations & team',
+    items: [
+      { key: 'branches', nav: 'Branches', icon: 'pin' },
+      { key: 'staff', nav: 'Staff & access', icon: 'people' },
+    ],
+  },
+  {
+    label: 'Business',
+    items: [{ key: null, nav: 'Business profile', icon: 'shop' }],
+  },
+]
+
+function NavIcon({ kind }: { kind: string }) {
+  const p = { width: 17, height: 17, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
+  switch (kind) {
+    case 'home':
+      return (
+        <svg {...p}>
+          <path d="M3 10.5L12 3l9 7.5" />
+          <path d="M5.5 9v11h13V9" />
+        </svg>
+      )
+    case 'ticket':
+      return (
+        <svg {...p}>
+          <path d="M3.5 8a2.5 2.5 0 0 0 0 8V19h17v-3a2.5 2.5 0 0 1 0-8V5h-17v3z" transform="scale(0.92) translate(1 1)" />
+          <line x1="14.5" y1="6" x2="14.5" y2="18" strokeDasharray="2 3" />
+        </svg>
+      )
+    case 'scan':
+      return (
+        <svg {...p}>
+          <path d="M4 8V5a1 1 0 0 1 1-1h3" />
+          <path d="M16 4h3a1 1 0 0 1 1 1v3" />
+          <path d="M20 16v3a1 1 0 0 1-1 1h-3" />
+          <path d="M8 20H5a1 1 0 0 1-1-1v-3" />
+          <line x1="7" y1="12" x2="17" y2="12" />
+        </svg>
+      )
+    case 'chart':
+      return (
+        <svg {...p}>
+          <line x1="5" y1="20" x2="5" y2="12" />
+          <line x1="12" y1="20" x2="12" y2="6" />
+          <line x1="19" y1="20" x2="19" y2="15" />
+        </svg>
+      )
+    case 'pin':
+      return (
+        <svg {...p}>
+          <path d="M12 21s-7-5.5-7-11a7 7 0 0 1 14 0c0 5.5-7 11-7 11z" />
+          <circle cx="12" cy="10" r="2.4" />
+        </svg>
+      )
+    case 'people':
+      return (
+        <svg {...p}>
+          <circle cx="9" cy="8.5" r="3" />
+          <path d="M3.5 19.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
+          <path d="M16 9a2.5 2.5 0 1 1 2 4" />
+          <path d="M17.5 14.5c2 .6 3 2.2 3 4" />
+        </svg>
+      )
+    default:
+      return (
+        <svg {...p}>
+          <path d="M4 9l1.5-4h13L20 9" />
+          <path d="M5 9v10h14V9" />
+          <path d="M9.5 19v-5h5v5" />
+        </svg>
+      )
+  }
+}
+
+function ShellSidebar({ active, onPick }: { active: string; onPick: (k: string) => void }) {
+  return (
+    <div className="flex h-full flex-col border-r bg-white" style={{ borderColor: '#EEE9E2', width: SHELL.sidebar }}>
+      {/* Brand */}
+      <div className="flex items-center gap-2.5 px-6 pb-4 pt-6">
+        <Image src="/logo-dark.png" alt="" width={30} height={30} className="h-[30px] w-[30px] object-contain" />
+        <div className="leading-none">
+          <p className="text-[17px] font-bold" style={{ color: NAVY }}>
+            Redeemo
+          </p>
+          <p className="mt-0.5 text-[9.5px] font-bold uppercase tracking-[0.14em]" style={{ color: 'rgba(1,12,53,0.45)' }}>
+            For business
+          </p>
+        </div>
+      </div>
+      {/* Status */}
+      <div className="mx-5 mb-4 rounded-xl px-4 py-2.5" style={{ background: 'rgba(22,163,74,0.09)' }}>
+        <p className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: 'rgba(1,12,53,0.45)' }}>
+          Business status
+        </p>
+        <p className="mt-0.5 flex items-center gap-1.5 text-[15px] font-bold" style={{ color: NAVY }}>
+          <span className="h-2 w-2 rounded-full bg-[#16A34A]" aria-hidden="true" />
+          Live
+        </p>
+      </div>
+      {/* Nav */}
+      <div className="flex-1 overflow-hidden px-3.5">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label ?? 'top'} className="mb-1.5">
+            {group.label ? (
+              <p className="px-2.5 pb-2 pt-4 text-[10.5px] font-bold uppercase tracking-[0.14em]" style={{ color: 'rgba(1,12,53,0.38)' }}>
+                {group.label}
+              </p>
+            ) : null}
+            {group.items.map((item) => {
+              const isActive = item.key === active
+              const clickable = item.key !== null
+              return (
+                <button
+                  key={item.nav}
+                  onClick={clickable ? () => onPick(item.key as string) : undefined}
+                  disabled={!clickable}
+                  aria-pressed={clickable ? isActive : undefined}
+                  className="relative mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15.5px] font-semibold transition-colors"
+                  style={{
+                    color: isActive ? NAVY : clickable ? 'rgba(1,12,53,0.62)' : 'rgba(1,12,53,0.34)',
+                    background: isActive ? 'rgba(226,12,4,0.07)' : 'transparent',
+                    cursor: clickable ? 'pointer' : 'default',
+                  }}
+                >
+                  {isActive ? <span className="absolute -left-1 bottom-2 top-2 w-[3px] rounded-full" style={{ background: 'var(--brand-gradient)' }} aria-hidden="true" /> : null}
+                  <span style={{ color: isActive ? '#E20C04' : 'inherit' }}>
+                    <NavIcon kind={item.icon} />
+                  </span>
+                  {item.nav}
+                </button>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+      {/* Foot */}
+      <div className="border-t px-6 py-4 text-[13.5px] font-semibold" style={{ borderColor: '#EEE9E2', color: 'rgba(1,12,53,0.45)' }}>
+        <p className="mb-1.5">My account</p>
+        <p>Help &amp; support</p>
+      </div>
+    </div>
+  )
+}
+
+// ── Screens: real content panes, alive inside ─────────────────────────────────
+
+function PaneImage({ src, active, kenburns = false }: { src: string; active: boolean; kenburns?: boolean }) {
+  const reduceMotion = useReducedMotion()
+  return (
+    <motion.div
+      className="absolute inset-0 overflow-hidden"
+      animate={kenburns && active && !reduceMotion ? { scale: [1, 1.018, 1] } : { scale: 1 }}
+      transition={kenburns ? { duration: 16, repeat: Infinity, ease: 'easeInOut' } : undefined}
+      style={{ background: '#F8F7F4' }}
+    >
+      <Image src={src} alt="" fill sizes="1000px" className="object-cover object-top" />
+    </motion.div>
+  )
+}
+
+/** Auto-panning strip: slow yo-yo through a tall capture. */
+function PaneStrip({
+  src,
+  stripW,
+  stripH,
+  boxW,
+  boxH,
+  offsetTop = 0,
+  active,
+}: {
+  src: string
+  stripW: number
+  stripH: number
+  boxW: number
+  boxH: number
+  offsetTop?: number
+  active: boolean
+}) {
+  const reduceMotion = useReducedMotion()
+  const travel = Math.max(0, stripH - (boxH - offsetTop))
+  return (
+    <div className="absolute overflow-hidden" style={{ left: (SHELL.contentW - boxW) / 2, top: offsetTop, width: boxW, height: boxH - offsetTop }}>
+      <motion.div
+        className="absolute left-0 top-0"
+        style={{ width: stripW, height: stripH }}
+        animate={active && !reduceMotion ? { y: [0, -travel, 0] } : { y: 0 }}
+        transition={{ duration: Math.max(18, travel / 45), repeat: Infinity, ease: 'easeInOut' }}
+      >
+        <Image src={src} alt="" fill sizes="1000px" className="object-cover object-top" />
+      </motion.div>
+    </div>
+  )
+}
+
+/** The redemptions screen pops a validation toast every few seconds. */
+function ValidationToast({ active }: { active: boolean }) {
+  const [shown, setShown] = useState(false)
+  const reduceMotion = useReducedMotion()
+  useEffect(() => {
+    if (!active || reduceMotion) return
+    setShown(true)
+    const id = setInterval(() => {
+      setShown(false)
+      setTimeout(() => setShown(true), 900)
+    }, 5600)
+    return () => clearInterval(id)
+  }, [active, reduceMotion])
+  return (
+    <motion.div
+      initial={false}
+      animate={shown ? { opacity: 1, y: 0, scale: 1 } : { opacity: 0, y: 18, scale: 0.97 }}
+      transition={{ duration: 0.45, ease: EASE }}
+      className="absolute bottom-8 right-8 flex items-center gap-3 rounded-2xl bg-white px-5 py-4"
+      style={{ boxShadow: '0 18px 44px rgba(1,12,53,0.22)' }}
+      aria-hidden="true"
+    >
+      <span className="flex h-8 w-8 items-center justify-center rounded-full" style={{ background: 'rgba(22,163,74,0.12)' }}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </span>
+      <span>
+        <span className="block text-[15px] font-bold leading-tight" style={{ color: NAVY }}>
+          Code validated
+        </span>
+        <span className="block text-[12.5px]" style={{ color: '#6B7280' }}>
+          Buy one main, get one free · High Street
+        </span>
+      </span>
+    </motion.div>
+  )
+}
+
+// ── The portal window ─────────────────────────────────────────────────────────
+
+function PortalWindow({ active, onPick }: { active: string; onPick: (k: string) => void }) {
+  return (
+    <div className="overflow-hidden rounded-[18px] bg-white" style={{ width: SHELL_W, height: SHELL_H, boxShadow: '0 60px 140px rgba(0,4,20,0.55), 0 0 0 1px rgba(255,255,255,0.09)' }}>
+      {/* Browser chrome */}
+      <div className="flex items-center gap-3 border-b px-5" style={{ height: SHELL.browser, borderColor: '#EEE9E2', background: '#FBFAF8' }}>
+        <span className="flex gap-1.5" aria-hidden="true">
+          <span className="h-3 w-3 rounded-full bg-[#FF5F57]" />
+          <span className="h-3 w-3 rounded-full bg-[#FEBC2E]" />
+          <span className="h-3 w-3 rounded-full bg-[#28C840]" />
+        </span>
+        <span className="mx-auto flex items-center gap-2 rounded-full border px-5 py-1 text-[13px] font-semibold" style={{ borderColor: '#EEE9E2', color: 'rgba(1,12,53,0.55)', background: '#fff' }}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+          portal.redeemo.co.uk
+        </span>
+        <span className="w-[52px]" aria-hidden="true" />
+      </div>
+
+      <div className="flex" style={{ height: SHELL.topbar + SHELL.contentH }}>
+        <ShellSidebar active={active} onPick={onPick} />
+
+        <div className="relative flex-1">
+          {/* App top bar */}
+          <div className="flex items-center justify-end gap-3 border-b px-6" style={{ height: SHELL.topbar, borderColor: '#EEE9E2', background: '#FFFFFF' }}>
+            <span className="flex items-center gap-2 rounded-full px-4.5 py-2 text-[13.5px] font-bold text-white" style={{ background: NAVY }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                <path d="M4 8V5a1 1 0 0 1 1-1h3" />
+                <path d="M16 4h3a1 1 0 0 1 1 1v3" />
+                <path d="M20 16v3a1 1 0 0 1-1 1h-3" />
+                <path d="M8 20H5a1 1 0 0 1-1-1v-3" />
+                <line x1="7" y1="12" x2="17" y2="12" />
+              </svg>
+              Validate a code
+            </span>
+            <span className="relative flex h-8 w-8 items-center justify-center rounded-full border" style={{ borderColor: '#EEE9E2', color: 'rgba(1,12,53,0.6)' }} aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" />
+                <path d="M10.3 20a2 2 0 0 0 3.4 0" />
+              </svg>
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 animate-pulse items-center justify-center rounded-full text-[8.5px] font-bold text-white" style={{ background: '#E20C04' }}>
+                4
+              </span>
+            </span>
+            <span className="flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11.5px] font-bold" style={{ borderColor: '#EEE9E2', color: '#E20C04' }} aria-hidden="true">
+              OF
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </span>
+          </div>
+
+          {/* Content pane: screens crossfade with a soft slide */}
+          <div className="relative" style={{ width: SHELL.contentW, height: SHELL.contentH }}>
+            {SCREENS.map((screen) => {
+              const isActive = screen.key === active
+              return (
+                <motion.div
+                  key={screen.key}
+                  initial={false}
+                  animate={isActive ? { opacity: 1, x: 0 } : { opacity: 0, x: 26 }}
+                  transition={{ duration: 0.45, ease: EASE }}
+                  className="absolute inset-0"
+                  style={{ pointerEvents: 'none' }}
+                  aria-hidden={!isActive}
+                >
+                  {screen.key === 'home' ? (
+                    <>
+                      <PaneImage src="/for-businesses/portal/pane-home.webp" active={isActive} />
+                      <PaneStrip
+                        src="/for-businesses/portal/home-content-strip.webp"
+                        stripW={HOME_PANE.width}
+                        stripH={HOME_PANE.stripH}
+                        boxW={HOME_PANE.width}
+                        boxH={HOME_PANE.height + HOME_PANE.top}
+                        offsetTop={HOME_PANE.top}
+                        active={isActive}
+                      />
+                    </>
+                  ) : null}
+                  {screen.key === 'vouchers' ? (
+                    <div className="absolute inset-0" style={{ background: '#F8F7F4' }}>
+                      <PaneStrip
+                        src="/for-businesses/journey/journey-builder-strip.webp"
+                        stripW={BUILDER_STRIP.width}
+                        stripH={BUILDER_STRIP.height}
+                        boxW={BUILDER_STRIP.width}
+                        boxH={SHELL.contentH}
+                        active={isActive}
+                      />
+                    </div>
+                  ) : null}
+                  {screen.key === 'redemptions' ? (
+                    <>
+                      <PaneImage src="/for-businesses/portal/pane-redemptions.webp" active={isActive} kenburns />
+                      <ValidationToast active={isActive} />
+                    </>
+                  ) : null}
+                  {screen.key === 'insights' ? <PaneImage src="/for-businesses/portal/pane-insight.webp" active={isActive} kenburns /> : null}
+                  {screen.key === 'branches' ? <PaneImage src="/for-businesses/portal/pane-branches.webp" active={isActive} kenburns /> : null}
+                  {screen.key === 'staff' ? <PaneImage src="/for-businesses/portal/pane-staff.webp" active={isActive} kenburns /> : null}
+                </motion.div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── The section ───────────────────────────────────────────────────────────────
+
+export function PortalSection() {
+  const [active, setActive] = useState('home')
+  const reduceMotion = useReducedMotion()
+  const stageRef = useRef<HTMLDivElement>(null)
+  const windowWrapRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(0.56)
+
+  useEffect(() => {
+    const el = windowWrapRef.current
+    if (!el) return
+    const measure = () => setScale(Math.min(1, el.clientWidth / SHELL_W))
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Pointer-follow tilt (desktop): the window leans away and tracks gently.
+  // Springs START flat and engage after mount: branching the initial style
+  // on useReducedMotion() hydration-mismatches (server false, client true).
+  const rx = useSpring(0, { stiffness: 90, damping: 20 })
+  const ry = useSpring(0, { stiffness: 90, damping: 20 })
+  useEffect(() => {
+    if (!reduceMotion) {
+      rx.set(2)
+      ry.set(-7)
+    }
+  }, [reduceMotion, rx, ry])
+  const onPointer = (e: React.PointerEvent) => {
+    if (reduceMotion) return
+    const el = stageRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const px = (e.clientX - r.left) / r.width - 0.5
+    const py = (e.clientY - r.top) / r.height - 0.5
+    ry.set(-7 + px * 5)
+    rx.set(2 - py * 4)
+  }
+  const resetTilt = () => {
+    ry.set(reduceMotion ? 0 : -7)
+    rx.set(reduceMotion ? 0 : 2)
+  }
+
+  const current = SCREENS.find((s) => s.key === active) ?? SCREENS[0]
+
+  return (
+    <section className="relative -mt-8 overflow-hidden rounded-t-[44px]" style={{ background: NAVY }}>
+      {/* Owner plate: glass ticket mark on deep navy */}
+      <div aria-hidden="true" className="absolute inset-0">
+        <Image src="/for-businesses/portal/portal-bg.webp" alt="" fill sizes="100vw" className="object-cover" style={{ objectPosition: '70% 40%' }} />
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(1,12,53,0.55) 0%, rgba(1,12,53,0) 30%, rgba(1,12,53,0) 70%, rgba(1,12,53,0.75) 100%)' }} />
+      </div>
+
+      <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 md:pb-28 md:pt-24 lg:px-10">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-60px' }}
+          transition={{ duration: 0.55, ease: EASE }}
+          className="max-w-[720px]"
+        >
+          <p className="mb-4 flex items-center gap-2.5 text-[11.5px] font-bold uppercase tracking-[0.22em] text-white/45">
+            <span className="h-[2px] w-6 bg-[#E20C04]" aria-hidden="true" />
+            The merchant portal
+          </p>
+          <h2 className="font-display mb-4 leading-[1.08] text-white" style={{ fontSize: 'clamp(30px, 3.6vw, 46px)', letterSpacing: '-0.6px' }}>
+            One place to run it all.
+          </h2>
+          <p className="max-w-[620px] text-[15.5px] leading-[1.65] text-white/60">
+            Your entire Redeemo presence, managed from one clean portal: profile and branches, staff access, vouchers, redemptions and live insights.
+          </p>
+          {/* Reassurance strip */}
+          <div className="mt-6 flex flex-wrap gap-2.5">
+            {REASSURANCE.map((r) => (
+              <span key={r} className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.06] px-3.5 py-1.5 text-[12.5px] font-semibold text-white/75 backdrop-blur-sm">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                {r}
+              </span>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Stage: blurb rail + tilted portal window (desktop) */}
+        <div ref={stageRef} onPointerMove={onPointer} onPointerLeave={resetTilt} className="mt-12 hidden items-center gap-8 lg:flex">
+          {/* Active-screen blurb */}
+          <div className="relative w-[300px] flex-shrink-0">
+            <div className="rounded-2xl border border-white/10 bg-[#081130]/70 p-6 backdrop-blur-md" style={{ boxShadow: '0 24px 60px rgba(0,4,20,0.45)' }}>
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-white/40">{current.nav}</p>
+              <div className="relative min-h-[150px]">
+                {SCREENS.map((screen) => (
+                  <motion.div
+                    key={screen.key}
+                    initial={false}
+                    animate={screen.key === active ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
+                    transition={{ duration: 0.4, ease: EASE }}
+                    className="absolute inset-0"
+                    aria-hidden={screen.key !== active}
+                  >
+                    <h3 className="font-display mb-2.5 text-[21px] leading-snug text-white" style={{ letterSpacing: '-0.2px' }}>
+                      {screen.title}
+                    </h3>
+                    <p className="text-[14px] leading-[1.7] text-white/60">{screen.body}</p>
+                  </motion.div>
+                ))}
+              </div>
+              <div className="mt-4 flex items-center gap-1.5" aria-hidden="true">
+                {SCREENS.map((screen) => (
+                  <span key={screen.key} className="h-1.5 rounded-full transition-all duration-300" style={{ width: screen.key === active ? 22 : 8, background: screen.key === active ? 'var(--brand-gradient)' : 'rgba(255,255,255,0.18)' }} />
+                ))}
+              </div>
+            </div>
+            <p className="mt-4 px-1 text-[12px] leading-relaxed text-white/35">Click through the sidebar to explore the real portal. Example data, not live listings.</p>
+          </div>
+
+          {/* The window, in perspective */}
+          <motion.div
+            initial={{ opacity: 0, y: 46, rotateY: -16 }}
+            whileInView={{ opacity: 1, y: 0, rotateY: -7 }}
+            viewport={{ once: true, margin: '-80px' }}
+            transition={{ duration: 0.8, ease: EASE }}
+            className="min-w-0 flex-1"
+            style={{ perspective: 1800 }}
+          >
+            <motion.div ref={windowWrapRef} style={{ rotateX: rx, rotateY: ry, transformStyle: 'preserve-3d' }}>
+              <div style={{ width: SHELL_W * scale, height: SHELL_H * scale }}>
+                <div style={{ transform: `scale(${scale})`, transformOrigin: '0 0', width: SHELL_W, height: SHELL_H }}>
+                  <PortalWindow active={active} onPick={setActive} />
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        </div>
+
+        {/* Mobile / tablet: pill switcher + content-pane window */}
+        <div className="mt-10 lg:hidden">
+          <div className="favour-rail -mx-2 flex gap-2 overflow-x-auto px-2 pb-3" style={{ scrollbarWidth: 'none' }} role="tablist" aria-label="Portal screens">
+            {SCREENS.map((screen) => {
+              const isActive = screen.key === active
+              return (
+                <button
+                  key={screen.key}
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setActive(screen.key)}
+                  className="flex-shrink-0 rounded-full border px-3.5 py-2 text-[12.5px] font-bold transition-colors"
+                  style={{
+                    borderColor: isActive ? 'transparent' : 'rgba(255,255,255,0.16)',
+                    background: isActive ? 'var(--brand-gradient)' : 'rgba(255,255,255,0.05)',
+                    color: isActive ? '#fff' : 'rgba(255,255,255,0.65)',
+                  }}
+                >
+                  {screen.nav}
+                </button>
+              )
+            })}
+          </div>
+          <div className="relative overflow-hidden rounded-2xl border border-white/10" style={{ aspectRatio: '1400 / 1020', boxShadow: '0 30px 70px rgba(0,4,20,0.5)' }}>
+            {SCREENS.map((screen) => {
+              const isActive = screen.key === active
+              const src =
+                screen.key === 'home'
+                  ? '/for-businesses/portal/pane-home.webp'
+                  : screen.key === 'vouchers'
+                  ? '/for-businesses/journey/journey-builder.webp'
+                  : `/for-businesses/portal/pane-${screen.key === 'insights' ? 'insight' : screen.key}.webp`
+              return (
+                <motion.div key={screen.key} initial={false} animate={isActive ? { opacity: 1 } : { opacity: 0 }} transition={{ duration: 0.4 }} className="absolute inset-0" aria-hidden={!isActive}>
+                  <Image src={src} alt="" fill sizes="100vw" className="object-cover object-top" />
+                </motion.div>
+              )
+            })}
+          </div>
+          <div className="mt-5">
+            <h3 className="font-display mb-2 text-[20px] leading-snug text-white" style={{ letterSpacing: '-0.2px' }}>
+              {current.title}
+            </h3>
+            <p className="text-[14px] leading-[1.7] text-white/60">{current.body}</p>
+            <p className="mt-3 text-[11.5px] text-white/35">Example data, not live listings.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
