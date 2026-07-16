@@ -106,64 +106,62 @@ const MARKETING: Item[] = [
 // The seven voucher types, in the app's own colours, with the landing rail's
 // bespoke motifs. Merchant-lens copy: what each type is FOR, with a generic
 // example that translates across business types.
-type VoucherKind = { key: string; name: string; body: string; examples: string[]; featured?: 'time' | 'reusable'; accent: string; accentBg: string }
+type VoucherKind = { key: string; name: string; tag: string; body: string; accent: string; accentBg: string }
 
 const VOUCHER_KINDS: VoucherKind[] = [
   {
     key: 'bogo',
     name: 'Buy one get one free',
+    tag: 'Two through the door',
     body: 'A free second brings pairs through the door. Perfect for introducing what you want more customers to try.',
-    examples: ['Two for one on anything you choose'],
     accent: '#7C3AED',
     accentBg: 'rgba(124,58,237,0.1)',
   },
   {
     key: 'discount',
     name: 'Discount',
+    tag: 'You choose the number',
     body: 'A clean saving everyone understands instantly: a percentage off or a set amount off, your call.',
-    examples: ['20% off', '£5 off'],
     accent: '#E20C04',
     accentBg: 'rgba(226,12,4,0.1)',
   },
   {
     key: 'time',
     name: 'Time-limited',
+    tag: 'You set the window',
     body: 'Runs only in the window you set: days, dates and hours. Outside it, customers see it as unavailable to redeem.',
-    examples: [],
-    featured: 'time',
     accent: '#D97706',
     accentBg: 'rgba(217,119,6,0.1)',
   },
   {
     key: 'freebie',
     name: 'Freebie',
+    tag: 'On the house',
     body: 'A small free extra that makes trying you effortless, and shows off what you do best.',
-    examples: ['A free extra with any purchase'],
     accent: '#16A34A',
     accentBg: 'rgba(22,163,74,0.1)',
   },
   {
     key: 'spend',
     name: 'Spend & save',
+    tag: 'Nudges the basket up',
     body: 'Rewards a bigger basket: the order goes up and the customer still feels the win.',
-    examples: ['Spend £30, save £5'],
     accent: '#E84A00',
     accentBg: 'rgba(232,74,0,0.1)',
   },
   {
     key: 'package',
     name: 'Package deal',
+    tag: 'Bundled as one',
     body: 'Bundle what goes together at one price. Easier to say yes to, and it showcases your range.',
-    examples: ['Three together, one price'],
     accent: '#2563EB',
     accentBg: 'rgba(37,99,235,0.1)',
   },
   {
     key: 'reusable',
     name: 'Reusable',
+    tag: 'It keeps coming back',
     body: 'Returns on the frequency you choose: weekly, fortnightly or monthly. Built for regulars and the visit that becomes a habit.',
-    examples: [],
-    featured: 'reusable',
     accent: '#0D9488',
     accentBg: 'rgba(13,148,136,0.1)',
   },
@@ -680,8 +678,7 @@ function MarketingConsole() {
 // richer interiors: the set window + live countdown + in-app availability
 // states, and the comes-back frequency cycle.
 
-const TICKET_W = 264
-const TICKET_W_FEATURED = 420
+const TICKET_W = 380 // uniform: every type earns the same stage
 
 function useTicketCountdown(active: boolean) {
   const START = 2 * 86400 + 11 * 3600 + 43 * 60 + 16
@@ -809,8 +806,158 @@ function ReusableExtras({ accent }: { accent: string }) {
   )
 }
 
+// Shared bits for the five standard extras rows
+function ExtraPill({ text, accent, accentBg }: { text: string; accent: string; accentBg: string }) {
+  return (
+    <span className="inline-flex self-start rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={{ color: accent, background: accentBg }}>
+      {text}
+    </span>
+  )
+}
+
+function ExtraChip({ text, on, accent }: { text: string; on?: boolean; accent: string }) {
+  return (
+    <span
+      className="rounded-md px-2.5 py-1.5 text-[11px] font-bold"
+      style={on ? { background: accent, color: '#fff' } : { background: 'rgba(1,12,53,0.05)', color: 'rgba(1,12,53,0.4)' }}
+    >
+      {text}
+    </span>
+  )
+}
+
+function BogoExtras({ accent }: { accent: string }) {
+  const bg = 'rgba(124,58,237,0.1)'
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <span className="rounded-md border px-2.5 py-1.5 text-[11px] font-bold" style={{ borderColor: 'rgba(1,12,53,0.12)', color: NAVY }}>
+          1st · They buy one
+        </span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="3" strokeLinecap="round" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+        <span className="rounded-md px-2.5 py-1.5 text-[11px] font-bold text-white" style={{ background: accent }}>
+          2nd · Free
+        </span>
+      </div>
+      <ExtraPill text="Two for one on anything you choose" accent={accent} accentBg={bg} />
+      <p className="text-[11.5px] font-semibold" style={{ color: 'rgba(1,12,53,0.45)' }}>
+        Mates, dates, colleagues: one bill, two people.
+      </p>
+    </div>
+  )
+}
+
+function DiscountExtras({ accent }: { accent: string }) {
+  const bg = 'rgba(226,12,4,0.1)'
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-1.5">
+        <span className="inline-flex overflow-hidden rounded-md border" style={{ borderColor: 'rgba(1,12,53,0.12)' }}>
+          <span className="px-2.5 py-1.5 text-[11px] font-bold text-white" style={{ background: accent }}>
+            % off
+          </span>
+          <span className="px-2.5 py-1.5 text-[11px] font-bold" style={{ color: 'rgba(1,12,53,0.45)' }}>
+            £ off
+          </span>
+        </span>
+        <ExtraChip text="10" accent={accent} />
+        <ExtraChip text="15" accent={accent} />
+        <ExtraChip text="20" on accent={accent} />
+      </div>
+      <ExtraPill text="A £30 order becomes £24" accent={accent} accentBg={bg} />
+      <p className="text-[11.5px] font-semibold" style={{ color: 'rgba(1,12,53,0.45)' }}>
+        Percentage or pounds: you set the number.
+      </p>
+    </div>
+  )
+}
+
+function FreebieExtras({ accent }: { accent: string }) {
+  const bg = 'rgba(22,163,74,0.1)'
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2.5">
+        <span
+          className="rotate-[-4deg] rounded-md border-2 border-dashed px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em]"
+          style={{ borderColor: accent, color: accent }}
+        >
+          On the house
+        </span>
+        <ExtraChip text="With any purchase" on accent={accent} />
+      </div>
+      <ExtraPill text="Coffee, taster, dessert or upgrade: your call" accent={accent} accentBg={bg} />
+      <p className="text-[11.5px] font-semibold" style={{ color: 'rgba(1,12,53,0.45)' }}>
+        The easiest first yes a new customer can say.
+      </p>
+    </div>
+  )
+}
+
+function SpendExtras({ accent }: { accent: string }) {
+  const bg = 'rgba(232,74,0,0.1)'
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <div className="relative h-2 w-full max-w-[240px] overflow-visible rounded-full" style={{ background: 'rgba(1,12,53,0.07)' }}>
+          <span className="absolute bottom-0 left-0 top-0 rounded-full" style={{ width: '62%', background: accent }} />
+          <span className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full border-2 border-white" style={{ left: '62%', background: accent, boxShadow: '0 1px 4px rgba(1,12,53,0.25)' }} />
+        </div>
+        <div className="mt-1.5 flex max-w-[240px] items-center justify-between text-[10px] font-bold" style={{ color: 'rgba(1,12,53,0.4)' }}>
+          <span>£0</span>
+          <span style={{ color: accent }}>£30 unlocks the saving</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <ExtraChip text="£20" accent={accent} />
+        <ExtraChip text="£30" on accent={accent} />
+        <ExtraChip text="£50" accent={accent} />
+      </div>
+      <ExtraPill text="Spend £30, save £5" accent={accent} accentBg={bg} />
+    </div>
+  )
+}
+
+function PackageExtras({ accent }: { accent: string }) {
+  const bg = 'rgba(37,99,235,0.1)'
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-1.5">
+        {['1', '2', '3'].map((nth) => (
+          <span key={nth} className="flex h-8 w-8 items-center justify-center rounded-md text-[12px] font-bold" style={{ background: 'rgba(37,99,235,0.12)', color: accent }}>
+            {nth}
+          </span>
+        ))}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
+          <line x1="5" y1="9" x2="19" y2="9" />
+          <line x1="5" y1="15" x2="19" y2="15" />
+        </svg>
+        <span className="rounded-md px-2.5 py-1.5 text-[11px] font-bold text-white" style={{ background: accent }}>
+          £45 · one price
+        </span>
+      </div>
+      <ExtraPill text="Three together, one price" accent={accent} accentBg={bg} />
+      <p className="text-[11.5px] font-semibold" style={{ color: 'rgba(1,12,53,0.45)' }}>
+        Easier to say yes to, and it shows your range.
+      </p>
+    </div>
+  )
+}
+
+const EXTRAS: Record<string, (props: { accent: string }) => React.ReactNode> = {
+  bogo: BogoExtras,
+  discount: DiscountExtras,
+  time: TimeLimitedExtras,
+  freebie: FreebieExtras,
+  spend: SpendExtras,
+  package: PackageExtras,
+  reusable: ReusableExtras,
+}
+
 function VoucherTicket({ kind, index, sweep = false }: { kind: VoucherKind; index: number; sweep?: boolean }) {
-  const featured = Boolean(kind.featured)
+  const Extras = EXTRAS[kind.key]
   return (
     <motion.li
       initial={sweep ? false : { opacity: 0, y: 30, rotate: index % 2 ? 1.6 : -1.6 }}
@@ -818,64 +965,64 @@ function VoucherTicket({ kind, index, sweep = false }: { kind: VoucherKind; inde
       viewport={sweep ? undefined : { once: true, margin: '-40px' }}
       transition={{ duration: 0.5, delay: index * 0.07, ease: EASE }}
       whileHover={{ y: -8, rotate: index % 2 ? 0.8 : -0.8 }}
-      className="group/ticket relative flex-shrink-0 snap-start overflow-hidden rounded-2xl bg-white"
+      className="group/ticket relative flex flex-shrink-0 snap-start flex-col overflow-hidden rounded-2xl bg-white"
       style={{
-        width: featured ? `min(${TICKET_W_FEATURED}px, calc(100vw - 64px))` : TICKET_W,
-        boxShadow: featured ? `0 22px 52px rgba(1,12,53,0.12), 0 0 0 1.5px ${kind.accent}55` : '0 16px 40px rgba(1,12,53,0.08)',
-        border: featured ? 'none' : '1px solid #EFE7DD',
-        marginTop: sweep ? (index % 2 ? 18 : 0) : 0,
+        width: `min(${TICKET_W}px, calc(100vw - 64px))`,
+        border: '1px solid #EFE7DD',
+        // Embossed voucher surface: drop shadow + raised top light + pressed base
+        boxShadow:
+          '0 18px 44px rgba(1,12,53,0.09), inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -2px 0 rgba(1,12,53,0.05)',
       }}
     >
-      {/* Accent header with the type's motif */}
+      {/* Accent header with the type's motif; the tag sits clear of the badge */}
       <div className="relative flex h-[104px] items-center justify-center overflow-hidden" style={{ background: kind.accentBg }}>
         <span className="favour-shimmer absolute inset-0 opacity-0 transition-opacity duration-300 group-hover/ticket:opacity-100" aria-hidden="true" />
-        <div className="h-[76px] w-[76px] transition-transform duration-300 group-hover/ticket:scale-110" aria-hidden="true">
+        <div className="h-[74px] w-[74px] transition-transform duration-300 group-hover/ticket:scale-110" aria-hidden="true">
           <Motif kind={kind.key} accent={kind.accent} />
         </div>
         <span
-          className="absolute left-3.5 top-3.5 max-w-[70%] rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.07em] leading-tight text-white"
-          style={{ background: kind.accent }}
+          className="absolute left-3.5 top-3.5 max-w-[65%] rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.07em] leading-tight text-white"
+          style={{ background: kind.accent, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.25), 0 1px 3px rgba(1,12,53,0.15)' }}
         >
           {kind.name}
         </span>
-        {featured ? (
-          <span className="absolute right-3.5 top-3.5 rounded-full bg-white px-2 py-1 text-[9.5px] font-bold uppercase tracking-[0.1em]" style={{ color: kind.accent }}>
-            {kind.featured === 'time' ? 'You set the window' : 'It keeps coming back'}
-          </span>
-        ) : null}
+        <span
+          className="absolute bottom-3 right-3.5 rounded-full bg-white/90 px-2 py-1 text-[9.5px] font-bold uppercase tracking-[0.1em]"
+          style={{ color: kind.accent, boxShadow: '0 1px 3px rgba(1,12,53,0.08)' }}
+        >
+          {kind.tag}
+        </span>
       </div>
 
-      {/* Perforation: notches + dashed tear line */}
+      {/* Die-cut: punched side notches (inset-shaded) + dashed tear line */}
       <div className="relative h-0" aria-hidden="true">
-        <span className="absolute -left-[9px] -top-[9px] h-[18px] w-[18px] rounded-full" style={{ background: CREAM, border: '1px solid #EFE7DD' }} />
-        <span className="absolute -right-[9px] -top-[9px] h-[18px] w-[18px] rounded-full" style={{ background: CREAM, border: '1px solid #EFE7DD' }} />
-        <span className="absolute left-4 right-4 top-0 border-t border-dashed" style={{ borderColor: 'rgba(1,12,53,0.18)' }} />
+        <span
+          className="absolute -left-[11px] -top-[11px] h-[22px] w-[22px] rounded-full"
+          style={{ background: CREAM, border: '1px solid #EFE7DD', boxShadow: 'inset -2px 0 3px rgba(1,12,53,0.1)' }}
+        />
+        <span
+          className="absolute -right-[11px] -top-[11px] h-[22px] w-[22px] rounded-full"
+          style={{ background: CREAM, border: '1px solid #EFE7DD', boxShadow: 'inset 2px 0 3px rgba(1,12,53,0.1)' }}
+        />
+        <span className="absolute left-5 right-5 top-0 border-t border-dashed" style={{ borderColor: 'rgba(1,12,53,0.18)' }} />
       </div>
 
-      {/* Copy */}
-      <div className="p-5">
+      {/* Copy + the type's own working parts */}
+      <div className="flex flex-1 flex-col p-5">
         <p className="text-[13.5px] leading-[1.65]" style={{ color: INK }}>
           {kind.body}
         </p>
-        {kind.examples.length ? (
-          <span className="mt-3.5 flex flex-wrap gap-2">
-            {kind.examples.map((ex) => (
-              <span key={ex} className="inline-flex rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={{ color: kind.accent, background: kind.accentBg }}>
-                {ex}
-              </span>
-            ))}
-          </span>
-        ) : null}
-        {kind.featured === 'time' ? (
-          <div className="mt-4">
-            <TimeLimitedExtras accent={kind.accent} />
-          </div>
-        ) : null}
-        {kind.featured === 'reusable' ? (
-          <div className="mt-4">
-            <ReusableExtras accent={kind.accent} />
-          </div>
-        ) : null}
+        <div className="mt-4">
+          <Extras accent={kind.accent} />
+        </div>
+        {/* Blind-embossed foot, like pressed card stock */}
+        <p
+          aria-hidden="true"
+          className="mt-auto pt-4 text-center text-[9px] font-bold uppercase tracking-[0.3em] select-none"
+          style={{ color: 'rgba(1,12,53,0.1)', textShadow: '0 1px 0 rgba(255,255,255,0.9)' }}
+        >
+          Redeemo · Member voucher
+        </p>
       </div>
     </motion.li>
   )
@@ -917,6 +1064,7 @@ function VoucherSweep() {
   const x = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.96], [0, -travel]))
   const leftFade = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.12], [0, 1]))
   const rightFade = useScrollLinked(useTransform(scrollYProgress, [0.88, 0.96], [1, 0]))
+  const barScale = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.96], [0, 1]))
 
   return (
     <div ref={wrapRef} style={{ height: `calc(100svh + ${travel + 240}px)` }}>
@@ -925,13 +1073,17 @@ function VoucherSweep() {
         <div className="relative">
           <motion.div aria-hidden="true" className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 w-12" style={{ background: `linear-gradient(90deg, ${CREAM}, transparent)`, opacity: leftFade }} />
           <motion.div aria-hidden="true" className="pointer-events-none absolute bottom-0 right-0 top-0 z-10 w-12" style={{ background: `linear-gradient(270deg, ${CREAM}, transparent)`, opacity: rightFade }} />
-          <motion.ul ref={rowRef} className="flex w-max items-start gap-5 pb-4 pt-2" style={{ x }} aria-label="The seven voucher types">
+          <motion.ul ref={rowRef} className="flex w-max items-stretch gap-5 pb-4 pt-2" style={{ x }} aria-label="The seven voucher types">
             {VOUCHER_KINDS.map((kind, i) => (
               <VoucherTicket key={kind.key} kind={kind} index={i} sweep />
             ))}
           </motion.ul>
         </div>
-        <motion.p className="mt-2 text-[11.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'rgba(1,12,53,0.35)', opacity: rightFade }}>
+        {/* The sweep's own progress bar fills with the page scroll */}
+        <div className="mt-3 h-[4px] max-w-[420px] overflow-hidden rounded-full" style={{ background: 'rgba(1,12,53,0.08)' }} aria-hidden="true">
+          <motion.span className="block h-full origin-left rounded-full" style={{ scaleX: barScale, background: 'var(--brand-gradient)' }} />
+        </div>
+        <motion.p className="mt-2.5 text-[11.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'rgba(1,12,53,0.35)', opacity: rightFade }}>
           Keep scrolling: all seven sweep past
         </motion.p>
       </div>
@@ -944,6 +1096,7 @@ function VoucherRail() {
   const railRef = useRef<HTMLUListElement>(null)
   const [atStart, setAtStart] = useState(true)
   const [atEnd, setAtEnd] = useState(false)
+  const [prog, setProg] = useState(0)
 
   const onRailScroll = () => {
     const el = railRef.current
@@ -952,6 +1105,7 @@ function VoucherRail() {
     // "at start" band must be wider than that
     setAtStart(el.scrollLeft < 16)
     setAtEnd(el.scrollLeft > el.scrollWidth - el.clientWidth - 16)
+    setProg(Math.min(1, Math.max(0, el.scrollLeft / Math.max(1, el.scrollWidth - el.clientWidth))))
   }
 
   useEffect(() => {
@@ -979,7 +1133,7 @@ function VoucherRail() {
       <ul
         ref={railRef}
         onScroll={onRailScroll}
-        className="favour-rail -mx-2 flex snap-x snap-mandatory items-start gap-5 overflow-x-auto px-2 pb-5 pt-2"
+        className="favour-rail -mx-2 flex snap-x snap-mandatory items-stretch gap-5 overflow-x-auto px-2 pb-5 pt-2"
         aria-label="The seven voucher types"
       >
         {VOUCHER_KINDS.map((kind, i) => (
@@ -987,7 +1141,10 @@ function VoucherRail() {
         ))}
       </ul>
 
-      <div className="mt-2 flex items-center justify-end gap-2.5">
+      <div className="h-[4px] max-w-[300px] overflow-hidden rounded-full" style={{ background: 'rgba(1,12,53,0.08)' }} aria-hidden="true">
+        <span className="block h-full origin-left rounded-full transition-transform duration-200" style={{ transform: `scaleX(${prog})`, background: 'var(--brand-gradient)' }} />
+      </div>
+      <div className="mt-3 flex items-center justify-end gap-2.5">
         {[-1, 1].map((dir) => (
           <button
             key={dir}
@@ -1007,11 +1164,47 @@ function VoucherRail() {
   )
 }
 
+// Unlimited vouchers, protected redemptions (owner 2026-07-16): the fair-use
+// promise attached to the showcase itself.
+function VoucherFairnessNote() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-50px' }}
+      transition={{ duration: 0.5, ease: EASE }}
+      className="mt-10 flex flex-col gap-4 rounded-2xl border bg-white p-6 sm:flex-row sm:items-start sm:gap-5 md:p-7"
+      style={{ borderColor: '#EFE7DD', boxShadow: '0 14px 36px rgba(1,12,53,0.06)' }}
+    >
+      <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: 'rgba(226,12,4,0.08)' }} aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E20C04" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z" />
+          <polyline points="9 12 11 14 15 10" />
+        </svg>
+      </span>
+      <div>
+        <h4 className="font-display mb-2 text-[19px] font-semibold leading-snug" style={{ color: NAVY, letterSpacing: '-0.2px' }}>
+          Unlimited vouchers. Protected redemptions.
+        </h4>
+        <p className="max-w-[720px] text-[14.5px] leading-[1.7]" style={{ color: INK }}>
+          Create as many vouchers as your business needs. Each standard voucher can be redeemed once per customer during their monthly cycle, then it renews:
+          nobody can use the same voucher again and again in the same month, and every renewal is a fresh reason to come back. Reusable vouchers follow the
+          frequency you set. Generous to your customers, safe for your margin.
+        </p>
+      </div>
+    </motion.div>
+  )
+}
+
 function VoucherShowcase() {
   const mode = useViewportMode()
   const reduceMotion = useReducedMotion()
-  if (mode === 'desktop' && !reduceMotion) return <VoucherSweep />
-  return <VoucherRail />
+  return (
+    <>
+      {mode === 'desktop' && !reduceMotion ? <VoucherSweep /> : <VoucherRail />}
+      <VoucherFairnessNote />
+    </>
+  )
 }
 
 // ── Group D: the till receipt ────────────────────────────────────────────────
