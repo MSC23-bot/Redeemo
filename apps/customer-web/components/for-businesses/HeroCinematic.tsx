@@ -42,7 +42,7 @@ const STAGE_H = 941
 // and to clear the right-hand signal rail.
 const CLUSTER_W = 1268
 const CLUSTER_H = 763
-const CLUSTER_DESKTOP = { x: 582, y: 396, s: 0.645 }
+const CLUSTER_DESKTOP = { x: 596, y: 396, s: 0.645 }
 
 // Phone screen: content design space (800 wide, height matches quad aspect)
 const PHONE_W = 800
@@ -104,11 +104,11 @@ type Signal = {
 // Anchors shifted with the cluster (owner 2026-07-16: devices nudged up +22
 // right, +34 up) so cards stay aligned to the devices.
 const SIGNALS: Signal[] = [
-  { sx: 1038, sy: 354, kicker: 'Offer live', title: '2 for 1 mains', sub: 'Visible to customers nearby', icon: 'live', band: [0.05, 0.14] },
-  { sx: 1302, sy: 334, kicker: 'Time-limited', title: 'Lunch rush · 20% off', sub: '', icon: 'clock', countdown: true, band: [0.18, 0.27] },
-  { sx: 1394, sy: 448, kicker: 'New customer', title: 'A customer just found you', sub: 'Browsing nearby · Food & Drink', icon: 'live', band: [0.31, 0.4] },
-  { sx: 1500, sy: 586, kicker: 'At the till', title: 'Redemption confirmed', sub: 'Code R7X4 KM2P · logged', icon: 'tick', band: [0.44, 0.53] },
-  { sx: 1500, sy: 772, kicker: 'Coming back', title: 'A regular in the making', sub: '3rd visit this month', icon: 'repeat', band: [0.57, 0.66] },
+  { sx: 1052, sy: 354, kicker: 'Offer live', title: '2 for 1 mains', sub: 'Visible to customers nearby', icon: 'live', band: [0.05, 0.14] },
+  { sx: 1316, sy: 334, kicker: 'Time-limited', title: 'Lunch rush · 20% off', sub: '', icon: 'clock', countdown: true, band: [0.18, 0.27] },
+  { sx: 1408, sy: 448, kicker: 'New customer', title: 'A customer just found you', sub: 'Browsing nearby · Food & Drink', icon: 'live', band: [0.31, 0.4] },
+  { sx: 1502, sy: 586, kicker: 'At the till', title: 'Redemption confirmed', sub: 'Code R7X4 KM2P · logged', icon: 'tick', band: [0.44, 0.53] },
+  { sx: 1502, sy: 772, kicker: 'Coming back', title: 'A regular in the making', sub: '3rd visit this month', icon: 'repeat', band: [0.57, 0.66] },
 ]
 
 const COUNTDOWN_START = 2 * 3600 + 14 * 60 + 33
@@ -435,16 +435,6 @@ function DesktopSignalLayer({ m, progress, float }: { m: StageMetrics; progress:
 function HeroCopy({ registerUrl }: { registerUrl: string }) {
   return (
     <>
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/7 px-4 py-2 backdrop-blur-sm"
-      >
-        <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-[#E20C04]" />
-        <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/55">For businesses</span>
-      </motion.div>
-
       <motion.h1
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
@@ -466,7 +456,7 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         transition={{ duration: 0.45, delay: 0.18 }}
         className="mb-8 max-w-[500px] text-[15.5px] leading-[1.62] text-white/60 md:text-[16px]"
       >
-        Redeemo is a digital voucher platform that puts your business in front of local customers looking for places to eat, shop, work out, unwind and explore. Create vouchers that attract new customers and drive visits, with clear control over each voucher’s value, terms and usage.
+        Redeemo is a digital voucher platform that helps local customers discover your business. Create your own vouchers, set the terms and give new customers a reason to visit.
       </motion.p>
 
       {/* CTA + trust line */}
@@ -482,7 +472,6 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
             <polyline points="12 5 19 12 12 19" />
           </svg>
         </a>
-        <p className="mt-3.5 text-[12.5px] leading-relaxed text-white/45">No payment details required · Full terms shown before you go live</p>
       </motion.div>
 
       {/* Proof strip: three no-cost points + the built-in redemption limit */}
@@ -504,10 +493,9 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
             </div>
           ))}
         </div>
-        <div className="mt-5 border-t border-white/[0.06] pt-4">
-          <p className="font-display mb-1 leading-none text-white" style={{ fontSize: '19px', letterSpacing: '-0.3px' }}>One redemption</p>
-          <p className="text-[11px] font-medium uppercase leading-snug tracking-[0.08em] text-white/38">Per voucher · per customer · per monthly cycle</p>
-        </div>
+        <p className="mt-4 text-[12.5px] leading-relaxed text-white/50">
+          <span className="font-semibold text-white/80">One redemption</span> per voucher, per customer, per monthly cycle
+        </p>
       </motion.div>
 
       {/* Reassurance chips */}
@@ -515,10 +503,10 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.5 }}
-        className="flex flex-wrap gap-2.5"
+        className="grid max-w-[430px] grid-cols-2 gap-x-3 gap-y-2.5"
       >
         {['Merchant portal included', 'Verified redemptions', 'Built-in voucher limits', 'No hidden platform fees'].map((t) => (
-          <span key={t} className="rounded-full border border-white/12 bg-[#010C35]/40 px-3.5 py-1.5 text-[12px] font-semibold text-white/65 backdrop-blur-sm">
+          <span key={t} className="w-max rounded-full border border-white/12 bg-[#010C35]/40 px-3.5 py-1.5 text-[12px] font-semibold text-white/65 backdrop-blur-sm">
             {t}
           </span>
         ))}
