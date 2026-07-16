@@ -139,3 +139,18 @@ minutes. No card details required." microcopy. New section carries id
 MerchantInterestSection.tsx stays on disk UNIMPORTED: it holds the flag-gated D1
 lead-capture slice and the D-F merchant mailbox; deleting it is an owner call.
 Magic MCP attempted again per owner instruction: still malformed (4th strike).
+
+### Section 5 v2: the merchant ticket (owner feedback 2026-07-17, same day)
+
+Owner rejected v1's navy panel: navy-on-navy after the portal read as "too much", the
+card as "a big blob", the section break as odd. v2: the finale IS a giant white
+Redeemo voucher ticket (the object the whole page has been building), die-cut with a
+perforated tear-off stub (CSS mask notches; drop-shadow filter so the shadow follows
+the silhouette; overflow-hidden so the stub tint respects the corners). Main body
+carries eyebrow/headline (gradient ink kept)/body/zeros-on-ticket/asks; the cream
+stub carries logo, "Your invitation", the CTA, microcopy and a decorative barcode.
+Transition solved by a straddle: the section opens with a band of the same #010C35
+navy flowing seamlessly out of the portal section, then returns to cream, and the
+ticket sits across the boundary. Stub constants must stay in sync with the mask
+(mobile stub h-260 / notches at calc(100% - 260px); desktop stub w-330 / notches at
+calc(100% - 330px)).
