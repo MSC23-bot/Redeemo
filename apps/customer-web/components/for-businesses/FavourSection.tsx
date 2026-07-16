@@ -1,9 +1,9 @@
 'use client'
 
-import Image from 'next/image'
 import { motion, useReducedMotion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { BrandStop } from '@/components/ui/BrandStop'
+import { Motif } from '@/components/landing/VoucherTypesRail'
 
 /**
  * Section 3: "Everything in your favour" (owner copy locked 2026-07-16 after
@@ -19,9 +19,11 @@ import { BrandStop } from '@/components/ui/BrandStop'
  *                                    driving a visual panel (voucher-type
  *                                    chips, quiet-hours calendar, featured
  *                                    card, busiest-days chart)
- *   C  One place to manage it all    the real portal under a moving
- *                                    spotlight: activating a feature slides
- *                                    a bright window across the screenshot
+ *   C  Seven ways to bring them in   a rail of die-cut voucher tickets in
+ *                                    the app's type colours with the landing
+ *                                    rail's motifs (owner 2026-07-16: the
+ *                                    portal group moved out to become its
+ *                                    own Section 4)
  *   D  A model that protects margin  a navy till receipt that prints its
  *                                    zeros, beside the four money items
  *
@@ -99,48 +101,91 @@ const MARKETING: Item[] = [
   },
 ]
 
-const MANAGE: Item[] = [
+// The seven voucher types, in the app's own colours, with the landing rail's
+// bespoke motifs. Merchant-lens copy: what each type is FOR, with a generic
+// example that translates across business types.
+type VoucherKind = { key: string; name: string; body: string; example: string; accent: string; accentBg: string }
+
+const VOUCHER_KINDS: VoucherKind[] = [
   {
-    num: '09',
-    title: 'An easy-to-use merchant portal',
-    lead: 'One login, everything in its place.',
-    body: 'Business, branches, staff access, vouchers, validation and insights, all in one portal.',
+    key: 'bogo',
+    name: 'BOGO',
+    body: 'A free second brings pairs through the door. Perfect for introducing what you want more customers to try.',
+    example: 'Buy one, get a second free',
+    accent: '#7C3AED',
+    accentBg: 'rgba(124,58,237,0.1)',
   },
   {
-    num: '10',
-    title: 'Multi-branch management',
-    lead: 'Every branch, one account.',
-    body: 'Vouchers work at any eligible branch, and once one is used, Redeemo automatically holds it until its cycle allows. Fairness never depends on staff catching it.',
+    key: 'discount',
+    name: 'Discount',
+    body: 'A clean saving everyone understands instantly. The simplest reason to choose you over next door.',
+    example: '20% off your total',
+    accent: '#E20C04',
+    accentBg: 'rgba(226,12,4,0.1)',
   },
   {
-    num: '11',
-    title: 'Guided voucher creation',
-    lead: 'No marketing degree required.',
-    body: 'Step-by-step guidance, an honest "How this voucher stacks up" check, and the Redeemo team on hand to help.',
+    key: 'freebie',
+    name: 'Freebie',
+    body: 'A small free extra that makes trying you effortless, and shows off what you do best.',
+    example: 'A free extra with any purchase',
+    accent: '#16A34A',
+    accentBg: 'rgba(22,163,74,0.1)',
+  },
+  {
+    key: 'spend',
+    name: 'Spend & save',
+    body: 'Rewards a bigger basket: the order goes up and the customer still feels the win.',
+    example: 'Spend £30, save £5',
+    accent: '#E84A00',
+    accentBg: 'rgba(232,74,0,0.1)',
+  },
+  {
+    key: 'package',
+    name: 'Package deal',
+    body: 'Bundle what goes together at one price. Easier to say yes to, and it showcases your range.',
+    example: 'Three together, one price',
+    accent: '#2563EB',
+    accentBg: 'rgba(37,99,235,0.1)',
+  },
+  {
+    key: 'time',
+    name: 'Time-limited',
+    body: 'Runs only in the window you choose. Point demand at quiet days and off-peak hours.',
+    example: 'Weekday afternoons only',
+    accent: '#D97706',
+    accentBg: 'rgba(217,119,6,0.1)',
+  },
+  {
+    key: 'reusable',
+    name: 'Reusable',
+    body: 'Returns as often as you allow. Built for regulars and the visit that becomes a habit.',
+    example: 'Back again every cycle',
+    accent: '#0D9488',
+    accentBg: 'rgba(13,148,136,0.1)',
   },
 ]
 
 const MARGIN: Item[] = [
   {
-    num: '12',
+    num: '09',
     title: 'Free business listing',
     lead: '£0 to list. £0 monthly.',
     body: 'Your profile and the full merchant portal, with no hidden platform fees later.',
   },
   {
-    num: '13',
+    num: '10',
     title: 'No commission. No redemption fee.',
     lead: 'Your saving reaches your customer in full.',
     body: 'Redeemo never takes a percentage when a voucher is used.',
   },
   {
-    num: '14',
+    num: '11',
     title: 'Value tied to a real customer visit',
     lead: 'Never pay for views or clicks.',
     body: 'The voucher saving only comes into play when a customer is standing in your business.',
   },
   {
-    num: '15',
+    num: '12',
     title: 'Customer acquisition with built-in limits',
     lead: 'Generous, never open-ended.',
     body: 'Once per customer per monthly cycle for standard vouchers, your frequency for reusable ones: enforced by the system and verified at your till.',
@@ -622,82 +667,131 @@ function MarketingConsole() {
   )
 }
 
-// ── Group C: the portal under a moving spotlight ──────────────────────────────
+// ── Group C: seven voucher tickets on a rail ──────────────────────────────────
+// Die-cut tickets in the app's type colours: accent header with the landing
+// rail's motif, notched perforation, merchant-lens copy, example strapline.
+// Interactive: drag/swipe or arrows; tickets lift and shine on hover.
 
-// Regions of /for-businesses/portal/home-chrome.webp (1728x1084), fractions.
-const PORTAL_REGIONS = [
-  { x: 0.006, y: 0.05, w: 0.165, h: 0.9 }, // the whole sidebar: one place
-  { x: 0.006, y: 0.395, w: 0.165, h: 0.13 }, // Branches + Staff & access
-  { x: 0.185, y: 0.62, w: 0.34, h: 0.3 }, // Needs your attention: voucher review
-]
+function VoucherTicket({ kind, index }: { kind: VoucherKind; index: number }) {
+  return (
+    <motion.li
+      initial={{ opacity: 0, y: 30, rotate: index % 2 ? 1.6 : -1.6 }}
+      whileInView={{ opacity: 1, y: 0, rotate: 0 }}
+      viewport={{ once: true, margin: '-40px' }}
+      transition={{ duration: 0.5, delay: index * 0.07, ease: EASE }}
+      whileHover={{ y: -8, rotate: index % 2 ? 0.8 : -0.8 }}
+      className="group/ticket relative w-[264px] flex-shrink-0 snap-start overflow-hidden rounded-2xl bg-white"
+      style={{ boxShadow: '0 16px 40px rgba(1,12,53,0.08)', border: '1px solid #EFE7DD' }}
+    >
+      {/* Accent header with the type's motif */}
+      <div className="relative flex h-[120px] items-center justify-center overflow-hidden" style={{ background: kind.accentBg }}>
+        <span className="favour-shimmer absolute inset-0 opacity-0 transition-opacity duration-300 group-hover/ticket:opacity-100" aria-hidden="true" />
+        <div className="h-[84px] w-[84px] transition-transform duration-300 group-hover/ticket:scale-110" aria-hidden="true">
+          <Motif kind={kind.key} accent={kind.accent} />
+        </div>
+        <span
+          className="absolute left-3.5 top-3.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.08em] text-white"
+          style={{ background: kind.accent }}
+        >
+          {kind.name}
+        </span>
+      </div>
 
-function PortalSpotlight() {
-  const [active, setActive] = useState(0)
-  const r = PORTAL_REGIONS[active]
-  const inset = `inset(${(r.y * 100).toFixed(2)}% ${((1 - r.x - r.w) * 100).toFixed(2)}% ${((1 - r.y - r.h) * 100).toFixed(2)}% ${(r.x * 100).toFixed(2)}% round 12px)`
+      {/* Perforation: notches + dashed tear line */}
+      <div className="relative h-0" aria-hidden="true">
+        <span className="absolute -left-[9px] -top-[9px] h-[18px] w-[18px] rounded-full" style={{ background: CREAM, border: '1px solid #EFE7DD' }} />
+        <span className="absolute -right-[9px] -top-[9px] h-[18px] w-[18px] rounded-full" style={{ background: CREAM, border: '1px solid #EFE7DD' }} />
+        <span className="absolute left-4 right-4 top-0 border-t border-dashed" style={{ borderColor: 'rgba(1,12,53,0.18)' }} />
+      </div>
+
+      {/* Copy */}
+      <div className="p-5 pt-5">
+        <p className="text-[13.5px] leading-[1.65]" style={{ color: INK }}>
+          {kind.body}
+        </p>
+        <p
+          className="mt-3.5 inline-flex rounded-lg px-2.5 py-1.5 text-[12px] font-bold"
+          style={{ color: kind.accent, background: kind.accentBg }}
+        >
+          {kind.example}
+        </p>
+      </div>
+    </motion.li>
+  )
+}
+
+function VoucherTicketRail() {
+  const railRef = useRef<HTMLUListElement>(null)
+  const [atStart, setAtStart] = useState(true)
+  const [atEnd, setAtEnd] = useState(false)
+
+  const onRailScroll = () => {
+    const el = railRef.current
+    if (!el) return
+    // snap-mandatory rests the rail at the first snap point (~8px), so the
+    // "at start" band must be wider than that
+    setAtStart(el.scrollLeft < 16)
+    setAtEnd(el.scrollLeft > el.scrollWidth - el.clientWidth - 16)
+  }
+
+  useEffect(() => {
+    onRailScroll()
+  }, [])
+
+  const nudge = (dir: number) => {
+    railRef.current?.scrollBy({ left: dir * 560, behavior: 'smooth' })
+  }
 
   return (
-    <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-[1.25fr_1fr]">
-      {/* The portal, dimmed, with a bright window sliding to the active region */}
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: '-60px' }}
-        transition={{ duration: 0.55, ease: EASE }}
-        className="relative overflow-hidden rounded-2xl border border-[#EFE7DD] shadow-[0_28px_70px_rgba(1,12,53,0.13)]"
-        style={{ aspectRatio: '1728 / 1084', background: '#F8F7F4' }}
-      >
-        <Image src="/for-businesses/portal/home-chrome.webp" alt="" fill sizes="(min-width: 1024px) 640px, 100vw" className="object-cover" style={{ filter: 'brightness(0.55) saturate(0.85)' }} />
-        <motion.div className="absolute inset-0" initial={false} animate={{ clipPath: inset }} transition={{ type: 'spring', stiffness: 200, damping: 28 }}>
-          <Image src="/for-businesses/portal/home-chrome.webp" alt="" fill sizes="(min-width: 1024px) 640px, 100vw" className="object-cover" />
-        </motion.div>
-        <motion.div
-          className="pointer-events-none absolute rounded-xl border-2 border-[#E20C04]/70 shadow-[0_0_0_4px_rgba(226,12,4,0.14)]"
-          animate={{ left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` }}
-          transition={{ type: 'spring', stiffness: 200, damping: 28 }}
-          aria-hidden="true"
-        />
-      </motion.div>
+    <div className="relative">
+      <p className="-mt-6 mb-8 max-w-[560px] text-[15px] leading-[1.65]" style={{ color: INK }}>
+        Every type is yours to shape: your value, your terms, your timing.
+      </p>
 
-      {/* Feature rows drive the spotlight */}
-      <div className="flex flex-col gap-3">
-        {MANAGE.map((item, i) => {
-          const isActive = i === active
-          return (
-            <motion.button
-              key={item.num}
-              initial={{ opacity: 0, x: 18 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, margin: '-50px' }}
-              transition={{ duration: 0.45, delay: i * 0.08, ease: EASE }}
-              onClick={() => setActive(i)}
-              onMouseEnter={() => setActive(i)}
-              aria-pressed={isActive}
-              className="rounded-2xl border p-6 text-left transition-all duration-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#E20C04]"
-              style={{
-                background: isActive ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
-                borderColor: isActive ? 'rgba(226,12,4,0.3)' : '#EFE7DD',
-                boxShadow: isActive ? '0 14px 36px rgba(1,12,53,0.09)' : 'none',
-              }}
-            >
-              <span className="mb-2 flex items-baseline gap-3">
-                <span className={`font-display text-[14px] font-semibold ${isActive ? 'gradient-text' : ''}`} style={isActive ? undefined : { color: 'rgba(1,12,53,0.35)' }} aria-hidden="true">
-                  {item.num}
-                </span>
-                <span className="font-display text-[17px] font-semibold leading-snug" style={{ color: NAVY, letterSpacing: '-0.1px' }}>
-                  {item.title}
-                </span>
-              </span>
-              <ItemCopy item={item} size="sm" />
-            </motion.button>
-          )
-        })}
+      {/* Edge fades so the rail reads as scrollable; each hides at its end */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute bottom-0 left-0 top-16 z-10 w-10 transition-opacity duration-300"
+        style={{ background: `linear-gradient(90deg, ${CREAM}, transparent)`, opacity: atStart ? 0 : 1 }}
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute bottom-0 right-0 top-16 z-10 w-10 transition-opacity duration-300"
+        style={{ background: `linear-gradient(270deg, ${CREAM}, transparent)`, opacity: atEnd ? 0 : 1 }}
+      />
+
+      <ul
+        ref={railRef}
+        onScroll={onRailScroll}
+        className="favour-rail -mx-2 flex snap-x snap-mandatory gap-5 overflow-x-auto px-2 pb-5 pt-2"
+        aria-label="The seven voucher types"
+      >
+        {VOUCHER_KINDS.map((kind, i) => (
+          <VoucherTicket key={kind.key} kind={kind} index={i} />
+        ))}
+      </ul>
+
+      <div className="mt-2 flex items-center justify-end gap-2.5">
+        {[-1, 1].map((dir) => (
+          <button
+            key={dir}
+            onClick={() => nudge(dir)}
+            aria-label={dir < 0 ? 'Scroll voucher types back' : 'Scroll voucher types forward'}
+            className="flex h-10 w-10 items-center justify-center rounded-full border bg-white transition-colors hover:border-[#E20C04]/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#E20C04]"
+            style={{ borderColor: '#EFE7DD', color: NAVY }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: dir < 0 ? 'rotate(180deg)' : undefined }}>
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </button>
+        ))}
       </div>
     </div>
   )
 }
 
-// ── Group D: the till receipt ─────────────────────────────────────────────────
+// ── Group D: the till receipt ────────────────────────────────────────────────
 
 const RECEIPT_LINES: Array<{ label: string; value: string; strong?: boolean }> = [
   { label: 'Listing fee', value: '£0.00' },
@@ -824,6 +918,8 @@ export function FavourSection() {
         @keyframes favourLoop { 0% { stroke-dashoffset: 251; } 55% { stroke-dashoffset: 40; } 100% { stroke-dashoffset: 40; } }
         .favour-shimmer { background: linear-gradient(105deg, transparent 38%, rgba(255,255,255,0.28) 50%, transparent 62%); animation: favourShimmer 3.2s ease-in-out infinite; }
         @keyframes favourShimmer { 0% { transform: translateX(-100%); } 60% { transform: translateX(100%); } 100% { transform: translateX(100%); } }
+        .favour-rail { scrollbar-width: none; }
+        .favour-rail::-webkit-scrollbar { display: none; }
         @media (prefers-reduced-motion: reduce) {
           .favour-radar-sweep, .favour-step, .favour-loop, .favour-shimmer { animation: none; }
           .favour-step { opacity: 1; }
@@ -862,10 +958,10 @@ export function FavourSection() {
           <MarketingConsole />
         </div>
 
-        {/* C · Manage */}
+        {/* C · Voucher types */}
         <div className="mt-20 md:mt-28">
-          <GroupHeader label="Manage" title="One place to manage it all" />
-          <PortalSpotlight />
+          <GroupHeader label="Your vouchers" title="Seven ways to bring customers in" />
+          <VoucherTicketRail />
         </div>
 
         {/* D · Margin */}
