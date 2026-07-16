@@ -2,84 +2,14 @@
 
 import { motion } from 'framer-motion'
 import { ForBusinessesCinema } from './JourneyCinematic'
+import { FavourSection } from './FavourSection'
 import { PortalShowcaseSection } from './PortalShowcaseSection'
 import { MerchantInterestSection } from './MerchantInterestSection'
 import { merchantPortalRegisterUrl } from '@/lib/prelaunch'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
-const VALUE_PROPS = [
-  {
-    title: 'Free to list. Always.',
-    body: 'No listing fee. No monthly subscription. No commission per redemption. The only cost you incur is the value of the offer you design, and only when a customer walks through your door.',
-  },
-  {
-    title: 'Reach customers already looking for you.',
-    body: 'Local customers browse by location and category. When someone near you searches for a restaurant, gym, or salon, your business appears. Targeted visibility with no upfront ad spend.',
-  },
-  {
-    title: 'Increase footfall.',
-    body: 'Customers come in specifically because your voucher drew them. That visit often converts into a regular customer. The voucher gets them through the door. Your business keeps them.',
-  },
-  {
-    title: 'You only spend when a customer turns up.',
-    body: 'Unlike paid ads, the only cost is the offer you set, and only when a customer actually visits and spends. Your spend is tied to a real visit, not a click.',
-  },
-  {
-    title: 'You set the offers. And the limits.',
-    body: 'Each voucher can be used once per member each month, and you choose how many vouchers you run and what their terms allow. You attract customers and turn them into regulars, without an open-ended discount.',
-  },
-  {
-    title: 'Full digital verification.',
-    body: 'Every redemption generates a unique code. Staff scan or enter it. No card sharing. No fraud. Every redemption confirmed, logged, and attributable.',
-  },
-  {
-    title: 'Real redemption data.',
-    body: 'See every redemption by offer, date, and branch. Understand what is working. Export your data. No guesswork, no manual tallying.',
-  },
-  {
-    title: 'Quality local customers, not bargain hunters.',
-    body: 'These are local customers who plan to spend on a good experience, not chase the cheapest option. They are your kind of customer.',
-  },
-]
 
-const COMPARISONS = [
-  {
-    claim: 'No double margin hit.',
-    detail:
-      'Other platforms charge merchants a performance commission on top of the discount they absorb. Redeemo takes nothing. Your only cost is the offer you designed.',
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <line x1="12" y1="1" x2="12" y2="23" />
-        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-      </svg>
-    ),
-  },
-  {
-    claim: 'Acquires customers. Doesn\'t subsidise them.',
-    detail:
-      'Each voucher is limited to once per member each month, and you decide how many offers you run and on what terms. Redeemo acquires new customers. It does not permanently discount your regulars.',
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </svg>
-    ),
-  },
-  {
-    claim: 'Full audit trail. No disputes.',
-    detail:
-      'Every redemption generates a unique digital code tied to the member\'s account. Staff validate it in the merchant app. You see every redemption: when, which offer, which branch. No card sharing, no guesswork.',
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        <polyline points="9 12 11 14 15 10" />
-      </svg>
-    ),
-  },
-]
 
 const STEPS = [
   { n: 1, title: 'Create your account', body: 'Register on the merchant portal. Takes 2 minutes. No payment details required.' },
@@ -104,143 +34,8 @@ export function ForBusinessesContent() {
       <ForBusinessesCinema registerUrl={registerUrl} />
 
 
-      {/* ── 2. Value props ── */}
-      <section style={{ background: '#FAFAF8' }} className="py-20 md:py-28 px-6">
-        <div className="max-w-6xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 14 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-60px' }}
-            transition={{ duration: 0.5, ease: ease() }}
-            className="mb-14"
-          >
-            <h2
-              className="font-display text-[#010C35] leading-[1.1] mb-3"
-              style={{ fontSize: 'clamp(28px, 3.5vw, 44px)', letterSpacing: '-0.3px' }}
-            >
-              Everything in your favour.
-            </h2>
-            <p className="text-[15px] text-[#4B5563] leading-[1.65] max-w-[500px]">
-              Here is what listing on Redeemo actually means for your business.
-            </p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {VALUE_PROPS.map((prop, i) => (
-              <motion.article
-                key={prop.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-40px' }}
-                transition={{ duration: 0.45, delay: (i % 2) * 0.07, ease: ease() }}
-                whileHover={{ y: -3 }}
-                className="relative rounded-2xl border border-[#E5E0D8] bg-white p-7 md:p-8 overflow-hidden cursor-default transition-shadow hover:shadow-[0_8px_28px_rgba(1,12,53,0.07)]"
-              >
-                {/* Faded number */}
-                <span
-                  className="absolute top-4 right-5 font-display font-bold leading-none select-none pointer-events-none"
-                  style={{
-                    fontSize: '64px',
-                    color: '#010C35',
-                    opacity: 0.035,
-                    letterSpacing: '-3px',
-                  }}
-                  aria-hidden="true"
-                >
-                  {String(i + 1).padStart(2, '0')}
-                </span>
-
-                <div className="flex items-baseline gap-3 mb-3">
-                  <span
-                    className="font-display text-[18px] leading-none font-semibold gradient-text flex-shrink-0"
-                    aria-hidden="true"
-                  >
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <h3 className="font-display text-[17px] font-semibold text-[#010C35] leading-snug" style={{ letterSpacing: '-0.1px' }}>
-                    {prop.title}
-                  </h3>
-                </div>
-                <p className="text-[14.5px] text-[#4B5563] leading-[1.7]">
-                  {prop.body}
-                </p>
-              </motion.article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── 3. Three commercial facts (dark) ── */}
-      <section
-        className="relative overflow-hidden py-20 md:py-28 px-6"
-        style={{ background: '#010C35' }}
-      >
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background:
-              'radial-gradient(700px circle at 15% 50%, rgba(226,12,4,0.13), transparent 55%), radial-gradient(500px circle at 90% 80%, rgba(226,12,4,0.09), transparent 55%)',
-          }}
-        />
-
-        <div className="relative max-w-6xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 14 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-60px' }}
-            transition={{ duration: 0.5, ease: ease() }}
-            className="mb-14"
-          >
-            <span className="inline-flex items-center gap-2 text-[11px] font-bold tracking-[0.18em] uppercase text-white/38 mb-3">
-              <span className="inline-block w-5 h-[2px] rounded-full bg-[#E20C04]" aria-hidden="true" />
-              The Redeemo difference
-            </span>
-            <h2
-              className="font-display text-white leading-[1.08] max-w-[680px]"
-              style={{ fontSize: 'clamp(28px, 3.5vw, 44px)', letterSpacing: '-0.4px' }}
-            >
-              Not like what you&apos;ve tried&nbsp;before.
-            </h2>
-          </motion.div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {COMPARISONS.map((c, i) => (
-              <motion.div
-                key={c.claim}
-                initial={{ opacity: 0, y: 24 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-40px' }}
-                transition={{ duration: 0.5, delay: i * 0.1, ease: ease() }}
-                className="rounded-2xl p-7 flex flex-col gap-5"
-                style={{
-                  background: 'rgba(255,255,255,0.055)',
-                  border: '1px solid rgba(255,255,255,0.09)',
-                  backdropFilter: 'blur(12px)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.07)',
-                }}
-              >
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 text-[#E20C04]"
-                  style={{ background: 'rgba(226,12,4,0.12)' }}
-                  aria-hidden="true"
-                >
-                  {c.icon}
-                </div>
-                <div>
-                  <h3
-                    className="font-display text-white text-[18px] font-semibold leading-snug mb-3"
-                    style={{ letterSpacing: '-0.1px' }}
-                  >
-                    {c.claim}
-                  </h3>
-                  <p className="text-[14px] text-white/48 leading-[1.7]">{c.detail}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* ── 2-3. Everything in your favour (Section 3) ── */}
+      <FavourSection />
 
       {/* ── 4. Voucher structure ── */}
       <section className="bg-white py-20 md:py-24 px-6">

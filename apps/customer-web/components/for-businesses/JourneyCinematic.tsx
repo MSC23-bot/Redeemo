@@ -523,7 +523,7 @@ function PhoneFeed({
   )
 }
 
-function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boolean }) {
+function FrontDeviceCluster({ jp }: { jp: MotionValue<number> }) {
   // ── Laptop timeline ──
   const paneY = useBand(jp, kf(K.paneScrub), [0, -PANE_TRAVEL])
   const builderOp = useBand(jp, kf(K.portalHome), [1, 0])
@@ -535,7 +535,7 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
   const modalDim = useBand(jp, [...kf(K.modalDim), jf(444), jf(448)], [0, 0.45, 0.45, 0])
   const modalOp = useBand(jp, kf(K.modalRise), [0, 1])
   const modalY = useBand(jp, kf(K.modalRise), [30, 0])
-  const validateFullOp = useBand(jp, [jf(442), jf(446), ...kf(K.validated)], [0, 1, 1, 0])
+  const validateFullOp = useBand(jp, [jf(442), jf(445), jf(446), jf(452)], [0, 1, 1, 0])
   const validatedOp = useBand(jp, kf(K.validated), [0, 1])
   const toastValidatedOp = useBand(jp, kf(K.toastValidated), [0, 1])
   const toastValidatedY = useBand(jp, kf(K.toastValidated), [14, 0])
@@ -622,7 +622,7 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
             replacement pill (styled to match) reading a July date, so the
             dashboard cannot contradict the July redemption records
             (owner 2026-07-16). */}
-        {armed ? (
+        {(
           <motion.div style={{ position: 'absolute', inset: 0, opacity: homeOp, background: PORTAL_BG }}>
             <Image src="/for-businesses/portal/home-chrome.webp" alt="" fill sizes="640px" className="object-cover object-top" />
             <div
@@ -648,16 +648,16 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
               </span>
             </div>
           </motion.div>
-        ) : null}
-        {armed ? <ChapterImage src="/for-businesses/portal/redemptions.webp" opacity={redemptionsOp} /> : null}
+        )}
+        <ChapterImage src="/for-businesses/portal/redemptions.webp" opacity={redemptionsOp} />
 
         {/* Focus veil while the phone carries the story */}
         <motion.div style={{ position: 'absolute', inset: 0, background: '#010C35', opacity: laptopVeil }} />
 
         {/* Staff tap Validate a code, the modal rises, the code checks out */}
-        {armed ? <Tap jp={jp} at={K.tapValidate} x={`${lapX(0.902) * 100}%`} y="13.6%" size={44} /> : null}
+        <Tap jp={jp} at={K.tapValidate} x={`${lapX(0.902) * 100}%`} y="13.6%" size={44} />
         <motion.div style={{ position: 'absolute', inset: 0, background: 'rgba(7,12,32,0.75)', opacity: modalDim }} />
-        {armed ? (
+        {(
           <motion.div style={{ position: 'absolute', inset: 0, opacity: modalOp, y: modalY }}>
             <Image
               src="/for-businesses/journey/journey-validate.webp"
@@ -668,18 +668,18 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
               style={{ clipPath: 'inset(15% 27% 15% 27% round 14px)' }}
             />
           </motion.div>
-        ) : null}
-        {armed ? <ChapterImage src="/for-businesses/journey/journey-validate.webp" opacity={validateFullOp} /> : null}
-        {armed ? <ChapterImage src="/for-businesses/journey/journey-validated.webp" opacity={validatedOp} /> : null}
+        )}
+        <ChapterImage src="/for-businesses/journey/journey-validate.webp" opacity={validateFullOp} />
+        <ChapterImage src="/for-businesses/journey/journey-validated.webp" opacity={validatedOp} />
 
         {/* Confirmation moment: brand confetti + portal toast */}
-        {armed ? (
+        {(
           <div className="pointer-events-none absolute inset-0 overflow-hidden">
             {LAPTOP_CONFETTI.map((p, i) => (
               <ConfettiPiece key={i} jp={jp} p={p} t0={jf(K.laptopConfetti)} />
             ))}
           </div>
-        ) : null}
+        )}
         <LaptopToast opacity={toastCreatedOp} y={toastCreatedY} text="Voucher successfully created." />
         <LaptopToast opacity={toastValidatedOp} y={toastValidatedY} text="Voucher successfully validated." />
 
@@ -722,7 +722,7 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
         </motion.div>
 
         {/* Merchant profile scrolls down to its vouchers, one is tapped */}
-        {armed ? (
+        {(
           <motion.div style={{ position: 'absolute', inset: 0, opacity: profileOp, background: '#FFF9F5' }}>
             <div
               style={{
@@ -741,10 +741,10 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
             </div>
             <Tap jp={jp} at={K.tapVoucher} x="76%" y="86%" />
           </motion.div>
-        ) : null}
+        )}
 
         {/* Voucher detail: Redeem glows, then gets tapped */}
-        {armed ? (
+        {(
           <motion.div style={{ position: 'absolute', inset: 0, opacity: detailOp, background: '#FFF9F5' }}>
             <Image src="/app-shots/journey/voucher-detail.jpg" alt="" fill sizes="240px" className="object-cover object-top" />
             <motion.div
@@ -760,17 +760,17 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
             />
             <Tap jp={jp} at={K.tapRedeem} x="50%" y="90.5%" />
           </motion.div>
-        ) : null}
+        )}
 
         {/* Redemption: branch sheet, PIN typed on the keypad, success */}
-        {armed ? (
+        {(
           <motion.div style={{ position: 'absolute', inset: 0, opacity: branchOp, background: '#2a1a3e' }}>
             <Image src="/app-shots/journey/branch-sheet.jpg" alt="" fill sizes="240px" className="object-cover object-top" />
             <Tap jp={jp} at={K.tapBranch} x="50%" y="79%" />
             <Tap jp={jp} at={K.tapConfirm} x="50%" y="94.5%" />
           </motion.div>
-        ) : null}
-        {armed ? (
+        )}
+        {(
           <motion.div style={{ position: 'absolute', inset: 0, opacity: pinOp, background: '#2a1a3e' }}>
             <Image src="/app-shots/journey/pin-screen.jpg" alt="" fill sizes="240px" className="object-cover object-top" />
             {PIN_BOX_LEFTS.map((left, i) => (
@@ -792,24 +792,24 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
               <KeyFlash key={i} jp={jp} keyTime={PIN_KEY_TIMES[i]} digit={d} />
             ))}
           </motion.div>
-        ) : null}
-        {armed ? (
+        )}
+        {(
           <motion.div style={{ position: 'absolute', inset: 0, opacity: successOp, scale: successScale, background: '#2a1a3e' }}>
             <Image src="/app-shots/journey/success-sheet.jpg" alt="" fill sizes="240px" className="object-cover object-top" />
             <Tap jp={jp} at={K.tapViewCode} x="50%" y="65.5%" />
           </motion.div>
-        ) : null}
+        )}
         <motion.div className="pointer-events-none absolute inset-0 bg-white" style={{ opacity: pinFlash }} />
-        {armed ? (
+        {(
           <div className="pointer-events-none absolute inset-0 overflow-hidden">
             {PHONE_CONFETTI.map((p, i) => (
               <ConfettiPiece key={i} jp={jp} p={p} t0={jf(K.phoneConfetti)} />
             ))}
           </div>
-        ) : null}
+        )}
 
         {/* The QR + code, presented at the till while the merchant validates */}
-        {armed ? <ChapterImage src="/app-shots/journey/qr-screen.jpg" opacity={qrOp} sizes="240px" /> : null}
+        <ChapterImage src="/app-shots/journey/qr-screen.jpg" opacity={qrOp} sizes="240px" />
 
         <div
           style={{
@@ -926,20 +926,14 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
   const [heroGone, setHeroGone] = useState(false)
   useMotionValueEvent(jp, 'change', (v) => setHeroGone(v > jf(14)))
 
-  // Mount later journey chapters once the visitor starts moving (keeps them
-  // out of the first-paint payload; they load well before they are seen).
-  const [armed, setArmed] = useState(false)
-  useMotionValueEvent(p, 'change', (v) => {
-    if (v > 0.03) setArmed(true)
-  })
-
-  // Change events do not fire on mount: seed both states for reloads and
-  // deep links that restore scroll mid-band (otherwise the armed chapters
-  // stay unmounted and the screens sit blank until the first scroll).
+  // Change events do not fire on mount: seed for reloads and deep links
+  // that restore scroll mid-band. All journey layers stay mounted from the
+  // start: layers mounted mid-scroll subscribe unreliably to the motion
+  // chain (found in QA: a deep reload left the screens blank), and the
+  // deferred-payload win was minor next to that failure mode.
   useEffect(() => {
-    if (p.get() > 0.03) setArmed(true)
     setHeroGone(jp.get() > jf(14))
-  }, [p, jp])
+  }, [jp])
 
   const mapScale = useScrollLinked(useTransform(jp, [0, jf(44)], [1.05, 1]))
 
@@ -1042,7 +1036,7 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
                 }}
               >
                 <div style={{ transform: `scale(${J_PLACE.s})`, transformOrigin: '0 0' }}>
-                  <FrontDeviceCluster jp={jp} armed={armed} />
+                  <FrontDeviceCluster jp={jp} />
                 </div>
               </motion.div>
 
@@ -1133,7 +1127,8 @@ export function JourneyStacked() {
         })}
       </div>
 
-      <div className="relative mx-auto max-w-[600px] px-6 pb-24 pt-20">
+      {/* Extra tail room: the next section's cream curve overlaps this edge */}
+      <div className="relative mx-auto max-w-[600px] px-6 pb-36 pt-20">
         <p className="font-display text-[24px] leading-[1.32] text-white" style={{ letterSpacing: '-0.4px' }}>
           {CLOSING}
           <BrandStop tone="white" />

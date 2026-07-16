@@ -76,3 +76,22 @@ technique; new journey-builder.webp full-chrome crop + journey-builder-strip.web
 cards replaced by a JOURNEY ROUTE: five stops on a progress line drawn under the
 devices across the map plate, kickers under each stop, the active stop's locked line
 centred beneath, final stop green. Clears the navbar entirely.
+
+## Section 3 (owner copy locked 2026-07-16; built same day)
+
+Copy: owner draft passed through the seven sweeps; owner approved the edited deck
+keeping the paying-members line (01) and the honest optional-paid featured disclosure
+(07). Component: FavourSection.tsx on brand cream, navy-to-cream curved seam over the
+cinema's night scene with a sunrise glow. Four DISTINCT group treatments (owner: no
+repeated structure): A bento with living micro-visuals (radar, profile, footfall,
+return loop); B interactive console (vertical tabs + visual panels: 7 voucher-type
+chips in app colours, quiet-hours calendar, featured card with paid disclosure,
+busiest-days chart with Export CSV) with gentle autoplay until engaged; C the real
+portal under a moving spotlight (animated clip-path bright window + ring); D a navy
+till receipt printing its zeros beside the four money items; closing couplet with the
+Brand Full Stop. In-flow (no pinning). Replaces legacy VALUE_PROPS + COMPARISONS
+sections. Magic MCP was consulted per owner instruction but returned malformed
+protocol responses on every call (server-side fault); design proceeded on house
+language. QA fix: `armed` deferred-mount gating in JourneyCinematic removed after a
+deep-reload left mid-scroll-mounted layers with dead motion subscriptions (blank
+screens); all layers now mount from the start.
