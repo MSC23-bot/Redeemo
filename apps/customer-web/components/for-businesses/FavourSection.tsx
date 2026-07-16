@@ -6,6 +6,7 @@ import { BrandStop } from '@/components/ui/BrandStop'
 import { Motif } from '@/components/landing/VoucherTypesRail'
 import { useScrollLinked } from '@/components/landing/scroll'
 import { useViewportMode } from '@/components/landing/useViewportMode'
+import { BrandDeboss } from './BrandDeboss'
 
 /**
  * Section 3: "Everything in your favour" (owner copy locked 2026-07-16 after
@@ -42,7 +43,6 @@ const INK = '#4B5563'
 // ── Locked copy ───────────────────────────────────────────────────────────────
 
 const EYEBROW = 'WHY BUSINESSES CHOOSE REDEEMO'
-const HEADLINE = 'Everything in your favour.'
 const INTRO =
   'More local visibility. More reasons for customers to visit. More control over what you offer, and no platform fees taking a cut.'
 
@@ -227,21 +227,35 @@ function ItemCopy({ item, size = 'md' }: { item: Item; size?: 'md' | 'sm' }) {
   )
 }
 
-function GroupHeader({ label, title }: { label: string; title: string }) {
+function GroupHeader({ label, title, accent }: { label: string; title: string; accent?: string }) {
+  const reduceMotion = useReducedMotion()
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '-60px' }}
-      transition={{ duration: 0.5, ease: EASE }}
+      initial={{ opacity: 0, y: 26, filter: 'blur(6px)' }}
+      whileInView={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+      viewport={{ once: true, margin: '-90px' }}
+      transition={reduceMotion ? { duration: 0 } : { duration: 0.65, ease: EASE }}
       className="mb-10"
     >
       <p className="mb-3 flex items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'rgba(1,12,53,0.45)' }}>
-        <span className="h-[2px] w-5 rounded-full bg-[#E20C04]" aria-hidden="true" />
+        <motion.span
+          className="h-[2px] w-5 origin-left rounded-full bg-[#E20C04]"
+          aria-hidden="true"
+          initial={{ scaleX: 0 }}
+          whileInView={{ scaleX: 1 }}
+          viewport={{ once: true, margin: '-60px' }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.5, ease: EASE }}
+        />
         {label}
       </p>
       <h3 className="font-display leading-[1.1]" style={{ color: NAVY, fontSize: 'clamp(24px, 2.6vw, 34px)', letterSpacing: '-0.4px' }}>
         {title}
+        {accent ? (
+          <>
+            {' '}
+            <span className="gradient-text">{accent}</span>
+          </>
+        ) : null}
       </h3>
     </motion.div>
   )
@@ -367,6 +381,7 @@ function RetentionViz() {
 const GROW_VIZ = [RadarViz, ProfileViz, FootfallViz, RetentionViz]
 
 function GrowBento() {
+  const reduceMotion = useReducedMotion()
   return (
     <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
       {GROW.map((item, i) => {
@@ -374,10 +389,10 @@ function GrowBento() {
         return (
           <motion.article
             key={item.num}
-            initial={{ opacity: 0, y: 22 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-50px' }}
-            transition={{ duration: 0.5, delay: (i % 2) * 0.08, ease: EASE }}
+            initial={{ opacity: 0, y: 30, filter: 'blur(6px)' }}
+            whileInView={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            viewport={{ once: true, margin: '-70px' }}
+            transition={reduceMotion ? { duration: 0 } : { duration: 0.6, delay: i * 0.09, ease: EASE }}
             whileHover={{ y: -4 }}
             className="group overflow-hidden rounded-3xl border border-[#EFE7DD] bg-white transition-shadow duration-300 hover:shadow-[0_18px_44px_rgba(1,12,53,0.09)]"
           >
@@ -596,10 +611,10 @@ function MarketingConsole() {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 24 }}
+      initial={{ opacity: 0, y: 34 }}
       whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '-60px' }}
-      transition={{ duration: 0.55, ease: EASE }}
+      viewport={{ once: true, margin: '-80px' }}
+      transition={reduceMotion ? { duration: 0 } : { duration: 0.7, ease: EASE }}
       className="overflow-hidden rounded-3xl border border-[#EFE7DD] bg-white shadow-[0_24px_60px_rgba(1,12,53,0.07)]"
     >
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.05fr]">
@@ -1048,7 +1063,7 @@ function VoucherShowcaseHeader() {
       </p>
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
         <h3 className="font-display leading-[1.1]" style={{ color: NAVY, fontSize: 'clamp(24px, 2.4vw, 32px)', letterSpacing: '-0.4px' }}>
-          Seven ways to bring customers in
+          Seven ways to bring <span className="gradient-text">customers&nbsp;in</span>
         </h3>
         <p className="text-[14px] leading-snug" style={{ color: INK }}>
           Every type is yours to shape: your value, your terms, your timing.
@@ -1355,8 +1370,15 @@ function ReceiptLine({ line, index }: { line: (typeof RECEIPT_LINES)[number]; in
 }
 
 function MarginReceipt() {
+  const reduceMotion = useReducedMotion()
   return (
-    <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[0.9fr_1.1fr]">
+    <motion.div
+      initial={{ opacity: 0, y: 30, rotate: 1.4 }}
+      whileInView={{ opacity: 1, y: 0, rotate: 0 }}
+      viewport={{ once: true, margin: '-80px' }}
+      transition={reduceMotion ? { duration: 0 } : { duration: 0.7, ease: EASE }}
+      className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[0.9fr_1.1fr]"
+    >
       {/* The receipt */}
       <motion.div
         initial={{ opacity: 0, y: 26, rotate: 0 }}
@@ -1422,13 +1444,14 @@ function MarginReceipt() {
           </motion.article>
         ))}
       </div>
-    </div>
+    </motion.div>
   )
 }
 
 // ── The section ───────────────────────────────────────────────────────────────
 
 export function FavourSection() {
+  const reduceMotion = useReducedMotion()
   return (
     <section className="relative -mt-[70px]" style={{ background: 'transparent' }}>
       {/* Seam: the cream sheet sweeps up over the cinema's night scene
@@ -1443,6 +1466,21 @@ export function FavourSection() {
           className="pointer-events-none absolute -top-[90px] left-0 right-0 h-[260px]"
           style={{ background: 'radial-gradient(620px 200px at 50% 40px, rgba(232,74,0,0.1), transparent 70%)' }}
         />
+
+        {/* Background decor: two deboss marks and two soft warm washes so
+            the cream field isn't flat between the header and the bento */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+          <BrandDeboss tone="cream" size={640} rotate={-12} style={{ right: '-7%', top: '4%' }} />
+          <BrandDeboss tone="cream" size={500} rotate={10} style={{ left: '-9%', top: '56%' }} />
+          <div
+            className="absolute rounded-full"
+            style={{ width: 620, height: 620, left: '8%', top: '20%', background: 'radial-gradient(closest-side, rgba(232,74,0,0.05), transparent)' }}
+          />
+          <div
+            className="absolute rounded-full"
+            style={{ width: 620, height: 620, right: '4%', top: '68%', background: 'radial-gradient(closest-side, rgba(232,74,0,0.05), transparent)' }}
+          />
+        </div>
 
       <style>{`
         .favour-radar-sweep { animation: favourSweep 5.2s linear infinite; }
@@ -1467,7 +1505,7 @@ export function FavourSection() {
         }
       `}</style>
 
-      <div className="mx-auto max-w-6xl px-6 pb-24 pt-6 md:pb-32">
+      <div className="relative mx-auto max-w-6xl px-6 pb-24 pt-6 md:pb-32">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 18 }}
@@ -1481,7 +1519,7 @@ export function FavourSection() {
             {EYEBROW}
           </p>
           <h2 className="font-display mb-4 leading-[1.08]" style={{ color: NAVY, fontSize: 'clamp(32px, 4vw, 50px)', letterSpacing: '-0.7px' }}>
-            {HEADLINE}
+            Everything in <span className="gradient-text">your&nbsp;favour.</span>
           </h2>
           <p className="text-[15.5px] leading-[1.65]" style={{ color: INK }}>
             {INTRO}
@@ -1489,12 +1527,12 @@ export function FavourSection() {
         </motion.div>
 
         {/* A · Grow */}
-        <GroupHeader label="Grow" title="Grow your local presence" />
+        <GroupHeader label="Grow" title="Grow your" accent="local presence" />
         <GrowBento />
 
         {/* B · Marketing */}
         <div className="mt-20 md:mt-28">
-          <GroupHeader label="Promote" title="Marketing built around your business" />
+          <GroupHeader label="Promote" title="Marketing built around" accent="your business" />
           <MarketingConsole />
         </div>
 
@@ -1505,16 +1543,16 @@ export function FavourSection() {
 
         {/* D · Margin */}
         <div className="mt-16 lg:mt-10">
-          <GroupHeader label="Your margin" title="A model that protects your margin" />
+          <GroupHeader label="Your margin" title="A model that protects" accent="your margin" />
           <MarginReceipt />
         </div>
 
         {/* Closing statement */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, y: 20, scale: 0.97 }}
+          whileInView={{ opacity: 1, y: 0, scale: 1 }}
           viewport={{ once: true, margin: '-70px' }}
-          transition={{ duration: 0.6, ease: EASE }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.6, ease: EASE }}
           className="mx-auto mt-24 max-w-[900px] text-center md:mt-32"
         >
           <p className="font-display leading-[1.3]" style={{ color: NAVY, fontSize: 'clamp(23px, 2.6vw, 34px)', letterSpacing: '-0.5px' }}>

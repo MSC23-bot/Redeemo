@@ -154,3 +154,20 @@ navy flowing seamlessly out of the portal section, then returns to cream, and th
 ticket sits across the boundary. Stub constants must stay in sync with the mask
 (mobile stub h-260 / notches at calc(100% - 260px); desktop stub w-330 / notches at
 calc(100% - 330px)).
+
+### Cohesion round (owner feedback 2026-07-17): seams, air, deboss, gradient ink
+
+Owner kept the ticket; four notes actioned. (1) Dark-to-light navy seam above the
+ticket: the portal's pinned backdrop ended at #030B28 while the section navy is
+#010C35; backdrop now ends on #010C35, continuous into the ticket band. (2) Portal
+window and ticket too close: portal desktop bottom padding lg:pb-16 -> lg:pb-40.
+(3) Plain backgrounds: new shared BrandDeboss.tsx renders the ribbon icon as a
+two-layer letterpress silhouette (cream deboss / navy emboss whisper); two marks on
+the portal stage, two on Section 3's cream plus warm radial washes (gotcha: SVG
+<polygon> takes bare coordinate points, no leading M). (4) Gradient-ink system
+extended page-wide, one accent per heading: S2 "a visit.", S3 "your favour." plus
+one per group header (local presence / your business / customers in / your margin),
+S4 "manage it all."; hero and S5 already carried theirs. Section 3 entrance
+choreography upgraded (Sonnet executed to spec): eyebrow dash draws, headers and
+bento tiles blur-in with stagger, console and receipt reveal (receipt settles from
+1.4deg like the ticket), all reduced-motion gated.

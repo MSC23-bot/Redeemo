@@ -152,7 +152,8 @@ const SCRIM =
 // ── Locked copy (owner handoff 2026-07-16; do not rewrite) ────────────────────
 
 const EYEBROW = 'HOW REDEEMO WORKS'
-const HEADLINE = 'See how a voucher becomes a visit.'
+const HEADLINE_LEAD = 'See how a voucher becomes'
+const HEADLINE_INK = 'a visit.'
 const INTRO =
   'You create the voucher. Redeemo helps local customers discover it, choose your business and use it when they visit. Every confirmed redemption is recorded in your merchant portal.'
 const CLOSING = 'From voucher created to redemption confirmed. One clear journey'
@@ -864,7 +865,7 @@ function JourneyCopyColumn({ jp }: { jp: MotionValue<number> }) {
           {EYEBROW}
         </p>
         <h2 className="font-display mb-4 leading-[1.12] text-white" style={{ fontSize: 'clamp(28px, 2.9vw, 38px)', letterSpacing: '-0.5px' }}>
-          {HEADLINE}
+          {HEADLINE_LEAD} <span className="gradient-text">{HEADLINE_INK}</span>
         </h2>
         <p className="mb-9 max-w-[440px] text-[15px] leading-[1.62] text-white/55">{INTRO}</p>
 
@@ -1084,7 +1085,7 @@ export function JourneyStacked() {
             {EYEBROW}
           </p>
           <h2 className="font-display mb-4 leading-[1.12] text-white" style={{ fontSize: 'clamp(28px, 7vw, 36px)', letterSpacing: '-0.5px' }}>
-            {HEADLINE}
+            {HEADLINE_LEAD} <span className="gradient-text">{HEADLINE_INK}</span>
           </h2>
           <p className="text-[15px] leading-[1.62] text-white/55">{INTRO}</p>
         </div>

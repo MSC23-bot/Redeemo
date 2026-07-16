@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import { BrandDeboss } from './BrandDeboss'
 import { motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 
@@ -746,7 +747,7 @@ export function PortalSection() {
 
   return (
     <section className="relative overflow-x-clip" style={{ background: NAVY }}>
-      <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 md:pb-28 lg:px-10 lg:pb-16 lg:pt-0">
+      <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 md:pb-28 lg:px-10 lg:pb-40 lg:pt-0">
         {/* Header (mobile/tablet: the desktop pin carries its own compact twin) */}
         <motion.div
           initial={{ opacity: 0, y: 18 }}
@@ -760,7 +761,7 @@ export function PortalSection() {
             The merchant portal
           </p>
           <h2 className="font-display mb-4 leading-[1.08] text-white" style={{ fontSize: 'clamp(30px, 3.6vw, 46px)', letterSpacing: '-0.6px' }}>
-            One place to manage it all.
+            One place to <span className="gradient-text">manage it&nbsp;all.</span>
           </h2>
           <p className="max-w-[620px] text-[15.5px] leading-[1.65] text-white/60">
             Your control room on Redeemo: shape what customers see, give your team the right access, and watch real results come back.
@@ -788,9 +789,14 @@ export function PortalSection() {
           style={{
             inset: '-2px -100vw',
             background:
-              'radial-gradient(1100px 640px at 76% -8%, rgba(210,40,18,0.16), transparent 62%), radial-gradient(900px 620px at 8% 42%, rgba(70,100,200,0.1), transparent 66%), linear-gradient(180deg, #071033 0%, #030B28 100%)',
+              'radial-gradient(1100px 640px at 76% -8%, rgba(210,40,18,0.16), transparent 62%), radial-gradient(900px 620px at 8% 42%, rgba(70,100,200,0.1), transparent 66%), linear-gradient(180deg, #071033 0%, #010C35 100%)',
           }}
         />
+        {/* Whisper-level brand marks pressed into the stage */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+          <BrandDeboss tone="navy" size={660} rotate={12} style={{ right: '-6%', top: '-14%' }} />
+          <BrandDeboss tone="navy" size={380} rotate={-10} style={{ left: '-4%', bottom: '-8%' }} />
+        </div>
         {/* Compact header shares the pinned screen */}
         <div className="mb-9">
           <p className="mb-3 flex items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
@@ -798,7 +804,7 @@ export function PortalSection() {
             The merchant portal
           </p>
           <h2 className="font-display mb-3 leading-[1.08] text-white" style={{ fontSize: 'clamp(28px, 3vw, 40px)', letterSpacing: '-0.5px' }}>
-            One place to manage it all.
+            One place to <span className="gradient-text">manage it&nbsp;all.</span>
           </h2>
           <p className="mb-5 max-w-[600px] text-[14.5px] leading-[1.6] text-white/60">
             Your control room on Redeemo: shape what customers see, give your team the right access, and watch real results come back.
