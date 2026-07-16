@@ -1,9 +1,11 @@
 'use client'
 
-import { motion, useReducedMotion } from 'framer-motion'
+import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { BrandStop } from '@/components/ui/BrandStop'
 import { Motif } from '@/components/landing/VoucherTypesRail'
+import { useScrollLinked } from '@/components/landing/scroll'
+import { useViewportMode } from '@/components/landing/useViewportMode'
 
 /**
  * Section 3: "Everything in your favour" (owner copy locked 2026-07-16 after
@@ -104,30 +106,39 @@ const MARKETING: Item[] = [
 // The seven voucher types, in the app's own colours, with the landing rail's
 // bespoke motifs. Merchant-lens copy: what each type is FOR, with a generic
 // example that translates across business types.
-type VoucherKind = { key: string; name: string; body: string; example: string; accent: string; accentBg: string }
+type VoucherKind = { key: string; name: string; body: string; examples: string[]; featured?: 'time' | 'reusable'; accent: string; accentBg: string }
 
 const VOUCHER_KINDS: VoucherKind[] = [
   {
     key: 'bogo',
-    name: 'BOGO',
+    name: 'Buy one get one free',
     body: 'A free second brings pairs through the door. Perfect for introducing what you want more customers to try.',
-    example: 'Buy one, get a second free',
+    examples: ['Two for one on anything you choose'],
     accent: '#7C3AED',
     accentBg: 'rgba(124,58,237,0.1)',
   },
   {
     key: 'discount',
     name: 'Discount',
-    body: 'A clean saving everyone understands instantly. The simplest reason to choose you over next door.',
-    example: '20% off your total',
+    body: 'A clean saving everyone understands instantly: a percentage off or a set amount off, your call.',
+    examples: ['20% off', '£5 off'],
     accent: '#E20C04',
     accentBg: 'rgba(226,12,4,0.1)',
+  },
+  {
+    key: 'time',
+    name: 'Time-limited',
+    body: 'Runs only in the window you set: days, dates and hours. Outside it, customers see it as unavailable to redeem.',
+    examples: [],
+    featured: 'time',
+    accent: '#D97706',
+    accentBg: 'rgba(217,119,6,0.1)',
   },
   {
     key: 'freebie',
     name: 'Freebie',
     body: 'A small free extra that makes trying you effortless, and shows off what you do best.',
-    example: 'A free extra with any purchase',
+    examples: ['A free extra with any purchase'],
     accent: '#16A34A',
     accentBg: 'rgba(22,163,74,0.1)',
   },
@@ -135,7 +146,7 @@ const VOUCHER_KINDS: VoucherKind[] = [
     key: 'spend',
     name: 'Spend & save',
     body: 'Rewards a bigger basket: the order goes up and the customer still feels the win.',
-    example: 'Spend £30, save £5',
+    examples: ['Spend £30, save £5'],
     accent: '#E84A00',
     accentBg: 'rgba(232,74,0,0.1)',
   },
@@ -143,23 +154,16 @@ const VOUCHER_KINDS: VoucherKind[] = [
     key: 'package',
     name: 'Package deal',
     body: 'Bundle what goes together at one price. Easier to say yes to, and it showcases your range.',
-    example: 'Three together, one price',
+    examples: ['Three together, one price'],
     accent: '#2563EB',
     accentBg: 'rgba(37,99,235,0.1)',
   },
   {
-    key: 'time',
-    name: 'Time-limited',
-    body: 'Runs only in the window you choose. Point demand at quiet days and off-peak hours.',
-    example: 'Weekday afternoons only',
-    accent: '#D97706',
-    accentBg: 'rgba(217,119,6,0.1)',
-  },
-  {
     key: 'reusable',
     name: 'Reusable',
-    body: 'Returns as often as you allow. Built for regulars and the visit that becomes a habit.',
-    example: 'Back again every cycle',
+    body: 'Returns on the frequency you choose: weekly, fortnightly or monthly. Built for regulars and the visit that becomes a habit.',
+    examples: [],
+    featured: 'reusable',
     accent: '#0D9488',
     accentBg: 'rgba(13,148,136,0.1)',
   },
@@ -667,34 +671,178 @@ function MarketingConsole() {
   )
 }
 
-// ── Group C: seven voucher tickets on a rail ──────────────────────────────────
-// Die-cut tickets in the app's type colours: accent header with the landing
-// rail's motif, notched perforation, merchant-lens copy, example strapline.
-// Interactive: drag/swipe or arrows; tickets lift and shine on hover.
+// ── Group C: seven voucher tickets, swept by the page's own scroll ───────────
+// Die-cut tickets in the app's type colours with the landing rail's motifs.
+// Desktop pins briefly and the row sweeps across as the visitor scrolls
+// (owner 2026-07-16: horizontally hidden tickets were being missed), so all
+// seven are seen with nothing to grab. Mobile / short / reduced motion keep
+// a native swipe rail. Time-limited and Reusable are FEATURED tickets with
+// richer interiors: the set window + live countdown + in-app availability
+// states, and the comes-back frequency cycle.
 
-function VoucherTicket({ kind, index }: { kind: VoucherKind; index: number }) {
+const TICKET_W = 264
+const TICKET_W_FEATURED = 420
+
+function useTicketCountdown(active: boolean) {
+  const START = 2 * 86400 + 11 * 3600 + 43 * 60 + 16
+  const [left, setLeft] = useState(START)
+  useEffect(() => {
+    if (!active) return
+    const id = setInterval(() => setLeft((v) => (v > 1 ? v - 1 : START)), 1000)
+    return () => clearInterval(id)
+  }, [active, START])
+  const d = Math.floor(left / 86400)
+  const h = Math.floor((left % 86400) / 3600)
+  const m = Math.floor((left % 3600) / 60)
+  const sec = left % 60
+  return [String(d).padStart(2, '0'), String(h).padStart(2, '0'), String(m).padStart(2, '0'), String(sec).padStart(2, '0')]
+}
+
+const WINDOW_DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+const WINDOW_ON = [1, 2] // Tue + Wed
+
+function TimeLimitedExtras({ accent }: { accent: string }) {
+  const reduceMotion = useReducedMotion()
+  const [d, h, m, sec] = useTicketCountdown(!reduceMotion)
+  return (
+    <div className="flex flex-col gap-3.5">
+      {/* The window you set */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {WINDOW_DAYS.map((day, i) => {
+          const on = WINDOW_ON.includes(i)
+          return (
+            <span
+              key={i}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold"
+              style={on ? { background: accent, color: '#fff' } : { background: 'rgba(1,12,53,0.05)', color: 'rgba(1,12,53,0.4)' }}
+            >
+              {day}
+            </span>
+          )
+        })}
+        <span className="ml-1 rounded-md px-2 py-1 text-[11px] font-bold" style={{ background: 'rgba(217,119,6,0.12)', color: accent }}>
+          2pm to 5pm
+        </span>
+      </div>
+
+      {/* Live countdown */}
+      <div className="flex items-end gap-1.5" aria-hidden="true">
+        <span className="mr-1 self-center text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'rgba(1,12,53,0.45)' }}>
+          Ends in
+        </span>
+        {[
+          [d, 'days'],
+          [h, 'hrs'],
+          [m, 'mins'],
+          [sec, 'secs'],
+        ].map(([v, label]) => (
+          <span key={label} className="flex flex-col items-center">
+            <span
+              className="min-w-[34px] rounded-lg px-1.5 py-1 text-center font-display text-[16px] text-white"
+              style={{ background: NAVY, fontVariantNumeric: 'tabular-nums' }}
+            >
+              {v}
+            </span>
+            <span className="mt-0.5 text-[8.5px] font-bold uppercase tracking-[0.1em]" style={{ color: 'rgba(1,12,53,0.4)' }}>
+              {label}
+            </span>
+          </span>
+        ))}
+      </div>
+
+      {/* How customers see it, in and out of the window */}
+      <div className="flex flex-col gap-1.5 text-[11.5px] font-semibold">
+        <span className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5" style={{ background: 'rgba(22,163,74,0.1)', color: '#166534' }}>
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#16A34A]" aria-hidden="true" />
+          In the window: live and redeemable in the app
+        </span>
+        <span className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5" style={{ background: 'rgba(1,12,53,0.05)', color: 'rgba(1,12,53,0.5)' }}>
+          <span className="h-1.5 w-1.5 rounded-full bg-[#9CA3AF]" aria-hidden="true" />
+          Outside it: shown as unavailable to redeem
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function ReusableExtras({ accent }: { accent: string }) {
+  return (
+    <div className="flex flex-col gap-3.5">
+      {/* The frequency you choose */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {['Weekly', 'Fortnightly', 'Monthly'].map((f, i) => (
+          <span
+            key={f}
+            className="rounded-md px-2.5 py-1.5 text-[11px] font-bold"
+            style={i === 0 ? { background: accent, color: '#fff' } : { background: 'rgba(1,12,53,0.05)', color: 'rgba(1,12,53,0.4)' }}
+          >
+            {f}
+          </span>
+        ))}
+      </div>
+
+      {/* The cycle: used, then back again */}
+      <div className="flex items-center gap-2.5">
+        <span className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11.5px] font-semibold" style={{ background: 'rgba(13,148,136,0.1)', color: '#0F766E' }}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#0D9488" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          Used today
+        </span>
+        <svg width="20" height="14" viewBox="0 0 24 16" fill="none" aria-hidden="true">
+          <path d="M2 8 h17" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeDasharray="2.5 3.5" />
+          <path d="M15 3 l5 5 -5 5" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11.5px] font-semibold" style={{ background: 'rgba(1,12,53,0.05)', color: NAVY }}>
+          <svg className="favour-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-3-6.7" />
+            <path d="M21 3v6h-6" />
+          </svg>
+          Back next week
+        </span>
+      </div>
+
+      <p className="text-[11.5px] font-semibold" style={{ color: 'rgba(1,12,53,0.45)' }}>
+        No re-claiming, no admin: it simply returns.
+      </p>
+    </div>
+  )
+}
+
+function VoucherTicket({ kind, index, sweep = false }: { kind: VoucherKind; index: number; sweep?: boolean }) {
+  const featured = Boolean(kind.featured)
   return (
     <motion.li
-      initial={{ opacity: 0, y: 30, rotate: index % 2 ? 1.6 : -1.6 }}
-      whileInView={{ opacity: 1, y: 0, rotate: 0 }}
-      viewport={{ once: true, margin: '-40px' }}
+      initial={sweep ? false : { opacity: 0, y: 30, rotate: index % 2 ? 1.6 : -1.6 }}
+      whileInView={sweep ? undefined : { opacity: 1, y: 0, rotate: 0 }}
+      viewport={sweep ? undefined : { once: true, margin: '-40px' }}
       transition={{ duration: 0.5, delay: index * 0.07, ease: EASE }}
       whileHover={{ y: -8, rotate: index % 2 ? 0.8 : -0.8 }}
-      className="group/ticket relative w-[264px] flex-shrink-0 snap-start overflow-hidden rounded-2xl bg-white"
-      style={{ boxShadow: '0 16px 40px rgba(1,12,53,0.08)', border: '1px solid #EFE7DD' }}
+      className="group/ticket relative flex-shrink-0 snap-start overflow-hidden rounded-2xl bg-white"
+      style={{
+        width: featured ? `min(${TICKET_W_FEATURED}px, calc(100vw - 64px))` : TICKET_W,
+        boxShadow: featured ? `0 22px 52px rgba(1,12,53,0.12), 0 0 0 1.5px ${kind.accent}55` : '0 16px 40px rgba(1,12,53,0.08)',
+        border: featured ? 'none' : '1px solid #EFE7DD',
+        marginTop: sweep ? (index % 2 ? 18 : 0) : 0,
+      }}
     >
       {/* Accent header with the type's motif */}
-      <div className="relative flex h-[120px] items-center justify-center overflow-hidden" style={{ background: kind.accentBg }}>
+      <div className="relative flex h-[104px] items-center justify-center overflow-hidden" style={{ background: kind.accentBg }}>
         <span className="favour-shimmer absolute inset-0 opacity-0 transition-opacity duration-300 group-hover/ticket:opacity-100" aria-hidden="true" />
-        <div className="h-[84px] w-[84px] transition-transform duration-300 group-hover/ticket:scale-110" aria-hidden="true">
+        <div className="h-[76px] w-[76px] transition-transform duration-300 group-hover/ticket:scale-110" aria-hidden="true">
           <Motif kind={kind.key} accent={kind.accent} />
         </div>
         <span
-          className="absolute left-3.5 top-3.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.08em] text-white"
+          className="absolute left-3.5 top-3.5 max-w-[70%] rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.07em] leading-tight text-white"
           style={{ background: kind.accent }}
         >
           {kind.name}
         </span>
+        {featured ? (
+          <span className="absolute right-3.5 top-3.5 rounded-full bg-white px-2 py-1 text-[9.5px] font-bold uppercase tracking-[0.1em]" style={{ color: kind.accent }}>
+            {kind.featured === 'time' ? 'You set the window' : 'It keeps coming back'}
+          </span>
+        ) : null}
       </div>
 
       {/* Perforation: notches + dashed tear line */}
@@ -705,22 +853,94 @@ function VoucherTicket({ kind, index }: { kind: VoucherKind; index: number }) {
       </div>
 
       {/* Copy */}
-      <div className="p-5 pt-5">
+      <div className="p-5">
         <p className="text-[13.5px] leading-[1.65]" style={{ color: INK }}>
           {kind.body}
         </p>
-        <p
-          className="mt-3.5 inline-flex rounded-lg px-2.5 py-1.5 text-[12px] font-bold"
-          style={{ color: kind.accent, background: kind.accentBg }}
-        >
-          {kind.example}
-        </p>
+        {kind.examples.length ? (
+          <span className="mt-3.5 flex flex-wrap gap-2">
+            {kind.examples.map((ex) => (
+              <span key={ex} className="inline-flex rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={{ color: kind.accent, background: kind.accentBg }}>
+                {ex}
+              </span>
+            ))}
+          </span>
+        ) : null}
+        {kind.featured === 'time' ? (
+          <div className="mt-4">
+            <TimeLimitedExtras accent={kind.accent} />
+          </div>
+        ) : null}
+        {kind.featured === 'reusable' ? (
+          <div className="mt-4">
+            <ReusableExtras accent={kind.accent} />
+          </div>
+        ) : null}
       </div>
     </motion.li>
   )
 }
 
-function VoucherTicketRail() {
+// Shared header for both showcase modes
+function VoucherShowcaseHeader() {
+  return (
+    <>
+      <GroupHeader label="Your vouchers" title="Seven ways to bring customers in" />
+      <p className="-mt-6 mb-8 max-w-[560px] text-[15px] leading-[1.65]" style={{ color: INK }}>
+        Every type is yours to shape: your value, your terms, your timing.
+      </p>
+    </>
+  )
+}
+
+// Desktop: the band pins and the page's own scroll sweeps the tickets across.
+function VoucherSweep() {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const rowRef = useRef<HTMLUListElement>(null)
+  const [travel, setTravel] = useState(600)
+
+  useEffect(() => {
+    const measure = () => {
+      const row = rowRef.current
+      const vp = row?.parentElement
+      if (!row || !vp) return
+      setTravel(Math.max(0, row.scrollWidth - vp.clientWidth))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    if (rowRef.current) ro.observe(rowRef.current)
+    if (rowRef.current?.parentElement) ro.observe(rowRef.current.parentElement)
+    return () => ro.disconnect()
+  }, [])
+
+  const { scrollYProgress } = useScroll({ target: wrapRef, offset: ['start start', 'end end'] })
+  const x = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.96], [0, -travel]))
+  const leftFade = useScrollLinked(useTransform(scrollYProgress, [0.04, 0.12], [0, 1]))
+  const rightFade = useScrollLinked(useTransform(scrollYProgress, [0.88, 0.96], [1, 0]))
+
+  return (
+    <div ref={wrapRef} style={{ height: `calc(100svh + ${travel + 240}px)` }}>
+      <div className="sticky top-0 flex h-[100svh] flex-col justify-center overflow-hidden">
+        <VoucherShowcaseHeader />
+        <div className="relative">
+          <motion.div aria-hidden="true" className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 w-12" style={{ background: `linear-gradient(90deg, ${CREAM}, transparent)`, opacity: leftFade }} />
+          <motion.div aria-hidden="true" className="pointer-events-none absolute bottom-0 right-0 top-0 z-10 w-12" style={{ background: `linear-gradient(270deg, ${CREAM}, transparent)`, opacity: rightFade }} />
+          <motion.ul ref={rowRef} className="flex w-max items-start gap-5 pb-4 pt-2" style={{ x }} aria-label="The seven voucher types">
+            {VOUCHER_KINDS.map((kind, i) => (
+              <VoucherTicket key={kind.key} kind={kind} index={i} sweep />
+            ))}
+          </motion.ul>
+        </div>
+        <motion.p className="mt-2 text-[11.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'rgba(1,12,53,0.35)', opacity: rightFade }}>
+          Keep scrolling: all seven sweep past
+        </motion.p>
+      </div>
+    </div>
+  )
+}
+
+// Mobile / short / reduced motion: a native swipe rail with arrows.
+function VoucherRail() {
   const railRef = useRef<HTMLUListElement>(null)
   const [atStart, setAtStart] = useState(true)
   const [atEnd, setAtEnd] = useState(false)
@@ -744,26 +964,22 @@ function VoucherTicketRail() {
 
   return (
     <div className="relative">
-      <p className="-mt-6 mb-8 max-w-[560px] text-[15px] leading-[1.65]" style={{ color: INK }}>
-        Every type is yours to shape: your value, your terms, your timing.
-      </p>
-
-      {/* Edge fades so the rail reads as scrollable; each hides at its end */}
+      <VoucherShowcaseHeader />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute bottom-0 left-0 top-16 z-10 w-10 transition-opacity duration-300"
+        className="pointer-events-none absolute bottom-0 left-0 top-40 z-10 w-10 transition-opacity duration-300"
         style={{ background: `linear-gradient(90deg, ${CREAM}, transparent)`, opacity: atStart ? 0 : 1 }}
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute bottom-0 right-0 top-16 z-10 w-10 transition-opacity duration-300"
+        className="pointer-events-none absolute bottom-0 right-0 top-40 z-10 w-10 transition-opacity duration-300"
         style={{ background: `linear-gradient(270deg, ${CREAM}, transparent)`, opacity: atEnd ? 0 : 1 }}
       />
 
       <ul
         ref={railRef}
         onScroll={onRailScroll}
-        className="favour-rail -mx-2 flex snap-x snap-mandatory gap-5 overflow-x-auto px-2 pb-5 pt-2"
+        className="favour-rail -mx-2 flex snap-x snap-mandatory items-start gap-5 overflow-x-auto px-2 pb-5 pt-2"
         aria-label="The seven voucher types"
       >
         {VOUCHER_KINDS.map((kind, i) => (
@@ -789,6 +1005,13 @@ function VoucherTicketRail() {
       </div>
     </div>
   )
+}
+
+function VoucherShowcase() {
+  const mode = useViewportMode()
+  const reduceMotion = useReducedMotion()
+  if (mode === 'desktop' && !reduceMotion) return <VoucherSweep />
+  return <VoucherRail />
 }
 
 // ── Group D: the till receipt ────────────────────────────────────────────────
@@ -920,8 +1143,10 @@ export function FavourSection() {
         @keyframes favourShimmer { 0% { transform: translateX(-100%); } 60% { transform: translateX(100%); } 100% { transform: translateX(100%); } }
         .favour-rail { scrollbar-width: none; }
         .favour-rail::-webkit-scrollbar { display: none; }
+        .favour-spin { animation: favourSpin 3.6s linear infinite; }
+        @keyframes favourSpin { to { transform: rotate(360deg); } }
         @media (prefers-reduced-motion: reduce) {
-          .favour-radar-sweep, .favour-step, .favour-loop, .favour-shimmer { animation: none; }
+          .favour-radar-sweep, .favour-step, .favour-loop, .favour-shimmer, .favour-spin { animation: none; }
           .favour-step { opacity: 1; }
           .favour-loop { stroke-dashoffset: 40; }
         }
@@ -960,8 +1185,7 @@ export function FavourSection() {
 
         {/* C · Voucher types */}
         <div className="mt-20 md:mt-28">
-          <GroupHeader label="Your vouchers" title="Seven ways to bring customers in" />
-          <VoucherTicketRail />
+          <VoucherShowcase />
         </div>
 
         {/* D · Margin */}
