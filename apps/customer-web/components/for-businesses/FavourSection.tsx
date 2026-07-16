@@ -42,28 +42,33 @@ const HEADLINE = 'Everything in your favour.'
 const INTRO =
   'More local visibility. More reasons for customers to visit. More control over what you offer, and no platform fees taking a cut.'
 
-type Item = { num: string; title: string; body: string }
+type Item = { num: string; title: string; lead: string; body: string; chips?: string[] }
 
 const GROW: Item[] = [
   {
     num: '01',
     title: 'Targeted local marketing',
-    body: "Redeemo's location-led discovery does more than place your business in a directory. Geolocation, customer-selected interests and what customers are exploring nearby all feed into who sees you, from personalised discovery to trending and featured areas. And the customers finding you pay for their membership: these are people who have already decided to go out and spend.",
+    lead: 'Reach customers already looking nearby.',
+    body: 'Geolocation, interests and what customers explore nearby all shape who sees you. And they pay to be members: people who have already decided to go out and spend.',
   },
   {
     num: '02',
     title: 'Brand awareness through a complete business profile',
-    body: 'Your business gets a dedicated profile across the Redeemo app and website, not just a name in a list. Showcase your imagery, description, opening hours, location and directions, amenities and live vouchers, alongside verified customer reviews. Customers can see who you are, what you offer and why to choose you before they arrive.',
+    lead: 'A profile that sells the visit, not just a listing.',
+    body: 'Customers see who you are and why to choose you before they arrive.',
+    chips: ['Photos', 'Opening hours', 'Directions', 'Amenities', 'Live vouchers', 'Verified reviews'],
   },
   {
     num: '03',
     title: 'Higher footfall',
-    body: 'Being seen is only the first step. A compelling voucher gives customers a clear reason to act: not a click or a follow, but a visit, an order and a first-hand experience of your business.',
+    lead: 'From seen to standing at your counter.',
+    body: 'A compelling voucher turns being noticed into a visit, an order and a first-hand experience of your business.',
   },
   {
     num: '04',
     title: 'Customer retention',
-    body: 'The relationship does not have to end after the first redemption. Fresh, seasonal and reusable vouchers introduce more of what you offer, keep you relevant and give customers reasons to come back.',
+    lead: 'First visits become regulars.',
+    body: 'Fresh, seasonal and reusable vouchers keep you relevant and give customers reasons to come back.',
   },
 ]
 
@@ -71,22 +76,26 @@ const MARKETING: Item[] = [
   {
     num: '05',
     title: 'Tactical marketing initiatives',
-    body: 'Build vouchers around what matters to your business: a new service, a product launch, seasonal demand, an event or something more customers should know about. Seven voucher types to choose from, and you decide what to promote, when it runs and what the terms allow.',
+    lead: 'Promote what matters, when it matters.',
+    body: 'A launch, an event, seasonal demand: seven voucher types, with your value, your terms and your timing.',
   },
   {
     num: '06',
     title: 'Targeted campaigns for quieter periods',
-    body: 'Every business has a quiet Tuesday. Choose the exact days and times a voucher runs, and customers can only redeem it during that window. Point demand at quieter days, off-peak hours or seasonal gaps, and stay in control of when it can be used.',
+    lead: 'Every business has a quiet Tuesday.',
+    body: 'Set the exact days and hours a voucher can be redeemed, and point demand at the gaps.',
   },
   {
     num: '07',
     title: 'Digital marketing and featured exposure',
-    body: "Redeemo's own marketing brings customers into the platform and towards businesses near them. When you want more reach, optional paid featured placement puts your brand and vouchers in front of more of them, alongside Redeemo-run campaigns.",
+    lead: "Redeemo's marketing works for you too.",
+    body: 'Our campaigns bring customers toward businesses near them. Want more reach? Optional paid featured placement puts you in front of more of them.',
   },
   {
     num: '08',
     title: 'Customer base insights',
-    body: 'See confirmed redemptions by voucher, date and branch, your busiest days and the customers Redeemo brought in. Export your records when you need them, see which vouchers customers respond to and decide what to run next on real activity, not guesswork.',
+    lead: 'Decide on real activity, not guesswork.',
+    body: 'Confirmed redemptions by voucher, date and branch, your busiest days, exportable any time.',
   },
 ]
 
@@ -94,17 +103,20 @@ const MANAGE: Item[] = [
   {
     num: '09',
     title: 'An easy-to-use merchant portal',
-    body: 'Manage your entire Redeemo presence from one central merchant portal: update your business and branches, control staff access, create and manage vouchers, verify redemptions and view performance insights. One login, everything in its place.',
+    lead: 'One login, everything in its place.',
+    body: 'Business, branches, staff access, vouchers, validation and insights, all in one portal.',
   },
   {
     num: '10',
     title: 'Multi-branch management',
-    body: 'Run every branch under one Redeemo business account. Merchant-wide vouchers can be accepted at any eligible branch, so customers can visit the location that suits them. And once a voucher is redeemed at one branch, Redeemo automatically holds it until its cycle or reusable frequency allows: fairness across branches never depends on your staff catching it.',
+    lead: 'Every branch, one account.',
+    body: 'Vouchers work at any eligible branch, and once one is used, Redeemo automatically holds it until its cycle allows. Fairness never depends on staff catching it.',
   },
   {
     num: '11',
     title: 'Guided voucher creation',
-    body: 'Creating a compelling voucher should not require marketing expertise. Redeemo guides you through value, terms, timing and usage controls step by step, and the "How this voucher stacks up" assessment shows what is strong and what could be better before you submit. Prefer a hand? You can ask the Redeemo team to help build it.',
+    lead: 'No marketing degree required.',
+    body: 'Step-by-step guidance, an honest "How this voucher stacks up" check, and the Redeemo team on hand to help.',
   },
 ]
 
@@ -112,26 +124,61 @@ const MARGIN: Item[] = [
   {
     num: '12',
     title: 'Free business listing',
-    body: 'List your business, build your profile and use the merchant portal without a listing fee or monthly platform subscription. No hidden platform fees appear later.',
+    lead: '£0 to list. £0 monthly.',
+    body: 'Your profile and the full merchant portal, with no hidden platform fees later.',
   },
   {
     num: '13',
     title: 'No commission. No redemption fee.',
-    body: "Redeemo does not take a percentage when a voucher is used, and there is no separate redemption charge. The saving you choose reaches your customer in full, not a platform's margin.",
+    lead: 'Your saving reaches your customer in full.',
+    body: 'Redeemo never takes a percentage when a voucher is used.',
   },
   {
     num: '14',
     title: 'Value tied to a real customer visit',
-    body: 'You are never charged because someone viewed or clicked your listing. The voucher saving only comes into play when a customer is standing in your business and completes a valid redemption.',
+    lead: 'Never pay for views or clicks.',
+    body: 'The voucher saving only comes into play when a customer is standing in your business.',
   },
   {
     num: '15',
     title: 'Customer acquisition with built-in limits',
-    body: 'Each standard voucher can be redeemed once per customer during their monthly cycle; reusable vouchers follow the frequency you set. The limits are enforced by the system and verified at your till, so you give customers reasons to visit and return without every purchase becoming an open-ended discount.',
+    lead: 'Generous, never open-ended.',
+    body: 'Once per customer per monthly cycle for standard vouchers, your frequency for reusable ones: enforced by the system and verified at your till.',
   },
 ]
 
 // ── Shared bits ───────────────────────────────────────────────────────────────
+
+// Two-layer copy (owner 2026-07-16): a bold one-line takeaway scanners catch,
+// then a short body for readers. Spans only: this also renders inside buttons.
+function ItemCopy({ item, size = 'md' }: { item: Item; size?: 'md' | 'sm' }) {
+  return (
+    <>
+      <span className={`block ${size === 'md' ? 'text-[14.5px]' : 'text-[14px]'} leading-[1.7]`} style={{ color: INK }}>
+        <span className="font-semibold" style={{ color: NAVY }}>
+          {item.lead}
+        </span>{' '}
+        {item.body}
+      </span>
+      {item.chips ? (
+        <span className="mt-3.5 flex flex-wrap gap-2">
+          {item.chips.map((c) => (
+            <span
+              key={c}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[#010C35]/10 bg-[#FFF9F5] px-2.5 py-1 text-[11.5px] font-semibold"
+              style={{ color: NAVY }}
+            >
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              {c}
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </>
+  )
+}
 
 function GroupHeader({ label, title }: { label: string; title: string }) {
   return (
@@ -292,9 +339,7 @@ function GrowBento() {
                   {item.title}
                 </h4>
               </div>
-              <p className="text-[14.5px] leading-[1.7]" style={{ color: INK }}>
-                {item.body}
-              </p>
+              <ItemCopy item={item} />
             </div>
           </motion.article>
         )
@@ -545,8 +590,8 @@ function MarketingConsole() {
                   style={{ gridTemplateRows: isActive ? '1fr' : '0fr', opacity: isActive ? 1 : 0 }}
                 >
                   <span className="overflow-hidden">
-                    <span className="block pt-2.5 text-[14px] leading-[1.7]" style={{ color: INK }}>
-                      {item.body}
+                    <span className="block pt-2.5">
+                      <ItemCopy item={item} size="sm" />
                     </span>
                   </span>
                 </span>
@@ -567,7 +612,7 @@ function MarketingConsole() {
               className="absolute inset-0 transition-opacity duration-500"
               style={{ opacity: i === active ? 1 : 0, pointerEvents: i === active ? 'auto' : 'none' }}
             >
-              <p className="sr-only">{MARKETING[i].body}</p>
+              <p className="sr-only">{`${MARKETING[i].lead} ${MARKETING[i].body}`}</p>
               <Panel active={i === active} />
             </div>
           ))}
@@ -643,9 +688,7 @@ function PortalSpotlight() {
                   {item.title}
                 </span>
               </span>
-              <span className="block text-[14px] leading-[1.7]" style={{ color: INK }}>
-                {item.body}
-              </span>
+              <ItemCopy item={item} size="sm" />
             </motion.button>
           )
         })}
@@ -746,9 +789,7 @@ function MarginReceipt() {
                 {item.title}
               </h4>
             </div>
-            <p className="text-[14.5px] leading-[1.7]" style={{ color: INK }}>
-              {item.body}
-            </p>
+            <ItemCopy item={item} />
           </motion.article>
         ))}
       </div>
