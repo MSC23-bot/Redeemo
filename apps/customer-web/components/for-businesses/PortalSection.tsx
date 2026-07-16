@@ -741,12 +741,14 @@ export function PortalSection() {
   const current = SCREENS.find((s) => s.key === active) ?? SCREENS[0]
 
   return (
-    <section className="relative overflow-hidden" style={{ background: NAVY }}>
-      {/* Owner plate: glass ticket mark on deep navy */}
-      <div aria-hidden="true" className="absolute inset-0">
-        <Image src="/for-businesses/portal/portal-bg.webp" alt="" fill sizes="100vw" className="object-cover" style={{ objectPosition: '70% 40%' }} />
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(1,12,53,0.55) 0%, rgba(1,12,53,0) 30%, rgba(1,12,53,0) 70%, rgba(1,12,53,0.75) 100%)' }} />
-      </div>
+    <section className="relative overflow-x-clip" style={{ background: NAVY }}>
+      {/* Header zone: quiet navy with a soft glow (the plate lives inside
+          the pinned viewport so it stays viewport-sized and crisp) */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[520px]"
+        style={{ background: 'radial-gradient(700px 320px at 22% 30%, rgba(80,110,220,0.1), transparent 70%)' }}
+      />
 
       <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 md:pb-28 md:pt-24 lg:px-10">
         {/* Header */}
@@ -783,6 +785,11 @@ export function PortalSection() {
         {/* Stage: pinned tour; scroll steps the screens, clicks still work */}
         <div ref={tourRef} className="hidden lg:block" style={{ height: `calc(100svh + ${SCREENS.length * TOUR_STEP_SVH}svh)` }}>
         <div className="sticky top-0 flex h-[100svh] items-center">
+        {/* Owner plate, pinned with the stage */}
+        <div aria-hidden="true" className="absolute inset-0 -z-10">
+          <Image src="/for-businesses/portal/portal-bg.webp" alt="" fill sizes="100vw" className="object-cover" style={{ objectPosition: '70% 40%' }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(1,12,53,0.9) 0%, rgba(1,12,53,0.1) 26%, rgba(1,12,53,0) 60%, rgba(1,12,53,0.6) 100%)' }} />
+        </div>
         <div ref={stageRef} className="relative flex w-full items-center gap-9">
           {/* The red thread from the card to the active sidebar item */}
           {link ? (
