@@ -181,3 +181,17 @@ makes an image safe here; sharp plates banded before), a navy pull-down gradient
 ending SOLID #010C35 (preserves the ticket-band seam), intensified neon radials
 (red top, coral low-right, cool whisper left), an SVG feTurbulence film-grain layer
 (opacity .05, overlay), and the BrandDeboss marks above it all.
+
+### Refinement round (owner 2026-07-17, late): curve bookend, deboss fixes, owner backdrop
+
+Owner supplied Generated image 1 (13).png (boutique night counter, warm reds): now
+portal-bg-2.webp (1920w, 59KB) replacing the reused hero plate in the portal
+backdrop, blur(10px) under a lighter navy ramp (0.6/0.8/solid). Section 3 gains a
+mirrored curve seam at its foot (navy dome sweeping up over cream into the portal,
+bookending the top curve); the lower cream deboss was removed (it visibly scrolled
+behind the pinned voucher sweep). Portal deboss marks repositioned: top-right down
+into frame so the voucher-like top of the R shows (560px at right -4% top 3%),
+lower-left fully uncropped (300px at left 1.5% bottom 4%). RIBBON REQUEST PARKED by
+owner mid-round: the landing-page WebGL flowing ribbon into Section 3's background
+(diagonal corner-to-corner, blurred, spanning the whole section incl. the pinned
+sweep) is designed but NOT to be built until the owner says go.

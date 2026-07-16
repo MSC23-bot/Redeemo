@@ -789,18 +789,18 @@ export function PortalSection() {
         <div aria-hidden="true" className="absolute -z-10 overflow-hidden" style={{ inset: '-2px -100vw', background: '#010C35' }}>
           <div className="absolute left-1/2 top-0 h-full w-[100vw] -translate-x-1/2">
             <Image
-              src="/for-businesses/hero-bg.webp"
+              src="/for-businesses/portal/portal-bg-2.webp"
               alt=""
               fill
               sizes="100vw"
               className="object-cover"
               style={{
-                filter: 'blur(14px) saturate(1.2) brightness(0.92)',
+                filter: 'blur(10px) saturate(1.15)',
                 transform: 'scale(1.08)',
               }}
             />
             {/* Navy pull-down; solid at the base for the seam */}
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(1,12,53,0.72) 0%, rgba(1,12,53,0.86) 52%, #010C35 100%)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(1,12,53,0.6) 0%, rgba(1,12,53,0.8) 52%, #010C35 100%)' }} />
           </div>
           {/* Neon accents riding over the texture */}
           <div
@@ -824,8 +824,8 @@ export function PortalSection() {
         </div>
         {/* Whisper-level brand marks pressed into the stage */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-          <BrandDeboss tone="navy" size={660} rotate={12} style={{ right: '-6%', top: '-14%' }} />
-          <BrandDeboss tone="navy" size={380} rotate={-10} style={{ left: '-4%', bottom: '-8%' }} />
+          <BrandDeboss tone="navy" size={560} rotate={12} style={{ right: '-4%', top: '3%' }} />
+          <BrandDeboss tone="navy" size={300} rotate={-10} style={{ left: '1.5%', bottom: '4%' }} />
         </div>
         {/* Compact header shares the pinned screen */}
         <div className="mb-9">

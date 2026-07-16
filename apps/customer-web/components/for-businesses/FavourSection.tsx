@@ -1471,7 +1471,6 @@ export function FavourSection() {
             the cream field isn't flat between the header and the bento */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
           <BrandDeboss tone="cream" size={640} rotate={-12} style={{ right: '-7%', top: '4%' }} />
-          <BrandDeboss tone="cream" size={500} rotate={10} style={{ left: '-9%', top: '56%' }} />
           <div
             className="absolute rounded-full"
             style={{ width: 620, height: 620, left: '8%', top: '20%', background: 'radial-gradient(closest-side, rgba(232,74,0,0.05), transparent)' }}
@@ -1563,6 +1562,11 @@ export function FavourSection() {
         </motion.div>
       </div>
       </div>
+      {/* Seam out: the portal's navy sweeps up over the cream, mirroring the
+          curve that opened this section */}
+      <svg aria-hidden="true" className="block h-[90px] w-full md:h-[110px]" viewBox="0 0 1440 110" preserveAspectRatio="none" style={{ background: CREAM }}>
+        <path d="M0,110 C 480,0 960,0 1440,110 L1440,110 L0,110 Z" fill="#010C35" />
+      </svg>
     </section>
   )
 }
