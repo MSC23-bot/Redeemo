@@ -54,7 +54,6 @@ const jf = (svh: number) => svh / JOURNEY_SCROLL
 
 const BEAT_START = [0, 1, 2, 3].map((i) => jf(ARRIVE + i * BEAT))
 const CLOSE_START = jf(ARRIVE + BEAT * 4)
-const FADE = jf(10) // standard crossfade slice
 
 // ── Choreography (owner spec 2026-07-16 round 3) ─────────────────────────────
 // Every keyframe is an svh offset in journey space (b1=70, b2=170, b3=270,
@@ -74,9 +73,9 @@ const K = {
   toastCreated: { in: [126, 132] as const, out: [152, 158] as const },
   portalHome: [156, 164] as const,
   redemptions: [318, 328] as const,
-  tapValidate: [406, 416] as const,
-  modalDim: [418, 424] as const,
-  modalRise: [424, 434] as const,
+  tapValidate: [414, 424] as const, // after the QR completes at 406: present, THEN confirm
+  modalDim: [426, 432] as const,
+  modalRise: [432, 442] as const,
   validated: [446, 452] as const,
   laptopConfetti: 448,
   toastValidated: [454, 460] as const,
@@ -99,7 +98,7 @@ const K = {
   success: [378, 386] as const,
   phoneConfetti: 380,
   tapViewCode: [392, 400] as const,
-  qr: [404, 412] as const,
+  qr: [400, 406] as const, // fully presented before the staff tap Validate
 }
 const kf = (pair: readonly [number, number]) => [jf(pair[0]), jf(pair[1])] as [number, number]
 
@@ -533,10 +532,10 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
   const toastCreatedOp = useBand(jp, [...kf(K.toastCreated.in), ...kf(K.toastCreated.out)], [0, 1, 1, 0])
   const toastCreatedY = useBand(jp, kf(K.toastCreated.in), [14, 0])
   const laptopVeil = useBand(jp, [jf(174), jf(182), jf(396), jf(404)], [0, 0.4, 0.4, 0])
-  const modalDim = useBand(jp, [...kf(K.modalDim), jf(436), jf(440)], [0, 0.45, 0.45, 0])
+  const modalDim = useBand(jp, [...kf(K.modalDim), jf(444), jf(448)], [0, 0.45, 0.45, 0])
   const modalOp = useBand(jp, kf(K.modalRise), [0, 1])
   const modalY = useBand(jp, kf(K.modalRise), [30, 0])
-  const validateFullOp = useBand(jp, [jf(434), jf(438), ...kf(K.validated)], [0, 1, 1, 0])
+  const validateFullOp = useBand(jp, [jf(442), jf(446), ...kf(K.validated)], [0, 1, 1, 0])
   const validatedOp = useBand(jp, kf(K.validated), [0, 1])
   const toastValidatedOp = useBand(jp, kf(K.toastValidated), [0, 1])
   const toastValidatedY = useBand(jp, kf(K.toastValidated), [14, 0])
@@ -619,9 +618,10 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
         </motion.div>
 
         {/* Portal home, then the redemptions queue (2 codes awaiting). The
-            dashboard capture's date chip is re-dated live to July so it
-            cannot contradict the July redemption records (owner 2026-07-16);
-            the replacement pill mirrors the baked one's styling. */}
+            dashboard capture's baked June date chip is covered by a
+            replacement pill (styled to match) reading a July date, so the
+            dashboard cannot contradict the July redemption records
+            (owner 2026-07-16). */}
         {armed ? (
           <motion.div style={{ position: 'absolute', inset: 0, opacity: homeOp, background: PORTAL_BG }}>
             <Image src="/for-businesses/portal/home-chrome.webp" alt="" fill sizes="640px" className="object-cover object-top" />
@@ -837,16 +837,22 @@ function BeatBlock({ beat }: { beat: Beat }) {
   )
 }
 
+// One beat's copy block fading through its window (own component so the
+// hook sits at a component top level, like every other mapped layer here).
+function BeatLayer({ jp, index }: { jp: MotionValue<number>; index: number }) {
+  const s = BEAT_START[index]
+  const e = index < 3 ? BEAT_START[index + 1] : CLOSE_START
+  const opacity = useBand(jp, [s, s + jf(12), e - jf(6), e], [0, 1, 1, 0])
+  return (
+    <motion.div style={{ opacity }} className="absolute inset-0">
+      <BeatBlock beat={BEATS[index]} />
+    </motion.div>
+  )
+}
+
 function JourneyCopyColumn({ jp }: { jp: MotionValue<number> }) {
   const headerOp = useScrollLinked(useTransform(jp, [jf(26), jf(40)], [0, 1]))
   const headerY = useScrollLinked(useTransform(jp, [jf(26), jf(40)], [22, 0]))
-
-  const beatOps = BEATS.map((_, i) => {
-    const s = BEAT_START[i]
-    const e = i < 3 ? BEAT_START[i + 1] : CLOSE_START
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    return useScrollLinked(useTransform(jp, [s, s + jf(12), e - jf(6), e], [0, 1, 1, 0]))
-  })
   const closeOp = useScrollLinked(useTransform(jp, [CLOSE_START + jf(14), CLOSE_START + jf(30)], [0, 1]))
   const closeY = useScrollLinked(useTransform(jp, [CLOSE_START + jf(14), CLOSE_START + jf(30)], [18, 0]))
 
@@ -866,9 +872,7 @@ function JourneyCopyColumn({ jp }: { jp: MotionValue<number> }) {
             reading order. The closing statement lands in the same slot. */}
         <div className="relative h-[230px]">
           {BEATS.map((beat, i) => (
-            <motion.div key={beat.label} style={{ opacity: beatOps[i] }} className="absolute inset-0">
-              <BeatBlock beat={beat} />
-            </motion.div>
+            <BeatLayer key={beat.label} jp={jp} index={i} />
           ))}
           <motion.div style={{ opacity: closeOp, y: closeY }} className="absolute inset-0 flex items-start">
             <p className="font-display max-w-[430px] text-[26px] leading-[1.3] text-white" style={{ letterSpacing: '-0.4px' }}>
