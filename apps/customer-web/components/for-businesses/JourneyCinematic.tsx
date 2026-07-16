@@ -2,7 +2,7 @@
 
 import { motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import Image from 'next/image'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useViewportMode } from '@/components/landing/useViewportMode'
 import { useScrollLinked } from '@/components/landing/scroll'
 import { BrandStop } from '@/components/ui/BrandStop'
@@ -300,7 +300,7 @@ function FrontDeviceCluster({ jp, armed }: { jp: MotionValue<number>; armed: boo
         height={J_BOX.h}
         className="absolute left-0 top-0"
         style={{ width: J_BOX.w, height: J_BOX.h }}
-        priority
+        loading="eager"
       />
 
       {/* Phone content sits on top, clipped to the screen */}
@@ -426,6 +426,9 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
   // hero is gone does the replica travel and turn. Sequencing the two avoids
   // a double image of the devices mid-dissolve.
   const heroOpacity = useScrollLinked(useTransform(jp, [jf(2), jf(14)], [1, 0]))
+  // Visibility tracks the opacity value itself so the hero's CTA can never
+  // sit invisible-but-focusable over the journey, whatever the scroll state.
+  const heroVisibility = useTransform(heroOpacity, (v) => (v < 0.02 ? 'hidden' : 'visible'))
   const [heroGone, setHeroGone] = useState(false)
   useMotionValueEvent(jp, 'change', (v) => setHeroGone(v > jf(15)))
 
@@ -435,6 +438,14 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
   useMotionValueEvent(p, 'change', (v) => {
     if (v > 0.03) setArmed(true)
   })
+
+  // Change events do not fire on mount: seed both states for reloads and
+  // deep links that restore scroll mid-band (otherwise the armed chapters
+  // stay unmounted and the screens sit blank until the first scroll).
+  useEffect(() => {
+    if (p.get() > 0.03) setArmed(true)
+    setHeroGone(jp.get() > jf(15))
+  }, [p, jp])
 
   // Camera settle: the hero hands over at its 1.04 end scale; the journey
   // stage starts there and eases back to 1 as the devices turn.
@@ -463,11 +474,14 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
       <div className="sticky top-0 h-[100svh] overflow-hidden">
         {/* ── Journey backdrop: the map plate, revealed as the hero dissolves ── */}
         <motion.div ref={stageRef} aria-hidden="true" className="absolute inset-0" style={{ scale: settle, transformOrigin: '50% 42%' }}>
+          {/* Needed at the seam (~75svh in) but hidden behind the hero at
+              first paint: eager so it fetches immediately, NOT priority so
+              it never contends with the hero's LCP image. */}
           <Image
             src="/for-businesses/journey/journey-map-bg.webp"
             alt=""
             fill
-            priority
+            loading="eager"
             sizes="100vw"
             className="object-cover"
             style={{ objectPosition: '68% 50%' }}
@@ -496,7 +510,7 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
         </motion.div>
 
         {/* ── The approved hero, re-hosted unchanged; fades into the journey ── */}
-        <motion.div className="absolute inset-0" style={{ opacity: heroOpacity, visibility: heroGone ? 'hidden' : 'visible' }}>
+        <motion.div className="absolute inset-0" style={{ opacity: heroOpacity, visibility: heroVisibility }}>
           <HeroStage registerUrl={registerUrl} progress={heroP} seamless embersOn={!heroGone} />
         </motion.div>
 
