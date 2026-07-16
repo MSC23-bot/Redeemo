@@ -115,3 +115,27 @@ again per owner instruction: still returns malformed protocol responses (3rd str
 QA fixes: measured window scaling (ResizeObserver), sidebar type-scale up for
 legibility, tilt springs start flat and engage post-mount (useReducedMotion branch
 hydration-mismatched otherwise).
+
+## Section 5: final conversion panel (owner brief 2026-07-17; built same day)
+
+Owner locked Section 4 and retired the page's whole legacy tail: the voucher-structure
+section ("Two standard offers"), the getting-started timeline, MerchantInterestSection
+("Get your business ready for launch") and the old final CTA are all replaced by ONE
+contained navy panel on cream (FinalCta.tsx), keeping the card treatment the owner
+likes. Content follows the owner's approved structure with copy tightened per the
+copywriting skill: headline "Ready to list your business?" (gradient ink on "your
+business", owner-loved device), two-sentence body (free portal account today; two
+flagship vouchers as the customer commitment, then custom vouchers on your own value,
+terms and timing), a "wall of zeros" (four stat cards: £0 listing fee, £0 monthly
+platform fee, 0% commission, £0 redemption fee) whose numerals roll odometer-style and
+settle on 0 (useInView must observe the clipped 1em window, not the 4em strip: the
+strip can never satisfy amount>=0.5 through the clip), payoff line "Your only cost is
+the offer you designed, and only when a customer walks in.", a "What we ask in return"
+honesty row as two die-cut ticket chips (CSS mask notches; echoes Section 3 tickets:
+two flagship vouchers before go-live + 12-month partnership agreement), gradient CTA
+"List your business free" straight to merchant portal /register with "About two
+minutes. No card details required." microcopy. New section carries id
+"register-interest" defensively (no live links; Footer comment updated).
+MerchantInterestSection.tsx stays on disk UNIMPORTED: it holds the flag-gated D1
+lead-capture slice and the D-F merchant mailbox; deleting it is an owner call.
+Magic MCP attempted again per owner instruction: still malformed (4th strike).

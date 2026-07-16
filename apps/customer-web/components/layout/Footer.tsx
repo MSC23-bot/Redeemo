@@ -12,8 +12,8 @@ const COMPANY_LINKS = [
 ]
 
 // "Contact" removed until a real contact destination exists: it pointed at
-// /contact, which has never been a route (it returned a 404). Merchant contact
-// lives at /for-businesses#register-interest.
+// /contact, which has never been a route (it returned a 404). The merchant
+// path is /for-businesses, which routes into portal registration.
 const SUPPORT_LINKS = [
   { href: '/faq',      label: 'FAQ' },
   { href: '/privacy',  label: 'Privacy policy' },
