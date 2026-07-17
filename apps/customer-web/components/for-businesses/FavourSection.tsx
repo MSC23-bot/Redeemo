@@ -399,10 +399,8 @@ function GrowBento() {
               <Viz />
             </div>
             <div className="p-7">
-              <div className="mb-2.5 flex items-baseline gap-3">
-                <span className="gradient-text font-display text-[16px] font-semibold" aria-hidden="true">
-                  {item.num}
-                </span>
+              <div className="mb-2.5 flex items-center gap-3">
+                <span className="h-[16px] w-[3px] flex-shrink-0 rounded-full" style={{ background: 'var(--brand-gradient)' }} aria-hidden="true" />
                 <h4 className="font-display text-[18px] font-semibold leading-snug" style={{ color: NAVY, letterSpacing: '-0.1px' }}>
                   {item.title}
                 </h4>
@@ -642,9 +640,6 @@ function MarketingConsole() {
                   aria-hidden="true"
                 />
                 <span className="flex items-baseline gap-3">
-                  <span className={`font-display text-[14px] font-semibold ${isActive ? 'gradient-text' : ''}`} style={isActive ? undefined : { color: 'rgba(1,12,53,0.35)' }} aria-hidden="true">
-                    {item.num}
-                  </span>
                   <span className="font-display text-[16.5px] font-semibold leading-snug" style={{ color: NAVY, letterSpacing: '-0.1px' }}>
                     {item.title}
                   </span>
@@ -1431,10 +1426,8 @@ function MarginReceipt() {
             transition={{ duration: 0.45, delay: i * 0.06, ease: EASE }}
             className="border-b border-[#EFE7DD] pb-7 last:border-b-0"
           >
-            <div className="mb-2 flex items-baseline gap-3">
-              <span className="gradient-text font-display text-[15px] font-semibold" aria-hidden="true">
-                {item.num}
-              </span>
+            <div className="mb-2 flex items-center gap-3">
+              <span className="h-[15px] w-[3px] flex-shrink-0 rounded-full" style={{ background: 'var(--brand-gradient)' }} aria-hidden="true" />
               <h4 className="font-display text-[18px] font-semibold leading-snug" style={{ color: NAVY, letterSpacing: '-0.1px' }}>
                 {item.title}
               </h4>
