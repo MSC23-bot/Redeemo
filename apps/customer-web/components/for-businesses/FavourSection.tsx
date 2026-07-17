@@ -6,7 +6,6 @@ import { BrandStop } from '@/components/ui/BrandStop'
 import { Motif } from '@/components/landing/VoucherTypesRail'
 import { useScrollLinked } from '@/components/landing/scroll'
 import { useViewportMode } from '@/components/landing/useViewportMode'
-import Image from 'next/image'
 
 /**
  * Section 3: "Everything in your favour" (owner copy locked 2026-07-16 after
@@ -1467,41 +1466,14 @@ export function FavourSection() {
           style={{ background: 'radial-gradient(620px 200px at 50% 40px, rgba(232,74,0,0.1), transparent 70%)' }}
         />
 
-        {/* Background: the owner's cream salon composition. Its vignettes
-            anchor the section's corners at NATURAL scale (a full-section
-            stretch would deform the figures); the soft cream middle of the
-            artwork carries between them; masks melt every edge into cream. */}
+        {/* Brand blushes: soft coral and red tinted gradients scattered
+            organically down the section, each melting into the cream */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute inset-x-0 top-0" style={{ height: 'min(2400px, 55%)' }}>
-            <Image
-              src="/for-businesses/favour-bg.webp"
-              alt=""
-              fill
-              sizes="100vw"
-              className="object-cover object-top"
-              style={{
-                filter: 'blur(5px)',
-                transform: 'scale(1.02)',
-                maskImage: 'linear-gradient(180deg, transparent 0%, black 5%, black 55%, transparent 96%)',
-                WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, black 5%, black 55%, transparent 96%)',
-              }}
-            />
-          </div>
-          <div className="absolute inset-x-0 bottom-0" style={{ height: 'min(1900px, 45%)' }}>
-            <Image
-              src="/for-businesses/favour-bg.webp"
-              alt=""
-              fill
-              sizes="100vw"
-              className="object-cover object-bottom"
-              style={{
-                filter: 'blur(5px)',
-                transform: 'scale(1.02)',
-                maskImage: 'linear-gradient(0deg, transparent 0%, black 7%, black 45%, transparent 94%)',
-                WebkitMaskImage: 'linear-gradient(0deg, transparent 0%, black 7%, black 45%, transparent 94%)',
-              }}
-            />
-          </div>
+          <div className="absolute" style={{ width: 760, height: 560, right: '2%', top: '2.5%', background: 'radial-gradient(closest-side, rgba(232,74,0,0.06), transparent)' }} />
+          <div className="absolute" style={{ width: 640, height: 640, left: '-6%', top: '21%', background: 'radial-gradient(closest-side, rgba(226,12,4,0.045), transparent)' }} />
+          <div className="absolute" style={{ width: 800, height: 600, right: '-8%', top: '47%', background: 'radial-gradient(closest-side, rgba(232,74,0,0.05), transparent)' }} />
+          <div className="absolute" style={{ width: 680, height: 680, left: '4%', top: '70%', background: 'radial-gradient(closest-side, rgba(232,74,0,0.055), transparent)' }} />
+          <div className="absolute" style={{ width: 900, height: 480, left: '28%', top: '91%', background: 'radial-gradient(closest-side, rgba(226,12,4,0.04), transparent)' }} />
         </div>
 
       <style>{`
