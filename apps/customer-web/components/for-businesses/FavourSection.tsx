@@ -6,7 +6,7 @@ import { BrandStop } from '@/components/ui/BrandStop'
 import { Motif } from '@/components/landing/VoucherTypesRail'
 import { useScrollLinked } from '@/components/landing/scroll'
 import { useViewportMode } from '@/components/landing/useViewportMode'
-import { BrandDeboss } from './BrandDeboss'
+import Image from 'next/image'
 
 /**
  * Section 3: "Everything in your favour" (owner copy locked 2026-07-16 after
@@ -1467,18 +1467,37 @@ export function FavourSection() {
           style={{ background: 'radial-gradient(620px 200px at 50% 40px, rgba(232,74,0,0.1), transparent 70%)' }}
         />
 
-        {/* Background decor: two deboss marks and two soft warm washes so
-            the cream field isn't flat between the header and the bento */}
+        {/* Background: the owner's cream salon composition. Its vignettes
+            anchor the section's corners at NATURAL scale (a full-section
+            stretch would deform the figures); the soft cream middle of the
+            artwork carries between them; masks melt every edge into cream. */}
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-          <BrandDeboss tone="cream" size={640} rotate={-12} style={{ right: '-7%', top: '4%' }} />
-          <div
-            className="absolute rounded-full"
-            style={{ width: 620, height: 620, left: '8%', top: '20%', background: 'radial-gradient(closest-side, rgba(232,74,0,0.05), transparent)' }}
-          />
-          <div
-            className="absolute rounded-full"
-            style={{ width: 620, height: 620, right: '4%', top: '68%', background: 'radial-gradient(closest-side, rgba(232,74,0,0.05), transparent)' }}
-          />
+          <div className="absolute inset-x-0 top-0" style={{ height: 'min(2400px, 55%)' }}>
+            <Image
+              src="/for-businesses/favour-bg.webp"
+              alt=""
+              fill
+              sizes="100vw"
+              className="object-cover object-top"
+              style={{
+                maskImage: 'linear-gradient(180deg, transparent 0%, black 5%, black 55%, transparent 96%)',
+                WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, black 5%, black 55%, transparent 96%)',
+              }}
+            />
+          </div>
+          <div className="absolute inset-x-0 bottom-0" style={{ height: 'min(1900px, 45%)' }}>
+            <Image
+              src="/for-businesses/favour-bg.webp"
+              alt=""
+              fill
+              sizes="100vw"
+              className="object-cover object-bottom"
+              style={{
+                maskImage: 'linear-gradient(0deg, transparent 0%, black 7%, black 45%, transparent 94%)',
+                WebkitMaskImage: 'linear-gradient(0deg, transparent 0%, black 7%, black 45%, transparent 94%)',
+              }}
+            />
+          </div>
         </div>
 
       <style>{`
