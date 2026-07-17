@@ -209,3 +209,21 @@ quick-nav and the mobile pill keep the brand-gradient island colour on
 /for-businesses instead of turning cream (owner requirement). Smooth anchor
 scrolling added globally (reduced-motion guarded). Anchor ids: how-it-works,
 why-redeemo, portal, pricing (+ register-interest retained).
+
+### Business navbar v2 + footer (owner feedback 2026-07-17)
+
+Anchor #how-it-works deepened to HERO_SCROLL+ARRIVE (145svh): lands on the journey
+header, not the bare hero devices. Why Redeemo gains a hover/focus dropdown (Grow /
+Promote / Your vouchers -> new group anchors #grow #promote #vouchers); Pricing now
+targets #your-margin (margin group); "The portal" renamed Merchant portal. Lockup
+rebuilt on the REAL brand assets: new tight-cropped logo-white-tight.svg /
+logo-horizontal-tight.svg (viewBox 66 285 1880 520; content measured by canvas
+pixel-scan), FOR BUSINESS caps seated at the wordmark's 23.2% x-offset. Scroll-up
+quick-nav reverted to the light glass (owner un-chose the gradient) with the dark
+lockup, scroll-spy active states (sub-anchors roll up to Why Redeemo), and the same
+dropdown. Island CTA gains a shine sweep; scroll-spy underline via the existing
+layoutId indicator. Footer converted to client + path-aware: business variant flips
+the bridge band to a customer pitch (Here for the savings instead? -> Explore
+Redeemo), business brand blurb, columns Your business (section anchors) / Get
+started (portal register+login, merchants@redeemo.co.uk mailto) / For customers,
+legal links join the bottom bar. Magic MCP attempted again: malformed (5th strike).

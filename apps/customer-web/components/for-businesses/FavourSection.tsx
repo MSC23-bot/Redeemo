@@ -226,7 +226,7 @@ function ItemCopy({ item, size = 'md' }: { item: Item; size?: 'md' | 'sm' }) {
   )
 }
 
-function GroupHeader({ label, title, accent }: { label: string; title: string; accent?: string }) {
+function GroupHeader({ label, title, accent, id }: { label: string; title: string; accent?: string; id?: string }) {
   const reduceMotion = useReducedMotion()
   return (
     <motion.div
@@ -234,7 +234,8 @@ function GroupHeader({ label, title, accent }: { label: string; title: string; a
       whileInView={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
       viewport={{ once: true, margin: '-90px' }}
       transition={reduceMotion ? { duration: 0 } : { duration: 0.65, ease: EASE }}
-      className="mb-10"
+      className="mb-10 scroll-mt-28"
+      id={id}
     >
       <p className="mb-3 flex items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: 'rgba(1,12,53,0.45)' }}>
         <motion.span
@@ -1514,23 +1515,23 @@ export function FavourSection() {
         </motion.div>
 
         {/* A · Grow */}
-        <GroupHeader label="Grow" title="Grow your" accent="local presence" />
+        <GroupHeader id="grow" label="Grow" title="Grow your" accent="local presence" />
         <GrowBento />
 
         {/* B · Marketing */}
         <div className="mt-20 md:mt-28">
-          <GroupHeader label="Promote" title="Marketing built around" accent="your business" />
+          <GroupHeader id="promote" label="Promote" title="Marketing built around" accent="your business" />
           <MarketingConsole />
         </div>
 
         {/* C · Voucher types (tighter: the pinned sweep carries its own air) */}
-        <div className="mt-16 lg:mt-6">
+        <div id="vouchers" className="mt-16 scroll-mt-28 lg:mt-6">
           <VoucherShowcase />
         </div>
 
         {/* D · Margin */}
         <div className="mt-16 lg:mt-10">
-          <GroupHeader label="Your margin" title="A model that protects" accent="your margin" />
+          <GroupHeader id="your-margin" label="Your margin" title="A model that protects" accent="your margin" />
           <MarginReceipt />
         </div>
 

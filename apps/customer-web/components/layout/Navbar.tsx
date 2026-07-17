@@ -37,34 +37,44 @@ const ACCOUNT_ITEMS = [
 
 // /for-businesses is its own front door (owner 2026-07-17): section anchors,
 // merchant portal auth, and the FOR BUSINESS lockup.
-const NAV_LINKS_BUSINESS = [
+type NavLink = { href: string; label: string; children?: Array<{ href: string; label: string }> }
+
+const NAV_LINKS_BUSINESS: NavLink[] = [
   { href: '#how-it-works', label: 'How it works' },
-  { href: '#why-redeemo',  label: 'Why Redeemo' },
-  { href: '#portal',       label: 'The portal' },
-  { href: '#pricing',      label: 'Pricing' },
+  {
+    href: '#why-redeemo',
+    label: 'Why Redeemo',
+    children: [
+      { href: '#grow',     label: 'Grow' },
+      { href: '#promote',  label: 'Promote' },
+      { href: '#vouchers', label: 'Your vouchers' },
+    ],
+  },
+  { href: '#portal',      label: 'Merchant portal' },
+  { href: '#your-margin', label: 'Pricing' },
 ]
 
-// The lockup: prominent R + Redeemo, FOR BUSINESS seated directly beneath
-// the wordmark in the quiet grey, tracked out to match its width.
+// The lockup: the real brand asset (tight-cropped so it renders at true
+// size), with FOR BUSINESS seated directly beneath the wordmark. The caps
+// line starts where the wordmark starts (23.2% of the asset's width,
+// measured from the SVG) and tracks out to finish with it.
 function BusinessLogo({ tone }: { tone: 'light' | 'dark' }) {
   const light = tone === 'light'
   return (
-    <span className="flex items-center gap-2.5">
+    <span className="flex flex-col" style={{ lineHeight: 1 }}>
       <Image
-        src="/logo-icon.svg"
+        src={light ? '/logo-white-tight.svg' : '/logo-horizontal-tight.svg'}
         alt=""
-        width={40}
-        height={40}
-        className={light ? 'h-[38px] w-auto brightness-0 invert' : 'h-[38px] w-auto'}
+        width={116}
+        height={32}
+        className="h-[31px] w-auto"
         priority
       />
-      <span className="flex flex-col" style={{ lineHeight: 1 }}>
-        <span className={`font-display text-[21px] font-bold ${light ? 'text-white' : 'text-[#010C35]'}`} style={{ letterSpacing: '-0.3px' }}>
-          Redeemo
-        </span>
-        <span className={`text-[8.5px] font-bold uppercase ${light ? 'text-white/60' : 'text-[#6B7280]'}`} style={{ letterSpacing: '0.23em', marginTop: 4 }}>
-          For business
-        </span>
+      <span
+        className={`text-[8.5px] font-bold uppercase ${light ? 'text-white/65' : 'text-[#6B7280]'}`}
+        style={{ letterSpacing: '0.215em', marginTop: 4, marginLeft: '23.2%' }}
+      >
+        For business
       </span>
     </span>
   )
@@ -171,7 +181,42 @@ export function Navbar() {
   const isDark = true
 
   const isBusiness = pathname === '/for-businesses' || pathname.startsWith('/for-businesses/')
-  const navLinks = isBusiness ? NAV_LINKS_BUSINESS : user ? NAV_LINKS_MEMBER : NAV_LINKS_PUBLIC
+  const navLinks: NavLink[] = isBusiness ? NAV_LINKS_BUSINESS : user ? NAV_LINKS_MEMBER : NAV_LINKS_PUBLIC
+
+  // Scroll spy: the tab of whichever section owns the viewport wears the
+  // indicator. Sub-anchors (grow/promote/vouchers) roll up to Why Redeemo.
+  const [activeAnchor, setActiveAnchor] = useState('')
+  const [dropOpen, setDropOpen] = useState<string | null>(null)
+  useEffect(() => {
+    if (!isBusiness) return
+    const SPY: Array<[string, string]> = [
+      ['how-it-works', '#how-it-works'],
+      ['why-redeemo', '#why-redeemo'],
+      ['grow', '#why-redeemo'],
+      ['promote', '#why-redeemo'],
+      ['vouchers', '#why-redeemo'],
+      ['your-margin', '#your-margin'],
+      ['portal', '#portal'],
+    ]
+    let raf = 0
+    const onSpy = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        let current = ''
+        for (const [id, tab] of SPY) {
+          const el = document.getElementById(id)
+          if (el && el.getBoundingClientRect().top <= 280) current = tab
+        }
+        setActiveAnchor(current)
+      })
+    }
+    onSpy()
+    window.addEventListener('scroll', onSpy, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onSpy)
+      cancelAnimationFrame(raf)
+    }
+  }, [isBusiness])
 
   const linkColour = (isActive: boolean) =>
     isActive
@@ -240,23 +285,72 @@ export function Navbar() {
             logo · links · actions rather than everything left-stacked */}
         <div className="hidden md:flex gap-1 flex-1 justify-center">
           {navLinks.map(link => {
-            const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+            const isActive = isBusiness ? activeAnchor === link.href : pathname === link.href || pathname.startsWith(link.href + '/')
+            const children = link.children
             return (
-              <Link
+              <span
                 key={link.href}
-                href={link.href}
-                className={`relative px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${linkColour(isActive)}`}
+                className="relative"
+                onMouseEnter={children ? () => setDropOpen(link.href) : undefined}
+                onMouseLeave={children ? () => setDropOpen(null) : undefined}
+                onFocus={children ? () => setDropOpen(link.href) : undefined}
+                onBlur={children ? (e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropOpen(null) } : undefined}
               >
-                {link.label}
-                {isActive && (
-                  <motion.span
-                    layoutId="nav-indicator"
-                    className="absolute inset-x-3 -bottom-[8px] h-[2px] rounded-full"
-                    style={{ background: 'rgba(255,255,255,0.9)' }}
-                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                  />
-                )}
-              </Link>
+                <Link
+                  href={link.href}
+                  aria-haspopup={children ? 'menu' : undefined}
+                  aria-expanded={children ? dropOpen === link.href : undefined}
+                  className={`relative inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${linkColour(isActive)}`}
+                >
+                  {link.label}
+                  {children && (
+                    <ChevronDown
+                      size={12}
+                      strokeWidth={2.4}
+                      className={`transition-transform duration-200 ${dropOpen === link.href ? 'rotate-180' : ''}`}
+                    />
+                  )}
+                  {isActive && (
+                    <motion.span
+                      layoutId="nav-indicator"
+                      className="absolute inset-x-3 -bottom-[8px] h-[2px] rounded-full"
+                      style={{ background: 'rgba(255,255,255,0.9)' }}
+                      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                    />
+                  )}
+                </Link>
+                <AnimatePresence>
+                  {children && dropOpen === link.href && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                      role="menu"
+                      className="absolute left-1/2 top-[calc(100%+12px)] w-[176px] -translate-x-1/2 overflow-hidden rounded-xl p-1.5"
+                      style={{
+                        background: '#010C35',
+                        border: '1px solid rgba(255,255,255,0.10)',
+                        boxShadow: '0 20px 48px rgba(1,12,53,0.35), 0 4px 14px rgba(0,0,0,0.18)',
+                      }}
+                    >
+                      {children.map((child, ci) => (
+                        <motion.div key={child.href} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: ci * 0.05 + 0.05 }}>
+                          <Link
+                            href={child.href}
+                            role="menuitem"
+                            onClick={() => setDropOpen(null)}
+                            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-white/70 no-underline transition-colors hover:bg-white/[0.07] hover:text-white"
+                          >
+                            <span className="h-[11px] w-[2.5px] rounded-full" style={{ background: 'var(--brand-gradient)' }} aria-hidden="true" />
+                            {child.label}
+                          </Link>
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </span>
             )
           })}
         </div>
@@ -425,8 +519,13 @@ export function Navbar() {
                 )}
                 <Link
                   href={primaryCtaHref}
-                  className="text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
+                  className="group relative overflow-hidden text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2 rounded-lg no-underline transition-transform duration-300 hover:-translate-y-0.5"
                 >
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-0 -left-[60%] w-[45%] transition-transform duration-700 ease-out group-hover:translate-x-[340%] motion-reduce:hidden"
+                    style={{ background: 'linear-gradient(105deg, transparent, rgba(226,12,4,0.12), transparent)', transform: 'skewX(-16deg)' }}
+                  />
                   {primaryCtaLabel}
                 </Link>
               </>
@@ -582,25 +681,18 @@ export function Navbar() {
             aria-expanded={floatMenuOpen}
             aria-controls="float-menu"
             className="flex items-center gap-2.5 pl-3 pr-3.5 h-[46px] rounded-full border-none cursor-pointer"
-            style={
-              isBusiness
-                ? {
-                    background: '#BE0A03 radial-gradient(140% 380% at 72% 10%, #F24E2C 0%, #BE0A03 100%)',
-                    boxShadow: '0 10px 32px rgba(190,10,3,0.28), inset 0 1px 0 rgba(255,255,255,0.22)',
-                  }
-                : {
-                    background: 'rgba(255,249,245,0.92)',
-                    backdropFilter: 'blur(16px) saturate(1.5)',
-                    WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
-                    boxShadow: '0 10px 32px rgba(1,12,53,0.16), inset 0 0 0 1px rgba(1,12,53,0.08)',
-                  }
-            }
+            style={{
+              background: 'rgba(255,249,245,0.92)',
+              backdropFilter: 'blur(16px) saturate(1.5)',
+              WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
+              boxShadow: '0 10px 32px rgba(1,12,53,0.16), inset 0 0 0 1px rgba(1,12,53,0.08)',
+            }}
           >
-            <Image src="/logo-icon.svg" alt="" width={24} height={24} className={isBusiness ? 'h-[22px] w-auto brightness-0 invert' : 'h-[22px] w-auto'} />
-            <span className={`w-px h-[18px] ${isBusiness ? 'bg-white/25' : 'bg-[#010C35]/12'}`} aria-hidden="true" />
+            <Image src="/logo-icon.svg" alt="" width={24} height={24} className="h-[22px] w-auto" />
+            <span className="w-px h-[18px] bg-[#010C35]/12" aria-hidden="true" />
             {floatMenuOpen
-              ? <X size={19} strokeWidth={2} className={isBusiness ? 'text-white/90' : 'text-[#010C35]/80'} />
-              : <Menu size={19} strokeWidth={2} className={isBusiness ? 'text-white/90' : 'text-[#010C35]/80'} />}
+              ? <X size={19} strokeWidth={2} className="text-[#010C35]/80" />
+              : <Menu size={19} strokeWidth={2} className="text-[#010C35]/80" />}
           </button>
         </motion.div>
       )}
@@ -699,26 +791,17 @@ export function Navbar() {
           <nav
             aria-label="Quick navigation"
             className="max-w-6xl mx-auto flex items-center gap-5 px-5 md:px-7 h-[70px] rounded-2xl"
-            style={
-              isBusiness
-                ? {
-                    // Same colour as the top-of-page island (owner 2026-07-17):
-                    // the business bar never turns cream on reappear
-                    background: '#BE0A03 radial-gradient(140% 380% at 72% 10%, #F24E2C 0%, #BE0A03 100%)',
-                    boxShadow: '0 12px 40px rgba(190,10,3,0.28), inset 0 1px 0 rgba(255,255,255,0.22)',
-                  }
-                : {
-                    background: 'rgba(255,249,245,0.90)',
-                    backdropFilter: 'blur(16px) saturate(1.5)',
-                    WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
-                    border: '1px solid rgba(1,12,53,0.08)',
-                    boxShadow: '0 12px 40px rgba(1,12,53,0.14)',
-                  }
-            }
+            style={{
+              background: 'rgba(255,249,245,0.90)',
+              backdropFilter: 'blur(16px) saturate(1.5)',
+              WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
+              border: '1px solid rgba(1,12,53,0.08)',
+              boxShadow: '0 12px 40px rgba(1,12,53,0.14)',
+            }}
           >
             <Link href={isBusiness ? '/for-businesses' : '/'} aria-label={isBusiness ? 'Redeemo for business' : 'Redeemo'} className="flex-shrink-0 no-underline">
               {isBusiness ? (
-                <BusinessLogo tone="light" />
+                <BusinessLogo tone="dark" />
               ) : (
                 <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[52px] w-auto" />
               )}
@@ -726,19 +809,62 @@ export function Navbar() {
 
             <div className="hidden md:flex gap-1 flex-1 justify-center">
               {navLinks.map(link => {
-                const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+                const isActive = isBusiness ? activeAnchor === link.href : pathname === link.href || pathname.startsWith(link.href + '/')
+                const children = link.children
                 return (
-                  <Link
+                  <span
                     key={link.href}
-                    href={link.href}
-                    className={`px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${
-                      isBusiness
-                        ? 'text-white/75 hover:text-white'
-                        : isActive ? 'text-[#E20C04]' : 'text-[#4B5563] hover:text-[#010C35]'
-                    }`}
+                    className="relative"
+                    onMouseEnter={children ? () => setDropOpen('float' + link.href) : undefined}
+                    onMouseLeave={children ? () => setDropOpen(null) : undefined}
+                    onFocus={children ? () => setDropOpen('float' + link.href) : undefined}
+                    onBlur={children ? (e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropOpen(null) } : undefined}
                   >
-                    {link.label}
-                  </Link>
+                    <Link
+                      href={link.href}
+                      aria-haspopup={children ? 'menu' : undefined}
+                      aria-expanded={children ? dropOpen === 'float' + link.href : undefined}
+                      className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${
+                        isActive ? 'text-[#E20C04]' : 'text-[#4B5563] hover:text-[#010C35]'
+                      }`}
+                    >
+                      {link.label}
+                      {children && (
+                        <ChevronDown size={12} strokeWidth={2.4} className={`transition-transform duration-200 ${dropOpen === 'float' + link.href ? 'rotate-180' : ''}`} />
+                      )}
+                    </Link>
+                    <AnimatePresence>
+                      {children && dropOpen === 'float' + link.href && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                          role="menu"
+                          className="absolute left-1/2 top-[calc(100%+12px)] w-[176px] -translate-x-1/2 overflow-hidden rounded-xl p-1.5"
+                          style={{
+                            background: 'rgba(255,255,255,0.98)',
+                            border: '1px solid rgba(1,12,53,0.08)',
+                            boxShadow: '0 20px 48px rgba(1,12,53,0.16), 0 4px 14px rgba(1,12,53,0.08)',
+                          }}
+                        >
+                          {children.map((child, ci) => (
+                            <motion.div key={child.href} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: ci * 0.05 + 0.05 }}>
+                              <Link
+                                href={child.href}
+                                role="menuitem"
+                                onClick={() => setDropOpen(null)}
+                                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-[#4B5563] no-underline transition-colors hover:bg-[#FFF3EC] hover:text-[#010C35]"
+                              >
+                                <span className="h-[11px] w-[2.5px] rounded-full" style={{ background: 'var(--brand-gradient)' }} aria-hidden="true" />
+                                {child.label}
+                              </Link>
+                            </motion.div>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </span>
                 )
               })}
             </div>
@@ -753,18 +879,14 @@ export function Navbar() {
                   <>
                     <Link
                       href={loginHref}
-                      className={`hidden md:block text-[14px] font-medium no-underline transition-colors ${
-                        isBusiness ? 'text-white/80 hover:text-white' : 'text-[#4B5563] hover:text-[#010C35]'
-                      }`}
+                      className="hidden md:block text-[14px] font-medium text-[#4B5563] hover:text-[#010C35] no-underline transition-colors"
                     >
                       Log in
                     </Link>
                     <Link
                       href={primaryCtaHref}
-                      className={`text-[14px] font-bold px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity ${
-                        isBusiness ? 'text-[#BE0A03] bg-white' : 'text-white'
-                      }`}
-                      style={isBusiness ? undefined : { background: 'var(--brand-gradient)' }}
+                      className="text-[14px] font-bold text-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
+                      style={{ background: 'var(--brand-gradient)' }}
                     >
                       {primaryCtaLabel}
                     </Link>
