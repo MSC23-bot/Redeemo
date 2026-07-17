@@ -72,7 +72,7 @@ function BusinessLogo({ tone }: { tone: 'light' | 'dark' }) {
       />
       <span
         className={`text-[8.5px] font-bold uppercase ${light ? 'text-white/65' : 'text-[#6B7280]'}`}
-        style={{ letterSpacing: '0.215em', marginTop: 4, marginLeft: '23.2%' }}
+        style={{ letterSpacing: '0.215em', marginTop: 1, marginLeft: '23.2%' }}
       >
         For business
       </span>

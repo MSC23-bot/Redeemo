@@ -1,6 +1,6 @@
 'use client'
 
-import { motion, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
+import { AnimatePresence, motion, type MotionValue, useInView, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
@@ -434,7 +434,159 @@ function DesktopSignalLayer({ m, progress, float }: { m: StageMetrics; progress:
 
 // ── Shared copy column (approved copy; unchanged) ─────────────────────────────
 
-function HeroCopy({ registerUrl }: { registerUrl: string }) {
+// Odometer zero: rolls decoy digits and settles on the true figure (same
+// device as the closing ticket). Hidden from AT; sr value on the stat.
+function HeroZeroReel({ reel, delay }: { reel: string[]; delay: number }) {
+  const reduceMotion = useReducedMotion()
+  const windowRef = useRef<HTMLSpanElement>(null)
+  const inView = useInView(windowRef, { once: true, amount: 0.6 })
+  return (
+    <span ref={windowRef} className="inline-block overflow-hidden align-bottom" style={{ height: '1em' }} aria-hidden="true">
+      <motion.span
+        className="flex flex-col"
+        initial={{ y: '0em', opacity: 0 }}
+        animate={inView ? { y: `-${reel.length - 1}em`, opacity: 1 } : undefined}
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : { y: { duration: 1.05, delay, ease: [0.16, 1, 0.3, 1] }, opacity: { duration: 0.25, delay } }
+        }
+      >
+        {reel.map((d, i) => (
+          <span key={i} className="block" style={{ height: '1em', lineHeight: 1 }}>
+            {d}
+          </span>
+        ))}
+      </motion.span>
+    </span>
+  )
+}
+
+const PROOF_STATS = [
+  { reel: ['4', '8', '0'], prefix: '£', suffix: '', label: 'Listing fee' },
+  { reel: ['7', '3', '0'], prefix: '', suffix: '%', label: 'Commission' },
+  { reel: ['9', '2', '0'], prefix: '£', suffix: '', label: 'Redemption fee' },
+]
+
+function ProofStrip() {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5, delay: 0.4 }}
+      className="mb-9 max-w-[470px] border-t border-white/[0.08] pt-7"
+    >
+      <div className="grid grid-cols-3 gap-5">
+        {PROOF_STATS.map((s, i) => (
+          <div key={i}>
+            <p className="font-display mb-1 leading-none text-white" style={{ fontSize: '28px', letterSpacing: '-0.5px' }}>
+              <span className="sr-only">{`${s.prefix}0${s.suffix}`}</span>
+              <span aria-hidden="true">
+                {s.prefix}
+                <HeroZeroReel reel={s.reel} delay={0.35 + i * 0.12} />
+                {s.suffix}
+              </span>
+            </p>
+            <p className="text-[11px] font-medium uppercase leading-snug tracking-[0.08em] text-white/38">{s.label}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 text-[12.5px] leading-relaxed text-white/50">
+        <span className="font-semibold text-white/80">One redemption</span> per voucher, per customer, per monthly cycle
+      </p>
+    </motion.div>
+  )
+}
+
+function FeatureChips() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: 0.5 }}
+      className="grid max-w-[470px] grid-cols-2 gap-x-8 gap-y-3.5"
+    >
+      {['Merchant portal included', 'Verified redemptions', 'Built-in voucher limits', 'No hidden platform fees'].map((t) => (
+        <span key={t} className="flex items-center gap-2.5 text-[13px] font-medium text-white/60">
+          <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#E20C04]/80" />
+          {t}
+        </span>
+      ))}
+    </motion.div>
+  )
+}
+
+// The five growth signals as a single premium ticker line for small stages:
+// one live row that cycles, never a card stack, never overlapping the scene.
+// Reduced motion (or data saver) gets all five as slim static rows instead.
+function SignalTicker() {
+  const reduceMotion = useReducedMotion()
+  const [index, setIndex] = useState(0)
+  useEffect(() => {
+    if (reduceMotion) return
+    const t = setInterval(() => setIndex((i) => (i + 1) % SIGNALS.length), 3000)
+    return () => clearInterval(t)
+  }, [reduceMotion])
+
+  if (reduceMotion) {
+    return (
+      <div className="flex flex-col gap-2.5">
+        {SIGNALS.map((sig) => (
+          <div key={sig.kicker} className="flex items-baseline gap-2.5">
+            <span className="relative top-[1px] h-2 w-2 flex-shrink-0 rounded-full bg-[#E20C04]" aria-hidden="true" />
+            <p className="text-[13px] leading-snug text-white/80">
+              <span className="mr-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#FF6B3D]">{sig.kicker}</span>
+              {sig.title}
+            </p>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const sig = SIGNALS[index]
+  return (
+    <div>
+      <div className="relative h-[46px]" aria-live="polite">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={sig.kicker}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 flex items-center gap-3"
+          >
+            <span className="relative flex h-2.5 w-2.5 flex-shrink-0" aria-hidden="true">
+              <span className="absolute -inset-1.5 animate-ping rounded-full bg-[#E20C04]/25" style={{ animationDuration: '2.4s' }} />
+              <span className="relative h-2.5 w-2.5 rounded-full bg-[#E20C04] shadow-[0_0_10px_rgba(226,12,4,0.7)]" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#FF6B3D]">{sig.kicker}</span>
+              <span className="block truncate text-[14px] font-semibold text-white">
+                {sig.title}
+                {sig.sub ? <span className="ml-2 font-normal text-white/45">{sig.sub}</span> : null}
+              </span>
+            </span>
+          </motion.div>
+        </AnimatePresence>
+      </div>
+      <div className="mt-1.5 flex items-center gap-1.5" aria-hidden="true">
+        {SIGNALS.map((s, i) => (
+          <button
+            key={s.kicker}
+            tabIndex={-1}
+            onClick={() => setIndex(i)}
+            className="h-1 cursor-pointer rounded-full border-none p-0 transition-all duration-300"
+            style={{ width: i === index ? 18 : 7, background: i === index ? 'var(--brand-gradient)' : 'rgba(255,255,255,0.18)' }}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HeroCopy({ registerUrl, withStats = true }: { registerUrl: string; withStats?: boolean }) {
   return (
     <>
       <motion.h1
@@ -476,43 +628,12 @@ function HeroCopy({ registerUrl }: { registerUrl: string }) {
         </a>
       </motion.div>
 
-      {/* Proof strip: three no-cost points + the built-in redemption limit */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.4 }}
-        className="mb-9 max-w-[470px] border-t border-white/[0.08] pt-7"
-      >
-        <div className="grid grid-cols-3 gap-5">
-          {[
-            { value: '£0', label: 'Listing fee' },
-            { value: '0%', label: 'Commission' },
-            { value: '£0', label: 'Redemption fee' },
-          ].map((s, i) => (
-            <div key={i}>
-              <p className="font-display mb-1 leading-none text-white" style={{ fontSize: '28px', letterSpacing: '-0.5px' }}>{s.value}</p>
-              <p className="text-[11px] font-medium uppercase leading-snug tracking-[0.08em] text-white/38">{s.label}</p>
-            </div>
-          ))}
-        </div>
-        <p className="mt-4 text-[12.5px] leading-relaxed text-white/50">
-          <span className="font-semibold text-white/80">One redemption</span> per voucher, per customer, per monthly cycle
-        </p>
-      </motion.div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.5 }}
-        className="grid max-w-[470px] grid-cols-2 gap-x-8 gap-y-3.5"
-      >
-        {['Merchant portal included', 'Verified redemptions', 'Built-in voucher limits', 'No hidden platform fees'].map((t) => (
-          <span key={t} className="flex items-center gap-2.5 text-[13px] font-medium text-white/60">
-            <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#E20C04]/80" />
-            {t}
-          </span>
-        ))}
-      </motion.div>
+      {withStats ? (
+        <>
+          <ProofStrip />
+          <FeatureChips />
+        </>
+      ) : null}
     </>
   )
 }
@@ -672,6 +793,14 @@ function HeroDesktop({ registerUrl }: { registerUrl: string }) {
 export function HeroStacked({ registerUrl }: { registerUrl: string }) {
   const stageRef = useRef<HTMLDivElement>(null)
   const m = useStageMetrics(stageRef, 0.58)
+  const reduceMotion = useReducedMotion()
+
+  // The device screens live with the page: the phone feed and the laptop
+  // strip glide as the stage passes through the viewport (owner 2026-07-17:
+  // the in-screen scroll must work on mobile too).
+  const { scrollYProgress } = useScroll({ target: stageRef, offset: ['start 90%', 'end 10%'] })
+  const feedY = useTransform(scrollYProgress, [0, 1], [30, -520])
+  const stripY = useTransform(scrollYProgress, [0, 1], [0, -380])
 
   // Compose the cluster inside the VISIBLE window of the cover-cropped
   // photograph: near-full width, seated toward the bottom of the band.
@@ -685,14 +814,25 @@ export function HeroStacked({ registerUrl }: { registerUrl: string }) {
 
   return (
     <section className="relative -mt-[80px]" style={{ background: '#010C35' }}>
-      <div className="px-6 pb-4 pt-[176px]">
+      {/* Headline, intro and CTA lead; the scene follows immediately (owner
+          2026-07-17: devices sit above the proof stats on mobile) */}
+      <div className="px-6 pb-1 pt-[150px]">
         <div className="mx-auto max-w-[600px]">
-          <HeroCopy registerUrl={registerUrl} />
+          <HeroCopy registerUrl={registerUrl} withStats={false} />
         </div>
       </div>
 
-      <div ref={stageRef} className="relative mt-6 h-[64svh] overflow-hidden">
-        <Scene m={m} focalX={0.58} cluster={cluster} feedY={0} stripY={0} dashOp={1} insightOp={0} builderOp={0} />
+      <div ref={stageRef} className="relative mt-2 h-[58svh] min-h-[380px] overflow-hidden">
+        <Scene
+          m={m}
+          focalX={0.58}
+          cluster={cluster}
+          feedY={reduceMotion ? 0 : feedY}
+          stripY={reduceMotion ? 0 : stripY}
+          dashOp={1}
+          insightOp={0}
+          builderOp={0}
+        />
         <HeroEmbers />
         <div
           aria-hidden="true"
@@ -704,20 +844,13 @@ export function HeroStacked({ registerUrl }: { registerUrl: string }) {
         />
       </div>
 
-      {/* Growth signals as an aligned stack (no diagonal stagger) */}
-      <div className="relative mx-auto flex w-full max-w-[440px] flex-col gap-3 px-6 pb-14 pt-2" style={{ marginTop: '-56px' }}>
-        {SIGNALS.map((sig, i) => (
-          <motion.div
-            key={sig.kicker}
-            initial={{ opacity: 0, y: 18 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-40px' }}
-            transition={{ duration: 0.45, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] }}
-            aria-hidden="true"
-          >
-            <SignalChip signal={sig} float={false} />
-          </motion.div>
-        ))}
+      {/* The five growth signals as one live ticker line, then the proof */}
+      <div className="relative mx-auto w-full max-w-[600px] px-6 pb-12" style={{ marginTop: '-8px' }}>
+        <SignalTicker />
+        <div className="mt-7">
+          <ProofStrip />
+          <FeatureChips />
+        </div>
       </div>
     </section>
   )
