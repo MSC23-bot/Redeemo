@@ -121,7 +121,7 @@ const ROW_W = TYPES.length * CARD_W + (TYPES.length - 1) * GAP
  * Bespoke motifs: each draws the TYPE'S MECHANIC. Bold rounded shapes in the
  * type colour + white, sized for the card header. viewBox 0 0 96 96.
  */
-function Motif({ kind, accent }: { kind: string; accent: string }) {
+export function Motif({ kind, accent }: { kind: string; accent: string }) {
   switch (kind) {
     case 'bogo':
       // Two tickets: the one you pay for, and its twin on the house

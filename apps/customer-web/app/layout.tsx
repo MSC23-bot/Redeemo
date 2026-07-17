@@ -49,9 +49,10 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 }
 
-export const viewport: Viewport = {
-  themeColor: '#E20C04',
-}
+// No fixed themeColor: iOS tints its bars from the content under them, so a
+// navy hero gets navy chrome and the cream sections get light chrome (a fixed
+// value pinned dark bars over light sections; owner 2026-07-17)
+export const viewport: Viewport = {}
 
 export default function RootLayout({
   children,

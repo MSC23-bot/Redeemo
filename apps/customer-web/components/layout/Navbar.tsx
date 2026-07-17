@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, ChevronDown, LayoutDashboard, PiggyBank, Heart, CreditCard, User, LogOut, Bell } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { isMarketplaceLive } from '@/lib/prelaunch'
+import { isMarketplaceLive, merchantPortalLoginUrl, merchantPortalRegisterUrl } from '@/lib/prelaunch'
 
 // Links shown to logged-out visitors. Marketplace routes are middleware-gated
 // pre-launch (they redirect home), so Discover only appears once live.
@@ -34,6 +34,51 @@ const ACCOUNT_ITEMS = [
   { href: '/account/notifications',  label: 'Notifications',  icon: Bell },
   { href: '/account/profile',        label: 'Profile',        icon: User },
 ]
+
+// /for-businesses is its own front door (owner 2026-07-17): section anchors,
+// merchant portal auth, and the FOR BUSINESS lockup.
+type NavLink = { href: string; label: string; children?: Array<{ href: string; label: string }> }
+
+const NAV_LINKS_BUSINESS: NavLink[] = [
+  { href: '#how-it-works', label: 'How it works' },
+  {
+    href: '#why-redeemo',
+    label: 'Why Redeemo',
+    children: [
+      { href: '#grow',     label: 'Grow' },
+      { href: '#promote',  label: 'Promote' },
+      { href: '#vouchers', label: 'Your vouchers' },
+    ],
+  },
+  { href: '#portal',      label: 'Merchant portal' },
+  { href: '#your-margin', label: 'Pricing' },
+]
+
+// The lockup: the real brand asset (tight-cropped so it renders at true
+// size), with FOR BUSINESS seated directly beneath the wordmark. The caps
+// line starts where the wordmark starts (23.2% of the asset's width,
+// measured from the SVG) and tracks out to finish with it.
+function BusinessLogo({ tone }: { tone: 'light' | 'dark' }) {
+  const light = tone === 'light'
+  return (
+    <span className="flex flex-col" style={{ lineHeight: 1 }}>
+      <Image
+        src={light ? '/logo-white-tight.svg' : '/logo-horizontal-tight.svg'}
+        alt=""
+        width={116}
+        height={32}
+        className="h-[31px] w-auto"
+        priority
+      />
+      <span
+        className={`text-[8.5px] font-bold uppercase ${light ? 'text-white/65' : 'text-[#6B7280]'}`}
+        style={{ letterSpacing: '0.215em', marginTop: 1, marginLeft: '23.2%' }}
+      >
+        For business
+      </span>
+    </span>
+  )
+}
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/)
@@ -87,7 +132,7 @@ export function Navbar() {
   // full menu on tap: it never covers pinned content. Desktop keeps the
   // full glass bar, revealed on scroll-up with a 6px direction deadband.
   const [floatVisible, setFloatVisible] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
+  const [showTop, setShowTop] = useState(false)
   const [floatMenuOpen, setFloatMenuOpen] = useState(false)
   const lastScrollY = useRef(0)
   const accountRef = useRef<HTMLDivElement>(null)
@@ -96,7 +141,7 @@ export function Navbar() {
   useEffect(() => {
     const onScroll = () => {
       const y = window.scrollY
-      setScrolled(y > 420)
+      setShowTop(y > window.innerHeight * 2.5)
       const dy = y - lastScrollY.current
       if (Math.abs(dy) < 6) return
       lastScrollY.current = y
@@ -135,7 +180,43 @@ export function Navbar() {
   // language as the glass quick-nav and the voucher cards.
   const isDark = true
 
-  const navLinks = user ? NAV_LINKS_MEMBER : NAV_LINKS_PUBLIC
+  const isBusiness = pathname === '/for-businesses' || pathname.startsWith('/for-businesses/')
+  const navLinks: NavLink[] = isBusiness ? NAV_LINKS_BUSINESS : user ? NAV_LINKS_MEMBER : NAV_LINKS_PUBLIC
+
+  // Scroll spy: the tab of whichever section owns the viewport wears the
+  // indicator. Sub-anchors (grow/promote/vouchers) roll up to Why Redeemo.
+  const [activeAnchor, setActiveAnchor] = useState('')
+  const [dropOpen, setDropOpen] = useState<string | null>(null)
+  useEffect(() => {
+    if (!isBusiness) return
+    const SPY: Array<[string, string]> = [
+      ['how-it-works', '#how-it-works'],
+      ['why-redeemo', '#why-redeemo'],
+      ['grow', '#why-redeemo'],
+      ['promote', '#why-redeemo'],
+      ['vouchers', '#why-redeemo'],
+      ['your-margin', '#your-margin'],
+      ['portal', '#portal'],
+    ]
+    let raf = 0
+    const onSpy = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        let current = ''
+        for (const [id, tab] of SPY) {
+          const el = document.getElementById(id)
+          if (el && el.getBoundingClientRect().top <= 280) current = tab
+        }
+        setActiveAnchor(current)
+      })
+    }
+    onSpy()
+    window.addEventListener('scroll', onSpy, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onSpy)
+      cancelAnimationFrame(raf)
+    }
+  }, [isBusiness])
 
   const linkColour = (isActive: boolean) =>
     isActive
@@ -150,8 +231,21 @@ export function Navbar() {
   const marketplaceLive = isMarketplaceLive()
   // Creating an account IS the waitlist (owner 2026-07-08): registration is
   // live pre-launch and founding members claim the launch incentive.
-  const primaryCtaHref = '/register'
-  const primaryCtaLabel = marketplaceLive ? 'Join free' : 'Get early access'
+  const primaryCtaHref = isBusiness ? merchantPortalRegisterUrl() : '/register'
+  const primaryCtaLabel = isBusiness ? 'List your business' : marketplaceLive ? 'Join free' : 'Get early access'
+  const loginHref = isBusiness ? merchantPortalLoginUrl() : '/login'
+
+  // Early anchor clicks can land short while images/fonts settle the layout
+  // above the pinned bands; verify the landing and correct once.
+  const settleAnchor = (href: string) => {
+    if (!href.startsWith('#')) return
+    window.setTimeout(() => {
+      const el = document.querySelector(href)
+      if (!el) return
+      const top = el.getBoundingClientRect().top
+      if (Math.abs(top - 96) > 80) el.scrollIntoView({ behavior: 'smooth' })
+    }, 1100)
+  }
 
   return (
     <>
@@ -181,47 +275,101 @@ export function Navbar() {
           />
         </div>
 
-        <nav aria-label="Main" className="relative px-5 md:px-7 h-[68px] flex items-center gap-6">
+        <nav aria-label="Main" className="relative px-4 md:px-7 h-[68px] flex items-center gap-3 md:gap-6">
 
         {/* Logo */}
-        <Link href="/" className="flex-shrink-0 no-underline">
-          <Image
-            src="/logo-white.svg"
-            alt="Redeemo"
-            width={220}
-            height={60}
-            className="h-[50px] w-auto transition-opacity duration-300"
-            priority
-          />
+        <Link href={isBusiness ? '/for-businesses' : '/'} aria-label={isBusiness ? 'Redeemo for business' : 'Redeemo'} className="flex-shrink-0 no-underline">
+          {isBusiness ? (
+            <BusinessLogo tone="light" />
+          ) : (
+            <Image
+              src="/logo-white.svg"
+              alt="Redeemo"
+              width={220}
+              height={60}
+              className="h-[50px] w-auto transition-opacity duration-300"
+              priority
+            />
+          )}
         </Link>
 
         {/* Desktop nav links, centred so the island reads balanced:
             logo · links · actions rather than everything left-stacked */}
-        <div className="hidden md:flex gap-1 flex-1 justify-center">
+        <div className="hidden min-[1060px]:flex gap-1 flex-1 justify-center">
           {navLinks.map(link => {
-            const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+            const isActive = isBusiness ? activeAnchor === link.href : pathname === link.href || pathname.startsWith(link.href + '/')
+            const children = link.children
             return (
-              <Link
+              <span
                 key={link.href}
-                href={link.href}
-                className={`relative px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${linkColour(isActive)}`}
+                className="relative"
+                onMouseEnter={children ? () => setDropOpen(link.href) : undefined}
+                onMouseLeave={children ? () => setDropOpen(null) : undefined}
+                onFocus={children ? () => setDropOpen(link.href) : undefined}
+                onBlur={children ? (e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropOpen(null) } : undefined}
               >
-                {link.label}
-                {isActive && (
-                  <motion.span
-                    layoutId="nav-indicator"
-                    className="absolute inset-x-3 -bottom-[8px] h-[2px] rounded-full"
-                    style={{ background: 'rgba(255,255,255,0.9)' }}
-                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                  />
-                )}
-              </Link>
+                <Link
+                  href={link.href}
+                  onClick={() => settleAnchor(link.href)}
+                  aria-haspopup={children ? 'menu' : undefined}
+                  aria-expanded={children ? dropOpen === link.href : undefined}
+                  className={`relative inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${linkColour(isActive)}`}
+                >
+                  {link.label}
+                  {children && (
+                    <ChevronDown
+                      size={12}
+                      strokeWidth={2.4}
+                      className={`transition-transform duration-200 ${dropOpen === link.href ? 'rotate-180' : ''}`}
+                    />
+                  )}
+                  {isActive && (
+                    <motion.span
+                      layoutId="nav-indicator"
+                      className="absolute inset-x-3 -bottom-[8px] h-[2px] rounded-full"
+                      style={{ background: 'rgba(255,255,255,0.9)' }}
+                      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                    />
+                  )}
+                </Link>
+                <AnimatePresence>
+                  {children && dropOpen === link.href && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                      role="menu"
+                      className="absolute left-1/2 top-[calc(100%+12px)] w-[176px] -translate-x-1/2 overflow-hidden rounded-xl p-1.5"
+                      style={{
+                        background: '#010C35',
+                        border: '1px solid rgba(255,255,255,0.10)',
+                        boxShadow: '0 20px 48px rgba(1,12,53,0.35), 0 4px 14px rgba(0,0,0,0.18)',
+                      }}
+                    >
+                      {children.map((child, ci) => (
+                        <motion.div key={child.href} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: ci * 0.05 + 0.05 }}>
+                          <Link
+                            href={child.href}
+                            role="menuitem"
+                            onClick={(e) => { setDropOpen(null); settleAnchor((e.currentTarget as HTMLAnchorElement).getAttribute('href') || '') }}
+                            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-white/70 no-underline transition-colors hover:bg-white/[0.07] hover:text-white"
+                          >
+                            <span className="h-[11px] w-[2.5px] rounded-full" style={{ background: 'var(--brand-gradient)' }} aria-hidden="true" />
+                            {child.label}
+                          </Link>
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </span>
             )
           })}
         </div>
 
         {/* Desktop right side */}
-        <div className="hidden md:flex items-center gap-3 ml-auto">
+        <div className="hidden min-[1060px]:flex items-center gap-3 ml-auto">
           {!isLoading && (
             user ? (
               /* ── Logged-in: Bell + Avatar + Account dropdown ── */
@@ -348,14 +496,22 @@ export function Navbar() {
               /* ── Logged-out: Log in + Get the app + Join free ── */
               <>
                 <Link
-                  href="/login"
+                  href={loginHref}
                   className={`text-[14px] font-medium no-underline transition-colors ${
                     isDark ? 'text-white/80 hover:text-white' : 'text-[#4B5563] hover:text-[#010C35]'
                   }`}
                 >
                   Log in
                 </Link>
-                {marketplaceLive ? (
+                {isBusiness ? (
+                  <Link
+                    href="/"
+                    className="text-[14px] font-medium text-white px-4 py-2 rounded-lg no-underline hover:opacity-80 transition-opacity"
+                    style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.20)' }}
+                  >
+                    For customers
+                  </Link>
+                ) : marketplaceLive ? (
                   <a
                     href="https://apps.apple.com"
                     target="_blank"
@@ -376,8 +532,13 @@ export function Navbar() {
                 )}
                 <Link
                   href={primaryCtaHref}
-                  className="text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
+                  className="group relative overflow-hidden text-[14px] font-bold text-[#BE0A03] bg-white px-4 py-2 rounded-lg no-underline transition-transform duration-300 hover:-translate-y-0.5"
                 >
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-y-0 -left-[60%] w-[45%] transition-transform duration-700 ease-out group-hover:translate-x-[340%] motion-reduce:hidden"
+                    style={{ background: 'linear-gradient(105deg, transparent, rgba(226,12,4,0.12), transparent)', transform: 'skewX(-16deg)' }}
+                  />
                   {primaryCtaLabel}
                 </Link>
               </>
@@ -389,16 +550,17 @@ export function Navbar() {
         {!user && (
           <Link
             href={primaryCtaHref}
-            className="md:hidden ml-auto text-[13px] font-bold text-[#BE0A03] bg-white px-3.5 py-2 rounded-lg no-underline"
+            className="min-[1060px]:hidden ml-auto whitespace-nowrap text-[12.5px] font-bold text-[#BE0A03] bg-white px-3 py-2 rounded-lg no-underline"
           >
-            {primaryCtaLabel}
+            <span className="hidden min-[350px]:inline">{primaryCtaLabel}</span>
+            <span className="min-[350px]:hidden">{isBusiness ? 'List free' : primaryCtaLabel === 'Join free' ? 'Join free' : 'Early access'}</span>
           </Link>
         )}
 
         {/* Mobile hamburger */}
         <button
           onClick={() => setMenuOpen(o => !o)}
-          className={`md:hidden ${user ? 'ml-auto' : ''} p-1.5 rounded-md transition-colors ${
+          className={`min-[1060px]:hidden ${user ? 'ml-auto' : ''} p-3 -m-1 rounded-md transition-colors ${
             isDark ? 'text-white/70 hover:text-white' : 'text-[#4B5563] hover:text-[#010C35]'
           }`}
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
@@ -421,7 +583,7 @@ export function Navbar() {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.22, ease: 'easeInOut' }}
-            className="md:hidden overflow-hidden border-t border-white/[0.14] relative"
+            className="min-[1060px]:hidden overflow-hidden border-t border-white/[0.14] relative"
           >
             <div className="px-6 py-4 flex flex-col gap-1">
 
@@ -443,7 +605,7 @@ export function Navbar() {
                     key={link.href}
                     href={link.href}
                     ref={i === 0 ? firstMobileLinkRef : undefined}
-                    onClick={() => setMenuOpen(false)}
+                    onClick={() => { setMenuOpen(false); settleAnchor(link.href) }}
                     className={`px-3 py-3 rounded-lg text-[14px] font-medium transition-colors no-underline ${
                       isActive ? 'text-white bg-white/[0.08]' : 'text-white/65 hover:text-white'
                     }`}
@@ -482,19 +644,19 @@ export function Navbar() {
                   ) : (
                     <>
                       <Link
-                        href="/login"
+                        href={loginHref}
                         onClick={() => setMenuOpen(false)}
                         className="px-3 py-3 text-[14px] font-medium text-white/80 no-underline hover:text-white transition-colors"
                       >
                         Log in
                       </Link>
                       <Link
-                        href={marketplaceLive ? 'https://apps.apple.com' : '/for-businesses'}
+                        href={isBusiness ? '/' : marketplaceLive ? 'https://apps.apple.com' : '/for-businesses'}
                         onClick={() => setMenuOpen(false)}
                         className="px-3 py-3 text-[14px] font-medium text-white text-center rounded-lg no-underline hover:opacity-80 transition-opacity"
                         style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.18)' }}
                       >
-                        {marketplaceLive ? 'Get the app' : 'Got a business?'}
+                        {isBusiness ? 'For customers' : marketplaceLive ? 'Get the app' : 'Got a business?'}
                       </Link>
                       <Link
                         href={primaryCtaHref}
@@ -518,14 +680,14 @@ export function Navbar() {
         hamburger) that expands into a full menu on tap: premium, and it
         never covers pinned content (owner 2026-07-13) */}
     <AnimatePresence>
-      {scrolled && (
+      {floatVisible && (
         <motion.div
           key="pill"
           initial={{ y: -18, opacity: 0, scale: 0.94 }}
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: -18, opacity: 0, scale: 0.94 }}
           transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-          className="md:hidden fixed top-3 right-3 z-50"
+          className="min-[1060px]:hidden fixed top-3 right-3 z-50"
         >
           <button
             onClick={() => setFloatMenuOpen(o => !o)}
@@ -550,7 +712,7 @@ export function Navbar() {
       )}
     </AnimatePresence>
     <AnimatePresence>
-      {scrolled && floatMenuOpen && (
+      {floatVisible && floatMenuOpen && (
         <motion.div
           key="float-menu"
           id="float-menu"
@@ -558,7 +720,7 @@ export function Navbar() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -10, scale: 0.97 }}
           transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-          className="md:hidden fixed top-[62px] inset-x-3 z-50 origin-top-right"
+          className="min-[1060px]:hidden fixed top-[62px] inset-x-3 z-50 origin-top-right"
           style={{ filter: 'drop-shadow(0 20px 44px rgba(190,10,3,0.32))' }}
         >
           {/* The coupon (owner 2026-07-13): the expanded menu wears the same
@@ -584,7 +746,7 @@ export function Navbar() {
                   <Link
                     key={link.href}
                     href={link.href}
-                    onClick={() => setFloatMenuOpen(false)}
+                    onClick={() => { setFloatMenuOpen(false); settleAnchor(link.href) }}
                     className={`px-3 py-2.5 rounded-lg text-[15px] font-semibold no-underline transition-colors ${
                       isActive ? 'text-white bg-white/[0.14]' : 'text-white/80 hover:text-white hover:bg-white/[0.08]'
                     }`}
@@ -606,7 +768,7 @@ export function Navbar() {
                 ) : (
                   <>
                     <Link
-                      href="/login"
+                      href={loginHref}
                       onClick={() => setFloatMenuOpen(false)}
                       className="text-[14px] font-semibold text-white/85 no-underline px-2"
                     >
@@ -628,6 +790,33 @@ export function Navbar() {
       )}
     </AnimatePresence>
 
+    {/* Back to top: the page runs long, especially on phones (owner
+        2026-07-17); a quiet glass control in the thumb corner */}
+    <AnimatePresence>
+      {showTop && (
+        <motion.button
+          key="back-to-top"
+          initial={{ opacity: 0, scale: 0.9, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.9, y: 10 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+          onClick={() => window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })}
+          aria-label="Back to top"
+          className="min-[1060px]:hidden fixed bottom-5 right-4 z-40 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border-none"
+          style={{
+            background: 'rgba(255,249,245,0.92)',
+            backdropFilter: 'blur(16px) saturate(1.5)',
+            WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
+            boxShadow: '0 10px 32px rgba(1,12,53,0.18), inset 0 0 0 1px rgba(1,12,53,0.08)',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#010C35" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" />
+          </svg>
+        </motion.button>
+      )}
+    </AnimatePresence>
+
     {/* Desktop glass quick-nav: slides in on scroll-UP mid-page and
         collapses away while scrolling down; neutral so it never fights
         whatever section background is behind it */}
@@ -638,7 +827,7 @@ export function Navbar() {
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: -84, opacity: 0, scale: 0.98 }}
           transition={{ type: 'spring', stiffness: 380, damping: 34 }}
-          className="hidden md:block fixed top-3 inset-x-3 md:inset-x-6 z-50"
+          className="hidden min-[1060px]:block fixed top-3 inset-x-3 md:inset-x-6 z-50"
         >
           <nav
             aria-label="Quick navigation"
@@ -651,23 +840,73 @@ export function Navbar() {
               boxShadow: '0 12px 40px rgba(1,12,53,0.14)',
             }}
           >
-            <Link href="/" className="flex-shrink-0 no-underline">
-              <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[52px] w-auto" />
+            <Link href={isBusiness ? '/for-businesses' : '/'} aria-label={isBusiness ? 'Redeemo for business' : 'Redeemo'} className="flex-shrink-0 no-underline">
+              {isBusiness ? (
+                <BusinessLogo tone="dark" />
+              ) : (
+                <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[52px] w-auto" />
+              )}
             </Link>
 
-            <div className="hidden md:flex gap-1 flex-1 justify-center">
+            <div className="hidden min-[1060px]:flex gap-1 flex-1 justify-center">
               {navLinks.map(link => {
-                const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+                const isActive = isBusiness ? activeAnchor === link.href : pathname === link.href || pathname.startsWith(link.href + '/')
+                const children = link.children
                 return (
-                  <Link
+                  <span
                     key={link.href}
-                    href={link.href}
-                    className={`px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${
-                      isActive ? 'text-[#E20C04]' : 'text-[#4B5563] hover:text-[#010C35]'
-                    }`}
+                    className="relative"
+                    onMouseEnter={children ? () => setDropOpen('float' + link.href) : undefined}
+                    onMouseLeave={children ? () => setDropOpen(null) : undefined}
+                    onFocus={children ? () => setDropOpen('float' + link.href) : undefined}
+                    onBlur={children ? (e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropOpen(null) } : undefined}
                   >
-                    {link.label}
-                  </Link>
+                    <Link
+                      href={link.href}
+                      onClick={() => settleAnchor(link.href)}
+                      aria-haspopup={children ? 'menu' : undefined}
+                      aria-expanded={children ? dropOpen === 'float' + link.href : undefined}
+                      className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${
+                        isActive ? 'text-[#E20C04]' : 'text-[#4B5563] hover:text-[#010C35]'
+                      }`}
+                    >
+                      {link.label}
+                      {children && (
+                        <ChevronDown size={12} strokeWidth={2.4} className={`transition-transform duration-200 ${dropOpen === 'float' + link.href ? 'rotate-180' : ''}`} />
+                      )}
+                    </Link>
+                    <AnimatePresence>
+                      {children && dropOpen === 'float' + link.href && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                          role="menu"
+                          className="absolute left-1/2 top-[calc(100%+12px)] w-[176px] -translate-x-1/2 overflow-hidden rounded-xl p-1.5"
+                          style={{
+                            background: 'rgba(255,255,255,0.98)',
+                            border: '1px solid rgba(1,12,53,0.08)',
+                            boxShadow: '0 20px 48px rgba(1,12,53,0.16), 0 4px 14px rgba(1,12,53,0.08)',
+                          }}
+                        >
+                          {children.map((child, ci) => (
+                            <motion.div key={child.href} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: ci * 0.05 + 0.05 }}>
+                              <Link
+                                href={child.href}
+                                role="menuitem"
+                                onClick={(e) => { setDropOpen(null); settleAnchor((e.currentTarget as HTMLAnchorElement).getAttribute('href') || '') }}
+                                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-[#4B5563] no-underline transition-colors hover:bg-[#FFF3EC] hover:text-[#010C35]"
+                              >
+                                <span className="h-[11px] w-[2.5px] rounded-full" style={{ background: 'var(--brand-gradient)' }} aria-hidden="true" />
+                                {child.label}
+                              </Link>
+                            </motion.div>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </span>
                 )
               })}
             </div>
@@ -681,8 +920,8 @@ export function Navbar() {
                 ) : (
                   <>
                     <Link
-                      href="/login"
-                      className="hidden md:block text-[14px] font-medium text-[#4B5563] hover:text-[#010C35] no-underline transition-colors"
+                      href={loginHref}
+                      className="hidden min-[1060px]:block text-[14px] font-medium text-[#4B5563] hover:text-[#010C35] no-underline transition-colors"
                     >
                       Log in
                     </Link>

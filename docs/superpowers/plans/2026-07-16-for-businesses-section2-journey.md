@@ -1,0 +1,249 @@
+# /for-businesses Section 2: "How Redeemo works" journey cinema
+
+Status: implementing (Tier 2) · Owner handoff 2026-07-16 (visual pack + locked copy) · Branch: feat/website-polish
+
+## What is being built
+
+The second page section: a scroll-led, pinned narrative that turns the hero's angled
+laptop/phone group toward the viewer over a dark local-map plate and walks four locked
+beats (create voucher, appear in discovery, customer visit, merchant validation), ending
+on the validation-success state and the locked closing line. No CTA. Copy is locked by
+the owner handoff; the five status annotations are live HTML.
+
+## Architecture decisions (Fable, 2026-07-16)
+
+1. **One combined pinned band, not two sections.** The requested transition (hero copy
+   fades, the device group travels toward centre and rotates to face the viewer while the
+   cafe plate dissolves into the map plate) cannot happen across two separate sticky
+   sections: between two pinned bands there is an unpinned scroll gap where no shared
+   element can animate. `ForBusinessesCinema` (new) owns a single tall band + one sticky
+   viewport; the approved hero stage is re-hosted inside it unchanged (its internal
+   animation curves are remapped onto the first slice of the band's progress). This is a
+   re-host, not a hero redesign; approved hero copy and visuals are untouched.
+2. **Seam.** Hero exit adds only: copy column fades to 0 (was 0.4) and the five growth
+   cards fade out at the band's hero tail. The journey's angled-cluster replica mounts at
+   the identical stage placement (including the hero's 1.04 end scale) so the swap is
+   invisible; the cafe stage then dissolves to the map plate beneath while the cluster
+   travels, scales and crossfades to the front-facing cutout (rotateY handoff on both).
+3. **Real product material.** Laptop: real voucher-builder capture (static crop; a fake
+   whole-page scroll would visibly scroll the fixed sidebar, so no builder scrub),
+   then validation modal, then validation success. Phone: voucher preview -> discovery
+   home -> present-to-staff code -> customer success. All demo data in captures is
+   fictional (Jane S., The Old Foundry Kitchen).
+4. **No new WebGL.** The map plate's baked pins + 2-3 CSS pulse accents carry the
+   location story; the hero's existing ember canvas persists at reduced presence. One
+   restrained canvas total, per handoff.
+5. **Annotations.** The five locked status pairs render as an accumulating live-HTML
+   rail above/right of the devices, front-facing (flat) to match the front camera state;
+   the reference PNG's extra body lines are dropped to control clutter (reported, not
+   silent). Rail is aria-hidden; the four beat blocks carry the story in DOM order.
+6. **Responsive/a11y.** Desktop pins; tablet/mobile/short/reduced-motion get a stacked
+   four-scene layout (one device visual + beat copy + 1-2 status chips per scene) with
+   every piece of locked copy present. SSR default is the stacked layout (no-JS safe).
+
+## Files
+
+- `components/for-businesses/HeroCinematic.tsx`: extract/export `HeroStage` (sticky-viewport
+  contents, progress as prop), export `HeroStacked` + shared stage constants; hero tail fades.
+- `components/for-businesses/JourneyCinematic.tsx` (new): `ForBusinessesCinema` band owner,
+  journey stage layers, beats, status rail, stacked scenes.
+- `components/for-businesses/ForBusinessesContent.tsx`: swap `<HeroCinematic/>` for
+  `<ForBusinessesCinema/>`.
+- `public/for-businesses/journey/`: map bg, front-devices cutout (laptop screen punched),
+  3 laptop crops, 4 phone screens (webp, optimised).
+
+## Verification
+
+tsc, production build, `git diff --check`, Playwright QA at 1600x900 / 768 / 390 / 344,
+reduced motion, overflow scan, console/network clean, seam continuity walk, screenshot
+comparison against pack references. Hold for Codex review + owner SHA approval; no merge.
+
+## Round 2 (owner feedback 2026-07-16)
+
+Owner rulings: hero must read untouched (it was; the transition implied otherwise);
+the front devices' screens must fit naturally (round 1's phone rect was under-measured,
+leaving a white ring; the builder crop cut the portal top bar); screens must tell each
+beat's story WITH motion inside the devices; the travelling-cluster transition read as
+"floating" and is rejected; the five scattered status cards are rejected.
+
+Revisions: (1) transition becomes a filmic dissolve: the whole hero plate fades and
+pulls back, the map plate settles beneath, and the front pair turns into place where
+it stands (rotateY + scale settle, no positional flight). (2) Laptop beat 01 becomes
+the real builder page with pinned chrome and a scrolling content pane (hero-dashboard
+technique; new journey-builder.webp full-chrome crop + journey-builder-strip.webp).
+(3) Phone beat 02 scroll-scrubs the app home feed reusing the hero's own feed assets.
+(4) Phone screen rect re-measured at threshold 195 to kill the white ring. (5) Status
+cards replaced by a JOURNEY ROUTE: five stops on a progress line drawn under the
+devices across the map plate, kickers under each stop, the active stop's locked line
+centred beneath, final stop green. Clears the navbar entirely.
+
+## Section 3 (owner copy locked 2026-07-16; built same day)
+
+Copy: owner draft passed through the seven sweeps; owner approved the edited deck
+keeping the paying-members line (01) and the honest optional-paid featured disclosure
+(07). Component: FavourSection.tsx on brand cream, navy-to-cream curved seam over the
+cinema's night scene with a sunrise glow. Four DISTINCT group treatments (owner: no
+repeated structure): A bento with living micro-visuals (radar, profile, footfall,
+return loop); B interactive console (vertical tabs + visual panels: 7 voucher-type
+chips in app colours, quiet-hours calendar, featured card with paid disclosure,
+busiest-days chart with Export CSV) with gentle autoplay until engaged; C the real
+portal under a moving spotlight (animated clip-path bright window + ring); D a navy
+till receipt printing its zeros beside the four money items; closing couplet with the
+Brand Full Stop. In-flow (no pinning). Replaces legacy VALUE_PROPS + COMPARISONS
+sections. Magic MCP was consulted per owner instruction but returned malformed
+protocol responses on every call (server-side fault); design proceeded on house
+language. QA fix: `armed` deferred-mount gating in JourneyCinematic removed after a
+deep-reload left mid-scroll-mounted layers with dead motion subscriptions (blank
+screens); all layers now mount from the start.
+
+## Section 4: the Merchant Portal (owner brief 2026-07-16; built same day)
+
+Dark stage on the owner-supplied glass-ticket plate (Downloads "Generated image 1 (9)",
+now portal-bg.webp), rounded-top sheet over Section 3's cream. Centrepiece = a
+LIVE-RENDERED portal shell (browser chrome + top bar + sidebar in code), which by
+construction guarantees an identical sidebar on every screen, excludes the demo pills
+and drops the coming-soon items (owner requirements). Real captured CONTENT panes sit
+inside (cropped below topbar, right of sidebar, from the Desktop screenshot library;
+Branches and Staff & access verified fictional-only). The sidebar is the switcher: six
+destinations (Home, Vouchers, Redemptions, Insights, Branches, Staff) flip the pane
+with a soft slide; screens live inside (dashboard + builder panes slow-scroll, a
+validation toast pops on Redemptions, the bell wears a pulsing badge); the window
+tilts in perspective and follows the pointer. One glass blurb card narrates the
+active screen (copy from Section 3's former Manage group). Mobile: pill switcher +
+flat pane + blurb. Replaces the legacy PortalShowcaseSection. Magic MCP attempted
+again per owner instruction: still returns malformed protocol responses (3rd strike).
+QA fixes: measured window scaling (ResizeObserver), sidebar type-scale up for
+legibility, tilt springs start flat and engage post-mount (useReducedMotion branch
+hydration-mismatched otherwise).
+
+## Section 5: final conversion panel (owner brief 2026-07-17; built same day)
+
+Owner locked Section 4 and retired the page's whole legacy tail: the voucher-structure
+section ("Two standard offers"), the getting-started timeline, MerchantInterestSection
+("Get your business ready for launch") and the old final CTA are all replaced by ONE
+contained navy panel on cream (FinalCta.tsx), keeping the card treatment the owner
+likes. Content follows the owner's approved structure with copy tightened per the
+copywriting skill: headline "Ready to list your business?" (gradient ink on "your
+business", owner-loved device), two-sentence body (free portal account today; two
+flagship vouchers as the customer commitment, then custom vouchers on your own value,
+terms and timing), a "wall of zeros" (four stat cards: £0 listing fee, £0 monthly
+platform fee, 0% commission, £0 redemption fee) whose numerals roll odometer-style and
+settle on 0 (useInView must observe the clipped 1em window, not the 4em strip: the
+strip can never satisfy amount>=0.5 through the clip), payoff line "Your only cost is
+the offer you designed, and only when a customer walks in.", a "What we ask in return"
+honesty row as two die-cut ticket chips (CSS mask notches; echoes Section 3 tickets:
+two flagship vouchers before go-live + 12-month partnership agreement), gradient CTA
+"List your business free" straight to merchant portal /register with "About two
+minutes. No card details required." microcopy. New section carries id
+"register-interest" defensively (no live links; Footer comment updated).
+MerchantInterestSection.tsx stays on disk UNIMPORTED: it holds the flag-gated D1
+lead-capture slice and the D-F merchant mailbox; deleting it is an owner call.
+Magic MCP attempted again per owner instruction: still malformed (4th strike).
+
+### Section 5 v2: the merchant ticket (owner feedback 2026-07-17, same day)
+
+Owner rejected v1's navy panel: navy-on-navy after the portal read as "too much", the
+card as "a big blob", the section break as odd. v2: the finale IS a giant white
+Redeemo voucher ticket (the object the whole page has been building), die-cut with a
+perforated tear-off stub (CSS mask notches; drop-shadow filter so the shadow follows
+the silhouette; overflow-hidden so the stub tint respects the corners). Main body
+carries eyebrow/headline (gradient ink kept)/body/zeros-on-ticket/asks; the cream
+stub carries logo, "Your invitation", the CTA, microcopy and a decorative barcode.
+Transition solved by a straddle: the section opens with a band of the same #010C35
+navy flowing seamlessly out of the portal section, then returns to cream, and the
+ticket sits across the boundary. Stub constants must stay in sync with the mask
+(mobile stub h-260 / notches at calc(100% - 260px); desktop stub w-330 / notches at
+calc(100% - 330px)).
+
+### Cohesion round (owner feedback 2026-07-17): seams, air, deboss, gradient ink
+
+Owner kept the ticket; four notes actioned. (1) Dark-to-light navy seam above the
+ticket: the portal's pinned backdrop ended at #030B28 while the section navy is
+#010C35; backdrop now ends on #010C35, continuous into the ticket band. (2) Portal
+window and ticket too close: portal desktop bottom padding lg:pb-16 -> lg:pb-40.
+(3) Plain backgrounds: new shared BrandDeboss.tsx renders the ribbon icon as a
+two-layer letterpress silhouette (cream deboss / navy emboss whisper); two marks on
+the portal stage, two on Section 3's cream plus warm radial washes (gotcha: SVG
+<polygon> takes bare coordinate points, no leading M). (4) Gradient-ink system
+extended page-wide, one accent per heading: S2 "a visit.", S3 "your favour." plus
+one per group header (local presence / your business / customers in / your margin),
+S4 "manage it all."; hero and S5 already carried theirs. Section 3 entrance
+choreography upgraded (Sonnet executed to spec): eyebrow dash draws, headers and
+bento tiles blur-in with stagger, console and receipt reveal (receipt settles from
+1.4deg like the ticket), all reduced-motion gated.
+
+### Portal backdrop v3 (owner feedback 2026-07-17): the night street carried through
+
+Owner pointed at Section 2's textured, neon-lit night-street photograph as the
+reference for the portal stage. The pinned backdrop now layers: hero-bg.webp at
+100vw inside the sticky, blur(14px) saturate(1.2) at scale(1.08) (heavy blur is what
+makes an image safe here; sharp plates banded before), a navy pull-down gradient
+ending SOLID #010C35 (preserves the ticket-band seam), intensified neon radials
+(red top, coral low-right, cool whisper left), an SVG feTurbulence film-grain layer
+(opacity .05, overlay), and the BrandDeboss marks above it all.
+
+### Refinement round (owner 2026-07-17, late): curve bookend, deboss fixes, owner backdrop
+
+Owner supplied Generated image 1 (13).png (boutique night counter, warm reds): now
+portal-bg-2.webp (1920w, 59KB) replacing the reused hero plate in the portal
+backdrop, blur(10px) under a lighter navy ramp (0.6/0.8/solid). Section 3 gains a
+mirrored curve seam at its foot (navy dome sweeping up over cream into the portal,
+bookending the top curve); the lower cream deboss was removed (it visibly scrolled
+behind the pinned voucher sweep). Portal deboss marks repositioned: top-right down
+into frame so the voucher-like top of the R shows (560px at right -4% top 3%),
+lower-left fully uncropped (300px at left 1.5% bottom 4%). RIBBON REQUEST PARKED by
+owner mid-round: the landing-page WebGL flowing ribbon into Section 3's background
+(diagonal corner-to-corner, blurred, spanning the whole section incl. the pinned
+sweep) is designed but NOT to be built until the owner says go.
+
+### Business navbar (owner 2026-07-17): /for-businesses becomes its own front door
+
+Navbar gains an isBusiness variant (path-driven): FOR BUSINESS lockup (white R +
+prominent Redeemo, FOR BUSINESS tracked out directly beneath the wordmark; better
+ratio than the owner's reference by design), section-anchor tabs (How it works ->
+in-band anchor at HERO_SCROLL svh inside the cinema, Why Redeemo, The portal,
+Pricing -> the ticket's zeros), Log in -> merchant portal /login (new
+merchantPortalLoginUrl helper), CTA "List your business" -> portal /register,
+navy "For customers" chip routes back to the customer landing. The scroll-up
+quick-nav and the mobile pill keep the brand-gradient island colour on
+/for-businesses instead of turning cream (owner requirement). Smooth anchor
+scrolling added globally (reduced-motion guarded). Anchor ids: how-it-works,
+why-redeemo, portal, pricing (+ register-interest retained).
+
+### Business navbar v2 + footer (owner feedback 2026-07-17)
+
+Anchor #how-it-works deepened to HERO_SCROLL+ARRIVE (145svh): lands on the journey
+header, not the bare hero devices. Why Redeemo gains a hover/focus dropdown (Grow /
+Promote / Your vouchers -> new group anchors #grow #promote #vouchers); Pricing now
+targets #your-margin (margin group); "The portal" renamed Merchant portal. Lockup
+rebuilt on the REAL brand assets: new tight-cropped logo-white-tight.svg /
+logo-horizontal-tight.svg (viewBox 66 285 1880 520; content measured by canvas
+pixel-scan), FOR BUSINESS caps seated at the wordmark's 23.2% x-offset. Scroll-up
+quick-nav reverted to the light glass (owner un-chose the gradient) with the dark
+lockup, scroll-spy active states (sub-anchors roll up to Why Redeemo), and the same
+dropdown. Island CTA gains a shine sweep; scroll-spy underline via the existing
+layoutId indicator. Footer converted to client + path-aware: business variant flips
+the bridge band to a customer pitch (Here for the savings instead? -> Explore
+Redeemo), business brand blurb, columns Your business (section anchors) / Get
+started (portal register+login, merchants@redeemo.co.uk mailto) / For customers,
+legal links join the bottom bar. Magic MCP attempted again: malformed (5th strike).
+
+### Mobile optimization round (owner 2026-07-17, overnight)
+
+Delivered as a three-lane programme: Fable built the mobile hero (order: copy/CTA
+-> night scene with scroll-linked device screens -> five growth signals as ONE
+cycling ticker line, cards retired; RM = static rows; proof zeros roll on both
+desktop and mobile); Opus built JourneyCinemaMobile (desktop timeline reused
+VERBATIM at 640svh so both device screens run identical choreography on phones;
+portrait = copy top / cluster mid / condensed five-stop stepper foot; short
+viewports side-by-side; JourneyStacked remains the RM path); Sonnet audited 9
+viewports + reduced motion. Audit fixes applied: navbar hamburger now carries to
+1060px (the desktop row wrapped 768-1049), the mobile float pill is scroll-up-only
+(it sat over body copy), portal pill switcher and hamburger meet 44px, anchor
+clicks self-correct once after layout settles, SignalTicker hydration fixed
+(server renders the static branch; animated mounts post-hydration). Owner supplied
+three portrait plates, all wired: hero-bg-mobile (stacked hero scene via Scene
+bgSrc), journey-map-bg-mobile (mobile cinema + stacked), portal-bg-mobile (mobile
+portal stage, blur 3px under solid-ended navy ramp). Extra: July date chip on the
+mobile home pane, island CTA nowrap with a short label under 350px; overflow zero
+down to 320px.

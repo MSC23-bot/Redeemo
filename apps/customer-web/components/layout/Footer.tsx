@@ -1,5 +1,9 @@
+'use client'
+
 import Link from 'next/link'
 import Image from 'next/image'
+import { usePathname } from 'next/navigation'
+import { merchantPortalLoginUrl, merchantPortalRegisterUrl } from '@/lib/prelaunch'
 
 const CURRENT_YEAR = new Date().getFullYear()
 
@@ -12,18 +16,63 @@ const COMPANY_LINKS = [
 ]
 
 // "Contact" removed until a real contact destination exists: it pointed at
-// /contact, which has never been a route (it returned a 404). Merchant contact
-// lives at /for-businesses#register-interest.
+// /contact, which has never been a route (it returned a 404). The merchant
+// path is /for-businesses, which routes into portal registration.
 const SUPPORT_LINKS = [
   { href: '/faq',      label: 'FAQ' },
   { href: '/privacy',  label: 'Privacy policy' },
   { href: '/terms',    label: 'Terms' },
 ]
 
-// Compact by design (owner 2026-07-13: the footer ran a full screen on
-// mobile): brand row on top, the two link columns side by side beneath it,
-// no closing CTA (the page is already saturated with them).
+// Owner decision D-F: merchant contact address (deploy-security runbook §6).
+const MERCHANT_EMAIL = 'merchants@redeemo.co.uk'
+
+// /for-businesses variant: this page is its own front door (owner 2026-07-17),
+// so its footer speaks to businesses and offers the road BACK to the customer
+// site, instead of pitching the page the visitor is already on.
+const BUSINESS_SECTION_LINKS = [
+  { href: '#how-it-works', label: 'How it works' },
+  { href: '#why-redeemo',  label: 'Why Redeemo' },
+  { href: '#portal',       label: 'Merchant portal' },
+  { href: '#your-margin',  label: 'Pricing' },
+]
+
+const CUSTOMER_LINKS_FOR_BUSINESS_PAGE = [
+  { href: '/',             label: 'Explore Redeemo' },
+  { href: '/how-it-works', label: 'How it works' },
+  { href: '/pricing',      label: 'Membership pricing' },
+  { href: '/insider',      label: 'Insider' },
+  { href: '/faq',          label: 'FAQ' },
+]
+
+function FooterColumn({ heading, children }: { heading: string; children: React.ReactNode }) {
+  return (
+    <nav aria-label={heading}>
+      <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-3 md:mb-4">
+        {heading}
+      </p>
+      <ul className="flex flex-col gap-2 md:gap-3">{children}</ul>
+    </nav>
+  )
+}
+
+function FooterLink({ href, label, external }: { href: string; label: string; external?: boolean }) {
+  const cls = 'text-[13px] text-white/55 hover:text-white/90 transition-colors no-underline'
+  return (
+    <li>
+      {external ? (
+        <a href={href} className={cls}>{label}</a>
+      ) : (
+        <Link href={href} className={cls}>{label}</Link>
+      )}
+    </li>
+  )
+}
+
 export function Footer() {
+  const pathname = usePathname()
+  const isBusiness = pathname === '/for-businesses' || pathname.startsWith('/for-businesses/')
+
   return (
     <footer className="relative overflow-hidden bg-[#010C35] text-white pt-10 md:pt-14 pb-7">
 
@@ -39,9 +88,8 @@ export function Footer() {
 
       <div className="relative max-w-7xl mx-auto px-6">
 
-        {/* The business invitation lives here now (owner 2026-07-13: the
-            standalone bridge card was one card too many at the page's
-            foot): the same brand-red band, compact, at home on the navy */}
+        {/* The bridge band: on customer pages it invites businesses in; on the
+            business page it points the other way, to the customer app */}
         <div
           className="relative overflow-hidden rounded-2xl px-5 py-5 md:px-8 md:py-6 mb-9 md:mb-12 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
           style={{
@@ -56,26 +104,28 @@ export function Footer() {
           />
           <div className="relative">
             <p className="font-display text-white text-[17px] md:text-[20px] leading-[1.25] mb-1" style={{ letterSpacing: '-0.2px' }}>
-              Got a business? List it on Redeemo.
+              {isBusiness ? 'Here for the savings instead?' : 'Got a business? List it on Redeemo.'}
             </p>
             <p className="text-[12.5px] md:text-[13px] text-white/75 leading-[1.55] max-w-[520px]">
-              Free listing. No commission. You design the vouchers.
+              {isBusiness
+                ? 'Redeemo members use vouchers at quality local places, with new offers every month.'
+                : 'Free listing. No commission. You design the vouchers.'}
             </p>
           </div>
           <Link
-            href="/for-businesses"
+            href={isBusiness ? '/' : '/for-businesses'}
             className="relative inline-flex items-center justify-center flex-shrink-0 font-semibold text-[13.5px] px-5 py-2.5 rounded-lg bg-white no-underline hover:bg-white/90 transition-colors"
             style={{ color: '#010C35', boxShadow: '0 4px 14px rgba(0,0,0,0.16)' }}
           >
-            Find out more
+            {isBusiness ? 'Explore Redeemo' : 'Find out more'}
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-7 md:gap-12 mb-8 md:mb-12">
+        <div className={`grid grid-cols-2 gap-x-6 gap-y-7 md:gap-12 mb-8 md:mb-12 ${isBusiness ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
 
           {/* Brand */}
-          <div className="col-span-2 sm:col-span-1">
-            <Link href="/" className="inline-block mb-2 md:mb-4 no-underline" aria-label="Redeemo home">
+          <div className={isBusiness ? 'col-span-2 sm:col-span-1' : 'col-span-2 sm:col-span-1'}>
+            <Link href={isBusiness ? '/for-businesses' : '/'} className="inline-block mb-2 md:mb-4 no-underline" aria-label={isBusiness ? 'Redeemo for business' : 'Redeemo home'}>
               <Image
                 src="/logo-dark.png"
                 alt="Redeemo"
@@ -85,54 +135,56 @@ export function Footer() {
               />
             </Link>
             <p className="text-[12.5px] md:text-[13px] leading-relaxed text-white/45 max-w-[250px]">
-              Member-only offers from the businesses around you, with new
-              vouchers every&nbsp;month.
+              {isBusiness
+                ? 'Customers find your business on Redeemo and walk in with a voucher. Free to list, no commission, your own terms.'
+                : <>Member-only offers from the businesses around you, with new vouchers every&nbsp;month.</>}
             </p>
           </div>
 
-          {/* Company links */}
-          <nav aria-label="Company">
-            <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-3 md:mb-4">
-              Company
-            </p>
-            <ul className="flex flex-col gap-2 md:gap-3">
-              {COMPANY_LINKS.map(item => (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className="text-[13px] text-white/55 hover:text-white/90 transition-colors no-underline"
-                  >
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </nav>
-
-          {/* Support links */}
-          <nav aria-label="Support">
-            <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-white/30 mb-3 md:mb-4">
-              Support
-            </p>
-            <ul className="flex flex-col gap-2 md:gap-3">
-              {SUPPORT_LINKS.map(item => (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className="text-[13px] text-white/55 hover:text-white/90 transition-colors no-underline"
-                  >
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </nav>
+          {isBusiness ? (
+            <>
+              <FooterColumn heading="Your business">
+                {BUSINESS_SECTION_LINKS.map(item => (
+                  <FooterLink key={item.href} href={item.href} label={item.label} external />
+                ))}
+              </FooterColumn>
+              <FooterColumn heading="Get started">
+                <FooterLink href={merchantPortalRegisterUrl()} label="List your business" external />
+                <FooterLink href={merchantPortalLoginUrl()} label="Portal log in" external />
+                <FooterLink href={`mailto:${MERCHANT_EMAIL}`} label={MERCHANT_EMAIL} external />
+              </FooterColumn>
+              <FooterColumn heading="For customers">
+                {CUSTOMER_LINKS_FOR_BUSINESS_PAGE.map(item => (
+                  <FooterLink key={item.href} href={item.href} label={item.label} />
+                ))}
+              </FooterColumn>
+            </>
+          ) : (
+            <>
+              <FooterColumn heading="Company">
+                {COMPANY_LINKS.map(item => (
+                  <FooterLink key={item.href} href={item.href} label={item.label} />
+                ))}
+              </FooterColumn>
+              <FooterColumn heading="Support">
+                {SUPPORT_LINKS.map(item => (
+                  <FooterLink key={item.href} href={item.href} label={item.label} />
+                ))}
+              </FooterColumn>
+            </>
+          )}
         </div>
 
-        <div className="border-t border-white/[0.08] pt-6">
+        <div className="border-t border-white/[0.08] pt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <p className="text-[11.5px] md:text-[12px] text-white/30 text-center sm:text-left">
             &copy; {CURRENT_YEAR} Redeemo Ltd. All rights reserved. UK registered company.
           </p>
+          {isBusiness && (
+            <p className="flex items-center justify-center gap-4 text-[11.5px] md:text-[12px]">
+              <Link href="/privacy" className="text-white/30 hover:text-white/60 transition-colors no-underline">Privacy policy</Link>
+              <Link href="/terms" className="text-white/30 hover:text-white/60 transition-colors no-underline">Terms</Link>
+            </p>
+          )}
         </div>
       </div>
     </footer>
