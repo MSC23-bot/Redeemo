@@ -794,14 +794,14 @@ export function PortalSection() {
               sizes="100vw"
               className="object-cover"
               style={{
-                filter: 'blur(6px) saturate(1.15)',
+                filter: 'blur(4px) saturate(1.15)',
                 transform: 'scale(1.08)',
               }}
             />
             {/* Navy pull-down; SOLID at both ends (top blends the image edge
                 into the curve seam above, base into the ticket band below),
                 texture fading in between */}
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.48) 24%, rgba(1,12,53,0.66) 58%, #010C35 100%)' }} />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.36) 24%, rgba(1,12,53,0.54) 58%, #010C35 100%)' }} />
           </div>
           {/* Neon accents riding over the texture */}
           <div
