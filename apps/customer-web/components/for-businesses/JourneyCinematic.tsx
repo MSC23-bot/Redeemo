@@ -1307,10 +1307,10 @@ function JourneyCinemaMobile({ side }: { side: boolean }) {
       <div className="sticky top-0 flex h-[100svh] flex-col overflow-hidden">
         {/* Backdrop: the map plate as a quiet navy ambience (no stage maths) */}
         <div aria-hidden="true" className="absolute inset-0">
-          <Image src="/for-businesses/journey/journey-map-bg-mobile.webp" alt="" fill sizes="100vw" className="object-cover" style={{ opacity: 0.8, objectPosition: '50% 50%' }} />
+          <Image src="/for-businesses/journey/journey-map-bg-mobile.webp" alt="" fill sizes="100vw" className="object-cover" style={{ opacity: 1, objectPosition: '50% 50%' }} />
           <div
             className="absolute inset-0"
-            style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.42) 26%, rgba(1,12,53,0.18) 52%, rgba(1,12,53,0.55) 80%, #010C35 100%)' }}
+            style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.5) 14%, rgba(1,12,53,0.08) 46%, rgba(1,12,53,0.3) 80%, #010C35 100%)' }}
           />
           {side ? (
             <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(1,12,53,0.9) 0%, rgba(1,12,53,0.55) 34%, rgba(1,12,53,0) 60%)' }} />

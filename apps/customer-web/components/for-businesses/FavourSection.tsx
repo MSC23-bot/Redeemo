@@ -991,25 +991,50 @@ function VoucherTicket({ kind, index, sweep = false }: { kind: VoucherKind; inde
           '0 18px 44px rgba(1,12,53,0.09), inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -2px 0 rgba(1,12,53,0.05)',
       }}
     >
-      {/* Accent header with the type's motif; the tag sits clear of the badge */}
-      <div className="relative flex h-[92px] items-center justify-center overflow-hidden" style={{ background: kind.accentBg }}>
-        <span className="favour-shimmer absolute inset-0 opacity-0 transition-opacity duration-300 group-hover/ticket:opacity-100" aria-hidden="true" />
-        <div className="h-[66px] w-[66px] transition-transform duration-300 group-hover/ticket:scale-110" aria-hidden="true">
-          <Motif kind={kind.key} accent={kind.accent} />
+      {/* Accent header with the type's motif. The wide sweep keeps the
+          layered composition; the narrow rail flows pills left, motif right,
+          so nothing can overlap at phone widths (owner 2026-07-17) */}
+      {sweep ? (
+        <div className="relative flex h-[92px] items-center justify-center overflow-hidden" style={{ background: kind.accentBg }}>
+          <span className="favour-shimmer absolute inset-0 opacity-0 transition-opacity duration-300 group-hover/ticket:opacity-100" aria-hidden="true" />
+          <div className="h-[66px] w-[66px] transition-transform duration-300 group-hover/ticket:scale-110" aria-hidden="true">
+            <Motif kind={kind.key} accent={kind.accent} />
+          </div>
+          <span
+            className="absolute left-3.5 top-3.5 max-w-[65%] rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.07em] leading-tight text-white"
+            style={{ background: kind.accent, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.25), 0 1px 3px rgba(1,12,53,0.15)' }}
+          >
+            {kind.name}
+          </span>
+          <span
+            className="absolute bottom-3 right-3.5 rounded-full bg-white/90 px-2 py-1 text-[9.5px] font-bold uppercase tracking-[0.1em]"
+            style={{ color: kind.accent, boxShadow: '0 1px 3px rgba(1,12,53,0.08)' }}
+          >
+            {kind.tag}
+          </span>
         </div>
-        <span
-          className="absolute left-3.5 top-3.5 max-w-[65%] rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.07em] leading-tight text-white"
-          style={{ background: kind.accent, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.25), 0 1px 3px rgba(1,12,53,0.15)' }}
-        >
-          {kind.name}
-        </span>
-        <span
-          className="absolute bottom-3 right-3.5 rounded-full bg-white/90 px-2 py-1 text-[9.5px] font-bold uppercase tracking-[0.1em]"
-          style={{ color: kind.accent, boxShadow: '0 1px 3px rgba(1,12,53,0.08)' }}
-        >
-          {kind.tag}
-        </span>
-      </div>
+      ) : (
+        <div className="relative flex min-h-[96px] items-center justify-between gap-3 overflow-hidden py-3 pl-3.5 pr-4" style={{ background: kind.accentBg }}>
+          <span className="favour-shimmer absolute inset-0 opacity-0 transition-opacity duration-300 group-hover/ticket:opacity-100" aria-hidden="true" />
+          <div className="relative flex min-w-0 flex-col items-start gap-2">
+            <span
+              className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.07em] leading-tight text-white"
+              style={{ background: kind.accent, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.25), 0 1px 3px rgba(1,12,53,0.15)' }}
+            >
+              {kind.name}
+            </span>
+            <span
+              className="rounded-full bg-white/90 px-2 py-1 text-[9.5px] font-bold uppercase tracking-[0.1em]"
+              style={{ color: kind.accent, boxShadow: '0 1px 3px rgba(1,12,53,0.08)' }}
+            >
+              {kind.tag}
+            </span>
+          </div>
+          <div className="relative h-[60px] w-[60px] flex-shrink-0" aria-hidden="true">
+            <Motif kind={kind.key} accent={kind.accent} />
+          </div>
+        </div>
+      )}
 
       {/* Die-cut: punched side notches (inset-shaded) + dashed tear line */}
       <div className="relative h-0" aria-hidden="true">

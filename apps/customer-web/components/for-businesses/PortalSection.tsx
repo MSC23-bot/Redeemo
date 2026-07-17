@@ -755,9 +755,9 @@ export function PortalSection() {
           fill
           sizes="100vw"
           className="object-cover"
-          style={{ filter: 'blur(2px) saturate(1.1)' }}
+          style={{ filter: 'blur(1px) saturate(1.1)' }}
         />
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.35) 26%, rgba(1,12,53,0.48) 68%, #010C35 100%)' }} />
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.22) 26%, rgba(1,12,53,0.36) 68%, #010C35 100%)' }} />
       </div>
       <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 md:pb-28 lg:px-10 lg:pb-40 lg:pt-0">
         {/* Header (mobile/tablet: the desktop pin carries its own compact twin) */}

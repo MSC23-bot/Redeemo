@@ -811,9 +811,11 @@ export function HeroStacked({ registerUrl }: { registerUrl: string }) {
   // The device screens live with the page: the phone feed and the laptop
   // strip glide as the stage passes through the viewport (owner 2026-07-17:
   // the in-screen scroll must work on mobile too).
-  const { scrollYProgress } = useScroll({ target: stageRef, offset: ['start 90%', 'end 10%'] })
-  const feedY = useTransform(scrollYProgress, [0, 1], [30, -520])
-  const stripY = useTransform(scrollYProgress, [0, 1], [0, -380])
+  // Progress accrues from the very first scroll tick (the hero starts at the
+  // top of the page), and the travel is deep enough to be unmissable
+  const { scrollYProgress } = useScroll({ target: stageRef, offset: ['start start', 'end 20%'] })
+  const feedY = useTransform(scrollYProgress, [0, 1], [40, -1050])
+  const stripY = useTransform(scrollYProgress, [0, 1], [0, -760])
 
   // Compose the cluster inside the VISIBLE window of the cover-cropped
   // photograph: near-full width, seated toward the bottom of the band.
