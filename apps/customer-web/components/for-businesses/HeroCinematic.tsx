@@ -522,13 +522,18 @@ function FeatureChips() {
 function SignalTicker() {
   const reduceMotion = useReducedMotion()
   const [index, setIndex] = useState(0)
+  // Server and first client paint always render the static branch; the
+  // animated ticker mounts after hydration (useReducedMotion is false on the
+  // server, so branching on it alone hydration-mismatches for RM users).
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
   useEffect(() => {
-    if (reduceMotion) return
+    if (reduceMotion || !mounted) return
     const t = setInterval(() => setIndex((i) => (i + 1) % SIGNALS.length), 3000)
     return () => clearInterval(t)
-  }, [reduceMotion])
+  }, [reduceMotion, mounted])
 
-  if (reduceMotion) {
+  if (!mounted || reduceMotion) {
     return (
       <div className="flex flex-col gap-2.5">
         {SIGNALS.map((sig) => (
@@ -643,6 +648,7 @@ function HeroCopy({ registerUrl, withStats = true }: { registerUrl: string; with
 function Scene({
   m,
   focalX,
+  bgSrc = '/for-businesses/hero-bg.webp',
   cluster,
   feedY,
   stripY,
@@ -652,6 +658,7 @@ function Scene({
 }: {
   m: StageMetrics | null
   focalX: number
+  bgSrc?: string
   cluster: { x: number; y: number; s: number }
   feedY: MotionValue<number> | number
   stripY: MotionValue<number> | number
@@ -662,7 +669,7 @@ function Scene({
   return (
     <>
       <Image
-        src="/for-businesses/hero-bg.webp"
+        src={bgSrc}
         alt="A customer being served at the counter of a small business at night, beside a laptop showing the Redeemo merchant portal and a phone showing the Redeemo app"
         fill
         priority
@@ -826,6 +833,7 @@ export function HeroStacked({ registerUrl }: { registerUrl: string }) {
         <Scene
           m={m}
           focalX={0.58}
+          bgSrc="/for-businesses/hero-bg-mobile.webp"
           cluster={cluster}
           feedY={reduceMotion ? 0 : feedY}
           stripY={reduceMotion ? 0 : stripY}

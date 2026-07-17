@@ -1073,7 +1073,7 @@ export function JourneyStacked() {
     <section className="relative overflow-hidden" style={{ background: '#010C35' }}>
       {/* Map plate as a quiet backdrop */}
       <div aria-hidden="true" className="absolute inset-0">
-        <Image src="/for-businesses/journey/journey-map-bg.webp" alt="" fill sizes="100vw" className="object-cover opacity-60" />
+        <Image src="/for-businesses/journey/journey-map-bg-mobile.webp" alt="" fill sizes="100vw" className="object-cover opacity-60" />
         <div
           className="absolute inset-0"
           style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.35) 22%, rgba(1,12,53,0.35) 78%, #010C35 100%)' }}
@@ -1304,7 +1304,7 @@ function JourneyCinemaMobile({ side }: { side: boolean }) {
       <div className="sticky top-0 flex h-[100svh] flex-col overflow-hidden">
         {/* Backdrop: the map plate as a quiet navy ambience (no stage maths) */}
         <div aria-hidden="true" className="absolute inset-0">
-          <Image src="/for-businesses/journey/journey-map-bg.webp" alt="" fill sizes="100vw" className="object-cover" style={{ opacity: 0.5, objectPosition: '62% 50%' }} />
+          <Image src="/for-businesses/journey/journey-map-bg-mobile.webp" alt="" fill sizes="100vw" className="object-cover" style={{ opacity: 0.55, objectPosition: '50% 50%' }} />
           <div
             className="absolute inset-0"
             style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.6) 26%, rgba(1,12,53,0.34) 52%, rgba(1,12,53,0.74) 80%, #010C35 100%)' }}

@@ -132,7 +132,6 @@ export function Navbar() {
   // full menu on tap: it never covers pinned content. Desktop keeps the
   // full glass bar, revealed on scroll-up with a 6px direction deadband.
   const [floatVisible, setFloatVisible] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
   const [floatMenuOpen, setFloatMenuOpen] = useState(false)
   const lastScrollY = useRef(0)
   const accountRef = useRef<HTMLDivElement>(null)
@@ -141,7 +140,6 @@ export function Navbar() {
   useEffect(() => {
     const onScroll = () => {
       const y = window.scrollY
-      setScrolled(y > 420)
       const dy = y - lastScrollY.current
       if (Math.abs(dy) < 6) return
       lastScrollY.current = y
@@ -235,6 +233,18 @@ export function Navbar() {
   const primaryCtaLabel = isBusiness ? 'List your business' : marketplaceLive ? 'Join free' : 'Get early access'
   const loginHref = isBusiness ? merchantPortalLoginUrl() : '/login'
 
+  // Early anchor clicks can land short while images/fonts settle the layout
+  // above the pinned bands; verify the landing and correct once.
+  const settleAnchor = (href: string) => {
+    if (!href.startsWith('#')) return
+    window.setTimeout(() => {
+      const el = document.querySelector(href)
+      if (!el) return
+      const top = el.getBoundingClientRect().top
+      if (Math.abs(top - 96) > 80) el.scrollIntoView({ behavior: 'smooth' })
+    }, 1100)
+  }
+
   return (
     <>
     <header className="relative z-40 px-3 md:px-6 pt-3">
@@ -263,7 +273,7 @@ export function Navbar() {
           />
         </div>
 
-        <nav aria-label="Main" className="relative px-5 md:px-7 h-[68px] flex items-center gap-6">
+        <nav aria-label="Main" className="relative px-4 md:px-7 h-[68px] flex items-center gap-3 md:gap-6">
 
         {/* Logo */}
         <Link href={isBusiness ? '/for-businesses' : '/'} aria-label={isBusiness ? 'Redeemo for business' : 'Redeemo'} className="flex-shrink-0 no-underline">
@@ -283,7 +293,7 @@ export function Navbar() {
 
         {/* Desktop nav links, centred so the island reads balanced:
             logo · links · actions rather than everything left-stacked */}
-        <div className="hidden md:flex gap-1 flex-1 justify-center">
+        <div className="hidden min-[1060px]:flex gap-1 flex-1 justify-center">
           {navLinks.map(link => {
             const isActive = isBusiness ? activeAnchor === link.href : pathname === link.href || pathname.startsWith(link.href + '/')
             const children = link.children
@@ -298,6 +308,7 @@ export function Navbar() {
               >
                 <Link
                   href={link.href}
+                  onClick={() => settleAnchor(link.href)}
                   aria-haspopup={children ? 'menu' : undefined}
                   aria-expanded={children ? dropOpen === link.href : undefined}
                   className={`relative inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${linkColour(isActive)}`}
@@ -339,7 +350,7 @@ export function Navbar() {
                           <Link
                             href={child.href}
                             role="menuitem"
-                            onClick={() => setDropOpen(null)}
+                            onClick={(e) => { setDropOpen(null); settleAnchor((e.currentTarget as HTMLAnchorElement).getAttribute('href') || '') }}
                             className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-white/70 no-underline transition-colors hover:bg-white/[0.07] hover:text-white"
                           >
                             <span className="h-[11px] w-[2.5px] rounded-full" style={{ background: 'var(--brand-gradient)' }} aria-hidden="true" />
@@ -356,7 +367,7 @@ export function Navbar() {
         </div>
 
         {/* Desktop right side */}
-        <div className="hidden md:flex items-center gap-3 ml-auto">
+        <div className="hidden min-[1060px]:flex items-center gap-3 ml-auto">
           {!isLoading && (
             user ? (
               /* ── Logged-in: Bell + Avatar + Account dropdown ── */
@@ -537,16 +548,17 @@ export function Navbar() {
         {!user && (
           <Link
             href={primaryCtaHref}
-            className="md:hidden ml-auto text-[13px] font-bold text-[#BE0A03] bg-white px-3.5 py-2 rounded-lg no-underline"
+            className="min-[1060px]:hidden ml-auto whitespace-nowrap text-[12.5px] font-bold text-[#BE0A03] bg-white px-3 py-2 rounded-lg no-underline"
           >
-            {primaryCtaLabel}
+            <span className="hidden min-[350px]:inline">{primaryCtaLabel}</span>
+            <span className="min-[350px]:hidden">{isBusiness ? 'List free' : primaryCtaLabel === 'Join free' ? 'Join free' : 'Early access'}</span>
           </Link>
         )}
 
         {/* Mobile hamburger */}
         <button
           onClick={() => setMenuOpen(o => !o)}
-          className={`md:hidden ${user ? 'ml-auto' : ''} p-1.5 rounded-md transition-colors ${
+          className={`min-[1060px]:hidden ${user ? 'ml-auto' : ''} p-3 -m-1 rounded-md transition-colors ${
             isDark ? 'text-white/70 hover:text-white' : 'text-[#4B5563] hover:text-[#010C35]'
           }`}
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
@@ -569,7 +581,7 @@ export function Navbar() {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.22, ease: 'easeInOut' }}
-            className="md:hidden overflow-hidden border-t border-white/[0.14] relative"
+            className="min-[1060px]:hidden overflow-hidden border-t border-white/[0.14] relative"
           >
             <div className="px-6 py-4 flex flex-col gap-1">
 
@@ -591,7 +603,7 @@ export function Navbar() {
                     key={link.href}
                     href={link.href}
                     ref={i === 0 ? firstMobileLinkRef : undefined}
-                    onClick={() => setMenuOpen(false)}
+                    onClick={() => { setMenuOpen(false); settleAnchor(link.href) }}
                     className={`px-3 py-3 rounded-lg text-[14px] font-medium transition-colors no-underline ${
                       isActive ? 'text-white bg-white/[0.08]' : 'text-white/65 hover:text-white'
                     }`}
@@ -666,14 +678,14 @@ export function Navbar() {
         hamburger) that expands into a full menu on tap: premium, and it
         never covers pinned content (owner 2026-07-13) */}
     <AnimatePresence>
-      {scrolled && (
+      {floatVisible && (
         <motion.div
           key="pill"
           initial={{ y: -18, opacity: 0, scale: 0.94 }}
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: -18, opacity: 0, scale: 0.94 }}
           transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-          className="md:hidden fixed top-3 right-3 z-50"
+          className="min-[1060px]:hidden fixed top-3 right-3 z-50"
         >
           <button
             onClick={() => setFloatMenuOpen(o => !o)}
@@ -698,7 +710,7 @@ export function Navbar() {
       )}
     </AnimatePresence>
     <AnimatePresence>
-      {scrolled && floatMenuOpen && (
+      {floatVisible && floatMenuOpen && (
         <motion.div
           key="float-menu"
           id="float-menu"
@@ -706,7 +718,7 @@ export function Navbar() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -10, scale: 0.97 }}
           transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-          className="md:hidden fixed top-[62px] inset-x-3 z-50 origin-top-right"
+          className="min-[1060px]:hidden fixed top-[62px] inset-x-3 z-50 origin-top-right"
           style={{ filter: 'drop-shadow(0 20px 44px rgba(190,10,3,0.32))' }}
         >
           {/* The coupon (owner 2026-07-13): the expanded menu wears the same
@@ -732,7 +744,7 @@ export function Navbar() {
                   <Link
                     key={link.href}
                     href={link.href}
-                    onClick={() => setFloatMenuOpen(false)}
+                    onClick={() => { setFloatMenuOpen(false); settleAnchor(link.href) }}
                     className={`px-3 py-2.5 rounded-lg text-[15px] font-semibold no-underline transition-colors ${
                       isActive ? 'text-white bg-white/[0.14]' : 'text-white/80 hover:text-white hover:bg-white/[0.08]'
                     }`}
@@ -786,7 +798,7 @@ export function Navbar() {
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: -84, opacity: 0, scale: 0.98 }}
           transition={{ type: 'spring', stiffness: 380, damping: 34 }}
-          className="hidden md:block fixed top-3 inset-x-3 md:inset-x-6 z-50"
+          className="hidden min-[1060px]:block fixed top-3 inset-x-3 md:inset-x-6 z-50"
         >
           <nav
             aria-label="Quick navigation"
@@ -807,7 +819,7 @@ export function Navbar() {
               )}
             </Link>
 
-            <div className="hidden md:flex gap-1 flex-1 justify-center">
+            <div className="hidden min-[1060px]:flex gap-1 flex-1 justify-center">
               {navLinks.map(link => {
                 const isActive = isBusiness ? activeAnchor === link.href : pathname === link.href || pathname.startsWith(link.href + '/')
                 const children = link.children
@@ -822,6 +834,7 @@ export function Navbar() {
                   >
                     <Link
                       href={link.href}
+                      onClick={() => settleAnchor(link.href)}
                       aria-haspopup={children ? 'menu' : undefined}
                       aria-expanded={children ? dropOpen === 'float' + link.href : undefined}
                       className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${
@@ -853,7 +866,7 @@ export function Navbar() {
                               <Link
                                 href={child.href}
                                 role="menuitem"
-                                onClick={() => setDropOpen(null)}
+                                onClick={(e) => { setDropOpen(null); settleAnchor((e.currentTarget as HTMLAnchorElement).getAttribute('href') || '') }}
                                 className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-[#4B5563] no-underline transition-colors hover:bg-[#FFF3EC] hover:text-[#010C35]"
                               >
                                 <span className="h-[11px] w-[2.5px] rounded-full" style={{ background: 'var(--brand-gradient)' }} aria-hidden="true" />
@@ -879,7 +892,7 @@ export function Navbar() {
                   <>
                     <Link
                       href={loginHref}
-                      className="hidden md:block text-[14px] font-medium text-[#4B5563] hover:text-[#010C35] no-underline transition-colors"
+                      className="hidden min-[1060px]:block text-[14px] font-medium text-[#4B5563] hover:text-[#010C35] no-underline transition-colors"
                     >
                       Log in
                     </Link>

@@ -227,3 +227,23 @@ the bridge band to a customer pitch (Here for the savings instead? -> Explore
 Redeemo), business brand blurb, columns Your business (section anchors) / Get
 started (portal register+login, merchants@redeemo.co.uk mailto) / For customers,
 legal links join the bottom bar. Magic MCP attempted again: malformed (5th strike).
+
+### Mobile optimization round (owner 2026-07-17, overnight)
+
+Delivered as a three-lane programme: Fable built the mobile hero (order: copy/CTA
+-> night scene with scroll-linked device screens -> five growth signals as ONE
+cycling ticker line, cards retired; RM = static rows; proof zeros roll on both
+desktop and mobile); Opus built JourneyCinemaMobile (desktop timeline reused
+VERBATIM at 640svh so both device screens run identical choreography on phones;
+portrait = copy top / cluster mid / condensed five-stop stepper foot; short
+viewports side-by-side; JourneyStacked remains the RM path); Sonnet audited 9
+viewports + reduced motion. Audit fixes applied: navbar hamburger now carries to
+1060px (the desktop row wrapped 768-1049), the mobile float pill is scroll-up-only
+(it sat over body copy), portal pill switcher and hamburger meet 44px, anchor
+clicks self-correct once after layout settles, SignalTicker hydration fixed
+(server renders the static branch; animated mounts post-hydration). Owner supplied
+three portrait plates, all wired: hero-bg-mobile (stacked hero scene via Scene
+bgSrc), journey-map-bg-mobile (mobile cinema + stacked), portal-bg-mobile (mobile
+portal stage, blur 3px under solid-ended navy ramp). Extra: July date chip on the
+mobile home pane, island CTA nowrap with a short label under 350px; overflow zero
+down to 320px.

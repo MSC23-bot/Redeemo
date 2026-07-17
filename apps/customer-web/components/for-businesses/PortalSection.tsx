@@ -746,6 +746,19 @@ export function PortalSection() {
 
   return (
     <section id="portal" className="relative scroll-mt-24 overflow-x-clip" style={{ background: NAVY }}>
+      {/* Mobile stage: the owner's portrait boutique scene, pulled into navy
+          with solid ends so the curve seam above and ticket band below hold */}
+      <div aria-hidden="true" className="absolute inset-0 overflow-hidden lg:hidden">
+        <Image
+          src="/for-businesses/portal/portal-bg-mobile.webp"
+          alt=""
+          fill
+          sizes="100vw"
+          className="object-cover"
+          style={{ filter: 'blur(3px) saturate(1.1)' }}
+        />
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.5) 26%, rgba(1,12,53,0.62) 68%, #010C35 100%)' }} />
+      </div>
       <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 md:pb-28 lg:px-10 lg:pb-40 lg:pt-0">
         {/* Header (mobile/tablet: the desktop pin carries its own compact twin) */}
         <motion.div
@@ -943,7 +956,7 @@ export function PortalSection() {
                   key={screen.key}
                   aria-pressed={isActive}
                   onClick={() => setActive(screen.key)}
-                  className="flex-shrink-0 rounded-full border px-3.5 py-2 text-[12.5px] font-bold transition-colors"
+                  className="flex min-h-[44px] flex-shrink-0 items-center rounded-full border px-4 py-2 text-[12.5px] font-bold transition-colors"
                   style={{
                     borderColor: isActive ? 'transparent' : 'rgba(255,255,255,0.16)',
                     background: isActive ? 'var(--brand-gradient)' : 'rgba(255,255,255,0.05)',
@@ -967,6 +980,16 @@ export function PortalSection() {
               return (
                 <motion.div key={screen.key} initial={false} animate={isActive ? { opacity: 1 } : { opacity: 0 }} transition={{ duration: 0.4 }} className="absolute inset-0" aria-hidden={!isActive}>
                   <Image src={src} alt="" fill sizes="100vw" className="object-cover object-top" />
+                  {screen.key === 'home' ? (
+                    /* Covers the baked June date so records read July */
+                    <span
+                      className="absolute flex items-center justify-end rounded bg-[#FBF8F4] pr-[1%] text-right font-medium text-[#4B5563]"
+                      style={{ left: '79.8%', top: '1.2%', width: '19%', height: '4.6%', fontSize: 'clamp(4px, 1.1vw, 8px)' }}
+                      aria-hidden="true"
+                    >
+                      Tuesday, 7 July 2026
+                    </span>
+                  ) : null}
                 </motion.div>
               )
             })}
