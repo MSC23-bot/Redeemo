@@ -1480,6 +1480,8 @@ export function FavourSection() {
               sizes="100vw"
               className="object-cover object-top"
               style={{
+                filter: 'blur(5px)',
+                transform: 'scale(1.02)',
                 maskImage: 'linear-gradient(180deg, transparent 0%, black 5%, black 55%, transparent 96%)',
                 WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, black 5%, black 55%, transparent 96%)',
               }}
@@ -1493,6 +1495,8 @@ export function FavourSection() {
               sizes="100vw"
               className="object-cover object-bottom"
               style={{
+                filter: 'blur(5px)',
+                transform: 'scale(1.02)',
                 maskImage: 'linear-gradient(0deg, transparent 0%, black 7%, black 45%, transparent 94%)',
                 WebkitMaskImage: 'linear-gradient(0deg, transparent 0%, black 7%, black 45%, transparent 94%)',
               }}
