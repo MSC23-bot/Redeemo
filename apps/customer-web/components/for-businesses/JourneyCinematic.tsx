@@ -2,7 +2,7 @@
 
 import { motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import Image from 'next/image'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useViewportMode } from '@/components/landing/useViewportMode'
 import { useScrollLinked } from '@/components/landing/scroll'
 import { BrandStop } from '@/components/ui/BrandStop'
@@ -1080,6 +1080,8 @@ export function JourneyStacked() {
         />
       </div>
 
+      {/* Navbar anchor for the reduced-motion path (lands on the header) */}
+      <span id="how-it-works" aria-hidden="true" className="absolute left-0 top-0 block h-px w-px scroll-mt-24" />
       <div className="relative px-6 pt-20">
         <div className="mx-auto max-w-[600px]">
           <p className="mb-4 flex items-center gap-2.5 text-[11.5px] font-bold uppercase tracking-[0.22em] text-white/45">
@@ -1141,20 +1143,233 @@ export function JourneyStacked() {
   )
 }
 
+// ── Mobile / tablet scroll-driven journey cinema ─────────────────────────────
+// The full pinned journey on portrait and landscape (owner 2026-07-17): the
+// SAME scroll choreography as the desktop band drives BOTH device screens, on a
+// band that covers the journey ONLY (HeroStacked stays as the mobile hero). The
+// timeline is journey space verbatim (JOURNEY_SCROLL svh over the band), so the
+// K keyframe map, FrontDeviceCluster and the beat copy line up frame for frame
+// with the desktop cinema; only the composition around the cluster is rebuilt
+// for the narrow stage (compact copy at the top, the cluster filling the middle
+// at viewport width, a condensed five-stop route stepper at the foot). Landscape
+// phones and squat tablet windows ('short') get the same pieces side by side.
+
+// Fit a fixed design box into a measured container (object-contain maths), run
+// in a layout effect so the scale is set before first paint (no pop-in).
+function useFitScale(ref: RefObject<HTMLDivElement | null>, boxW: number, boxH: number): number {
+  const [scale, setScale] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => {
+      const w = el.clientWidth
+      const h = el.clientHeight
+      if (!w || !h) return
+      setScale(Math.min(w / boxW, h / boxH))
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref, boxW, boxH])
+  return scale
+}
+
+// One condensed route stop: a dot on the filling line plus its locked kicker.
+function MobileStepDot({ status, jp }: { status: Status; jp: MotionValue<number> }) {
+  const lit = useScrollLinked(useTransform(jp, [status.at, status.at + 0.02], [0, 1]))
+  const kickerOp = useScrollLinked(useTransform(jp, [status.at, status.at + 0.02], [0.4, 1]))
+  const c = status.kind === 'green' ? '#4ADE80' : status.kind === 'amber' ? '#FBBF24' : '#FF4B3E'
+  const glow = status.kind === 'green' ? 'rgba(74,222,128,0.7)' : status.kind === 'amber' ? 'rgba(251,191,36,0.7)' : 'rgba(226,12,4,0.8)'
+  return (
+    <div className="relative flex flex-1 flex-col items-center">
+      <span className="relative block h-3 w-3">
+        <span className="absolute inset-0 rounded-full" style={{ border: '1.5px solid rgba(255,255,255,0.35)', background: '#0A1436' }} />
+        <motion.span className="absolute inset-0 rounded-full" style={{ background: c, boxShadow: `0 0 10px ${glow}`, opacity: lit }} />
+      </span>
+      <motion.span
+        className="mt-1.5 block px-0.5 text-center text-[8.5px] font-bold uppercase leading-[1.18] tracking-[0.06em] text-white"
+        style={{ opacity: kickerOp }}
+      >
+        {status.kicker}
+      </motion.span>
+    </div>
+  )
+}
+
+// The five-stop route condensed for the mobile foot: dots on a filling line,
+// each locked kicker beneath, and the active stop's locked title under the line.
+function MobileStepper({ jp }: { jp: MotionValue<number> }) {
+  const routeIn = useScrollLinked(useTransform(jp, [jf(30), jf(46)], [0, 1]))
+  const fill = useScrollLinked(
+    useTransform(
+      jp,
+      STATUSES.map((s) => s.at),
+      STATUSES.map((_, i) => i / (STATUSES.length - 1)),
+    ),
+  )
+  return (
+    <motion.div style={{ opacity: routeIn }}>
+      <div className="relative">
+        <div className="absolute left-[10%] right-[10%] top-[5px] h-[2px] rounded-full bg-white/15" />
+        <motion.div
+          className="absolute left-[10%] top-[5px] h-[2px] rounded-full"
+          style={{
+            width: '80%',
+            scaleX: fill,
+            transformOrigin: '0 50%',
+            background: 'linear-gradient(90deg, #E20C04, #FF6B3D)',
+            boxShadow: '0 0 10px rgba(226,12,4,0.5)',
+          }}
+        />
+        <div className="relative flex">
+          {STATUSES.map((status) => (
+            <MobileStepDot key={status.num} status={status} jp={jp} />
+          ))}
+        </div>
+      </div>
+      <div className="relative mt-2.5 h-9">
+        {STATUSES.map((status, i) => (
+          <RouteTitle key={status.num} status={status} next={i < STATUSES.length - 1 ? STATUSES[i + 1].at : null} jp={jp} />
+        ))}
+      </div>
+    </motion.div>
+  )
+}
+
+// The compact copy column: persistent eyebrow, then a fixed slot where the
+// section intro, the four beats and the closing line crossfade in reading
+// order (the beats reuse BeatLayer, exactly as the desktop column does).
+function MobileCopyStack({ jp, slotH }: { jp: MotionValue<number>; slotH: number }) {
+  const eyebrowOp = useScrollLinked(useTransform(jp, [jf(2), jf(12)], [0, 1]))
+  const introOp = useScrollLinked(useTransform(jp, [jf(6), jf(18), jf(62), jf(76)], [0, 1, 1, 0]))
+  const introY = useScrollLinked(useTransform(jp, [jf(6), jf(18)], [16, 0]))
+  const closeOp = useScrollLinked(useTransform(jp, [CLOSE_START + jf(10), CLOSE_START + jf(26)], [0, 1]))
+  const closeY = useScrollLinked(useTransform(jp, [CLOSE_START + jf(10), CLOSE_START + jf(26)], [16, 0]))
+  return (
+    <>
+      <motion.p
+        style={{ opacity: eyebrowOp }}
+        className="flex items-center gap-2.5 text-[11px] font-bold uppercase tracking-[0.22em] text-white/45"
+      >
+        <span className="h-[2px] w-6 bg-[#E20C04]" aria-hidden="true" />
+        {EYEBROW}
+      </motion.p>
+      <div className="relative mt-3" style={{ height: slotH }}>
+        {/* Section intro (arrival), then the beats, then the close: one slot */}
+        <motion.div style={{ opacity: introOp, y: introY }} className="absolute inset-0">
+          <h2 className="font-display leading-[1.14] text-white" style={{ fontSize: 'clamp(23px, 6.2vw, 30px)', letterSpacing: '-0.4px' }}>
+            {HEADLINE_LEAD} <span className="gradient-text">{HEADLINE_INK}</span>
+          </h2>
+          <p className="mt-3 max-w-[440px] text-[13.5px] leading-[1.56] text-white/60">{INTRO}</p>
+        </motion.div>
+        {BEATS.map((beat, i) => (
+          <BeatLayer key={beat.label} jp={jp} index={i} />
+        ))}
+        <motion.div style={{ opacity: closeOp, y: closeY }} className="absolute inset-0 flex items-start">
+          <p className="font-display max-w-[430px] text-[22px] leading-[1.3] text-white" style={{ letterSpacing: '-0.4px' }}>
+            {CLOSING}
+            <BrandStop tone="white" />
+          </p>
+        </motion.div>
+      </div>
+    </>
+  )
+}
+
+function JourneyCinemaMobile({ side }: { side: boolean }) {
+  const bandRef = useRef<HTMLDivElement>(null)
+  const deviceRef = useRef<HTMLDivElement>(null)
+  const { scrollYProgress: jp } = useScroll({ target: bandRef, offset: ['start start', 'end end'] })
+  const scale = useFitScale(deviceRef, J_BOX.w, J_BOX.h)
+
+  // Arrival: the cluster settles in over the first svh, then the beats drive it.
+  const clusterOp = useScrollLinked(useTransform(jp, [jf(2), jf(18)], [0, 1]))
+  const clusterY = useScrollLinked(useTransform(jp, [jf(2), jf(22)], [24, 0]))
+
+  const device = (
+    <div ref={deviceRef} className="relative min-h-0 flex-1">
+      <motion.div className="absolute inset-0 flex items-center justify-center" style={{ opacity: clusterOp, y: clusterY }}>
+        <div aria-hidden="true" style={{ width: J_BOX.w, height: J_BOX.h, transform: `scale(${scale})`, transformOrigin: '50% 50%' }}>
+          <FrontDeviceCluster jp={jp} />
+        </div>
+      </motion.div>
+    </div>
+  )
+
+  return (
+    <section ref={bandRef} className="relative" style={{ height: `${JOURNEY_SCROLL + 100}svh`, background: '#010C35' }}>
+      {/* Navbar anchor: lands at the band start with the journey header visible */}
+      <span id="how-it-works" aria-hidden="true" className="absolute left-0 top-0 block h-px w-px scroll-mt-24" />
+      <div className="sticky top-0 flex h-[100svh] flex-col overflow-hidden">
+        {/* Backdrop: the map plate as a quiet navy ambience (no stage maths) */}
+        <div aria-hidden="true" className="absolute inset-0">
+          <Image src="/for-businesses/journey/journey-map-bg.webp" alt="" fill sizes="100vw" className="object-cover" style={{ opacity: 0.5, objectPosition: '62% 50%' }} />
+          <div
+            className="absolute inset-0"
+            style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.6) 26%, rgba(1,12,53,0.34) 52%, rgba(1,12,53,0.74) 80%, #010C35 100%)' }}
+          />
+          {side ? (
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(1,12,53,0.9) 0%, rgba(1,12,53,0.55) 34%, rgba(1,12,53,0) 60%)' }} />
+          ) : null}
+        </div>
+
+        {side ? (
+          // Landscape / short: copy left, devices right, stepper along the foot
+          <>
+            <div className="relative flex min-h-0 flex-1">
+              <div className="flex w-[42%] flex-col justify-center px-6 pt-[62px]">
+                <MobileCopyStack jp={jp} slotH={150} />
+              </div>
+              {device}
+            </div>
+            <div className="relative px-6 pb-3">
+              <MobileStepper jp={jp} />
+            </div>
+          </>
+        ) : (
+          // Portrait: compact copy on top, cluster in the middle, stepper below
+          <>
+            <div className="relative px-6 pt-[92px]">
+              <MobileCopyStack jp={jp} slotH={176} />
+            </div>
+            {device}
+            <div className="relative px-6 pb-6">
+              <MobileStepper jp={jp} />
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
 // ── Public component: hero + journey as one experience ───────────────────────
 
 export function ForBusinessesCinema({ registerUrl }: { registerUrl: string }) {
   const mode = useViewportMode()
   const reduceMotion = useReducedMotion()
 
-  // Desktop with motion: one continuous pinned band. Everything else (mobile,
-  // tablet, short viewports, reduced motion) reads as stacked scenes; the
+  // Reduced motion (any viewport): the content-complete stacked scenes. The
   // approved hero keeps its own stacked/static handling.
-  if (mode === 'desktop' && !reduceMotion) return <CinemaBand registerUrl={registerUrl} />
+  if (reduceMotion) {
+    return (
+      <>
+        <HeroCinematic registerUrl={registerUrl} />
+        <JourneyStacked />
+      </>
+    )
+  }
+
+  // Desktop with motion: one continuous pinned band (hero + journey).
+  if (mode === 'desktop') return <CinemaBand registerUrl={registerUrl} />
+
+  // Mobile / tablet / short with motion: HeroStacked leads, then the full
+  // scroll-driven journey cinema (portrait, or side-by-side when squat).
   return (
     <>
       <HeroCinematic registerUrl={registerUrl} />
-      <JourneyStacked />
+      <JourneyCinemaMobile side={mode === 'short'} />
     </>
   )
 }
