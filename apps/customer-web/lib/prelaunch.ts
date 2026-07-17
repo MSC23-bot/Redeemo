@@ -28,3 +28,9 @@ export function merchantPortalRegisterUrl(): string {
   const base = process.env.NEXT_PUBLIC_MERCHANT_PORTAL_URL ?? 'http://localhost:3003'
   return `${base.replace(/\/$/, '')}/register`
 }
+
+/** Merchant portal login URL (same base as registration). */
+export function merchantPortalLoginUrl(): string {
+  const base = process.env.NEXT_PUBLIC_MERCHANT_PORTAL_URL ?? 'http://localhost:3003'
+  return `${base.replace(/\/$/, '')}/login`
+}

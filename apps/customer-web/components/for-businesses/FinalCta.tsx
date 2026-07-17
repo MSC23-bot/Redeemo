@@ -107,7 +107,7 @@ export function FinalCta({ registerUrl }: { registerUrl: string }) {
         />
       </div>
 
-      <div className="relative mx-auto max-w-[1120px] px-4 pb-16 pt-14 sm:px-6 md:pb-24 lg:pt-20">
+      <div id="pricing" className="relative mx-auto max-w-[1120px] scroll-mt-24 px-4 pb-16 pt-14 sm:px-6 md:pb-24 lg:pt-20">
         {/* The ticket: the page has been about vouchers all the way down; the
             closer is the business's own. drop-shadow (not box-shadow) so the
             shadow follows the die-cut silhouette. */}

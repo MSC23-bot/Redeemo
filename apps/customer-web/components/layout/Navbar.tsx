@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, ChevronDown, LayoutDashboard, PiggyBank, Heart, CreditCard, User, LogOut, Bell } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { isMarketplaceLive } from '@/lib/prelaunch'
+import { isMarketplaceLive, merchantPortalLoginUrl, merchantPortalRegisterUrl } from '@/lib/prelaunch'
 
 // Links shown to logged-out visitors. Marketplace routes are middleware-gated
 // pre-launch (they redirect home), so Discover only appears once live.
@@ -34,6 +34,41 @@ const ACCOUNT_ITEMS = [
   { href: '/account/notifications',  label: 'Notifications',  icon: Bell },
   { href: '/account/profile',        label: 'Profile',        icon: User },
 ]
+
+// /for-businesses is its own front door (owner 2026-07-17): section anchors,
+// merchant portal auth, and the FOR BUSINESS lockup.
+const NAV_LINKS_BUSINESS = [
+  { href: '#how-it-works', label: 'How it works' },
+  { href: '#why-redeemo',  label: 'Why Redeemo' },
+  { href: '#portal',       label: 'The portal' },
+  { href: '#pricing',      label: 'Pricing' },
+]
+
+// The lockup: prominent R + Redeemo, FOR BUSINESS seated directly beneath
+// the wordmark in the quiet grey, tracked out to match its width.
+function BusinessLogo({ tone }: { tone: 'light' | 'dark' }) {
+  const light = tone === 'light'
+  return (
+    <span className="flex items-center gap-2.5">
+      <Image
+        src="/logo-icon.svg"
+        alt=""
+        width={40}
+        height={40}
+        className={light ? 'h-[38px] w-auto brightness-0 invert' : 'h-[38px] w-auto'}
+        priority
+      />
+      <span className="flex flex-col" style={{ lineHeight: 1 }}>
+        <span className={`font-display text-[21px] font-bold ${light ? 'text-white' : 'text-[#010C35]'}`} style={{ letterSpacing: '-0.3px' }}>
+          Redeemo
+        </span>
+        <span className={`text-[8.5px] font-bold uppercase ${light ? 'text-white/60' : 'text-[#6B7280]'}`} style={{ letterSpacing: '0.23em', marginTop: 4 }}>
+          For business
+        </span>
+      </span>
+    </span>
+  )
+}
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/)
@@ -135,7 +170,8 @@ export function Navbar() {
   // language as the glass quick-nav and the voucher cards.
   const isDark = true
 
-  const navLinks = user ? NAV_LINKS_MEMBER : NAV_LINKS_PUBLIC
+  const isBusiness = pathname === '/for-businesses' || pathname.startsWith('/for-businesses/')
+  const navLinks = isBusiness ? NAV_LINKS_BUSINESS : user ? NAV_LINKS_MEMBER : NAV_LINKS_PUBLIC
 
   const linkColour = (isActive: boolean) =>
     isActive
@@ -150,8 +186,9 @@ export function Navbar() {
   const marketplaceLive = isMarketplaceLive()
   // Creating an account IS the waitlist (owner 2026-07-08): registration is
   // live pre-launch and founding members claim the launch incentive.
-  const primaryCtaHref = '/register'
-  const primaryCtaLabel = marketplaceLive ? 'Join free' : 'Get early access'
+  const primaryCtaHref = isBusiness ? merchantPortalRegisterUrl() : '/register'
+  const primaryCtaLabel = isBusiness ? 'List your business' : marketplaceLive ? 'Join free' : 'Get early access'
+  const loginHref = isBusiness ? merchantPortalLoginUrl() : '/login'
 
   return (
     <>
@@ -184,15 +221,19 @@ export function Navbar() {
         <nav aria-label="Main" className="relative px-5 md:px-7 h-[68px] flex items-center gap-6">
 
         {/* Logo */}
-        <Link href="/" className="flex-shrink-0 no-underline">
-          <Image
-            src="/logo-white.svg"
-            alt="Redeemo"
-            width={220}
-            height={60}
-            className="h-[50px] w-auto transition-opacity duration-300"
-            priority
-          />
+        <Link href={isBusiness ? '/for-businesses' : '/'} aria-label={isBusiness ? 'Redeemo for business' : 'Redeemo'} className="flex-shrink-0 no-underline">
+          {isBusiness ? (
+            <BusinessLogo tone="light" />
+          ) : (
+            <Image
+              src="/logo-white.svg"
+              alt="Redeemo"
+              width={220}
+              height={60}
+              className="h-[50px] w-auto transition-opacity duration-300"
+              priority
+            />
+          )}
         </Link>
 
         {/* Desktop nav links, centred so the island reads balanced:
@@ -348,14 +389,22 @@ export function Navbar() {
               /* ── Logged-out: Log in + Get the app + Join free ── */
               <>
                 <Link
-                  href="/login"
+                  href={loginHref}
                   className={`text-[14px] font-medium no-underline transition-colors ${
                     isDark ? 'text-white/80 hover:text-white' : 'text-[#4B5563] hover:text-[#010C35]'
                   }`}
                 >
                   Log in
                 </Link>
-                {marketplaceLive ? (
+                {isBusiness ? (
+                  <Link
+                    href="/"
+                    className="text-[14px] font-medium text-white px-4 py-2 rounded-lg no-underline hover:opacity-80 transition-opacity"
+                    style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.20)' }}
+                  >
+                    For customers
+                  </Link>
+                ) : marketplaceLive ? (
                   <a
                     href="https://apps.apple.com"
                     target="_blank"
@@ -482,19 +531,19 @@ export function Navbar() {
                   ) : (
                     <>
                       <Link
-                        href="/login"
+                        href={loginHref}
                         onClick={() => setMenuOpen(false)}
                         className="px-3 py-3 text-[14px] font-medium text-white/80 no-underline hover:text-white transition-colors"
                       >
                         Log in
                       </Link>
                       <Link
-                        href={marketplaceLive ? 'https://apps.apple.com' : '/for-businesses'}
+                        href={isBusiness ? '/' : marketplaceLive ? 'https://apps.apple.com' : '/for-businesses'}
                         onClick={() => setMenuOpen(false)}
                         className="px-3 py-3 text-[14px] font-medium text-white text-center rounded-lg no-underline hover:opacity-80 transition-opacity"
                         style={{ background: '#010C35', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.18)' }}
                       >
-                        {marketplaceLive ? 'Get the app' : 'Got a business?'}
+                        {isBusiness ? 'For customers' : marketplaceLive ? 'Get the app' : 'Got a business?'}
                       </Link>
                       <Link
                         href={primaryCtaHref}
@@ -533,18 +582,25 @@ export function Navbar() {
             aria-expanded={floatMenuOpen}
             aria-controls="float-menu"
             className="flex items-center gap-2.5 pl-3 pr-3.5 h-[46px] rounded-full border-none cursor-pointer"
-            style={{
-              background: 'rgba(255,249,245,0.92)',
-              backdropFilter: 'blur(16px) saturate(1.5)',
-              WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
-              boxShadow: '0 10px 32px rgba(1,12,53,0.16), inset 0 0 0 1px rgba(1,12,53,0.08)',
-            }}
+            style={
+              isBusiness
+                ? {
+                    background: '#BE0A03 radial-gradient(140% 380% at 72% 10%, #F24E2C 0%, #BE0A03 100%)',
+                    boxShadow: '0 10px 32px rgba(190,10,3,0.28), inset 0 1px 0 rgba(255,255,255,0.22)',
+                  }
+                : {
+                    background: 'rgba(255,249,245,0.92)',
+                    backdropFilter: 'blur(16px) saturate(1.5)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
+                    boxShadow: '0 10px 32px rgba(1,12,53,0.16), inset 0 0 0 1px rgba(1,12,53,0.08)',
+                  }
+            }
           >
-            <Image src="/logo-icon.svg" alt="" width={24} height={24} className="h-[22px] w-auto" />
-            <span className="w-px h-[18px] bg-[#010C35]/12" aria-hidden="true" />
+            <Image src="/logo-icon.svg" alt="" width={24} height={24} className={isBusiness ? 'h-[22px] w-auto brightness-0 invert' : 'h-[22px] w-auto'} />
+            <span className={`w-px h-[18px] ${isBusiness ? 'bg-white/25' : 'bg-[#010C35]/12'}`} aria-hidden="true" />
             {floatMenuOpen
-              ? <X size={19} strokeWidth={2} className="text-[#010C35]/80" />
-              : <Menu size={19} strokeWidth={2} className="text-[#010C35]/80" />}
+              ? <X size={19} strokeWidth={2} className={isBusiness ? 'text-white/90' : 'text-[#010C35]/80'} />
+              : <Menu size={19} strokeWidth={2} className={isBusiness ? 'text-white/90' : 'text-[#010C35]/80'} />}
           </button>
         </motion.div>
       )}
@@ -606,7 +662,7 @@ export function Navbar() {
                 ) : (
                   <>
                     <Link
-                      href="/login"
+                      href={loginHref}
                       onClick={() => setFloatMenuOpen(false)}
                       className="text-[14px] font-semibold text-white/85 no-underline px-2"
                     >
@@ -643,16 +699,29 @@ export function Navbar() {
           <nav
             aria-label="Quick navigation"
             className="max-w-6xl mx-auto flex items-center gap-5 px-5 md:px-7 h-[70px] rounded-2xl"
-            style={{
-              background: 'rgba(255,249,245,0.90)',
-              backdropFilter: 'blur(16px) saturate(1.5)',
-              WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
-              border: '1px solid rgba(1,12,53,0.08)',
-              boxShadow: '0 12px 40px rgba(1,12,53,0.14)',
-            }}
+            style={
+              isBusiness
+                ? {
+                    // Same colour as the top-of-page island (owner 2026-07-17):
+                    // the business bar never turns cream on reappear
+                    background: '#BE0A03 radial-gradient(140% 380% at 72% 10%, #F24E2C 0%, #BE0A03 100%)',
+                    boxShadow: '0 12px 40px rgba(190,10,3,0.28), inset 0 1px 0 rgba(255,255,255,0.22)',
+                  }
+                : {
+                    background: 'rgba(255,249,245,0.90)',
+                    backdropFilter: 'blur(16px) saturate(1.5)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
+                    border: '1px solid rgba(1,12,53,0.08)',
+                    boxShadow: '0 12px 40px rgba(1,12,53,0.14)',
+                  }
+            }
           >
-            <Link href="/" className="flex-shrink-0 no-underline">
-              <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[52px] w-auto" />
+            <Link href={isBusiness ? '/for-businesses' : '/'} aria-label={isBusiness ? 'Redeemo for business' : 'Redeemo'} className="flex-shrink-0 no-underline">
+              {isBusiness ? (
+                <BusinessLogo tone="light" />
+              ) : (
+                <Image src="/logo-horizontal.svg" alt="Redeemo" width={180} height={50} className="h-[52px] w-auto" />
+              )}
             </Link>
 
             <div className="hidden md:flex gap-1 flex-1 justify-center">
@@ -663,7 +732,9 @@ export function Navbar() {
                     key={link.href}
                     href={link.href}
                     className={`px-3 py-1.5 rounded-md text-[14px] font-medium transition-colors duration-150 no-underline ${
-                      isActive ? 'text-[#E20C04]' : 'text-[#4B5563] hover:text-[#010C35]'
+                      isBusiness
+                        ? 'text-white/75 hover:text-white'
+                        : isActive ? 'text-[#E20C04]' : 'text-[#4B5563] hover:text-[#010C35]'
                     }`}
                   >
                     {link.label}
@@ -681,15 +752,19 @@ export function Navbar() {
                 ) : (
                   <>
                     <Link
-                      href="/login"
-                      className="hidden md:block text-[14px] font-medium text-[#4B5563] hover:text-[#010C35] no-underline transition-colors"
+                      href={loginHref}
+                      className={`hidden md:block text-[14px] font-medium no-underline transition-colors ${
+                        isBusiness ? 'text-white/80 hover:text-white' : 'text-[#4B5563] hover:text-[#010C35]'
+                      }`}
                     >
                       Log in
                     </Link>
                     <Link
                       href={primaryCtaHref}
-                      className="text-[14px] font-bold text-white px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity"
-                      style={{ background: 'var(--brand-gradient)' }}
+                      className={`text-[14px] font-bold px-4 py-2 rounded-lg no-underline hover:opacity-90 transition-opacity ${
+                        isBusiness ? 'text-[#BE0A03] bg-white' : 'text-white'
+                      }`}
+                      style={isBusiness ? undefined : { background: 'var(--brand-gradient)' }}
                     >
                       {primaryCtaLabel}
                     </Link>

@@ -195,3 +195,17 @@ lower-left fully uncropped (300px at left 1.5% bottom 4%). RIBBON REQUEST PARKED
 owner mid-round: the landing-page WebGL flowing ribbon into Section 3's background
 (diagonal corner-to-corner, blurred, spanning the whole section incl. the pinned
 sweep) is designed but NOT to be built until the owner says go.
+
+### Business navbar (owner 2026-07-17): /for-businesses becomes its own front door
+
+Navbar gains an isBusiness variant (path-driven): FOR BUSINESS lockup (white R +
+prominent Redeemo, FOR BUSINESS tracked out directly beneath the wordmark; better
+ratio than the owner's reference by design), section-anchor tabs (How it works ->
+in-band anchor at HERO_SCROLL svh inside the cinema, Why Redeemo, The portal,
+Pricing -> the ticket's zeros), Log in -> merchant portal /login (new
+merchantPortalLoginUrl helper), CTA "List your business" -> portal /register,
+navy "For customers" chip routes back to the customer landing. The scroll-up
+quick-nav and the mobile pill keep the brand-gradient island colour on
+/for-businesses instead of turning cream (owner requirement). Smooth anchor
+scrolling added globally (reduced-motion guarded). Anchor ids: how-it-works,
+why-redeemo, portal, pricing (+ register-interest retained).

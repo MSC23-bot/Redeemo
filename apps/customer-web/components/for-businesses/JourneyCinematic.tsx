@@ -949,6 +949,8 @@ function CinemaBand({ registerUrl }: { registerUrl: string }) {
 
   return (
     <section ref={bandRef} className="relative -mt-[80px]" style={{ height: `${TOTAL_SCROLL + 100}svh`, background: '#010C35' }}>
+      {/* Navbar anchor: lands where the hero hands over to the journey */}
+      <div id="how-it-works" aria-hidden="true" className="absolute left-0 h-px w-px" style={{ top: `${HERO_SCROLL}svh` }} />
       <div className="sticky top-0 h-[100svh] overflow-hidden">
         {/* ── Journey backdrop: the map plate, revealed as the hero dissolves ── */}
         <motion.div ref={stageRef} aria-hidden="true" className="absolute inset-0" style={{ scale: mapScale, transformOrigin: '50% 42%' }}>

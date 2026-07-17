@@ -212,3 +212,8 @@ p, li, figcaption {
   border-top: 1px solid #EDE8E8;
   margin: 2em 0;
 }
+
+/* Smooth in-page anchor travel (navbar section links) */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}

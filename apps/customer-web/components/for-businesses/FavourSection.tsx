@@ -1445,7 +1445,7 @@ function MarginReceipt() {
 export function FavourSection() {
   const reduceMotion = useReducedMotion()
   return (
-    <section className="relative -mt-[70px]" style={{ background: 'transparent' }}>
+    <section id="why-redeemo" className="relative -mt-[70px] scroll-mt-24" style={{ background: 'transparent' }}>
       {/* Seam: the cream sheet sweeps up over the cinema's night scene
           (night to daylight), a broad curve rather than a hard edge */}
       <svg aria-hidden="true" className="block h-[90px] w-full md:h-[110px]" viewBox="0 0 1440 110" preserveAspectRatio="none">

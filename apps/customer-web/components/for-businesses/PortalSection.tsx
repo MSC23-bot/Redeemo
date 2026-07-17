@@ -745,7 +745,7 @@ export function PortalSection() {
   const current = SCREENS.find((s) => s.key === active) ?? SCREENS[0]
 
   return (
-    <section className="relative overflow-x-clip" style={{ background: NAVY }}>
+    <section id="portal" className="relative scroll-mt-24 overflow-x-clip" style={{ background: NAVY }}>
       <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 md:pb-28 lg:px-10 lg:pb-40 lg:pt-0">
         {/* Header (mobile/tablet: the desktop pin carries its own compact twin) */}
         <motion.div
