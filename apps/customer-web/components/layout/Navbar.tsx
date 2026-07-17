@@ -132,6 +132,7 @@ export function Navbar() {
   // full menu on tap: it never covers pinned content. Desktop keeps the
   // full glass bar, revealed on scroll-up with a 6px direction deadband.
   const [floatVisible, setFloatVisible] = useState(false)
+  const [showTop, setShowTop] = useState(false)
   const [floatMenuOpen, setFloatMenuOpen] = useState(false)
   const lastScrollY = useRef(0)
   const accountRef = useRef<HTMLDivElement>(null)
@@ -140,6 +141,7 @@ export function Navbar() {
   useEffect(() => {
     const onScroll = () => {
       const y = window.scrollY
+      setShowTop(y > window.innerHeight * 2.5)
       const dy = y - lastScrollY.current
       if (Math.abs(dy) < 6) return
       lastScrollY.current = y
@@ -785,6 +787,33 @@ export function Navbar() {
             </div>
           </div>
         </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* Back to top: the page runs long, especially on phones (owner
+        2026-07-17); a quiet glass control in the thumb corner */}
+    <AnimatePresence>
+      {showTop && (
+        <motion.button
+          key="back-to-top"
+          initial={{ opacity: 0, scale: 0.9, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.9, y: 10 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+          onClick={() => window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })}
+          aria-label="Back to top"
+          className="min-[1060px]:hidden fixed bottom-5 right-4 z-40 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border-none"
+          style={{
+            background: 'rgba(255,249,245,0.92)',
+            backdropFilter: 'blur(16px) saturate(1.5)',
+            WebkitBackdropFilter: 'blur(16px) saturate(1.5)',
+            boxShadow: '0 10px 32px rgba(1,12,53,0.18), inset 0 0 0 1px rgba(1,12,53,0.08)',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#010C35" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" />
+          </svg>
+        </motion.button>
       )}
     </AnimatePresence>
 

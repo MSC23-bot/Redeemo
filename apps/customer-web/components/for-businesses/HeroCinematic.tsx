@@ -845,8 +845,12 @@ export function HeroStacked({ registerUrl }: { registerUrl: string }) {
                   className="absolute inset-x-0 bottom-0 h-[56%]"
                   style={{
                     opacity: 0.5,
-                    maskImage: 'linear-gradient(180deg, transparent 0%, black 38%, black 88%, transparent 100%)',
-                    WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, black 38%, black 88%, transparent 100%)',
+                    maskImage:
+                      'linear-gradient(180deg, transparent 0%, black 38%, black 88%, transparent 100%), linear-gradient(90deg, black 0%, black 52%, transparent 84%)',
+                    WebkitMaskImage:
+                      'linear-gradient(180deg, transparent 0%, black 38%, black 88%, transparent 100%), linear-gradient(90deg, black 0%, black 52%, transparent 84%)',
+                    maskComposite: 'intersect',
+                    WebkitMaskComposite: 'source-in',
                   }}
                 >
                   <RibbonScene3D preset="navy" />

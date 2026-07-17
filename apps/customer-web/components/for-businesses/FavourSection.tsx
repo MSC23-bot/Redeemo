@@ -984,7 +984,7 @@ function VoucherTicket({ kind, index, sweep = false }: { kind: VoucherKind; inde
       whileHover={{ y: -8, rotate: index % 2 ? 0.8 : -0.8 }}
       className="group/ticket relative flex flex-shrink-0 snap-start flex-col overflow-hidden rounded-2xl bg-white"
       style={{
-        width: `min(${TICKET_W}px, calc(100vw - 64px))`,
+        width: `min(${TICKET_W}px, calc(100vw - 108px))`,
         border: '1px solid #EFE7DD',
         // Embossed voucher surface: drop shadow + raised top light + pressed base
         boxShadow:
@@ -1446,7 +1446,7 @@ function MarginReceipt() {
 export function FavourSection() {
   const reduceMotion = useReducedMotion()
   return (
-    <section id="why-redeemo" className="relative -mt-[70px] scroll-mt-24" style={{ background: 'transparent' }}>
+    <section id="why-redeemo" className="relative -mt-[34px] scroll-mt-24 md:-mt-[70px]" style={{ background: 'transparent' }}>
       {/* Seam: the cream sheet sweeps up over the cinema's night scene
           (night to daylight), a broad curve rather than a hard edge */}
       <svg aria-hidden="true" className="block h-[90px] w-full md:h-[110px]" viewBox="0 0 1440 110" preserveAspectRatio="none">
@@ -1478,7 +1478,7 @@ export function FavourSection() {
         .favour-loop { stroke-dashoffset: 251; animation: favourLoop 3.4s ease-in-out infinite; }
         @keyframes favourLoop { 0% { stroke-dashoffset: 251; } 55% { stroke-dashoffset: 40; } 100% { stroke-dashoffset: 40; } }
         .favour-loop-arrow { offset-path: path('M55 15 a40 40 0 1 1 -28.28 11.72'); offset-rotate: auto; animation: favourLoopArrow 3.4s ease-in-out infinite; }
-        @keyframes favourLoopArrow { 0% { offset-distance: 0%; } 55% { offset-distance: 100%; } 100% { offset-distance: 100%; } }
+        @keyframes favourLoopArrow { 0% { offset-distance: 0%; } 55% { offset-distance: 84%; } 100% { offset-distance: 84%; } }
         .favour-shimmer { background: linear-gradient(105deg, transparent 38%, rgba(255,255,255,0.28) 50%, transparent 62%); animation: favourShimmer 3.2s ease-in-out infinite; }
         @keyframes favourShimmer { 0% { transform: translateX(-100%); } 60% { transform: translateX(100%); } 100% { transform: translateX(100%); } }
         .favour-rail { scrollbar-width: none; }
@@ -1487,7 +1487,7 @@ export function FavourSection() {
         @keyframes favourSpin { to { transform: rotate(360deg); } }
         @media (prefers-reduced-motion: reduce) {
           .favour-radar-sweep, .favour-step, .favour-loop, .favour-shimmer, .favour-spin, .favour-loop-arrow { animation: none; }
-          .favour-loop-arrow { offset-distance: 100%; }
+          .favour-loop-arrow { offset-distance: 84%; }
           .favour-step { opacity: 1; }
           .favour-loop { stroke-dashoffset: 40; }
         }

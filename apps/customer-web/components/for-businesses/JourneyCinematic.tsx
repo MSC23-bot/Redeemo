@@ -1241,9 +1241,12 @@ function MobileStepper({ jp }: { jp: MotionValue<number> }) {
 // section intro, the four beats and the closing line crossfade in reading
 // order (the beats reuse BeatLayer, exactly as the desktop column does).
 function MobileCopyStack({ jp, slotH }: { jp: MotionValue<number>; slotH: number }) {
-  const eyebrowOp = useScrollLinked(useTransform(jp, [jf(2), jf(12)], [0, 1]))
-  const introOp = useScrollLinked(useTransform(jp, [jf(6), jf(18), jf(62), jf(76)], [0, 1, 1, 0]))
-  const introY = useScrollLinked(useTransform(jp, [jf(6), jf(18)], [16, 0]))
+  // The stage arrives already dressed: the band's approach is visible in the
+  // viewport before the pin, so nothing may start at opacity 0 (owner: an
+  // empty screen scrolled past before the journey appeared)
+  const eyebrowOp = useScrollLinked(useTransform(jp, [0, jf(1)], [1, 1]))
+  const introOp = useScrollLinked(useTransform(jp, [0, jf(62), jf(76)], [1, 1, 0]))
+  const introY = useScrollLinked(useTransform(jp, [0, jf(1)], [0, 0]))
   const closeOp = useScrollLinked(useTransform(jp, [CLOSE_START + jf(10), CLOSE_START + jf(26)], [0, 1]))
   const closeY = useScrollLinked(useTransform(jp, [CLOSE_START + jf(10), CLOSE_START + jf(26)], [16, 0]))
   return (
@@ -1284,8 +1287,8 @@ function JourneyCinemaMobile({ side }: { side: boolean }) {
   const scale = useFitScale(deviceRef, J_BOX.w, J_BOX.h)
 
   // Arrival: the cluster settles in over the first svh, then the beats drive it.
-  const clusterOp = useScrollLinked(useTransform(jp, [jf(2), jf(18)], [0, 1]))
-  const clusterY = useScrollLinked(useTransform(jp, [jf(2), jf(22)], [24, 0]))
+  const clusterOp = useScrollLinked(useTransform(jp, [0, jf(1)], [1, 1]))
+  const clusterY = useScrollLinked(useTransform(jp, [0, jf(14)], [10, 0]))
 
   const device = (
     <div ref={deviceRef} className="relative min-h-0 flex-1">
@@ -1304,10 +1307,10 @@ function JourneyCinemaMobile({ side }: { side: boolean }) {
       <div className="sticky top-0 flex h-[100svh] flex-col overflow-hidden">
         {/* Backdrop: the map plate as a quiet navy ambience (no stage maths) */}
         <div aria-hidden="true" className="absolute inset-0">
-          <Image src="/for-businesses/journey/journey-map-bg-mobile.webp" alt="" fill sizes="100vw" className="object-cover" style={{ opacity: 0.55, objectPosition: '50% 50%' }} />
+          <Image src="/for-businesses/journey/journey-map-bg-mobile.webp" alt="" fill sizes="100vw" className="object-cover" style={{ opacity: 0.8, objectPosition: '50% 50%' }} />
           <div
             className="absolute inset-0"
-            style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.6) 26%, rgba(1,12,53,0.34) 52%, rgba(1,12,53,0.74) 80%, #010C35 100%)' }}
+            style={{ background: 'linear-gradient(180deg, #010C35 0%, rgba(1,12,53,0.42) 26%, rgba(1,12,53,0.18) 52%, rgba(1,12,53,0.55) 80%, #010C35 100%)' }}
           />
           {side ? (
             <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(1,12,53,0.9) 0%, rgba(1,12,53,0.55) 34%, rgba(1,12,53,0) 60%)' }} />
@@ -1323,7 +1326,7 @@ function JourneyCinemaMobile({ side }: { side: boolean }) {
               </div>
               {device}
             </div>
-            <div className="relative px-6 pb-3">
+            <div className="relative px-6 pb-8">
               <MobileStepper jp={jp} />
             </div>
           </>
@@ -1334,7 +1337,7 @@ function JourneyCinemaMobile({ side }: { side: boolean }) {
               <MobileCopyStack jp={jp} slotH={176} />
             </div>
             {device}
-            <div className="relative px-6 pb-6">
+            <div className="relative px-6 pb-12">
               <MobileStepper jp={jp} />
             </div>
           </>
