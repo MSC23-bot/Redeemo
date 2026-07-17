@@ -815,41 +815,49 @@ export function HeroStacked({ registerUrl }: { registerUrl: string }) {
   if (m) {
     const visLeft = -m.ox / m.s
     const visW = m.w / m.s
+    const visTop = -m.oy / m.s
+    const visH = m.h / m.s
     const cs = (visW * 0.92) / CLUSTER_W
-    cluster = { x: visLeft + visW * 0.05, y: 900 - CLUSTER_H * cs, s: cs }
+    cluster = { x: visLeft + visW * 0.05, y: visTop + visH - CLUSTER_H * cs - 10, s: cs }
   }
 
   return (
     <section className="relative -mt-[80px]" style={{ background: '#010C35' }}>
-      {/* Headline, intro and CTA lead; the scene follows immediately (owner
-          2026-07-17: devices sit above the proof stats on mobile) */}
-      <div className="px-6 pb-1 pt-[150px]">
-        <div className="mx-auto max-w-[600px]">
-          <HeroCopy registerUrl={registerUrl} withStats={false} />
+      {/* The portrait plate is the WHOLE hero backdrop (owner 2026-07-17):
+          copy rides its dark left, the cafe vignette sits beside the CTA,
+          and the devices seat on its tabletop at the foot. */}
+      <div ref={stageRef} className="relative overflow-hidden">
+        <div aria-hidden="true" className="absolute inset-0">
+          <Scene
+            m={m}
+            focalX={0.58}
+            bgSrc="/for-businesses/hero-bg-mobile.webp"
+            cluster={cluster}
+            feedY={reduceMotion ? 0 : feedY}
+            stripY={reduceMotion ? 0 : stripY}
+            dashOp={1}
+            insightOp={0}
+            builderOp={0}
+          />
+          <HeroEmbers />
+          {/* Legibility scrims: navbar head, copy left, foot into the ticker */}
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                'linear-gradient(180deg, rgba(1,12,53,0.9) 0%, rgba(1,12,53,0) 140px), linear-gradient(90deg, rgba(1,12,53,0.62) 0%, rgba(1,12,53,0.22) 46%, rgba(1,12,53,0) 72%), linear-gradient(0deg, rgba(1,12,53,0.85) 0%, rgba(1,12,53,0) 130px)',
+            }}
+          />
         </div>
-      </div>
 
-      <div ref={stageRef} className="relative mt-2 h-[58svh] min-h-[380px] overflow-hidden">
-        <Scene
-          m={m}
-          focalX={0.58}
-          bgSrc="/for-businesses/hero-bg-mobile.webp"
-          cluster={cluster}
-          feedY={reduceMotion ? 0 : feedY}
-          stripY={reduceMotion ? 0 : stripY}
-          dashOp={1}
-          insightOp={0}
-          builderOp={0}
-        />
-        <HeroEmbers />
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'linear-gradient(180deg, rgba(1,12,53,1) 0%, rgba(1,12,53,0) 120px), linear-gradient(0deg, rgba(1,12,53,0.85) 0%, rgba(1,12,53,0) 140px)',
-          }}
-        />
+        <div className="relative px-6 pt-[150px]">
+          <div className="mx-auto max-w-[600px]">
+            <HeroCopy registerUrl={registerUrl} withStats={false} />
+          </div>
+        </div>
+
+        {/* The tabletop window: the cluster seats here inside the plate */}
+        <div className="h-[42svh] min-h-[280px]" aria-hidden="true" />
       </div>
 
       {/* The five growth signals as one live ticker line, then the proof */}
