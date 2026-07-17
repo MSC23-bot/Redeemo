@@ -6,7 +6,10 @@ import Image from 'next/image'
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useViewportMode } from '@/components/landing/useViewportMode'
 import { useScrollLinked } from '@/components/landing/scroll'
+import dynamicImport from 'next/dynamic'
 import { BrandStop } from '@/components/ui/BrandStop'
+
+const RibbonScene3D = dynamicImport(() => import('@/components/landing/RibbonScene3D').then((m) => m.RibbonScene3D), { ssr: false })
 
 const HeroEmbers = dynamic(() => import('./HeroEmbers').then((m) => m.HeroEmbers), { ssr: false })
 
@@ -613,7 +616,7 @@ function HeroCopy({ registerUrl, withStats = true }: { registerUrl: string; with
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, delay: 0.18 }}
-        className="mb-9 max-w-[500px] text-[15.5px] leading-[1.62] text-white/60 md:text-[16px]"
+        className="mb-9 max-w-[500px] text-[15.5px] leading-[1.62] text-white/72 md:text-[16px]"
       >
         Redeemo is a digital voucher platform that helps local customers discover your business. Create your own vouchers, set the terms and give new customers a reason to visit.
       </motion.p>
@@ -649,6 +652,7 @@ function Scene({
   m,
   focalX,
   bgSrc = '/for-businesses/hero-bg.webp',
+  underlay,
   cluster,
   feedY,
   stripY,
@@ -659,6 +663,7 @@ function Scene({
   m: StageMetrics | null
   focalX: number
   bgSrc?: string
+  underlay?: React.ReactNode
   cluster: { x: number; y: number; s: number }
   feedY: MotionValue<number> | number
   stripY: MotionValue<number> | number
@@ -677,6 +682,7 @@ function Scene({
         className="object-cover"
         style={{ objectPosition: `${focalX * 100}% 50%` }}
       />
+      {underlay}
       {m ? (
         <div
           aria-hidden="true"
@@ -832,6 +838,21 @@ export function HeroStacked({ registerUrl }: { registerUrl: string }) {
             m={m}
             focalX={0.58}
             bgSrc="/for-businesses/hero-bg-mobile.webp"
+            underlay={
+              !reduceMotion ? (
+                <div
+                  aria-hidden="true"
+                  className="absolute inset-x-0 bottom-0 h-[56%]"
+                  style={{
+                    opacity: 0.5,
+                    maskImage: 'linear-gradient(180deg, transparent 0%, black 38%, black 88%, transparent 100%)',
+                    WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, black 38%, black 88%, transparent 100%)',
+                  }}
+                >
+                  <RibbonScene3D preset="navy" />
+                </div>
+              ) : null
+            }
             cluster={cluster}
             feedY={reduceMotion ? 0 : feedY}
             stripY={reduceMotion ? 0 : stripY}
@@ -845,19 +866,19 @@ export function HeroStacked({ registerUrl }: { registerUrl: string }) {
             className="pointer-events-none absolute inset-0"
             style={{
               background:
-                'linear-gradient(180deg, rgba(1,12,53,0.9) 0%, rgba(1,12,53,0) 140px), linear-gradient(90deg, rgba(1,12,53,0.62) 0%, rgba(1,12,53,0.22) 46%, rgba(1,12,53,0) 72%), linear-gradient(0deg, rgba(1,12,53,0.85) 0%, rgba(1,12,53,0) 130px)',
+                'linear-gradient(180deg, rgba(1,12,53,0.9) 0%, rgba(1,12,53,0) 140px), radial-gradient(130% 100% at 14% 22%, rgba(1,12,53,0.85) 0%, rgba(1,12,53,0.42) 46%, rgba(1,12,53,0) 68%), linear-gradient(0deg, rgba(1,12,53,0.85) 0%, rgba(1,12,53,0) 130px)',
             }}
           />
         </div>
 
-        <div className="relative px-6 pt-[150px]">
+        <div className="relative px-6 pt-[124px]">
           <div className="mx-auto max-w-[600px]">
             <HeroCopy registerUrl={registerUrl} withStats={false} />
           </div>
         </div>
 
         {/* The tabletop window: the cluster seats here inside the plate */}
-        <div className="h-[42svh] min-h-[280px]" aria-hidden="true" />
+        <div className="h-[26svh] min-h-[240px]" aria-hidden="true" />
       </div>
 
       {/* The five growth signals as one live ticker line, then the proof */}
