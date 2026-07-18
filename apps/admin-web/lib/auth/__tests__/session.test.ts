@@ -137,6 +137,7 @@ const BACKEND_OPERATIONS_CAPS: AdminCapability[] = [
   'merchant:sign-agreement',
   'redemption:read',
   'merchant:notes',
+  'contract:view-evidence',
 ]
 
 // The SUPER_ADMIN-only caps: declared in the union but intentionally NOT in
@@ -185,6 +186,17 @@ describe('OPERATIONS grant mirrors the backend ALL_SLICE1_CAPS exactly', () => {
     expect(hasCapability('FINANCE', 'merchant:sign-agreement')).toBe(false)
     expect(hasCapability('CONTENT', 'merchant:sign-agreement')).toBe(false)
     expect(hasCapability('SUPPORT', 'merchant:sign-agreement')).toBe(false)
+  })
+
+  it('D65 lane-2: contract:view-evidence held by OPERATIONS + SUPER_ADMIN, NOT FIELD/FINANCE/CONTENT/SUPPORT', () => {
+    // Mirrors the backend tests/api/admin/capability.test.ts D65 lane-2 pin. Distinct from
+    // merchant:sign-agreement (which FIELD holds): the evidence-read surface is OPERATIONS + SUPER only.
+    expect(hasCapability('OPERATIONS', 'contract:view-evidence')).toBe(true)
+    expect(hasCapability('SUPER_ADMIN', 'contract:view-evidence')).toBe(true)
+    expect(hasCapability('FIELD', 'contract:view-evidence')).toBe(false)
+    expect(hasCapability('FINANCE', 'contract:view-evidence')).toBe(false)
+    expect(hasCapability('CONTENT', 'contract:view-evidence')).toBe(false)
+    expect(hasCapability('SUPPORT', 'contract:view-evidence')).toBe(false)
   })
 })
 

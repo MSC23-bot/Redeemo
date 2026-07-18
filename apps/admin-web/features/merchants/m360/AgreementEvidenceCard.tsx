@@ -2,26 +2,30 @@
 
 /**
  * AgreementEvidenceCard: the Merchant 360 contract / agreement evidence block
- * (D65 Slice 4, spec docs/superpowers/specs/2026-07-10-d65-in-person-signing.md
- * §8.1).
+ * (D65 Slice 4 summary + lane-2 evidence read, decision doc
+ * docs/superpowers/specs/2026-07-15-d65-legal-object-decision.md §11/§17).
  *
- * Renders the current contract facts from the EXISTING merchant-detail `agreement`
- * block (contractStatus, signatureMethod, signedAt, contract window). No new
- * backend read is invented here.
+ * The card always renders the current-contract summary from the EXISTING merchant-detail
+ * `agreement` block (contractStatus, method, signed date, term window). ON TOP of that, when the
+ * admin holds `contract:view-evidence` and the contract is signed, it offers a "View signing
+ * evidence" ACTION that loads the ORDINARY-tier evidence detail ON EXPLICIT CLICK ONLY (never
+ * auto-fetched, so opening M360 does not fire the audited read). The loaded detail shows the
+ * agreement version + status, the canonical + reviewed content hashes, the signatory name + role,
+ * the method, the signed timestamp, and the witness NAME, plus a "Download signed PDF" button that
+ * hits the SERVER-PROXIED pdf route (a normal authenticated download, NOT a presigned link).
  *
- * INTEGRATION NOTE (Slice 4 backend, not in the signing backend PR): the immutable
- * per-signing evidence ledger (MerchantAgreementRecord: agreement version, content
- * hash prefix, signer name + role, method, watermark/gated state) and the
- * short-lived presigned PDF download are served by a NET-NEW admin read
- * (getMerchantDetail `contract` block + a `contract:view-evidence` download route)
- * that this PR's backend dependency (the signing PR) does not add. Until that read
- * ships, this card presents the current-contract summary the detail payload
- * already carries and marks the richer evidence + download as pending. Wire the
- * evidence rows + presigned download here when the Slice 4 read lands.
+ * WITHHELD tier (§11): witnessEmail / ipAddress / userAgent are never in the payload and are never
+ * shown here (reserved for a future separately-gated legal-export surface). The copy never states
+ * or implies solicitor approval (owner-locked framing).
  */
-import { FileSignature, Download } from 'lucide-react'
+import { useState } from 'react'
+import { FileSignature, Download, ShieldCheck, Loader2 } from 'lucide-react'
+import { useMutation } from '@tanstack/react-query'
 import { Badge } from '@/features/shared/Badge'
 import type { BadgeTone } from '@/features/shared/Badge'
+import { NamedGateBanner } from '@/features/review/NamedGateBanner'
+import { agreementApi } from '@/lib/api/agreement'
+import { useAgreementEvidence } from '@/lib/agreement/useAgreementEvidence'
 import type { Agreement } from '@/lib/api/merchants'
 
 const dateTimeFmt = new Intl.DateTimeFormat('en-GB', {
@@ -65,18 +69,62 @@ function methodLabel(method: string | null): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-function EvidenceRow({ label, value }: { label: string; value: string }) {
+// The download surfaces STORAGE_NOT_ENABLED (shared copy is document-upload-specific), so give it
+// download-appropriate wording here without changing its meaning elsewhere.
+const EVIDENCE_ERROR_OVERRIDES: Record<string, string> = {
+  STORAGE_NOT_ENABLED:
+    'The signed PDF is not available because document storage is not enabled yet. Please try again later or contact support.',
+  EVIDENCE_NOT_FOUND:
+    'No signing-evidence record was found for this merchant. If the contract was accepted through the older self-serve flow, a full evidence record may not exist.',
+  AGREEMENT_EVIDENCE_INTEGRITY_FAILURE:
+    'The stored signed agreement could not be verified, so it was not released. This has been flagged for reconciliation; please contact support.',
+  AGREEMENT_EVIDENCE_RATE_LIMITED:
+    'Too many evidence requests. Please wait a moment and try again.',
+}
+
+function EvidenceRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
       <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 text-sm text-foreground">{value}</dd>
+      <dd className={`mt-0.5 text-sm text-foreground${mono ? ' break-all font-mono text-xs' : ''}`}>{value}</dd>
     </div>
   )
 }
 
-export function AgreementEvidenceCard({ agreement }: { agreement: Agreement | undefined }) {
+interface AgreementEvidenceCardProps {
+  agreement: Agreement | undefined
+  /** The merchant whose evidence this card reads (the M360 subject). */
+  merchantId: string
+  /** UI gate mirror of contract:view-evidence (OPERATIONS + SUPER_ADMIN). */
+  canViewEvidence: boolean
+}
+
+export function AgreementEvidenceCard({ agreement, merchantId, canViewEvidence }: AgreementEvidenceCardProps) {
   const pill = statusPill(agreement?.contractStatus)
   const isSigned = agreement?.contractStatus === 'SIGNED'
+
+  // Load-on-click: the evidence read is disabled until the admin explicitly requests it, so opening
+  // M360 never auto-fetches (or audits) the evidence.
+  const [requested, setRequested] = useState(false)
+  const evidence = useAgreementEvidence(merchantId, requested)
+
+  const downloadMutation = useMutation({
+    mutationFn: () => agreementApi.downloadEvidencePdf(merchantId),
+    onSuccess: (blob) => {
+      // A normal authenticated download: turn the proxied bytes into a client-side download. No
+      // presigned URL is ever involved (decision doc §17).
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `signed-agreement-${merchantId}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    },
+  })
+
+  const showEvidenceAction = canViewEvidence && isSigned
 
   return (
     <section
@@ -106,24 +154,70 @@ export function AgreementEvidenceCard({ agreement }: { agreement: Agreement | un
         </p>
       )}
 
-      {/* Slice 4 pending: the immutable evidence ledger (version, content-hash
-          prefix, signer name + role, watermark state) and the short-lived
-          presigned PDF download arrive with the net-new admin evidence read. */}
-      <div className="mt-4 border-t border-border pt-4">
-        <button
-          type="button"
-          disabled
-          data-testid="agreement-download"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-muted-foreground"
-        >
-          <Download className="size-4" aria-hidden="true" />
-          Download signed agreement
-        </button>
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          The signed document download and the full signing evidence (agreement version, content
-          hash, signatory, and watermark state) become available with the evidence view.
-        </p>
-      </div>
+      {/* D65 lane-2: the signing-evidence read, gated on contract:view-evidence + a signed
+          contract. Loaded on EXPLICIT click only (never auto-fetched). */}
+      {showEvidenceAction && (
+        <div className="mt-4 border-t border-border pt-4">
+          {!requested ? (
+            <button
+              type="button"
+              onClick={() => setRequested(true)}
+              data-testid="agreement-view-evidence"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ShieldCheck className="size-4" aria-hidden="true" />
+              View signing evidence
+            </button>
+          ) : evidence.isFetching && !evidence.data ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="agreement-evidence-loading">
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              Loading signing evidence...
+            </div>
+          ) : evidence.isError ? (
+            <NamedGateBanner error={evidence.error} overrides={EVIDENCE_ERROR_OVERRIDES} />
+          ) : evidence.data ? (
+            <div data-testid="agreement-evidence-detail">
+              {evidence.data.gated && (
+                <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" data-testid="agreement-evidence-draft">
+                  This agreement version is a draft and is pending legal review.
+                </p>
+              )}
+              <dl className="grid gap-4 sm:grid-cols-2">
+                <EvidenceRow label="Agreement version" value={evidence.data.agreementVersion} />
+                <EvidenceRow label="Method" value={methodLabel(evidence.data.method)} />
+                <EvidenceRow label="Signatory" value={evidence.data.signerName} />
+                <EvidenceRow label="Signatory role" value={evidence.data.signerRoleConfirmation} />
+                <EvidenceRow label="Signed" value={formatDateTime(evidence.data.signedAt)} />
+                <EvidenceRow label="Witness" value={evidence.data.witnessName ?? 'None (self-serve)'} />
+                <EvidenceRow label="Canonical content hash" value={evidence.data.contentHash} mono />
+                <EvidenceRow label="Reviewed content hash" value={evidence.data.reviewedContentHash} mono />
+              </dl>
+
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => downloadMutation.mutate()}
+                  disabled={downloadMutation.isPending}
+                  data-testid="agreement-evidence-download"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {downloadMutation.isPending ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Download className="size-4" aria-hidden="true" />
+                  )}
+                  Download signed PDF
+                </button>
+                {downloadMutation.isError && (
+                  <div className="mt-3">
+                    <NamedGateBanner error={downloadMutation.error} overrides={EVIDENCE_ERROR_OVERRIDES} />
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
     </section>
   )
 }

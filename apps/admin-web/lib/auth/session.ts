@@ -100,6 +100,12 @@ export type AdminCapability =
   // OPERATIONS), so under the SUPER_ADMIN short-circuit it is held ONLY by
   // SUPER_ADMIN. Keep aligned with the backend src/api/admin/capability.ts.
   | 'admin:manage-team'
+  // D65 lane-2 (evidence read): gates the Merchant 360 "View signing evidence"
+  // action + the "Download signed PDF" download (the ordinary-tier evidence read
+  // + the server-proxied PDF retrieval). IS in ALL_SLICE1_CAPS (OPERATIONS holds
+  // it) + SUPER_ADMIN via the short-circuit; NOT in FIELD_CAPABILITIES and NOT
+  // grantable. Keep aligned with the backend src/api/admin/capability.ts.
+  | 'contract:view-evidence'
 
 // Exhaustiveness guard: TypeScript errors if a capability is added to (or
 // removed from) the AdminCapability union above without a matching edit
@@ -132,6 +138,7 @@ const CAPABILITY_EXHAUSTIVENESS_GUARD: Record<AdminCapability, true> = {
   'lead:manage': true,
   'merchant:notes': true,
   'admin:manage-team': true,
+  'contract:view-evidence': true,
 }
 
 /**
@@ -170,6 +177,8 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'redemption:read',
   // MerchantNote packet: OPERATIONS holds the universal notes cap via its list.
   'merchant:notes',
+  // D65 lane-2: OPERATIONS may view signing evidence + download the signed PDF.
+  'contract:view-evidence',
 ]
 
 // Team & Roles S1/S3: FIELD baseline (owner-locked UNION set — see spec

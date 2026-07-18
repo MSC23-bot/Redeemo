@@ -120,6 +120,11 @@ function MerchantWorkspace() {
   // Lifecycle (suspend/reactivate) gates on merchant:suspend, exactly as the
   // directory flow does.
   const canLifecycle = can('merchant:suspend')
+  // D65 lane-2: the Overview signing-evidence read (view detail + download the
+  // server-proxied signed PDF) gates on contract:view-evidence (OPERATIONS +
+  // SUPER_ADMIN). Loaded on an explicit click only; the backend
+  // requireAdminCapability is the enforcement.
+  const canViewEvidence = can('contract:view-evidence')
 
   const { data, isLoading, isError, refetch } = useMerchantDetail(id, canRead)
 
@@ -191,6 +196,7 @@ function MerchantWorkspace() {
             <OverviewTab
               data={data}
               canSubmit={canSubmit}
+              canViewEvidence={canViewEvidence}
               onSubmitForReview={() => setDialog({ kind: 'submit' })}
             />
           )}

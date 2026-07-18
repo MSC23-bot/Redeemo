@@ -116,6 +116,18 @@ const CODE_MESSAGES: Record<string, string> = {
   // D65 personalised-agreement preview limiter: too many preview renders in a short window.
   AGREEMENT_PREVIEW_RATE_LIMITED:
     'Too many preview requests. Please wait a moment and try generating the agreement again.',
+  // D65 lane-2: the signing-evidence read (Merchant 360 "View signing evidence" + the
+  // server-proxied signed-PDF download). EVIDENCE_NOT_FOUND is the non-leaking 404 (no evidence
+  // record for this merchant). AGREEMENT_EVIDENCE_INTEGRITY_FAILURE (502) is the §17 fail-closed
+  // outcome: the stored PDF did not verify, so nothing was released (flagged for reconciliation).
+  // AGREEMENT_EVIDENCE_RATE_LIMITED is the bounded evidence-read limiter. This copy never states
+  // or implies solicitor approval (owner-locked framing).
+  EVIDENCE_NOT_FOUND:
+    'No signing-evidence record was found for this merchant.',
+  AGREEMENT_EVIDENCE_INTEGRITY_FAILURE:
+    'The stored signed agreement could not be verified, so it was not released. This has been flagged for reconciliation; please contact support.',
+  AGREEMENT_EVIDENCE_RATE_LIMITED:
+    'Too many evidence requests. Please wait a moment and try again.',
   // AGREEMENT_SIGNER_INVALID covers several server-side conditions behind one code
   // (empty name/role, a missing witnessing rep, a rep that fails to resolve), but the
   // only one a client can actually reach in normal use is the same-name safeguard: the

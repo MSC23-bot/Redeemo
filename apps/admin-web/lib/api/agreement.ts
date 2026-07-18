@@ -111,6 +111,34 @@ const agreementTextResponseSchema = z.object({
 })
 export type AgreementTextResponse = z.infer<typeof agreementTextResponseSchema>
 
+// ── Evidence read (D65 lane-2; Merchant 360 "View signing evidence") ──────────────
+
+// The ORDINARY-tier evidence detail (decision doc §11). The WITHHELD tier (witnessEmail /
+// ipAddress / userAgent) and the raw pdfKey are NEVER in this payload by construction: the
+// backend curates the response, so there are no fields for them here. `witnessName` is null on a
+// self-serve (no-witness) signing.
+const agreementEvidenceResponseSchema = z.object({
+  agreementVersion: z.string(),
+  /** The version's own draft status. */
+  isDraft: z.boolean(),
+  /** Watermark / pending-legal-review driver (isVersionWatermarked semantics). */
+  gated: z.boolean(),
+  /** The canonical (unsubstituted-template) content hash pinned at signing. */
+  contentHash: z.string(),
+  /** sha256 of the immutable personalised reviewed body (the legally accepted object). */
+  reviewedContentHash: z.string(),
+  /** The signature of record (typed full name). */
+  signerName: z.string(),
+  /** The signatory's authority attestation. */
+  signerRoleConfirmation: z.string(),
+  method: z.string(),
+  /** ISO over the wire (Prisma DateTime serialises to a string). */
+  signedAt: z.string(),
+  /** The witnessing rep's NAME (in-person); null on self-serve. Email is WITHHELD. */
+  witnessName: z.string().nullable(),
+})
+export type AgreementEvidenceResponse = z.infer<typeof agreementEvidenceResponseSchema>
+
 // ── Response schema ─────────────────────────────────────────────────────────────
 
 const signAgreementResponseSchema = z.object({
@@ -184,5 +212,35 @@ export const agreementApi = {
       }),
     })
     return signAgreementResponseSchema.parse(raw)
+  },
+
+  /**
+   * D65 lane-2: read the ORDINARY-tier signing evidence for a merchant (the Merchant 360 "View
+   * signing evidence" action). Loaded on an EXPLICIT admin click, never auto-fetched. Gated on
+   * contract:view-evidence server-side; a merchant with no record 404s EVIDENCE_NOT_FOUND
+   * (non-leaking). The withheld tier + pdfKey are never in the payload. Throws ApiError on the
+   * documented codes (ADMIN_CAPABILITY_DENIED, EVIDENCE_NOT_FOUND, AGREEMENT_EVIDENCE_RATE_LIMITED).
+   */
+  getEvidence: async (merchantId: string): Promise<AgreementEvidenceResponse> => {
+    const raw = await apiFetch<unknown>(`/api/v1/admin/merchants/${merchantId}/agreement/evidence`, {
+      method: 'GET',
+      auth: true,
+    })
+    return agreementEvidenceResponseSchema.parse(raw)
+  },
+
+  /**
+   * D65 lane-2: download the signed-agreement PDF via the SERVER-PROXIED route (decision doc §17),
+   * NOT a presigned URL. A normal authenticated request that returns the verified PDF bytes as a
+   * Blob (the backend fetches, re-hashes, compares, and streams the same bytes only on a match).
+   * Throws ApiError on a fail-closed response (AGREEMENT_EVIDENCE_INTEGRITY_FAILURE,
+   * STORAGE_NOT_ENABLED, EVIDENCE_NOT_FOUND, ADMIN_CAPABILITY_DENIED, AGREEMENT_EVIDENCE_RATE_LIMITED).
+   */
+  downloadEvidencePdf: async (merchantId: string): Promise<Blob> => {
+    return apiFetch<Blob>(`/api/v1/admin/merchants/${merchantId}/agreement/evidence/pdf`, {
+      method: 'GET',
+      auth: true,
+      blob: true,
+    })
   },
 }

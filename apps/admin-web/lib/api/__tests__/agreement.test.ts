@@ -215,3 +215,68 @@ describe('agreementApi.sign response parsing', () => {
     await expect(agreementApi.sign('m-1', SIGN_INPUT)).rejects.toThrow()
   })
 })
+
+// ── agreementApi.getEvidence: the D65 lane-2 ordinary-tier evidence detail ────────
+
+function evidenceResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    agreementVersion: '2.1-draft',
+    isDraft: true,
+    gated: true,
+    contentHash: 'canonicalhash',
+    reviewedContentHash: 'reviewedhash',
+    signerName: 'Priya Nair',
+    signerRoleConfirmation: 'Owner',
+    method: 'IN_PERSON_ASSISTED',
+    signedAt: '2026-07-16T10:00:00.000Z',
+    witnessName: 'Sam Rep',
+    ...overrides,
+  }
+}
+
+describe('agreementApi.getEvidence', () => {
+  it('GETs the merchant-scoped evidence URL with auth:true', async () => {
+    mockedApiFetch.mockResolvedValueOnce(evidenceResponse())
+    await agreementApi.getEvidence('m-1')
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/api/v1/admin/merchants/m-1/agreement/evidence',
+      { method: 'GET', auth: true }
+    )
+  })
+
+  it('returns the parsed ordinary tier; witnessName may be null (self-serve)', async () => {
+    mockedApiFetch.mockResolvedValueOnce(evidenceResponse({ witnessName: null, method: 'SELF_SERVE_CLICK' }))
+    const result = await agreementApi.getEvidence('m-1')
+    expect(result.signerName).toBe('Priya Nair')
+    expect(result.reviewedContentHash).toBe('reviewedhash')
+    expect(result.witnessName).toBeNull()
+    expect(result.method).toBe('SELF_SERVE_CLICK')
+  })
+
+  it('throws when a required field is missing (contract drift surfaces clearly)', async () => {
+    const missing = evidenceResponse()
+    delete (missing as { reviewedContentHash?: string }).reviewedContentHash
+    mockedApiFetch.mockResolvedValueOnce(missing)
+    await expect(agreementApi.getEvidence('m-1')).rejects.toThrow()
+  })
+})
+
+// ── agreementApi.downloadEvidencePdf: the server-proxied PDF (NOT a presigned link) ─
+
+describe('agreementApi.downloadEvidencePdf', () => {
+  it('GETs the server-proxied pdf URL with auth:true + blob:true and returns the Blob', async () => {
+    const blob = new Blob(['%PDF'], { type: 'application/pdf' })
+    mockedApiFetch.mockResolvedValueOnce(blob)
+    const result = await agreementApi.downloadEvidencePdf('m-9')
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/api/v1/admin/merchants/m-9/agreement/evidence/pdf',
+      { method: 'GET', auth: true, blob: true }
+    )
+    expect(result).toBe(blob)
+  })
+
+  it('propagates a fail-closed ApiError (integrity failure / storage off)', async () => {
+    mockedApiFetch.mockRejectedValueOnce(new Error('AGREEMENT_EVIDENCE_INTEGRITY_FAILURE'))
+    await expect(agreementApi.downloadEvidencePdf('m-9')).rejects.toThrow('AGREEMENT_EVIDENCE_INTEGRITY_FAILURE')
+  })
+})

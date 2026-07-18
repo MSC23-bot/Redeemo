@@ -1,16 +1,48 @@
 /**
- * AgreementEvidenceCard (D65 Slice 4): the Merchant 360 contract evidence block.
+ * AgreementEvidenceCard (D65 Slice 4 summary + lane-2 evidence read). Covers:
+ *   - signed / unsigned / missing-agreement summary rendering (unchanged)
+ *   - the "View signing evidence" action is CAP-GATED (absent without contract:view-evidence)
+ *     and only offered for a SIGNED contract
+ *   - the evidence detail is loaded ON EXPLICIT CLICK ONLY (enabled:false until clicked)
+ *   - the loaded detail shows the ordinary tier and NEVER the withheld fields
+ *   - "Download signed PDF" hits the server-proxied download (agreementApi.downloadEvidencePdf)
+ *   - an evidence read error surfaces via NamedGateBanner
  *
- * Covers: the signed state renders the current-contract facts from the existing
- * merchant-detail `agreement` block (method label, term window, signed date); the
- * unsigned state renders the honest not-signed copy; and the download / richer
- * evidence affordance is disabled while the Slice 4 evidence read is pending
- * (never fabricated).
+ * The evidence hook is mocked (controllable state); the download runs through a real
+ * QueryClientProvider with agreementApi.downloadEvidencePdf mocked.
  */
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AgreementEvidenceCard } from '../AgreementEvidenceCard'
+import { ApiError } from '@/lib/api/client'
 import type { Agreement } from '@/lib/api/merchants'
+import type { AgreementEvidenceResponse } from '@/lib/api/agreement'
+
+// ── Mocks ─────────────────────────────────────────────────────────────────────
+
+let mockEvidence: {
+  data: AgreementEvidenceResponse | undefined
+  isFetching: boolean
+  isError: boolean
+  error: unknown
+  refetch: jest.Mock
+}
+const mockUseAgreementEvidence = jest.fn()
+jest.mock('@/lib/agreement/useAgreementEvidence', () => ({
+  useAgreementEvidence: (merchantId: string, enabled: boolean) => {
+    mockUseAgreementEvidence(merchantId, enabled)
+    return mockEvidence
+  },
+}))
+
+jest.mock('@/lib/api/agreement', () => ({
+  agreementApi: { downloadEvidencePdf: jest.fn() },
+}))
+import { agreementApi } from '@/lib/api/agreement'
+const mockDownload = agreementApi.downloadEvidencePdf as jest.Mock
+
+// ── Fixtures / helpers ──────────────────────────────────────────────────────────
 
 function signed(overrides: Partial<Agreement> = {}): Agreement {
   return {
@@ -23,30 +55,133 @@ function signed(overrides: Partial<Agreement> = {}): Agreement {
   }
 }
 
-describe('AgreementEvidenceCard', () => {
+const EVIDENCE: AgreementEvidenceResponse = {
+  agreementVersion: '2.1-draft',
+  isDraft: true,
+  gated: true,
+  contentHash: 'canonicalhash1234',
+  reviewedContentHash: 'reviewedhash5678',
+  signerName: 'Priya Nair',
+  signerRoleConfirmation: 'Owner',
+  method: 'IN_PERSON_ASSISTED',
+  signedAt: '2026-07-16T10:00:00.000Z',
+  witnessName: 'Sam Rep',
+}
+
+function renderCard(props: { agreement: Agreement | undefined; merchantId?: string; canViewEvidence?: boolean }) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  return render(
+    <QueryClientProvider client={client}>
+      <AgreementEvidenceCard
+        agreement={props.agreement}
+        merchantId={props.merchantId ?? 'm-1'}
+        canViewEvidence={props.canViewEvidence ?? false}
+      />
+    </QueryClientProvider>,
+  )
+}
+
+beforeEach(() => {
+  mockEvidence = { data: undefined, isFetching: false, isError: false, error: undefined, refetch: jest.fn() }
+  mockUseAgreementEvidence.mockClear()
+  mockDownload.mockReset()
+  ;(global.URL.createObjectURL as unknown) = jest.fn(() => 'blob:mock')
+  ;(global.URL.revokeObjectURL as unknown) = jest.fn()
+  // Stub the anchor click so jsdom does not attempt (unimplemented) navigation on the download.
+  jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+})
+
+afterEach(() => {
+  jest.restoreAllMocks()
+})
+
+// ── Summary (unchanged) ─────────────────────────────────────────────────────────
+
+describe('AgreementEvidenceCard summary', () => {
   it('renders the signed contract facts from the agreement block', () => {
-    render(<AgreementEvidenceCard agreement={signed()} />)
-    expect(screen.getByTestId('agreement-evidence-card')).toBeInTheDocument()
+    renderCard({ agreement: signed() })
     const facts = screen.getByTestId('agreement-evidence-facts')
     expect(facts).toHaveTextContent(/Click to agree/i)
-    expect(facts).toHaveTextContent('2026') // signed + term dates
+    expect(facts).toHaveTextContent('2026')
     expect(screen.queryByTestId('agreement-evidence-unsigned')).not.toBeInTheDocument()
   })
 
   it('renders the honest not-signed state when the contract is unsigned', () => {
-    render(<AgreementEvidenceCard agreement={signed({ contractStatus: 'NOT_SIGNED', signedAt: null })} />)
+    renderCard({ agreement: signed({ contractStatus: 'NOT_SIGNED', signedAt: null }) })
     expect(screen.getByTestId('agreement-evidence-unsigned')).toHaveTextContent(/not signed the 12-month agreement/i)
     expect(screen.queryByTestId('agreement-evidence-facts')).not.toBeInTheDocument()
   })
 
   it('handles a missing agreement block without crashing', () => {
-    render(<AgreementEvidenceCard agreement={undefined} />)
+    renderCard({ agreement: undefined })
     expect(screen.getByTestId('agreement-evidence-card')).toBeInTheDocument()
     expect(screen.getByTestId('agreement-evidence-unsigned')).toBeInTheDocument()
   })
+})
 
-  it('keeps the signed-document download disabled until the evidence read ships', () => {
-    render(<AgreementEvidenceCard agreement={signed()} />)
-    expect(screen.getByTestId('agreement-download')).toBeDisabled()
+// ── Lane-2 evidence read ─────────────────────────────────────────────────────────
+
+describe('AgreementEvidenceCard signing-evidence read', () => {
+  it('CAP-GATED: no "View signing evidence" action without contract:view-evidence', () => {
+    renderCard({ agreement: signed(), canViewEvidence: false })
+    expect(screen.queryByTestId('agreement-view-evidence')).not.toBeInTheDocument()
+  })
+
+  it('no evidence action for an unsigned contract even with the capability', () => {
+    renderCard({ agreement: signed({ contractStatus: 'NOT_SIGNED', signedAt: null }), canViewEvidence: true })
+    expect(screen.queryByTestId('agreement-view-evidence')).not.toBeInTheDocument()
+  })
+
+  it('offers the action but does NOT auto-load the evidence (enabled:false until clicked)', () => {
+    renderCard({ agreement: signed(), canViewEvidence: true })
+    expect(screen.getByTestId('agreement-view-evidence')).toBeInTheDocument()
+    expect(screen.queryByTestId('agreement-evidence-detail')).not.toBeInTheDocument()
+    // The hook was mounted disabled: no request fires on M360 open.
+    expect(mockUseAgreementEvidence).toHaveBeenCalledWith('m-1', false)
+    expect(mockUseAgreementEvidence).not.toHaveBeenCalledWith('m-1', true)
+  })
+
+  it('loads ON CLICK: enables the read and renders the ordinary tier, NEVER the withheld fields', () => {
+    mockEvidence.data = EVIDENCE
+    renderCard({ agreement: signed(), canViewEvidence: true })
+
+    fireEvent.click(screen.getByTestId('agreement-view-evidence'))
+
+    // The read is now enabled (load-on-click).
+    expect(mockUseAgreementEvidence).toHaveBeenLastCalledWith('m-1', true)
+    const detail = screen.getByTestId('agreement-evidence-detail')
+    expect(detail).toHaveTextContent('2.1-draft')
+    expect(detail).toHaveTextContent('Priya Nair')
+    expect(detail).toHaveTextContent('Owner')
+    expect(detail).toHaveTextContent('Sam Rep')
+    expect(detail).toHaveTextContent('canonicalhash1234')
+    expect(detail).toHaveTextContent('reviewedhash5678')
+    // The draft version is flagged (never claims solicitor approval).
+    expect(screen.getByTestId('agreement-evidence-draft')).toBeInTheDocument()
+    // WITHHELD tier is never present in the DOM (there are no fields for it).
+    expect(detail).not.toHaveTextContent(/@/) // no witness email
+    expect(detail).not.toHaveTextContent('203.0.113') // no IP
+    expect(detail).not.toHaveTextContent(/mozilla|tablet/i) // no user-agent
+  })
+
+  it('"Download signed PDF" hits the server-proxied download route', async () => {
+    mockEvidence.data = EVIDENCE
+    mockDownload.mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }))
+    renderCard({ agreement: signed(), merchantId: 'm-42', canViewEvidence: true })
+
+    fireEvent.click(screen.getByTestId('agreement-view-evidence'))
+    fireEvent.click(screen.getByTestId('agreement-evidence-download'))
+
+    await waitFor(() => expect(mockDownload).toHaveBeenCalledWith('m-42'))
+  })
+
+  it('surfaces an evidence read error via NamedGateBanner', () => {
+    mockEvidence.isError = true
+    mockEvidence.error = new ApiError(404, { error: { code: 'EVIDENCE_NOT_FOUND' } })
+    renderCard({ agreement: signed(), canViewEvidence: true })
+
+    fireEvent.click(screen.getByTestId('agreement-view-evidence'))
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(/no signing-evidence record/i)
+    expect(screen.queryByTestId('agreement-evidence-detail')).not.toBeInTheDocument()
   })
 })

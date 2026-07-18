@@ -65,6 +65,14 @@ export class ApiError extends Error {
 export type ApiFetchOptions = RequestInit & {
   /** Attach the admin bearer token (and enable 401 refresh-once-retry). */
   auth?: boolean
+  /**
+   * Return the response body as a Blob (a binary download, e.g. the D65 lane-2
+   * server-proxied signed-agreement PDF) instead of parsing JSON. All the auth /
+   * 401-refresh-retry / ApiError-on-non-2xx handling is reused unchanged; only the
+   * SUCCESS body is read as a Blob. An error response is still parsed as the JSON
+   * error envelope into an ApiError, so a NamedGateBanner can render it.
+   */
+  blob?: boolean
   /** Internal: set on the retried request so a second 401 does not re-refresh. */
   _isRetry?: boolean
 }
@@ -134,7 +142,7 @@ export async function apiFetch<T>(
   path: string,
   options: ApiFetchOptions = {}
 ): Promise<T> {
-  const { auth = false, _isRetry = false, ...init } = options
+  const { auth = false, blob = false, _isRetry = false, ...init } = options
   const headers = new Headers(init.headers)
 
   // Default JSON, EXCEPT for a FormData body (B4 document upload): the browser
@@ -180,6 +188,10 @@ export async function apiFetch<T>(
   }
 
   if (res.status === 204) return undefined as T
+
+  // Binary download (blob:true): read the SUCCESS body as a Blob. Reached only after the
+  // refresh-retry + non-2xx-throws-ApiError handling above, so an error response never gets here.
+  if (blob) return (await res.blob()) as T
 
   return (await res.json()) as T
 }
