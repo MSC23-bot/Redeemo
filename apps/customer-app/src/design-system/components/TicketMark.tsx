@@ -32,7 +32,7 @@ type Props = {
 
 export function TicketMark({ size = 16, fill = color.brandRose, testID }: Props) {
   return (
-    <Svg width={size} height={size * (12 / 16)} viewBox="0 0 16 12" testID={testID}>
+    <Svg width={size} height={size * (12 / 16)} viewBox="0 0 16 12" {...(testID !== undefined ? { testID } : {})}>
       <Path d={TICKET_PATH} fill={fill} />
       <Line
         x1={4.8}
