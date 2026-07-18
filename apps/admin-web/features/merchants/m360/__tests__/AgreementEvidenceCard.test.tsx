@@ -13,7 +13,6 @@
  */
 import React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AgreementEvidenceCard } from '../AgreementEvidenceCard'
 import { ApiError } from '@/lib/api/client'
 import type { Agreement } from '@/lib/api/merchants'
@@ -69,15 +68,14 @@ const EVIDENCE: AgreementEvidenceResponse = {
 }
 
 function renderCard(props: { agreement: Agreement | undefined; merchantId?: string; canViewEvidence?: boolean }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  // No QueryClientProvider: the evidence hook is mocked and the download is a plain handler, so the
+  // card carries no react-query dependency of its own.
   return render(
-    <QueryClientProvider client={client}>
-      <AgreementEvidenceCard
-        agreement={props.agreement}
-        merchantId={props.merchantId ?? 'm-1'}
-        canViewEvidence={props.canViewEvidence ?? false}
-      />
-    </QueryClientProvider>,
+    <AgreementEvidenceCard
+      agreement={props.agreement}
+      merchantId={props.merchantId ?? 'm-1'}
+      canViewEvidence={props.canViewEvidence ?? false}
+    />,
   )
 }
 

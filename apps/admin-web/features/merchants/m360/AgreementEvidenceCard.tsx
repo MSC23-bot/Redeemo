@@ -20,7 +20,6 @@
  */
 import { useState } from 'react'
 import { FileSignature, Download, ShieldCheck, Loader2 } from 'lucide-react'
-import { useMutation } from '@tanstack/react-query'
 import { Badge } from '@/features/shared/Badge'
 import type { BadgeTone } from '@/features/shared/Badge'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'
@@ -108,11 +107,17 @@ export function AgreementEvidenceCard({ agreement, merchantId, canViewEvidence }
   const [requested, setRequested] = useState(false)
   const evidence = useAgreementEvidence(merchantId, requested)
 
-  const downloadMutation = useMutation({
-    mutationFn: () => agreementApi.downloadEvidencePdf(merchantId),
-    onSuccess: (blob) => {
-      // A normal authenticated download: turn the proxied bytes into a client-side download. No
-      // presigned URL is ever involved (decision doc §17).
+  // The download is a plain one-shot handler (no react-query) so the card carries no QueryClient
+  // dependency of its own. A normal authenticated download: the server-proxied bytes are turned
+  // into a client-side download; no presigned URL is ever involved (decision doc §17).
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<unknown>(null)
+
+  async function handleDownload() {
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      const blob = await agreementApi.downloadEvidencePdf(merchantId)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -121,8 +126,12 @@ export function AgreementEvidenceCard({ agreement, merchantId, canViewEvidence }
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
-    },
-  })
+    } catch (err) {
+      setDownloadError(err)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   const showEvidenceAction = canViewEvidence && isSigned
 
@@ -196,21 +205,21 @@ export function AgreementEvidenceCard({ agreement, merchantId, canViewEvidence }
               <div className="mt-4">
                 <button
                   type="button"
-                  onClick={() => downloadMutation.mutate()}
-                  disabled={downloadMutation.isPending}
+                  onClick={handleDownload}
+                  disabled={downloading}
                   data-testid="agreement-evidence-download"
                   className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {downloadMutation.isPending ? (
+                  {downloading ? (
                     <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                   ) : (
                     <Download className="size-4" aria-hidden="true" />
                   )}
                   Download signed PDF
                 </button>
-                {downloadMutation.isError && (
+                {downloadError != null && (
                   <div className="mt-3">
-                    <NamedGateBanner error={downloadMutation.error} overrides={EVIDENCE_ERROR_OVERRIDES} />
+                    <NamedGateBanner error={downloadError} overrides={EVIDENCE_ERROR_OVERRIDES} />
                   </div>
                 )}
               </div>

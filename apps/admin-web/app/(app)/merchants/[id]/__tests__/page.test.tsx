@@ -246,6 +246,22 @@ jest.mock('@/lib/merchants/useMerchantNotes', () => ({
   merchantNotesQueryKey: (id: string) => ['admin-merchant-notes', id],
 }))
 
+// D65 lane-2: mock the Overview evidence-read hook (network I/O). The
+// AgreementEvidenceCard renders for real on the Overview tab; its own behaviour
+// (load-on-click, cap-gating, withheld fields, download) is covered by
+// AgreementEvidenceCard.test.tsx. Disabled default so the Overview render never
+// fires the read.
+jest.mock('@/lib/agreement/useAgreementEvidence', () => ({
+  useAgreementEvidence: jest.fn(() => ({
+    data: undefined,
+    isFetching: false,
+    isError: false,
+    error: undefined,
+    refetch: jest.fn(),
+  })),
+  agreementEvidenceQueryKey: (id: string) => ['admin-agreement-evidence', id],
+}))
+
 jest.mock('@/features/merchants/m360/RmvCoBuildDialog', () => ({
   RmvCoBuildDialog: ({
     merchantId,
