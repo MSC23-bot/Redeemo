@@ -836,6 +836,23 @@ model MerchantAgreementRecord {
   agreementVersion       String
   contentHash            String
 
+  // D65 personalised-agreement (reviewed-body binding, decision doc 2026-07-15
+  // §5/§6/§17). The legally accepted object is the merchant-PERSONALISED contractual
+  // body (party + signatory + known-before facts resolved), not the raw template.
+  //   reviewedBody        : the EXACT immutable UTF-8 pre-image of reviewedContentHash;
+  //     self-verifying (sha256(reviewedBody) == reviewedContentHash) and reconstructs the
+  //     accepted object with zero dependence on the mutable template/merchant/render code.
+  //     Immutability is an application contract (create-only, like the whole row).
+  //   reviewedContentHash : sha256 of reviewedBody; server-authoritative; the client echoes
+  //     it and the sign path re-derives + compares (AGREEMENT_REVIEW_HASH_MISMATCH).
+  //   pdfHash             : sha256 of the exact stored PDF bytes (record<->artifact link,
+  //     re-hash-on-retrieval integrity in the separate lane-2 read).
+  // All NOT NULL: the v2+ D65 path (assisted ceremony + self-serve) always writes them; the
+  // legacy v1 path stays OUTSIDE this table (MerchantContract only, decision doc §12).
+  reviewedContentHash    String
+  reviewedBody           String
+  pdfHash                String
+
   // Signatory identity (WHO signed). signerName is the typed full name = the
   // signature of record; signerRoleConfirmation is the authority attestation.
   signerName             String

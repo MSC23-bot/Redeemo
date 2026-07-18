@@ -17,6 +17,7 @@ import { usePathname } from 'next/navigation'
 import { Globe, Mail, Phone, BadgeCheck } from 'lucide-react'
 import { Badge } from '@/features/shared/Badge'
 import { SubmitForReviewCard } from '@/features/merchants/SubmitForReviewCard'
+import { AgreementEvidenceCard } from '@/features/merchants/m360/AgreementEvidenceCard'
 import {
   merchantStatusLabel,
   merchantStatusTone,
@@ -186,6 +187,9 @@ export function OverviewTab({ data, canSubmit, onSubmitForReview }: OverviewTabP
           </div>
         </section>
       </div>
+
+      {/* D65 Slice 4: contract / agreement evidence block. */}
+      <AgreementEvidenceCard agreement={merchant.agreement} />
     </div>
   )
 }

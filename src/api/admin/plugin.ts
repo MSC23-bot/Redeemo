@@ -10,6 +10,7 @@ import { adminTeamRoutes } from './team/routes'
 import { adminLeadRoutes } from './leads/routes'
 import { adminMerchantNoteRoutes } from './merchants/notes/routes'
 import { adminEmailOpsRoutes } from './email-ops/routes'
+import { adminAgreementRoutes } from './agreement/routes'
 
 // Phase 2 Slice 1 M2 — admin-management surface. Mirrors merchant/plugin.ts:
 // a scoped sub-plugin applies the `authenticateAdmin` preHandler to all
@@ -37,6 +38,9 @@ async function adminManagementPlugin(app: FastifyInstance) {
     // §SEC.1 GAP-7: SUPER_ADMIN-only transactional-email ops view + resume
     // (gated on email:ops, held only by SUPER_ADMIN).
     await scoped.register(adminEmailOpsRoutes)
+    // D65 signing-integrity: platform-global agreement-text read for the ceremony
+    // (gated on merchant:sign-agreement, the ceremony capability). No PII, no merchant data.
+    await scoped.register(adminAgreementRoutes)
   })
 }
 

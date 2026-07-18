@@ -214,6 +214,48 @@ describe('NamedGateBanner code mapping', () => {
     )
   })
 
+  // Team & Roles S3: the FIELD pre-live scope guard (assertFieldPreLiveScope).
+  it('maps MERCHANT_NOT_PRE_LIVE_FOR_FIELD correctly', () => {
+    render(<NamedGateBanner error={makeApiError('MERCHANT_NOT_PRE_LIVE_FOR_FIELD')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'Field reps can only act on merchants that are still being onboarded.'
+    )
+  })
+
+  // D65: the in-person assisted contract-signing ceremony (agreement/sign).
+  it('maps AGREEMENT_VERSION_MISMATCH correctly (D65)', () => {
+    render(<NamedGateBanner error={makeApiError('AGREEMENT_VERSION_MISMATCH')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'The agreement was updated. Please reload and review the current version before signing.'
+    )
+  })
+
+  it('maps CONTRACT_ALREADY_SIGNED correctly (D65)', () => {
+    render(<NamedGateBanner error={makeApiError('CONTRACT_ALREADY_SIGNED')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'This merchant has already signed the agreement. The page has refreshed.'
+    )
+  })
+
+  it('maps AGREEMENT_SIGNER_INVALID correctly (D65: honest superset covering the client-reachable same-name safeguard)', () => {
+    render(<NamedGateBanner error={makeApiError('AGREEMENT_SIGNER_INVALID')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'The signatory name must be the merchant owner or an authorised signatory, not the operator, and a role confirmation is required.'
+    )
+  })
+
+  it('maps AGREEMENT_REVIEW_HASH_MISMATCH correctly (D65 personalised-agreement)', () => {
+    render(<NamedGateBanner error={makeApiError('AGREEMENT_REVIEW_HASH_MISMATCH')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(
+      'The agreement details changed since you reviewed it. Please regenerate and review the current version before signing.'
+    )
+  })
+
+  it('maps AGREEMENT_PREVIEW_RATE_LIMITED correctly (D65 preview limiter)', () => {
+    render(<NamedGateBanner error={makeApiError('AGREEMENT_PREVIEW_RATE_LIMITED')} />)
+    expect(screen.getByTestId('named-gate-banner')).toHaveTextContent('Too many preview requests.')
+  })
+
   it('falls back to the ApiError.message for an unknown code', () => {
     const err = new ApiError(500, { error: { code: 'UNKNOWN_CODE', message: 'Something exotic happened' } })
     render(<NamedGateBanner error={err} />)

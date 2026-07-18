@@ -92,6 +92,39 @@ const CODE_MESSAGES: Record<string, string> = {
     'This voucher is no longer a draft, so it cannot be submitted. The list has refreshed.',
   RMV_FIELD_NOT_ALLOWED:
     'One of the fields cannot be edited on this voucher. The list has refreshed; try again.',
+  // D65: the in-person assisted contract-signing ceremony (agreement/sign).
+  // AGREEMENT_LEGAL_REVIEW_REQUIRED is the fail-closed legal gate: signing
+  // becomes available once legal review completes. This copy NEVER states or
+  // implies solicitor approval (owner-locked framing, spec §6).
+  AGREEMENT_LEGAL_REVIEW_REQUIRED:
+    'This agreement is pending legal review, so it cannot be signed for production yet. Signing becomes available once legal review is complete.',
+  CONTRACT_ALREADY_SIGNED:
+    'This merchant has already signed the agreement. The page has refreshed.',
+  // AGREEMENT_VERSION_MISMATCH (409): the agreement was updated since this page
+  // loaded, so the served version no longer matches. The ceremony pins the current
+  // version (it never echoes one), so it cannot itself trigger this; the mapping
+  // stays for completeness. Reload and re-review before signing.
+  AGREEMENT_VERSION_MISMATCH:
+    'The agreement was updated. Please reload and review the current version before signing.',
+  // AGREEMENT_REVIEW_HASH_MISMATCH (409): a contractual input changed since the personalised
+  // body was reviewed (or the echoed hash was tampered), so what would be signed no longer
+  // matches what was reviewed. The ceremony routes this to its dedicated re-review notice (like
+  // AGREEMENT_VERSION_MISMATCH), so it never reaches this banner in normal use; the mapping
+  // stays for completeness. Regenerate and re-review before signing.
+  AGREEMENT_REVIEW_HASH_MISMATCH:
+    'The agreement details changed since you reviewed it. Please regenerate and review the current version before signing.',
+  // D65 personalised-agreement preview limiter: too many preview renders in a short window.
+  AGREEMENT_PREVIEW_RATE_LIMITED:
+    'Too many preview requests. Please wait a moment and try generating the agreement again.',
+  // AGREEMENT_SIGNER_INVALID covers several server-side conditions behind one code
+  // (empty name/role, a missing witnessing rep, a rep that fails to resolve), but the
+  // only one a client can actually reach in normal use is the same-name safeguard: the
+  // backend refuses when the typed signer name equals the authenticated rep's own name
+  // (service.ts same-name guard). The UI cannot distinguish which condition fired, so
+  // this is an honest SUPERSET message covering both the name/role requirement and the
+  // same-name refusal, never claiming a specific cause the UI cannot verify.
+  AGREEMENT_SIGNER_INVALID:
+    'The signatory name must be the merchant owner or an authorised signatory, not the operator, and a role confirmation is required.',
   // Team & Roles S2: the SUPER_ADMIN-only account/role/grant management screen.
   CAPABILITY_NOT_GRANTABLE:
     'This capability cannot be granted from this screen.',
@@ -120,6 +153,11 @@ const CODE_MESSAGES: Record<string, string> = {
   NOTE_NOT_ACTIVE:
     'This note has already been retracted, so it cannot be edited or retracted again. The list has refreshed.',
   NOTE_RETRACT_REASON_REQUIRED: 'A reason is required to retract a note.',
+  // Team & Roles S3: the FIELD pre-live scope guard (assertFieldPreLiveScope).
+  // FIELD reps hold the assisted-onboarding on-behalf capabilities, but those
+  // apply only while the merchant is still pre-live (REGISTERED / PENDING_APPROVAL).
+  MERCHANT_NOT_PRE_LIVE_FOR_FIELD:
+    'Field reps can only act on merchants that are still being onboarded. This merchant is no longer in that state, so this action is not available here.',
 }
 
 function getMessage(error: unknown, overrides?: Record<string, string>): string {

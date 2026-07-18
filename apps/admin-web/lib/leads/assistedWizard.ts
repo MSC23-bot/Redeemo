@@ -17,13 +17,18 @@
  *   5 Staff and access (optional) · 6 Documents (optional) · 7 Contract ·
  *   8 Go-live review · 9 Handover.
  *
- * Two steps NEVER block progress and are honestly gated, because no admin
- * on-behalf route exists for them:
- *   - Step 5 Staff: there is no admin invite-staff-on-behalf route; the step is
- *     informational + skippable.
- *   - Step 7 Contract (OD6): there is no admin contract-signing route; the owner
- *     signs via the claim/portal path. The step SHOWS the real gate status
- *     (submitChecklist.contract_signed) and is skippable.
+ * Step 5 Staff NEVER blocks progress and is honestly gated, because no admin
+ * on-behalf route exists for it: there is no admin invite-staff-on-behalf route,
+ * so the step is informational + skippable.
+ *
+ * Step 7 Contract is non-blocking but is now ACTIONABLE. OD6 correction (owner
+ * decision 2026-07-10, spec 2026-07-10-d65-in-person-signing): the earlier "no
+ * admin contract-signing route" model is superseded. The rep WITNESSES the owner
+ * signing in person on the rep's device (admin-never-signs preserved: the rep is
+ * the witness, never the signatory); the portal claim/click-to-agree path stays
+ * the fallback. The step's derived status reflects the real gate
+ * (submitChecklist.contract_signed): complete once signed, otherwise incomplete
+ * (needs attention), and it never blocks moving between steps.
  *
  * Every "blocking" completion is derived ONLY from real backend signals on the
  * merchant detail payload (category, branch count, the LIVE submitChecklist,
@@ -52,8 +57,8 @@ export type WizardStepId =
  *                  landing + the amber "attention" mark).
  *   - optional   : a non-blocking step with no data yet (never blocks go-live;
  *                  neutral "optional" mark).
- *   - gated      : no admin on-behalf route exists (staff / contract); shown as
- *                  honestly gated, never blocks progress.
+ *   - gated      : no admin on-behalf route exists (staff); shown as honestly
+ *                  gated, never blocks progress.
  */
 export type WizardStepStatus = 'complete' | 'incomplete' | 'optional' | 'gated'
 
@@ -74,7 +79,7 @@ export const WIZARD_STEPS: readonly WizardStepDef[] = [
   { id: 'vouchers', num: 4, title: 'Vouchers', sub: 'Co-build the two flagship vouchers', blocking: true },
   { id: 'staff', num: 5, title: 'Staff and access', sub: 'Optional; owner is admin by default', blocking: false },
   { id: 'documents', num: 6, title: 'Documents', sub: 'Optional; verification uploads', blocking: false },
-  { id: 'contract', num: 7, title: 'Contract', sub: 'Owner signs via the portal', blocking: false },
+  { id: 'contract', num: 7, title: 'Contract', sub: 'Owner signs in person; rep witnesses', blocking: false },
   { id: 'review', num: 8, title: 'Go-live review', sub: 'The real go-live gates + submit', blocking: true },
   { id: 'handover', num: 9, title: 'Handover', sub: 'Owner claims the account', blocking: false },
 ] as const
@@ -181,9 +186,11 @@ export function deriveWizardState(detail: MerchantDetail): WizardDerivation {
     // No admin invite-staff-on-behalf route exists: honestly gated, never blocks.
     staff: 'gated',
     documents: documentsCount > 0 ? 'complete' : 'optional',
-    // OD6: no admin contract-signing route. Complete only reflects the REAL gate
-    // (the owner signed via the portal/claim path); otherwise honestly gated.
-    contract: contractSigned ? 'complete' : 'gated',
+    // OD6 correction (D65): the in-person signing ceremony is now actionable in
+    // step 7. Complete once the agreement is signed (the real gate), otherwise
+    // incomplete (needs attention). Non-blocking: it never changes the resume
+    // landing (step 8 still surfaces the gate).
+    contract: contractSigned ? 'complete' : 'incomplete',
     // Go-live review is complete once the merchant has actually been submitted
     // AND is not sitting in the changes-requested state: needsChanges keeps
     // the rail (and the resume landing) reading "needs attention", because the

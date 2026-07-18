@@ -6,7 +6,7 @@ Redeemo surface may state or imply that it carries legal approval, until a solic
 it and the owner has flipped `AGREEMENT_LEGAL_REVIEW_REQUIRED` to false.**
 
 - Document: Redeemo Merchant Agreement
-- Version: v2.0 (DRAFT)
+- Version: v2.1 (DRAFT)
 - Supersedes: the hardcoded v1.0 text in `src/api/merchant/onboarding/service.ts:12-18`
 - Jurisdiction assumed: England and Wales
 - Every clause carries an inline `[SOLICITOR: ...]` question where wording needs legal judgement.
@@ -277,15 +277,17 @@ bind {{businessLegalName}} to this Agreement:
 - Role / authority: **{{signerRoleConfirmation}}**
 - Business: **{{businessLegalName}}**
 - Agreement version: **{{agreementVersion}}**  ·  Content hash: **{{contentHash}}**
-- Date/time (Europe/London): **{{signedAt}}**
 - Signing method: **{{method}}** (in-person assisted on a Redeemo representative's device, or
   self-serve in the merchant portal)
-- Witnessed by (Redeemo representative, in-person assisted only): **{{actorAdminName}}**
-- IP address: **{{ipAddress}}**  ·  Device/user-agent: **{{userAgent}}**
 
 The typed full name above is the signatory's electronic signature. Where a touchscreen was
 available, an optional drawn signature may also have been captured; it does not replace the typed
 name as the acceptance.
+
+The date and time of signing, the signing device and IP address, and (for in-person assisted
+signing) the witnessing Redeemo representative are recorded separately as signing evidence at the
+moment of signing, and are set out in the signing-evidence block appended to the signed PDF; they
+are not part of the reviewed contractual body above.
 
 [SOLICITOR: confirm a typed-name simple electronic signature + evidence pack is sufficient execution
 for this Agreement, or whether a witnessed / advanced electronic signature is required; confirm the

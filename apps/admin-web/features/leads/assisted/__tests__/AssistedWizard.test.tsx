@@ -4,7 +4,8 @@
  * Covers: the page-level merchant:read fail-closed gate; loading / error
  * states; the resume-derivation landing (URL `?step=` overrides, else the
  * derived resume step); free step navigation (rail + footer write `?step=`);
- * the honestly-gated steps (staff / contract) rendering their gate copy; the
+ * the honestly-gated staff step + the D65 contract ceremony (rendered when the
+ * sign-agreement cap is held, capability-gated otherwise); the
  * go-live review submit path (submit card shown, submit gated, submitted /
  * live states); per-affordance capability gating; and the handover honesty.
  *
@@ -94,6 +95,14 @@ jest.mock('@/features/merchants/DeleteBranchConfirm', () => ({
 jest.mock('@/features/merchants/SubmitMerchantDialog', () => ({
   SubmitMerchantDialog: ({ isResubmit }: { isResubmit: boolean }) => (
     <div data-testid="mock-submit-dialog" data-is-resubmit={String(isResubmit)} />
+  ),
+}))
+// D65: the ceremony is self-contained (React Query mutation); mock it so the shell
+// renders without a QueryClientProvider. Its own behaviour is covered in
+// ContractCeremony.test.tsx.
+jest.mock('../ContractCeremony', () => ({
+  ContractCeremony: ({ merchantId }: { merchantId: string }) => (
+    <div data-testid="mock-contract-ceremony" data-merchant={merchantId} />
   ),
 }))
 
@@ -377,13 +386,23 @@ describe('AssistedWizard honestly-gated steps', () => {
     expect(screen.getByTestId('assisted-staff-gated')).toHaveTextContent(/no admin invite-staff-on-behalf route/i)
   })
 
-  it('step 7 contract is gated when unsigned, showing the owner-signs copy (OD6)', () => {
+  it('step 7 contract renders the in-person ceremony when unsigned and sign-agreement is held (D65)', () => {
     mockSearch = 'step=7'
-    mockSession()
+    mockSession() // grants every cap, incl. merchant:sign-agreement
+    mockDetail({ data: makeDetail() })
+    render(<AssistedOnboardingPage />)
+    expect(screen.getByTestId('mock-contract-ceremony')).toHaveAttribute('data-merchant', 'm-1')
+    expect(screen.queryByTestId('assisted-contract-gated')).not.toBeInTheDocument()
+  })
+
+  it('step 7 contract is capability-gated when the sign-agreement cap is missing (D65)', () => {
+    mockSearch = 'step=7'
+    mockSession((cap) => cap !== 'merchant:sign-agreement')
     mockDetail({ data: makeDetail() })
     render(<AssistedOnboardingPage />)
     expect(screen.getByTestId('assisted-contract-gated')).toBeInTheDocument()
-    expect(screen.getByTestId('assisted-contract-gated')).toHaveTextContent(/no admin contract-signing-on-behalf route/i)
+    expect(screen.getByTestId('assisted-contract-gated')).toHaveTextContent(/merchant:sign-agreement capability/i)
+    expect(screen.queryByTestId('mock-contract-ceremony')).not.toBeInTheDocument()
   })
 
   it('step 7 contract shows the signed state when the real gate is met', () => {

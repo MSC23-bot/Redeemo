@@ -10,7 +10,8 @@ import { resolveTargetMerchantForAdmin } from '../../merchant/shared'
 import { updateMerchantProfileDirectCore, setMerchantCategoryCore, createMerchantEditRequestCore } from '../../merchant/profile/service'
 import { createBranchCore, toAdminBranchShape } from '../../merchant/branch/service'
 import { submitForApprovalCore } from '../../merchant/onboarding/service'
-import { signAgreementInPerson } from '../../merchant/agreement/service'
+import { signAgreementInPerson, previewAgreement } from '../../merchant/agreement/service'
+import { consumeAgreementPreview } from '../../shared/agreementPreviewLimiter'
 import { AppError } from '../../shared/errors'
 import { isStorageEnabled, kindPolicy } from '../../shared/storage'
 import { listMerchantDocuments, createMerchantDocument, deleteMerchantDocument } from './documents'
@@ -310,6 +311,39 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
     }
   })
 
+  // ── D65: personalised agreement PREVIEW (assisted ceremony) ──────────────────
+  //
+  // POST (not GET): the reviewed body contains the signer name + role which are entered
+  // DURING the ceremony, and signer PII must never enter a URL/query log (decision doc §4/§4b).
+  // The server resolves the merchant identity + current version + method; only the normalized
+  // signer name + role come from the strict body. Merchant-scoped + gated on the SAME
+  // `merchant:sign-agreement` cap as signing, with the FIELD pre-live clamp. A REQUIRED bounded
+  // per-caller rate limit (consumeAgreementPreview: 60/admin/min + 120/IP/min, env-overridable)
+  // runs BEFORE the render. Response carries the personalised body + the server-authoritative
+  // reviewedContentHash the ceremony echoes into the sign call; no PII beyond the merchant's
+  // own admin-visible identity.
+  app.post(`${prefix}/:id/agreement/preview`, { preHandler: [requireAdminCapability('merchant:sign-agreement')] }, async (req: any) => {
+    const body = z
+      .object({
+        signerName: z.string().trim().max(200),
+        signerRoleConfirmation: z.string().trim().max(200),
+      })
+      .strict()
+      .parse(req.body)
+
+    const id = idParam(req)
+    await resolveTargetMerchantForAdmin(app.prisma, id)
+    // S3 defence-in-depth: a FIELD rep may preview signing only for a PRE-LIVE merchant.
+    await assertFieldPreLiveScope(app.prisma, req.user.adminRole, id)
+    // REQUIRED bounded preview rate limit (decision doc §4b acceptance criterion).
+    await consumeAgreementPreview(app.redis, { adminId: req.user.sub, ip: req.ip })
+
+    return previewAgreement(app.prisma, id, {
+      signerName: body.signerName,
+      signerRoleConfirmation: body.signerRoleConfirmation,
+    })
+  })
+
   // ── D65: in-person assisted contract-signing ceremony ────────────────────────
   //
   // The rep (req.user.sub) WITNESSES the owner's signature on the rep's device: the
@@ -324,15 +358,24 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
   // merchants (signing happens during onboarding). The fail-closed
   // AGREEMENT_LEGAL_REVIEW_REQUIRED gate (in the service) refuses production binding
   // writes while legal review is pending; staging/dev run fully, DRAFT-watermarked.
-  // STRICT body: the typed name + authority role (+ optional explicit version). No
-  // `reason` (the ceremony IS the act; the audit carries version + hash metadata). No
-  // `witnessLabel` (FIX 2: witness identity is authenticated server-side, not request text).
+  // STRICT body: the typed name + authority role + the REQUIRED echoed agreementVersion +
+  // reviewedContentHash (FIX 1). No `reason` (the ceremony IS the act; the audit carries version
+  // + hash metadata). No `witnessLabel` (FIX 2: witness identity is authenticated server-side,
+  // not request text). The server RE-DERIVES the reviewed body from the same normalized inputs
+  // and 409s AGREEMENT_VERSION_MISMATCH / AGREEMENT_REVIEW_HASH_MISMATCH if the echoed version or
+  // hash is missing or differs, BEFORE any write - so a sign is impossible unless the owner
+  // reviewed the EXACT personalised body.
   app.post(`${prefix}/:id/agreement/sign`, { preHandler: [requireAdminCapability('merchant:sign-agreement')] }, async (req: any) => {
+    // FIX 1 (D65 review-binding): agreementVersion + reviewedContentHash are REQUIRED
+    // (z.string().min(1), still .strict()). A sign request that omits either is rejected here
+    // (400) before the service runs: a signature is impossible unless the ceremony echoes the
+    // exact reviewed version + its server-authoritative hash.
     const body = z
       .object({
-        signerName: z.string().trim().min(1),
-        signerRoleConfirmation: z.string().trim().min(1),
-        agreementVersion: z.string().min(1).optional(),
+        signerName: z.string().trim().min(1).max(200),
+        signerRoleConfirmation: z.string().trim().min(1).max(200),
+        agreementVersion: z.string().min(1),
+        reviewedContentHash: z.string().min(1),
       })
       .strict()
       .parse(req.body)
@@ -350,6 +393,7 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
         signerName: body.signerName,
         signerRoleConfirmation: body.signerRoleConfirmation,
         agreementVersion: body.agreementVersion,
+        reviewedContentHash: body.reviewedContentHash,
       },
       auditCtx(req),
     )

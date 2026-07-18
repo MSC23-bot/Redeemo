@@ -119,6 +119,9 @@ export const ERROR_DEFINITIONS = {
   // place-search read's limiter) — a submit throttle must not masquerade as
   // a location-search throttle. details.retryAfter (seconds).
   INVITE_SUBMIT_RATE_LIMITED:     { statusCode: 429, message: 'Too many invite submissions. Please try again later.' },
+  // D65 personalised-agreement admin preview limiter (src/api/shared/agreementPreviewLimiter.ts):
+  // a bounded per-caller cap on the ceremony preview render. details.retryAfter (seconds).
+  AGREEMENT_PREVIEW_RATE_LIMITED: { statusCode: 429, message: 'Too many preview requests. Please wait a moment and try again.' },
   // MerchantNote packet (2026-07-13, OD2). Internal per-merchant admin notes.
   //   NOTE_NOT_FOUND               : the note id is unknown (or on a different merchant).
   //   NOTE_NOT_ACTIVE              : edit/retract targeted an already-RETRACTED note.
@@ -143,12 +146,24 @@ export const ERROR_DEFINITIONS = {
   //     mismatch means the client reviewed a stale page, so the write is refused BEFORE
   //     any PDF render/upload and the merchant is asked to reload and re-review.
   //   AGREEMENT_SIGNER_INVALID        : signature-of-record / witness-integrity guard
-  //     - the typed signer name is empty, a witness id was not resolved, or the typed
-  //     signer name equals the authenticated rep's own name (obvious same-name signing
-  //     refused; the system cannot independently prove two distinct humans were present).
-  //     Defence-in-depth behind the route's zod validation.
+  //     - the typed signer name (or role) is empty, normalizes to no legible content
+  //     (whitespace-only, or built entirely from invisible/format characters or a lone
+  //     combining mark with no base letter; see reviewedBody.ts normalizeSignerText /
+  //     hasLegibleContent), a witness id was not resolved, or the typed signer name equals
+  //     the authenticated rep's own name (obvious same-name signing refused; the system
+  //     cannot independently prove two distinct humans were present). Defence-in-depth
+  //     behind the route's zod validation.
+  //   AGREEMENT_REVIEW_HASH_MISMATCH  : the client-echoed reviewedContentHash (the hash of
+  //     the personalised body the owner reviewed via the preview) does not equal the hash
+  //     the server RE-DERIVES from the same normalized inputs at sign time. It means a
+  //     contractual input changed between review and signing (a tampered echo, or a stale
+  //     preview). The write is refused (409) BEFORE any PDF render/upload, DB transaction,
+  //     contractStatus flip, or audit; the client reloads + re-reviews the current body
+  //     (decision doc 2026-07-15-d65-legal-object §4/§10). Server is authoritative; the
+  //     client only echoes (no browser recompute).
   AGREEMENT_LEGAL_REVIEW_REQUIRED: { statusCode: 403, message: 'This agreement is pending legal review and cannot be signed for production yet.' },
   AGREEMENT_VERSION_MISMATCH:      { statusCode: 409, message: 'The agreement was updated. Please reload and review the current version before signing.' },
+  AGREEMENT_REVIEW_HASH_MISMATCH:  { statusCode: 409, message: 'The agreement details changed since you reviewed it. Please reload and review the current version before signing.' },
   AGREEMENT_SIGNER_INVALID:        { statusCode: 400, message: 'A signatory name is required to sign this agreement.' },
   // Phase 2 Slice 1 M3: actioner.
   APPROVAL_NOT_FOUND:             { statusCode: 404, message: 'Approval not found.' },

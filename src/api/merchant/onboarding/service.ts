@@ -7,9 +7,12 @@ import { resolveAdminMerchant, type EditActor } from '../shared'
 import {
   getServedAgreement,
   isVersionWatermarked,
+  assertBindingWriteAllowed,
   renderAndStoreAgreementPdf,
-  SELF_SERVE_SIGNER_NOT_CAPTURED,
+  reportOrphanedAgreementPdf,
 } from '../agreement/service'
+import { LEGACY_CONTRACT_VERSION } from '../agreement/versions'
+import { renderReviewedBody, normalizeSignerText } from '../agreement/reviewedBody'
 import { emitMerchantSubmittedAlert, emitMerchantResubmittedAlert } from '../../shared/adminNotify'
 import { getMerchantOwnerContact } from '../../shared/merchantMembership'
 import { notify } from '../../shared/notify'
@@ -173,41 +176,52 @@ export async function getOnboardingStatus(prisma: PrismaClient, adminId: string)
 }
 
 /**
- * Merchant self-serve click-to-agree (the fallback path preserved beside the D65
- * assisted ceremony). D65 Slice 2 retrofit: this ALSO renders a signed PDF + writes
- * an immutable MerchantAgreementRecord (method SELF_SERVE_CLICK, actorAdminId null)
- * so the fallback gains the same evidence pack.
+ * Merchant self-serve click-to-agree (the fallback path beside the D65 assisted ceremony).
  *
- * `signerName` is threaded from the route but stays OPTIONAL for backward
- * compatibility (the current merchant-web form does not send it yet). When absent, a
- * documented placeholder (SELF_SERVE_SIGNER_NOT_CAPTURED) is recorded rather than a
- * fabricated name - flagged for the merchant-web to start sending the typed name.
+ * TWO LANES by SERVED version (decision doc 2026-07-15-d65-legal-object §8/§12/§16), never
+ * client-chosen:
  *
- * The version + hash pinned into the evidence record AND the MerchantContract.tcVersion
- * pointer all come from getServedAgreement() (authoritative: the legacy 1.0 in production
- * while the current version is a draft, the current draft in non-production), resolved
- * ONCE. The client-echoed `version` is an INTEGRITY CHECK ONLY: it must equal the served
- * version or the request is refused (AGREEMENT_VERSION_MISMATCH, 409) BEFORE any PDF
- * render/upload, guarding against binding a merchant to text they did not review (a stale
- * page). The honest merchant-web client echoes the version it fetched from GET /contract,
- * which IS the served version, so an honest client never hits the 409.
+ *   LEGACY v1 path (served version == LEGACY_CONTRACT_VERSION): the honest, explicitly
+ *   LESSER production fallback while v2 remains a pre-solicitor draft. It writes ONLY the
+ *   legacy MerchantContract (status flip + signedAt + ipAddress + tcVersion) with NO PDF, NO
+ *   reviewedBody, and NO MerchantAgreementRecord. v1 has no signer/role/execution section,
+ *   so it makes no D65 evidence claim and does NOT require a typed signer name/role. It is
+ *   NOT storage-gated (v1 needs no PDF). This preserves the exact pre-D65 production
+ *   behaviour.
  *
- * Storage posture: the retrofit is ADDITIVE and must never break onboarding. When
- * STORAGE_ENABLED is off (local/dev/tests), it degrades to the pre-D65 behaviour
- * (contract row + status flip + audit, NO PDF/evidence record), since the evidence
- * record requires a pdfKey. Where storage is live (staging/prod) it always writes the
- * evidence record. This path is NOT production-gated by AGREEMENT_LEGAL_REVIEW_REQUIRED
- * (the existing self-serve flow already flips contractStatus in production today;
- * gating it would break onboarding). FIX 3: the PDF is watermarked only when the SERVED
- * version is a draft. In production the served version is the non-draft legacy 1.0, so the
- * bound PDF is CLEAN; in non-production the served draft is watermarked for QA.
+ *   D65 v2+ path (served version is a D65 version): REQUIRES the real typed signer name +
+ *   authority role (AGREEMENT_SIGNER_INVALID otherwise) AND a valid client-echoed
+ *   reviewedContentHash matching the server-re-derived personalised body
+ *   (AGREEMENT_REVIEW_HASH_MISMATCH otherwise, 409, BEFORE any write - FIX 2: v2+ self-serve is
+ *   FAIL-CLOSED without a valid echo, exactly like the assisted ceremony), FAILS CLOSED when
+ *   storage is dark (STORAGE_NOT_ENABLED before any DB write; §16 no binding sign without full
+ *   evidence in a shared env; test/local injects a storage stub so the path runs end-to-end),
+ *   and writes the SAME evidence standard as the ceremony via the shared reviewedBody module: the
+ *   personalised reviewedBody + reviewedContentHash + a real signed PDF (pdfHash over the
+ *   exact bytes) + the immutable MerchantAgreementRecord (method SELF_SERVE_CLICK,
+ *   actorAdminId null, no witness).
+ *
+ * The client-echoed `version` is an INTEGRITY CHECK in BOTH lanes: it must equal the served
+ * version, else AGREEMENT_VERSION_MISMATCH (409) BEFORE any PDF render/upload or write. The
+ * honest merchant-web client echoes the version it fetched from GET /contract (== the served
+ * version), so it never hits the 409.
+ *
+ * COMPATIBILITY (surfaced to the Merchant Portal / merchant-web session, which owns the
+ * form): production serves legacy v1 today, so production self-serve is UNCHANGED. The D65
+ * v2+ self-serve path (staging QA today; production once v2 is frozen + live) now REQUIRES
+ * the form to collect + send `signerName` + `signerRoleConfirmation`; the current form does
+ * not yet, so a staging self-serve accept returns AGREEMENT_SIGNER_INVALID until the form is
+ * updated. This is the intended request-contract tightening (decision doc §8).
+ *
+ * The gated (watermark) flag reflects the SERVED version's draft status only (isVersionWatermarked),
+ * decoupled from the AGREEMENT_LEGAL_REVIEW_REQUIRED env flag.
  */
 export async function acceptContract(
   prisma: PrismaClient,
   adminId: string,
   version: string,
   ctx: { ipAddress: string; userAgent: string },
-  opts?: { signerName?: string }
+  opts?: { signerName?: string; signerRoleConfirmation?: string; reviewedContentHash?: string }
 ) {
   const { merchantId } = await resolveAdminMerchant(prisma, adminId)
   const merchant = await prisma.merchant.findUnique({
@@ -227,76 +241,148 @@ export async function acceptContract(
     throw new AppError('AGREEMENT_VERSION_MISMATCH')
   }
 
+  const isLegacyV1 = agreement.version === LEGACY_CONTRACT_VERSION
   const signedAt = new Date()
-  const typedName = opts?.signerName?.trim()
-  const signerName = typedName && typedName.length > 0 ? typedName : SELF_SERVE_SIGNER_NOT_CAPTURED
 
-  // Render + store the evidence PDF only when storage is live; degrade otherwise so
-  // onboarding never breaks in a storage-dark environment.
-  let pdfKey: string | null = null
-  if (isStorageEnabled()) {
-    pdfKey = await renderAndStoreAgreementPdf({
-      merchantId,
-      agreement,
-      signerName,
-      signerRoleConfirmation: 'Self-serve (merchant portal)',
-      businessLegalName: merchant.businessName,
-      tradingName: merchant.tradingName,
-      companyNumber: merchant.companyNumber,
-      vatNumber: merchant.vatNumber,
-      method: 'SELF_SERVE_CLICK',
-      witnessLabel: null,
-      signedAt,
-      ipAddress: ctx.ipAddress,
-      userAgent: ctx.userAgent,
-      drawnSignature: null,
+  // ── LEGACY v1 path: MerchantContract-only, no PDF, no record (decision doc §12). ──
+  if (isLegacyV1) {
+    await prisma.$transaction(async (tx) => {
+      await tx.merchantContract.create({
+        data: {
+          merchantId,
+          signedAt,
+          ipAddress: ctx.ipAddress,
+          tcVersion: agreement.version,
+          signatureMethod: 'CLICK_TO_AGREE',
+        },
+      })
+      await tx.merchant.update({
+        where: { id: merchantId },
+        data: { contractStatus: 'SIGNED', contractStartDate: signedAt },
+      })
+      await writeAuditLogTx(tx, {
+        entityId: merchantId,
+        entityType: 'merchant',
+        event: 'MERCHANT_CONTRACT_ACCEPTED',
+        actorId: adminId,
+        actorType: 'MERCHANT_ADMIN',
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+      })
     })
+    // Legacy 1.0 is non-draft, so never watermarked.
+    return { accepted: true, gated: isVersionWatermarked(agreement) }
   }
 
-  // FIX 1: when a PDF was rendered+stored above (storage live), it is already in R2 before
-  // this transaction. If the transaction fails, that object would orphan, so a compensating
-  // best-effort delete runs in the catch before the original error is rethrown; a cleanup
-  // failure is logged and swallowed so it can never mask the original error. When storage is
-  // dark (pdfKey null) there is nothing to compensate.
+  // ── D65 v2+ path: full personalised evidence, real signer name + role, fail-closed. ──
+  // Fail-closed legal-release gate (parity with the assisted ceremony's step 2
+  // assertBindingWriteAllowed). Refuse a binding v2+ self-serve write while the SERVED version
+  // is gated (draft OR AGREEMENT_LEGAL_REVIEW_REQUIRED still on) in production, BEFORE the
+  // reviewed-body derive/echo and BEFORE any PDF render/upload, DB write, status flip, or audit.
+  // Legacy v1 returned above, so its lane is unaffected. Production is safe today because it
+  // serves legacy v1 while v2 is a draft; this closes the gap for when a non-draft v2 becomes
+  // the served version while legal review is still required.
+  assertBindingWriteAllowed(agreement)
+
+  const signerName = normalizeSignerText(opts?.signerName)
+  const signerRoleConfirmation = normalizeSignerText(opts?.signerRoleConfirmation)
+  if (signerName.length === 0 || signerRoleConfirmation.length === 0) {
+    throw new AppError('AGREEMENT_SIGNER_INVALID')
+  }
+
+  // Derive the personalised reviewed body + reviewedContentHash from the SAME shared module
+  // both lanes use, so assisted + self-serve can never diverge on wording/normalization/hash.
+  const reviewed = renderReviewedBody({
+    version: agreement.version,
+    canonicalContentHash: agreement.contentHash,
+    content: agreement.content,
+    method: 'SELF_SERVE_CLICK',
+    businessLegalName: merchant.businessName,
+    tradingName: merchant.tradingName,
+    companyNumber: merchant.companyNumber,
+    vatNumber: merchant.vatNumber,
+    signerName,
+    signerRoleConfirmation,
+  })
+
+  // FIX 2 (D65 review-binding, parity with the assisted ceremony): the client-echoed
+  // reviewedContentHash is MANDATORY on the v2+ self-serve path. The server is AUTHORITATIVE:
+  // the echo must be present AND equal this server-re-derived hash, else the merchant did not
+  // accept the EXACT personalised body. Refuse (409) BEFORE any PDF render/upload, DB write,
+  // status flip, or audit (decision doc §10). A missing/empty echo is a mismatch, so v2+
+  // self-serve is FAIL-CLOSED without a valid echo (the merchant-web form must call the new
+  // preview route and echo its hash; that UI change is the Merchant Portal session's - until it
+  // ships, staging self-serve v2 fails closed here; production, which serves legacy v1, is
+  // unaffected because v1 is the separate lane above).
+  const echoedHash = (opts?.reviewedContentHash ?? '').trim()
+  if (echoedHash.length === 0 || echoedHash !== reviewed.reviewedContentHash) {
+    throw new AppError('AGREEMENT_REVIEW_HASH_MISMATCH')
+  }
+
+  // FAIL-CLOSED (§16): a binding v2+ self-serve signature requires the full evidence pack, so
+  // it must not complete without a stored PDF. Refuse BEFORE any DB status/audit write when
+  // storage is dark; shared environments are never weakened. Tests inject a storage stub.
+  if (!isStorageEnabled()) throw new AppError('STORAGE_NOT_ENABLED')
+
+  // Render + store the PDF; pdfHash is captured over the exact uploaded bytes (§17).
+  const { key: pdfKey, pdfHash } = await renderAndStoreAgreementPdf({
+    merchantId,
+    agreement,
+    reviewedBody: reviewed.reviewedBody,
+    signerName: reviewed.normalizedSignerName,
+    method: 'SELF_SERVE_CLICK',
+    witnessLabel: null,
+    signedAt,
+    ipAddress: ctx.ipAddress,
+    userAgent: ctx.userAgent,
+    drawnSignature: null,
+  })
+
+  // The PDF is already in R2 before this transaction (§16 upload-then-tx). If the tx fails,
+  // that object would orphan, so a compensating best-effort delete runs before the original
+  // error is rethrown; a cleanup failure is logged (a high-severity orphan warning) and
+  // swallowed so it can never mask the original error.
   try {
     await prisma.$transaction(async (tx) => {
-    await tx.merchantContract.create({
-      data: {
-        merchantId,
-        signedAt,
+      await tx.merchantContract.create({
+        data: {
+          merchantId,
+          signedAt,
+          ipAddress: ctx.ipAddress,
+          // The pointer takes its authority from the SERVER-selected served agreement (the
+          // same object that renders the PDF + stamps the evidence record), never client input.
+          tcVersion: agreement.version,
+          signatureMethod: 'CLICK_TO_AGREE',
+        },
+      })
+
+      await tx.merchant.update({
+        where: { id: merchantId },
+        data: { contractStatus: 'SIGNED', contractStartDate: signedAt },
+      })
+
+      // Preserve the existing status-flip audit (backward compat), in-transaction.
+      await writeAuditLogTx(tx, {
+        entityId: merchantId,
+        entityType: 'merchant',
+        event: 'MERCHANT_CONTRACT_ACCEPTED',
+        actorId: adminId,
+        actorType: 'MERCHANT_ADMIN',
         ipAddress: ctx.ipAddress,
-        // The pointer takes its authority from the SERVER-selected served agreement (the
-        // same object that renders the PDF + stamps the evidence record), never client input.
-        tcVersion: agreement.version,
-        signatureMethod: 'CLICK_TO_AGREE',
-      },
-    })
+        userAgent: ctx.userAgent,
+      })
 
-    await tx.merchant.update({
-      where: { id: merchantId },
-      data: { contractStatus: 'SIGNED', contractStartDate: signedAt },
-    })
-
-    // Preserve the existing status-flip audit (backward compat), in-transaction now.
-    await writeAuditLogTx(tx, {
-      entityId: merchantId,
-      entityType: 'merchant',
-      event: 'MERCHANT_CONTRACT_ACCEPTED',
-      actorId: adminId,
-      actorType: 'MERCHANT_ADMIN',
-      ipAddress: ctx.ipAddress,
-      userAgent: ctx.userAgent,
-    })
-
-    // D65: the immutable evidence record + its own audit, only when a PDF was stored.
-    if (pdfKey) {
+      // D65: the immutable evidence record + its own audit.
       const record = await tx.merchantAgreementRecord.create({
         data: {
           merchantId,
           agreementVersion: agreement.version,
           contentHash: agreement.contentHash,
+          reviewedBody: reviewed.reviewedBody,
+          reviewedContentHash: reviewed.reviewedContentHash,
+          pdfHash,
           signerName,
-          signerRoleConfirmation: 'Self-serve (merchant portal)',
+          signerRoleConfirmation,
           actorAdminId: null,
           method: 'SELF_SERVE_CLICK',
           signedAt,
@@ -320,26 +406,91 @@ export async function acceptContract(
           agreementVersion: agreement.version,
           contentHash: agreement.contentHash,
           method: 'SELF_SERVE_CLICK',
-          signerNameCaptured: Boolean(typedName && typedName.length > 0),
         },
       })
-    }
     })
   } catch (err) {
-    if (pdfKey) {
-      try {
-        await deleteObject(pdfKey)
-      } catch (cleanupErr) {
-        console.warn(`[acceptContract] orphan PDF cleanup for "${pdfKey}" failed (ignored):`, cleanupErr)
-      }
+    try {
+      await deleteObject(pdfKey)
+    } catch (cleanupErr) {
+      // FIX 4: a persisted orphaned R2 object needs manual reconciliation - HIGH-SEVERITY
+      // structured signal (not a routine warn). Swallowed so it can never mask the original err.
+      reportOrphanedAgreementPdf({ lane: 'self-serve', merchantId, pdfKey, cause: cleanupErr })
+    }
+    // Self-serve double-sign RACE (NOTE 2, parity with the assisted ceremony's in-tx
+    // conditional flip): two concurrent accepts can both pass the fast contractStatus !==
+    // 'SIGNED' pre-check above, then both attempt merchantContract.create inside their own
+    // transaction. The race LOSER hits the MerchantContract.merchantId @unique and Prisma
+    // throws P2002; unmapped, that surfaced as a raw, unhandled 500 instead of a clean 409.
+    // Map it to the same CONTRACT_ALREADY_SIGNED the pre-check (and the assisted ceremony's
+    // N1 guard) return, so the race loser gets a normal "already signed" error. The
+    // compensating PDF delete above still runs first in every case, P2002 or not.
+    if ((err as { code?: string })?.code === 'P2002') {
+      throw new AppError('CONTRACT_ALREADY_SIGNED')
     }
     throw err
   }
 
-  // FIX 3: the confirmation "gated" flag reflects the SERVED version's draft status
-  // (watermark), decoupled from the env flag: false for the non-draft legacy 1.0 bound in
-  // production, true for the draft served in non-production.
   return { accepted: true, gated: isVersionWatermarked(agreement) }
+}
+
+/**
+ * D65 self-serve PERSONALISED preview (FIX 2; decision doc §4b). The merchant-authenticated
+ * own-merchant counterpart of the assisted ceremony preview. The ROUTE resolves the caller's
+ * OWN merchant (resolveAdminMerchant, never a cross-merchant id; there is no :id param on the
+ * route) and passes that merchantId here, so this renders ONLY for the caller's own merchant.
+ * It produces the personalised reviewed body + its server-authoritative reviewedContentHash from
+ * the SAME shared renderReviewedBody module both sign paths use, so the preview cannot diverge
+ * from what acceptContract will re-derive + bind. The signer name + role travel in the POST body
+ * (never a URL/query log).
+ *
+ * Previews the SERVED agreement (getServedAgreement, the SAME selection acceptContract binds),
+ * so the returned reviewedContentHash is exactly the echo acceptContract expects on the v2+
+ * path. FIX 3: an empty-normalized signer name or role is rejected inside renderReviewedBody
+ * (AGREEMENT_SIGNER_INVALID) before any hash is produced. Read-only: no legal-gate binding-write
+ * check (this writes nothing). The client echoes the returned reviewedContentHash; NO browser
+ * recompute.
+ */
+export async function previewOwnContract(
+  prisma: PrismaClient,
+  merchantId: string,
+  input: { signerName: string; signerRoleConfirmation: string },
+): Promise<{
+  version: string
+  personalisedText: string
+  reviewedContentHash: string
+  canonicalContentHash: string
+  isDraft: boolean
+  gated: boolean
+}> {
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { businessName: true, tradingName: true, companyNumber: true, vatNumber: true },
+  })
+  if (!merchant) throw new AppError('MERCHANT_NOT_FOUND')
+
+  const agreement = getServedAgreement()
+  const reviewed = renderReviewedBody({
+    version: agreement.version,
+    canonicalContentHash: agreement.contentHash,
+    content: agreement.content,
+    method: 'SELF_SERVE_CLICK',
+    businessLegalName: merchant.businessName,
+    tradingName: merchant.tradingName,
+    companyNumber: merchant.companyNumber,
+    vatNumber: merchant.vatNumber,
+    signerName: input.signerName,
+    signerRoleConfirmation: input.signerRoleConfirmation,
+  })
+
+  return {
+    version: agreement.version,
+    personalisedText: reviewed.reviewedBody,
+    reviewedContentHash: reviewed.reviewedContentHash,
+    canonicalContentHash: agreement.contentHash,
+    isDraft: agreement.isDraft,
+    gated: isVersionWatermarked(agreement),
+  }
 }
 
 /**

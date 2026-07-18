@@ -8,7 +8,7 @@
  * It composes the SHIPPED admin on-behalf building blocks into a 9-step focus
  * flow. It never forks a dialog or a mutation and never calls a merchant-scope
  * endpoint: every write is an existing admin route, and any step lacking an
- * admin route is honestly gated (staff, contract).
+ * admin route is honestly gated (staff).
  *
  * RESUME CONTRACT: the wizard step is DERIVED from the merchant's REAL state
  * (assistedWizard.deriveWizardState), not a stored pointer. The current step is
@@ -118,6 +118,7 @@ function Wizard() {
     canManageVouchers: can('merchant:manage-vouchers'),
     canManageDocuments: can('merchant:manage-documents'),
     canSubmit: can('merchant:submit'),
+    canSignAgreement: can('merchant:sign-agreement'),
   }
 
   const { data, isLoading, isError, refetch } = useMerchantDetail(id, canRead)
@@ -170,6 +171,12 @@ function Wizard() {
     onEditBranch: (branch) => setDialog({ kind: 'branch', branch }),
     onDeleteBranch: (branch) => setDialog({ kind: 'delete-branch', branch }),
     onSubmitForReview: () => setDialog({ kind: 'submit' }),
+    // D65: after the in-person ceremony confirms signing, re-read the merchant
+    // (the contract gate + rail flip to complete) and advance to the go-live review.
+    onContractSigned: () => {
+      void refetch()
+      goToStep(8)
+    },
   }
 
   return (
@@ -225,7 +232,9 @@ function Wizard() {
             {currentStep === 4 && <Step4Vouchers data={data} caps={caps} />}
             {currentStep === 5 && <Step5Staff />}
             {currentStep === 6 && <Step6Documents data={data} caps={caps} />}
-            {currentStep === 7 && <Step7Contract derivation={derivation} />}
+            {currentStep === 7 && (
+              <Step7Contract data={data} caps={caps} cb={cb} derivation={derivation} />
+            )}
             {currentStep === 8 && <Step8Review data={data} caps={caps} cb={cb} derivation={derivation} />}
             {currentStep === 9 && <Step9Handover data={data} derivation={derivation} />}
 

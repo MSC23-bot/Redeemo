@@ -215,11 +215,13 @@ describe('deriveWizardState per-step statuses', () => {
     expect(statuses.branches).toBe('incomplete')
     expect(statuses.vouchers).toBe('incomplete')
     expect(statuses.review).toBe('incomplete')
-    // profile/documents are optional (never block); staff/contract/handover gated.
+    // profile/documents are optional (never block); staff/handover gated. D65:
+    // contract is now actionable, so an unsigned contract is 'incomplete' (needs
+    // attention), no longer 'gated'.
     expect(statuses.profile).toBe('optional')
     expect(statuses.documents).toBe('optional')
     expect(statuses.staff).toBe('gated')
-    expect(statuses.contract).toBe('gated')
+    expect(statuses.contract).toBe('incomplete')
     expect(statuses.handover).toBe('gated')
   })
 
@@ -233,8 +235,8 @@ describe('deriveWizardState per-step statuses', () => {
     expect(deriveWizardState(live).statuses.staff).toBe('gated')
   })
 
-  it('contract reflects the REAL gate: complete only when contract_signed, else gated', () => {
-    expect(deriveWizardState(makeDetail()).statuses.contract).toBe('gated')
+  it('contract reflects the REAL gate: complete when contract_signed, else incomplete (D65 actionable)', () => {
+    expect(deriveWizardState(makeDetail()).statuses.contract).toBe('incomplete')
     const signed = makeDetail({ checklist: { contract_signed: true } })
     expect(deriveWizardState(signed).statuses.contract).toBe('complete')
   })
