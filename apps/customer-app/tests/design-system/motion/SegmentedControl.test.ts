@@ -1,27 +1,41 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { clampThumbX, THUMB_SPRING } from '@/design-system/motion/SegmentedControl'
+import { reflectThumbX, THUMB_SPRING } from '@/design-system/motion/SegmentedControl'
 
-// Map W2b round 6 — WALL PHYSICS. Every landing (edge and interior) takes
-// the IDENTICAL spring; containment is the worklet clamp, not motion
-// special-casing. These pin both halves.
-describe('SegmentedControl — round 6 wall physics', () => {
-  describe('clampThumbX (the wall)', () => {
+// Map W2b rounds 6-7 — WALL PHYSICS. Every landing (edge and interior)
+// takes the IDENTICAL spring; containment is the worklet REFLECTION
+// (round 7: the round-6 hard clamp flattened the spring's outward
+// half-cycles into dead pauses at the wall). These pin both halves.
+describe('SegmentedControl — wall physics', () => {
+  describe('reflectThumbX (the wall)', () => {
     const SEG_W = 80
     const COUNT = 4
     const MAX = (COUNT - 1) * SEG_W // 240
 
     it('passes interior positions through unchanged', () => {
-      expect(clampThumbX(0, SEG_W, COUNT)).toBe(0)
-      expect(clampThumbX(120, SEG_W, COUNT)).toBe(120)
-      expect(clampThumbX(MAX, SEG_W, COUNT)).toBe(MAX)
+      expect(reflectThumbX(0, SEG_W, COUNT)).toBe(0)
+      expect(reflectThumbX(120, SEG_W, COUNT)).toBe(120)
+      expect(reflectThumbX(MAX, SEG_W, COUNT)).toBe(MAX)
     })
 
-    it('clamps spring overshoot at BOTH walls: below 0 and above (count-1) x segmentWidth', () => {
-      // Left wall — overshoot past the first segment presses against 0.
-      expect(clampThumbX(-14, SEG_W, COUNT)).toBe(0)
-      // Right wall — overshoot past the last segment presses against MAX.
-      expect(clampThumbX(MAX + 14, SEG_W, COUNT)).toBe(MAX)
+    it('REFLECTS overshoot at the lower wall: below 0 maps to the mirrored inward position', () => {
+      // Overshoot 14 past the left wall renders 14 INSIDE the track —
+      // the outward half-cycle becomes visible inward movement, so the
+      // spring's oscillation reads as a decaying bounce with no dead time.
+      expect(reflectThumbX(-14, SEG_W, COUNT)).toBe(14)
+      expect(reflectThumbX(-1, SEG_W, COUNT)).toBe(1)
+    })
+
+    it('REFLECTS overshoot at the upper wall likewise', () => {
+      expect(reflectThumbX(MAX + 14, SEG_W, COUNT)).toBe(MAX - 14)
+      expect(reflectThumbX(MAX + 1, SEG_W, COUNT)).toBe(MAX - 1)
+    })
+
+    it('safety bound: pathological overshoot never reflects past the adjacent segment (one segmentWidth of travel)', () => {
+      // Lower wall — even a wild overshoot caps at one segment inward.
+      expect(reflectThumbX(-SEG_W - 50, SEG_W, COUNT)).toBe(SEG_W)
+      // Upper wall — likewise, capped at MAX - segmentWidth.
+      expect(reflectThumbX(MAX + SEG_W + 50, SEG_W, COUNT)).toBe(MAX - SEG_W)
     })
   })
 

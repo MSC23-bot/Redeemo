@@ -15,16 +15,17 @@ import { useMotionScale } from '../useMotionScale'
  * sliding BRAND-GRADIENT thumb (red → coral, round 4); white text on the
  * thumb, navy text off it.
  *
- * Motion (round 6 — WALL PHYSICS, replaces the round-5 edge choreography):
+ * Motion (rounds 6-7 — WALL PHYSICS, replaces the round-5 choreography):
  * EVERY landing uses the IDENTICAL spring (`THUMB_SPRING`, no
  * overshootClamping, no phases, no edge special-casing). Containment is
- * physical: the animated-style worklet clamps translateX to the track's
- * interior (`clampThumbX`: 0 … (count-1) x segmentWidth). A spring
- * overshoot beyond a wall renders as the thumb pressed AGAINST the edge,
- * and the spring's return oscillation back inside the clamp reads as a
- * natural inward wall-bounce — one motion system, identical energy at all
- * four stops. `overflow: 'hidden'` on the track stays as belt-and-braces.
- * Reduce-motion: single jump, no spring (unchanged).
+ * physical: the animated-style worklet REFLECTS translateX at the walls
+ * (`reflectThumbX`; round 7 — round 6's hard clamp turned the spring's
+ * outward half-cycles into dead pauses pressed against the wall).
+ * Overshoot beyond a wall renders as inward movement and return: a true
+ * decaying bounce with the same lively character as the interior stops —
+ * one motion system, identical energy at all four stops. `overflow:
+ * 'hidden'` on the track stays as belt-and-braces. Reduce-motion: single
+ * jump, no spring (unchanged).
  *
  * Segments are equal-width (track width measured via onLayout). Before
  * the first layout pass (and in jest, where onLayout never fires) the
@@ -54,17 +55,28 @@ const TRACK_PADDING = 4
 export const THUMB_SPRING = { damping: 20, stiffness: 220 } as const
 
 /**
- * Round 6 wall physics — clamps the thumb's translateX to the track
- * interior: [0, (segmentCount - 1) x segmentWidth]. Runs inside the
- * animated-style worklet every frame, so spring overshoot presses the
- * thumb against the wall and the return oscillation reads as the bounce.
- * Pure + exported for the bounds test.
+ * Round 7 wall physics — REFLECTS the thumb's translateX at the walls
+ * (L = 0, U = (segmentCount - 1) x segmentWidth). Round 6's hard clamp
+ * flattened the spring's outward half-cycles into dead pauses at the
+ * wall ("arrive, PAUSE, drift, PAUSE"); reflection maps that overshoot
+ * to INWARD movement and return instead: a true decaying bounce with no
+ * dead time, from the same single spring. Runs inside the animated-style
+ * worklet every frame. Safety bound: the reflected value is clamped to
+ * ONE segmentWidth of inward travel, so pathological overshoot can never
+ * reflect past the adjacent segment. Pure + exported for the tests.
  */
-export function clampThumbX(x: number, segmentWidth: number, segmentCount: number): number {
+export function reflectThumbX(x: number, segmentWidth: number, segmentCount: number): number {
   'worklet'
-  const max = (segmentCount - 1) * segmentWidth
-  if (x < 0) return 0
-  if (x > max) return max
+  const upper = (segmentCount - 1) * segmentWidth
+  if (x < 0) {
+    const reflected = -x // L + (L - x) with L = 0
+    return reflected > segmentWidth ? segmentWidth : reflected
+  }
+  if (x > upper) {
+    const reflected = upper - (x - upper)
+    const bound = upper - segmentWidth
+    return reflected < bound ? bound : reflected
+  }
   return x
 }
 
@@ -81,15 +93,15 @@ export function SegmentedControl<K extends string>({ segments, value, onChange, 
     if (segmentWidth <= 0 || activeIndex < 0) return
     const target = activeIndex * segmentWidth
     // Reduce-motion: single jump, no spring. Every OTHER landing takes the
-    // identical THUMB_SPRING path — containment lives in the worklet clamp,
-    // not here (round 6: no edge branch).
+    // identical THUMB_SPRING path — containment lives in the worklet
+    // reflection, not here (rounds 6-7: no edge branch).
     tx.value = motionScale === 0
       ? withTiming(target, { duration: 0 })
       : withSpring(target, THUMB_SPRING)
   }, [activeIndex, segmentWidth, motionScale, tx])
 
   const thumbStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: clampThumbX(tx.value, segmentWidth, segmentCount) }],
+    transform: [{ translateX: reflectThumbX(tx.value, segmentWidth, segmentCount) }],
   }))
 
   function handleLayout(e: LayoutChangeEvent) {
