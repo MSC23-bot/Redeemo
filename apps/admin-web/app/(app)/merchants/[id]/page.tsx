@@ -32,6 +32,7 @@ import { useParams, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { useSession } from '@/lib/auth/useSession'
 import { useMerchantDetail } from '@/lib/merchants/useMerchantDetail'
+import { isEvidenceUiEnabled } from '@/lib/flags'
 import { ForbiddenState } from '@/features/shared/ForbiddenState'
 import { ErrorState } from '@/features/shared/ErrorState'
 import { EditMerchantWebsiteDialog } from '@/features/merchants/EditMerchantWebsiteDialog'
@@ -124,7 +125,13 @@ function MerchantWorkspace() {
   // server-proxied signed PDF) gates on contract:view-evidence (OPERATIONS +
   // SUPER_ADMIN). Loaded on an explicit click only; the backend
   // requireAdminCapability is the enforcement.
-  const canViewEvidence = can('contract:view-evidence')
+  //
+  // RELEASE GATE (fail closed, ahead of the capability check so SUPER_ADMIN's
+  // capability short-circuit cannot bypass it): the whole feature stays DORMANT
+  // until NEXT_PUBLIC_EVIDENCE_UI_ENABLED === 'true'. Default/unset/invalid => OFF,
+  // so this source merges to `main` (which auto-deploys the admin web) without
+  // exposing controls that would call backend routes / D65 columns not yet live.
+  const canViewEvidence = isEvidenceUiEnabled() && can('contract:view-evidence')
 
   const { data, isLoading, isError, refetch } = useMerchantDetail(id, canRead)
 

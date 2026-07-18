@@ -41,6 +41,12 @@ jest.mock('@/lib/api/agreement', () => ({
 import { agreementApi } from '@/lib/api/agreement'
 const mockDownload = agreementApi.downloadEvidencePdf as jest.Mock
 
+// The dormant release gate. Default it ON for the ACTIVATED-behaviour tests below (they assert the
+// feature once enabled); the fail-closed suite overrides it to OFF.
+jest.mock('@/lib/flags', () => ({ isEvidenceUiEnabled: jest.fn() }))
+import { isEvidenceUiEnabled } from '@/lib/flags'
+const mockIsEvidenceUiEnabled = isEvidenceUiEnabled as jest.Mock
+
 // ── Fixtures / helpers ──────────────────────────────────────────────────────────
 
 function signed(overrides: Partial<Agreement> = {}): Agreement {
@@ -83,6 +89,7 @@ beforeEach(() => {
   mockEvidence = { data: undefined, isFetching: false, isError: false, error: undefined, refetch: jest.fn() }
   mockUseAgreementEvidence.mockClear()
   mockDownload.mockReset()
+  mockIsEvidenceUiEnabled.mockReturnValue(true) // activated by default; fail-closed suite overrides
   ;(global.URL.createObjectURL as unknown) = jest.fn(() => 'blob:mock')
   ;(global.URL.revokeObjectURL as unknown) = jest.fn()
   // Stub the anchor click so jsdom does not attempt (unimplemented) navigation on the download.
@@ -181,5 +188,32 @@ describe('AgreementEvidenceCard signing-evidence read', () => {
     fireEvent.click(screen.getByTestId('agreement-view-evidence'))
     expect(screen.getByTestId('named-gate-banner')).toHaveTextContent(/no signing-evidence record/i)
     expect(screen.queryByTestId('agreement-evidence-detail')).not.toBeInTheDocument()
+  })
+})
+
+// ── Dormant release gate (fail closed) ───────────────────────────────────────────
+// When NEXT_PUBLIC_EVIDENCE_UI_ENABLED is not exactly 'true', the whole feature is OFF even for an
+// authorized admin on a SIGNED contract: no controls render and zero evidence/PDF requests fire.
+describe('AgreementEvidenceCard release gate OFF (fail closed)', () => {
+  beforeEach(() => {
+    mockIsEvidenceUiEnabled.mockReturnValue(false)
+  })
+
+  it('renders NO evidence action even with the capability on a signed contract', () => {
+    renderCard({ agreement: signed(), canViewEvidence: true })
+    // The summary still renders (existing M360 behaviour unchanged)...
+    expect(screen.getByTestId('agreement-evidence-facts')).toBeInTheDocument()
+    // ...but the gated controls do not.
+    expect(screen.queryByTestId('agreement-view-evidence')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('agreement-evidence-detail')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('agreement-evidence-download')).not.toBeInTheDocument()
+  })
+
+  it('issues ZERO evidence requests when OFF (hook never enabled true, no download)', () => {
+    renderCard({ agreement: signed(), canViewEvidence: true })
+    // The on-click read is never enabled (the button that would set it does not exist)...
+    expect(mockUseAgreementEvidence).not.toHaveBeenCalledWith('m-1', true)
+    // ...and the server-proxied PDF route is never hit.
+    expect(mockDownload).not.toHaveBeenCalled()
   })
 })

@@ -25,6 +25,7 @@ import type { BadgeTone } from '@/features/shared/Badge'
 import { NamedGateBanner } from '@/features/review/NamedGateBanner'
 import { agreementApi } from '@/lib/api/agreement'
 import { useAgreementEvidence } from '@/lib/agreement/useAgreementEvidence'
+import { isEvidenceUiEnabled } from '@/lib/flags'
 import type { Agreement } from '@/lib/api/merchants'
 
 const dateTimeFmt = new Intl.DateTimeFormat('en-GB', {
@@ -114,6 +115,10 @@ export function AgreementEvidenceCard({ agreement, merchantId, canViewEvidence }
   const [downloadError, setDownloadError] = useState<unknown>(null)
 
   async function handleDownload() {
+    // Fail closed on the PDF request path: never hit the server-proxied download route while the
+    // feature is dormant, regardless of how the card was mounted (the button is already gated off
+    // below; this guards the handler itself against any future direct caller).
+    if (!isEvidenceUiEnabled()) return
     setDownloading(true)
     setDownloadError(null)
     try {
@@ -133,7 +138,11 @@ export function AgreementEvidenceCard({ agreement, merchantId, canViewEvidence }
     }
   }
 
-  const showEvidenceAction = canViewEvidence && isSigned
+  // Dormant release gate (fail closed): the evidence controls do not render at all unless the
+  // feature is deliberately enabled, so the card is self-contained fail-closed even if it were
+  // passed canViewEvidence=true. `canViewEvidence` is itself already gate-and-capability at the
+  // page; this is the render-layer half of the same default-off gate.
+  const showEvidenceAction = isEvidenceUiEnabled() && canViewEvidence && isSigned
 
   return (
     <section

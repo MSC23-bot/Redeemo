@@ -12,6 +12,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { agreementApi } from '@/lib/api/agreement'
 import type { AgreementEvidenceResponse } from '@/lib/api/agreement'
+import { isEvidenceUiEnabled } from '@/lib/flags'
 
 export function agreementEvidenceQueryKey(merchantId: string) {
   return ['admin-agreement-evidence', merchantId] as const
@@ -32,7 +33,10 @@ export function useAgreementEvidence(
   const query = useQuery({
     queryKey: agreementEvidenceQueryKey(merchantId),
     queryFn: () => agreementApi.getEvidence(merchantId),
-    enabled: enabled && merchantId.length > 0,
+    // Defense in depth on the request path: even if a caller mounted this with enabled=true, the
+    // dormant release gate (isEvidenceUiEnabled) keeps the query disabled, so a default/OFF build
+    // issues ZERO evidence requests regardless of how the hook is wired. Fail closed.
+    enabled: enabled && merchantId.length > 0 && isEvidenceUiEnabled(),
     staleTime: 0,
   })
   return {
