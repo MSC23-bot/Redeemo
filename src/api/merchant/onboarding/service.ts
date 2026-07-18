@@ -7,6 +7,7 @@ import { resolveAdminMerchant, type EditActor } from '../shared'
 import {
   getServedAgreement,
   isVersionWatermarked,
+  assertBindingWriteAllowed,
   renderAndStoreAgreementPdf,
   reportOrphanedAgreementPdf,
 } from '../agreement/service'
@@ -274,6 +275,15 @@ export async function acceptContract(
   }
 
   // ── D65 v2+ path: full personalised evidence, real signer name + role, fail-closed. ──
+  // Fail-closed legal-release gate (parity with the assisted ceremony's step 2
+  // assertBindingWriteAllowed). Refuse a binding v2+ self-serve write while the SERVED version
+  // is gated (draft OR AGREEMENT_LEGAL_REVIEW_REQUIRED still on) in production, BEFORE the
+  // reviewed-body derive/echo and BEFORE any PDF render/upload, DB write, status flip, or audit.
+  // Legacy v1 returned above, so its lane is unaffected. Production is safe today because it
+  // serves legacy v1 while v2 is a draft; this closes the gap for when a non-draft v2 becomes
+  // the served version while legal review is still required.
+  assertBindingWriteAllowed(agreement)
+
   const signerName = normalizeSignerText(opts?.signerName)
   const signerRoleConfirmation = normalizeSignerText(opts?.signerRoleConfirmation)
   if (signerName.length === 0 || signerRoleConfirmation.length === 0) {

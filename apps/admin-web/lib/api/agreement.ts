@@ -26,8 +26,9 @@
  * the owner's typed name is the signature of record. The rep is recorded as the
  * witness server-side (actorAdminId + server-derived witness identity), never the
  * signer, and never from a client-supplied label (admin-never-signs lock). The
- * route body is strict, so it accepts ONLY signerName, signerRoleConfirmation and
- * the optional agreementVersion.
+ * route body is strict, so it accepts ONLY signerName, signerRoleConfirmation,
+ * agreementVersion and reviewedContentHash; agreementVersion is REQUIRED (FIX 1),
+ * not optional (the strict route rejects a body missing it).
  *
  * `gated: true` (on either read or sign) means the agreement VERSION is itself a draft
  * (watermark semantics, backend `isVersionWatermarked`), decoupled from the
