@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { View, Pressable, StyleSheet, type LayoutChangeEvent } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated'
+import Animated, { Easing, useSharedValue, useAnimatedStyle, withSequence, withSpring, withTiming } from 'react-native-reanimated'
 import { Text } from '../Text'
 import { color } from '../tokens'
 import { useMotionScale } from '../useMotionScale'
@@ -62,13 +62,29 @@ export function SegmentedControl<K extends string>({ segments, value, onChange, 
   useEffect(() => {
     if (segmentWidth <= 0 || activeIndex < 0) return
     const target = activeIndex * segmentWidth
-    // DEFECT 2 — clamp the settle only at the track's ENDS; interior
-    // stops keep the springy overshoot the owner likes.
-    const landsOnEdge = activeIndex === 0 || activeIndex === segments.length - 1
-    // Reduce-motion: jump-cut instead of sliding (unchanged).
-    tx.value = motionScale === 0
-      ? withTiming(target, { duration: 0 })
-      : withSpring(target, { damping: 20, stiffness: 220, overshootClamping: landsOnEdge })
+    // Reduce-motion: single jump, no choreography (unchanged).
+    if (motionScale === 0) {
+      tx.value = withTiming(target, { duration: 0 })
+      return
+    }
+    // DEFECT 2 / round 5 — edge landings. Round 4's overshootClamping
+    // contained the thumb but the settle died flat; the owner wants a
+    // WALL-BOUNCE. Landing on the FIRST/LAST segment now runs a
+    // two-phase choreography: fast ease-out to the edge, then a small
+    // 5pt rebound INWARD (toward centre) that springs back (damping 14:
+    // one lively bounce). Interior stops keep the plain spring; the
+    // track's overflow:'hidden' containment stays the hard guarantee.
+    const isEdge = activeIndex === 0 || activeIndex === segments.length - 1
+    if (isEdge) {
+      const inward = activeIndex === 0 ? 5 : -5
+      tx.value = withSequence(
+        withTiming(target, { duration: 160, easing: Easing.out(Easing.cubic) }),
+        withTiming(target + inward, { duration: 70, easing: Easing.out(Easing.quad) }),
+        withSpring(target, { damping: 14, stiffness: 220 }),
+      )
+    } else {
+      tx.value = withSpring(target, { damping: 20, stiffness: 220 })
+    }
   }, [activeIndex, segmentWidth, motionScale, tx, segments.length])
 
   const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }))
