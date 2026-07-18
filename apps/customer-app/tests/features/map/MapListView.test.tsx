@@ -328,8 +328,8 @@ describe('MapListView', () => {
   // meta line. Branch-first cardinality + tap-through are unchanged (pinned
   // above); these pin the new value + status presentation.
   // ──────────────────────────────────────────────────────────────────────
-  it('each ledger row renders the shared value line (compact amount chip + voucher stub; full phrasing on the a11y label)', () => {
-    const { getByText, queryByText, getByLabelText, getAllByTestId } = render(
+  it('each ledger row renders the shared value line ("Save up to £X" capsule + TicketMark voucher count)', () => {
+    const { getByText, getAllByTestId } = render(
       <MapListView
         visible
         branches={mockBranches}
@@ -339,17 +339,16 @@ describe('MapListView', () => {
         {...noopSort}
       />,
     )
-    // Round 4 (Defect 3) — the row chip shows the bare amount; the full
-    // "Save up to £X" phrasing lives on the chip's accessibilityLabel.
-    // Bella Italia (maxEstimatedSaving 20, 2 vouchers) + Nails (10, 1).
-    expect(getByText('£20')).toBeTruthy()
+    // Round 5 — the FULL wording is the visible text again (owner: the
+    // bare amount read meaningless). Bella Italia (maxEstimatedSaving 20,
+    // 2 vouchers) + Nails (10, 1).
+    expect(getByText('Save up to £20')).toBeTruthy()
     expect(getByText('2 vouchers')).toBeTruthy()
-    expect(getByText('£10')).toBeTruthy()
+    expect(getByText('Save up to £10')).toBeTruthy()
     expect(getByText('1 voucher')).toBeTruthy()
-    expect(queryByText('Save up to £20')).toBeNull()
-    expect(getByLabelText('Save up to £20')).toBeTruthy()
-    expect(getByLabelText('Save up to £10')).toBeTruthy()
     expect(getAllByTestId('map-ledger-value')).toHaveLength(2)
+    // The count identity is the filled TicketMark, no dashed container.
+    expect(getAllByTestId('voucher-value-ticket-mark')).toHaveLength(2)
   })
 
   it('W2b round 4 design pass: header carries a quiet "Sorted by" reflection of the active sort', () => {
@@ -417,60 +416,16 @@ describe('MapListView', () => {
   })
 
   // ──────────────────────────────────────────────────────────────────────
-  // W2b ROUND 2 BUG 1 (owner device QA 2026-07-13) — the row rendered
-  // fully STACKED on device: <PressableScale> applies its `style` to the
-  // OUTER Animated.View while children render inside the inner Pressable
-  // (default column layout), so `flexDirection: 'row'` never governed the
-  // row pieces. This pins the FIXED anatomy at the rendered-layout level:
-  // logo | middle (name+meta) | value rail | heart must be HORIZONTAL
-  // SIBLINGS under one flexDirection:'row' parent — not stacked.
+  // W2b ROUND 2 BUG 1 + ROUND 5 board layout — the rendered structure pin.
+  // BUG 1 (round 2): <PressableScale> applies its `style` to the OUTER
+  // Animated.View while children render inside the inner Pressable
+  // (default column layout), so layout must live on the explicit rowInner.
+  // ROUND 5: the side value-rail geometry is ABANDONED (it squeezed the
+  // meta into on-device clips); the content now stacks full-width beside
+  // the logo: name / meta / value as three lines, heart as a corner
+  // overlay. These pin that structure.
   // ──────────────────────────────────────────────────────────────────────
-  describe('W2b round 2 BUG 1: ledger row renders horizontally, not stacked', () => {
-    function flattenStyle(style: unknown): Record<string, unknown> {
-      if (!style) return {}
-      if (Array.isArray(style)) return Object.assign({}, ...style.filter(Boolean).map(flattenStyle))
-      return style as Record<string, unknown>
-    }
-
-    it('logo, name column, value rail and heart are horizontal siblings of a flexDirection:row container', () => {
-      const { getByTestId } = render(
-        <MapListView
-          visible
-          branches={[mockBranches[0]!]}
-          total={1}
-          onDismiss={jest.fn()}
-          onBranchPress={jest.fn()}
-          {...noopSort}
-        />,
-      )
-      const rowInner = getByTestId('map-ledger-row')
-      // The DIRECT parent of the row pieces lays out horizontally.
-      expect(flattenStyle(rowInner.props.style).flexDirection).toBe('row')
-      // All four anatomy pieces are DIRECT children (siblings) of that
-      // container, in ledger order: logo, middle, value, heart.
-      const childTestIDs = rowInner.children
-        .map((c) => (typeof c === 'string' ? null : c.props?.testID ?? null))
-      expect(childTestIDs).toEqual([
-        'map-ledger-logo',
-        'map-ledger-middle',
-        'map-ledger-value-rail',
-        'map-ledger-heart',
-      ])
-      // The middle column takes the remaining width (flex: 1) so the value
-      // rail and heart sit at the row end rather than mid-row.
-      const middle = getByTestId('map-ledger-middle')
-      expect(flattenStyle(middle.props.style).flex).toBe(1)
-    })
-  })
-
-  // ──────────────────────────────────────────────────────────────────────
-  // W2b ROUND 3 ITEM 1 (owner device QA: "Indian Restaurant" cut mid-word)
-  // — the row's width contract: middle column flex:1 + minWidth:0 (RN
-  // needs minWidth 0 for text ellipsis inside flex children), both text
-  // lines single-line tail-ellipsised, and the value rail FIXED-width so
-  // the middle column's available space is deterministic.
-  // ──────────────────────────────────────────────────────────────────────
-  describe('W2b round 3 ITEM 1: ledger row width contract (no mid-word truncation)', () => {
+  describe('W2b round 5: ledger row structure (three-line stack, no side rail)', () => {
     function flattenStyle(style: unknown): Record<string, unknown> {
       if (!style) return {}
       if (Array.isArray(style)) return Object.assign({}, ...style.filter(Boolean).map(flattenStyle))
@@ -490,64 +445,63 @@ describe('MapListView', () => {
       },
     })
 
-    it('name and meta render as single-line, tail-ellipsised text', () => {
-      const { getByText } = render(
+    it('logo, content column and heart overlay are siblings of the flexDirection:row rowInner (BUG 1 pin)', () => {
+      const { getByTestId } = render(
+        <MapListView
+          visible
+          branches={[mockBranches[0]!]}
+          total={1}
+          onDismiss={jest.fn()}
+          onBranchPress={jest.fn()}
+          {...noopSort}
+        />,
+      )
+      const rowInner = getByTestId('map-ledger-row')
+      expect(flattenStyle(rowInner.props.style).flexDirection).toBe('row')
+      const childTestIDs = rowInner.children
+        .map((c) => (typeof c === 'string' ? null : c.props?.testID ?? null))
+      // Round 5 — NO value rail between the content column and the heart.
+      expect(childTestIDs).toEqual([
+        'map-ledger-logo',
+        'map-ledger-middle',
+        'map-ledger-heart',
+      ])
+      const middle = getByTestId('map-ledger-middle')
+      expect(flattenStyle(middle.props.style).flex).toBe(1)
+    })
+
+    it('the content column stacks name / meta / value as three full-width lines (meta is a sibling, not beside a rail)', () => {
+      const { getByTestId, queryByTestId } = render(
+        <MapListView visible branches={[longTile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
+      )
+      const middle = getByTestId('map-ledger-middle')
+      // Column stack (no row direction on the content column).
+      expect(flattenStyle(middle.props.style).flexDirection).toBeUndefined()
+      // Three lines in order: name (a Text, no testID) → meta → value line.
+      const kids = middle.children.filter((c) => typeof c !== 'string')
+      expect(kids).toHaveLength(3)
+      expect(kids[1]!.props.testID).toBe('map-ledger-meta')
+      // The meta row is a DIRECT full-width child of the column — the old
+      // side rail is gone from the tree entirely.
+      expect(queryByTestId('map-ledger-value-rail')).toBeNull()
+      // The value line (third line) contains the shared VoucherValue.
+      expect(getByTestId('map-ledger-value')).toBeTruthy()
+    })
+
+    it('name and meta stay single-line tail-ellipsised (safety net), full wording visible', () => {
+      const { getByText, getByTestId } = render(
         <MapListView visible branches={[longTile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
       )
       const name = getByText('The Grand International House of Fine Dining')
       expect(name.props.numberOfLines).toBe(1)
       expect(name.props.ellipsizeMode).toBe('tail')
-      // The meta TEXT node ("category · distance"; round 4 moved the
-      // status dot + word into fixed trailing siblings) — query by the
-      // COMPOSED string so we get the OUTER Text (the one carrying the
-      // ellipsis props), not the nested category segment.
       const meta = getByText(/International Fine Dining Restaurant · 0\.3 mi/)
       expect(meta.props.numberOfLines).toBe(1)
       expect(meta.props.ellipsizeMode).toBe('tail')
-    })
-
-    it('middle column is flex:1 with minWidth:0 (the RN ellipsis contract) and the value rail keeps its fixed width', () => {
-      const { getByTestId } = render(
-        <MapListView visible branches={[longTile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
-      )
-      const middle = flattenStyle(getByTestId('map-ledger-middle').props.style)
-      expect(middle.flex).toBe(1)
-      expect(middle.minWidth).toBe(0)
-      // Fixed rail width — round 4 compresses the rail to the compact
-      // amount chip + tightened stub (Defect 3 geometry).
-      const { VALUE_RAIL_WIDTH } = require('@/features/map/components/MapLedgerRow')
-      const rail = flattenStyle(getByTestId('map-ledger-value-rail').props.style)
-      expect(rail.width).toBe(VALUE_RAIL_WIDTH)
-      expect(VALUE_RAIL_WIDTH).toBe(72)
-      // The compact amount chip renders inside the rail.
-      expect(getByTestId('voucher-value-save')).toBeTruthy()
-    })
-
-    // ────────────────────────────────────────────────────────────────────
-    // W2b ROUND 4 DEFECT 3 — the no-ellipsis arithmetic. Jest cannot lay
-    // text out, so the pin is the GEOMETRY: at a 390pt screen, the meta
-    // text zone left by the round-4 row (freed heart column + compressed
-    // rail) must exceed the estimated width of "Indian Restaurant ·
-    // 0.2 mi" at Lato-Medium 13. The estimator is a two-class Lato
-    // advance-metric heuristic (narrow glyphs ~0.30em: i l t f j r . ·
-    // space; everything else ~0.52em) — deliberately conservative vs
-    // Lato's real average (~0.5em lowercase incl. narrow glyphs).
-    // ────────────────────────────────────────────────────────────────────
-    it('W2b round 4: "Indian Restaurant · 0.2 mi" fits WITHOUT ellipsis at a 390pt screen (geometry pin)', () => {
-      const { metaTextAvailableWidth } = require('@/features/map/components/MapLedgerRow')
-
-      const NARROW = new Set([' ', '.', '·', 'i', 'l', 't', 'f', 'j', 'r'])
-      const estimate = (text: string, fontSize: number) =>
-        [...text].reduce((w, ch) => w + fontSize * (NARROW.has(ch) ? 0.30 : 0.52), 0)
-
-      // Status word is a fixed trailing sibling — "Open" at SemiBold 13.
-      const statusWidth = estimate('Open', 13)
-      const available = metaTextAvailableWidth(390, statusWidth)
-      const needed = estimate('Indian Restaurant · 0.2 mi', 13)
-
-      expect(needed).toBeLessThanOrEqual(available)
-      // And the row leaves usable headroom, not a 1pt squeak.
-      expect(available - needed).toBeGreaterThanOrEqual(4)
+      // minWidth: 0 stays on the flex column (the RN ellipsis contract).
+      expect(flattenStyle(getByTestId('map-ledger-middle').props.style).minWidth).toBe(0)
+      // Round 5 wording revert: the FULL capsule text is visible.
+      expect(getByText('Save up to £999')).toBeTruthy()
     })
   })
 })
