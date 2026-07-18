@@ -204,4 +204,11 @@ export const RedisKey = {
   // depth against one machine cycling merchant sessions.
   rateLimitMerchantAgreementPreviewMerchantMin: (merchantId: string) => `rl:magrprev:merch:min:${merchantId}`, // per-merchant per-minute (abuser)
   rateLimitMerchantAgreementPreviewIpMin:       (ip: string)         => `rl:magrprev:ip:min:${ip}`,             // per-IP per-minute (abuser)
+  // D65 lane-2 (evidence read, decision doc §11/§17; src/api/shared/agreementEvidenceLimiter.ts):
+  // a bounded per-caller rate limit on the ADMIN signing-evidence read surface (the ordinary-tier
+  // evidence detail GET AND the server-proxied signed-PDF retrieval, which does an R2 round-trip +
+  // sha256). Both keys are ABUSER keys (every attempt counts): per-admin is the primary bound on
+  // the authenticated caller, per-IP is defence in depth against one machine cycling sessions.
+  rateLimitAgreementEvidenceAdminMin: (adminId: string) => `rl:agrev:admin:min:${adminId}`, // per-admin per-minute (abuser)
+  rateLimitAgreementEvidenceIpMin:    (ip: string)       => `rl:agrev:ip:min:${ip}`,         // per-IP per-minute (abuser)
 } as const

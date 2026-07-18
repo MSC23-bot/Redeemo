@@ -131,6 +131,17 @@ export type AdminCapability =
   // by SUPER_ADMIN. Email ops (pausing/resuming all transactional mail, incl. admin
   // OTP) is a platform-safety lever, so it sits at the top bar.
   | 'email:ops'
+  // D65 lane-2 (evidence read, decision doc 2026-07-15-d65-legal-object §11/§17): gates the
+  // ADMIN signing-evidence read surface - the ORDINARY-tier evidence detail (GET
+  // /admin/merchants/:id/agreement/evidence) AND the server-proxied signed-PDF retrieval (GET
+  // .../agreement/evidence/pdf). A read-only but higher-sensitivity surface than merchant:read
+  // (it exposes the signatory identity + the signed legal artifact), so it is its OWN capability,
+  // held by OPERATIONS (via ALL_SLICE1_CAPS below) + SUPER_ADMIN (via the short-circuit) ONLY.
+  // Deliberately NOT in FIELD_CAPABILITIES (a field rep witnesses signing but has no post-hoc
+  // evidence-audit need) and NOT in GRANTABLE_CAPABILITIES. The WITHHELD tier (witnessEmail /
+  // ipAddress / userAgent) stays reserved for a future separately-gated legal-export surface;
+  // this capability never returns it.
+  | 'contract:view-evidence'
 
 const ALL_SLICE1_CAPS: AdminCapability[] = [
   'merchant:create-draft',
@@ -148,6 +159,8 @@ const ALL_SLICE1_CAPS: AdminCapability[] = [
   'redemption:read',
   // MerchantNote packet: OPERATIONS holds the universal notes cap via its list.
   'merchant:notes',
+  // D65 lane-2: OPERATIONS may view signing evidence + download the signed PDF.
+  'contract:view-evidence',
 ]
 
 // Team & Roles S1: FIELD baseline (owner-locked UNION set, 2026-07-10: FIELD

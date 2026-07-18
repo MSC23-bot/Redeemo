@@ -12,9 +12,11 @@ import { createBranchCore, toAdminBranchShape } from '../../merchant/branch/serv
 import { submitForApprovalCore } from '../../merchant/onboarding/service'
 import { signAgreementInPerson, previewAgreement } from '../../merchant/agreement/service'
 import { consumeAgreementPreview } from '../../shared/agreementPreviewLimiter'
+import { consumeAgreementEvidenceRead } from '../../shared/agreementEvidenceLimiter'
 import { AppError } from '../../shared/errors'
 import { isStorageEnabled, kindPolicy } from '../../shared/storage'
 import { listMerchantDocuments, createMerchantDocument, deleteMerchantDocument } from './documents'
+import { getAgreementEvidenceDetail, retrieveAgreementEvidencePdf } from './agreementEvidence'
 
 const DOCUMENT_TYPES = ['BUSINESS_VERIFICATION_1', 'BUSINESS_VERIFICATION_2', 'PRICE_LIST', 'AGREEMENT'] as const
 
@@ -397,6 +399,41 @@ export async function adminMerchantRoutes(app: FastifyInstance) {
       },
       auditCtx(req),
     )
+  })
+
+  // ── D65 lane-2: admin signing-evidence read (detail + server-proxied PDF) ─────
+  //
+  // Gated on contract:view-evidence (OPERATIONS + SUPER_ADMIN only; NOT FIELD, so the FIELD
+  // pre-live clamp is unreachable and deliberately omitted). Merchant-scoped + NON-LEAKING: the
+  // service reads `where merchantId = :id` (never across the merchant boundary) and 404s
+  // EVIDENCE_NOT_FOUND for an unknown merchant OR one with no evidence (same shape, so existence
+  // for another merchant is never revealed). Both routes share ONE bounded per-caller rate limit
+  // (consumeAgreementEvidenceRead: 30/admin/min + 60/IP/min, env-overridable), consulted BEFORE
+  // the DB read / storage round-trip. The WITHHELD tier (witnessEmail / ipAddress / userAgent) is
+  // never returned; the raw pdfKey is never returned.
+
+  // Detail: the ORDINARY-tier evidence (version + status, canonical + reviewed hashes, signatory
+  // name + role, method, signedAt, witness NAME). Audited (AGREEMENT_EVIDENCE_VIEWED). Loaded on
+  // an explicit admin action in Merchant 360, never auto-fetched.
+  app.get(`${prefix}/:id/agreement/evidence`, { preHandler: [requireAdminCapability('contract:view-evidence')] }, async (req: any) => {
+    const id = idParam(req)
+    await consumeAgreementEvidenceRead(app.redis, { adminId: req.user.sub, ip: req.ip })
+    return getAgreementEvidenceDetail(app.prisma, id, { adminId: req.user.sub, ...auditCtx(req) })
+  })
+
+  // PDF: the SERVER-PROXIED retrieve-hash-compare-serve (decision doc §17), NOT a presigned URL.
+  // The backend fetches the stored bytes, re-hashes them, compares to the record's pdfHash, and
+  // streams the SAME bytes ONLY on a match. A miss/mismatch fails closed
+  // (AGREEMENT_EVIDENCE_INTEGRITY_FAILURE) with an audit + high-severity alert and releases NO
+  // bytes; storage dark -> STORAGE_NOT_ENABLED (both thrown BEFORE reply headers, so the error
+  // envelope is clean JSON). The storage key is never returned. A normal authenticated download.
+  app.get(`${prefix}/:id/agreement/evidence/pdf`, { preHandler: [requireAdminCapability('contract:view-evidence')] }, async (req: any, reply: any) => {
+    const id = idParam(req)
+    await consumeAgreementEvidenceRead(app.redis, { adminId: req.user.sub, ip: req.ip })
+    const { bytes } = await retrieveAgreementEvidencePdf(app.prisma, id, { adminId: req.user.sub, ...auditCtx(req) })
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Content-Disposition', `attachment; filename="signed-agreement-${id}.pdf"`)
+    return reply.send(bytes)
   })
 
   // ── Option B B4: admin merchant documents (upload / view / delete on behalf) ──
