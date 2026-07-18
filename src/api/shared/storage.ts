@@ -221,6 +221,30 @@ export async function presignGet(key: string): Promise<PresignGetResult> {
   return { url, expiresIn: GET_URL_TTL_SECONDS }
 }
 
+/**
+ * D65 lane-2 (decision doc 2026-07-15-d65-legal-object §17): server-side RETRIEVE of a
+ * private object's raw bytes. Unlike `presignGet` (which hands the client a short-lived URL),
+ * this fetches the bytes INTO the backend so the caller can re-hash + verify them and stream
+ * ONLY the verified bytes - a presigned URL for the agreement PDF would reintroduce the
+ * time-of-check/time-of-use gap §17 rejects. Validates the key shape (rejecting traversal /
+ * malformed keys), asserts storage is enabled, and routes to the SAME (private) bucket the
+ * kind embedded in `key` writes to. Throws (before any read) when storage is disabled or the
+ * key is malformed, and propagates the underlying S3 error (e.g. a missing object) so the
+ * caller can fail closed.
+ */
+export async function getObject(key: string): Promise<Buffer> {
+  assertStorageEnabled()
+  assertValidKey(key) // reject malformed / traversal keys before touching storage
+  const res = await s3().send(new GetObjectCommand({ Bucket: bucketFor(kindOfKey(key)), Key: key }))
+  const body = res.Body
+  if (!body) throw new Error(`[storage] object "${key}" returned no body`)
+  // AWS SDK v3 stream mixin: transformToByteArray reads the whole object into memory. Agreement
+  // PDFs are a few KB, small enough to buffer (no streaming complexity needed for this surface).
+  // ponytail: buffer-whole-object; switch to a streamed pipe if a much larger private kind ever reuses this.
+  const bytes = await (body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray()
+  return Buffer.from(bytes)
+}
+
 export interface PutObjectInput {
   kind: StorageKind
   /** Owner scope (merchant/branch id), validated [A-Za-z0-9_-]+ (no path separators). */

@@ -80,6 +80,16 @@ describe('M2 — admin capability map', () => {
       }
     })
 
+    it('D65 lane-2: contract:view-evidence held by OPERATIONS + SUPER_ADMIN, NOT FIELD/FINANCE/CONTENT/SUPPORT', () => {
+      expect(adminHasCapability('OPERATIONS', 'contract:view-evidence')).toBe(true)
+      expect(adminHasCapability('SUPER_ADMIN', 'contract:view-evidence')).toBe(true)
+      // Distinct from merchant:sign-agreement (which FIELD holds): FIELD witnesses signing but
+      // has no post-hoc evidence-audit need, so it does NOT hold the evidence-read cap.
+      for (const role of ['FIELD', 'FINANCE', 'CONTENT', 'SUPPORT']) {
+        expect(adminHasCapability(role, 'contract:view-evidence')).toBe(false)
+      }
+    })
+
     it('D67: redemption:read held by OPERATIONS + SUPER_ADMIN, not FINANCE/CONTENT/SUPPORT', () => {
       expect(adminHasCapability('OPERATIONS', 'redemption:read')).toBe(true)
       expect(adminHasCapability('SUPER_ADMIN', 'redemption:read')).toBe(true)

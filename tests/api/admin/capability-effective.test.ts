@@ -73,6 +73,25 @@ describe('FIELD baseline (pinned)', () => {
     expect(caps).not.toContain('merchant:edit-identity')
     expect(caps).not.toContain('merchant:edit-category')
   })
+
+  it('FIELD baseline EXCLUDES the D65 lane-2 contract:view-evidence cap', () => {
+    // FIELD holds merchant:sign-agreement (witnesses signing) but NOT contract:view-evidence
+    // (the post-hoc evidence-read surface is OPERATIONS + SUPER_ADMIN only).
+    const caps = resolveEffectiveCapabilities('FIELD', [])
+    expect(caps).not.toContain('contract:view-evidence')
+  })
+})
+
+describe('contract:view-evidence (D65 lane-2, pinned)', () => {
+  it('is in the OPERATIONS baseline and is NOT grantable', () => {
+    expect(resolveEffectiveCapabilities('OPERATIONS', [])).toContain('contract:view-evidence')
+    expect(isGrantableCapability('contract:view-evidence')).toBe(false)
+  })
+
+  it('a grant of contract:view-evidence (off the allow-list) is IGNORED (defence in depth)', () => {
+    const caps = resolveEffectiveCapabilities('FIELD', ['contract:view-evidence'])
+    expect(caps).not.toContain('contract:view-evidence')
+  })
 })
 
 describe('resolveEffectiveCapabilities — baseline UNION grantable grants', () => {

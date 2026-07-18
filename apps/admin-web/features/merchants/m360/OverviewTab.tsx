@@ -29,6 +29,8 @@ import type { MerchantDetail } from '@/lib/api/merchants'
 interface OverviewTabProps {
   data: MerchantDetail
   canSubmit: boolean
+  /** UI gate mirror of contract:view-evidence (D65 lane-2 signing-evidence read). */
+  canViewEvidence: boolean
   onSubmitForReview: () => void
 }
 
@@ -39,7 +41,7 @@ function contractLabel(status: string | undefined): string {
   return status ?? 'Unknown'
 }
 
-export function OverviewTab({ data, canSubmit, onSubmitForReview }: OverviewTabProps) {
+export function OverviewTab({ data, canSubmit, canViewEvidence, onSubmitForReview }: OverviewTabProps) {
   const pathname = usePathname()
   const { merchant, branches } = data
   const showSubmitCard = canSubmit && merchant.canSubmitOnBehalf
@@ -188,8 +190,12 @@ export function OverviewTab({ data, canSubmit, onSubmitForReview }: OverviewTabP
         </section>
       </div>
 
-      {/* D65 Slice 4: contract / agreement evidence block. */}
-      <AgreementEvidenceCard agreement={merchant.agreement} />
+      {/* D65 Slice 4 summary + lane-2 signing-evidence read. */}
+      <AgreementEvidenceCard
+        agreement={merchant.agreement}
+        merchantId={merchant.id}
+        canViewEvidence={canViewEvidence}
+      />
     </div>
   )
 }

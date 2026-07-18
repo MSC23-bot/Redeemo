@@ -165,6 +165,27 @@ export const ERROR_DEFINITIONS = {
   AGREEMENT_VERSION_MISMATCH:      { statusCode: 409, message: 'The agreement was updated. Please reload and review the current version before signing.' },
   AGREEMENT_REVIEW_HASH_MISMATCH:  { statusCode: 409, message: 'The agreement details changed since you reviewed it. Please reload and review the current version before signing.' },
   AGREEMENT_SIGNER_INVALID:        { statusCode: 400, message: 'A signatory name is required to sign this agreement.' },
+  // D65 lane-2 (evidence read, decision doc 2026-07-15-d65-legal-object §11/§17).
+  //   EVIDENCE_NOT_FOUND : NON-LEAKING 404 for the admin signing-evidence read
+  //     (GET /admin/merchants/:id/agreement/evidence and its /pdf sibling). Returned
+  //     when no MerchantAgreementRecord is scoped to :id - the SAME shape whether the
+  //     merchant is unknown or simply has no evidence, so existence for another merchant
+  //     is never revealed. The read is scoped `where merchantId = :id`, so a record can
+  //     never be read across the merchant boundary.
+  //   AGREEMENT_EVIDENCE_INTEGRITY_FAILURE : the server-proxied signed-PDF retrieval
+  //     re-hashes the bytes it fetched from R2 and compares them to the record's pdfHash
+  //     (decision doc §17). A missing object OR a hash mismatch releases NO PDF, fails
+  //     closed with this code, writes an integrity-failure audit row, and surfaces a
+  //     high-severity ops/reconciliation alert. 502 (an upstream/storage integrity fault,
+  //     not a client error), mirroring STRIPE_ERROR's upstream-provider posture. Storage
+  //     being dark is NOT this - that fails closed earlier with STORAGE_NOT_ENABLED (503).
+  EVIDENCE_NOT_FOUND:              { statusCode: 404, message: 'Signing evidence not found.' },
+  AGREEMENT_EVIDENCE_INTEGRITY_FAILURE: { statusCode: 502, message: 'The signed agreement could not be verified and was not released. Please contact support.' },
+  // D65 lane-2 evidence-read limiter (src/api/shared/agreementEvidenceLimiter.ts): a bounded
+  // per-caller cap on the admin evidence detail + server-proxied PDF retrieval. Dedicated code
+  // (distinct from AGREEMENT_PREVIEW_RATE_LIMITED, the ceremony preview's limiter) so an
+  // evidence-read throttle never masquerades as a preview throttle. details.retryAfter (seconds).
+  AGREEMENT_EVIDENCE_RATE_LIMITED: { statusCode: 429, message: 'Too many evidence requests. Please wait a moment and try again.' },
   // Phase 2 Slice 1 M3: actioner.
   APPROVAL_NOT_FOUND:             { statusCode: 404, message: 'Approval not found.' },
   APPROVAL_ALREADY_CLAIMED:       { statusCode: 409, message: 'This approval is already being reviewed by another admin.' },

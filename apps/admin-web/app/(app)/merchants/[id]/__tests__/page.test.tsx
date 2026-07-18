@@ -246,6 +246,28 @@ jest.mock('@/lib/merchants/useMerchantNotes', () => ({
   merchantNotesQueryKey: (id: string) => ['admin-merchant-notes', id],
 }))
 
+// D65 lane-2: mock the Overview evidence-read hook (network I/O). The
+// AgreementEvidenceCard renders for real on the Overview tab; its own behaviour
+// (load-on-click, cap-gating, withheld fields, download) is covered by
+// AgreementEvidenceCard.test.tsx. Disabled default so the Overview render never
+// fires the read.
+jest.mock('@/lib/agreement/useAgreementEvidence', () => ({
+  useAgreementEvidence: jest.fn(() => ({
+    data: undefined,
+    isFetching: false,
+    isError: false,
+    error: undefined,
+    refetch: jest.fn(),
+  })),
+  agreementEvidenceQueryKey: (id: string) => ['admin-agreement-evidence', id],
+}))
+
+// D65 lane-2 dormant release gate. Unmocked default (undefined) is falsy => OFF, so existing tests
+// never see the evidence controls; the gate suite below drives it explicitly.
+jest.mock('@/lib/flags', () => ({ isEvidenceUiEnabled: jest.fn() }))
+import { isEvidenceUiEnabled } from '@/lib/flags'
+const mockIsEvidenceUiEnabled = isEvidenceUiEnabled as jest.Mock
+
 jest.mock('@/features/merchants/m360/RmvCoBuildDialog', () => ({
   RmvCoBuildDialog: ({
     merchantId,
@@ -478,6 +500,39 @@ function makeDetail(overrides: Partial<MerchantDetail> = {}): MerchantDetail {
 afterEach(() => {
   jest.clearAllMocks()
   mockSearch = ''
+})
+
+// ── D65 lane-2 dormant release gate (integration) ───────────────────────────
+// The signing-evidence controls must stay hidden until NEXT_PUBLIC_EVIDENCE_UI_ENABLED === 'true',
+// EVEN for a SUPER_ADMIN whose capability short-circuit grants contract:view-evidence. This is the
+// page-level half of the gate (ahead of the capability check), proving the short-circuit cannot
+// bypass it. The default fixture's contract is SIGNED, so only the flag governs visibility here.
+
+describe('Merchant 360 signing-evidence release gate', () => {
+  it('SUPER_ADMIN + gate OFF: no "View signing evidence" action (short-circuit cannot bypass)', () => {
+    mockIsEvidenceUiEnabled.mockReturnValue(false)
+    mockSession({ role: 'SUPER_ADMIN', can: () => true }) // grants contract:view-evidence
+    mockDetail({ data: makeDetail() }) // SIGNED contract
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('merchant-workspace-header')).toBeInTheDocument() // page rendered
+    expect(screen.queryByTestId('agreement-view-evidence')).not.toBeInTheDocument()
+  })
+
+  it('SUPER_ADMIN + gate ON: the action is exposed', () => {
+    mockIsEvidenceUiEnabled.mockReturnValue(true)
+    mockSession({ role: 'SUPER_ADMIN', can: () => true })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.getByTestId('agreement-view-evidence')).toBeInTheDocument()
+  })
+
+  it('gate ON but WITHOUT contract:view-evidence: still denied', () => {
+    mockIsEvidenceUiEnabled.mockReturnValue(true)
+    mockSession({ role: 'OPERATIONS', can: (cap: string) => cap !== 'contract:view-evidence' })
+    mockDetail({ data: makeDetail() })
+    render(<MerchantDetailPage />)
+    expect(screen.queryByTestId('agreement-view-evidence')).not.toBeInTheDocument()
+  })
 })
 
 // ── Capability gate ─────────────────────────────────────────────────────────

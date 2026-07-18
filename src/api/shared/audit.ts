@@ -270,6 +270,26 @@ export type AuditEvent =
   //     backend-core slice's scope.
   | 'MERCHANT_AGREEMENT_SIGNED_IN_PERSON'
   | 'MERCHANT_AGREEMENT_SIGNED_SELF_SERVE'
+  // D65 lane-2 (evidence read, decision doc 2026-07-15-d65-legal-object §11/§17). `event` is a
+  // String column, so these are union-only literals with NO migration. entityType 'merchant',
+  // entityId = the merchant whose evidence was read, actorId = the acting admin (actorType ADMIN).
+  //   AGREEMENT_EVIDENCE_VIEWED : an admin opened the ORDINARY-tier signing-evidence detail
+  //     (GET /admin/merchants/:id/agreement/evidence). metadata carries { recordId,
+  //     agreementVersion } - NEVER the signer name / IP / user-agent / pdfKey (that stays off the
+  //     audit trail, mirroring the signing audit's no-PII-in-logs seam).
+  //   AGREEMENT_EVIDENCE_INTEGRITY_FAILURE : the server-proxied PDF retrieval fetched the stored
+  //     object and its sha256 did NOT match the record's pdfHash (or the object was missing), so
+  //     NO PDF was released (fail-closed, decision doc §17). metadata carries { recordId, reason }
+  //     ('missing' | 'hash_mismatch') - never the raw pdfKey (that lives only in the console alert).
+  //   AGREEMENT_EVIDENCE_PDF_DOWNLOADED : the server-proxied PDF retrieval verified integrity and
+  //     RELEASED the signed-agreement bytes (GET /admin/merchants/:id/agreement/evidence/pdf). The
+  //     signed PDF is the most sensitive artifact (it renders the full evidence block incl. IP/UA/
+  //     witness), and the routes are independent, so the successful RELEASE is audited distinctly
+  //     from the metadata VIEWED - "downloaded the contract" must never collapse into "saw the
+  //     metadata". metadata carries { recordId } only - never signer PII / IP / UA / pdfKey.
+  | 'AGREEMENT_EVIDENCE_VIEWED'
+  | 'AGREEMENT_EVIDENCE_INTEGRITY_FAILURE'
+  | 'AGREEMENT_EVIDENCE_PDF_DOWNLOADED'
 
 export interface AuditContext {
   entityId: string
