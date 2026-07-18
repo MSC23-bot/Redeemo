@@ -681,10 +681,15 @@ requests after the source reaches `main` but before the compatible backend + D65
 
 **State (update this line as it changes):**
 
-- `OPEN: awaiting dormant-merge review` : CURRENT. Renewed Codex source review + owner SHA-bound
-  approval pending on `e601354e`. Not merged.
-- `MERGED DORMANT: activation blocked by migration compatibility` : after the dormant merge, before
-  the flag is enabled. The feature is present in `main`/deployed admin web but OFF and inert.
+- `OPEN: awaiting dormant-merge review` : DONE. Codex source-approved the dormant merge at
+  `e601354e`; owner gave SHA-bound approval.
+- `MERGED DORMANT: activation blocked by migration compatibility` : **CURRENT (2026-07-18).** PR
+  #537 squash-merged to `main` at `edfc2a1e68f7a8642c7d858675b0529c8e311042` (approved head
+  `e601354e`). Live pre-merge gate passed (head matched, MERGEABLE/CLEAN, 0 non-pass checks).
+  Read-only Vercel check beforehand: `NEXT_PUBLIC_EVIDENCE_UI_ENABLED` absent from Production /
+  Preview / Development (`DORMANT PROVIDER STATE CONFIRMED`). The feature is on `main` / the
+  auto-deployed admin web but OFF and inert: no controls render, zero evidence/PDF requests.
+  Activation stays blocked by the migration + backend window and the flag (steps below).
 - `ACTIVATED AND VERIFIED` : after the activation sequence below completes and is probe-verified.
 
 **Activation sequence (owner-executed, in order; do NOT partially apply):**
