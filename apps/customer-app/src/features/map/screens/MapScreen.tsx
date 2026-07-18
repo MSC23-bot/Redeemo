@@ -884,13 +884,32 @@ export function MapScreen(_props: Props) {
   // pin-tap → carousel path (`handleBranchPress`) and the carousel-card's
   // own tap-through (`handleBranchNavigate`, where keeping the card for
   // the return trip is the existing, unflagged behaviour) are untouched.
+  //
+  // W2b round 4 DEFECT 1 (owner screenshot) — the list SHEET itself also
+  // survived the route change and rendered ON TOP of the pushed merchant
+  // screen. Root cause: `BottomSheet` hosts its content in a react-native
+  // `Modal`, which renders in a native window layer ABOVE the entire
+  // navigator: pushing a route cannot cover it, so the profile appeared
+  // dimmed BEHIND the still-open sheet. Fix at the navigation seam: a row
+  // tap closes the sheet with the navigation; the blur effect below is
+  // the belt-and-braces for ANY other navigation away.
   const handleListBranchNavigate = useCallback(
     (branchId: string) => {
       setSelectedBranchId(null)
+      setShowListView(false)
       handleBranchNavigate(branchId)
     },
     [handleBranchNavigate],
   )
+
+  // W2b round 4 DEFECT 1 belt-and-braces — Modal-hosted sheets outlive
+  // route changes by construction (see above), so ANY navigation away
+  // (row tap, deep link, hardware back into a push) must never leave the
+  // list sheet stacked over the destination screen. Focus regain does NOT
+  // reopen it: the sheet reopens fresh from the List button only.
+  useEffect(() => {
+    if (!isFocused) setShowListView(false)
+  }, [isFocused])
 
   // ─── Empty-state classification ───────────────────────────────────────────
   // 1. offshore         — bbox sits outside UK (live region, not debounced)

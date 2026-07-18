@@ -660,7 +660,7 @@ describe('MapScreen', () => {
 
     it('pin-opened carousel does NOT survive a list-row navigation (no selection state left set)', () => {
       seedThreePinBranches()
-      const { getByTestId, queryByTestId, getByLabelText, getAllByTestId } = render(<MapScreen />, { wrapper })
+      const { getByTestId, queryByTestId, getByLabelText, queryByLabelText, getAllByTestId } = render(<MapScreen />, { wrapper })
 
       // 1. Tap a PIN — the carousel opens (existing behaviour, untouched).
       fireEvent.press(getByTestId('custom-pin-brn-a'))
@@ -677,6 +677,25 @@ describe('MapScreen', () => {
       // carousel overlay left on the map underneath/behind (and none to
       // greet the user on return).
       expect(queryByTestId('map-branch-tile-container')).toBeNull()
+      // Round 4 DEFECT 1 — the list SHEET must not survive either: its
+      // Modal host renders above the whole navigator, so leaving it open
+      // stacks it over the pushed merchant screen.
+      expect(queryByLabelText('Nearby Merchants list')).toBeNull()
+    })
+
+    it('W2b round 4 DEFECT 1: the sheet-visible state is cleared by the row press (sheet closes with the navigation)', () => {
+      seedThreePinBranches()
+      const { getByLabelText, queryByLabelText, getAllByTestId } = render(<MapScreen />, { wrapper })
+
+      fireEvent.press(getByLabelText('Show merchant list'))
+      expect(getByLabelText('Nearby Merchants list')).toBeTruthy()
+
+      fireEvent.press(getAllByTestId('map-ledger-row')[0]!)
+      expect(queryByLabelText('Nearby Merchants list')).toBeNull()
+
+      // Reopens fresh from the List button (no state leak).
+      fireEvent.press(getByLabelText('Show merchant list'))
+      expect(getByLabelText('Nearby Merchants list')).toBeTruthy()
     })
 
     it('list-row navigation with NO carousel open leaves no selection behind either (never opens one)', () => {
