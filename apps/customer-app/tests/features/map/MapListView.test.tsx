@@ -30,6 +30,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MapListView } from '@/features/map/components/MapListView'
 import { makeBranchTile } from '../../fixtures/branchTile'
 
+// Structural type for react-test-renderer instances as this file's layout
+// assertions actually use them (`react-test-renderer` ships no types and
+// `@types/react-test-renderer` is not installed; RNTL's own d.ts import of
+// it is hidden by skipLibCheck). Precise for the fields touched: props +
+// the string|instance children array.
+type RenderedInstance = {
+  props:    Record<string, unknown> & { testID?: string }
+  children: Array<RenderedInstance | string>
+}
+
 // `<BranchTile>` renders `<FavouriteHeart>` which calls `useFavourite()` →
 // `useQueryClient()` — every render needs a `<QueryClientProvider>` in
 // the tree (matches BranchTile's own test files).
@@ -468,7 +478,7 @@ describe('MapListView', () => {
       const rowInner = getByTestId('map-ledger-row')
       expect(flattenStyle(rowInner.props.style).flexDirection).toBe('row')
       const childTestIDs = rowInner.children
-        .map((c) => (typeof c === 'string' ? null : c.props?.testID ?? null))
+        .map((c: RenderedInstance | string) => (typeof c === 'string' ? null : c.props?.testID ?? null))
       // Round 5 — NO value rail between the content column and the heart.
       expect(childTestIDs).toEqual([
         'map-ledger-logo',
@@ -487,7 +497,9 @@ describe('MapListView', () => {
       // Column stack (no row direction on the content column).
       expect(flattenStyle(middle.props.style).flexDirection).toBeUndefined()
       // Three lines in order: name (a Text, no testID) → meta → value line.
-      const kids = middle.children.filter((c) => typeof c !== 'string')
+      const kids = middle.children.filter(
+        (c: RenderedInstance | string): c is RenderedInstance => typeof c !== 'string',
+      )
       expect(kids).toHaveLength(3)
       expect(kids[1]!.props.testID).toBe('map-ledger-meta')
       // The meta row is a DIRECT full-width child of the column — the old
