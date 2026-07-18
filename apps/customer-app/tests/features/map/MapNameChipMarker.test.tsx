@@ -79,7 +79,7 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
 
   // ── "Save £X" ────────────────────────────────────────────────────────
 
-  it('does NOT render a "Save" fragment when maxEstimatedSaving is absent', () => {
+  it('does NOT render a "Save" fragment when totalEstimatedSaving is absent', () => {
     const { queryByTestId, getByTestId } = render(
       <MapNameChipMarker id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" pinColor="#E20C04" />,
     )
@@ -87,21 +87,21 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
     expect(queryByTestId('map-name-chip-save-brn1')).toBeNull()
   })
 
-  it('does NOT render a "Save" fragment when maxEstimatedSaving is null', () => {
+  it('does NOT render a "Save" fragment when totalEstimatedSaving is null', () => {
     const { queryByTestId } = render(
       <MapNameChipMarker
         id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" pinColor="#E20C04"
-        maxEstimatedSaving={null}
+        totalEstimatedSaving={null}
       />,
     )
     expect(queryByTestId('map-name-chip-save-brn1')).toBeNull()
   })
 
-  it('does NOT render a "Save" fragment when maxEstimatedSaving is zero (nothing to save)', () => {
+  it('does NOT render a "Save" fragment when totalEstimatedSaving is zero (nothing to save)', () => {
     const { queryByTestId } = render(
       <MapNameChipMarker
         id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" pinColor="#E20C04"
-        maxEstimatedSaving={0}
+        totalEstimatedSaving={0}
       />,
     )
     expect(queryByTestId('map-name-chip-save-brn1')).toBeNull()
@@ -111,7 +111,7 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
     const { getByTestId } = render(
       <MapNameChipMarker
         id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" pinColor="#E20C04"
-        maxEstimatedSaving={20}
+        totalEstimatedSaving={20}
       />,
     )
     expect(getByTestId('map-name-chip-save-brn1').props.children).toBe('Save £20')
@@ -121,7 +121,7 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
     const { getByTestId } = render(
       <MapNameChipMarker
         id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" pinColor="#E20C04"
-        maxEstimatedSaving={0.4}
+        totalEstimatedSaving={0.4}
       />,
     )
     expect(getByTestId('map-name-chip-save-brn1').props.children).toBe('Save £0.40')
@@ -133,7 +133,7 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
     const { queryByTestId } = render(
       <MapNameChipMarker
         id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" pinColor="#E20C04"
-        maxEstimatedSaving={20} voucherCount={0}
+        totalEstimatedSaving={20} voucherCount={0}
       />,
     )
     expect(queryByTestId('map-name-chip-ticket-brn1')).toBeNull()
@@ -144,10 +144,19 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
     const { getByTestId } = render(
       <MapNameChipMarker
         id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" pinColor="#E20C04"
-        maxEstimatedSaving={20} voucherCount={3}
+        totalEstimatedSaving={20} voucherCount={3}
       />,
     )
-    expect(getByTestId('map-name-chip-ticket-brn1')).toBeTruthy()
+    const ticket = getByTestId('map-name-chip-ticket-brn1')
+    expect(ticket).toBeTruthy()
+    // W2a round 4: the mark is the SHARED <TicketMark> (16x12 viewBox,
+    // height locked to the 12/16 ratio), not the old inline 15x10
+    // silhouette — one identical icon across the map lockup, list rows
+    // and carousel card. (react-native-svg surfaces the viewBox as
+    // vbWidth/vbHeight on the rendered host element.)
+    expect(ticket.props.vbWidth).toBe(16)
+    expect(ticket.props.vbHeight).toBe(12)
+    expect(ticket.props.height).toBeCloseTo(15 * (12 / 16), 10)
     expect(getByTestId('map-name-chip-vouchers-brn1').props.children).toBe('3 vouchers')
   })
 
@@ -165,7 +174,7 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
     const { queryByText, getByTestId } = render(
       <MapNameChipMarker
         id="brn1" latitude={51.5} longitude={-0.1} label="Bella Italia" pinColor="#E20C04"
-        maxEstimatedSaving={20} voucherCount={5}
+        totalEstimatedSaving={20} voucherCount={5}
       />,
     )
     // The word-bearing label exists; a bare "5" text node does not.
@@ -179,7 +188,7 @@ describe('MapNameChipMarker — W2a ticket lockup', () => {
     const both = render(
       <MapNameChipMarker
         id="a" latitude={51.5} longitude={-0.1} label="Bella" pinColor="#E20C04"
-        maxEstimatedSaving={20} voucherCount={3}
+        totalEstimatedSaving={20} voucherCount={3}
       />,
     )
     expect(both.getByTestId('map-name-chip-perforation-a')).toBeTruthy()

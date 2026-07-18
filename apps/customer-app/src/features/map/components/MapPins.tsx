@@ -708,7 +708,10 @@ export function MapPins({ branches, selectedId, onPress, region, onClusterPress,
             label={branch.branchName}
             pinColor={resolvePinColorWithTree(branch, categoryIndex)}
             glyphName={getPinGlyphName(branch, categoryIndex)}
-            maxEstimatedSaving={branch.merchant.maxEstimatedSaving}
+            // W2a round 4 (owner decision 2026-07-18): the lockup's saving
+            // is the TOTAL of all vouchers, matching the list rows and the
+            // carousel card.
+            totalEstimatedSaving={branch.merchant.totalEstimatedSaving}
             voucherCount={branch.merchant.voucherCount}
           />
         )

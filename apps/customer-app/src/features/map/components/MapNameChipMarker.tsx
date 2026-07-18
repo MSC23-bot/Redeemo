@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native'
 import { Marker } from 'react-native-maps'
 import Svg, { Path, Line } from 'react-native-svg'
 import { Text, color, elevation } from '@/design-system'
+import { TicketMark } from '@/design-system/components/TicketMark'
 import { formatGbpCompact } from '@/design-system/utils/formatters'
 import { getCategoryPinGlyph } from '../utils/categoryPinGlyph'
 
@@ -45,10 +46,10 @@ import { getCategoryPinGlyph } from '../utils/categoryPinGlyph'
 // froze for good), the lockup's meta row (Save £X / voucher count) CAN
 // change after mount when a tile refetches (the accumulation store replaces
 // a tile's branches with freshly parsed objects; the merchant's
-// `voucherCount` / `maxEstimatedSaving` can move). So this mirrors the
+// `voucherCount` / `totalEstimatedSaving` can move). So this mirrors the
 // pins' W1.1 content-change re-track pattern: the `tracksViewChanges`
 // window RE-OPENS whenever the visible content changes (label / pinColor /
-// glyphName / maxEstimatedSaving / voucherCount), letting the frozen bitmap
+// glyphName / totalEstimatedSaving / voucherCount), letting the frozen bitmap
 // recapture cleanly instead of showing stale content or teleporting. The
 // freeze window duplicates MapPins.tsx's `SELECTION_TRACK_MS` (1000ms, §BI)
 // — see that file's header; duplicated rather than imported for the same
@@ -139,35 +140,13 @@ const TAIL_H          = 7
 // pointing down at the pin.
 const TAIL_LEFT       = ICON_BLOCK_W + 6
 
-// Tiny ticket silhouette (brand red): a rounded rectangle with a concave
-// notch cut into each of the left and right mid-edges — the universal
-// voucher/ticket-stub shape. Self-contained (a single filled Path), so it
-// reads correctly on any background. Drawn clockwise (y grows downward);
-// convex corners use sweep-flag 1, the concave notches use sweep-flag 0.
-function buildTicketPath(w: number, h: number): string {
-  const c  = 1.5      // corner radius
-  const n  = 1.6      // notch radius
-  const my = h / 2    // mid height
-  return [
-    `M${c},0`,
-    `H${w - c}`,
-    `A${c},${c} 0 0 1 ${w},${c}`,          // top-right corner
-    `V${my - n}`,
-    `A${n},${n} 0 0 0 ${w},${my + n}`,     // right notch (concave)
-    `V${h - c}`,
-    `A${c},${c} 0 0 1 ${w - c},${h}`,      // bottom-right corner
-    `H${c}`,
-    `A${c},${c} 0 0 1 0,${h - c}`,         // bottom-left corner
-    `V${my + n}`,
-    `A${n},${n} 0 0 0 0,${my - n}`,        // left notch (concave)
-    `V${c}`,
-    `A${c},${c} 0 0 1 ${c},0`,             // top-left corner
-    'Z',
-  ].join(' ')
-}
-const TICKET_W = 15
-const TICKET_H = 10
-const TICKET_PATH = buildTicketPath(TICKET_W, TICKET_H)
+// W2a round 4: the ticket mark is the SHARED owner-approved
+// <TicketMark> (design-system/components/TicketMark.tsx, born on the
+// W2b sheets branch), replacing this file's original inline silhouette,
+// so the map lockup, list rows and carousel card all carry one identical
+// icon. Rendered at the lockup's own size (TICKET_MARK_SIZE wide; height
+// follows the component's fixed 12/16 ratio).
+const TICKET_MARK_SIZE = 15
 
 // Downward-pointing tail triangle (white), so the lockup visibly points at
 // its pin. A single filled Path (Polygon isn't used elsewhere in this app;
@@ -198,13 +177,16 @@ type Props = {
    */
   glyphName?: string | null
   /**
-   * The branch's best available saving (`merchant.maxEstimatedSaving`, the
-   * SAME field `<BranchTile>`'s default `savingsDisplay="max"` reads),
-   * formatted via the same `formatGbpCompact` util so "Save £X" matches
-   * the app-wide compact-currency convention exactly. `null`/`undefined`/
-   * `0` (no active saving) omits the "Save £X" fragment.
+   * W2a round 4 (OWNER DECISION 2026-07-18): the lockup's "Save £X" is the
+   * TOTAL of all the merchant's vouchers (`merchant.totalEstimatedSaving`),
+   * replacing the round-1 `maxEstimatedSaving`, so the lockup, the list
+   * rows and the carousel card all say the same number. Formatted via the
+   * same `formatGbpCompact` util so it matches the app-wide compact-
+   * currency convention exactly. `null`/`undefined`/`0` (no active saving)
+   * omits the "Save £X" fragment. Wording stays the compact map form
+   * "Save £X" (the list says "Save up to").
    */
-  maxEstimatedSaving?: number | null
+  totalEstimatedSaving?: number | null
   /**
    * Map P2 W2a (W2-D2/D6) — the merchant's active voucher count. Rendered
    * ONLY here (pins carry no count), ONLY when > 0, and NEVER as a bare
@@ -225,10 +207,10 @@ type Props = {
 // enters/leaves the density-gated candidate set OR its visible content
 // changes (a tile refetch moving the saving / voucher count).
 function MapNameChipMarkerBase({
-  id, latitude, longitude, label, pinColor, glyphName, maxEstimatedSaving, voucherCount,
+  id, latitude, longitude, label, pinColor, glyphName, totalEstimatedSaving, voucherCount,
 }: Props) {
-  const saveLabel = maxEstimatedSaving != null && maxEstimatedSaving > 0
-    ? formatGbpCompact(maxEstimatedSaving)
+  const saveLabel = totalEstimatedSaving != null && totalEstimatedSaving > 0
+    ? formatGbpCompact(totalEstimatedSaving)
     : null
   const count = voucherCount != null && voucherCount > 0 ? voucherCount : 0
   const hasMeta = saveLabel != null || count > 0
@@ -244,7 +226,7 @@ function MapNameChipMarkerBase({
     setTracks(true)
     const t = setTimeout(() => setTracks(false), CHIP_TRACK_MS)
     return () => clearTimeout(t)
-  }, [label, pinColor, glyphName, maxEstimatedSaving, voucherCount])
+  }, [label, pinColor, glyphName, totalEstimatedSaving, voucherCount])
 
   return (
     <Marker
@@ -302,14 +284,12 @@ function MapNameChipMarkerBase({
                         />
                       </Svg>
                     ) : null}
-                    <Svg
-                      width={TICKET_W}
-                      height={TICKET_H}
-                      style={styles.ticketMark}
-                      testID={`map-name-chip-ticket-${id}`}
-                    >
-                      <Path d={TICKET_PATH} fill={color.brandRose} />
-                    </Svg>
+                    <View style={styles.ticketMark}>
+                      <TicketMark
+                        size={TICKET_MARK_SIZE}
+                        testID={`map-name-chip-ticket-${id}`}
+                      />
+                    </View>
                     <Text
                       variant="label.md"
                       numberOfLines={1}
@@ -347,7 +327,7 @@ export const MapNameChipMarker = memo(
     prev.label === next.label &&
     prev.pinColor === next.pinColor &&
     prev.glyphName === next.glyphName &&
-    prev.maxEstimatedSaving === next.maxEstimatedSaving &&
+    prev.totalEstimatedSaving === next.totalEstimatedSaving &&
     prev.voucherCount === next.voucherCount,
 )
 
