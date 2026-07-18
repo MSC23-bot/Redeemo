@@ -190,7 +190,9 @@ export interface AgreementEvidencePdf {
  * record (scoped, non-leaking EVIDENCE_NOT_FOUND when none). FETCHES the stored bytes, RE-HASHES
  * them, COMPARES to the record's pdfHash, and returns THOSE SAME bytes ONLY on a match. A missing
  * object or a mismatch releases NO PDF, fails closed (AGREEMENT_EVIDENCE_INTEGRITY_FAILURE), audits
- * the failure, and surfaces the high-severity alert. The raw storage key is never returned.
+ * the failure, and surfaces the high-severity alert. A successful RELEASE is itself audited
+ * (AGREEMENT_EVIDENCE_PDF_DOWNLOADED) before the bytes are handed back. The raw storage key is
+ * never returned.
  */
 export async function retrieveAgreementEvidencePdf(
   prisma: PrismaClient,
@@ -223,6 +225,20 @@ export async function retrieveAgreementEvidencePdf(
     return failEvidenceIntegrity(prisma, ctx, merchantId, record, 'hash_mismatch')
   }
 
-  // Verified: bytes fetched == bytes hashed == bytes returned.
+  // Verified: bytes fetched == bytes hashed == bytes returned. Audit the RELEASE (awaited,
+  // actor-attributed) BEFORE handing back the bytes: the signed PDF is the most sensitive read in
+  // this feature and the routes are independent, so a direct /pdf call must leave its own trail and
+  // never rely on a preceding VIEWED. metadata { recordId } only - no signer PII / IP / UA / pdfKey.
+  await writeAuditLogTx(prisma, {
+    entityId: merchantId,
+    entityType: 'merchant',
+    event: 'AGREEMENT_EVIDENCE_PDF_DOWNLOADED',
+    actorId: ctx.adminId,
+    actorType: 'ADMIN',
+    ipAddress: ctx.ipAddress,
+    userAgent: ctx.userAgent,
+    metadata: { recordId: record.id },
+  })
+
   return { bytes, recordId: record.id }
 }

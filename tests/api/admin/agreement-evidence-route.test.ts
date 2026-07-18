@@ -195,7 +195,7 @@ describe('D65 lane-2 admin signing-evidence read', () => {
       expect(res.statusCode).toBe(403)
     })
 
-    it('serves the EXACT bytes on a hash match (no integrity audit)', async () => {
+    it('serves the EXACT bytes on a hash match, audits the RELEASE (no integrity audit)', async () => {
       ;(getObject as any).mockResolvedValue(PDF_BYTES)
       const token = sign('OPERATIONS', ['contract:view-evidence'])
       const res = await app.inject({ method: 'GET', url: PDF_URL, headers: { authorization: `Bearer ${token}` } })
@@ -204,9 +204,19 @@ describe('D65 lane-2 admin signing-evidence read', () => {
       expect(res.headers['content-disposition']).toContain('attachment')
       expect(res.rawPayload.equals(PDF_BYTES)).toBe(true)
       expect(getObject).toHaveBeenCalledWith(FULL_RECORD.pdfKey)
-      // A match writes NO integrity-failure audit.
       const create = (app.prisma as any).auditLog.create
       const events = create.mock.calls.map((c: any) => c[0].data.event)
+      // A successful RELEASE is audited distinctly (a direct /pdf call must leave its own trail,
+      // never rely on a preceding VIEWED)...
+      const dl = create.mock.calls.find((c: any) => c[0].data.event === 'AGREEMENT_EVIDENCE_PDF_DOWNLOADED')
+      expect(dl).toBeTruthy()
+      expect(dl[0].data.entityType).toBe('merchant')
+      expect(dl[0].data.entityId).toBe(MERCHANT)
+      expect(dl[0].data.actorType).toBe('ADMIN')
+      // ...with recordId only: never signer PII / IP / UA / pdfKey.
+      expect(dl[0].data.metadata).toEqual({ recordId: 'rec-1' })
+      expect(JSON.stringify(dl[0].data.metadata)).not.toContain('deadbeef')
+      // ...and a match writes NO integrity-failure audit.
       expect(events).not.toContain('AGREEMENT_EVIDENCE_INTEGRITY_FAILURE')
     })
 

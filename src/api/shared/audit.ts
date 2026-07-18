@@ -281,8 +281,15 @@ export type AuditEvent =
   //     object and its sha256 did NOT match the record's pdfHash (or the object was missing), so
   //     NO PDF was released (fail-closed, decision doc §17). metadata carries { recordId, reason }
   //     ('missing' | 'hash_mismatch') - never the raw pdfKey (that lives only in the console alert).
+  //   AGREEMENT_EVIDENCE_PDF_DOWNLOADED : the server-proxied PDF retrieval verified integrity and
+  //     RELEASED the signed-agreement bytes (GET /admin/merchants/:id/agreement/evidence/pdf). The
+  //     signed PDF is the most sensitive artifact (it renders the full evidence block incl. IP/UA/
+  //     witness), and the routes are independent, so the successful RELEASE is audited distinctly
+  //     from the metadata VIEWED - "downloaded the contract" must never collapse into "saw the
+  //     metadata". metadata carries { recordId } only - never signer PII / IP / UA / pdfKey.
   | 'AGREEMENT_EVIDENCE_VIEWED'
   | 'AGREEMENT_EVIDENCE_INTEGRITY_FAILURE'
+  | 'AGREEMENT_EVIDENCE_PDF_DOWNLOADED'
 
 export interface AuditContext {
   entityId: string
