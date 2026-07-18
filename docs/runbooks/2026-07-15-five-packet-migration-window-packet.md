@@ -1,5 +1,9 @@
 # Six-Packet Migration + Deployment Reconciliation Packet
 
+> NOTE: opaque Neon branch/project IDs are redacted to placeholders
+> (`<STAGING_BRANCH_ID>`, `<PRODUCTION_BRANCH_ID>`, `<DEV_BRANCH_ID>`, `<NEON_PROJECT_ID>`)
+> because this repo is public; the operator resolves them from the Neon console at window time.
+>
 > STATUS: PREPARATION-ONLY / OWNER-APPROVAL-PENDING. Nothing in this document has
 > been applied, deployed, or mutated. It is a read-only reconciliation packet
 > produced for owner review before any migration window is opened. Every database
@@ -24,9 +28,9 @@ and confirmed this session).
   NOT-NULL-mutates any *existing* table's data; packet 6 does add three `NOT
   NULL` columns, but only to `MerchantAgreementRecord`, itself a brand-new, still
   unapplied, empty table created by packet 4 in the same window (see §2 Packet 6).
-- **Staging** (`br-ancient-water-abdbzcyu`) has **57** applied migrations and is
+- **Staging** (`<STAGING_BRANCH_ID>`) has **57** applied migrations and is
   behind `origin/main` by **exactly the 6 packets**. Clean, expected state.
-- **CRITICAL DRIFT — Production** (`br-green-forest-abv6d6ns`) has **52** applied
+- **CRITICAL DRIFT — Production** (`<PRODUCTION_BRANCH_ID>`) has **52** applied
   migrations and is behind `origin/main` by **11** migrations: the 6 packets PLUS
   5 already-shipped migrations (`20260629000000` … `20260709190638`) that are on
   main and on staging but never reached production. A `prisma migrate deploy`
@@ -55,7 +59,7 @@ and confirmed this session).
 ### 1.1 Project / organisation
 
 - Organisation: `Redeemo` (`org-twilight-resonance-47764000`).
-- **One** Neon project only: `Redeemo` = `lively-lab-12323797`
+- **One** Neon project only: `Redeemo` = `<NEON_PROJECT_ID>`
   (aws-eu-west-2, Postgres 16). Staging and production are **branches within this
   single project**, not separate projects.
 - Project-level `history_retention_seconds` = **21600 (6 hours)**. This is the PITR
@@ -65,17 +69,17 @@ and confirmed this session).
 
 | Role | Branch name | Branch id | primary | default | parent |
 |---|---|---|---|---|---|
-| **Production** | `production` | `br-green-forest-abv6d6ns` | true | true | (root) |
-| **Staging** | `staging` | `br-ancient-water-abdbzcyu` | false | false | `br-green-forest-abv6d6ns` |
+| **Production** | `production` | `<PRODUCTION_BRANCH_ID>` | true | true | (root) |
+| **Staging** | `staging` | `<STAGING_BRANCH_ID>` | false | false | `<PRODUCTION_BRANCH_ID>` |
 
-- **Staging CONFIRMED** as `br-ancient-water-abdbzcyu` (branch `name` = "staging"),
+- **Staging CONFIRMED** as `<STAGING_BRANCH_ID>` (branch `name` = "staging"),
   matching the dispatch assumption.
-- **Production identified** as `br-green-forest-abv6d6ns` by three independent
+- **Production identified** as `<PRODUCTION_BRANCH_ID>` by three independent
   signals: branch `name` = "production", `primary: true`, and `default: true`. It
   is the root branch (no `parent_id`); staging was branched from it.
 - Other branches in the project (not deploy targets, listed for completeness):
-  `dev-screenshot-2` (`br-tiny-wildflower-abq7ohwm`), `dev-screenshot`
-  (`br-lingering-brook-abaaucso`), and three archived branches
+  `dev-screenshot-2` (`<DEV_BRANCH_ID>`), `dev-screenshot`
+  (`<DEV_BRANCH_ID>`), and three archived branches
   (`plan-1-5-dev`, `category-taxonomy-foundation`,
   `production_old_2026-04-28T12:00:00Z`).
 
@@ -429,7 +433,7 @@ as the flag stays `false` until `MerchantLead` exists.
 4. **Apply the 6 migrations to staging** from the operator process against the
    **direct** staging endpoint:
    ```
-   DATABASE_URL="<staging DIRECT endpoint, br-ancient-water-abdbzcyu>" \
+   DATABASE_URL="<staging DIRECT endpoint, <STAGING_BRANCH_ID>>" \
      npx prisma migrate deploy
    ```
    This applies the 6 pending packets in timestamp order (1→6), satisfying both
@@ -653,9 +657,9 @@ a `SELECT` via the read-only `neon-observer` MCP.
    not run them read-only. They are for the owner to execute post-deploy.
 
 **Assumptions:**
-- "Staging" = the Neon branch named `staging` (`br-ancient-water-abdbzcyu`), matching
+- "Staging" = the Neon branch named `staging` (`<STAGING_BRANCH_ID>`), matching
   the dispatch. "Production" = the primary/default branch named `production`
-  (`br-green-forest-abv6d6ns`).
+  (`<PRODUCTION_BRANCH_ID>`).
 - `migrate deploy` applies pending migrations in lexical `migration_name` (timestamp)
   order, which preserves the packet-2-before-packet-5 dependency without manual
   ordering.
