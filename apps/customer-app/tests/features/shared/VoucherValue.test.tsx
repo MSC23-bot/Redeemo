@@ -4,9 +4,11 @@ import { VoucherValue } from '@/features/shared/VoucherValue'
 
 // Map Phase 2 W2b (F9 + F11) — the shared value piece used by BOTH the Map
 // ledger rows and the carousel card footer. Pins the save capsule + voucher
-// stub composition so the two surfaces cannot drift.
+// count composition so the two surfaces cannot drift. Round 5: the count
+// element is the filled brand-red <TicketMark> + label, no dashed
+// container; the capsule wording is the full "Save up to £X".
 describe('VoucherValue', () => {
-  it('renders a "Save up to £X" capsule and an "N vouchers" stub when both are present', () => {
+  it('renders a "Save up to £X" capsule and a TicketMark voucher count when both are present', () => {
     const { getByText, getByTestId } = render(
       <VoucherValue saveAmount={20} voucherCount={2} testID="vv" />,
     )
@@ -15,6 +17,8 @@ describe('VoucherValue', () => {
     expect(getByText('2 vouchers')).toBeTruthy()
     expect(getByTestId('voucher-value-save')).toBeTruthy()
     expect(getByTestId('voucher-value-stub')).toBeTruthy()
+    // Round 5 — the count identity is the custom filled ticket SVG.
+    expect(getByTestId('voucher-value-ticket-mark')).toBeTruthy()
   })
 
   it('singularises the stub to "1 voucher"', () => {
@@ -48,22 +52,16 @@ describe('VoucherValue', () => {
     expect(toJSON()).toBeNull()
   })
 
-  // W2b round 4 (Defect 3) — the 'amount' wording: a compact "£X" chip
-  // with the full "Save up to £X" phrasing on the accessibilityLabel.
-  describe('wording="amount"', () => {
-    it('shows the bare amount with the full phrasing on the a11y label', () => {
-      const { getByText, queryByText, getByLabelText } = render(
-        <VoucherValue saveAmount={15} voucherCount={3} wording="amount" />,
-      )
-      expect(getByText('£15')).toBeTruthy()
-      expect(queryByText('Save up to £15')).toBeNull()
-      expect(getByLabelText('Save up to £15')).toBeTruthy()
-      expect(getByText('3 vouchers')).toBeTruthy()
-    })
-
-    it('default wording is unchanged ("Save up to £X" visible)', () => {
-      const { getByText } = render(<VoucherValue saveAmount={15} voucherCount={3} />)
-      expect(getByText('Save up to £15')).toBeTruthy()
-    })
+  // W2b round 5 — the round-4 'amount' wording was owner-rejected (the
+  // bare "£15" read meaningless) and the prop removed with the side-rail
+  // geometry. The FULL wording is the visible text; the a11y label
+  // matches it.
+  it('capsule visible text is the FULL "Save up to £X" (round-5 wording revert)', () => {
+    const { getByText, queryByText, getByLabelText } = render(
+      <VoucherValue saveAmount={15} voucherCount={3} />,
+    )
+    expect(getByText('Save up to £15')).toBeTruthy()
+    expect(queryByText(/^£15$/)).toBeNull()
+    expect(getByLabelText('Save up to £15')).toBeTruthy()
   })
 })
