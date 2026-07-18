@@ -1,4 +1,4 @@
-# Five-Packet Migration + Deployment Reconciliation Packet
+# Six-Packet Migration + Deployment Reconciliation Packet
 
 > STATUS: PREPARATION-ONLY / OWNER-APPROVAL-PENDING. Nothing in this document has
 > been applied, deployed, or mutated. It is a read-only reconciliation packet
@@ -7,26 +7,33 @@
 > `prisma migrate`, no deploy, no env/secret change was executed.
 
 Author: Opus 4.8 (read-only reconnaissance). Date: 2026-07-15.
-Candidate SHA: `ea3416b157e61b85b6e91084d9b5561603e56537` (origin/main HEAD, re-fetched
-and confirmed this session; matches the dispatch value exactly).
+Updated: Sonnet 5, 2026-07-18 (still preparation-only / read-only): PR #516 (D65
+personalised-agreement) merged to `origin/main`, adding a 6th unapplied migration.
+Candidate SHA, packet count, and all dependent arithmetic revised below; no new
+production facts introduced beyond the 6th packet's own contents.
+Candidate SHA: `d95e70cf181a57286646cb1bc46a0bb13fbd780e` (origin/main HEAD, re-fetched
+and confirmed this session).
 
 ---
 
 ## 0. Executive summary (read this first)
 
-- The five packets are confirmed present on `origin/main` in dependency order and
+- The six packets are confirmed present on `origin/main` in dependency order and
   are **all purely additive / create-only in effect** (new enums, new tables, new
   indexes, FK ADDs only on new leaf tables). No packet drops, rewrites, or
-  NOT-NULL-mutates any existing table's data.
+  NOT-NULL-mutates any *existing* table's data; packet 6 does add three `NOT
+  NULL` columns, but only to `MerchantAgreementRecord`, itself a brand-new, still
+  unapplied, empty table created by packet 4 in the same window (see §2 Packet 6).
 - **Staging** (`br-ancient-water-abdbzcyu`) has **57** applied migrations and is
-  behind `origin/main` by **exactly the 5 packets**. Clean, expected state.
+  behind `origin/main` by **exactly the 6 packets**. Clean, expected state.
 - **CRITICAL DRIFT — Production** (`br-green-forest-abv6d6ns`) has **52** applied
-  migrations and is behind `origin/main` by **10** migrations: the 5 packets PLUS
+  migrations and is behind `origin/main` by **11** migrations: the 6 packets PLUS
   5 already-shipped migrations (`20260629000000` … `20260709190638`) that are on
   main and on staging but never reached production. A `prisma migrate deploy`
-  against production applies **all 10 pending migrations**, not just the 5 packets.
-  This must be surfaced to the owner before any production window. (All 10 are
-  additive — verified below — but the scope is double what "five packets" implies.)
+  against production applies **all 11 pending migrations**, not just the 6 packets.
+  This must be surfaced to the owner before any production window. (All 11 are
+  additive, verified below, but the scope is significantly wider than "six
+  packets" implies.)
 - **Hard dependency CONFIRMED:** the live account-deletion endpoint on the
   candidate SHA calls `scrubInvitesForUser()` inside its transaction, which queries
   `inviteRewardGrant` and `merchantInvite` — tables created only by packet 5. If
@@ -36,7 +43,10 @@ and confirmed this session; matches the dispatch value exactly).
   REQUIRED, fail-closed boolean. The candidate **worker will refuse to boot** if it
   is unset. It must be present and set to `false` until the `MerchantLead` table
   exists (packet 2), then flipped to `true`. Details in §4.
-- No open PR adds a migration; the migration set is stable at the 5 packets (§7).
+- No open PR adds a migration (re-checked this session: `gh pr list --state open
+  --json number,files` shows zero of the 29 open PRs touching
+  `prisma/migrations/**` or `prisma/schema.prisma`); the migration set is stable
+  at the 6 packets (§7).
 
 ---
 
@@ -71,25 +81,26 @@ and confirmed this session; matches the dispatch value exactly).
 
 ### 1.3 Applied-migration state (from `_prisma_migrations`, read-only)
 
-Repo `origin/main` migration count: **62** (`prisma/migrations/*/migration.sql`).
+Repo `origin/main` migration count: **63** (`prisma/migrations/*/migration.sql`).
 
 | Environment | total applied | unfinished | rolled_back | latest applied |
 |---|---|---|---|---|
-| Repo (origin/main) | 62 | — | — | `20260714210000_customer_invite_referral_packet` |
+| Repo (origin/main) | 63 | n/a | n/a | `20260715000000_d65_agreement_reviewed_body` |
 | **Staging** | **57** | 0 | 0 | `20260709190638_branch_merchant_confirmed_confidence` |
 | **Production** | **52** | 0 | 0 | `20260624190418_branch_opening_hours_multi_window` |
 
 Both environments report zero unfinished and zero rolled-back migrations — no
 partially-applied / failed migration to clean up first. Good.
 
-**Staging is missing exactly the 5 packets** (62 − 57 = 5):
+**Staging is missing exactly the 6 packets** (63 − 57 = 6):
 1. `20260710000000_admin_capability_grants_field_role`
 2. `20260712000000_merchant_lead_packet`
 3. `20260713000000_merchant_note_packet`
 4. `20260714000000_d65_merchant_agreement_record`
 5. `20260714210000_customer_invite_referral_packet`
+6. `20260715000000_d65_agreement_reviewed_body`
 
-**Production is missing 10** (62 − 52 = 10): the 5 packets above **PLUS** five
+**Production is missing 11** (63 − 52 = 11): the 6 packets above **PLUS** five
 already-shipped, already-on-staging migrations:
 - `20260629000000_keyring_fingerprint`
 - `20260702000000_maintenance_alert_types`
@@ -109,15 +120,17 @@ those five intervening migrations. I inspected all five for destructive statemen
 | `20260709190638_branch_merchant_confirmed_confidence` | `ALTER TYPE "LocationConfidence" ADD VALUE 'MERCHANT_CONFIRMED'` | additive (enum add) |
 
 All five are additive; a production `migrate deploy` sweeping them in is
-data-safe, but the **owner must explicitly consent to the wider 10-migration
-scope on production** — this is not a "five packets" change on that environment.
+data-safe, but the **owner must explicitly consent to the wider 11-migration
+scope on production**: this is not a "six packets" change on that environment.
 
 ### 1.4 Hard-dependency verification: CustomerInviteReferral (packet 5)
 
 **Claim:** account-deletion queries invite/referral tables even while invites are
 disabled, so packet 5 is a hard dependency of the candidate backend.
 
-**VERIFIED TRUE.** Code paths (candidate SHA `ea3416b1`):
+**VERIFIED TRUE.** Code paths (verified at the original candidate SHA `ea3416b1`,
+PR #527; `ea3416b1` is confirmed an ancestor of the current candidate `d95e70cf`
+via `git merge-base --is-ancestor`, so this code path is unchanged and still live):
 
 - `src/api/auth/customer/routes.ts`, `POST {prefix}/delete-account`
   (line ~211). Inside a single `app.prisma.$transaction`:
@@ -154,7 +167,7 @@ packet 5 (and, per its own header, on packet 2 `MerchantLead`).
 
 ---
 
-## 2. Migration SQL review (the 5 packets)
+## 2. Migration SQL review (the 6 packets)
 
 Legend: additive = CREATE TABLE / CREATE TYPE / CREATE INDEX / ADD COLUMN /
 FK-ADD-on-new-leaf-table. destructive/risky = DROP / ALTER TYPE on existing use /
@@ -205,13 +218,37 @@ NOT NULL without default on an existing column / DELETE / table rewrite.
 - **No FK constraints declared** (leafKey references are logical, not enforced FKs).
 - **Class: fully additive.** No existing table touched.
 
-**Lock / rewrite audit across all 5:** No `DROP`, no `DELETE`, no `TRUNCATE`, no
+### Packet 6: `20260715000000_d65_agreement_reviewed_body`
+- `ALTER TABLE "MerchantAgreementRecord" ADD COLUMN "reviewedContentHash" TEXT NOT NULL`
+- `ALTER TABLE "MerchantAgreementRecord" ADD COLUMN "reviewedBody" TEXT NOT NULL`
+- `ALTER TABLE "MerchantAgreementRecord" ADD COLUMN "pdfHash" TEXT NOT NULL`
+- **Class: additive.** All three are `NOT NULL` with no `DEFAULT` (normally a
+  risky pattern on a table with existing rows, but `MerchantAgreementRecord` is
+  itself created by packet 4 in this same unapplied window and holds **zero rows**
+  on both staging and production; packet 4 is unapplied on both). Adding `NOT
+  NULL` columns to an empty table is instant: no backfill, no rewrite of live
+  data, no lock contention beyond the column-definition change.
+- **Depends on packet 4** (`20260714000000_d65_merchant_agreement_record`): packet
+  6 cannot apply until `MerchantAgreementRecord` exists. Timestamp ordering
+  (`20260714000000` < `20260715000000`) preserves this, and `migrate deploy`
+  applies in lexical order, so the dependency is self-enforcing (same mechanism
+  as the packet-2-before-packet-5 case).
+- No FK, no enum, no index changes; a pure 3-column `ADD COLUMN` migration. The
+  columns feed the D65 personalised-agreement sign service (§3): `reviewedBody` /
+  `reviewedContentHash` / `pdfHash` are written on `MerchantAgreementRecord.create`
+  in `src/api/merchant/agreement/service.ts` (verified at the candidate SHA).
+
+**Lock / rewrite audit across all 6:** No `DROP`, no `DELETE`, no `TRUNCATE`, no
 `ALTER COLUMN ... SET NOT NULL` on an existing column, no `ALTER TYPE` that
-rewrites an existing table, no `UPDATE`. The only statements that touch an existing
-object are the four FK ADDs referencing `AdminUser` (×1) and `Merchant` (×3); each
-takes a short-lived ShareRowExclusive lock on the referenced table to register the
-constraint, with instant validation because the referencing tables are empty. No
-statement rewrites or long-locks an existing table.
+rewrites an existing table, no `UPDATE`. Packet 6's three `ADD COLUMN ... NOT
+NULL` statements target `MerchantAgreementRecord`, but that table is itself
+unapplied/empty (created by packet 4 in the same window), not a live existing
+object, so this is not a NOT-NULL-mutate of existing data. The only statements
+that touch a genuinely pre-existing object are the four FK ADDs referencing
+`AdminUser` (×1) and `Merchant` (×3); each takes a short-lived ShareRowExclusive
+lock on the referenced table to register the constraint, with instant validation
+because the referencing tables are empty. No statement rewrites or long-locks an
+existing table.
 
 **Dependency-order rationale (why this order is correct):**
 1. Enums are created before the tables that use them (each packet's `CREATE TYPE`
@@ -224,20 +261,43 @@ statement rewrites or long-locks an existing table.
    header records this explicitly. Timestamp ordering (`20260712` < `20260714210000`)
    preserves it, and `migrate deploy` applies in lexical timestamp order, so the
    order is self-enforcing.
+4. Packet 6 (`...20260715000000`) MUST come after packet 4
+   (`...d65_merchant_agreement_record`): its three `ADD COLUMN` statements target
+   `MerchantAgreementRecord`, which packet 4 creates. Timestamp ordering
+   (`20260714000000` < `20260715000000`) preserves this; packet 6 also sorts last
+   overall, so it applies after every other packet in the window.
 
 ---
 
 ## 3. Candidate SHA
 
-- Backend + migration candidate: **`ea3416b157e61b85b6e91084d9b5561603e56537`**
+- Backend + migration candidate: **`d95e70cf181a57286646cb1bc46a0bb13fbd780e`**
   (`origin/main` HEAD).
-- Subject: `feat(invites): M1 signed-in customer API: place-search, submit, mine (#527)`.
-- Re-fetched via `git fetch origin` this session; confirmed identical to the
-  dispatch value. All 5 packet `migration.sql` files verified present at this SHA.
-- This SHA carries the invite API code (§1.4) and the lead-anonymise env guard
-  (§4), so the candidate backend and the 5 packets are a **coupled** release: the
-  DB must be at 62 migrations before this backend serves traffic on a given
-  environment.
+- Subject: `feat(D65): personalised-agreement signing, mandatory review-binding
+  (backend + admin-web + migration) (#516)`.
+- Re-fetched via `git fetch origin` this session; confirmed as current
+  `origin/main` HEAD. This supersedes the packet's original candidate
+  (`ea3416b1…56537`, PR #527, dated 2026-07-15): `git merge-base --is-ancestor
+  ea3416b1… d95e70cf…` confirms `ea3416b1` is an ancestor, so every fact
+  previously verified at `ea3416b1` (§1.4 hard dependency, §4 env guard) still
+  holds. Three PRs merged in between: `#531` (Vercel build-decision CI infra, not
+  enabled), `#533` (D65 decision-packet doc), `#534` (customer-web /for-businesses
+  rebaseline); none touches `prisma/migrations/**`, `prisma/schema.prisma`, or a
+  worker/env-guard contract, so only the migration set (packet 6, from `#516`) and
+  this candidate SHA changed. All 6 packet `migration.sql` files verified present
+  at this SHA.
+- This SHA carries the invite API code (§1.4), the lead-anonymise env guard (§4),
+  **and** the D65 personalised-agreement sign service, which writes `reviewedBody`
+  / `reviewedContentHash` / `pdfHash` on `MerchantAgreementRecord.create`
+  (`src/api/merchant/agreement/service.ts`, also `src/api/merchant/onboarding/service.ts`):
+  columns that exist only after packet 6 is applied. So the candidate backend,
+  the original 5 packets, and packet 6 are all a **coupled** release: the DB must
+  be at 63 migrations before this backend serves traffic on a given environment.
+  If packet 6 is missing but the candidate backend is deployed, the sign-ceremony
+  `create` call targets columns that don't exist yet → Postgres `column ... does
+  not exist` → Prisma throws → agreement signing breaks, the same failure shape
+  as §1.4 describes for packet 5 (not independently load-tested in this update;
+  flagged for the owner as the packet-6 equivalent of the §1.4 hard dependency).
 
 ---
 
@@ -333,7 +393,7 @@ as the flag stays `false` until `MerchantLead` exists.
 ## 5. Staging apply + deploy sequence (owner-executed)
 
 > This is the ordered plan for STAGING only. Production is a separate, later,
-> owner-gated window (and carries the wider 10-migration scope from §1.3 — treat it
+> owner-gated window (and carries the wider 11-migration scope from §1.3: treat it
 > as its own decision). Do staging first; the runbook mandates staging-before-prod
 > (`deploy-security-runbook.md` §7: "still run `migrate deploy` against staging
 > first").
@@ -357,7 +417,7 @@ as the flag stays `false` until `MerchantLead` exists.
 0. **Pre-window freeze.** Freeze the branches/PRs in §7 so the candidate SHA and the
    migration set cannot move mid-window. Announce the window.
 1. **Confirm the candidate.** `git fetch origin && git rev-parse origin/main` must
-   equal `ea3416b1…56537`. Check out that SHA in the operator environment.
+   equal `d95e70cf…d780e`. Check out that SHA in the operator environment.
 2. **Env preconditions (BEFORE any deploy of the candidate worker):** on the staging
    worker env, ensure `MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED=false` is set (and
    confirm the sibling required maintenance vars from §4.2 are present). Leave the
@@ -366,19 +426,20 @@ as the flag stays `false` until `MerchantLead` exists.
    note the PITR window, and — because PITR is only 6 hours — **create an explicit
    Neon branch snapshot of staging** as a named restore point before applying. State
    the snapshot branch id in the window log.
-4. **Apply the 5 migrations to staging** from the operator process against the
+4. **Apply the 6 migrations to staging** from the operator process against the
    **direct** staging endpoint:
    ```
    DATABASE_URL="<staging DIRECT endpoint, br-ancient-water-abdbzcyu>" \
      npx prisma migrate deploy
    ```
-   This applies the 5 pending packets in timestamp order (1→5), satisfying the
-   packet-2-before-packet-5 dependency automatically. It does **not** generate new
-   migrations. Expected result: "5 migrations applied," staging now at 62.
+   This applies the 6 pending packets in timestamp order (1→6), satisfying both
+   the packet-2-before-packet-5 and packet-4-before-packet-6 dependencies
+   automatically. It does **not** generate new migrations. Expected result: "6
+   migrations applied," staging now at 63.
 5. **Verify migration state** (read-only) before touching the backend — run the §6
-   `_prisma_migrations` probe; expect 62 rows, latest `20260714210000…`, zero
+   `_prisma_migrations` probe; expect 63 rows, latest `20260715000000…`, zero
    unfinished/rolled_back.
-6. **Deploy the candidate backend + worker** (`ea3416b1`) to staging via the
+6. **Deploy the candidate backend + worker** (`d95e70cf`) to staging via the
    dashboard "Deploy latest commit" (SHA-stamped) path — NOT `railway up` from a
    worktree (stale-artifact risk, per project memory). Worker boots with the
    lead-anonymise flag `false` (dormant, safe).
@@ -408,7 +469,7 @@ as the flag stays `false` until `MerchantLead` exists.
 
 ### 5.2 Rollback limitations
 
-- All 5 packets (and the 5 intervening prod-only migrations) are **additive /
+- All 6 packets (and the 5 intervening prod-only migrations) are **additive /
   forward-only**. A code rollback to the pre-candidate backend leaves the new
   tables/enums in place, harmlessly unused — **no DB rollback is required for a code
   rollback** (`deploy-security-runbook.md` §10: "migrations are additive, so a code
@@ -437,8 +498,8 @@ SELECT count(*) AS total,
        count(*) FILTER (WHERE rolled_back_at IS NOT NULL) AS rolled_back,
        max(migration_name) AS latest
 FROM _prisma_migrations;
--- expect (staging): total=62, unfinished=0, rolled_back=0,
---        latest='20260714210000_customer_invite_referral_packet'
+-- expect (staging): total=63, unfinished=0, rolled_back=0,
+--        latest='20260715000000_d65_agreement_reviewed_body'
 ```
 
 **P1 — D65 MerchantAgreementRecord (packet 4).**
@@ -450,6 +511,20 @@ SELECT to_regclass('public."MerchantAgreementRecord"') AS tbl,
 HTTP: exercise the agreement service boot path (admin agreement/D65 endpoint or the
 merchant onboarding step-7 route once enabled) and confirm a 200/expected response,
 not a 500 relation error.
+
+**P1b: D65 reviewed-body columns (packet 6).**
+```sql
+SELECT to_regclass('public."MerchantAgreementRecord"') AS tbl,
+       (SELECT count(*) FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'MerchantAgreementRecord'
+          AND column_name IN ('reviewedContentHash', 'reviewedBody', 'pdfHash')) AS col_count;
+-- expect: tbl not null, col_count = 3
+```
+HTTP: exercise the D65 sign path (assisted ceremony or self-serve) and confirm the
+write succeeds: i.e. `merchantAgreementRecord.create` no longer throws a Postgres
+`column "reviewedBody"/"reviewedContentHash"/"pdfHash" of relation
+"MerchantAgreementRecord" does not exist` error. Before packet 6 this insert 500s;
+after, it succeeds.
 
 **P2 — Team & Roles: AdminCapabilityGrant + FIELD enum (packet 1).**
 ```sql
@@ -509,12 +584,18 @@ WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL;   -- expect 0 rows
 ## 7. Freeze list (freeze immediately before the window)
 
 **No open PR adds a migration** under `prisma/migrations/`. The migration set is
-stable at the 5 packets; there is no risk of a sixth packet landing mid-window from
-an open PR. Confirmed by enumerating `gh pr list --state open` and filtering file
-paths.
+stable at the 6 packets (packet 6 landed via `#516`, now merged, not an open PR);
+there is no risk of a seventh packet landing mid-window from an open PR. Confirmed
+by enumerating `gh pr list --state open --json number,files` (re-run 2026-07-18,
+29 open PRs, zero touching `prisma/migrations/**` or `prisma/schema.prisma`).
+
+The D65 personalised-agreement backend (`d95e70cf`, `#516`) is itself part of the
+candidate now, not a separate held PR; it is a **coupled release** with packet 6:
+the sign service writes `reviewedBody` / `reviewedContentHash` / `pdfHash`, columns
+packet 6 adds (see §3). Both must land together in the window.
 
 Open PRs that touch backend/schema-adjacent paths and should be **held from merge**
-during the window to keep the candidate SHA (`ea3416b1`) stable:
+during the window to keep the candidate SHA (`d95e70cf`) stable:
 
 | PR | Head branch | Touches | Why freeze |
 |---|---|---|---|
@@ -552,7 +633,7 @@ a `SELECT` via the read-only `neon-observer` MCP.
 - `git push` of the packet branch — the lead pushes (per dispatch).
 
 **Uncertainties / things the owner must confirm:**
-1. **Production scope.** Production is 10 migrations behind, not 5. I verified all 10
+1. **Production scope.** Production is 11 migrations behind, not 6. I verified all 11
    are additive, but the owner must explicitly consent to applying the 5 intervening
    already-shipped migrations to production in the same window (or decide to apply
    them first as a separate, lower-risk step).
@@ -578,5 +659,5 @@ a `SELECT` via the read-only `neon-observer` MCP.
 - `migrate deploy` applies pending migrations in lexical `migration_name` (timestamp)
   order, which preserves the packet-2-before-packet-5 dependency without manual
   ordering.
-- The candidate is the pushed `origin/main` SHA `ea3416b1`, not any local working-tree
+- The candidate is the pushed `origin/main` SHA `d95e70cf`, not any local working-tree
   state.
