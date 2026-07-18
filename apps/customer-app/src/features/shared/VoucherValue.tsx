@@ -11,10 +11,14 @@ import { formatGbpCompact } from '@/design-system/utils/formatters'
  *
  * Two parts side by side (8pt gap), each rendered only when it has
  * content:
- *   1. a green "Save up to £X" capsule — the amount is
- *      `maxEstimatedSaving`: best-single-voucher by platform convention
- *      (an aggregate-total variant is pending an explicit owner decision;
- *      do not switch without it), and
+ *   1. a green "Save up to £X" capsule — OWNER DECISION 2026-07-18: on
+ *      the MAP surfaces (list rows + carousel card) the amount is the
+ *      TOTAL of all the merchant's vouchers (`totalEstimatedSaving`;
+ *      e.g. three £5 vouchers show "Save up to £15" + "3 vouchers").
+ *      Home tiles intentionally still show `maxEstimatedSaving` (best
+ *      single voucher); platform alignment is pending a separate owner
+ *      decision. The metric choice lives at the CALL SITES via
+ *      `saveAmount`, and
  *   2. the voucher count: the filled brand-red `<TicketMark>` + a navy
  *      "N vouchers" label. Round 5: no dashed container — the ticket icon
  *      carries the identity on its own.

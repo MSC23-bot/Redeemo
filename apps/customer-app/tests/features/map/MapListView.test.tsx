@@ -54,7 +54,11 @@ const mockBranches = [
       businessName:       'Bella Italia',
       primaryCategory:    { id: 'c1', name: 'Food & Drink', pinColour: null, pinIcon: null, parentId: null },
       voucherCount:       2,
-      maxEstimatedSaving: 20,
+      // Round 6 (owner decision 2026-07-18) — Map surfaces show the
+      // TOTAL. max deliberately DIFFERS from total so a regression to the
+      // wrong metric fails loudly.
+      maxEstimatedSaving:   20,
+      totalEstimatedSaving: 30,
     },
   }),
   makeBranchTile({
@@ -69,7 +73,8 @@ const mockBranches = [
       businessName:       'Nails & Beauty',
       primaryCategory:    { id: 'c2', name: 'Beauty & Wellness', pinColour: null, pinIcon: null, parentId: null },
       voucherCount:       1,
-      maxEstimatedSaving: 10,
+      maxEstimatedSaving:   10,
+      totalEstimatedSaving: 25,
     },
   }),
 ]
@@ -328,8 +333,8 @@ describe('MapListView', () => {
   // meta line. Branch-first cardinality + tap-through are unchanged (pinned
   // above); these pin the new value + status presentation.
   // ──────────────────────────────────────────────────────────────────────
-  it('each ledger row renders the shared value line ("Save up to £X" capsule + TicketMark voucher count)', () => {
-    const { getByText, getAllByTestId } = render(
+  it('each ledger row renders the shared value line ("Save up to £X" capsule + TicketMark voucher count) from the TOTAL saving', () => {
+    const { getByText, queryByText, getAllByTestId } = render(
       <MapListView
         visible
         branches={mockBranches}
@@ -339,13 +344,15 @@ describe('MapListView', () => {
         {...noopSort}
       />,
     )
-    // Round 5 — the FULL wording is the visible text again (owner: the
-    // bare amount read meaningless). Bella Italia (maxEstimatedSaving 20,
-    // 2 vouchers) + Nails (10, 1).
-    expect(getByText('Save up to £20')).toBeTruthy()
+    // Round 6 (owner decision 2026-07-18) — the capsule shows the TOTAL of
+    // the merchant's vouchers (totalEstimatedSaving 30/25), never the best
+    // single voucher (max 20/10, deliberately different in the fixtures).
+    expect(getByText('Save up to £30')).toBeTruthy()
     expect(getByText('2 vouchers')).toBeTruthy()
-    expect(getByText('Save up to £10')).toBeTruthy()
+    expect(getByText('Save up to £25')).toBeTruthy()
     expect(getByText('1 voucher')).toBeTruthy()
+    expect(queryByText('Save up to £20')).toBeNull()
+    expect(queryByText('Save up to £10')).toBeNull()
     expect(getAllByTestId('map-ledger-value')).toHaveLength(2)
     // The count identity is the filled TicketMark, no dashed container.
     expect(getAllByTestId('voucher-value-ticket-mark')).toHaveLength(2)
@@ -441,7 +448,9 @@ describe('MapListView', () => {
         businessName:       'The Grand International House of Fine Dining',
         descriptor:         'International Fine Dining Restaurant',
         voucherCount:       3,
-        maxEstimatedSaving: 999,
+        // Round 6 — max != total so the wrong metric fails loudly.
+        maxEstimatedSaving:   500,
+        totalEstimatedSaving: 999,
       },
     })
 
@@ -500,7 +509,8 @@ describe('MapListView', () => {
       expect(meta.props.ellipsizeMode).toBe('tail')
       // minWidth: 0 stays on the flex column (the RN ellipsis contract).
       expect(flattenStyle(getByTestId('map-ledger-middle').props.style).minWidth).toBe(0)
-      // Round 5 wording revert: the FULL capsule text is visible.
+      // Round 5 wording revert + round 6 metric: the FULL capsule text is
+      // visible and reads the TOTAL (999), not the max (500).
       expect(getByText('Save up to £999')).toBeTruthy()
     })
   })

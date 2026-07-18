@@ -96,10 +96,13 @@ export function MapLedgerRow({ branch, onPress }: Props) {
             <Text style={[styles.metaStatus, { color: statusColour }]}>{statusWord}</Text>
           </View>
 
-          {/* Line 3 — value: capsule + TicketMark count, left-aligned. */}
+          {/* Line 3 — value: capsule + TicketMark count, left-aligned.
+              OWNER DECISION 2026-07-18: Map surfaces show the TOTAL of
+              all the merchant's vouchers (totalEstimatedSaving), not the
+              best single voucher. */}
           <View style={styles.valueLine}>
             <VoucherValue
-              saveAmount={branch.merchant.maxEstimatedSaving}
+              saveAmount={branch.merchant.totalEstimatedSaving}
               voucherCount={branch.merchant.voucherCount}
               testID="map-ledger-value"
             />

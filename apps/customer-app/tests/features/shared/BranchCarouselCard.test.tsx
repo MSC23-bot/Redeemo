@@ -66,14 +66,16 @@ describe('BranchCarouselCard (BranchTile variant="mapCarousel")', () => {
     expect(getByText('P')).toBeTruthy()
   })
 
-  it('renders the shared value line (save capsule + voucher stub) and the branch-level heart', () => {
+  it('renders the shared value line from the TOTAL saving (owner decision 2026-07-18) and the branch-level heart', () => {
     const tile = makeBranchTile({
       id:       'brn-x',
-      merchant: { businessName: 'Pino', voucherCount: 2, maxEstimatedSaving: 20 },
+      // max != total so a regression to the wrong metric fails loudly.
+      merchant: { businessName: 'Pino', voucherCount: 2, maxEstimatedSaving: 20, totalEstimatedSaving: 45 },
     })
-    const { getByText, getByTestId } = render(<BranchTile branch={tile} onPress={() => {}} variant="mapCarousel" />)
+    const { getByText, queryByText, getByTestId } = render(<BranchTile branch={tile} onPress={() => {}} variant="mapCarousel" />)
     expect(getByTestId('branch-carousel-value')).toBeTruthy()
-    expect(getByText('Save up to £20')).toBeTruthy()
+    expect(getByText('Save up to £45')).toBeTruthy()
+    expect(queryByText('Save up to £20')).toBeNull()
     expect(getByText('2 vouchers')).toBeTruthy()
     expect(getByTestId('branch-carousel-brn-x-heart')).toBeTruthy()
   })

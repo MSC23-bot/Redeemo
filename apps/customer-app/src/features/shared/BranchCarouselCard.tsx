@@ -154,8 +154,12 @@ export function BranchCarouselCard({ branch, onPress, width }: Props) {
         <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
         {meta ? <Text style={styles.meta} numberOfLines={1}>{meta}</Text> : null}
         <View style={styles.footer}>
+          {/* OWNER DECISION 2026-07-18: Map surfaces show the TOTAL of all
+              the merchant's vouchers (totalEstimatedSaving), not the best
+              single voucher. Wire field confirmed in the accumulation
+              store's render-relevant identity list (W1.1). */}
           <VoucherValue
-            saveAmount={branch.merchant.maxEstimatedSaving}
+            saveAmount={branch.merchant.totalEstimatedSaving}
             voucherCount={branch.merchant.voucherCount}
             testID="branch-carousel-value"
           />
