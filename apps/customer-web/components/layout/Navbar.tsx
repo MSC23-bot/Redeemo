@@ -599,7 +599,7 @@ export function Navbar() {
               )}
 
               {navLinks.map((link, i) => {
-                const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+                const isActive = isBusiness ? activeAnchor === link.href : pathname === link.href || pathname.startsWith(link.href + '/')
                 return (
                   <Link
                     key={link.href}
@@ -741,7 +741,7 @@ export function Navbar() {
           >
             <div className="p-4 flex flex-col gap-0.5">
               {navLinks.map(link => {
-                const isActive = pathname === link.href || pathname.startsWith(link.href + '/')
+                const isActive = isBusiness ? activeAnchor === link.href : pathname === link.href || pathname.startsWith(link.href + '/')
                 return (
                   <Link
                     key={link.href}
