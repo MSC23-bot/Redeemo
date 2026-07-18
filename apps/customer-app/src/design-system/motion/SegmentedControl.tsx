@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { View, Pressable, StyleSheet, type LayoutChangeEvent } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
-import Animated, { Easing, useSharedValue, useAnimatedStyle, withSequence, withSpring, withTiming } from 'react-native-reanimated'
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated'
 import { Text } from '../Text'
 import { color } from '../tokens'
 import { useMotionScale } from '../useMotionScale'
@@ -11,22 +11,20 @@ import { useMotionScale } from '../useMotionScale'
  * list sheet's sort selector and the FilterSheet's Sort By section (owner
  * direction: a single component, not two drifting copies).
  *
- * Anatomy (round 4): a white track card (warm hairline, very soft shadow)
- * with a sliding BRAND-GRADIENT thumb (red → coral: the primary brand
- * moment on this surface, replacing the round-2 navy); white text on the
- * thumb, navy text off it. The thumb slides with a spring (~250ms feel,
- * damping 20); under reduce-motion it jump-cuts (duration 0).
+ * Anatomy: a white track card (warm hairline, very soft shadow) with a
+ * sliding BRAND-GRADIENT thumb (red → coral, round 4); white text on the
+ * thumb, navy text off it.
  *
- * Round 4 DEFECT 2 (owner observed live) — thumb containment. The spring
- * overshoot painted the thumb OUTSIDE the white track on long jumps
- * (Relevance ↔ Best saving). The owner loves the motion, so the spring
- * stays; containment is two-layer:
- *   1. `overflow: 'hidden'` on the track (with its border radius), so an
- *      overshooting thumb can never paint outside the card;
- *   2. movements LANDING on the first or last segment use
- *      `overshootClamping` (there is no track beyond them to bounce into,
- *      so a clamped settle reads as "hitting the end"); interior stops
- *      keep the bounce.
+ * Motion (round 6 — WALL PHYSICS, replaces the round-5 edge choreography):
+ * EVERY landing uses the IDENTICAL spring (`THUMB_SPRING`, no
+ * overshootClamping, no phases, no edge special-casing). Containment is
+ * physical: the animated-style worklet clamps translateX to the track's
+ * interior (`clampThumbX`: 0 … (count-1) x segmentWidth). A spring
+ * overshoot beyond a wall renders as the thumb pressed AGAINST the edge,
+ * and the spring's return oscillation back inside the clamp reads as a
+ * natural inward wall-bounce — one motion system, identical energy at all
+ * four stops. `overflow: 'hidden'` on the track stays as belt-and-braces.
+ * Reduce-motion: single jump, no spring (unchanged).
  *
  * Segments are equal-width (track width measured via onLayout). Before
  * the first layout pass (and in jest, where onLayout never fires) the
@@ -51,43 +49,48 @@ type Props<K extends string> = {
 
 const TRACK_PADDING = 4
 
+// Round 6 — the ONE spring for every landing (edge and interior alike).
+// Exported so the test can pin that no second config / choreography exists.
+export const THUMB_SPRING = { damping: 20, stiffness: 220 } as const
+
+/**
+ * Round 6 wall physics — clamps the thumb's translateX to the track
+ * interior: [0, (segmentCount - 1) x segmentWidth]. Runs inside the
+ * animated-style worklet every frame, so spring overshoot presses the
+ * thumb against the wall and the return oscillation reads as the bounce.
+ * Pure + exported for the bounds test.
+ */
+export function clampThumbX(x: number, segmentWidth: number, segmentCount: number): number {
+  'worklet'
+  const max = (segmentCount - 1) * segmentWidth
+  if (x < 0) return 0
+  if (x > max) return max
+  return x
+}
+
 export function SegmentedControl<K extends string>({ segments, value, onChange, testID }: Props<K>) {
   const [trackWidth, setTrackWidth] = useState(0)
   const motionScale = useMotionScale()
   const tx = useSharedValue(0)
 
   const activeIndex = segments.findIndex((s) => s.key === value)
-  const segmentWidth = trackWidth > 0 ? (trackWidth - TRACK_PADDING * 2) / segments.length : 0
+  const segmentCount = segments.length
+  const segmentWidth = trackWidth > 0 ? (trackWidth - TRACK_PADDING * 2) / segmentCount : 0
 
   useEffect(() => {
     if (segmentWidth <= 0 || activeIndex < 0) return
     const target = activeIndex * segmentWidth
-    // Reduce-motion: single jump, no choreography (unchanged).
-    if (motionScale === 0) {
-      tx.value = withTiming(target, { duration: 0 })
-      return
-    }
-    // DEFECT 2 / round 5 — edge landings. Round 4's overshootClamping
-    // contained the thumb but the settle died flat; the owner wants a
-    // WALL-BOUNCE. Landing on the FIRST/LAST segment now runs a
-    // two-phase choreography: fast ease-out to the edge, then a small
-    // 5pt rebound INWARD (toward centre) that springs back (damping 14:
-    // one lively bounce). Interior stops keep the plain spring; the
-    // track's overflow:'hidden' containment stays the hard guarantee.
-    const isEdge = activeIndex === 0 || activeIndex === segments.length - 1
-    if (isEdge) {
-      const inward = activeIndex === 0 ? 5 : -5
-      tx.value = withSequence(
-        withTiming(target, { duration: 160, easing: Easing.out(Easing.cubic) }),
-        withTiming(target + inward, { duration: 70, easing: Easing.out(Easing.quad) }),
-        withSpring(target, { damping: 14, stiffness: 220 }),
-      )
-    } else {
-      tx.value = withSpring(target, { damping: 20, stiffness: 220 })
-    }
-  }, [activeIndex, segmentWidth, motionScale, tx, segments.length])
+    // Reduce-motion: single jump, no spring. Every OTHER landing takes the
+    // identical THUMB_SPRING path — containment lives in the worklet clamp,
+    // not here (round 6: no edge branch).
+    tx.value = motionScale === 0
+      ? withTiming(target, { duration: 0 })
+      : withSpring(target, THUMB_SPRING)
+  }, [activeIndex, segmentWidth, motionScale, tx])
 
-  const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }))
+  const thumbStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: clampThumbX(tx.value, segmentWidth, segmentCount) }],
+  }))
 
   function handleLayout(e: LayoutChangeEvent) {
     setTrackWidth(e.nativeEvent.layout.width)
@@ -139,9 +142,9 @@ export function SegmentedControl<K extends string>({ segments, value, onChange, 
 
 const styles = StyleSheet.create({
   // White track card on the cream sheet ground — hairline navy-tinted
-  // border + a very soft diffusion shadow (whisper-quiet warm layering).
-  // DEFECT 2 — overflow: 'hidden' (with the pill radius) is containment
-  // layer 1: an overshooting thumb can never paint outside the card.
+  // border + a very soft diffusion shadow. overflow: 'hidden' (with the
+  // pill radius) is the belt-and-braces containment behind the worklet
+  // clamp.
   track: {
     flexDirection:   'row',
     alignItems:      'stretch',
