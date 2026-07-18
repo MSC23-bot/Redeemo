@@ -1,36 +1,43 @@
--- Migration FAIL-CLOSED preflight / postflight (2026-07-19)
+-- Migration FAIL-CLOSED preflight / postflight (rev 2026-07-19b)
 --
--- SAFETY: SELECT + temp-table reads ONLY, inside a transaction that ROLLBACKs. It performs NO
--- migration, NO schema change, NO data mutation. It embeds NO connection string or secret: the
--- operator runs it against the target's DIRECT (non-pooler) Neon endpoint with their own injected
--- credential.
+-- SAFETY: NO PERSISTENT TARGET-SCHEMA OR DATA MUTATION. The script CREATEs and INSERTs into
+-- session-local TEMPORARY tables (so it is not literally "SELECT only"), all inside a transaction
+-- that ends in ROLLBACK; temp objects are session-scoped and dropped at rollback/disconnect. It
+-- performs NO migration, NO change to any persistent schema object, NO write to any persistent
+-- table. It embeds NO connection string or secret: the operator runs it against the target's
+-- DIRECT (non-pooler) Neon endpoint with their own injected credential.
 --
 -- FAIL CLOSED: run with ON_ERROR_STOP so ANY assertion RAISEs and aborts psql with a non-zero exit,
 -- blocking the operator's script. Wrong applied count, wrong exact pending names, any unfinished or
--- rolled-back row, ANY checksum drift on an applied migration, or a schema-object mismatch each
--- produces an unmistakable "PREFLIGHT FAIL" exception. A clean run prints "PREFLIGHT PASS".
+-- rolled-back row, ANY checksum drift, or ANY schema-object mismatch (tables, columns + exact
+-- per-table column counts, NOT NULL-ness of the D65 columns, indexes by name, FK constraints by
+-- name, enum values by (type,value) pair) produces an unmistakable "PREFLIGHT FAIL" exception.
+-- Every scenario asserts its exact claimed schema state, both what must be PRESENT and what must
+-- still be ABSENT. A clean run prints "PREFLIGHT PASS".
 --
--- USAGE (choose the scenario for the step you are on):
---   psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -v scenario=staging_pre       -f migration-preflight-checks.sql
--- Scenarios (expected applied -> after the step):
---   staging_pre       staging BEFORE apply   : applied 57, pending = the 6 packets
---   staging_post      staging AFTER apply     : applied 63, pending = none
---   prod_wa_pre       prod Window A BEFORE    : applied 52, pending = all 11
---   prod_wa_post      prod Window A AFTER     : applied 57, pending = the 6 packets
---   prod_wb_pre       prod Window B BEFORE    : applied 57, pending = the 6 packets
---   prod_wb_post      prod Window B AFTER     : applied 63, pending = none
---   prod_single_pre   prod single BEFORE      : applied 52, pending = all 11
---   prod_single_post  prod single AFTER       : applied 63, pending = none
+-- USAGE:
+--   psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -v scenario=staging_pre -f migration-preflight-checks.sql
 --
--- The checksum set below is the sha256(migration.sql) of all 63 repo migrations at origin/main
--- edfc2a1e. This is the direct checksum verification Codex requires; it does not rely on
--- `prisma migrate status` (which only reports pending/applied, not that already-applied files are
--- byte-identical to the DB's recorded checksums).
+-- The 8 scenarios and their exact expected states (M = migration-ledger, S = schema objects;
+-- "earlier5" = the 5 migrations 20260629..20260709190638; "packets" = the 6 migrations
+-- 20260710..20260715):
+--   scenario          M applied  M pending        S earlier5   S packets
+--   staging_pre       57         the 6 packets    PRESENT      ABSENT
+--   staging_post      63         none             PRESENT      PRESENT
+--   prod_wa_pre       52         all 11           ABSENT       ABSENT
+--   prod_wa_post      57         the 6 packets    PRESENT      ABSENT
+--   prod_wb_pre       57         the 6 packets    PRESENT      ABSENT
+--   prod_wb_post      63         none             PRESENT      PRESENT
+--   prod_single_pre   52         all 11           ABSENT       ABSENT
+--   prod_single_post  63         none             PRESENT      PRESENT
+--
+-- The checksum set below is sha256(migration.sql) of all 63 repo migrations at origin/main
+-- edfc2a1e. The object inventory below was extracted from the actual migration SQL (full read).
 
 \set ON_ERROR_STOP on
 \pset pager off
 
-BEGIN;  -- read-only; ROLLBACK at end. Temp tables live for the transaction.
+BEGIN;  -- no persistent mutation; ROLLBACK at end. Temp tables live for the transaction.
 
 CREATE TEMP TABLE _expected_checksum(name text PRIMARY KEY, checksum text NOT NULL) ON COMMIT DROP;
 INSERT INTO _expected_checksum(name, checksum) VALUES
@@ -98,7 +105,84 @@ INSERT INTO _expected_checksum(name, checksum) VALUES
   ('20260714210000_customer_invite_referral_packet','5ce4a0b658b7e72815e16d505c683f941b85557de42b19ec84aad40ffbab480c'),
   ('20260715000000_d65_agreement_reviewed_body','4ac5153399c07aa148b609beed97c4ea65d2488111cabe03103ae59353439e81');
 
--- Scenario passed via -v scenario=... (interpolated in normal SQL, not inside a dollar block).
+-- Schema-object inventory (extracted from the actual migration SQL; grp = earlier5 | packet).
+CREATE TEMP TABLE _exp_table(grp text, tbl text, colcount int) ON COMMIT DROP;
+INSERT INTO _exp_table VALUES
+  ('earlier5','KeyringFingerprint',6),
+  ('earlier5','VoucherPendingEdit',11),
+  ('packet','AdminCapabilityGrant',7),
+  ('packet','MerchantLead',18),
+  ('packet','MerchantNote',11),
+  ('packet','MerchantNoteEvent',7),
+  ('packet','MerchantAgreementRecord',18),
+  ('packet','MerchantInvite',18),
+  ('packet','InviteRewardGrant',10),
+  ('packet','BusinessSuppression',5);
+
+CREATE TEMP TABLE _exp_index(grp text, idx text) ON COMMIT DROP;
+INSERT INTO _exp_index VALUES
+  ('earlier5','KeyringFingerprint_service_key'),
+  ('earlier5','VoucherPendingEdit_voucherId_status_idx'),
+  ('earlier5','VoucherPendingEdit_merchantId_status_idx'),
+  ('packet','AdminCapabilityGrant_adminUserId_revokedAt_idx'),
+  ('packet','AdminCapabilityGrant_capability_idx'),
+  ('packet','MerchantLead_stage_idx'),
+  ('packet','MerchantLead_assignedRepId_idx'),
+  ('packet','MerchantLead_dueDate_idx'),
+  ('packet','MerchantLead_anonymisedAt_lastActivityAt_idx'),
+  ('packet','MerchantNote_merchantId_createdAt_idx'),
+  ('packet','MerchantNoteEvent_noteId_createdAt_idx'),
+  ('packet','MerchantAgreementRecord_merchantId_idx'),
+  ('packet','MerchantInvite_placeKey_idx'),
+  ('packet','MerchantInvite_leadId_idx'),
+  ('packet','MerchantInvite_status_idx'),
+  ('packet','MerchantInvite_inviterUserId_idx'),
+  ('packet','MerchantInvite_anonymisedAt_createdAt_idx'),
+  ('packet','MerchantInvite_inviterKey_placeKey_key'),
+  ('packet','InviteRewardGrant_inviteId_key'),
+  ('packet','InviteRewardGrant_userId_idx'),
+  ('packet','InviteRewardGrant_merchantId_idx'),
+  ('packet','InviteRewardGrant_status_idx'),
+  ('packet','BusinessSuppression_placeKey_key');
+
+CREATE TEMP TABLE _exp_fk(grp text, con text) ON COMMIT DROP;
+INSERT INTO _exp_fk VALUES
+  ('earlier5','VoucherPendingEdit_voucherId_fkey'),
+  ('earlier5','VoucherPendingEdit_merchantId_fkey'),
+  ('packet','AdminCapabilityGrant_adminUserId_fkey'),
+  ('packet','MerchantNote_merchantId_fkey'),
+  ('packet','MerchantNoteEvent_noteId_fkey'),
+  ('packet','MerchantAgreementRecord_merchantId_fkey');
+
+CREATE TEMP TABLE _exp_enum(grp text, typ text, val text) ON COMMIT DROP;
+INSERT INTO _exp_enum VALUES
+  ('earlier5','VoucherEditKind','CHANGE'), ('earlier5','VoucherEditKind','END'),
+  ('earlier5','NotificationType','ADMIN_MAINTENANCE_DEGRADED'),
+  ('earlier5','NotificationType','ADMIN_MAINTENANCE_RECOVERED'),
+  ('earlier5','ApprovalStatus','WITHDRAWN'),
+  ('earlier5','ApprovalType','VOUCHER_EDIT'),
+  ('earlier5','LocationConfidence','MERCHANT_CONFIRMED'),
+  ('packet','AdminRole','FIELD'),
+  ('packet','MerchantSource','REP_VISIT'), ('packet','MerchantSource','INBOUND_ENQUIRY'),
+  ('packet','MerchantSource','PHONE'), ('packet','MerchantSource','SOCIAL'),
+  ('packet','MerchantSource','EMAIL_CAMPAIGN'), ('packet','MerchantSource','CUSTOMER_REQUEST'),
+  ('packet','LeadStage','LEAD'), ('packet','LeadStage','CONTACTED'),
+  ('packet','LeadStage','VISIT_BOOKED'), ('packet','LeadStage','CONVERTED'), ('packet','LeadStage','LOST'),
+  ('packet','MerchantNoteStatus','ACTIVE'), ('packet','MerchantNoteStatus','RETRACTED'),
+  ('packet','MerchantNoteAction','ADDED'), ('packet','MerchantNoteAction','EDITED'),
+  ('packet','MerchantNoteAction','RETRACTED'),
+  ('packet','AgreementSignMethod','IN_PERSON_ASSISTED'), ('packet','AgreementSignMethod','SELF_SERVE_CLICK'),
+  ('packet','MerchantInviteStatus','PENDING_CONFIRM'), ('packet','MerchantInviteStatus','ACTIVE'),
+  ('packet','MerchantInviteStatus','HELD_REVIEW'),
+  ('packet','InviteRewardGrantStatus','PENDING'), ('packet','InviteRewardGrantStatus','ISSUED'),
+  ('packet','InviteRewardGrantStatus','CONSUMED'), ('packet','InviteRewardGrantStatus','VOIDED'),
+  ('packet','BusinessSuppressionReason','OPT_OUT'), ('packet','BusinessSuppressionReason','IGNORED'),
+  ('packet','BusinessSuppressionReason','MANUAL');
+
+-- Columns added to PRE-EXISTING tables (asserted by presence, not count: the host table has other columns).
+CREATE TEMP TABLE _exp_addedcol(grp text, tbl text, col text) ON COMMIT DROP;
+INSERT INTO _exp_addedcol VALUES ('earlier5','Branch','googlePlaceId');
+
 CREATE TEMP TABLE _scenario(key text) ON COMMIT DROP;
 INSERT INTO _scenario(key) VALUES (:'scenario');
 
@@ -107,10 +191,13 @@ DECLARE
   v_scenario  text;
   v_applied   int;
   v_exp_appl  int;
-  v_phase     text;      -- 'pre' | 'post'
+  v_e5_state  text;  -- 'present' | 'absent'
+  v_pk_state  text;  -- 'present' | 'absent'
   v_bad       int;
+  v_expected  int;
   v_pending   text[];
   v_exp_pend  text[];
+  rec         record;
   c_packets   text[] := ARRAY[
     '20260710000000_admin_capability_grants_field_role',
     '20260712000000_merchant_lead_packet',
@@ -128,48 +215,51 @@ DECLARE
 BEGIN
   c_all11 := c_earlier5 || c_packets;
   SELECT key INTO v_scenario FROM _scenario;
-  IF v_scenario IS NULL THEN
+  IF v_scenario IS NULL OR v_scenario = '' THEN
     RAISE EXCEPTION 'PREFLIGHT FAIL: no scenario provided. Run with -v scenario=<staging_pre|staging_post|prod_wa_pre|prod_wa_post|prod_wb_pre|prod_wb_post|prod_single_pre|prod_single_post>';
   END IF;
 
-  -- Map scenario -> expected applied count + expected pending set + phase.
+  -- Scenario -> expected ledger + schema-group states.
   CASE v_scenario
-    WHEN 'staging_pre'      THEN v_exp_appl := 57; v_exp_pend := c_packets; v_phase := 'pre';
-    WHEN 'staging_post'     THEN v_exp_appl := 63; v_exp_pend := ARRAY[]::text[]; v_phase := 'post';
-    WHEN 'prod_wa_pre'      THEN v_exp_appl := 52; v_exp_pend := c_all11; v_phase := 'pre';
-    WHEN 'prod_wa_post'     THEN v_exp_appl := 57; v_exp_pend := c_packets; v_phase := 'pre';   -- packets still pending after Window A
-    WHEN 'prod_wb_pre'      THEN v_exp_appl := 57; v_exp_pend := c_packets; v_phase := 'pre';
-    WHEN 'prod_wb_post'     THEN v_exp_appl := 63; v_exp_pend := ARRAY[]::text[]; v_phase := 'post';
-    WHEN 'prod_single_pre'  THEN v_exp_appl := 52; v_exp_pend := c_all11; v_phase := 'pre';
-    WHEN 'prod_single_post' THEN v_exp_appl := 63; v_exp_pend := ARRAY[]::text[]; v_phase := 'post';
+    WHEN 'staging_pre'      THEN v_exp_appl := 57; v_exp_pend := c_packets;        v_e5_state := 'present'; v_pk_state := 'absent';
+    WHEN 'staging_post'     THEN v_exp_appl := 63; v_exp_pend := ARRAY[]::text[];  v_e5_state := 'present'; v_pk_state := 'present';
+    WHEN 'prod_wa_pre'      THEN v_exp_appl := 52; v_exp_pend := c_all11;          v_e5_state := 'absent';  v_pk_state := 'absent';
+    WHEN 'prod_wa_post'     THEN v_exp_appl := 57; v_exp_pend := c_packets;        v_e5_state := 'present'; v_pk_state := 'absent';
+    WHEN 'prod_wb_pre'      THEN v_exp_appl := 57; v_exp_pend := c_packets;        v_e5_state := 'present'; v_pk_state := 'absent';
+    WHEN 'prod_wb_post'     THEN v_exp_appl := 63; v_exp_pend := ARRAY[]::text[];  v_e5_state := 'present'; v_pk_state := 'present';
+    WHEN 'prod_single_pre'  THEN v_exp_appl := 52; v_exp_pend := c_all11;          v_e5_state := 'absent';  v_pk_state := 'absent';
+    WHEN 'prod_single_post' THEN v_exp_appl := 63; v_exp_pend := ARRAY[]::text[];  v_e5_state := 'present'; v_pk_state := 'present';
     ELSE RAISE EXCEPTION 'PREFLIGHT FAIL: unknown scenario %', v_scenario;
   END CASE;
 
+  -- ============ MIGRATION-LEDGER CHECKS ============
+
   -- (1) No unfinished migrations (partial-apply gate F2).
   SELECT count(*) INTO v_bad FROM "_prisma_migrations" WHERE finished_at IS NULL;
-  IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % UNFINISHED migration(s) - partial apply, DO NOT DEPLOY BACKEND', v_bad; END IF;
+  IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % UNFINISHED migration(s): partial apply, DO NOT DEPLOY BACKEND', v_bad; END IF;
 
   -- (2) No rolled-back migrations.
   SELECT count(*) INTO v_bad FROM "_prisma_migrations" WHERE rolled_back_at IS NOT NULL;
   IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % ROLLED-BACK migration(s)', v_bad; END IF;
 
-  -- (3) Every applied migration must exist in the expected repo set (no unknown/extra).
+  -- (3) Every applied migration must be in the expected repo-63 set (no unknown/extra).
   SELECT count(*) INTO v_bad FROM "_prisma_migrations" m
     WHERE m.finished_at IS NOT NULL AND m.rolled_back_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM _expected_checksum e WHERE e.name = m.migration_name);
-  IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % applied migration(s) are NOT in the expected repo-63 set (unknown/extra migration)', v_bad; END IF;
+  IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % applied migration(s) NOT in the expected repo-63 set', v_bad; END IF;
 
-  -- (4) CHECKSUM drift: every applied migration's DB checksum must equal the repo sha256.
+  -- (4) CHECKSUM drift: every applied row's checksum must equal the repo sha256. NULL checksums fail.
   SELECT count(*) INTO v_bad FROM "_prisma_migrations" m
     JOIN _expected_checksum e ON e.name = m.migration_name
-    WHERE m.finished_at IS NOT NULL AND m.rolled_back_at IS NULL AND m.checksum <> e.checksum;
-  IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % applied migration(s) have CHECKSUM DRIFT vs the repo (a migration file was edited after apply) - migrate deploy will abort', v_bad; END IF;
+    WHERE m.finished_at IS NOT NULL AND m.rolled_back_at IS NULL
+      AND (m.checksum IS NULL OR m.checksum <> e.checksum);
+  IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % applied migration(s) have CHECKSUM DRIFT (file edited after apply): migrate deploy will abort', v_bad; END IF;
 
-  -- (5) Applied count must match the scenario.
+  -- (5) Applied count matches the scenario.
   SELECT count(*) INTO v_applied FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;
   IF v_applied <> v_exp_appl THEN RAISE EXCEPTION 'PREFLIGHT FAIL: applied=% but scenario % expects %', v_applied, v_scenario, v_exp_appl; END IF;
 
-  -- (6) Exact PENDING set = the repo-63 names not applied. Must equal the scenario's expected set.
+  -- (6) Exact PENDING name-set (repo-63 minus applied) equals the scenario's expectation.
   SELECT coalesce(array_agg(e.name ORDER BY e.name), ARRAY[]::text[]) INTO v_pending
     FROM _expected_checksum e
     WHERE NOT EXISTS (SELECT 1 FROM "_prisma_migrations" m
@@ -178,28 +268,78 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT FAIL: pending set mismatch. actual=% expected=%', v_pending, (SELECT array_agg(x ORDER BY x) FROM unnest(v_exp_pend) x);
   END IF;
 
-  -- (7) Schema-object sanity keyed on phase.
-  IF v_phase = 'post' THEN
-    -- After a full apply to 63, the packet tables must exist and D65 columns must be NOT NULL.
-    IF to_regclass('public."MerchantAgreementRecord"') IS NULL
-       OR to_regclass('public."MerchantLead"') IS NULL
-       OR to_regclass('public."MerchantInvite"') IS NULL THEN
-      RAISE EXCEPTION 'PREFLIGHT FAIL: expected packet tables missing after apply';
-    END IF;
-    SELECT count(*) INTO v_bad FROM information_schema.columns
-      WHERE table_schema='public' AND table_name='MerchantAgreementRecord'
-        AND column_name IN ('reviewedContentHash','reviewedBody','pdfHash') AND is_nullable <> 'NO';
-    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: D65 columns not NOT NULL after apply'; END IF;
-  ELSIF v_scenario IN ('staging_pre','prod_wb_pre') THEN
-    -- Before applying the 6 packets, the 6-packet tables must NOT exist yet (no drift / no partial
-    -- apply). Applies to staging_pre and prod_wb_pre (both sit at 57 applied, 6 packets pending).
-    IF to_regclass('public."MerchantAgreementRecord"') IS NOT NULL
-       OR to_regclass('public."MerchantLead"') IS NOT NULL THEN
-      RAISE EXCEPTION 'PREFLIGHT FAIL: a packet table already exists before the 6-packet apply (drift/partial apply)';
-    END IF;
+  -- ============ SCHEMA-OBJECT CHECKS (explicit passes; present AND absent) ============
+
+  -- ---- earlier5 assertions ----
+  IF v_e5_state = 'present' THEN
+    FOR rec IN SELECT tbl, colcount FROM _exp_table WHERE grp='earlier5' LOOP
+      IF to_regclass('public.' || quote_ident(rec.tbl)) IS NULL THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 table % MISSING', rec.tbl; END IF;
+      SELECT count(*) INTO v_bad FROM information_schema.columns WHERE table_schema='public' AND table_name=rec.tbl;
+      IF v_bad <> rec.colcount THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 table % has % columns, expected %', rec.tbl, v_bad, rec.colcount; END IF;
+    END LOOP;
+    SELECT count(*) INTO v_bad FROM _exp_index x JOIN pg_indexes i ON i.schemaname='public' AND i.indexname=x.idx WHERE x.grp='earlier5';
+    SELECT count(*) INTO v_expected FROM _exp_index WHERE grp='earlier5';
+    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 indexes present %/% (missing index)', v_bad, v_expected; END IF;
+    SELECT count(*) INTO v_bad FROM _exp_fk f JOIN information_schema.table_constraints c
+      ON c.constraint_schema='public' AND c.constraint_name=f.con AND c.constraint_type='FOREIGN KEY' WHERE f.grp='earlier5';
+    SELECT count(*) INTO v_expected FROM _exp_fk WHERE grp='earlier5';
+    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 FK constraints present %/%', v_bad, v_expected; END IF;
+    SELECT count(*) INTO v_bad FROM _exp_enum x JOIN pg_type t ON t.typname=x.typ JOIN pg_enum e ON e.enumtypid=t.oid AND e.enumlabel=x.val WHERE x.grp='earlier5';
+    SELECT count(*) INTO v_expected FROM _exp_enum WHERE grp='earlier5';
+    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 enum values present %/%', v_bad, v_expected; END IF;
+    SELECT count(*) INTO v_bad FROM _exp_addedcol a JOIN information_schema.columns c
+      ON c.table_schema='public' AND c.table_name=a.tbl AND c.column_name=a.col WHERE a.grp='earlier5';
+    SELECT count(*) INTO v_expected FROM _exp_addedcol WHERE grp='earlier5';
+    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 added columns present %/% (e.g. Branch.googlePlaceId)', v_bad, v_expected; END IF;
+  ELSE
+    FOR rec IN SELECT tbl FROM _exp_table WHERE grp='earlier5' LOOP
+      IF to_regclass('public.' || quote_ident(rec.tbl)) IS NOT NULL THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 table % already EXISTS (drift/partial apply)', rec.tbl; END IF;
+    END LOOP;
+    SELECT count(*) INTO v_bad FROM _exp_enum x JOIN pg_type t ON t.typname=x.typ JOIN pg_enum e ON e.enumtypid=t.oid AND e.enumlabel=x.val WHERE x.grp='earlier5';
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % earlier5 enum value(s) already exist (drift)', v_bad; END IF;
+    SELECT count(*) INTO v_bad FROM _exp_addedcol a JOIN information_schema.columns c
+      ON c.table_schema='public' AND c.table_name=a.tbl AND c.column_name=a.col WHERE a.grp='earlier5';
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % earlier5 added column(s) already exist (drift)', v_bad; END IF;
+    SELECT count(*) INTO v_bad FROM _exp_index x JOIN pg_indexes i ON i.schemaname='public' AND i.indexname=x.idx WHERE x.grp='earlier5';
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % earlier5 index(es) already exist (drift)', v_bad; END IF;
   END IF;
 
-  RAISE NOTICE 'PREFLIGHT PASS: scenario=% applied=% pending=% unfinished=0 rolled_back=0 checksums OK', v_scenario, v_applied, coalesce(array_length(v_pending,1),0);
+  -- ---- packet assertions ----
+  IF v_pk_state = 'present' THEN
+    FOR rec IN SELECT tbl, colcount FROM _exp_table WHERE grp='packet' LOOP
+      IF to_regclass('public.' || quote_ident(rec.tbl)) IS NULL THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet table % MISSING', rec.tbl; END IF;
+      SELECT count(*) INTO v_bad FROM information_schema.columns WHERE table_schema='public' AND table_name=rec.tbl;
+      IF v_bad <> rec.colcount THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet table % has % columns, expected % (missing/extra column)', rec.tbl, v_bad, rec.colcount; END IF;
+    END LOOP;
+    -- D65 columns: EXACTLY the three expected columns, each present AND NOT NULL. Counting only
+    -- rows that match BOTH name and is_nullable='NO' means an ABSENT column fails (count < 3),
+    -- and a present-but-nullable column also fails: the fix for the fail-open Codex found.
+    SELECT count(*) INTO v_bad FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='MerchantAgreementRecord'
+        AND column_name IN ('reviewedContentHash','reviewedBody','pdfHash') AND is_nullable='NO';
+    IF v_bad <> 3 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: D65 columns present-and-NOT-NULL = %/3 (missing or nullable reviewedContentHash/reviewedBody/pdfHash)', v_bad; END IF;
+    SELECT count(*) INTO v_bad FROM _exp_index x JOIN pg_indexes i ON i.schemaname='public' AND i.indexname=x.idx WHERE x.grp='packet';
+    SELECT count(*) INTO v_expected FROM _exp_index WHERE grp='packet';
+    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet indexes present %/% (missing index)', v_bad, v_expected; END IF;
+    SELECT count(*) INTO v_bad FROM _exp_fk f JOIN information_schema.table_constraints c
+      ON c.constraint_schema='public' AND c.constraint_name=f.con AND c.constraint_type='FOREIGN KEY' WHERE f.grp='packet';
+    SELECT count(*) INTO v_expected FROM _exp_fk WHERE grp='packet';
+    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet FK constraints present %/%', v_bad, v_expected; END IF;
+    SELECT count(*) INTO v_bad FROM _exp_enum x JOIN pg_type t ON t.typname=x.typ JOIN pg_enum e ON e.enumtypid=t.oid AND e.enumlabel=x.val WHERE x.grp='packet';
+    SELECT count(*) INTO v_expected FROM _exp_enum WHERE grp='packet';
+    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet enum values present %/%', v_bad, v_expected; END IF;
+  ELSE
+    FOR rec IN SELECT tbl FROM _exp_table WHERE grp='packet' LOOP
+      IF to_regclass('public.' || quote_ident(rec.tbl)) IS NOT NULL THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet table % already EXISTS before the packet apply (drift/partial apply)', rec.tbl; END IF;
+    END LOOP;
+    SELECT count(*) INTO v_bad FROM _exp_enum x JOIN pg_type t ON t.typname=x.typ JOIN pg_enum e ON e.enumtypid=t.oid AND e.enumlabel=x.val WHERE x.grp='packet';
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % packet enum value(s) already exist before the packet apply (drift)', v_bad; END IF;
+    SELECT count(*) INTO v_bad FROM _exp_index x JOIN pg_indexes i ON i.schemaname='public' AND i.indexname=x.idx WHERE x.grp='packet';
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % packet index(es) already exist before the packet apply (drift)', v_bad; END IF;
+  END IF;
+
+  RAISE NOTICE 'PREFLIGHT PASS: scenario=% applied=% pending=% earlier5=% packets=% unfinished=0 rolled_back=0 checksums OK schema OK',
+    v_scenario, v_applied, coalesce(array_length(v_pending,1),0), v_e5_state, v_pk_state;
 END
 $preflight$;
 

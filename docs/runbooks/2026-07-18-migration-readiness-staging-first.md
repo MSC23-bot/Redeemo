@@ -59,7 +59,7 @@ Project `<NEON_PROJECT_ID>` (Redeemo, aws-eu-west-2, PG16).
 | **Production** | `<PRODUCTION_BRANCH_ID>` (name `production`, **root/primary/default**) | **52** | **11** | 0 | 0 | available (root) |
 
 - Both branches `protected: false` (no Neon branch protection).
-- Staging compute: one read-write endpoint `ep-round-wave-abpnesg3` (direct + `-pooler` hosts;
+- Staging compute: one read-write endpoint `<STAGING_DIRECT_ENDPOINT>` (direct + `-pooler` hosts;
   scale-to-zero). A recovery that keeps this endpoint stable avoids any connection-string change.
 - **No drift.** Staging 60 public tables, none of the 6 packet tables exist. Production 58 tables;
   `VoucherPendingEdit` / `Branch.googlePlaceId` / `LocationConfidence.MERCHANT_CONFIRMED` absent,
@@ -119,7 +119,7 @@ coupled backend/worker at `edfc2a1e`. Owner-executed; every step owner-gated.
 
 ### 3.1 Preconditions
 1. Candidate frozen at `edfc2a1e`; backend AND admin-web deploy from it.
-2. **DIRECT endpoint** (staging `ep-round-wave-abpnesg3`, non-`-pooler`) as a separately-injected
+2. **DIRECT endpoint** (staging `<STAGING_DIRECT_ENDPOINT>`, non-`-pooler`) as a separately-injected
    credential in the operator shell. Never migrate through the pooled endpoint (advisory-lock P1001).
 3. Worker env complete: ALL `MAINTENANCE_*` vars present/valid (fail-closed scheduler) with
    `MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED=false`. Redis reachable. `STORAGE_ENABLED` state known.
@@ -154,12 +154,13 @@ in Part 3.8, and the backup below is a plain copy-on-write branch (which IS allo
    (`protected:false`). Consider enabling branch protection for the window.
 
 ### 3.3 Apply migrations (database first, F2 hard gate)
-10. Optional but recommended: set migration-session timeouts (Part 5) via
-    `ALTER ROLE <migration_role> SET lock_timeout='5s'; ... SET statement_timeout='60s';` on the
-    DIRECT endpoint, so a DDL statement queued behind a stuck transaction fails fast (SQLSTATE 55P03)
-    instead of hanging.
-11. From the DIRECT-endpoint operator shell at `edfc2a1e`: `npx prisma migrate deploy` -> applies the
-    6 pending packets in timestamp order.
+10. Recommended: set migration timeouts per Part 5 (dedicated role, or capture-then-set-then-RESTORE
+    on the shared role; never leave persistent `ALTER ROLE` settings behind), so a DDL statement
+    queued behind a stuck transaction fails fast (SQLSTATE 55P03) instead of hanging. Record capture
+    + restore verification in the window log.
+11. From the DIRECT-endpoint operator shell at `edfc2a1e`, deterministic toolchain (as Part 4.1 step
+    4: in-tree `npm ci`, then the LOCAL binary): `node_modules/.bin/prisma migrate deploy` -> applies
+    the 6 pending packets in timestamp order. (Lockfile pins Prisma 7.8.0.)
 12. **VERIFY with the fail-closed preflight `-v scenario=staging_post`:** must PASS (applied 63, 0
     pending, 0 unfinished, 0 rolled-back, no drift, packet tables present, D65 columns NOT NULL).
     **STOP CONDITION (F2):** any failure or unfinished>0 -> do NOT deploy the backend; resolve to 63
@@ -219,10 +220,39 @@ not fully documented and cannot be proven read-only:
   from another branch, and `preserve_under_name` is REQUIRED here because the target has a child (the
   backup). Uncertain read-only: whether this cleanly resets a CHILD target from its own child backup,
   and whether the connection string stays stable. The 3.2 rehearsal must confirm both on a throwaway.
-- **Option B (guaranteed fallback): rebuild staging from the backup branch.** Because staging holds
-  only test data and the migrations are additive, if Option A is not clean, promote/rebuild from
-  `staging-prewindow` (accepting a connection-string repoint to the backup's endpoint), or re-derive
-  staging by re-applying the anchors. Slower, but always available.
+- **Option B (fallback, complete procedure): dump-and-restore INTO the existing staging branch.**
+  Real data recovery via standard Postgres tooling, keeping staging's branch id, endpoint and
+  connection string unchanged (so NO Railway/backend/worker/consumer repoint is needed):
+  1. **Access the backup data:** attach a temporary compute endpoint to `staging-prewindow`
+     (owner-gated provider action; Neon allows adding a compute to any branch), or use its
+     connection URI if one exists. Credentials: the same project roles apply to all branches; the
+     operator uses the injected credential for the backup branch's endpoint. Do not print secrets.
+  2. **Dump:** `pg_dump --format=custom --no-owner --no-privileges "<backup DIRECT URI>" -f prewindow.dump`
+     (PG16 client, from the operator host). Record dump size + `pg_restore --list` table count.
+  3. **Stop writers:** confirm the staging backend/worker are stopped or the window freeze is in
+     force (no writes during restore).
+  4. **Restore into staging (same endpoint):** `psql "<staging DIRECT URI>" -c 'DROP SCHEMA public
+     CASCADE; CREATE SCHEMA public;'` then `pg_restore --no-owner --no-privileges -d "<staging DIRECT
+     URI>" prewindow.dump`. This is destructive ONLY to the already-broken post-failure state; the
+     authoritative data lives in the dump + the untouched `staging-prewindow` branch.
+  5. **Verify success:** preflight `-v scenario=staging_pre` PASSES (57 applied, packet objects
+     absent); spot row-counts of key tables match the pre-dump counts recorded in step 2; backend
+     boots against staging and serves a smoke request.
+  6. **Failed-restore rollback:** if the restore itself fails midway, staging's schema is scratch but
+     NOTHING is lost: `staging-prewindow` still holds the authoritative state. Re-run step 4 (the
+     dump is re-playable), or escalate to the endpoint-repoint variant below.
+  7. **Cleanup + topology restoration:** drop the temporary compute on `staging-prewindow`; KEEP the
+     backup branch until the re-run window completes; staging's branch id/endpoint/parentage are
+     unchanged throughout, so normal topology needs no restoration.
+  - **Variant (only if staging's own endpoint is unusable):** point consumers at the backup branch
+    instead: add a compute to `staging-prewindow`, repoint Railway backend + worker `DATABASE_URL`
+    (owner provider action) and any operator tooling, verify, and accept that old-staging becomes an
+    undeletable parent while its child backup is in service. This is the slower path and changes
+    connection strings; use only if the same-endpoint restore is impossible.
+  - Option B is "guaranteed" ONLY in the sense that `pg_dump`/`pg_restore` of a test-data-sized
+    database is standard, replayable tooling with the source preserved; the 3.2 rehearsal MUST
+    exercise it once end-to-end (dump the rehearsal branch, restore into a scratch DB, verify) to
+    earn that label for the real window. Until rehearsed, the staging window stays blocked.
 
 **Owner decision (Part 10 item 4):** approve Option A as the primary recovery IF the mandatory 3.2
 rehearsal proves it returns a child branch to the correct state with a stable connection; otherwise
@@ -255,12 +285,19 @@ historical anchor commit (Prisma-native, no manual SQL, no `migrate resolve`):
      (`20260710000000_*` `20260712000000_*` `20260713000000_*` `20260714000000_*` `20260714210000_*`
      `20260715000000_*`) are ABSENT (`ls prisma/migrations | grep -c 2026071[0-5]0000` == 0), and no
      untracked/stashed migration dir is present (`git status --short prisma/migrations` is empty).
-4. From that checkout, against production's DIRECT endpoint: `npx prisma migrate deploy`. Prisma
-   applies exactly the 5 pending migrations present in the tree (52 -> 57). It first validates the 52
-   already-applied rows' checksums against `fa92b690`'s files (they match: production 52 == repo). The
-   current production backend keeps running: these 5 are backward-compatible.
-5. Preflight `-v scenario=prod_wa_post` (applied 57, the 6 packets pending) must PASS.
-6. **Return the tree to `edfc2a1e` before Window B and before ANY build/deploy.** Window A does no
+4. **Deterministic toolchain (no implicit downloads):** in the `fa92b690` worktree, install
+   dependencies from ITS OWN lockfile per repo policy (in-tree, Node 24): `npm ci`. The anchor
+   lockfile pins **Prisma 7.8.0** (verified; `package.json` carries the range `^7.7.0` but the
+   lockfile pin governs, and `origin/main`'s lockfile pins the SAME 7.8.0, so both windows run the
+   identical engine). Then invoke the LOCAL binary only: `node_modules/.bin/prisma migrate deploy`
+   (never bare `npx prisma`, which could fall back to downloading a different version). Record in the
+   window log before running: `node -v`, `npm -v`, `node_modules/.bin/prisma --version`.
+5. From that checkout, against production's DIRECT endpoint: `node_modules/.bin/prisma migrate deploy`.
+   Prisma applies exactly the 5 pending migrations present in the tree (52 -> 57). It first validates
+   the 52 already-applied rows' checksums against `fa92b690`'s files (they match: production 52 ==
+   repo). The current production backend keeps running: these 5 are backward-compatible.
+6. Preflight `-v scenario=prod_wa_post` (applied 57, the 6 packets pending) must PASS.
+7. **Return the tree to `edfc2a1e` before Window B and before ANY build/deploy.** Window A does no
    deploy, so the stale `fa92b690` tree is naturally isolated, but Window B must run from `edfc2a1e`
    (its `prod_wb_pre` preflight passes precisely because the 5 earlier files are byte-identical).
 
@@ -302,10 +339,21 @@ populated table). However, several statements take brief locks on EXISTING table
 and subsequent writes queue behind it until the blocker clears. Unbounded without a lock timeout.
 
 **Controls to apply (operator, execution-time):**
-- Set timeouts so the DDL fails fast instead of hanging. Most reliable (session-independent):
-  `ALTER ROLE <migration_role> SET lock_timeout = '5s'; ALTER ROLE <migration_role> SET statement_timeout = '60s';`
-  on the DIRECT endpoint before the window. (Connection-string `?options=-c lock_timeout=5000 ...`
-  is a fallback but is not verified for Prisma 7's engine; test on a disposable connection first.)
+- Set timeouts so the DDL fails fast instead of hanging, WITHOUT leaving persistent settings behind.
+  In preference order:
+  1. **Dedicated migration role** (if one exists / is provisioned): `ALTER ROLE <migration_role> SET
+     lock_timeout='5s', statement_timeout='60s'` on a role used ONLY for migrations. No restore
+     needed (the settings are the role's job) and the app role is untouched.
+  2. **Shared role with capture-and-restore:** BEFORE the window, capture the prior state:
+     `SELECT rolname, rolconfig FROM pg_roles WHERE rolname = current_user;` (record `rolconfig` in
+     the window log; typically NULL). Set the timeouts, run the window, then RESTORE:
+     `ALTER ROLE <role> RESET lock_timeout; ALTER ROLE <role> RESET statement_timeout;` and re-run
+     the `pg_roles` query to verify `rolconfig` matches the captured prior state. Both the capture
+     and the restore verification go in the window log.
+  3. **Session-scoped fallback** (`?options=-c lock_timeout=5000 -c statement_timeout=60000` on the
+     migrate connection string): leaves nothing behind by construction, but is NOT verified for
+     Prisma 7's engine; if used, verify first on a disposable connection that the settings actually
+     apply (e.g. `SHOW lock_timeout` via a test query) before trusting it for the window.
 - Monitor from a separate read-only psql session during migrate:
   ```sql
   SELECT pid, wait_event_type, wait_event, state, now()-query_start AS dur, query
@@ -349,14 +397,20 @@ password cleared), and reusing a shared fixture would destroy it for every other
   (`document/<merchantId>/<random>.pdf`).
 - **Account deletion** anonymises the customer `User` (row RETAINED by design: `status=DELETED`, PII
   scrubbed) and scrubs invite rows. The anonymised row is permanent (audit trail) and not removable.
-- **Cleanup GAPS (must be scripted before the probe, else cleanup breaks):**
-  1. `MerchantAgreementRecord.merchant` is `onDelete: Restrict`, and the existing fixture-sweep
-     (`prisma/clean-leaked-test-fixtures.ts`) does NOT delete agreement rows. Add a
-     `merchantAgreementRecord.deleteMany({ where: { merchantId: { in: ids } } })` step BEFORE
-     `merchant.deleteMany`, or the probe merchant cannot be deleted.
-  2. Deleting the DB row does not delete the R2 PDF. `deleteObject(pdfKey)` exists but `pdfKey` is
-     never API-exposed; cleanup must read `MerchantAgreementRecord.pdfKey` directly (before deleting
-     the row) and call `deleteObject` once per probe PDF.
+- **Cleanup prerequisite (BUILT + TESTED; do not improvise during the window):**
+  `prisma/cleanup-agreement-probe.ts` (in this PR) closes both gaps:
+  1. `MerchantAgreementRecord.merchant` is `onDelete: Restrict` and no pre-existing script deletes
+     agreement rows: the script deletes them for prefix-matched probe merchants only, unblocking the
+     normal fixture sweep.
+  2. The signed PDF is a real R2 object and `pdfKey` is never API-exposed: the script captures each
+     row's `pdfKey` BEFORE deletion and (with `--apply --delete-r2` + R2 env) deletes the objects,
+     or prints the keys for manual removal.
+  Safety: dry-run by default; `--prefix` required (>= 8 chars, LIKE-escaped); refuses > `--max`
+  (default 5) matches; deletes NOTHING but agreement rows/objects. **Tested end-to-end on the
+  disposable local PG (63-state schema):** FK-restrict block demonstrated live, dry-run deletes
+  nothing, apply removes only the probe merchant's row (a co-seeded non-probe row untouched),
+  merchant delete unblocked afterward, short-prefix and missing-DATABASE_URL guardrails exit
+  non-zero. R2 deletion is exercised at the staging rehearsal (needs R2 env; not testable locally).
 - Run probe cleanup only after the window succeeds; keep the disposable prefix so the sweep is
   targeted. The anonymised probe customer residue is expected and left in place.
 
@@ -370,25 +424,47 @@ candidate backend serves account-deletion; #4+#6 (packets 4+6) before D65 sign/e
 lead-flag true; worker `MAINTENANCE_*` complete before boot.
 
 ## 8. Fail-closed preflight (`docs/runbooks/migration-preflight-checks.sql`)
-Read-only (SELECT + temp tables, transaction rolled back), **fail-closed**: `\set ON_ERROR_STOP on` +
-`RAISE EXCEPTION` on any deviation, so psql exits non-zero and blocks the operator's script. Embeds all
-63 repo checksums and verifies them directly (not relying on `prisma migrate status`, which only reports
-pending/applied). Scenario-selected via `-v scenario=...`:
+No persistent target mutation (it CREATEs session-local TEMP tables inside a rolled-back transaction,
+so it is not literally "SELECT only"); **fail-closed**: `\set ON_ERROR_STOP on` + `RAISE EXCEPTION`,
+so psql exits non-zero and blocks the operator's script. Embeds all 63 repo checksums and the COMPLETE
+schema-object inventory extracted from the actual migration SQL, and verifies both directly (not
+relying on `prisma migrate status`).
 
-| scenario | expects (applied / pending) |
-|---|---|
-| `staging_pre` | 57 / the 6 packets |
-| `staging_post` | 63 / none + packet tables present + D65 cols NOT NULL |
-| `prod_wa_pre` | 52 / all 11 |
-| `prod_wa_post` | 57 / the 6 packets |
-| `prod_wb_pre` | 57 / the 6 packets |
-| `prod_wb_post` | 63 / none |
-| `prod_single_pre` | 52 / all 11 |
-| `prod_single_post` | 63 / none |
+**Every scenario asserts its exact claimed state: the migration ledger AND the schema objects that
+must be PRESENT and those that must still be ABSENT** ("earlier5" = the 5 migrations
+20260629..20260709190638; "packets" = the 6 migrations 20260710..20260715):
 
-Any wrong count, wrong exact pending names, unfinished row, rolled-back row, checksum drift, or schema
-mismatch raises `PREFLIGHT FAIL` and aborts. A clean run prints `PREFLIGHT PASS`. Reviewed separately
-from execution; it performs no migration/deploy.
+| scenario | applied | pending | earlier5 objects | packet objects |
+|---|---|---|---|---|
+| `staging_pre` | 57 | the 6 packets | PRESENT | ABSENT |
+| `staging_post` | 63 | none | PRESENT | PRESENT |
+| `prod_wa_pre` | 52 | all 11 | ABSENT | ABSENT |
+| `prod_wa_post` | 57 | the 6 packets | PRESENT | ABSENT |
+| `prod_wb_pre` | 57 | the 6 packets | PRESENT | ABSENT |
+| `prod_wb_post` | 63 | none | PRESENT | PRESENT |
+| `prod_single_pre` | 52 | all 11 | ABSENT | ABSENT |
+| `prod_single_post` | 63 | none | PRESENT | PRESENT |
+
+Object assertions per group: tables by name WITH exact per-table column counts (earlier5:
+KeyringFingerprint 6, VoucherPendingEdit 11; packets: AdminCapabilityGrant 7, MerchantLead 18,
+MerchantNote 11, MerchantNoteEvent 7, MerchantAgreementRecord 18, MerchantInvite 18,
+InviteRewardGrant 10, BusinessSuppression 5); the three D65 columns each present AND NOT NULL
+(exact-count = 3, so an ABSENT column fails: closes the fail-open Codex found); all indexes by name
+(3 earlier5 + 20 packet); all FK constraints by name (2 + 4); all enum (type,value) pairs (7 + 29);
+`Branch.googlePlaceId` presence. ABSENT phases assert the same objects do NOT exist (drift/stray
+detection).
+
+**Empirical fail-closed evidence (disposable local PostgreSQL 16.14; never a shared environment):**
+a harness simulated Prisma's ledger exactly (per-migration statement apply + sha256 checksum rows)
+and applied the real 63 migration files progressively 0->52->57->63, running the preflight at each
+state. **31/31 matrix results correct**: 12 positives PASS at their matching states (including the
+repaired-state re-passes); every negative exits non-zero (psql exit 3), covering: all-three D65
+columns dropped (the exact case that previously passed), one D65 column dropped, a D65 column made
+nullable, a packet table dropped, a packet index dropped, a packet FK dropped, a stray packet table
+at 57, `Branch.googlePlaceId` dropped at 57, checksum tampered, an unfinished ledger row, a
+rolled-back ledger row, an unknown extra migration row, every wrong-scenario/wrong-state pairing
+tested, and a missing `-v scenario` argument. Full log: window-log artifact `preflight-results.txt`
+(31 lines, reproduced in the PR discussion).
 
 ## 9. Warning and uncertainty ledger
 
@@ -397,13 +473,13 @@ from execution; it performs no migration/deploy.
 | U1 | PITR history window = **21600s (6h)** (confirmed read-only via list_projects); PITR is root/production-only, irrelevant to staging child | Reconfirm at execution |
 | U11 | Child-branch in-place restore semantics + connection stability (Part 3.8 Option A) not provable read-only | Mandatory 3.2 rehearsal proves it, else Option B (rebuild) |
 | U2 | Railway `DATABASE_URL` pooled-vs-direct topology doc conflict | Confirm live Railway value before the window; is a separate DIRECT migration credential provisioned |
-| U3 | Full `migrate status` is the operator's definitive drift check | Read-only checksums verified; preflight embeds all 63 |
+| U3 | Checksum + schema assertions empirically validated on disposable local PG (31/31 matrix); the live-DB harness simulates Prisma's ledger shape, so `migrate status` at execution remains the final belt | Run preflight + `migrate status` at execution |
 | U4 | Live deployed worker env (`MAINTENANCE_*` already set?) | Verify at execution |
 | U5 | Both branches `protected:false` | Pre-window backup (branch for staging, Snapshot for production) is the mitigation; consider protection for the window |
 | U6 | D65 `MerchantAgreementRecord` immutability is app-level only (no DB trigger) | Unchanged by this window; open solicitor question |
 | U7 | Neon Snapshot availability is plan-dependent (production windows only; staging uses a backup branch) | Confirm `neon snapshots list` works before a production window |
 | U8 | `lock_timeout` via connection-string `options` unverified for Prisma 7 engine | Prefer `ALTER ROLE ... SET`; test the connection-string fallback on a disposable connection |
-| U9 | Probe cleanup gaps (MerchantAgreementRecord FK + orphaned R2 PDF) | Script both before probing (Part 6.2) |
+| U9 | Probe cleanup gaps (MerchantAgreementRecord FK + orphaned R2 PDF) | RESOLVED: `prisma/cleanup-agreement-probe.ts` built + tested (Part 6.2); R2 lane exercised at the staging rehearsal |
 | U10 | Secret connection strings / DIRECT endpoint values | Not read (boundary); operator injects at execution |
 
 ## 10. Open owner decisions (consequential)
@@ -417,14 +493,26 @@ from execution; it performs no migration/deploy.
 
 ## 11. Cross-check: Codex issues -> resolution
 
-| Codex issue | Resolution |
+Round 1 (six issues) and Round 2 (ten verified blockers, 2026-07-19b):
+
+| Codex item (round 2) | Resolution |
 |---|---|
-| 1. Window A not executable from main | Part 4.1: verified anchor `fa92b690` (57 migs, Prisma parity, byte-identical to edfc2a1e), Prisma-native `migrate deploy` from that checkout (52->57); no manual SQL / no `migrate resolve` |
-| 2. Real staging recovery for a child branch | Part 3.2/3.6/3.8: staging is a child, so BOTH PITR and Snapshot-create are root-only-blocked (verified in Neon docs). Returned as an OWNER FORK: guaranteed backup branch + mandatory rehearsal proving either in-place head-restore (Option A) or rebuild (Option B, guaranteed). Not presented as settled. Production (root) uses Snapshot + PITR |
-| 3. Fail-closed preflight | Part 8 + the rewritten SQL: ON_ERROR_STOP + RAISE EXCEPTION, 8 scenarios, all 63 checksums verified directly, exact pending names + counts + unfinished + rolled-back + schema; fail-open avoided |
-| 4. Safe disposable-fixture probes | Part 6: prefixed throwaway merchant/customer, no real/shared accounts, token-consumption + retry documented, expected records, cleanup gaps (FK + R2) handled |
-| 5. Truthful downtime + locks | Part 5: no planned downtime but brief locks on Branch/Voucher/Merchant/AdminUser; `lock_timeout`/`statement_timeout`, monitoring, stop criteria |
-| 6. Trailing whitespace L206 | Fixed; `git diff --check` clean |
+| 1. D65 column check could PASS with columns missing | Fixed: exact-count assertion (present AND NOT NULL = 3/3); empirically proven (the all-three-missing case now exits non-zero: Part 8 matrix) |
+| 2. Post-63 asserted only 3 tables | Full inventory asserted: all 8 packet tables + exact per-table column counts, 20 indexes by name, 4 FKs by name, 29 enum (type,value) pairs (Part 8) |
+| 3. Pre-packet asserted only 2 tables | ABSENT phases assert all 8 packet tables, all packet indexes and all packet enum pairs are absent (Part 8) |
+| 4. `prod_wa_post` verified ledger only | Every scenario now asserts its exact schema state, both groups, PRESENT and ABSENT (earlier5 objects incl. `Branch.googlePlaceId`, `VoucherPendingEdit`, `KeyringFingerprint`, enum values; 8-row table in Part 8) |
+| 5. Executable negative tests | 31/31 matrix on disposable local PG 16.14, progressive 0->52->57->63 with the real migration files + Prisma-shaped ledger; every negative exits non-zero incl. the previously-passing missing-D65-column case (Part 8) |
+| 6. Option B not a real procedure | Part 3.8 Option B: complete dump-and-restore INTO staging (same endpoint, no repoint), with access/dump/stop-writers/restore/verify/failed-restore-rollback/cleanup steps, an endpoint-repoint variant, and the "guaranteed" label made conditional on the mandatory rehearsal |
+| 7. Window A determinism | Part 4.1 step 4: in-tree `npm ci` from the anchor's OWN lockfile (pins Prisma 7.8.0, same as main), LOCAL `node_modules/.bin/prisma` only (no npx fallback), record node/npm/prisma versions; SHA + 57-dir filesystem gates preserved |
+| 8. Probe cleanup prerequisite | `prisma/cleanup-agreement-probe.ts` BUILT + TESTED (dry-run/apply/FK-unblock/guardrails on disposable PG; Part 6.2); R2 lane exercised at the staging rehearsal |
+| 9. Persistent ALTER ROLE residue | Part 5: dedicated migration role preferred; else capture `pg_roles.rolconfig` -> set -> `ALTER ROLE ... RESET` -> re-verify, all logged; session-scoped connection-string fallback documented as unverified-for-Prisma-7 |
+| 10. Endpoint identifier + SQL header | `<STAGING_DIRECT_ENDPOINT>` placeholder; SQL header now states "no persistent target-schema/data mutation" (temp tables + ROLLBACK), not "SELECT only" |
+
+Round 1 (retained): Window A anchor `fa92b690` byte-identical to `edfc2a1e` with hard filesystem gate;
+staging recovery = OWNER FORK (child branch: PITR and Snapshot-create both root-only); disposable
+prefixed probe fixtures, never real/shared accounts, token-consumed-pre-txn retry documented;
+truthful lock posture (brief SHARE ROW EXCLUSIVE / ACCESS EXCLUSIVE locks + timeouts + monitoring);
+whitespace clean.
 
 Confirmation: no migration, deploy, provider/snapshot/branch, secret, or shared-data action was
 performed in preparing this packet. All steps are owner-gated. See the retained six-packet packet §9
