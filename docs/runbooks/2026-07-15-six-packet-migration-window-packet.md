@@ -667,3 +667,43 @@ a `SELECT` via the read-only `neon-observer` MCP.
   ordering.
 - The candidate is the pushed `origin/main` SHA `d95e70cf`, not any local working-tree
   state.
+
+---
+
+## 9. D65 lane-2 evidence UI (#537) : activation checkpoint
+
+This is a NAMED activation checkpoint, not an informal follow-up. PR #537 (admin signing-evidence
+read + server-proxied signed-PDF retrieval) is source-approved by Codex and, at head `e601354e`,
+merges DORMANT behind a default-off client release gate (`NEXT_PUBLIC_EVIDENCE_UI_ENABLED`,
+fail-closed `=== 'true'`; unset/invalid = OFF). The admin web auto-deploys from `main`, so the gate
+is what keeps the evidence controls hidden (even for SUPER_ADMIN) and issuing zero evidence/PDF
+requests after the source reaches `main` but before the compatible backend + D65 columns are live.
+
+**State (update this line as it changes):**
+
+- `OPEN: awaiting dormant-merge review` : CURRENT. Renewed Codex source review + owner SHA-bound
+  approval pending on `e601354e`. Not merged.
+- `MERGED DORMANT: activation blocked by migration compatibility` : after the dormant merge, before
+  the flag is enabled. The feature is present in `main`/deployed admin web but OFF and inert.
+- `ACTIVATED AND VERIFIED` : after the activation sequence below completes and is probe-verified.
+
+**Activation sequence (owner-executed, in order; do NOT partially apply):**
+
+1. Apply and verify the required D65 migration set (packets 4 and 6 at minimum: the
+   `MerchantAgreementRecord` table and its `reviewedContentHash` / `reviewedBody` / `pdfHash`
+   columns) in the approved environment, per §5 + the §6 P1b probe.
+2. Deploy and verify the compatible backend (the `d95e70cf` candidate or later, carrying the
+   evidence + PDF routes and the `contract:view-evidence` capability).
+3. Confirm the admin web points only to compatible environments (the API base URL targets the
+   environment where steps 1 and 2 are done).
+4. Obtain explicit owner approval for any provider/environment change.
+5. Enable the rollout mechanism: set `NEXT_PUBLIC_EVIDENCE_UI_ENABLED=true` in the admin web's
+   hosting provider (Vercel) and rebuild. (Absence/anything-but-`true` keeps it OFF; defining this
+   var is the separate owner-approved provider action, not performed by feature code.)
+6. Verify authorised evidence detail loads and the signed PDF downloads (OPERATIONS + SUPER_ADMIN).
+7. Verify FIELD / unauthorised roles are denied (no controls, 403 on direct route calls).
+8. Verify a missing/mismatched-hash PDF fails closed (502) and releases no bytes.
+9. Record deployment + probe evidence and flip the state line above to `ACTIVATED AND VERIFIED`.
+
+**Boundaries:** none of steps 1 to 9 is authorised by the #537 correction or by this packet; each
+remains owner-gated. Merging #537 dormant does NOT ship the feature.
