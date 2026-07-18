@@ -5,7 +5,7 @@ import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { FadeIn } from '@/design-system/motion/FadeIn'
 import { MapLedgerRow } from './MapLedgerRow'
 import { BranchTile as BranchTileType } from '@/lib/api/discovery'
-import { FilterState } from '@/features/search/components/FilterSheet'
+import { FilterState, SORT_DISPLAY_LABEL } from '@/features/search/components/FilterSheet'
 import { MapListSortSelector } from './MapListSortSelector'
 
 /**
@@ -91,6 +91,12 @@ export function MapListView({
         <Text variant="heading.md" style={styles.headerTitle}>
           {total} {total === 1 ? 'place' : 'places'} in this area
         </Text>
+        {/* W2b round 4 design pass — a quiet one-line reflection of the
+            active sort, updating with the control (makes the segmented
+            control feel consequential). */}
+        <Text style={styles.headerSubtitle}>
+          Sorted by {SORT_DISPLAY_LABEL[sortBy].toLowerCase()}
+        </Text>
       </View>
 
       <MapListSortSelector value={sortBy} onChange={onSortByChange} />
@@ -117,13 +123,17 @@ export function MapListView({
 
 const styles = StyleSheet.create({
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
+    gap: 2,
     marginBottom: spacing[3],
   },
   headerTitle: {
     color: color.navy,
+  },
+  headerSubtitle: {
+    fontSize:   12,
+    lineHeight: 16,
+    fontFamily: 'Lato-Medium',
+    color:      color.text.secondary,
   },
   // Map Phase 2 S4 Task 2 — raised from 400: the shared `<BranchTile
   // size="compact">` rows are taller than the old flat BranchRow, so a

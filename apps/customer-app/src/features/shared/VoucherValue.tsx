@@ -32,6 +32,14 @@ type Props = {
    * sits as a tidy right-hand column, ledger style.
    */
   orientation?: 'row' | 'column'
+  /**
+   * W2b round 4 (Defect 3) — capsule wording. 'full' (default, carousel
+   * card): "Save up to £15". 'amount' (ledger rows, where width is the
+   * scarce resource): a compact strong "£15" chip; the full "Save up to
+   * £15" phrasing moves to the chip's accessibilityLabel so screen
+   * readers keep the complete meaning.
+   */
+  wording?:     'full' | 'amount'
   testID?:      string
 }
 
@@ -40,6 +48,7 @@ export function VoucherValue({
   voucherCount,
   density = 'default',
   orientation = 'row',
+  wording = 'full',
   testID,
 }: Props) {
   const showSave = saveAmount !== null && saveAmount > 0
@@ -51,18 +60,25 @@ export function VoucherValue({
 
   const compact = density === 'compact'
   const column = orientation === 'column'
+  const amountOnly = wording === 'amount'
 
   return (
     <View style={[styles.row, compact && styles.rowCompact, column && styles.column]} testID={testID}>
       {showSave && saveLabel ? (
-        <View style={[styles.saveCapsule, compact && styles.saveCapsuleCompact]} testID="voucher-value-save">
-          <Text style={styles.saveText} numberOfLines={1}>Save up to {saveLabel}</Text>
+        <View
+          style={[styles.saveCapsule, compact && styles.saveCapsuleCompact]}
+          testID="voucher-value-save"
+          accessibilityLabel={`Save up to ${saveLabel}`}
+        >
+          <Text style={[styles.saveText, amountOnly && styles.saveTextAmount]} numberOfLines={1}>
+            {amountOnly ? saveLabel : `Save up to ${saveLabel}`}
+          </Text>
         </View>
       ) : null}
       {showStub ? (
         <View style={[styles.stub, compact && styles.stubCompact]} testID="voucher-value-stub">
-          <Ticket size={12} color={color.brandRose} strokeWidth={2.2} style={styles.stubMark} />
-          <Text style={styles.stubText} numberOfLines={1}>{countLabel}</Text>
+          <Ticket size={compact ? 10 : 12} color={color.brandRose} strokeWidth={2.2} style={styles.stubMark} />
+          <Text style={[styles.stubText, compact && styles.stubTextCompact]} numberOfLines={1}>{countLabel}</Text>
         </View>
       ) : null}
     </View>
@@ -104,6 +120,12 @@ const styles = StyleSheet.create({
     color:      '#15803D',
     letterSpacing: -0.1,
   },
+  // 'amount' wording — the bare figure carries the row, so it reads a
+  // touch larger and bolder than the sentence form.
+  saveTextAmount: {
+    fontSize:   14,
+    lineHeight: 18,
+  },
   // Voucher stub — dashed outline (ticket language), a tiny red ticket mark
   // and the count. Radius ~7 per the W2b brief.
   stub: {
@@ -117,9 +139,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical:   3,
   },
+  // Round 4 (Defect 3) — the compact stub is tightened (icon 10, gap 2,
+  // 11pt text, slimmer padding) so it fits the ledger row's fixed 72pt
+  // value rail at a single-digit count.
   stubCompact: {
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
     paddingVertical:   2,
+    gap:               2,
   },
   stubMark: {},
   stubText: {
@@ -127,5 +153,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontFamily: 'Lato-SemiBold',
     color:      color.text.primary,
+  },
+  stubTextCompact: {
+    fontSize:   11,
+    lineHeight: 14,
   },
 })

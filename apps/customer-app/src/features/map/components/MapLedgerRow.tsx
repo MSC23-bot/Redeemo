@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { View, StyleSheet } from 'react-native'
 import { Image } from 'expo-image'
 import { Text, color } from '@/design-system'
@@ -8,50 +8,67 @@ import { VoucherValue } from '@/features/shared/VoucherValue'
 import { BranchTile as BranchTileType } from '@/lib/api/discovery'
 import { formatDistanceCompact } from '@/design-system/utils/formatters'
 import { merchantDisplayName } from '@/lib/merchantDisplayName'
+import { useCategories } from '@/hooks/useCategories'
+import { buildCategoryTreeIndex, resolveTopLevelPinColour } from '../utils/categoryPinGlyph'
 
 /**
- * Map Phase 2 W2b (F9) — the Map list bottom-sheet row.
+ * Map Phase 2 W2b (F9) — the Map list bottom-sheet row: a mini merchant
+ * card with identity (round-4 design pass).
  *
- * Replaces the shared `<BranchTile size="compact">` card (S4 Task 2) with a
- * compact LEDGER row: a 44x44 rounded logo tile (navy initial fallback),
- * the merchant name + a single meta line ("category · distance ·
- * Open|Closed"), and a right-hand rail (the shared `<VoucherValue>`
- * save capsule + voucher stub, top-aligned) with the branch-level heart
- * pinned at the row end.
+ * Anatomy: 48px logo tile with a 2px ring in the merchant's CATEGORY
+ * colour (resolved via the categoryPinGlyph colour ladder; navy fallback);
+ * middle column with the name (15 Lato-Bold navy) and a meta line
+ * ("category · distance" + a coloured status dot + Open/Closed); a fixed
+ * right value rail (compact bold "£15" chip over the red-ticket-mark
+ * "N vouchers" stub: the ticket signature stays the row's brand device);
+ * the heart as a small OVERLAY at the row's top-right corner (round 4:
+ * no longer a width-consuming column).
  *
- * W2b ROUND 2 BUG 1 (owner device QA 2026-07-13) — the row rendered fully
- * STACKED on device. Root cause: `<PressableScale>` applies its `style`
- * prop to its OUTER Animated.View, but the children render inside the
- * INNER `Pressable`, which lays out in the default column direction: the
- * `flexDirection: 'row'` on the outer view never governed the children.
- * (Invisible in the round-1 jest assertions, which only queried text/
- * testIDs, not layout.) Fix: the card chrome stays on the PressableScale;
- * an explicit inner `rowInner` View (testID `map-ledger-row`) owns the
- * horizontal anatomy, pinned by a rendered-layout test.
+ * W2b ROUND 2 BUG 1 — the row rendered fully STACKED on device: a
+ * `<PressableScale>` applies its `style` to its OUTER Animated.View while
+ * children render inside the inner `Pressable` (default column layout).
+ * The horizontal anatomy therefore lives on the explicit `rowInner` View
+ * (testID `map-ledger-row`), pinned by a rendered-layout test.
  *
- * Branch-first cardinality (Phase C) is preserved by the caller: the
- * FlatList keys on `branch.id`, so two branches of one merchant render as
- * two rows. This component has no merchant-level dedup. Tap → onPress with
+ * W2b ROUND 4 DEFECT 3 — width contract v2. Round 3 clamped honestly
+ * (ellipsis) but the middle column was structurally too narrow (118 rail
+ * + 28 heart column on a 390pt sheet): "Indian Restaurant" still cut.
+ * Round 4 frees the width instead: the heart overlay costs 0pt and the
+ * rail compresses to 72pt (the "up to" wording moves to the chip's
+ * accessibilityLabel; wording='amount'). The middle column keeps
+ * flex:1 + minWidth:0 + single-line tail ellipsis as the safety net, and
+ * `metaTextAvailableWidth` below exports the geometry so the no-ellipsis
+ * arithmetic is test-pinned.
+ *
+ * Branch-first cardinality (Phase C) preserved by the caller: FlatList
+ * keys on `branch.id`; no merchant-level dedup here. Tap → onPress with
  * the BRANCH id (the `?branch=` URL contract).
  */
 
-// W2b ROUND 3 ITEM 1 (owner device QA: "Indian Restaurant" cut mid-word) —
-// the row's WIDTH CONTRACT. The middle column was being squeezed by the
-// right value rail because the rail's width floated with its content. The
-// rail now has a FIXED width so the middle column's available space is
-// deterministic; the middle column carries `minWidth: 0` (RN flexbox does
-// not ellipsise text inside a flex child without it) and both text lines
-// ellipsise via numberOfLines={1} + ellipsizeMode="tail".
-//
-// Width derivation (documented: RN has no synchronous text-measurement
-// API, so this is derived from font metrics rather than a live measure):
-// the widest realistic rail content is the compact save capsule
-// "Save up to £999" — 15 glyphs at Lato-Bold 13 (average advance ~0.52em
-// → 15 x 13 x 0.52 ≈ 101pt; letterSpacing -0.1 x 15 ≈ -1.5pt → ~100pt)
-// + the capsule's compact horizontal padding (8 x 2 = 16pt) ≈ 116pt,
-// rounded up for safety. Pinned by a test so a future capsule copy or
-// typography change forces a deliberate re-derivation.
-export const VALUE_RAIL_WIDTH = 118
+// ─── Round 4 geometry constants (the row's width contract) ──────────────────
+export const LOGO_TILE        = 48
+export const ROW_PAD_H        = 10
+export const ROW_GAP          = 8
+// Fixed value rail — sized so the WIDER of its two pieces fits: the
+// compact "£15" chip (~38pt) and the tightened "N vouchers" stub (icon 10
+// + gap 2 + text at 11pt + padding ≈ 72pt for a single-digit count).
+export const VALUE_RAIL_WIDTH = 72
+
+/**
+ * Pure width arithmetic for the meta line's TEXT zone ("category ·
+ * distance") at a given screen width — exported so the round-4 test can
+ * assert "Indian Restaurant · 0.2 mi" fits WITHOUT ellipsis at 390pt.
+ * `statusWordWidthPt` is the estimated width of the status word (the test
+ * derives it from Lato advance metrics; RN has no synchronous
+ * text-measurement API).
+ */
+export function metaTextAvailableWidth(screenWidth: number, statusWordWidthPt: number): number {
+  const SHEET_PADDING_H = 20 // BottomSheet's own content padding (spacing[5])
+  const content = screenWidth - SHEET_PADDING_H * 2
+  const middle = content - ROW_PAD_H * 2 - LOGO_TILE - ROW_GAP * 2 - VALUE_RAIL_WIDTH
+  const DOT_AND_GAPS = 6 + 4 + 4 // status dot + the metaRow gaps around it
+  return middle - DOT_AND_GAPS - statusWordWidthPt
+}
 
 type Props = {
   branch:  BranchTileType
@@ -61,14 +78,25 @@ type Props = {
 export function MapLedgerRow({ branch, onPress }: Props) {
   const displayName = merchantDisplayName(branch.merchant)
   const category = branch.merchant.descriptor || branch.merchant.primaryCategory?.name || ''
-  // List v3 (round 2) — the category segment may carry its category's
-  // colour when the payload already delivers one (no tree resolution here:
-  // a missing colour quietly stays secondary; colour must MEAN something,
-  // never be invented).
-  const categoryColour = branch.merchant.primaryCategory?.pinColour ?? null
   const distanceStr = formatDistanceCompact(branch.distance) ?? ''
   const statusWord = branch.isOpenNow ? 'Open' : 'Closed'
+  // Design pass — status dot green (Open) / amber (Closed) before the word.
   const statusColour = branch.isOpenNow ? color.success : '#B54708'
+
+  // Round 4 design pass — the logo ring (and the meta category tint)
+  // resolve through the SAME colour ladder the pins use: backend-delivered
+  // pinColour → parentId walk over the already-loaded category tree →
+  // null (ring falls back navy; tint falls back to the secondary text
+  // colour). Never an invented hue.
+  const { data: categoriesData } = useCategories()
+  const treeIndex = useMemo(
+    () => buildCategoryTreeIndex(categoriesData?.categories),
+    [categoriesData?.categories],
+  )
+  const categoryColour = branch.merchant.primaryCategory
+    ? resolveTopLevelPinColour(branch.merchant.primaryCategory, treeIndex)
+    : null
+  const ringColour = categoryColour ?? color.navy
 
   const accessibilityLabel = category ? `${displayName}, ${category}` : displayName
 
@@ -79,11 +107,11 @@ export function MapLedgerRow({ branch, onPress }: Props) {
       pressedScale={0.98}
       style={styles.card}
     >
-      {/* BUG 1 fix — the horizontal anatomy lives on THIS view (the direct
-          parent of the four row pieces), not on the PressableScale. */}
+      {/* BUG 1 (round 2) — the horizontal anatomy lives on THIS view. */}
       <View style={styles.rowInner} testID="map-ledger-row">
-        {/* Logo tile — real logo or navy-initial fallback (shared contract). */}
-        <View testID="map-ledger-logo">
+        {/* Logo tile — 48px, 2px category-colour ring; real logo or
+            navy-initial fallback. */}
+        <View testID="map-ledger-logo" style={[styles.logoRing, { borderColor: ringColour }]}>
           {branch.merchant.logoUrl ? (
             <Image
               testID="map-ledger-logo-image"
@@ -100,37 +128,40 @@ export function MapLedgerRow({ branch, onPress }: Props) {
           )}
         </View>
 
-        {/* Middle column (flex 1, minWidth 0) — name + meta line
-            ("category · distance · Open|Closed"). Inline nested Texts keep
-            it one ellipsised line; ROUND 3 ITEM 1: tail-ellipsis, never a
-            mid-word cut. */}
+        {/* Middle column (flex 1, minWidth 0) — name + meta. The meta's
+            TEXT part ("category · distance") is one tail-ellipsised line;
+            the status dot + word are fixed trailing siblings. */}
         <View style={styles.middle} testID="map-ledger-middle">
           <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
-          <Text style={styles.meta} numberOfLines={1} ellipsizeMode="tail">
-            {category ? (
-              <Text style={categoryColour ? { color: categoryColour } : null}>{category}</Text>
-            ) : null}
-            {category ? ' · ' : ''}
-            {distanceStr ? `${distanceStr} · ` : ''}
+          <View style={styles.metaRow}>
+            <Text style={styles.meta} numberOfLines={1} ellipsizeMode="tail">
+              {category ? (
+                <Text style={categoryColour ? { color: categoryColour } : null}>{category}</Text>
+              ) : null}
+              {category && distanceStr ? ' · ' : ''}
+              {distanceStr}
+            </Text>
+            <View style={[styles.statusDot, { backgroundColor: statusColour }]} />
             <Text style={[styles.metaStatus, { color: statusColour }]}>{statusWord}</Text>
-          </Text>
+          </View>
         </View>
 
-        {/* Right rail, top-aligned, FIXED width (ROUND 3 ITEM 1) — save
-            capsule with the voucher stub beneath it (the shared
-            <VoucherValue> column layout). The fixed width makes the middle
-            column's available space deterministic. */}
+        {/* Fixed value rail (DEFECT 3) — compact "£15" chip (full "Save up
+            to £15" phrasing lives on its accessibilityLabel) stacked over
+            the ticket stub. Top padding clears the heart overlay above. */}
         <View style={styles.valueRail} testID="map-ledger-value-rail">
           <VoucherValue
             saveAmount={branch.merchant.maxEstimatedSaving}
             voucherCount={branch.merchant.voucherCount}
             orientation="column"
             density="compact"
+            wording="amount"
             testID="map-ledger-value"
           />
         </View>
 
-        {/* Heart — branch-level (entity="branch"), pinned top-right. */}
+        {/* Heart — small overlay at the row's top-right corner (round 4:
+            costs the middle column zero width). Branch-level. */}
         <View style={styles.heart} testID="map-ledger-heart">
           <FavouriteHeart
             entity="branch"
@@ -147,8 +178,8 @@ export function MapLedgerRow({ branch, onPress }: Props) {
 }
 
 const styles = StyleSheet.create({
-  // White card on the cream sheet ground (List v3): warm hairline + very
-  // soft navy shadow. Chrome only — layout direction lives on rowInner.
+  // White card on the cream sheet ground: warm hairline + very soft navy
+  // shadow. Chrome only — layout direction lives on rowInner.
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius:    14,
@@ -162,15 +193,23 @@ const styles = StyleSheet.create({
   },
   rowInner: {
     flexDirection:     'row',
-    alignItems:        'flex-start',
-    gap:               12,
+    alignItems:        'center',
+    gap:               ROW_GAP,
     paddingVertical:   10,
-    paddingHorizontal: 12,
+    paddingHorizontal: ROW_PAD_H,
+    minHeight:         LOGO_TILE + 20,
+  },
+  logoRing: {
+    width:        LOGO_TILE,
+    height:       LOGO_TILE,
+    borderRadius: 13,
+    borderWidth:  2,
+    padding:      1,
   },
   logo: {
-    width:        44,
-    height:       44,
-    borderRadius: 12,
+    width:        '100%',
+    height:       '100%',
+    borderRadius: 9,
     backgroundColor: '#FFF6EE',
   },
   logoFallback: {
@@ -185,39 +224,50 @@ const styles = StyleSheet.create({
   },
   middle: {
     flex: 1,
-    // ROUND 3 ITEM 1 — RN flex children default to minWidth:'auto'; text
-    // inside will push the column wide instead of ellipsising without an
-    // explicit minWidth: 0.
+    // DEFECT 3 / round 3 — RN flex children need minWidth 0 for text
+    // ellipsis; without it the text pushes the column wide instead.
     minWidth: 0,
     gap:  3,
-    // Optically centre the two text lines against the 44pt logo.
-    paddingTop: 3,
-  },
-  // ROUND 3 ITEM 1 — fixed-width rail (see VALUE_RAIL_WIDTH derivation).
-  valueRail: {
-    width:      VALUE_RAIL_WIDTH,
-    alignItems: 'flex-end',
   },
   name: {
-    fontSize:   14.5,
-    lineHeight: 19,
+    fontSize:   15,
+    lineHeight: 20,
     fontFamily: 'Lato-Bold',
     color:      color.navy,
     letterSpacing: -0.1,
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           4,
+  },
   meta: {
-    fontSize:   12.5,
-    lineHeight: 16,
+    flexShrink: 1,
+    fontSize:   13,
+    lineHeight: 17,
     fontFamily: 'Lato-Medium',
     color:      color.text.secondary,
   },
+  statusDot: {
+    width:        6,
+    height:       6,
+    borderRadius: 3,
+  },
   metaStatus: {
+    fontSize:   13,
+    lineHeight: 17,
     fontFamily: 'Lato-SemiBold',
   },
+  // DEFECT 3 — fixed rail (see the constants block). Top padding keeps
+  // the chip clear of the heart overlay in the corner above it.
+  valueRail: {
+    width:      VALUE_RAIL_WIDTH,
+    alignItems: 'flex-end',
+    paddingTop: 16,
+  },
   heart: {
-    width:          28,
-    alignItems:     'center',
-    justifyContent: 'flex-start',
-    paddingTop:     2,
+    position: 'absolute',
+    top:      4,
+    right:    8,
   },
 })

@@ -328,8 +328,8 @@ describe('MapListView', () => {
   // meta line. Branch-first cardinality + tap-through are unchanged (pinned
   // above); these pin the new value + status presentation.
   // ──────────────────────────────────────────────────────────────────────
-  it('each ledger row renders the shared value line (save capsule + voucher stub)', () => {
-    const { getByText, getAllByTestId } = render(
+  it('each ledger row renders the shared value line (compact amount chip + voucher stub; full phrasing on the a11y label)', () => {
+    const { getByText, queryByText, getByLabelText, getAllByTestId } = render(
       <MapListView
         visible
         branches={mockBranches}
@@ -339,12 +339,48 @@ describe('MapListView', () => {
         {...noopSort}
       />,
     )
+    // Round 4 (Defect 3) — the row chip shows the bare amount; the full
+    // "Save up to £X" phrasing lives on the chip's accessibilityLabel.
     // Bella Italia (maxEstimatedSaving 20, 2 vouchers) + Nails (10, 1).
-    expect(getByText('Save up to £20')).toBeTruthy()
+    expect(getByText('£20')).toBeTruthy()
     expect(getByText('2 vouchers')).toBeTruthy()
-    expect(getByText('Save up to £10')).toBeTruthy()
+    expect(getByText('£10')).toBeTruthy()
     expect(getByText('1 voucher')).toBeTruthy()
+    expect(queryByText('Save up to £20')).toBeNull()
+    expect(getByLabelText('Save up to £20')).toBeTruthy()
+    expect(getByLabelText('Save up to £10')).toBeTruthy()
     expect(getAllByTestId('map-ledger-value')).toHaveLength(2)
+  })
+
+  it('W2b round 4 design pass: header carries a quiet "Sorted by" reflection of the active sort', () => {
+    // Two separate renders (the local render helper owns the QueryClient
+    // wrapper, so its rerender cannot be fed a bare node).
+    const first = render(
+      <MapListView
+        visible
+        branches={mockBranches}
+        total={2}
+        onDismiss={jest.fn()}
+        onBranchPress={jest.fn()}
+        sortBy="relevance"
+        onSortByChange={jest.fn()}
+      />,
+    )
+    expect(first.getByText('Sorted by relevance')).toBeTruthy()
+    first.unmount()
+
+    const second = render(
+      <MapListView
+        visible
+        branches={mockBranches}
+        total={2}
+        onDismiss={jest.fn()}
+        onBranchPress={jest.fn()}
+        sortBy="highest_saving"
+        onSortByChange={jest.fn()}
+      />,
+    )
+    expect(second.getByText('Sorted by best saving')).toBeTruthy()
   })
 
   it('segmented sort control shows the W2b display labels ("Top rated", "Best saving") while a11y labels stay canonical', () => {
@@ -461,10 +497,11 @@ describe('MapListView', () => {
       const name = getByText('The Grand International House of Fine Dining')
       expect(name.props.numberOfLines).toBe(1)
       expect(name.props.ellipsizeMode).toBe('tail')
-      // The meta line — query by the COMPOSED string (category · distance ·
-      // status) so we get the OUTER Text node (the one carrying the
+      // The meta TEXT node ("category · distance"; round 4 moved the
+      // status dot + word into fixed trailing siblings) — query by the
+      // COMPOSED string so we get the OUTER Text (the one carrying the
       // ellipsis props), not the nested category segment.
-      const meta = getByText(/International Fine Dining Restaurant · 0\.3 mi · Open/)
+      const meta = getByText(/International Fine Dining Restaurant · 0\.3 mi/)
       expect(meta.props.numberOfLines).toBe(1)
       expect(meta.props.ellipsizeMode).toBe('tail')
     })
@@ -476,14 +513,41 @@ describe('MapListView', () => {
       const middle = flattenStyle(getByTestId('map-ledger-middle').props.style)
       expect(middle.flex).toBe(1)
       expect(middle.minWidth).toBe(0)
-      // Fixed rail width — pinned against the documented VALUE_RAIL_WIDTH
-      // derivation ("Save up to £999" capsule at Lato-Bold 13 + padding).
+      // Fixed rail width — round 4 compresses the rail to the compact
+      // amount chip + tightened stub (Defect 3 geometry).
       const { VALUE_RAIL_WIDTH } = require('@/features/map/components/MapLedgerRow')
       const rail = flattenStyle(getByTestId('map-ledger-value-rail').props.style)
       expect(rail.width).toBe(VALUE_RAIL_WIDTH)
-      expect(VALUE_RAIL_WIDTH).toBe(118)
-      // The widest realistic capsule renders inside the rail.
+      expect(VALUE_RAIL_WIDTH).toBe(72)
+      // The compact amount chip renders inside the rail.
       expect(getByTestId('voucher-value-save')).toBeTruthy()
+    })
+
+    // ────────────────────────────────────────────────────────────────────
+    // W2b ROUND 4 DEFECT 3 — the no-ellipsis arithmetic. Jest cannot lay
+    // text out, so the pin is the GEOMETRY: at a 390pt screen, the meta
+    // text zone left by the round-4 row (freed heart column + compressed
+    // rail) must exceed the estimated width of "Indian Restaurant ·
+    // 0.2 mi" at Lato-Medium 13. The estimator is a two-class Lato
+    // advance-metric heuristic (narrow glyphs ~0.30em: i l t f j r . ·
+    // space; everything else ~0.52em) — deliberately conservative vs
+    // Lato's real average (~0.5em lowercase incl. narrow glyphs).
+    // ────────────────────────────────────────────────────────────────────
+    it('W2b round 4: "Indian Restaurant · 0.2 mi" fits WITHOUT ellipsis at a 390pt screen (geometry pin)', () => {
+      const { metaTextAvailableWidth } = require('@/features/map/components/MapLedgerRow')
+
+      const NARROW = new Set([' ', '.', '·', 'i', 'l', 't', 'f', 'j', 'r'])
+      const estimate = (text: string, fontSize: number) =>
+        [...text].reduce((w, ch) => w + fontSize * (NARROW.has(ch) ? 0.30 : 0.52), 0)
+
+      // Status word is a fixed trailing sibling — "Open" at SemiBold 13.
+      const statusWidth = estimate('Open', 13)
+      const available = metaTextAvailableWidth(390, statusWidth)
+      const needed = estimate('Indian Restaurant · 0.2 mi', 13)
+
+      expect(needed).toBeLessThanOrEqual(available)
+      // And the row leaves usable headroom, not a 1pt squeak.
+      expect(available - needed).toBeGreaterThanOrEqual(4)
     })
   })
 })

@@ -47,4 +47,23 @@ describe('VoucherValue', () => {
     expect(queryByTestId('vv')).toBeNull()
     expect(toJSON()).toBeNull()
   })
+
+  // W2b round 4 (Defect 3) — the 'amount' wording: a compact "£X" chip
+  // with the full "Save up to £X" phrasing on the accessibilityLabel.
+  describe('wording="amount"', () => {
+    it('shows the bare amount with the full phrasing on the a11y label', () => {
+      const { getByText, queryByText, getByLabelText } = render(
+        <VoucherValue saveAmount={15} voucherCount={3} wording="amount" />,
+      )
+      expect(getByText('£15')).toBeTruthy()
+      expect(queryByText('Save up to £15')).toBeNull()
+      expect(getByLabelText('Save up to £15')).toBeTruthy()
+      expect(getByText('3 vouchers')).toBeTruthy()
+    })
+
+    it('default wording is unchanged ("Save up to £X" visible)', () => {
+      const { getByText } = render(<VoucherValue saveAmount={15} voucherCount={3} />)
+      expect(getByText('Save up to £15')).toBeTruthy()
+    })
+  })
 })
