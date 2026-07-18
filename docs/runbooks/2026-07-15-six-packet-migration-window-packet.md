@@ -1,5 +1,12 @@
 # Six-Packet Migration + Deployment Reconciliation Packet
 
+> SUPERSEDED (2026-07-18) by `2026-07-18-migration-readiness-staging-first.md`, which re-pins the
+> candidate to `edfc2a1e` (this doc's `d95e70cf` is stale: see Finding F1), separates staging from
+> production, adds the packet-4-then-6 partial-apply gate, the snapshot-not-PITR rollback, and the
+> two-window production recommendation. This file is retained as detailed evidence (SQL review §2,
+> env-guard inventory §4, probes §6) and for the #537 activation checkpoint (§9). Read the new packet
+> for the execution sequence; treat every `d95e70cf` reference below as `edfc2a1e`.
+
 > NOTE: opaque Neon organisation/project/branch IDs are redacted to placeholders
 > (`<NEON_ORG_ID>`, `<NEON_PROJECT_ID>`, `<STAGING_BRANCH_ID>`, `<PRODUCTION_BRANCH_ID>`,
 > `<DEV_BRANCH_ID>`) because this repo is public; the operator resolves them from the Neon
