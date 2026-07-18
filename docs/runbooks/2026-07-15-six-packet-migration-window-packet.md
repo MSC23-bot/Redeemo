@@ -1,8 +1,10 @@
 # Six-Packet Migration + Deployment Reconciliation Packet
 
-> NOTE: opaque Neon branch/project IDs are redacted to placeholders
-> (`<STAGING_BRANCH_ID>`, `<PRODUCTION_BRANCH_ID>`, `<DEV_BRANCH_ID>`, `<NEON_PROJECT_ID>`)
-> because this repo is public; the operator resolves them from the Neon console at window time.
+> NOTE: opaque Neon organisation/project/branch IDs are redacted to placeholders
+> (`<NEON_ORG_ID>`, `<NEON_PROJECT_ID>`, `<STAGING_BRANCH_ID>`, `<PRODUCTION_BRANCH_ID>`,
+> `<DEV_BRANCH_ID>`) because this repo is public; the operator resolves them from the Neon
+> console at window time. They are low-sensitivity identifiers, not credentials (owner
+> decision 2026-07-18, option C): no historical sweep or history rewrite is performed.
 >
 > STATUS: PREPARATION-ONLY / OWNER-APPROVAL-PENDING. Nothing in this document has
 > been applied, deployed, or mutated. It is a read-only reconciliation packet
@@ -58,7 +60,7 @@ and confirmed this session).
 
 ### 1.1 Project / organisation
 
-- Organisation: `Redeemo` (`org-twilight-resonance-47764000`).
+- Organisation: `Redeemo` (`<NEON_ORG_ID>`).
 - **One** Neon project only: `Redeemo` = `<NEON_PROJECT_ID>`
   (aws-eu-west-2, Postgres 16). Staging and production are **branches within this
   single project**, not separate projects.
