@@ -211,6 +211,46 @@ export function MapScreen(_props: Props) {
   // query, it just stops REFETCHING it while unfocused.
   const isFocused = useIsFocused()
 
+  // Map W2b round 2 (BUG 2, owner device QA 2026-07-13) — hybrid preview
+  // routing. The FilterSheet's live count previously ALWAYS previewed via
+  // /search, but with ZERO non-scope draft filters the map itself serves
+  // /discovery/in-area (pure bbox honesty). /search ranks against the
+  // USER's effLoc (GPS/profile) and its scope cascade retains only the
+  // lower rungs by default; with a REMOTE viewport (e.g. a Huddersfield
+  // city search while the user's GPS is elsewhere) every bbox-admitted
+  // branch classifies above the retained rungs, and with no q/categoryId
+  // the bucket-B rescue can't fire: /search honestly answers 0 while the
+  // in-area list header says "3 places in this area". Fix: the PREVIEW
+  // routes exactly like the APPLIED state would:
+  //   - draft has non-scope filters  → /search preview (unchanged arm);
+  //   - draft has none, same category → no query at all: the sheet falls
+  //     back to `resultCount` (the exact number the list header shows);
+  //   - draft has none, DIFFERENT category → an in-area preview call with
+  //     the draft's categoryId (what Apply would actually fetch).
+  const draftHasNonScopeFilters =
+    filterDraft.sortBy !== 'relevance' ||
+    filterDraft.voucherTypes.length > 0 ||
+    filterDraft.amenityIds.length > 0 ||
+    filterDraft.openNow
+
+  // NOTE: called BEFORE the screen's own `inAreaQuery` below — the
+  // MapScreen suite pins `mockInAreaCalls[length - 1]` as the screen's own
+  // in-area call (same ordering contract useFilterPreviewCount documents
+  // for useSearch).
+  const inAreaPreviewQuery = useInAreaBranches(
+    queryBbox,
+    {
+      ...(filterDraft.categoryId ? { categoryId: filterDraft.categoryId } : {}),
+      ...(locationState.location
+        ? { lat: locationState.location.lat, lng: locationState.location.lng }
+        : {}),
+    },
+    filterVisible &&
+      !draftHasNonScopeFilters &&
+      filterDraft.categoryId !== filters.categoryId &&
+      isFocused,
+  )
+
   // ─── Both queries always invoked (rules of hooks); `enabled` selects ──────
   const inAreaQuery = useInAreaBranches(
     queryBbox,
@@ -252,7 +292,24 @@ export function MapScreen(_props: Props) {
       ? { lat: locationState.location.lat, lng: locationState.location.lng }
       : {}),
   }
-  const filterPreview = useFilterPreviewCount(filterVisible, previewBaseParams, filterDraft)
+  const searchFilterPreview = useFilterPreviewCount(
+    filterVisible && draftHasNonScopeFilters,
+    previewBaseParams,
+    filterDraft,
+  )
+  // W2b round 2 (BUG 2) — resolve the preview along the same hybrid route
+  // the applied state takes (see the block above `inAreaPreviewQuery`).
+  // A `count: null` deliberately falls the sheet back to `resultCount`
+  // (the applied total), which for an unchanged zero-filter draft IS the
+  // list header's number.
+  const filterPreview = draftHasNonScopeFilters
+    ? searchFilterPreview
+    : filterDraft.categoryId !== filters.categoryId
+      ? {
+          count:   inAreaPreviewQuery.data ? mapDataView(inAreaPreviewQuery.data).total : null,
+          pending: filterVisible && inAreaPreviewQuery.isLoading,
+        }
+      : { count: null, pending: false }
 
   const searchResultQuery = useSearch(
     {
@@ -818,6 +875,42 @@ export function MapScreen(_props: Props) {
     [branches, router],
   )
 
+  // W2b round 3 ITEM 2 (owner device QA) — the LIST path's navigation.
+  // Repro: tap a pin (carousel opens, `selectedBranchId` set), open the
+  // list sheet on top, tap a row → navigate. `handleBranchNavigate` never
+  // clears the selection, so the carousel overlay stayed mounted on the
+  // map underneath/behind and was unexpectedly present on return. Fix:
+  // navigating FROM THE LIST clears the carousel selection first. The
+  // pin-tap → carousel path (`handleBranchPress`) and the carousel-card's
+  // own tap-through (`handleBranchNavigate`, where keeping the card for
+  // the return trip is the existing, unflagged behaviour) are untouched.
+  //
+  // W2b round 4 DEFECT 1 (owner screenshot) — the list SHEET itself also
+  // survived the route change and rendered ON TOP of the pushed merchant
+  // screen. Root cause: `BottomSheet` hosts its content in a react-native
+  // `Modal`, which renders in a native window layer ABOVE the entire
+  // navigator: pushing a route cannot cover it, so the profile appeared
+  // dimmed BEHIND the still-open sheet. Fix at the navigation seam: a row
+  // tap closes the sheet with the navigation; the blur effect below is
+  // the belt-and-braces for ANY other navigation away.
+  const handleListBranchNavigate = useCallback(
+    (branchId: string) => {
+      setSelectedBranchId(null)
+      setShowListView(false)
+      handleBranchNavigate(branchId)
+    },
+    [handleBranchNavigate],
+  )
+
+  // W2b round 4 DEFECT 1 belt-and-braces — Modal-hosted sheets outlive
+  // route changes by construction (see above), so ANY navigation away
+  // (row tap, deep link, hardware back into a push) must never leave the
+  // list sheet stacked over the destination screen. Focus regain does NOT
+  // reopen it: the sheet reopens fresh from the List button only.
+  useEffect(() => {
+    if (!isFocused) setShowListView(false)
+  }, [isFocused])
+
   // ─── Empty-state classification ───────────────────────────────────────────
   // 1. offshore         — bbox sits outside UK (live region, not debounced)
   // 2. no_uk_supply     — backend says no UK merchants for this filter
@@ -1135,7 +1228,9 @@ export function MapScreen(_props: Props) {
         branches={branches}
         total={total}
         onDismiss={() => setShowListView(false)}
-        onBranchPress={handleBranchNavigate}
+        // W2b round 3 ITEM 2 — list rows navigate via the list-scoped
+        // handler (clears the carousel selection first; see its comment).
+        onBranchPress={handleListBranchNavigate}
         sortBy={filters.sortBy}
         onSortByChange={handleSortByChange}
       />

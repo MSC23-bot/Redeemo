@@ -41,21 +41,25 @@ const defaultFilters: FilterState = {
 describe('FilterSheet', () => {
   beforeEach(() => { mockState.amenities = [] })
 
-  it('renders sort options', () => {
-    const { getByText } = render(
+  it('renders sort options (W2b round 2: shared segmented control, display labels; canonical a11y labels retained)', () => {
+    const { getByText, getByLabelText } = render(
       <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={jest.fn()} onDismiss={jest.fn()} />,
     )
+    // Display-only labels (SORT_DISPLAY_LABEL).
     expect(getByText('Relevance')).toBeTruthy()
     expect(getByText('Nearest')).toBeTruthy()
-    expect(getByText('Top Rated')).toBeTruthy()
-    expect(getByText('Highest Saving')).toBeTruthy()
+    expect(getByText('Top rated')).toBeTruthy()
+    expect(getByText('Best saving')).toBeTruthy()
+    // Canonical accessibility labels stay on the SORT_OPTIONS wording.
+    expect(getByLabelText('Sort by Top Rated')).toBeTruthy()
+    expect(getByLabelText('Sort by Highest Saving')).toBeTruthy()
   })
 
   it('renders apply button with result count', () => {
     const { getByText } = render(
       <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={jest.fn()} onDismiss={jest.fn()} />,
     )
-    expect(getByText('Show 42 results')).toBeTruthy()
+    expect(getByText('Show 42 places')).toBeTruthy()
   })
 
   it('calls onApply with updated filters when applied', () => {
@@ -64,7 +68,7 @@ describe('FilterSheet', () => {
       <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
     )
     fireEvent.press(getByText('Nearest'))
-    fireEvent.press(getByText('Show 42 results'))
+    fireEvent.press(getByText('Show 42 places'))
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ sortBy: 'nearest' }))
   })
 
@@ -133,7 +137,7 @@ describe('FilterSheet', () => {
       <FilterSheet visible filters={filtersWithCategory} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
     )
     fireEvent.press(getByText('Wi-Fi'))
-    fireEvent.press(getByText('Show 42 results'))
+    fireEvent.press(getByText('Show 42 places'))
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({ amenityIds: ['amenity-uuid-1'] }),
     )
@@ -151,7 +155,7 @@ describe('FilterSheet', () => {
     )
     // Switch top-level to Beauty
     fireEvent.press(getByText('Beauty'))
-    fireEvent.press(getByText('Show 42 results'))
+    fireEvent.press(getByText('Show 42 places'))
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({ categoryId: 'c2', amenityIds: [] }),
     )
@@ -167,7 +171,7 @@ describe('FilterSheet', () => {
       <FilterSheet visible filters={startFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
     )
     fireEvent.press(getByText('Food & Drink'))
-    fireEvent.press(getByText('Show 42 results'))
+    fireEvent.press(getByText('Show 42 places'))
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({ categoryId: 'c1' }),
     )
@@ -181,7 +185,7 @@ describe('FilterSheet', () => {
     )
     // The active pill renders its label twice (the pill body); use the first.
     fireEvent.press(getAllByText('Food & Drink')[0]!)
-    fireEvent.press(getByText('Show 42 results'))
+    fireEvent.press(getByText('Show 42 places'))
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({ categoryId: null }),
     )
@@ -226,7 +230,7 @@ describe('FilterSheet', () => {
         <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
       )
       fireEvent.press(getByText('Discount'))
-      fireEvent.press(getByText('Show 42 results'))
+      fireEvent.press(getByText('Show 42 places'))
       expect(onApply).toHaveBeenCalledWith(
         expect.objectContaining({ voucherTypes: ['DISCOUNT_FIXED', 'DISCOUNT_PERCENT'] }),
       )
@@ -238,7 +242,7 @@ describe('FilterSheet', () => {
         <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
       )
       fireEvent.press(getByText('BOGO'))
-      fireEvent.press(getByText('Show 42 results'))
+      fireEvent.press(getByText('Show 42 places'))
       expect(onApply).toHaveBeenCalledWith(
         expect.objectContaining({ voucherTypes: ['BOGO'] }),
       )
@@ -254,7 +258,7 @@ describe('FilterSheet', () => {
         <FilterSheet visible filters={startFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
       )
       fireEvent.press(getByText('Discount'))
-      fireEvent.press(getByText('Show 42 results'))
+      fireEvent.press(getByText('Show 42 places'))
       expect(onApply).toHaveBeenCalledWith(
         expect.objectContaining({ voucherTypes: [] }),
       )
@@ -272,7 +276,7 @@ describe('FilterSheet', () => {
       // (both DISCOUNT_FIXED and DISCOUNT_PERCENT end up present), not
       // clear it — confirms the `active` check is `every`, not `some`.
       fireEvent.press(getByText('Discount'))
-      fireEvent.press(getByText('Show 42 results'))
+      fireEvent.press(getByText('Show 42 places'))
       expect(onApply).toHaveBeenCalledWith(
         expect.objectContaining({ voucherTypes: ['DISCOUNT_FIXED', 'DISCOUNT_PERCENT'] }),
       )
@@ -286,7 +290,7 @@ describe('FilterSheet', () => {
       fireEvent.press(getByText('BOGO'))
       fireEvent.press(getByText('Time-Limited'))
       fireEvent.press(getByText('Reusable'))
-      fireEvent.press(getByText('Show 42 results'))
+      fireEvent.press(getByText('Show 42 places'))
       expect(onApply).toHaveBeenCalledWith(
         expect.objectContaining({ voucherTypes: ['BOGO', 'TIME_LIMITED', 'REUSABLE'] }),
       )
@@ -330,7 +334,7 @@ describe('FilterSheet', () => {
       expect(onApply).not.toHaveBeenCalled()
       expect(onDismiss).not.toHaveBeenCalled()
       // ...but applying afterwards sends the reset (empty) state.
-      fireEvent.press(getByText('Show 7 results'))
+      fireEvent.press(getByText('Show 7 places'))
       expect(onApply).toHaveBeenCalledWith(EMPTY_FILTERS)
     })
 
@@ -351,7 +355,7 @@ describe('FilterSheet', () => {
         />,
       )
       fireEvent.press(getByLabelText('Reset filters'))
-      fireEvent.press(getByText('Show 7 results'))
+      fireEvent.press(getByText('Show 7 places'))
       // categoryId returns to the ROUTE category ('c1'), not null — Reset
       // must not filter the user out of the category page they're on.
       expect(onApply).toHaveBeenCalledWith(baseFilters)
@@ -361,7 +365,7 @@ describe('FilterSheet', () => {
       const { getByText } = render(
         <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={jest.fn()} onDismiss={jest.fn()} />,
       )
-      expect(getByText('Show 42 results')).toBeTruthy()
+      expect(getByText('Show 42 places')).toBeTruthy()
     })
 
     it('prefers liveCount over resultCount when provided', () => {
@@ -375,8 +379,8 @@ describe('FilterSheet', () => {
           liveCount={14}
         />,
       )
-      expect(getByText('Show 14 results')).toBeTruthy()
-      expect(queryByText('Show 42 results')).toBeNull()
+      expect(getByText('Show 14 places')).toBeTruthy()
+      expect(queryByText('Show 42 places')).toBeNull()
     })
 
     it('falls back to resultCount when liveCount is explicitly null (no context to preview against yet)', () => {
@@ -390,7 +394,7 @@ describe('FilterSheet', () => {
           liveCount={null}
         />,
       )
-      expect(getByText('Show 42 results')).toBeTruthy()
+      expect(getByText('Show 42 places')).toBeTruthy()
     })
 
     it('reports every draft change via onDraftChange, including the initial sync', () => {
@@ -409,6 +413,94 @@ describe('FilterSheet', () => {
       onDraftChange.mockClear()
       fireEvent.press(getByText('Nearest'))
       expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ sortBy: 'nearest' }))
+    })
+  })
+
+  // Map Phase 2 W2b (F10) — visual redesign additions: per-section
+  // selected summaries, "Show N places" footer copy, and the Open Now
+  // chip-style toggle (all S5a mechanics preserved).
+  describe('W2b redesign', () => {
+    it('footer copy reads "Show N places" (not "results")', () => {
+      const { getByText, queryByText } = render(
+        <FilterSheet visible filters={defaultFilters} resultCount={9} onApply={jest.fn()} onDismiss={jest.fn()} />,
+      )
+      expect(getByText('Show 9 places')).toBeTruthy()
+      expect(queryByText('Show 9 results')).toBeNull()
+    })
+
+    it('shows an "Any" section summary for each empty section', () => {
+      const { getAllByText } = render(
+        <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={jest.fn()} onDismiss={jest.fn()} />,
+      )
+      // Category / Sort By / Voucher Type / Open Now all read "Any" when nothing is applied.
+      expect(getAllByText('Any').length).toBeGreaterThanOrEqual(4)
+    })
+
+    it('summarises a selected voucher type as "1 selected" in its section header', () => {
+      const filters: FilterState = { ...defaultFilters, voucherTypes: ['BOGO'] }
+      const { getByText } = render(
+        <FilterSheet visible filters={filters} resultCount={42} onApply={jest.fn()} onDismiss={jest.fn()} />,
+      )
+      expect(getByText('1 selected')).toBeTruthy()
+    })
+
+    it('Open Now is a chip toggle: pressing "Open now" applies openNow=true (semantics preserved)', () => {
+      const onApply = jest.fn()
+      const { getByText } = render(
+        <FilterSheet visible filters={defaultFilters} resultCount={42} onApply={onApply} onDismiss={jest.fn()} />,
+      )
+      fireEvent.press(getByText('Open now'))
+      fireEvent.press(getByText('Show 42 places'))
+      expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ openNow: true }))
+    })
+
+    it('Open Now section summarises as "On" when active', () => {
+      const filters: FilterState = { ...defaultFilters, openNow: true }
+      const { getByText } = render(
+        <FilterSheet visible filters={filters} resultCount={42} onApply={jest.fn()} onDismiss={jest.fn()} />,
+      )
+      expect(getByText('On')).toBeTruthy()
+    })
+  })
+
+  // W2b round 3 ITEM 3a — the measured mid-control fold. The pure resolver
+  // is what makes the sheet's open-height land INSIDE a control block (a
+  // half-cut chip row = unambiguous "there is more"), replacing the
+  // round-2 magic 400. Layout events never fire in jest, so the resolver
+  // is pinned directly; the component falls back to SCROLL_FOLD_FALLBACK
+  // until real layout arrives (device).
+  describe('W2b round 3: resolveScrollFold (mid-control open-height)', () => {
+    const { resolveScrollFold, SCROLL_FOLD_FALLBACK } =
+      require('@/features/search/components/FilterSheet')
+
+    it('cuts the qualifying control at its midpoint (half-visible chip row)', () => {
+      // One control block whose midpoint (350) sits inside the fold band.
+      expect(resolveScrollFold([{ top: 328, height: 44 }])).toBe(350)
+    })
+
+    it('picks the DEEPEST control whose midpoint falls inside the band', () => {
+      const blocks = [
+        { top: 60,  height: 44 },  // mid 82 — above the band, ignored
+        { top: 290, height: 44 },  // mid 312 — qualifies
+        { top: 380, height: 44 },  // mid 402 — qualifies, deeper: wins
+        { top: 520, height: 44 },  // mid 542 — below the band, ignored
+      ]
+      expect(resolveScrollFold(blocks)).toBe(402)
+    })
+
+    it('falls back to SCROLL_FOLD_FALLBACK when no control midpoint lands in the band (or nothing measured yet)', () => {
+      expect(resolveScrollFold([])).toBe(SCROLL_FOLD_FALLBACK)
+      expect(resolveScrollFold([{ top: 0, height: 44 }, { top: 800, height: 44 }])).toBe(SCROLL_FOLD_FALLBACK)
+      expect(SCROLL_FOLD_FALLBACK).toBe(400)
+    })
+
+    it('is order-independent (blocks arrive as onLayout fires, in any order)', () => {
+      const shuffled = [
+        { top: 380, height: 44 },
+        { top: 60,  height: 44 },
+        { top: 290, height: 44 },
+      ]
+      expect(resolveScrollFold(shuffled)).toBe(402)
     })
   })
 })

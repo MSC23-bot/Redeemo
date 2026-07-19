@@ -8,7 +8,7 @@
 // can be flipped between focused/unfocused per test.
 
 import React from 'react'
-import { render, act } from '@testing-library/react-native'
+import { render, act, fireEvent } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 let mockIsFocused = true
@@ -112,5 +112,28 @@ describe('MapScreen — focus lifecycle (Map Phase 2 S2 Task 3)', () => {
     mockIsFocused = true
     act(() => { rerender(<MapScreen />) })
     expect(mockInAreaCalls[mockInAreaCalls.length - 1]!.enabled).toBe(true)
+  })
+
+  // ─── W2b round 4 DEFECT 1 belt-and-braces ─────────────────────────────────
+  // The list sheet is hosted in a react-native Modal, which renders ABOVE
+  // the whole navigator — so ANY navigation away from the Map must close
+  // it, or it stacks over the destination screen. Blur (isFocused → false)
+  // closes it; regaining focus must NOT silently reopen it.
+  it('W2b round 4 DEFECT 1: losing focus closes the list sheet, and re-focusing does not reopen it', () => {
+    const { getByLabelText, queryByLabelText, rerender } = render(<MapScreen />, { wrapper })
+
+    fireEvent.press(getByLabelText('Show merchant list'))
+    expect(getByLabelText('Nearby Merchants list')).toBeTruthy()
+
+    mockIsFocused = false
+    act(() => { rerender(<MapScreen />) })
+    expect(queryByLabelText('Nearby Merchants list')).toBeNull()
+
+    mockIsFocused = true
+    act(() => { rerender(<MapScreen />) })
+    // Sheet reopens only from the List button, never from focus regain.
+    expect(queryByLabelText('Nearby Merchants list')).toBeNull()
+    fireEvent.press(getByLabelText('Show merchant list'))
+    expect(getByLabelText('Nearby Merchants list')).toBeTruthy()
   })
 })

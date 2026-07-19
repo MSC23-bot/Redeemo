@@ -1,11 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { View, ScrollView, Switch, StyleSheet, TouchableOpacity, Pressable } from 'react-native'
-import { X, RotateCcw } from 'lucide-react-native'
-import { Text, color, spacing, radius } from '@/design-system'
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
+import { View, ScrollView, StyleSheet, Pressable, type LayoutChangeEvent } from 'react-native'
+import { LinearGradient } from 'expo-linear-gradient'
+import type { LucideProps } from 'lucide-react-native'
+import {
+  X, RotateCcw, Copy, Percent, Gift, PoundSterling, Package, Clock, RefreshCw,
+} from '@/design-system/icons'
+import { Text, color, spacing, radius, useMotionScale } from '@/design-system'
 import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { PressableScale } from '@/design-system/motion/PressableScale'
+import { SegmentedControl } from '@/design-system/motion/SegmentedControl'
 import { GradientBrand } from '@/design-system/components/GradientBrand'
 import { Divider } from '@/design-system/components/Divider'
+import { hexWithAlpha } from '@/design-system/utils/colorAlpha'
+import { getCategoryPinGlyph } from '@/features/map/utils/categoryPinGlyph'
 import { useCategories } from '@/hooks/useCategories'
 import { useEligibleAmenities } from '@/hooks/useEligibleAmenities'
 
@@ -94,6 +101,27 @@ export const SORT_OPTIONS: { key: FilterState['sortBy']; label: string }[] = [
   { key: 'highest_saving', label: 'Highest Saving' },
 ]
 
+// Map Phase 2 W2b round 2 — display-only segment labels for the ONE shared
+// `<SegmentedControl>` ("Best saving" for `highest_saving`; "Top rated"
+// drops the title-case second cap). Canonical keys/values unchanged; the
+// canonical SORT_OPTIONS label stays the accessibilityLabel ("Sort by
+// Top Rated"), preserving the pinned a11y contract. Defined HERE next to
+// SORT_OPTIONS (the single source) and imported by MapListSortSelector so
+// the FilterSheet's Sort By section and the Map list's sort selector render
+// the IDENTICAL segment set.
+export const SORT_DISPLAY_LABEL: Record<FilterState['sortBy'], string> = {
+  relevance:      'Relevance',
+  nearest:        'Nearest',
+  top_rated:      'Top rated',
+  highest_saving: 'Best saving',
+}
+
+export const SORT_SEGMENTS = SORT_OPTIONS.map((opt) => ({
+  key:                opt.key,
+  label:              SORT_DISPLAY_LABEL[opt.key],
+  accessibilityLabel: `Sort by ${opt.label}`,
+}))
+
 // Map Phase 2 S0 (2026-07-10) — voucher-type label→enum mapping.
 //
 // PR B shipped display-only strings ('BOGO', 'Discount', 'Freebie',
@@ -128,6 +156,79 @@ export const VOUCHER_TYPE_CHIPS: VoucherTypeChip[] = [
   { label: 'Reusable',     values: ['REUSABLE'] },
 ]
 
+// Map Phase 2 W2b (F10, W2-D4) — each voucher-type chip carries its own
+// lucide glyph inside the mini-ticket shape. Keyed by the chip label
+// (VOUCHER_TYPE_CHIPS above) so the two lists cannot drift. BOGO uses the
+// paired-document Copy glyph ("2 for 1"); the icon inherits the chip's
+// content colour (RN has no `currentColor`, so the colour is passed
+// explicitly at the call site and tracks selected/unselected tint).
+const VOUCHER_TYPE_ICON: Record<string, ComponentType<LucideProps>> = {
+  'BOGO':         Copy,
+  'Discount':     Percent,
+  'Freebie':      Gift,
+  'Spend & Save': PoundSterling,
+  'Package Deal': Package,
+  'Time-Limited': Clock,
+  'Reusable':     RefreshCw,
+}
+
+// Map Phase 2 W2b (F10, W2-D3) — category chip icon tint. The categories
+// payload already carries `pinColour` on top-levels (the same field the
+// pins resolve); fall back to the default pin colour when a category has
+// none, mirroring the pin resolver ladder's terminal rung.
+function categoryIconColour(pinColour: string | null | undefined): string {
+  return pinColour ?? color.pin.default
+}
+
+// Map Phase 2 W2b (F10) — subtle per-section selected-summary shown at the
+// right of each section header, in brand red. Category / Sort / Open Now
+// are single-state (so "1 selected" vs "Any"); Voucher Type / Amenities
+// count. Deliberately NOT the chip labels themselves (a label duplicated
+// into the header would break the FilterSheet suite's single-match
+// `getByText` pins on the sort/voucher chips).
+function summaryLabel(count: number): string {
+  return count > 0 ? `${count} selected` : 'Any'
+}
+
+// ─── W2b round 3 ITEM 3a — measured mid-control fold ────────────────────────
+//
+// Owner round-2 feedback: a peeking section HEADER at the fold was too
+// subtle a scroll cue. The fold must land MID-CONTROL: a chip row visibly
+// half-cut is an unambiguous "there is more". Approach (documented per the
+// brief): every section registers its container's y (relative to the
+// scroll content) and its CONTROL block's rect (relative to the section)
+// via onLayout; `resolveScrollFold` then picks the DEEPEST control whose
+// midpoint falls inside the [FOLD_MIN, FOLD_MAX] band and sets the
+// ScrollView's maxHeight to that midpoint — cutting that control in half
+// by construction, whatever the section composition (subcategory row and
+// amenities appear conditionally, shifting everything). When no control
+// midpoint lands in the band (or before layout has fired, incl. jest,
+// where onLayout never runs), the height falls back to the round-2 value.
+export const SCROLL_FOLD_FALLBACK = 400
+const FOLD_MIN = 300
+const FOLD_MAX = 430
+
+export function resolveScrollFold(
+  blocks: readonly { top: number; height: number }[],
+): number {
+  let fold: number | null = null
+  for (const b of [...blocks].sort((a, z) => a.top - z.top)) {
+    const mid = b.top + b.height / 2
+    if (mid >= FOLD_MIN && mid <= FOLD_MAX) fold = mid
+  }
+  return Math.round(fold ?? SCROLL_FOLD_FALLBACK)
+}
+
+// ─── W2b round 3 ITEM 3b — one-time scroll hint, per app session ────────────
+//
+// Module-level (not state): "once per session" means once per JS runtime,
+// across every FilterSheet instance on every surface. Reduce-motion skips
+// the hint entirely and deliberately does NOT consume the flag.
+let scrollHintShownThisSession = false
+export function __resetFilterSheetScrollHintForTests(): void {
+  scrollHintShownThisSession = false
+}
+
 export function FilterSheet({
   visible, filters, resultCount, onApply, onDismiss,
   baseFilters, liveCount, liveCountPending, onDraftChange,
@@ -151,6 +252,68 @@ export function FilterSheet({
     onDraftChange?.(local)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [local])
+
+  // ─── W2b round 3 ITEM 3a — mid-control fold measurement ──────────────────
+  // Each section registers TWO layouts: its container's y (a direct child
+  // of the scroll content, so y is content-relative) and its control
+  // block's rect (section-relative). Their sum gives the control's
+  // content-coordinate top; `resolveScrollFold` picks the fold. Converges
+  // in one pass: content-internal positions don't depend on the scroll
+  // viewport's height, so changing maxHeight never re-shifts the blocks.
+  const sectionTopsRef  = useRef<Record<string, number>>({})
+  const controlRectsRef = useRef<Record<string, { y: number; h: number }>>({})
+  const [scrollMaxHeight, setScrollMaxHeight] = useState(SCROLL_FOLD_FALLBACK)
+
+  const recomputeFold = useCallback(() => {
+    const blocks: { top: number; height: number }[] = []
+    for (const key of Object.keys(controlRectsRef.current)) {
+      const sectionTop = sectionTopsRef.current[key]
+      const rect = controlRectsRef.current[key]
+      if (sectionTop === undefined || rect === undefined) continue
+      blocks.push({ top: sectionTop + rect.y, height: rect.h })
+    }
+    const next = resolveScrollFold(blocks)
+    setScrollMaxHeight((prev) => (Math.abs(prev - next) > 1 ? next : prev))
+  }, [])
+
+  const onSectionLayout = useCallback(
+    (key: string) => (e: LayoutChangeEvent) => {
+      sectionTopsRef.current[key] = e.nativeEvent.layout.y
+      recomputeFold()
+    },
+    [recomputeFold],
+  )
+  const onControlLayout = useCallback(
+    (key: string) => (e: LayoutChangeEvent) => {
+      const l = e.nativeEvent.layout
+      controlRectsRef.current[key] = { y: l.y, h: l.height }
+      recomputeFold()
+    },
+    [recomputeFold],
+  )
+  const dropSectionMeasurement = useCallback((key: string) => {
+    // Conditional sections (subcategory, amenities) must not leave stale
+    // rects behind when they unmount — the remaining sections' onLayout
+    // refires as content shifts, triggering the recompute.
+    delete sectionTopsRef.current[key]
+    delete controlRectsRef.current[key]
+  }, [])
+
+  // ─── W2b round 3 ITEM 3b — one-time scroll hint on first open ────────────
+  // After the sheet settles, gently nudge the content down ~24pt and
+  // settle back, signalling scrollability. RN's scrollTo has no duration
+  // parameter, so the two-step nudge (down at 450ms post-open, back 200ms
+  // later; native scroll animation is ease-out) approximates the brief's
+  // 350ms ease-out envelope. Reduce-motion: skipped entirely.
+  const scrollRef = useRef<ScrollView>(null)
+  const motionScale = useMotionScale()
+  useEffect(() => {
+    if (!visible || scrollHintShownThisSession || motionScale === 0) return
+    scrollHintShownThisSession = true
+    const down = setTimeout(() => { scrollRef.current?.scrollTo({ y: 24, animated: true }) }, 450)
+    const back = setTimeout(() => { scrollRef.current?.scrollTo({ y: 0, animated: true }) }, 650)
+    return () => { clearTimeout(down); clearTimeout(back) }
+  }, [visible, motionScale])
 
   // Resolve the active top-level for the subcategory drill-down panel.
   // local.categoryId can be either a top-level id OR a subcategory id —
@@ -244,9 +407,43 @@ export function FilterSheet({
   // currently-APPLIED count rather than nothing — never a stale "0" or a
   // blank button.
   const displayCount = liveCount ?? resultCount
+  // W2b footer copy (owner brief): "Show N places", or "Show places" when
+  // the count is unknown (no live context AND no applied count yet).
+  const applyLabel = typeof displayCount === 'number'
+    ? `Show ${displayCount} places`
+    : 'Show places'
+
+  // Map Phase 2 W2b — per-section selected summaries (brand-red, right of
+  // each header). Category / Sort / Open Now are single-state.
+  const categoryCount = local.categoryId !== null ? 1 : 0
+  const subcategorySelected = local.categoryId !== null && local.categoryId !== activeTopLevelId
+  const sortCount = local.sortBy !== 'relevance' ? 1 : 0
+  const voucherTypeCount = VOUCHER_TYPE_CHIPS.filter((chip) =>
+    chip.values.every((v) => local.voucherTypes.includes(v)),
+  ).length
+
+  // Map Phase 2 W2b — small-caps section header + subtle selected summary
+  // in brand red. Reused across every section so the sheet reads as one
+  // consistent, brand-forward system (F10).
+  function SectionHeader({ label, summary }: { label: string; summary: string }) {
+    return (
+      <View style={styles.sectionHeader}>
+        <Text variant="label.eyebrow" color="secondary" style={styles.sectionLabel}>
+          {label}
+        </Text>
+        <Text style={styles.sectionSummary}>{summary}</Text>
+      </View>
+    )
+  }
+
+  // Round 3 ITEM 3a — conditional sections must not leave stale fold
+  // measurements behind when hidden (the surviving sections' onLayout
+  // refires as content shifts, which re-runs the recompute).
+  if (!(activeTopLevelId !== null && subcategories.length > 0)) dropSectionMeasurement('subcategory')
+  if (!(local.categoryId !== null && eligibleAmenities.length > 0)) dropSectionMeasurement('amenities')
 
   return (
-    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Filter results">
+    <BottomSheet visible={visible} onDismiss={onDismiss} accessibilityLabel="Filter results" surface="cream">
       {/* Header — title + explicit close. The sheet previously relied
           solely on the BottomSheet grabber / tap-outside to dismiss;
           an explicit affordance is a small, safe addition (owner
@@ -258,31 +455,55 @@ export function FilterSheet({
         </Pressable>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        style={styles.scrollView}
-      >
-        {/* Category section — TOP-LEVELS ONLY (filter to parentId === null) */}
+      {/* Scroll affordance (owner rounds 2+3: "I did not even realize I
+          could scroll") — measures together: the fold is MEASURED to land
+          mid-control (a half-cut chip row, round 3); a soft cream
+          continuation fade floats above the footer; the scrollbar stays
+          visible; a one-time per-session scroll hint nudges the content
+          on first open. */}
+      <View style={styles.scrollWrap}>
+        <ScrollView
+          ref={scrollRef}
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
+          style={[styles.scrollView, { maxHeight: scrollMaxHeight }]}
+        >
+        {/* Category section — TOP-LEVELS ONLY (filter to parentId === null).
+            W2b v3 (W2-D3 + round-2 premium pass): white chip on the cream
+            ground; the category glyph sits in a small round disc tinted at
+            12% of that category's pinColour (icon full colour). Selected:
+            the pill blooms the category colour (14% tint fill + 1.5px
+            colour border, navy text) — colour with MEANING; red stays
+            reserved for brand actions. */}
         {topLevels.length > 0 && (
-          <View>
-            <Text variant="label.eyebrow" color="secondary" style={styles.sectionLabel}>
-              Category
-            </Text>
+          <View onLayout={onSectionLayout('category')}>
+            <SectionHeader label="Category" summary={summaryLabel(categoryCount)} />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.pillRow}
+              onLayout={onControlLayout('category')}
             >
               {topLevels.map((cat) => {
                 const active = activeTopLevelId === cat.id
+                const Glyph = getCategoryPinGlyph(cat.name)
+                const catColour = categoryIconColour(cat.pinColour)
                 return (
                   <PressableScale key={cat.id} onPress={() => selectTopLevel(cat.id)} hapticStyle="light">
-                    <View style={[styles.pill, active && styles.pillActive]}>
-                      {active && (
-                        <X size={12} color={color.onBrand} style={styles.pillIcon} />
-                      )}
-                      <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                    <View
+                      style={[
+                        styles.pill,
+                        active && {
+                          backgroundColor: hexWithAlpha(catColour, 0.14),
+                          borderColor:     catColour,
+                          borderWidth:     1.5,
+                        },
+                      ]}
+                    >
+                      <View style={[styles.iconDisc, { backgroundColor: active ? '#FFFFFF' : hexWithAlpha(catColour, 0.12) }]}>
+                        <Glyph size={13} color={catColour} strokeWidth={2.2} />
+                      </View>
+                      <Text style={styles.pillText}>
                         {cat.name}
                       </Text>
                     </View>
@@ -293,26 +514,39 @@ export function FilterSheet({
           </View>
         )}
 
-        {/* Subcategory drill-down — only when a top-level is selected and has ≥1 subcategory */}
+        {/* Subcategory drill-down — only when a top-level is selected and
+            has ≥1 subcategory. Selected subcategories bloom the PARENT
+            category's colour (same meaning system as the top-level row). */}
         {activeTopLevelId !== null && subcategories.length > 0 && (
-          <View>
-            <Text variant="label.eyebrow" color="secondary" style={styles.sectionLabel}>
-              Subcategory
-            </Text>
+          <View onLayout={onSectionLayout('subcategory')}>
+            <SectionHeader label="Subcategory" summary={summaryLabel(subcategorySelected ? 1 : 0)} />
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.pillRow}
+              onLayout={onControlLayout('subcategory')}
             >
               {subcategories.map((sub) => {
                 const active = local.categoryId === sub.id
+                const parentColour = categoryIconColour(
+                  topLevels.find((t) => t.id === activeTopLevelId)?.pinColour,
+                )
                 return (
                   <PressableScale key={sub.id} onPress={() => selectSubcategory(sub.id)} hapticStyle="light">
-                    <View style={[styles.pill, active && styles.pillActive]}>
+                    <View
+                      style={[
+                        styles.pill,
+                        active && {
+                          backgroundColor: hexWithAlpha(parentColour, 0.14),
+                          borderColor:     parentColour,
+                          borderWidth:     1.5,
+                        },
+                      ]}
+                    >
                       {active && (
-                        <X size={12} color={color.onBrand} style={styles.pillIcon} />
+                        <X size={12} color={color.navy} style={styles.pillIcon} />
                       )}
-                      <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                      <Text style={styles.pillText}>
                         {sub.name}
                       </Text>
                     </View>
@@ -325,39 +559,39 @@ export function FilterSheet({
 
         <Divider />
 
-        {/* Sort by section */}
-        <View>
-          <Text variant="label.eyebrow" color="secondary" style={styles.sectionLabel}>
-            Sort By
-          </Text>
-          <View style={styles.pillWrap}>
-            {SORT_OPTIONS.map((opt) => {
-              const active = local.sortBy === opt.key
-              return (
-                <PressableScale key={opt.key} onPress={() => setSortBy(opt.key)} hapticStyle="light">
-                  <View style={[styles.pill, active && styles.pillActive]}>
-                    <Text style={[styles.pillText, active && styles.pillTextActive]}>
-                      {opt.label}
-                    </Text>
-                  </View>
-                </PressableScale>
-              )
-            })}
+        {/* Sort by section — v3: the ONE shared segmented control (white
+            track, sliding navy thumb), same component the Map list renders. */}
+        <View onLayout={onSectionLayout('sort')}>
+          <SectionHeader label="Sort By" summary={summaryLabel(sortCount)} />
+          <View onLayout={onControlLayout('sort')}>
+            <SegmentedControl
+              segments={SORT_SEGMENTS}
+              value={local.sortBy}
+              onChange={setSortBy}
+              testID="filter-sheet-sort-segmented"
+            />
           </View>
         </View>
 
-        {/* Voucher type section */}
-        <View>
-          <Text variant="label.eyebrow" color="secondary" style={styles.sectionLabel}>
-            Voucher Type
-          </Text>
-          <View style={styles.pillWrap}>
+        {/* Voucher type section — v3 (W2-D4): true TICKET silhouettes.
+            White body with two cream side notches (absolutely positioned
+            circles clipped at the mid edges), a red dashed perforation
+            inside the left edge, and the per-type glyph in coral. Selected:
+            warm red tint fill + 1.5px red border (brand action family). */}
+        <View onLayout={onSectionLayout('voucherType')}>
+          <SectionHeader label="Voucher Type" summary={summaryLabel(voucherTypeCount)} />
+          <View style={styles.pillWrap} onLayout={onControlLayout('voucherType')}>
             {VOUCHER_TYPE_CHIPS.map((chip) => {
               const active = chip.values.every((v) => local.voucherTypes.includes(v))
+              const Glyph = VOUCHER_TYPE_ICON[chip.label]
               return (
                 <PressableScale key={chip.label} onPress={() => toggleVoucherType(chip)} hapticStyle="light">
-                  <View style={[styles.pill, active && styles.pillActive]}>
-                    <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                  <View style={[styles.ticketChip, active && styles.ticketChipActive]}>
+                    <View style={styles.ticketNotchLeft} />
+                    <View style={styles.ticketNotchRight} />
+                    <View style={styles.ticketPerforation} />
+                    {Glyph ? <Glyph size={13} color={color.brandCoral} strokeWidth={2.2} style={styles.pillIcon} /> : null}
+                    <Text style={styles.pillText}>
                       {chip.label}
                     </Text>
                   </View>
@@ -367,33 +601,41 @@ export function FilterSheet({
           </View>
         </View>
 
-        {/* Open now section */}
-        <View style={styles.openNowRow}>
-          <Text variant="body.sm">Open Now</Text>
-          <Switch
-            value={local.openNow}
-            onValueChange={(val) => setLocal((prev) => ({ ...prev, openNow: val }))}
-            trackColor={{ true: color.success, false: color.border.default }}
-            thumbColor="#FFFFFF"
-            accessibilityLabel="Open now filter"
-          />
+        {/* Open now section — chip-style toggle (same FilterState.openNow
+            semantics). v3 selected state: navy fill, white text (navy ink
+            = state, red = brand action, category colour = identity). */}
+        <View onLayout={onSectionLayout('openNow')}>
+          <SectionHeader label="Open Now" summary={local.openNow ? 'On' : 'Any'} />
+          <View style={styles.pillWrap} onLayout={onControlLayout('openNow')}>
+            <Pressable
+              onPress={() => setLocal((prev) => ({ ...prev, openNow: !prev.openNow }))}
+              accessibilityRole="button"
+              accessibilityLabel="Open now filter"
+              accessibilityState={{ selected: local.openNow }}
+            >
+              <View style={[styles.pill, local.openNow && styles.pillNavyActive]}>
+                <Clock size={13} color={local.openNow ? color.onBrand : color.navy} strokeWidth={2.2} style={styles.pillIcon} />
+                <Text style={[styles.pillText, local.openNow && styles.pillTextActive]}>
+                  Open now
+                </Text>
+              </View>
+            </Pressable>
+          </View>
         </View>
 
         {/* Amenities — hidden until a category is selected (decision #3).
             Pulls real Amenity.id UUIDs from /categories/:id/amenities so
             the filter can actually match merchants on the backend. */}
         {local.categoryId !== null && eligibleAmenities.length > 0 && (
-          <View>
+          <View onLayout={onSectionLayout('amenities')}>
             <Divider />
-            <Text variant="label.eyebrow" color="secondary" style={styles.sectionLabel}>
-              Amenities
-            </Text>
-            <View style={styles.pillWrap}>
+            <SectionHeader label="Amenities" summary={summaryLabel(local.amenityIds.length)} />
+            <View style={styles.pillWrap} onLayout={onControlLayout('amenities')}>
               {eligibleAmenities.map((amenity) => {
                 const active = local.amenityIds.includes(amenity.id)
                 return (
                   <PressableScale key={amenity.id} onPress={() => toggleAmenity(amenity.id)} hapticStyle="light">
-                    <View style={[styles.pill, active && styles.pillAmenityActive]}>
+                    <View style={[styles.pill, active && styles.pillNavyActive]}>
                       <Text style={[styles.pillText, active && styles.pillTextActive]}>
                         {amenity.name}
                       </Text>
@@ -404,29 +646,44 @@ export function FilterSheet({
             </View>
           </View>
         )}
-      </ScrollView>
+        </ScrollView>
+
+        {/* Continuation cue — cream fade over the last visible strip of
+            content, floating above the footer. Purely visual. */}
+        <LinearGradient
+          colors={['rgba(255,249,245,0)', color.cream]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.scrollFade}
+          pointerEvents="none"
+        />
+      </View>
 
       {/* Footer — Reset (draft-only, does not close the sheet) + Apply
-          (shows the live/fallback result count). Replaces the previous
-          Apply-only footer (owner design brief item 2). */}
+          (brand gradient, shows the live/fallback place count). W2b copy:
+          "Show N places" (owner brief), "Show places" when unknown. The
+          live-count HOOK stays in the parent screen (locked pin); the
+          sheet only renders the resolved count. v3: hairline top border +
+          slight upward shadow keep the footer visually separate from the
+          scrolling content. */}
       <View style={styles.footer}>
         <PressableScale onPress={handleReset} accessibilityLabel="Reset filters" hapticStyle="light" style={styles.resetButton}>
           <RotateCcw size={16} color={color.text.secondary} />
           <Text variant="label.lg" style={styles.resetButtonText}>Reset</Text>
         </PressableScale>
 
-        <TouchableOpacity
+        <PressableScale
           onPress={handleApply}
-          activeOpacity={0.9}
+          pressedScale={0.98}
           style={styles.applyButtonWrap}
-          accessibilityLabel={`Show ${displayCount} results`}
+          accessibilityLabel={applyLabel}
         >
           <GradientBrand style={liveCountPending ? styles.applyButtonPendingCombined : styles.applyButton}>
             <Text variant="heading.sm" style={styles.applyButtonText}>
-              Show {displayCount} results
+              {applyLabel}
             </Text>
           </GradientBrand>
-        </TouchableOpacity>
+        </PressableScale>
       </View>
     </BottomSheet>
   )
@@ -448,14 +705,44 @@ const styles = StyleSheet.create({
     borderRadius:    16,
     alignItems:      'center',
     justifyContent:  'center',
-    backgroundColor: color.surface.neutral,
+    backgroundColor: '#FFFFFF',
+    borderWidth:     1,
+    borderColor:     'rgba(1,12,53,0.06)',
   },
-  scrollView: {
-    maxHeight: 460,
+  scrollWrap: {
+    position: 'relative',
+  },
+  // Round 3 ITEM 3a — maxHeight is now DYNAMIC (measured mid-control fold,
+  // see resolveScrollFold); this style carries the non-height chrome only.
+  scrollView: {},
+  // Continuation fade — cream-to-transparent over the content's last
+  // strip. Round 3 ITEM 3c: taller (36) for a stronger cue; it sits just
+  // above (under, in stacking terms) the footer's upward shadow (the
+  // footer is a later sibling, so its hairline + shadow render over it).
+  scrollFade: {
+    position: 'absolute',
+    left:     0,
+    right:    0,
+    bottom:   0,
+    height:   36,
+  },
+  // W2b — section header row: small-caps navy label left, selected summary
+  // right in brand red. v3 rhythm: 24 above / 12 below.
+  sectionHeader: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+    marginTop:      spacing[6],
+    marginBottom:   spacing[3],
   },
   sectionLabel: {
-    marginTop:    spacing[4],
-    marginBottom: spacing[2],
+    color: color.navy,
+  },
+  sectionSummary: {
+    fontSize:   11,
+    fontFamily: 'Lato-SemiBold',
+    letterSpacing: 0.3,
+    color:      color.brandRose,
   },
   pillRow: {
     flexDirection: 'row',
@@ -467,6 +754,8 @@ const styles = StyleSheet.create({
     flexWrap:      'wrap',
     gap:           spacing[2],
   },
+  // v3 — chips are WHITE cards on the cream sheet ground: warmth + real
+  // elevation via a navy-tinted hairline, never grey-wash.
   pill: {
     flexDirection:    'row',
     alignItems:       'center',
@@ -474,13 +763,73 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     paddingVertical:  spacing[3],
     minHeight:        44,               // generous touch target (owner design brief item 2)
-    backgroundColor:  color.surface.neutral,
+    backgroundColor:  '#FFFFFF',
+    borderWidth:      1,
+    borderColor:      'rgba(1,12,53,0.06)',
   },
-  pillActive: {
-    backgroundColor: color.brandRose,
-  },
-  pillAmenityActive: {
+  // v3 — navy state fill (Open Now, Amenities). Navy ink = state; red is
+  // reserved for brand actions; category colours carry identity.
+  pillNavyActive: {
     backgroundColor: color.navy,
+    borderColor:     color.navy,
+  },
+  // W2b (W2-D3) v3 — the category glyph's tinted disc (12% category colour;
+  // full-colour icon inside).
+  iconDisc: {
+    width:          22,
+    height:         22,
+    borderRadius:   11,
+    alignItems:     'center',
+    justifyContent: 'center',
+    marginRight:    6,
+  },
+  // W2b (W2-D4) v3 — voucher-type TICKET silhouette: white body, two cream
+  // side notches (circles clipped at the mid edges via overflow: hidden),
+  // red dashed perforation inside the left edge, coral glyph.
+  ticketChip: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    borderRadius:      9,
+    paddingLeft:       spacing[4],
+    paddingRight:      spacing[4],
+    paddingVertical:   spacing[3],
+    minHeight:         44,
+    backgroundColor:   '#FFFFFF',
+    borderWidth:       1,
+    borderColor:       'rgba(1,12,53,0.06)',
+    overflow:          'hidden',
+  },
+  ticketChipActive: {
+    backgroundColor: hexWithAlpha(color.brandRose, 0.10),
+    borderWidth:     1.5,
+    borderColor:     color.brandRose,
+  },
+  ticketNotchLeft: {
+    position:        'absolute',
+    left:            -5,
+    top:             '50%',
+    marginTop:       -5,
+    width:           10,
+    height:          10,
+    borderRadius:    5,
+    backgroundColor: color.cream,
+  },
+  ticketNotchRight: {
+    position:        'absolute',
+    right:           -5,
+    top:             '50%',
+    marginTop:       -5,
+    width:           10,
+    height:          10,
+    borderRadius:    5,
+    backgroundColor: color.cream,
+  },
+  ticketPerforation: {
+    height:          18,
+    borderLeftWidth: 2,
+    borderStyle:     'dashed',
+    borderColor:     'rgba(226,12,4,0.45)',
+    marginRight:     spacing[2],
   },
   pillIcon: {
     marginRight: 4,
@@ -493,19 +842,20 @@ const styles = StyleSheet.create({
   pillTextActive: {
     color: color.onBrand,
   },
-  openNowRow: {
-    flexDirection:    'row',
-    alignItems:       'center',
-    justifyContent:   'space-between',
-    marginTop:        spacing[4],
-    marginBottom:     spacing[2],
-    minHeight:        44,
-  },
+  // v3 — footer separation: hairline top border + a slight upward shadow.
   footer: {
-    flexDirection: 'row',
-    alignItems:    'center',
-    gap:           spacing[3],
-    marginTop:     spacing[4],
+    flexDirection:  'row',
+    alignItems:     'center',
+    gap:            spacing[3],
+    marginTop:      spacing[3],
+    paddingTop:     spacing[3],
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(1,12,53,0.08)',
+    backgroundColor: color.cream,
+    shadowColor:    '#010C35',
+    shadowOpacity:  0.04,
+    shadowRadius:   6,
+    shadowOffset:   { width: 0, height: -3 },
   },
   resetButton: {
     flexDirection:     'row',
@@ -542,5 +892,8 @@ const styles = StyleSheet.create({
   applyButtonText: {
     color:      '#FFFFFF',
     fontFamily: 'Lato-Bold',
+    // v3 — tabular numerals so the live count doesn't jitter the label
+    // width as the preview refreshes.
+    fontVariant: ['tabular-nums'],
   },
 })

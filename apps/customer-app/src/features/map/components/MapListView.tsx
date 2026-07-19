@@ -3,30 +3,28 @@ import { View, FlatList, StyleSheet } from 'react-native'
 import { Text, color, spacing } from '@/design-system'
 import { BottomSheet } from '@/design-system/motion/BottomSheet'
 import { FadeIn } from '@/design-system/motion/FadeIn'
-import { BranchTile } from '@/features/shared/BranchTile'
+import { MapLedgerRow } from './MapLedgerRow'
 import { BranchTile as BranchTileType } from '@/lib/api/discovery'
-import { FilterState } from '@/features/search/components/FilterSheet'
+import { FilterState, SORT_DISPLAY_LABEL } from '@/features/search/components/FilterSheet'
 import { MapListSortSelector } from './MapListSortSelector'
 
 /**
- * Map Phase 2 S4 Task 2 — the custom `BranchRow` (coloured letter thumb,
- * no heart, no logo) is replaced by the SHARED `<BranchTile size="compact">`
- * used everywhere else (Home rails, Map carousel, Category results). This
- * brings the list into parity with the rest of the app for free:
- *   - FavouriteHeart (branch-level, `entity="branch"`) — the list previously
- *     had NO heart at all.
- *   - Real merchant logo (or the shared navy-initial fallback), banner
- *     image, descriptor, rating, open/closed, distance, and saving —
- *     instead of the bespoke category-coloured letter thumb.
- * Branch-keyed identity (Phase C) is preserved as-is: `FlatList`'s
- * `keyExtractor` reads `item.id` (the BRANCH id), so two branches of the
- * same merchant still render as two distinct rows — `<BranchTile>` itself
- * has no merchant-level dedup logic to regress this.
+ * Map Phase 2 S4 Task 2 — the custom `BranchRow` was replaced by the shared
+ * `<BranchTile size="compact">` card.
  *
- * Row tap → `onBranchPress(branch.id)` is unchanged: `<BranchTile>`'s
- * `onPress` signature is already `(id: string) => void`, so it wires
- * straight through with no wrapper — MapScreen's `handleBranchNavigate`
- * still resolves branch id → the `?branch=${id}&from=map` URL contract.
+ * Map Phase 2 W2b (F9) — the card is in turn replaced by the compact
+ * `<MapLedgerRow>` (owner "generic and boring" feedback): a 44x44 logo
+ * tile, name + "category · distance · Open|Closed" meta line, and a
+ * right-hand value column (shared `<VoucherValue>` save capsule + voucher
+ * stub) with the branch-level heart at the row end. The row still animates
+ * in with a soft stagger (`FadeIn`, reduce-motion aware).
+ *
+ * Branch-keyed identity (Phase C) is preserved: `FlatList`'s `keyExtractor`
+ * reads `item.id` (the BRANCH id), so two branches of the same merchant
+ * still render as two distinct rows — `<MapLedgerRow>` has no
+ * merchant-level dedup. Row tap → `onBranchPress(branch.id)` is unchanged:
+ * MapScreen's `handleBranchNavigate` resolves branch id → the
+ * `?branch=${id}&from=map` URL contract.
  */
 
 type BranchRowProps = {
@@ -38,7 +36,7 @@ type BranchRowProps = {
 function MapListRow({ branch, index, onPress }: BranchRowProps) {
   return (
     <FadeIn delay={index * 40} y={8}>
-      <BranchTile branch={branch} onPress={onPress} size="compact" />
+      <MapLedgerRow branch={branch} onPress={onPress} />
     </FadeIn>
   )
 }
@@ -78,6 +76,9 @@ export function MapListView({
       visible={visible}
       onDismiss={onDismiss}
       accessibilityLabel="Nearby Merchants list"
+      // W2b round 2 (List v3) — warm cream sheet ground; the ledger rows
+      // are white cards layered on it (same ground as the FilterSheet).
+      surface="cream"
     >
       {/* Header — Map Phase 2 S5b Task 3 (owner feedback: "is this my
           area or everything?"). Copy states its OWN scope explicitly
@@ -89,6 +90,12 @@ export function MapListView({
       <View style={styles.header}>
         <Text variant="heading.md" style={styles.headerTitle}>
           {total} {total === 1 ? 'place' : 'places'} in this area
+        </Text>
+        {/* W2b round 4 design pass — a quiet one-line reflection of the
+            active sort, updating with the control (makes the segmented
+            control feel consequential). */}
+        <Text style={styles.headerSubtitle}>
+          Sorted by {SORT_DISPLAY_LABEL[sortBy].toLowerCase()}
         </Text>
       </View>
 
@@ -116,13 +123,17 @@ export function MapListView({
 
 const styles = StyleSheet.create({
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing[2],
+    gap: 2,
     marginBottom: spacing[3],
   },
   headerTitle: {
     color: color.navy,
+  },
+  headerSubtitle: {
+    fontSize:   12,
+    lineHeight: 16,
+    fontFamily: 'Lato-Medium',
+    color:      color.text.secondary,
   },
   // Map Phase 2 S4 Task 2 — raised from 400: the shared `<BranchTile
   // size="compact">` rows are taller than the old flat BranchRow, so a

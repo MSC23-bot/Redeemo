@@ -1,13 +1,20 @@
 import React from 'react'
-import { View, Pressable, StyleSheet } from 'react-native'
-import { Text, color, spacing } from '@/design-system'
-import { SORT_OPTIONS, FilterState } from '@/features/search/components/FilterSheet'
+import { View, StyleSheet } from 'react-native'
+import { spacing } from '@/design-system'
+import { SegmentedControl } from '@/design-system/motion/SegmentedControl'
+import { SORT_SEGMENTS, FilterState } from '@/features/search/components/FilterSheet'
 
-// Map Phase 2 S4 Task 3 (spec §7.8) — "Header: 'Nearby Merchants' + count +
-// sort selector (red text)". Options are the SAME four `FilterState.sortBy`
-// values FilterSheet exposes (single source of truth, imported from there)
-// — since S1 these genuinely re-order the server results, so this is a
-// thin selector UI, no client-side sort logic here.
+// Map Phase 2 S4 Task 3 (spec §7.8) — sort selector in the Map list
+// header. A thin wrapper around the ONE shared `<SegmentedControl>`
+// (design-system/motion), rendering the SAME `SORT_SEGMENTS` set the
+// FilterSheet's Sort By section renders (single source, defined next to
+// SORT_OPTIONS in FilterSheet) — so the two surfaces cannot drift. The
+// canonical SORT_OPTIONS labels stay the accessibilityLabels ("Sort by
+// Top Rated" etc.), preserving the pinned a11y contract; visible labels
+// are the W2b display renames ("Top rated", "Best saving").
+// Round 4 dedup: this file previously carried its own copy of the
+// segment set; it now imports FilterSheet's.
+
 type Props = {
   value:    FilterState['sortBy']
   onChange: (sortBy: FilterState['sortBy']) => void
@@ -15,48 +22,19 @@ type Props = {
 
 export function MapListSortSelector({ value, onChange }: Props) {
   return (
-    <View style={styles.row} accessibilityRole="tablist" testID="map-list-sort-selector">
-      {SORT_OPTIONS.map((opt) => {
-        const active = value === opt.key
-        return (
-          <Pressable
-            key={opt.key}
-            onPress={() => onChange(opt.key)}
-            accessibilityRole="button"
-            accessibilityLabel={`Sort by ${opt.label}`}
-            accessibilityState={{ selected: active }}
-            hitSlop={6}
-            style={styles.item}
-          >
-            <Text style={[styles.label, active && styles.labelActive]}>
-              {opt.label}
-            </Text>
-          </Pressable>
-        )
-      })}
+    <View style={styles.wrap}>
+      <SegmentedControl
+        segments={SORT_SEGMENTS}
+        value={value}
+        onChange={onChange}
+        testID="map-list-sort-selector"
+      />
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    flexWrap:      'wrap',
-    columnGap:     spacing[4],
-    rowGap:        spacing[1],
-    marginBottom:  spacing[3],
-  },
-  item: {
-    paddingVertical: spacing[1],
-  },
-  label: {
-    fontSize:   13,
-    fontFamily: 'Lato-SemiBold',
-    color:      color.text.tertiary,
-  },
-  // Spec §7.8 — red text accent. `brandRose` is the locked red token
-  // (root CLAUDE.md §9: red #E20C04).
-  labelActive: {
-    color: color.brandRose,
+  wrap: {
+    marginBottom: spacing[3],
   },
 })

@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, fireEvent, act } from '@testing-library/react-native'
+import { render, fireEvent, act, within } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // ─── react-native-maps mock ──────────────────────────────────────────────────
@@ -125,6 +125,8 @@ jest.mock('expo-router', () => ({
 
 // Import AFTER mocks are registered.
 import { MapScreen } from '@/features/map/screens/MapScreen'
+import { clearAccumulatedBranches } from '@/features/map/hooks/regionAccumulationStore'
+import { makeBranchTile } from '../../fixtures/branchTile'
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -262,7 +264,7 @@ describe('MapScreen', () => {
 
       fireEvent.press(getByLabelText('Open filters'))
       fireEvent.press(getByText('Nearest'))
-      fireEvent.press(getByText(/Show \d+ results/))
+      fireEvent.press(getByText(/Show \d+ places/))
 
       const lastInArea = mockInAreaCalls[mockInAreaCalls.length - 1]!
       const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
@@ -286,7 +288,7 @@ describe('MapScreen', () => {
 
       fireEvent.press(getByLabelText('Open filters'))
       fireEvent.press(getByText('Discount'))
-      fireEvent.press(getByText(/Show \d+ results/))
+      fireEvent.press(getByText(/Show \d+ places/))
 
       const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
       expect(lastSearch.enabled).toBe(true)
@@ -312,7 +314,7 @@ describe('MapScreen', () => {
         // Flip to the /search path via a non-scope filter.
         fireEvent.press(getByLabelText('Open filters'))
         fireEvent.press(getByText('Nearest'))
-        fireEvent.press(getByText(/Show \d+ results/))
+        fireEvent.press(getByText(/Show \d+ places/))
 
         const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
         expect(lastSearch.enabled).toBe(true)
@@ -334,7 +336,7 @@ describe('MapScreen', () => {
 
         fireEvent.press(getByLabelText('Open filters'))
         fireEvent.press(getByText('Nearest'))
-        fireEvent.press(getByText(/Show \d+ results/))
+        fireEvent.press(getByText(/Show \d+ places/))
 
         act(() => {
           mockOnRegionChangeComplete!({
@@ -366,7 +368,7 @@ describe('MapScreen', () => {
 
       fireEvent.press(getByLabelText('Open filters'))
       fireEvent.press(getByText('Nearest'))
-      fireEvent.press(getByText(/Show \d+ results/))
+      fireEvent.press(getByText(/Show \d+ places/))
 
       const lastSearch = mockSearchCalls[mockSearchCalls.length - 1]!
       expect(lastSearch.enabled).toBe(true)
@@ -457,7 +459,7 @@ describe('MapScreen', () => {
       const { getByText, getByLabelText, queryByTestId } = render(<MapScreen />, { wrapper })
       fireEvent.press(getByLabelText('Open filters'))
       fireEvent.press(getByText('Nearest'))
-      fireEvent.press(getByText(/Show \d+ results/))
+      fireEvent.press(getByText(/Show \d+ places/))
       expect(queryByTestId('filter-active-dot')).toBeTruthy()
     })
   })
@@ -510,6 +512,200 @@ describe('MapScreen', () => {
       const { queryByText } = render(<MapScreen />, { wrapper })
       expect(queryByText('No merchants in this area')).toBeNull()
       expect(queryByText('No matches in the UK yet')).toBeNull()
+    })
+  })
+
+  // ─── W2b round 2 BUG 2 (owner device QA 2026-07-13) ───────────────────────
+  //
+  // Device repro: "Show 0 places" on the Apply button while the list header
+  // said "3 places in this area", with ZERO filters selected (a remote-city
+  // viewport was active). Root cause: the live-count preview ALWAYS ran
+  // /search, whose ranking/scope cascade is relative to the USER's effLoc
+  // (GPS/profile), not the viewport bbox — with a remote viewport and no
+  // q/categoryId every bbox-admitted branch fell above the retained rungs
+  // and the bucket-B rescue could not fire, so /search honestly answered 0
+  // while the map's own /discovery/in-area feed showed 3. The preview now
+  // routes exactly like the APPLIED state would (the hybrid-hook contract).
+  describe('W2b round 2 BUG 2: filter-sheet live count routes like the hybrid hook', () => {
+    afterEach(() => {
+      clearAccumulatedBranches()
+    })
+
+    function seedThreeInAreaBranches() {
+      const mk = (id: string, name: string) =>
+        makeBranchTile({
+          id,
+          branchLatitude:  51.51,
+          branchLongitude: -0.13,
+          merchant: { id: `m-${id}`, businessName: name, voucherCount: 1, maxEstimatedSaving: 5 },
+        })
+      mockState.inAreaData = {
+        merchants: [],
+        branches:  [mk('brn-a', 'Alpha'), mk('brn-b', 'Beta'), mk('brn-c', 'Gamma')],
+        total:     3,
+        meta:      { resolvedArea: 'London', nearbyCount: 3, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+      }
+      // The owner-observed poison value: /search (bbox-only, remote
+      // viewport) answering zero. The fix must never surface this while
+      // the draft has no non-scope filters.
+      mockState.searchData = {
+        merchants: [],
+        branches:  [],
+        total:     0,
+        meta:      { resolvedArea: 'London', scope: 'nearby', scopeExpanded: false, nearbyCount: 0, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+      }
+    }
+
+    it('no filters selected → Apply shows the in-area count ("Show 3 places"), and the /search preview arm stays disabled', () => {
+      seedThreeInAreaBranches()
+      const { getByText, getByLabelText, queryByText } = render(<MapScreen />, { wrapper })
+
+      fireEvent.press(getByLabelText('Open filters'))
+
+      // The exact number the list header would show — never the /search 0.
+      expect(getByText('Show 3 places')).toBeTruthy()
+      expect(queryByText('Show 0 places')).toBeNull()
+      // No /search call was ever ENABLED for a clean (non-scope-free) draft.
+      expect(mockSearchCalls.some((c) => c.enabled)).toBe(false)
+    })
+
+    it('draft category differs from applied → the preview runs through /discovery/in-area with the DRAFT categoryId (not /search)', () => {
+      seedThreeInAreaBranches()
+      const { getByText, getByLabelText } = render(<MapScreen />, { wrapper })
+
+      fireEvent.press(getByLabelText('Open filters'))
+      // Draft-select a category INSIDE the sheet (not applied yet) — the
+      // map's own category pill row also says "Food & Drink", so scope the
+      // query to the sheet (accessibilityLabel "Filter results").
+      fireEvent.press(within(getByLabelText('Filter results')).getByText('Food & Drink'))
+
+      // The preview in-area call (textually before the screen's own call,
+      // so second-to-last) carries the draft category and is enabled...
+      const previewCall = mockInAreaCalls[mockInAreaCalls.length - 2]!
+      expect(previewCall.params.categoryId).toBe('c1')
+      expect(previewCall.enabled).toBe(true)
+      // ...while the screen's own (last) in-area call still reflects the
+      // APPLIED filters (no category).
+      const mainCall = mockInAreaCalls[mockInAreaCalls.length - 1]!
+      expect(mainCall.params.categoryId).toBeUndefined()
+      // Still no /search preview: categoryId is not a non-scope filter.
+      expect(mockSearchCalls.some((c) => c.enabled)).toBe(false)
+      // The preview count comes from the in-area feed.
+      expect(getByText('Show 3 places')).toBeTruthy()
+    })
+
+    it('draft with a NON-SCOPE filter still previews via /search (unchanged arm)', () => {
+      jest.useFakeTimers()
+      try {
+        seedThreeInAreaBranches()
+        mockState.searchData = {
+          merchants: [],
+          branches:  [],
+          total:     1,
+          meta:      { resolvedArea: 'London', scope: 'nearby', scopeExpanded: false, nearbyCount: 1, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+        }
+        const { getByText, getByLabelText } = render(<MapScreen />, { wrapper })
+
+        fireEvent.press(getByLabelText('Open filters'))
+        fireEvent.press(getByText('Open now'))
+        // Flush useFilterPreviewCount's 350ms draft debounce.
+        act(() => { jest.advanceTimersByTime(400) })
+
+        // The /search preview arm enables once the draft carries a
+        // non-scope filter (openNow), mirroring the applied hybrid switch.
+        const enabledSearch = mockSearchCalls.filter((c) => c.enabled)
+        expect(enabledSearch.length).toBeGreaterThan(0)
+        expect(enabledSearch[enabledSearch.length - 1]!.params.openNow).toBe(true)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
+  })
+
+  // ─── W2b round 3 ITEM 2 (owner device QA 2026-07-13) ───────────────────────
+  //
+  // Repro: tap a pin (carousel opens, selectedBranchId set) → open the list
+  // sheet on top → tap a row → navigate to the merchant profile. The shared
+  // handleBranchNavigate never cleared the selection, so the carousel
+  // overlay stayed mounted on the map underneath/behind and was
+  // unexpectedly present on return. The LIST path now navigates through
+  // handleListBranchNavigate, which clears the selection first; the
+  // pin-tap → carousel behaviour is untouched.
+  describe('W2b round 3 ITEM 2: list-row navigation clears the carousel selection', () => {
+    afterEach(() => {
+      clearAccumulatedBranches()
+    })
+
+    function seedThreePinBranches() {
+      // Distinct, well-separated coords inside the LONDON-derived viewport
+      // so the three branches render as three SINGLE pins (no cluster).
+      const mk = (id: string, name: string, lat: number, lng: number) =>
+        makeBranchTile({
+          id,
+          branchLatitude:  lat,
+          branchLongitude: lng,
+          merchant: { id: `m-${id}`, businessName: name, voucherCount: 1, maxEstimatedSaving: 5 },
+        })
+      mockState.inAreaData = {
+        merchants: [],
+        branches:  [
+          mk('brn-a', 'Alpha', 51.49,  -0.145),
+          mk('brn-b', 'Beta',  51.505, -0.128),
+          mk('brn-c', 'Gamma', 51.525, -0.108),
+        ],
+        total: 3,
+        meta:  { resolvedArea: 'London', nearbyCount: 3, cityCount: 0, distantCount: 0, emptyStateReason: 'none' },
+      }
+    }
+
+    it('pin-opened carousel does NOT survive a list-row navigation (no selection state left set)', () => {
+      seedThreePinBranches()
+      const { getByTestId, queryByTestId, getByLabelText, queryByLabelText, getAllByTestId } = render(<MapScreen />, { wrapper })
+
+      // 1. Tap a PIN — the carousel opens (existing behaviour, untouched).
+      fireEvent.press(getByTestId('custom-pin-brn-a'))
+      expect(getByTestId('map-branch-tile-container')).toBeTruthy()
+
+      // 2. Open the LIST sheet on top of the open carousel.
+      fireEvent.press(getByLabelText('Show merchant list'))
+
+      // 3. Tap a list row (the ledger rows are the only map-ledger-row
+      //    testIDs in the tree) — this navigates.
+      fireEvent.press(getAllByTestId('map-ledger-row')[0]!)
+
+      // The carousel selection must NOT survive list navigation: no
+      // carousel overlay left on the map underneath/behind (and none to
+      // greet the user on return).
+      expect(queryByTestId('map-branch-tile-container')).toBeNull()
+      // Round 4 DEFECT 1 — the list SHEET must not survive either: its
+      // Modal host renders above the whole navigator, so leaving it open
+      // stacks it over the pushed merchant screen.
+      expect(queryByLabelText('Nearby Merchants list')).toBeNull()
+    })
+
+    it('W2b round 4 DEFECT 1: the sheet-visible state is cleared by the row press (sheet closes with the navigation)', () => {
+      seedThreePinBranches()
+      const { getByLabelText, queryByLabelText, getAllByTestId } = render(<MapScreen />, { wrapper })
+
+      fireEvent.press(getByLabelText('Show merchant list'))
+      expect(getByLabelText('Nearby Merchants list')).toBeTruthy()
+
+      fireEvent.press(getAllByTestId('map-ledger-row')[0]!)
+      expect(queryByLabelText('Nearby Merchants list')).toBeNull()
+
+      // Reopens fresh from the List button (no state leak).
+      fireEvent.press(getByLabelText('Show merchant list'))
+      expect(getByLabelText('Nearby Merchants list')).toBeTruthy()
+    })
+
+    it('list-row navigation with NO carousel open leaves no selection behind either (never opens one)', () => {
+      seedThreePinBranches()
+      const { queryByTestId, getByLabelText, getAllByTestId } = render(<MapScreen />, { wrapper })
+
+      fireEvent.press(getByLabelText('Show merchant list'))
+      fireEvent.press(getAllByTestId('map-ledger-row')[1]!)
+
+      expect(queryByTestId('map-branch-tile-container')).toBeNull()
     })
   })
 })

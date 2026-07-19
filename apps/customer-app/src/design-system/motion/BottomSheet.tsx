@@ -5,14 +5,26 @@ import Animated, { Easing, runOnJS, useSharedValue, useAnimatedStyle, withTiming
 import { color, layer, motion, opacity, radius, spacing } from '../tokens'
 import { useMotionScale } from '../useMotionScale'
 
-type Props = { visible: boolean; onDismiss: () => void; children: React.ReactNode; accessibilityLabel?: string }
+type Props = {
+  visible: boolean
+  onDismiss: () => void
+  children: React.ReactNode
+  accessibilityLabel?: string
+  /**
+   * Map W2b round 2 — opt-in sheet ground. 'raised' (default) keeps the
+   * historical white surface for every existing sheet; 'cream' renders the
+   * warm brand-cream ground (#FFF9F5 token) the Map filter/list sheets use
+   * so white control cards can layer on it.
+   */
+  surface?: 'raised' | 'cream'
+}
 
 // Swipe-down-to-dismiss thresholds. Either passing the distance OR the
 // flick velocity dismisses; both checked at gesture-end.
 const DISMISS_DISTANCE = 100   // px dragged down from rest
 const DISMISS_VELOCITY = 600   // px/s downward flick speed
 
-export function BottomSheet({ visible, onDismiss, children, accessibilityLabel }: Props) {
+export function BottomSheet({ visible, onDismiss, children, accessibilityLabel, surface = 'raised' }: Props) {
   const ty = useSharedValue(500)
   const scrim = useSharedValue(0)
   const scale = useMotionScale()
@@ -80,7 +92,7 @@ export function BottomSheet({ visible, onDismiss, children, accessibilityLabel }
         // the keyboard so iOS's keyboard rounded-corner gaps don't leak the
         // dark scrim through. `paddingBottom` keeps the visible content above
         // the keyboard.
-        style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: color.surface.raised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing[5], paddingBottom: spacing[5] + keyboardHeight, zIndex: layer.sheet }, sheet]}
+        style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: surface === 'cream' ? color.cream : color.surface.raised, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing[5], paddingBottom: spacing[5] + keyboardHeight, zIndex: layer.sheet }, sheet]}
       >
         {/* Grabber bar — owns the drag-to-dismiss gesture. Inner content
             (FlatLists, ScrollViews) is unaffected and scrolls normally. */}

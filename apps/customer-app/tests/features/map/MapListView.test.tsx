@@ -30,6 +30,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MapListView } from '@/features/map/components/MapListView'
 import { makeBranchTile } from '../../fixtures/branchTile'
 
+// Structural type for react-test-renderer instances as this file's layout
+// assertions actually use them (`react-test-renderer` ships no types and
+// `@types/react-test-renderer` is not installed; RNTL's own d.ts import of
+// it is hidden by skipLibCheck). Precise for the fields touched: props +
+// the string|instance children array.
+type RenderedInstance = {
+  props:    Record<string, unknown> & { testID?: string }
+  children: Array<RenderedInstance | string>
+}
+
 // `<BranchTile>` renders `<FavouriteHeart>` which calls `useFavourite()` →
 // `useQueryClient()` — every render needs a `<QueryClientProvider>` in
 // the tree (matches BranchTile's own test files).
@@ -54,7 +64,11 @@ const mockBranches = [
       businessName:       'Bella Italia',
       primaryCategory:    { id: 'c1', name: 'Food & Drink', pinColour: null, pinIcon: null, parentId: null },
       voucherCount:       2,
-      maxEstimatedSaving: 20,
+      // Round 6 (owner decision 2026-07-18) — Map surfaces show the
+      // TOTAL. max deliberately DIFFERS from total so a regression to the
+      // wrong metric fails loudly.
+      maxEstimatedSaving:   20,
+      totalEstimatedSaving: 30,
     },
   }),
   makeBranchTile({
@@ -69,7 +83,8 @@ const mockBranches = [
       businessName:       'Nails & Beauty',
       primaryCategory:    { id: 'c2', name: 'Beauty & Wellness', pinColour: null, pinIcon: null, parentId: null },
       voucherCount:       1,
-      maxEstimatedSaving: 10,
+      maxEstimatedSaving:   10,
+      totalEstimatedSaving: 25,
     },
   }),
 ]
@@ -200,7 +215,7 @@ describe('MapListView', () => {
     const { getByTestId } = render(
       <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
     )
-    expect(getByTestId('branch-tile-brn-pets-heart')).toBeTruthy()
+    expect(getByTestId('map-ledger-brn-pets-heart')).toBeTruthy()
   })
 
   it('logo falls back to the shared navy initials block when merchant.logoUrl is null', () => {
@@ -213,7 +228,7 @@ describe('MapListView', () => {
     const { getByText, queryByTestId } = render(
       <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
     )
-    expect(queryByTestId('branch-tile-logo-image')).toBeNull()
+    expect(queryByTestId('map-ledger-logo-image')).toBeNull()
     expect(getByText('P')).toBeTruthy()
   })
 
@@ -227,7 +242,7 @@ describe('MapListView', () => {
     const { getByTestId } = render(
       <MapListView visible branches={[tile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
     )
-    expect(getByTestId('branch-tile-logo-image').props.source).toEqual([{ uri: 'https://example.com/logo.png' }])
+    expect(getByTestId('map-ledger-logo-image').props.source).toEqual([{ uri: 'https://example.com/logo.png' }])
   })
 
   // ──────────────────────────────────────────────────────────────────────
@@ -319,5 +334,196 @@ describe('MapListView', () => {
     )
     expect(getByLabelText('Sort by Top Rated').props.accessibilityState).toEqual({ selected: true })
     expect(getByLabelText('Sort by Relevance').props.accessibilityState).toEqual({ selected: false })
+  })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Map Phase 2 W2b (F9) — ledger rows (<MapLedgerRow>) replace the shared
+  // BranchTile compact card. The row now carries the shared <VoucherValue>
+  // (save capsule + voucher stub) and a "category · distance · Open|Closed"
+  // meta line. Branch-first cardinality + tap-through are unchanged (pinned
+  // above); these pin the new value + status presentation.
+  // ──────────────────────────────────────────────────────────────────────
+  it('each ledger row renders the shared value line ("Save up to £X" capsule + TicketMark voucher count) from the TOTAL saving', () => {
+    const { getByText, queryByText, getAllByTestId } = render(
+      <MapListView
+        visible
+        branches={mockBranches}
+        total={2}
+        onDismiss={jest.fn()}
+        onBranchPress={jest.fn()}
+        {...noopSort}
+      />,
+    )
+    // Round 6 (owner decision 2026-07-18) — the capsule shows the TOTAL of
+    // the merchant's vouchers (totalEstimatedSaving 30/25), never the best
+    // single voucher (max 20/10, deliberately different in the fixtures).
+    expect(getByText('Save up to £30')).toBeTruthy()
+    expect(getByText('2 vouchers')).toBeTruthy()
+    expect(getByText('Save up to £25')).toBeTruthy()
+    expect(getByText('1 voucher')).toBeTruthy()
+    expect(queryByText('Save up to £20')).toBeNull()
+    expect(queryByText('Save up to £10')).toBeNull()
+    expect(getAllByTestId('map-ledger-value')).toHaveLength(2)
+    // The count identity is the filled TicketMark, no dashed container.
+    expect(getAllByTestId('voucher-value-ticket-mark')).toHaveLength(2)
+  })
+
+  it('W2b round 4 design pass: header carries a quiet "Sorted by" reflection of the active sort', () => {
+    // Two separate renders (the local render helper owns the QueryClient
+    // wrapper, so its rerender cannot be fed a bare node).
+    const first = render(
+      <MapListView
+        visible
+        branches={mockBranches}
+        total={2}
+        onDismiss={jest.fn()}
+        onBranchPress={jest.fn()}
+        sortBy="relevance"
+        onSortByChange={jest.fn()}
+      />,
+    )
+    expect(first.getByText('Sorted by relevance')).toBeTruthy()
+    first.unmount()
+
+    const second = render(
+      <MapListView
+        visible
+        branches={mockBranches}
+        total={2}
+        onDismiss={jest.fn()}
+        onBranchPress={jest.fn()}
+        sortBy="highest_saving"
+        onSortByChange={jest.fn()}
+      />,
+    )
+    expect(second.getByText('Sorted by best saving')).toBeTruthy()
+  })
+
+  it('segmented sort control shows the W2b display labels ("Top rated", "Best saving") while a11y labels stay canonical', () => {
+    const { getByText, getByLabelText } = render(
+      <MapListView
+        visible
+        branches={mockBranches}
+        total={2}
+        onDismiss={jest.fn()}
+        onBranchPress={jest.fn()}
+        sortBy="relevance"
+        onSortByChange={jest.fn()}
+      />,
+    )
+    // Visible display-only rename.
+    expect(getByText('Top rated')).toBeTruthy()
+    expect(getByText('Best saving')).toBeTruthy()
+    // Canonical accessibility labels (unchanged contract).
+    expect(getByLabelText('Sort by Highest Saving')).toBeTruthy()
+    expect(getByLabelText('Sort by Top Rated')).toBeTruthy()
+  })
+
+  it('ledger row meta shows the Open/Closed status word', () => {
+    const openTile = makeBranchTile({
+      id:          'brn-open',
+      isOpenNow:   true,
+      distance:    500,
+      merchant:    { id: 'm-open', businessName: 'Open Cafe' },
+    })
+    const { getByText } = render(
+      <MapListView visible branches={[openTile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
+    )
+    expect(getByText('Open')).toBeTruthy()
+  })
+
+  // ──────────────────────────────────────────────────────────────────────
+  // W2b ROUND 2 BUG 1 + ROUND 5 board layout — the rendered structure pin.
+  // BUG 1 (round 2): <PressableScale> applies its `style` to the OUTER
+  // Animated.View while children render inside the inner Pressable
+  // (default column layout), so layout must live on the explicit rowInner.
+  // ROUND 5: the side value-rail geometry is ABANDONED (it squeezed the
+  // meta into on-device clips); the content now stacks full-width beside
+  // the logo: name / meta / value as three lines, heart as a corner
+  // overlay. These pin that structure.
+  // ──────────────────────────────────────────────────────────────────────
+  describe('W2b round 5: ledger row structure (three-line stack, no side rail)', () => {
+    function flattenStyle(style: unknown): Record<string, unknown> {
+      if (!style) return {}
+      if (Array.isArray(style)) return Object.assign({}, ...style.filter(Boolean).map(flattenStyle))
+      return style as Record<string, unknown>
+    }
+
+    const longTile = makeBranchTile({
+      id:         'brn-long',
+      distance:   500,
+      isOpenNow:  true,
+      merchant: {
+        id:                 'm-long',
+        businessName:       'The Grand International House of Fine Dining',
+        descriptor:         'International Fine Dining Restaurant',
+        voucherCount:       3,
+        // Round 6 — max != total so the wrong metric fails loudly.
+        maxEstimatedSaving:   500,
+        totalEstimatedSaving: 999,
+      },
+    })
+
+    it('logo, content column and heart overlay are siblings of the flexDirection:row rowInner (BUG 1 pin)', () => {
+      const { getByTestId } = render(
+        <MapListView
+          visible
+          branches={[mockBranches[0]!]}
+          total={1}
+          onDismiss={jest.fn()}
+          onBranchPress={jest.fn()}
+          {...noopSort}
+        />,
+      )
+      const rowInner = getByTestId('map-ledger-row')
+      expect(flattenStyle(rowInner.props.style).flexDirection).toBe('row')
+      const childTestIDs = rowInner.children
+        .map((c: RenderedInstance | string) => (typeof c === 'string' ? null : c.props?.testID ?? null))
+      // Round 5 — NO value rail between the content column and the heart.
+      expect(childTestIDs).toEqual([
+        'map-ledger-logo',
+        'map-ledger-middle',
+        'map-ledger-heart',
+      ])
+      const middle = getByTestId('map-ledger-middle')
+      expect(flattenStyle(middle.props.style).flex).toBe(1)
+    })
+
+    it('the content column stacks name / meta / value as three full-width lines (meta is a sibling, not beside a rail)', () => {
+      const { getByTestId, queryByTestId } = render(
+        <MapListView visible branches={[longTile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
+      )
+      const middle = getByTestId('map-ledger-middle')
+      // Column stack (no row direction on the content column).
+      expect(flattenStyle(middle.props.style).flexDirection).toBeUndefined()
+      // Three lines in order: name (a Text, no testID) → meta → value line.
+      const kids = middle.children.filter(
+        (c: RenderedInstance | string): c is RenderedInstance => typeof c !== 'string',
+      )
+      expect(kids).toHaveLength(3)
+      expect(kids[1]!.props.testID).toBe('map-ledger-meta')
+      // The meta row is a DIRECT full-width child of the column — the old
+      // side rail is gone from the tree entirely.
+      expect(queryByTestId('map-ledger-value-rail')).toBeNull()
+      // The value line (third line) contains the shared VoucherValue.
+      expect(getByTestId('map-ledger-value')).toBeTruthy()
+    })
+
+    it('name and meta stay single-line tail-ellipsised (safety net), full wording visible', () => {
+      const { getByText, getByTestId } = render(
+        <MapListView visible branches={[longTile]} total={1} onDismiss={jest.fn()} onBranchPress={jest.fn()} {...noopSort} />,
+      )
+      const name = getByText('The Grand International House of Fine Dining')
+      expect(name.props.numberOfLines).toBe(1)
+      expect(name.props.ellipsizeMode).toBe('tail')
+      const meta = getByText(/International Fine Dining Restaurant · 0\.3 mi/)
+      expect(meta.props.numberOfLines).toBe(1)
+      expect(meta.props.ellipsizeMode).toBe('tail')
+      // minWidth: 0 stays on the flex column (the RN ellipsis contract).
+      expect(flattenStyle(getByTestId('map-ledger-middle').props.style).minWidth).toBe(0)
+      // Round 5 wording revert + round 6 metric: the FULL capsule text is
+      // visible and reads the TOTAL (999), not the max (500).
+      expect(getByText('Save up to £999')).toBeTruthy()
+    })
   })
 })
