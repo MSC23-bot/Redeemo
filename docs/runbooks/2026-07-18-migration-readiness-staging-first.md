@@ -742,9 +742,11 @@ read-only 2026-07-19 are marked CLOSED with their evidence.
 5. **M5 R2 lanes (Part 14; owner-approved disposable objects only).** Success lane: put a
    uniquely-prefixed disposable object (`rehearsal-r2-<uuid>/...`), seed a matching probe row on the
    disposable DB, run the cleanup tool with `--delete-r2` -> expected: sentinel probe OK, row+object
-   deleted, exit 0. Failure lane: unreachable endpoint -> expected: capability probe FAILS, exit 1,
-   DB rows untouched. Never read/overwrite/delete any pre-existing object; cleanup: verify the
-   prefix lists empty afterward.
+   deleted, exit 0. Failure lane (NARROWED CLAIM): unreachable endpoint -> expected: capability
+   probe FAILS, exit 1, DB rows untouched: this proves the PRE-DELETION capability-failure path
+   only; a per-key/mid-run failure AFTER a successful sentinel is not safely reproducible and
+   remains the documented owner-gated reconciliation residual (details Part 14 step 7). Never
+   read/overwrite/delete any pre-existing object; cleanup: verify the prefix lists empty afterward.
 6. **M6 timeout capture/set/restore under concurrency (Part 14).** Capture
    `SELECT rolconfig FROM pg_roles WHERE rolname=current_user;` -> set timeouts -> hold an open
    transaction lock from a second session -> run a conflicting DDL -> expected: 55P03 fail-fast ->
@@ -768,34 +770,94 @@ ruled out, and role creation/rotation is outside authorization. Rejected alterna
 migration role (ownership churn + credential sprawl); storing a MIGRATION_DATABASE_URL in Railway
 (persistent secret with no runtime consumer). Approval + injection are owner actions at each window.
 
-## 14. COMPLETION REHEARSAL (bounded; owner-gated; smallest safe design)
+## 14. COMPLETION REHEARSAL (bounded; owner-gated; smallest safe design; rev 2026-07-19f)
 
 Purpose: close every NOT-PROVEN item from Part 12 in ONE disposable pass. Nothing touches real
 staging/production; all writes on disposable resources; everything deleted afterward.
 
+**Credential handling (Finding-3 rule):** TWO separately injected ephemeral DIRECT connections are
+used: one for target branch D, one for backup branch B. Delivery per Part 13-CRED, EXCEPT that the
+values are injected as the libpq environment variables (`PGHOST`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/
+`PGSSLMODE=require`) per target, entered via `read -s` (no shell-history echo). Consequences: psql /
+pg_dump / pg_restore are invoked with NO connection string in any command argument; Prisma receives
+`DATABASE_URL` as an environment variable only (never argv). Neither value is ever printed, placed
+in a command argument, persisted to disk, added to Railway/Vercel, or written into any evidence
+file; the operator shell is closed at the end. Evidence files record host FIRST LABELS only.
+
+**Deep-verification manifest (Finding-4 spec; replaces the earlier illustrative key-table digest):**
+- Table-selection rule: EVERY base table in schema `public` (`information_schema.tables` where
+  `table_type='BASE TABLE'`), INCLUDING `"_prisma_migrations"`. No exclusions.
+- Per-table record: `(table_name, row_count, digest)` where
+  `digest = coalesce(md5(string_agg(h, '' ORDER BY h)), 'EMPTY')` over
+  `(SELECT md5(t::text) AS h FROM "<table>" t)`.
+- Determinism: rows are hashed individually (`md5(row::text)`) and aggregated ORDERED BY THE ROW
+  HASH itself, so the manifest is independent of physical row order and of any primary-key shape.
+- NULL / binary / text representation: the Postgres composite-record text form (`t::text`) is the
+  canonical serialization; it is identical for identical data on identical DDL, and identical DDL
+  is independently guaranteed by the fail-closed identity preflight run alongside every manifest.
+  `bytea` renders as `\x..`; NULL renders as an empty position with commas preserved.
+- Empty tables: `row_count = 0`, `digest = 'EMPTY'` (the coalesce arm), so empties are asserted,
+  not skipped.
+- Generation: one psql run builds the per-table statements from `information_schema.tables` via
+  `format()` + `\gexec`, emitting one `(table, count, digest)` row per table; the output is sorted
+  and compared with `diff` between runs. Chosen over dump-text diffing because it is compact,
+  ordering-insensitive and produces an attributable per-table failure.
+- Required equalities: PRE-CHANGE manifest(D) == manifest(B) (proves B is a faithful backup);
+  POST-RESTORE manifest(D) == the pinned PRE-CHANGE manifest(D).
+
 Sequence (single disposable branch D from staging + its backup child B):
-1. Create D (child of staging, auto-expiry) -> preflight `staging_pre` PASS.
+1. Create D (child of staging, auto-expiry) -> preflight `staging_pre` PASS (via D's env).
 2. Create B (child of D) = the backup-branch analog; verify B's compute (M4 setup).
-3. **Owner injects the DIRECT-method credential** (Part 13-CRED: same-role direct URI as ephemeral
-   operator-shell env; never stored). All subsequent DB actions in the rehearsal use IT (M3).
-4. Take PRE deep-baseline on D: per-table logical digests
-   (`SELECT md5(string_agg(t::text, '|' ORDER BY id)) FROM "Merchant" t` pattern for the key
-   tables), object inventory (Part 13.7 query), `pg_stat_activity` snapshot.
-5. M6 drill: capture rolconfig -> set timeouts -> second session holds a lock -> conflicting DDL
-   fails 55P03 -> release -> succeed -> restore + verify rolconfig byte-identical.
-6. Migrate D to 63 with the local prisma binary under the injected credential -> `staging_post` PASS.
-7. H1 drill: attach a dummy "consumer" session to D; demonstrate the sessions-check catches it
-   (count>0); close it; verify count=0; proceed.
-8. M4+M3: `pg_dump` FROM B's endpoint (cross-branch); recovery INTO D (guarded DROP + transactional
-   restore) under the injected credential.
-9. Deep verification: `staging_pre` PASS + per-table digests EQUAL step 4 + object inventory EQUAL +
-   row counts EQUAL. (This upgrades "counts match" to logical-digest equality.)
-10. M5: the two R2 lanes (disposable prefix only), then verify the prefix is empty.
-11. Delete B, D, dumps, digest files; verify staging/production unchanged (baseline queries).
+3. **Owner injects the TWO ephemeral DIRECT connections** (D and B) per the Finding-3 rule above.
+   All subsequent DB actions use them (M3).
+4. PRE deep-baseline: run the manifest on D AND on B (must be EQUAL: pins the baseline and proves
+   the backup); run the Part 13.7 object inventory; snapshot `pg_stat_activity`. Store manifests
+   locally as evidence (they contain digests + counts only, no data, no hosts).
+5. M6 drill (connection-correct, state-neutral; D at 57):
+   a. Capture `SELECT rolconfig FROM pg_roles WHERE rolname=current_user;` (session 1).
+   b. `ALTER ROLE ... SET lock_timeout='5s', statement_timeout='60s';` then PROVE via a FRESH
+      connection: `SHOW lock_timeout; SHOW statement_timeout;` -> expected 5s / 60s (role defaults
+      apply only to NEW connections; testing on the setting session would be vacuous).
+   c. Session X: `BEGIN; SELECT * FROM "Merchant" LIMIT 1;` (holds AccessShare). Fresh session Y
+      runs a conflicting DDL -> expected FAIL SQLSTATE 55P03 within ~5s.
+   d. Release X. The success proof is ROLLBACK-ONLY:
+      `BEGIN; ALTER TABLE "Merchant" ADD COLUMN _m6_probe integer; ROLLBACK;` -> expected: succeeds
+      inside the transaction, leaves NO persistent change.
+   e. Re-run schema identity: preflight `staging_pre` on D -> PASS (proves state-neutrality).
+   f. Restore per Part 5 option 2 (exact prior values; RESET only if previously absent); verify
+      `rolconfig` byte-identical to the capture AND verify from ANOTHER fresh connection that
+      `SHOW lock_timeout` is back to the pre-drill default.
+6. Migrate D to 63 with the local prisma binary (D env) -> preflight `staging_post` PASS.
+7. **M5 R2 lanes (D at 63, where `MerchantAgreementRecord` EXISTS):**
+   a. Choose the disposable key `document/rehearsal-r2-<uuid>/probe.pdf` (INSIDE the cleanup
+      tool's permitted `document/` namespace; `<uuid>` freshly generated).
+   b. Prefix isolation proof: LIST objects with prefix `document/rehearsal-r2-<uuid>/` ONLY ->
+      expected EMPTY. No broad/unprefixed list is ever issued; no existing object is read,
+      listed, overwritten or deleted at any point.
+   c. Success lane: PUT the disposable object at that key; seed a probe merchant + agreement row
+      on D whose `pdfKey` = that key; run the cleanup tool `--apply --delete-r2` (anchored
+      `--target` = D's endpoint first label; owner env set) -> expected: sentinel capability
+      probe OK, DB row deleted, THIS object deleted, exit 0; LIST the prefix -> EMPTY.
+   d. Failure lane (NARROWED CLAIM): re-seed a probe row; run with an unreachable `R2_ENDPOINT`
+      -> expected: capability probe FAILS, exit 1, DB row VERIFIED still present. This proves
+      the PRE-DELETION capability-failure path ONLY. A per-key or mid-run failure AFTER a
+      successful sentinel is NOT safely reproducible against a real bucket and remains
+      UNPROVEN; its handling stays what the tool implements (collect, non-zero exit, keys
+      listed) with owner-gated manual reconciliation as the documented residual.
+   e. Clean the re-seeded probe row (tool without `--delete-r2`); final prefix LIST -> EMPTY.
+8. H1 drill: attach a dummy "consumer" session to D; the sessions check
+   (`pg_stat_activity`, Part 13.1) reports count>0 -> close it -> count=0 -> proceed.
+9. M4+M3: `pg_dump` FROM B (B env; cross-branch); recovery INTO D (guarded DROP under the M6
+   timeouts + `pg_restore --single-transaction --exit-on-error`, D env).
+10. Deep verification: preflight `staging_pre` PASS on D + manifest(D) == pinned step-4 manifest
+    + object inventory EQUAL. (Digest equality upgrades "counts match" to content equality.)
+11. Delete B, D, dumps, manifest files; verify staging/production unchanged (baseline queries).
 
 Owner approvals required to start Part 14: (a) create/delete the TWO disposable branches + computes;
-(b) uniquely-prefixed disposable R2 object writes + deletions (never touching existing objects);
-(c) the credential injection per Part 13.6 (owner provides it at rehearsal start; not stored);
-(d) running the deliberate blocking/dummy sessions on the disposable branch only.
-Stop conditions: any preflight FAIL, any permission error, any digest mismatch, any operation that
+(b) the disposable-prefix R2 object write + deletions of step 7 (never touching existing objects);
+(c) the TWO ephemeral credential injections per Part 13-CRED / the Finding-3 rule (owner provides
+them at rehearsal start; not stored); (d) running the deliberate blocking/dummy sessions on the
+disposable branch only.
+Stop conditions: any preflight FAIL, any permission error, any manifest mismatch, any R2 LIST
+returning a non-empty result outside the disposable prefix's own lifecycle, any operation that
 would target a non-disposable resource. Cleanup is mandatory regardless of outcome.

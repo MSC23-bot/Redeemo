@@ -110,8 +110,11 @@ type S3Bits = {
  * the database untouched. RESIDUAL RISK (narrowed claim, documented in the packet): the sentinel
  * proves bucket-level delete capability at T0; a per-key failure or a mid-run credential/network
  * loss AFTER DB rows are deleted can still orphan objects, which is why per-key failures are
- * collected, reported with a non-zero exit, and reconciled under the owner gate. Both the success
- * and failure paths of this probe are exercised in the mandatory staging rehearsal.
+ * collected, reported with a non-zero exit, and reconciled under the owner gate. The success lane
+ * and the PRE-DELETION capability-failure lane of this probe are exercised in the owner-gated
+ * COMPLETION rehearsal (runbook Part 14 step 7); they were NOT exercised in the 2026-07-19 core
+ * rehearsal. A per-key or mid-run failure AFTER a successful sentinel remains unproven by test and
+ * is handled by the collect/report/non-zero-exit path plus owner-gated manual reconciliation.
  */
 async function prepareR2(): Promise<S3Bits> {
   const endpoint = process.env.R2_ENDPOINT
