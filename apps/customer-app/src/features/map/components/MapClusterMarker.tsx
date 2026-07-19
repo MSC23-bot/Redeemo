@@ -4,8 +4,14 @@ import { Marker } from 'react-native-maps'
 import { Text, color, elevation } from '@/design-system'
 
 // Map Phase 2 Slice S3 (pin v2, owner-approved Option A, 2026-07-10) —
-// cluster marker. Spec §7.3 + brief: navy #010C35 44px circle, 3px
-// white border, white count, drop shadow; tap zooms in to split.
+// cluster marker. 44px circle, 3px white ring, white count, drop shadow;
+// tap zooms in to split.
+//
+// Map P2 W2a (owner decision W2-D1, 2026-07-12): the fill is Redeemo RED
+// (`color.brandRose`, #E20C04) — supersedes the S3 navy (#010C35). Red is
+// THE brand colour and must stand out as the primary map signal; the white
+// ring + white count are unchanged, as is every other cluster behaviour
+// (tap-to-zoom, the memo comparator, the constant-bounds track discipline).
 //
 // Mirrors the §BC/§BF track-then-freeze + constant-outer-bounds
 // discipline from MapPins.tsx's <CustomPin>/<MapPinMarker> (LOCKED —
@@ -96,7 +102,7 @@ const styles = StyleSheet.create({
     width:           CLUSTER_SIZE,
     height:          CLUSTER_SIZE,
     borderRadius:    CLUSTER_SIZE / 2,
-    backgroundColor: color.navy,
+    backgroundColor: color.brandRose, // Map P2 W2a (W2-D1) — Redeemo red (was navy)
     borderWidth:     3,
     borderColor:     '#FFFFFF',
     alignItems:      'center',

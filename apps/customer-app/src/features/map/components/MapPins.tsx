@@ -605,10 +605,13 @@ export function MapPins({ branches, selectedId, onPress, region, onClusterPress,
     initialOrderRef.current = order
   }
 
-  // ── Clustering (S3 task 4) ──────────────────────────────────────────
-  // Hand-rolled deterministic grid clustering (no new dependency) —
-  // see `mapClustering.ts` for the algorithm + swap-in note re:
-  // supercluster if density ever demands it.
+  // ── Clustering (S3 task 4; W2a round 3 rewrite) ─────────────────────
+  // Hand-rolled deterministic DISTANCE-BASED clustering (union-find
+  // single-linkage; no new dependency) — replaced the original grid
+  // bucketing, whose fixed-origin cells made cluster/single membership
+  // depend on grid PHASE and oscillate while zooming OUT (owner round-3
+  // bug). See `mapClustering.ts` for the algorithm + the monotonicity
+  // argument + the swap-in note re: supercluster.
   const validPoints: (ClusterPoint & { branch: BranchTile })[] = useMemo(
     () => branches
       .filter((b) => b.branchLatitude !== null && b.branchLongitude !== null)
@@ -617,13 +620,15 @@ export function MapPins({ branches, selectedId, onPress, region, onClusterPress,
   )
   const { clusters, singles } = useMemo(
     () => clusterBranchPins(validPoints, effectiveRegion),
-    // Map P2 W1 (F1) — `clusterBranchPins` derives its grid CELL SIZE
-    // purely from the region DELTAS (zoom); it buckets points by their
-    // absolute lat/lng, so the region CENTRE (latitude/longitude) is not
-    // an input at all. The previous deps listed the centre too, which
-    // forced a full re-cluster on every pan even though the output was
-    // identical — needless churn feeding the F1 teleport. Depending only
-    // on the deltas means clustering recomputes on ZOOM, not on pan.
+    // Map P2 W1 (F1) — `clusterBranchPins` derives its merge THRESHOLD
+    // purely from the region DELTAS (zoom); pair separations are
+    // absolute lat/lng differences, so the region CENTRE (latitude/
+    // longitude) is not an input at all (true of both the original grid
+    // and the round-3 distance-based rewrite). The pre-W1 deps listed
+    // the centre too, which forced a full re-cluster on every pan even
+    // though the output was identical — needless churn feeding the F1
+    // teleport. Depending only on the deltas means clustering recomputes
+    // on ZOOM, not on pan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [validPoints, effectiveRegion.latitudeDelta, effectiveRegion.longitudeDelta],
   )
@@ -689,14 +694,25 @@ export function MapPins({ branches, selectedId, onPress, region, onClusterPress,
         const branch = singleBranchesById.get(p.id)
         if (!branch) return null
         return (
+          // Map P2 W2a — the close-zoom label is now the TICKET LOCKUP
+          // (icon block + name + Save £X + "N vouchers" with a ticket mark).
+          // It is fed the SAME resolved category colour (`pinColor`) and
+          // top-level glyph name the pin uses, plus the voucher count (which
+          // appears ONLY here, never on the pin — W2-D2/D6). All primitive/
+          // value-stable, so its memo bail-out survives pan/zoom churn.
           <MapNameChipMarker
             key={`chip-${branch.id}`}
             id={branch.id}
             latitude={p.latitude}
             longitude={p.longitude}
             label={branch.branchName}
-            dotColor={resolvePinColorWithTree(branch, categoryIndex)}
-            maxEstimatedSaving={branch.merchant.maxEstimatedSaving}
+            pinColor={resolvePinColorWithTree(branch, categoryIndex)}
+            glyphName={getPinGlyphName(branch, categoryIndex)}
+            // W2a round 4 (owner decision 2026-07-18): the lockup's saving
+            // is the TOTAL of all vouchers, matching the list rows and the
+            // carousel card.
+            totalEstimatedSaving={branch.merchant.totalEstimatedSaving}
+            voucherCount={branch.merchant.voucherCount}
           />
         )
       })}

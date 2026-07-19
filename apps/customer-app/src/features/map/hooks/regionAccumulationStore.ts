@@ -126,8 +126,10 @@ function tileKey(categoryId: string | null, bbox: BoundingBox): string {
 //   - merchant.primaryCategory?.pinColour (pin colour, chip dot)
 //   - merchant.voucherCount               (carousel aggregate line; the
 //                                          W2 ticket lockup)
-//   - merchant.maxEstimatedSaving         (chip "Save £X", card save)
-//   - merchant.totalEstimatedSaving       (carousel aggregate savings)
+//   - merchant.maxEstimatedSaving         (card save)
+//   - merchant.totalEstimatedSaving       (lockup "Save £X" per owner
+//                                          decision 2026-07-18 W2a R4;
+//                                          carousel aggregate savings)
 //   - isOpenNow / closesAtLocal           (open-hours summary on cards)
 //
 // DELIBERATELY EXCLUDED (a change in these alone keeps the OLD object):
