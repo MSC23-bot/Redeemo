@@ -35,6 +35,7 @@
  */
 import 'dotenv/config'
 import { Client } from 'pg'
+import { buildCapabilitySentinelKey, targetMatchesHost } from './cleanup-agreement-probe.lib'
 
 const args = process.argv.slice(2)
 function argValue(flag: string): string | undefined {
@@ -84,9 +85,8 @@ if (apply) {
     console.error(`FATAL: --target must be >= 8 chars (full host or exact endpoint id), got ${JSON.stringify(targetGate)}.`)
     process.exit(1)
   }
-  const firstLabel = dbHost.split('.')[0]
-  if (targetGate !== dbHost && targetGate !== firstLabel) {
-    console.error(`FATAL: --target ${JSON.stringify(targetGate)} is neither the full DATABASE_URL host ${JSON.stringify(dbHost)} nor its exact endpoint id ${JSON.stringify(firstLabel)}. Refusing (anchored match required; substrings are not accepted).`)
+  if (!targetMatchesHost(targetGate, dbHost)) {
+    console.error(`FATAL: --target ${JSON.stringify(targetGate)} is neither the full DATABASE_URL host ${JSON.stringify(dbHost)} nor its exact endpoint id ${JSON.stringify(dbHost.split('.')[0])}. Refusing (anchored match required; substrings are not accepted).`)
     process.exit(1)
   }
   if (process.env.REDEEMO_CLEANUP_OWNER_APPROVED !== 'yes') {
@@ -127,9 +127,12 @@ async function prepareR2(): Promise<S3Bits> {
   }
   const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3')
   const s3 = new S3Client({ region: 'auto', endpoint, credentials: { accessKeyId, secretAccessKey } })
+  // FRESH collision-resistant sentinel per call (never a fixed/shared key: a fixed key could
+  // coincidentally exist and be deleted outside any approved prefix; see the lib helper).
+  const sentinelKey = buildCapabilitySentinelKey()
   try {
-    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: 'document/__cleanup-capability-probe__/nonexistent' }))
-    console.log('R2 capability probe OK (credentials + bucket + delete permission verified via sentinel delete).')
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: sentinelKey }))
+    console.log('R2 capability probe OK (credentials + bucket + delete permission verified via a fresh random sentinel delete).')
   } catch (err) {
     console.error(`FATAL: R2 capability probe FAILED (${err instanceof Error ? err.name + ': ' + err.message : typeof err}). Nothing was deleted (DB rows untouched).`)
     process.exit(1)

@@ -448,9 +448,13 @@ and subsequent writes queue behind it until the blocker clears. Unbounded withou
 **Controls to apply (operator, execution-time):**
 - Set timeouts so the DDL fails fast instead of hanging, WITHOUT leaving persistent settings behind.
   In preference order:
-  1. **Dedicated migration role** (if one exists / is provisioned): `ALTER ROLE <migration_role> SET
-     lock_timeout='5s', statement_timeout='60s'` on a role used ONLY for migrations. No restore
-     needed (the settings are the role's job) and the app role is untouched.
+  1. **Dedicated migration role** (if one exists / is provisioned): TWO SEPARATE statements
+     (PostgreSQL does not accept a combined `SET a=..., b=...` in ALTER ROLE; empirically verified),
+     safely role-quoted via format(%I)/\gexec:
+     `SELECT format('ALTER ROLE %I SET lock_timeout = %L', current_user, '5s') \gexec`
+     `SELECT format('ALTER ROLE %I SET statement_timeout = %L', current_user, '60s') \gexec`
+     on a role used ONLY for migrations. No restore needed (the settings are the role's job) and
+     the app role is untouched.
   2. **Shared role with capture-and-restore of the EXACT prior values:** BEFORE the window, capture:
      `SELECT rolname, rolconfig FROM pg_roles WHERE rolname = current_user;` and record the exact
      prior `lock_timeout` / `statement_timeout` entries from `rolconfig` (each may be present with a
@@ -528,8 +532,10 @@ password cleared), and reusing a shared fixture would destroy it for every other
   Neon endpoint id; min 8 chars; substrings/partials/near-matches rejected) AND
   `REDEEMO_CLEANUP_OWNER_APPROVED=yes` (owner gate). With `--delete-r2`, BEFORE any DB row is
   deleted the R2 config is validated AND live delete capability is proven by a real sentinel
-  DeleteObject (nonexistent key: succeeds only with valid credentials + bucket + delete
-  permission); a probe failure aborts with rows untouched. NARROWED residual claim: the sentinel
+  DeleteObject on a FRESHLY GENERATED collision-resistant random key inside the authorised
+  `document/__cleanup-capability-probe__/` marker namespace (never a fixed/shared key, which could
+  coincidentally exist and be deleted; regression-tested); a probe failure aborts with rows
+  untouched. NARROWED residual claim: the sentinel
   proves bucket-level capability at T0; per-key or mid-run failures AFTER DB deletion can still
   orphan objects, which are collected, reported with a non-zero exit + unreconciled keys, and
   resolved under the owner-gated reconciliation. **CORRECTION (2026-07-19 amendment): the R2
@@ -775,14 +781,22 @@ migration role (ownership churn + credential sprawl); storing a MIGRATION_DATABA
 Purpose: close every NOT-PROVEN item from Part 12 in ONE disposable pass. Nothing touches real
 staging/production; all writes on disposable resources; everything deleted afterward.
 
-**Credential handling (Finding-3 rule):** TWO separately injected ephemeral DIRECT connections are
-used: one for target branch D, one for backup branch B. Delivery per Part 13-CRED, EXCEPT that the
-values are injected as the libpq environment variables (`PGHOST`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`/
-`PGSSLMODE=require`) per target, entered via `read -s` (no shell-history echo). Consequences: psql /
-pg_dump / pg_restore are invoked with NO connection string in any command argument; Prisma receives
-`DATABASE_URL` as an environment variable only (never argv). Neither value is ever printed, placed
-in a command argument, persisted to disk, added to Railway/Vercel, or written into any evidence
-file; the operator shell is closed at the end. Evidence files record host FIRST LABELS only.
+**Credential handling (Finding-3 rule; EXECUTABLE via the checked-in wrapper
+`docs/runbooks/rehearsal-context.sh`):** TWO separately injected ephemeral DIRECT connections are
+held simultaneously as ISOLATED NAMED CONTEXTS: `ctx_load D` (target) and `ctx_load B` (backup),
+each prompting interactively (`read -s` for the password; no history echo) and each gated by an
+explicit target-identity check (the expected endpoint FIRST LABEL is declared first; a host whose
+first label differs is REFUSED at load, and every `ctx_run` re-verifies), so `ctx_run B pg_dump ...`
+and `ctx_run D pg_restore ...` cannot be reversed. Values materialise only as libpq `PG*`
+environment variables inside a per-command SUBSHELL: psql / pg_dump / pg_restore are invoked with NO
+connection string in any command argument. Prisma receives `DATABASE_URL` via `ctx_prisma D ...`,
+constructed inside the subshell (password URI-encoded) and exported env-only: never argv, history,
+logs, chat, or evidence files. The equivalent owner-controlled ephemeral R2 injection is
+`r2_load` + `r2_run` in the same wrapper (endpoint/bucket visible, key id + secret hidden,
+subshell-env only). Nothing is persisted; the operator shell is closed at the end; evidence files
+record host FIRST LABELS only. Wrapper behaviours (identity refusal, empty-input refusal, D+B
+coexistence without reversal, env-only prisma URL, unloaded-R2 refusal) are proven by disposable
+local-PG tests; the wrapper is sourceable in bash and zsh.
 
 **Deep-verification manifest (Finding-4 spec; replaces the earlier illustrative key-table digest):**
 - Table-selection rule: EVERY base table in schema `public` (`information_schema.tables` where
@@ -798,10 +812,18 @@ file; the operator shell is closed at the end. Evidence files record host FIRST 
   `bytea` renders as `\x..`; NULL renders as an empty position with commas preserved.
 - Empty tables: `row_count = 0`, `digest = 'EMPTY'` (the coalesce arm), so empties are asserted,
   not skipped.
-- Generation: one psql run builds the per-table statements from `information_schema.tables` via
-  `format()` + `\gexec`, emitting one `(table, count, digest)` row per table; the output is sorted
-  and compared with `diff` between runs. Chosen over dump-text diffing because it is compact,
-  ordering-insensitive and produces an attributable per-table failure.
+- Generation: the CHECKED-IN artifact `docs/runbooks/logical-manifest.sql` (format(%I)-quoted for
+  arbitrary table names; pins the representation-sensitive session settings TimeZone=UTC,
+  DateStyle=ISO, bytea_output=hex, extra_float_digits=3, IntervalStyle=postgres; output ordered by
+  table_name COLLATE "C"). Invocation (header-free, tuples-only):
+  `ctx_run D psql -X -q -tA -v ON_ERROR_STOP=1 -f docs/runbooks/logical-manifest.sql > m.txt`;
+  the fail-closed comparison gate is `diff -u baseline.txt m.txt` (non-zero exit on ANY table-set,
+  count or content mismatch). Truthful framing: this is DETERMINISTIC LOGICAL-DRIFT EVIDENCE on
+  identical DDL, not cryptographic proof and not byte equivalence. Empirically proven on disposable
+  PG16: changed row, duplicate row, NULL flip, bytea change, added table and removed table each
+  change the output; physical row reorder does not; empty tables are asserted as `0|EMPTY`
+  (including `"_prisma_migrations"` and a quoted `Weird "Name` table). Chosen over dump-text
+  diffing because it is compact, ordering-insensitive and gives per-table failure attribution.
 - Required equalities: PRE-CHANGE manifest(D) == manifest(B) (proves B is a faithful backup);
   POST-RESTORE manifest(D) == the pinned PRE-CHANGE manifest(D).
 
@@ -815,9 +837,15 @@ Sequence (single disposable branch D from staging + its backup child B):
    locally as evidence (they contain digests + counts only, no data, no hosts).
 5. M6 drill (connection-correct, state-neutral; D at 57):
    a. Capture `SELECT rolconfig FROM pg_roles WHERE rolname=current_user;` (session 1).
-   b. `ALTER ROLE ... SET lock_timeout='5s', statement_timeout='60s';` then PROVE via a FRESH
-      connection: `SHOW lock_timeout; SHOW statement_timeout;` -> expected 5s / 60s (role defaults
-      apply only to NEW connections; testing on the setting session would be vacuous).
+   b. Set with TWO SEPARATE, safely-quoted statements (a combined `SET a=..., b=...` is a
+      PostgreSQL syntax error: empirically verified on disposable PG16):
+      `SELECT format('ALTER ROLE %I SET lock_timeout = %L', current_user, '5s') \gexec`
+      `SELECT format('ALTER ROLE %I SET statement_timeout = %L', current_user, '60s') \gexec`
+      then PROVE via a FRESH connection: `SHOW lock_timeout; SHOW statement_timeout;` -> expected
+      5s / 60s (role defaults apply only to NEW connections; testing on the setting session would
+      be vacuous). Restoration likewise uses separate statements per setting (Part 5 option 2:
+      exact prior value via `SET ... = %L`, or `RESET` if previously absent), re-verified from
+      ANOTHER fresh connection.
    c. Session X: `BEGIN; SELECT * FROM "Merchant" LIMIT 1;` (holds AccessShare). Fresh session Y
       runs a conflicting DDL -> expected FAIL SQLSTATE 55P03 within ~5s.
    d. Release X. The success proof is ROLLBACK-ONLY:
