@@ -64,7 +64,9 @@ closed by a later PR; confirm and then remove with a citation).
 - **§MAP-P2-GEOCODE** - staging QA profile `staging-customer@redeemo.co.uk` uses test postcode `HD1 1AA`, which never geocoded (profile `lat`/`lng` NULL on staging), so the app cold-opens on the London fallback instead of the expected area. OPEN: needs a real-postcode re-save or a staging data fix.
 - **§MAP-P2-COPY** - location-indicator copy audit: the S5b composite chip (`MapLocationIndicator`, `feat/map-p2-s5b-chrome`) rendered "Near St James's · your location" while the map was actually on the LONDON FALLBACK with no GPS fix - the "your location" suffix reads as an identity claim it cannot back up in the fallback case. D10-family (location-indicator suffix semantics; see the S5b as-shipped addendum, `docs/superpowers/plans/2026-07-10-map-phase-2-programme.md` §10 Task 2). OPEN: needs a copy/state audit of the fallback branch.
 - **§MAP-P2-DEVCACHE** - `expo-dev-client` did not apply an updated Metro manifest `extra` (`devLocationOverride`) after a reload: suspected stale/cached manifest. Dev-tooling only (the §AU dev-location-override surface), LOW priority.
-- Detail: `docs/superpowers/plans/2026-07-12-map-walkthrough-fixes-and-visual-redesign.md`; `docs/PROJECT-STATE.md` §4.1 Map Phase 2 paragraph (2026-07-13).
+- **§MAP-P2-TOTALS** (OPENED 2026-07-19 on the W2 merge) - platform savings-display alignment: map surfaces now show TOTAL voucher savings (owner decision 2026-07-18, W2-D7, shipped in W2b #508 `4f802088`) while Home tiles still show MAX under the same "Save up to" wording. GATED: owner decision pending on aligning Home.
+- All four 2026-07-13 rows above verified STILL OPEN on 2026-07-19: the W2/F6 wave (#506 `f808d5ff`, #507 `66f21c7b`, #508 `4f802088`) touched map markers/sheets/cards + backend distance only, none of these items.
+- Detail: `docs/superpowers/plans/2026-07-12-map-walkthrough-fixes-and-visual-redesign.md`; `docs/PROJECT-STATE.md` §4.1 Map Phase 2 paragraph (2026-07-13, extended 2026-07-19).
 
 ## 2. Customer Website
 
@@ -243,6 +245,13 @@ disabled key is visible in logs without needing a live probe.)
 
 ## Change log
 
+- **2026-07-19** · Map Phase 2 W2/F6 wave bookkeeping (same branch, PR #505 refreshed): new §1
+  row **§MAP-P2-TOTALS** (map surfaces show TOTAL voucher savings per owner decision
+  2026-07-18/W2-D7, shipped W2b #508 `4f802088`; Home tiles still show MAX under the same
+  "Save up to" wording; Home-alignment decision owner-gated). The four 2026-07-13 §MAP-P2
+  rows (CHATTY/GEOCODE/COPY/DEVCACHE) verified still open: the wave (#506 `f808d5ff`,
+  #507 `66f21c7b`, #508 `4f802088`) touched map markers/sheets/cards + the backend in-area
+  distance only. No row closed by this entry.
 - **2026-07-13** · Map Phase 2 wave merge bookkeeping (branch `docs/map-p2-wave-merge-bookkeeping`):
   new §1 block **Map Phase 2 wave follow-ups** opened on the S5a/S5b/W1/W1.1/W1.2 merge
   (#490 `9cc54bbd`, #493 `523fbc77`, #501 `08bda196`, #504 `040cc243`) - §MAP-P2-CHATTY
