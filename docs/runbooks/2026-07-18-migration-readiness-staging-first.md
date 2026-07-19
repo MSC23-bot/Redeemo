@@ -118,7 +118,11 @@ Target: staging `<STAGING_BRANCH_ID>`, applying the **6 packets** to reach 63, t
 coupled backend/worker at `edfc2a1e`. Owner-executed; every step owner-gated.
 
 ### 3.1 Preconditions
-1. Candidate frozen at `edfc2a1e`; backend AND admin-web deploy from it.
+1. Candidate = `edfc2a1e`, OR a newer owner-approved `origin/main` SHA whose migration-delta proof is
+   EMPTY (`git diff --name-only edfc2a1e..<sha> -- prisma/ src/api/shared/env.ts src/worker.ts` = 0
+   files; record the proof in the window log). Backend AND admin-web deploy from the SAME chosen SHA.
+   (Known drift at packet time: main advanced to `66f21c7b` (#507, customer map fix) with a VERIFIED
+   empty migration-delta; the owner picks the deploy SHA at window time using this rule.)
 2. **DIRECT endpoint** (staging `<STAGING_DIRECT_ENDPOINT>`, non-`-pooler`) as a separately-injected
    credential in the operator shell. Never migrate through the pooled endpoint (advisory-lock P1001).
 3. Worker env complete: ALL `MAINTENANCE_*` vars present/valid (fail-closed scheduler) with
