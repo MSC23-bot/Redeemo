@@ -8,17 +8,19 @@
  * bucket (pdfKey is deliberately never API-exposed). This script closes exactly those two gaps:
  *   1. lists/deletes MerchantAgreementRecord rows for merchants whose businessName starts with the
  *      probe prefix, capturing each row's pdfKey BEFORE deletion;
- *   2. with --delete-r2, deletes the captured R2 objects. The R2 configuration is validated and
- *      the client constructed BEFORE any database row is deleted, so a misconfigured R2 can never
- *      strand freshly-orphaned objects. Per-object failures are collected and reported; any
- *      failure exits non-zero with the unreconciled keys listed for manual follow-up.
+ *   2. with --delete-r2, deletes the captured R2 objects. Before ANY database row is deleted, the
+ *      R2 config is validated AND live delete capability is proven with a real sentinel delete
+ *      (see prepareR2), so misconfigured/unauthorized R2 aborts with the DB untouched. Residual
+ *      risk is narrowed to per-key or mid-run failures AFTER the capability probe: those are
+ *      collected, reported with a non-zero exit, and reconciled under the owner gate.
  *   It deletes NOTHING else; run the existing prefix fixture sweep afterwards for the merchant.
  *
  * SAFETY:
  *   - DRY-RUN BY DEFAULT: prints what it WOULD delete. --apply executes.
  *   - --apply additionally REQUIRES:
- *       --target <host-substring> : must appear in the DATABASE_URL host (explicit target-identity
- *         gate; e.g. --target ep-round-wave). Refuses to run if it does not match.
+ *       --target <host identity> : ANCHORED match only; must equal the FULL DATABASE_URL hostname
+ *         or its exact FIRST LABEL (the Neon endpoint id, e.g. ep-xxxx-yyyy-zzzzzz), min 8 chars.
+ *         Substrings/broad fragments are rejected.
  *       REDEEMO_CLEANUP_OWNER_APPROVED=yes in the environment (explicit owner gate).
  *   - --prefix is REQUIRED, >= 8 chars, LIKE-escaped (broad/empty match impossible).
  *   - --max is a BOUNDED POSITIVE SAFE INTEGER (1..100, default 5): NaN/Infinity/floats/zero/
@@ -29,7 +31,7 @@
  * Usage (repo-local binaries only; do NOT use bare `npx tsx`, which can fall back to downloading):
  *   DATABASE_URL=<staging DIRECT uri> node_modules/.bin/tsx prisma/cleanup-agreement-probe.ts --prefix "RedeemoProbe-"
  *   DATABASE_URL=... REDEEMO_CLEANUP_OWNER_APPROVED=yes node_modules/.bin/tsx prisma/cleanup-agreement-probe.ts \
- *     --prefix "RedeemoProbe-" --apply --target <host-substring> [--delete-r2]
+ *     --prefix "RedeemoProbe-" --apply --target <full host or exact endpoint id> [--delete-r2]
  */
 import 'dotenv/config'
 import { Client } from 'pg'
@@ -72,11 +74,19 @@ try {
 }
 if (apply) {
   if (!targetGate) {
-    console.error('FATAL: --apply requires --target <host-substring> (explicit target-identity gate).')
+    console.error('FATAL: --apply requires --target <host identity> (explicit target-identity gate).')
     process.exit(1)
   }
-  if (!dbHost.includes(targetGate)) {
-    console.error(`FATAL: --target ${JSON.stringify(targetGate)} does not match the DATABASE_URL host ${JSON.stringify(dbHost)}. Refusing.`)
+  // ANCHORED identity, not substring: --target must be either the FULL hostname or the exact FIRST
+  // LABEL (the Neon endpoint id, e.g. ep-xxxx-yyyy). Trivial broad fragments ("neon", "tech", a few
+  // chars of the endpoint) can never match, and a minimum length blocks degenerate short values.
+  if (targetGate.length < 8) {
+    console.error(`FATAL: --target must be >= 8 chars (full host or exact endpoint id), got ${JSON.stringify(targetGate)}.`)
+    process.exit(1)
+  }
+  const firstLabel = dbHost.split('.')[0]
+  if (targetGate !== dbHost && targetGate !== firstLabel) {
+    console.error(`FATAL: --target ${JSON.stringify(targetGate)} is neither the full DATABASE_URL host ${JSON.stringify(dbHost)} nor its exact endpoint id ${JSON.stringify(firstLabel)}. Refusing (anchored match required; substrings are not accepted).`)
     process.exit(1)
   }
   if (process.env.REDEEMO_CLEANUP_OWNER_APPROVED !== 'yes') {
@@ -91,7 +101,18 @@ type S3Bits = {
   bucket: string
 }
 
-/** Validate R2 config and construct the client. Called BEFORE any DB deletion when --delete-r2. */
+/**
+ * Validate R2 config AND prove live delete capability BEFORE any DB deletion when --delete-r2.
+ * Env-var presence + client construction alone prove nothing about credentials, bucket access or
+ * delete permission, so this performs a REAL network operation first: DeleteObject on a sentinel
+ * key that does not exist (S3/R2 semantics: deleting a nonexistent key succeeds with 204 when
+ * credentials + bucket + delete permission are valid, and errors otherwise). A failure aborts with
+ * the database untouched. RESIDUAL RISK (narrowed claim, documented in the packet): the sentinel
+ * proves bucket-level delete capability at T0; a per-key failure or a mid-run credential/network
+ * loss AFTER DB rows are deleted can still orphan objects, which is why per-key failures are
+ * collected, reported with a non-zero exit, and reconciled under the owner gate. Both the success
+ * and failure paths of this probe are exercised in the mandatory staging rehearsal.
+ */
 async function prepareR2(): Promise<S3Bits> {
   const endpoint = process.env.R2_ENDPOINT
   const bucket = process.env.R2_BUCKET // the PRIVATE document bucket
@@ -103,6 +124,13 @@ async function prepareR2(): Promise<S3Bits> {
   }
   const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3')
   const s3 = new S3Client({ region: 'auto', endpoint, credentials: { accessKeyId, secretAccessKey } })
+  try {
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: 'document/__cleanup-capability-probe__/nonexistent' }))
+    console.log('R2 capability probe OK (credentials + bucket + delete permission verified via sentinel delete).')
+  } catch (err) {
+    console.error(`FATAL: R2 capability probe FAILED (${err instanceof Error ? err.name + ': ' + err.message : typeof err}). Nothing was deleted (DB rows untouched).`)
+    process.exit(1)
+  }
   return { s3, DeleteObjectCommand, bucket }
 }
 

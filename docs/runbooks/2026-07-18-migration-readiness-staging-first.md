@@ -269,9 +269,12 @@ not fully documented and cannot be proven read-only:
     undeletable parent while its child backup is in service. This is the slower path and changes
     connection strings; use only if the same-endpoint restore is impossible.
   - Option B is "guaranteed" ONLY in the sense that `pg_dump`/`pg_restore` of a test-data-sized
-    database is standard, replayable tooling with the source preserved; the 3.2 rehearsal MUST
-    exercise it once end-to-end (dump the rehearsal branch, restore into a scratch DB, verify) to
-    earn that label for the real window. Until rehearsed, the staging window stays blocked.
+    database is standard, replayable tooling with the source preserved; it earns that label for the
+    real window ONLY via the mandatory rehearsal, whose SINGLE authoritative procedure is Part 3.2
+    step 8: capture the pre-change dump at 57, migrate the SAME rehearsal target to 63, restore the
+    pre-change dump INTO that migrated target over its own endpoint, and prove `staging_pre`.
+    (Restoring into an unrelated scratch database proves nothing about rollback and is NOT the
+    rehearsal.) Until rehearsed, the staging window stays blocked.
 
 **Owner decision (Part 10 item 4):** approve Option A as the primary recovery IF the mandatory 3.2
 rehearsal proves it returns a child branch to the correct state with a stable connection; otherwise
@@ -321,9 +324,11 @@ historical anchor commit (Prisma-native, no manual SQL, no `migrate resolve`):
    (its `prod_wb_pre` preflight passes precisely because the 5 earlier files are byte-identical).
 
 ### 4.2 Window B: apply the 6 packets (57 -> 63) + deploy the coupled backend/worker at `edfc2a1e`
-Same sequence as staging Part 3, after staging has fully proven it. Preflight `prod_wb_pre` ->
-`migrate deploy` from `edfc2a1e` (applies the 6 packets; the 5 earlier are byte-identical so no drift)
--> `prod_wb_post` -> deploy backend+worker -> flip lead flag. Blast radius reduced from 11 to 6.
+Same APPLY/DEPLOY sequence as staging Part 3, after staging has fully proven it; the VERIFICATION
+step differs and is defined in Part 4.4 (non-write only; the staging behavioural probes are NOT
+repeated on production). Preflight `prod_wb_pre` -> `migrate deploy` from `edfc2a1e` (applies the 6
+packets; the 5 earlier are byte-identical so no drift) -> `prod_wb_post` -> deploy backend+worker ->
+flip lead flag -> Part 4.4 verification. Blast radius reduced from 11 to 6.
 
 **Why split:** the account-deletion hard dependency means the candidate backend cannot deploy until
 packet 10 anyway, so bundling the 5 harmless intervening migrations into the coupled window buys
@@ -336,6 +341,26 @@ nothing and enlarges the failure surface. Splitting isolates risk.
 ### 4.3 Evidence required from staging before production
 Staging at 63/zero-unfinished; all 3.5 probes green (especially the GDPR delete-account probe); worker
 stable with lead flag true; no drift; recovery rehearsal proven; clean soak.
+
+### 4.4 Production verification posture (explicit; not operator discretion)
+Behavioural proof lives on STAGING. Production verification is **NON-WRITE ONLY**:
+- **What runs on production (Windows A and B):** the fail-closed preflight scenarios
+  (`prod_wa_pre/post`, `prod_wb_pre/post` or the single-window pair); `prisma migrate status`;
+  worker boot + scheduler health observation; the public health endpoint; and post-deploy
+  monitoring of real traffic error rates. All are reads or normal service operation.
+- **What NEVER runs on production as a probe:** the D65 sign probe (NO `MerchantAgreementRecord`
+  legal record and NO R2 object is ever created by verification on production), the delete-account
+  probe (NO fixture customer is created on production and the scrub is never probe-executed there),
+  any fixture creation, and any endpoint call that writes even an audit row.
+- **How the write paths are considered verified on production:** the exact same backend SHA
+  (`edfc2a1e`) has passed the full staging behavioural battery against an identical 63-migration
+  schema (proven identical by the definition-identity preflight); production verification then
+  confirms schema identity + boot health + live-traffic monitoring. If the owner ever wants a
+  production write-probe, that is a SEPARATE owner decision with its own cleanup plan, not operator
+  discretion.
+- **Consequently `prisma/cleanup-agreement-probe.ts` is a STAGING-ONLY tool** ("Never production" in
+  its header is consistent by construction: production verification creates nothing to clean up).
+  Its `--target` anchored-identity gate exists to make pointing it at the wrong environment loud.
 
 ---
 
@@ -396,6 +421,9 @@ and subsequent writes queue behind it until the blocker clears. Unbounded withou
 
 ## 6. Behavioural probes: disposable fixtures, authorization, cleanup
 
+**Scope: these behavioural probes run on STAGING ONLY.** Production verification is non-write only,
+defined exhaustively in Part 4.4.
+
 **Prohibition: never probe with a real merchant or customer account, and never with the shared
 CLAUDE.md dev logins** (`customer@redeemo.com` etc.). The delete-account probe is irreversible for
 whatever identity runs it (email permanently rewritten to `deleted_<id>@deleted.redeemo.co.uk`,
@@ -430,21 +458,25 @@ password cleared), and reusing a shared fixture would destroy it for every other
   2. The signed PDF is a real R2 object and `pdfKey` is never API-exposed: the script captures each
      row's `pdfKey` BEFORE deletion and (with `--apply --delete-r2` + R2 env) deletes the objects,
      or prints the keys for manual removal.
-  Safety (rev 2026-07-19c hardening): dry-run by default; `--prefix` required (>= 8 chars,
-  LIKE-escaped); `--max` is a BOUNDED POSITIVE SAFE INTEGER 1..100 (NaN/Infinity/floats/zero
-  rejected, so the cap cannot be bypassed); `--apply` additionally requires BOTH
-  `--target <host-substring>` matching the DATABASE_URL host (explicit target-identity gate) AND
-  `REDEEMO_CLEANUP_OWNER_APPROVED=yes` (explicit owner gate); with `--delete-r2` the R2 config is
-  validated and the client constructed BEFORE any DB row is deleted (a bad config aborts with rows
-  untouched), and per-object R2 failures are collected and reported with a non-zero exit + the
-  unreconciled keys listed. Invoke via the repo-local binary `node_modules/.bin/tsx` (never bare
-  `npx tsx`). Deletes NOTHING but agreement rows/objects. **Tested end-to-end on the disposable
-  local PG (63-state schema), 10/10:** FK-restrict block demonstrated live; dry-run deletes
-  nothing; valid apply removes only the probe merchant's rows (co-seeded non-probe row untouched)
-  and unblocks the merchant delete; NaN/Infinity/0/2.5 `--max` all exit 1; apply without
-  `--target`, with a wrong `--target`, or without the owner env exits 1; `--delete-r2` without R2
-  env exits 1 WITH the DB rows verified still present. R2 deletion itself is exercised at the
-  staging rehearsal (needs R2 env; not testable locally).
+  Safety (rev 2026-07-19d hardening; STAGING-ONLY per Part 4.4): dry-run by default; `--prefix`
+  required (>= 8 chars, LIKE-escaped); `--max` is a BOUNDED POSITIVE SAFE INTEGER 1..100
+  (NaN/Infinity/floats/zero rejected); `--apply` additionally requires BOTH an ANCHORED
+  `--target` identity (must EQUAL the full DATABASE_URL hostname or its exact first label, the
+  Neon endpoint id; min 8 chars; substrings/partials/near-matches rejected) AND
+  `REDEEMO_CLEANUP_OWNER_APPROVED=yes` (owner gate). With `--delete-r2`, BEFORE any DB row is
+  deleted the R2 config is validated AND live delete capability is proven by a real sentinel
+  DeleteObject (nonexistent key: succeeds only with valid credentials + bucket + delete
+  permission); a probe failure aborts with rows untouched. NARROWED residual claim: the sentinel
+  proves bucket-level capability at T0; per-key or mid-run failures AFTER DB deletion can still
+  orphan objects, which are collected, reported with a non-zero exit + unreconciled keys, and
+  resolved under the owner-gated reconciliation. Both R2 success and failure paths are exercised in
+  the mandatory staging rehearsal. Invoke via the repo-local `node_modules/.bin/tsx` only.
+  **Tested on the disposable local PG (63-state schema): 10/10 (round 2) + 9/9 (round 4):**
+  FK-restrict block live; dry-run deletes nothing; valid anchored apply removes only probe rows and
+  unblocks the merchant delete; NaN/Infinity/0/2.5 `--max` exit 1; missing/wrong/short/partial/
+  near-match `--target` (incl. an 8-char partial of the host) all exit 1; missing owner env exits 1;
+  `--delete-r2` with missing env AND with an unreachable endpoint both exit 1 WITH the DB rows
+  verified still present (capability probe precedes deletion).
 - Run probe cleanup only after the window succeeds; keep the disposable prefix so the sweep is
   targeted. The anonymised probe customer residue is expected and left in place.
 
@@ -531,6 +563,15 @@ output; a future Postgres major could format them differently (fails CLOSED, nev
    a child branch, so neither Snapshot-create nor PITR is available on it.
 
 ## 11. Cross-check: Codex issues -> resolution
+
+Round 4 (four findings, 2026-07-19d):
+
+| Codex finding (round 4) | Resolution |
+|---|---|
+| 1. Contradictory Option-B rehearsal wording | The stale "restore into a scratch DB" bullet in Part 3.8 removed; ONE authoritative procedure remains (3.2 step 8: pre-change dump at 57 -> migrate the SAME target to 63 -> restore the pre-change dump INTO it over its own endpoint -> prove `staging_pre`), with 3.8 explicitly deferring to it and naming the scratch-DB variant as NOT the rehearsal |
+| 2. `includes()` target identity too weak | ANCHORED identity: `--target` must EQUAL the full hostname or its exact first label (Neon endpoint id), min 8 chars. Negative tests 5/5: short broad, broad substring, 8-char partial of the host, near-match host, suffix fragment all exit 1 (Part 6.2) |
+| 3. Production verification posture undefined | Part 4.4: production is NON-WRITE ONLY (preflight scenarios, migrate status, boot/scheduler health, health endpoint, live-traffic monitoring); NO D65 legal record, NO R2 object, NO fixture, NO probe that writes even an audit row is ever created on production by verification; write-path assurance = same-SHA + identical-schema (identity preflight) + staging battery; any future production write-probe is a separate owner decision. Cleanup tool = staging-only by construction |
+| 4. R2 claim vs behaviour | prepareR2 now proves LIVE delete capability with a real sentinel DeleteObject BEFORE any DB deletion (creds + bucket + delete permission; a failure aborts with rows untouched: empirically verified with an unreachable endpoint). Claim NARROWED: sentinel proves bucket-level capability at T0; per-key/mid-run failures after DB deletion are collected -> non-zero exit + keys -> owner-gated reconciliation; success AND failure paths exercised in the staging rehearsal |
 
 Round 3 (four findings, 2026-07-19c):
 
