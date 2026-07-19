@@ -41,14 +41,16 @@ Nothing here has been executed. It is ready for review and your approval.
 
 ## 1. Verified current state (read-only, 2026-07-18/19)
 
-### 1.1 Candidate
-- `origin/main` HEAD = **`edfc2a1e68f7a8642c7d858675b0529c8e311042`** (PR #537). Candidate for the
-  coupled backend/worker deploy. `git diff d95e70cf..edfc2a1e` touches no `prisma/migrations/**` or
-  `schema.prisma`: same migration set; it added the dormant evidence UI + evidence-**read** backend
-  routes. **Backend and admin-web must deploy from the SAME SHA `edfc2a1e`** (else the evidence
-  routes 404 if the UI flag is ever enabled). Repo migration count: **63**. Open PRs touching
-  migrations/schema: **0**. Stale branch `chore/fix-auth-followups` is benign (April-2026, ~1789
-  commits behind, zero overlap).
+### 1.1 Reference SHA (verified facts; deploy candidate selection lives in Part 3.0)
+- **REFERENCE SHA `edfc2a1e68f7a8642c7d858675b0529c8e311042`** (PR #537): the `origin/main` commit
+  at which this packet's facts were verified read-only. `git diff d95e70cf..edfc2a1e` touches no
+  `prisma/migrations/**` or `schema.prisma`: same migration set; it added the dormant evidence UI +
+  evidence-**read** backend routes. Backend and admin-web must deploy from the SAME commit, the
+  `<CANDIDATE>` of Part 3.0 (else the evidence routes 404 if the UI flag is ever enabled). Repo
+  migration count at the reference SHA: **63**. Open PRs touching migrations/schema at packet time:
+  **0**. Stale branch `chore/fix-auth-followups` is benign (April-2026, ~1789 commits behind, zero
+  overlap). The actual deploy commit `<CANDIDATE>` is selected at window time under Part 3.0
+  (rules 1, 2, 5); this section is deliberately not updated for every later `main` merge.
 
 ### 1.2 Live database posture (neon-observer, read-only)
 Project `<NEON_PROJECT_ID>` (Redeemo, aws-eu-west-2, PG16).
@@ -95,7 +97,7 @@ its own file. All indexes are on new/empty tables. #11 is empty-table-only safe 
 
 ## 2. Key findings that shape the plan (adjudicated)
 
-- **F1 candidate SHA:** re-pin to `edfc2a1e`; backend + admin-web same SHA.
+- **F1 candidate SHA:** one owner-selected `<CANDIDATE>` per the Part 3.0 protocol; backend + admin-web same commit.
 - **F2 partial-apply trap:** #11 adds NOT-NULL-no-default columns to the table #9 creates. Safe only
   while empty. **Hard gate: `migrate deploy` reaches 63 / zero-unfinished and is verified BEFORE any
   backend deploy.** If migrate fails mid-run, do not deploy; resolve to 63 or recover via Part 3.8
@@ -104,7 +106,7 @@ its own file. All indexes are on new/empty tables. #11 is empty-table-only safe 
   Snapshot-create are root-only-blocked; recovery is a backup branch + a rehearsal-proven restore or
   rebuild. Production (root) uses Snapshot + PITR normally.
 - **F5 deploy ordering:** worker env complete (lead flag false) -> migrate to 63 + verify -> deploy
-  backend+worker `edfc2a1e` -> flip lead flag true after `MerchantLead` confirmed.
+  backend+worker `<CANDIDATE>` -> flip lead flag true after `MerchantLead` confirmed.
 - **F6 production split** into two windows (Part 4), Window A now executable (Part 4.1).
 - **Cleanup gaps (new, Part 6.2):** a D65-signed probe merchant cannot be deleted by the existing
   fixture-sweep (FK `onDelete: Restrict` on `MerchantAgreementRecord`), and the signed PDF leaves an
@@ -115,14 +117,59 @@ its own file. All indexes are on new/empty tables. #11 is empty-table-only safe 
 ## 3. STAGING execution sequence
 
 Target: staging `<STAGING_BRANCH_ID>`, applying the **6 packets** to reach 63, then deploying the
-coupled backend/worker at `edfc2a1e`. Owner-executed; every step owner-gated.
+coupled backend/worker at `<CANDIDATE>` (Part 3.0). Owner-executed; every step owner-gated.
+
+### 3.0 Candidate selection + freeze protocol (authoritative; every `<CANDIDATE>` below obeys it)
+
+Terminology: **REFERENCE SHA = `edfc2a1e`** is the commit whose facts this packet VERIFIED read-only
+(63-migration set, all embedded checksums, the D65 evidence-route coupling, the `fa92b690`
+byte-identity). It is a fixed historical anchor for those facts, not necessarily the deploy commit.
+**`<CANDIDATE>`** is the single deploy commit selected under the rules below; execution steps in this
+packet write `<CANDIDATE>`, never a hard-coded SHA.
+
+1. **One authoritative candidate.** Immediately before the staging rehearsal, the owner selects and
+   records `<CANDIDATE>` = the then-current `origin/main` HEAD, which must have passed normal PR
+   review, CI, and owner release approval. Recorded in the window log with timestamp.
+2. **Eligibility gate (migration-set invariance):**
+   `git diff --name-only edfc2a1e..<CANDIDATE> -- prisma/migrations prisma/schema.prisma` must be
+   EMPTY (recorded in the window log). This proves the migration set is still exactly the verified
+   63, so the preflight's embedded checksums and this packet's SQL analysis remain the truth for
+   `<CANDIDATE>`. It is deliberately NOT an artifact-equivalence claim (see rule 3).
+3. **Same-commit rule (no artifact equivalence).** Staging and production Window B deploy the EXACT
+   SAME `<CANDIDATE>` commit for backend, worker AND admin-web. A "proven equivalent but different"
+   commit is NOT permitted: backend/worker/admin-web build inputs span `src/`, `apps/admin-web/`,
+   `package.json` + lockfile, TS/Next config and the deploy pipeline itself, and maintaining a
+   correct equivalence class over all of them is a larger risk than the strict rule. Consequence:
+   **selecting a newer candidate after staging RESETS the staging evidence**: the staging window
+   (probes + soak, Part 3.5) must re-run at the new `<CANDIDATE>` before production Window B.
+4. **Freeze while a candidate is live:** from selection until production Window B verification
+   completes, no merge to `main` may touch `prisma/**`, `prisma/schema.prisma`,
+   `src/api/shared/env.ts` or the worker boot path (Part 7 freeze list), and coupled
+   backend+frontend features must use the dormant-flag pattern (as #537 did), so an admin-web
+   auto-deploy can never expose a contract the `<CANDIDATE>` backend lacks.
+5. **Deploy-time HEAD equality (deployment-configuration reality):** Railway ("Deploy latest
+   commit") and Vercel auto-deploy build the connected branch HEAD, not an arbitrary SHA. Therefore
+   `git rev-parse origin/main` must EQUAL `<CANDIDATE>` immediately before every backend/worker
+   deploy click, re-verified in the window log. If main has advanced: STOP; either wait out /
+   re-freeze, or re-select the candidate under rule 3 (which resets staging evidence). Never deploy
+   hoping HEAD is "close enough".
+6. **Window A is candidate-independent:** it deploys nothing; its checkout anchor is the FIXED
+   historical commit `fa92b690` (Part 4.1), chosen for its 57-migration tree, regardless of
+   `<CANDIDATE>`.
+
+**Candidate-reference cross-check** (every execution reference follows the same rule):
+
+| Reference site | Uses | Rule |
+|---|---|---|
+| Part 1.1 verified facts, 1.2 checksum facts, 4.1 anchor byte-identity | `edfc2a1e` literal | REFERENCE SHA: fixed verified facts (not a deploy instruction) |
+| 3.1 precondition, 3.3 step 11, 3.4 step 13 (staging apply + deploy) | `<CANDIDATE>` | rules 1-5 |
+| 4.1 steps (Window A checkout + return-tree step) | `fa92b690` + `<CANDIDATE>` | rule 6 + rules 3/5 for the return |
+| 4.2 Window B apply + deploy; 4.4 assurance statement | `<CANDIDATE>` | rule 3 (same commit staging proved) |
+| Findings F1/F5 summaries (Part 2) | `<CANDIDATE>` | rules 1-5 |
 
 ### 3.1 Preconditions
-1. Candidate = `edfc2a1e`, OR a newer owner-approved `origin/main` SHA whose migration-delta proof is
-   EMPTY (`git diff --name-only edfc2a1e..<sha> -- prisma/ src/api/shared/env.ts src/worker.ts` = 0
-   files; record the proof in the window log). Backend AND admin-web deploy from the SAME chosen SHA.
-   (Known drift at packet time: main advanced to `66f21c7b` (#507, customer map fix) with a VERIFIED
-   empty migration-delta; the owner picks the deploy SHA at window time using this rule.)
+1. `<CANDIDATE>` selected, recorded and eligibility-proven per Part 3.0 (rules 1, 2, 5). Backend AND
+   admin-web deploy from that same commit.
 2. **DIRECT endpoint** (staging `<STAGING_DIRECT_ENDPOINT>`, non-`-pooler`) as a separately-injected
    credential in the operator shell. Never migrate through the pooled endpoint (advisory-lock P1001).
 3. Worker env complete: ALL `MAINTENANCE_*` vars present/valid (fail-closed scheduler) with
@@ -178,7 +225,7 @@ in Part 3.8, and the backup below is a plain copy-on-write branch (which IS allo
     on the shared role; never leave persistent `ALTER ROLE` settings behind), so a DDL statement
     queued behind a stuck transaction fails fast (SQLSTATE 55P03) instead of hanging. Record capture
     + restore verification in the window log.
-11. From the DIRECT-endpoint operator shell at `edfc2a1e`, deterministic toolchain (as Part 4.1 step
+11. From the DIRECT-endpoint operator shell at `<CANDIDATE>`, deterministic toolchain (as Part 4.1 step
     4: in-tree `npm ci`, then the LOCAL binary): `node_modules/.bin/prisma migrate deploy` -> applies
     the 6 pending packets in timestamp order. (Lockfile pins Prisma 7.8.0.)
 12. **VERIFY with the fail-closed preflight `-v scenario=staging_post`:** must PASS (applied 63, 0
@@ -187,7 +234,7 @@ in Part 3.8, and the backup below is a plain copy-on-write branch (which IS allo
     or recover via the staging fork (3.6 / 3.8).
 
 ### 3.4 Deploy the coupled backend + worker (only after `staging_post` PASS)
-13. Deploy backend + worker at `edfc2a1e` (Railway "Deploy latest commit", SHA-stamped; not
+13. Deploy backend + worker at `<CANDIDATE>` (Part 3.0 rule 5: verify origin/main HEAD == `<CANDIDATE>` first; Railway "Deploy latest commit", SHA-stamped; not
     `railway up` from a worktree). Worker env still has lead flag `false`.
 14. Worker boot probe: boots cleanly (env-completeness), BullMQ + scheduler up, zero errors.
 15. Flip `MAINTENANCE_SWEEP_LEAD_ANONYMISE_ENABLED=true` (MerchantLead now exists); redeploy/restart
@@ -293,7 +340,7 @@ windows.** Production is a root branch, so PITR is available in addition to Snap
 regardless as the durable, non-expiring restore point.
 
 ### 4.1 Window A: apply the 5 earlier migrations (52 -> 57), no backend deploy (EXECUTABLE mechanism)
-`prisma migrate deploy` from `edfc2a1e` would apply all 11. To apply ONLY the 5 earlier first, use the
+`prisma migrate deploy` from `<CANDIDATE>` (or any current main) would apply all 11. To apply ONLY the 5 earlier first, use the
 historical anchor commit (Prisma-native, no manual SQL, no `migrate resolve`):
 
 1. Verified anchor: **`fa92b690aa2aebbe325e93b43b44c516359f1f9b`** (ancestor of `main`; Prisma
@@ -323,14 +370,14 @@ historical anchor commit (Prisma-native, no manual SQL, no `migrate resolve`):
    the 52 already-applied rows' checksums against `fa92b690`'s files (they match: production 52 ==
    repo). The current production backend keeps running: these 5 are backward-compatible.
 6. Preflight `-v scenario=prod_wa_post` (applied 57, the 6 packets pending) must PASS.
-7. **Return the tree to `edfc2a1e` before Window B and before ANY build/deploy.** Window A does no
-   deploy, so the stale `fa92b690` tree is naturally isolated, but Window B must run from `edfc2a1e`
+7. **Return the tree to `<CANDIDATE>` before Window B and before ANY build/deploy.** Window A does no
+   deploy, so the stale `fa92b690` tree is naturally isolated, but Window B must run from `<CANDIDATE>`
    (its `prod_wb_pre` preflight passes precisely because the 5 earlier files are byte-identical).
 
-### 4.2 Window B: apply the 6 packets (57 -> 63) + deploy the coupled backend/worker at `edfc2a1e`
+### 4.2 Window B: apply the 6 packets (57 -> 63) + deploy the coupled backend/worker at `<CANDIDATE>`
 Same APPLY/DEPLOY sequence as staging Part 3, after staging has fully proven it; the VERIFICATION
 step differs and is defined in Part 4.4 (non-write only; the staging behavioural probes are NOT
-repeated on production). Preflight `prod_wb_pre` -> `migrate deploy` from `edfc2a1e` (applies the 6
+repeated on production). Preflight `prod_wb_pre` -> `migrate deploy` from `<CANDIDATE>` (the SAME commit staging proved, Part 3.0 rule 3; applies the 6
 packets; the 5 earlier are byte-identical so no drift) -> `prod_wb_post` -> deploy backend+worker ->
 flip lead flag -> Part 4.4 verification. Blast radius reduced from 11 to 6.
 
@@ -338,7 +385,7 @@ flip lead flag -> Part 4.4 verification. Blast radius reduced from 11 to 6.
 packet 10 anyway, so bundling the 5 harmless intervening migrations into the coupled window buys
 nothing and enlarges the failure surface. Splitting isolates risk.
 
-**Single-window alternative (if owner prefers):** apply all 11 at once from `edfc2a1e`
+**Single-window alternative (if owner prefers):** apply all 11 at once from `<CANDIDATE>`
 (`prod_single_pre` -> migrate deploy -> `prod_single_post`) + coupled deploy. Data-safe, but an
 11-migration failure surface and explicit 11-not-6 consent required. Not recommended.
 
@@ -357,7 +404,7 @@ Behavioural proof lives on STAGING. Production verification is **NON-WRITE ONLY*
   probe (NO fixture customer is created on production and the scrub is never probe-executed there),
   any fixture creation, and any endpoint call that writes even an audit row.
 - **How the write paths are considered verified on production:** the exact same backend SHA
-  (`edfc2a1e`) has passed the full staging behavioural battery against an identical 63-migration
+  (`<CANDIDATE>`, the same commit by Part 3.0 rule 3) has passed the full staging behavioural battery against an identical 63-migration
   schema (proven identical by the definition-identity preflight); production verification then
   confirms schema identity + boot health + live-traffic monitoring. If the owner ever wants a
   production write-probe, that is a SEPARATE owner decision with its own cleanup plan, not operator
