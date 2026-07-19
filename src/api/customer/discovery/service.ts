@@ -4858,15 +4858,39 @@ export async function getInAreaBranches(
   // ── 5. Enrich the ranked tiles. The caller's lat/lng (NOT viewport centre)
   //    drives the per-tile distance display — a user looking at a panned map
   //    still sees "X km from you", not "X km from viewport centre".
+  //
+  //    F6 (2026-07-12 map walkthrough): the DISPLAY distance must be
+  //    USER-relative and stable. The ranker's `distanceMetres` is measured
+  //    from the VIEWPORT CENTRE (`viewportEffLoc`), so recentring the camera
+  //    on a pin (a pin tap or carousel swipe both call `animateCameraToBranch`)
+  //    collapsed that store's shown distance toward 0 (owner saw 0.9 mi become
+  //    0.0 mi). Recompute the display distance here from the caller's GPS
+  //    against each branch's own coords, mirroring Home's
+  //    `fanOutMerchantToBranchInputs`: `hasUserGps && hasExact ? haversine : null`.
+  //    RANKING stays viewport-relative (rungs/proximity bands are correctly
+  //    "near this area"); only the DISPLAYED distance changes. When the caller
+  //    has no GPS, distance is null and the client renders no distance line.
+  //    Wire-safe: value-only change to the EXISTING `distance` /
+  //    `distanceMetres` fields — no new wire key (the installed clients'
+  //    branch-tile schema is `.strict()`). Branch coords come from the
+  //    `candidateBranches` fetch (step 2), keyed by id.
+  const hasUserGps = lat != null && lng != null
+  const candidateById = new Map(candidateBranches.map(b => [b.id, b]))
   const branches = await enrichBranchTiles(
     prisma,
-    rankedTiles.map(t => ({
-      branchId:      t.id,
-      merchantId:    t.merchantId,
-      supplyRung:    t.supplyRung,
-      proximityBand: t.proximityBand,
-      distance:      t.distanceMetres,
-    } satisfies EnrichBranchInput)),
+    rankedTiles.map(t => {
+      const cand = candidateById.get(t.id)
+      const displayDistance = hasUserGps && cand && hasExactPosition(cand)
+        ? haversineMetres(lat!, lng!, Number(cand.latitude), Number(cand.longitude))
+        : null
+      return {
+        branchId:      t.id,
+        merchantId:    t.merchantId,
+        supplyRung:    t.supplyRung,
+        proximityBand: t.proximityBand,
+        distance:      displayDistance,
+      } satisfies EnrichBranchInput
+    }),
     {
       userId: userId ?? null,
       lat:    lat   ?? null,

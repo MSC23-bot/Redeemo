@@ -738,6 +738,36 @@ describe('discovery routes', () => {
     )
   })
 
+  // F6 (map walkthrough): with no user GPS, the branch arm still answers 200
+  // and the route forwards lat/lng as null (the service then emits null
+  // distance — see discovery.in-area-branches.service.test.ts). The card
+  // distance is user-relative, so "no GPS" must degrade to no distance, not
+  // to a viewport-relative fallback.
+  it('GET /api/v1/customer/discovery/in-area?branchesOnly=1 without lat/lng returns 200 and forwards null lat/lng', async () => {
+    vi.mocked(getInAreaBranches).mockResolvedValueOnce({
+      branches: [{ id: 'b1', name: 'Cafe', distance: null, distanceMetres: null } as any],
+      meta: {
+        effectiveLocality: { id: 'loc-1', name: 'Brightlingsea' },
+        rungCounts: {} as any,
+        emptyStateReason: 'none',
+      },
+    } as any)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/customer/discovery/in-area?minLat=51.4&maxLat=51.6&minLng=-0.2&maxLng=0&branchesOnly=1',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.branches).toHaveLength(1)
+    expect(body.branches[0].distance).toBeNull()
+    expect(getInAreaBranches).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ lat: null, lng: null }),
+    )
+  })
+
   it('GET /api/v1/customer/discovery/in-area without branchesOnly leaves the legacy shape untouched', async () => {
     vi.mocked(getInAreaMerchants).mockResolvedValueOnce({
       merchants: [{ id: 'm1', businessName: 'Cafe', supplyTier: 'NEARBY' }],
