@@ -105,54 +105,163 @@ INSERT INTO _expected_checksum(name, checksum) VALUES
   ('20260714210000_customer_invite_referral_packet','5ce4a0b658b7e72815e16d505c683f941b85557de42b19ec84aad40ffbab480c'),
   ('20260715000000_d65_agreement_reviewed_body','4ac5153399c07aa148b609beed97c4ea65d2488111cabe03103ae59353439e81');
 
--- Schema-object inventory (extracted from the actual migration SQL; grp = earlier5 | packet).
-CREATE TEMP TABLE _exp_table(grp text, tbl text, colcount int) ON COMMIT DROP;
-INSERT INTO _exp_table VALUES
-  ('earlier5','KeyringFingerprint',6),
-  ('earlier5','VoucherPendingEdit',11),
-  ('packet','AdminCapabilityGrant',7),
-  ('packet','MerchantLead',18),
-  ('packet','MerchantNote',11),
-  ('packet','MerchantNoteEvent',7),
-  ('packet','MerchantAgreementRecord',18),
-  ('packet','MerchantInvite',18),
-  ('packet','InviteRewardGrant',10),
-  ('packet','BusinessSuppression',5);
+-- Schema-object inventory: FULL DEFINITION IDENTITIES, generated from a ground-truth build of the
+-- real 63 migration files on disposable PostgreSQL 16 (not hand-transcribed). grp = earlier5|packet.
+-- Columns: (grp, table, column, type[:udt for enums], is_nullable, column_default or '<none>').
+-- A renamed, re-typed, re-nulled or re-defaulted column no longer matches its identity row -> FAIL.
+CREATE TEMP TABLE _exp_col(grp text, tbl text, col text, typ text, nullable text, def text) ON COMMIT DROP;
+INSERT INTO _exp_col VALUES
+  ('packet','AdminCapabilityGrant','id','text','NO','<none>'),
+  ('packet','AdminCapabilityGrant','adminUserId','text','NO','<none>'),
+  ('packet','AdminCapabilityGrant','capability','text','NO','<none>'),
+  ('packet','AdminCapabilityGrant','grantedById','text','NO','<none>'),
+  ('packet','AdminCapabilityGrant','grantedAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('packet','AdminCapabilityGrant','revokedAt','timestamp without time zone','YES','<none>'),
+  ('packet','AdminCapabilityGrant','revokedById','text','YES','<none>'),
+  ('earlier5','Branch','googlePlaceId','text','YES','<none>'),
+  ('packet','BusinessSuppression','id','text','NO','<none>'),
+  ('packet','BusinessSuppression','placeKey','text','NO','<none>'),
+  ('packet','BusinessSuppression','reason','USER-DEFINED:BusinessSuppressionReason','NO','<none>'),
+  ('packet','BusinessSuppression','createdByAdminId','text','YES','<none>'),
+  ('packet','BusinessSuppression','createdAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('packet','InviteRewardGrant','id','text','NO','<none>'),
+  ('packet','InviteRewardGrant','inviteId','text','NO','<none>'),
+  ('packet','InviteRewardGrant','userId','text','NO','<none>'),
+  ('packet','InviteRewardGrant','merchantId','text','NO','<none>'),
+  ('packet','InviteRewardGrant','entitlementMonths','integer','NO','1'),
+  ('packet','InviteRewardGrant','status','USER-DEFINED:InviteRewardGrantStatus','NO','''PENDING''::"InviteRewardGrantStatus"'),
+  ('packet','InviteRewardGrant','voidReason','text','YES','<none>'),
+  ('packet','InviteRewardGrant','issuedAt','timestamp without time zone','YES','<none>'),
+  ('packet','InviteRewardGrant','consumedAt','timestamp without time zone','YES','<none>'),
+  ('packet','InviteRewardGrant','createdAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('earlier5','KeyringFingerprint','id','text','NO','<none>'),
+  ('earlier5','KeyringFingerprint','service','text','NO','<none>'),
+  ('earlier5','KeyringFingerprint','fingerprint','text','NO','<none>'),
+  ('earlier5','KeyringFingerprint','codeCapability','text','NO','<none>'),
+  ('earlier5','KeyringFingerprint','bootedAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('earlier5','KeyringFingerprint','lastSeenAt','timestamp without time zone','NO','<none>'),
+  ('packet','MerchantAgreementRecord','id','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','merchantId','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','agreementVersion','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','contentHash','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','signerName','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','signerRoleConfirmation','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','actorAdminId','text','YES','<none>'),
+  ('packet','MerchantAgreementRecord','witnessName','text','YES','<none>'),
+  ('packet','MerchantAgreementRecord','witnessEmail','text','YES','<none>'),
+  ('packet','MerchantAgreementRecord','method','USER-DEFINED:AgreementSignMethod','NO','<none>'),
+  ('packet','MerchantAgreementRecord','signedAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('packet','MerchantAgreementRecord','ipAddress','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','userAgent','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','pdfKey','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','drawnSignatureKey','text','YES','<none>'),
+  ('packet','MerchantAgreementRecord','reviewedContentHash','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','reviewedBody','text','NO','<none>'),
+  ('packet','MerchantAgreementRecord','pdfHash','text','NO','<none>'),
+  ('packet','MerchantInvite','id','text','NO','<none>'),
+  ('packet','MerchantInvite','inviterUserId','text','YES','<none>'),
+  ('packet','MerchantInvite','inviterKey','text','YES','<none>'),
+  ('packet','MerchantInvite','inviterEmailNorm','text','YES','<none>'),
+  ('packet','MerchantInvite','placeKey','text','NO','<none>'),
+  ('packet','MerchantInvite','googlePlaceId','text','YES','<none>'),
+  ('packet','MerchantInvite','businessNameRaw','text','NO','<none>'),
+  ('packet','MerchantInvite','localityRaw','text','YES','<none>'),
+  ('packet','MerchantInvite','note','text','YES','<none>'),
+  ('packet','MerchantInvite','consentShareName','boolean','NO','false'),
+  ('packet','MerchantInvite','status','USER-DEFINED:MerchantInviteStatus','NO','''ACTIVE''::"MerchantInviteStatus"'),
+  ('packet','MerchantInvite','rewardEligible','boolean','NO','false'),
+  ('packet','MerchantInvite','countableAt','timestamp without time zone','YES','<none>'),
+  ('packet','MerchantInvite','leadId','text','YES','<none>'),
+  ('packet','MerchantInvite','ipHash','text','YES','<none>'),
+  ('packet','MerchantInvite','anonymisedAt','timestamp without time zone','YES','<none>'),
+  ('packet','MerchantInvite','createdAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('packet','MerchantInvite','updatedAt','timestamp without time zone','NO','<none>'),
+  ('packet','MerchantLead','id','text','NO','<none>'),
+  ('packet','MerchantLead','businessName','text','NO','<none>'),
+  ('packet','MerchantLead','categoryGuess','text','YES','<none>'),
+  ('packet','MerchantLead','locationHint','text','YES','<none>'),
+  ('packet','MerchantLead','contactName','text','YES','<none>'),
+  ('packet','MerchantLead','contactEmail','text','YES','<none>'),
+  ('packet','MerchantLead','contactPhone','text','YES','<none>'),
+  ('packet','MerchantLead','source','USER-DEFINED:MerchantSource','YES','<none>'),
+  ('packet','MerchantLead','stage','USER-DEFINED:LeadStage','NO','''LEAD''::"LeadStage"'),
+  ('packet','MerchantLead','nextAction','text','YES','<none>'),
+  ('packet','MerchantLead','dueDate','timestamp without time zone','YES','<none>'),
+  ('packet','MerchantLead','assignedRepId','text','YES','<none>'),
+  ('packet','MerchantLead','lostReason','text','YES','<none>'),
+  ('packet','MerchantLead','convertedMerchantId','text','YES','<none>'),
+  ('packet','MerchantLead','lastActivityAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('packet','MerchantLead','anonymisedAt','timestamp without time zone','YES','<none>'),
+  ('packet','MerchantLead','createdAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('packet','MerchantLead','updatedAt','timestamp without time zone','NO','<none>'),
+  ('packet','MerchantNote','id','text','NO','<none>'),
+  ('packet','MerchantNote','merchantId','text','NO','<none>'),
+  ('packet','MerchantNote','authorAdminId','text','NO','<none>'),
+  ('packet','MerchantNote','body','text','NO','<none>'),
+  ('packet','MerchantNote','status','USER-DEFINED:MerchantNoteStatus','NO','''ACTIVE''::"MerchantNoteStatus"'),
+  ('packet','MerchantNote','editedAt','timestamp without time zone','YES','<none>'),
+  ('packet','MerchantNote','retractedById','text','YES','<none>'),
+  ('packet','MerchantNote','retractedAt','timestamp without time zone','YES','<none>'),
+  ('packet','MerchantNote','retractedReason','text','YES','<none>'),
+  ('packet','MerchantNote','createdAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('packet','MerchantNote','updatedAt','timestamp without time zone','NO','<none>'),
+  ('packet','MerchantNoteEvent','id','text','NO','<none>'),
+  ('packet','MerchantNoteEvent','noteId','text','NO','<none>'),
+  ('packet','MerchantNoteEvent','action','USER-DEFINED:MerchantNoteAction','NO','<none>'),
+  ('packet','MerchantNoteEvent','actorAdminId','text','NO','<none>'),
+  ('packet','MerchantNoteEvent','priorBody','text','YES','<none>'),
+  ('packet','MerchantNoteEvent','reason','text','YES','<none>'),
+  ('packet','MerchantNoteEvent','createdAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('earlier5','VoucherPendingEdit','id','text','NO','<none>'),
+  ('earlier5','VoucherPendingEdit','voucherId','text','NO','<none>'),
+  ('earlier5','VoucherPendingEdit','merchantId','text','NO','<none>'),
+  ('earlier5','VoucherPendingEdit','kind','USER-DEFINED:VoucherEditKind','NO','<none>'),
+  ('earlier5','VoucherPendingEdit','proposedChanges','jsonb','YES','<none>'),
+  ('earlier5','VoucherPendingEdit','reason','text','YES','<none>'),
+  ('earlier5','VoucherPendingEdit','status','USER-DEFINED:PendingEditStatus','NO','''PENDING''::"PendingEditStatus"'),
+  ('earlier5','VoucherPendingEdit','reviewedBy','text','YES','<none>'),
+  ('earlier5','VoucherPendingEdit','reviewNote','text','YES','<none>'),
+  ('earlier5','VoucherPendingEdit','createdAt','timestamp without time zone','NO','CURRENT_TIMESTAMP'),
+  ('earlier5','VoucherPendingEdit','reviewedAt','timestamp without time zone','YES','<none>');
 
-CREATE TEMP TABLE _exp_index(grp text, idx text) ON COMMIT DROP;
-INSERT INTO _exp_index VALUES
-  ('earlier5','KeyringFingerprint_service_key'),
-  ('earlier5','VoucherPendingEdit_voucherId_status_idx'),
-  ('earlier5','VoucherPendingEdit_merchantId_status_idx'),
-  ('packet','AdminCapabilityGrant_adminUserId_revokedAt_idx'),
-  ('packet','AdminCapabilityGrant_capability_idx'),
-  ('packet','MerchantLead_stage_idx'),
-  ('packet','MerchantLead_assignedRepId_idx'),
-  ('packet','MerchantLead_dueDate_idx'),
-  ('packet','MerchantLead_anonymisedAt_lastActivityAt_idx'),
-  ('packet','MerchantNote_merchantId_createdAt_idx'),
-  ('packet','MerchantNoteEvent_noteId_createdAt_idx'),
-  ('packet','MerchantAgreementRecord_merchantId_idx'),
-  ('packet','MerchantInvite_placeKey_idx'),
-  ('packet','MerchantInvite_leadId_idx'),
-  ('packet','MerchantInvite_status_idx'),
-  ('packet','MerchantInvite_inviterUserId_idx'),
-  ('packet','MerchantInvite_anonymisedAt_createdAt_idx'),
-  ('packet','MerchantInvite_inviterKey_placeKey_key'),
-  ('packet','InviteRewardGrant_inviteId_key'),
-  ('packet','InviteRewardGrant_userId_idx'),
-  ('packet','InviteRewardGrant_merchantId_idx'),
-  ('packet','InviteRewardGrant_status_idx'),
-  ('packet','BusinessSuppression_placeKey_key');
+-- Index DEFINITIONS (pg_indexes.indexdef, ground-truth generated). Same-name wrong-definition
+-- (e.g. unique swapped for non-unique, different column list) no longer matches -> FAIL.
+CREATE TEMP TABLE _exp_idx(grp text, idx text, def text) ON COMMIT DROP;
+INSERT INTO _exp_idx VALUES
+  ('packet','AdminCapabilityGrant_adminUserId_revokedAt_idx','CREATE INDEX "AdminCapabilityGrant_adminUserId_revokedAt_idx" ON public."AdminCapabilityGrant" USING btree ("adminUserId", "revokedAt")'),
+  ('packet','AdminCapabilityGrant_capability_idx','CREATE INDEX "AdminCapabilityGrant_capability_idx" ON public."AdminCapabilityGrant" USING btree (capability)'),
+  ('packet','BusinessSuppression_placeKey_key','CREATE UNIQUE INDEX "BusinessSuppression_placeKey_key" ON public."BusinessSuppression" USING btree ("placeKey")'),
+  ('packet','InviteRewardGrant_inviteId_key','CREATE UNIQUE INDEX "InviteRewardGrant_inviteId_key" ON public."InviteRewardGrant" USING btree ("inviteId")'),
+  ('packet','InviteRewardGrant_merchantId_idx','CREATE INDEX "InviteRewardGrant_merchantId_idx" ON public."InviteRewardGrant" USING btree ("merchantId")'),
+  ('packet','InviteRewardGrant_status_idx','CREATE INDEX "InviteRewardGrant_status_idx" ON public."InviteRewardGrant" USING btree (status)'),
+  ('packet','InviteRewardGrant_userId_idx','CREATE INDEX "InviteRewardGrant_userId_idx" ON public."InviteRewardGrant" USING btree ("userId")'),
+  ('earlier5','KeyringFingerprint_service_key','CREATE UNIQUE INDEX "KeyringFingerprint_service_key" ON public."KeyringFingerprint" USING btree (service)'),
+  ('packet','MerchantAgreementRecord_merchantId_idx','CREATE INDEX "MerchantAgreementRecord_merchantId_idx" ON public."MerchantAgreementRecord" USING btree ("merchantId")'),
+  ('packet','MerchantInvite_anonymisedAt_createdAt_idx','CREATE INDEX "MerchantInvite_anonymisedAt_createdAt_idx" ON public."MerchantInvite" USING btree ("anonymisedAt", "createdAt")'),
+  ('packet','MerchantInvite_inviterKey_placeKey_key','CREATE UNIQUE INDEX "MerchantInvite_inviterKey_placeKey_key" ON public."MerchantInvite" USING btree ("inviterKey", "placeKey")'),
+  ('packet','MerchantInvite_inviterUserId_idx','CREATE INDEX "MerchantInvite_inviterUserId_idx" ON public."MerchantInvite" USING btree ("inviterUserId")'),
+  ('packet','MerchantInvite_leadId_idx','CREATE INDEX "MerchantInvite_leadId_idx" ON public."MerchantInvite" USING btree ("leadId")'),
+  ('packet','MerchantInvite_placeKey_idx','CREATE INDEX "MerchantInvite_placeKey_idx" ON public."MerchantInvite" USING btree ("placeKey")'),
+  ('packet','MerchantInvite_status_idx','CREATE INDEX "MerchantInvite_status_idx" ON public."MerchantInvite" USING btree (status)'),
+  ('packet','MerchantLead_anonymisedAt_lastActivityAt_idx','CREATE INDEX "MerchantLead_anonymisedAt_lastActivityAt_idx" ON public."MerchantLead" USING btree ("anonymisedAt", "lastActivityAt")'),
+  ('packet','MerchantLead_assignedRepId_idx','CREATE INDEX "MerchantLead_assignedRepId_idx" ON public."MerchantLead" USING btree ("assignedRepId")'),
+  ('packet','MerchantLead_dueDate_idx','CREATE INDEX "MerchantLead_dueDate_idx" ON public."MerchantLead" USING btree ("dueDate")'),
+  ('packet','MerchantLead_stage_idx','CREATE INDEX "MerchantLead_stage_idx" ON public."MerchantLead" USING btree (stage)'),
+  ('packet','MerchantNoteEvent_noteId_createdAt_idx','CREATE INDEX "MerchantNoteEvent_noteId_createdAt_idx" ON public."MerchantNoteEvent" USING btree ("noteId", "createdAt")'),
+  ('packet','MerchantNote_merchantId_createdAt_idx','CREATE INDEX "MerchantNote_merchantId_createdAt_idx" ON public."MerchantNote" USING btree ("merchantId", "createdAt")'),
+  ('earlier5','VoucherPendingEdit_merchantId_status_idx','CREATE INDEX "VoucherPendingEdit_merchantId_status_idx" ON public."VoucherPendingEdit" USING btree ("merchantId", status)'),
+  ('earlier5','VoucherPendingEdit_voucherId_status_idx','CREATE INDEX "VoucherPendingEdit_voucherId_status_idx" ON public."VoucherPendingEdit" USING btree ("voucherId", status)');
 
-CREATE TEMP TABLE _exp_fk(grp text, con text) ON COMMIT DROP;
-INSERT INTO _exp_fk VALUES
-  ('earlier5','VoucherPendingEdit_voucherId_fkey'),
-  ('earlier5','VoucherPendingEdit_merchantId_fkey'),
-  ('packet','AdminCapabilityGrant_adminUserId_fkey'),
-  ('packet','MerchantNote_merchantId_fkey'),
-  ('packet','MerchantNoteEvent_noteId_fkey'),
-  ('packet','MerchantAgreementRecord_merchantId_fkey');
+-- FK DEFINITIONS: (grp, constraint, table, fk column, referenced table, update_rule, delete_rule).
+-- Same-name wrong-behaviour (e.g. ON DELETE CASCADE instead of RESTRICT) no longer matches -> FAIL.
+CREATE TEMP TABLE _exp_fkdef(grp text, con text, tbl text, col text, reftbl text, upd text, del text) ON COMMIT DROP;
+INSERT INTO _exp_fkdef VALUES
+  ('packet','AdminCapabilityGrant_adminUserId_fkey','AdminCapabilityGrant','adminUserId','AdminUser','CASCADE','RESTRICT'),
+  ('packet','MerchantAgreementRecord_merchantId_fkey','MerchantAgreementRecord','merchantId','Merchant','CASCADE','RESTRICT'),
+  ('packet','MerchantNoteEvent_noteId_fkey','MerchantNoteEvent','noteId','MerchantNote','CASCADE','RESTRICT'),
+  ('packet','MerchantNote_merchantId_fkey','MerchantNote','merchantId','Merchant','CASCADE','RESTRICT'),
+  ('earlier5','VoucherPendingEdit_merchantId_fkey','VoucherPendingEdit','merchantId','Merchant','CASCADE','RESTRICT'),
+  ('earlier5','VoucherPendingEdit_voucherId_fkey','VoucherPendingEdit','voucherId','Voucher','CASCADE','RESTRICT');
 
 CREATE TEMP TABLE _exp_enum(grp text, typ text, val text) ON COMMIT DROP;
 INSERT INTO _exp_enum VALUES
@@ -195,6 +304,7 @@ DECLARE
   v_pk_state  text;  -- 'present' | 'absent'
   v_bad       int;
   v_expected  int;
+  v_example   text;
   v_pending   text[];
   v_exp_pend  text[];
   rec         record;
@@ -268,73 +378,97 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT FAIL: pending set mismatch. actual=% expected=%', v_pending, (SELECT array_agg(x ORDER BY x) FROM unnest(v_exp_pend) x);
   END IF;
 
-  -- ============ SCHEMA-OBJECT CHECKS (explicit passes; present AND absent) ============
+  -- ============ SCHEMA-OBJECT CHECKS (definition IDENTITY, not counts/names) ============
+  -- 'Branch' is excluded from table-existence/extra-column checks (pre-existing host table);
+  -- its googlePlaceId column is asserted via its identity row in _exp_col.
 
   -- ---- earlier5 assertions ----
   IF v_e5_state = 'present' THEN
-    FOR rec IN SELECT tbl, colcount FROM _exp_table WHERE grp='earlier5' LOOP
-      IF to_regclass('public.' || quote_ident(rec.tbl)) IS NULL THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 table % MISSING', rec.tbl; END IF;
+    -- (a) Every expected column identity (name+type+nullability+default) must match exactly.
+    SELECT count(*), min(e.tbl || '.' || e.col) INTO v_bad, v_example FROM _exp_col e
+      WHERE e.grp='earlier5' AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns c
+        WHERE c.table_schema='public' AND c.table_name=e.tbl AND c.column_name=e.col
+          AND c.data_type || CASE WHEN c.data_type='USER-DEFINED' THEN ':'||c.udt_name ELSE '' END = e.typ
+          AND c.is_nullable = e.nullable AND coalesce(c.column_default,'<none>') = e.def);
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % earlier5 column identity mismatch(es), e.g. % (renamed/missing/wrong type/null/default)', v_bad, v_example; END IF;
+    -- (b) No EXTRA columns on the window-created tables (exact column-set equality).
+    FOR rec IN SELECT tbl, count(*) AS expected FROM _exp_col WHERE grp='earlier5' AND tbl <> 'Branch' GROUP BY tbl LOOP
       SELECT count(*) INTO v_bad FROM information_schema.columns WHERE table_schema='public' AND table_name=rec.tbl;
-      IF v_bad <> rec.colcount THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 table % has % columns, expected %', rec.tbl, v_bad, rec.colcount; END IF;
+      IF v_bad <> rec.expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 table % has % columns, expected % (extra/missing column)', rec.tbl, v_bad, rec.expected; END IF;
     END LOOP;
-    SELECT count(*) INTO v_bad FROM _exp_index x JOIN pg_indexes i ON i.schemaname='public' AND i.indexname=x.idx WHERE x.grp='earlier5';
-    SELECT count(*) INTO v_expected FROM _exp_index WHERE grp='earlier5';
-    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 indexes present %/% (missing index)', v_bad, v_expected; END IF;
-    SELECT count(*) INTO v_bad FROM _exp_fk f JOIN information_schema.table_constraints c
-      ON c.constraint_schema='public' AND c.constraint_name=f.con AND c.constraint_type='FOREIGN KEY' WHERE f.grp='earlier5';
-    SELECT count(*) INTO v_expected FROM _exp_fk WHERE grp='earlier5';
-    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 FK constraints present %/%', v_bad, v_expected; END IF;
+    -- (c) Index DEFINITIONS exact (name + full indexdef).
+    SELECT count(*), min(x.idx) INTO v_bad, v_example FROM _exp_idx x
+      WHERE x.grp='earlier5' AND NOT EXISTS (
+        SELECT 1 FROM pg_indexes i WHERE i.schemaname='public' AND i.indexname=x.idx AND i.indexdef=x.def);
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % earlier5 index definition mismatch(es), e.g. % (missing or same-name-wrong-definition)', v_bad, v_example; END IF;
+    -- (d) FK DEFINITIONS exact (name + table + column + referenced table + update/delete rules).
+    SELECT count(*), min(f.con) INTO v_bad, v_example FROM _exp_fkdef f
+      WHERE f.grp='earlier5' AND NOT EXISTS (
+        SELECT 1 FROM information_schema.referential_constraints rc
+        JOIN information_schema.key_column_usage kcu ON kcu.constraint_name=rc.constraint_name AND kcu.constraint_schema='public'
+        JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name=rc.constraint_name AND ccu.constraint_schema='public'
+        WHERE rc.constraint_schema='public' AND rc.constraint_name=f.con AND kcu.table_name=f.tbl
+          AND kcu.column_name=f.col AND ccu.table_name=f.reftbl AND rc.update_rule=f.upd AND rc.delete_rule=f.del);
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % earlier5 FK definition mismatch(es), e.g. % (missing or same-name-wrong-behaviour)', v_bad, v_example; END IF;
+    -- (e) Enum (type,value) pairs all present.
     SELECT count(*) INTO v_bad FROM _exp_enum x JOIN pg_type t ON t.typname=x.typ JOIN pg_enum e ON e.enumtypid=t.oid AND e.enumlabel=x.val WHERE x.grp='earlier5';
     SELECT count(*) INTO v_expected FROM _exp_enum WHERE grp='earlier5';
     IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 enum values present %/%', v_bad, v_expected; END IF;
-    SELECT count(*) INTO v_bad FROM _exp_addedcol a JOIN information_schema.columns c
-      ON c.table_schema='public' AND c.table_name=a.tbl AND c.column_name=a.col WHERE a.grp='earlier5';
-    SELECT count(*) INTO v_expected FROM _exp_addedcol WHERE grp='earlier5';
-    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 added columns present %/% (e.g. Branch.googlePlaceId)', v_bad, v_expected; END IF;
   ELSE
-    FOR rec IN SELECT tbl FROM _exp_table WHERE grp='earlier5' LOOP
+    FOR rec IN SELECT DISTINCT tbl FROM _exp_col WHERE grp='earlier5' AND tbl <> 'Branch' LOOP
       IF to_regclass('public.' || quote_ident(rec.tbl)) IS NOT NULL THEN RAISE EXCEPTION 'PREFLIGHT FAIL: earlier5 table % already EXISTS (drift/partial apply)', rec.tbl; END IF;
     END LOOP;
+    -- No earlier5 column may exist yet (covers Branch.googlePlaceId).
+    SELECT count(*) INTO v_bad FROM _exp_col e JOIN information_schema.columns c
+      ON c.table_schema='public' AND c.table_name=e.tbl AND c.column_name=e.col WHERE e.grp='earlier5';
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % earlier5 column(s) already exist (drift)', v_bad; END IF;
     SELECT count(*) INTO v_bad FROM _exp_enum x JOIN pg_type t ON t.typname=x.typ JOIN pg_enum e ON e.enumtypid=t.oid AND e.enumlabel=x.val WHERE x.grp='earlier5';
     IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % earlier5 enum value(s) already exist (drift)', v_bad; END IF;
-    SELECT count(*) INTO v_bad FROM _exp_addedcol a JOIN information_schema.columns c
-      ON c.table_schema='public' AND c.table_name=a.tbl AND c.column_name=a.col WHERE a.grp='earlier5';
-    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % earlier5 added column(s) already exist (drift)', v_bad; END IF;
-    SELECT count(*) INTO v_bad FROM _exp_index x JOIN pg_indexes i ON i.schemaname='public' AND i.indexname=x.idx WHERE x.grp='earlier5';
+    SELECT count(*) INTO v_bad FROM _exp_idx x JOIN pg_indexes i ON i.schemaname='public' AND i.indexname=x.idx WHERE x.grp='earlier5';
     IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % earlier5 index(es) already exist (drift)', v_bad; END IF;
   END IF;
 
   -- ---- packet assertions ----
   IF v_pk_state = 'present' THEN
-    FOR rec IN SELECT tbl, colcount FROM _exp_table WHERE grp='packet' LOOP
-      IF to_regclass('public.' || quote_ident(rec.tbl)) IS NULL THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet table % MISSING', rec.tbl; END IF;
+    SELECT count(*), min(e.tbl || '.' || e.col) INTO v_bad, v_example FROM _exp_col e
+      WHERE e.grp='packet' AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns c
+        WHERE c.table_schema='public' AND c.table_name=e.tbl AND c.column_name=e.col
+          AND c.data_type || CASE WHEN c.data_type='USER-DEFINED' THEN ':'||c.udt_name ELSE '' END = e.typ
+          AND c.is_nullable = e.nullable AND coalesce(c.column_default,'<none>') = e.def);
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % packet column identity mismatch(es), e.g. % (renamed/missing/wrong type/null/default)', v_bad, v_example; END IF;
+    FOR rec IN SELECT tbl, count(*) AS expected FROM _exp_col WHERE grp='packet' GROUP BY tbl LOOP
       SELECT count(*) INTO v_bad FROM information_schema.columns WHERE table_schema='public' AND table_name=rec.tbl;
-      IF v_bad <> rec.colcount THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet table % has % columns, expected % (missing/extra column)', rec.tbl, v_bad, rec.colcount; END IF;
+      IF v_bad <> rec.expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet table % has % columns, expected % (extra/missing column)', rec.tbl, v_bad, rec.expected; END IF;
     END LOOP;
-    -- D65 columns: EXACTLY the three expected columns, each present AND NOT NULL. Counting only
-    -- rows that match BOTH name and is_nullable='NO' means an ABSENT column fails (count < 3),
-    -- and a present-but-nullable column also fails: the fix for the fail-open Codex found.
+    -- D65 belt (redundant with identity rows; kept as an explicit, named legal-column gate).
     SELECT count(*) INTO v_bad FROM information_schema.columns
       WHERE table_schema='public' AND table_name='MerchantAgreementRecord'
         AND column_name IN ('reviewedContentHash','reviewedBody','pdfHash') AND is_nullable='NO';
-    IF v_bad <> 3 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: D65 columns present-and-NOT-NULL = %/3 (missing or nullable reviewedContentHash/reviewedBody/pdfHash)', v_bad; END IF;
-    SELECT count(*) INTO v_bad FROM _exp_index x JOIN pg_indexes i ON i.schemaname='public' AND i.indexname=x.idx WHERE x.grp='packet';
-    SELECT count(*) INTO v_expected FROM _exp_index WHERE grp='packet';
-    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet indexes present %/% (missing index)', v_bad, v_expected; END IF;
-    SELECT count(*) INTO v_bad FROM _exp_fk f JOIN information_schema.table_constraints c
-      ON c.constraint_schema='public' AND c.constraint_name=f.con AND c.constraint_type='FOREIGN KEY' WHERE f.grp='packet';
-    SELECT count(*) INTO v_expected FROM _exp_fk WHERE grp='packet';
-    IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet FK constraints present %/%', v_bad, v_expected; END IF;
+    IF v_bad <> 3 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: D65 columns present-and-NOT-NULL = %/3', v_bad; END IF;
+    SELECT count(*), min(x.idx) INTO v_bad, v_example FROM _exp_idx x
+      WHERE x.grp='packet' AND NOT EXISTS (
+        SELECT 1 FROM pg_indexes i WHERE i.schemaname='public' AND i.indexname=x.idx AND i.indexdef=x.def);
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % packet index definition mismatch(es), e.g. % (missing or same-name-wrong-definition)', v_bad, v_example; END IF;
+    SELECT count(*), min(f.con) INTO v_bad, v_example FROM _exp_fkdef f
+      WHERE f.grp='packet' AND NOT EXISTS (
+        SELECT 1 FROM information_schema.referential_constraints rc
+        JOIN information_schema.key_column_usage kcu ON kcu.constraint_name=rc.constraint_name AND kcu.constraint_schema='public'
+        JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name=rc.constraint_name AND ccu.constraint_schema='public'
+        WHERE rc.constraint_schema='public' AND rc.constraint_name=f.con AND kcu.table_name=f.tbl
+          AND kcu.column_name=f.col AND ccu.table_name=f.reftbl AND rc.update_rule=f.upd AND rc.delete_rule=f.del);
+    IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % packet FK definition mismatch(es), e.g. % (missing or same-name-wrong-behaviour)', v_bad, v_example; END IF;
     SELECT count(*) INTO v_bad FROM _exp_enum x JOIN pg_type t ON t.typname=x.typ JOIN pg_enum e ON e.enumtypid=t.oid AND e.enumlabel=x.val WHERE x.grp='packet';
     SELECT count(*) INTO v_expected FROM _exp_enum WHERE grp='packet';
     IF v_bad <> v_expected THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet enum values present %/%', v_bad, v_expected; END IF;
   ELSE
-    FOR rec IN SELECT tbl FROM _exp_table WHERE grp='packet' LOOP
+    FOR rec IN SELECT DISTINCT tbl FROM _exp_col WHERE grp='packet' LOOP
       IF to_regclass('public.' || quote_ident(rec.tbl)) IS NOT NULL THEN RAISE EXCEPTION 'PREFLIGHT FAIL: packet table % already EXISTS before the packet apply (drift/partial apply)', rec.tbl; END IF;
     END LOOP;
     SELECT count(*) INTO v_bad FROM _exp_enum x JOIN pg_type t ON t.typname=x.typ JOIN pg_enum e ON e.enumtypid=t.oid AND e.enumlabel=x.val WHERE x.grp='packet';
     IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % packet enum value(s) already exist before the packet apply (drift)', v_bad; END IF;
-    SELECT count(*) INTO v_bad FROM _exp_index x JOIN pg_indexes i ON i.schemaname='public' AND i.indexname=x.idx WHERE x.grp='packet';
+    SELECT count(*) INTO v_bad FROM _exp_idx x JOIN pg_indexes i ON i.schemaname='public' AND i.indexname=x.idx WHERE x.grp='packet';
     IF v_bad > 0 THEN RAISE EXCEPTION 'PREFLIGHT FAIL: % packet index(es) already exist before the packet apply (drift)', v_bad; END IF;
   END IF;
 

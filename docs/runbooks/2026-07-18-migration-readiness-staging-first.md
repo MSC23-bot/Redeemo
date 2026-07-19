@@ -142,14 +142,30 @@ in Part 3.8, and the backup below is a plain copy-on-write branch (which IS allo
    `neon branches create --parent <STAGING_BRANCH_ID> --name staging-prewindow-<date>`. This preserves
    staging's exact pre-window state (57 migrations, all data). Record: backup branch id, staging LSN,
    timestamp. This is the guaranteed data-preservation step; the *restore* path is the fork (Part 3.8).
-8. **Mandatory recovery rehearsal (owner-executed, resolves the fork before the real window):** on a
-   THROWAWAY copy, not staging: `neon branches create --parent <STAGING_BRANCH_ID> --name rehearsal`;
-   apply the 6 packets to `rehearsal` (disposable); then exercise the chosen recovery path (Part 3.8)
-   on `rehearsal` and record what actually happens to its branch id, endpoint and connection string;
-   run the preflight `-v scenario=staging_pre` to confirm it returns to 57 applied / packet tables
-   absent; delete `rehearsal`. If in-place restore does not cleanly return a child branch with a stable
-   connection, the fallback (rebuild) is used for the real window. (All branch create/apply/restore/
-   delete here are owner-gated; not executed by this packet.)
+8. **Mandatory recovery rehearsal (owner-executed, resolves the fork before the real window).** The
+   rehearsal must prove ROLLBACK: recover a pre-change state INTO an already-migrated target using
+   the SAME procedure intended for staging. On a THROWAWAY copy, never staging itself:
+   a. `neon branches create --parent <STAGING_BRANCH_ID> --name rehearsal` (57-state copy) and
+      attach a compute.
+   b. **Capture the PRE-change backup source:** `pg_dump --format=custom --no-owner --no-privileges`
+      of `rehearsal` NOW (at 57) -> `rehearsal-pre.dump`. Record size + `pg_restore --list` count.
+   c. **Migrate the rehearsal target:** apply the 6 packets to `rehearsal` (it is now at 63; this is
+      the disposable stand-in for a staging window that needs rolling back).
+   d. **Recover using the intended same-endpoint procedure:** against `rehearsal`'s endpoint,
+      `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` then
+      `pg_restore --single-transaction --exit-on-error --no-owner --no-privileges -d <rehearsal URI>
+      rehearsal-pre.dump` (fail-fast + transactional: a failure aborts atomically and the dump is
+      simply re-runnable; record the retry preparation: the dump file and the source branch remain
+      intact).
+   e. **Prove it:** the preflight `-v scenario=staging_pre` against `rehearsal` must PASS (57
+      applied, packet objects absent) and spot row-counts must match the step-b records. Record
+      branch id / endpoint / connection-string stability observations.
+   f. Delete `rehearsal` + its compute and the dump. Dumping a post-migration state into an
+      unrelated scratch database would NOT prove rollback; this sequence restores pre-change data
+      into the migrated target itself, which is exactly what a real staging rollback must do.
+   If Option A (in-place head-restore) is being evaluated, exercise it in the same rehearsal before
+   step f and record the same evidence. (All branch create/apply/restore/delete here are owner-gated;
+   not executed by this packet.)
 9. Confirm no automation performs `reset_from_parent` / branch-delete on staging during the window
    (`protected:false`). Consider enabling branch protection for the window.
 
@@ -232,9 +248,12 @@ not fully documented and cannot be proven read-only:
   3. **Stop writers:** confirm the staging backend/worker are stopped or the window freeze is in
      force (no writes during restore).
   4. **Restore into staging (same endpoint):** `psql "<staging DIRECT URI>" -c 'DROP SCHEMA public
-     CASCADE; CREATE SCHEMA public;'` then `pg_restore --no-owner --no-privileges -d "<staging DIRECT
-     URI>" prewindow.dump`. This is destructive ONLY to the already-broken post-failure state; the
-     authoritative data lives in the dump + the untouched `staging-prewindow` branch.
+     CASCADE; CREATE SCHEMA public;'` then `pg_restore --single-transaction --exit-on-error
+     --no-owner --no-privileges -d "<staging DIRECT URI>" prewindow.dump` (fail-fast AND
+     transactional: any error aborts the whole restore atomically, leaving a clean re-runnable
+     state; retry preparation = the dump file and the untouched `staging-prewindow` branch). This is
+     destructive ONLY to the already-broken post-failure state; the authoritative data lives in the
+     dump + the backup branch.
   5. **Verify success:** preflight `-v scenario=staging_pre` PASSES (57 applied, packet objects
      absent); spot row-counts of key tables match the pre-dump counts recorded in step 2; backend
      boots against staging and serves a smoke request.
@@ -344,12 +363,18 @@ and subsequent writes queue behind it until the blocker clears. Unbounded withou
   1. **Dedicated migration role** (if one exists / is provisioned): `ALTER ROLE <migration_role> SET
      lock_timeout='5s', statement_timeout='60s'` on a role used ONLY for migrations. No restore
      needed (the settings are the role's job) and the app role is untouched.
-  2. **Shared role with capture-and-restore:** BEFORE the window, capture the prior state:
-     `SELECT rolname, rolconfig FROM pg_roles WHERE rolname = current_user;` (record `rolconfig` in
-     the window log; typically NULL). Set the timeouts, run the window, then RESTORE:
-     `ALTER ROLE <role> RESET lock_timeout; ALTER ROLE <role> RESET statement_timeout;` and re-run
-     the `pg_roles` query to verify `rolconfig` matches the captured prior state. Both the capture
-     and the restore verification go in the window log.
+  2. **Shared role with capture-and-restore of the EXACT prior values:** BEFORE the window, capture:
+     `SELECT rolname, rolconfig FROM pg_roles WHERE rolname = current_user;` and record the exact
+     prior `lock_timeout` / `statement_timeout` entries from `rolconfig` (each may be present with a
+     value, or absent). Set the window timeouts. AFTERWARDS, restore precisely:
+     - a setting that previously EXISTED is restored to its captured value:
+       `ALTER ROLE <role> SET lock_timeout = '<captured prior value>';`
+     - a setting that was previously ABSENT is removed: `ALTER ROLE <role> RESET lock_timeout;`
+     (same per-setting rule for `statement_timeout`). Re-run the `pg_roles` query and verify
+     `rolconfig` is byte-identical to the capture. **Restoration runs in BOTH outcomes: after a
+     successful `migrate deploy` AND on any failure/abort path** (the operator checklist places the
+     restore step in the always-run window-teardown, not the success branch). Capture, restore
+     commands and the final verification all go in the window log.
   3. **Session-scoped fallback** (`?options=-c lock_timeout=5000 -c statement_timeout=60000` on the
      migrate connection string): leaves nothing behind by construction, but is NOT verified for
      Prisma 7's engine; if used, verify first on a disposable connection that the settings actually
@@ -405,12 +430,21 @@ password cleared), and reusing a shared fixture would destroy it for every other
   2. The signed PDF is a real R2 object and `pdfKey` is never API-exposed: the script captures each
      row's `pdfKey` BEFORE deletion and (with `--apply --delete-r2` + R2 env) deletes the objects,
      or prints the keys for manual removal.
-  Safety: dry-run by default; `--prefix` required (>= 8 chars, LIKE-escaped); refuses > `--max`
-  (default 5) matches; deletes NOTHING but agreement rows/objects. **Tested end-to-end on the
-  disposable local PG (63-state schema):** FK-restrict block demonstrated live, dry-run deletes
-  nothing, apply removes only the probe merchant's row (a co-seeded non-probe row untouched),
-  merchant delete unblocked afterward, short-prefix and missing-DATABASE_URL guardrails exit
-  non-zero. R2 deletion is exercised at the staging rehearsal (needs R2 env; not testable locally).
+  Safety (rev 2026-07-19c hardening): dry-run by default; `--prefix` required (>= 8 chars,
+  LIKE-escaped); `--max` is a BOUNDED POSITIVE SAFE INTEGER 1..100 (NaN/Infinity/floats/zero
+  rejected, so the cap cannot be bypassed); `--apply` additionally requires BOTH
+  `--target <host-substring>` matching the DATABASE_URL host (explicit target-identity gate) AND
+  `REDEEMO_CLEANUP_OWNER_APPROVED=yes` (explicit owner gate); with `--delete-r2` the R2 config is
+  validated and the client constructed BEFORE any DB row is deleted (a bad config aborts with rows
+  untouched), and per-object R2 failures are collected and reported with a non-zero exit + the
+  unreconciled keys listed. Invoke via the repo-local binary `node_modules/.bin/tsx` (never bare
+  `npx tsx`). Deletes NOTHING but agreement rows/objects. **Tested end-to-end on the disposable
+  local PG (63-state schema), 10/10:** FK-restrict block demonstrated live; dry-run deletes
+  nothing; valid apply removes only the probe merchant's rows (co-seeded non-probe row untouched)
+  and unblocks the merchant delete; NaN/Infinity/0/2.5 `--max` all exit 1; apply without
+  `--target`, with a wrong `--target`, or without the owner env exits 1; `--delete-r2` without R2
+  env exits 1 WITH the DB rows verified still present. R2 deletion itself is exercised at the
+  staging rehearsal (needs R2 env; not testable locally).
 - Run probe cleanup only after the window succeeds; keep the disposable prefix so the sweep is
   targeted. The anonymised probe customer residue is expected and left in place.
 
@@ -445,26 +479,31 @@ must be PRESENT and those that must still be ABSENT** ("earlier5" = the 5 migrat
 | `prod_single_pre` | 52 | all 11 | ABSENT | ABSENT |
 | `prod_single_post` | 63 | none | PRESENT | PRESENT |
 
-Object assertions per group: tables by name WITH exact per-table column counts (earlier5:
-KeyringFingerprint 6, VoucherPendingEdit 11; packets: AdminCapabilityGrant 7, MerchantLead 18,
-MerchantNote 11, MerchantNoteEvent 7, MerchantAgreementRecord 18, MerchantInvite 18,
-InviteRewardGrant 10, BusinessSuppression 5); the three D65 columns each present AND NOT NULL
-(exact-count = 3, so an ABSENT column fails: closes the fail-open Codex found); all indexes by name
-(3 earlier5 + 20 packet); all FK constraints by name (2 + 4); all enum (type,value) pairs (7 + 29);
-`Branch.googlePlaceId` presence. ABSENT phases assert the same objects do NOT exist (drift/stray
-detection).
+Object assertions per group are **DEFINITION IDENTITIES, not counts or names** (rev 2026-07-19c;
+the expectation set was GENERATED from a ground-truth build of the real 63 migration files on
+disposable PG16, not hand-transcribed):
+- **112 column identity rows** (name + data type incl. enum udt + nullability + default) across the
+  10 window tables + `Branch.googlePlaceId`: a renamed, re-typed, re-nulled or re-defaulted column
+  no longer matches -> FAIL, and exact per-table column-set equality catches extras.
+- **23 index DEFINITIONS** (full `pg_indexes.indexdef`): a same-name wrong-definition index (e.g.
+  unique swapped for non-unique) no longer matches -> FAIL.
+- **6 FK DEFINITIONS** (constraint + table + column + referenced table + update/delete rules): a
+  same-name wrong-behaviour FK (e.g. ON DELETE CASCADE) no longer matches -> FAIL.
+- All **36 enum (type,value) pairs**; the explicit D65 3/3 present-AND-NOT-NULL belt retained.
+- ABSENT phases assert the same objects (tables, columns, indexes, enum pairs) do NOT exist.
 
 **Empirical fail-closed evidence (disposable local PostgreSQL 16.14; never a shared environment):**
-a harness simulated Prisma's ledger exactly (per-migration statement apply + sha256 checksum rows)
-and applied the real 63 migration files progressively 0->52->57->63, running the preflight at each
-state. **31/31 matrix results correct**: 12 positives PASS at their matching states (including the
-repaired-state re-passes); every negative exits non-zero (psql exit 3), covering: all-three D65
-columns dropped (the exact case that previously passed), one D65 column dropped, a D65 column made
-nullable, a packet table dropped, a packet index dropped, a packet FK dropped, a stray packet table
-at 57, `Branch.googlePlaceId` dropped at 57, checksum tampered, an unfinished ledger row, a
-rolled-back ledger row, an unknown extra migration row, every wrong-scenario/wrong-state pairing
-tested, and a missing `-v scenario` argument. Full log: window-log artifact `preflight-results.txt`
-(31 lines, reproduced in the PR discussion).
+the harness simulates Prisma's ledger exactly (per-statement apply + sha256 checksum rows) and
+applies the real 63 migration files progressively 0->52->57->63, running the preflight at each
+state. **Round-3 matrix: 31/31 correct** (12 positives incl. repaired-state re-passes; 19 negatives
+each exiting psql code 3), now including the four definition-drift classes Codex required:
+**same-count column substitution** (drop+add different name, count unchanged), **same-name wrong
+type** (text->varchar), **same-name wrong default** (1->2), **same-name non-unique index**, and
+**same-name FK with ON DELETE CASCADE**; plus the full prior battery (all-3-D65-columns dropped,
+D65 nullable, table/index dropped, stray table, googlePlaceId dropped, checksum tamper,
+unfinished/rolled-back/unknown ledger rows, wrong scenarios, missing `-v scenario`). Full log in
+the PR discussion. Known limitation: index/default deparse strings are compared against PG16
+output; a future Postgres major could format them differently (fails CLOSED, never open).
 
 ## 9. Warning and uncertainty ledger
 
@@ -492,6 +531,15 @@ tested, and a missing `-v scenario` argument. Full log: window-log artifact `pre
    a child branch, so neither Snapshot-create nor PITR is available on it.
 
 ## 11. Cross-check: Codex issues -> resolution
+
+Round 3 (four findings, 2026-07-19c):
+
+| Codex finding (round 3) | Resolution |
+|---|---|
+| 1. Schema claim fail-open to definition drift | Preflight rewritten to DEFINITION IDENTITIES: 112 ground-truth-generated column identity rows (name/type/nullability/default), 23 full index definitions, 6 full FK definitions (rules + referenced table). New negatives all fail closed: same-count column substitution, wrong type, wrong default, same-name non-unique index, same-name FK ON DELETE CASCADE (Part 8; round-3 matrix 31/31) |
+| 2. Option-B rehearsal did not prove rollback | 3.2 step 8 rewritten: PRE-change dump captured at 57 -> the SAME rehearsal target migrated to 63 -> pre-change dump restored INTO the migrated target via the intended same-endpoint procedure with `pg_restore --single-transaction --exit-on-error` (fail-fast + transactional; retry prep explicit) -> `staging_pre` PASS proves the rollback. Option B main procedure gains the same controls |
+| 3. Timeout restoration lossy | Part 5: exact captured prior values are RESTORED when they existed; RESET only for previously-absent settings; restoration placed in the always-run teardown (success AND failure); byte-identical `rolconfig` verification logged |
+| 4. Cleanup script hardening | `--max` bounded safe integer (NaN/Infinity/floats rejected); R2 config validated + client constructed BEFORE any DB delete; partial R2 failures collected -> non-zero exit + keys listed; repo-local `node_modules/.bin/tsx` documented; `--apply` gated on `--target` host match + `REDEEMO_CLEANUP_OWNER_APPROVED=yes`. 10/10 guard tests incl. rows-survive-bad-R2-config (Part 6.2) |
 
 Round 1 (six issues) and Round 2 (ten verified blockers, 2026-07-19b):
 
