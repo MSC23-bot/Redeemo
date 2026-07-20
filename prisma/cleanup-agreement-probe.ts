@@ -35,6 +35,7 @@
  */
 import 'dotenv/config'
 import { Client } from 'pg'
+import { buildCapabilitySentinelKey, targetMatchesHost } from './cleanup-agreement-probe.lib'
 
 const args = process.argv.slice(2)
 function argValue(flag: string): string | undefined {
@@ -84,9 +85,8 @@ if (apply) {
     console.error(`FATAL: --target must be >= 8 chars (full host or exact endpoint id), got ${JSON.stringify(targetGate)}.`)
     process.exit(1)
   }
-  const firstLabel = dbHost.split('.')[0]
-  if (targetGate !== dbHost && targetGate !== firstLabel) {
-    console.error(`FATAL: --target ${JSON.stringify(targetGate)} is neither the full DATABASE_URL host ${JSON.stringify(dbHost)} nor its exact endpoint id ${JSON.stringify(firstLabel)}. Refusing (anchored match required; substrings are not accepted).`)
+  if (!targetMatchesHost(targetGate, dbHost)) {
+    console.error(`FATAL: --target ${JSON.stringify(targetGate)} is neither the full DATABASE_URL host ${JSON.stringify(dbHost)} nor its exact endpoint id ${JSON.stringify(dbHost.split('.')[0])}. Refusing (anchored match required; substrings are not accepted).`)
     process.exit(1)
   }
   if (process.env.REDEEMO_CLEANUP_OWNER_APPROVED !== 'yes') {
@@ -110,8 +110,11 @@ type S3Bits = {
  * the database untouched. RESIDUAL RISK (narrowed claim, documented in the packet): the sentinel
  * proves bucket-level delete capability at T0; a per-key failure or a mid-run credential/network
  * loss AFTER DB rows are deleted can still orphan objects, which is why per-key failures are
- * collected, reported with a non-zero exit, and reconciled under the owner gate. Both the success
- * and failure paths of this probe are exercised in the mandatory staging rehearsal.
+ * collected, reported with a non-zero exit, and reconciled under the owner gate. The success lane
+ * and the PRE-DELETION capability-failure lane of this probe are exercised in the owner-gated
+ * COMPLETION rehearsal (runbook Part 14 step 7); they were NOT exercised in the 2026-07-19 core
+ * rehearsal. A per-key or mid-run failure AFTER a successful sentinel remains unproven by test and
+ * is handled by the collect/report/non-zero-exit path plus owner-gated manual reconciliation.
  */
 async function prepareR2(): Promise<S3Bits> {
   const endpoint = process.env.R2_ENDPOINT
@@ -124,9 +127,12 @@ async function prepareR2(): Promise<S3Bits> {
   }
   const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3')
   const s3 = new S3Client({ region: 'auto', endpoint, credentials: { accessKeyId, secretAccessKey } })
+  // FRESH collision-resistant sentinel per call (never a fixed/shared key: a fixed key could
+  // coincidentally exist and be deleted outside any approved prefix; see the lib helper).
+  const sentinelKey = buildCapabilitySentinelKey()
   try {
-    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: 'document/__cleanup-capability-probe__/nonexistent' }))
-    console.log('R2 capability probe OK (credentials + bucket + delete permission verified via sentinel delete).')
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: sentinelKey }))
+    console.log('R2 capability probe OK (credentials + bucket + delete permission verified via a fresh random sentinel delete).')
   } catch (err) {
     console.error(`FATAL: R2 capability probe FAILED (${err instanceof Error ? err.name + ': ' + err.message : typeof err}). Nothing was deleted (DB rows untouched).`)
     process.exit(1)

@@ -273,12 +273,24 @@ Once staging is at 63 / zero-unfinished, all 3.5 probes pass, and the release so
 freeze on migration/schema/worker-env paths may lift. Production stays frozen until Part 4. Record the
 decision in the window log.
 
-### 3.8 STAGING RECOVERY: OWNER FORK (unsettled read-only; resolved by the 3.2 rehearsal)
-Staging is a child branch, so Neon's in-place recovery primitives (PITR, Snapshot-create) are
-unavailable on it (Part 3.2). Production is a root branch and does not have this problem (Part 4). The
-guaranteed pre-window step is the backup branch `staging-prewindow` (3.2 step 7). The RESTORE path is
-a genuine fork because the exact child-branch reset semantics (and connection-string stability) are
-not fully documented and cannot be proven read-only:
+### 3.8 STAGING RECOVERY: **OPTION B SELECTED** (adjudicated 2026-07-19 after the core rehearsal)
+**RESOLVED: Option B (dump-and-restore into the same endpoint) is the selected staging recovery
+posture.** The 2026-07-19 core rehearsal proved its full mechanism end-to-end on a disposable
+staging-derived Neon branch (migrate -> DROP SCHEMA -> transactional pg_restore -> fail-closed
+identity preflight PASS -> exact row-count match, one stable endpoint throughout; as-executed
+evidence in Part 12). **Option A (in-place API head-restore of the child from its backup branch)
+remains UNTESTED, not impossible:** the exercise was tooling-blocked (no management-API key exists
+and creating one was out of authorization; the read-only MCP has no branch-restore operation).
+Reconciliation with official Neon docs + the exact topology: PITR/instant-restore and manual
+Snapshot-CREATE are documented root-branch-only, so both are unavailable on staging (child of
+production); the generic head-restore API (`POST /branches/{id}/restore` with `source_branch_id`,
+no timestamp) is documented for a child target restoring from its PARENT (`^parent`) and requires
+`preserve_under_name` when the target has children, but restoring a child target from its OWN CHILD
+(staging <- `staging-prewindow`) at head is not explicitly documented either way. Option A may be
+revisited only via a dedicated disposable rehearsal if a management-API key is ever provisioned
+(owner decision); until then Option B governs. Background (the original fork reasoning, retained):
+staging is a child branch; the guaranteed pre-window step is the backup branch `staging-prewindow`
+(3.2 step 7); the restore path options were:
 
 - **Option A: in-place head-restore from the backup branch.**
   `POST /projects/<proj>/branches/<STAGING_BRANCH_ID>/restore` with body
@@ -436,9 +448,13 @@ and subsequent writes queue behind it until the blocker clears. Unbounded withou
 **Controls to apply (operator, execution-time):**
 - Set timeouts so the DDL fails fast instead of hanging, WITHOUT leaving persistent settings behind.
   In preference order:
-  1. **Dedicated migration role** (if one exists / is provisioned): `ALTER ROLE <migration_role> SET
-     lock_timeout='5s', statement_timeout='60s'` on a role used ONLY for migrations. No restore
-     needed (the settings are the role's job) and the app role is untouched.
+  1. **Dedicated migration role** (if one exists / is provisioned): TWO SEPARATE statements
+     (PostgreSQL does not accept a combined `SET a=..., b=...` in ALTER ROLE; empirically verified),
+     safely role-quoted via format(%I)/\gexec:
+     `SELECT format('ALTER ROLE %I SET lock_timeout = %L', current_user, '5s') \gexec`
+     `SELECT format('ALTER ROLE %I SET statement_timeout = %L', current_user, '60s') \gexec`
+     on a role used ONLY for migrations. No restore needed (the settings are the role's job) and
+     the app role is untouched.
   2. **Shared role with capture-and-restore of the EXACT prior values:** BEFORE the window, capture:
      `SELECT rolname, rolconfig FROM pg_roles WHERE rolname = current_user;` and record the exact
      prior `lock_timeout` / `statement_timeout` entries from `rolconfig` (each may be present with a
@@ -516,12 +532,17 @@ password cleared), and reusing a shared fixture would destroy it for every other
   Neon endpoint id; min 8 chars; substrings/partials/near-matches rejected) AND
   `REDEEMO_CLEANUP_OWNER_APPROVED=yes` (owner gate). With `--delete-r2`, BEFORE any DB row is
   deleted the R2 config is validated AND live delete capability is proven by a real sentinel
-  DeleteObject (nonexistent key: succeeds only with valid credentials + bucket + delete
-  permission); a probe failure aborts with rows untouched. NARROWED residual claim: the sentinel
+  DeleteObject on a FRESHLY GENERATED collision-resistant random key inside the authorised
+  `document/__cleanup-capability-probe__/` marker namespace (never a fixed/shared key, which could
+  coincidentally exist and be deleted; regression-tested); a probe failure aborts with rows
+  untouched. NARROWED residual claim: the sentinel
   proves bucket-level capability at T0; per-key or mid-run failures AFTER DB deletion can still
   orphan objects, which are collected, reported with a non-zero exit + unreconciled keys, and
-  resolved under the owner-gated reconciliation. Both R2 success and failure paths are exercised in
-  the mandatory staging rehearsal. Invoke via the repo-local `node_modules/.bin/tsx` only.
+  resolved under the owner-gated reconciliation. **CORRECTION (2026-07-19 amendment): the R2
+  success and failure paths were NOT exercised in the 2026-07-19 core rehearsal** (no R2 object was
+  required or created there); they are scheduled in the owner-gated COMPLETION rehearsal (Part 14)
+  using uniquely-prefixed disposable objects only. Until that runs, the R2 lane is design-reviewed +
+  locally guard-tested but not live-proven. Invoke via the repo-local `node_modules/.bin/tsx` only.
   **Tested on the disposable local PG (63-state schema): 10/10 (round 2) + 9/9 (round 4):**
   FK-restrict block live; dry-run deletes nothing; valid anchored apply removes only probe rows and
   unblocks the merchant delete; NaN/Infinity/0/2.5 `--max` exit 1; missing/wrong/short/partial/
@@ -594,24 +615,30 @@ output; a future Postgres major could format them differently (fails CLOSED, nev
 |---|---|---|
 | U1 | PITR history window = **21600s (6h)** (confirmed read-only via list_projects); PITR is root/production-only, irrelevant to staging child | Reconfirm at execution |
 | U11 | Child-branch in-place restore semantics + connection stability (Part 3.8 Option A) not provable read-only | Mandatory 3.2 rehearsal proves it, else Option B (rebuild) |
-| U2 | Railway `DATABASE_URL` pooled-vs-direct topology doc conflict | Confirm live Railway value before the window; is a separate DIRECT migration credential provisioned |
+| U2 | Railway topology | CLOSED 2026-07-19 (read-only, names/booleans only): backend `web` + `worker` DATABASE_URLs BOTH pooled; NO MIGRATION_DATABASE_URL on any service. Credential delivery = Part 13-CRED (owner-injected ephemeral, same role) |
 | U3 | Checksum + schema assertions empirically validated on disposable local PG (31/31 matrix); the live-DB harness simulates Prisma's ledger shape, so `migrate status` at execution remains the final belt | Run preflight + `migrate status` at execution |
 | U4 | Live deployed worker env (`MAINTENANCE_*` already set?) | Verify at execution |
 | U5 | Both branches `protected:false` | Pre-window backup (branch for staging, Snapshot for production) is the mitigation; consider protection for the window |
 | U6 | D65 `MerchantAgreementRecord` immutability is app-level only (no DB trigger) | Unchanged by this window; open solicitor question |
 | U7 | Neon Snapshot availability is plan-dependent (production windows only; staging uses a backup branch) | Confirm `neon snapshots list` works before a production window |
 | U8 | `lock_timeout` via connection-string `options` unverified for Prisma 7 engine | Prefer `ALTER ROLE ... SET`; test the connection-string fallback on a disposable connection |
-| U9 | Probe cleanup gaps (MerchantAgreementRecord FK + orphaned R2 PDF) | RESOLVED: `prisma/cleanup-agreement-probe.ts` built + tested (Part 6.2); R2 lane exercised at the staging rehearsal |
+| U9 | Probe cleanup gaps (MerchantAgreementRecord FK + orphaned R2 PDF) | Tool built + locally guard-tested + DB lane live-proven in the core rehearsal; R2 lanes NOT yet live-proven: scheduled in the completion rehearsal (Part 14.10) |
 | U10 | Secret connection strings / DIRECT endpoint values | Not read (boundary); operator injects at execution |
 
 ## 10. Open owner decisions (consequential)
 1. **Production structure:** the recommended two-window split (4.1/4.2) vs a single 11-migration window.
 2. **Branch protection** on the target during the window (provider change)?
-3. **Railway topology confirmation** (U2) + is a separate DIRECT migration credential provisioned?
-4. **Staging recovery (Part 3.8 fork):** approve Option A (in-place head-restore from the backup
-   branch) as primary IF the mandatory 3.2 rehearsal proves it cleanly resets a child branch with a
-   stable connection; otherwise Option B (rebuild from the backup branch) is the recovery. Staging is
-   a child branch, so neither Snapshot-create nor PITR is available on it.
+3. **DIRECT migration credential delivery** (U2 topology is CLOSED: Railway backend + worker are
+   both pooled and no MIGRATION_DATABASE_URL exists anywhere). Recommended method in Part 13-CRED:
+   same-role (`neondb_owner`) direct URI, owner-injected as an ephemeral env var in the operator
+   shell at window time; never stored, committed, or added to Railway; no new role (a second role
+   would reintroduce the ownership churn that the H2 inspection just ruled out). Owner approves the
+   method + performs the injection at the window.
+4. **Staging recovery: RESOLVED 2026-07-19 = Option B** (see Part 3.8). Option A remains untested
+   (tooling-blocked), revisitable only via a dedicated disposable rehearsal if a management-API key
+   is ever provisioned.
+5. **Completion rehearsal approval** (Part 14): disposable branches/computes + uniquely-prefixed
+   disposable R2 objects + the credential-injection dry-run.
 
 ## 11. Cross-check: Codex issues -> resolution
 
@@ -622,7 +649,7 @@ Round 4 (four findings, 2026-07-19d):
 | 1. Contradictory Option-B rehearsal wording | The stale "restore into a scratch DB" bullet in Part 3.8 removed; ONE authoritative procedure remains (3.2 step 8: pre-change dump at 57 -> migrate the SAME target to 63 -> restore the pre-change dump INTO it over its own endpoint -> prove `staging_pre`), with 3.8 explicitly deferring to it and naming the scratch-DB variant as NOT the rehearsal |
 | 2. `includes()` target identity too weak | ANCHORED identity: `--target` must EQUAL the full hostname or its exact first label (Neon endpoint id), min 8 chars. Negative tests 5/5: short broad, broad substring, 8-char partial of the host, near-match host, suffix fragment all exit 1 (Part 6.2) |
 | 3. Production verification posture undefined | Part 4.4: production is NON-WRITE ONLY (preflight scenarios, migrate status, boot/scheduler health, health endpoint, live-traffic monitoring); NO D65 legal record, NO R2 object, NO fixture, NO probe that writes even an audit row is ever created on production by verification; write-path assurance = same-SHA + identical-schema (identity preflight) + staging battery; any future production write-probe is a separate owner decision. Cleanup tool = staging-only by construction |
-| 4. R2 claim vs behaviour | prepareR2 now proves LIVE delete capability with a real sentinel DeleteObject BEFORE any DB deletion (creds + bucket + delete permission; a failure aborts with rows untouched: empirically verified with an unreachable endpoint). Claim NARROWED: sentinel proves bucket-level capability at T0; per-key/mid-run failures after DB deletion are collected -> non-zero exit + keys -> owner-gated reconciliation; success AND failure paths exercised in the staging rehearsal |
+| 4. R2 claim vs behaviour | prepareR2 now proves LIVE delete capability with a real sentinel DeleteObject BEFORE any DB deletion (creds + bucket + delete permission; a failure aborts with rows untouched: empirically verified with an unreachable endpoint). Claim NARROWED: sentinel proves bucket-level capability at T0; per-key/mid-run failures after DB deletion are collected -> non-zero exit + keys -> owner-gated reconciliation. **AMENDED 2026-07-19: the live R2 success/failure lanes were NOT exercised in the core rehearsal; they run in the owner-gated completion rehearsal (Part 14)** |
 
 Round 3 (four findings, 2026-07-19c):
 
@@ -657,3 +684,234 @@ whitespace clean.
 Confirmation: no migration, deploy, provider/snapshot/branch, secret, or shared-data action was
 performed in preparing this packet. All steps are owner-gated. See the retained six-packet packet §9
 for the #537 evidence-UI activation checkpoint (MERGED DORMANT).
+
+---
+
+## 12. Core rehearsal 2026-07-19: as-executed evidence (precise proven / not-proven)
+
+Owner-authorized; disposable resources only; real staging and production verified unchanged after.
+Rehearsal `<CANDIDATE>` = `e3b61f2d` (the #532 squash = then-current main HEAD; migration-delta 0;
+63-set confirmed).
+
+As-executed: disposable branch created from staging (auto-expiry safety net) -> fail-closed identity
+preflight `staging_pre` PASS (its FIRST live-Neon run: validates the sha256-checksum assumption
+against Prisma's real ledger rows) -> `pg_dump` custom pre-state (456 TOC entries; merchants=21
+users=105 vouchers=50 redemptions=37) -> REAL mechanism migration (fresh candidate worktree, in-tree
+`npm ci`, node 24.16.0 / npm 11.13.0 / LOCAL prisma 7.8.0) applied exactly the 6 packets ->
+`staging_post` PASS with all pre-existing data intact and new tables empty -> cleanup tool exercised
+live (dry-run; FK-restrict block demonstrated; anchored endpoint-id `--target` matched; gated apply;
+merchant delete unblocked) -> RECOVERY: `DROP SCHEMA public CASCADE` + `pg_restore
+--single-transaction --exit-on-error` into the SAME endpoint, exit 0 -> `staging_pre` PASS on the
+recovered state; recovered counts EXACTLY matched the pre-dump records; one endpoint/connection
+served the whole cycle. Disposable branch deleted (verified by empty search); dump + connection-URI
+files purged.
+
+**PROVEN:** the six packets apply cleanly by the real tooling to real staging-derived data; the
+Option B recovery MECHANISM end-to-end on one stable endpoint; schema-definition identity + ledger +
+checksum equality pre vs recovered (the full fail-closed preflight); exact row-count equality on
+Merchant / User / Voucher / VoucherRedemption; error-free transactional restore; the cleanup tool's
+DB lane against real Neon.
+
+**NOT PROVEN (wording correction: the recovered state was NOT shown "byte-equivalent"):** full
+logical data equality (no per-table content digests were taken; Part 14 adds them); ownership/ACL
+outcomes under any role other than the single dev role used throughout (H2 behavior half);
+recovery under live consumer sessions (H1); the backup-branch attach-compute + cross-branch dump
+path (M4); the R2 success/failure lanes (M5); the lock-timeout capture/set/restore controls under
+concurrency (M6); Option A in any form.
+
+## 13. Closure checklist (H1, H2, M3-M7): executable
+
+Each item: command(s) -> expected -> stop condition -> cleanup. Inspection halves executed
+read-only 2026-07-19 are marked CLOSED with their evidence.
+
+1. **H1 sessions + guarded DROP (real window + Part 14 rehearsal).**
+   Stop the staging backend + worker SERVICES (not merely "no writes"): Railway dashboard stop
+   (owner action). Verify: `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()
+   AND pid<>pg_backend_pid();` -> expected **0**; stop condition: nonzero after service stop
+   (investigate the holder; never proceed). Run the recovery DROP under
+   `SET lock_timeout='5s'; SET statement_timeout='60s';` in the same session -> expected: completes
+   in seconds; stop condition: SQLSTATE 55P03 (a session still holds a lock). Cleanup: restart the
+   services only after recovery verification.
+2. **H2 role/ownership/GRANT model. INSPECTION CLOSED 2026-07-19 (read-only, live staging):**
+   distinct table owners = **1** (`neondb_owner`); grants to non-owner roles = **0**; RLS
+   policies/enabled tables = **0**; non-system schemas = `public` only; the only default ACLs are
+   Neon-internal (`cloud_admin` r/S on public). Residual behavior half: the restore must RUN AS
+   `neondb_owner` (the Part 13-CRED method guarantees this); confirmed-by-construction once
+   the credential method is followed. Stop condition: any second app role or non-owner grant appears
+   before the window (re-run the inspection at window open).
+3. **M3 destructive path under the REAL injected credential (Part 14).**
+   On the disposable target only, using the owner-injected credential: run the full DROP+restore
+   cycle -> expected: identical results to the core rehearsal; stop: any permission error.
+4. **M4 backup-branch cross-dump (Part 14).** Create the backup branch of the disposable target;
+   verify its compute; `pg_dump` FROM the backup's endpoint; restore INTO the target -> expected:
+   deep-verification PASS (item 7); stop: dump/restore error; cleanup: delete backup branch.
+5. **M5 R2 lanes (Part 14; owner-approved disposable objects only).** Success lane: put a
+   uniquely-prefixed disposable object (`document/rehearsal-r2-<uuid>/...`), seed a matching probe row on the
+   disposable DB, run the cleanup tool with `--delete-r2` -> expected: sentinel probe OK, row+object
+   deleted, exit 0. Failure lane (NARROWED CLAIM): unreachable endpoint -> expected: capability
+   probe FAILS, exit 1, DB rows untouched: this proves the PRE-DELETION capability-failure path
+   only; a per-key/mid-run failure AFTER a successful sentinel is not safely reproducible and
+   remains the documented owner-gated reconciliation residual (details Part 14 step 7). Never
+   read/overwrite/delete any pre-existing object; cleanup: verify the prefix lists empty afterward.
+6. **M6 timeout capture/set/restore under concurrency (Part 14).** Capture
+   `SELECT rolconfig FROM pg_roles WHERE rolname=current_user;` -> set timeouts -> hold an open
+   transaction lock from a second session -> run a conflicting DDL -> expected: 55P03 fail-fast ->
+   release -> re-run OK -> restore per Part 5 option 2 (exact prior values; RESET only if previously
+   absent) -> re-query `rolconfig` -> expected: byte-identical to capture. Stop: any residue.
+7. **M7 hidden-object coverage. INSPECTION CLOSED 2026-07-19 (read-only, live staging):**
+   sequences **0** (all ids are TEXT; no sequence-position risk), publications **0**, subscriptions
+   **0**, matviews **0**, RLS **0**, extensions = `plpgsql` only, single `public` schema; the one
+   replication slot is Neon's internal PHYSICAL `wal_proposer_slot` (platform-managed; not dumped,
+   not affected by schema drop). Residual: per-table logical digests added to Part 14 verification;
+   re-run this inventory at window open (stop condition: any new nonzero).
+
+### 13-CRED: DIRECT migration-credential delivery (recommended method)
+Use the SAME role the schema already belongs to (`neondb_owner`, per the CLOSED H2 inspection:
+single owner, zero secondary grants) over the target DIRECT (non-pooler) endpoint. Delivery: the
+owner retrieves the direct connection string from the Neon console at window/rehearsal start and
+injects it as an EPHEMERAL environment variable in the operator shell only; it is never stored on
+disk, never committed, never added to Railway/Vercel, and the shell is closed when the window ends.
+NO NEW ROLE is created: a second role would reintroduce exactly the ownership/ACL churn that H2
+ruled out, and role creation/rotation is outside authorization. Rejected alternatives: a dedicated
+migration role (ownership churn + credential sprawl); storing a MIGRATION_DATABASE_URL in Railway
+(persistent secret with no runtime consumer). Approval + injection are owner actions at each window.
+
+## 14. COMPLETION REHEARSAL (bounded; owner-gated; smallest safe design; rev 2026-07-19f)
+
+Purpose: close every NOT-PROVEN item from Part 12 in ONE disposable pass. Nothing touches real
+staging/production; all writes on disposable resources; everything deleted afterward.
+
+**Credential handling (Finding-3 rule; EXECUTABLE via the checked-in wrapper
+`docs/runbooks/rehearsal-context.sh`):** TWO separately injected ephemeral DIRECT connections are
+held simultaneously as ISOLATED NAMED CONTEXTS. The endpoint identities are PINNED FIRST,
+independently of credential entry: `ctx_pin D <label>` / `ctx_pin B <label>` take the endpoint
+first labels FROM THE BRANCH-CREATION EVIDENCE (a logged transcription step), require D and B to
+be DISTINCT, and only then does `ctx_load D`/`ctx_load B` supply credentials (`read -s` password;
+no history echo): a host whose first label differs from the pin is REFUSED, a load can never set or
+change a pin, and every operation re-verifies the pinned identity (including the D!=B distinctness),
+so once the pins are transcribed correctly, `ctx_run B pg_dump ...` and `ctx_run D pg_restore ...`
+cannot be reversed (the honest limit: a mis-transcribed pin is caught only by the logged
+transcription check, not by the tool). Only the fixed names D and B exist; the wrapper contains NO
+eval/dynamic shell evaluation; every entrypoint FAILS CLOSED if `set -x` tracing is active (before
+reading or expanding any credential); ALL operational output (prompts, banners, errors) goes to
+STDERR so captured stdout is exactly the child command's stdout
+(`ctx_run D psql ... > manifest.txt` captures the manifest alone). Values materialise only as libpq `PG*`
+environment variables inside a per-command SUBSHELL: psql / pg_dump / pg_restore are invoked with NO
+connection string in any command argument. Prisma receives `DATABASE_URL` via `ctx_prisma D ...`,
+constructed inside the subshell (password URI-encoded) and exported env-only: never argv, history,
+logs, chat, or evidence files. The equivalent owner-controlled ephemeral R2 injection is
+`r2_load` + `r2_run` in the same wrapper (endpoint/bucket visible, key id + secret hidden,
+subshell-env only). Nothing is persisted; the operator shell is closed at the end; evidence files
+record host FIRST LABELS only. DATABASE_URL is built inside the subshell with EVERY component
+(user, password, database) URI-encoded. Wrapper behaviour is proven by the COMMITTED suite
+`tests/shell/rehearsal-context.test.sh` (bash and zsh; non-DB portion also run in CI via
+`tests/shell/rehearsal-wrapper.shell.test.ts`; `--with-db` adds the manifest matrix on a
+self-created disposable local PostgreSQL): clean stdout capture, invalid-name refusal, unpinned/
+swapped/same-endpoint refusals, xtrace fail-closed with a marker secret proven absent from
+stdout+stderr, special-character credential preservation without printing, empty-input refusals,
+full DATABASE_URL encoding, and the manifest changed/duplicate/NULL/bytea/empty/added/removed/
+order-invariance matrix.
+
+**Deep-verification manifest (Finding-4 spec; replaces the earlier illustrative key-table digest):**
+- Table-selection rule: EVERY base table in schema `public` (`information_schema.tables` where
+  `table_type='BASE TABLE'`), INCLUDING `"_prisma_migrations"`. No exclusions.
+- Per-table record: `(table_name, row_count, digest)` where
+  `digest = coalesce(md5(string_agg(h, '' ORDER BY h)), 'EMPTY')` over
+  `(SELECT md5(t::text) AS h FROM "<table>" t)`.
+- Determinism: rows are hashed individually (`md5(row::text)`) and aggregated ORDERED BY THE ROW
+  HASH itself, so the manifest is independent of physical row order and of any primary-key shape.
+- NULL / binary / text representation: the Postgres composite-record text form (`t::text`) is the
+  canonical serialization; it is identical for identical data on identical DDL, and identical DDL
+  is independently guaranteed by the fail-closed identity preflight run alongside every manifest.
+  `bytea` renders as `\x..`; NULL renders as an empty position with commas preserved.
+- Empty tables: `row_count = 0`, `digest = 'EMPTY'` (the coalesce arm), so empties are asserted,
+  not skipped.
+- Generation: the CHECKED-IN artifact `docs/runbooks/logical-manifest.sql` (format(%I)-quoted for
+  arbitrary table names; pins the representation-sensitive session settings TimeZone=UTC,
+  DateStyle=ISO, bytea_output=hex, extra_float_digits=3, IntervalStyle=postgres; output ordered by
+  table_name COLLATE "C"). Invocation (header-free, tuples-only):
+  `ctx_run D psql -X -q -tA -v ON_ERROR_STOP=1 -f docs/runbooks/logical-manifest.sql > m.txt`;
+  the fail-closed comparison gate is `diff -u baseline.txt m.txt` (non-zero exit on ANY table-set,
+  count or content mismatch). Truthful framing: this is DETERMINISTIC LOGICAL-DRIFT EVIDENCE on
+  identical DDL, not cryptographic proof and not byte equivalence. Empirically proven on disposable
+  PG16: changed row, duplicate row, NULL flip, bytea change, added table and removed table each
+  change the output; physical row reorder does not; empty tables are asserted as `0|EMPTY`
+  (including `"_prisma_migrations"` and a quoted `Weird "Name` table). Chosen over dump-text
+  diffing because it is compact, ordering-insensitive and gives per-table failure attribution.
+- Required equalities: PRE-CHANGE manifest(D) == manifest(B) (proves B is a faithful backup);
+  POST-RESTORE manifest(D) == the pinned PRE-CHANGE manifest(D).
+
+Sequence (single disposable branch D from staging + its backup child B):
+1. Create D (child of staging, auto-expiry) -> preflight `staging_pre` PASS (via D's env).
+2. Create B (child of D) = the backup-branch analog; verify B's compute (M4 setup).
+3. **Owner injects the TWO ephemeral DIRECT connections** (D and B) per the Finding-3 rule above.
+   All subsequent DB actions use them (M3).
+4. PRE deep-baseline: run the manifest on D AND on B (must be EQUAL: pins the baseline and proves
+   the backup); run the Part 13.7 object inventory; snapshot `pg_stat_activity`. Store manifests
+   locally as evidence (they contain digests + counts only, no data, no hosts).
+5. M6 drill (connection-correct, state-neutral; D at 57):
+   a. Capture `SELECT rolconfig FROM pg_roles WHERE rolname=current_user;` (session 1).
+   b. Set with TWO SEPARATE, safely-quoted statements (a combined `SET a=..., b=...` is a
+      PostgreSQL syntax error: empirically verified on disposable PG16):
+      `SELECT format('ALTER ROLE %I SET lock_timeout = %L', current_user, '5s') \gexec`
+      `SELECT format('ALTER ROLE %I SET statement_timeout = %L', current_user, '60s') \gexec`
+      then PROVE via a FRESH connection: `SHOW lock_timeout; SHOW statement_timeout;` -> expected
+      5s / 60s (role defaults apply only to NEW connections; testing on the setting session would
+      be vacuous). Restoration likewise uses separate statements per setting (Part 5 option 2:
+      exact prior value via `SET ... = %L`, or `RESET` if previously absent), re-verified from
+      ANOTHER fresh connection.
+   c. Session X: `BEGIN; SELECT * FROM "Merchant" LIMIT 1;` (holds AccessShare). Fresh session Y
+      runs a conflicting DDL -> expected FAIL SQLSTATE 55P03 within ~5s.
+   d. Release X. The success proof is ROLLBACK-ONLY:
+      `BEGIN; ALTER TABLE "Merchant" ADD COLUMN _m6_probe integer; ROLLBACK;` -> expected: succeeds
+      inside the transaction, leaves NO persistent change.
+   e. Re-run schema identity: preflight `staging_pre` on D -> PASS (proves state-neutrality).
+   f. Restore per Part 5 option 2 (exact prior values; RESET only if previously absent); verify
+      `rolconfig` byte-identical to the capture AND verify from ANOTHER fresh connection that
+      `SHOW lock_timeout` is back to the pre-drill default.
+6. Migrate D to 63 with the local prisma binary (D env) -> preflight `staging_post` PASS.
+7. **M5 R2 lanes (D at 63, where `MerchantAgreementRecord` EXISTS):**
+   a. Choose the disposable key `document/rehearsal-r2-<uuid>/probe.pdf` (INSIDE the cleanup
+      tool's permitted `document/` namespace; `<uuid>` freshly generated).
+   b. Prefix isolation proof (exact commands; the checked-in helper `prisma/r2-rehearsal.ts` is
+      HARD-CONFINED to `document/rehearsal-r2-<uuid>/` and never issues a broad LIST):
+      `r2_run node_modules/.bin/tsx prisma/r2-rehearsal.ts verify-empty <uuid>` -> expected exit 0
+      (prefix empty). No existing object is read, listed, overwritten or deleted at any point.
+   c. Success lane (exact commands):
+      `r2_run node_modules/.bin/tsx prisma/r2-rehearsal.ts put <uuid> probe.pdf`;
+      seed the probe row:
+      `ctx_run D psql -X -v ON_ERROR_STOP=1 -c "INSERT INTO \"Merchant\"(id,\"businessName\",\"updatedAt\") VALUES ('"'"'reh-probe-m1'"'"','"'"'RedeemoRehearsalProbe-<uuid>-Cafe'"'"',now());"`
+      and the matching `MerchantAgreementRecord` row with `pdfKey =
+      'document/rehearsal-r2-<uuid>/probe.pdf'` (full INSERT in the window log);
+      then the cleanup execution:
+      `ctx_env D r2_run env REDEEMO_CLEANUP_OWNER_APPROVED=yes node_modules/.bin/tsx prisma/cleanup-agreement-probe.ts --prefix "RedeemoRehearsalProbe-" --apply --target <D endpoint first label> --delete-r2`
+      (`ctx_env D` injects DATABASE_URL and `r2_run` injects R2_*, both subshell-env-only) ->
+      expected: fresh-random sentinel capability probe OK, DB row deleted, THIS object deleted,
+      exit 0; final check:
+      `r2_run node_modules/.bin/tsx prisma/r2-rehearsal.ts verify-empty <uuid>` -> exit 0.
+   d. Failure lane (NARROWED CLAIM): re-seed a probe row; run with an unreachable `R2_ENDPOINT`
+      -> expected: capability probe FAILS, exit 1, DB row VERIFIED still present. This proves
+      the PRE-DELETION capability-failure path ONLY. A per-key or mid-run failure AFTER a
+      successful sentinel is NOT safely reproducible against a real bucket and remains
+      UNPROVEN; its handling stays what the tool implements (collect, non-zero exit, keys
+      listed) with owner-gated manual reconciliation as the documented residual.
+   e. Clean the re-seeded probe row (tool without `--delete-r2`); final prefix LIST -> EMPTY.
+8. H1 drill: attach a dummy "consumer" session to D; the sessions check
+   (`pg_stat_activity`, Part 13.1) reports count>0 -> close it -> count=0 -> proceed.
+9. M4+M3: `pg_dump` FROM B (B env; cross-branch); recovery INTO D (guarded DROP under the M6
+   timeouts + `pg_restore --single-transaction --exit-on-error`, D env).
+10. Deep verification: preflight `staging_pre` PASS on D + manifest(D) == pinned step-4 manifest
+    + object inventory EQUAL. (Digest equality upgrades "counts match" to content equality.)
+11. Delete B, D, dumps, manifest files; verify staging/production unchanged (baseline queries).
+
+Owner approvals required to start Part 14: (a) create/delete the TWO disposable branches + computes;
+(b) the disposable-prefix R2 object write + deletions of step 7 (never touching existing
+objects), EXPLICITLY INCLUDING the cleanup tool's fresh-random capability-sentinel DeleteObject
+against `document/__cleanup-capability-probe__/<uuid>` (its own marker namespace; deleting a
+nonexistent random key: the capability signal);
+(c) the TWO ephemeral credential injections per Part 13-CRED / the Finding-3 rule (owner provides
+them at rehearsal start; not stored); (d) running the deliberate blocking/dummy sessions on the
+disposable branch only.
+Stop conditions: any preflight FAIL, any permission error, any manifest mismatch, any R2 LIST
+returning a non-empty result outside the disposable prefix's own lifecycle, any operation that
+would target a non-disposable resource. Cleanup is mandatory regardless of outcome.
