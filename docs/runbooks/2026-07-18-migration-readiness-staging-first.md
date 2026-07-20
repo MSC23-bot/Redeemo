@@ -746,7 +746,7 @@ read-only 2026-07-19 are marked CLOSED with their evidence.
    verify its compute; `pg_dump` FROM the backup's endpoint; restore INTO the target -> expected:
    deep-verification PASS (item 7); stop: dump/restore error; cleanup: delete backup branch.
 5. **M5 R2 lanes (Part 14; owner-approved disposable objects only).** Success lane: put a
-   uniquely-prefixed disposable object (`rehearsal-r2-<uuid>/...`), seed a matching probe row on the
+   uniquely-prefixed disposable object (`document/rehearsal-r2-<uuid>/...`), seed a matching probe row on the
    disposable DB, run the cleanup tool with `--delete-r2` -> expected: sentinel probe OK, row+object
    deleted, exit 0. Failure lane (NARROWED CLAIM): unreachable endpoint -> expected: capability
    probe FAILS, exit 1, DB rows untouched: this proves the PRE-DELETION capability-failure path
@@ -783,20 +783,34 @@ staging/production; all writes on disposable resources; everything deleted after
 
 **Credential handling (Finding-3 rule; EXECUTABLE via the checked-in wrapper
 `docs/runbooks/rehearsal-context.sh`):** TWO separately injected ephemeral DIRECT connections are
-held simultaneously as ISOLATED NAMED CONTEXTS: `ctx_load D` (target) and `ctx_load B` (backup),
-each prompting interactively (`read -s` for the password; no history echo) and each gated by an
-explicit target-identity check (the expected endpoint FIRST LABEL is declared first; a host whose
-first label differs is REFUSED at load, and every `ctx_run` re-verifies), so `ctx_run B pg_dump ...`
-and `ctx_run D pg_restore ...` cannot be reversed. Values materialise only as libpq `PG*`
+held simultaneously as ISOLATED NAMED CONTEXTS. The endpoint identities are PINNED FIRST,
+independently of credential entry: `ctx_pin D <label>` / `ctx_pin B <label>` take the endpoint
+first labels FROM THE BRANCH-CREATION EVIDENCE (a logged transcription step), require D and B to
+be DISTINCT, and only then does `ctx_load D`/`ctx_load B` supply credentials (`read -s` password;
+no history echo): a host whose first label differs from the pin is REFUSED, a load can never set or
+change a pin, and every operation re-verifies the pinned identity (including the D!=B distinctness),
+so once the pins are transcribed correctly, `ctx_run B pg_dump ...` and `ctx_run D pg_restore ...`
+cannot be reversed (the honest limit: a mis-transcribed pin is caught only by the logged
+transcription check, not by the tool). Only the fixed names D and B exist; the wrapper contains NO
+eval/dynamic shell evaluation; every entrypoint FAILS CLOSED if `set -x` tracing is active (before
+reading or expanding any credential); ALL operational output (prompts, banners, errors) goes to
+STDERR so captured stdout is exactly the child command's stdout
+(`ctx_run D psql ... > manifest.txt` captures the manifest alone). Values materialise only as libpq `PG*`
 environment variables inside a per-command SUBSHELL: psql / pg_dump / pg_restore are invoked with NO
 connection string in any command argument. Prisma receives `DATABASE_URL` via `ctx_prisma D ...`,
 constructed inside the subshell (password URI-encoded) and exported env-only: never argv, history,
 logs, chat, or evidence files. The equivalent owner-controlled ephemeral R2 injection is
 `r2_load` + `r2_run` in the same wrapper (endpoint/bucket visible, key id + secret hidden,
 subshell-env only). Nothing is persisted; the operator shell is closed at the end; evidence files
-record host FIRST LABELS only. Wrapper behaviours (identity refusal, empty-input refusal, D+B
-coexistence without reversal, env-only prisma URL, unloaded-R2 refusal) are proven by disposable
-local-PG tests; the wrapper is sourceable in bash and zsh.
+record host FIRST LABELS only. DATABASE_URL is built inside the subshell with EVERY component
+(user, password, database) URI-encoded. Wrapper behaviour is proven by the COMMITTED suite
+`tests/shell/rehearsal-context.test.sh` (bash and zsh; non-DB portion also run in CI via
+`tests/shell/rehearsal-wrapper.shell.test.ts`; `--with-db` adds the manifest matrix on a
+self-created disposable local PostgreSQL): clean stdout capture, invalid-name refusal, unpinned/
+swapped/same-endpoint refusals, xtrace fail-closed with a marker secret proven absent from
+stdout+stderr, special-character credential preservation without printing, empty-input refusals,
+full DATABASE_URL encoding, and the manifest changed/duplicate/NULL/bytea/empty/added/removed/
+order-invariance matrix.
 
 **Deep-verification manifest (Finding-4 spec; replaces the earlier illustrative key-table digest):**
 - Table-selection rule: EVERY base table in schema `public` (`information_schema.tables` where
@@ -859,13 +873,22 @@ Sequence (single disposable branch D from staging + its backup child B):
 7. **M5 R2 lanes (D at 63, where `MerchantAgreementRecord` EXISTS):**
    a. Choose the disposable key `document/rehearsal-r2-<uuid>/probe.pdf` (INSIDE the cleanup
       tool's permitted `document/` namespace; `<uuid>` freshly generated).
-   b. Prefix isolation proof: LIST objects with prefix `document/rehearsal-r2-<uuid>/` ONLY ->
-      expected EMPTY. No broad/unprefixed list is ever issued; no existing object is read,
-      listed, overwritten or deleted at any point.
-   c. Success lane: PUT the disposable object at that key; seed a probe merchant + agreement row
-      on D whose `pdfKey` = that key; run the cleanup tool `--apply --delete-r2` (anchored
-      `--target` = D's endpoint first label; owner env set) -> expected: sentinel capability
-      probe OK, DB row deleted, THIS object deleted, exit 0; LIST the prefix -> EMPTY.
+   b. Prefix isolation proof (exact commands; the checked-in helper `prisma/r2-rehearsal.ts` is
+      HARD-CONFINED to `document/rehearsal-r2-<uuid>/` and never issues a broad LIST):
+      `r2_run node_modules/.bin/tsx prisma/r2-rehearsal.ts verify-empty <uuid>` -> expected exit 0
+      (prefix empty). No existing object is read, listed, overwritten or deleted at any point.
+   c. Success lane (exact commands):
+      `r2_run node_modules/.bin/tsx prisma/r2-rehearsal.ts put <uuid> probe.pdf`;
+      seed the probe row:
+      `ctx_run D psql -X -v ON_ERROR_STOP=1 -c "INSERT INTO \"Merchant\"(id,\"businessName\",\"updatedAt\") VALUES ('"'"'reh-probe-m1'"'"','"'"'RedeemoRehearsalProbe-<uuid>-Cafe'"'"',now());"`
+      and the matching `MerchantAgreementRecord` row with `pdfKey =
+      'document/rehearsal-r2-<uuid>/probe.pdf'` (full INSERT in the window log);
+      then the cleanup execution:
+      `ctx_env D r2_run env REDEEMO_CLEANUP_OWNER_APPROVED=yes node_modules/.bin/tsx prisma/cleanup-agreement-probe.ts --prefix "RedeemoRehearsalProbe-" --apply --target <D endpoint first label> --delete-r2`
+      (`ctx_env D` injects DATABASE_URL and `r2_run` injects R2_*, both subshell-env-only) ->
+      expected: fresh-random sentinel capability probe OK, DB row deleted, THIS object deleted,
+      exit 0; final check:
+      `r2_run node_modules/.bin/tsx prisma/r2-rehearsal.ts verify-empty <uuid>` -> exit 0.
    d. Failure lane (NARROWED CLAIM): re-seed a probe row; run with an unreachable `R2_ENDPOINT`
       -> expected: capability probe FAILS, exit 1, DB row VERIFIED still present. This proves
       the PRE-DELETION capability-failure path ONLY. A per-key or mid-run failure AFTER a
@@ -882,7 +905,10 @@ Sequence (single disposable branch D from staging + its backup child B):
 11. Delete B, D, dumps, manifest files; verify staging/production unchanged (baseline queries).
 
 Owner approvals required to start Part 14: (a) create/delete the TWO disposable branches + computes;
-(b) the disposable-prefix R2 object write + deletions of step 7 (never touching existing objects);
+(b) the disposable-prefix R2 object write + deletions of step 7 (never touching existing
+objects), EXPLICITLY INCLUDING the cleanup tool's fresh-random capability-sentinel DeleteObject
+against `document/__cleanup-capability-probe__/<uuid>` (its own marker namespace; deleting a
+nonexistent random key: the capability signal);
 (c) the TWO ephemeral credential injections per Part 13-CRED / the Finding-3 rule (owner provides
 them at rehearsal start; not stored); (d) running the deliberate blocking/dummy sessions on the
 disposable branch only.
