@@ -103,6 +103,17 @@ was itself the pin (document each).
 
 ## 4. As-shipped addendum
 
+**Merged to `origin/main` 2026-07-13 (SHA-bound, in order):** #490 (`9cc54bbd`, S5a, parent
+programme plan) · #493 (`523fbc77`, S5b, restacked head `57969abb`, Codex anchor `300a63c5`) ·
+#501 (`08bda196`, W1+W1.1 combined squash, restacked `181e5090`, anchor `11155e93`) · #504
+(`040cc243`, W1.2 `react-native-maps` 1.20.1 -> 1.29.0, successor of #502 which GitHub
+auto-closed on stacked-base deletion, restacked `21f191a3`, anchor `ebd7c4fb`). Full citation
+record: `docs/PROJECT-STATE.md` §4.1 Map Phase 2 paragraph (2026-07-13). **W2 build started
+2026-07-13:** `feat/map-w2a-ticket-markers` (pins) and `feat/map-w2b-sheets-cards`
+(list/filter sheets + carousel card), owner-approved via the mockup board with edit rounds 1
+and 2 applied (see §2 above). **W2 + F6 MERGED 2026-07-19:** see the W2/F6 as-shipped
+section at the end of this addendum.
+
 ### W1 (2026-07-12, branch `feat/map-p2-w1-walkthrough-fixes`, stacked on `feat/map-p2-s5b-chrome`)
 
 Customer-app-only. Full customer-app jest green (324 suites / 3076 tests; map subset 27
@@ -286,3 +297,32 @@ scenario, warm-namespace switchback, canonical live merge), +2 MapPins comparato
 (clone no-rerender; moved-coordinate rerender), +2 CustomPin F14 absence pins, F15 chip
 suite rewritten (4 tests); -8 badge tests, -2 W1 chip tests (supersessions above). Existing
 store tests updated for the new `categoryId` parameter position (behaviour pins unchanged).
+
+### W2 + F6 (merged 2026-07-19, branches `feat/map-w2a-ticket-markers` + `fix/map-distance-user-relative` + `feat/map-w2b-sheets-cards`)
+
+**Merged to `origin/main` 2026-07-19 (SHA-bound, in order):** #506 (`f808d5ff`) W2a
+ticket-lockup markers + Redeemo-red clusters (F8; realises the ticket-pin direction from §2,
+with W2-D1 red clusters and W2-D6 no-count-on-pins both honoured) · #507 (`66f21c7b`) F6
+backend fix: the Map in-area card/list `distance`/`distanceMetres` is now computed from the
+caller's GPS against branch coordinates (null without GPS, client drops the distance line),
+not the moving viewport centre; ranking stays viewport-relative; value-only change to the
+two existing wire fields, exactly as proposed in the W1 section above · #508 (`4f802088`)
+W2b filter sheet v2 + ledger list + carousel-card redesign (F9-F11).
+
+**Design process:** SEVEN owner design rounds on the iOS Simulator (extending the two mockup-
+board edit rounds in §2). Round highlights, in arrival order: ticket lockups + red clusters
+(W2a foundation); cream sheet surfaces; board-layout list rows (the "ledger" list); a shared
+`TicketMark` component; a wall-reflection segmented control; the totals decision (W2-D7
+below); and a sheet-closes-on-navigate Modal fix. Plus one Codex correction round enforcing
+TypeScript 5.9.3 proof discipline: `npx tsc` in the app dir can resolve the ROOT workspace's
+TypeScript 6.0.3 instead of the app's pinned 5.9.3, so tsc verification must prove which
+binary ran (standing verification note, also recorded in PROJECT-STATE §4.1).
+
+- **W2-D7 (owner decision 2026-07-18): map surfaces show TOTAL voucher savings.** Home tiles
+  still show MAX under the same "Save up to" wording; the platform-alignment decision for
+  Home is OPEN, tracked as register §MAP-P2-TOTALS.
+
+**Disposition:** with this wave the walkthrough finding set F1-F15 is fully closed; the
+remaining follow-ups are the owner-gated register rows (§MAP-P2-CHATTY/-GEOCODE/-COPY/
+-DEVCACHE/-TOTALS). Owner-gated and NOT run: the physical-device EAS dev build (native bump
+#504) and the staging backend deploy carrying #507 live.
