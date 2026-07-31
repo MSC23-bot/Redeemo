@@ -18,3 +18,22 @@ data and must never be treated as operational evidence.
 | `03-merchant-directory-supply-map.png` | Merchant Directory, Map view | Net-new supply map surface |
 | `04-merchant-directory-group-by-region.png` | Merchant Directory, Group-by (Region) view | Region groups with per-group counts; Category group-by toggle |
 | `05-leads-and-onboarding-pipeline.png` | Leads and Onboarding (Wave 1 Screen 1.7 hub + Wave 2 2.11 prospect pipeline) | Inbound pointer, create-draft vs assisted onboarding, in-progress resumes, net-new lead kanban (lead model is net-new; no lead table exists in code) |
+
+## Module screenshot sets (added 2026-07-10, owner-provided)
+
+Owner-captured screenshots of the LOCKED prototype modules, organised per module for the
+merchant-recruitment build (owner direction 2026-07-10: build these modules onto the existing
+admin-web, Merchant 360 first). Same rules as above: partial coverage, synthetic data only,
+never operational evidence. Numbering is capture-time order.
+
+| Folder | Count | Module |
+|---|---|---|
+| `merchant-360/` | 23 | Merchant 360 workspace (Wave 1 Screen 1.6; 13-tab design) |
+| `approval-queue/` | 10 | Approval Queue + per-type review treatments (Wave 1 Screens 1.3/1.4) |
+| `leads-and-onboarding/` | 23 | Leads & Onboarding hub + prospect pipeline + assisted onboarding (Screens 1.7/2.11) |
+
+The full interactive prototype source is the Claude Design handoff bundle at
+`docs/design/admin-panel/prototype-handoff/Redeemo-Admin-Panel-handoff.zip`
+(contains `Redeemo Admin - Foundation.dc.html` + design-system tokens + its own screenshots;
+read its README first). The prototype-execution-log (committed) records the decision register
+D1-D67 governing these screens.
