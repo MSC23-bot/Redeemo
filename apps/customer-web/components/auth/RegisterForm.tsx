@@ -2,7 +2,8 @@
 import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
-import { Eye, EyeOff, ArrowLeft, CheckCircle2, Check, MapPin, Loader2, X } from 'lucide-react'
+import { Eye, EyeOff, ArrowLeft, CheckCircle2, Check, MapPin, Loader2, X, ChevronDown } from 'lucide-react'
+import { COUNTRIES_FOR_PICKER, DEFAULT_COUNTRY, validateNational, type Country } from '@/lib/countries'
 import { authApi, profileApi, ApiError } from '@/lib/api'
 import { saveTokens, saveUser } from '@/lib/auth'
 import { isMarketplaceLive } from '@/lib/prelaunch'
@@ -35,10 +36,10 @@ type PostcodeState = 'idle' | 'loading' | 'valid' | 'invalid'
 /* ── Sub-components ────────────────────────────────────────────────────────── */
 
 function PasswordInput({
-  id, label, value, onChange, autoComplete,
+  id, label, value, onChange, autoComplete, invalid,
 }: {
   id: string; label: string; value: string
-  onChange: (v: string) => void; autoComplete: string
+  onChange: (v: string) => void; autoComplete: string; invalid?: boolean
 }) {
   const [show, setShow] = useState(false)
   return (
@@ -54,7 +55,11 @@ function PasswordInput({
           value={value}
           onChange={e => onChange(e.target.value)}
           required
-          className="w-full bg-white border border-navy/[0.1] rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:border-red/40 focus:ring-2 focus:ring-red/[0.08] transition pr-12"
+          aria-invalid={invalid || undefined}
+          aria-describedby={invalid ? `${id}-error` : undefined}
+          className={`w-full bg-white border rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:ring-2 transition pr-12 ${
+            invalid ? 'border-red-400 focus:border-red-400 focus:ring-red-100' : 'border-navy/[0.1] focus:border-red/40 focus:ring-red/[0.08]'
+          }`}
         />
         <button
           type="button"
@@ -169,7 +174,6 @@ export function RegisterForm() {
   // Step 1 — about you
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [phone, setPhone] = useState('')
   const [dob, setDob] = useState('')
   const [gender, setGender] = useState('')
   const [marketingConsent, setMarketingConsent] = useState(false)
@@ -183,9 +187,33 @@ export function RegisterForm() {
   // Step 2 — interests
   const [selectedInterests, setSelectedInterests] = useState<Set<string>>(new Set())
 
-  // Shared
+  // Phone country picker (mirrors the app: UK pinned and default)
+  const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY)
+  const [nationalNumber, setNationalNumber] = useState('')
+
+  // Shared. Field problems highlight the field itself; the banner is reserved
+  // for network/unknown failures only (owner 2026-07-19).
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(false)
+
+  const inputTone = (id: string) =>
+    fieldErrors[id]
+      ? 'border-red-400 focus:border-red-400 focus:ring-red-100'
+      : 'border-navy/[0.1] focus:border-red/40 focus:ring-red/[0.08]'
+
+  const fieldMsg = (id: string) =>
+    fieldErrors[id] ? (
+      <p id={`${id}-error`} role="alert" className="mt-2 text-[12px] text-red-500">
+        {fieldErrors[id]}
+      </p>
+    ) : null
+
+  const applyFieldErrors = (errs: Record<string, string>) => {
+    setFieldErrors(errs)
+    const first = Object.keys(errs)[0]
+    if (first) setTimeout(() => document.getElementById(first)?.focus(), 30)
+  }
 
   /* ── Postcode lookup (postcodes.io — free, no API key) ── */
   const lookupPostcode = async (raw: string) => {
@@ -229,6 +257,7 @@ export function RegisterForm() {
   const goTo = (next: number) => {
     direction.current = next > step ? 1 : -1
     setError(null)
+    setFieldErrors({})
     setSocialMessage(null)
     setStep(next)
   }
@@ -238,34 +267,46 @@ export function RegisterForm() {
     setSocialMessage(`${name} sign-in is coming soon. Please continue with email below for now.`)
   }
 
-  /* ── Validation ── */
-  const validateStep0 = (): string | null => {
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Please enter a valid email address.'
-    if (password.length < 8) return 'Password must be at least 8 characters.'
-    if (!/[A-Z]/.test(password)) return 'Include at least one uppercase letter in your password.'
-    if (!/[0-9]/.test(password)) return 'Include at least one number in your password.'
-    if (password !== confirmPassword) return 'Passwords do not match.'
-    return null
+  /* ── Validation (field-level; password policy mirrors the backend) ── */
+  const validateStep0 = (): Record<string, string> => {
+    const errs: Record<string, string> = {}
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errs.email = 'Please enter a valid email address.'
+    const pwOk =
+      password.length >= 8 &&
+      /[A-Z]/.test(password) &&
+      /[a-z]/.test(password) &&
+      /\d/.test(password) &&
+      /[^A-Za-z0-9]/.test(password)
+    if (!pwOk) errs.password = 'Password must include uppercase, lowercase, a number, and a special character.'
+    if (password !== confirmPassword) errs['confirm-password'] = 'Passwords do not match.'
+    return errs
   }
 
-  const validateStep1 = (): string | null => {
-    if (!firstName.trim()) return 'Please enter your first name.'
-    if (!lastName.trim()) return 'Please enter your last name.'
-    if (!/^\+[1-9]\d{7,14}$/.test(phone.trim())) {
-      return 'Please enter a valid phone number with country code (e.g. +447700900000).'
+  const validateStep1 = (): Record<string, string> => {
+    const errs: Record<string, string> = {}
+    if (!firstName.trim()) errs.firstName = 'Please enter your first name.'
+    if (!lastName.trim()) errs.lastName = 'Please enter your last name.'
+    const pv = validateNational(country, nationalNumber)
+    if (!pv.ok) errs.phone = pv.message
+    if (!dob) {
+      errs.dob = 'Please enter your date of birth.'
+    } else {
+      const cutoff = new Date()
+      cutoff.setFullYear(cutoff.getFullYear() - 16)
+      if (new Date(dob) > cutoff) errs.dob = 'You must be at least 16 to join Redeemo.'
     }
-    return null
+    return errs
   }
 
   const handleStep0Next = () => {
-    const e = validateStep0()
-    if (e) { setError(e); return }
+    const errs = validateStep0()
+    if (Object.keys(errs).length > 0) { applyFieldErrors(errs); return }
     goTo(1)
   }
 
   const handleStep1Next = () => {
-    const e = validateStep1()
-    if (e) { setError(e); return }
+    const errs = validateStep1()
+    if (Object.keys(errs).length > 0) { applyFieldErrors(errs); return }
     goTo(2)
   }
 
@@ -275,7 +316,9 @@ export function RegisterForm() {
     setIsLoading(true)
     const interestsToSave = interestsOverride ?? selectedInterests
     try {
-      const res = await authApi.register({ email, password, firstName, lastName, phone, marketingConsent })
+      const pv = validateNational(country, nationalNumber)
+      if (!pv.ok) { goTo(1); applyFieldErrors({ phone: pv.message }); setIsLoading(false); return }
+      const res = await authApi.register({ email, password, firstName, lastName, phone: pv.e164, marketingConsent })
       saveTokens(res.accessToken, res.refreshToken)
       saveUser(res.user)
 
@@ -317,12 +360,14 @@ export function RegisterForm() {
     } catch (err) {
       const code = err instanceof ApiError ? (err.code ?? '') : ''
       if (code === 'EMAIL_ALREADY_EXISTS') {
-        setError('An account with that email already exists. Try signing in instead.')
+        goTo(0)
+        applyFieldErrors({ email: 'An account with that email already exists. Try signing in instead.' })
       } else if (code === 'PHONE_ALREADY_EXISTS') {
-        setError('This phone number is already linked to another account. Please use a different number.')
         goTo(1)
+        applyFieldErrors({ phone: 'This phone number is already linked to another account. Please use a different number.' })
       } else if (code === 'PASSWORD_POLICY_VIOLATION') {
-        setError('Password must be at least 8 characters with a number and uppercase letter.')
+        goTo(0)
+        applyFieldErrors({ password: 'Password must include uppercase, lowercase, a number, and a special character.' })
       } else {
         setError('Something went wrong. Please try again.')
       }
@@ -488,7 +533,7 @@ export function RegisterForm() {
 
           {/* ══ Step 0: Credentials ══ */}
           {step === 0 && (
-            <div className="flex flex-col gap-5">
+            <form className="flex flex-col gap-5" noValidate onSubmit={(e) => { e.preventDefault(); handleStep0Next() }}>
               {/* Social login */}
               <div className="flex flex-col gap-3">
                 <button
@@ -542,22 +587,28 @@ export function RegisterForm() {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   required
-                  className="w-full bg-white border border-navy/[0.1] rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:border-red/40 focus:ring-2 focus:ring-red/[0.08] transition"
+                  aria-invalid={fieldErrors.email ? true : undefined}
+                  aria-describedby={fieldErrors.email ? 'email-error' : undefined}
+                  className={`w-full bg-white border rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:ring-2 transition ${inputTone('email')}`}
                 />
+                {fieldMsg('email')}
               </div>
 
               <div>
-                <PasswordInput id="password" label="Password" value={password} onChange={setPassword} autoComplete="new-password" />
+                <PasswordInput id="password" label="Password" value={password} onChange={setPassword} autoComplete="new-password" invalid={!!fieldErrors.password} />
+                {fieldMsg('password')}
                 <PasswordStrength password={password} />
               </div>
 
-              <PasswordInput id="confirm-password" label="Confirm password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" />
+              <div>
+                <PasswordInput id="confirm-password" label="Confirm password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" invalid={!!fieldErrors['confirm-password']} />
+                {fieldMsg('confirm-password')}
+              </div>
 
               {error && <ErrorBanner message={error} />}
 
               <motion.button
-                type="button"
-                onClick={handleStep0Next}
+                type="submit"
                 whileTap={{ scale: 0.98 }}
                 className="w-full text-white font-bold text-[16px] py-4 rounded-xl transition-opacity hover:opacity-90"
                 style={{ background: 'var(--brand-gradient)', boxShadow: '0 4px 24px rgba(226,12,4,0.26)' }}
@@ -576,12 +627,12 @@ export function RegisterForm() {
                 Already have an account?{' '}
                 <Link href="/login" className="text-navy font-medium hover:text-[#E20C04] transition-colors">Sign in</Link>
               </p>
-            </div>
+            </form>
           )}
 
           {/* ══ Step 1: About you + location ══ */}
           {step === 1 && (
-            <div className="flex flex-col gap-5">
+            <form className="flex flex-col gap-5" noValidate onSubmit={(e) => { e.preventDefault(); handleStep1Next() }}>
               {/* Name fields */}
               <div className="grid grid-cols-2 gap-3">
                 {[
@@ -599,42 +650,70 @@ export function RegisterForm() {
                       value={f.value}
                       onChange={e => f.set(e.target.value)}
                       required
-                      className="w-full bg-white border border-navy/[0.1] rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:border-red/40 focus:ring-2 focus:ring-red/[0.08] transition"
+                      aria-invalid={fieldErrors[f.id] ? true : undefined}
+                      aria-describedby={fieldErrors[f.id] ? `${f.id}-error` : undefined}
+                      className={`w-full bg-white border rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:ring-2 transition ${inputTone(f.id)}`}
                     />
+                    {fieldMsg(f.id)}
                   </div>
                 ))}
               </div>
 
-              {/* Phone */}
+              {/* Phone: country picker + national number (mirrors the app) */}
               <div>
                 <label htmlFor="phone" className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50 mb-2">
                   Mobile number
                 </label>
-                <input
-                  id="phone"
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value.replace(/[^\d+]/g, ''))}
-                  placeholder="+447700900000"
-                  required
-                  className="w-full bg-white border border-navy/[0.1] rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:border-red/40 focus:ring-2 focus:ring-red/[0.08] transition"
-                />
+                <div className="flex gap-2">
+                  <div className={`relative flex-shrink-0 rounded-xl border bg-white transition focus-within:ring-2 ${inputTone('phone')}`}>
+                    <span aria-hidden="true" className="flex h-full items-center gap-1.5 px-3.5 text-[15px] text-navy">
+                      <span>{country.flag}</span>
+                      <span className="font-medium">{country.dial}</span>
+                      <ChevronDown size={13} strokeWidth={2.2} className="text-navy/40" />
+                    </span>
+                    <select
+                      id="phone-country"
+                      aria-label="Country code"
+                      value={country.code}
+                      onChange={e => {
+                        const next = COUNTRIES_FOR_PICKER.find(c => c.code === e.target.value)
+                        if (next) setCountry(next)
+                      }}
+                      className="absolute inset-0 w-full cursor-pointer opacity-0"
+                    >
+                      {COUNTRIES_FOR_PICKER.map((c, i) => (
+                        <option key={`${c.code}-${i}`} value={c.code}>
+                          {`${c.flag} ${c.name} (${c.dial})`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <input
+                    id="phone"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel-national"
+                    value={nationalNumber}
+                    onChange={e => setNationalNumber(e.target.value.replace(/[^\d\s]/g, ''))}
+                    placeholder={country.example ?? '7700 900000'}
+                    required
+                    aria-invalid={fieldErrors.phone ? true : undefined}
+                    aria-describedby={fieldErrors.phone ? 'phone-error' : undefined}
+                    className={`w-full min-w-0 flex-1 bg-white border rounded-xl px-4 py-3.5 text-[15px] text-navy placeholder:text-navy/25 focus:outline-none focus:ring-2 transition ${inputTone('phone')}`}
+                  />
+                </div>
+                {fieldMsg('phone')}
                 <p className="text-[11px] text-navy/35 mt-2 leading-relaxed">
-                  We&apos;ll send a verification code by SMS. Include the country code (e.g. +44 for the UK).
+                  We&apos;ll verify this by SMS when you first open the Redeemo app.
                 </p>
               </div>
 
-              {/* DOB + Gender */}
+              {/* DOB (required, owner 2026-07-19) + Gender */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label htmlFor="dob" className="font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50">
-                      Date of birth
-                    </label>
-                    <span className="text-[11px] text-navy/30">Optional</span>
-                  </div>
+                  <label htmlFor="dob" className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50 mb-2">
+                    Date of birth
+                  </label>
                   <input
                     id="dob"
                     type="date"
@@ -643,23 +722,24 @@ export function RegisterForm() {
                     max={new Date(new Date().setFullYear(new Date().getFullYear() - 16)).toISOString().split('T')[0]}
                     min={new Date(new Date().setFullYear(new Date().getFullYear() - 100)).toISOString().split('T')[0]}
                     autoComplete="bday"
-                    className="w-full bg-white border border-navy/[0.1] rounded-xl px-4 py-3.5 text-[15px] text-navy focus:outline-none focus:border-red/40 focus:ring-2 focus:ring-red/[0.08] transition"
+                    required
+                    aria-invalid={fieldErrors.dob ? true : undefined}
+                    aria-describedby={fieldErrors.dob ? 'dob-error' : undefined}
+                    className={`w-full bg-white border rounded-xl px-4 py-3.5 text-[15px] text-navy focus:outline-none focus:ring-2 transition ${inputTone('dob')}`}
                   />
+                  {fieldMsg('dob')}
                 </div>
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label htmlFor="gender" className="font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50">
-                      Gender
-                    </label>
-                    <span className="text-[11px] text-navy/30">Optional</span>
-                  </div>
+                  <label htmlFor="gender" className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50 mb-2">
+                    Gender
+                  </label>
                   <select
                     id="gender"
                     value={gender}
                     onChange={e => setGender(e.target.value)}
                     className="w-full bg-white border border-navy/[0.1] rounded-xl px-4 py-3.5 text-[15px] text-navy focus:outline-none focus:border-red/40 focus:ring-2 focus:ring-red/[0.08] transition appearance-none"
                   >
-                    <option value="" disabled>Select (optional)</option>
+                    <option value="" disabled>Select</option>
                     <option value="female">Female</option>
                     <option value="male">Male</option>
                     <option value="non_binary">Non-binary</option>
@@ -670,12 +750,9 @@ export function RegisterForm() {
 
               {/* Postcode lookup */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label htmlFor="postcode" className="font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50">
-                    Your postcode
-                  </label>
-                  <span className="text-[11px] text-navy/30">Optional</span>
-                </div>
+                <label htmlFor="postcode" className="block font-mono text-[11px] tracking-[0.1em] uppercase text-navy/50 mb-2">
+                  Your postcode
+                </label>
 
                 {/* Why we ask */}
                 <div className="flex items-start gap-2.5 bg-navy/[0.03] border border-navy/[0.06] rounded-xl px-4 py-3 mb-3">
@@ -740,15 +817,14 @@ export function RegisterForm() {
               {error && <ErrorBanner message={error} />}
 
               <motion.button
-                type="button"
-                onClick={handleStep1Next}
+                type="submit"
                 whileTap={{ scale: 0.98 }}
                 className="w-full text-white font-bold text-[16px] py-4 rounded-xl transition-opacity hover:opacity-90"
                 style={{ background: 'var(--brand-gradient)', boxShadow: '0 4px 24px rgba(226,12,4,0.26)' }}
               >
                 Continue
               </motion.button>
-            </div>
+            </form>
           )}
 
           {/* ══ Step 2: Interests ══ */}
