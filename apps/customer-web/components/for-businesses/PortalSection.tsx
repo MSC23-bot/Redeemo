@@ -305,7 +305,9 @@ function PaneImage({ src, active, kenburns = false }: { src: string; active: boo
       transition={kenburns ? { duration: 16, repeat: Infinity, ease: 'easeInOut' } : undefined}
       style={{ background: '#F8F7F4' }}
     >
-      <Image src={src} alt="" fill sizes="1000px" className="object-cover object-top" />
+      {/* Desktop tour pane: the shell is scaled to ~0.51, so the 1386px content
+          pane renders ~660-710px wide, not 1000px (right-sized 2026-07-18). */}
+      <Image src={src} alt="" fill sizes="720px" className="object-cover object-top" />
     </motion.div>
   )
 }
@@ -337,7 +339,8 @@ function PaneStrip({
   return (
     <div className="absolute overflow-hidden" style={{ left: left ?? (SHELL.contentW - boxW) / 2, top: offsetTop, width: boxW, height: boxH - offsetTop }}>
       <motion.div className="absolute left-0 top-0" style={{ width: stripW, height: stripH, y }}>
-        <Image src={src} alt="" fill sizes="1000px" className="object-cover object-top" />
+        {/* The 726px form strip renders ~370px wide once the shell is scaled. */}
+        <Image src={src} alt="" fill sizes="380px" className="object-cover object-top" />
       </motion.div>
     </div>
   )
@@ -753,7 +756,10 @@ export function PortalSection() {
           src="/for-businesses/portal/portal-bg-mobile.webp"
           alt=""
           fill
-          sizes="100vw"
+          // Full-bleed on mobile only (this plate is lg:hidden); the desktop
+          // branch renders it display:none, so scope the 100vw hint to where
+          // it is actually shown (avoids next/image's zero-width warning).
+          sizes="(max-width: 1023px) 100vw, 1px"
           className="object-cover"
           style={{ filter: 'blur(1px) saturate(1.1)' }}
         />
@@ -804,7 +810,10 @@ export function PortalSection() {
               src="/for-businesses/portal/portal-bg-2.webp"
               alt=""
               fill
-              sizes="100vw"
+              // Full-bleed backdrop shown on the lg pinned tour only; the mobile
+              // branch renders it display:none, so scope the 100vw hint to lg+
+              // (avoids next/image's zero-width warning on phones).
+              sizes="(min-width: 1024px) 100vw, 1px"
               className="object-cover"
               style={{
                 filter: 'blur(4px) saturate(1.15)',
@@ -979,7 +988,9 @@ export function PortalSection() {
                   : `/for-businesses/portal/pane-${screen.key === 'insights' ? 'insight' : screen.key}.webp`
               return (
                 <motion.div key={screen.key} initial={false} animate={isActive ? { opacity: 1 } : { opacity: 0 }} transition={{ duration: 0.4 }} className="absolute inset-0" aria-hidden={!isActive}>
-                  <Image src={src} alt="" fill sizes="100vw" className="object-cover object-top" />
+                  {/* Pane box is the max-w-7xl column minus its px-6 gutters, never
+                      the full viewport; match the real rendered width. */}
+                  <Image src={src} alt="" fill sizes="calc(100vw - 48px)" className="object-cover object-top" />
                   {screen.key === 'home' ? (
                     /* Covers the baked June date so records read July */
                     <span
