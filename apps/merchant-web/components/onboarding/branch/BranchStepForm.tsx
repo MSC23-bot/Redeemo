@@ -78,6 +78,7 @@ interface FieldErrors {
   addressLine1?: string
   city?: string
   postcode?: string
+  phone?: string
   pin?: string
 }
 
@@ -143,6 +144,7 @@ export function BranchStepForm({
     if (!v.addressLine1.trim()) field.addressLine1 = 'Address line 1 is required.'
     if (!v.city.trim()) field.city = 'Town or city is required.'
     if (!v.postcode.trim()) field.postcode = 'Postcode is required.'
+    if (!v.phone.trim()) field.phone = 'Branch phone is required.'
     if (v.pin.trim() && !PIN_REGEX.test(v.pin.trim())) field.pin = 'The PIN must be exactly 4 digits.'
     const hours = validateHoursState(v.hours)
     const ok = Object.keys(field).length === 0 && Object.keys(hours).length === 0
@@ -153,8 +155,23 @@ export function BranchStepForm({
     const { ok, field, hours } = validateForContinue(values)
     setErrors(field)
     setHoursErrors(hours)
-    if (!ok) return
+    if (!ok) {
+      scrollToFirstError(field)
+      return
+    }
     onSaveContinue(values)
+  }
+
+  // On a failed continue, bring the first invalid required field into view + focus it,
+  // checked in visual order. Guarded for SSR.
+  function scrollToFirstError(field: FieldErrors) {
+    if (typeof document === 'undefined') return
+    const order: Array<keyof FieldErrors> = ['name', 'addressLine1', 'city', 'postcode', 'phone']
+    const firstKey = order.find((k) => field[k])
+    if (!firstKey) return
+    const el = document.getElementById(ids[firstKey])
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el?.focus?.()
   }
 
   function handleSaveLater() {
@@ -209,6 +226,7 @@ export function BranchStepForm({
                 id={ids.name}
                 label="Branch name"
                 placeholder="Old Foundry Kitchen, Huddersfield"
+                invalid={!!errors.name}
                 value={values.name}
                 onChange={(e) => set('name', e.target.value)}
               />
@@ -282,6 +300,7 @@ export function BranchStepForm({
                 id={ids.addressLine1}
                 label="Address line 1"
                 placeholder="12 Mill Lane"
+                invalid={!!errors.addressLine1}
                 value={values.addressLine1}
                 onChange={(e) => setAddressField('addressLine1', e.target.value)}
               />
@@ -302,6 +321,7 @@ export function BranchStepForm({
                 id={ids.city}
                 label="Town or city"
                 placeholder="Huddersfield"
+                invalid={!!errors.city}
                 value={values.city}
                 onChange={(e) => setAddressField('city', e.target.value)}
               />
@@ -312,6 +332,7 @@ export function BranchStepForm({
                 id={ids.postcode}
                 label="Postcode"
                 placeholder="HD1 1AA"
+                invalid={!!errors.postcode}
                 value={values.postcode}
                 onChange={(e) => setAddressField('postcode', e.target.value)}
               />
@@ -326,18 +347,19 @@ export function BranchStepForm({
 
         {/* Section 3: customer contact */}
         <section className="mt-6 rounded-[20px] border border-[#EFE7E2] bg-white p-7 shadow-[0_30px_70px_-50px_rgba(1,12,53,0.35),0_2px_6px_rgba(1,12,53,0.04)]">
-          <SectionHeading n={3} title="Customer contact for this branch" badge="Optional" />
+          <SectionHeading n={3} title="Customer contact for this branch" />
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <div>
               <TextField
                 id={ids.phone}
                 label="Branch phone"
-                optional
                 type="tel"
                 placeholder="+44 1484 000000"
+                invalid={!!errors.phone}
                 value={values.phone}
                 onChange={(e) => set('phone', e.target.value)}
               />
+              <FieldError message={errors.phone} />
             </div>
             <div>
               <TextField
@@ -656,10 +678,11 @@ interface TextFieldProps extends React.ComponentProps<'input'> {
   id: string
   label: string
   optional?: boolean
+  invalid?: boolean
   hint?: string
 }
 
-const TextField = ({ id, label, optional, hint, className, ...props }: TextFieldProps) => (
+const TextField = ({ id, label, optional, invalid, hint, className, ...props }: TextFieldProps) => (
   <div className="flex flex-col gap-1.5">
     <label htmlFor={id} className="flex items-center gap-1.5 text-sm font-semibold text-[#3A465F]">
       {label}
@@ -667,8 +690,10 @@ const TextField = ({ id, label, optional, hint, className, ...props }: TextField
     </label>
     <input
       id={id}
+      aria-invalid={invalid || undefined}
       className={cn(
-        'h-12 rounded-[12px] border-[1.5px] border-[#E3E7EE] bg-[#FCFCFD] px-[15px] text-[15px] text-[#010C35] outline-none transition-[border-color,background] focus-visible:border-[#E20C04] focus-visible:bg-white',
+        'h-12 rounded-[12px] border-[1.5px] bg-[#FCFCFD] px-[15px] text-[15px] text-[#010C35] outline-none transition-[border-color,background] focus-visible:border-[#E20C04] focus-visible:bg-white',
+        invalid ? 'border-[#B91C1C]' : 'border-[#E3E7EE]',
         className,
       )}
       {...props}

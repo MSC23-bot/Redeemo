@@ -248,7 +248,7 @@ export default function BranchPage() {
 
     // Save and finish later with nothing to persist yet: surface a note, do not POST.
     if (partial && !alreadyPersisted && !hasCreateMinimum(values)) {
-      setSaveError('Add a branch name and address before saving, or use Save and continue.')
+      setSaveError('Add a branch name and address before continuing.')
       return
     }
 
