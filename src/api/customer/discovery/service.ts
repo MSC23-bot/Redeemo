@@ -24,7 +24,7 @@ import {
   type RankMerchantsV2Result,
   type RankedBranchTile,
 } from '../../lib/ranking'
-import { resolveEffectiveLocation, type EffectiveLocation } from '../../lib/effectiveLocation'
+import { devForcedCoords, resolveEffectiveLocation, type EffectiveLocation } from '../../lib/effectiveLocation'
 import { getOutgoingCatchmentTargetIds } from '../../lib/catchmentLookup'
 import type { LadderProfile, ProximityBand, SupplyRung } from '../../lib/ladderProfiles'
 import { buildDescriptor, descriptorSuffixFor, filterRedundantHighlights } from '../../lib/tile'
@@ -188,6 +188,8 @@ export async function resolveLocationContext(
   lat: number | null,
   lng: number | null,
 ): Promise<LocationContext> {
+  // DEV-ONLY screenshot/demo coordinate override (see devForcedCoords).
+  ;({ lat, lng } = devForcedCoords(lat, lng))
   if (lat !== null && lng !== null) {
     const nearest = await findNearestLocality(prisma, lat, lng)
     if (nearest) {

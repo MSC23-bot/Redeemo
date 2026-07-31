@@ -14,8 +14,18 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import * as crypto from 'crypto'
 import { encrypt } from '../src/api/shared/encryption'
 import { requireSeedEncryptionKey } from './seed-data/requireEncryptionKey'
+import { assertConfirmedSeedTarget, SEED_TARGET_ENV_VAR } from './seed-data/seedTargetGuard'
 
-requireSeedEncryptionKey() // F8: require the REAL ENCRYPTION_KEY (no repo-public fallback) before encrypting branch PINs
+// Fail-closed target confirmation (PR #400 review blocker 1): refuse to touch
+// any database the operator has not explicitly named via SEED_DEMO_TARGET_DB,
+// and refuse production outright. Runs for BOTH seed and clear modes.
+const confirmedTarget = assertConfirmedSeedTarget({
+  databaseUrl: process.env.DATABASE_URL,
+  confirm: process.env[SEED_TARGET_ENV_VAR],
+  deployEnv: process.env.REDEEMO_DEPLOY_ENV,
+  nodeEnv: process.env.NODE_ENV,
+})
+console.log(`Target database confirmed: ${confirmedTarget}`)
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
@@ -92,10 +102,10 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Small-batch specialty roaster on Redchurch Street. Single-origin espresso, slow-drip filter, and sourdough from a sister bakery in Hackney. Quiet in the morning, loud with regulars by 11.',
     websiteUrl: 'https://laneway-demo.redeemo.co.uk',
-    logoUrl:    U('photo-1511920170033-f8396924c348', 400),
+    logoUrl:    'https://api.dicebear.com/9.x/icons/png?seed=laneway&size=400&backgroundColor=6F4E37',
     bannerUrl:  U('photo-1498804103079-a6351b050096'),
     adminEmail: 'demo-merchant-01@redeemo.local',
-    primaryCategoryName: 'Cafes & Coffee',
+    primaryCategoryName: 'Cafe & Coffee',
     additionalCategoryNames: ['Food & Drink'],
     featured: true,
     branches: [
@@ -160,10 +170,10 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Modern British plates in a converted Victorian foundry. The menu changes weekly with what the local farms send in. Cask ales, natural wines, and a wood-fired oven that runs from breakfast to close.',
     websiteUrl: 'https://oldfoundry-demo.redeemo.co.uk',
-    logoUrl:    U('photo-1550966871-3ed3cdb5ed0c', 400),
+    logoUrl:    'https://api.dicebear.com/9.x/rings/png?seed=foundryldn&size=400&backgroundColor=B0413E',
     bannerUrl:  U('photo-1552566626-52f8b828add9'),
     adminEmail: 'demo-merchant-02@redeemo.local',
-    primaryCategoryName: 'Restaurants',
+    primaryCategoryName: 'Restaurant',
     additionalCategoryNames: ['Food & Drink'],
     featured: true,
     branches: [
@@ -216,10 +226,10 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Traditional barbering for the way people actually dress now. Hot towel shaves, skin fades, beard work. Walk-ins welcome but we prefer a booking.',
     websiteUrl: 'https://fleetbarbers-demo.redeemo.co.uk',
-    logoUrl:    U('photo-1521572163474-6864f9cf17ab', 400),
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=fleetst&size=400&backgroundColor=263238',
     bannerUrl:  U('photo-1503951914875-452162b0f3f1'),
     adminEmail: 'demo-merchant-03@redeemo.local',
-    primaryCategoryName: 'Hair Salons',
+    primaryCategoryName: 'Barber',
     additionalCategoryNames: ['Beauty & Wellness'],
     branches: [
       {
@@ -264,10 +274,10 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Small-group training in an independent gym in Bermondsey. Coaches programme your session, you just turn up. Focus on strength, conditioning, and long-term movement quality, not classes that count burpees.',
     websiteUrl: 'https://edge-demo.redeemo.co.uk',
-    logoUrl:    U('photo-1540497077202-7c8a3999166f', 400),
+    logoUrl:    'https://api.dicebear.com/9.x/icons/png?seed=edgesc&size=400&backgroundColor=1B5E20',
     bannerUrl:  U('photo-1534438327276-14e5300c3a48'),
     adminEmail: 'demo-merchant-04@redeemo.local',
-    primaryCategoryName: 'Health & Fitness',
+    primaryCategoryName: 'Gym',
     featured: true,
     branches: [
       {
@@ -314,10 +324,10 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Modern tapas, Spanish-leaning wine list, and a bar that welcomes solo diners. Proper jamón, grilled octopus, and a tortilla that people write about.',
     websiteUrl: 'https://mirador-demo.redeemo.co.uk',
-    logoUrl:    U('photo-1555396273-367ea4eb4db5', 400),
+    logoUrl:    'https://api.dicebear.com/9.x/rings/png?seed=mirador&size=400&backgroundColor=C62828',
     bannerUrl:  U('photo-1414235077428-338989a2e8c0'),
     adminEmail: 'demo-merchant-05@redeemo.local',
-    primaryCategoryName: 'Restaurants',
+    primaryCategoryName: 'Restaurant',
     additionalCategoryNames: ['Food & Drink'],
     branches: [
       {
@@ -364,10 +374,10 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Evidence-led facial studio for people who care about what\'s actually in the products on their face. Results-focused treatments, no sales pressure, rooms you can fall asleep in.',
     websiteUrl: 'https://lumen-demo.redeemo.co.uk',
-    logoUrl:    U('photo-1552693673-1bf958298935', 400),
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=lumen&size=400&backgroundColor=AD1457',
     bannerUrl:  U('photo-1570172619644-dfd03ed5d881'),
     adminEmail: 'demo-merchant-06@redeemo.local',
-    primaryCategoryName: 'Nail & Beauty',
+    primaryCategoryName: 'Beauty Salon',
     additionalCategoryNames: ['Beauty & Wellness'],
     branches: [
       {
@@ -413,10 +423,10 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Independent yoga studio in a converted warehouse. Vinyasa, yin, restorative, and a Saturday morning slow flow that locals plan their weekends around.',
     websiteUrl: 'https://greenwichyoga-demo.redeemo.co.uk',
-    logoUrl:    U('photo-1588286840104-8957b019727f', 400),
+    logoUrl:    'https://api.dicebear.com/9.x/icons/png?seed=gyoga&size=400&backgroundColor=4527A0',
     bannerUrl:  U('photo-1545389336-cf090694435e'),
     adminEmail: 'demo-merchant-07@redeemo.local',
-    primaryCategoryName: 'Health & Fitness',
+    primaryCategoryName: 'Boutique Studio',
     branches: [
       {
         suffix: 'a',
@@ -456,10 +466,10 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'Independent bookshop and small-press showcase. Carefully chosen fiction, non-fiction, and art monographs. Regular readings, always strong coffee on the counter.',
     websiteUrl: 'https://northbankbooks-demo.redeemo.co.uk',
-    logoUrl:    U('photo-1507842217343-583bb7270b66', 400),
+    logoUrl:    'https://api.dicebear.com/9.x/rings/png?seed=northbank&size=400&backgroundColor=283593',
     bannerUrl:  U('photo-1519682337058-a94d519337bc'),
     adminEmail: 'demo-merchant-08@redeemo.local',
-    primaryCategoryName: 'Retail & Shopping',
+    primaryCategoryName: 'Bookshop',
     branches: [
       {
         suffix: 'a',
@@ -498,10 +508,10 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'A four-screen independent cinema with a proper bar and a programme that mixes new releases, restored classics, and director-led seasons.',
     websiteUrl: 'https://camdensocial-demo.redeemo.co.uk',
-    logoUrl:    U('photo-1489599849927-2ee91cede3ba', 400),
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=camden&size=400&backgroundColor=E65100',
     bannerUrl:  U('photo-1536440136628-849c177e76a1'),
     adminEmail: 'demo-merchant-09@redeemo.local',
-    primaryCategoryName: 'Entertainment',
+    primaryCategoryName: 'Cinema',
     branches: [
       {
         suffix: 'a',
@@ -545,10 +555,10 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
     description:
       'A small family-run florist supplying seasonal British-grown stems. Wedding work, subscriptions, and a weekly by-the-stem bar in the shop on Fridays.',
     websiteUrl: 'https://pimlicoflorals-demo.redeemo.co.uk',
-    logoUrl:    U('photo-1561181286-d3fee7d55364', 400),
+    logoUrl:    'https://api.dicebear.com/9.x/icons/png?seed=pimlico&size=400&backgroundColor=2E7D32',
     bannerUrl:  U('photo-1508610048659-a06b669e3321'),
     adminEmail: 'demo-merchant-10@redeemo.local',
-    primaryCategoryName: 'Retail & Shopping',
+    primaryCategoryName: 'Florist',
     branches: [
       {
         suffix: 'a',
@@ -581,11 +591,326 @@ const DEMO_MERCHANTS: DemoMerchant[] = [
         estimatedSaving: 7.50 },
     ],
   },
+
+  // ── Huddersfield launch-city set (demo-merchant-11..16) ──────────────────
+  // Pre-launch marketing workstream (2026-07-06): fully fictional businesses,
+  // names web-vetted against real Huddersfield trade names before adding.
+  // Aligned with the marketing story: The Old Foundry Kitchen mirrors the
+  // Merchant Portal prototype's example business (High Street + Mill Road).
+
+  {
+    id: 'demo-merchant-11',
+    businessName: 'The Old Foundry Kitchen',
+    tradingName: 'The Old Foundry',
+    description:
+      'Seasonal kitchen and bar in a converted ironworks. Wood-fired mains, Yorkshire produce, and a short wine list picked by the owner. Busiest Fridays; calm and candlelit midweek.',
+    websiteUrl: 'https://oldfoundry-demo.redeemo.co.uk',
+    logoUrl:    'https://api.dicebear.com/9.x/rings/png?seed=oldfoundry&size=400&backgroundColor=BF360C',
+    bannerUrl:  U('photo-1552566626-52f8b828add9'),
+    adminEmail: 'demo-merchant-11@redeemo.local',
+    primaryCategoryName: 'Restaurant',
+    featured: true,
+    branches: [
+      {
+        suffix: 'a',
+        name: 'High Street',
+        isMainBranch: true,
+        addressLine1: 'High Street',
+        city: 'Huddersfield',
+        postcode: 'HD1 2LR',
+        latitude: 53.6452, longitude: -1.7838,
+        phone: '+441484496010',
+        hours: [
+          [1, '12:00', '22:00'], [2, '12:00', '22:00'], [3, '12:00', '22:00'], [4, '12:00', '23:00'],
+          [5, '12:00', '23:30'], [6, '11:00', '23:30'], [0, '11:00', '21:00'],
+        ],
+        amenityNames: ['Wi-Fi', 'Outdoor Seating', 'Group Bookings', 'Wheelchair Access'],
+        reviews: [
+          { reviewerIdx: 0, rating: 5, comment: 'The wood-fired hake was outstanding. Midweek it feels like your own private dining room.' },
+          { reviewerIdx: 3, rating: 5, comment: 'Proper Yorkshire cooking without the fuss. Staff talked us through the voucher, zero awkwardness.' },
+          { reviewerIdx: 1, rating: 4, comment: 'Great room, great mains. Book ahead for Friday.' },
+        ],
+      },
+      {
+        suffix: 'b',
+        name: 'Mill Road',
+        addressLine1: 'Unit 2, Mill Road',
+        city: 'Huddersfield',
+        postcode: 'HD1 3AP',
+        latitude: 53.6421, longitude: -1.7789,
+        phone: '+441484496011',
+        hours: [
+          [1, 'closed'], [2, '17:00', '22:00'], [3, '17:00', '22:00'], [4, '17:00', '22:30'],
+          [5, '12:00', '23:00'], [6, '12:00', '23:00'], [0, '12:00', '20:00'],
+        ],
+        amenityNames: ['Walk-Ins Welcome', 'Group Bookings'],
+        reviews: [
+          { reviewerIdx: 2, rating: 5, comment: 'Smaller than High Street but the same kitchen standards. The Sunday roast is the move.' },
+        ],
+      },
+    ],
+    vouchers: [
+      { code: 'RMV-demo-11a', isMandatory: true, type: 'BOGO', title: 'Buy one main, get one free',
+        description: 'Buy any main course and get a second main of equal or lower value free.',
+        terms: 'Both mains on the same bill. Dine-in only. Once per member per cycle.',
+        estimatedSaving: 16.00 },
+      { code: 'RMV-demo-11b', isMandatory: true, type: 'FREEBIE', title: 'Free dessert with any main',
+        description: 'A dessert of your choice on the house with any main course.',
+        terms: 'Dine-in only. One dessert per voucher.',
+        estimatedSaving: 6.50 },
+      { code: 'RCV-demo-11c', type: 'SPEND_AND_SAVE', title: 'Spend £30, save £8',
+        description: 'Eight pounds off your bill when you spend thirty or more.',
+        terms: 'Food and drink combined. Excludes service.',
+        estimatedSaving: 8.00 },
+    ],
+  },
+  {
+    id: 'demo-merchant-12',
+    businessName: 'Juniper Coffee',
+    tradingName: 'Juniper',
+    description:
+      'Independent coffee house by the station. House-roasted espresso, proper pastries from the counter, and a long window bench for watching the town go by.',
+    websiteUrl: 'https://juniper-demo.redeemo.co.uk',
+    logoUrl:    'https://api.dicebear.com/9.x/icons/png?seed=juniper&size=400&backgroundColor=5D4037',
+    bannerUrl:  U('photo-1498804103079-a6351b050096'),
+    adminEmail: 'demo-merchant-12@redeemo.local',
+    primaryCategoryName: 'Cafe & Coffee',
+    featured: true,
+    branches: [
+      {
+        suffix: 'a',
+        name: 'Byram Street',
+        isMainBranch: true,
+        addressLine1: 'Byram Street',
+        city: 'Huddersfield',
+        postcode: 'HD1 1DA',
+        latitude: 53.6478, longitude: -1.7815,
+        phone: '+441484496012',
+        hours: [
+          [1, '07:30', '17:00'], [2, '07:30', '17:00'], [3, '07:30', '17:00'], [4, '07:30', '17:00'],
+          [5, '07:30', '18:00'], [6, '08:30', '18:00'], [0, '09:00', '16:00'],
+        ],
+        amenityNames: ['Wi-Fi', 'Outdoor Seating', 'Walk-Ins Welcome'],
+        reviews: [
+          { reviewerIdx: 4, rating: 5, comment: 'Best flat white in town and the almond croissants go by 10am. Get there early.' },
+          { reviewerIdx: 1, rating: 5, comment: 'My regular now. The free pastry voucher genuinely works, staff scan and done.' },
+        ],
+      },
+    ],
+    vouchers: [
+      { code: 'RMV-demo-12a', isMandatory: true, type: 'FREEBIE', title: 'Free pastry with any drink',
+        description: 'Any pastry from the counter, free with any hot or iced drink.',
+        terms: 'One pastry per voucher. Eat in or takeaway.',
+        estimatedSaving: 3.20 },
+      { code: 'RMV-demo-12b', isMandatory: true, type: 'BOGO', title: 'Buy one coffee, get one free',
+        description: 'Buy any coffee and get a second of equal or lower value on us.',
+        terms: 'Excludes bottled drinks. Once per member per cycle.',
+        estimatedSaving: 3.60 },
+      { code: 'RCV-demo-12c', type: 'REUSABLE', title: 'Loyalty reward: 10% off the bill',
+        description: 'Ten percent off your whole order, every visit this cycle.',
+        terms: 'Reusable through the cycle. Not valid with other vouchers on the same bill.',
+        estimatedSaving: 1.80 },
+    ],
+  },
+  {
+    id: 'demo-merchant-13',
+    businessName: 'Fern & Field Deli',
+    tradingName: 'Fern & Field',
+    description:
+      'Market-quarter deli and lunch counter. Yorkshire cheeses, fresh sandwiches on house focaccia, and a rotating hot box that sells out most days.',
+    websiteUrl: 'https://fernandfield-demo.redeemo.co.uk',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=fernfield&size=400&backgroundColor=33691E',
+    bannerUrl:  U('photo-1540189549336-e6e99c3679fe'),
+    adminEmail: 'demo-merchant-13@redeemo.local',
+    primaryCategoryName: 'Independent Grocer & Deli',
+    branches: [
+      {
+        suffix: 'a',
+        name: 'Market Walk',
+        isMainBranch: true,
+        addressLine1: 'Market Walk',
+        city: 'Huddersfield',
+        postcode: 'HD1 2QA',
+        latitude: 53.6469, longitude: -1.7842,
+        phone: '+441484496013',
+        hours: [
+          [1, '08:00', '16:00'], [2, '08:00', '16:00'], [3, '08:00', '16:00'], [4, '08:00', '16:00'],
+          [5, '08:00', '17:00'], [6, '09:00', '17:00'], [0, 'closed'],
+        ],
+        amenityNames: ['Walk-Ins Welcome', 'Click & Collect'],
+        reviews: [
+          { reviewerIdx: 2, rating: 5, comment: 'The half-price lunch window changed my work weeks. Focaccia is genuinely special.' },
+          { reviewerIdx: 0, rating: 4, comment: 'Queue moves fast, portions are generous. Hot box on Thursdays is the one.' },
+        ],
+      },
+    ],
+    vouchers: [
+      { code: 'RMV-demo-13a', isMandatory: true, type: 'BOGO', title: 'Buy one lunch box, get one free',
+        description: 'Two lunch boxes for the price of one, any day we are open.',
+        terms: 'Same or lower value free. Takeaway only.',
+        estimatedSaving: 7.00 },
+      { code: 'RMV-demo-13b', isMandatory: true, type: 'FREEBIE', title: 'Free coffee with any sandwich',
+        description: 'A regular coffee free with any sandwich from the counter.',
+        terms: 'One per voucher.',
+        estimatedSaving: 2.80 },
+      { code: 'RCV-demo-13c', type: 'TIME_LIMITED', title: 'Half price, weekday lunches',
+        description: 'Fifty percent off the lunch menu, Monday to Thursday, twelve to two.',
+        terms: 'Mon-Thu 12:00-14:00 only. Lunch menu items only.',
+        estimatedSaving: 6.50 },
+    ],
+  },
+  {
+    id: 'demo-merchant-14',
+    businessName: 'Northlight Strength Club',
+    tradingName: 'Northlight',
+    description:
+      'Coached strength and conditioning in a converted mill space. Small class sizes, proper programming, and coaches who learn your name in week one.',
+    websiteUrl: 'https://northlight-demo.redeemo.co.uk',
+    logoUrl:    'https://api.dicebear.com/9.x/rings/png?seed=northlight&size=400&backgroundColor=0D47A1',
+    bannerUrl:  U('photo-1534438327276-14e5300c3a48'),
+    adminEmail: 'demo-merchant-14@redeemo.local',
+    primaryCategoryName: 'Gym',
+    featured: true,
+    branches: [
+      {
+        suffix: 'a',
+        name: 'Quay Street',
+        isMainBranch: true,
+        addressLine1: 'Unit 2, Quay Street',
+        city: 'Huddersfield',
+        postcode: 'HD1 6QT',
+        latitude: 53.6438, longitude: -1.7891,
+        phone: '+441484496014',
+        hours: [
+          [1, '06:00', '21:00'], [2, '06:00', '21:00'], [3, '06:00', '21:00'], [4, '06:00', '21:00'],
+          [5, '06:00', '20:00'], [6, '08:00', '14:00'], [0, '09:00', '13:00'],
+        ],
+        amenityNames: ['Showers', 'Lockers', 'Online Booking'],
+        reviews: [
+          { reviewerIdx: 1, rating: 5, comment: 'Half price first class got me through the door; the coaching kept me. Six months in now.' },
+          { reviewerIdx: 4, rating: 5, comment: 'Small classes, real programming, no ego. Rare.' },
+        ],
+      },
+    ],
+    vouchers: [
+      { code: 'RMV-demo-14a', isMandatory: true, type: 'DISCOUNT_PERCENT', title: '50% off your first class',
+        description: 'Half price on your first coached class, any programme.',
+        terms: 'New visitors to Northlight only. Book ahead.',
+        estimatedSaving: 7.50 },
+      { code: 'RMV-demo-14b', isMandatory: true, type: 'FREEBIE', title: 'Free intro session with a coach',
+        description: 'A one-to-one movement screen and programme chat, on the house.',
+        terms: 'By appointment. One per member.',
+        estimatedSaving: 20.00 },
+      { code: 'RCV-demo-14c', type: 'PACKAGE_DEAL', title: '5-class pack: £15 off',
+        description: 'Fifteen pounds off a five-class pack, any schedule.',
+        terms: 'Pack valid 8 weeks from purchase.',
+        estimatedSaving: 15.00 },
+    ],
+  },
+  {
+    id: 'demo-merchant-15',
+    businessName: 'Hatterly & Sons Barbers',
+    tradingName: 'Hatterly & Sons',
+    description:
+      'Traditional barbering with a modern hand. Scissor cuts, hot towel shaves, and a chair by the window that has the best people-watching in town.',
+    websiteUrl: 'https://hatterly-demo.redeemo.co.uk',
+    logoUrl:    'https://api.dicebear.com/9.x/icons/png?seed=hatterly&size=400&backgroundColor=37474F',
+    bannerUrl:  U('photo-1503951914875-452162b0f3f1'),
+    adminEmail: 'demo-merchant-15@redeemo.local',
+    primaryCategoryName: 'Barber',
+    branches: [
+      {
+        suffix: 'a',
+        name: 'Wood Street',
+        isMainBranch: true,
+        addressLine1: 'Wood Street',
+        city: 'Huddersfield',
+        postcode: 'HD1 1DX',
+        latitude: 53.6486, longitude: -1.7799,
+        phone: '+441484496015',
+        hours: [
+          [1, 'closed'], [2, '09:00', '18:00'], [3, '09:00', '18:00'], [4, '09:00', '19:00'],
+          [5, '09:00', '19:00'], [6, '08:30', '17:00'], [0, 'closed'],
+        ],
+        amenityNames: ['Walk-Ins Welcome', 'Online Booking'],
+        reviews: [
+          { reviewerIdx: 3, rating: 5, comment: 'Best scissor cut I have had in Yorkshire. The hot towel finish is worth the visit alone.' },
+          { reviewerIdx: 0, rating: 4, comment: 'Walked in with a voucher, walked out looking sharp. No awkward moment at the till.' },
+        ],
+      },
+    ],
+    vouchers: [
+      { code: 'RMV-demo-15a', isMandatory: true, type: 'FREEBIE', title: 'Free hot towel finish with any cut',
+        description: 'The full hot towel treatment added to any haircut, free.',
+        terms: 'One per visit.',
+        estimatedSaving: 4.00 },
+      { code: 'RMV-demo-15b', isMandatory: true, type: 'DISCOUNT_FIXED', title: '£5 off a cut and beard trim',
+        description: 'Five pounds off the combined cut and beard trim.',
+        terms: 'Combined service only.',
+        estimatedSaving: 5.00 },
+      { code: 'RCV-demo-15c', type: 'PACKAGE_DEAL', title: 'Father and child cuts: £8 off',
+        description: 'Bring the little one; eight pounds off the pair of cuts.',
+        terms: 'Same appointment. Under-14s.',
+        estimatedSaving: 8.00 },
+    ],
+  },
+  {
+    id: 'demo-merchant-16',
+    businessName: 'Amber Room Beauty',
+    tradingName: 'Amber Room',
+    description:
+      'Calm little studio for nails, brows and lashes. Two chairs, no rushing, and a colour wall that takes longer to choose from than the treatment takes.',
+    websiteUrl: 'https://amberroom-demo.redeemo.co.uk',
+    logoUrl:    'https://api.dicebear.com/9.x/shapes/png?seed=amberroom&size=400&backgroundColor=C2185B',
+    bannerUrl:  U('photo-1487412947147-5cebf100ffc2'),
+    adminEmail: 'demo-merchant-16@redeemo.local',
+    primaryCategoryName: 'Nail Salon',
+    branches: [
+      {
+        suffix: 'a',
+        name: 'Station Street',
+        isMainBranch: true,
+        addressLine1: 'Station Street',
+        city: 'Huddersfield',
+        postcode: 'HD1 1LS',
+        latitude: 53.6474, longitude: -1.7862,
+        phone: '+441484496016',
+        hours: [
+          [1, 'closed'], [2, '10:00', '18:00'], [3, '10:00', '18:00'], [4, '10:00', '20:00'],
+          [5, '10:00', '18:00'], [6, '09:00', '17:00'], [0, 'closed'],
+        ],
+        amenityNames: ['Online Booking', 'Same-Day Appointments', 'Wheelchair Access'],
+        reviews: [
+          { reviewerIdx: 4, rating: 5, comment: 'Unhurried, meticulous, lovely room. My gels have never lasted longer.' },
+          { reviewerIdx: 2, rating: 5, comment: 'The free nail art upgrade is a real treat, not a token gesture.' },
+        ],
+      },
+    ],
+    vouchers: [
+      { code: 'RMV-demo-16a', isMandatory: true, type: 'DISCOUNT_PERCENT', title: '20% off any gel manicure',
+        description: 'Twenty percent off any gel manicure, colour wall included.',
+        terms: 'One treatment per voucher.',
+        estimatedSaving: 5.60 },
+      { code: 'RMV-demo-16b', isMandatory: true, type: 'FREEBIE', title: 'Free nail art with any gel set',
+        description: 'Accent nails or full art added to any gel set, free.',
+        terms: 'Up to 15 minutes of art time.',
+        estimatedSaving: 6.00 },
+      { code: 'RCV-demo-16c', type: 'PACKAGE_DEAL', title: 'Mani and pedi: £10 off',
+        description: 'Ten pounds off when you book the manicure and pedicure together.',
+        terms: 'Same appointment.',
+        estimatedSaving: 10.00 },
+    ],
+  },
 ]
 
 // ─── Seed runner ──────────────────────────────────────────────────────────
 
 async function seedDemo() {
+  // ENCRYPTION_KEY is needed only on the seeding path (branch PIN encryption);
+  // teardown performs no encryption and must not demand the key (PR #400
+  // review blocker 3).
+  requireSeedEncryptionKey()
+
   console.log('Seeding demo merchants...')
 
   // 1. Resolve shared references (categories, amenities) by name from the main seed
@@ -596,7 +921,7 @@ async function seedDemo() {
   const amenityByName = Object.fromEntries(allAmenities.map(a => [a.name, a.id]))
 
   // Sanity check — fail loud if main seed hasn't been run
-  const requiredCats = ['Cafes & Coffee', 'Restaurants', 'Hair Salons', 'Nail & Beauty', 'Health & Fitness', 'Retail & Shopping', 'Entertainment']
+  const requiredCats = ['Food & Drink', 'Beauty & Wellness', 'Health & Fitness', 'Shopping'] // top-level taxonomy sentinels: base seed present
   const missingCats = requiredCats.filter(n => !categoryByName[n])
   if (missingCats.length > 0) {
     throw new Error(
@@ -722,6 +1047,10 @@ async function seedDemo() {
           phone: b.phone,
           email: b.email ?? null,
           isActive: true,
+          // Demo branches must be rankable or the Featured/Trending/Nearby rails
+          // hide them: isBranchLocationConfirmed accepts MANUALLY_CONFIRMED or
+          // ADDRESS_GEOCODED; the schema default POSTCODE_CENTROID never ranks.
+          locationConfidence: 'MANUALLY_CONFIRMED',
         },
         create: {
           id: branchId,
@@ -739,6 +1068,7 @@ async function seedDemo() {
           email: b.email ?? null,
           redemptionPin: encrypt('1234'),
           isActive: true,
+          locationConfidence: 'MANUALLY_CONFIRMED',
         },
       })
 
@@ -831,7 +1161,7 @@ async function seedDemo() {
           endDate: thirtyDays,
           costGbp: 0,
           radiusMiles: 10,
-          targetLocations: ['London'],
+          targetLocations: [(m.branches.find((b) => b.isMainBranch) ?? m.branches[0]).city],
           sortByDistance: true,
           paymentStatus: 'PAID',
           isActive: true,
@@ -842,39 +1172,63 @@ async function seedDemo() {
     console.log(`  ✓ ${m.tradingName} (${m.branches.length} branch${m.branches.length === 1 ? '' : 'es'}, ${m.vouchers.length} vouchers)`)
   }
 
-  // 4. Campaigns — clear old demo campaigns and insert 3 fresh ones
+  // 4. Campaigns — clear old demo campaign links + campaigns, insert 3 fresh
+  //    ones WITH banner imagery and CampaignMerchant links so the campaign
+  //    tap-through journey (banner -> merchant list) is genuinely populated
+  //    (PR #400 review: do not claim the journey without the rows).
+  await prisma.campaignMerchant.deleteMany({ where: { id: { startsWith: 'demo-cm-' } } })
   await prisma.campaign.deleteMany({ where: { id: { startsWith: 'demo-campaign-' } } })
   const now = new Date()
   const campaignData = [
     {
       id: 'demo-campaign-1',
       name: 'Summer Savings',
-      description: 'Exclusive deals from top local businesses all summer long.',
+      description: 'Member vouchers from quality local businesses all summer long.',
+      bannerImageUrl: U('photo-1504674900247-0877df9cc836'),
       status: 'ACTIVE' as const,
       startDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
       endDate:   new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000),
+      merchantIds: ['demo-merchant-11', 'demo-merchant-12', 'demo-merchant-13', 'demo-merchant-01', 'demo-merchant-02'],
     },
     {
       id: 'demo-campaign-2',
       name: 'New in Your Area',
       description: 'Fresh openings and new vouchers from merchants near you.',
+      bannerImageUrl: U('photo-1441986300917-64674bd600d8'),
       status: 'ACTIVE' as const,
       startDate: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000),
       endDate:   new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000),
+      merchantIds: ['demo-merchant-14', 'demo-merchant-15', 'demo-merchant-16'],
     },
     {
       id: 'demo-campaign-3',
       name: 'Redeemo Picks',
-      description: "Hand-picked vouchers our team loves. Don't miss out.",
+      description: 'Hand-picked vouchers our team rates. Worth a look.',
+      bannerImageUrl: U('photo-1517248135467-4c7edcad34c4'),
       status: 'ACTIVE' as const,
       startDate: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
       endDate:   new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000),
+      merchantIds: ['demo-merchant-11', 'demo-merchant-14', 'demo-merchant-03', 'demo-merchant-04'],
     },
   ]
-  for (const c of campaignData) {
+  for (const { merchantIds, ...c } of campaignData) {
     await prisma.campaign.create({ data: c })
+    for (const merchantId of merchantIds) {
+      await prisma.campaignMerchant.create({
+        data: {
+          id: `demo-cm-${c.id.replace('demo-campaign-', '')}-${merchantId.replace('demo-merchant-', '')}`,
+          campaignId: c.id,
+          merchantId,
+          startDate: c.startDate,
+          endDate: c.endDate,
+          costGbp: 0,
+          paymentStatus: 'PAID',
+          isActive: true,
+        },
+      })
+    }
   }
-  console.log(`Upserted ${campaignData.length} demo campaigns`)
+  console.log(`Created ${campaignData.length} demo campaigns with merchant links`)
 
   // 5. Trending redemptions — give demo-merchant-01..04 some this-month redemptions
   //    so the Trending section is populated. Uses reviewer users as fake redeemers.
@@ -888,6 +1242,18 @@ async function seedDemo() {
     { id: 'demo-red-03a', userId: 'demo-user-reviewer-1', merchantId: 'demo-merchant-03', branchSuffix: 'a', voucherIdx: 0 },
     { id: 'demo-red-04a', userId: 'demo-user-reviewer-1', merchantId: 'demo-merchant-04', branchSuffix: 'a', voucherIdx: 0 },
     { id: 'demo-red-04b', userId: 'demo-user-reviewer-2', merchantId: 'demo-merchant-04', branchSuffix: 'a', voucherIdx: 0 },
+    // Huddersfield launch-city set: enough recent redemptions that the Trending
+    // rail fires for a Huddersfield location context.
+    { id: 'demo-red-11a', userId: 'demo-user-reviewer-1', merchantId: 'demo-merchant-11', branchSuffix: 'a', voucherIdx: 0 },
+    { id: 'demo-red-11b', userId: 'demo-user-reviewer-2', merchantId: 'demo-merchant-11', branchSuffix: 'a', voucherIdx: 0 },
+    { id: 'demo-red-11c', userId: 'demo-user-reviewer-3', merchantId: 'demo-merchant-11', branchSuffix: 'a', voucherIdx: 1 },
+    { id: 'demo-red-12a', userId: 'demo-user-reviewer-4', merchantId: 'demo-merchant-12', branchSuffix: 'a', voucherIdx: 0 },
+    { id: 'demo-red-12b', userId: 'demo-user-reviewer-5', merchantId: 'demo-merchant-12', branchSuffix: 'a', voucherIdx: 1 },
+    { id: 'demo-red-13a', userId: 'demo-user-reviewer-1', merchantId: 'demo-merchant-13', branchSuffix: 'a', voucherIdx: 0 },
+    { id: 'demo-red-13b', userId: 'demo-user-reviewer-3', merchantId: 'demo-merchant-13', branchSuffix: 'a', voucherIdx: 2 },
+    { id: 'demo-red-14a', userId: 'demo-user-reviewer-2', merchantId: 'demo-merchant-14', branchSuffix: 'a', voucherIdx: 0 },
+    { id: 'demo-red-14b', userId: 'demo-user-reviewer-4', merchantId: 'demo-merchant-14', branchSuffix: 'a', voucherIdx: 0 },
+    { id: 'demo-red-15a', userId: 'demo-user-reviewer-5', merchantId: 'demo-merchant-15', branchSuffix: 'a', voucherIdx: 0 },
   ]
   let redeemedCount = 0
   for (const r of demoRedemptions) {
@@ -922,17 +1288,35 @@ async function clearDemo() {
   console.log('Clearing demo records...')
 
   // Delete in FK-safe order:
-  // featuredMerchant → voucher → branchAmenity/openingHours/reviews → branch → merchantAdmin → merchantCategory → merchant → reviewer users
+  // voucherRedemption → campaign → featuredMerchant → voucher →
+  // branchAmenity/openingHours/reviews → branch → merchantAdmin →
+  // merchantCategory → merchant → reviewer users
   const merchantIds = DEMO_MERCHANTS.map(m => m.id)
 
+  // Truthful teardown (PR #400 review blocker 2): failures are collected and
+  // the run exits non-zero with an INCOMPLETE banner; it must never print a
+  // success line after a failed delete.
+  const failures: string[] = []
   const del = async (label: string, fn: () => Promise<{ count: number }>) => {
     try {
       const r = await fn()
       console.log(`  removed ${r.count} ${label}`)
     } catch (e) {
-      console.error(`  failed to remove ${label}:`, (e as Error).message)
+      failures.push(`${label}: ${(e as Error).message}`)
+      console.error(`  FAILED to remove ${label}:`, (e as Error).message)
     }
   }
+
+  // Redemptions FIRST: their voucherId/branchId/userId FKs are ON DELETE
+  // RESTRICT, so leaving them in place silently blocks the voucher, branch
+  // and reviewer-user deletes below (the teardown then reported success
+  // while removing nothing).
+  await del('voucherRedemption rows',
+    () => prisma.voucherRedemption.deleteMany({ where: { redemptionCode: { startsWith: 'demo-red-' } } }))
+  await del('campaignMerchant rows',
+    () => prisma.campaignMerchant.deleteMany({ where: { id: { startsWith: 'demo-cm-' } } }))
+  await del('campaign rows',
+    () => prisma.campaign.deleteMany({ where: { id: { startsWith: 'demo-campaign-' } } }))
 
   await del('featuredMerchant rows',
     () => prisma.featuredMerchant.deleteMany({ where: { merchantId: { in: merchantIds } } }))
@@ -973,6 +1357,14 @@ async function clearDemo() {
 
   await del('reviewer user rows',
     () => prisma.user.deleteMany({ where: { id: { in: REVIEWERS.map(r => r.id) } } }))
+
+  if (failures.length > 0) {
+    console.error(`\n❌ Demo clear INCOMPLETE: ${failures.length} deletion step(s) failed:`)
+    for (const f of failures) console.error(`   - ${f}`)
+    console.error('   Demo rows remain in the database. Fix the cause and re-run --clear.')
+    process.exitCode = 1
+    return
+  }
 
   console.log('\n✅ Demo records cleared.')
 }

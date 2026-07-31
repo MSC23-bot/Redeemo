@@ -29,7 +29,9 @@
     "test:integration:invites": "vitest run --project integration tests/api/customer/invites",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "insights:demo:seed": "tsx prisma/insights-demo-seed.ts"
+    "insights:demo:seed": "tsx prisma/insights-demo-seed.ts",
+    "seed:demo": "tsx prisma/seed-demo.ts",
+    "seed:demo:clear": "tsx prisma/seed-demo.ts --clear"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
